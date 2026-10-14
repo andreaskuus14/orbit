@@ -158,3 +158,12 @@ export function hotspots(articles: (Story & { summary?: string | null })[], perC
   for (const h of list) h.stories = h.stories.sort((a, b) => time(b) - time(a)).slice(0, perCountry);
   return { hotspots: list, untagged };
 }
+
+// world-atlas uses short labels for some countries; these read better and search better.
+const DISPLAY: Record<string, string> = {
+  "United States of America": "United States", "S. Sudan": "South Sudan", "Dem. Rep. Congo": "DR Congo",
+  "Central African Rep.": "Central African Republic", "Bosnia and Herz.": "Bosnia and Herzegovina", "Dominican Rep.": "Dominican Republic",
+  "Eq. Guinea": "Equatorial Guinea", "W. Sahara": "Western Sahara", "Solomon Is.": "Solomon Islands", "Falkland Is.": "Falkland Islands",
+  "N. Cyprus": "Northern Cyprus", "Fr. S. Antarctic Lands": "French Southern Lands", "Côte d'Ivoire": "Ivory Coast", "eSwatini": "Eswatini",
+};
+export const displayName = (name: string) => DISPLAY[name] ?? name;

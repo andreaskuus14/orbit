@@ -12,6 +12,8 @@ const FILES = {
   teal: "132036_10c1157e-cf14-4c33-90cd-d9a7c9b08993",
   ice: "132100_675fcf9c-0c65-463e-b812-60469ef6e392",
   neptune: "132100_aa064c0f-5651-4b4d-bc6a-651939d7f66a",
+  nebula1: "223957_bb790662-68c9-4e31-91a4-ada73eff783b",
+  nebula2: "223957_74cb7b1b-e9b7-4dfc-9c78-04bdf27561d9",
 };
 
 await mkdir("public/textures", { recursive: true });

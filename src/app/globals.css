@@ -122,12 +122,27 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .hud-row { display: grid; grid-template-columns: 1fr 4.5rem 2rem; align-items: center; gap: 0.5rem; width: 100%; padding: 0.3rem 0.45rem; border-radius: 4px; font-size: 0.8rem; text-align: left; border: 1px solid transparent; }
 .hud-row:hover { background: rgba(34, 211, 238, 0.08); }
 .hud-row.on { border-color: var(--line-strong); background: rgba(34, 211, 238, 0.12); }
-.hud-row .num { text-align: right; color: #fdba74; }
+.hud-row .num { text-align: right; color: var(--accent, #fdba74); }
 .hud-bar { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
-.hud-bar i { display: block; height: 100%; background: linear-gradient(90deg, #fb923c, #fdba74); box-shadow: 0 0 8px #fb923c; }
+.hud-bar i { display: block; height: 100%; background: var(--accent, #fb923c); box-shadow: 0 0 8px var(--accent, #fb923c); transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
 
 .globe-label { font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: 0.14em; color: #fde3c4; white-space: nowrap; text-shadow: 0 0 8px rgba(0, 0, 0, 0.95); transition: opacity 0.25s; }
-.globe-label b { font-family: var(--font-mono); color: #fb923c; margin-left: 0.25rem; }
+.globe-label b { font-family: var(--font-mono); color: var(--accent, #fb923c); margin-left: 0.25rem; }
+.globe-tip { position: absolute; left: 0; top: 0; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 12px; font-family: var(--font-display); letter-spacing: 0.08em; color: #e0f2fe; background: rgba(2, 10, 28, 0.85); border: 1px solid var(--line-strong); box-shadow: 0 0 14px rgba(34, 211, 238, 0.25); white-space: nowrap; }
+.globe-search { position: absolute; z-index: 15; left: 50%; top: 4.25rem; transform: translateX(-50%); width: min(34rem, calc(100vw - 1.5rem)); padding: 0.45rem; display: flex; gap: 0.4rem; }
+@media (min-width: 1101px) { .globe-search { left: calc(50% - 5.5rem); } }
+.globe-side { position: absolute; z-index: 14; left: 0.75rem; top: 4.5rem; width: 19rem; max-height: calc(100dvh - 11rem); overflow-y: auto; padding: 0.8rem; }
+.globe-country { position: absolute; z-index: 14; left: 0.75rem; top: 4.5rem; width: min(23rem, calc(100vw - 1.5rem)); max-height: calc(100dvh - 11rem); overflow-y: auto; padding: 0.8rem; }
+@media (max-width: 1100px) { .globe-side { display: none; } .globe-country { top: auto; bottom: 5.5rem; max-height: 45dvh; } }
+.panel-in { animation: panel-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.card.story { transition: border-color 0.2s, transform 0.2s; }
+.card.story:hover { border-color: var(--line-strong); transform: translateX(2px); }
+.live-tag { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.15em; color: #fca5a5; border: 1px solid rgba(248, 113, 113, 0.45); border-radius: 3px; padding: 0 0.3rem; }
+.tag { font-size: 0.68rem; color: #a5f3fc; border: 1px solid var(--line); border-radius: 3px; padding: 0 0.35rem; }
+.tag:hover { border-color: var(--cyan); }
+.skeleton { height: 3.2rem; background: linear-gradient(90deg, rgba(56, 189, 248, 0.05), rgba(56, 189, 248, 0.14), rgba(56, 189, 248, 0.05)); background-size: 200% 100%; animation: shimmer 1.3s linear infinite; }
+@keyframes panel-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .globe-in { animation: fade-in 0.6s ease-out; }
 
 @keyframes slide-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }

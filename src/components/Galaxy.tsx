@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars, Sparkles } from "@react-three/drei";
+import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import { PLANETS, type PanelId, type PlanetDef, type PlanetId } from "@/lib/planets";
 
@@ -120,50 +122,11 @@ function cloudTexture(seed: number) {
 }
 
 /** Sun rays: thin tapered spikes fading out from the centre, for a bloom-like glow without post-processing. */
-function rayTexture(seed: number) {
-  const r = rng(seed);
-  const c = document.createElement("canvas");
-  c.width = c.height = 512;
-  const g = c.getContext("2d")!;
-  g.translate(256, 256);
-  g.globalCompositeOperation = "lighter";
-  for (let k = 0; k < 36; k++) {
-    g.save();
-    g.rotate((k / 36) * Math.PI * 2 + r() * 0.15);
-    const len = 140 + r() * 116, w = 2 + r() * 6;
-    const grad = g.createLinearGradient(0, 0, len, 0);
-    grad.addColorStop(0, "rgba(255,225,160,0.55)");
-    grad.addColorStop(1, "rgba(255,140,40,0)");
-    g.fillStyle = grad;
-    g.beginPath(); g.moveTo(0, -w); g.lineTo(len, 0); g.lineTo(0, w); g.closePath(); g.fill();
-    g.restore();
-  }
-  return toTexture(softened(c, 1.5));
-}
-
-/** Sun surface: hot orange with bright granulation. */
-function sunTexture() {
-  const r = rng(7);
-  const c = document.createElement("canvas");
-  c.width = 1024; c.height = 512;
-  const g = c.getContext("2d")!;
-  g.fillStyle = "#ff9a1f"; g.fillRect(0, 0, c.width, c.height);
-  for (let k = 0; k < 1400; k++) {
-    g.globalAlpha = 0.2 + r() * 0.4;
-    g.fillStyle = r() > 0.5 ? "#ffe27a" : "#ff6a00";
-    g.beginPath(); g.arc(r() * c.width, r() * c.height, 3 + r() * 18, 0, Math.PI * 2); g.fill();
-  }
-  g.globalAlpha = 1;
-  return toTexture(softened(c, 4));
-}
-
-
 /* ---------- photo textures generated with Higgsfield (Z Image) ---------- */
 
 const CDN = "https://d8j0ntlcm91z4.cloudfront.net/user_3K4zaF8Ip5JyEmwNLHr5iAw89pD/hf_20261014_";
 // crop = [x0, y0, x1, y1] as fractions: trims the black edges some generations have.
-const PHOTOS: Record<PlanetId | "core", { file: string; id: string; crop: [number, number, number, number] }> = {
-  core: { file: "sun", id: "132007_89489601-ef9a-4a64-9a5e-3955d8016cc1", crop: [0.3, 0.15, 0.7, 0.85] },
+const PHOTOS: Record<PlanetId, { file: string; id: string; crop: [number, number, number, number] }> = {
   memory: { file: "earth", id: "132007_5069b2ba-e1d5-4358-847b-eadc908f6cdb", crop: [0.1, 0.14, 0.9, 0.86] },
   intelligence: { file: "mars", id: "132007_10628adb-15c9-4186-bd1a-99febee610bc", crop: [0, 0, 1, 1] },
   creation: { file: "jupiter", id: "132007_4da0094a-caa6-4cea-8462-fade03c8a9b4", crop: [0.22, 0.12, 0.78, 0.88] },
@@ -199,7 +162,7 @@ function photoTexture(img: HTMLImageElement, [x0, y0, x1, y1]: [number, number, 
 }
 
 /** Local copy first (run `npm run textures`), then Higgsfield's CDN, else null (procedural look stays). */
-function usePhoto(key: PlanetId | "core") {
+function usePhoto(key: PlanetId) {
   const [tex, setTex] = useState<THREE.Texture | null>(null);
   useEffect(() => {
     let dead = false;
@@ -296,6 +259,22 @@ function PlanetRing({ size, color }: { size: number; color: string }) {
   );
 }
 
+/** Fresnel atmosphere: a soft glow that brightens toward the limb, plus a thin bright rim on the surface. */
+function atmosphereMats(color: string) {
+  const vs = "varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }";
+  const uniforms = () => ({ uColor: { value: new THREE.Color(color) }, uPower: { value: 1 } });
+  return {
+    outer: new THREE.ShaderMaterial({
+      uniforms: uniforms(), vertexShader: vs, transparent: true, side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false,
+      fragmentShader: "uniform vec3 uColor; uniform float uPower; varying vec3 vN; varying vec3 vV; void main(){ float i = pow(clamp(-dot(vN, vV) * 2.2, 0.0, 1.0), 2.0); gl_FragColor = vec4(uColor, 1.0) * i * 0.9 * uPower; }", // back faces: fades outward from the limb
+    }),
+    rim: new THREE.ShaderMaterial({
+      uniforms: uniforms(), vertexShader: vs, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      fragmentShader: "uniform vec3 uColor; uniform float uPower; varying vec3 vN; varying vec3 vV; void main(){ float i = pow(1.0 - clamp(dot(vN, vV), 0.0, 1.0), 3.2); gl_FragColor = vec4(uColor, 1.0) * i * 0.32 * uPower; }",
+    }),
+  };
+}
+
 function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false }: {
   p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
@@ -316,8 +295,12 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
   const cloudTex = useMemo(() => (isEarth ? cloudTexture(21) : null), [isEarth]);
   useEffect(() => () => cloudTex?.dispose(), [cloudTex]);
   const phase = index * 0.95;
+  const atmo = useMemo(() => atmosphereMats(isEarth ? "#7cc4ff" : p.color), [isEarth, p.color]);
+  useEffect(() => () => { atmo.outer.dispose(); atmo.rim.dispose(); }, [atmo]);
+  const hovered = useRef(false);
+  const halo = useRef<THREE.Mesh>(null);
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, dt) => {
     const a = phase + (reduced ? 0 : clock.elapsedTime * p.speed);
     const x = Math.cos(a) * p.radius, z = Math.sin(a) * p.radius;
     group.current?.position.set(x, 0, z);
@@ -327,6 +310,16 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
       if (clouds.current && !reduced) clouds.current.rotation.y += 0.0045; // clouds drift a little faster than the ground
       // Real backend events for this planet make it flare in its own colour.
       (mesh.current.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.04 + glow(pulses, p.id) * 1.2 + (selected ? 0.25 : 0);
+    }
+    // Hover lifts the planet a little; the selected one gets a slowly turning halo. Both ease, never snap.
+    const k = 1 - Math.exp(-dt * 8);
+    if (group.current) group.current.scale.setScalar(THREE.MathUtils.lerp(group.current.scale.x, hovered.current || selected ? 1.08 : 1, k));
+    atmo.outer.uniforms.uPower.value = THREE.MathUtils.lerp(atmo.outer.uniforms.uPower.value, 1 + glow(pulses, p.id) * 1.5 + (selected || hovered.current ? 0.5 : 0), k);
+    if (halo.current) {
+      const m = halo.current.material as THREE.MeshBasicMaterial;
+      m.opacity = THREE.MathUtils.lerp(m.opacity, selected ? 0.75 : 0, k * 0.6);
+      halo.current.visible = m.opacity > 0.01;
+      if (!reduced) halo.current.rotation.z += dt * 0.4;
     }
   });
 
@@ -338,10 +331,10 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
           ref={mesh}
           rotation-z={0.2}
           onClick={(e) => { e.stopPropagation(); onSelect(p.id); }}
-          onPointerOver={() => (document.body.style.cursor = "pointer")}
-          onPointerOut={() => (document.body.style.cursor = "")}
+          onPointerOver={() => { hovered.current = true; document.body.style.cursor = "pointer"; }}
+          onPointerOut={() => { hovered.current = false; document.body.style.cursor = ""; }}
         >
-          <sphereGeometry args={[size, 64, 64]} />
+          <sphereGeometry args={[size, 96, 96]} />
           <meshStandardMaterial map={photo ?? map} emissive={p.color} roughness={0.85} metalness={0} />
         </mesh>
         {cloudTex && (
@@ -350,10 +343,11 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
             <meshStandardMaterial map={cloudTex} transparent depthWrite={false} roughness={1} />
           </mesh>
         )}
-        <mesh scale={isEarth ? 1.09 : 1.06}>
-          <sphereGeometry args={[size, 32, 32]} />
-          <meshBasicMaterial color={isEarth ? "#7cc4ff" : p.color} transparent opacity={isEarth ? 0.16 : 0.1}
-            side={THREE.BackSide} depthWrite={false} blending={THREE.AdditiveBlending} />
+        <mesh scale={isEarth ? 1.1 : 1.08} material={atmo.outer}><sphereGeometry args={[size, 48, 48]} /></mesh>
+        <mesh scale={1.004} material={atmo.rim}><sphereGeometry args={[size, 48, 48]} /></mesh>
+        <mesh ref={halo} rotation-x={Math.PI / 2.3} visible={false}>
+          <torusGeometry args={[size * 1.55, 0.012, 8, 128]} />
+          <meshBasicMaterial color="#a5f3fc" transparent opacity={0} toneMapped={false} />
         </mesh>
         {look.ring && <PlanetRing size={size} color={look.ring} />}
         {p.id === "memory" && <Moons count={memoryCount} reduced={reduced} />}
@@ -394,6 +388,43 @@ function AsteroidBelt({ inner, outer, count, seed, reduced, thickness = 0.25 }: 
   );
 }
 
+// Nebula backdrops generated with Higgsfield (Z Image); their dark edges blend into space when added on top.
+const NEBULAE = [
+  { file: "nebula1", id: "223957_bb790662-68c9-4e31-91a4-ada73eff783b", pos: [-20, 14, -95] as [number, number, number], s: [150, 84] as [number, number], rot: 0.2 },
+  { file: "nebula2", id: "223957_74cb7b1b-e9b7-4dfc-9c78-04bdf27561d9", pos: [85, -8, 40] as [number, number, number], s: [120, 68] as [number, number], rot: -0.4 },
+];
+function NebulaPlates({ reduced }: { reduced: boolean }) {
+  const [texs, setTexs] = useState<(THREE.Texture | null)[]>([]);
+  useEffect(() => {
+    let dead = false;
+    const made: THREE.Texture[] = [];
+    Promise.all(NEBULAE.map((n) => loadImage(`/textures/${n.file}.png`).catch(() => loadImage(`${CDN}${n.id}.png`)).then((img) => {
+      const t = new THREE.Texture(img); t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; made.push(t); return t;
+    }).catch(() => null))).then((t) => { if (!dead) setTexs(t); });
+    return () => { dead = true; made.forEach((t) => t.dispose()); };
+  }, []);
+  const refs = useRef<(THREE.Mesh | null)[]>([]);
+  useFrame(({ camera, clock }, dt) => {
+    refs.current.forEach((m, i) => {
+      if (!m) return;
+      m.lookAt(camera.position); // always face the viewer, slowly turning in place
+      m.rotateZ(NEBULAE[i].rot + (reduced ? 0 : clock.elapsedTime * 0.004));
+      const mat = m.material as THREE.MeshBasicMaterial;
+      mat.opacity = Math.min(0.85, mat.opacity + dt * 0.3); // fade in once loaded
+    });
+  });
+  return (
+    <>
+      {NEBULAE.map((n, i) => texs[i] && (
+        <mesh key={n.file} ref={(el) => { refs.current[i] = el; }} position={n.pos}>
+          <planeGeometry args={n.s} />
+          <meshBasicMaterial map={texs[i]} transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
 /** Coloured gas clouds far behind the system, like the green/teal haze in the reference. */
 function Nebula() {
   const clouds = useMemo(() => {
@@ -418,74 +449,131 @@ function Nebula() {
   );
 }
 
-function Core({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced">) {
-  const star = useRef<THREE.Mesh>(null);
-  const corona = useRef<THREE.Sprite>(null);
-  const sat = useRef<THREE.Mesh>(null);
-  const tex = useMemo(() => ({
-    surface: sunTexture(),
-    inner: glowTexture([[0, "rgba(255,240,180,1)"], [0.25, "rgba(255,190,70,0.75)"], [0.6, "rgba(255,120,20,0.18)"], [1, "rgba(0,0,0,0)"]]),
-    outer: glowTexture([[0, "rgba(255,170,60,0.45)"], [0.5, "rgba(255,110,20,0.1)"], [1, "rgba(0,0,0,0)"]]),
-    haze: glowTexture([[0, "rgba(255,200,120,0.22)"], [0.35, "rgba(255,140,60,0.07)"], [1, "rgba(0,0,0,0)"]]),
-    rays: rayTexture(5),
-  }), []);
-  const rays = useRef<THREE.SpriteMaterial>(null);
-  const rays2 = useRef<THREE.SpriteMaterial>(null);
-  useEffect(() => () => Object.values(tex).forEach((t) => t.dispose()), [tex]);
-  const photo = usePhoto("core");
+/* ---------- CORE: a breathing neural orb (filaments of light flowing out from a bright centre) ---------- */
 
-  useFrame(({ clock }) => {
+const filamentMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+  uniforms: { uTime: { value: 0 }, uBreath: { value: 1 } },
+  vertexShader: "attribute float aU; attribute float aOff; varying float vU; varying float vOff; void main(){ vU = aU; vOff = aOff; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+  fragmentShader: `uniform float uTime; uniform float uBreath; varying float vU; varying float vOff;
+    void main(){ float head = fract(uTime * 0.32 + vOff); float d = vU - head;
+      float pulse = exp(-d * d * 90.0);
+      vec3 c = mix(vec3(1.0, 1.0, 1.0), vec3(0.35, 0.62, 1.0), smoothstep(0.0, 0.7, vU));
+      float a = pow(1.0 - vU, 1.4) * 0.22 + pulse * 0.75 * (1.0 - vU * 0.6);
+      gl_FragColor = vec4(c * (1.0 + pulse), a * uBreath); }`,
+});
+const sparkMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+  uniforms: { uTime: { value: 0 }, uScale: { value: 1 }, uBreath: { value: 1 } },
+  vertexShader: `attribute float aSize; attribute float aPhase; uniform float uTime; uniform float uScale; varying float vTw;
+    void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vTw = 0.5 + 0.5 * sin(uTime * 1.8 + aPhase);
+      gl_PointSize = aSize * uScale * (0.8 + 0.4 * vTw) / -mv.z; gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `uniform float uBreath; varying float vTw;
+    void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.0, d); a *= a;
+      gl_FragColor = vec4(vec3(0.7, 0.85, 1.0) * 1.3, a * (0.35 + 0.45 * vTw) * uBreath * 0.8); }`,
+});
+
+function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced">) {
+  const group = useRef<THREE.Group>(null);
+  const inner = useRef<THREE.Sprite>(null);
+  const sat = useRef<THREE.Mesh>(null);
+  const { strands, sparks } = useMemo(() => {
+    const r = rng(77);
+    const gauss = () => Math.sqrt(-2 * Math.log(r() + 1e-9)) * Math.cos(2 * Math.PI * r());
+    const pos: number[] = [], u: number[] = [], off: number[] = [], index: number[] = [];
+    const sp: number[] = [], ss: number[] = [], sph: number[] = [];
+    const N = 260, SEG = 26;
+    for (let i = 0; i < N; i++) {
+      const dir = new THREE.Vector3(gauss(), gauss() * 0.85, gauss()).normalize();
+      const axis = new THREE.Vector3(gauss(), gauss(), gauss()).cross(dir).normalize();
+      const len = 1.4 + r() * 1.1, curl = (r() - 0.5) * 1.4, wob = r() * 6;
+      const base = pos.length / 3;
+      let tip = new THREE.Vector3();
+      for (let s = 0; s <= SEG; s++) {
+        const t = s / SEG;
+        const v = dir.clone().applyAxisAngle(axis, curl * t * t).multiplyScalar(len * Math.pow(t, 0.9) + 0.08);
+        v.addScaledVector(axis, Math.sin(t * 5 + wob) * 0.05 * t);
+        pos.push(v.x, v.y, v.z); u.push(t); off.push(r());
+        if (s) index.push(base + s - 1, base + s);
+        tip = v;
+      }
+      sp.push(tip.x, tip.y, tip.z); ss.push(10 + r() * 22); sph.push(r() * 6.28);
+    }
+    // A loose halo of dots around the orb, like the reference.
+    for (let i = 0; i < 520; i++) {
+      const v = new THREE.Vector3(gauss(), gauss() * 0.85, gauss()).normalize().multiplyScalar(2.45 + r() * 0.5);
+      sp.push(v.x, v.y, v.z); ss.push(6 + r() * 14); sph.push(r() * 6.28);
+    }
+    const strands = new THREE.BufferGeometry();
+    strands.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    strands.setAttribute("aU", new THREE.Float32BufferAttribute(u, 1));
+    strands.setAttribute("aOff", new THREE.Float32BufferAttribute(off, 1));
+    strands.setIndex(index);
+    const sparks = new THREE.BufferGeometry();
+    sparks.setAttribute("position", new THREE.Float32BufferAttribute(sp, 3));
+    sparks.setAttribute("aSize", new THREE.Float32BufferAttribute(ss, 1));
+    sparks.setAttribute("aPhase", new THREE.Float32BufferAttribute(sph, 1));
+    return { strands, sparks };
+  }, []);
+  const mats = useMemo(() => ({ fil: filamentMat.clone(), spark: sparkMat.clone() }), []);
+  const tex = useMemo(() => ({
+    inner: glowTexture([[0, "rgba(255,255,255,1)"], [0.18, "rgba(210,235,255,0.9)"], [0.45, "rgba(90,160,255,0.35)"], [1, "rgba(0,0,0,0)"]]),
+    mid: glowTexture([[0, "rgba(110,170,255,0.32)"], [0.5, "rgba(70,110,255,0.08)"], [1, "rgba(0,0,0,0)"]]),
+    haze: glowTexture([[0, "rgba(140,120,255,0.20)"], [0.4, "rgba(80,90,220,0.06)"], [1, "rgba(0,0,0,0)"]]),
+  }), []);
+  useEffect(() => () => {
+    strands.dispose(); sparks.dispose(); mats.fil.dispose(); mats.spark.dispose();
+    Object.values(tex).forEach((t) => t.dispose());
+  }, [strands, sparks, mats, tex]);
+
+  useFrame(({ clock, gl }, dt) => {
     const t = clock.elapsedTime;
     const g = glow(pulses, "core");
-    if (star.current && !reduced) star.current.rotation.y += 0.0015;
-    const breathe = reduced ? 0 : Math.sin(t * 1.3) * 0.04;
-    corona.current?.scale.setScalar(7.5 * (1 + g * 0.35 + breathe));
-    if (!reduced) {
-      if (rays.current) rays.current.rotation = t * 0.02;
-      if (rays2.current) rays2.current.rotation = -t * 0.013;
+    // Breathing: slow when idle, quicker while CORE is answering; events make it flare.
+    const breath = reduced ? 0.5 : 0.5 + 0.5 * Math.sin(t * (busy ? 2.6 : 1.05));
+    if (group.current) {
+      group.current.scale.setScalar(1 + 0.05 * breath + g * 0.12);
+      if (!reduced) group.current.rotation.y += dt * (busy ? 0.18 : 0.05);
     }
+    inner.current?.scale.setScalar(1.7 * (1 + 0.22 * breath + g * 0.5));
+    mats.fil.uniforms.uTime.value = reduced ? 0 : t * (busy ? 1.8 : 1);
+    mats.fil.uniforms.uBreath.value = 0.7 + 0.45 * breath + g * 1.2;
+    mats.spark.uniforms.uTime.value = reduced ? 0 : t;
+    mats.spark.uniforms.uScale.value = gl.getPixelRatio() * 9;
+    mats.spark.uniforms.uBreath.value = 0.75 + 0.35 * breath + g;
     if (sat.current) {
-      // The satellite only orbits while a real CORE request is in flight.
-      const a = busy && !reduced ? t * 2.2 : 0;
-      sat.current.position.set(Math.cos(a) * 2.4, 0.3, Math.sin(a) * 2.4);
+      const a = busy && !reduced ? t * 2.2 : 0; // orbits only while a real CORE request is in flight
+      sat.current.position.set(Math.cos(a) * 3.1, 0.3, Math.sin(a) * 3.1);
       sat.current.visible = busy;
     }
   });
 
   return (
     <group>
-      <pointLight intensity={22} decay={1} color="#ffe2b0" />
-      <mesh ref={star} onClick={(e) => { e.stopPropagation(); onSelect("core"); }}
+      <pointLight intensity={24} decay={1} color="#d6e8ff" />
+      <group ref={group}>
+        <lineSegments geometry={strands} material={mats.fil} />
+        <points geometry={sparks} material={mats.spark} />
+      </group>
+      <sprite ref={inner} scale={1.7}><spriteMaterial map={tex.inner} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
+      <sprite scale={9}><spriteMaterial map={tex.mid} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
+      <sprite scale={26}><spriteMaterial map={tex.haze} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
+      {/* Invisible hit area: the orb itself is lines and points. */}
+      <mesh onClick={(e) => { e.stopPropagation(); onSelect("core"); }}
         onPointerOver={() => (document.body.style.cursor = "pointer")} onPointerOut={() => (document.body.style.cursor = "")}>
-        <sphereGeometry args={[1.6, 64, 64]} />
-        <meshBasicMaterial map={photo ?? tex.surface} toneMapped={false} />
+        <sphereGeometry args={[1.9, 24, 24]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      <sprite ref={corona} scale={7.5}>
-        <spriteMaterial map={tex.inner} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
-      </sprite>
-      <sprite scale={16}>
-        <spriteMaterial map={tex.outer} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
-      </sprite>
-      <sprite scale={34}>
-        <spriteMaterial map={tex.haze} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
-      </sprite>
-      <sprite scale={12}>
-        <spriteMaterial ref={rays} map={tex.rays} transparent opacity={0.8} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
-      </sprite>
-      <sprite scale={9}>
-        <spriteMaterial ref={rays2} map={tex.rays} transparent opacity={0.6} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
-      </sprite>
-      <mesh ref={sat} visible={false}><sphereGeometry args={[0.14, 16, 16]} /><meshBasicMaterial color="#67e8f9" /></mesh>
+      <mesh ref={sat} visible={false}><sphereGeometry args={[0.14, 16, 16]} /><meshBasicMaterial color="#67e8f9" toneMapped={false} /></mesh>
       {warning && (
         <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[2.9, 0.035, 8, 96]} />
-          <meshBasicMaterial color="#f43f5e" />
+          <torusGeometry args={[3.2, 0.035, 8, 96]} />
+          <meshBasicMaterial color="#f43f5e" toneMapped={false} />
         </mesh>
       )}
     </group>
   );
 }
-
 
 /** Projects each body's position to screen space every frame and moves plain DOM labels there (no extra React roots). */
 function LabelProjector({ positions, labels }: { positions: Positions; labels: RefObject<Record<string, HTMLSpanElement | null>> }) {
@@ -583,9 +671,10 @@ export default function Galaxy(props: GalaxyProps) {
         <color attach="background" args={["#02040b"]} />
         <ambientLight intensity={0.55} />
         <Nebula />
+        <NebulaPlates reduced={props.reduced} />
         <Stars radius={110} depth={60} count={props.reduced ? 2000 : 6000} factor={3.2} fade speed={props.reduced ? 0 : 0.5} />
         <Sparkles count={props.reduced ? 60 : 140} scale={[70, 24, 70]} size={4} speed={props.reduced ? 0 : 0.25} color="#ffffff" opacity={0.9} />
-        <Core onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} />
+        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
         <AsteroidBelt inner={5.5} outer={6.0} count={900} seed={3} reduced={props.reduced} />
         <AsteroidBelt inner={21.5} outer={23.5} count={1800} seed={9} reduced={props.reduced} thickness={0.6} />
@@ -598,6 +687,11 @@ export default function Galaxy(props: GalaxyProps) {
         <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={60} enableDamping />
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} />
         <LabelProjector positions={positions} labels={labels} />
+        <EffectComposer multisampling={4}>
+          <Bloom intensity={props.reduced ? 0.6 : 0.95} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />
+          <Vignette offset={0.28} darkness={0.7} />
+          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+        </EffectComposer>
       </Canvas>
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning ? "#fb7185" : "#ffe2b0" }}>
