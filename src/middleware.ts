@@ -1,15 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isAllowedEmail } from "@/lib/allow";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest"];
-
-function isAllowedEmail(email: string | undefined): boolean {
-  const list = (process.env.ORBIT_ALLOWED_EMAILS ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  return list.length === 0 || (!!email && list.includes(email.toLowerCase()));
-}
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });

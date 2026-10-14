@@ -186,12 +186,14 @@ function Rig({ focus, reduced, offsetX }: { focus: Hotspot | null; reduced: bool
     }
   }, [camera, reduced]);
 
+  // Keyed on the country name: data refreshes create new objects but mustn't yank the camera back.
+  const name = focus?.name ?? null, lat = focus?.lat ?? 0, lon = focus?.lon ?? 0;
   useEffect(() => {
-    if (controls) controls.autoRotate = !focus && !reduced;
-    if (!focus) return;
+    if (controls) controls.autoRotate = !name && !reduced;
+    if (!name) return;
     const dist = Math.max(4.8, Math.min(7.6, camera.position.length()));
-    flight.current = { from: camera.position.clone(), to: toVec(focus.lat, focus.lon, dist), t: reduced ? 1 : 0, dur: 1.4 };
-  }, [focus, controls, camera, reduced]);
+    flight.current = { from: camera.position.clone(), to: toVec(lat, lon, dist), t: reduced ? 1 : 0, dur: 1.4 };
+  }, [name, lat, lon, controls, camera, reduced]);
 
   useEffect(() => {
     if (!controls) return;
@@ -223,21 +225,19 @@ function Globe({ hotspots, selected, onPick, reduced }: { hotspots: Hotspot[]; s
   useEffect(() => () => texture.dispose(), [texture]);
   const pick = useMemo(() => buildPick(), []);
   const max = Math.max(1, ...hotspots.map((h) => h.count));
-  const down = useRef<{ x: number; y: number } | null>(null);
-
   const onClick = (e: ThreeEvent<MouseEvent>) => {
-    // Ignore the click that ends a drag.
-    if (down.current && Math.hypot(e.nativeEvent.clientX - down.current.x, e.nativeEvent.clientY - down.current.y) > 5) return;
+    if (e.delta > 5) return; // the click that ends a drag
     const uv = e.uv;
     if (!uv) return;
     const x = Math.min(PICK_W - 1, Math.floor(uv.x * PICK_W)), y = Math.min(PICK_H - 1, Math.floor((1 - uv.y) * PICK_H));
     const i = (y * PICK_W + x) * 4, n = pick[i] + (pick[i + 1] << 8);
-    onPick(n ? COUNTRIES[n - 1].name : null);
+    // Anti-aliased border pixels are partly transparent or blend two ids: treat them as "no country".
+    onPick(pick[i + 3] === 255 ? COUNTRIES[n - 1]?.name ?? null : null);
   };
 
   return (
     <group>
-      <mesh onPointerDown={(e) => { down.current = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }; }} onClick={onClick}>
+      <mesh onClick={onClick}>
         <sphereGeometry args={[R, 96, 96]} />
         <meshBasicMaterial map={texture} />
       </mesh>

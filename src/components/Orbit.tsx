@@ -157,7 +157,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <span><span className="brand block">ORBIT</span><span className="muted block text-[10px] tracking-[0.2em]">YOUR MIND HAS A UNIVERSE</span></span>
         </button>
         <div className="flex items-center gap-2 text-xs">
-          <span className={`pill hidden sm:inline-flex${live === "live" ? " ok" : live === "offline" ? " bad" : ""}`} title="Realtime link to the backend that animates the galaxy">{live === "live" ? "LIVE" : live === "offline" ? "OFFLINE" : "CONNECTING"}</span>
+          <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title="Realtime link to the backend that animates the galaxy">{live === "live" ? "LIVE" : live === "offline" ? "OFFLINE" : "CONNECTING"}</span>
           <button className="chip" onClick={() => setView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "2D view" : "3D view"}</button>
           <button className="chip" onClick={() => select("profile")}>Profile</button>
           <button className="chip" onClick={signOut} title={email}>Sign out</button>

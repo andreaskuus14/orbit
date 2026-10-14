@@ -37,6 +37,8 @@ export function decodeCountries(topo: Topology, object = "countries"): CountrySh
 
 /** Makes a ring's longitudes continuous across the antimeridian (e.g. Russia, Fiji) so it can be drawn without streaks. */
 export function unwrapRing(r: [number, number][]): [number, number][] {
+  // Polar rings (Antarctica) run along ±180° down to the pole; they're already drawable as-is.
+  if (r.some(([, lat]) => lat <= -89.9)) return r;
   const out: [number, number][] = [];
   let shift = 0;
   for (let i = 0; i < r.length; i++) {

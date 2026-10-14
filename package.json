@@ -2,7 +2,7 @@
   "name": "orbit",
   "version": "0.1.0",
   "private": true,
-  "description": "ORBIT \u2014 your mind has a universe. Phase 1: auth, galaxy, CORE chat, memory.",
+  "description": "ORBIT — your mind has a universe. Phase 1: auth, galaxy, CORE chat, memory.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -29,7 +29,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "three": "^0.180.0",
-    "unpdf": "^1.0.0"
+    "unpdf": "^1.0.0",
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",

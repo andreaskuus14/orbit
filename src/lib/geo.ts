@@ -8,7 +8,7 @@ export type Country = { name: string; lat: number; lon: number; terms: string[] 
 
 // Terms are matched case-sensitively on word boundaries (proper nouns), so "turkey" the bird or "china" plates don't count.
 export const COUNTRIES: Country[] = [
-  { name: "United States of America", lat: 39, lon: -98, terms: ["United States", "U.S.", "US", "USA", "America", "American", "Americans", "Washington", "White House", "Pentagon", "Congress", "New York", "California", "Texas", "Florida"] },
+  { name: "United States of America", lat: 39, lon: -98, terms: ["United States", "U.S.", "US", "USA", "America", "American", "Americans", "Washington", "White House", "Pentagon", "Congress", "California", "Texas", "Florida"] },
   { name: "Canada", lat: 57, lon: -101, terms: ["Canada", "Canadian", "Canadians", "Ottawa", "Toronto", "Vancouver", "Quebec"] },
   { name: "Mexico", lat: 23, lon: -102, terms: ["Mexico", "Mexican", "Mexicans", "Mexico City"] },
   { name: "Cuba", lat: 21.5, lon: -79, terms: ["Cuba", "Cuban", "Havana"] },
@@ -72,7 +72,7 @@ export const COUNTRIES: Country[] = [
   { name: "Algeria", lat: 28, lon: 2.6, terms: ["Algeria", "Algerian", "Algiers"] },
   { name: "Morocco", lat: 31.8, lon: -7, terms: ["Morocco", "Moroccan", "Rabat", "Casablanca"] },
   { name: "Sudan", lat: 15.5, lon: 30, terms: ["Sudan", "Sudanese", "Khartoum", "Darfur"] },
-  { name: "S. Sudan", lat: 7.5, lon: 30.5, terms: ["South Sudan", "Juba"] },
+  { name: "S. Sudan", lat: 7.5, lon: 30.5, terms: ["SouthSudan", "Juba"] },
   { name: "Ethiopia", lat: 9, lon: 39.5, terms: ["Ethiopia", "Ethiopian", "Addis Ababa", "Tigray"] },
   { name: "Somalia", lat: 6, lon: 46, terms: ["Somalia", "Somali", "Mogadishu"] },
   { name: "Kenya", lat: 0.3, lon: 37.9, terms: ["Kenya", "Kenyan", "Nairobi"] },
@@ -114,17 +114,24 @@ const MATCHERS = COUNTRIES.map((c) => ({
   re: new RegExp(`(?<![\\p{L}\\p{N}])(?:${[...c.terms].sort((a, b) => b.length - a.length).map(escape).join("|")})(?![\\p{L}\\p{N}])`, "gu"),
 }));
 
+// Place names that contain another country's name, rewritten before matching
+// ("South Sudan" → one token so "Sudan" doesn't also match; "Niger Delta" is in Nigeria).
+const REWRITES: [RegExp, string][] = [
+  [/South Sudan/g, "SouthSudan"], [/Niger Delta/g, "Nigeria"],
+  [/New (York|Mexico|Jersey|England)/g, "USA"], [/New South Wales/g, "Australia"], [/Indian Ocean/g, "Ocean"], [/Gulf of Mexico/g, "Gulf"],
+];
+const normalize = (text: string) => REWRITES.reduce((t, [re, to]) => t.replace(re, to), text);
+
 /** Countries a headline (plus optional summary) is about, strongest first, at most `max`. */
 export function geoTag(title: string, summary = "", max = 3): string[] {
   const scores = new Map<string, number>();
+  const t0 = normalize(title), s0 = normalize(summary);
   for (const { c, re } of MATCHERS) {
     // Title mentions count triple: the subject of a story is usually in its headline.
-    const t = title.match(re)?.length ?? 0;
-    const s = summary.match(re)?.length ?? 0;
-    // "South Sudan" also contains "Sudan": let the longer, more specific name win.
+    const t = t0.match(re)?.length ?? 0;
+    const s = s0.match(re)?.length ?? 0;
     if (t || s) scores.set(c.name, t * 3 + s);
   }
-  if (scores.has("S. Sudan") && scores.has("Sudan") && !/(?<!South )Sudan/u.test(`${title} ${summary}`)) scores.delete("Sudan");
   return [...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, max).map(([n]) => n);
 }
 

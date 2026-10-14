@@ -12,6 +12,16 @@ test("geoTag finds the countries a headline is about", () => {
   assert.deepEqual(geoTag("Sudan and South Sudan sign oil deal").sort(), ["S. Sudan", "Sudan"]);
 });
 
+test("geoTag handles names that contain other countries' names", () => {
+  assert.deepEqual(geoTag("South Sudan and Sudan sign deal").sort(), ["S. Sudan", "Sudan"], "each counted once, not Sudan twice");
+  assert.deepEqual(geoTag("Floods hit South Sudan"), ["S. Sudan"]);
+  assert.deepEqual(geoTag("Wildfires in New South Wales"), ["Australia"]);
+  assert.deepEqual(geoTag("Drought in New Mexico"), ["United States of America"]);
+  assert.deepEqual(geoTag("Storm builds over the Indian Ocean"), []);
+  assert.deepEqual(geoTag("Oil spill in the Niger Delta"), ["Nigeria"]);
+  assert.deepEqual(geoTag("New York stocks close higher"), ["United States of America"]);
+});
+
 test("geoTag ignores lowercase homonyms and unrelated text", () => {
   assert.deepEqual(geoTag("How to roast the perfect turkey with fine china"), []);
   assert.deepEqual(geoTag("Markets rally as tech stocks climb"), []);
@@ -57,4 +67,6 @@ test("decodeCountries rebuilds rings from quantized, delta-encoded arcs", () => 
 test("unwrapRing keeps antimeridian-crossing rings continuous", () => {
   const r = unwrapRing([[170, 0], [-170, 0], [-170, 5], [170, 5]]);
   assert.deepEqual(r.map((p) => p[0]), [170, 190, 190, 170]);
+  const pole: [number, number][] = [[-180, -84], [-180, -90], [180, -90], [180, -84], [0, -70]];
+  assert.deepEqual(unwrapRing(pole), pole, "polar rings are left as drawn");
 });

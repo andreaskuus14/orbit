@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { isAllowedEmail } from "@/lib/allow";
 
 /** Per-request Supabase client acting as the signed-in user (RLS applies). */
 export async function createClient() {
@@ -30,5 +31,7 @@ export async function requireUser(): Promise<
   const sb = await createClient();
   const { data } = await sb.auth.getUser();
   if (!data.user) return { res: Response.json({ error: "Not signed in" }, { status: 401 }) };
+  // Also enforced here, not only in middleware (whose matcher skips some paths).
+  if (!isAllowedEmail(data.user.email)) return { res: Response.json({ error: "Not allowed" }, { status: 403 }) };
   return { sb, user: data.user };
 }
