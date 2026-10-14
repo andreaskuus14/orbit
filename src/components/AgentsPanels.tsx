@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import { highlight } from "./Highlight";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
 type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string };
@@ -41,9 +42,9 @@ function inline(text: string, openMemory?: (id: string) => void): ReactNode[] {
     if (link) return <a key={i} className="link" href={safeHref(link[2])} target="_blank" rel="noreferrer noopener">{link[1]}</a>;
     const mem = part.match(/^\[m:([0-9a-f-]{36})\]$/i);
     if (mem) return <button key={i} className="chip" onClick={() => openMemory?.(mem[1])}>memory</button>;
-    if (part.startsWith("**") && part.endsWith("**")) return <strong key={i}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={i} className="hl-strong">{part.slice(2, -2)}</strong>;
     if (part.startsWith("`") && part.endsWith("`")) return <code key={i} className="rounded bg-black/40 px-1">{part.slice(1, -1)}</code>;
-    return part;
+    return <Fragment key={i}>{highlight(part, i)}</Fragment>;
   });
 }
 

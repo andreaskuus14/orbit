@@ -70,3 +70,20 @@ test("unwrapRing keeps antimeridian-crossing rings continuous", () => {
   const pole: [number, number][] = [[-180, -84], [-180, -90], [180, -90], [180, -84], [0, -70]];
   assert.deepEqual(unwrapRing(pole), pole, "polar rings are left as drawn");
 });
+
+test("importance ranks major stories above routine ones", async () => {
+  const { importance } = await import("../src/lib/geo.ts");
+  assert.ok(importance("Missile strike kills 12 in Kharkiv") >= 3);
+  assert.ok(importance("Central bank raises interest rates amid inflation") >= 2);
+  assert.equal(importance("United will match your Delta status"), 0);
+});
+
+test("every gazetteer country belongs to exactly one region", async () => {
+  const { REGIONS, regionOf } = await import("../src/lib/geo.ts");
+  for (const c of COUNTRIES) {
+    const hits = Object.values(REGIONS).filter((r) => r.countries.includes(c.name)).length;
+    assert.equal(hits, 1, c.name);
+  }
+  assert.equal(regionOf("Estonia"), "Europe");
+  assert.equal(regionOf("Atlantis"), null);
+});

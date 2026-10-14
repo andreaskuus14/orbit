@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import { highlight } from "./Highlight";
 
 type Cite = { id: string; title: string; url: string; source: string | null; published_at: string | null };
 type Briefing = { id: string; kind: string; title: string; content: string; citations: Cite[]; article_count: number; created_at: string };
@@ -26,8 +27,8 @@ function inline(text: string, cites: Cite[]): ReactNode[] {
         <a key={i} href={safeHref(cites[n].url)} target="_blank" rel="noreferrer noopener" className="link" title={`${cites[n].title} — ${cites[n].source ?? ""}`}>[{n + 1}]</a>
       );
     }
-    if (part.startsWith("**") && part.endsWith("**")) return <strong key={i}>{part.slice(2, -2)}</strong>;
-    return part;
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={i} className="hl-strong">{highlight(part.slice(2, -2), i)}</strong>;
+    return <Fragment key={i}>{highlight(part, i)}</Fragment>;
   });
 }
 

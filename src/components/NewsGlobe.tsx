@@ -7,7 +7,7 @@ import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postp
 import { ToneMappingMode } from "postprocessing";
 import world from "world-atlas/countries-110m.json";
 import { decodeCountries, unwrapRing, type CountryShape } from "@/lib/topo";
-import { displayName, type Hotspot, type Story } from "@/lib/geo";
+import { displayName, importance, regionOf, REGIONS, type Hotspot, type Story } from "@/lib/geo";
 
 // INTELLIGENCE → World Pulse: a holographic Earth where the news happens.
 // Country shapes come from world-atlas; each country in the news gets a cluster of twinkling city-light dots
@@ -59,7 +59,7 @@ function pickMap() {
   const g = c.getContext("2d", { willReadFrequently: true })!;
   COUNTRIES.forEach((country, i) => {
     const n = i + 1;
-    g.fillStyle = `rgb(${n & 255},${(n >> 8) & 255},0)`;
+    g.fillStyle = `rgb(${n & 255},${(n >> 8) & 255},${255 - (n & 255)})`; // blue = check value for the red byte
     tracePaths(g, country, PICK_W, PICK_H);
     g.fill("evenodd");
   });
@@ -67,10 +67,12 @@ function pickMap() {
 }
 function countryAt(lat: number, lon: number): number {
   const pick = pickMap();
-  const x = Math.min(PICK_W - 1, Math.max(0, Math.floor(((lon + 180) / 360) * PICK_W)));
+  const wrapped = ((((lon + 180) % 360) + 360) % 360) - 180; // wrap across the date line
+  const x = Math.min(PICK_W - 1, Math.max(0, Math.floor(((wrapped + 180) / 360) * PICK_W)));
   const y = Math.min(PICK_H - 1, Math.max(0, Math.floor(((90 - lat) / 180) * PICK_H)));
   const i = (y * PICK_W + x) * 4;
-  if (pick[i + 3] !== 255) return -1; // anti-aliased border pixels count as "none"
+  // Anti-aliased edges (coastlines, and shared borders that blend two ids) fail the alpha or check-byte test: "none".
+  if (pick[i + 3] !== 255 || pick[i + 2] !== 255 - pick[i]) return -1;
   const n = pick[i] + (pick[i + 1] << 8) - 1;
   return n >= 0 && n < COUNTRIES.length ? n : -1;
 }
@@ -80,40 +82,37 @@ const BBOX = COUNTRIES.map((c) => {
   return { w: Math.min(60, x1 - x0), h: y1 - y0 };
 });
 
-function baseTexture(tint: Map<string, number>, tintColor: string) {
+/** Region colours for hotspots (search results use violet). */
+const REGION_COLOR: Record<string, string> = {
+  Americas: "#fbbf24", Europe: "#4ade80", "Middle East": "#f87171", Africa: "#facc15", Asia: "#fb923c", Oceania: "#22d3ee",
+};
+const colorFor = (name: string, mode: "news" | "search") => (mode === "search" ? "#c084fc" : REGION_COLOR[regionOf(name) ?? ""] ?? "#fb923c");
+
+function baseTexture(tint: Map<string, number>, mode: "news" | "search") {
   const c = document.createElement("canvas");
   c.width = TEX_W; c.height = TEX_H;
   const g = c.getContext("2d")!;
+  // Deep ocean with a faint lighter band at the equator.
   const ocean = g.createLinearGradient(0, 0, 0, TEX_H);
-  ocean.addColorStop(0, "#020a1c"); ocean.addColorStop(0.5, "#06183a"); ocean.addColorStop(1, "#020a1c");
+  ocean.addColorStop(0, "#030b22"); ocean.addColorStop(0.5, "#0a2350"); ocean.addColorStop(1, "#030b22");
   g.fillStyle = ocean; g.fillRect(0, 0, TEX_W, TEX_H);
-  g.strokeStyle = "rgba(56,189,248,0.06)"; g.lineWidth = 2;
+  g.strokeStyle = "rgba(125,211,252,0.07)"; g.lineWidth = 2;
   for (let lon = -180; lon <= 180; lon += 15) { const x = ((lon + 180) / 360) * TEX_W; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, TEX_H); g.stroke(); }
   for (let lat = -75; lat <= 75; lat += 15) { const y = ((90 - lat) / 180) * TEX_H; g.beginPath(); g.moveTo(0, y); g.lineTo(TEX_W, y); g.stroke(); }
-  // Dot-matrix continents, sampled from a land mask.
-  const m = document.createElement("canvas");
-  m.width = 1024; m.height = 512;
-  const mg = m.getContext("2d", { willReadFrequently: true })!;
-  mg.fillStyle = "#fff";
-  for (const country of COUNTRIES) { tracePaths(mg, country, 1024, 512); mg.fill("evenodd"); }
-  const mask = mg.getImageData(0, 0, 1024, 512).data;
-  const step = 7;
-  g.fillStyle = "rgba(96,165,250,0.42)";
-  for (let y = step / 2; y < TEX_H; y += step) {
-    const lat = 90 - (y / TEX_H) * 180, sx = step / Math.max(0.25, Math.cos((lat * Math.PI) / 180));
-    for (let x = (y / step) % 2 ? sx / 2 : 0; x < TEX_W; x += sx) {
-      const mi = (Math.floor((y / TEX_H) * 512) * 1024 + Math.floor((x / TEX_W) * 1024)) * 4;
-      if (mask[mi] > 128) g.fillRect(x - 1.2, y - 1.2, 2.4, 2.4);
-    }
-  }
+  // Land: teal in the north fading to deep blue in the south, like the reference map.
+  const land = g.createLinearGradient(0, TEX_H * 0.12, 0, TEX_H * 0.88);
+  land.addColorStop(0, "#2bb3a6"); land.addColorStop(0.35, "#1689a8"); land.addColorStop(0.7, "#1a47b8"); land.addColorStop(1, "#1a2f78");
   const max = Math.max(1, ...tint.values());
   for (const country of COUNTRIES) {
-    const n = tint.get(country.name) ?? 0;
     tracePaths(g, country, TEX_W, TEX_H);
-    if (n) { g.fillStyle = tintColor.replace("A", String(0.08 + 0.22 * Math.sqrt(n / max))); g.fill("evenodd"); }
-    g.strokeStyle = n ? tintColor.replace("A", "0.55") : "rgba(45,212,191,0.16)";
-    g.lineWidth = n ? 2.4 : 1.4;
-    g.stroke();
+    g.fillStyle = land; g.fill("evenodd");
+    const n = tint.get(country.name) ?? 0;
+    if (n) { // news countries glow in their region colour
+      g.globalAlpha = 0.14 + 0.3 * Math.sqrt(n / max);
+      g.fillStyle = colorFor(country.name, mode); g.fill("evenodd");
+      g.globalAlpha = 1;
+    }
+    g.strokeStyle = "rgba(4,16,40,0.85)"; g.lineWidth = 2.2; g.stroke();
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -122,24 +121,29 @@ function baseTexture(tint: Map<string, number>, tintColor: string) {
 }
 
 const overlayCache = new Map<string, THREE.CanvasTexture>();
-/** A transparent texture with just one country, glowing; faded in over the base globe. */
+const overlayInUse = new Set<THREE.Texture>();
+/** A transparent texture with just one country, glowing; faded in over the base globe. Small LRU cache. */
 function overlayTexture(name: string, color: string) {
   const key = `${name}|${color}`;
   const hit = overlayCache.get(key);
-  if (hit) return hit;
+  if (hit) { overlayCache.delete(key); overlayCache.set(key, hit); return hit; } // most recently used last
   const i = INDEX.get(name);
   const c = document.createElement("canvas");
-  c.width = 2048; c.height = 1024;
+  c.width = 1024; c.height = 512;
   const g = c.getContext("2d")!;
   if (i !== undefined) {
-    tracePaths(g, COUNTRIES[i], 2048, 1024);
-    g.shadowColor = color; g.shadowBlur = 18;
+    tracePaths(g, COUNTRIES[i], 1024, 512);
+    g.shadowColor = color; g.shadowBlur = 9;
     g.fillStyle = color.replace("1)", "0.38)"); g.fill("evenodd");
-    g.lineWidth = 3; g.strokeStyle = color; g.stroke();
+    g.lineWidth = 2; g.strokeStyle = color; g.stroke();
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  if (overlayCache.size > 40) { for (const t of overlayCache.values()) t.dispose(); overlayCache.clear(); }
+  for (const [k, t] of overlayCache) {
+    if (overlayCache.size < 8) break;
+    if (overlayInUse.has(t)) continue;
+    t.dispose(); overlayCache.delete(k);
+  }
   overlayCache.set(key, tex);
   return tex;
 }
@@ -183,14 +187,12 @@ const arcMaterial = new THREE.ShaderMaterial({
 
 /* ---------- scene pieces ---------- */
 
-const PALETTE = { warm: ["#fb923c", "#f97316", "#fbbf24", "#ef4444", "#fdba74"], search: ["#a78bfa", "#c084fc", "#818cf8", "#e879f9"] };
-
 /** City-light dots: for each hotspot, points scattered inside the country (more stories → more, brighter dots). */
 function NewsDots({ hotspots, mode, reduced }: { hotspots: Hotspot[]; mode: "news" | "search"; reduced: boolean }) {
   const geo = useMemo(() => {
     const pos: number[] = [], col: number[] = [], size: number[] = [], phase: number[] = [];
     const max = Math.max(1, ...hotspots.map((h) => h.count));
-    const colors = (mode === "news" ? PALETTE.warm : PALETTE.search).map((c) => new THREE.Color(c));
+    const white = new THREE.Color("#ffffff");
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(2 * Math.PI * rnd());
@@ -199,10 +201,11 @@ function NewsDots({ hotspots, mode, reduced }: { hotspots: Hotspot[]; mode: "new
       const idx = INDEX.get(h.name) ?? -1;
       const bb = idx >= 0 ? BBOX[idx] : { w: 4, h: 4 };
       const n = Math.round(5 + 55 * k);
+      const base = new THREE.Color(colorFor(h.name, mode));
       const add = (lat: number, lon: number, s: number) => {
         const v = toVec(lat, lon, R * 1.004);
         pos.push(v.x, v.y, v.z);
-        const c = colors[Math.floor(rnd() * colors.length)];
+        const c = base.clone().lerp(white, rnd() * 0.35); // slight variation, like city lights
         col.push(c.r, c.g, c.b); size.push(s); phase.push(rnd() * 6.28);
       };
       add(h.lat, h.lon, 130 + 160 * k); // the bright centre of the cluster
@@ -301,7 +304,7 @@ function Ring({ h, k, color, reduced }: { h: Hotspot; k: number; color: string; 
 function Overlay({ name, color, max }: { name: string | null; color: string; max: number }) {
   const mesh = useRef<THREE.Mesh>(null);
   const mat = useMemo(() => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }), []);
-  useEffect(() => () => mat.dispose(), [mat]);
+  useEffect(() => () => { if (mat.map) overlayInUse.delete(mat.map); mat.dispose(); }, [mat]);
   const shown = useRef<string | null>(null);
   useFrame((_, dt) => {
     // Fade out, swap texture, fade in: no flicker when moving between countries.
@@ -309,7 +312,9 @@ function Overlay({ name, color, max }: { name: string | null; color: string; max
       mat.opacity = Math.max(0, mat.opacity - dt * 6);
       if (mat.opacity === 0) {
         shown.current = name;
+        if (mat.map) overlayInUse.delete(mat.map);
         mat.map = name ? overlayTexture(name, color) : null;
+        if (mat.map) overlayInUse.add(mat.map);
         mat.needsUpdate = true;
       }
     } else if (name) mat.opacity = Math.min(max, mat.opacity + dt * 2.5);
@@ -373,11 +378,11 @@ function Rig({ focus, reduced, offsetX }: { focus: { key: string; lat: number; l
   return null;
 }
 
-function Globe({ tint, tintColor, selected, hover, onPick, onHover }: {
-  tint: Map<string, number>; tintColor: string; selected: string | null; hover: string | null;
+function Globe({ tint, mode, selected, hover, onPick, onHover }: {
+  tint: Map<string, number>; mode: "news" | "search"; selected: string | null; hover: string | null;
   onPick: (n: string | null) => void; onHover: (n: string | null, x: number, y: number) => void;
 }) {
-  const texture = useMemo(() => baseTexture(tint, tintColor), [tint, tintColor]);
+  const texture = useMemo(() => baseTexture(tint, mode), [tint, mode]);
   useEffect(() => () => texture.dispose(), [texture]);
   const at = (e: ThreeEvent<PointerEvent | MouseEvent>) => {
     if (!e.uv) return null;
@@ -394,9 +399,55 @@ function Globe({ tint, tintColor, selected, hover, onPick, onHover }: {
         <meshBasicMaterial map={texture} />
       </mesh>
       <Overlay name={hover && hover !== selected ? hover : null} color="rgba(186,230,253,1)" max={0.45} />
-      <Overlay name={selected} color="rgba(34,211,238,1)" max={1} />
+      <Overlay name={selected} color="rgba(103,232,249,1)" max={0.5} />
       <mesh material={rim}><sphereGeometry args={[R * 1.003, 96, 96]} /></mesh>
       <mesh material={atmosphere} scale={1.14}><sphereGeometry args={[R, 96, 96]} /></mesh>
+    </group>
+  );
+}
+
+/** A HUD dial around the globe: tick marks and arcs that face the viewer and turn slowly. */
+function Dial({ reduced }: { reduced: boolean }) {
+  const group = useRef<THREE.Group>(null);
+  const spin = useRef<THREE.Group>(null);
+  const geo = useMemo(() => {
+    const pos: number[] = [];
+    const circle = (r: number, a0 = 0, a1 = Math.PI * 2, seg = 256) => {
+      for (let i = 0; i < seg; i++) {
+        const t0 = a0 + ((a1 - a0) * i) / seg, t1 = a0 + ((a1 - a0) * (i + 1)) / seg;
+        pos.push(Math.cos(t0) * r, Math.sin(t0) * r, 0, Math.cos(t1) * r, Math.sin(t1) * r, 0);
+      }
+    };
+    circle(R * 1.32);
+    for (let d = 0; d < 360; d += 3) { // ticks; longer every 30°
+      const a = (d * Math.PI) / 180, l = d % 30 === 0 ? 0.11 : 0.045, r = R * 1.32;
+      pos.push(Math.cos(a) * r, Math.sin(a) * r, 0, Math.cos(a) * (r + l), Math.sin(a) * (r + l), 0);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    const arcs: number[] = [];
+    for (const [a0, a1, r] of [[0.2, 1.3, 1.25], [2.1, 2.9, 1.25], [3.6, 5.2, 1.25], [0.9, 2.4, 1.4], [4.2, 5.6, 1.4]] as const) {
+      const seg = 64;
+      for (let i = 0; i < seg; i++) {
+        const t0 = a0 + ((a1 - a0) * i) / seg, t1 = a0 + ((a1 - a0) * (i + 1)) / seg;
+        arcs.push(Math.cos(t0) * R * r, Math.sin(t0) * R * r, 0, Math.cos(t1) * R * r, Math.sin(t1) * R * r, 0);
+      }
+    }
+    const ga = new THREE.BufferGeometry();
+    ga.setAttribute("position", new THREE.Float32BufferAttribute(arcs, 3));
+    return { g, ga };
+  }, []);
+  useEffect(() => () => { geo.g.dispose(); geo.ga.dispose(); }, [geo]);
+  useFrame(({ camera }, dt) => {
+    group.current?.quaternion.copy(camera.quaternion);
+    if (spin.current && !reduced) spin.current.rotation.z += dt * 0.05;
+  });
+  return (
+    <group ref={group}>
+      <lineSegments geometry={geo.g}><lineBasicMaterial color="#67e8f9" transparent opacity={0.28} depthWrite={false} /></lineSegments>
+      <group ref={spin}>
+        <lineSegments geometry={geo.ga}><lineBasicMaterial color="#a5f3fc" transparent opacity={0.45} depthWrite={false} /></lineSegments>
+      </group>
     </group>
   );
 }
@@ -424,7 +475,7 @@ function Labels({ items, refs }: { items: Hotspot[]; refs: React.RefObject<Recor
 /* ---------- data + UI ---------- */
 
 type Data = { hours: number; total: number; untagged: number; hotspots: Hotspot[] };
-type Result = Story & { countries: string[]; live: boolean };
+type Result = Story & { countries: string[]; live: boolean; score?: number };
 type Search = { q: string; results: Result[]; hotspots: Hotspot[] };
 const WINDOWS = [{ h: 24, label: "24h" }, { h: 72, label: "3d" }, { h: 168, label: "7d" }];
 
@@ -438,15 +489,20 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
   const [search, setSearch] = useState<Search | null>(null);
   const [searching, setSearching] = useState(false);
   const [liveNews, setLiveNews] = useState<{ name: string; items: Result[] | null; error?: string } | null>(null);
+  const [region, setRegion] = useState<string | null>(null);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
+  // Only the latest request may update the screen (fast clicks, Clear during a search).
+  const loadSeq = useRef(0);
+  const searchSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     try {
       const res = await fetch(`/api/news/geo?hours=${hours}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Couldn't load news (${res.status})`);
-      setData(json); setErr("");
-    } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't load news"); }
+      if (seq === loadSeq.current) { setData(json); setErr(""); }
+    } catch (e) { if (seq === loadSeq.current) setErr(e instanceof Error ? e.message : "Couldn't load news"); }
   }, [hours]);
   useEffect(() => {
     void load();
@@ -460,7 +516,7 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
     if (!selected) { setLiveNews(null); return; }
     let gone = false;
     setLiveNews({ name: selected, items: null });
-    fetch(`/api/news/search?country=1&q=${encodeURIComponent(displayName(selected))}`, { cache: "no-store" })
+    fetch(`/api/news/search?country=${encodeURIComponent(selected)}`, { cache: "no-store" })
       .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "Couldn't load headlines"); return j; })
       .then((j) => { if (!gone) setLiveNews({ name: selected, items: j.results ?? [] }); })
       .catch((e) => { if (!gone) setLiveNews({ name: selected, items: [], error: e instanceof Error ? e.message : "Couldn't load headlines" }); });
@@ -471,15 +527,17 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
     e.preventDefault();
     const q = query.trim();
     if (q.length < 2) return;
+    const seq = ++searchSeq.current;
     setSearching(true); setErr("");
     try {
       const res = await fetch(`/api/news/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Search failed");
+      if (seq !== searchSeq.current) return;
       setSearch({ q, results: json.results ?? [], hotspots: json.hotspots ?? [] });
       setSelected(null);
-    } catch (e2) { setErr(e2 instanceof Error ? e2.message : "Search failed"); }
-    finally { setSearching(false); }
+    } catch (e2) { if (seq === searchSeq.current) setErr(e2 instanceof Error ? e2.message : "Search failed"); }
+    finally { if (seq === searchSeq.current) setSearching(false); }
   }
 
   const mode: "news" | "search" = search ? "search" : "news";
@@ -487,6 +545,7 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
   const tint = useMemo(() => new Map(hs.map((h) => [h.name, h.count])), [hs]);
   const stored = hs.find((h) => h.name === selected) ?? null;
   const focus = useMemo(() => {
+    if (!selected && region) return { key: `region:${region}`, lat: REGIONS[region].lat, lon: REGIONS[region].lon };
     if (!selected) return null;
     const h = hs.find((x) => x.name === selected);
     if (h) return { key: selected, lat: h.lat, lon: h.lon };
@@ -496,9 +555,10 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
     let sx = 0, sy = 0, n = 0;
     for (const ring of COUNTRIES[i].rings) for (const [lon, lat] of unwrapRing(ring)) { sx += lon; sy += lat; n++; }
     return n ? { key: selected, lat: sy / n, lon: ((((sx / n) + 180) % 360) + 360) % 360 - 180 } : null;
-  }, [selected, hs]);
+  }, [selected, hs, region]);
   const top = hs.slice(0, 8);
-  const accent = mode === "news" ? "#fb923c" : "#c084fc";
+  const regionTotals = useMemo(() => Object.keys(REGIONS).map((r) => ({ r, n: hs.filter((h) => regionOf(h.name) === r).reduce((a, h) => a + h.count, 0) })), [hs]);
+  const listed = region ? hs.filter((h) => regionOf(h.name) === region) : hs;
   const onHover = useCallback((name: string | null, x: number, y: number) => {
     setHover((h) => (h.name === name && Math.abs(h.x - x) < 2 && Math.abs(h.y - y) < 2 ? h : { name, x, y }));
     document.body.style.cursor = name ? "pointer" : "";
@@ -509,7 +569,8 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
     const own: Result[] = stored ? stored.stories.map((s) => ({ ...s, countries: [stored.name], live: false })) : [];
     const live = liveNews && liveNews.name === selected ? liveNews.items ?? [] : [];
     const seen = new Set(own.map((s) => s.title.toLowerCase()));
-    return [...own, ...live.filter((s) => !seen.has(s.title.toLowerCase()))];
+    const all = [...own, ...live.filter((s) => !seen.has(s.title.toLowerCase()))];
+    return all.sort((a, b) => (b.score ?? importance(b.title)) - (a.score ?? importance(a.title))); // biggest stories first
   }, [stored, liveNews, selected]);
 
   return (
@@ -517,16 +578,17 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
       <Canvas camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, 2]} gl={{ antialias: true, powerPreference: "high-performance" }}>
         <color attach="background" args={["#01030a"]} />
         <Stars radius={70} depth={40} count={reduced ? 1500 : 5000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
-        <Globe tint={tint} tintColor={mode === "news" ? "rgba(249,115,22,A)" : "rgba(168,85,247,A)"} selected={selected}
+        <Globe tint={tint} mode={mode} selected={selected}
           hover={hover.name} onPick={(n) => setSelected((cur) => (n && n !== cur ? n : n ? null : cur))} onHover={onHover} />
         <NewsDots hotspots={hs} mode={mode} reduced={reduced} />
         <Arcs hotspots={hs} mode={mode} reduced={reduced} />
-        {hs.slice(0, 6).map((h) => <Ring key={`${mode}-${h.name}`} h={h} k={Math.sqrt(h.count / (hs[0]?.count || 1))} color={accent} reduced={reduced} />)}
+        {hs.slice(0, 6).map((h) => <Ring key={`${mode}-${h.name}`} h={h} k={Math.sqrt(h.count / (hs[0]?.count || 1))} color={colorFor(h.name, mode)} reduced={reduced} />)}
         <OrbitControls makeDefault enablePan={false} minDistance={3.2} maxDistance={12} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} autoRotateSpeed={0.3} />
         <Rig focus={focus} reduced={reduced} offsetX={110} />
+        <Dial reduced={reduced} />
         <Labels items={top} refs={labels} />
         <EffectComposer multisampling={4}>
-          <Bloom intensity={reduced ? 0.6 : 1.05} luminanceThreshold={0.22} luminanceSmoothing={0.35} mipmapBlur />
+          <Bloom intensity={reduced ? 0.7 : 1.2} luminanceThreshold={0.62} luminanceSmoothing={0.25} mipmapBlur />
           <Vignette offset={0.25} darkness={0.75} />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
         </EffectComposer>
@@ -534,7 +596,7 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
 
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {top.map((h) => (
-          <span key={`${mode}-${h.name}`} ref={(el) => { labels.current[h.name] = el; }} className="globe-label absolute left-0 top-0" style={{ ["--accent" as string]: accent }}>
+          <span key={`${mode}-${h.name}`} ref={(el) => { labels.current[h.name] = el; }} className="globe-label absolute left-0 top-0" style={{ ["--accent" as string]: colorFor(h.name, mode) }}>
             {displayName(h.name)} <b>{h.count}</b>
           </span>
         ))}
@@ -549,7 +611,7 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
         <input className="field w-full" value={query} onChange={(e) => setQuery(e.target.value)} maxLength={120}
           placeholder="Search world news… e.g. elections, oil prices, AI chips" aria-label="Search world news" />
         <button className="btn shrink-0" disabled={searching || query.trim().length < 2}>{searching ? "Searching…" : "Search"}</button>
-        {search && <button type="button" className="chip shrink-0" onClick={() => { setSearch(null); setQuery(""); setSelected(null); }}>Clear</button>}
+        {search && <button type="button" className="chip shrink-0" onClick={() => { searchSeq.current++; setSearching(false); setSearch(null); setQuery(""); setSelected(null); }}>Clear</button>}
       </form>
 
       {!selected && <section className="glass hud-panel globe-side panel-in" key={mode}>
@@ -575,11 +637,11 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
                 {WINDOWS.map((w) => <button key={w.h} className="chip" aria-pressed={hours === w.h} onClick={() => setHours(w.h)}>{w.label}</button>)}
               </div>
             </div>
-            <p className="muted text-xs">{data ? `${data.total} stories · ${hs.length} countries` : err ? "" : "Loading…"}</p>
+            <p className="muted text-xs">{data ? `${data.total} stories · ${hs.length} countries${region ? ` · showing ${region}` : ""}` : err ? "" : "Loading…"}</p>
             {data && !hs.length && <p className="mt-3 text-sm">No placed stories yet. Run a <b>World brief</b> in the panel on the right and the globe lights up.</p>}
             <ol className="mt-3 space-y-1">
-              {hs.slice(0, 16).map((h) => (
-                <li key={h.name}><HotRow h={h} max={hs[0]?.count || 1} on={h.name === selected} onClick={() => setSelected(h.name === selected ? null : h.name)} accent="#fb923c" /></li>
+              {listed.slice(0, 16).map((h) => (
+                <li key={h.name}><HotRow h={h} max={listed[0]?.count || 1} on={h.name === selected} onClick={() => setSelected(h.name === selected ? null : h.name)} accent={colorFor(h.name, "news")} /></li>
               ))}
             </ol>
             {data && data.untagged > 0 && <p className="muted mt-2 text-xs">{data.untagged} stories don&apos;t name a country. Click any country for its live headlines.</p>}
@@ -606,6 +668,18 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
         </section>
       )}
 
+      {!search && (
+        <nav className="globe-regions glass" aria-label="World regions">
+          <button className={`region${!region ? " on" : ""}`} onClick={() => { setRegion(null); setSelected(null); }}>World</button>
+          {regionTotals.map(({ r, n }) => (
+            <button key={r} className={`region${region === r ? " on" : ""}`} style={{ ["--accent" as string]: REGION_COLOR[r] }}
+              onClick={() => { setSelected(null); setRegion(region === r ? null : r); }}>
+              <i />{r}<b>{n}</b>
+            </button>
+          ))}
+        </nav>
+      )}
+
       <button className="chip absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
   );
@@ -622,8 +696,11 @@ function HotRow({ h, max, on, onClick, accent }: { h: Hotspot; max: number; on: 
 }
 
 function StoryCard({ s, onCountry }: { s: Result; onCountry?: (n: string) => void }) {
+  const score = s.score ?? importance(s.title);
+  const level = score >= 3 ? "major" : score >= 2 ? "key" : "";
   return (
-    <li className="card story text-sm">
+    <li className={`card story text-sm ${level}`}>
+      {level && <span className={`badge ${level}`}>{level === "major" ? "MAJOR" : "KEY"}</span>}
       <a className="link" href={safeHref(s.url)} target="_blank" rel="noreferrer noopener">{s.title}</a>
       <div className="muted mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
         <span>{s.source ?? "unknown source"}{s.published_at ? ` · ${ago(s.published_at)}` : ""}</span>

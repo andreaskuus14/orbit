@@ -167,3 +167,28 @@ const DISPLAY: Record<string, string> = {
   "N. Cyprus": "Northern Cyprus", "Fr. S. Antarctic Lands": "French Southern Lands", "Côte d'Ivoire": "Ivory Coast", "eSwatini": "Eswatini",
 };
 export const displayName = (name: string) => DISPLAY[name] ?? name;
+
+// ---------- importance and regions ----------
+
+// Words that usually mark a consequential story; a rough "how big is this" score for ranking and colour.
+const MAJOR: [RegExp, number][] = [
+  [/\b(war|invasion|missile|airstrike|strike[sd]?|attack(s|ed)?|killed|dead|deaths|bomb(ing)?|ceasefire|troops|military|drone[s]?)\b/i, 3],
+  [/\b(election|vote[sd]?|president|prime minister|parliament|government|coup|protest(s|ers)?|resign(s|ed|ation)?|sanction(s|ed)?|summit|treaty|talks)\b/i, 2],
+  [/\b(economy|inflation|recession|central bank|interest rates?|tariff(s)?|markets?|stocks?|oil|gdp|trade|budget|debt|crisis)\b/i, 2],
+  [/\b(earthquake|flood(s|ing)?|hurricane|typhoon|wildfire(s)?|disaster|outbreak|pandemic|emergency)\b/i, 3],
+  [/\b(breaking|exclusive|first|record|historic)\b/i, 1],
+];
+/** 0 = routine; 3+ = major (war, disaster, election-level). */
+export function importance(title: string): number {
+  return MAJOR.reduce((s, [re, w]) => s + (re.test(title) ? w : 0), 0);
+}
+
+export const REGIONS: Record<string, { lat: number; lon: number; countries: string[] }> = {
+  Americas: { lat: 15, lon: -85, countries: ["United States of America", "Canada", "Mexico", "Cuba", "Haiti", "Venezuela", "Colombia", "Brazil", "Argentina", "Chile", "Peru", "Ecuador", "Greenland"] },
+  Europe: { lat: 50, lon: 15, countries: ["United Kingdom", "Ireland", "France", "Germany", "Netherlands", "Belgium", "Switzerland", "Austria", "Italy", "Spain", "Portugal", "Greece", "Poland", "Czechia", "Hungary", "Romania", "Moldova", "Serbia", "Kosovo", "Sweden", "Norway", "Finland", "Denmark", "Estonia", "Latvia", "Lithuania", "Belarus", "Ukraine", "Russia"] },
+  "Middle East": { lat: 29, lon: 45, countries: ["Georgia", "Armenia", "Azerbaijan", "Turkey", "Israel", "Palestine", "Lebanon", "Syria", "Jordan", "Iraq", "Iran", "Saudi Arabia", "Yemen", "Oman", "United Arab Emirates", "Qatar", "Egypt"] },
+  Africa: { lat: 3, lon: 20, countries: ["Libya", "Tunisia", "Algeria", "Morocco", "Sudan", "S. Sudan", "Ethiopia", "Somalia", "Kenya", "Nigeria", "Ghana", "Mali", "Niger", "Burkina Faso", "Dem. Rep. Congo", "South Africa"] },
+  Asia: { lat: 30, lon: 95, countries: ["Afghanistan", "Pakistan", "India", "Bangladesh", "Sri Lanka", "Nepal", "Kazakhstan", "China", "Taiwan", "Mongolia", "North Korea", "South Korea", "Japan", "Philippines", "Vietnam", "Thailand", "Myanmar", "Cambodia", "Malaysia", "Indonesia"] },
+  Oceania: { lat: -28, lon: 145, countries: ["Australia", "New Zealand"] },
+};
+export const regionOf = (name: string) => Object.keys(REGIONS).find((r) => REGIONS[r].countries.includes(name)) ?? null;

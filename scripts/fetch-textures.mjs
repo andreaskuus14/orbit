@@ -13,6 +13,14 @@ const FILES = {
   ice: "132100_675fcf9c-0c65-463e-b812-60469ef6e392",
   neptune: "132100_aa064c0f-5651-4b4d-bc6a-651939d7f66a",
   nebula1: "223957_bb790662-68c9-4e31-91a4-ada73eff783b",
+  ocean: "232113_6ff7dc5e-202f-4b2f-b5c7-be6dc3bfc435",
+  storm: "232114_9eba80cc-155f-458f-a27c-8e5a7dc8f3de",
+  lava: "232114_dc8baf3a-ee89-48b5-86a9-ab27aa06d149",
+  desert: "232429_78bd4209-ff2d-4126-843e-525179464aef",
+  gasgiant: "232430_7a1aec48-91b8-4d66-838f-f962f6c8d383",
+  jungle: "232113_981a9abd-78f9-43ad-99e6-0319a0382419",
+  glacier: "232114_c73e34e3-2e16-44e8-97af-a160226d854a",
+  crystal: "232113_02a85430-cdfa-4d9e-ab99-403515937ee7",
   nebula2: "223957_74cb7b1b-e9b7-4dfc-9c78-04bdf27561d9",
 };
 

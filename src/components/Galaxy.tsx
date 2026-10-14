@@ -127,14 +127,15 @@ function cloudTexture(seed: number) {
 const CDN = "https://d8j0ntlcm91z4.cloudfront.net/user_3K4zaF8Ip5JyEmwNLHr5iAw89pD/hf_20261014_";
 // crop = [x0, y0, x1, y1] as fractions: trims the black edges some generations have.
 const PHOTOS: Record<PlanetId, { file: string; id: string; crop: [number, number, number, number] }> = {
-  memory: { file: "earth", id: "132007_5069b2ba-e1d5-4358-847b-eadc908f6cdb", crop: [0.1, 0.14, 0.9, 0.86] },
-  intelligence: { file: "mars", id: "132007_10628adb-15c9-4186-bd1a-99febee610bc", crop: [0, 0, 1, 1] },
-  creation: { file: "jupiter", id: "132007_4da0094a-caa6-4cea-8462-fade03c8a9b4", crop: [0.22, 0.12, 0.78, 0.88] },
-  operations: { file: "saturn", id: "132007_8f5fc6c9-1651-462d-a321-0b8d85dd539e", crop: [0, 0, 1, 1] },
-  agents: { file: "violet", id: "132037_343842e2-f778-4495-8159-41fc45fe3bf3", crop: [0, 0.02, 1, 0.98] },
-  life: { file: "teal", id: "132036_10c1157e-cf14-4c33-90cd-d9a7c9b08993", crop: [0.04, 0.02, 0.95, 0.98] },
-  vault: { file: "ice", id: "132100_675fcf9c-0c65-463e-b812-60469ef6e392", crop: [0, 0, 1, 1] },
-  analytics: { file: "neptune", id: "132100_aa064c0f-5651-4b4d-bc6a-651939d7f66a", crop: [0, 0.02, 1, 0.98] },
+  // Themed worlds (Higgsfield Z Image surface maps): ocean, storm, lava, desert, gas giant, jungle, ice, crystal.
+  memory: { file: "ocean", id: "232113_6ff7dc5e-202f-4b2f-b5c7-be6dc3bfc435", crop: [0.1, 0.18, 0.9, 0.96] },
+  intelligence: { file: "storm", id: "232114_9eba80cc-155f-458f-a27c-8e5a7dc8f3de", crop: [0.18, 0.04, 0.82, 0.96] },
+  creation: { file: "lava", id: "232114_dc8baf3a-ee89-48b5-86a9-ab27aa06d149", crop: [0, 0.3, 1, 1] },
+  operations: { file: "desert", id: "232429_78bd4209-ff2d-4126-843e-525179464aef", crop: [0, 0, 1, 1] },
+  agents: { file: "gasgiant", id: "232430_7a1aec48-91b8-4d66-838f-f962f6c8d383", crop: [0.12, 0.06, 0.88, 0.94] },
+  life: { file: "jungle", id: "232113_981a9abd-78f9-43ad-99e6-0319a0382419", crop: [0.22, 0.24, 0.78, 0.82] },
+  vault: { file: "glacier", id: "232114_c73e34e3-2e16-44e8-97af-a160226d854a", crop: [0, 0, 1, 1] },
+  analytics: { file: "crystal", id: "232113_02a85430-cdfa-4d9e-ab99-403515937ee7", crop: [0.22, 0.16, 0.78, 0.84] },
 };
 
 function loadImage(src: string) {
@@ -178,6 +179,11 @@ function usePhoto(key: PlanetId) {
 }
 
 const planetSize = (p: PlanetDef) => p.size * LOOKS[p.id].scale * 1.25;
+// Glow colour per themed world (atmosphere + particle aura).
+const AURA: Record<PlanetId, string> = {
+  memory: "#38bdf8", intelligence: "#a78bfa", creation: "#fb923c", operations: "#fbbf24",
+  agents: "#e879f9", life: "#4ade80", vault: "#a5f3fc", analytics: "#818cf8",
+};
 
 type Look = { kind: "band" | "rock"; colors: string[]; base?: string; ring?: string; scale: number };
 
@@ -259,6 +265,32 @@ function PlanetRing({ size, color }: { size: number; color: string }) {
   );
 }
 
+/** A drifting shell of twinkling sparks in the planet's colour, echoing the CORE. */
+function PlanetAura({ size, color, reduced }: { size: number; color: string; reduced: boolean }) {
+  const ref = useRef<THREE.Points>(null);
+  const geo = useMemo(() => {
+    const r = rng(Math.round(size * 1000));
+    const pos: number[] = [], sz: number[] = [], ph: number[] = [];
+    for (let i = 0; i < 90; i++) {
+      const v = new THREE.Vector3(r() * 2 - 1, (r() * 2 - 1) * 0.6, r() * 2 - 1).normalize().multiplyScalar(size * (1.25 + r() * 0.55));
+      pos.push(v.x, v.y, v.z); sz.push(4 + r() * 9); ph.push(r() * 6.28);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("aSize", new THREE.Float32BufferAttribute(sz, 1));
+    g.setAttribute("aPhase", new THREE.Float32BufferAttribute(ph, 1));
+    return g;
+  }, [size]);
+  const mat = useMemo(() => { const m = sparkMat.clone(); m.uniforms.uColor.value = new THREE.Color(color); return m; }, [color]);
+  useEffect(() => () => { geo.dispose(); mat.dispose(); }, [geo, mat]);
+  useFrame(({ clock, gl }, dt) => {
+    mat.uniforms.uTime.value = reduced ? 0 : clock.elapsedTime;
+    mat.uniforms.uScale.value = gl.getPixelRatio() * 9;
+    if (ref.current && !reduced) ref.current.rotation.y += dt * 0.12;
+  });
+  return <points ref={ref} geometry={geo} material={mat} />;
+}
+
 /** Fresnel atmosphere: a soft glow that brightens toward the limb, plus a thin bright rim on the surface. */
 function atmosphereMats(color: string) {
   const vs = "varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }";
@@ -295,7 +327,7 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
   const cloudTex = useMemo(() => (isEarth ? cloudTexture(21) : null), [isEarth]);
   useEffect(() => () => cloudTex?.dispose(), [cloudTex]);
   const phase = index * 0.95;
-  const atmo = useMemo(() => atmosphereMats(isEarth ? "#7cc4ff" : p.color), [isEarth, p.color]);
+  const atmo = useMemo(() => atmosphereMats(AURA[p.id]), [p.id]);
   useEffect(() => () => { atmo.outer.dispose(); atmo.rim.dispose(); }, [atmo]);
   const hovered = useRef(false);
   const halo = useRef<THREE.Mesh>(null);
@@ -349,6 +381,7 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
           <torusGeometry args={[size * 1.55, 0.012, 8, 128]} />
           <meshBasicMaterial color="#a5f3fc" transparent opacity={0} toneMapped={false} />
         </mesh>
+        <PlanetAura size={size} color={AURA[p.id]} reduced={reduced} />
         {look.ring && <PlanetRing size={size} color={look.ring} />}
         {p.id === "memory" && <Moons count={memoryCount} reduced={reduced} />}
         {Array.from({ length: Math.min(agentBusy, 5) }, (_, k) => (
@@ -393,32 +426,47 @@ const NEBULAE = [
   { file: "nebula1", id: "223957_bb790662-68c9-4e31-91a4-ada73eff783b", pos: [-20, 14, -95] as [number, number, number], s: [150, 84] as [number, number], rot: 0.2 },
   { file: "nebula2", id: "223957_74cb7b1b-e9b7-4dfc-9c78-04bdf27561d9", pos: [85, -8, 40] as [number, number, number], s: [120, 68] as [number, number], rot: -0.4 },
 ];
+/** Nebula image faded to a soft round cloud: no straight edges against the sky. */
+function nebulaShader(map: THREE.Texture) {
+  return {
+    uniforms: { uMap: { value: map }, uOpacity: { value: 0 } },
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+    vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+    fragmentShader: `uniform sampler2D uMap; uniform float uOpacity; varying vec2 vUv;
+      void main(){ vec2 p = (vUv - 0.5) * vec2(1.0, 0.5625) * 2.0; float r = length(p) / 0.5625;
+        float mask = smoothstep(1.0, 0.35, r); vec3 c = texture2D(uMap, vUv).rgb;
+        gl_FragColor = vec4(c * mask * uOpacity, 1.0); }`,
+  };
+}
 function NebulaPlates({ reduced }: { reduced: boolean }) {
   const [texs, setTexs] = useState<(THREE.Texture | null)[]>([]);
   useEffect(() => {
     let dead = false;
     const made: THREE.Texture[] = [];
     Promise.all(NEBULAE.map((n) => loadImage(`/textures/${n.file}.png`).catch(() => loadImage(`${CDN}${n.id}.png`)).then((img) => {
+      if (dead) return null; // unmounted while loading: don't create a texture nobody will dispose
       const t = new THREE.Texture(img); t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; made.push(t); return t;
     }).catch(() => null))).then((t) => { if (!dead) setTexs(t); });
     return () => { dead = true; made.forEach((t) => t.dispose()); };
   }, []);
+  const mats = useMemo(() => texs.map((t) => (t ? new THREE.ShaderMaterial(nebulaShader(t)) : null)), [texs]);
+  useEffect(() => () => mats.forEach((m) => m?.dispose()), [mats]);
   const refs = useRef<(THREE.Mesh | null)[]>([]);
   useFrame(({ camera, clock }, dt) => {
     refs.current.forEach((m, i) => {
       if (!m) return;
       m.lookAt(camera.position); // always face the viewer, slowly turning in place
       m.rotateZ(NEBULAE[i].rot + (reduced ? 0 : clock.elapsedTime * 0.004));
-      const mat = m.material as THREE.MeshBasicMaterial;
-      mat.opacity = Math.min(0.85, mat.opacity + dt * 0.3); // fade in once loaded
+      const u = (m.material as THREE.ShaderMaterial).uniforms;
+      u.uOpacity.value = Math.min(0.9, u.uOpacity.value + dt * 0.3); // fade in once loaded
     });
   });
   return (
     <>
-      {NEBULAE.map((n, i) => texs[i] && (
-        <mesh key={n.file} ref={(el) => { refs.current[i] = el; }} position={n.pos}>
+      {NEBULAE.map((n, i) => mats[i] && (
+        <mesh key={n.file} ref={(el) => { refs.current[i] = el; }} position={n.pos} material={mats[i]!}>
           <planeGeometry args={n.s} />
-          <meshBasicMaterial map={texs[i]} transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+
         </mesh>
       ))}
     </>
@@ -464,13 +512,13 @@ const filamentMat = new THREE.ShaderMaterial({
 });
 const sparkMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-  uniforms: { uTime: { value: 0 }, uScale: { value: 1 }, uBreath: { value: 1 } },
+  uniforms: { uTime: { value: 0 }, uScale: { value: 1 }, uBreath: { value: 1 }, uColor: { value: new THREE.Color(0.7, 0.85, 1.0) } },
   vertexShader: `attribute float aSize; attribute float aPhase; uniform float uTime; uniform float uScale; varying float vTw;
     void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vTw = 0.5 + 0.5 * sin(uTime * 1.8 + aPhase);
       gl_PointSize = aSize * uScale * (0.8 + 0.4 * vTw) / -mv.z; gl_Position = projectionMatrix * mv; }`,
-  fragmentShader: `uniform float uBreath; varying float vTw;
+  fragmentShader: `uniform float uBreath; uniform vec3 uColor; varying float vTw;
     void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.0, d); a *= a;
-      gl_FragColor = vec4(vec3(0.7, 0.85, 1.0) * 1.3, a * (0.35 + 0.45 * vTw) * uBreath * 0.8); }`,
+      gl_FragColor = vec4(uColor * 1.3, a * (0.35 + 0.45 * vTw) * uBreath * 0.8); }`,
 });
 
 function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced">) {
