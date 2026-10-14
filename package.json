@@ -1,0 +1,43 @@
+{
+  "name": "orbit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ORBIT \u2014 your mind has a universe. Phase 1: auth, galaxy, CORE chat, memory.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "textures": "node scripts/fetch-textures.mjs",
+    "app:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-shortcut.ps1",
+    "app:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop.ps1",
+    "app:autostart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-shortcut.ps1 -Autostart",
+    "app:autostart-off": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-shortcut.ps1 -RemoveAutostart"
+  },
+  "engines": {
+    "node": ">=22.6"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.0",
+    "@react-three/fiber": "^9.3.0",
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.75.0",
+    "mammoth": "^1.9.0",
+    "next": "^15.5.0",
+    "playwright-core": "^1.55.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "three": "^0.180.0",
+    "unpdf": "^1.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/three": "^0.180.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.0"
+  }
+}

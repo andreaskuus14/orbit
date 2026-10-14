@@ -1,0 +1,212 @@
+"use client";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { PLANETS, planetById, type PanelId, type PlanetId } from "@/lib/planets";
+import { AnalyticsPanel, CorePanel, LaterPanel, MemoryPanel, ProfilePanel } from "./panels";
+import { IntelligencePanel } from "./IntelligencePanel";
+import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
+import { GameLabPanel } from "./GameLab";
+
+const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false });
+const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
+const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
+
+export default function Orbit({ userId, email }: { userId: string; email: string }) {
+  const sb = useMemo(() => createClient(), []);
+  const [view, setView] = useState<"3d" | "2d">("2d");
+  const [reduced, setReduced] = useState(false);
+  const [panel, setPanel] = useState<PanelId | null>(null);
+  const [memoryCount, setMemoryCount] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [warning, setWarning] = useState(false);
+  const [pulseBusy, setPulseBusy] = useState(false);
+  const [pulseFailed, setPulseFailed] = useState(false);
+  const [runningTasks, setRunningTasks] = useState<string[]>([]); // real: tasks agents are working on right now
+  const [focusTask, setFocusTask] = useState<string | null>(null);
+  const [automationFailing, setAutomationFailing] = useState(false); // real: an enabled automation's last run failed
+  const [cmdMode, setCmdMode] = useState<"ask" | "task">("ask");
+  const [cmdErr, setCmdErr] = useState("");
+  const [focusMemory, setFocusMemory] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const [gameOpen, setGameOpen] = useState(false); // pause the 3D galaxy while a full-screen game runs
+  const [cmd, setCmd] = useState("");
+  const [live, setLive] = useState<"connecting" | "live" | "offline">("connecting");
+  const pulses = useRef<Record<string, number>>({});
+  const cmdRef = useRef<HTMLInputElement>(null);
+
+  // Default to the fast 2D view when WebGL is missing or the screen is small; the user can switch any time.
+  useEffect(() => {
+    setReduced(matchMedia("(prefers-reduced-motion: reduce)").matches);
+    let webgl = false;
+    try { webgl = !!document.createElement("canvas").getContext("webgl2"); } catch { /* no webgl */ }
+    if (webgl && innerWidth >= 720) setView("3d");
+  }, []);
+
+  useEffect(() => {
+    try { if (localStorage.getItem("orbit.cmdMode") === "task") setCmdMode("task"); } catch { /* storage unavailable */ }
+  }, []);
+  const switchMode = () => {
+    const next = cmdMode === "ask" ? "task" : "ask";
+    setCmdMode(next);
+    try { localStorage.setItem("orbit.cmdMode", next); } catch { /* storage unavailable */ }
+  };
+
+  const refreshAutomations = useCallback(() => {
+    fetch("/api/automations").then((r) => (r.ok ? r.json() : null)).then((j) => j && setAutomationFailing(!!j.failing)).catch(() => {});
+  }, []);
+  useEffect(() => { refreshAutomations(); }, [refreshAutomations]);
+
+  const refreshCount = useCallback(async () => {
+    const { count } = await sb.from("memories").select("id", { count: "exact", head: true });
+    setMemoryCount(count ?? 0);
+  }, [sb]);
+
+  // The galaxy reacts to real backend events (rows in the `events` table via Supabase Realtime).
+  useEffect(() => {
+    void refreshCount();
+    const ch = sb.channel("orbit-events")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "events", filter: `user_id=eq.${userId}` }, (payload) => {
+        const e = payload.new as { type: string; planet: string };
+        pulses.current[e.planet] = Date.now();
+        if (e.type.startsWith("memory.")) void refreshCount();
+        if (e.type === "core.started") setBusy(true);
+        if (e.type === "core.completed") { setBusy(false); setWarning(false); }
+        if (e.type === "core.failed") { setBusy(false); setWarning(true); }
+        if (e.type === "pulse.started") setPulseBusy(true);
+        if (e.type === "pulse.completed") { setPulseBusy(false); setPulseFailed(false); dispatchEvent(new Event("orbit:news")); }
+        if (e.type === "pulse.failed") { setPulseBusy(false); setPulseFailed(true); }
+        const taskId = (payload.new as { payload?: { taskId?: string } }).payload?.taskId;
+        if (e.type === "agent.started" && taskId) setRunningTasks((r) => (r.includes(taskId) ? r : [...r, taskId]));
+        if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) { setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations(); }
+      })
+      .subscribe((s) => setLive(s === "SUBSCRIBED" ? "live" : s === "CLOSED" || s === "CHANNEL_ERROR" || s === "TIMED_OUT" ? "offline" : "connecting"));
+    return () => { void sb.removeChannel(ch); };
+  }, [sb, userId, refreshCount, refreshAutomations]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); cmdRef.current?.focus(); }
+      if (e.key === "Escape") setPanel(null);
+      // ← / → fly to the previous / next planet (not while typing).
+      const el = e.target as HTMLElement | null;
+      const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable);
+      if (!typing && !e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+        setPanel((cur) => {
+          const i = cur ? ORDER.indexOf(cur) : -1;
+          const next = e.key === "ArrowRight" ? (i + 1) % ORDER.length : (i <= 0 ? ORDER.length : i) - 1;
+          return ORDER[next];
+        });
+      }
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, []);
+
+  const select = useCallback((id: PanelId) => { setPanel(id); if (id !== "memory") setFocusMemory(null); if (id !== "operations") setFocusTask(null); }, []);
+  const openTask = useCallback((id: string) => { setFocusTask(id); setPanel("operations"); }, []);
+  const openMemory = useCallback((id: string) => { setFocusMemory(id); setPanel("memory"); }, []);
+  const consumed = useCallback(() => setPending(null), []);
+
+  async function runCommand(e: React.FormEvent) {
+    e.preventDefault();
+    const text = cmd.trim();
+    if (!text) return;
+    setCmdErr("");
+    if (cmdMode === "ask") { setCmd(""); setPending(text); setPanel("core"); return; }
+    // Task mode: Nova interprets the request, delegates to the right agents and reports back.
+    try {
+      const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request: text }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not create the task");
+      setCmd("");
+      openTask(json.task.id);
+    } catch (err) { setCmdErr(err instanceof Error ? err.message : "Could not create the task"); }
+  }
+
+  async function signOut() { await sb.auth.signOut(); location.href = "/login"; }
+
+  const title = panel === "core" ? "CORE" : panel === "profile" ? "Your profile" : panel ? planetById(panel)!.name : "";
+
+  return (
+    <main className="relative h-dvh w-full overflow-hidden">
+      {panel === "intelligence" && !gameOpen ? (
+        <NewsGlobe reduced={reduced} onClose={() => setPanel(null)} />
+      ) : view === "3d" && gameOpen ? null : view === "3d" ? (
+        <div className="absolute inset-0">
+          <Galaxy selected={panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} />
+        </div>
+      ) : (
+        <nav aria-label="Planets" className="absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
+          <ul className="mx-auto grid max-w-3xl gap-3 sm:grid-cols-2">
+            <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
+              <b>CORE</b><span className="muted text-sm">{busy ? "Thinking…" : warning ? "Last request failed" : "Your central AI. Ask anything."}</span></button></li>
+            {PLANETS.map((p) => (
+              <li key={p.id}><button className="planet-card" onClick={() => select(p.id)} style={{ borderColor: p.color }}>
+                <b style={{ color: p.color }}>{p.name}</b>
+                <span className="muted text-sm">{p.id === "memory" ? `${memoryCount} memories` : p.id === "intelligence" && pulseBusy ? "Pulse is writing a briefing…" : p.id === "intelligence" && pulseFailed ? "Last briefing failed" : p.id === "operations" && automationFailing ? "An automation's last run failed" : p.id === "agents" && runningTasks.length ? `${runningTasks.length} agent task${runningTasks.length > 1 ? "s" : ""} running…` : p.live ? p.blurb : `${p.blurb} · Phase ${p.phase}`}</span></button></li>
+            ))}
+          </ul>
+        </nav>
+      )}
+
+      <header className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-4 py-3">
+        <button className="logo" onClick={() => setPanel(null)} aria-label="ORBIT home">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/orbit-mark.png" alt="" width={40} height={40} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          <span><span className="brand block">ORBIT</span><span className="muted block text-[10px] tracking-[0.2em]">YOUR MIND HAS A UNIVERSE</span></span>
+        </button>
+        <div className="flex items-center gap-2 text-xs">
+          <span className={`pill hidden sm:inline-flex${live === "live" ? " ok" : live === "offline" ? " bad" : ""}`} title="Realtime link to the backend that animates the galaxy">{live === "live" ? "LIVE" : live === "offline" ? "OFFLINE" : "CONNECTING"}</span>
+          <button className="chip" onClick={() => setView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "2D view" : "3D view"}</button>
+          <button className="chip" onClick={() => select("profile")}>Profile</button>
+          <button className="chip" onClick={signOut} title={email}>Sign out</button>
+        </div>
+      </header>
+
+      {panel && (
+        <aside className="glass drawer" role="dialog" aria-label={title}>
+          <div className="mb-3 flex items-center justify-between"><h2 className="brand text-base">{title}</h2><button className="chip" onClick={() => setPanel(null)} aria-label="Close panel">Close</button></div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {panel === "core" ? <CorePanel initial={pending} onConsumed={consumed} onOpenMemory={openMemory} />
+              : panel === "memory" ? <MemoryPanel focusId={focusMemory} onChanged={refreshCount} />
+              : panel === "profile" ? <ProfilePanel />
+              : panel === "analytics" ? <AnalyticsPanel />
+              : panel === "intelligence" ? <IntelligencePanel />
+              : panel === "operations" ? <OperationsPanel focusTask={focusTask} openMemory={openMemory} />
+              : panel === "agents" ? <AgentsPanel onOpenTask={openTask} />
+              : panel === "creation" ? <GameLabPanel onPlaying={setGameOpen} />
+              : <LaterPanel id={panel as PlanetId} />}
+          </div>
+        </aside>
+      )}
+
+      {!panel && (
+        <aside className="glass hud-panel status-hud" aria-label="System status">
+          <div className="hud-title">SYSTEM</div>
+          <dl>
+            <div><dt>Memories</dt><dd className="num">{memoryCount}</dd></div>
+            <div><dt>Agents working</dt><dd className="num">{runningTasks.length}</dd></div>
+            <div><dt>CORE</dt><dd className={warning ? "bad" : busy ? "warn" : "ok"}>{busy ? "Thinking" : warning ? "Last request failed" : "Ready"}</dd></div>
+            <div><dt>Pulse</dt><dd className={pulseFailed ? "bad" : pulseBusy ? "warn" : "ok"}>{pulseBusy ? "Writing" : pulseFailed ? "Last failed" : "Idle"}</dd></div>
+            <div><dt>Automations</dt><dd className={automationFailing ? "bad" : "ok"}>{automationFailing ? "Needs attention" : "OK"}</dd></div>
+          </dl>
+          <p className="muted mt-2 text-[10px] tracking-wider">← → FLY BETWEEN PLANETS</p>
+        </aside>
+      )}
+
+      <form onSubmit={runCommand} className="glass cmdbar">
+        <div className="flex gap-2">
+          <button type="button" className="chip shrink-0" onClick={switchMode} title="Switch between asking CORE and giving the agents a task"
+            aria-label={`Mode: ${cmdMode === "ask" ? "ask CORE" : "agent task"}. Click to switch.`}>
+            {cmdMode === "ask" ? "Ask" : "Task"}
+          </button>
+          <input ref={cmdRef} className="field w-full" value={cmd} onChange={(e) => setCmd(e.target.value)} maxLength={8000}
+            placeholder={cmdMode === "ask" ? "Ask CORE…  (Ctrl/⌘ K)" : "Give your agents a task, e.g. research X and save a report"}
+            aria-label={cmdMode === "ask" ? "Command bar: ask CORE" : "Command bar: give the agents a task"} />
+        </div>
+        {cmdErr && <p className="error mt-1 px-1">{cmdErr}</p>}
+      </form>
+    </main>
+  );
+}
