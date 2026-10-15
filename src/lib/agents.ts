@@ -85,13 +85,21 @@ export const TOOLS: Record<string, Tool> = {
     },
   },
   read_news: {
-    description: "Search the news AND read the top articles in full in one step. Best tool for 'what's happening with X'. Returns full text with publisher links.",
-    input: '{"query": string}',
+    description: "Search the news AND read the top articles in full in one step. Best tool for 'what's happening with X'. Set hours (1-48) for fresh news, e.g. 1 for 'the last hour' (query can be general like \"news\"). Returns full text with publisher links and publication times.",
+    input: '{"query": string, "hours"?: number}',
     run: async ({ pages }, i) => {
-      const q = s(i.query, 200);
+      const q = s(i.query, 200) || (i.hours ? "news" : "");
       if (!q) return "Error: query is required";
-      const { res } = await safeFetch(topicFeedUrl(q), "application/rss+xml, application/xml, text/xml");
-      const items = parseFeed((await res.text()).slice(0, 2_000_000)).items.slice(0, 8);
+      const hours = Math.min(48, Math.max(1, Math.round(Number(i.hours) || 0))) || 0;
+      const { res } = await safeFetch(topicFeedUrl(q, hours ? `${hours}h` : "7d"), "application/rss+xml, application/xml, text/xml");
+      let items = parseFeed((await res.text()).slice(0, 2_000_000)).items;
+      if (hours) { // newest first, and drop anything Google let through that's older than asked
+        const since = Date.now() - hours * 3600_000;
+        items = items.filter((it) => !it.published || Date.parse(it.published) >= since)
+          .sort((a, b) => (b.published ?? "").localeCompare(a.published ?? ""));
+        if (!items.length) return `No headlines published in the last ${hours} h for "${q}". Try a broader query or more hours.`;
+      }
+      items = items.slice(0, 8);
       const out: string[] = [];
       for (const it of items) {
         if (out.length >= 3) break;

@@ -49,7 +49,7 @@ Most questions need no tool: answer with "final" straight away. Use at most ${MA
 
 TOOLS:
 - fetch_url {"url": string}: read a web page or article in full (works with JavaScript sites too; not logins or paywalls).
-- read_news {"query": string}: search the latest news and read the top articles in full.
+- read_news {"query": string, "hours"?: number}: search the news and read the top articles in full. For "the last hour / today / latest" set hours (1 = last hour) and use a broad query like "world news" or "breaking"; report publication times.
 - ask_agent {"agent": string, "request": string}: give a job to an agent and get its result (takes a minute or more). Agents: ${AGENT_LIST}.
 - save_memory {"title": string, "content": string, "kind": "note"|"idea"|"project"|"preference"|"decision"|"goal", "tags"?: string[]}: save what the user asked you to remember. Write content as a standalone fact.
 

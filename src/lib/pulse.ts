@@ -40,8 +40,9 @@ function topicGoogle(q: string) {
   return `https://news.google.com/rss/search?q=${encodeURIComponent(`${q} when:2d`)}&hl=en-US&gl=US&ceid=US:en`;
 }
 
-export const topicFeedUrl = (topic: string) =>
-  `https://news.google.com/rss/search?q=${encodeURIComponent(`${topic} when:7d`)}&hl=en-US&gl=US&ceid=US:en`;
+// window: Google News' own time filter ("1h", "12h", "7d").
+export const topicFeedUrl = (topic: string, window = "7d") =>
+  `https://news.google.com/rss/search?q=${encodeURIComponent(`${topic} when:${window}`)}&hl=en-US&gl=US&ceid=US:en`;
 
 type Feed = { id: string; url: string; title: string | null; topic: string | null };
 type ArticleRow = ArticleCitation & { summary: string; topic: string | null };
