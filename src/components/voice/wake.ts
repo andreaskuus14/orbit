@@ -5,8 +5,9 @@ export function normalizeTranscript(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-// "hey orbit", "okay orbit", "ok orbit", plus common mishearings: "hey orbits", "a orbit", "hay orbit".
-const WAKE = /\b(?:hey|hay|hi|okay|ok|a)[\s,.!-]+orbits?\b[\s,.!?:;-]*/i;
+// "hey orbit", "okay orbit", "ok orbit", mishearings ("hey orbits", "a orbit", "hay orbit"), or just "orbit" when it
+// starts the utterance ("Orbit, what's the news?") — mid-sentence "orbit" ("the moon's orbit") doesn't count.
+const WAKE = /(?:^\s*|\b(?:hey|hay|hi|okay|ok|a)[\s,.!-]+)orbits?\b[\s,.!?:;-]*/i;
 
 /**
  * Find the wake phrase in a transcript. Returns null when absent, otherwise the question that follows it

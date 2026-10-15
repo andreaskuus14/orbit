@@ -30,3 +30,9 @@ test("isSleepCommand catches shut-down phrases but not ordinary questions", asyn
   for (const t of ["All right, Orbit shut down", "Orbit, shut down.", "orbit go to sleep", "Close Orbit", "goodbye orbit", "orbital shutdown"]) assert.ok(isSleepCommand(t), t);
   for (const t of ["How do I shut down my PC?", "Orbit, what's the news?", "close the memory panel"]) assert.equal(isSleepCommand(t), false, t);
 });
+
+test("a bare 'orbit' wakes only at the start of what was said", () => {
+  assert.deepEqual(extractWakeQuestion("Orbit, what's the news?"), { question: "What's the news?" });
+  assert.deepEqual(extractWakeQuestion("orbit"), { question: "" });
+  assert.equal(extractWakeQuestion("the moon's orbit is elliptical"), null);
+});

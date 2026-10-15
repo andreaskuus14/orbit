@@ -5,7 +5,7 @@
 export const voiceLevel = { mic: 0, speak: 0 }; // 0..1, updated by the voice input / speech output
 
 export type VoiceSettings = { speak: boolean; wake: boolean; voiceURI: string | null; rate: number };
-export const DEFAULT_VOICE: VoiceSettings = { speak: true, wake: false, voiceURI: null, rate: 1.05 };
+export const DEFAULT_VOICE: VoiceSettings = { speak: true, wake: true, voiceURI: null, rate: 1.05 }; // wake on: the user asked for hands-free; Settings shows that Chrome streams audio while it listens
 
 const KEY = "orbit.voice";
 export function loadVoiceSettings(): VoiceSettings {

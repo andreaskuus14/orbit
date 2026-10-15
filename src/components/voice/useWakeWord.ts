@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { VOICE_ASK, VOICE_INTERRUPT } from "./bus";
 import { getSpeechRecognition, speechErrorMessage, speechLang, VOICE_PAUSE, VOICE_RESUME, type SpeechRec } from "./useVoiceInput";
-import { extractWakeQuestion, normalizeTranscript } from "./wake";
+import { extractWakeQuestion, isSleepCommand, normalizeTranscript } from "./wake";
 
 const AWAY_MS = 60_000; // window unfocused this long → stop listening
 const ARMED_MS = 8000; // after a bare "Hey Orbit", how long the next utterance counts as the question
@@ -61,7 +61,7 @@ export function useWakeWord(enabled: boolean, paused: boolean) {
             continue;
           }
           interrupted = false;
-          if (wake) { if (wake.question) ask(wake.question); else arm(); }
+          if (wake) { if (isSleepCommand(text)) ask(text); else if (wake.question) ask(wake.question); else arm(); } // "Orbit, shut down" keeps its name
           else if (armedUntil > Date.now()) { const q = normalizeTranscript(text); if (q) ask(q); }
         }
       };
