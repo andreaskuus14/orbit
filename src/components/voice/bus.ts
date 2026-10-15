@@ -2,10 +2,15 @@
 // Shared voice state between the mic (command bar), CORE's spoken answers and the 3D CORE.
 // Plain mutable values read every frame by the galaxy — no React re-renders for audio levels.
 
-export const voiceLevel = { mic: 0, speak: 0 }; // 0..1, updated by the voice input / speech output
+import type { PanelId } from "@/lib/planets";
 
-export type VoiceSettings = { speak: boolean; wake: boolean; voiceURI: string | null; rate: number };
-export const DEFAULT_VOICE: VoiceSettings = { speak: true, wake: true, voiceURI: null, rate: 1.05 }; // wake on: the user asked for hands-free; Settings shows that Chrome streams audio while it listens
+export const voiceLevel = { mic: 0, speak: 0 }; // 0..1, updated by the voice input / speech output
+/** The open panel, kept current by Orbit, so the recognizer can prefer alternatives that are commands for this place. */
+export const voiceContext: { current?: PanelId | null } = {};
+
+/** lang: recognition language (BCP-47). engine: who turns speech into text — Chrome's (Google) service or local Whisper. */
+export type VoiceSettings = { speak: boolean; wake: boolean; voiceURI: string | null; rate: number; lang: string; engine: "chrome" | "whisper" };
+export const DEFAULT_VOICE: VoiceSettings = { speak: true, wake: true, voiceURI: null, rate: 1.05, lang: "en-US", engine: "chrome" }; // wake on: the user asked for hands-free; Settings shows that Chrome streams audio while it listens
 
 const KEY = "orbit.voice";
 export function loadVoiceSettings(): VoiceSettings {

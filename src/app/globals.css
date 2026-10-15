@@ -308,6 +308,9 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .voice-pop input:focus-visible, .voice-pop select:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 .voice-wake { position: absolute; left: 1rem; bottom: calc(100% + 0.35rem); display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.65rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--glass); border: 1px solid var(--line); }
 .voice-wake.armed { color: var(--cyan); border-color: var(--cyan); }
+.voice-heard { position: absolute; left: 1rem; right: 1rem; bottom: calc(100% + 1.9rem); font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.voice-heard b { color: var(--cyan); font-weight: 500; }
+.voice-heard i { color: var(--cyan); }
 .voice-wake.bad { color: var(--rose); }
 .voice-dot { width: 0.45rem; height: 0.45rem; border-radius: 999px; background: var(--rose); animation: blink 1.6s ease-in-out infinite; }
 .voice-wake.armed .voice-dot { background: var(--cyan); }

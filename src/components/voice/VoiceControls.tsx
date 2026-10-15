@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
-import { DEFAULT_VOICE, loadVoiceSettings, saveVoiceSettings, voiceLevel, type VoiceSettings } from "./bus";
+import { DEFAULT_VOICE, loadVoiceSettings, saveVoiceSettings, voiceLevel, VOICE_ASK, type VoiceSettings } from "./bus";
 import type { VoiceInput } from "./useVoiceInput";
 import { useWakeWord } from "./useWakeWord";
 
@@ -20,7 +20,8 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   const gearRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const popId = useId();
-  const wake = useWakeWord(s.wake, voice.listening);
+  const wake = useWakeWord(s.wake, voice.listening, s.lang);
+  const [heard, setHeard] = useState(""); // the final text, shown briefly so you see what ORBIT understood
 
   useEffect(() => {
     setS(loadVoiceSettings());
@@ -29,6 +30,22 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
     return () => removeEventListener("orbit:voice-settings", on);
   }, []);
   const update = (patch: Partial<VoiceSettings>) => saveVoiceSettings({ ...s, ...patch }); // the event updates `s`
+
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const on = (e: Event) => {
+      const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
+      if (!text) return;
+      setHeard(text);
+      clearTimeout(t);
+      t = setTimeout(() => setHeard(""), 5000);
+    };
+    addEventListener(VOICE_ASK, on);
+    return () => { removeEventListener(VOICE_ASK, on); clearTimeout(t); };
+  }, []);
+
+  // Local Whisper: load the model in the background so the first question doesn't wait for it.
+  useEffect(() => { if (s.engine === "whisper") void fetch("/api/voice/transcribe").catch(() => {}); }, [s.engine]);
 
   // Voices load asynchronously in Chrome.
   useEffect(() => {
@@ -93,6 +110,21 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>
           <label className="voice-row"><input type="checkbox" checked={s.wake} disabled={!voice.supported} onChange={(e) => update({ wake: e.target.checked })} />
             <span>&ldquo;Hey Orbit&rdquo; hands-free<span className="muted block text-[10px]">While on, Chrome continuously streams your microphone audio to Google&rsquo;s speech service, whenever this tab is visible and the window was used in the last minute.</span></span></label>
+          <label className="voice-col">Speech recognition
+            <select className="field" value={s.engine} onChange={(e) => update({ engine: e.target.value === "whisper" ? "whisper" : "chrome" })}>
+              <option value="chrome">Chrome (fast)</option>
+              <option value="whisper">Local Whisper (accurate, private)</option>
+            </select>
+            {s.engine === "whisper" && <span className="muted text-[10px]">English only. Runs on this PC; the first use downloads the model. &ldquo;Hey Orbit&rdquo; still uses Chrome to hear the wake word: say &ldquo;Orbit&rdquo;, wait for Listening, then ask.</span>}
+          </label>
+          <label className="voice-col">Language (Chrome)
+            <select className="field" value={s.lang} onChange={(e) => update({ lang: e.target.value })}>
+              <option value="en-US">English (US)</option>
+              <option value="en-GB">English (UK)</option>
+              <option value="en-IE">English (Ireland)</option>
+              <option value="et-EE">Eesti</option>
+            </select>
+          </label>
           <label className="voice-col">Voice
             <select className="field" value={s.voiceURI ?? ""} onChange={(e) => update({ voiceURI: e.target.value || null })}>
               <option value="">Default</option>
@@ -103,6 +135,11 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
             <input type="range" min={0.8} max={1.4} step={0.05} value={s.rate} onChange={(e) => update({ rate: Number(e.target.value) })} />
           </label>
         </div>
+      )}
+      {(wake.interim || heard) && (
+        <span className="voice-heard" role="status" aria-live="polite">
+          {wake.interim ? <i>{wake.interim}…</i> : <>Heard: <b>{heard}</b></>}
+        </span>
       )}
       {(wake.state !== "off" || wake.error) && (
         <span className={"voice-wake" + (wake.state === "armed" ? " armed" : "") + (wake.error ? " bad" : "")} role="status"

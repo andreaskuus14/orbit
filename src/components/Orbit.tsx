@@ -6,7 +6,7 @@ import { PLANETS, planetById, type PanelId, type PlanetId } from "@/lib/planets"
 import { AnalyticsPanel, CorePanel, LaterPanel, MemoryPanel, ProfilePanel } from "./panels";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
-import { VOICE_ASK } from "./voice/bus";
+import { VOICE_ASK, voiceContext } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
@@ -49,10 +49,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string; search?: string } | null>(null);
   const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "none" } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
+  // Sub-targets are one-shot: leaving the world forgets them, so reopening it later doesn't replay an old search/overlay.
+  useEffect(() => { if (panel !== "intelligence" && approach !== "intelligence") setNewsFocus(null); if (panel !== "studio" && approach !== "studio") setStudioOpen(null); }, [panel, approach]);
 
   // Fetch the world chunks while idle, so entering a world never waits on a JS download (next/dynamic reuses them).
   useEffect(() => {
-    const load = () => { void import("./NewsGlobe"); void import("./StudioWorld"); void import("./DevWorld"); };
+    const load = () => { for (const p of [import("./NewsGlobe"), import("./StudioWorld"), import("./DevWorld")]) p.catch(() => {}); }; // best-effort warm-up
     if ("requestIdleCallback" in window) requestIdleCallback(load, { timeout: 5000 }); else setTimeout(load, 1500);
   }, []);
 
@@ -94,7 +96,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
       if (!text) return;
       setCmdErr("");
-      const nav = parseNavCommand(text, { current: panel }); // "go to local news": fly there and say so, without opening CORE
+      let nav = parseNavCommand(text, { current: panel }); // "go to local news"
+      if (nav?.zoom && (view !== "3d" || gameOpen)) nav = null; // no 3D scene on screen: zooming would do nothing
       if (nav) {
         stopSpeech();
         if (speechSettings().speak) speakChunk(navReply(nav));
@@ -106,7 +109,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     };
     addEventListener(VOICE_ASK, onAsk);
     return () => removeEventListener(VOICE_ASK, onAsk);
-  }, [panel]);
+  }, [panel, view, gameOpen]);
+  useEffect(() => { voiceContext.current = panel; }, [panel]); // voice prefers alternatives that are commands for this place
 
   // Default to the fast 2D view when WebGL is missing or the screen is small; the user can switch any time.
   useEffect(() => {
@@ -220,7 +224,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     if (!text) return;
     voice.clearError();
     setCmdErr("");
-    const nav = parseNavCommand(text, { current: panel }); // in either mode: "open game dev" is a place, not a question or a task
+    let nav = parseNavCommand(text, { current: panel }); // in either mode
+    if (nav?.zoom && (view !== "3d" || gameOpen)) nav = null; // no 3D scene on screen: zooming would do nothing: "open game dev" is a place, not a question or a task
     if (nav) { setCmd(""); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: nav })); return; }
     if (cmdMode === "ask") { setCmd(""); setPending(text); setPanel("core"); return; }
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
