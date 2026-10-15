@@ -345,3 +345,8 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .studio-tip { position: absolute; left: 0; top: 0; width: 15rem; display: grid; gap: 0.3rem; padding: 0.45rem; border-radius: 12px; font-size: 12px; color: #ffe5ec; background: rgba(18, 2, 9, 0.78); backdrop-filter: blur(12px); border: 1px solid rgba(255, 143, 171, 0.35); box-shadow: 0 0 22px rgba(255, 46, 99, 0.25); }
 .studio-tip img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; }
 .studio-tip span { color: #ff8fab; font-size: 11px; }
+
+/* CORE over STUDIO / GAME DEV: their panel owns the right side, so CORE opens on the left. Solid enough to read over the world. */
+.drawer.drawer-left { right: auto; left: 0.75rem; background: rgba(6, 4, 12, 0.88); }
+/* Worlds' own panels, chips and buttons a little smaller (the 3D canvas keeps its size). */
+.globe-in > :not(:has(canvas)):not(.pointer-events-none) { zoom: 0.9; } /* not the hover-tip layers: they place tips at raw mouse coordinates */

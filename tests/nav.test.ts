@@ -164,3 +164,8 @@ test("validateNav: empty optional fields don't override the target", () => {
   assert.deepEqual(validateNav({ target: "studio", view: "stats", search: "" }), { panel: "studio", view: "stats" });
   assert.deepEqual(validateNav({ search: "oil" }), { panel: "intelligence", search: "oil" });
 });
+
+test("'eclipse' is the clips (common mishearing)", () => {
+  for (const t of ["take me to the eclipse", "open the eclipse", "show me the clips in the studio"])
+    assert.deepEqual(parseNavCommand(t), { panel: "studio", view: "clips" }, t);
+});

@@ -24,7 +24,7 @@ const SLOT = /^((?:(?:hey |ok |okay )?orbit,? )?(?:please )?(?:go to|go back to|
 const PLACE_FIX: [RegExp, string][] = [
   [/^(?:intelligent|intelligences|intel|intel agents)$/i, "intelligence"],
   [/^(?:studios|stereo|studia|stu dio)$/i, "studio"],
-  [/^(?:clip|klips?|clipse|cleaps?)$/i, "clips"],
+  [/^(?:clip|klips?|clipse|cleaps?|eclipses?|the eclipses?)$/i, "clips"], // "take me to the eclipse" = the clips
   [/^(?:stat|stets|stads|statts)$/i, "stats"],
 ];
 

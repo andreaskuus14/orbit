@@ -32,8 +32,8 @@ put({ panel: "creation" }, "creation, game dev, gamedev, game development, games
 put({ panel: "life" }, "life, calendar, habits");
 put({ panel: "vault" }, "vault, files");
 // "my analytics" is the channel; plain "analytics" is the ANALYTICS planet (AI usage).
-put({ panel: "studio", view: "stats" }, "stats, my stats, statistics, channel stats, youtube stats, video stats, studio stats, my analytics, channel analytics, youtube analytics");
-put({ panel: "studio", view: "clips" }, "clips, my clips, clip factory, the clip factory, clip maker, shorts");
+put({ panel: "studio", view: "stats" }, "stats, my stats, statistics, stats in the studio, statistics in the studio, channel stats, youtube stats, video stats, studio stats, my analytics, channel analytics, youtube analytics");
+put({ panel: "studio", view: "clips" }, "clips, my clips, clip factory, the clip factory, clip maker, shorts, studio clips, clips in the studio, clips in studio, the clips in the studio, eclipse, eclipses, the eclipse, the eclipses");
 
 const REGION_ALIAS: Record<string, string> = {
   "north america": "Americas", "south america": "Americas", "latin america": "Americas", mideast: "Middle East",
