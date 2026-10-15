@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import {
-  cleanWords, audioArgs, probeArgs, assText, assTime, buildAss, captionLines, escapeXml, fallbackMoments, frameArgs, isInboxName, isJobId, parseByteRange, parseDuration,
-  peakTime, promptTranscript, removeOverlaps, renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, validateMoments,
-  verticalFilter, wordsFromChunks, wrapTitle, type Word,
+  cleanWords, audioArgs, probeArgs, assText, assTime, buildAss, captionGroups, escapeXml, fallbackMoments, frameArgs, isInboxName, isJobId, parseByteRange, parseDuration,
+  peakTime, promptTranscript, removeOverlaps, renderArgs, renderFilter, resolveInside, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, validateMoments,
+  wordsFromChunks, wrapTitle, type Word,
   cleanPermission, isDownloadId, parseClipUrl, parseYtdlpProgress, validOptions, ytdlpArgs, ytdlpError, ytdlpOutputFile,
 } from "../src/lib/clips/pure.ts";
 
@@ -58,7 +58,7 @@ test("validateMoments clamps, caps and removes overlaps", () => {
     '{"start":50,"end":52,"title":"too short"},"junk",null]\n```';
   const m = validateMoments(reply, { duration: 120, maxSec: 45, count: 5 });
   assert.equal(m.length, 2);
-  assert.deepEqual([m[0].start, m[0].end, m[0].score, m[0].title.length, m[0].hook], [0, 40, 0.9, 70, "one two three four five six"]);
+  assert.deepEqual([m[0].start, m[0].end, m[0].score, m[0].title.length, m[0].hook], [0, 40, 0.9, 60, "one two three four five six"]);
   assert.deepEqual([m[1].start, m[1].end, m[1].title, m[1].score], [100, 120, "Tail end", 0.5]);
   assert.deepEqual(validateMoments("no json", { duration: 10, maxSec: 45, count: 3 }), []);
   assert.deepEqual(validateMoments('{"start":1}', { duration: 10, maxSec: 45, count: 3 }), []);
@@ -108,30 +108,34 @@ test("ASS time format and escaping", () => {
   assert.equal(assText("a{\\b1}c\\N d\nline"), "a(＼b1)c＼N d line");
 });
 
-test("captionLines makes 2-4 word lines and breaks on punctuation/pauses", () => {
+test("captionGroups makes 1-3 word groups, breaking on punctuation, pauses and length", () => {
   const w = (text: string, start: number): Word => ({ text, start, end: start + 0.3 });
-  const lines = captionLines([w("I", 0), w("went", 0.3), w("home.", 0.6), w("Then", 0.9), w("a", 1.2), w("b", 1.5), w("c", 1.8), w("d", 2.1), w("later", 5)]);
-  assert.deepEqual(lines.map((l) => l.text), ["I went home.", "Then a b c", "d later"]);
-  assert.deepEqual([lines[0].start, lines[0].end], [0, 0.8999999999999999]);
+  const g = captionGroups([w("I", 0), w("went", 0.3), w("home.", 0.6), w("Then", 0.9), w("a", 1.2), w("b", 1.5), w("c", 1.8), w("later", 5), w("extraordinary", 5.3), w("x", 5.6)]);
+  assert.deepEqual(g.map((x) => x.map((y) => y.text).join(" ")), ["I went home.", "Then a b", "c", "later", "extraordinary", "x"]);
 });
 
-test("buildAss has the hook first 2.5 s and escaped captions", () => {
+test("buildAss: hook first 2.5 s, karaoke captions with the spoken word highlighted", () => {
   const ass = buildAss({ hook: "Wait {for} it", words: [{ text: "hello", start: 0.5, end: 1 }, { text: "world}", start: 1, end: 1.5 }, { text: "gone", start: 30, end: 31 }], duration: 20 });
   assert.match(ass, /PlayResX: 1080\nPlayResY: 1920/);
   assert.match(ass, /Dialogue: 1,0:00:00.00,0:00:02.50,Hook,,0,0,0,,WAIT \(FOR\) IT/);
-  assert.match(ass, /Dialogue: 0,0:00:00.50,0:00:01.50,Cap,,0,0,0,,HELLO WORLD\)/);
+  const hi = (t: string, c = "&H00E5FF&", s = 115) => `{\\c${c}\\t(0,80,\\fscx${s}\\fscy${s})}${t}{\\c&HFFFFFF&\\fscx100\\fscy100}`;
+  assert.ok(ass.includes(`Dialogue: 0,0:00:00.50,0:00:01.00,Cap,,0,0,0,,${hi("HELLO")} WORLD)\n`), ass);
+  assert.ok(ass.includes(`Dialogue: 0,0:00:01.00,0:00:01.50,Cap,,0,0,0,,HELLO ${hi("WORLD)")}\n`));
   assert.ok(!ass.includes("GONE"));
   assert.ok(!buildAss({ hook: "", words: [], duration: 5 }).includes("Dialogue:"));
+  const loud = buildAss({ hook: "", words: [{ text: "no", start: 0, end: 0.3 }, { text: "WAY", start: 0.3, end: 0.6, loud: true }], duration: 5 });
+  assert.ok(loud.includes(`NO ${hi("WAY", "&H632EFF&", 135)}`), "a shouted word is cherry and bigger");
 });
 
-test("buildAss shrinks a line whose word is longer than 13 chars", () => {
-  const ass = buildAss({ hook: "", words: [{ text: "Congratulations!!", start: 0, end: 1 }, { text: "short", start: 2, end: 3 }], duration: 5 });
-  assert.match(ass, /Cap,,0,0,0,,\{\\fs67\}CONGRATULATIONS!! SHORT\n/); // floor(88 * 13 / 17)
-  assert.match(buildAss({ hook: "", words: [{ text: "thirteenchars", start: 0, end: 1 }], duration: 5 }), /Cap,,0,0,0,,THIRTEENCHARS\n/);
+test("buildAss shrinks a line that wouldn't fit", () => {
+  const ass = buildAss({ hook: "", words: [{ text: "Congratulations!!", start: 0, end: 1 }], duration: 5 });
+  assert.match(ass, /Cap,,0,0,0,,\{\\fs69\}\{/); // floor(92 * 15 / (17 + 3))
+  assert.match(buildAss({ hook: "", words: [{ text: "twelve chars", start: 0, end: 1 }], duration: 5 }), /Cap,,0,0,0,,\{\\c/);
 });
 
 test("ffmpeg arg builders", () => {
   const r = renderArgs({ input: "C:\\v\\a b.mp4", start: 12.3456, duration: 30, ass: "clip-1.ass", out: "clip-1.mp4" });
+  assert.ok(!r.includes("[a]"), "no audio stream, no audio map");
   assert.deepEqual(r.slice(3, 7), ["-ss", "12.346", "-t", "30"]);
   assert.equal(r[r.indexOf("-i") + 1], "C:\\v\\a b.mp4");
   for (const args of [r, probeArgs("x.mp4"), audioArgs("x.mp4", "a.f32"), frameArgs("x.mp4", 1, "f.jpg")]) // inputs are always whitelisted
@@ -141,9 +145,9 @@ test("ffmpeg arg builders", () => {
   const a = audioArgs("x.mp4", "a.f32");
   assert.deepEqual(a.slice(a.indexOf("-af"), a.indexOf("-af") + 4), ["-af", "aresample=async=1:first_pts=0", "-f", "f32le"]);
   assert.ok(r[r.indexOf("-filter_complex") + 1].endsWith(",ass=clip-1.ass[v]"));
-  assert.throws(() => verticalFilter("C:\\x\\y.ass"));
-  assert.throws(() => verticalFilter("a'b.ass"));
-  assert.ok(!verticalFilter().includes("ass="));
+  assert.throws(() => renderFilter({ duration: 5, ass: "C:\\x\\y.ass" }));
+  assert.throws(() => renderFilter({ duration: 5, ass: "a'b.ass" }));
+  assert.ok(!renderFilter({ duration: 5 }).includes("ass="));
   assert.deepEqual(frameArgs("in.mp4", 5, "f.jpg").slice(-5), ["[v]", "-frames:v", "1", "-q:v", "2", "f.jpg"].slice(-5));
 });
 
@@ -228,9 +232,11 @@ test("ytdlpArgs keeps the URL last, after --", () => {
 });
 
 test("validOptions and isDownloadId", () => {
-  assert.deepEqual(validOptions({}), { count: 5, maxSec: 45, captions: true });
-  assert.equal(typeof validOptions({ count: 11 }), "string");
-  assert.equal(typeof validOptions({ captions: "yes" }), "string");
+  assert.deepEqual(validOptions({}), { count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", jumpCuts: true, zooms: true, language: "en" });
+  assert.deepEqual(validOptions({ layout: "split", camSide: "left", jumpCuts: false, zooms: false, language: "auto" }),
+    { count: 5, maxSec: 45, captions: true, layout: "split", camSide: "left", jumpCuts: false, zooms: false, language: "auto" });
+  for (const bad of [{ count: 11 }, { captions: "yes" }, { layout: "zoom" }, { camSide: "top" }, { jumpCuts: 1 }, { zooms: null }, { language: "de" }])
+    assert.equal(typeof validOptions(bad), "string", JSON.stringify(bad));
   assert.ok(isDownloadId("dl-mgr1abc-a1b2c3"));
   assert.ok(!isDownloadId("../x"));
 });

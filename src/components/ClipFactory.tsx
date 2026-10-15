@@ -14,13 +14,16 @@ type YtStatus = { configured: boolean; connected: boolean; canUpload?: boolean }
 type PublishBody = { title: string; description: string; privacy: "private" | "unlisted" | "public"; publishAt?: string };
 type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering" | "done" | "failed";
 type ClipJob = { id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
-  durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: { count: number; maxSec: number; captions: boolean } };
+  durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
+  timings?: { audio: number; transcribe: number; pick: number; render: number } };
+type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: "fit" | "fill" | "split"; camSide?: "left" | "right";
+  jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en" };
 type InboxFile = { name: string; size: number; mtime: string; jobId?: string; permission?: string };
 type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
 type Download = { id: string; url: string; status: "queued" | "downloading" | "done" | "failed"; progress: number; step: string; file?: string; error?: string;
   createdAt: string; permission: string; autoClip?: ClipJob["options"] };
 type Data = { root: string; tools: ToolsStatus; inbox: InboxFile[]; jobs: ClipJob[]; downloads: Download[] };
-type Opts = ClipJob["options"];
+type Opts = Required<ClipOptions>;
 
 const API = "/api/studio/clips";
 const SETUP = "cd C:\\Users\\andre\\Documents\\orbit; npm install; npm run app:rebuild";
@@ -77,9 +80,9 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const [conflict, setConflict] = useState<Record<string, Opts>>({}); // source → options that got a 409
+  const [conflict, setConflict] = useState<Record<string, ClipOptions>>({}); // source → options that got a 409
   const [form, setForm] = useState<string | null>(null);
-  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true });
+  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", jumpCuts: true, zooms: true, language: "en" });
   const [showRejected, setShowRejected] = useState(false);
   const [visible, setVisible] = useState(true);
   const [yt, setYt] = useState<YtStatus | null>(null);
@@ -120,9 +123,9 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
   }
   const Note = ({ k }: { k: string }) => (notes[k] ? <p className="error mt-1 text-xs" role="alert">{notes[k]}</p> : null);
 
-  const make = (source: string, o: Opts, force = false) => act(`make:${source}`, async () => {
+  const make = (source: string, o: ClipOptions, force = false) => act(`make:${source}`, async () => {
     try {
-      await api(API, { method: "POST", body: { source, count: o.count, maxSec: o.maxSec, captions: o.captions, ...(force ? { force: true } : {}) } });
+      await api(API, { method: "POST", body: { source, ...o, ...(force ? { force: true } : {}) } });
       setForm(null); setConflict((c) => { const n = { ...c }; delete n[source]; return n; });
       await load(true);
     } catch (e) {
@@ -149,7 +152,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
     setData((d) => d && { ...d, jobs: d.jobs.filter((j) => j.id !== job), inbox: d.inbox.map((f) => (f.jobId === job ? { ...f, jobId: undefined } : f)) });
   });
 
-  const download = (body: { url: string; permission: string; autoClip?: Opts }, replaces?: string) => act(replaces ? `dl:${replaces}` : "dl", async () => {
+  const download = (body: { url: string; permission: string; autoClip?: ClipOptions }, replaces?: string) => act(replaces ? `dl:${replaces}` : "dl", async () => {
     await api(`${API}/download`, { method: "POST", body });
     if (replaces) await api(`${API}/download/${encodeURIComponent(replaces)}`, { method: "DELETE" }).catch(() => {}); // retry = resubmit, drop the failed record
     await load(true);
@@ -271,6 +274,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
                             <input type="checkbox" checked={opts.captions && data.tools.transcriber} onChange={(e) => setOpts((o) => ({ ...o, captions: e.target.checked }))} disabled={!data.tools.transcriber} />
                             Captions{!data.tools.transcriber ? " (needs transcriber)" : ""}
                           </label>
+                          <EditOptions opts={opts} setOpts={setOpts} />
                           <button type="submit" className="btn" disabled={busy[k] || !data.tools.ffmpeg}>{busy[k] ? "Starting…" : "Start"}</button>
                         </form>
                       )}
@@ -367,6 +371,7 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
             <input type="checkbox" checked={opts.captions && tools.transcriber} onChange={(e) => setOpts((o) => ({ ...o, captions: e.target.checked }))} disabled={!tools.transcriber} />
             Captions{!tools.transcriber ? " (needs transcriber)" : ""}
           </label>
+          <EditOptions opts={opts} setOpts={setOpts} />
         </div>
       )}
       <button type="submit" className="btn" disabled={busy || !okUrl || !tools.ytdlp || !tools.ffmpeg}>{busy ? "Adding…" : "⬇ Download"}</button>
@@ -383,14 +388,43 @@ function Conflict({ onAgain, busy }: { onAgain: () => void; busy?: boolean }) {
   );
 }
 
-function Choice({ legend, values, value, fmt, onChange }: { legend: string; values: number[]; value: number; fmt: (v: number) => string; onChange: (v: number) => void }) {
+function Choice<T extends string | number>({ legend, values, value, fmt, onChange, hint }: { legend: string; values: T[]; value: T; fmt: (v: T) => string; onChange: (v: T) => void; hint?: string }) {
   return (
     <fieldset>
       <legend className="muted mb-1 text-[10px] uppercase tracking-widest">{legend}</legend>
       <div className="flex gap-1">
         {values.map((v) => <button key={v} type="button" className="chip num" aria-pressed={value === v} onClick={() => onChange(v)}>{fmt(v)}</button>)}
       </div>
+      {hint && <p className="muted mt-1 text-[10px]">{hint}</p>}
     </fieldset>
+  );
+}
+
+const LAYOUT: Record<Opts["layout"], [string, string]> = {
+  fit: ["Fit", "Whole frame over a blurred background"],
+  fill: ["Fill", "Crops the middle to full screen (facecam-centred streams)"],
+  split: ["Split", "Gameplay on top, facecam below"],
+};
+
+/** Layout, pacing, zooms and language for a clip job. */
+function EditOptions({ opts, setOpts }: { opts: Opts; setOpts: (f: (o: Opts) => Opts) => void }) {
+  return (
+    <>
+      <Choice legend="Layout" values={["fit", "fill", "split"] as Opts["layout"][]} value={opts.layout} fmt={(v) => LAYOUT[v][0]} hint={LAYOUT[opts.layout][1]}
+        onChange={(layout) => setOpts((o) => ({ ...o, layout }))} />
+      {opts.layout === "split" && (
+        <Choice legend="Facecam side" values={["left", "right"] as Opts["camSide"][]} value={opts.camSide} fmt={(v) => (v === "left" ? "Left third" : "Right third")}
+          onChange={(camSide) => setOpts((o) => ({ ...o, camSide }))} />
+      )}
+      <Choice legend="Speech" values={["en", "auto"] as Opts["language"][]} value={opts.language} fmt={(v) => (v === "en" ? "English" : "Any language")}
+        onChange={(language) => setOpts((o) => ({ ...o, language }))} />
+      <label className="flex items-center gap-1.5" title="Cuts pauses of 0.7 s or more">
+        <input type="checkbox" checked={opts.jumpCuts} onChange={(e) => setOpts((o) => ({ ...o, jumpCuts: e.target.checked }))} /> Jump cuts (remove dead air)
+      </label>
+      <label className="flex items-center gap-1.5" title="A quick zoom on the loudest moments, at most one every 6 s">
+        <input type="checkbox" checked={opts.zooms} onChange={(e) => setOpts((o) => ({ ...o, zooms: e.target.checked }))} /> Zoom punch-ins
+      </label>
+    </>
   );
 }
 
@@ -424,6 +458,12 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, onRetry, onDelete
 
       {working && (
         <Progress pct={pct} step={job.step} label={`Progress for ${job.source}`} reduced={reduced} />
+      )}
+
+      {job.status === "done" && job.timings && (
+        <p className="muted num mt-1 text-[11px]">
+          Took {mmss(job.timings.audio + job.timings.transcribe + job.timings.pick + job.timings.render)}: audio {mmss(job.timings.audio)} · transcribe {mmss(job.timings.transcribe)} · pick {mmss(job.timings.pick)} · render {mmss(job.timings.render)}
+        </p>
       )}
 
       {job.warnings.length > 0 && <ul className="mt-2 space-y-0.5 text-xs" aria-label="Warnings">{job.warnings.map((w, k) => <li key={k}>⚠ {w}</li>)}</ul>}

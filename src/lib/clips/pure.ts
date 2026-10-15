@@ -1,8 +1,10 @@
 import path from "node:path";
+import type { ClipOptions } from "./types";
 
 // Pure helpers for the Clip Factory (no I/O), unit-tested in tests/clips.test.ts.
 
-export type Word = { start: number; end: number; text: string };
+export type Word = { start: number; end: number; text: string; loud?: boolean }; // loud: shouted, gets the big caption
+export type Span = { start: number; end: number };
 export type Moment = { start: number; end: number; title: string; hook: string; reason: string; score: number };
 export type Candidate = { start: number; end: number; score: number };
 
@@ -158,10 +160,12 @@ export function validateMoments(text: string, o: { duration: number; maxSec: num
     const end = clamp(e0, 0, o.duration);
     const start = Math.max(clamp(s0, 0, o.duration), end - o.maxSec); // too long: keep the end, that's where the payoff is
     if (end - start < 5) continue;
-    let score = Number(r.score);
+    // Rubric reply: overall = mean of the 0-10 criteria; else a plain score.
+    const crit = r.scores && typeof r.scores === "object" ? Object.values(r.scores).map(Number).filter(Number.isFinite) : [];
+    let score = crit.length ? crit.reduce((a, v) => a + clamp(v, 0, 10), 0) / crit.length / 10 : Number(r.score);
     if (!Number.isFinite(score)) score = 0.5;
     else if (score > 1) score /= 100; // some replies use 0..100
-    const title = str(r.title, 70) || `Clip at ${mmss(start)}`;
+    const title = str(r.title, 60) || `Clip at ${mmss(start)}`;
     const hook = str(r.hook, 60).split(" ").slice(0, 6).join(" ").slice(0, 40).trim();
     out.push({ start, end, title, hook, reason: str(r.reason, 300), score: Math.round(clamp(score, 0, 1) * 100) / 100 });
   }
@@ -173,6 +177,153 @@ export function fallbackMoments(cands: Candidate[], count: number): Moment[] {
   return cands.slice(0, count).map((c, i) => ({
     start: c.start, end: c.end, score: c.score, title: `Highlight ${i + 1} (${mmss(c.start)})`, hook: "Wait for this", reason: "Loudest, most active stretch",
   }));
+}
+
+// ---- analysis: what to transcribe, how to split the picking ----
+
+const spanSec = (spans: Span[]) => spans.reduce((s, x) => s + x.end - x.start, 0);
+export const totalSec = spanSec;
+
+/** Whisper is the slow step, so long videos only get their loudest stretches transcribed: the top loudness candidates
+ *  (more when more clips are wanted) padded ±pad s and merged. Short videos are transcribed whole. */
+export function asrRegions(rms: number[], duration: number, o: { maxSec: number; count: number }, shortSec = 720, pad = 20): Span[] {
+  if (duration <= shortSec) return [{ start: 0, end: duration }];
+  const limit = Math.min(30, Math.max(12, o.count * 3));
+  const spans = scoreCandidates(rms, o.maxSec, [], limit)
+    .map((c) => ({ start: Math.max(0, c.start - pad), end: Math.min(duration, c.end + pad) })).sort((a, b) => a.start - b.start);
+  const out: Span[] = [];
+  for (const s of spans) {
+    const last = out[out.length - 1];
+    if (last && s.start <= last.end + 5) last.end = Math.max(last.end, s.end);
+    else out.push(s);
+  }
+  return out;
+}
+
+/** Regions → Whisper pieces of ≤ seg s (bounded memory, progress and cancel points). A piece re-reads `overlap` s before its start
+ *  (never before its region) so seam words survive; cleanWords drops the doubles. `sec` = new audio, for progress. */
+export function asrPieces(regions: Span[], seg = 300, overlap = 5): { from: number; to: number; sec: number }[] {
+  const out: { from: number; to: number; sec: number }[] = [];
+  for (const r of regions) for (let t = r.start; t < r.end - 1; t += seg) out.push({ from: Math.max(r.start, t - overlap), to: Math.min(r.end, t + seg), sec: Math.min(seg, r.end - t) });
+  return out;
+}
+
+/** Splits the transcribed spans into ≤ n time-ordered groups of about equal length, one per parallel scout.
+ *  A cut inside a span extends that group `overlap` s so a moment across the seam can still be found. */
+export function groupSpans(spans: Span[], n: number, overlap = 20): Span[][] {
+  const target = spanSec(spans) / Math.max(1, n);
+  const groups: Span[][] = [[]];
+  let acc = 0;
+  for (const s of spans) {
+    for (let start = s.start; start < s.end - 1e-9;) {
+      const end = groups.length < n ? Math.min(s.end, start + target - acc) : s.end;
+      groups[groups.length - 1].push({ start, end: end < s.end ? Math.min(s.end, end + overlap) : end });
+      acc += end - start;
+      start = end;
+      if (acc >= target - 1e-6 && groups.length < n) { groups.push([]); acc = 0; }
+    }
+  }
+  return groups.filter((g) => g.length);
+}
+
+/** The final editor's picks first (only ones that mostly match a scout's proposal, so no invented times), then the scouts' best by score; never overlapping. */
+export function mergeRanked(final: Moment[], proposals: Moment[], count: number): Moment[] {
+  const matches = (f: Moment) => proposals.some((p) => Math.min(f.end, p.end) - Math.max(f.start, p.start) >= 0.5 * (f.end - f.start));
+  const out = removeOverlaps(final.filter(matches)).slice(0, count);
+  for (const p of [...proposals].sort((a, b) => b.score - a.score)) {
+    if (out.length < count && out.every((k) => p.end <= k.start || p.start >= k.end)) out.push(p);
+  }
+  return out;
+}
+
+// ---- editing: jump cuts, punch-in zooms, loud words (all times clip-relative) ----
+
+export type Pt = { t: number; v: number }; // one loudness window: centre time, RMS
+const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+
+/** The loudness windows inside [start, end), timed relative to start. */
+export function clipLoudness(rms: number[], start: number, end: number, winSec = WIN_SEC): Pt[] {
+  const out: Pt[] = [];
+  for (let i = Math.max(0, Math.floor(start / winSec)); i < Math.min(rms.length, Math.ceil(end / winSec)); i++) out.push({ t: i * winSec + winSec / 2 - start, v: rms[i] });
+  return out;
+}
+
+/** Parts of a clip to keep once dead air is cut. Dead air = a stretch ≥ minGap s inside a gap between words where the audio is at or
+ *  under the clip's median (so a scream or explosion Whisper didn't catch stays); with no words, stretches well under the median.
+ *  Each cut leaves `pad` s on both sides; at most `max` cuts (the longest); returns the whole clip if cutting would leave under 5 s. */
+export function keepSegments(words: Word[], pts: Pt[], dur: number, o = { minGap: 0.7, pad: 0.15, max: 40 }): Span[] {
+  const med = median(pts.map((p) => p.v)), h = WIN_SEC / 2;
+  const quietRuns = (g: Span, thr: number) => {
+    const runs: Span[] = [];
+    let run: Span | null = null;
+    for (const p of pts) {
+      if (p.t + h <= g.start || p.t - h >= g.end) continue;
+      if (p.v <= thr) { if (run) run.end = Math.min(g.end, p.t + h); else run = { start: Math.max(g.start, p.t - h), end: Math.min(g.end, p.t + h) }; }
+      else if (run) { runs.push(run); run = null; }
+    }
+    if (run) runs.push(run);
+    return runs.filter((r) => r.end - r.start >= o.minGap);
+  };
+  let gaps: Span[] = [];
+  if (words.length) {
+    let edge = 0;
+    for (const w of words) { if (w.start - edge >= o.minGap) gaps.push(...quietRuns({ start: edge, end: w.start }, med)); edge = Math.max(edge, w.end); }
+    if (dur - edge >= o.minGap) gaps.push(...quietRuns({ start: edge, end: dur }, med));
+  } else gaps = quietRuns({ start: 0, end: dur }, 0.35 * med);
+  const cuts = gaps.map((g) => ({ start: g.start <= 0 ? 0 : g.start + o.pad, end: g.end >= dur ? dur : g.end - o.pad }))
+    .sort((a, b) => (b.end - b.start) - (a.end - a.start)).slice(0, o.max).sort((a, b) => a.start - b.start);
+  const keep: Span[] = [];
+  let at = 0;
+  for (const c of [...cuts, { start: dur, end: dur }]) {
+    if (c.start - at >= 0.1) keep.push({ start: at, end: c.start }); // slivers would be 0-3 frames: drop them
+    at = Math.max(at, c.end);
+  }
+  return spanSec(keep) >= Math.min(5, dur) ? keep : [{ start: 0, end: dur }];
+}
+
+/** Clip time → time on the jump-cut timeline; an instant that was cut out maps to where the next kept part starts. */
+export function retime(t: number, segs: Span[]): number {
+  let off = 0;
+  for (const s of segs) {
+    if (t < s.start) return off;
+    if (t <= s.end) return off + t - s.start;
+    off += s.end - s.start;
+  }
+  return off;
+}
+
+export const retimeWords = (words: Word[], segs: Span[]): Word[] =>
+  words.map((w) => ({ ...w, start: retime(w.start, segs), end: retime(w.end, segs) })).filter((w) => w.end - w.start > 0.01);
+
+/** Punch-in times on the cut timeline: the loudest peaks (well above the clip's median, near its max), ≥ gap s apart, not in cut-out parts. */
+export function zoomTimes(pts: Pt[], segs: Span[], gap = 6): number[] {
+  const vs = pts.map((p) => p.v), med = median(vs), max = Math.max(0, ...vs);
+  if (!max) return [];
+  const picked: number[] = [];
+  for (const p of pts.filter((p) => p.v >= Math.max(1.4 * med, 0.7 * max)).sort((a, b) => b.v - a.v)) {
+    if (!segs.some((s) => p.t >= s.start && p.t <= s.end)) continue;
+    const t = retime(p.t, segs);
+    if (t >= 0.3 && picked.every((q) => Math.abs(q - t) >= gap)) picked.push(t);
+  }
+  return picked.sort((a, b) => a - b);
+}
+
+const ZOOM = 0.12, RAMP = 0.15, HOLD = 1;
+/** zoompan z expression: 1 → 1.12 over 0.15 s ending at each peak, held 1 s, back over 0.15 s. Uses the output frame number (on) at a fixed fps. */
+export function zoomExpr(times: number[], fps = 30): string {
+  const t = `on/${fps}`;
+  return `1+${ZOOM}*(${times.map((p) => `clip((${t}-${sec(p - RAMP)})/${RAMP},0,1)*clip((${sec(p + HOLD + RAMP)}-${t})/${RAMP},0,1)`).join("+")})`;
+}
+
+/** Flags shouted words: ALL CAPS or "!" in the transcript, or among the loudest ~15% of the clip (and well above its median). */
+export function markLoud(words: Word[], pts: Pt[]): Word[] {
+  const vs = pts.map((p) => p.v).sort((a, b) => a - b);
+  const thr = vs.length ? Math.max(vs[Math.floor(0.85 * (vs.length - 1))], 1.5 * median(vs)) : Infinity;
+  return words.map((w) => {
+    const peak = Math.max(0, ...pts.filter((p) => p.t + WIN_SEC / 2 > w.start && p.t - WIN_SEC / 2 < w.end).map((p) => p.v));
+    const caps = /\p{Lu}{2,}/u.test(w.text) && w.text === w.text.toUpperCase();
+    return { ...w, loud: w.text.includes("!") || caps || (thr > 0 && peak >= thr) };
+  });
 }
 
 // ---- ASS subtitles ----
@@ -217,41 +368,52 @@ export function cleanWords(words: Word[]): Word[] {
   return out;
 }
 
-export function captionLines(words: Word[]): Word[] {
-  const lines: Word[] = [];
+/** 1-3 words per caption, breaking early on punctuation, pauses and length so each fits one line. */
+export function captionGroups(words: Word[]): Word[][] {
+  const groups: Word[][] = [];
   let cur: Word[] = [];
-  const flush = () => { if (cur.length) lines.push({ start: cur[0].start, end: cur[cur.length - 1].end, text: cur.map((w) => w.text).join(" ") }); cur = []; };
   words.forEach((w, i) => {
     cur.push(w);
     const next = words[i + 1];
     const chars = cur.reduce((n, x) => n + x.text.length + 1, 0);
-    const breakHere = !next || cur.length >= 4 || (cur.length >= 2 && (chars > 16 || /[.!?,;:]$/.test(w.text) || next.start - w.end > 0.6));
-    if (breakHere) flush();
+    if (!next || cur.length >= 3 || /[.!?,;:]$/.test(w.text) || next.start - w.end > 0.35 || chars + next.text.length > 14) { groups.push(cur); cur = []; }
   });
-  return lines;
+  return groups;
 }
 
 const CHERRY_ASS = "&H00632EFF"; // #ff2e63 as &HAABBGGRR
+const CAP_FS = 92, CAP_CHARS = 15; // ~15 uppercase chars of bold Arial 92 fit 960 px
+const ASS_YELLOW = "&H00E5FF&", ASS_CHERRY = "&H632EFF&"; // #ffe500, #ff2e63 (override colours are &HBBGGRR&)
 
-/** Subtitle file for one clip: the hook on top for the first 2.5 s, then word-timed captions lower-middle. Times are clip-relative. */
+/** Subtitle file for one clip: the hook on top for the first 2.5 s, then karaoke captions lower-middle: 1-3 words on screen, the spoken
+ *  word yellow and popping to 115% (a shouted word: cherry, 135%). Times are relative to the (jump-cut) clip. */
 export function buildAss(o: { hook: string; words: Word[]; duration: number }): string {
   const ev: string[] = [];
   if (o.hook.trim()) ev.push(`Dialogue: 1,${assTime(0)},${assTime(Math.min(2.5, o.duration))},Hook,,0,0,0,,${assText(o.hook).toUpperCase()}`);
-  const lines = captionLines(cleanWords(o.words));
-  lines.forEach((l, i) => {
-    // Never overlap: libass stacks simultaneous captions into a wall of text, so each line ends where the next begins.
-    const start = Math.max(0, l.start), next = lines[i + 1]?.start ?? Infinity;
-    const end = Math.min(o.duration, Math.max(l.end, start + 0.3), next);
-    if (end - start < 0.05 || start >= o.duration) return;
-    // A single long word ("CONGRATULATIONS!") can't wrap and would run off a 1080 px wide screen: shrink the line to fit ~13 chars.
-    const long = Math.max(...l.text.split(" ").map((w) => w.length));
-    ev.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${long > 13 ? `{\\fs${Math.floor((88 * 13) / long)}}` : ""}${assText(l.text).toUpperCase()}`);
+  const groups = captionGroups(cleanWords(o.words));
+  let last = 0;
+  groups.forEach((g, gi) => {
+    const nextGroup = groups[gi + 1]?.[0].start ?? Infinity;
+    const text = g.map((w) => assText(w.text).toUpperCase());
+    // A long line can't wrap nicely and would run off a 1080 px screen: shrink it (+3 chars of room for the pop).
+    const len = text.join(" ").length + 3;
+    const fs = len > CAP_CHARS ? `{\\fs${Math.floor((CAP_FS * CAP_CHARS) / len)}}` : "";
+    g.forEach((w, i) => {
+      // Never overlap: libass stacks simultaneous captions into a wall of text, so each event ends where the next begins.
+      const start = Math.max(last, w.start);
+      const end = Math.min(o.duration, i < g.length - 1 ? g[i + 1].start : Math.min(Math.max(w.end, start + 0.3), nextGroup));
+      if (end - start < 0.05 || start >= o.duration) return;
+      last = end;
+      const pop = w.loud ? 135 : 115;
+      const line = text.map((t, j) => (j === i ? `{\\c${w.loud ? ASS_CHERRY : ASS_YELLOW}\\t(0,80,\\fscx${pop}\\fscy${pop})}${t}{\\c&HFFFFFF&\\fscx100\\fscy100}` : t)).join(" ");
+      ev.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${fs}${line}`);
+    });
   });
   return [
     "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "WrapStyle: 0", "ScaledBorderAndShadow: yes", "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    "Style: Cap,Arial,88,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,2,2,60,60,560,1",
+    `Style: Cap,Arial,${CAP_FS},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,8,3,2,60,60,560,1`,
     `Style: Hook,Arial,92,&H00FFFFFF,&H00FFFFFF,${CHERRY_ASS},${CHERRY_ASS},-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1`,
     "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text", ...ev, "",
   ].join("\n");
@@ -268,25 +430,59 @@ export const audioArgs = (input: string, out: string) =>
   ["-hide_banner", "-nostdin", "-y", ...IN, input, "-t", String(MAX_SOURCE_SEC), "-vn", "-ac", "1", "-ar", String(SAMPLE_RATE),
     "-af", "aresample=async=1:first_pts=0", "-f", "f32le", out]; // fill audio gaps/late starts with silence so PCM time = video time
 
-/** 1080x1920: blurred, darkened cover copy behind the clip scaled to fit. Blur at quarter size, it's far cheaper. */
-export function verticalFilter(ass?: string): string {
-  // The ass filter's path is parsed by the filter-graph syntax; ffmpeg runs with cwd = the clip folder so a bare safe name suffices.
-  if (ass !== undefined && !/^[\w.-]+\.ass$/.test(ass)) throw new Error("unsafe ass file name");
-  return "[0:v]split=2[bg0][fg0];" +
+export type Layout = NonNullable<ClipOptions["layout"]>;
+type CamSide = NonNullable<ClipOptions["camSide"]>;
+
+/** Source video [inp] → 1080x1920 [out]. fit: whole frame over a blurred, darkened cover copy (blurred at quarter size, far cheaper);
+ *  fill: centre crop; split: gameplay (the 9:8 middle of the non-cam two thirds) on top, the cam third below. */
+export function layoutFilter(inp: string, out: string, layout: Layout = "fit", camSide: CamSide = "right"): string {
+  if (layout === "fill") return `[${inp}]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[${out}]`;
+  if (layout === "split") {
+    const w = "min(iw*2/3,ih*9/8)", x = camSide === "right" ? "(iw*2/3-ow)/2" : "iw/3+(iw*2/3-ow)/2";
+    // shortcut: the cam is assumed to fill a full-height third (centre-cropped); add a cam box option if real layouts need it.
+    return `[${inp}]split=2[g0][c0];[g0]crop='${w}':'${w}*8/9':'${x}':'(ih-oh)/2',scale=1080:960,setsar=1[g1];` +
+      `[c0]crop=iw/3:ih:${camSide === "right" ? "iw*2/3" : "0"}:0,scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960,setsar=1[c1];[g1][c1]vstack[${out}]`;
+  }
+  return `[${inp}]split=2[bg0][fg0];` +
     "[bg0]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=12:2,scale=1080:1920,setsar=1,eq=brightness=-0.28[bg];" +
     "[fg0]scale=1080:1920:force_original_aspect_ratio=decrease,setsar=1[fg];" +
-    `[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p${ass ? `,ass=${ass}` : ""}[v]`;
+    `[bg][fg]overlay=(W-w)/2:(H-h)/2[${out}]`;
 }
 
-export const renderArgs = (o: { input: string; start: number; duration: number; ass?: string; out: string }) => [
+export type RenderOpts = { duration: number; segs?: Span[]; audio?: boolean; layout?: Layout; camSide?: CamSide; zooms?: number[]; ass?: string };
+
+/** The whole edit as one filter graph: jump cuts (trim/atrim + concat: frame/sample exact and A/V stay in sync per part), layout,
+ *  punch-in zooms, captions, then loudness-normalised stereo 48 kHz audio. Outputs [v] and, with audio, [a]. */
+export function renderFilter(o: RenderOpts): string {
+  // The ass filter's path is parsed by the filter-graph syntax; ffmpeg runs with cwd = the clip folder so a bare safe name suffices.
+  if (o.ass !== undefined && !/^[\w.-]+\.ass$/.test(o.ass)) throw new Error("unsafe ass file name");
+  const segs = o.segs?.length ? o.segs : [{ start: 0, end: o.duration }];
+  // Loudness first, on the uncut audio: after concat, loudnorm drops the last second or so of a short clip (ffmpeg 6).
+  const f: string[] = o.audio ? ["[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo[an]"] : []; // loudnorm resamples to 192 kHz
+  let v = "0:v", a = "an";
+  if (segs.length > 1 || segs[0].start > 0 || segs[0].end < o.duration) {
+    const n = segs.length, ids = segs.map((_, i) => i);
+    f.push(`[0:v]fps=30,split=${n}${ids.map((i) => `[vs${i}]`).join("")}`, ...segs.map((s, i) => `[vs${i}]trim=start=${sec(s.start)}:end=${sec(s.end)},setpts=PTS-STARTPTS[vt${i}]`));
+    if (o.audio) f.push(`[an]asplit=${n}${ids.map((i) => `[as${i}]`).join("")}`, ...segs.map((s, i) => `[as${i}]atrim=start=${sec(s.start)}:end=${sec(s.end)},asetpts=PTS-STARTPTS[at${i}]`));
+    f.push(`${ids.map((i) => `[vt${i}]${o.audio ? `[at${i}]` : ""}`).join("")}concat=n=${n}:v=1:a=${o.audio ? 1 : 0}[vc]${o.audio ? "[ac]" : ""}`);
+    v = "vc"; a = "ac";
+  }
+  f.push(layoutFilter(v, "lay", o.layout, o.camSide));
+  const zoom = o.zooms?.length ? `zoompan=z='${zoomExpr(o.zooms)}':d=1:x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':s=1080x1920:fps=30,setsar=1,` : "";
+  f.push(`[lay]fps=30,${zoom}format=yuv420p${o.ass ? `,ass=${o.ass}` : ""}[v]`);
+  if (o.audio) f.push(`[${a}]anull[a]`);
+  return f.join(";");
+}
+
+export const renderArgs = (o: RenderOpts & { input: string; start: number; out: string }) => [
   "-hide_banner", "-nostdin", "-y", "-ss", sec(o.start), "-t", sec(o.duration), ...IN, o.input,
-  "-filter_complex", verticalFilter(o.ass), "-map", "[v]", "-map", "0:a:0?",
+  "-filter_complex", renderFilter(o), "-map", "[v]", ...(o.audio ? ["-map", "[a]"] : []),
   "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-r", "30",
   "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", o.out,
 ];
 
-export const frameArgs = (input: string, at: number, out: string) =>
-  ["-hide_banner", "-nostdin", "-y", "-ss", sec(at), ...IN, input, "-filter_complex", verticalFilter(), "-map", "[v]", "-frames:v", "1", "-q:v", "2", out];
+export const frameArgs = (input: string, at: number, out: string, layout?: Layout, camSide?: CamSide) =>
+  ["-hide_banner", "-nostdin", "-y", "-ss", sec(at), ...IN, input, "-filter_complex", layoutFilter("0:v", "v", layout, camSide), "-map", "[v]", "-frames:v", "1", "-q:v", "2", out];
 
 // ---- yt-dlp ("Add from link") ----
 
@@ -349,13 +545,17 @@ export function isPlainName(name: unknown): name is string {
   return !/[\\/:\0]|[\x00-\x1f]/.test(name); // separators are banned, so ".." inside a name ("So... this.mp4") is harmless
 }
 
-/** Clip options from a request body (defaults 5 clips, 45 s, captions) or an error message. */
-export function validOptions(b: Record<string, unknown>): { count: number; maxSec: number; captions: boolean } | string {
-  const { count = 5, maxSec = 45, captions = true } = b;
+const LAYOUTS = ["fit", "fill", "split"], SIDES = ["left", "right"], LANGS = ["auto", "en"];
+/** Clip options from a request body (defaults: 5 clips, 45 s, captions, fit layout, jump cuts, zooms, English) or an error message. */
+export function validOptions(b: Record<string, unknown>): Required<ClipOptions> | string {
+  const { count = 5, maxSec = 45, captions = true, layout = "fit", camSide = "right", jumpCuts = true, zooms = true, language = "en" } = b;
   if (!Number.isInteger(count) || (count as number) < 1 || (count as number) > 10) return "count must be 1-10";
   if (!Number.isInteger(maxSec) || (maxSec as number) < 15 || (maxSec as number) > 120) return "maxSec must be 15-120";
-  if (typeof captions !== "boolean") return "captions must be a boolean";
-  return { count: count as number, maxSec: maxSec as number, captions };
+  for (const [k, v] of Object.entries({ captions, jumpCuts, zooms })) if (typeof v !== "boolean") return `${k} must be a boolean`;
+  if (!LAYOUTS.includes(layout as string)) return "layout must be fit, fill or split";
+  if (!SIDES.includes(camSide as string)) return "camSide must be left or right";
+  if (!LANGS.includes(language as string)) return "language must be auto or en";
+  return { count, maxSec, captions, layout, camSide, jumpCuts, zooms, language } as Required<ClipOptions>;
 }
 
 export const isJobId = (s: unknown): s is string => typeof s === "string" && /^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(s);

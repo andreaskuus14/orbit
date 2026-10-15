@@ -5,7 +5,11 @@ export type Clip = { id: string; start: number; end: number; title: string; hook
 export type ClipPublish = { status: "uploading" | "done" | "failed"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string };
 export type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering" | "done" | "failed";
 export type ClipJob = { id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
-  durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: { count: number; maxSec: number; captions: boolean } };
+  durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
+  timings?: { audio: number; transcribe: number; pick: number; render: number } }; // seconds per stage
+// The edit options are optional: jobs saved before they existed get the defaults (validOptions({})).
+export type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: "fit" | "fill" | "split"; camSide?: "left" | "right";
+  jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en" };
 export type InboxFile = { name: string; size: number; mtime: string; jobId?: string; permission?: string }; // permission: from <name>.source.json
 export type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
 export type DownloadStatus = "queued" | "downloading" | "done" | "failed";
