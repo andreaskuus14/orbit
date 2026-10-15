@@ -49,8 +49,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string; search?: string } | null>(null);
   const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "none" } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
-  // Sub-targets are one-shot: leaving the world forgets them, so reopening it later doesn't replay an old search/overlay.
-  useEffect(() => { if (panel !== "intelligence" && approach !== "intelligence") setNewsFocus(null); if (panel !== "studio" && approach !== "studio") setStudioOpen(null); }, [panel, approach]);
 
   // Fetch the world chunks while idle, so entering a world never waits on a JS download (next/dynamic reuses them).
   useEffect(() => {

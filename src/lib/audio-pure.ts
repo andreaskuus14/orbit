@@ -35,7 +35,8 @@ export type Vad = { ms: number; speechMs: number; silenceMs: number; floor: numb
 export const VAD_START: Vad = { ms: 0, speechMs: 0, silenceMs: 0, floor: 0.02, speech: false, done: false };
 export function vadStep(v: Vad, level: number, frameMs: number, o = { silenceMs: 1000, maxMs: MAX_AUDIO_SEC * 1000, noSpeechMs: 8000 }): Vad {
   const loud = level > Math.max(0.012, v.floor * 3);
-  const floor = level < v.floor ? level : loud ? v.floor : v.floor + (level - v.floor) * 0.05; // speech never raises the floor
+  // Digital-silence frames (Chrome's first buffer) mustn't pin the floor at 0, or steady room noise reads as endless speech.
+  const floor = level < 1e-4 ? v.floor : Math.max(0.004, level < v.floor ? level : v.floor + (level - v.floor) * (loud ? 0 : 0.05));
   const ms = v.ms + frameMs, speechMs = v.speechMs + (loud ? frameMs : 0), silenceMs = loud ? 0 : v.silenceMs + frameMs;
   const speech = speechMs >= 150; // not a click or a breath
   const done = ms >= o.maxMs || (speech && silenceMs >= o.silenceMs) || (!speech && ms >= o.noSpeechMs);

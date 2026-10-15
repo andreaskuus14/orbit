@@ -15,11 +15,15 @@ export async function POST(req: Request) {
   if (!body) return tooLong;
   const d = decodeAudioBody(body);
   if ("error" in d) return Response.json({ error: d.error }, { status: 400 });
+  try { await loadVoiceAsr(); } catch (e) {
+    console.error("voice model load failed", e);
+    return Response.json({ error: "Local Whisper isn't available (model download or load failed). Switch voice settings to Chrome, or check the server log." }, { status: 503 });
+  }
   try {
     return Response.json({ text: await transcribeSpeech(d.audio) });
   } catch (e) {
     console.error("voice transcribe failed", e);
-    return Response.json({ error: "Local Whisper isn't available (model download or load failed). Switch voice settings to Chrome, or check the server log." }, { status: 503 });
+    return Response.json({ error: "Transcription failed; try again." }, { status: 500 });
   }
 }
 

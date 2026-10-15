@@ -7,7 +7,7 @@ const MODEL = process.env.ORBIT_VOICE_WHISPER_MODEL || "Xenova/whisper-small.en"
 
 type Asr = (audio: Float32Array, o?: Record<string, unknown>) => Promise<{ text?: string } | { text?: string }[]>;
 // On globalThis so dev hot reloads keep one loaded model.
-const g = globalThis as unknown as { __orbitVoiceAsr?: Promise<Asr> };
+const g = globalThis as unknown as { __orbitVoiceAsr?: Promise<Asr>; __orbitVoiceQ?: Promise<unknown> };
 
 export function loadVoiceAsr(): Promise<Asr> {
   g.__orbitVoiceAsr ??= (async () => {
@@ -20,7 +20,14 @@ export function loadVoiceAsr(): Promise<Asr> {
   return g.__orbitVoiceAsr;
 }
 
-export async function transcribeSpeech(audio: Float32Array): Promise<string> {
-  const out = await (await loadVoiceAsr())(audio);
-  return (Array.isArray(out) ? out[0]?.text : out.text) ?? "";
+/** One at a time: parallel runs would each grab every CPU core and all get slower. */
+export function transcribeSpeech(audio: Float32Array): Promise<string> {
+  const run = async () => {
+    const asr = await loadVoiceAsr();
+    const out = await asr(audio);
+    return (Array.isArray(out) ? out[0]?.text : out.text) ?? "";
+  };
+  const p = (g.__orbitVoiceQ ?? Promise.resolve()).then(run, run);
+  g.__orbitVoiceQ = p.catch(() => {});
+  return p;
 }

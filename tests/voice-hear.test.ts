@@ -4,10 +4,12 @@ import { cleanWhisperText, correctTranscript, finalJoiner, mergeFinals, pickBest
 
 test("correctTranscript fixes misheard wake word only at the start before a command", () => {
   assert.equal(correctTranscript("or bit open studio"), "Orbit open studio");
-  assert.equal(correctTranscript("a bit, what's the weather"), "Orbit, what's the weather");
+  assert.equal(correctTranscript("a bit, what's the weather"), "a bit, what's the weather"); // room talk must not wake ORBIT
+  assert.equal(correctTranscript("hey a bit, what's the weather"), "hey Orbit, what's the weather");
+  assert.equal(correctTranscript("is stonia nice"), "is Estonia nice");
   assert.equal(correctTranscript("hey orbital show me the news"), "hey Orbit show me the news");
   assert.equal(correctTranscript("orbital wake up"), "Orbit wake up");
-  assert.equal(correctTranscript("a bit"), "Orbit");
+  assert.equal(correctTranscript("a bit"), "a bit"); // overheard "...a bit." must not arm ORBIT
   assert.equal(correctTranscript("a bit more detail please"), "a bit more detail please");
   assert.equal(correctTranscript("orbital mechanics are hard"), "orbital mechanics are hard");
   assert.equal(correctTranscript("explain it a bit better"), "explain it a bit better");
@@ -31,7 +33,9 @@ test("correctTranscript fixes Estonia mishearings anywhere", () => {
 
 test("pickBestAlternative prefers commands and wake word, else the top alternative", () => {
   assert.equal(pickBestAlternative(["open the studios thing", "open the studio"]), "open the studio");
-  assert.equal(pickBestAlternative(["price history what's new", "orbit what's new"]), "orbit what's new");
+  assert.equal(pickBestAlternative(["price history what's new", "orbit what's new"]), "price history what's new"); // lower alts never create a wake
+  assert.equal(pickBestAlternative(["how much was it", "a bit"]), "how much was it");
+  assert.equal(pickBestAlternative(["what's in my studio", "open studio"]), "what's in my studio"); // a question stays a question
   assert.equal(pickBestAlternative(["all right shut town", "all right shut down"]), "all right shut down");
   assert.equal(pickBestAlternative(["what is the time", "what is the thyme"]), "what is the time");
   assert.equal(pickBestAlternative(["germany", "jeremy"], { current: "intelligence" }), "germany");
