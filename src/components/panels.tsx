@@ -47,7 +47,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   // Abort a running answer only on a real unmount: React dev mode unmounts and remounts once right away,
   // which used to cancel the command-bar question instantly ("Stopped.").
   const alive = useRef(false);
-  const flying = useRef(false); // we navigated away ourselves: let the spoken "Flying to …" finish
+  const flying = useRef(false); // a navigation (ours or Orbit's voice path) is taking us away: let the spoken reply finish
+  useEffect(() => {
+    const h = (e: Event) => { flying.current = (e as CustomEvent<NavTarget>).detail.panel !== "core"; };
+    addEventListener(NAV_EVENT, h);
+    return () => removeEventListener(NAV_EVENT, h);
+  }, []);
   useEffect(() => {
     alive.current = true;
     return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) { ac?.abort(); if (!flying.current) stopSpeech(); } }, 0); };
@@ -63,7 +68,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     const talk = fromVoice || takeVoiceAsked();
     const say = (parts: string[]) => { if (talk && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
     const voiceOut = sentenceStream();
-    const fly = (to: NavTarget) => { flying.current = to.panel !== "core"; dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to })); };
+    const fly = (to: NavTarget) => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to }));
     setMsgs((m) => [...m, { role: "user", content: message }]);
     setInput("");
     const nav = parseNavCommand(message); // plain "go to / open / show me X": no model call
@@ -110,7 +115,6 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? ""));
           setLive(null);
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace }]);
-          if (navTo) fly(navTo);
         } else if (ev.type === "error") {
           throw new Error(ev.error || "CORE failed");
         }
@@ -123,6 +127,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
         if (done) { if (buf.trim()) handle(buf); break; }
       }
       if (!finished) throw new Error("Connection to CORE was lost");
+      if (navTo) fly(navTo); // after the stream closed: leaving the panel aborts the request, which mustn't land mid-read
     } catch (e) {
       const stopped = ac.signal.aborted;
       if (talk) stopSpeech();

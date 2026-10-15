@@ -196,7 +196,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, [panel, approach, view, reduced, select]);
   useEffect(() => {
     if (!approach) return;
-    const t = setTimeout(() => { setPanel(approach); setApproach(null); }, 1800); // ≈ the galaxy's flight time
+    const t = setTimeout(() => { setPanel(approach); setApproach(null); }, 2400); // the galaxy's longest flight (min(2.4 s, …))
     return () => clearTimeout(t);
   }, [approach]);
   useEffect(() => { if (panel) setApproach(null); }, [panel]); // a click or arrow key during the flight wins

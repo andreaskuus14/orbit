@@ -34,9 +34,15 @@ const REGION_ALIAS: Record<string, string> = {
   european: "Europe", african: "Africa", asian: "Asia", "middle eastern": "Middle East",
 };
 for (const r of Object.keys(REGIONS)) REGION_ALIAS[norm(r)] = r;
-// Name, display name and every gazetteer term ("USA", "Britain", "German", "Tallinn"); first country wins a clash.
-const COUNTRY_ALIAS = new Map<string, string>([["the states", "United States of America"], ["great britain", "United Kingdom"], ["holland", "Netherlands"]]);
-for (const c of COUNTRIES) for (const a of [c.name, displayName(c.name), ...c.terms]) if (!COUNTRY_ALIAS.has(norm(a))) COUNTRY_ALIAS.set(norm(a), c.name);
+// Name, display name, abbreviations ("USA") and demonyms ("German"); NOT the gazetteer's cities/institutions
+// ("White House", "Florida"), so "show me news about the White House" stays a CORE question. First country wins a clash.
+const COUNTRY_ALIAS = new Map<string, string>([["the states", "United States of America"], ["america", "United States of America"],
+  ["great britain", "United Kingdom"], ["britain", "United Kingdom"], ["british", "United Kingdom"], ["england", "United Kingdom"], ["holland", "Netherlands"]]);
+for (const c of COUNTRIES) {
+  const stems = [c.name, displayName(c.name)].map((n) => norm(n).slice(0, 4));
+  const ok = (t: string) => /^[A-Z.]{2,5}$/.test(t) || stems.includes(norm(t).slice(0, 4));
+  for (const a of [c.name, displayName(c.name), ...c.terms.filter(ok)]) if (!COUNTRY_ALIAS.has(norm(a))) COUNTRY_ALIAS.set(norm(a), c.name);
+}
 
 function place(x: string, news: boolean): NavTarget | null {
   x = x.replace(/^the /, "");
@@ -58,7 +64,7 @@ function findPlace(r: string): NavTarget | null {
   return null;
 }
 
-const PREFIX = /^(?:(?:(?:hey|hi|ok|okay|a) )?(?:orbit|orbits|core)|please|can you|could you|would you|will you|lets|let us|now|ok|okay|alright|all right|hey|hi|so|just|i want to|id like to|i would like to) /;
+const PREFIX = /^(?:(?:(?:hey|hi|ok|okay|a) )?(?:orbit|orbits|orbital|core)|please|can you|could you|would you|will you|now|ok|okay|alright|all right|hey|hi|so|just|um|uh|er|hmm|yeah|yes) /; // no "i want to"/"lets": "let's go to Japan" is travel talk, not navigation
 const SUFFIX = /(?: (?:please|now|for me|orbit|thanks|thank you))+$/;
 const VERB = /^(?:(?:go|fly|head|jump|zoom|navigate|switch|move|return)(?: back| over| on)?(?: (?:to|into|over to))?|open(?: up)?|show(?: me| us)?|take (?:me|us)(?: back)?(?: (?:to|over to))?|bring(?: me| us)?(?: back)?(?: up| to)?|pull up|display|launch|visit|back to)(?: |$)/;
 
