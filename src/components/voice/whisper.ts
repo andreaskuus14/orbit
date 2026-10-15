@@ -33,7 +33,7 @@ export async function recordUtterance(signal: AbortSignal, onStop: (stop: () => 
         if (vad.done) resolve();
       };
       src.connect(proc);
-      proc.connect(ctx.destination); // a ScriptProcessor only runs while connected; it outputs silence
+      proc.connect(ctx!.destination); // a ScriptProcessor only runs while connected; it outputs silence
     });
   } finally {
     clearTimeout(timer);

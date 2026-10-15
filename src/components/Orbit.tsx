@@ -49,6 +49,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string; search?: string } | null>(null);
   const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "none" } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
+  // Is a 3D scene on screen? The news globe is always 3D, even in "2D view"; the other worlds and the galaxy follow the toggle.
+  const scene3d = !gameOpen && (panel === "intelligence" || view === "3d");
 
   // Fetch the world chunks while idle, so entering a world never waits on a JS download (next/dynamic reuses them).
   useEffect(() => {
@@ -95,7 +97,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if (!text) return;
       setCmdErr("");
       let nav = parseNavCommand(text, { current: panel }); // "go to local news"
-      if (nav?.zoom && (view !== "3d" || gameOpen)) nav = null; // no 3D scene on screen: zooming would do nothing
+      if (nav?.zoom && !scene3d) nav = null; // no 3D scene on screen: zooming would do nothing
       if (nav) {
         stopSpeech();
         if (speechSettings().speak) speakChunk(navReply(nav));
@@ -107,7 +109,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     };
     addEventListener(VOICE_ASK, onAsk);
     return () => removeEventListener(VOICE_ASK, onAsk);
-  }, [panel, view, gameOpen]);
+  }, [panel, scene3d]);
   useEffect(() => { voiceContext.current = panel; }, [panel]); // voice prefers alternatives that are commands for this place
 
   // Default to the fast 2D view when WebGL is missing or the screen is small; the user can switch any time.
@@ -223,7 +225,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     voice.clearError();
     setCmdErr("");
     let nav = parseNavCommand(text, { current: panel }); // in either mode
-    if (nav?.zoom && (view !== "3d" || gameOpen)) nav = null; // no 3D scene on screen: zooming would do nothing: "open game dev" is a place, not a question or a task
+    if (nav?.zoom && !scene3d) nav = null; // no 3D scene on screen: zooming would do nothing ("open game dev" is a place, not a question or a task)
     if (nav) { setCmd(""); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: nav })); return; }
     if (cmdMode === "ask") { setCmd(""); setPending(text); setPanel("core"); return; }
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
