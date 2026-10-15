@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { useGlRecovery } from "./useGlRecovery";
 import { OrbitControls, Stars, Sparkles } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
@@ -821,9 +822,10 @@ function Rig({ selected, positions, reduced, panelOpen }: { selected: PanelId | 
 export default function Galaxy(props: GalaxyProps) {
   const positions = useMemo<Positions>(() => Object.fromEntries(PLANETS.map((p) => [p.id, new THREE.Vector3()])), []);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
+  const glr = useGlRecovery();
   return (
     <div className="relative h-full w-full">
-      <Canvas aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, 1.75]}
+      <Canvas key={glr.key} onCreated={glr.onCreated} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, 1.75]}
         gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping }}>
         <color attach="background" args={["#02040b"]} />
         <ambientLight intensity={0.55} />

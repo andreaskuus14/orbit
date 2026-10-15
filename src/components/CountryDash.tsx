@@ -146,9 +146,9 @@ export default function CountryDash({ name, id, stories, loading, error, rank, o
         )}
       </div>
 
-      <div className="dash-label mt-3 px-1">ALL HEADLINES <span className="muted">· biggest first</span></div>
+      <div className="dash-label mt-3 px-1">MORE HEADLINES</div>
       <ul className="mt-1.5 space-y-1.5">
-        {stories.slice(0, 14).map((st, i) => <StoryCard key={st.url} s={st} lead={i === 0} />)}
+        {stories.slice(3, 17).map((st) => <StoryCard key={st.url} s={st} />)}
         {loading && [0, 1, 2].map((i) => <li key={i} className="card skeleton h-14" aria-hidden />)}
       </ul>
       {error && <p className="error mt-2">{error}</p>}
