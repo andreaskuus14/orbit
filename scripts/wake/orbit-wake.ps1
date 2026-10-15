@@ -1,6 +1,6 @@
 # ORBIT wake listener: say "orbital wake up" and ORBIT opens with CORE greeting you.
 # Offline Windows speech recognition (System.Speech). No audio is stored or sent anywhere.
-# Exit codes: 0 already running, 2 System.Speech missing, 3 no recognizer, 4 no microphone, 5 audio input stopped.
+# Exit codes: 0 already running, 2 System.Speech missing, 3 no recognizer, 4 no microphone at start.
 param(
   [double]$MinConfidence = 0.5, # the wake grammar only knows the wake phrases, so modest confidence is enough
   [switch]$DebugRun,             # wake:debug - print everything heard to this window (never to the log), ignore a background listener
@@ -117,9 +117,24 @@ try {
     $ev = Wait-Event
     Remove-Event -EventIdentifier $ev.EventIdentifier
     if ($ev.SourceIdentifier -eq "orbit.done") {
+      # The mic dropped (unplugged, switched device, another app took it, PC woke from sleep): reconnect instead of
+      # dying, retrying with a growing pause, so the listener survives without a restart.
       $err = $ev.SourceEventArgs.Error
-      Write-Log "ERROR: audio input stopped ($(if ($err) { $err.Message } else { 'microphone disconnected?' })). Exiting."
-      exit 5
+      Write-Log "Audio input stopped ($(if ($err) { $err.Message } else { 'microphone disconnected?' })); reconnecting."
+      $wait = 2
+      while ($true) {
+        Start-Sleep -Seconds $wait
+        try {
+          $engine.SetInputToDefaultAudioDevice()
+          $engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
+          Write-Log "Listening again."
+          break
+        } catch {
+          if ($wait -eq 2) { Write-Log "No microphone yet ($($_.Exception.Message)); will keep retrying." }
+          $wait = [math]::Min($wait * 2, 60)
+        }
+      }
+      continue
     }
     if ($ev.SourceIdentifier -eq "orbit.level") { # proves the mic reaches the recognizer
       if (((Get-Date) - $lastLevel).TotalSeconds -ge 1) { $lastLevel = Get-Date; Write-Host ("  mic level {0,3} {1}" -f $ev.SourceEventArgs.AudioLevel, ("#" * [math]::Ceiling($ev.SourceEventArgs.AudioLevel / 5))) }
