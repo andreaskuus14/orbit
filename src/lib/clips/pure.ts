@@ -237,16 +237,75 @@ export const renderArgs = (o: { input: string; start: number; duration: number; 
 export const frameArgs = (input: string, at: number, out: string) =>
   ["-hide_banner", "-nostdin", "-y", "-ss", sec(at), ...IN, input, "-filter_complex", verticalFilter(), "-map", "[v]", "-frames:v", "1", "-q:v", "2", out];
 
+// ---- yt-dlp ("Add from link") ----
+
+export { cleanPermission, parseClipUrl } from "./format.ts";
+
+/** yt-dlp argv (spawned without a shell, cwd = inbox). The URL is always the last element, after "--", so it can't be read as an option. */
+export const ytdlpArgs = (url: string, ffmpegDir: string) => [
+  "--ignore-config", // cwd is the inbox: a dropped yt-dlp.conf there could otherwise add --exec etc.
+  "--encoding", "utf-8", // printed paths must decode as UTF-8 even under a non-UTF-8 Windows code page
+  "--no-playlist", "--no-part", "--no-mtime", "--restrict-filenames", "--newline", "--progress",
+  "--max-downloads", "1", // a channel/playlist page would otherwise pull every video into the inbox
+  "--match-filter", "duration<=10800 & !is_live", "--max-filesize", "4G",
+  "-f", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b", "--merge-output-format", "mp4",
+  "--ffmpeg-location", ffmpegDir, "-o", "%(uploader).40s - %(title).80s [%(id)s].%(ext)s",
+  "--print", "after_move:filepath", "--no-quiet", // --print implies --quiet, which hides the "Destination:" lines used to clean up partial files
+  "--", url,
+];
+
+/** Fraction 0..1 from a `--newline` progress line ("[download]  12.3% of ..."), else null. */
+export function parseYtdlpProgress(line: string): number | null {
+  const m = /^\[download\]\s+(\d{1,3}(?:\.\d+)?)%/.exec(line);
+  return m ? Math.min(1, Math.round(Number(m[1]) * 10) / 1000) : null;
+}
+
+/** A file yt-dlp is writing ("[download] Destination: x", "[Merger] Merging formats into \"x\""), else null. */
+export function ytdlpOutputFile(line: string): string | null {
+  const m = /^\[download\] Destination: (.+)$/.exec(line) ?? /^\[Merger\] Merging formats into "(.+)"$/.exec(line);
+  return m ? m[1].trim() : null;
+}
+
+const YTDLP_ERRORS: [RegExp, string][] = [
+  [/confirm you.?re not a bot/i, "YouTube blocked the download; try again later or update yt-dlp: `yt-dlp -U`"],
+  [/members[- ]only|join this channel|subscriber[- ]only/i, "This video is for channel members/subscribers only; ORBIT can't download it."],
+  [/confirm your age|age[- ]restricted|inappropriate for some users/i, "This video is age-restricted; ORBIT can't download it."],
+  [/does not pass filter|is live|live event|currently live|premieres in/i, "Live streams and videos over 3 hours can't be downloaded; wait for the finished VOD (up to 3 h)."],
+  [/larger than max-filesize/i, "The video is bigger than 4 GB."],
+  [/private video/i, "This video is private."],
+  [/video unavailable|has been removed|does not exist/i, "The video is unavailable (removed, private or region-locked)."],
+];
+/** yt-dlp output → a friendly error: known cases first, else its last ERROR line. */
+export function ytdlpError(out: string): string {
+  for (const [re, msg] of YTDLP_ERRORS) if (re.test(out)) return msg;
+  const last = out.split(/\r?\n/).filter((l) => l.startsWith("ERROR:")).pop();
+  return last ? last.slice(6).trim().slice(0, 300) : "yt-dlp finished without a video file";
+}
+
 // ---- input validation ----
 
 /** A plain inbox file name with a video extension: no separators, "..", NUL, control chars or ':' (Windows streams/drives). */
 export function isInboxName(name: unknown): name is string {
+  return isPlainName(name) && VIDEO_EXTS.includes(path.extname(name).toLowerCase());
+}
+
+/** A plain file name: no separators, NUL, control chars or ':'. */
+export function isPlainName(name: unknown): name is string {
   if (typeof name !== "string" || !name || name.length > 255 || name !== name.trim()) return false;
-  if (/[\\/:\0]|[\x00-\x1f]/.test(name)) return false; // separators are banned, so ".." inside a name ("So... this.mp4") is harmless
-  return VIDEO_EXTS.includes(path.extname(name).toLowerCase());
+  return !/[\\/:\0]|[\x00-\x1f]/.test(name); // separators are banned, so ".." inside a name ("So... this.mp4") is harmless
+}
+
+/** Clip options from a request body (defaults 5 clips, 45 s, captions) or an error message. */
+export function validOptions(b: Record<string, unknown>): { count: number; maxSec: number; captions: boolean } | string {
+  const { count = 5, maxSec = 45, captions = true } = b;
+  if (!Number.isInteger(count) || (count as number) < 1 || (count as number) > 10) return "count must be 1-10";
+  if (!Number.isInteger(maxSec) || (maxSec as number) < 15 || (maxSec as number) > 120) return "maxSec must be 15-120";
+  if (typeof captions !== "boolean") return "captions must be a boolean";
+  return { count: count as number, maxSec: maxSec as number, captions };
 }
 
 export const isJobId = (s: unknown): s is string => typeof s === "string" && /^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(s);
+export const isDownloadId = (s: unknown): s is string => typeof s === "string" && /^dl-[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(s);
 export const isClipId = (s: unknown): s is string => typeof s === "string" && /^clip-\d{1,2}$/.test(s);
 
 /** Resolves a "/"-separated relative path inside base, or null if it could escape (absolute, drive, UNC, "..", NUL). */

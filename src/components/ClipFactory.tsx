@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { bytes, isJobActive, mmss } from "@/lib/clips/format";
+import { bytes, cleanPermission, isJobActive, mmss, parseClipUrl } from "@/lib/clips/format";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -12,13 +12,16 @@ type Clip = { id: string; start: number; end: number; title: string; hook: strin
 type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering" | "done" | "failed";
 type ClipJob = { id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: { count: number; maxSec: number; captions: boolean } };
-type InboxFile = { name: string; size: number; mtime: string; jobId?: string };
-type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; missing: string[] };
-type Data = { root: string; tools: ToolsStatus; inbox: InboxFile[]; jobs: ClipJob[] };
+type InboxFile = { name: string; size: number; mtime: string; jobId?: string; permission?: string };
+type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
+type Download = { id: string; url: string; status: "queued" | "downloading" | "done" | "failed"; progress: number; step: string; file?: string; error?: string;
+  createdAt: string; permission: string; autoClip?: ClipJob["options"] };
+type Data = { root: string; tools: ToolsStatus; inbox: InboxFile[]; jobs: ClipJob[]; downloads: Download[] };
 type Opts = ClipJob["options"];
 
 const API = "/api/studio/clips";
 const SETUP = "cd C:\\Users\\andre\\Documents\\orbit; npm install; npm run app:rebuild";
+const YTDLP_SETUP = "winget install yt-dlp.yt-dlp";
 const media = (p: string) => `${API}/media?f=${encodeURIComponent(p)}`;
 const when = (iso: string) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : ""; };
 // shortcut: the contract doesn't fix the score scale; treat ≤1 as 0..1, otherwise as 0..100.
@@ -95,7 +98,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
     on(); document.addEventListener("visibilitychange", on);
     return () => document.removeEventListener("visibilitychange", on);
   }, []);
-  const active = !!data?.jobs.some(isJobActive);
+  const active = !!data?.jobs.some(isJobActive) || !!data?.downloads?.some((d) => d.status === "queued" || d.status === "downloading");
   useEffect(() => {
     if (!active || !visible) return;
     const t = setInterval(() => void load(true), 2000);
@@ -132,6 +135,18 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
     await api(`${API}/${encodeURIComponent(job)}`, { method: "DELETE" });
     seq.current++;
     setData((d) => d && { ...d, jobs: d.jobs.filter((j) => j.id !== job), inbox: d.inbox.map((f) => (f.jobId === job ? { ...f, jobId: undefined } : f)) });
+  });
+
+  const download = (body: { url: string; permission: string; autoClip?: Opts }, replaces?: string) => act(replaces ? `dl:${replaces}` : "dl", async () => {
+    await api(`${API}/download`, { method: "POST", body });
+    if (replaces) await api(`${API}/download/${encodeURIComponent(replaces)}`, { method: "DELETE" }).catch(() => {}); // retry = resubmit, drop the failed record
+    await load(true);
+  });
+
+  const delDownload = (id: string) => act(`dl:${id}`, async () => {
+    await api(`${API}/download/${encodeURIComponent(id)}`, { method: "DELETE" });
+    seq.current++;
+    setData((d) => d && { ...d, downloads: d.downloads.filter((x) => x.id !== id) });
   });
 
   const openFolder = () => act("open", async () => {
@@ -173,7 +188,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
 
       {data && (
         <div className="mt-3 space-y-3">
-          {data.tools.missing.length > 0 && <ToolsBanner tools={data.tools} />}
+          {(!data.tools.ffmpeg || !data.tools.transcriber) && <ToolsBanner tools={data.tools} />}
 
           <Section title="Inbox">
             <p className="text-sm">Drop long videos into your Studio inbox folder:</p>
@@ -184,6 +199,36 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
             </div>
             <Note k="open" />
             <p className="muted mt-2 text-xs">Only use videos you own or have permission to clip (your own uploads, or creators who allow clipping).</p>
+
+            <AddFromLink tools={data.tools} opts={opts} setOpts={setOpts} busy={busy.dl} onSubmit={(body) => download(body)} />
+            <Note k="dl" />
+            {(data.downloads ?? []).length > 0 && (
+              <ul className="mt-2 space-y-2" aria-label="Downloads">
+                {data.downloads.map((d) => (
+                  <li key={d.id} className="rounded-xl border border-white/10 p-2 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <b className="min-w-0 flex-1 truncate" title={d.url}>{d.file ?? d.url}</b>
+                      <div className="flex items-center gap-1.5">
+                        <Status text={DL_LABEL[d.status]} tone={toneOf(d.status)} />
+                        <ConfirmButton label={d.status === "queued" || d.status === "downloading" ? "Cancel" : "Remove"} sure="Sure?" aria={`Remove download ${d.url}`}
+                          onConfirm={() => void delDownload(d.id)} disabled={busy[`dl:${d.id}`]} />
+                      </div>
+                    </div>
+                    {d.status === "downloading" && <Progress pct={Math.round(d.progress * 100)} step={d.step} label={`Download progress for ${d.url}`} reduced={reduced} />}
+                    {d.status === "failed" && (
+                      <div className="mt-1" role="alert">
+                        <p className="error">{d.error || "The download failed."}</p>
+                        <button className="btn mt-1" disabled={busy[`dl:${d.id}`] || !data.tools.ytdlp}
+                          onClick={() => void download({ url: d.url, permission: d.permission, ...(d.autoClip ? { autoClip: d.autoClip } : {}) }, d.id)}>
+                          {busy[`dl:${d.id}`] ? "Starting…" : "Try again"}
+                        </button>
+                      </div>
+                    )}
+                    <Note k={`dl:${d.id}`} />
+                  </li>
+                ))}
+              </ul>
+            )}
 
             {!data.inbox.length ? (
               <p className="muted mt-3 text-sm">The inbox is empty. Drop a video file into the folder, then press Refresh.</p>
@@ -197,6 +242,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
                         <div className="min-w-0">
                           <b className="block truncate text-sm" title={f.name}>{f.name}</b>
                           <span className="muted num text-[11px]">{bytes(f.size)} · {when(f.mtime)}</span>
+                          {f.permission && <span className="muted block truncate text-[11px]" title={f.permission}>Permission: {f.permission}</span>}
                         </div>
                         {f.jobId ? (
                           job ? <Status text={JOB_LABEL[job.status] ?? job.status} tone={toneOf(job.status)} /> : <Status text="Has a job" />
@@ -264,6 +310,66 @@ function ToolsBanner({ tools }: { tools: ToolsStatus }) {
   );
 }
 
+function Progress({ pct, step, label, reduced }: { pct: number; step: string; label: string; reduced: boolean }) {
+  return (
+    <div className="mt-2">
+      <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-valuetext={`${pct}% · ${step}`}
+        className="h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,214,224,0.08)" }}>
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "linear-gradient(90deg, #800f2f, #ff2e63)", transition: reduced ? "none" : "width 0.4s" }} />
+      </div>
+      <p className="muted mt-1 text-xs"><span className="num">{pct}%</span> · {step}</p>
+    </div>
+  );
+}
+
+const DL_LABEL: Record<Download["status"], string> = { queued: "⏳ Queued", downloading: "⬇ Downloading", done: "✓ Downloaded", failed: "⚠ Failed" };
+
+function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
+  tools: ToolsStatus; opts: Opts; setOpts: (f: (o: Opts) => Opts) => void; busy?: boolean;
+  onSubmit: (body: { url: string; permission: string; autoClip?: Opts }) => Promise<boolean>;
+}) {
+  const [url, setUrl] = useState("");
+  const [permission, setPermission] = useState("");
+  const [auto, setAuto] = useState(false);
+  const okUrl = parseClipUrl(url.trim()), okPerm = cleanPermission(permission);
+  const submit = async () => {
+    if (!okUrl || !okPerm) return;
+    if (await onSubmit({ url: okUrl, permission: okPerm, ...(auto ? { autoClip: { ...opts, captions: opts.captions && tools.transcriber } } : {}) })) { setUrl(""); setPermission(""); }
+  };
+  return (
+    <form className="mt-3 space-y-2 rounded-xl border border-white/10 p-2 text-xs" aria-label="Add from link" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+      <b className="block text-sm">🔗 Add from link</b>
+      <label className="block">
+        <span className="muted mb-1 block text-[10px] uppercase tracking-widest">YouTube or Twitch link</span>
+        <input className="field w-full !px-2 !py-1 !text-xs" type="url" inputMode="url" maxLength={300} placeholder="https://www.youtube.com/watch?v=…" value={url}
+          onChange={(e) => setUrl(e.target.value)} aria-invalid={!!url.trim() && !okUrl} />
+      </label>
+      {!!url.trim() && !okUrl && <p className="error">Use an https link from youtube.com, youtu.be or twitch.tv.</p>}
+      <label className="block">
+        <span className="muted mb-1 block text-[10px] uppercase tracking-widest">How does the creator allow clipping? (required)</span>
+        <input className="field w-full !px-2 !py-1 !text-xs" maxLength={300} required placeholder="e.g. Kai's clipping program, Discord announcement 2026-10-01" value={permission}
+          onChange={(e) => setPermission(e.target.value)} aria-describedby="dl-perm-help" />
+      </label>
+      <p id="dl-perm-help" className="muted">Only clip creators who allow it — note where they said so; ORBIT saves it next to the video.</p>
+      <label className="flex items-center gap-1.5">
+        <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Make clips when it&apos;s downloaded
+      </label>
+      {auto && (
+        <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+          <Choice legend="Number of clips" values={[3, 5, 8]} value={opts.count} fmt={String} onChange={(count) => setOpts((o) => ({ ...o, count }))} />
+          <Choice legend="Max length" values={[30, 45, 60]} value={opts.maxSec} fmt={(v) => `${v} s`} onChange={(maxSec) => setOpts((o) => ({ ...o, maxSec }))} />
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" checked={opts.captions && tools.transcriber} onChange={(e) => setOpts((o) => ({ ...o, captions: e.target.checked }))} disabled={!tools.transcriber} />
+            Captions{!tools.transcriber ? " (needs transcriber)" : ""}
+          </label>
+        </div>
+      )}
+      <button type="submit" className="btn" disabled={busy || !okUrl || !okPerm || !tools.ytdlp || !tools.ffmpeg}>{busy ? "Adding…" : "⬇ Download"}</button>
+      {!tools.ytdlp && <p>Needs yt-dlp. On the PC, run <code className="num rounded bg-black/40 px-1">{YTDLP_SETUP}</code> in PowerShell, then restart ORBIT.</p>}
+    </form>
+  );
+}
+
 function Conflict({ onAgain, busy }: { onAgain: () => void; busy?: boolean }) {
   return (
     <p className="mt-2 flex flex-wrap items-center gap-2 text-xs" role="alert">
@@ -311,13 +417,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, onRetry, onDelete, on
       <Note k={`del:${job.id}`} />
 
       {working && (
-        <div className="mt-2">
-          <div role="progressbar" aria-label={`Progress for ${job.source}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-valuetext={`${pct}% · ${job.step}`}
-            className="h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,214,224,0.08)" }}>
-            <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "linear-gradient(90deg, #800f2f, #ff2e63)", transition: reduced ? "none" : "width 0.4s" }} />
-          </div>
-          <p className="muted mt-1 text-xs"><span className="num">{pct}%</span> · {job.step}</p>
-        </div>
+        <Progress pct={pct} step={job.step} label={`Progress for ${job.source}`} reduced={reduced} />
       )}
 
       {job.warnings.length > 0 && <ul className="mt-2 space-y-0.5 text-xs" aria-label="Warnings">{job.warnings.map((w, k) => <li key={k}>⚠ {w}</li>)}</ul>}

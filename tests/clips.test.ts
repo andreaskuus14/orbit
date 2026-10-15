@@ -5,6 +5,7 @@ import {
   audioArgs, probeArgs, assText, assTime, buildAss, captionLines, escapeXml, fallbackMoments, frameArgs, isInboxName, isJobId, parseByteRange, parseDuration,
   peakTime, promptTranscript, removeOverlaps, renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet, thumbSvg, validateMoments,
   verticalFilter, wordsFromChunks, wrapTitle, type Word,
+  cleanPermission, isDownloadId, parseClipUrl, parseYtdlpProgress, validOptions, ytdlpArgs, ytdlpError, ytdlpOutputFile,
 } from "../src/lib/clips/pure.ts";
 
 test("parseDuration reads ffmpeg's Duration line", () => {
@@ -149,4 +150,47 @@ test("thumbnail SVG escapes XML and wraps", () => {
   assert.equal(wrapTitle("a b c d e f g h i j k l m n o p q r s t u v w x y z aa bb cc dd ee ff gg hh", 3, 2).length, 2);
   const svg = thumbSvg(`Tom & Jerry's <script>`);
   assert.ok(svg.includes("TOM &amp; JERRY&apos;S") && !svg.includes("<script>") && svg.includes("#ff2e63"));
+});
+
+test("parseClipUrl allows only https YouTube/Twitch hosts", () => {
+  for (const u of ["https://www.youtube.com/watch?v=abc123", "https://youtube.com/shorts/x", "https://m.youtube.com/watch?v=a", "https://youtu.be/abc",
+    "https://twitch.tv/videos/123", "https://www.twitch.tv/videos/123", "https://clips.twitch.tv/SlugName", "https://WWW.YouTube.com/watch?v=a"]) assert.ok(parseClipUrl(u), u);
+  for (const u of ["http://www.youtube.com/watch?v=a", "https://youtube.com.evil.io/watch", "https://evilyoutube.com/", "https://vimeo.com/1",
+    "https://user:pw@youtube.com/", "https://youtube.com@evil.io/", "https://evil.io\\@youtube.com/", "https://youtube.com:443/watch", "https://youtube.com:8080/",
+    "javascript:alert(1)", " https://youtu.be/a", "https://youtu.be/a b", "https://youtu.be/" + "a".repeat(300), "", 42, null]) assert.equal(parseClipUrl(u), null, String(u));
+  assert.equal(parseClipUrl("https://www.youtube.com/@kai/videos"), "https://www.youtube.com/@kai/videos"); // @ in the path is fine
+});
+
+test("cleanPermission requires a 5-300 char one-line note", () => {
+  assert.equal(cleanPermission("  Kai's   clipping\nprogram  "), "Kai's clipping program");
+  assert.equal(cleanPermission("ok"), null);
+  assert.equal(cleanPermission("x".repeat(301)), null);
+  assert.equal(cleanPermission(undefined), null);
+});
+
+test("yt-dlp progress, output files and errors", () => {
+  assert.equal(parseYtdlpProgress("[download]  12.3% of  1.20GiB at  5.00MiB/s ETA 03:10"), 0.123);
+  assert.equal(parseYtdlpProgress("[download] 100% of 1.20GiB in 00:04:00"), 1);
+  assert.equal(parseYtdlpProgress("[download] Destination: a.mp4"), null);
+  assert.equal(ytdlpOutputFile("[download] Destination: Kai - Stream [x1].f137.mp4"), "Kai - Stream [x1].f137.mp4");
+  assert.equal(ytdlpOutputFile('[Merger] Merging formats into "Kai - Stream [x1].mp4"'), "Kai - Stream [x1].mp4");
+  assert.equal(ytdlpOutputFile("[youtube] x1: Downloading webpage"), null);
+  assert.match(ytdlpError("ERROR: [youtube] x: Sign in to confirm you're not a bot"), /yt-dlp -U/);
+  assert.match(ytdlpError("[download] x does not pass filter (duration<=10800 & !is_live), skipping .."), /Live streams/);
+  assert.equal(ytdlpError("junk\nERROR: something odd\n"), "something odd");
+});
+
+test("ytdlpArgs keeps the URL last, after --", () => {
+  const a = ytdlpArgs("https://youtu.be/--exec=evil", "C:\\ff");
+  assert.deepEqual(a.slice(-2), ["--", "https://youtu.be/--exec=evil"]);
+  assert.equal(a.indexOf("--"), a.length - 2);
+  assert.equal(a[a.indexOf("--ffmpeg-location") + 1], "C:\\ff");
+});
+
+test("validOptions and isDownloadId", () => {
+  assert.deepEqual(validOptions({}), { count: 5, maxSec: 45, captions: true });
+  assert.equal(typeof validOptions({ count: 11 }), "string");
+  assert.equal(typeof validOptions({ captions: "yes" }), "string");
+  assert.ok(isDownloadId("dl-mgr1abc-a1b2c3"));
+  assert.ok(!isDownloadId("../x"));
 });

@@ -3,10 +3,11 @@ import { randomBytes } from "node:crypto";
 import { access, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { askClaude } from "../claude";
-import type { Clip, ClipJob, InboxFile, JobStatus, ToolsStatus } from "./types";
+import type { Clip, ClipJob, Download, InboxFile, JobStatus, ToolsStatus } from "./types";
 import {
-  MAX_SOURCE_SEC, MIN_CLIP_SEC, SAMPLE_RATE, VIDEO_EXTS, WIN_SEC, audioArgs, buildAss, fallbackMoments, frameArgs, parseDuration, peakTime,
-  probeArgs, promptTranscript, renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet, thumbSvg, validateMoments, wordsFromChunks,
+  MAX_SOURCE_SEC, MIN_CLIP_SEC, SAMPLE_RATE, VIDEO_EXTS, WIN_SEC, audioArgs, buildAss, fallbackMoments, frameArgs, isInboxName, isPlainName,
+  parseDuration, parseYtdlpProgress, peakTime, probeArgs, promptTranscript, renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet,
+  thumbSvg, validateMoments, wordsFromChunks, ytdlpArgs, ytdlpError, ytdlpOutputFile,
   type Moment, type Word,
 } from "./pure";
 
@@ -18,6 +19,8 @@ export const inboxDir = () => path.join(studioRoot(), "inbox");
 export const clipsDir = () => path.join(studioRoot(), "clips");
 const jobsDir = () => path.join(studioRoot(), "jobs");
 const jobFile = (id: string) => path.join(jobsDir(), `${id}.json`);
+const dlDir = () => path.join(studioRoot(), "downloads");
+const dlFile = (id: string) => path.join(dlDir(), `${id}.json`);
 
 const ASR_MODEL = process.env.ORBIT_WHISPER_MODEL || "onnx-community/whisper-base_timestamped"; // has cross-attentions → word timestamps
 const ASR_SEGMENT_SEC = 300; // transcribe in 5-minute pieces: bounded memory, progress and cancel points. shortcut: a word on a seam may be cut
@@ -27,6 +30,7 @@ type Asr = (audio: Float32Array, o: Record<string, unknown>) => Promise<{ chunks
 type State = {
   started?: boolean; recovered?: boolean; busy?: boolean; again?: boolean; asrWord?: boolean;
   running?: { job: ClipJob; ctrl: AbortController; done: Promise<void> };
+  dl?: { d: Download; ctrl: AbortController; done: Promise<void> }; dlBusy?: boolean; dlAgain?: boolean; dlRecovered?: boolean;
   write: Promise<unknown>; edit?: Promise<unknown>; deleted: Set<string>; asr?: Promise<Asr>;
 };
 // On globalThis so dev hot reloads keep one queue and one loaded Whisper model.
@@ -34,7 +38,7 @@ const g = globalThis as unknown as { __orbitClips?: State };
 const S = (g.__orbitClips ??= { write: Promise.resolve(), deleted: new Set() });
 
 export async function ensureDirs() {
-  for (const d of [inboxDir(), clipsDir(), jobsDir()]) await mkdir(d, { recursive: true });
+  for (const d of [inboxDir(), clipsDir(), jobsDir(), dlDir()]) await mkdir(d, { recursive: true });
 }
 
 // ---- tools ----
@@ -44,11 +48,22 @@ async function ffmpegPath(): Promise<string | null> {
   return p && (await access(p).then(() => true, () => false)) ? p : null;
 }
 
+/** ORBIT_YTDLP, else yt-dlp on PATH. Scans PATH instead of running `yt-dlp --version`: the exe takes ~1 s to start and GET polls every 2 s. */
+async function ytdlpPath(): Promise<string | null> {
+  const exe = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
+  // Absolute paths only: spawn resolves relative ones against cwd (the inbox), where a planted exe could sit.
+  const cands = (process.env.ORBIT_YTDLP ? [process.env.ORBIT_YTDLP] : (process.env.PATH ?? "").split(path.delimiter).map((d) => path.join(d, exe)))
+    .filter((c) => path.isAbsolute(c));
+  for (const c of cands) if (await access(c).then(() => true, () => false)) return c;
+  return null;
+}
+
 export async function checkTools(): Promise<ToolsStatus> {
-  const ffmpeg = !!(await ffmpegPath());
+  const [ffmpeg, ytdlp] = await Promise.all([ffmpegPath().then(Boolean), ytdlpPath().then(Boolean)]);
   const transcriber = await import("@huggingface/transformers").then(() => true, () => false);
-  const missing = [...(ffmpeg ? [] : ["ffmpeg (npm install ffmpeg-static, or set ORBIT_FFMPEG)"]), ...(transcriber ? [] : ["@huggingface/transformers (npm install)"])];
-  return { ffmpeg, transcriber, missing };
+  const missing = [...(ffmpeg ? [] : ["ffmpeg (npm install ffmpeg-static, or set ORBIT_FFMPEG)"]), ...(transcriber ? [] : ["@huggingface/transformers (npm install)"]),
+    ...(ytdlp ? [] : ["yt-dlp (winget install yt-dlp.yt-dlp)"])]; // optional: only "Add from link" needs it
+  return { ffmpeg, transcriber, ytdlp, missing };
 }
 
 function runFfmpeg(ff: string, args: string[], o: { cwd?: string; signal?: AbortSignal; timeoutMs: number; okCodes?: number[] }): Promise<string> {
@@ -74,21 +89,24 @@ function runFfmpeg(ff: string, args: string[], o: { cwd?: string; signal?: Abort
 
 // ---- job store ----
 
-function saveJob(job: ClipJob): Promise<void> {
-  // One write chain for all jobs: no interleaved tmp files, and a deleted job never gets written back.
+const saveJob = (job: ClipJob) => saveState(job.id, jobFile(job.id), job);
+const saveDownload = (d: Download) => saveState(d.id, dlFile(d.id), d);
+
+function saveState(id: string, file: string, data: unknown): Promise<void> {
+  // One write chain for all jobs and downloads: no interleaved tmp files, and a deleted one never gets written back.
   const p = S.write.then(async () => {
-    if (S.deleted.has(job.id)) return;
-    await mkdir(jobsDir(), { recursive: true });
-    await writeFile(jobFile(job.id) + ".tmp", JSON.stringify(job, null, 2));
+    if (S.deleted.has(id)) return;
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file + ".tmp", JSON.stringify(data, null, 2));
     for (let i = 0; ; i++) { // Windows: antivirus/indexer can briefly lock the target
-      try { await rename(jobFile(job.id) + ".tmp", jobFile(job.id)); break; }
+      try { await rename(file + ".tmp", file); break; }
       catch (e) {
         if (i >= 5 || !["EPERM", "EACCES", "EBUSY"].includes((e as NodeJS.ErrnoException).code ?? "")) throw e;
         await new Promise((r) => setTimeout(r, 50 * 2 ** i));
       }
     }
   });
-  S.write = p.catch((e) => console.error("[orbit] clip job save failed:", e?.message ?? e));
+  S.write = p.catch((e) => console.error("[orbit] clip state save failed:", e?.message ?? e));
   return p;
 }
 
@@ -103,12 +121,15 @@ export async function listJobs(): Promise<ClipJob[]> {
   return jobs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function listInbox(jobs: ClipJob[]): Promise<InboxFile[]> {
-  const names = (await readdir(inboxDir()).catch(() => [] as string[])).filter((n) => VIDEO_EXTS.includes(path.extname(n).toLowerCase()));
+export async function listInbox(jobs: ClipJob[], downloads: Download[] = []): Promise<InboxFile[]> {
+  const writing = new Set(downloads.flatMap((d) => d.parts ?? [])); // half-downloaded files aren't ready to clip
+  const names = (await readdir(inboxDir()).catch(() => [] as string[])).filter((n) => VIDEO_EXTS.includes(path.extname(n).toLowerCase()) && !writing.has(n));
   const files = await Promise.all(names.map(async (name) => {
     const s = await stat(path.join(inboxDir(), name)).catch(() => null);
     if (!s?.isFile()) return null;
-    return { name, size: s.size, mtime: s.mtime.toISOString(), jobId: jobs.find((j) => j.source === name)?.id }; // jobs are newest first
+    const permission = await readFile(path.join(inboxDir(), `${name}.source.json`), "utf8")
+      .then((t) => { const p = JSON.parse(t)?.permission; return typeof p === "string" ? p.slice(0, 300) : undefined; }, () => undefined);
+    return { name, size: s.size, mtime: s.mtime.toISOString(), jobId: jobs.find((j) => j.source === name)?.id, permission }; // jobs are newest first
   }));
   return files.filter((f): f is NonNullable<typeof f> => !!f).sort((a, b) => b.mtime.localeCompare(a.mtime));
 }
@@ -161,6 +182,7 @@ export function startClipQueue() {
   if (S.started) return;
   S.started = true;
   kick();
+  kickDownloads();
 }
 
 /** Jobs that were mid-run when the server stopped can't be resumed. Runs inside the queue loop so it never races a starting job. */
@@ -397,4 +419,154 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, cl
   } finally {
     await rm(path.join(dir, frame), { force: true });
   }
+}
+
+// ---- downloads ("Add from link" via yt-dlp) ----
+// Own one-at-a-time queue, separate from the clip queue: a 2-hour download must not hold up rendering.
+
+export async function getDownload(id: string): Promise<Download | null> {
+  if (S.dl?.d.id === id) return S.dl.d; // live progress lives in memory only
+  return readFile(dlFile(id), "utf8").then((t) => JSON.parse(t) as Download).catch(() => null);
+}
+
+export async function listDownloads(): Promise<Download[]> {
+  const names = (await readdir(dlDir()).catch(() => [] as string[])).filter((n) => n.endsWith(".json"));
+  const all = (await Promise.all(names.map((n) => getDownload(n.slice(0, -5))))).filter((d): d is Download => !!d);
+  return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function createDownload(url: string, permission: string, autoClip?: ClipJob["options"]): Promise<Download> {
+  const d: Download = { id: `dl-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`, url, permission, autoClip,
+    status: "queued", progress: 0, step: "Waiting to start", createdAt: new Date().toISOString() };
+  await saveDownload(d);
+  kickDownloads();
+  return d;
+}
+
+/** Cancels (its partial files are removed by the failing run) and forgets a download. A finished video stays in the inbox. */
+export async function deleteDownload(id: string) {
+  S.deleted.add(id);
+  if (S.dl?.d.id === id) { S.dl.ctrl.abort(new Error("Cancelled")); await S.dl.done.catch(() => {}); }
+  await S.write;
+  await rm(dlFile(id), { force: true });
+}
+
+/** Only names this download saw yt-dlp create, only inside the inbox. */
+// Retries: right after a kill, yt-dlp/ffmpeg may still hold the file open on Windows.
+const rmParts = (parts?: string[]) => Promise.all((parts ?? []).filter(isPlainName).map(async (n) => {
+  for (let i = 0; i < 6; i++) {
+    try { await rm(path.join(inboxDir(), n), { force: true }); return; }
+    catch { await new Promise((r) => setTimeout(r, 250 * 2 ** i)); }
+  }
+}));
+
+function kickDownloads() {
+  S.dlAgain = true;
+  if (S.dlBusy) return;
+  S.dlBusy = true;
+  void (async () => {
+    if (!S.dlRecovered) {
+      await ensureDirs();
+      for (const d of await listDownloads()) {
+        if (d.status !== "downloading") continue;
+        await rmParts(d.parts);
+        Object.assign(d, { status: "failed", step: "Failed", error: "interrupted — start again", parts: undefined });
+        await saveDownload(d);
+      }
+      S.dlRecovered = true;
+    }
+    while (S.dlAgain) {
+      S.dlAgain = false;
+      for (;;) {
+        const next = (await listDownloads()).filter((d) => d.status === "queued" && !S.deleted.has(d.id)).pop(); // oldest first
+        if (!next) break;
+        const ctrl = new AbortController();
+        const done = runDownload(next, ctrl.signal);
+        S.dl = { d: next, ctrl, done };
+        await done.catch(() => {});
+        S.dl = undefined;
+      }
+    }
+  })().catch((e) => console.error("[orbit] download queue error:", e?.message ?? e)).finally(() => { S.dlBusy = false; });
+}
+
+/** Inbox-relative base name of a path yt-dlp printed, or null if it isn't directly inside the inbox. */
+function inboxBase(p: string): string | null {
+  const abs = path.resolve(inboxDir(), p), dir = path.resolve(inboxDir());
+  const same = process.platform === "win32" ? path.dirname(abs).toLowerCase() === dir.toLowerCase() : path.dirname(abs) === dir;
+  return same ? path.basename(abs) : null;
+}
+
+async function runDownload(d: Download, signal: AbortSignal) {
+  const parts = new Set<string>();
+  try {
+    const [yt, ff] = await Promise.all([ytdlpPath(), ffmpegPath()]);
+    if (!yt) throw new Error("yt-dlp not found: run `winget install yt-dlp.yt-dlp`, then restart ORBIT");
+    if (!ff) throw new Error("ffmpeg not found: run npm install (ffmpeg-static) or set ORBIT_FFMPEG");
+    await ensureDirs();
+    Object.assign(d, { status: "downloading", step: "Starting yt-dlp" });
+    await saveDownload(d);
+    let printed = "";
+    const out = await runYtdlp(yt, ytdlpArgs(d.url, path.dirname(ff)), signal, (line, stdout) => {
+      const p = parseYtdlpProgress(line);
+      if (p !== null) { d.progress = Math.round(p * 1000) / 1000; d.step = `Downloading ${Math.round(p * 100)}%`; return; }
+      const f = ytdlpOutputFile(line), base = f && inboxBase(f);
+      if (base) {
+        parts.add(base); d.parts = [...parts];
+        if (line.startsWith("[Merger]")) d.step = "Merging video and audio";
+        void saveDownload(d).catch(() => {}); // persisted so a crash mid-download can still clean up
+      } else if (stdout && line.trim() && !line.startsWith("[")) printed = line.trim(); // --print after_move:filepath
+    });
+    if (!printed) throw new Error(ytdlpError(out)); // e.g. skipped by --match-filter / --max-filesize (exit 0, no file)
+    const file = inboxBase(printed);
+    if (!file) throw new Error("yt-dlp saved the video outside the inbox");
+    if (!isInboxName(file)) throw new Error(`Downloaded file isn't a supported video: ${file}`);
+    await writeFile(path.join(inboxDir(), `${file}.source.json`), JSON.stringify({ url: d.url, permission: d.permission, downloadedAt: new Date().toISOString() }, null, 2));
+    Object.assign(d, { file, parts: undefined });
+    const dup = d.autoClip && (await listJobs()).some((j) => j.source === file && j.status !== "failed"); // same video linked twice
+    if (d.autoClip && !dup) await createJob(file, d.autoClip);
+    Object.assign(d, { status: "done", progress: 1, step: d.autoClip ? "Downloaded — making clips" : "Downloaded" });
+    await saveDownload(d);
+  } catch (e) {
+    await rmParts(d.parts);
+    Object.assign(d, { status: "failed", step: "Failed", parts: undefined, error: signal.aborted ? "Cancelled" : e instanceof Error ? e.message : String(e) });
+    await saveDownload(d);
+    throw e;
+  }
+}
+
+/** Runs yt-dlp (no shell), feeding each output line to onLine; resolves with the output tail for error mapping. */
+function runYtdlp(exe: string, args: string[], signal: AbortSignal, onLine: (line: string, stdout: boolean) => void): Promise<string> {
+  return new Promise((resolve, reject) => {
+    signal.throwIfAborted();
+    const child = spawn(exe, args, { cwd: inboxDir(), windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let tail = "";
+    for (const [stream, isOut] of [[child.stdout, true], [child.stderr, false]] as const) {
+      let buf = "";
+      stream.setEncoding("utf8");
+      stream.on("data", (chunk: string) => {
+        const lines = (buf + chunk).split(/\r?\n|\r/);
+        buf = lines.pop() ?? "";
+        for (const l of lines) { onLine(l, isOut); tail = (tail + l + "\n").slice(-20_000); }
+      });
+      stream.on("end", () => { if (buf) { onLine(buf, isOut); tail += buf; } });
+    }
+    // yt-dlp runs ffmpeg for the merge: kill the whole tree, or ffmpeg keeps the file locked on Windows.
+    const kill = () => {
+      if (process.platform === "win32" && child.pid) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }).on("error", () => child.kill());
+      else child.kill("SIGKILL"); // shortcut: on Linux/macOS a merging ffmpeg child is orphaned; fine while ORBIT only runs on Windows
+    };
+    let timedOut = false; // reject from "close", once the process tree is really gone and files are unlocked
+    const timer = setTimeout(() => { timedOut = true; kill(); }, 2 * 3600_000);
+    signal.addEventListener("abort", kill, { once: true });
+    child.on("error", (e) => { clearTimeout(timer); reject(new Error(`Could not start yt-dlp: ${e.message}`)); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", kill);
+      if (signal.aborted) return reject(signal.reason);
+      if (timedOut) return reject(new Error("Download timed out after 2 hours"));
+      if (code === 0 || code === 101) return resolve(tail); // 101: stopped by --max-downloads 1
+      reject(new Error(ytdlpError(tail)));
+    });
+  });
 }
