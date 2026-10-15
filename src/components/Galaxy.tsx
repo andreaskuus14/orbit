@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGlRecovery } from "./useGlRecovery";
+import { voiceLevel } from "./voice/bus";
 import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
@@ -655,14 +656,14 @@ function Nebula() {
 
 const filamentMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-  uniforms: { uTime: { value: 0 }, uBreath: { value: 1 } },
+  uniforms: { uTime: { value: 0 }, uBreath: { value: 1 }, uTint: { value: new THREE.Color(1, 1, 1) } },
   vertexShader: "attribute float aU; attribute float aOff; varying float vU; varying float vOff; void main(){ vU = aU; vOff = aOff; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-  fragmentShader: `uniform float uTime; uniform float uBreath; varying float vU; varying float vOff;
+  fragmentShader: `uniform float uTime; uniform float uBreath; uniform vec3 uTint; varying float vU; varying float vOff;
     void main(){ float head = fract(uTime * 0.32 + vOff); float d = vU - head;
       float pulse = exp(-d * d * 90.0);
       vec3 c = mix(vec3(1.0, 0.94, 0.79), vec3(0.35, 0.62, 1.0), smoothstep(0.0, 0.6, vU)); // warm centre, cool tips
       float a = pow(max(1.0 - vU, 0.0), 1.4) * 0.22 + pulse * 0.75 * (1.0 - vU * 0.6); // max(): MSAA samples vU just past 1, and pow(negative) = NaN, which bloom spreads over the whole screen
-      gl_FragColor = vec4(c * (1.0 + pulse), a * uBreath); }`,
+      gl_FragColor = vec4(c * uTint * (1.0 + pulse), a * uBreath); }`,
 });
 const sparkMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
@@ -679,6 +680,7 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
   const group = useRef<THREE.Group>(null);
   const inner = useRef<THREE.Sprite>(null);
   const sat = useRef<THREE.Mesh>(null);
+  const voice = useRef({ mic: 0, speak: 0 }); // smoothed copy of voiceLevel (read per frame, no React state)
   const { strands, sparks } = useMemo(() => {
     const r = rng(77);
     const gauss = () => Math.sqrt(-2 * Math.log(r() + 1e-9)) * Math.cos(2 * Math.PI * r());
@@ -733,16 +735,28 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
     const g = glow(pulses, "core");
     // Breathing: slow when idle, quicker while CORE is answering; events make it flare.
     const breath = reduced ? 0.5 : 0.5 + 0.5 * Math.sin(t * (busy ? 2.6 : 1.05));
+    // Voice: mic = the user talking (cool, fast), speak = ORBIT talking (warm, slower breath).
+    // Everything is clamped finite and >= 0: one NaN or negative pixel gets smeared over the screen by the bloom blur.
+    const lv = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
+    const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+    const v = voice.current;
+    v.mic = lv(v.mic + (lv(voiceLevel.mic) - v.mic) * (1 - Math.exp(-step * 14)));
+    v.speak = lv(v.speak + (lv(voiceLevel.speak) - v.speak) * (1 - Math.exp(-step * 8)));
+    const amp = reduced ? 0.3 : 1;
+    const mic = v.mic * amp, spk = v.speak * amp;
     if (group.current) {
-      group.current.scale.setScalar(0.72 * (1 + 0.05 * breath + g * 0.12));
+      group.current.scale.setScalar(0.72 * (1 + 0.05 * breath + g * 0.12 + spk * 0.07 + mic * 0.03));
       if (!reduced) group.current.rotation.y += dt * (busy ? 0.18 : 0.05);
     }
-    inner.current?.scale.setScalar(1.2 * (1 + 0.22 * breath + g * 0.5));
+    inner.current?.scale.setScalar(1.2 * (1 + 0.22 * breath + g * 0.5 + spk * 0.4 + mic * 0.15));
     mats.fil.uniforms.uTime.value = reduced ? 0 : t * (busy ? 1.8 : 1);
-    mats.fil.uniforms.uBreath.value = 0.7 + 0.45 * breath + g * 1.2;
+    mats.fil.uniforms.uBreath.value = Math.min(4, Math.max(0, 0.7 + 0.45 * breath + g * 1.2 + mic * 0.9 + spk * 0.6));
+    const tr = Math.min(2, Math.max(0.2, 1 - mic * 0.3 + spk * 0.25)), tg = Math.min(2, Math.max(0.2, 1 - mic * 0.08 + spk * 0.02)), tb = Math.min(2, Math.max(0.2, 1 + mic * 0.35 - spk * 0.3));
+    (mats.fil.uniforms.uTint.value as THREE.Color).setRGB(tr, tg, tb);
+    (mats.spark.uniforms.uColor.value as THREE.Color).setRGB(0.7 * tr, 0.85 * tg, 1.0 * tb);
     mats.spark.uniforms.uTime.value = reduced ? 0 : t;
     mats.spark.uniforms.uScale.value = gl.getPixelRatio() * 9;
-    mats.spark.uniforms.uBreath.value = 0.75 + 0.35 * breath + g;
+    mats.spark.uniforms.uBreath.value = Math.min(4, Math.max(0, 0.75 + 0.35 * breath + g + mic * 1.0 + spk * 0.4));
     if (sat.current) {
       const a = busy && !reduced ? t * 2.2 : 0; // orbits only while a real CORE request is in flight
       sat.current.position.set(Math.cos(a) * 3.1, 0.3, Math.sin(a) * 3.1);

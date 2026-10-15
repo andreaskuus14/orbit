@@ -6,6 +6,8 @@ import { takeLines } from "@/lib/streamjson";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { planetById, type PlanetId } from "@/lib/planets";
 import { Markdown } from "./AgentsPanels";
+import { sentenceStream, speechChunks } from "./voice/speech-text";
+import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
 type Cite = { id: string; title: string; kind: string };
@@ -26,6 +28,8 @@ export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: stri
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<string | null>(null); // the answer while it streams in
+  const [speaking, setSpeaking] = useState(false);
+  useEffect(() => onSpeakingChange(setSpeaking), []);
   const convo = useRef<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
@@ -34,12 +38,18 @@ export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: stri
   const alive = useRef(false);
   useEffect(() => {
     alive.current = true;
-    return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) ac?.abort(); }, 0); };
+    return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) { ac?.abort(); stopSpeech(); } }, 0); };
   }, []);
 
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (text: string, fromVoice?: boolean) => {
     const message = text.trim();
     if (!message || busy) return;
+    stopSpeech();
+    // Speak only answers to spoken questions; settings are re-read per chunk so toggling takes effect live.
+    let myGen = speechGen(); // a later stop() (barge-in, Stop button) silences the rest of this answer
+    const talk = fromVoice || takeVoiceAsked();
+    const say = (parts: string[]) => { if (talk && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
+    const voiceOut = sentenceStream();
     setMsgs((m) => [...m, { role: "user", content: message }]);
     setInput("");
     setBusy(true);
@@ -66,14 +76,19 @@ export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: stri
         if (ev.conversationId) convo.current = ev.conversationId;
         if (ev.type === "delta" && ev.text) {
           partial += ev.text;
+          say(voiceOut.push(ev.text));
           // One render per frame at most, and only the streaming bubble changes.
           if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLive(partial); });
         } else if (ev.type === "reset") {
           partial = "";
+          voiceOut.reset();
+          if (talk && speechGen() === myGen) { stopSpeech(); myGen = speechGen(); } // restart, unless the user already silenced it
           setLive("");
         } else if (ev.type === "done") {
           finished = true;
           flush();
+          // The final answer equals the streamed text up to citation markers (stripped for speech): speak only the tail.
+          say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? ""));
           setLive(null);
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace }]);
         } else if (ev.type === "error") {
@@ -90,6 +105,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: stri
       if (!finished) throw new Error("Connection to CORE was lost");
     } catch (e) {
       const stopped = ac.signal.aborted;
+      if (talk) stopSpeech();
       if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
       setMsgs((m) => [...m, stopped
         ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._` }
@@ -104,18 +120,33 @@ export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: stri
 
   // React dev mode runs effects twice; remember what we already sent so the command bar message goes out once.
   const sentInitial = useRef<string | null>(null);
+  const queued = useRef<string | null>(null);
   useEffect(() => {
     if (!initial) { sentInitial.current = null; return; }
     if (sentInitial.current === initial) return;
     sentInitial.current = initial;
     onConsumed();
-    void send(initial);
+    // Busy: never drop the new question (e.g. a voice follow-up). Stop the running answer and send it once that settles.
+    if (busy) { queued.current = initial; abort.current?.abort(); }
+    else void send(initial);
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (busy || !queued.current) return;
+    const q = queued.current;
+    queued.current = null;
+    void send(q);
+  }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, busy, live]);
 
   // Memoised so streaming deltas re-render only the live bubble, not the whole history.
   const history = useMemo(() => msgs.map((m, i) => (
     <div key={i} className={m.role === "user" ? "bubble user" : `bubble core${m.error ? " err" : ""}`}>
+      {m.role === "assistant" && !m.error && (
+        <button type="button" className="speak-btn" aria-label={speaking ? "Stop speaking" : "Read aloud"} title={speaking ? "Stop speaking" : "Read aloud"}
+          onClick={() => { const was = speaking; stopSpeech(); if (!was) speechChunks(m.content).forEach(speakChunk); }}>
+          {speaking ? "■" : "🔊"}
+        </button>
+      )}
       {m.role === "assistant" && !m.error
         ? <Markdown text={numberCitations(m.content, (m.citations ?? []).map((c) => c.id))} openMemory={onOpenMemory} />
         : <div className="whitespace-pre-wrap">{m.content}</div>}
@@ -131,7 +162,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: stri
         </details>
       )}
     </div>
-  )), [msgs, onOpenMemory]);
+  )), [msgs, onOpenMemory, speaking]);
 
   return (
     <div className="flex h-full flex-col">
@@ -150,8 +181,10 @@ export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: stri
       <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
         <input className="field flex-1" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Message CORE" maxLength={8000} aria-label="Message CORE" />
         {busy
-          ? <button type="button" className="btn" onClick={() => abort.current?.abort()}>Stop</button>
-          : <button className="btn" disabled={!input.trim()}>Send</button>}
+          ? <button type="button" className="btn" onClick={() => { abort.current?.abort(); stopSpeech(); }}>Stop</button>
+          : speaking && !input.trim()
+            ? <button type="button" className="btn" onClick={stopSpeech}>Stop</button>
+            : <button className="btn" disabled={!input.trim()}>Send</button>}
       </form>
     </div>
   );

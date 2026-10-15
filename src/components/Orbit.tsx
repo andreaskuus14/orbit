@@ -7,6 +7,9 @@ import { AnalyticsPanel, CorePanel, LaterPanel, MemoryPanel, ProfilePanel } from
 import { IntelligencePanel } from "./IntelligencePanel";
 import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
 import { GameLabPanel } from "./GameLab";
+import { VOICE_ASK } from "./voice/bus";
+import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
+import { VoiceControls } from "./voice/VoiceControls";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
@@ -34,6 +37,20 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [live, setLive] = useState<"connecting" | "live" | "offline">("connecting");
   const pulses = useRef<Record<string, number>>({});
   const cmdRef = useRef<HTMLInputElement>(null);
+  const voice = useVoiceInput();
+
+  // Voice questions (mic or "Hey Orbit") always go to CORE, whatever the bar's mode.
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
+      if (!text) return;
+      setCmdErr("");
+      dispatchEvent(new CustomEvent(VOICE_ASKED));
+      setPending(text); setPanel("core");
+    };
+    addEventListener(VOICE_ASK, onAsk);
+    return () => removeEventListener(VOICE_ASK, onAsk);
+  }, []);
 
   // Default to the fast 2D view when WebGL is missing or the screen is small; the user can switch any time.
   useEffect(() => {
@@ -110,8 +127,10 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   async function runCommand(e: React.FormEvent) {
     e.preventDefault();
+    if (voice.listening) { voice.stop(); return; } // Enter while talking = done talking
     const text = cmd.trim();
     if (!text) return;
+    voice.clearError();
     setCmdErr("");
     if (cmdMode === "ask") { setCmd(""); setPending(text); setPanel("core"); return; }
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
@@ -201,11 +220,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
             aria-label={`Mode: ${cmdMode === "ask" ? "ask CORE" : "agent task"}. Click to switch.`}>
             {cmdMode === "ask" ? "Ask" : "Task"}
           </button>
-          <input ref={cmdRef} className="field w-full" value={cmd} onChange={(e) => setCmd(e.target.value)} maxLength={8000}
-            placeholder={cmdMode === "ask" ? "Ask CORE…  (Ctrl/⌘ K)" : "Give your agents a task, e.g. research X and save a report"}
-            aria-label={cmdMode === "ask" ? "Command bar: ask CORE" : "Command bar: give the agents a task"} />
+          <input ref={cmdRef} className={"field w-full" + (voice.listening ? " voice-live" : "")} value={voice.listening ? voice.interim : cmd} onChange={(e) => setCmd(e.target.value)} maxLength={8000}
+            readOnly={voice.listening}
+            placeholder={voice.listening ? "Listening… speak your question" : cmdMode === "ask" ? "Ask CORE…  (Ctrl/⌘ K · mic Ctrl+M)" : "Give your agents a task, e.g. research X and save a report"}
+            aria-label={voice.listening ? "Live voice transcript" : cmdMode === "ask" ? "Command bar: ask CORE" : "Command bar: give the agents a task"} />
+          <VoiceControls voice={voice} />
         </div>
-        {cmdErr && <p className="error mt-1 px-1">{cmdErr}</p>}
+        {(cmdErr || voice.error) && <p className="error mt-1 px-1" role="alert">{cmdErr || voice.error}</p>}
       </form>
     </main>
   );
