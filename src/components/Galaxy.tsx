@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGlRecovery } from "./useGlRecovery";
-import { OrbitControls, Stars, Sparkles } from "@react-three/drei";
+import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
@@ -298,7 +298,7 @@ const themeMat = new THREE.ShaderMaterial({
         p = normalize(d + w * 0.25) * uR * (1.06 + 0.12 * (0.5 + 0.5 * sin(uTime * 0.9 + aSeed * 40.0))); a = pow(max(0.0, sin(uTime * 1.7 + aSeed * 50.0)), 4.0); }
       else if (m == 4) { p = d * uR * (1.03 + aSeed * 0.25); a = pow(max(0.0, sin(uTime * 0.9 + aSeed * 60.0)), 30.0); sz *= 1.0 + a * 0.8; }
       else { p = d * uR * (1.01 + t * 0.35); a = sin(3.1416 * t) * 0.4; sz *= 1.0 + t * 1.5; }
-      vA = a;
+      vA = max(a, 0.0); // never negative: additive blending would write negative light (NaN in bloom)
       vec4 mv = modelViewMatrix * vec4(p, 1.0);
       gl_PointSize = sz * uScale / -mv.z; gl_Position = projectionMatrix * mv; }`,
   fragmentShader: `uniform vec3 uColor; uniform vec3 uColor2; uniform float uMode; varying float vA; varying float vT;
@@ -617,7 +617,7 @@ const filamentMat = new THREE.ShaderMaterial({
     void main(){ float head = fract(uTime * 0.32 + vOff); float d = vU - head;
       float pulse = exp(-d * d * 90.0);
       vec3 c = mix(vec3(1.0, 0.94, 0.79), vec3(0.35, 0.62, 1.0), smoothstep(0.0, 0.6, vU)); // warm centre, cool tips
-      float a = pow(1.0 - vU, 1.4) * 0.22 + pulse * 0.75 * (1.0 - vU * 0.6);
+      float a = pow(max(1.0 - vU, 0.0), 1.4) * 0.22 + pulse * 0.75 * (1.0 - vU * 0.6); // max(): MSAA samples vU just past 1, and pow(negative) = NaN, which bloom spreads over the whole screen
       gl_FragColor = vec4(c * (1.0 + pulse), a * uBreath); }`,
 });
 const sparkMat = new THREE.ShaderMaterial({
@@ -832,7 +832,7 @@ export default function Galaxy(props: GalaxyProps) {
         <Nebula />
         <NebulaPlates reduced={props.reduced} />
         <Stars radius={110} depth={60} count={props.reduced ? 2000 : 6000} factor={3.2} fade speed={props.reduced ? 0 : 0.5} />
-        <Sparkles count={props.reduced ? 60 : 140} scale={[70, 24, 70]} size={4} speed={props.reduced ? 0 : 0.25} color="#ffffff" opacity={0.9} />
+        {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
         <AsteroidBelt inner={5.5} outer={6.0} count={900} seed={3} reduced={props.reduced} />
