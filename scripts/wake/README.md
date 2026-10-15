@@ -3,7 +3,7 @@
 Say **"orbital wake up"** (or "orbit wake up", "hey orbit wake up", "orbit wake") and ORBIT opens even if it was closed:
 
 1. A small hidden PowerShell listener hears the phrase.
-2. If the ORBIT server isn't answering on http://localhost:3000, it starts `npm run dev` hidden in this repo (output in `orbit-server.log`) and waits up to 90 s.
+2. If the ORBIT server isn't answering on http://localhost:3000, it runs `scripts\launch.ps1 -ServerOnly` hidden (production build, rebuilt if needed, with auto-restart; see [../README.md](../README.md)) and waits for it.
 3. It opens ORBIT as a Chrome app window at `/?wake=1`. ORBIT opens CORE, CORE says a short hello, then the mic starts listening. Ask your question and CORE answers out loud.
 
 If Chrome blocks the voice (it only allows speech without a click when Chrome wasn't already running), you get a big **Tap to talk** button instead.
@@ -39,4 +39,4 @@ Check `%LOCALAPPDATA%\orbit-wake\wake.log` first.
 - **Triggers by mistake / misses you**: watch the confidence values in `npm run wake:run` and adjust `-MinConfidence`.
 - **ORBIT opens but CORE doesn't speak**: click **Tap to talk**. To get the voice without a click, close Chrome completely before saying the phrase. Check "Speak answers" is on in ORBIT's voice settings.
 - **ORBIT opens on the login page**: sign in to ORBIT in Chrome once; the greeting runs on the next wake.
-- **Server doesn't start**: see `orbit-server.log` in the ORBIT folder; make sure `npm run dev` works by hand.
+- **Server doesn't start**: see `orbit-server.log` in the ORBIT folder; make sure `npm run app:start` works by hand (see `scripts\README.md`).

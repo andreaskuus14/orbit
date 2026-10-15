@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.ts";
+import { createLimiter } from "./pure.ts";
 
 // CORE runs on the local Claude Code CLI (`claude -p`) under your own Claude login, so there is no API key
 // and no per-token bill. ORBIT must therefore run on the machine where `claude` is installed and signed in.
@@ -12,6 +13,12 @@ export const MODEL = process.env.ORBIT_MODEL || "sonnet";
 const TIMEOUT_MS = 120_000;
 const WIN = process.platform === "win32";
 const HINT = "Install Claude Code and run `claude` once to sign in (or set ORBIT_CLAUDE_BIN to its full path).";
+
+// At most 3 `claude` processes at once across the whole server (chat, agents, briefings); the rest queue.
+// Kept on globalThis so dev hot reloads don't create a second, independent limit.
+const MAX_CLI = Number(process.env.ORBIT_CLAUDE_CONCURRENCY) || 3;
+const gl = globalThis as unknown as { __orbitClaudeLimit?: ReturnType<typeof createLimiter> };
+const cliSlot = (gl.__orbitClaudeLimit ??= createLimiter(MAX_CLI));
 
 export type ClaudeResult = { text: string; inputTokens: number; outputTokens: number; ms: number };
 
@@ -39,7 +46,11 @@ function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean
   else child.kill("SIGKILL");
 }
 
-export async function askClaude(prompt: string, system: string): Promise<ClaudeResult> {
+export function askClaude(prompt: string, system: string): Promise<ClaudeResult> {
+  return cliSlot(() => runClaude(prompt, system));
+}
+
+async function runClaude(prompt: string, system: string): Promise<ClaudeResult> {
   const t0 = Date.now();
   const { dir, start } = await prepare(system, ["--output-format", "json"]);
   try {
@@ -69,7 +80,11 @@ export async function askClaude(prompt: string, system: string): Promise<ClaudeR
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI. */
-export async function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ClaudeResult> {
+export function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ClaudeResult> {
+  return cliSlot(() => runClaudeStream(prompt, system, onDelta, signal), signal);
+}
+
+async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ClaudeResult> {
   signal?.throwIfAborted();
   const t0 = Date.now();
   const { dir, start } = await prepare(system, ["--output-format", "stream-json", "--verbose", "--include-partial-messages"]);

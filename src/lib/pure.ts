@@ -351,3 +351,69 @@ export function extractLinks(html: string, baseUrl: string, max = 25): { text: s
   }
   return out;
 }
+
+/* ---------------- network hardening (SSRF, size caps, concurrency) ---------------- */
+
+/** The address to connect to after DNS: refuses empty answers and any private/internal address (a host that
+ *  resolves to even one private IP is refused, so round-robin rebinding can't slip one in). */
+export function pickPublicAddress<A extends { address: string; family: number }>(addrs: A[]): A {
+  if (!addrs.length || addrs.some((a) => isPrivateIp(a.address))) throw new Error("That address is not publicly reachable");
+  return addrs[0];
+}
+
+/** Only plain http(s) URLs may be fetched; returns the URL for chaining. */
+export function assertHttpUrl(url: URL): URL {
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("Only http(s) links are allowed");
+  return url;
+}
+
+/** The next URL when a response is a redirect (null when it isn't). The caller re-validates it like the first. */
+export function redirectTarget(status: number, location: string | null | undefined, base: URL): URL | null {
+  if (status < 300 || status >= 400 || !location) return null;
+  return assertHttpUrl(new URL(location, base));
+}
+
+/** Read at most `max` bytes from a byte stream, then stop reading (breaking out cancels/destroys the source). */
+export async function readCapped(source: AsyncIterable<Uint8Array>, max: number): Promise<{ bytes: Uint8Array<ArrayBuffer>; truncated: boolean }> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let truncated = false;
+  for await (const chunk of source) {
+    const room = max - size;
+    if (chunk.length >= room) {
+      chunks.push(chunk.subarray(0, room));
+      size += room;
+      truncated = chunk.length > room;
+      break;
+    }
+    chunks.push(chunk);
+    size += chunk.length;
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) { bytes.set(c, at); at += c.length; }
+  return { bytes, truncated };
+}
+
+/** At most `max` calls of `run(fn)` in flight; the rest wait in order. Aborting `signal` while queued gives up the place. */
+export function createLimiter(max: number) {
+  let active = 0;
+  const queue: (() => void)[] = [];
+  return async function run<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
+    if (active < max) active++;
+    else {
+      await new Promise<void>((resolve, reject) => {
+        const go = () => { signal?.removeEventListener("abort", stop); resolve(); };
+        const stop = () => { const i = queue.indexOf(go); if (i >= 0) queue.splice(i, 1); reject(signal?.reason); };
+        queue.push(go);
+        signal?.addEventListener("abort", stop, { once: true });
+      });
+    }
+    try { return await fn(); }
+    finally {
+      const next = queue.shift(); // hand the slot straight over, so a newcomer can't jump in between
+      if (next) next(); else active--;
+    }
+  };
+}

@@ -2,9 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isAllowedEmail } from "@/lib/allow";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest"];
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health"];
 
 export async function middleware(request: NextRequest) {
+  if (request.nextUrl.pathname === "/api/health") return NextResponse.next(); // launcher polls it; no session work
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -34,7 +35,7 @@ export async function middleware(request: NextRequest) {
     response.cookies.getAll().forEach((c) => r.cookies.set(c));
     return r;
   };
-  const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
+  const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/"));
 
   if (user && !isAllowedEmail(user.email)) {
     await supabase.auth.signOut();

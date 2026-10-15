@@ -8,18 +8,21 @@ import { isPrivateIp } from "./pure";
 type Browser = import("playwright-core").Browser;
 const g = globalThis as unknown as { __orbitBrowser?: Promise<Browser | null>; __orbitBrowserIdle?: NodeJS.Timeout };
 const IDLE_MS = 2 * 60_000;
-const hostOk = new Map<string, boolean>();
+// Short-lived DNS verdicts: Chrome resolves names itself, so a long cache would let a rebinding host flip to a
+// private IP after being approved. 30 s keeps per-page lookups cheap without that window staying open.
+const HOST_TTL_MS = 30_000;
+const hostOk = new Map<string, { ok: boolean; at: number }>();
 
 async function allowedHost(host: string): Promise<boolean> {
   const h = host.replace(/^\[|\]$/g, "").toLowerCase();
   if (h === "localhost" || h.endsWith(".local") || h.endsWith(".internal") || h.endsWith(".localhost")) return false;
   if (/^[\d.]+$/.test(h) || h.includes(":")) return !isPrivateIp(h);
   const cached = hostOk.get(h);
-  if (cached !== undefined) return cached;
+  if (cached && Date.now() - cached.at < HOST_TTL_MS) return cached.ok;
   let ok = false;
   try { ok = (await lookup(h, { all: true })).every((a) => !isPrivateIp(a.address)); } catch { ok = false; }
   if (hostOk.size > 2000) hostOk.clear();
-  hostOk.set(h, ok);
+  hostOk.set(h, { ok, at: Date.now() });
   return ok;
 }
 
@@ -72,6 +75,9 @@ export async function renderPage(url: string, userAgent: string): Promise<{ url:
     const page = await ctx.newPage();
     await page.goto(u.toString(), { waitUntil: "domcontentloaded", timeout: 20_000 });
     await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => {}); // good enough if it never idles
+    // Redirect hops may bypass route(): never hand back a page that ended up on a private address.
+    // shortcut: route() never sees redirect hops, so Chrome may already have requested a private hop; this only stops its content coming back. Pin DNS in Chrome (--host-resolver-rules) if pages ever run untrusted.
+    if (!(await allowedHost(new URL(page.url()).hostname))) return null;
     return { url: page.url(), html: await page.content(), text: (await page.innerText("body").catch(() => "")).slice(0, 200_000) };
   } catch {
     return null;

@@ -61,7 +61,7 @@ export async function readArticle(url: string, maxChars = 4000, useBrowser = tru
     if (new URL(real).hostname === "news.google.com") return null;
     const { res, url: finalUrl } = await safeFetch(real, "text/html", UA);
     if ((res.headers.get("content-type") ?? "").includes("html")) {
-      const html = (await res.text()).slice(0, 3_000_000);
+      const html = await res.text(); // capped at 3 MB while downloading (safeFetch)
       const art = extractArticle(html, maxChars);
       if (art.text.length >= 300) plain = { url: finalUrl.toString(), title: art.title, text: art.text, links: extractLinks(html, finalUrl.toString()) };
     }

@@ -211,6 +211,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </button>
         <div className="flex items-center gap-2 text-xs">
           <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title="Realtime link to the backend that animates the galaxy">{live === "live" ? "LIVE" : live === "offline" ? "OFFLINE" : "CONNECTING"}</span>
+          {process.env.NODE_ENV === "development" && <span className="pill hidden sm:inline-flex" title="Running the development server (slower). Start ORBIT from the desktop shortcut for the production server.">DEV</span>}
           <button className="chip" onClick={() => setView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "2D view" : "3D view"}</button>
           <button className="chip" onClick={() => select("profile")}>Profile</button>
           <button className="chip" onClick={signOut} title={email}>Sign out</button>

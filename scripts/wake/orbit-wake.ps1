@@ -36,19 +36,12 @@ function Test-Orbit {
 
 function Wake-Orbit {
   if (-not (Test-Orbit)) {
-    $serverLog = Join-Path $root "orbit-server.log" # same log as scripts\launch.ps1
-    # Port check, not HTTP: a server busy with a cold compile can miss the HTTP timeout, and a second one would land on 3001.
-    if ([bool](Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue)) {
-      Write-Log "Port 3000 is in use but ORBIT isn't answering yet (compiling?); waiting."
-    } else {
-      Write-Log "ORBIT server not running; starting 'npm run dev' in $root"
-      Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "npm.cmd run dev > `"$serverLog`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden
-    }
-    $deadline = (Get-Date).AddSeconds(90)
-    while (-not (Test-Orbit)) {
-      if ((Get-Date) -gt $deadline) { Write-Log "ERROR: ORBIT didn't respond within 90 s. See $serverLog"; return }
-      Start-Sleep -Seconds 1
-    }
+    # Same start-up as the desktop shortcut: production build (rebuilt if needed) under the restart supervisor.
+    Write-Log "ORBIT server not answering; running scripts\launch.ps1 -ServerOnly (may build first, up to 10 min)."
+    $launcher = Join-Path $root "scripts\launch.ps1"
+    $p = Start-Process powershell.exe -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`" -ServerOnly" -WindowStyle Hidden -PassThru
+    $null = $p.Handle; $p.WaitForExit() # not -Wait: in PowerShell 5.1 that also waits for the supervisor it leaves running
+    if ($p.ExitCode -ne 0) { Write-Log "ERROR: ORBIT didn't start. See $(Join-Path $root 'orbit-server.log')"; return }
     Write-Log "ORBIT server is up."
   }
   $target = "$Url/?wake=1"

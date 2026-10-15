@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { kickQueue, resolvePending } from "@/lib/agents";
+import { ConflictError, kickQueue, resolvePending } from "@/lib/agents";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 type Ctx = { params: Promise<{ id: string }> };
@@ -44,6 +44,6 @@ export async function POST(req: Request, { params }: Ctx) {
     }
     return Response.json({ error: "Unknown action" }, { status: 400 });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 400 });
+    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: e instanceof ConflictError ? 409 : 400 });
   }
 }

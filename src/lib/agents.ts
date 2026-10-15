@@ -379,11 +379,21 @@ export async function runTask(sb: SupabaseClient, userId: string, taskId: string
   }
 }
 
+/** Thrown when another request already resolved (or is resolving) a task's approval: the API answers 409. */
+export class ConflictError extends Error {}
+
 /** Apply or reject the actions an agent proposed. */
 export async function resolvePending(sb: SupabaseClient, userId: string, taskId: string, approve: boolean) {
   const { data: task, error } = await sb.from("tasks").select("id, agent, title, request, parent_id, project_id, status, pending").eq("id", taskId).single();
   if (error) throw error;
-  if (task.status !== "awaiting_approval") throw new Error("Nothing is waiting for approval on this task");
+  if (task.status !== "awaiting_approval") throw new ConflictError("Nothing is waiting for approval on this task");
+  // Claim the approval atomically (compare-and-swap on status): only one request wins, so a double click or a
+  // retried request can never run the same action twice. A crash mid-way leaves it "running", which the task list
+  // turns into "failed" after 20 min — never re-run, never shown as a success.
+  const { data: claimed, error: claimErr } = await sb.from("tasks").update({ status: "running", started_at: new Date().toISOString() })
+    .eq("id", taskId).eq("status", "awaiting_approval").select("id");
+  if (claimErr) throw claimErr;
+  if (!claimed?.length) throw new ConflictError("This task's approval is already being handled");
   const ctx: Ctx = { sb, userId, task, depth: 0, pending: [], trace: [], pages: new Map() };
   const pending = task.pending as PendingAction[];
   for (const p of pending) {
@@ -392,7 +402,10 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
     try { p.note = await TOOLS[p.tool].run(ctx, p.input); p.status = "approved"; }
     catch (e) { p.status = "failed"; p.note = e instanceof Error ? e.message : String(e); }
   }
-  await sb.from("tasks").update({ pending, status: "done" }).eq("id", taskId);
+  const done = { pending, status: "done", finished_at: new Date().toISOString() };
+  let { error: saveErr } = await sb.from("tasks").update(done).eq("id", taskId);
+  if (saveErr) ({ error: saveErr } = await sb.from("tasks").update(done).eq("id", taskId)); // one retry
+  if (saveErr) throw new Error(`Actions ran but their results couldn't be saved: ${saveErr.message}`);
   // When the last waiting sub-task is settled, the parent task is done too (unless it has its own approvals).
   if (task.parent_id) {
     const [{ data: parent }, { data: waiting }] = await Promise.all([
