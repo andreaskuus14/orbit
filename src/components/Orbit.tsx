@@ -45,6 +45,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [wakeGreeting, setWakeGreeting] = useState<string | null>(null);
   const [tapToTalk, setTapToTalk] = useState(false);
 
+  // Back from Google's YouTube consent screen (?studio=…): reopen STUDIO; StudioStats reads and clears the query.
+  useEffect(() => { if (new URLSearchParams(location.search).has("studio")) setPanel("studio"); }, []);
+
   // Opened by scripts/wake ("orbital wake up") as /?wake=1: CORE greets you aloud, then listens for your question.
   // No cleanup on purpose: dev mode re-runs this effect, and the URL is already cleaned so the second run is a no-op.
   const { start: startVoice } = voice;
@@ -138,6 +141,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return; // a widget (e.g. a chart's arrow-key scrub) already handled it
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); cmdRef.current?.focus(); }
       // ← / → fly to the previous / next planet; Esc closes. Neither while typing (Esc in a form would lose the draft).
       const el = e.target as HTMLElement | null;

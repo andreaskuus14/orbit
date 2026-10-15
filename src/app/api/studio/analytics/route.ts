@@ -1,0 +1,18 @@
+import { requireUser } from "@/lib/supabase/server";
+import { getAnalytics } from "@/lib/yt-analytics";
+import { isVideoId, parseRange } from "@/lib/yt-analytics-pure";
+
+// STUDIO analytics: ?range=7|28|90|365 (default 28) &video=<11-char id> for one video. Contract: Analytics in yt-analytics-pure.
+export async function GET(req: Request) {
+  const { res } = await requireUser();
+  if (res) return res;
+  const sp = new URL(req.url).searchParams;
+  const range = parseRange(sp.get("range")), video = sp.get("video") || undefined;
+  if (!range) return Response.json({ error: "range must be 7, 28, 90 or 365" }, { status: 400 });
+  if (video && !isVideoId(video)) return Response.json({ error: "Invalid video id" }, { status: 400 });
+  try {
+    return Response.json(await getAnalytics({ range, videoId: video, force: sp.get("refresh") === "1" }));
+  } catch (e) {
+    return Response.json({ error: e instanceof Error ? e.message : "Couldn't load analytics" }, { status: 502 });
+  }
+}

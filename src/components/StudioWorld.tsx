@@ -6,6 +6,7 @@ import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
+import StudioStats from "./StudioStats";
 import { isShort, medianViewsPerDay, moonRadius, takeoff, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
 
 // STUDIO: the owner's YouTube channel as a world. A crimson planet, one moon per video (newest closest in,
@@ -258,6 +259,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { on
   const [selected, setSelected] = useState<string | null>(null);
   const [hover, setHover] = useState<Hover>({ id: null, x: 0, y: 0 });
   const [sort, setSort] = useState<Sort>("newest");
+  const [stats, setStats] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio"));
   const [idea, setIdea] = useState<{ busy: boolean; error?: string }>({ busy: false });
   const seq = useRef(0);
 
@@ -380,7 +382,10 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { on
         <div className="flex items-center justify-between gap-2">
           <div className="hud-title studio-title">STUDIO{live ? ` · ${live.channel.title.toUpperCase()}` : ""}</div>
           {data?.configured !== false && (
-            <button className="chip shrink-0" onClick={() => load(true)} disabled={loading} aria-label="Refresh channel data">{loading ? "Loading…" : "Refresh"}</button>
+            <div className="flex shrink-0 gap-1">
+              <button className="chip" aria-pressed={stats} onClick={() => setStats((s) => !s)}>📈 Stats</button>
+              <button className="chip" onClick={() => load(true)} disabled={loading} aria-label="Refresh channel data">{loading ? "Loading…" : "Refresh"}</button>
+            </div>
           )}
         </div>
         {loading && !data && <p className="muted mt-2 text-sm">Loading your channel…</p>}
@@ -456,6 +461,12 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { on
           </>
         )}
       </section>
+
+      {stats && (
+        <div className="absolute inset-x-3 top-[4.5rem] bottom-36 z-[16] min-[900px]:right-[32rem]">
+          <StudioStats onClose={() => setStats(false)} videoId={selected} videoTitle={sel?.title} reduced={reduced} onPickVideo={setSelected} titleOf={(id) => byId.get(id)?.title} />
+        </div>
+      )}
 
       <button className="chip absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
