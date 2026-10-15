@@ -3,11 +3,14 @@ import { COUNTRIES, displayName } from "@/lib/geo";
 
 // Colour-codes plain text so answers and briefings are easier to scan:
 // numbers/money/percentages, places, and verification labels. Pure presentation; the text is unchanged.
+// Names that are also common words or people ("Jordan scored", "Congress passes") are left plain.
+const AMBIGUOUS = new Set(["Jordan", "Georgia", "Congress", "Niger", "Turkey", "Pentagon", "White House"]);
 const PLACES = [...new Set(COUNTRIES.flatMap((c) => [displayName(c.name), ...c.terms.filter((t) => /^[A-Z][a-z]/.test(t) && t.length > 3)]))]
+  .filter((t) => !AMBIGUOUS.has(t))
   .sort((a, b) => b.length - a.length).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 const RE = new RegExp(
   [
-    String.raw`(?<num>(?:[$€£¥]\s?)?\d+(?:[,.]\d+)*(?:\s?(?:%|percent|million|billion|trillion|bn\b|m\b|k\b))?(?:\s(?:USD|EUR|dollars|euros))?)`,
+    String.raw`(?<num>(?<![\p{L}\p{N}])(?:[$€£¥]\s?)?\d+(?:[,.]\d+)*(?:\s?(?:%|percent|million|billion|trillion|bn\b|m\b|k\b))?(?:\s(?:USD|EUR|dollars|euros))?)`,
     String.raw`(?<ok>\bConfirmed\b|\bVerified\b)`,
     String.raw`(?<warn>\bSingle source\b|\bUnverified\b|\bUnconfirmed\b)`,
     String.raw`(?<bad>\bDisputed\b|\bContradicted\b|\bFalse\b)`,

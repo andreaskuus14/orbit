@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Another package-lock.json in the home folder confuses Next; pin the project root.
   outputFileTracingRoot: __dirname,
+  devIndicators: false, // the dev "N" badge covered the System panel
   // Document parsers run server-side only; keep them out of the bundler.
   serverExternalPackages: ["unpdf", "mammoth", "playwright-core"],
   async headers() {

@@ -265,30 +265,138 @@ function PlanetRing({ size, color }: { size: number; color: string }) {
   );
 }
 
-/** A drifting shell of twinkling sparks in the planet's colour, echoing the CORE. */
-function PlanetAura({ size, color, reduced }: { size: number; color: string; reduced: boolean }) {
-  const ref = useRef<THREE.Points>(null);
+/* ---------- themed planet life: each world gives off its own particles ---------- */
+
+// mode: 0 embers rise, 1 belt sweeps the equator, 2 snow drifts down, 3 fireflies blink, 4 crystal glints, 5 sea mist.
+const THEME: Record<PlanetId, { mode: number; count: number; size: [number, number]; color: string; color2?: string }> = {
+  memory: { mode: 5, count: 90, size: [10, 22], color: "#bfe9ff" },
+  intelligence: { mode: 1, count: 140, size: [5, 12], color: "#c4b5fd" }, // storm clouds; lightning is added separately
+  creation: { mode: 0, count: 110, size: [4, 11], color: "#ffe2a8", color2: "#ff4d1a" },
+  operations: { mode: 1, count: 170, size: [3, 8], color: "#f5d08a" },
+  agents: { mode: 1, count: 140, size: [4, 10], color: "#f0abfc" },
+  life: { mode: 3, count: 45, size: [6, 11], color: "#bef264" },
+  vault: { mode: 2, count: 120, size: [4, 9], color: "#e6f8ff" },
+  analytics: { mode: 4, count: 60, size: [10, 20], color: "#dbe2ff" },
+};
+
+// All motion runs on the GPU from a per-particle seed: no per-frame JS work, however many planets.
+const themeMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+  uniforms: { uTime: { value: 0 }, uScale: { value: 1 }, uR: { value: 1 }, uMode: { value: 0 }, uColor: { value: new THREE.Color() }, uColor2: { value: new THREE.Color() } },
+  vertexShader: `attribute float aSize; attribute float aSeed; uniform float uTime; uniform float uScale; uniform float uR; uniform float uMode;
+    varying float vA; varying float vT;
+    vec3 rotY(vec3 p, float a){ float c = cos(a), s = sin(a); return vec3(c*p.x + s*p.z, p.y, -s*p.x + c*p.z); }
+    void main(){
+      vec3 d = position; int m = int(uMode + 0.5);
+      float t = fract(uTime * 0.12 * (0.6 + aSeed) + aSeed * 7.0);
+      vec3 p; float a; float sz = aSize; vT = 0.0;
+      if (m == 0) { p = d * uR * (1.0 + t * 0.7) + vec3(0.0, t * uR * 0.5, 0.0); a = sin(3.1416 * t) * (1.0 - t * 0.5); sz *= 1.0 - t * 0.6; vT = t; }
+      else if (m == 1) { vec3 q = normalize(vec3(d.x, d.y * 0.22, d.z)); p = rotY(q, uTime * (0.25 + aSeed * 0.35)) * uR * (1.08 + aSeed * 0.3); a = 0.3 + 0.3 * sin(uTime * 1.5 + aSeed * 30.0); }
+      else if (m == 2) { p = d * uR * (1.15 + aSeed * 0.45); p.y += uR * (0.6 - t * 1.2); p.x += sin(uTime + aSeed * 20.0) * uR * 0.05; a = sin(3.1416 * t) * 0.8; }
+      else if (m == 3) { vec3 w = vec3(sin(uTime * 0.7 + aSeed * 13.0), sin(uTime * 0.5 + aSeed * 29.0), cos(uTime * 0.6 + aSeed * 17.0));
+        p = normalize(d + w * 0.25) * uR * (1.06 + 0.12 * (0.5 + 0.5 * sin(uTime * 0.9 + aSeed * 40.0))); a = pow(max(0.0, sin(uTime * 1.7 + aSeed * 50.0)), 4.0); }
+      else if (m == 4) { p = d * uR * (1.03 + aSeed * 0.25); a = pow(max(0.0, sin(uTime * 0.9 + aSeed * 60.0)), 30.0); sz *= 1.0 + a * 0.8; }
+      else { p = d * uR * (1.01 + t * 0.35); a = sin(3.1416 * t) * 0.4; sz *= 1.0 + t * 1.5; }
+      vA = a;
+      vec4 mv = modelViewMatrix * vec4(p, 1.0);
+      gl_PointSize = sz * uScale / -mv.z; gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `uniform vec3 uColor; uniform vec3 uColor2; uniform float uMode; varying float vA; varying float vT;
+    void main(){ vec2 c = gl_PointCoord - 0.5; float d = length(c);
+      float a = 1.0 - smoothstep(0.0, 0.5, d); a *= a;
+      if (uMode > 3.5 && uMode < 4.5) { // four-point star for crystal glints
+        float star = max(1.0 - smoothstep(0.0, 0.05, abs(c.x)), 1.0 - smoothstep(0.0, 0.05, abs(c.y))) * (1.0 - smoothstep(0.0, 0.5, d));
+        a = max(a * 0.6, star); }
+      gl_FragColor = vec4(mix(uColor, uColor2, vT) * 1.3, a * vA); }`,
+});
+
+function PlanetLife({ id, size, reduced }: { id: PlanetId; size: number; reduced: boolean }) {
+  const th = THEME[id];
   const geo = useMemo(() => {
-    const r = rng(Math.round(size * 1000));
-    const pos: number[] = [], sz: number[] = [], ph: number[] = [];
-    for (let i = 0; i < 90; i++) {
-      const v = new THREE.Vector3(r() * 2 - 1, (r() * 2 - 1) * 0.6, r() * 2 - 1).normalize().multiplyScalar(size * (1.25 + r() * 0.55));
-      pos.push(v.x, v.y, v.z); sz.push(4 + r() * 9); ph.push(r() * 6.28);
+    const r = rng(Math.round(size * 1000) + th.mode);
+    const pos: number[] = [], sz: number[] = [], seed: number[] = [];
+    for (let i = 0; i < th.count; i++) {
+      const v = new THREE.Vector3(r() * 2 - 1, r() * 2 - 1, r() * 2 - 1).normalize();
+      pos.push(v.x, v.y, v.z); sz.push(th.size[0] + r() * (th.size[1] - th.size[0])); seed.push(r());
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute("aSize", new THREE.Float32BufferAttribute(sz, 1));
-    g.setAttribute("aPhase", new THREE.Float32BufferAttribute(ph, 1));
+    g.setAttribute("aSeed", new THREE.Float32BufferAttribute(seed, 1));
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), size * 2.2); // particles move in the shader; keep them from being culled
+    return g;
+  }, [size, th]);
+  const mat = useMemo(() => {
+    const m = themeMat.clone();
+    m.uniforms.uMode.value = th.mode; m.uniforms.uR.value = size;
+    m.uniforms.uColor.value = new THREE.Color(th.color); m.uniforms.uColor2.value = new THREE.Color(th.color2 ?? th.color);
+    return m;
+  }, [th, size]);
+  useEffect(() => () => { geo.dispose(); mat.dispose(); }, [geo, mat]);
+  useFrame(({ clock, gl }) => {
+    mat.uniforms.uTime.value = reduced ? 3 : clock.elapsedTime;
+    mat.uniforms.uScale.value = gl.getPixelRatio() * 9;
+  });
+  return <points geometry={geo} material={mat} />;
+}
+
+/** Storm world: jagged lightning strikes across the cloud tops, flickering, with a flash that lights the limb. */
+const MAX_SEG = 48;
+function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; flash: RefObject<number> }) {
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_SEG * 6), 3));
+    g.setDrawRange(0, 0);
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), size * 1.2);
     return g;
   }, [size]);
-  const mat = useMemo(() => { const m = sparkMat.clone(); m.uniforms.uColor.value = new THREE.Color(color); return m; }, [color]);
-  useEffect(() => () => { geo.dispose(); mat.dispose(); }, [geo, mat]);
-  useFrame(({ clock, gl }, dt) => {
-    mat.uniforms.uTime.value = reduced ? 0 : clock.elapsedTime;
-    mat.uniforms.uScale.value = gl.getPixelRatio() * 9;
-    if (ref.current && !reduced) ref.current.rotation.y += dt * 0.12;
+  const mat = useMemo(() => new THREE.LineBasicMaterial({ color: "#f1ecff", transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), []);
+  const tex = useMemo(() => glowTexture([[0, "rgba(235,228,255,1)"], [0.2, "rgba(180,150,255,0.55)"], [1, "rgba(120,80,255,0)"]]), []);
+  useEffect(() => () => { geo.dispose(); mat.dispose(); tex.dispose(); }, [geo, mat, tex]);
+  const spr = useRef<THREE.Sprite>(null);
+  const st = useRef({ next: 1.5, t0: -9, r: rng(Math.round(size * 977)) });
+
+  const strike = () => {
+    const r = st.current.r, R = size * 1.02;
+    const jitter = () => new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5);
+    const arr = geo.attributes.position.array as Float32Array;
+    let n = 0;
+    // Walks across the sphere in small jagged steps; points stay on the cloud layer.
+    const walk = (from: THREE.Vector3, dir: THREE.Vector3, steps: number, step: number, branch: boolean) => {
+      let p = from.clone();
+      for (let i = 0; i < steps && n < MAX_SEG; i++) {
+        const nd = dir.clone().addScaledVector(jitter(), 1.4).normalize();
+        const q = p.clone().addScaledVector(nd, step).normalize();
+        arr.set([p.x * R, p.y * R, p.z * R, q.x * R, q.y * R, q.z * R], n++ * 6);
+        if (branch && r() < 0.3) walk(q, nd.clone().addScaledVector(jitter(), 2).normalize(), 3 + Math.floor(r() * 3), step * 0.7, false);
+        p = q;
+      }
+    };
+    const start = new THREE.Vector3(r() * 2 - 1, (r() * 2 - 1) * 0.8, r() * 2 - 1).normalize();
+    walk(start, jitter().cross(start).normalize(), 10, 0.07, true);
+    geo.setDrawRange(0, n * 2);
+    geo.attributes.position.needsUpdate = true;
+    spr.current?.position.copy(start).multiplyScalar(R * 1.01);
+  };
+
+  useFrame(({ clock }) => {
+    const now = clock.elapsedTime, s = st.current;
+    if (!reduced && now > s.next) {
+      strike(); s.t0 = now;
+      s.next = now + (s.r() < 0.3 ? 0.18 : 0.6 + s.r() * 2.4); // sometimes a quick double strike
+    }
+    const age = now - s.t0;
+    const on = age >= 0 && age < 0.25 ? (0.55 + 0.45 * Math.sin(age * 90)) * (1 - age / 0.25) : 0;
+    mat.opacity = on;
+    if (spr.current) (spr.current.material as THREE.SpriteMaterial).opacity = on * 0.9;
+    flash.current = on;
   });
-  return <points ref={ref} geometry={geo} material={mat} />;
+
+  return (
+    <>
+      <lineSegments geometry={geo} material={mat} />
+      <sprite ref={spr} scale={size * 1.3}><spriteMaterial map={tex} transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
+    </>
+  );
 }
 
 /** Fresnel atmosphere: a soft glow that brightens toward the limb, plus a thin bright rim on the surface. */
@@ -331,6 +439,7 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
   useEffect(() => () => { atmo.outer.dispose(); atmo.rim.dispose(); }, [atmo]);
   const hovered = useRef(false);
   const halo = useRef<THREE.Mesh>(null);
+  const flash = useRef(0); // lightning flash, lights the atmosphere rim
 
   useFrame(({ clock }, dt) => {
     const a = phase + (reduced ? 0 : clock.elapsedTime * p.speed);
@@ -346,6 +455,7 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
     // Hover lifts the planet a little; the selected one gets a slowly turning halo. Both ease, never snap.
     const k = 1 - Math.exp(-dt * 8);
     if (group.current) group.current.scale.setScalar(THREE.MathUtils.lerp(group.current.scale.x, hovered.current || selected ? 1.08 : 1, k));
+    atmo.rim.uniforms.uPower.value = 1 + flash.current * 3;
     atmo.outer.uniforms.uPower.value = THREE.MathUtils.lerp(atmo.outer.uniforms.uPower.value, 1 + glow(pulses, p.id) * 1.5 + (selected || hovered.current ? 0.5 : 0), k);
     if (halo.current) {
       const m = halo.current.material as THREE.MeshBasicMaterial;
@@ -381,7 +491,8 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
           <torusGeometry args={[size * 1.55, 0.012, 8, 128]} />
           <meshBasicMaterial color="#a5f3fc" transparent opacity={0} toneMapped={false} />
         </mesh>
-        <PlanetAura size={size} color={AURA[p.id]} reduced={reduced} />
+        <PlanetLife id={p.id} size={size} reduced={reduced} />
+        {p.id === "intelligence" && <Lightning size={size} reduced={reduced} flash={flash} />}
         {look.ring && <PlanetRing size={size} color={look.ring} />}
         {p.id === "memory" && <Moons count={memoryCount} reduced={reduced} />}
         {Array.from({ length: Math.min(agentBusy, 5) }, (_, k) => (
@@ -416,7 +527,7 @@ function AsteroidBelt({ inner, outer, count, seed, reduced, thickness = 0.25 }: 
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, count]}>
       <dodecahedronGeometry args={[1, 0]} />
-      <meshStandardMaterial color="#9a8a72" roughness={1} flatShading />
+      <meshStandardMaterial color="#7d7a8c" roughness={1} flatShading transparent opacity={0.55} />
     </instancedMesh>
   );
 }
@@ -434,7 +545,7 @@ function nebulaShader(map: THREE.Texture) {
     vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
     fragmentShader: `uniform sampler2D uMap; uniform float uOpacity; varying vec2 vUv;
       void main(){ vec2 p = (vUv - 0.5) * vec2(1.0, 0.5625) * 2.0; float r = length(p) / 0.5625;
-        float mask = smoothstep(1.0, 0.35, r); vec3 c = texture2D(uMap, vUv).rgb;
+        float mask = 1.0 - smoothstep(0.35, 1.0, r); vec3 c = texture2D(uMap, vUv).rgb;
         gl_FragColor = vec4(c * mask * uOpacity, 1.0); }`,
   };
 }
@@ -458,7 +569,7 @@ function NebulaPlates({ reduced }: { reduced: boolean }) {
       m.lookAt(camera.position); // always face the viewer, slowly turning in place
       m.rotateZ(NEBULAE[i].rot + (reduced ? 0 : clock.elapsedTime * 0.004));
       const u = (m.material as THREE.ShaderMaterial).uniforms;
-      u.uOpacity.value = Math.min(0.9, u.uOpacity.value + dt * 0.3); // fade in once loaded
+      u.uOpacity.value = Math.min(0.6, u.uOpacity.value + dt * 0.3); // fade in once loaded
     });
   });
   return (
@@ -478,11 +589,9 @@ function Nebula() {
   const clouds = useMemo(() => {
     const tex = (c: string) => glowTexture([[0, c], [0.45, c.replace(/[\d.]+\)$/, "0.12)")], [1, "rgba(0,0,0,0)"]]);
     return [
-      { t: tex("rgba(31,163,138,0.55)"), pos: [-30, -12, -55] as [number, number, number], s: 80 },
-      { t: tex("rgba(46,125,90,0.5)"), pos: [35, -6, -60] as [number, number, number], s: 70 },
-      { t: tex("rgba(110,70,190,0.45)"), pos: [5, 10, -70] as [number, number, number], s: 90 },
-      { t: tex("rgba(20,90,140,0.45)"), pos: [-50, 4, 10] as [number, number, number], s: 70 },
-      { t: tex("rgba(40,150,120,0.35)"), pos: [45, -10, 25] as [number, number, number], s: 60 },
+      // One cool blue-violet tint behind the system (the old green hazes fought the nebula's palette).
+      { t: tex("rgba(59,91,219,0.12)"), pos: [0, -4, -20] as [number, number, number], s: 64 },
+      { t: tex("rgba(109,75,216,0.10)"), pos: [-10, 8, -60] as [number, number, number], s: 90 },
     ];
   }, []);
   useEffect(() => () => clouds.forEach((c) => c.t.dispose()), [clouds]);
@@ -506,7 +615,7 @@ const filamentMat = new THREE.ShaderMaterial({
   fragmentShader: `uniform float uTime; uniform float uBreath; varying float vU; varying float vOff;
     void main(){ float head = fract(uTime * 0.32 + vOff); float d = vU - head;
       float pulse = exp(-d * d * 90.0);
-      vec3 c = mix(vec3(1.0, 1.0, 1.0), vec3(0.35, 0.62, 1.0), smoothstep(0.0, 0.7, vU));
+      vec3 c = mix(vec3(1.0, 0.94, 0.79), vec3(0.35, 0.62, 1.0), smoothstep(0.0, 0.6, vU)); // warm centre, cool tips
       float a = pow(1.0 - vU, 1.4) * 0.22 + pulse * 0.75 * (1.0 - vU * 0.6);
       gl_FragColor = vec4(c * (1.0 + pulse), a * uBreath); }`,
 });
@@ -517,7 +626,7 @@ const sparkMat = new THREE.ShaderMaterial({
     void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vTw = 0.5 + 0.5 * sin(uTime * 1.8 + aPhase);
       gl_PointSize = aSize * uScale * (0.8 + 0.4 * vTw) / -mv.z; gl_Position = projectionMatrix * mv; }`,
   fragmentShader: `uniform float uBreath; uniform vec3 uColor; varying float vTw;
-    void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.0, d); a *= a;
+    void main(){ float d = length(gl_PointCoord - 0.5); float a = 1.0 - smoothstep(0.0, 0.5, d); a *= a;
       gl_FragColor = vec4(uColor * 1.3, a * (0.35 + 0.45 * vTw) * uBreath * 0.8); }`,
 });
 
@@ -565,7 +674,7 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
   }, []);
   const mats = useMemo(() => ({ fil: filamentMat.clone(), spark: sparkMat.clone() }), []);
   const tex = useMemo(() => ({
-    inner: glowTexture([[0, "rgba(255,255,255,1)"], [0.18, "rgba(210,235,255,0.9)"], [0.45, "rgba(90,160,255,0.35)"], [1, "rgba(0,0,0,0)"]]),
+    inner: glowTexture([[0, "rgba(255,241,201,1)"], [0.18, "rgba(255,226,170,0.85)"], [0.45, "rgba(120,170,255,0.3)"], [1, "rgba(0,0,0,0)"]]),
     mid: glowTexture([[0, "rgba(110,170,255,0.32)"], [0.5, "rgba(70,110,255,0.08)"], [1, "rgba(0,0,0,0)"]]),
     haze: glowTexture([[0, "rgba(140,120,255,0.20)"], [0.4, "rgba(80,90,220,0.06)"], [1, "rgba(0,0,0,0)"]]),
   }), []);
@@ -580,10 +689,10 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
     // Breathing: slow when idle, quicker while CORE is answering; events make it flare.
     const breath = reduced ? 0.5 : 0.5 + 0.5 * Math.sin(t * (busy ? 2.6 : 1.05));
     if (group.current) {
-      group.current.scale.setScalar(1 + 0.05 * breath + g * 0.12);
+      group.current.scale.setScalar(0.72 * (1 + 0.05 * breath + g * 0.12));
       if (!reduced) group.current.rotation.y += dt * (busy ? 0.18 : 0.05);
     }
-    inner.current?.scale.setScalar(1.7 * (1 + 0.22 * breath + g * 0.5));
+    inner.current?.scale.setScalar(1.2 * (1 + 0.22 * breath + g * 0.5));
     mats.fil.uniforms.uTime.value = reduced ? 0 : t * (busy ? 1.8 : 1);
     mats.fil.uniforms.uBreath.value = 0.7 + 0.45 * breath + g * 1.2;
     mats.spark.uniforms.uTime.value = reduced ? 0 : t;
@@ -603,7 +712,7 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
         <lineSegments geometry={strands} material={mats.fil} />
         <points geometry={sparks} material={mats.spark} />
       </group>
-      <sprite ref={inner} scale={1.7}><spriteMaterial map={tex.inner} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
+      <sprite ref={inner} scale={1.2}><spriteMaterial map={tex.inner} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
       <sprite scale={9}><spriteMaterial map={tex.mid} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
       <sprite scale={26}><spriteMaterial map={tex.haze} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
       {/* Invisible hit area: the orb itself is lines and points. */}

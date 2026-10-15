@@ -29,10 +29,15 @@ export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   // country=<world-atlas name>: "top news about this country". The headline must really be about it
   // (searching "United States" otherwise returns the SS United States and United Airlines).
-  const countryName = str(params.get("country"), 60, 2);
+  const raw = params.get("country");
+  const countryName = raw && /^[\p{L} .'’-]{2,60}$/u.test(raw) ? raw : null; // country names only
   const country = !!countryName;
-  const known = COUNTRIES.some((c) => c.name === countryName); // countries outside the gazetteer: plain name match
+  // Countries whose own name isn't a reliable tag (Turkey, Georgia, Jordan) or that aren't in the gazetteer
+  // fall back to the plain name appearing in the headline.
+  const entry = COUNTRIES.find((c) => c.name === countryName);
+  const tagged = !!entry && entry.terms.includes(displayName(entry.name));
   const q = countryName ? displayName(countryName) : str(params.get("q"), 120, 2);
+  const plainName = new RegExp(`(?<![\\p{L}])${(q ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}])`, "u");
   if (!q) return Response.json({ error: "Type at least 2 characters" }, { status: 400 });
 
   const words = toOrQuery(q).split(" or ").filter((w) => w.length > 2).slice(0, 6);
@@ -54,7 +59,8 @@ export async function GET(req: Request) {
       if (seen.has(key)) continue;
       seen.add(key);
       const countries = geoTag(a.title, (a.summary ?? "").slice(0, 400));
-      if (country && !(known ? countries.includes(countryName!) : a.title.includes(q!))) continue;
+      // All tags (not just the top 3) for the filter, so headlines naming many countries still count.
+      if (country && !(tagged ? geoTag(a.title, (a.summary ?? "").slice(0, 400), 99).includes(countryName!) : plainName.test(a.title))) continue;
       results.push({ title: a.title, url: a.url, source: a.source, published_at: a.published_at, countries, live: isLive, score: importance(a.title) });
     }
   }
