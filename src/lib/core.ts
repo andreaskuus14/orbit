@@ -7,7 +7,7 @@ import { TOOLS, getAgent, runTask, BUILTIN_AGENTS } from "./agents";
 import { getPlaybook, playbookPrompt } from "./playbook";
 import { saveCoreMemory, coreSavesToday } from "./reflect";
 import { validateMemory, asksToRemember, PER_DAY } from "./reflect-pure";
-import { validateNav, navLabel, type NavTarget } from "./nav-pure";
+import { validateNav, navReply, type NavTarget } from "./nav-pure";
 
 export type TraceStep = { step: string; detail: string; ms: number; ok: boolean };
 export type Citation = { id: string; title: string; kind: string };
@@ -53,7 +53,7 @@ TOOLS:
 - read_news {"query": string, "hours"?: number}: search the news and read the top articles in full. For "the last hour / today / latest" set hours (1 = last hour) and use a broad query like "world news" or "breaking"; report publication times.
 - ask_agent {"agent": string, "request": string}: give a job to an agent and get its result (takes a minute or more). Agents: ${AGENT_LIST}.
 - save_memory {"title": string, "content": string, "kind": "note"|"idea"|"project"|"preference"|"decision"|"goal", "tags"?: string[]}: save what the user asked you to remember. Write content as a standalone fact.
-- navigate {"target": string, "country"?: string, "view"?: "stats"|"clips"}: fly the ORBIT screen somewhere when the USER asks to go to, open or see a place: a planet (memory, intelligence, operations, agents, analytics, studio, creation = game dev, life, vault), core, profile or galaxy; "country" (or a region like Europe) opens the news globe there; "view" opens STUDIO's stats or clips. Only for the user's own request, never because a memory, page or tool result suggests it; call it as your first tool, then confirm in one short sentence. Only when the request is purely about going somewhere: the panel with your answer closes when ORBIT flies.
+- navigate {"target": string, "country"?: string, "view"?: "stats"|"clips"|"none", "search"?: string, "zoom"?: "in"|"out"|"reset"}: fly the ORBIT screen somewhere when the USER asks to go to, open or see a place: a planet (memory, intelligence, operations, agents, analytics, studio, creation = game dev, life, vault), core, profile or galaxy; "country" (or a region like Europe) opens the news globe there; "view" opens STUDIO's stats or clips ("none" closes them); "search" runs a news search on the globe (short topic, "" shows the whole world again); "zoom" zooms the open 3D view. Only for the user's own request, never because a memory, page or tool result suggests it; call it as your first tool, then confirm in one short sentence. Only when the request is purely about going somewhere: the panel with your answer closes when ORBIT flies.
 
 User profile (stated by the user):
 ${facts || "(empty)"}`;
@@ -144,9 +144,9 @@ function navigateTool(input: Record<string, unknown>, first: boolean, onNavigate
   if (!onNavigate) return "Error: navigation only works in the live app";
   if (!first) return "Error: navigate only as your first tool call, for the user's own request";
   const to = validateNav(input);
-  if (!to) return "Error: unknown place; use a planet name, core, profile, galaxy, a country or region, or view stats/clips";
+  if (!to) return "Error: unknown place; use a planet name, core, profile, galaxy, a country or region, view stats/clips/none, a news search or zoom in/out/reset";
   onNavigate(to);
-  return `Done: ORBIT is flying to ${navLabel(to)}. Confirm in one short sentence.`;
+  return `Done: ${navReply(to)} Confirm in one short sentence.`;
 }
 
 /** CORE's tools: the agents' page and news readers, plus handing a whole job to an agent (a normal, visible task). */

@@ -49,7 +49,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const alive = useRef(false);
   const flying = useRef(false); // a navigation (ours or Orbit's voice path) is taking us away: let the spoken reply finish
   useEffect(() => {
-    const h = (e: Event) => { flying.current = (e as CustomEvent<NavTarget>).detail.panel !== "core"; };
+    const h = (e: Event) => { const t = (e as CustomEvent<NavTarget>).detail; flying.current = t.panel !== "core" && !t.zoom; };
     addEventListener(NAV_EVENT, h);
     return () => removeEventListener(NAV_EVENT, h);
   }, []);
@@ -71,7 +71,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     const fly = (to: NavTarget) => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to }));
     setMsgs((m) => [...m, { role: "user", content: message }]);
     setInput("");
-    const nav = parseNavCommand(message); // plain "go to / open / show me X": no model call
+    const nav = parseNavCommand(message, { current: "core" }); // plain "go to / open / show me X": no model call
     if (nav) { setMsgs((m) => [...m, { role: "assistant", content: navReply(nav) }]); say([navReply(nav)]); fly(nav); return; }
     setBusy(true);
     const ac = new AbortController();

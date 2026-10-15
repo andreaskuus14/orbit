@@ -3,8 +3,13 @@
 import { COUNTRIES, REGIONS, displayName } from "./geo.ts";
 import { planetById, type PanelId } from "./planets.ts";
 
-/** panel null = back to the galaxy. country is a world-atlas name (as NewsGlobe uses), region a REGIONS key. */
-export type NavTarget = { panel: PanelId | null; country?: string; region?: string; view?: "stats" | "clips" };
+/** panel null = back to the galaxy. country is a world-atlas name (as NewsGlobe uses), region a REGIONS key.
+ *  view "none" closes STUDIO's overlay; search runs the globe's news search ("" clears search and selection);
+ *  zoom acts on whatever world is on screen and never navigates (panel is ignored). */
+export type NavTarget = {
+  panel: PanelId | null; country?: string; region?: string; view?: "stats" | "clips" | "none";
+  search?: string; zoom?: "in" | "out" | "reset";
+};
 export const NAV_EVENT = "orbit:navigate"; // detail: NavTarget
 /** "local news" means this country. */
 export const LOCAL_COUNTRY = "Estonia";
@@ -21,7 +26,8 @@ put({ panel: "intelligence" }, "intelligence, news, the news, world news, latest
 put({ panel: "operations" }, "operations, ops, tasks, my tasks, automations, my automations, projects");
 put({ panel: "agents" }, "agents, my agents, ai agents, workforce");
 put({ panel: "analytics" }, "analytics, usage, ai usage, my usage, activity");
-put({ panel: "studio" }, "studio, youtube, youtube studio, channel, my channel, youtube channel");
+put({ panel: "studio" }, "studio, youtube, youtube studio");
+put({ panel: "studio", view: "none" }, "channel, my channel, youtube channel, my videos"); // the channel itself, overlays closed
 put({ panel: "creation" }, "creation, game dev, gamedev, game development, games, my games, game lab, dev world, planet forge");
 put({ panel: "life" }, "life, calendar, habits");
 put({ panel: "vault" }, "vault, files");
@@ -66,13 +72,52 @@ function findPlace(r: string): NavTarget | null {
 
 const PREFIX = /^(?:(?:(?:hey|hi|ok|okay|a) )?(?:orbit|orbits|orbital|core)|please|can you|could you|would you|will you|now|ok|okay|alright|all right|hey|hi|so|just|um|uh|er|hmm|yeah|yes) /; // no "i want to"/"lets": "let's go to Japan" is travel talk, not navigation
 const SUFFIX = /(?: (?:please|now|for me|orbit|thanks|thank you))+$/;
-const VERB = /^(?:(?:go|fly|head|jump|zoom|navigate|switch|move|return)(?: back| over| on)?(?: (?:to|into|over to))?|open(?: up)?|show(?: me| us)?|take (?:me|us)(?: back)?(?: (?:to|over to))?|bring(?: me| us)?(?: back)?(?: up| to)?|pull up|display|launch|visit|back to)(?: |$)/;
+const VERB = /^(?:zoom in(?:to| on)|(?:go|fly|head|jump|zoom|navigate|switch|move|return)(?: back| over| on| straight| right)?(?: (?:to|into|over to))?|open(?: up)?|show(?: me| us)?|take (?:me|us)(?: back)?(?: (?:to|over to))?|bring(?: me| us)?(?: back)?(?: up| to)?|pull up|display|launch|visit|back to)(?: |$)/;
 
-/** The whole message must be a navigation command ("show me news from Germany"); questions ("what's going on in Germany?") → null. */
-export function parseNavCommand(text: string): NavTarget | null {
+const ZOOM_RESET = /^(?:reset(?: the)? (?:view|camera|zoom)|zoom (?:out )?all the way(?: out)?)$/;
+const ZOOM = /^(?:zoom (in|out)(?: (?:more|a bit|a little|a lot|some|further|again))*|(?:(?:get|come|move|go) )?(closer)|(?:(?:go|move) )?(?:further|farther)(?: (?:out|away|back))?)$/;
+const CLEAR = /^(?:clear(?: the)? search|(?:go )?back to the (?:world )?map|(?:show|go back to|back to)(?: me| us)? the (?:whole|entire) (?:world|globe|map)|show(?: me)? the world map|reset(?: the)? (?:globe|map))$/;
+// "search (news) for X", "find/show me news about X", "look up X news"; X = "my memories…", "google…" stays with CORE.
+const SEARCH = /^search(?: (?:the )?(?:news|headlines))?(?: (?:for|about|on))? (.+)$|^(?:find|show|get|give|pull up|bring up|open)(?: me| us)?(?: (?:the|some))? (?:latest |recent )?(?:news|headlines|stories) (?:about|on|regarding|for) (.+)$|^look up (.+) news$/;
+const NOT_NEWS = /^(?:my|our|me|in|through|google|youtube|online|web|the (?:web|internet)|memor\w*|notes?)\b/;
+
+/** "germany" → the country view, "ai chips" → a news search. */
+function newsFor(x: string): NavTarget | null {
+  x = x.replace(/ (?:news|headlines|stories)$/, "").trim();
+  const p = place(x.replace(/^(?:in|from|of) /, ""), true);
+  if (p) return p;
+  return x.length < 2 || NOT_NEWS.test(x) ? null : { panel: "intelligence", search: x.slice(0, 80) };
+}
+
+/** Only what the open world understands: STUDIO's overlays by bare name, a bare country on the globe. */
+function inWorld(s: string, here: PanelId | null): NavTarget | null {
+  if (here === "studio") {
+    if (/^(?:close|hide|exit|dismiss)(?: the| my)? (?:stats|statistics|analytics|clips|clip factory|overlay)$/.test(s)) return { panel: "studio", view: "none" };
+    const x = s.replace(/^(?:open|show(?: me)?|go to)(?: the| my)? /, "").replace(/^(?:the|my) /, "");
+    if (x === "analytics") return { panel: "studio", view: "stats" }; // in STUDIO this is the channel's, not AI usage
+    if (PLACES[x]?.panel === "studio" && PLACES[x].view) return PLACES[x];
+  }
+  return here === "intelligence" && !PLACES[s] ? place(s, true) : null; // "home" stays the galaxy, not local news
+}
+
+/** The whole message must be a navigation command ("show me news from Germany"); questions ("what's going on in Germany?") → null.
+ *  current = the open panel (null = galaxy): with it, zoom and bare in-world words ("stats", "Germany") count; without it, they go to CORE. */
+export function parseNavCommand(text: string, ctx: { current?: PanelId | null } = {}): NavTarget | null {
   let s = norm(text);
   for (let prev = ""; prev !== s;) { prev = s; s = s.replace(PREFIX, ""); }
   s = s.replace(SUFFIX, "");
+  if (ctx.current !== undefined) {
+    const here = ctx.current;
+    if (ZOOM_RESET.test(s)) return { panel: here, zoom: "reset" };
+    const z = ZOOM.exec(s);
+    if (z) return { panel: here, zoom: z[1] === "in" || z[2] ? "in" : "out" };
+    const w = inWorld(s, here);
+    if (w) return w;
+    if (here === "intelligence") { const m = /^(?:news|headlines|stories) (?:about|on|regarding|for) (.+)$/.exec(s); if (m) return newsFor(m[1]); }
+  }
+  if (CLEAR.test(s)) return { panel: "intelligence", search: "" };
+  const q = SEARCH.exec(s);
+  if (q) return newsFor(q[1] ?? q[2] ?? q[3]);
   const v = VERB.exec(s);
   if (!v) return null;
   const rest = s.slice(v[0].length).trim();
@@ -85,7 +130,9 @@ export function validateNav(input: Record<string, unknown>): NavTarget | null {
   const s = (v: unknown) => (typeof v === "string" ? norm(v.slice(0, 80)) : "");
   const where = s(input.country) ? place(s(input.country), true) : null;
   if (where) return where;
-  if (input.view === "stats" || input.view === "clips") return { panel: "studio", view: input.view };
+  if (input.zoom === "in" || input.zoom === "out" || input.zoom === "reset") return { panel: null, zoom: input.zoom };
+  if (typeof input.search === "string") return s(input.search) ? newsFor(s(input.search)) : { panel: "intelligence", search: "" };
+  if (input.view === "stats" || input.view === "clips" || input.view === "none") return { panel: "studio", view: input.view };
   return s(input.target) ? findPlace(s(input.target)) : null;
 }
 
@@ -96,4 +143,9 @@ export function navLabel(t: NavTarget): string {
   const sub = t.country ? displayName(t.country) : t.region ?? (t.view === "stats" ? "Stats" : t.view === "clips" ? "Clips" : "");
   return sub ? `${name} → ${sub}` : name;
 }
-export const navReply = (t: NavTarget) => `Flying to ${navLabel(t)}.`;
+export const navReply = (t: NavTarget) =>
+  t.zoom ? (t.zoom === "reset" ? "Resetting the view." : `Zooming ${t.zoom}.`)
+    : t.search ? `Searching the news for “${t.search}”.`
+    : t.search === "" ? "Showing the whole world."
+    : t.view === "none" ? "Here's your channel."
+    : `Flying to ${navLabel(t)}.`;

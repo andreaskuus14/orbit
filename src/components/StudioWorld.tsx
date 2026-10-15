@@ -6,6 +6,7 @@ import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
+import { ZoomRig } from "./ZoomRig";
 import StudioStats from "./StudioStats";
 import ClipFactory from "./ClipFactory";
 import { isShort, medianViewsPerDay, moonRadius, takeoff, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
@@ -252,7 +253,7 @@ function ViewOffset() {
 
 type Sort = "newest" | "views" | "takeoff";
 
-export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }: { onClose: () => void; reduced: boolean; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" } | null /* from CORE navigation */ }) {
+export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }: { onClose: () => void; reduced: boolean; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "none" } | null /* from CORE navigation */ }) {
   const glr = useGlRecovery();
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
@@ -362,6 +363,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
         {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
         <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <ViewOffset />
+        <ZoomRig home={Math.hypot(4.2, 11)} reduced={reduced} />
         <EffectComposer multisampling={4}>
           <Bloom intensity={reduced ? 0.3 : 0.5} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
           <Vignette offset={0.3} darkness={0.6} />

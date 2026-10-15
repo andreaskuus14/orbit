@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useGlRecovery } from "./useGlRecovery";
+import { ZoomRig } from "./ZoomRig";
 import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
@@ -586,8 +587,9 @@ type Data = { hours: number; total: number; untagged: number; hotspots: Hotspot[
 type Search = { q: string; results: Result[]; hotspots: Hotspot[] };
 const WINDOWS = [{ h: 24, label: "24h" }, { h: 72, label: "3d" }, { h: 168, label: "7d" }];
 
-/** focus: a country or region from CORE navigation; a new object flies there with the same camera moves as a click. */
-export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string } | null }) {
+/** focus: a country or region from CORE navigation; a new object flies there with the same camera moves as a click.
+ *  focus.search runs that search as if typed; "" clears search and selection (the whole world). */
+export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null }) {
   const glr = useGlRecovery();
   const [hours, setHours] = useState(72);
   const [data, setData] = useState<Data | null>(null);
@@ -603,12 +605,27 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
   // Only the latest request may update the screen (fast clicks, Clear during a search).
   const loadSeq = useRef(0);
   const searchSeq = useRef(0);
+  const find = useCallback(async (q: string) => {
+    const seq = ++searchSeq.current;
+    setSearching(true); setErr("");
+    try {
+      const res = await fetch(`/api/news/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Search failed");
+      if (seq !== searchSeq.current) return;
+      setSearch({ q, results: json.results ?? [], hotspots: json.hotspots ?? [] });
+      setSelected(null);
+    } catch (e2) { if (seq === searchSeq.current) setErr(e2 instanceof Error ? e2.message : "Search failed"); }
+    finally { if (seq === searchSeq.current) setSearching(false); }
+  }, []);
   useEffect(() => {
-    if (!goTo || (!goTo.country && !goTo.region)) return;
+    if (!goTo || (!goTo.country && !goTo.region && goTo.search === undefined)) return;
+    if (goTo.search) { setQuery(goTo.search); void find(goTo.search); return; }
     searchSeq.current++; setSearching(false); setSearch(null); // region chips only exist outside search
+    if (goTo.search === "") setQuery("");
     setRegion(goTo.region ?? (goTo.country ? regionOf(goTo.country) : null));
     setSelected(goTo.country ?? null);
-  }, [goTo]);
+  }, [goTo, find]);
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
@@ -638,21 +655,10 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
     return () => { gone = true; };
   }, [selected]);
 
-  async function runSearch(e: React.FormEvent) {
+  function runSearch(e: React.FormEvent) {
     e.preventDefault();
     const q = query.trim();
-    if (q.length < 2) return;
-    const seq = ++searchSeq.current;
-    setSearching(true); setErr("");
-    try {
-      const res = await fetch(`/api/news/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Search failed");
-      if (seq !== searchSeq.current) return;
-      setSearch({ q, results: json.results ?? [], hotspots: json.hotspots ?? [] });
-      setSelected(null);
-    } catch (e2) { if (seq === searchSeq.current) setErr(e2 instanceof Error ? e2.message : "Search failed"); }
-    finally { if (seq === searchSeq.current) setSearching(false); }
+    if (q.length >= 2) void find(q);
   }
 
   const mode: "news" | "search" = search ? "search" : "news";
@@ -727,6 +733,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
         {(lit.length ? top : sceneHs.slice(0, 6)).map((h) => <Ring key={`${mode}-${h.name}`} h={h} k={Math.sqrt(h.count / (sceneHs[0]?.count || 1))} color={colorFor(h.name, mode)} reduced={reduced} />)}
         <OrbitControls makeDefault enablePan={false} minDistance={3.2} maxDistance={12} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} autoRotateSpeed={0.3} />
         <Rig focus={focus} reduced={reduced} offsetX={selected ? -40 : 110} />
+        <ZoomRig home={7.6} reduced={reduced} />
         <Dial reduced={reduced} />
         <Labels items={top} refs={labels} />
         <EffectComposer multisampling={4}>

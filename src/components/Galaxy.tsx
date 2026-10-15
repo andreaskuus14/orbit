@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGlRecovery } from "./useGlRecovery";
+import { ZoomRig } from "./ZoomRig";
 import { voiceLevel } from "./voice/bus";
 import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
@@ -22,6 +23,7 @@ export type GalaxyProps = {
   automationFailing: boolean; // real: an enabled automation's last run failed
   reduced: boolean;
   panelOpen: boolean;
+  fast?: boolean;            // a command-bar/voice flight on the way into a world: ≤ 1.2 s
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -818,7 +820,7 @@ function LabelProjector({ positions, labels }: { positions: Positions; labels: R
 // Low, oblique view like the reference illustration.
 const HOME = new THREE.Vector3(-8, 14, 44); // pulled back to fit the wider outer orbits
 
-function Rig({ selected, positions, reduced, panelOpen }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean }) {
+function Rig({ selected, positions, reduced, panelOpen, fast }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean }) {
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; addEventListener: (t: string, f: () => void) => void; removeEventListener: (t: string, f: () => void) => void } | null;
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const size = useThree((s) => s.size);
@@ -828,6 +830,8 @@ function Rig({ selected, positions, reduced, panelOpen }: { selected: PanelId | 
   const goal = useMemo(() => new THREE.Vector3(), []);
   const tgt = useMemo(() => new THREE.Vector3(), []);
   const delta = useMemo(() => new THREE.Vector3(), []);
+  const fastRef = useRef(fast); // read when a flight starts; flipping it must not restart the flight
+  useEffect(() => { fastRef.current = fast; }, [fast]); // declared before the flight effect, so it runs first
 
   const focusOf = useCallback(() => (selected && selected !== "profile" && selected !== "core" ? positions[selected] : null), [selected, positions]);
   const goals = useCallback(() => {
@@ -846,7 +850,7 @@ function Rig({ selected, positions, reduced, panelOpen }: { selected: PanelId | 
     if (!controls) return;
     goals();
     const dist = camera.position.distanceTo(goal);
-    flight.current = { from: camera.position.clone(), fromT: controls.target.clone(), t: reduced ? 1 : 0, dur: Math.min(2.4, 1 + dist / 22), arc: Math.min(6, dist * 0.22) };
+    flight.current = { from: camera.position.clone(), fromT: controls.target.clone(), t: reduced ? 1 : 0, dur: fastRef.current ? Math.min(1.2, 0.6 + dist / 40) : Math.min(2.4, 1 + dist / 22), arc: Math.min(6, dist * 0.22) };
   }, [selected, controls, camera, reduced, goals, goal]);
 
   useEffect(() => {
@@ -912,7 +916,8 @@ export default function Galaxy(props: GalaxyProps) {
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)} />
         ))}
         <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={80} enableDamping />
-        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} />
+        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} />
+        <ZoomRig home={HOME.length()} reduced={props.reduced} />
         <LabelProjector positions={positions} labels={labels} />
         <EffectComposer multisampling={4}>
           <Bloom intensity={props.reduced ? 0.6 : 0.95} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />

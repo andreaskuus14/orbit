@@ -46,9 +46,15 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [wakeGreeting, setWakeGreeting] = useState<string | null>(null);
   const [tapToTalk, setTapToTalk] = useState(false);
   // CORE navigation: sub-targets for the worlds (new object per command), and a world we're flying to through the galaxy.
-  const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string } | null>(null);
-  const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" } | null>(null);
+  const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string; search?: string } | null>(null);
+  const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "none" } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
+
+  // Fetch the world chunks while idle, so entering a world never waits on a JS download (next/dynamic reuses them).
+  useEffect(() => {
+    const load = () => { void import("./NewsGlobe"); void import("./StudioWorld"); void import("./DevWorld"); };
+    if ("requestIdleCallback" in window) requestIdleCallback(load, { timeout: 5000 }); else setTimeout(load, 1500);
+  }, []);
 
   // Back from Google's YouTube consent screen (?studio=…): reopen STUDIO; StudioStats reads and clears the query.
   useEffect(() => { if (new URLSearchParams(location.search).has("studio")) setPanel("studio"); }, []);
@@ -88,7 +94,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
       if (!text) return;
       setCmdErr("");
-      const nav = parseNavCommand(text); // "go to local news": fly there and say so, without opening CORE
+      const nav = parseNavCommand(text, { current: panel }); // "go to local news": fly there and say so, without opening CORE
       if (nav) {
         stopSpeech();
         if (speechSettings().speak) speakChunk(navReply(nav));
@@ -100,7 +106,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     };
     addEventListener(VOICE_ASK, onAsk);
     return () => removeEventListener(VOICE_ASK, onAsk);
-  }, []);
+  }, [panel]);
 
   // Default to the fast 2D view when WebGL is missing or the screen is small; the user can switch any time.
   useEffect(() => {
@@ -178,16 +184,18 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const openMemory = useCallback((id: string) => { setFocusMemory(id); setPanel("memory"); }, []);
   const consumed = useCallback(() => setPending(null), []);
 
-  // orbit:navigate (command bar, CORE, voice): drawers open over the galaxy as a click does; a world is entered by
-  // flying to its planet in the galaxy first (also when leaving another world), then the world's own fly-in takes over.
+  // orbit:navigate (command bar, CORE, voice): drawers open over the galaxy as a click does; from the galaxy a world is
+  // entered by a short flight to its planet, then the world's own fly-in takes over. Between worlds we switch directly.
   useEffect(() => {
     const onNav = (e: Event) => {
       const t = (e as CustomEvent<NavTarget>).detail;
-      if (t.country || t.region) setNewsFocus({ country: t.country, region: t.region });
+      if (t.zoom) return; // ZoomRig in the canvas on screen handles it
+      if (t.country || t.region || t.search !== undefined) setNewsFocus({ country: t.country, region: t.region, search: t.search });
       if (t.view) setStudioOpen({ view: t.view });
       if (t.panel === (approach ?? panel)) return; // already there (or on the way): the world flies to the sub-target itself
       const world = t.panel === "intelligence" || (t.panel !== null && WORLDS.includes(t.panel));
-      if (world && view === "3d" && !reduced) { setPanel(null); setApproach(t.panel); return; }
+      const inWorld = panel === "intelligence" || (panel !== null && WORLDS.includes(panel));
+      if (world && !inWorld && view === "3d" && !reduced) { setPanel(null); setApproach(t.panel); return; }
       setApproach(null);
       if (t.panel) select(t.panel); else setPanel(null);
     };
@@ -196,7 +204,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, [panel, approach, view, reduced, select]);
   useEffect(() => {
     if (!approach) return;
-    const t = setTimeout(() => { setPanel(approach); setApproach(null); }, 2400); // the galaxy's longest flight (min(2.4 s, …))
+    const t = setTimeout(() => { setPanel(approach); setApproach(null); }, 1200); // the galaxy's longest fast flight
     return () => clearTimeout(t);
   }, [approach]);
   useEffect(() => { if (panel) setApproach(null); }, [panel]); // a click or arrow key during the flight wins
@@ -212,7 +220,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     if (!text) return;
     voice.clearError();
     setCmdErr("");
-    const nav = parseNavCommand(text); // in either mode: "open game dev" is a place, not a question or a task
+    const nav = parseNavCommand(text, { current: panel }); // in either mode: "open game dev" is a place, not a question or a task
     if (nav) { setCmd(""); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: nav })); return; }
     if (cmdMode === "ask") { setCmd(""); setPending(text); setPanel("core"); return; }
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
@@ -239,7 +247,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <DevWorld flat={view !== "3d"} reduced={reduced} onClose={() => setPanel(null)} onOpenTask={openTask} onPlaying={setGameOpen} />
       ) : view === "3d" && gameOpen ? null : view === "3d" ? (
         <div className="absolute inset-0">
-          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} />
+          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} />
         </div>
       ) : (
         <nav aria-label="Planets" className="absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">

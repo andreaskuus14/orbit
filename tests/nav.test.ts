@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseNavCommand, validateNav, navLabel, LOCAL_COUNTRY } from "../src/lib/nav-pure.ts";
+import { parseNavCommand, validateNav, navLabel, navReply, LOCAL_COUNTRY } from "../src/lib/nav-pure.ts";
 
 const yes: [string, object][] = [
   ["go to local news", { panel: "intelligence", country: LOCAL_COUNTRY }],
@@ -38,6 +38,26 @@ const yes: [string, object][] = [
   ["open core", { panel: "core" }],
   ["open my profile", { panel: "profile" }],
   ["please go to the memory planet now", { panel: "memory" }],
+  ["show my channel", { panel: "studio", view: "none" }],
+  ["go straight to the clips", { panel: "studio", view: "clips" }],
+  ["zoom in on Germany", { panel: "intelligence", country: "Germany" }],
+  // news search (no context needed: the verb makes it unambiguous)
+  ["search for AI chips", { panel: "intelligence", search: "ai chips" }],
+  ["Search oil prices please", { panel: "intelligence", search: "oil prices" }],
+  ["search news about the election", { panel: "intelligence", search: "the election" }],
+  ["search the news for SpaceX", { panel: "intelligence", search: "spacex" }],
+  ["find news about Tesla", { panel: "intelligence", search: "tesla" }],
+  ["show me news about AI", { panel: "intelligence", search: "ai" }],
+  ["show me news about the White House", { panel: "intelligence", search: "the white house" }],
+  ["Orbit, look up bitcoin news", { panel: "intelligence", search: "bitcoin" }],
+  ["search for climate news", { panel: "intelligence", search: "climate" }],
+  ["search for Germany", { panel: "intelligence", country: "Germany" }],
+  ["search news in Japan", { panel: "intelligence", country: "Japan" }],
+  ["find news about France", { panel: "intelligence", country: "France" }],
+  ["search for local news", { panel: "intelligence", country: "Estonia" }],
+  ["clear search", { panel: "intelligence", search: "" }],
+  ["back to the world map", { panel: "intelligence", search: "" }],
+  ["show the whole world", { panel: "intelligence", search: "" }],
 ];
 
 test("parseNavCommand understands clear navigation commands", () => {
@@ -46,12 +66,58 @@ test("parseNavCommand understands clear navigation commands", () => {
 
 test("parseNavCommand leaves questions and other requests to CORE", () => {
   for (const text of [
-    "what's going on in Germany?", "tell me about Estonia", "news about AI", "show me news about AI",
+    "what's going on in Germany?", "tell me about Estonia", "news about AI", "what's the news about AI?",
     "go to sleep", "orbit, shut down", "open the pod bay doors", "show me how to cook pasta",
     "what are my stats?", "how is the studio doing", "open https://example.com", "go", "show me",
     "open intelligence and tell me about Germany", "show me what's happening in Germany", "switch to 2d view",
     "remember that I like Estonia", "summarize the local news", "estonia", "the moon's orbit",
+    // without context, bare / zoom words are CORE's
+    "zoom in", "closer", "stats", "clips", "close stats", "analytics",
+    // searches that aren't the news
+    "search my memories for Estonia", "search google for cats", "search in my notes", "search x", "look up the weather",
   ]) assert.equal(parseNavCommand(text), null, text);
+});
+
+test("parseNavCommand understands in-world commands in context", () => {
+  const cases: [string, string | null, object | null][] = [
+    ["zoom in", "intelligence", { panel: "intelligence", zoom: "in" }],
+    ["Zoom in more, please", "studio", { panel: "studio", zoom: "in" }],
+    ["zoom in a bit more", "creation", { panel: "creation", zoom: "in" }],
+    ["closer", "intelligence", { panel: "intelligence", zoom: "in" }],
+    ["get closer", null, { panel: null, zoom: "in" }],
+    ["zoom out", null, { panel: null, zoom: "out" }],
+    ["further", "studio", { panel: "studio", zoom: "out" }],
+    ["go farther out", "intelligence", { panel: "intelligence", zoom: "out" }],
+    ["reset the view", "studio", { panel: "studio", zoom: "reset" }],
+    ["zoom out all the way", "intelligence", { panel: "intelligence", zoom: "reset" }],
+    ["stats", "studio", { panel: "studio", view: "stats" }],
+    ["statistics", "studio", { panel: "studio", view: "stats" }],
+    ["analytics", "studio", { panel: "studio", view: "stats" }],
+    ["open analytics", "studio", { panel: "studio", view: "stats" }],
+    ["open analytics", null, { panel: "analytics" }],
+    ["clips", "studio", { panel: "studio", view: "clips" }],
+    ["clip factory", "studio", { panel: "studio", view: "clips" }],
+    ["open clips", "studio", { panel: "studio", view: "clips" }],
+    ["open clips", null, { panel: "studio", view: "clips" }],
+    ["close stats", "studio", { panel: "studio", view: "none" }],
+    ["close the clips", "studio", { panel: "studio", view: "none" }],
+    ["my channel", "studio", { panel: "studio", view: "none" }],
+    ["Germany", "intelligence", { panel: "intelligence", country: "Germany" }],
+    ["local", "intelligence", { panel: "intelligence", country: "Estonia" }],
+    ["news about AI", "intelligence", { panel: "intelligence", search: "ai" }],
+    ["search for Brazil", "studio", { panel: "intelligence", country: "Brazil" }],
+    ["show me news from Germany", "studio", { panel: "intelligence", country: "Germany" }],
+    ["go back", "studio", { panel: null }],
+    // stays with CORE even in context
+    ["stats", "intelligence", null],
+    ["close stats", "intelligence", null],
+    ["Germany", "studio", null],
+    ["home", "intelligence", null],
+    ["what are my stats?", "studio", null],
+    ["what's happening in Germany?", "intelligence", null],
+    ["zoom", "intelligence", null],
+  ];
+  for (const [text, current, want] of cases) assert.deepEqual(parseNavCommand(text, { current: current as never }), want, `${text} @ ${current}`);
 });
 
 test("validateNav accepts only allowlisted places", () => {
@@ -61,6 +127,22 @@ test("validateNav accepts only allowlisted places", () => {
   assert.deepEqual(validateNav({ target: "galaxy" }), { panel: null });
   assert.equal(validateNav({ target: "https://evil.example" }), null);
   assert.equal(validateNav({ target: 42, view: "admin" }), null);
+  assert.deepEqual(validateNav({ target: "intelligence", zoom: "in" }), { panel: null, zoom: "in" });
+  assert.deepEqual(validateNav({ zoom: "reset" }), { panel: null, zoom: "reset" });
+  assert.equal(validateNav({ zoom: "sideways" }), null);
+  assert.deepEqual(validateNav({ target: "intelligence", search: "AI chips!" }), { panel: "intelligence", search: "ai chips" });
+  assert.deepEqual(validateNav({ search: "Germany" }), { panel: "intelligence", country: "Germany" });
+  assert.deepEqual(validateNav({ search: "" }), { panel: "intelligence", search: "" });
+  assert.equal(validateNav({ search: "my memories" }), null);
+  assert.equal((validateNav({ search: "x".repeat(500) }) as { search: string }).search.length, 80);
+  assert.deepEqual(validateNav({ target: "studio", view: "none" }), { panel: "studio", view: "none" });
+});
+
+test("navReply says what happens", () => {
+  assert.equal(navReply({ panel: "studio", zoom: "in" }), "Zooming in.");
+  assert.equal(navReply({ panel: "intelligence", search: "ai" }), "Searching the news for “ai”.");
+  assert.equal(navReply({ panel: "intelligence", search: "" }), "Showing the whole world.");
+  assert.equal(navReply({ panel: "studio", view: "stats" }), "Flying to Studio → Stats.");
 });
 
 test("navLabel reads naturally", () => {
