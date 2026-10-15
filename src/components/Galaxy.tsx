@@ -126,18 +126,19 @@ function cloudTexture(seed: number) {
 /** Sun rays: thin tapered spikes fading out from the centre, for a bloom-like glow without post-processing. */
 /* ---------- photo textures generated with Higgsfield (Z Image) ---------- */
 
-const CDN = "https://d8j0ntlcm91z4.cloudfront.net/user_3K4zaF8Ip5JyEmwNLHr5iAw89pD/hf_20261014_";
+const CDN = "https://d8j0ntlcm91z4.cloudfront.net/user_3K4zaF8Ip5JyEmwNLHr5iAw89pD/hf_";
 // crop = [x0, y0, x1, y1] as fractions: trims the black edges some generations have.
 const PHOTOS: Record<PlanetId, { file: string; id: string; crop: [number, number, number, number] }> = {
   // Themed worlds (Higgsfield Z Image surface maps): ocean, storm, lava, desert, gas giant, jungle, ice, crystal.
-  memory: { file: "ocean", id: "232113_6ff7dc5e-202f-4b2f-b5c7-be6dc3bfc435", crop: [0.1, 0.18, 0.9, 0.96] },
-  intelligence: { file: "storm", id: "232114_9eba80cc-155f-458f-a27c-8e5a7dc8f3de", crop: [0.18, 0.04, 0.82, 0.96] },
-  creation: { file: "lava", id: "232114_dc8baf3a-ee89-48b5-86a9-ab27aa06d149", crop: [0, 0.3, 1, 1] },
-  operations: { file: "desert", id: "232429_78bd4209-ff2d-4126-843e-525179464aef", crop: [0, 0, 1, 1] },
-  agents: { file: "gasgiant", id: "232430_7a1aec48-91b8-4d66-838f-f962f6c8d383", crop: [0.12, 0.06, 0.88, 0.94] },
-  life: { file: "jungle", id: "232113_981a9abd-78f9-43ad-99e6-0319a0382419", crop: [0.22, 0.24, 0.78, 0.82] },
-  vault: { file: "glacier", id: "232114_c73e34e3-2e16-44e8-97af-a160226d854a", crop: [0, 0, 1, 1] },
-  analytics: { file: "crystal", id: "232113_02a85430-cdfa-4d9e-ab99-403515937ee7", crop: [0.22, 0.16, 0.78, 0.84] },
+  memory: { file: "ocean", id: "20261014_232113_6ff7dc5e-202f-4b2f-b5c7-be6dc3bfc435", crop: [0.1, 0.18, 0.9, 0.96] },
+  intelligence: { file: "storm", id: "20261014_232114_9eba80cc-155f-458f-a27c-8e5a7dc8f3de", crop: [0.18, 0.04, 0.82, 0.96] },
+  creation: { file: "lava", id: "20261014_232114_dc8baf3a-ee89-48b5-86a9-ab27aa06d149", crop: [0, 0.3, 1, 1] },
+  operations: { file: "desert", id: "20261014_232429_78bd4209-ff2d-4126-843e-525179464aef", crop: [0, 0, 1, 1] },
+  agents: { file: "gasgiant", id: "20261014_232430_7a1aec48-91b8-4d66-838f-f962f6c8d383", crop: [0.12, 0.06, 0.88, 0.94] },
+  life: { file: "jungle", id: "20261014_232113_981a9abd-78f9-43ad-99e6-0319a0382419", crop: [0.22, 0.24, 0.78, 0.82] },
+  vault: { file: "glacier", id: "20261014_232114_c73e34e3-2e16-44e8-97af-a160226d854a", crop: [0, 0, 1, 1] },
+  analytics: { file: "crystal", id: "20261014_232113_02a85430-cdfa-4d9e-ab99-403515937ee7", crop: [0.22, 0.16, 0.78, 0.84] },
+  studio: { file: "ruby", id: "20261015_150355_c603bd15-0860-4501-b765-28d2d52631c2", crop: [0, 0, 1, 1] },
 };
 
 function loadImage(src: string) {
@@ -192,6 +193,7 @@ const SURFACE: Record<PlanetId, { rough: number; metal?: number; bump: number; g
   life: { rough: 0.8, bump: 1.6, clouds: 0.25, air: "#9be7a8" },
   vault: { rough: 0.35, bump: 1.8 },
   analytics: { rough: 0.4, metal: 0.25, bump: 1.8 },
+  studio: { rough: 0.45, bump: 1.4, glow: "#ff2d55" },
 };
 
 type Look = { kind: "band" | "rock"; colors: string[]; base?: string; ring?: string; scale: number };
@@ -206,6 +208,7 @@ const LOOKS: Record<PlanetId, Look> = {
   life: { kind: "rock", base: "#1f8a6e", colors: ["#2bb08a", "#146b55", "#7fd6b8"], scale: 0.63 },
   vault: { kind: "band", colors: ["#e9eef2", "#cfd9e0", "#f5f7f9", "#bcc8d1"], ring: "#e2e8ee", scale: 0.79 },
   analytics: { kind: "band", colors: ["#8f86c9", "#a59de0", "#7b72b8", "#c3bdf0"], ring: "#b3abea", scale: 1.0 },
+  studio: { kind: "rock", base: "#7f1d1d", colors: ["#b91c1c", "#e11d48", "#4c0519"], scale: 1.1 },
 };
 
 /* ---------- scene pieces ---------- */
@@ -352,6 +355,7 @@ const THEME: Record<PlanetId, { mode: number; count: number; size: [number, numb
   life: { mode: 3, count: 25, size: [3.5, 6.5], color: "#bef264" },
   vault: { mode: 2, count: 50, size: [2, 4], color: "#e6f8ff" },
   analytics: { mode: 4, count: 30, size: [6, 12], color: "#dbe2ff" },
+  studio: { mode: 0, count: 40, size: [2.5, 5.5], color: "#ffd1dc", color2: "#ff2d55" }, // sparks rising like a live broadcast
 };
 
 // All motion runs on the GPU from a per-particle seed: no per-frame JS work, however many planets.
@@ -580,8 +584,8 @@ function AsteroidBelt({ inner, outer, count, seed, reduced, thickness = 0.25 }: 
 
 // Nebula backdrops generated with Higgsfield (Z Image); their dark edges blend into space when added on top.
 const NEBULAE = [
-  { file: "nebula1", id: "223957_bb790662-68c9-4e31-91a4-ada73eff783b", pos: [-20, 14, -95] as [number, number, number], s: [150, 84] as [number, number], rot: 0.2 },
-  { file: "nebula2", id: "223957_74cb7b1b-e9b7-4dfc-9c78-04bdf27561d9", pos: [85, -8, 40] as [number, number, number], s: [120, 68] as [number, number], rot: -0.4 },
+  { file: "nebula1", id: "20261014_223957_bb790662-68c9-4e31-91a4-ada73eff783b", pos: [-20, 14, -95] as [number, number, number], s: [150, 84] as [number, number], rot: 0.2 },
+  { file: "nebula2", id: "20261014_223957_74cb7b1b-e9b7-4dfc-9c78-04bdf27561d9", pos: [85, -8, 40] as [number, number, number], s: [120, 68] as [number, number], rot: -0.4 },
 ];
 /** Nebula image faded to a soft round cloud: no straight edges against the sky. */
 function nebulaShader(map: THREE.Texture) {

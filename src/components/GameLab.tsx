@@ -7,7 +7,7 @@ import { GAMES, type GameMeta } from "@/games/registry";
 // CREATION → Game Lab: playable projects that live inside ORBIT. Each game is reviewed source code registered in
 // src/games/registry.ts; the lab only edits that game's validated settings. No AI call is needed to play.
 const Loading = () => <div className="fixed inset-0 z-[60] grid place-items-center" style={{ background: "#03040d" }}><p className="muted animate-pulse">Loading game…</p></div>;
-const GAME_COMPONENTS: Record<string, ComponentType<{ onExit: () => void }>> = {
+export const GAME_COMPONENTS: Record<string, ComponentType<{ onExit: () => void }>> = {
   "planet-forge": dynamic(() => import("@/games/planet-forge/PlanetForge"), { ssr: false, loading: Loading }),
 };
 

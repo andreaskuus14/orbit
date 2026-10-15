@@ -1,5 +1,6 @@
 // Game Lab catalogue. Server-safe (no React): the API uses it to validate saves and settings, the UI to list projects.
 // To add a game: write its rules module, add an entry here, and add its component to GAME_COMPONENTS in GameLab.tsx.
+// Reserved id: "devworld" (the Game-dev world's row in game_saves) must never be a game id.
 // Games are reviewed source code only. ORBIT never evaluates generated code; agents may only change validated settings.
 import * as forge from "./planet-forge/rules";
 

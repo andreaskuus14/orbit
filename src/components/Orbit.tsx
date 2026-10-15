@@ -6,7 +6,6 @@ import { PLANETS, planetById, type PanelId, type PlanetId } from "@/lib/planets"
 import { AnalyticsPanel, CorePanel, LaterPanel, MemoryPanel, ProfilePanel } from "./panels";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
-import { GameLabPanel } from "./GameLab";
 import { VOICE_ASK } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
@@ -14,6 +13,9 @@ import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } fr
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
+const StudioWorld = dynamic(() => import("./StudioWorld"), { ssr: false });
+const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false });
+const WORLDS: PanelId[] = ["studio", "creation"]; // full-screen worlds with their own side panel (no drawer)
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "ORBIT is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
 
@@ -137,10 +139,10 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); cmdRef.current?.focus(); }
-      if (e.key === "Escape") setPanel(null);
-      // ← / → fly to the previous / next planet (not while typing).
+      // ← / → fly to the previous / next planet; Esc closes. Neither while typing (Esc in a form would lose the draft).
       const el = e.target as HTMLElement | null;
       const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable);
+      if (e.key === "Escape" && !typing) setPanel(null);
       if (!typing && !e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
         setPanel((cur) => {
           const i = cur ? ORDER.indexOf(cur) : -1;
@@ -185,6 +187,10 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     <main className="relative h-dvh w-full overflow-hidden">
       {panel === "intelligence" && !gameOpen ? (
         <NewsGlobe reduced={reduced} onClose={() => setPanel(null)} />
+      ) : panel === "studio" ? (
+        <StudioWorld flat={view !== "3d"} reduced={reduced} onClose={() => setPanel(null)} onOpenTask={openTask} />
+      ) : panel === "creation" ? (
+        <DevWorld flat={view !== "3d"} reduced={reduced} onClose={() => setPanel(null)} onOpenTask={openTask} onPlaying={setGameOpen} />
       ) : view === "3d" && gameOpen ? null : view === "3d" ? (
         <div className="absolute inset-0">
           <Galaxy selected={panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} />
@@ -218,7 +224,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </div>
       </header>
 
-      {panel && (
+      {panel && !WORLDS.includes(panel) && (
         <aside className="glass drawer" role="dialog" aria-label={title}>
           <div className="mb-3 flex items-center justify-between"><h2 className="brand text-base">{title}</h2><button className="chip" onClick={() => setPanel(null)} aria-label="Close panel">Close</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -229,7 +235,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
               : panel === "intelligence" ? <IntelligencePanel />
               : panel === "operations" ? <OperationsPanel focusTask={focusTask} openMemory={openMemory} />
               : panel === "agents" ? <AgentsPanel onOpenTask={openTask} />
-              : panel === "creation" ? <GameLabPanel onPlaying={setGameOpen} />
               : <LaterPanel id={panel as PlanetId} />}
           </div>
         </aside>
