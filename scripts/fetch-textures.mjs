@@ -22,12 +22,14 @@ const FILES = {
   glacier: "20261014_232114_c73e34e3-2e16-44e8-97af-a160226d854a",
   crystal: "20261014_232113_02a85430-cdfa-4d9e-ab99-403515937ee7",
   nebula2: "20261014_223957_74cb7b1b-e9b7-4dfc-9c78-04bdf27561d9",
-  ruby: "20261015_150355_c603bd15-0860-4501-b765-28d2d52631c2", // STUDIO
+  ruby: "20261015_150355_c603bd15-0860-4501-b765-28d2d52631c2", // STUDIO in the galaxy
+  cherry: "20261015_155232_f7d28aa7-ece5-442e-b1ba-3266b201f65c", // STUDIO world planet
 };
-// Game-dev world cover art (Higgsfield Z Image), saved as web-sized WebP.
+// Cover art and backdrops (Higgsfield Z Image), saved as web-sized WebP under public/.
 const COVERS = {
-  "pet-sim": "20261015_150352_957122e5-c83e-42e7-8ade-ff9de67346a9",
-  "planet-forge": "20261015_150352_5c47883a-6fa2-4ba1-a9a9-9520ea1ad083",
+  "devworld/pet-sim": "20261015_150352_957122e5-c83e-42e7-8ade-ff9de67346a9",
+  "devworld/planet-forge": "20261015_150352_5c47883a-6fa2-4ba1-a9a9-9520ea1ad083",
+  "textures/studio-sky": "20261015_155233_8e54e375-f89b-40d9-bd6e-5aa9ce4a7de4",
 };
 
 await mkdir("public/textures", { recursive: true });
@@ -48,12 +50,12 @@ for (const [name, id] of Object.entries(FILES)) {
 
 try {
   const { default: sharp } = await import("sharp"); // ships with Next.js
-  await mkdir("public/devworld", { recursive: true });
+  await mkdir("public/devworld", { recursive: true }); // public/textures exists from above
   for (const [name, id] of Object.entries(COVERS)) {
     const res = await fetch(`${CDN}${id}.png`);
     if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
-    await writeFile(`public/devworld/${name}.webp`, await sharp(Buffer.from(await res.arrayBuffer())).resize(1280).webp({ quality: 82 }).toBuffer());
-    console.log(`saved devworld/${name}.webp`);
+    await writeFile(`public/${name}.webp`, await sharp(Buffer.from(await res.arrayBuffer())).resize(name.startsWith("textures/") ? 1920 : 1280).webp({ quality: 82 }).toBuffer());
+    console.log(`saved ${name}.webp`);
   }
 } catch (e) {
   failed++;

@@ -46,23 +46,95 @@ const speed = (r: number) => 0.9 / r ** 1.5; // inner moons orbit faster
 
 /* ---------- scene ---------- */
 
+const CDN = "https://d8j0ntlcm91z4.cloudfront.net/user_3K4zaF8Ip5JyEmwNLHr5iAw89pD/hf_";
+const CHERRY = ["/textures/cherry.png", `${CDN}20261015_155232_f7d28aa7-ece5-442e-b1ba-3266b201f65c.png`] as const;
+const SKY = ["/textures/studio-sky.webp", `${CDN}20261015_155233_8e54e375-f89b-40d9-bd6e-5aa9ce4a7de4.png`] as const;
+
+/** Local copy first (`npm run textures`), then the CDN; null keeps the plain look. */
+function useTex([local, cdn]: readonly [string, string]) {
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    let dead = false, made: THREE.Texture | null = null;
+    const load = (url: string) => new THREE.TextureLoader().loadAsync(url);
+    load(local).catch(() => load(cdn)).then((t) => {
+      t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; made = t;
+      if (dead) t.dispose(); else setTex(t);
+    }).catch(() => { /* offline */ });
+    return () => { dead = true; made?.dispose(); };
+  }, [local, cdn]);
+  return tex;
+}
+
+/** The painted cherry nebula behind everything (screen-fitted, so it never shows a seam). */
+function Sky() {
+  const tex = useTex(SKY);
+  const { width, height } = useThree((s) => s.size);
+  useEffect(() => { // "cover" fit: crop instead of stretching on tall/narrow screens
+    const img = tex?.image as { width?: number; height?: number } | undefined;
+    if (!tex || !img?.width || !img.height || !width || !height) return;
+    const k = (img.width / img.height) / (width / height);
+    tex.repeat.set(k > 1 ? 1 / k : 1, k > 1 ? 1 : k);
+    tex.offset.set((1 - tex.repeat.x) / 2, (1 - tex.repeat.y) / 2);
+  }, [tex, width, height]);
+  return tex ? <primitive attach="background" object={tex} /> : <color attach="background" args={["#0a0206"]} />;
+}
+
+/** Thin tilted ring with a few glowing beads running along it: the "data network" around the world. */
+function DataRing({ r, tilt, spin, beads, reduced }: { r: number; tilt: [number, number]; spin: number; beads: number; reduced: boolean }) {
+  const g = useRef<THREE.Group>(null);
+  useFrame((_, dt) => { if (g.current && !reduced) g.current.rotation.z += dt * spin; });
+  return (
+    <group rotation={[tilt[0], tilt[1], 0]}>
+      <group ref={g}>
+        <mesh>
+          <torusGeometry args={[r, 0.004, 6, 160]} />
+          <meshBasicMaterial color="#ff8fab" transparent opacity={0.35} blending={THREE.AdditiveBlending} depthWrite={false} />
+        </mesh>
+        {Array.from({ length: beads }, (_, k) => {
+          const a = (k / beads) * Math.PI * 2 + r;
+          return (
+            <mesh key={k} position={[Math.cos(a) * r, Math.sin(a) * r, 0]}>
+              <sphereGeometry args={[0.022, 8, 8]} />
+              <meshBasicMaterial color="#ffd6e0" toneMapped={false} />
+            </mesh>
+          );
+        })}
+      </group>
+    </group>
+  );
+}
+
 function Planet({ reduced }: { reduced: boolean }) {
   const ref = useRef<THREE.Group>(null);
-  useFrame((_, dt) => { if (ref.current && !reduced) ref.current.rotation.y += dt * 0.06; });
+  const shell = useRef<THREE.Mesh>(null);
+  const map = useTex(CHERRY);
+  useFrame((_, dt) => {
+    if (reduced) return;
+    if (ref.current) ref.current.rotation.y += dt * 0.05;
+    if (shell.current) shell.current.rotation.y -= dt * 0.08; // holo grid drifts against the surface
+  });
   return (
-    <group ref={ref}>
-      <mesh>
-        <sphereGeometry args={[PLANET_R, 64, 64]} />
-        <meshStandardMaterial color="#b91c1c" emissive="#450a0a" roughness={0.55} metalness={0.1} />
+    <group>
+      <group ref={ref}>
+        <mesh>
+          <sphereGeometry args={[PLANET_R, 96, 96]} />
+          <meshStandardMaterial key={map ? "map" : "plain"} map={map} color={map ? "#ffffff" : "#8a0f2a"} emissive={map ? "#ff4d6d" : "#3a0010"} emissiveMap={map} emissiveIntensity={map ? 0.35 : 0.4} roughness={0.6} metalness={0.15} />
+        </mesh>
+      </group>
+      <mesh ref={shell} scale={1.045}>
+        <icosahedronGeometry args={[PLANET_R, 3]} />
+        <meshBasicMaterial color="#ff4d6d" wireframe transparent opacity={0.07} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
-      <mesh scale={1.12}>
-        <sphereGeometry args={[PLANET_R, 48, 48]} />
-        <meshBasicMaterial color="#ef4444" transparent opacity={0.1} side={THREE.BackSide} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </mesh>
-      <mesh rotation={[Math.PI / 2 - 0.25, 0, 0]}>
-        <ringGeometry args={[PLANET_R * 1.35, PLANET_R * 1.6, 96]} />
-        <meshBasicMaterial color="#f87171" transparent opacity={0.12} side={THREE.DoubleSide} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </mesh>
+      {/* layered haze: a soft cherry atmosphere without a custom shader */}
+      {[[1.08, 0.16, "#ff2e63"], [1.2, 0.08, "#c9184a"], [1.42, 0.035, "#800f2f"]].map(([s, o, c]) => (
+        <mesh key={s as number} scale={s as number}>
+          <sphereGeometry args={[PLANET_R, 48, 48]} />
+          <meshBasicMaterial color={c as string} transparent opacity={o as number} side={THREE.BackSide} blending={THREE.AdditiveBlending} depthWrite={false} />
+        </mesh>
+      ))}
+      <DataRing r={PLANET_R * 1.55} tilt={[Math.PI / 2 - 0.3, 0.1]} spin={0.12} beads={5} reduced={reduced} />
+      <DataRing r={PLANET_R * 1.8} tilt={[Math.PI / 2 + 0.55, -0.4]} spin={-0.08} beads={4} reduced={reduced} />
+      <DataRing r={PLANET_R * 1.32} tilt={[0.35, 0.9]} spin={0.16} beads={3} reduced={reduced} />
     </group>
   );
 }
@@ -73,6 +145,12 @@ function Moons({ moons, selected, ghost, reduced, onPick, onHover }: {
 }) {
   const refs = useRef<(THREE.Mesh | null)[]>([]);
   const ring = useRef<THREE.Mesh>(null);
+  const links = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(moons.length * 6), 3));
+    return g;
+  }, [moons]);
+  useEffect(() => () => links.dispose(), [links]);
   const sphere = useMemo(() => new THREE.SphereGeometry(1, 20, 20), []);
   const orbits = useMemo(() => {
     const pos: number[] = [], a = new THREE.Vector3(), b = new THREE.Vector3(), SEG = 96;
@@ -89,7 +167,16 @@ function Moons({ moons, selected, ghost, reduced, onPick, onHover }: {
 
   useFrame(({ clock, camera }) => {
     const t = reduced ? 0 : clock.elapsedTime;
-    moons.forEach((m, i) => { const el = refs.current[i]; if (el) orbitPos(el.position, m.r, m.tilt, m.phase + t * speed(m.r)); });
+    const lp = links.attributes.position as THREE.BufferAttribute;
+    moons.forEach((m, i) => {
+      const el = refs.current[i];
+      if (!el) return;
+      orbitPos(el.position, m.r, m.tilt, m.phase + t * speed(m.r));
+      const k = el.position.length() || 1, s = (PLANET_R * 1.1) / k; // line from the haze edge to the moon
+      lp.setXYZ(i * 2, el.position.x * s, el.position.y * s, el.position.z * s);
+      lp.setXYZ(i * 2 + 1, el.position.x, el.position.y, el.position.z);
+    });
+    lp.needsUpdate = true;
     const i = moons.findIndex((m) => m.v.id === selected), el = refs.current[i];
     if (ring.current) {
       ring.current.visible = !!el;
@@ -100,20 +187,21 @@ function Moons({ moons, selected, ghost, reduced, onPick, onHover }: {
   const over = (id: string) => (e: ThreeEvent<PointerEvent>) => { e.stopPropagation(); onHover({ id, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }); };
   return (
     <group>
-      <lineSegments geometry={orbits}><lineBasicMaterial color="#fca5a5" transparent opacity={ghost ? 0.04 : 0.07} depthWrite={false} /></lineSegments>
+      <lineSegments geometry={orbits}><lineBasicMaterial color="#ff8fab" transparent opacity={ghost ? 0.04 : 0.08} depthWrite={false} /></lineSegments>
+      <lineSegments geometry={links} frustumCulled={false /* positions change every frame; bounds would go stale */}><lineBasicMaterial color="#ff4d6d" transparent opacity={ghost ? 0.05 : 0.22} blending={THREE.AdditiveBlending} depthWrite={false} /></lineSegments>
       {moons.map((m, i) => (
         <mesh key={m.v.id} ref={(el) => { refs.current[i] = el; }} geometry={sphere} scale={m.size}
           onClick={ghost ? undefined : (e) => { e.stopPropagation(); if (e.delta <= 5) onPick(m.v.id); }}
           onPointerOver={ghost ? undefined : over(m.v.id)} onPointerMove={ghost ? undefined : over(m.v.id)}
           onPointerOut={ghost ? undefined : (e) => onHover({ id: null, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY })}>
           <meshStandardMaterial
-            color={m.short ? "#fde047" : "#fecdd3"} roughness={0.7} transparent={ghost} opacity={ghost ? 0.18 : 1}
-            emissive={m.hot ? "#fb923c" : m.short ? "#a16207" : "#3f0d12"} emissiveIntensity={m.hot ? 1.4 : m.short ? 0.9 : 0.5} />
+            color={m.short ? "#ffc2d1" : "#ffe5ec"} roughness={0.35} metalness={0.3} transparent={ghost} opacity={ghost ? 0.18 : 1}
+            emissive={m.hot ? "#ff7a00" : m.short ? "#ff2e63" : "#a4133c"} emissiveIntensity={m.hot ? 1.4 : m.short ? 0.8 : 0.45} />
         </mesh>
       ))}
       <mesh ref={ring} visible={false}>
         <ringGeometry args={[1, 1.12, 48]} />
-        <meshBasicMaterial color="#67e8f9" transparent opacity={0.9} side={THREE.DoubleSide} depthWrite={false} />
+        <meshBasicMaterial color="#ffd6e0" transparent opacity={0.9} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
     </group>
   );
@@ -243,15 +331,17 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { on
     } catch (e) { setIdea({ busy: false, error: e instanceof Error ? e.message : "Couldn't create the task" }); }
   }
 
-  const hoverTitle = hover.id ? byId.get(hover.id)?.title : null;
+  const hoverVid = hover.id ? byId.get(hover.id) ?? null : null;
 
   return (
-    <div className="absolute inset-0 globe-in" aria-label="Studio: your YouTube channel">
+    <div className="studio absolute inset-0 globe-in" aria-label="Studio: your YouTube channel">
+      {flat && <div aria-hidden className="studio-sky absolute inset-0" style={{ backgroundImage: `url(${SKY[0]})` }} />}
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, 2]} gl={{ antialias: true, powerPreference: "high-performance" }}>
-        <color attach="background" args={["#05020a"]} />
-        <Stars radius={70} depth={40} count={reduced ? 1500 : 4000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
-        <ambientLight intensity={0.45} />
-        <directionalLight position={[6, 5, 6]} intensity={2.2} />
+        <Sky />
+        <Stars radius={70} depth={40} count={reduced ? 800 : 2000} factor={2.2} fade speed={reduced ? 0 : 0.35} />
+        <ambientLight intensity={0.35} color="#ffd6e0" />
+        <directionalLight position={[6, 5, 6]} intensity={2} color="#ffe5ec" />
+        <pointLight position={[-5, -1, -4]} intensity={30} color="#ff2e63" distance={20} />
         <Planet reduced={reduced} />
         <Moons moons={moons} selected={selected} ghost={!live} reduced={reduced} onPick={pick} onHover={onHover} />
         {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
@@ -259,14 +349,19 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { on
         <ViewOffset />
         <EffectComposer multisampling={4}>
           <Bloom intensity={reduced ? 0.3 : 0.5} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
-          <Vignette offset={0.25} darkness={0.75} />
+          <Vignette offset={0.3} darkness={0.6} />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
         </EffectComposer>
       </Canvas>}
 
-      {hoverTitle && (
+      {hoverVid && (
         <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-          <span className="globe-tip" style={{ transform: `translate(${hover.x + 14}px, ${hover.y + 12}px)` }}>{clip(hoverTitle, 60)}</span>
+          <div className="studio-tip" style={{ transform: `translate(${hover.x + 16}px, ${hover.y + 14}px)` }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {hoverVid.thumb && <img src={hoverVid.thumb} alt="" referrerPolicy="no-referrer" />}
+            <b>{clip(hoverVid.title, 60)}</b>
+            <span>{n(hoverVid.views)} views{ratio.has(hoverVid.id) ? ` · 🚀 ${ratio.get(hoverVid.id)!.toFixed(1)}×` : ""}</span>
+          </div>
         </div>
       )}
 
@@ -283,7 +378,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { on
       <section className="glass hud-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]"
         aria-label="Channel">
         <div className="flex items-center justify-between gap-2">
-          <div className="hud-title" style={{ color: "#fecaca", textShadow: "0 0 12px rgba(239,68,68,0.5)" }}>STUDIO{live ? ` · ${live.channel.title.toUpperCase()}` : ""}</div>
+          <div className="hud-title studio-title">STUDIO{live ? ` · ${live.channel.title.toUpperCase()}` : ""}</div>
           {data?.configured !== false && (
             <button className="chip shrink-0" onClick={() => load(true)} disabled={loading} aria-label="Refresh channel data">{loading ? "Loading…" : "Refresh"}</button>
           )}

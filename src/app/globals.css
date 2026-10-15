@@ -324,3 +324,21 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 /* learning */
 .badge.learned { margin-bottom: 0; color: #cffafe; background: rgba(34, 211, 238, 0.18); }
 .learn-history summary { cursor: pointer; }
+
+/* STUDIO world: mysterious cherry theme, scoped so the rest of ORBIT keeps its cyan look. */
+.studio { --cherry: #ff2e63; --cherry-soft: rgba(255, 46, 99, 0.35); --line-strong: rgba(255, 143, 171, 0.55); }
+.studio-sky { background-size: cover; background-position: center; background-color: #0a0206; filter: saturate(1.05) brightness(0.8); }
+.studio .glass { background: linear-gradient(160deg, rgba(255, 46, 99, 0.10), rgba(20, 2, 10, 0.55) 45%), rgba(12, 2, 8, 0.62); border-color: rgba(255, 143, 171, 0.22); box-shadow: 0 0 40px rgba(201, 24, 74, 0.18), inset 0 1px 0 rgba(255, 214, 224, 0.12); }
+.studio .card { background: linear-gradient(165deg, rgba(255, 214, 224, 0.07), rgba(255, 255, 255, 0.01) 55%), rgba(30, 4, 14, 0.55); border-color: rgba(255, 143, 171, 0.14); }
+.studio .chip { background: linear-gradient(180deg, rgba(255, 214, 224, 0.08), rgba(255, 255, 255, 0.01)), rgba(30, 4, 14, 0.6); border-color: rgba(255, 143, 171, 0.2); }
+.studio .chip:hover, .studio .chip[aria-pressed="true"] { border-color: var(--cherry); background: rgba(255, 46, 99, 0.16); box-shadow: 0 0 14px var(--cherry-soft); }
+.studio .btn { background: linear-gradient(90deg, #c9184a, #ff2e63); box-shadow: 0 0 20px var(--cherry-soft); }
+.studio .btn:hover:not(:disabled) { box-shadow: 0 0 28px rgba(255, 46, 99, 0.55); }
+.studio .hud-row:hover { background: rgba(255, 46, 99, 0.10); }
+.studio .hud-row.on { background: rgba(255, 46, 99, 0.16); }
+.studio .field:focus-visible, .studio .btn:focus-visible, .studio .chip:focus-visible, .studio .hud-row:focus-visible { outline-color: #ff8fab; }
+.studio-title { color: #ffd6e0; text-shadow: 0 0 14px rgba(255, 46, 99, 0.7); letter-spacing: 0.22em; }
+.studio dd { color: #ffe5ec; text-shadow: 0 0 10px rgba(255, 46, 99, 0.35); }
+.studio-tip { position: absolute; left: 0; top: 0; width: 15rem; display: grid; gap: 0.3rem; padding: 0.45rem; border-radius: 12px; font-size: 12px; color: #ffe5ec; background: rgba(18, 2, 9, 0.78); backdrop-filter: blur(12px); border: 1px solid rgba(255, 143, 171, 0.35); box-shadow: 0 0 22px rgba(255, 46, 99, 0.25); }
+.studio-tip img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; }
+.studio-tip span { color: #ff8fab; font-size: 11px; }
