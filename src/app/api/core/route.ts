@@ -28,15 +28,53 @@ export async function POST(req: Request) {
   if (userMsgErr) return Response.json({ error: userMsgErr.message }, { status: 500 });
 
   await emit(sb, user.id, "core.started", "core", { conversationId });
-  try {
-    const { data: prior } = await sb.from("messages").select("role, content").eq("conversation_id", conversationId).order("created_at");
-    const { text, citations, trace } = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[]);
-    await sb.from("messages").insert({ user_id: user.id, conversation_id: conversationId, role: "assistant", content: text, citations, trace });
-    await emit(sb, user.id, "core.completed", "core", { conversationId });
-    return Response.json({ conversationId, answer: text, citations, trace });
-  } catch (e) {
+  const cid = conversationId as string;
+
+  // Shared by both response styles: answer, then save it once at the end.
+  const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void) => {
+    const { data: prior } = await sb.from("messages").select("role, content").eq("conversation_id", cid).order("created_at");
+    const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset);
+    await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
+    await emit(sb, user.id, "core.completed", "core", { conversationId: cid });
+    return out;
+  };
+  const fail = async (e: unknown) => {
     const error = e instanceof Error ? e.message : "CORE failed";
-    await emit(sb, user.id, "core.failed", "core", { conversationId, error: error.slice(0, 300) });
-    return Response.json({ conversationId, error }, { status: 502 });
+    await emit(sb, user.id, "core.failed", "core", { conversationId: cid, error: error.slice(0, 300) });
+    return error;
+  };
+
+  if (new URL(req.url).searchParams.get("stream") === "1") {
+    // NDJSON events: {type:"start",conversationId} {type:"delta",text}* then {type:"done",...} or {type:"error",error}.
+    const ac = new AbortController();
+    req.signal.addEventListener("abort", () => ac.abort(), { once: true }); // client went away: kill the CLI
+    const enc = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(ctrl) {
+        const send = (ev: Record<string, unknown>) => { try { ctrl.enqueue(enc.encode(JSON.stringify(ev) + "\n")); } catch { /* client gone */ } };
+        send({ type: "start", conversationId: cid });
+        let shown = "";
+        try {
+          const { text, citations, trace } = await answer(
+            (text) => { shown += text; send({ type: "delta", text }); }, ac.signal,
+            () => { if (shown) { shown = ""; send({ type: "reset" }); } });
+          send({ type: "done", conversationId: cid, answer: text, citations, trace });
+        } catch (e) {
+          // Stopped: keep what was already shown, so the saved chat matches the screen.
+          if (ac.signal.aborted && shown) await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: `${shown}\n\n_Stopped._` });
+          send({ type: "error", conversationId: cid, error: await fail(e) });
+        }
+        try { ctrl.close(); } catch { /* already cancelled */ }
+      },
+      cancel() { ac.abort(); },
+    });
+    return new Response(body, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" } });
+  }
+
+  try {
+    const { text, citations, trace } = await answer();
+    return Response.json({ conversationId: cid, answer: text, citations, trace });
+  } catch (e) {
+    return Response.json({ conversationId: cid, error: await fail(e) }, { status: 502 });
   }
 }

@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { runPulse } from "./pulse";
 import { handleEvents, runDueAutomations } from "./automations";
 import { dueSlots, type BriefingKind } from "./pure";
+import { generateProposals, proposalsDue } from "./proactive";
 
 // Server-side scheduler (briefings + automations): runs inside the ORBIT server process (npm run dev / npm start), so briefings
 // happen without a browser open. It needs SUPABASE_SECRET_KEY to act for the user with no session.
@@ -42,6 +43,13 @@ async function tick(sb: SupabaseClient) {
         await runPulse(sb, id, kind).then(
           (r) => console.log(`[orbit] ${kind} briefing ready (${r.briefing.article_count} articles)`),
           (e) => console.error(`[orbit] ${kind} briefing failed:`, e instanceof Error ? e.message : e),
+        );
+      }
+      // Proactive suggestions (every 6 h, daytime) — after briefings so they see the freshest news.
+      if (await proposalsDue(sb, id).catch(() => false)) {
+        await generateProposals(sb, id).then(
+          (rows) => console.log(`[orbit] agents proposed ${rows.length} new task(s)`),
+          (e) => console.error("[orbit] proposals failed:", e instanceof Error ? e.message : e),
         );
       }
     }

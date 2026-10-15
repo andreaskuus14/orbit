@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { numberCitations } from "@/lib/pure";
+import { takeLines } from "@/lib/streamjson";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { planetById, type PlanetId } from "@/lib/planets";
 import { Markdown } from "./AgentsPanels";
@@ -24,8 +25,17 @@ export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: stri
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [live, setLive] = useState<string | null>(null); // the answer while it streams in
   const convo = useRef<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
+  const abort = useRef<AbortController | null>(null);
+  // Abort a running answer only on a real unmount: React dev mode unmounts and remounts once right away,
+  // which used to cancel the command-bar question instantly ("Stopped.").
+  const alive = useRef(false);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) ac?.abort(); }, 0); };
+  }, []);
 
   const send = useCallback(async (text: string) => {
     const message = text.trim();
@@ -33,16 +43,62 @@ export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: stri
     setMsgs((m) => [...m, { role: "user", content: message }]);
     setInput("");
     setBusy(true);
+    const ac = new AbortController();
+    abort.current = ac;
+    let partial = "";
+    let raf = 0;
+    const flush = () => { cancelAnimationFrame(raf); raf = 0; };
     try {
-      const r = await api<{ conversationId: string; answer: string; citations: Cite[]; trace: Step[] }>("/api/core", {
-        method: "POST", body: JSON.stringify({ message, conversationId: convo.current }),
+      const res = await fetch("/api/core?stream=1", {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
+        body: JSON.stringify({ message, conversationId: convo.current }),
       });
-      convo.current = r.conversationId;
-      setMsgs((m) => [...m, { role: "assistant", content: r.answer, citations: r.citations, trace: r.trace }]);
+      if (!res.ok || !res.body) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || `Request failed (${res.status})`);
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let finished = false;
+      const handle = (line: string) => {
+        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string };
+        if (ev.conversationId) convo.current = ev.conversationId;
+        if (ev.type === "delta" && ev.text) {
+          partial += ev.text;
+          // One render per frame at most, and only the streaming bubble changes.
+          if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLive(partial); });
+        } else if (ev.type === "reset") {
+          partial = "";
+          setLive("");
+        } else if (ev.type === "done") {
+          finished = true;
+          flush();
+          setLive(null);
+          setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace }]);
+        } else if (ev.type === "error") {
+          throw new Error(ev.error || "CORE failed");
+        }
+      };
+      for (;;) {
+        const { value, done } = await reader.read();
+        const { lines, rest } = takeLines(buf + dec.decode(value, { stream: !done }));
+        buf = rest;
+        lines.forEach(handle);
+        if (done) { if (buf.trim()) handle(buf); break; }
+      }
+      if (!finished) throw new Error("Connection to CORE was lost");
     } catch (e) {
-      setMsgs((m) => [...m, { role: "assistant", content: e instanceof Error ? e.message : "CORE failed", error: true }]);
+      const stopped = ac.signal.aborted;
+      if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
+      setMsgs((m) => [...m, stopped
+        ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._` }
+        : { role: "assistant", content: e instanceof Error ? e.message : "CORE failed", error: true }]);
     } finally {
+      flush();
+      setLive(null);
       setBusy(false);
+      if (abort.current === ac) abort.current = null;
     }
   }, [busy]);
 
@@ -55,36 +111,47 @@ export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: stri
     onConsumed();
     void send(initial);
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, busy]);
+  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, busy, live]);
+
+  // Memoised so streaming deltas re-render only the live bubble, not the whole history.
+  const history = useMemo(() => msgs.map((m, i) => (
+    <div key={i} className={m.role === "user" ? "bubble user" : `bubble core${m.error ? " err" : ""}`}>
+      {m.role === "assistant" && !m.error
+        ? <Markdown text={numberCitations(m.content, (m.citations ?? []).map((c) => c.id))} openMemory={onOpenMemory} />
+        : <div className="whitespace-pre-wrap">{m.content}</div>}
+      {!!m.citations?.length && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {m.citations.map((c, n) => <button key={c.id} className="chip" onClick={() => onOpenMemory(c.id)}>[{n + 1}] {c.title}</button>)}
+        </div>
+      )}
+      {!!m.trace?.length && (
+        <details className="mt-2 text-xs muted">
+          <summary className="cursor-pointer">Execution trace</summary>
+          <ul className="mt-1 space-y-0.5">{m.trace.map((s, n) => <li key={n}>{s.ok ? "✓" : "✗"} <b>{s.step}</b> · {s.ms}ms · {s.detail}</li>)}</ul>
+        </details>
+      )}
+    </div>
+  )), [msgs, onOpenMemory]);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 space-y-4 overflow-y-auto pr-1" aria-live="polite">
+      <div className="flex-1 space-y-4 overflow-y-auto pr-1" aria-live="polite" aria-busy={busy}>
         {!msgs.length && <p className="muted">Ask CORE anything. It answers from your memories, reads links you paste, checks the latest news, and hands bigger jobs to your agents. Sources are cited.</p>}
-        {msgs.map((m, i) => (
-          <div key={i} className={m.role === "user" ? "bubble user" : `bubble core${m.error ? " err" : ""}`}>
-            {m.role === "assistant" && !m.error
-              ? <Markdown text={numberCitations(m.content, (m.citations ?? []).map((c) => c.id))} openMemory={onOpenMemory} />
-              : <div className="whitespace-pre-wrap">{m.content}</div>}
-            {!!m.citations?.length && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {m.citations.map((c, n) => <button key={c.id} className="chip" onClick={() => onOpenMemory(c.id)}>[{n + 1}] {c.title}</button>)}
-              </div>
-            )}
-            {!!m.trace?.length && (
-              <details className="mt-2 text-xs muted">
-                <summary className="cursor-pointer">Execution trace</summary>
-                <ul className="mt-1 space-y-0.5">{m.trace.map((s, n) => <li key={n}>{s.ok ? "✓" : "✗"} <b>{s.step}</b> · {s.ms}ms · {s.detail}</li>)}</ul>
-              </details>
-            )}
-          </div>
-        ))}
-        {busy && <div className="bubble core muted">CORE is working… (reading pages or asking an agent can take a minute)</div>}
+        {history}
+        {busy && (live
+          ? <div className="bubble core">
+              {/* Citation numbers arrive with the final answer; hide raw [m:id] markers until then. */}
+              <Markdown text={numberCitations(live, [])} openMemory={onOpenMemory} />
+              <span aria-hidden className="inline-block h-4 w-1.5 translate-y-0.5 rounded-sm bg-current opacity-60" style={{ animation: "blink 1s steps(2) infinite" }} />
+            </div>
+          : <div className="bubble core muted">CORE is working… (reading pages or asking an agent can take a minute)</div>)}
         <div ref={end} />
       </div>
       <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
         <input className="field flex-1" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Message CORE" maxLength={8000} aria-label="Message CORE" />
-        <button className="btn" disabled={busy || !input.trim()}>Send</button>
+        {busy
+          ? <button type="button" className="btn" onClick={() => abort.current?.abort()}>Stop</button>
+          : <button className="btn" disabled={!input.trim()}>Send</button>}
       </form>
     </div>
   );

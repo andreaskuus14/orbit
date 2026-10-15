@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { askClaude, recordUsage, MODEL } from "./claude";
+import { askClaude, askClaudeStream, recordUsage, MODEL } from "./claude";
+import { partialAnswer } from "./streamjson";
 import { searchMemories, MEMORY_COLUMNS } from "./memory";
 import { parseCitations, parseAgentReply } from "./pure";
 import { TOOLS, getAgent, runTask, BUILTIN_AGENTS } from "./agents";
@@ -51,8 +52,11 @@ User profile (stated by the user):
 ${facts || "(empty)"}`;
 }
 
-/** One CORE turn: retrieve relevant memories, ask Claude, return answer + citations + execution trace. */
-export async function runCore(sb: SupabaseClient, userId: string, history: Turn[]) {
+/**
+ * One CORE turn: retrieve relevant memories, ask Claude, return answer + citations + execution trace.
+ * With onDelta, the answer text streams out as it is written (tool-call replies stream nothing); `signal` stops it.
+ */
+export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void) {
   const trace: TraceStep[] = [];
   const question = history[history.length - 1].content;
 
@@ -79,7 +83,20 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
   let answer = "";
   for (let step = 0; step < MAX_STEPS; step++) {
     const last = step === MAX_STEPS - 1;
-    const r = await askClaude(`${prompt}\n\n${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`, system);
+    signal?.throwIfAborted();
+    const ask = `${prompt}\n\n${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
+    let r;
+    if (onDelta) {
+      // The model writes a JSON envelope; forward only the newly decoded part of its "final" answer.
+      let raw = "", sent = 0;
+      r = await askClaudeStream(ask, system, (d) => {
+        raw += d;
+        const shown = partialAnswer(raw);
+        if (shown && shown.length > sent) { onDelta(shown.slice(sent)); sent = shown.length; }
+      }, signal);
+    } else {
+      r = await askClaude(ask, system);
+    }
     await recordUsage(sb, userId, "core.chat", r);
     const reply = parseAgentReply(r.text);
     trace.push({ step: "think", detail: `${MODEL} · ${reply.thought || (reply.final !== undefined ? "answering" : "")}`.slice(0, 200), ms: r.ms, ok: true });
@@ -87,6 +104,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
 
     t = Date.now();
     let out: string;
+    onReset?.(); // this step was a tool call: clear anything it streamed before the next step answers
     try { out = await runCoreTool(sb, userId, reply.tool, reply.input ?? {}); }
     catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
     trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 140)} → ${out.slice(0, 140)}`, ms: Date.now() - t, ok: !out.startsWith("Error:") });
@@ -103,7 +121,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
 
 /** CORE's tools: the agents' page and news readers, plus handing a whole job to an agent (a normal, visible task). */
 async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, input: Record<string, unknown>): Promise<string> {
-  const ctx = { sb, userId, task: { id: "", agent: "core", title: "", request: "", parent_id: null, project_id: null }, depth: 1, pending: [], trace: [] };
+  const ctx = { sb, userId, task: { id: "", agent: "core", title: "", request: "", parent_id: null, project_id: null }, depth: 1, pending: [], trace: [], pages: new Map() };
   if (tool === "fetch_url" || tool === "read_news") return TOOLS[tool].run(ctx, input);
   if (tool === "ask_agent") {
     const agent = typeof input.agent === "string" ? input.agent.toLowerCase().trim() : "";

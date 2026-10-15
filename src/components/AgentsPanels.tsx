@@ -1,5 +1,6 @@
 "use client";
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import { ProposalsPanel } from "./ProposalsPanel";
 import { highlight } from "./Highlight";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
@@ -345,6 +346,7 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
   return (
     <div className="space-y-4">
       <p className="muted text-sm">Your AI workforce. Each agent has its own instructions and only the tools listed. Anything that changes your data waits for your approval.</p>
+      <ProposalsPanel onOpenTask={onOpenTask} />
       <ul className="grid gap-2 sm:grid-cols-2">
         {agents.map((a) => (
           <li key={a.slug}>

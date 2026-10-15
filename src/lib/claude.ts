@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.ts";
 
 // CORE runs on the local Claude Code CLI (`claude -p`) under your own Claude login, so there is no API key
 // and no per-token bill. ORBIT must therefore run on the machine where `claude` is installed and signed in.
@@ -14,27 +15,39 @@ const HINT = "Install Claude Code and run `claude` once to sign in (or set ORBIT
 
 export type ClaudeResult = { text: string; inputTokens: number; outputTokens: number; ms: number };
 
-/** One headless Claude Code call with all tools disabled (it can only read the prompt and answer). */
-export async function askClaude(prompt: string, system: string): Promise<ClaudeResult> {
+/** Shared setup for every CLI call: system prompt in a temp dir, fixed flags, all tools disabled. */
+async function prepare(system: string, format: string[]) {
   if (!/^[\w.:-]+$/.test(MODEL)) throw new Error("ORBIT_MODEL contains invalid characters");
-  const t0 = Date.now();
   // The system prompt goes in a file and the user prompt on stdin, so no user text is ever on the command line.
   const dir = await mkdtemp(join(tmpdir(), "orbit-"));
   const sysFile = join(dir, "system.txt");
   await writeFile(sysFile, system, "utf8");
   const q = (a: string) => (WIN ? `"${a}"` : a); // Windows needs a shell to run claude.cmd, so quote args there
-  const args = ["-p", "--output-format", "json", "--tools", q(""), "--no-session-persistence",
+  const args = ["-p", ...format, "--tools", q(""), "--no-session-persistence",
     // Ignore user-level plugins/hooks/skills and all MCP connectors (CORE must have no tools) but keep the login. Not --bare: it skips OAuth.
     "--setting-sources", "local", "--disable-slash-commands", "--strict-mcp-config", "--model", MODEL, "--system-prompt-file", q(sysFile)];
+  const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: process.env, cwd: dir, windowsHide: true };
+  // On Windows, claude may be claude.cmd, which needs a shell; pass one pre-quoted command string (args hold no user text).
+  const start = () => (WIN ? spawn(`${q(CLAUDE_BIN)} ${args.join(" ")}`, { ...opts, shell: true }) : spawn(CLAUDE_BIN, args, opts));
+  return { dir, start };
+}
 
+/** One headless Claude Code call with all tools disabled (it can only read the prompt and answer). */
+/** With shell:true on Windows, kill() only ends cmd.exe and leaves claude running: kill the whole tree there. */
+function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean }) {
+  if (WIN && child.pid) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" }).on("error", () => child.kill("SIGKILL"));
+  else child.kill("SIGKILL");
+}
+
+export async function askClaude(prompt: string, system: string): Promise<ClaudeResult> {
+  const t0 = Date.now();
+  const { dir, start } = await prepare(system, ["--output-format", "json"]);
   try {
     return await new Promise<ClaudeResult>((resolve, reject) => {
-      const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: process.env, cwd: dir, windowsHide: true };
-      // On Windows, claude may be claude.cmd, which needs a shell; pass one pre-quoted command string (args hold no user text).
-      const child = WIN ? spawn(`${q(CLAUDE_BIN)} ${args.join(" ")}`, { ...opts, shell: true }) : spawn(CLAUDE_BIN, args, opts);
+      const child = start();
       let out = "";
       let err = "";
-      const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("Claude Code timed out after 2 minutes")); }, TIMEOUT_MS);
+      const timer = setTimeout(() => { killTree(child); reject(new Error("Claude Code timed out after 2 minutes")); }, TIMEOUT_MS);
       child.stdout.on("data", (d) => (out += d));
       child.stderr.on("data", (d) => (err += d));
       child.on("error", (e) => { clearTimeout(timer); reject(new Error(`Could not start "${CLAUDE_BIN}": ${e.message}. ${HINT}`)); });
@@ -47,6 +60,53 @@ export async function askClaude(prompt: string, system: string): Promise<ClaudeR
         if (j.is_error || code !== 0) return reject(new Error(j.result || err || `claude exited ${code}`));
         resolve({ text: (j.result ?? "").trim(), inputTokens: j.usage?.input_tokens ?? 0, outputTokens: j.usage?.output_tokens ?? 0, ms: Date.now() - t0 });
       });
+      child.stdin.on("error", () => { /* EPIPE when the CLI is killed mid-write; the close handler reports it */ });
+      child.stdin.end(prompt);
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI. */
+export async function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ClaudeResult> {
+  signal?.throwIfAborted();
+  const t0 = Date.now();
+  const { dir, start } = await prepare(system, ["--output-format", "stream-json", "--verbose", "--include-partial-messages"]);
+  try {
+    return await new Promise<ClaudeResult>((resolve, reject) => {
+      const child = start();
+      let buf = "";
+      let err = "";
+      let streamed = "";
+      let result: StreamResult | null = null;
+      const onAbort = () => { killTree(child); reject(new DOMException("CORE was stopped", "AbortError")); };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+      const timer = setTimeout(() => { killTree(child); reject(new Error("Claude Code timed out after 2 minutes")); }, TIMEOUT_MS);
+      const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
+      const handle = (line: string) => {
+        const ev = parseStreamJsonLine(line);
+        if (ev?.delta) { streamed += ev.delta; onDelta(ev.delta); }
+        if (ev?.result) result = ev.result;
+      };
+      child.stdout.setEncoding("utf8"); // decodes multi-byte characters split across chunks
+      child.stdout.on("data", (d: string) => {
+        const { lines, rest } = takeLines(buf + d);
+        buf = rest;
+        lines.forEach(handle);
+      });
+      child.stderr.on("data", (d) => (err += d));
+      child.on("error", (e) => { done(); reject(new Error(`Could not start "${CLAUDE_BIN}": ${e.message}. ${HINT}`)); });
+      child.on("close", (code) => {
+        done();
+        if (buf.trim()) handle(buf);
+        const r = result as StreamResult | null;
+        if (!r) return reject(new Error(`Claude Code failed: ${err.slice(0, 300) || `exit ${code}`}. ${HINT}`));
+        if (r.isError || code !== 0) return reject(new Error(r.text || err || `claude exited ${code}`));
+        resolve({ text: (r.text || streamed).trim(), inputTokens: r.inputTokens, outputTokens: r.outputTokens, ms: Date.now() - t0 });
+      });
+      child.stdin.on("error", () => { /* EPIPE when the CLI is killed mid-write; the close handler reports it */ });
       child.stdin.end(prompt);
     });
   } finally {
