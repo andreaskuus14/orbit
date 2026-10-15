@@ -7,6 +7,10 @@ import { isEcho, isSpeaking } from "./speak";
 
 const AWAY_MS = 60_000; // window unfocused this long → stop listening
 const ARMED_MS = 8000; // after a bare "Hey Orbit", how long the next utterance counts as the question
+const STOP_WORDS = /^\s*(stop|wait|hold on|enough|quiet|shut up|pause|okay stop|ok stop|no)\W*$/i;
+/** Real speech over ORBIT's voice: a one-word command like "stop", or 2+ words that aren't ORBIT's own echo. */
+const talkingOver = (text: string) =>
+  isSpeaking() && (STOP_WORDS.test(text) || (text.trim().split(/\s+/).length >= 2 && !isEcho(text)));
 
 /** Hands-free "Hey Orbit": continuous recognition while enabled, not paused, the tab visible and the window focused within the last minute. */
 export function useWakeWord(enabled: boolean, paused: boolean) {
@@ -58,10 +62,12 @@ export function useWakeWord(enabled: boolean, paused: boolean) {
           const res = e.results[i], text = res[0].transcript, wake = extractWakeQuestion(text);
           if (!res.isFinal) {
             // The wake phrase interrupts, and so does any real speech while ORBIT is talking (but not ORBIT's own echo).
-            const talkingOver = isSpeaking() && text.trim().split(/\s+/).length >= 2 && !isEcho(text);
-            if ((wake || talkingOver) && !interrupted) { interrupted = true; dispatchEvent(new Event(VOICE_INTERRUPT)); arm(); }
+            if ((wake || talkingOver(text)) && !interrupted) { interrupted = true; dispatchEvent(new Event(VOICE_INTERRUPT)); arm(); }
             continue;
           }
+          const over = talkingOver(text);
+          if (!interrupted && over) { dispatchEvent(new Event(VOICE_INTERRUPT)); arm(); } // recognizers sometimes skip interim results
+          if (STOP_WORDS.test(text) && (interrupted || over)) { interrupted = false; armedUntil = 0; setState("listening"); continue; } // "stop" just silences ORBIT; it isn't a question
           interrupted = false;
           if (wake) { if (isSleepCommand(text)) ask(text); else if (wake.question) ask(wake.question); else arm(); } // "Orbit, shut down" keeps its name
           else if (armedUntil > Date.now()) { const q = normalizeTranscript(text); if (q) ask(q); }
