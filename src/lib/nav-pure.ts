@@ -79,14 +79,15 @@ const ZOOM = /^(?:zoom (in|out)(?: (?:more|a bit|a little|a lot|some|further|aga
 const CLEAR = /^(?:clear(?: the)? search|(?:go )?back to the (?:world )?map|(?:show|go back to|back to)(?: me| us)? the (?:whole|entire) (?:world|globe|map)|show(?: me)? the world map|reset(?: the)? (?:globe|map))$/;
 // "search (news) for X", "find/show me news about X", "look up X news"; X = "my memories…", "google…" stays with CORE.
 const SEARCH = /^search(?: (?:the )?(?:news|headlines))?(?: (?:for|about|on))? (.+)$|^(?:find|show|get|give|pull up|bring up|open)(?: me| us)?(?: (?:the|some))? (?:latest |recent )?(?:news|headlines|stories) (?:about|on|regarding|for) (.+)$|^look up (.+) news$/;
-const NOT_NEWS = /^(?:my|our|me|in|through|google|youtube|online|web|the (?:web|internet)|memor\w*|notes?)\b/;
+const NOT_NEWS = /^(?:my|our|me|in|through|google|youtube|reddit|online|web|the (?:web|internet)|memor\w*|notes?|how|what|why|where|who|when|which|is|are|can|do|does|did)\b/;
+const FILLER = /^(?:it|this|that|these|those|something|anything|more|again|for|on|about|them|him|her|there)$/; // dictation fragments, not topics
 
 /** "germany" → the country view, "ai chips" → a news search. */
 function newsFor(x: string): NavTarget | null {
   x = x.replace(/ (?:news|headlines|stories)$/, "").trim();
   const p = place(x.replace(/^(?:in|from|of) /, ""), true);
   if (p) return p;
-  return x.length < 2 || NOT_NEWS.test(x) ? null : { panel: "intelligence", search: x.slice(0, 80) };
+  return x.length < 2 || NOT_NEWS.test(x) || FILLER.test(x) ? null : { panel: "intelligence", search: x.slice(0, 80) };
 }
 
 /** Only what the open world understands: STUDIO's overlays by bare name, a bare country on the globe. */
@@ -117,7 +118,12 @@ export function parseNavCommand(text: string, ctx: { current?: PanelId | null } 
   }
   if (CLEAR.test(s)) return { panel: "intelligence", search: "" };
   const q = SEARCH.exec(s);
-  if (q) return newsFor(q[1] ?? q[2] ?? q[3]);
+  if (q) {
+    const x = q[1] ?? q[2] ?? q[3], t = newsFor(x);
+    // A bare "search for X" is only news on the globe, for a place, or when X says "news"; elsewhere ("search for a good laptop") it's for CORE.
+    const bare = q[1] !== undefined && !/^search (?:the )?(?:news|headlines)\b/.test(s);
+    return !bare || ctx.current === "intelligence" || (t && !t.search) || / (?:news|headlines)$/.test(x) ? t : null;
+  }
   const v = VERB.exec(s);
   if (!v) return null;
   const rest = s.slice(v[0].length).trim();
@@ -131,9 +137,12 @@ export function validateNav(input: Record<string, unknown>): NavTarget | null {
   const where = s(input.country) ? place(s(input.country), true) : null;
   if (where) return where;
   if (input.zoom === "in" || input.zoom === "out" || input.zoom === "reset") return { panel: null, zoom: input.zoom };
-  if (typeof input.search === "string") return s(input.search) ? newsFor(s(input.search)) : { panel: "intelligence", search: "" };
-  if (input.view === "stats" || input.view === "clips" || input.view === "none") return { panel: "studio", view: input.view };
-  return s(input.target) ? findPlace(s(input.target)) : null;
+  // Models fill optional fields with "" or defaults: let the target decide whether search/view apply at all.
+  const dest = s(input.target) ? findPlace(s(input.target)) : null;
+  if (s(input.search) && (!dest || dest.panel === "intelligence")) return newsFor(s(input.search));
+  if (input.search === "" && (!dest || (dest.panel === "intelligence" && !dest.country && !dest.region))) return { panel: "intelligence", search: "" };
+  if ((input.view === "stats" || input.view === "clips" || input.view === "none") && (!dest || dest.panel === "studio")) return { panel: "studio", view: input.view };
+  return dest;
 }
 
 /** "Intelligence → Estonia", "Studio → Stats", "the galaxy". */

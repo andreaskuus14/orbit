@@ -42,8 +42,8 @@ const yes: [string, object][] = [
   ["go straight to the clips", { panel: "studio", view: "clips" }],
   ["zoom in on Germany", { panel: "intelligence", country: "Germany" }],
   // news search (no context needed: the verb makes it unambiguous)
-  ["search for AI chips", { panel: "intelligence", search: "ai chips" }],
-  ["Search oil prices please", { panel: "intelligence", search: "oil prices" }],
+  ["search the news for AI chips", { panel: "intelligence", search: "ai chips" }],
+  ["Search news about oil prices please", { panel: "intelligence", search: "oil prices" }],
   ["search news about the election", { panel: "intelligence", search: "the election" }],
   ["search the news for SpaceX", { panel: "intelligence", search: "spacex" }],
   ["find news about Tesla", { panel: "intelligence", search: "tesla" }],
@@ -149,4 +149,18 @@ test("navLabel reads naturally", () => {
   assert.equal(navLabel({ panel: "intelligence", country: "United States of America" }), "Intelligence → United States");
   assert.equal(navLabel({ panel: "studio", view: "stats" }), "Studio → Stats");
   assert.equal(navLabel({ panel: null }), "the galaxy");
+});
+
+test("bare 'search' stays with CORE outside the globe; fragments and how-to aren't searches", () => {
+  for (const t of ["search for a good laptop", "search how to fix my bike", "search reddit for builds", "search for it", "search for", "search for what I said yesterday"])
+    assert.equal(parseNavCommand(t), null, t);
+  assert.deepEqual(parseNavCommand("search for a good laptop", { current: "intelligence" }), { panel: "intelligence", search: "a good laptop" });
+  assert.equal(parseNavCommand("search for it", { current: "intelligence" }), null);
+});
+
+test("validateNav: empty optional fields don't override the target", () => {
+  assert.deepEqual(validateNav({ target: "memory", search: "" }), parseNavCommand("open memory"));
+  assert.deepEqual(validateNav({ target: "memory", view: "none" }), parseNavCommand("open memory"));
+  assert.deepEqual(validateNav({ target: "studio", view: "stats", search: "" }), { panel: "studio", view: "stats" });
+  assert.deepEqual(validateNav({ search: "oil" }), { panel: "intelligence", search: "oil" });
 });

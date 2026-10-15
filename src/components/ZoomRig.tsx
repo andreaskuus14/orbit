@@ -14,12 +14,15 @@ export function ZoomRig({ home, reduced }: { home: number; reduced: boolean }) {
   useEffect(() => {
     const h = (e: Event) => {
       const z = (e as CustomEvent<NavTarget>).detail.zoom;
-      if (!z || !controls) return;
+      if (!z) { goal.current = null; return; } // any other navigation flies the camera: don't fight it
+      if (!controls) return;
       const d = goal.current ?? camera.position.distanceTo(controls.target); // "zoom in more" during a zoom keeps going
       goal.current = THREE.MathUtils.clamp(z === "in" ? d * 0.65 : z === "out" ? d * 1.5 : home, controls.minDistance, controls.maxDistance);
     };
     addEventListener(NAV_EVENT, h);
-    return () => removeEventListener(NAV_EVENT, h);
+    const stop = () => { goal.current = null; }; // the user grabbed the camera (wheel/drag)
+    (controls as unknown as THREE.EventDispatcher<{ start: object }> | null)?.addEventListener("start", stop);
+    return () => { removeEventListener(NAV_EVENT, h); (controls as unknown as THREE.EventDispatcher<{ start: object }> | null)?.removeEventListener("start", stop); };
   }, [camera, controls, home]);
 
   const off = useRef(new THREE.Vector3());
