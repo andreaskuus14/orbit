@@ -51,10 +51,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [approach, setApproach] = useState<PanelId | null>(null);
   // CORE opened from inside a world floats over it instead of leaving it; closing CORE returns to that world.
   const [behind, setBehind] = useState<PanelId | null>(null);
-  const shown = panel === "core" && behind ? behind : panel; // the world (or panel) actually on screen
+  // The world (or panel) actually on screen. Also while panel is briefly null after closing CORE, so the world isn't remounted.
+  const shown = behind && (panel === "core" || panel === null) ? behind : panel;
   const closeWorld = useCallback(() => { setBehind(null); setPanel(null); }, []); // "← Back to galaxy" really leaves, even with CORE open over it
   const isWorld = (p: PanelId | null) => p === "intelligence" || (p !== null && WORLDS.includes(p));
-  const openCore = useCallback(() => setPanel((cur) => { setBehind(isWorld(cur) ? cur : null); return "core"; }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // A second question keeps the world; a running game is full-screen above everything, so CORE replaces it as before.
+  const openCore = useCallback(() => { if (panel !== "core") setBehind(isWorld(panel) && !gameOpen ? panel : null); setPanel("core"); }, [panel, gameOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (panel === null && behind) { setPanel(behind); setBehind(null); }
     else if (panel !== "core" && panel !== null && behind) setBehind(null);
@@ -120,7 +122,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     addEventListener(VOICE_ASK, onAsk);
     return () => removeEventListener(VOICE_ASK, onAsk);
   }, [panel, scene3d, shown, openCore]);
-  useEffect(() => { voiceContext.current = panel; }, [panel]); // voice prefers alternatives that are commands for this place
+  useEffect(() => { voiceContext.current = shown; }, [shown]); // voice prefers alternatives that are commands for this place
 
   // Default to the fast 2D view when WebGL is missing or the screen is small; the user can switch any time.
   useEffect(() => {
@@ -211,11 +213,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       const inWorld = isWorld(shown);
       if (world && !inWorld && view === "3d" && !reduced) { setPanel(null); setApproach(t.panel); return; }
       setApproach(null);
-      if (t.panel) select(t.panel); else setPanel(null);
+      if (t.panel === "core") openCore(); else if (t.panel) select(t.panel); else closeWorld(); // "galaxy"/"home" really leaves the world
     };
     addEventListener(NAV_EVENT, onNav);
     return () => removeEventListener(NAV_EVENT, onNav);
-  }, [panel, shown, approach, view, reduced, select]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [panel, shown, approach, view, reduced, select, openCore, closeWorld]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!approach) return;
     const t = setTimeout(() => { setPanel(approach); setApproach(null); }, 1200); // the galaxy's longest fast flight
@@ -279,7 +281,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       )}
 
       <header className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-4 py-3">
-        <button className="logo" onClick={() => setPanel(null)} aria-label="ORBIT home">
+        <button className="logo" onClick={closeWorld} aria-label="ORBIT home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/orbit-mark.png" alt="" width={40} height={40} onError={(e) => { e.currentTarget.style.display = "none"; }} />
           <span><span className="brand block">ORBIT</span><span className="muted block text-[10px] tracking-[0.2em]">YOUR MIND HAS A UNIVERSE</span></span>
@@ -309,7 +311,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </aside>
       )}
 
-      {!panel && (
+      {!shown && (
         <aside className="glass hud-panel status-hud" aria-label="System status">
           <div className="hud-title">SYSTEM</div>
           <dl>

@@ -269,6 +269,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
     const h = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (e.key !== "Escape" || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (document.querySelector(".drawer")) return; // CORE is open on top: Esc closes that first
       e.preventDefault(); setStats(false); setClips(false);
     };
     addEventListener("keydown", h, true);
