@@ -39,7 +39,7 @@ const rng = (seed: number) => () => {
 function toTexture(c: HTMLCanvasElement) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
+  t.anisotropy = 8;
   return t;
 }
 
@@ -180,10 +180,16 @@ function usePhoto(key: PlanetId) {
 }
 
 const planetSize = (p: PlanetDef) => p.size * LOOKS[p.id].scale * 1.25;
-// Glow colour per themed world (atmosphere + particle aura).
-const AURA: Record<PlanetId, string> = {
-  memory: "#38bdf8", intelligence: "#a78bfa", creation: "#fb923c", operations: "#fbbf24",
-  agents: "#e879f9", life: "#4ade80", vault: "#a5f3fc", analytics: "#818cf8",
+// How each world's surface answers the CORE's light: bump = relief from the photo, glow = night-side emission (lava).
+const SURFACE: Record<PlanetId, { rough: number; metal?: number; bump: number; glow?: string; clouds?: number }> = {
+  memory: { rough: 0.55, bump: 1.2, clouds: 0.35 },
+  intelligence: { rough: 0.9, bump: 0.6, clouds: 0.3 },
+  creation: { rough: 0.85, bump: 2.5, glow: "#ff5a1f" },
+  operations: { rough: 0.95, bump: 2.5 },
+  agents: { rough: 0.75, bump: 0.3 },
+  life: { rough: 0.8, bump: 1.6, clouds: 0.25 },
+  vault: { rough: 0.35, bump: 1.8 },
+  analytics: { rough: 0.3, metal: 0.35, bump: 1.8 },
 };
 
 type Look = { kind: "band" | "rock"; colors: string[]; base?: string; ring?: string; scale: number };
@@ -227,7 +233,7 @@ function Moons({ count, reduced }: { count: number; reduced: boolean }) {
       {items.map((m, i) => (
         <mesh key={i} position={[m.x, m.y, m.z]}>
           <sphereGeometry args={[0.045, 8, 8]} />
-          <meshBasicMaterial color="#e9e4ff" />
+          <meshStandardMaterial color="#c9ccd6" roughness={1} />
         </mesh>
       ))}
     </group>
@@ -251,18 +257,34 @@ function AgentSatellite({ size, active, reduced, offset = 0 }: { size: number; a
   );
 }
 
+/** Banded ring like Saturn's: many fine ringlets and gaps, lit by the CORE so it has a bright and a dark side. */
 function PlanetRing({ size, color }: { size: number; color: string }) {
+  const { geo, tex } = useMemo(() => {
+    const inner = size * 1.35, outer = size * 2.3;
+    const g = new THREE.RingGeometry(inner, outer, 160, 1);
+    // RingGeometry's UVs are planar; remap u to the radius so the band texture runs from inner to outer edge.
+    const pos = g.attributes.position, uv = g.attributes.uv;
+    for (let i = 0; i < pos.count; i++) uv.setXY(i, (Math.hypot(pos.getX(i), pos.getY(i)) - inner) / (outer - inner), 0.5);
+    const c = document.createElement("canvas");
+    c.width = 1024; c.height = 4;
+    const ctx = c.getContext("2d")!;
+    const r = rng(Math.round(size * 997));
+    const base = new THREE.Color(color);
+    for (let x = 0; x < c.width; x++) {
+      const t = x / c.width;
+      const gap = (t > 0.52 && t < 0.56) || (t > 0.84 && t < 0.855); // a Cassini-like division and a thin outer gap
+      const a = gap ? 0.03 : (0.35 + 0.5 * r()) * (0.55 + 0.45 * Math.sin(t * 60 + r())) * (t > 0.9 ? (1 - t) * 10 : 1);
+      const k = 0.75 + 0.35 * r();
+      ctx.fillStyle = `rgba(${(base.r * 255 * k) | 0},${(base.g * 255 * k) | 0},${(base.b * 255 * k) | 0},${Math.max(0, Math.min(1, a))})`;
+      ctx.fillRect(x, 0, 1, c.height);
+    }
+    return { geo: g, tex: toTexture(c) };
+  }, [size, color]);
+  useEffect(() => () => { geo.dispose(); tex.dispose(); }, [geo, tex]);
   return (
-    <group rotation={[Math.PI / 2 - 0.45, 0.15, 0]}>
-      <mesh>
-        <ringGeometry args={[size * 1.35, size * 1.85, 96]} />
-        <meshBasicMaterial color={color} transparent opacity={0.55} side={THREE.DoubleSide} depthWrite={false} />
-      </mesh>
-      <mesh>
-        <ringGeometry args={[size * 1.9, size * 2.3, 96]} />
-        <meshBasicMaterial color={color} transparent opacity={0.28} side={THREE.DoubleSide} depthWrite={false} />
-      </mesh>
-    </group>
+    <mesh geometry={geo} rotation={[Math.PI / 2 - 0.45, 0.15, 0]}>
+      <meshStandardMaterial map={tex} transparent side={THREE.DoubleSide} depthWrite={false} roughness={0.9} />
+    </mesh>
   );
 }
 
@@ -270,13 +292,13 @@ function PlanetRing({ size, color }: { size: number; color: string }) {
 
 // mode: 0 embers rise, 1 belt sweeps the equator, 2 snow drifts down, 3 fireflies blink, 4 crystal glints, 5 sea mist.
 const THEME: Record<PlanetId, { mode: number; count: number; size: [number, number]; color: string; color2?: string }> = {
-  memory: { mode: 5, count: 90, size: [10, 22], color: "#bfe9ff" },
+  memory: { mode: 5, count: 45, size: [3, 7], color: "#bfe9ff" },
   intelligence: { mode: 1, count: 140, size: [5, 12], color: "#c4b5fd" }, // storm clouds; lightning is added separately
   creation: { mode: 0, count: 110, size: [4, 11], color: "#ffe2a8", color2: "#ff4d1a" },
   operations: { mode: 1, count: 170, size: [3, 8], color: "#f5d08a" },
   agents: { mode: 1, count: 140, size: [4, 10], color: "#f0abfc" },
   life: { mode: 3, count: 45, size: [6, 11], color: "#bef264" },
-  vault: { mode: 2, count: 120, size: [4, 9], color: "#e6f8ff" },
+  vault: { mode: 2, count: 90, size: [2, 5], color: "#e6f8ff" },
   analytics: { mode: 4, count: 60, size: [10, 20], color: "#dbe2ff" },
 };
 
@@ -297,7 +319,7 @@ const themeMat = new THREE.ShaderMaterial({
       else if (m == 3) { vec3 w = vec3(sin(uTime * 0.7 + aSeed * 13.0), sin(uTime * 0.5 + aSeed * 29.0), cos(uTime * 0.6 + aSeed * 17.0));
         p = normalize(d + w * 0.25) * uR * (1.06 + 0.12 * (0.5 + 0.5 * sin(uTime * 0.9 + aSeed * 40.0))); a = pow(max(0.0, sin(uTime * 1.7 + aSeed * 50.0)), 4.0); }
       else if (m == 4) { p = d * uR * (1.03 + aSeed * 0.25); a = pow(max(0.0, sin(uTime * 0.9 + aSeed * 60.0)), 30.0); sz *= 1.0 + a * 0.8; }
-      else { p = d * uR * (1.01 + t * 0.35); a = sin(3.1416 * t) * 0.4; sz *= 1.0 + t * 1.5; }
+      else { p = d * uR * (1.01 + t * 0.25); a = sin(3.1416 * t) * 0.25; sz *= 1.0 + t * 0.6; }
       vA = max(a, 0.0); // never negative: additive blending would write negative light (NaN in bloom)
       vec4 mv = modelViewMatrix * vec4(p, 1.0);
       gl_PointSize = sz * uScale / -mv.z; gl_Position = projectionMatrix * mv; }`,
@@ -400,22 +422,6 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-/** Fresnel atmosphere: a soft glow that brightens toward the limb, plus a thin bright rim on the surface. */
-function atmosphereMats(color: string) {
-  const vs = "varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }";
-  const uniforms = () => ({ uColor: { value: new THREE.Color(color) }, uPower: { value: 1 } });
-  return {
-    outer: new THREE.ShaderMaterial({
-      uniforms: uniforms(), vertexShader: vs, transparent: true, side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false,
-      fragmentShader: "uniform vec3 uColor; uniform float uPower; varying vec3 vN; varying vec3 vV; void main(){ float i = pow(clamp(-dot(vN, vV) * 2.2, 0.0, 1.0), 2.0); gl_FragColor = vec4(uColor, 1.0) * i * 0.9 * uPower; }", // back faces: fades outward from the limb
-    }),
-    rim: new THREE.ShaderMaterial({
-      uniforms: uniforms(), vertexShader: vs, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      fragmentShader: "uniform vec3 uColor; uniform float uPower; varying vec3 vN; varying vec3 vV; void main(){ float i = pow(1.0 - clamp(dot(vN, vV), 0.0, 1.0), 3.2); gl_FragColor = vec4(uColor, 1.0) * i * 0.32 * uPower; }",
-    }),
-  };
-}
-
 function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false }: {
   p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
@@ -431,16 +437,13 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
   );
   useEffect(() => () => map.dispose(), [map]);
   const photo = usePhoto(p.id);
-  const isEarth = p.id === "memory";
+  const surf = SURFACE[p.id];
   const clouds = useRef<THREE.Mesh>(null);
-  const cloudTex = useMemo(() => (isEarth ? cloudTexture(21) : null), [isEarth]);
+  const cloudTex = useMemo(() => (surf.clouds ? cloudTexture(21 + index) : null), [surf.clouds, index]);
   useEffect(() => () => cloudTex?.dispose(), [cloudTex]);
   const phase = index * 0.95;
-  const atmo = useMemo(() => atmosphereMats(AURA[p.id]), [p.id]);
-  useEffect(() => () => { atmo.outer.dispose(); atmo.rim.dispose(); }, [atmo]);
   const hovered = useRef(false);
-  const halo = useRef<THREE.Mesh>(null);
-  const flash = useRef(0); // lightning flash, lights the atmosphere rim
+  const flash = useRef(0); // lightning flash, briefly lights the storm world from inside
 
   useFrame(({ clock }, dt) => {
     const a = phase + (reduced ? 0 : clock.elapsedTime * p.speed);
@@ -450,20 +453,12 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
     if (mesh.current) {
       if (!reduced) mesh.current.rotation.y += 0.003;
       if (clouds.current && !reduced) clouds.current.rotation.y += 0.0045; // clouds drift a little faster than the ground
-      // Real backend events for this planet make it flare in its own colour.
-      (mesh.current.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.04 + glow(pulses, p.id) * 1.2 + (selected ? 0.25 : 0);
+      // Lava glows on its own; real backend events and lightning add a brief flare. Nothing glows at rest otherwise.
+      (mesh.current.material as THREE.MeshStandardMaterial).emissiveIntensity = (surf.glow ? 0.55 : 0) + glow(pulses, p.id) * 0.8 + flash.current * 0.6;
     }
-    // Hover lifts the planet a little; the selected one gets a slowly turning halo. Both ease, never snap.
+    // Hover lifts the planet a little; eases, never snaps.
     const k = 1 - Math.exp(-dt * 8);
     if (group.current) group.current.scale.setScalar(THREE.MathUtils.lerp(group.current.scale.x, hovered.current || selected ? 1.08 : 1, k));
-    atmo.rim.uniforms.uPower.value = 1 + flash.current * 3;
-    atmo.outer.uniforms.uPower.value = THREE.MathUtils.lerp(atmo.outer.uniforms.uPower.value, 1 + glow(pulses, p.id) * 1.5 + (selected || hovered.current ? 0.5 : 0), k);
-    if (halo.current) {
-      const m = halo.current.material as THREE.MeshBasicMaterial;
-      m.opacity = THREE.MathUtils.lerp(m.opacity, selected ? 0.75 : 0, k * 0.6);
-      halo.current.visible = m.opacity > 0.01;
-      if (!reduced) halo.current.rotation.z += dt * 0.4;
-    }
   });
 
   return (
@@ -477,21 +472,17 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
           onPointerOver={() => { hovered.current = true; document.body.style.cursor = "pointer"; }}
           onPointerOut={() => { hovered.current = false; document.body.style.cursor = ""; }}
         >
-          <sphereGeometry args={[size, 96, 96]} />
-          <meshStandardMaterial map={photo ?? map} emissive={p.color} roughness={0.85} metalness={0} />
+          <sphereGeometry args={[size, 128, 128]} />
+          <meshStandardMaterial map={photo ?? map} bumpMap={photo ?? map} bumpScale={surf.bump}
+            roughness={surf.rough} metalness={surf.metal ?? 0}
+            emissive={surf.glow ?? p.color} emissiveMap={surf.glow ? (photo ?? map) : null} emissiveIntensity={0} />
         </mesh>
         {cloudTex && (
-          <mesh ref={clouds} scale={1.025} rotation-z={0.2}>
-            <sphereGeometry args={[size, 64, 64]} />
-            <meshStandardMaterial map={cloudTex} transparent depthWrite={false} roughness={1} />
+          <mesh ref={clouds} scale={1.02} rotation-z={0.2}>
+            <sphereGeometry args={[size, 96, 96]} />
+            <meshStandardMaterial map={cloudTex} transparent opacity={surf.clouds} depthWrite={false} roughness={1} />
           </mesh>
         )}
-        <mesh scale={isEarth ? 1.1 : 1.08} material={atmo.outer}><sphereGeometry args={[size, 48, 48]} /></mesh>
-        <mesh scale={1.004} material={atmo.rim}><sphereGeometry args={[size, 48, 48]} /></mesh>
-        <mesh ref={halo} rotation-x={Math.PI / 2.3} visible={false}>
-          <torusGeometry args={[size * 1.55, 0.012, 8, 128]} />
-          <meshBasicMaterial color="#a5f3fc" transparent opacity={0} toneMapped={false} />
-        </mesh>
         <PlanetLife id={p.id} size={size} reduced={reduced} />
         {p.id === "intelligence" && <Lightning size={size} reduced={reduced} flash={flash} />}
         {look.ring && <PlanetRing size={size} color={look.ring} />}
@@ -708,7 +699,7 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
 
   return (
     <group>
-      <pointLight intensity={24} decay={1} color="#d6e8ff" />
+      <pointLight intensity={3.2} decay={0} color="#fff1dc" /> {/* no falloff: inner worlds would blow out, outer ones go dark */}
       <group ref={group}>
         <lineSegments geometry={strands} material={mats.fil} />
         <points geometry={sparks} material={mats.spark} />
@@ -770,7 +761,11 @@ function Rig({ selected, positions, reduced, panelOpen }: { selected: PanelId | 
   const focusOf = useCallback(() => (selected && selected !== "profile" && selected !== "core" ? positions[selected] : null), [selected, positions]);
   const goals = useCallback(() => {
     const focus = focusOf();
-    if (focus) { tgt.copy(focus); goal.copy(focus).add(delta.set(2.6, 1.8, 3.8)); }
+    if (focus) { // view from the sunlit side (between the planet and the CORE), a little off-axis so the terminator shows
+      tgt.copy(focus);
+      const out = delta.copy(focus).setY(0).normalize();
+      goal.copy(focus).addScaledVector(out, -2.8).add(out.set(out.z * 3, 1.8, -out.x * 3));
+    }
     else { tgt.set(0, 0, 0); goal.copy(selected === "core" ? delta.set(0, 3, 9) : HOME); }
   }, [focusOf, selected, goal, tgt, delta]);
 
@@ -828,7 +823,7 @@ export default function Galaxy(props: GalaxyProps) {
       <Canvas key={glr.key} onCreated={glr.onCreated} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, 1.75]}
         gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping }}>
         <color attach="background" args={["#02040b"]} />
-        <ambientLight intensity={0.55} />
+        <ambientLight intensity={0.14} /> {/* low fill: the CORE is the sun, worlds get a real day and night side */}
         <Nebula />
         <NebulaPlates reduced={props.reduced} />
         <Stars radius={110} depth={60} count={props.reduced ? 2000 : 6000} factor={3.2} fade speed={props.reduced ? 0 : 0.5} />
