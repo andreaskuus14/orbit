@@ -49,8 +49,18 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string; search?: string } | null>(null);
   const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "none" } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
+  // CORE opened from inside a world floats over it instead of leaving it; closing CORE returns to that world.
+  const [behind, setBehind] = useState<PanelId | null>(null);
+  const shown = panel === "core" && behind ? behind : panel; // the world (or panel) actually on screen
+  const closeWorld = useCallback(() => { setBehind(null); setPanel(null); }, []); // "← Back to galaxy" really leaves, even with CORE open over it
+  const isWorld = (p: PanelId | null) => p === "intelligence" || (p !== null && WORLDS.includes(p));
+  const openCore = useCallback(() => setPanel((cur) => { setBehind(isWorld(cur) ? cur : null); return "core"; }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (panel === null && behind) { setPanel(behind); setBehind(null); }
+    else if (panel !== "core" && panel !== null && behind) setBehind(null);
+  }, [panel, behind]);
   // Is a 3D scene on screen? The news globe is always 3D, even in "2D view"; the other worlds and the galaxy follow the toggle.
-  const scene3d = !gameOpen && (panel === "intelligence" || view === "3d");
+  const scene3d = !gameOpen && (shown === "intelligence" || view === "3d");
 
   // Fetch the world chunks while idle, so entering a world never waits on a JS download (next/dynamic reuses them).
   useEffect(() => {
@@ -96,7 +106,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
       if (!text) return;
       setCmdErr("");
-      let nav = parseNavCommand(text, { current: panel }); // "go to local news"
+      let nav = parseNavCommand(text, { current: shown }); // "go to local news"
       if (nav?.zoom && !scene3d) nav = null; // no 3D scene on screen: zooming would do nothing
       if (nav) {
         stopSpeech();
@@ -105,11 +115,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         return;
       }
       dispatchEvent(new CustomEvent(VOICE_ASKED));
-      setPending(text); setPanel("core");
+      setPending(text); openCore();
     };
     addEventListener(VOICE_ASK, onAsk);
     return () => removeEventListener(VOICE_ASK, onAsk);
-  }, [panel, scene3d]);
+  }, [panel, scene3d, shown, openCore]);
   useEffect(() => { voiceContext.current = panel; }, [panel]); // voice prefers alternatives that are commands for this place
 
   // Default to the fast 2D view when WebGL is missing or the screen is small; the user can switch any time.
@@ -196,16 +206,16 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if (t.zoom) return; // ZoomRig in the canvas on screen handles it
       if (t.country || t.region || t.search !== undefined) setNewsFocus({ country: t.country, region: t.region, search: t.search });
       if (t.view) setStudioOpen({ view: t.view });
-      if (t.panel === (approach ?? panel)) return; // already there (or on the way): the world flies to the sub-target itself
+      if (t.panel === (approach ?? shown)) { if (panel === "core") setPanel(shown); return; } // already there: close CORE over it, the world flies to the sub-target // already there (or on the way): the world flies to the sub-target itself
       const world = t.panel === "intelligence" || (t.panel !== null && WORLDS.includes(t.panel));
-      const inWorld = panel === "intelligence" || (panel !== null && WORLDS.includes(panel));
+      const inWorld = isWorld(shown);
       if (world && !inWorld && view === "3d" && !reduced) { setPanel(null); setApproach(t.panel); return; }
       setApproach(null);
       if (t.panel) select(t.panel); else setPanel(null);
     };
     addEventListener(NAV_EVENT, onNav);
     return () => removeEventListener(NAV_EVENT, onNav);
-  }, [panel, approach, view, reduced, select]);
+  }, [panel, shown, approach, view, reduced, select]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!approach) return;
     const t = setTimeout(() => { setPanel(approach); setApproach(null); }, 1200); // the galaxy's longest fast flight
@@ -213,8 +223,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, [approach]);
   useEffect(() => { if (panel) setApproach(null); }, [panel]); // a click or arrow key during the flight wins
   // Sub-targets apply to one visit only: drop them once we've left that world.
-  useEffect(() => { if (panel !== "intelligence" && approach !== "intelligence") setNewsFocus(null); }, [panel, approach]);
-  useEffect(() => { if (panel !== "studio" && approach !== "studio") setStudioOpen(null); }, [panel, approach]);
+  useEffect(() => { if (shown !== "intelligence" && approach !== "intelligence") setNewsFocus(null); }, [shown, approach]);
+  useEffect(() => { if (shown !== "studio" && approach !== "studio") setStudioOpen(null); }, [shown, approach]);
   const clearGreeting = useCallback(() => setWakeGreeting(null), []);
 
   async function runCommand(e: React.FormEvent) {
@@ -224,10 +234,10 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     if (!text) return;
     voice.clearError();
     setCmdErr("");
-    let nav = parseNavCommand(text, { current: panel }); // in either mode
+    let nav = parseNavCommand(text, { current: shown }); // in either mode
     if (nav?.zoom && !scene3d) nav = null; // no 3D scene on screen: zooming would do nothing ("open game dev" is a place, not a question or a task)
     if (nav) { setCmd(""); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: nav })); return; }
-    if (cmdMode === "ask") { setCmd(""); setPending(text); setPanel("core"); return; }
+    if (cmdMode === "ask") { setCmd(""); setPending(text); openCore(); return; }
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
     try {
       const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request: text }) });
@@ -244,12 +254,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   return (
     <main className="relative h-dvh w-full overflow-hidden">
-      {panel === "intelligence" && !gameOpen ? (
-        <NewsGlobe reduced={reduced} onClose={() => setPanel(null)} focus={newsFocus} />
-      ) : panel === "studio" ? (
-        <StudioWorld flat={view !== "3d"} reduced={reduced} onClose={() => setPanel(null)} onOpenTask={openTask} open={studioOpen} />
-      ) : panel === "creation" ? (
-        <DevWorld flat={view !== "3d"} reduced={reduced} onClose={() => setPanel(null)} onOpenTask={openTask} onPlaying={setGameOpen} />
+      {shown === "intelligence" && !gameOpen ? (
+        <NewsGlobe reduced={reduced} onClose={closeWorld} focus={newsFocus} />
+      ) : shown === "studio" ? (
+        <StudioWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} />
+      ) : shown === "creation" ? (
+        <DevWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} />
       ) : view === "3d" && gameOpen ? null : view === "3d" ? (
         <div className="absolute inset-0">
           <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} />
