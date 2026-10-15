@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import {
-  audioArgs, probeArgs, assText, assTime, buildAss, captionLines, escapeXml, fallbackMoments, frameArgs, isInboxName, isJobId, parseByteRange, parseDuration,
+  cleanWords, audioArgs, probeArgs, assText, assTime, buildAss, captionLines, escapeXml, fallbackMoments, frameArgs, isInboxName, isJobId, parseByteRange, parseDuration,
   peakTime, promptTranscript, removeOverlaps, renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet, thumbSvg, validateMoments,
   verticalFilter, wordsFromChunks, wrapTitle, type Word,
   cleanPermission, isDownloadId, parseClipUrl, parseYtdlpProgress, validOptions, ytdlpArgs, ytdlpError, ytdlpOutputFile,
@@ -200,4 +200,21 @@ test("validOptions and isDownloadId", () => {
   assert.equal(typeof validOptions({ captions: "yes" }), "string");
   assert.ok(isDownloadId("dl-mgr1abc-a1b2c3"));
   assert.ok(!isDownloadId("../x"));
+});
+
+test("cleanWords collapses Whisper repetition loops, keeps normal speech", () => {
+  const w = (t: string, i: number) => ({ start: i, end: i + 0.5, text: t });
+  const loop = Array.from({ length: 6 }, () => ["I'M", "GOING", "TO", "BE", "NINE", "HOURS."]).flat().map(w);
+  assert.equal(cleanWords(loop).map((x) => x.text).join(" "), "I'M GOING TO BE NINE HOURS.");
+  const normal = ["go", "go", "now", "we", "won", "we", "won"].map(w); // short repeats (≤2×) stay
+  assert.equal(cleanWords(normal).length, 7);
+  assert.equal(cleanWords([{ start: 2, end: 1, text: "bad" }, { start: NaN, end: 1, text: "x" }, w("ok", 3)]).length, 1);
+});
+
+test("buildAss never shows two captions at once", () => {
+  const words = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7].map((t, i) => ({ start: t, end: t + 2, text: `w${i}.` })); // overlapping timestamps
+  const caps = buildAss({ hook: "", words, duration: 10 }).split("\n").filter((l) => l.includes(",Cap,"));
+  const toS = (t: string) => { const [h, m, s] = t.split(":"); return +h * 3600 + +m * 60 + +s; };
+  const spans = caps.map((l) => l.split(",").slice(1, 3).map(toS));
+  for (let i = 1; i < spans.length; i++) assert.ok(spans[i][0] >= spans[i - 1][1] - 1e-9, `caption ${i} overlaps`);
 });

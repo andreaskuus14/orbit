@@ -7,7 +7,7 @@ import type { Clip, ClipJob, Download, InboxFile, JobStatus, ToolsStatus } from 
 import {
   MAX_SOURCE_SEC, MIN_CLIP_SEC, SAMPLE_RATE, VIDEO_EXTS, WIN_SEC, audioArgs, buildAss, fallbackMoments, frameArgs, isInboxName, isPlainName,
   parseDuration, parseYtdlpProgress, peakTime, probeArgs, promptTranscript, renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet,
-  thumbSvg, validateMoments, wordsFromChunks, ytdlpArgs, ytdlpError, ytdlpOutputFile, YTDLP_FILE_MARK,
+  thumbSvg, validateMoments, wordsFromChunks, cleanWords, ytdlpArgs, ytdlpError, ytdlpOutputFile, YTDLP_FILE_MARK,
   type Moment, type Word,
 } from "./pure";
 
@@ -260,7 +260,7 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
       else {
         try {
           await set(job, "transcribing", 0.08, "Loading Whisper (first run downloads ~300 MB)");
-          words = await transcribe(pcmFile, duration, signal, (f) => set(job, "transcribing", 0.08 + 0.45 * f, `Transcribing ${Math.round(f * 100)}%`));
+          words = cleanWords(await transcribe(pcmFile, duration, signal, (f) => set(job, "transcribing", 0.08 + 0.45 * f, `Transcribing ${Math.round(f * 100)}%`))); // also feeds Claude a transcript without loops
         } catch (e) {
           if (signal.aborted) throw e;
           job.warnings.push(`Transcription failed, continuing without captions: ${e instanceof Error ? e.message : e}`);

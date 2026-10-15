@@ -173,6 +173,29 @@ export function assText(s: string): string {
 }
 
 /** 2–4 words per caption line; breaks early on sentence ends and pauses. */
+const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
+/** Whisper hallucination guard: on music/noise it loops one phrase ("I'M GOING TO BE NINE HOURS." ×20). A run of 2-12 words
+ *  repeated back-to-back more than twice keeps one copy; bad timestamps (NaN, end < start) are dropped. */
+export function cleanWords(words: Word[]): Word[] {
+  const ws = words.filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end >= w.start && norm(w.text));
+  const out: Word[] = [];
+  for (let i = 0; i < ws.length;) {
+    let skipped = false;
+    for (let n = 2; n <= 12 && !skipped; n++) { // shortest period first, so 6 loops of a phrase keep one copy, not two
+      if (i + 3 * n > ws.length) continue;
+      const key = (k: number) => ws.slice(k, k + n).map((w) => norm(w.text)).join(" ");
+      const first = key(i);
+      if (key(i + n) !== first || key(i + 2 * n) !== first) continue;
+      let j = i + n;
+      while (j + n <= ws.length && key(j) === first) j += n;
+      out.push(...ws.slice(i, i + n)); // keep one copy
+      i = j; skipped = true;
+    }
+    if (!skipped) out.push(ws[i++]);
+  }
+  return out;
+}
+
 export function captionLines(words: Word[]): Word[] {
   const lines: Word[] = [];
   let cur: Word[] = [];
@@ -193,10 +216,14 @@ const CHERRY_ASS = "&H00632EFF"; // #ff2e63 as &HAABBGGRR
 export function buildAss(o: { hook: string; words: Word[]; duration: number }): string {
   const ev: string[] = [];
   if (o.hook.trim()) ev.push(`Dialogue: 1,${assTime(0)},${assTime(Math.min(2.5, o.duration))},Hook,,0,0,0,,${assText(o.hook).toUpperCase()}`);
-  for (const l of captionLines(o.words)) {
-    if (l.end <= 0 || l.start >= o.duration) continue;
-    ev.push(`Dialogue: 0,${assTime(Math.max(0, l.start))},${assTime(Math.min(o.duration, Math.max(l.end, l.start + 0.3)))},Cap,,0,0,0,,${assText(l.text).toUpperCase()}`);
-  }
+  const lines = captionLines(cleanWords(o.words));
+  lines.forEach((l, i) => {
+    // Never overlap: libass stacks simultaneous captions into a wall of text, so each line ends where the next begins.
+    const start = Math.max(0, l.start), next = lines[i + 1]?.start ?? Infinity;
+    const end = Math.min(o.duration, Math.max(l.end, start + 0.3), next);
+    if (end - start < 0.05 || start >= o.duration) return;
+    ev.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${assText(l.text).toUpperCase()}`);
+  });
   return [
     "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "WrapStyle: 0", "ScaledBorderAndShadow: yes", "",
     "[V4+ Styles]",
