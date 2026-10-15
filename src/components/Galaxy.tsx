@@ -181,13 +181,14 @@ function usePhoto(key: PlanetId) {
 
 const planetSize = (p: PlanetDef) => p.size * LOOKS[p.id].scale * 1.25;
 // How each world's surface answers the CORE's light: bump = relief from the photo, glow = night-side emission (lava).
-const SURFACE: Record<PlanetId, { rough: number; metal?: number; bump: number; glow?: string; clouds?: number; tint?: string }> = {
-  memory: { rough: 0.3, bump: 1.2, clouds: 0.35, tint: "#b8c6d6" },
-  intelligence: { rough: 0.9, bump: 0.6, clouds: 0.3 },
+// air = colour of the thin sunlit atmosphere limb (only worlds with air).
+const SURFACE: Record<PlanetId, { rough: number; metal?: number; bump: number; glow?: string; clouds?: number; tint?: string; air?: string }> = {
+  memory: { rough: 0.3, bump: 1.2, clouds: 0.35, tint: "#b8c6d6", air: "#7cc4ff" },
+  intelligence: { rough: 0.9, bump: 0.6, clouds: 0.3, air: "#b9a6ff" },
   creation: { rough: 0.85, bump: 2.5, glow: "#ff5a1f" },
   operations: { rough: 0.95, bump: 2.5 },
   agents: { rough: 0.75, bump: 0.3 },
-  life: { rough: 0.8, bump: 1.6, clouds: 0.25 },
+  life: { rough: 0.8, bump: 1.6, clouds: 0.25, air: "#9be7a8" },
   vault: { rough: 0.35, bump: 1.8 },
   analytics: { rough: 0.4, metal: 0.25, bump: 1.8 },
 };
@@ -199,10 +200,10 @@ const LOOKS: Record<PlanetId, Look> = {
   memory: { kind: "rock", base: "#1f5fa8", colors: ["#2f8f4e", "#3fa35e", "#e8eef5", "#174b86"], scale: 1 },
   intelligence: { kind: "rock", base: "#b5532a", colors: ["#8a3a1c", "#d0784a", "#6e2a14"], scale: 0.85 },
   creation: { kind: "band", colors: ["#c9773b", "#e8b27a", "#a85a2a", "#f1d1a8", "#b8662f", "#d99a5c"], scale: 1.55 },
-  operations: { kind: "band", colors: ["#d8b07a", "#c49460", "#ead2a6", "#b98654"], ring: "#d9c39a", scale: 1.3 },
-  agents: { kind: "band", colors: ["#a78bfa", "#c4b5fd", "#8b6fe8", "#ddd6fe"], ring: "#c4b5fd", scale: 1.15 },
-  life: { kind: "rock", base: "#1f8a6e", colors: ["#2bb08a", "#146b55", "#7fd6b8"], scale: 0.9 },
-  vault: { kind: "band", colors: ["#e9eef2", "#cfd9e0", "#f5f7f9", "#bcc8d1"], ring: "#e2e8ee", scale: 1.05 },
+  operations: { kind: "band", colors: ["#d8b07a", "#c49460", "#ead2a6", "#b98654"], ring: "#d9c39a", scale: 1.9 }, // gas giant; orbits are spaced so its ring (size × 2.3) clears its neighbours
+  agents: { kind: "band", colors: ["#a78bfa", "#c4b5fd", "#8b6fe8", "#ddd6fe"], ring: "#c4b5fd", scale: 1.9 }, // the biggest world
+  life: { kind: "rock", base: "#1f8a6e", colors: ["#2bb08a", "#146b55", "#7fd6b8"], scale: 0.63 },
+  vault: { kind: "band", colors: ["#e9eef2", "#cfd9e0", "#f5f7f9", "#bcc8d1"], ring: "#e2e8ee", scale: 0.79 },
   analytics: { kind: "band", colors: ["#8f86c9", "#a59de0", "#7b72b8", "#c3bdf0"], ring: "#b3abea", scale: 1.0 },
 };
 
@@ -282,10 +283,58 @@ function PlanetRing({ size, color }: { size: number; color: string }) {
     }
     return { geo: g, tex: toTexture(c) };
   }, [size, color]);
-  useEffect(() => () => { geo.dispose(); tex.dispose(); }, [geo, tex]);
+  const mat = useMemo(() => new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { uMap: { value: tex }, uCenter: { value: new THREE.Vector3() }, uR: { value: size } },
+    vertexShader: `varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+      void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = mat3(modelMatrix) * normal;
+        gl_Position = projectionMatrix * viewMatrix * w; }`,
+    // World space; the CORE (only light) is at the origin. The planet's shadow: the ray from this fragment
+    // toward the CORE passes within the planet radius of its centre.
+    fragmentShader: `uniform sampler2D uMap; uniform vec3 uCenter; uniform float uR; varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+      void main(){ vec4 t = texture2D(uMap, vUv);
+        vec3 l = normalize(-vW);
+        vec3 n = normalize(vN) * (gl_FrontFacing ? 1.0 : -1.0);
+        float lit = dot(n, l);
+        vec3 c = uCenter - vW; float tc = dot(c, l);
+        float d = length(c - tc * l);
+        float shadow = step(0.0, tc) * (1.0 - smoothstep(uR * 0.9, uR * 1.02, d));
+        float light = (max(lit, 0.0) + max(-lit, 0.0) * 0.2) * (1.0 - 0.9 * shadow) + 0.02; // face away from the CORE: dim light through the ring
+        gl_FragColor = vec4(max(t.rgb, vec3(0.0)) * light, clamp(t.a, 0.0, 1.0)); }`,
+  }), [tex, size]);
+  useEffect(() => () => { geo.dispose(); tex.dispose(); mat.dispose(); }, [geo, tex, mat]);
+  const ref = useRef<THREE.Mesh>(null);
+  useFrame(() => {
+    const g = ref.current?.parent;
+    if (!g) return;
+    g.getWorldPosition(mat.uniforms.uCenter.value);
+    mat.uniforms.uR.value = size * g.scale.x; // hover lift scales the planet too
+  });
+  return <mesh ref={ref} geometry={geo} material={mat} rotation={[Math.PI / 2 - 0.45, 0.15, 0]} />;
+}
+
+/** Thin sunlit atmosphere limb: only the edge facing the CORE lights up, never a full halo. */
+function Atmosphere({ size, color }: { size: number; color: string }) {
+  const mat = useMemo(() => new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.BackSide, blending: THREE.AdditiveBlending,
+    uniforms: { uColor: { value: new THREE.Color(color) } },
+    vertexShader: `varying vec3 vW; varying vec3 vN;
+      void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = mat3(modelMatrix) * normal;
+        gl_Position = projectionMatrix * viewMatrix * w; }`,
+    // Only the shell's back faces outside the planet's silhouette survive the depth test: a rim 2.5% wide.
+    // |N.V| runs 0 at the shell's outer edge to ~0.22 where it meets the planet; every term is clamped (NaN/negatives black out bloom).
+    fragmentShader: `uniform vec3 uColor; varying vec3 vW; varying vec3 vN;
+      void main(){ vec3 n = normalize(vN);
+        vec3 v = normalize(cameraPosition - vW);
+        vec3 l = normalize(-vW);
+        float e = clamp(abs(dot(n, v)) * 4.5, 0.0, 1.0);
+        float sun = clamp(dot(n, l), 0.0, 1.0);
+        gl_FragColor = vec4(uColor * clamp(e * e * sun * 0.8, 0.0, 1.0), 1.0); }`,
+  }), [color]);
+  useEffect(() => () => mat.dispose(), [mat]);
   return (
-    <mesh geometry={geo} rotation={[Math.PI / 2 - 0.45, 0.15, 0]}>
-      <meshStandardMaterial map={tex} transparent side={THREE.DoubleSide} depthWrite={false} roughness={0.9} />
+    <mesh scale={1.025} material={mat}>
+      <sphereGeometry args={[size, 64, 64]} />
     </mesh>
   );
 }
@@ -486,6 +535,7 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
             <meshStandardMaterial map={cloudTex} transparent opacity={surf.clouds} depthWrite={false} roughness={1} />
           </mesh>
         )}
+        {surf.air && <Atmosphere size={size} color={surf.air} />}
         <PlanetLife id={p.id} size={size} reduced={reduced} />
         {p.id === "intelligence" && <Lightning size={size} reduced={reduced} flash={flash} />}
         {look.ring && <PlanetRing size={size} color={look.ring} />}
@@ -748,7 +798,7 @@ function LabelProjector({ positions, labels }: { positions: Positions; labels: R
 }
 
 // Low, oblique view like the reference illustration.
-const HOME = new THREE.Vector3(-6, 9, 30);
+const HOME = new THREE.Vector3(-8, 14, 44); // pulled back to fit the wider outer orbits
 
 function Rig({ selected, positions, reduced, panelOpen }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean }) {
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; addEventListener: (t: string, f: () => void) => void; removeEventListener: (t: string, f: () => void) => void } | null;
@@ -766,8 +816,10 @@ function Rig({ selected, positions, reduced, panelOpen }: { selected: PanelId | 
     const focus = focusOf();
     if (focus) { // view from the sunlit side (between the planet and the CORE), a little off-axis so the terminator shows
       tgt.copy(focus);
+      const p = PLANETS.find((x) => x.id === selected);
+      const k = p ? Math.max(1, planetSize(p) / 0.75) : 1; // big worlds: back off so they still fit
       const out = delta.copy(focus).setY(0).normalize();
-      goal.copy(focus).addScaledVector(out, -2.8).add(out.set(out.z * 3, 1.8, -out.x * 3));
+      goal.copy(focus).addScaledVector(out, -2.8 * k).add(out.set(out.z * 3 * k, 1.8 * k, -out.x * 3 * k));
     }
     else { tgt.set(0, 0, 0); goal.copy(selected === "core" ? delta.set(0, 3, 9) : HOME); }
   }, [focusOf, selected, goal, tgt, delta]);
@@ -834,14 +886,14 @@ export default function Galaxy(props: GalaxyProps) {
         <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
         <AsteroidBelt inner={5.5} outer={6.0} count={900} seed={3} reduced={props.reduced} />
-        <AsteroidBelt inner={21.5} outer={23.5} count={1800} seed={9} reduced={props.reduced} thickness={0.6} />
+        <AsteroidBelt inner={32} outer={34} count={2200} seed={9} reduced={props.reduced} thickness={0.6} />
         {PLANETS.map((p, i) => (
           <Planet key={p.id} p={p} index={i} selected={props.selected === p.id} onSelect={props.onSelect}
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)} />
         ))}
-        <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={60} enableDamping />
+        <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={80} enableDamping />
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} />
         <LabelProjector positions={positions} labels={labels} />
         <EffectComposer multisampling={4}>

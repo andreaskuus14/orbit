@@ -98,7 +98,10 @@ const ATLAS_REGION: (string | null)[] = COUNTRIES.map((c, i) => {
   }
   return best;
 });
-const inRegion = (name: string, region: string) => (regionOf(name) ?? ATLAS_REGION[INDEX.get(name) ?? -1]) === region;
+const REGION_KEYS = Object.keys(REGIONS); // region id = index + 1 in masks and shaders; 0 = no region
+const regionId = (name: string) => { const r = regionOf(name); return r ? REGION_KEYS.indexOf(r) + 1 : 0; };
+/** Visibility per region id (0 = none, 1..6), eased toward the chosen region each frame; shared by the globe and dot shaders. */
+const fade = { uW: { value: [1, 1, 1, 1, 1, 1, 1] } };
 
 /** Region colours for hotspots (search results use violet). */
 const REGION_COLOR: Record<string, string> = {
@@ -107,31 +110,31 @@ const REGION_COLOR: Record<string, string> = {
 const colorFor = (name: string, mode: "news" | "search") => (mode === "search" ? "#c084fc" : REGION_COLOR[regionOf(name) ?? ""] ?? "#fb923c");
 
 /** Calm night map: navy ocean, slate land barely lighter, thin cyan borders; only news countries get a soft tint.
- *  With a region, countries outside it go darker, untinted and almost borderless. */
-function baseTexture(tint: Map<string, number>, mode: "news" | "search", region: string | null) {
+ *  `dim` paints the "outside the region" look (darker, untinted, almost borderless) at half size; the shader blends the two. */
+function baseTexture(tint: Map<string, number>, mode: "news" | "search", dim = false) {
+  const W = dim ? TEX_W / 2 : TEX_W, H = dim ? TEX_H / 2 : TEX_H, k = W / TEX_W;
   const c = document.createElement("canvas");
-  c.width = TEX_W; c.height = TEX_H;
+  c.width = W; c.height = H;
   const g = c.getContext("2d")!;
-  const ocean = g.createLinearGradient(0, 0, 0, TEX_H);
+  const ocean = g.createLinearGradient(0, 0, 0, H);
   ocean.addColorStop(0, "#040b16"); ocean.addColorStop(0.5, "#071425"); ocean.addColorStop(1, "#040b16");
-  g.fillStyle = ocean; g.fillRect(0, 0, TEX_W, TEX_H);
-  g.strokeStyle = "rgba(94,200,255,0.04)"; g.lineWidth = 1.5;
-  for (let lon = -180; lon <= 180; lon += 15) { const x = ((lon + 180) / 360) * TEX_W; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, TEX_H); g.stroke(); }
-  for (let lat = -75; lat <= 75; lat += 15) { const y = ((90 - lat) / 180) * TEX_H; g.beginPath(); g.moveTo(0, y); g.lineTo(TEX_W, y); g.stroke(); }
-  const land = g.createLinearGradient(0, TEX_H * 0.12, 0, TEX_H * 0.88);
+  g.fillStyle = ocean; g.fillRect(0, 0, W, H);
+  g.strokeStyle = "rgba(94,200,255,0.04)"; g.lineWidth = 1.5 * k;
+  for (let lon = -180; lon <= 180; lon += 15) { const x = ((lon + 180) / 360) * W; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+  for (let lat = -75; lat <= 75; lat += 15) { const y = ((90 - lat) / 180) * H; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  const land = g.createLinearGradient(0, H * 0.12, 0, H * 0.88);
   land.addColorStop(0, "#10263d"); land.addColorStop(1, "#0c1d30");
   const max = Math.max(1, ...tint.values());
   for (const country of COUNTRIES) {
-    const out = region !== null && !inRegion(country.name, region);
-    tracePaths(g, country, TEX_W, TEX_H);
-    g.fillStyle = out ? "#07101c" : land; g.fill("evenodd");
-    const n = out ? 0 : tint.get(country.name) ?? 0;
+    tracePaths(g, country, W, H);
+    g.fillStyle = dim ? "#07101c" : land; g.fill("evenodd");
+    const n = dim ? 0 : tint.get(country.name) ?? 0;
     if (n) { // news countries: a soft wash of their region colour, stronger with more stories
       g.globalAlpha = 0.22 + 0.13 * Math.sqrt(n / max);
       g.fillStyle = colorFor(country.name, mode); g.fill("evenodd");
       g.globalAlpha = 1;
     }
-    if (out) { g.strokeStyle = "rgba(94,200,255,0.08)"; g.lineWidth = 1.2; g.stroke(); continue; }
+    if (dim) { g.strokeStyle = "rgba(94,200,255,0.08)"; g.lineWidth = 1.2 * k; g.stroke(); continue; }
     g.strokeStyle = "rgba(94,200,255,0.07)"; g.lineWidth = 5; g.stroke(); // faint glow under the line
     g.strokeStyle = "rgba(94,200,255,0.32)"; g.lineWidth = 1.4; g.stroke();
   }
@@ -139,6 +142,54 @@ function baseTexture(tint: Map<string, number>, mode: "news" | "search", region:
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
   return tex;
+}
+
+let regionCache: { dim: THREE.CanvasTexture; a: THREE.CanvasTexture; b: THREE.CanvasTexture } | null = null;
+/** Painted once per page: the dimmed globe, plus two masks whose RGB channels hold region ids 1-3 and 4-6 (coverage 0..1). */
+function regionMaps() {
+  if (regionCache) return regionCache;
+  const [a, b] = [0, 1].map(() => {
+    const c = document.createElement("canvas");
+    c.width = PICK_W; c.height = PICK_H;
+    const g = c.getContext("2d")!;
+    g.fillStyle = "#000"; g.fillRect(0, 0, PICK_W, PICK_H); // opaque, so anti-aliased edges blend to partial coverage
+    return { c, g };
+  });
+  COUNTRIES.forEach((country, i) => {
+    const r = ATLAS_REGION[i], id = r ? REGION_KEYS.indexOf(r) : -1;
+    if (id < 0) return;
+    const { g } = id < 3 ? a : b, ch = id % 3;
+    g.fillStyle = `rgb(${ch === 0 ? 255 : 0},${ch === 1 ? 255 : 0},${ch === 2 ? 255 : 0})`;
+    tracePaths(g, country, PICK_W, PICK_H);
+    g.fill("evenodd");
+  });
+  const mask = (c: HTMLCanvasElement) => {
+    const t = new THREE.CanvasTexture(c); // raw data: no colour space, no mipmaps
+    t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+    return t;
+  };
+  return (regionCache = { dim: baseTexture(new Map(), "news", true), a: mask(a.c), b: mask(b.c) });
+}
+
+/** The globe's material: the base map blended per pixel toward the dimmed map by region visibility (no repaint on region change). */
+function globeMaterial() {
+  const u = { uDimMap: { value: null as THREE.Texture | null }, uMaskA: { value: null as THREE.Texture | null }, uMaskB: { value: null as THREE.Texture | null } };
+  const m = new THREE.MeshBasicMaterial();
+  m.onBeforeCompile = (s) => {
+    Object.assign(s.uniforms, u, fade);
+    s.fragmentShader = "uniform sampler2D uDimMap; uniform sampler2D uMaskA; uniform sampler2D uMaskB; uniform float uW[7];\n" +
+      s.fragmentShader.replace("#include <map_fragment>", `#ifdef USE_MAP
+        vec4 rgLit = texture2D(map, vMapUv);
+        vec3 rgA = texture2D(uMaskA, vMapUv).rgb, rgB = texture2D(uMaskB, vMapUv).rgb;
+        float rgLand = clamp(rgA.r + rgA.g + rgA.b + rgB.r + rgB.g + rgB.b, 0.0, 1.0);
+        float rgVis = clamp(dot(rgA, vec3(uW[1], uW[2], uW[3])) + dot(rgB, vec3(uW[4], uW[5], uW[6])) + (1.0 - rgLand) * uW[0], 0.0, 1.0);
+        // skip the dim lookup while it isn't needed (also before the dim map exists)
+        vec4 rgC = rgVis > 0.999 ? rgLit : mix(texture2D(uDimMap, vMapUv), rgLit, rgVis);
+        diffuseColor *= max(rgC, vec4(0.0));
+      #endif`);
+  };
+  m.customProgramCacheKey = () => "orbit-globe-region";
+  return { m, u };
 }
 
 const overlayCache = new Map<string, THREE.CanvasTexture>();
@@ -187,14 +238,15 @@ const rim = new THREE.ShaderMaterial({
 const dotMaterial = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   uniforms: { uTime: { value: 0 }, uScale: { value: 1 }, uFade: { value: 1 } },
-  vertexShader: `attribute float aSize; attribute float aPhase; attribute vec3 aColor; uniform float uTime; uniform float uScale;
-    varying vec3 vColor; varying float vTw;
+  vertexShader: `attribute float aSize; attribute float aPhase; attribute vec3 aColor; attribute float aRegion; uniform float uTime; uniform float uScale;
+    uniform float uW[7]; varying vec3 vColor; varying float vTw; varying float vVis;
     void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vColor = aColor;
+      vVis = clamp(uW[int(clamp(aRegion, 0.0, 6.0) + 0.5)], 0.0, 1.0);
       vTw = 0.55 + 0.45 * sin(uTime * 2.2 + aPhase);
       gl_PointSize = aSize * uScale * (0.85 + 0.3 * vTw) / -mv.z; gl_Position = projectionMatrix * mv; }`,
-  fragmentShader: `uniform float uFade; varying vec3 vColor; varying float vTw;
+  fragmentShader: `uniform float uFade; varying vec3 vColor; varying float vTw; varying float vVis;
     void main(){ float d = length(gl_PointCoord - 0.5); float a = 1.0 - smoothstep(0.0, 0.5, d); a = a * a;
-      gl_FragColor = vec4(vColor * (0.8 + 0.4 * (1.0 - smoothstep(0.0, 0.18, d))), a * (0.4 + 0.3 * vTw) * uFade); }`,
+      gl_FragColor = vec4(vColor * (0.8 + 0.4 * (1.0 - smoothstep(0.0, 0.18, d))), a * (0.4 + 0.3 * vTw) * uFade * vVis); }`,
 });
 
 const arcMaterial = new THREE.ShaderMaterial({
@@ -212,7 +264,7 @@ const arcMaterial = new THREE.ShaderMaterial({
 /** City-light dots: for each hotspot, points scattered inside the country (more stories → more, brighter dots). */
 function NewsDots({ hotspots, mode, reduced }: { hotspots: Hotspot[]; mode: "news" | "search"; reduced: boolean }) {
   const geo = useMemo(() => {
-    const pos: number[] = [], col: number[] = [], size: number[] = [], phase: number[] = [];
+    const pos: number[] = [], col: number[] = [], size: number[] = [], phase: number[] = [], reg: number[] = [];
     const max = Math.max(1, ...hotspots.map((h) => h.count));
     const warm = new THREE.Color("#ffe2b8");
     let seed = 7;
@@ -223,12 +275,12 @@ function NewsDots({ hotspots, mode, reduced }: { hotspots: Hotspot[]; mode: "new
       const idx = INDEX.get(h.name) ?? -1;
       const bb = idx >= 0 ? BBOX[idx] : { w: 4, h: 4 };
       const n = Math.round(5 + 55 * k);
-      const base = new THREE.Color(colorFor(h.name, mode));
+      const base = new THREE.Color(colorFor(h.name, mode)), rid = regionId(h.name);
       const add = (lat: number, lon: number, s: number) => {
         const v = toVec(lat, lon, R * 1.004);
         pos.push(v.x, v.y, v.z);
         const c = base.clone().lerp(warm, 0.25 + rnd() * 0.35); // warm variation, like city lights
-        col.push(c.r, c.g, c.b); size.push(s); phase.push(rnd() * 6.28);
+        col.push(c.r, c.g, c.b); size.push(s); phase.push(rnd() * 6.28); reg.push(rid);
       };
       add(h.lat, h.lon, 70 + 90 * k); // the brighter centre of the cluster
       for (let placed = 0, tries = 0; placed < n && tries < n * 30; tries++) {
@@ -243,10 +295,11 @@ function NewsDots({ hotspots, mode, reduced }: { hotspots: Hotspot[]; mode: "new
     g.setAttribute("aColor", new THREE.Float32BufferAttribute(col, 3));
     g.setAttribute("aSize", new THREE.Float32BufferAttribute(size, 1));
     g.setAttribute("aPhase", new THREE.Float32BufferAttribute(phase, 1));
+    g.setAttribute("aRegion", new THREE.Float32BufferAttribute(reg, 1));
     return g;
   }, [hotspots, mode]);
   useEffect(() => () => geo.dispose(), [geo]);
-  const mat = useMemo(() => dotMaterial.clone(), []);
+  const mat = useMemo(() => { const m = dotMaterial.clone(); m.uniforms.uW = fade.uW; return m; }, []); // clone() copies uniforms; re-share the fade
   useEffect(() => () => mat.dispose(), [mat]);
   const born = useRef(0);
   useEffect(() => { born.current = 0; }, [geo]);
@@ -412,12 +465,31 @@ function Rig({ focus, reduced, offsetX }: { focus: { key: string; lat: number; l
   return null;
 }
 
-function Globe({ tint, mode, region, lit, selected, hover, onPick, onHover }: {
-  tint: Map<string, number>; mode: "news" | "search"; region: string | null; lit: string[]; selected: string | null; hover: string | null;
+function Globe({ tint, mode, region, reduced, lit, selected, hover, onPick, onHover }: {
+  tint: Map<string, number>; mode: "news" | "search"; region: string | null; reduced: boolean; lit: string[]; selected: string | null; hover: string | null;
   onPick: (n: string | null) => void; onHover: (n: string | null, x: number, y: number) => void;
 }) {
-  const texture = useMemo(() => baseTexture(tint, mode, region), [tint, mode, region]);
+  const texture = useMemo(() => baseTexture(tint, mode), [tint, mode]); // region is NOT an input: switching regions repaints nothing
   useEffect(() => () => texture.dispose(), [texture]);
+  const { m: material, u } = useMemo(globeMaterial, []);
+  useEffect(() => () => material.dispose(), [material]);
+  useEffect(() => { if (!region) fade.uW.value.fill(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- reopening with no region shouldn't fade in from last time
+  // Region maps: painted in idle time after opening, or right away if a region is picked first.
+  useEffect(() => {
+    const apply = () => { const r = regionMaps(); u.uDimMap.value = r.dim; u.uMaskA.value = r.a; u.uMaskB.value = r.b; };
+    if (region) { apply(); return; }
+    if (u.uDimMap.value) return;
+    const idle = typeof requestIdleCallback === "function";
+    const id = idle ? requestIdleCallback(apply, { timeout: 2000 }) : window.setTimeout(apply, 500);
+    return () => { if (idle) cancelIdleCallback(id); else clearTimeout(id); };
+  }, [region, u]);
+  useFrame((_, dt) => { // ~0.5 s cross-fade of region visibility while the camera flies
+    const w = fade.uW.value;
+    for (let i = 0; i < w.length; i++) {
+      const target = region === null || REGION_KEYS[i - 1] === region ? 1 : 0;
+      w[i] = reduced ? target : THREE.MathUtils.damp(w[i], target, 8, Math.min(dt, 0.1));
+    }
+  });
   const at = (e: ThreeEvent<PointerEvent | MouseEvent>) => {
     if (!e.uv) return null;
     const i = countryAt(e.uv.y * 180 - 90, e.uv.x * 360 - 180);
@@ -430,7 +502,7 @@ function Globe({ tint, mode, region, lit, selected, hover, onPick, onHover }: {
         onPointerMove={(e) => onHover(at(e), e.nativeEvent.clientX, e.nativeEvent.clientY)}
         onPointerOut={(e) => onHover(null, e.nativeEvent.clientX, e.nativeEvent.clientY)}>
         <sphereGeometry args={[R, 128, 128]} />
-        <meshBasicMaterial map={texture} />
+        <primitive object={material} attach="material" map={texture} />
       </mesh>
       <Overlay name={hover && hover !== selected ? hover : null} color="rgba(186,230,253,1)" max={0.45} />
       <Overlay name={selected} color="rgba(103,232,249,1)" max={0.9} />
@@ -640,9 +712,10 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
       <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, 2]} gl={{ antialias: true, powerPreference: "high-performance" }}>
         <color attach="background" args={["#01040b"]} />
         <Stars radius={70} depth={40} count={reduced ? 1500 : 5000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
-        <Globe tint={tint} mode={mode} region={activeRegion} lit={lit} selected={selected}
+        <Globe tint={tint} mode={mode} region={activeRegion} reduced={reduced} lit={lit} selected={selected}
           hover={hover.name} onPick={(n) => setSelected((cur) => (n && n !== cur ? n : n ? null : cur))} onHover={onHover} />
-        <NewsDots hotspots={sceneHs} mode={mode} reduced={reduced} />
+        {/* all dots; out-of-region ones fade out in the shader, so a region switch rebuilds nothing */}
+        <NewsDots hotspots={hs} mode={mode} reduced={reduced} />
         <Arcs hotspots={sceneHs} mode={mode} reduced={reduced} />
         {(lit.length ? top : sceneHs.slice(0, 6)).map((h) => <Ring key={`${mode}-${h.name}`} h={h} k={Math.sqrt(h.count / (sceneHs[0]?.count || 1))} color={colorFor(h.name, mode)} reduced={reduced} />)}
         <OrbitControls makeDefault enablePan={false} minDistance={3.2} maxDistance={12} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} autoRotateSpeed={0.3} />
