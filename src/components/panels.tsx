@@ -72,7 +72,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     try {
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current }),
+        body: JSON.stringify({ message, conversationId: convo.current, voice: talk }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));

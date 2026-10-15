@@ -67,8 +67,20 @@ function pump() {
 }
 
 /** Queue one chunk (a sentence; keep it short — Chrome cuts utterances off after ~15 s). */
+// What ORBIT said lately, so the mic can tell the user's voice from ORBIT's own voice coming out of the speakers.
+let spokenRecent = "";
+const words = (t: string) => t.toLowerCase().match(/[\p{L}\p{N}']{3,}/gu) ?? [];
+/** True when a transcript is mostly words ORBIT just said (its own echo), not the user talking over it. */
+export function isEcho(transcript: string) {
+  const w = words(transcript);
+  if (!w.length) return true;
+  const said = new Set(words(spokenRecent));
+  return w.filter((x) => said.has(x)).length / w.length >= 0.5;
+}
+
 export function speakChunk(text: string, forGen?: number) {
   if (!synth() || !text.trim() || (forGen !== undefined && forGen !== gen)) return;
+  spokenRecent = (spokenRecent + " " + text).slice(-800);
   queue.push(text);
   const was = !!current;
   pump();

@@ -11,6 +11,7 @@ export async function POST(req: Request) {
   if (res) return res;
   const body = await req.json().catch(() => ({}));
   const message = str(body.message, 8000, 1);
+  const voice = body.voice === true; // asked out loud: answer short enough to listen to
   if (!message) return Response.json({ error: "Message is required (max 8000 chars)" }, { status: 400 });
 
   // Conversation: reuse if it belongs to the user (RLS enforces this), else start a new one.
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
   // Shared by both response styles: answer, then save it once at the end.
   const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void) => {
     const { data: prior } = await sb.from("messages").select("role, content").eq("conversation_id", cid).order("created_at");
-    const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset);
+    const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset, voice);
     await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await emit(sb, user.id, "core.completed", "core", { conversationId: cid });
     void reflectOnTurn(sb, user.id, cid); // learn in the background; never delays the answer, never throws

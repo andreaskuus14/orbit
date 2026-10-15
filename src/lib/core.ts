@@ -61,7 +61,7 @@ ${facts || "(empty)"}`;
  * One CORE turn: retrieve relevant memories, ask Claude, return answer + citations + execution trace.
  * With onDelta, the answer text streams out as it is written (tool-call replies stream nothing); `signal` stops it.
  */
-export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void) {
+export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice = false) {
   const trace: TraceStep[] = [];
   const question = history[history.length - 1].content;
 
@@ -101,7 +101,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
   for (let step = 0; step < MAX_STEPS; step++) {
     const last = step === MAX_STEPS - 1;
     signal?.throwIfAborted();
-    const ask = `${prompt}\n\n${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
+    const ask = `${prompt}\n\n${voice ? "The user is SPEAKING to you and will hear your answer read aloud: answer in 1-3 short conversational sentences, no lists, headings or links; offer more detail only if they ask.\n\n" : ""}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
     let r;
     if (onDelta) {
       // The model writes a JSON envelope; forward only the newly decoded part of its "final" answer.

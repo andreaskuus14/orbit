@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { VOICE_ASK, VOICE_INTERRUPT } from "./bus";
 import { getSpeechRecognition, speechErrorMessage, speechLang, VOICE_PAUSE, VOICE_RESUME, type SpeechRec } from "./useVoiceInput";
 import { extractWakeQuestion, isSleepCommand, normalizeTranscript } from "./wake";
+import { isEcho, isSpeaking } from "./speak";
 
 const AWAY_MS = 60_000; // window unfocused this long → stop listening
 const ARMED_MS = 8000; // after a bare "Hey Orbit", how long the next utterance counts as the question
@@ -56,8 +57,9 @@ export function useWakeWord(enabled: boolean, paused: boolean) {
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const res = e.results[i], text = res[0].transcript, wake = extractWakeQuestion(text);
           if (!res.isFinal) {
-            // Only the wake phrase interrupts: plain speech (or the answer's own echo) must not cut it off.
-            if (wake && !interrupted) { interrupted = true; dispatchEvent(new Event(VOICE_INTERRUPT)); arm(); }
+            // The wake phrase interrupts, and so does any real speech while ORBIT is talking (but not ORBIT's own echo).
+            const talkingOver = isSpeaking() && text.trim().split(/\s+/).length >= 2 && !isEcho(text);
+            if ((wake || talkingOver) && !interrupted) { interrupted = true; dispatchEvent(new Event(VOICE_INTERRUPT)); arm(); }
             continue;
           }
           interrupted = false;
