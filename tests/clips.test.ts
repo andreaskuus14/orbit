@@ -181,6 +181,7 @@ test("yt-dlp progress, output files and errors", () => {
   assert.equal(ytdlpOutputFile("[download] Destination: Kai - Stream [x1].f137.mp4"), "Kai - Stream [x1].f137.mp4");
   assert.equal(ytdlpOutputFile('[Merger] Merging formats into "Kai - Stream [x1].mp4"'), "Kai - Stream [x1].mp4");
   assert.equal(ytdlpOutputFile("[youtube] x1: Downloading webpage"), null);
+  assert.ok(ytdlpArgs("https://youtu.be/a", "C:/ff").includes("--no-quiet")); // must stay a real flag, not swallowed by a comment
   assert.match(ytdlpError("ERROR: [youtube] x: Sign in to confirm you're not a bot"), /yt-dlp -U/);
   assert.match(ytdlpError("[download] x does not pass filter (duration<=10800 & !is_live), skipping .."), /Live streams/);
   assert.equal(ytdlpError("junk\nERROR: something odd\n"), "something odd");

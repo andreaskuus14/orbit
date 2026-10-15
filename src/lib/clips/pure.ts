@@ -241,6 +241,8 @@ export const frameArgs = (input: string, at: number, out: string) =>
 
 export { cleanPermission, parseClipUrl } from "./format.ts";
 
+export const YTDLP_FILE_MARK = "ORBIT_FILE=";
+
 /** yt-dlp argv (spawned without a shell, cwd = inbox). The URL is always the last element, after "--", so it can't be read as an option. */
 export const ytdlpArgs = (url: string, ffmpegDir: string) => [
   "--ignore-config", // cwd is the inbox: a dropped yt-dlp.conf there could otherwise add --exec etc.
@@ -250,7 +252,8 @@ export const ytdlpArgs = (url: string, ffmpegDir: string) => [
   "--match-filter", "duration<=10800 & !is_live", "--max-filesize", "4G",
   "-f", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b", "--merge-output-format", "mp4",
   "--ffmpeg-location", ffmpegDir, "-o", "%(uploader).40s - %(title).80s [%(id)s].%(ext)s",
-  "--print", "after_move:filepath", "--no-quiet", // --print implies --quiet, which hides the "Destination:" lines used to clean up partial files
+  "--print", `after_move:${YTDLP_FILE_MARK}%(filepath)s`, // marked: other plain lines ("Aborting remaining downloads") reach stdout too
+  "--no-quiet", // --print implies --quiet, which hides the "Destination:" lines used to clean up partial files
   "--", url,
 ];
 

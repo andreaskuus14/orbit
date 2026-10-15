@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { bytes, cleanPermission, isJobActive, mmss, parseClipUrl } from "@/lib/clips/format";
+import { bytes, isJobActive, mmss, parseClipUrl } from "@/lib/clips/format";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -329,12 +329,11 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
   onSubmit: (body: { url: string; permission: string; autoClip?: Opts }) => Promise<boolean>;
 }) {
   const [url, setUrl] = useState("");
-  const [permission, setPermission] = useState("");
   const [auto, setAuto] = useState(false);
-  const okUrl = parseClipUrl(url.trim()), okPerm = cleanPermission(permission);
+  const okUrl = parseClipUrl(url.trim());
   const submit = async () => {
-    if (!okUrl || okPerm === null) return;
-    if (await onSubmit({ url: okUrl, permission: okPerm, ...(auto ? { autoClip: { ...opts, captions: opts.captions && tools.transcriber } } : {}) })) { setUrl(""); setPermission(""); }
+    if (!okUrl) return;
+    if (await onSubmit({ url: okUrl, permission: "", ...(auto ? { autoClip: { ...opts, captions: opts.captions && tools.transcriber } } : {}) })) setUrl("");
   };
   return (
     <form className="mt-3 space-y-2 rounded-xl border border-white/10 p-2 text-xs" aria-label="Add from link" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
@@ -345,12 +344,6 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
           onChange={(e) => setUrl(e.target.value)} aria-invalid={!!url.trim() && !okUrl} />
       </label>
       {!!url.trim() && !okUrl && <p className="error">That doesn&apos;t look like a YouTube, Twitch or Kick video link.</p>}
-      <label className="block">
-        <span className="muted mb-1 block text-[10px] uppercase tracking-widest">Permission note (optional)</span>
-        <input className="field w-full !px-2 !py-1 !text-xs" maxLength={300} placeholder="e.g. Kai's clipping program, Discord announcement 2026-10-01" value={permission}
-          onChange={(e) => setPermission(e.target.value)} aria-describedby="dl-perm-help" />
-      </label>
-      <p id="dl-perm-help" className="muted">Optional: where the creator said clipping is OK. ORBIT saves it next to the video.</p>
       <label className="flex items-center gap-1.5">
         <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Make clips when it&apos;s downloaded
       </label>
@@ -364,7 +357,7 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
           </label>
         </div>
       )}
-      <button type="submit" className="btn" disabled={busy || !okUrl || !okPerm || !tools.ytdlp || !tools.ffmpeg}>{busy ? "Adding…" : "⬇ Download"}</button>
+      <button type="submit" className="btn" disabled={busy || !okUrl || !tools.ytdlp || !tools.ffmpeg}>{busy ? "Adding…" : "⬇ Download"}</button>
       {!tools.ytdlp && <p>Needs yt-dlp. On the PC, run <code className="num rounded bg-black/40 px-1">{YTDLP_SETUP}</code> in PowerShell, then restart ORBIT.</p>}
     </form>
   );

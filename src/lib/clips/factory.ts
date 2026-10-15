@@ -7,7 +7,7 @@ import type { Clip, ClipJob, Download, InboxFile, JobStatus, ToolsStatus } from 
 import {
   MAX_SOURCE_SEC, MIN_CLIP_SEC, SAMPLE_RATE, VIDEO_EXTS, WIN_SEC, audioArgs, buildAss, fallbackMoments, frameArgs, isInboxName, isPlainName,
   parseDuration, parseYtdlpProgress, peakTime, probeArgs, promptTranscript, renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet,
-  thumbSvg, validateMoments, wordsFromChunks, ytdlpArgs, ytdlpError, ytdlpOutputFile,
+  thumbSvg, validateMoments, wordsFromChunks, ytdlpArgs, ytdlpError, ytdlpOutputFile, YTDLP_FILE_MARK,
   type Moment, type Word,
 } from "./pure";
 
@@ -515,7 +515,7 @@ async function runDownload(d: Download, signal: AbortSignal) {
         parts.add(base); d.parts = [...parts];
         if (line.startsWith("[Merger]")) d.step = "Merging video and audio";
         void saveDownload(d).catch(() => {}); // persisted so a crash mid-download can still clean up
-      } else if (stdout && line.trim() && !line.startsWith("[")) printed = line.trim(); // --print after_move:filepath
+      } else if (stdout && line.startsWith(YTDLP_FILE_MARK)) printed = line.slice(YTDLP_FILE_MARK.length).trim(); // our --print line
     });
     if (!printed) throw new Error(ytdlpError(out)); // e.g. skipped by --match-filter / --max-filesize (exit 0, no file)
     const file = inboxBase(printed);
