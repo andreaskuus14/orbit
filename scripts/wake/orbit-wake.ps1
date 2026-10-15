@@ -94,8 +94,9 @@ try {
   if ($Dictation) { try { $engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)) } catch { } }
   # Loose on purpose: dictation often hears "orbit" as "or bit", "orbits", "orbital", "a bit" and "wake up" as "wake-up"/"wakeup".
   $phrase = '\b(orbit|orbits|orbital|orbitals|or bit|orb it|our bit|orbed)\s+(\w+\s+)?(wake|wakes|woke|wake up|wakeup)\b'
+  # Always on: audio level events are the heartbeat the watchdog below uses to spot a silently dead microphone.
+  Register-ObjectEvent -InputObject $engine -EventName AudioLevelUpdated -SourceIdentifier "orbit.level" | Out-Null
   if ($DebugRun) {
-    Register-ObjectEvent -InputObject $engine -EventName AudioLevelUpdated -SourceIdentifier "orbit.level" | Out-Null
     Write-Host "DEBUG: printing everything heard (not logged). Talk normally, then say 'orbit wake up'. Ctrl+C to stop." -ForegroundColor Cyan
   }
 
@@ -106,8 +107,19 @@ try {
 
   $last = [datetime]::MinValue
   $lastLevel = [datetime]::MinValue
+  $lastAudio = Get-Date
   while ($true) {
-    $ev = Wait-Event
+    $ev = Wait-Event -Timeout 15
+    if (-not $ev) {
+      # Watchdog: after a screen lock / user switch / sleep, Windows can hand the recognizer a dead audio stream that
+      # never errors. No level events for 60 s means no audio: cancel, which fires "orbit.done" and reconnects below.
+      if (((Get-Date) - $lastAudio).TotalSeconds -ge 60) {
+        Write-Log "No audio from the microphone for 60 s; restarting the listener."
+        $lastAudio = Get-Date
+        try { $engine.RecognizeAsyncCancel() } catch { }
+      }
+      continue
+    }
     Remove-Event -EventIdentifier $ev.EventIdentifier
     if ($ev.SourceIdentifier -eq "orbit.done") {
       # The mic dropped (unplugged, switched device, another app took it, PC woke from sleep): reconnect instead of
@@ -121,6 +133,7 @@ try {
           $engine.SetInputToDefaultAudioDevice()
           $engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
           Write-Log "Listening again."
+          $lastAudio = Get-Date
           break
         } catch {
           if ($wait -eq 2) { Write-Log "No microphone yet ($($_.Exception.Message)); will keep retrying." }
@@ -130,7 +143,8 @@ try {
       continue
     }
     if ($ev.SourceIdentifier -eq "orbit.level") { # proves the mic reaches the recognizer
-      if (((Get-Date) - $lastLevel).TotalSeconds -ge 1) { $lastLevel = Get-Date; Write-Host ("  mic level {0,3} {1}" -f $ev.SourceEventArgs.AudioLevel, ("#" * [math]::Ceiling($ev.SourceEventArgs.AudioLevel / 5))) }
+      $lastAudio = Get-Date
+      if ($DebugRun -and ((Get-Date) - $lastLevel).TotalSeconds -ge 1) { $lastLevel = Get-Date; Write-Host ("  mic level {0,3} {1}" -f $ev.SourceEventArgs.AudioLevel, ("#" * [math]::Ceiling($ev.SourceEventArgs.AudioLevel / 5))) }
       continue
     }
     if ($ev.SourceIdentifier -ne "orbit.heard") { continue }
