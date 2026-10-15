@@ -4,6 +4,7 @@
 param(
   [double]$MinConfidence = 0.5, # the wake grammar only knows the wake phrases, so modest confidence is enough
   [switch]$DebugRun,             # wake:debug - print everything heard to this window (never to the log), ignore a background listener
+  [switch]$Dictation,            # stricter: also load free dictation (fewer false triggers, but misses accented speech)
   [int]$CooldownSeconds = 10,
   [string]$Url = "http://localhost:3000"
 )
@@ -95,9 +96,9 @@ try {
   $wake = New-Object System.Speech.Recognition.Grammar($gb)
   $wake.Name = "wake"
   $engine.LoadGrammar($wake)
-  # A dictation grammar soaks up ordinary speech, so it isn't forced onto the wake phrases (far fewer false triggers).
-  # Its text never leaves this process and is never logged.
-  try { $engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)) } catch { Write-Log "Note: dictation grammar unavailable; expect more false triggers." }
+  # Optional dictation grammar to soak up ordinary speech. Off by default: with non-native accents dictation "wins"
+  # the wake phrase too (e.g. "orbit wake up" heard as "all are the way up"), so nothing ever triggers.
+  if ($Dictation) { try { $engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)) } catch { } }
   # Loose on purpose: dictation often hears "orbit" as "or bit", "orbits", "orbital", "a bit" and "wake up" as "wake-up"/"wakeup".
   $phrase = '\b(orbit|orbits|orbital|orbitals|or bit|orb it|our bit|orbed)\s+(\w+\s+)?(wake|wakes|woke|wake up|wakeup)\b'
   if ($DebugRun) {
