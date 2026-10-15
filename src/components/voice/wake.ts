@@ -18,3 +18,11 @@ export function extractWakeQuestion(text: string): { question: string } | null {
   const question = normalizeTranscript(text.slice(m.index + m[0].length));
   return { question: question ? question[0].toUpperCase() + question.slice(1) : "" };
 }
+
+// "Orbit, shut down" / "orbit go to sleep" / "close orbit" / "goodbye orbit": handled in the app, never sent to the model.
+const SLEEP = /^(?:(?:hey|ok|okay|all right|alright)[\s,]+)?(?:orbit(?:al|s)?[\s,.!]+(?:shut ?down|go to sleep|sleep|close|turn off|power off|bye|goodbye)|(?:shut ?down|close|turn off|goodbye|bye)[\s,]+orbit(?:al|s)?)[\s.!]*$/i;
+
+/** True when the whole message is a "shut ORBIT down" command. */
+export function isSleepCommand(text: string): boolean {
+  return SLEEP.test(normalizeTranscript(text));
+}

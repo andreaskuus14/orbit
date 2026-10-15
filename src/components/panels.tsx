@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isSleepCommand } from "./voice/wake";
+import { goToSleep } from "./voice/sleep";
 import { createClient } from "@/lib/supabase/client";
 import { numberCitations } from "@/lib/pure";
 import { takeLines } from "@/lib/streamjson";
@@ -53,6 +55,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     const message = text.trim();
     if (!message || busy) return;
     stopSpeech();
+    if (isSleepCommand(message)) { void goToSleep(); return; }
     // Speak only answers to spoken questions; settings are re-read per chunk so toggling takes effect live.
     let myGen = speechGen(); // a later stop() (barge-in, Stop button) silences the rest of this answer
     const talk = fromVoice || takeVoiceAsked();

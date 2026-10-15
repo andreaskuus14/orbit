@@ -24,3 +24,9 @@ test("extractWakeQuestion ignores speech without the wake phrase", () => {
   assert.equal(extractWakeQuestion("hey orbital mechanics"), null);
   assert.equal(extractWakeQuestion(""), null);
 });
+
+test("isSleepCommand catches shut-down phrases but not ordinary questions", async () => {
+  const { isSleepCommand } = await import("../src/components/voice/wake.ts");
+  for (const t of ["All right, Orbit shut down", "Orbit, shut down.", "orbit go to sleep", "Close Orbit", "goodbye orbit", "orbital shutdown"]) assert.ok(isSleepCommand(t), t);
+  for (const t of ["How do I shut down my PC?", "Orbit, what's the news?", "close the memory panel"]) assert.equal(isSleepCommand(t), false, t);
+});
