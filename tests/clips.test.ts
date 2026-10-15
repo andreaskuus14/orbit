@@ -154,18 +154,24 @@ test("thumbnail SVG escapes XML and wraps", () => {
 
 test("parseClipUrl allows only https YouTube/Twitch hosts", () => {
   for (const u of ["https://www.youtube.com/watch?v=abc123", "https://youtube.com/shorts/x", "https://m.youtube.com/watch?v=a", "https://youtu.be/abc",
-    "https://twitch.tv/videos/123", "https://www.twitch.tv/videos/123", "https://clips.twitch.tv/SlugName", "https://WWW.YouTube.com/watch?v=a"]) assert.ok(parseClipUrl(u), u);
-  for (const u of ["http://www.youtube.com/watch?v=a", "https://youtube.com.evil.io/watch", "https://evilyoutube.com/", "https://vimeo.com/1",
+    "https://twitch.tv/videos/123", "https://www.twitch.tv/videos/123", "https://clips.twitch.tv/SlugName", "https://WWW.YouTube.com/watch?v=a", "https://kick.com/xqc/videos/1"]) assert.ok(parseClipUrl(u), u);
+  // forgiving input, strict output
+  assert.equal(parseClipUrl("  youtube.com/watch?v=a  "), "https://youtube.com/watch?v=a");
+  assert.equal(parseClipUrl("http://youtu.be/a"), "https://youtu.be/a");
+  assert.equal(parseClipUrl('<iframe width="560" src="https://www.youtube.com/embed/nMav0Ugaz1c?si=x" allowfullscreen></iframe>'), "https://www.youtube.com/embed/nMav0Ugaz1c?si=x");
+  for (const u of ["https://youtube.com.evil.io/watch", "https://evilyoutube.com/", "https://vimeo.com/1",
     "https://user:pw@youtube.com/", "https://youtube.com@evil.io/", "https://evil.io\\@youtube.com/", "https://youtube.com:443/watch", "https://youtube.com:8080/",
-    "javascript:alert(1)", " https://youtu.be/a", "https://youtu.be/a b", "https://youtu.be/" + "a".repeat(300), "", 42, null]) assert.equal(parseClipUrl(u), null, String(u));
+    "javascript:alert(1)", "https://youtu.be/a b", "ftp://youtube.com/a", "https://kick.com.evil.io/x", "https://youtu.be/" + "a".repeat(300), "", 42, null]) assert.equal(parseClipUrl(u), null, String(u));
   assert.equal(parseClipUrl("https://www.youtube.com/@kai/videos"), "https://www.youtube.com/@kai/videos"); // @ in the path is fine
 });
 
-test("cleanPermission requires a 5-300 char one-line note", () => {
+test("cleanPermission is an optional one-line note up to 300 chars", () => {
   assert.equal(cleanPermission("  Kai's   clipping\nprogram  "), "Kai's clipping program");
-  assert.equal(cleanPermission("ok"), null);
+  assert.equal(cleanPermission("ok"), "ok");
+  assert.equal(cleanPermission(""), "");
   assert.equal(cleanPermission("x".repeat(301)), null);
-  assert.equal(cleanPermission(undefined), null);
+  assert.equal(cleanPermission(undefined), "");
+  assert.equal(cleanPermission(42), null);
 });
 
 test("yt-dlp progress, output files and errors", () => {

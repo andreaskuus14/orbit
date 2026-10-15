@@ -333,7 +333,7 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
   const [auto, setAuto] = useState(false);
   const okUrl = parseClipUrl(url.trim()), okPerm = cleanPermission(permission);
   const submit = async () => {
-    if (!okUrl || !okPerm) return;
+    if (!okUrl || okPerm === null) return;
     if (await onSubmit({ url: okUrl, permission: okPerm, ...(auto ? { autoClip: { ...opts, captions: opts.captions && tools.transcriber } } : {}) })) { setUrl(""); setPermission(""); }
   };
   return (
@@ -341,16 +341,16 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
       <b className="block text-sm">🔗 Add from link</b>
       <label className="block">
         <span className="muted mb-1 block text-[10px] uppercase tracking-widest">YouTube or Twitch link</span>
-        <input className="field w-full !px-2 !py-1 !text-xs" type="url" inputMode="url" maxLength={300} placeholder="https://www.youtube.com/watch?v=…" value={url}
+        <input className="field w-full !px-2 !py-1 !text-xs" type="text" inputMode="url" maxLength={2000} placeholder="Paste a YouTube, Twitch or Kick link" value={url}
           onChange={(e) => setUrl(e.target.value)} aria-invalid={!!url.trim() && !okUrl} />
       </label>
-      {!!url.trim() && !okUrl && <p className="error">Use an https link from youtube.com, youtu.be or twitch.tv.</p>}
+      {!!url.trim() && !okUrl && <p className="error">That doesn&apos;t look like a YouTube, Twitch or Kick video link.</p>}
       <label className="block">
-        <span className="muted mb-1 block text-[10px] uppercase tracking-widest">How does the creator allow clipping? (required)</span>
-        <input className="field w-full !px-2 !py-1 !text-xs" maxLength={300} required placeholder="e.g. Kai's clipping program, Discord announcement 2026-10-01" value={permission}
+        <span className="muted mb-1 block text-[10px] uppercase tracking-widest">Permission note (optional)</span>
+        <input className="field w-full !px-2 !py-1 !text-xs" maxLength={300} placeholder="e.g. Kai's clipping program, Discord announcement 2026-10-01" value={permission}
           onChange={(e) => setPermission(e.target.value)} aria-describedby="dl-perm-help" />
       </label>
-      <p id="dl-perm-help" className="muted">Only clip creators who allow it — note where they said so; ORBIT saves it next to the video.</p>
+      <p id="dl-perm-help" className="muted">Optional: where the creator said clipping is OK. ORBIT saves it next to the video.</p>
       <label className="flex items-center gap-1.5">
         <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Make clips when it&apos;s downloaded
       </label>

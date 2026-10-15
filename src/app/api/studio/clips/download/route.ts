@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const url = parseClipUrl(b.url);
   if (!url) return Response.json({ error: "url must be an https YouTube or Twitch link" }, { status: 400 });
   const permission = cleanPermission(b.permission);
-  if (!permission) return Response.json({ error: "Note how the creator allows clipping (5-300 characters)" }, { status: 400 });
+  if (permission === null) return Response.json({ error: "The permission note can be at most 300 characters" }, { status: 400 });
   let autoClip;
   if (b.autoClip !== undefined) {
     if (!b.autoClip || typeof b.autoClip !== "object") return Response.json({ error: "autoClip must be an object" }, { status: 400 });
