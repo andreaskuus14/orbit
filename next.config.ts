@@ -4,8 +4,8 @@ const nextConfig: NextConfig = {
   // Another package-lock.json in the home folder confuses Next; pin the project root.
   outputFileTracingRoot: __dirname,
   devIndicators: false, // the dev "N" badge covered the System panel
-  // Document parsers run server-side only; keep them out of the bundler.
-  serverExternalPackages: ["unpdf", "mammoth", "playwright-core"],
+  // Document parsers, ffmpeg binary and Whisper (native onnxruntime) run server-side only; keep them out of the bundler.
+  serverExternalPackages: ["unpdf", "mammoth", "playwright-core", "ffmpeg-static", "@huggingface/transformers"],
   async headers() {
     return [
       {

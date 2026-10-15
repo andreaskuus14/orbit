@@ -27,9 +27,11 @@
   },
   "dependencies": {
     "@react-three/drei": "^10.7.0",
+    "@huggingface/transformers": "^3.7.0",
     "@react-three/fiber": "^9.3.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.75.0",
+    "ffmpeg-static": "^5.2.0",
     "mammoth": "^1.9.0",
     "next": "^15.5.0",
     "playwright-core": "^1.55.0",

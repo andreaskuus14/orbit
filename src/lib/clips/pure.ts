@@ -1,0 +1,308 @@
+import path from "node:path";
+
+// Pure helpers for the Clip Factory (no I/O), unit-tested in tests/clips.test.ts.
+
+export type Word = { start: number; end: number; text: string };
+export type Moment = { start: number; end: number; title: string; hook: string; reason: string; score: number };
+export type Candidate = { start: number; end: number; score: number };
+
+export const VIDEO_EXTS = [".mp4", ".mov", ".mkv", ".webm", ".m4v"];
+export const MAX_SOURCE_SEC = 3 * 3600;
+export const MIN_CLIP_SEC = 15;
+export const WIN_SEC = 0.5;
+export const SAMPLE_RATE = 16_000;
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Total length from `ffmpeg -i` stderr ("Duration: 01:02:03.45"), or null when missing/N/A. */
+export function parseDuration(stderr: string): number | null {
+  const m = /Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)/.exec(stderr);
+  if (!m) return null;
+  const s = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+  return s > 0 ? s : null;
+}
+
+/** RMS loudness per window of `win` samples (the last partial window included). */
+export function rmsWindows(pcm: Float32Array, win = SAMPLE_RATE * WIN_SEC): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < pcm.length; i += win) {
+    const end = Math.min(pcm.length, i + win);
+    let sum = 0;
+    for (let j = i; j < end; j++) sum += pcm[j] * pcm[j];
+    out.push(Math.sqrt(sum / (end - i)));
+  }
+  return out;
+}
+
+/** Keeps the highest-scored items that don't overlap each other, best first. */
+export function removeOverlaps<T extends { start: number; end: number; score: number }>(items: T[]): T[] {
+  const kept: T[] = [];
+  for (const it of [...items].sort((a, b) => b.score - a.score)) {
+    if (kept.every((k) => it.end <= k.start || it.start >= k.end)) kept.push(it);
+  }
+  return kept;
+}
+
+/** Candidate windows (15..maxSec long, 5 s steps) scored by loudness level, variance, peaks and speech density; non-overlapping, best first, score 0..1. */
+export function scoreCandidates(rms: number[], maxSec: number, words: Word[] = [], limit = 15, winSec = WIN_SEC): Candidate[] {
+  const n = rms.length;
+  if (!n) return [];
+  const dur = n * winSec;
+  let mean = 0, max = 0;
+  for (const v of rms) { mean += v; max = Math.max(max, v); }
+  mean /= n;
+  if (dur <= MIN_CLIP_SEC || max === 0) return [{ start: 0, end: Math.min(dur, maxSec), score: 1 }];
+  const speech = new Uint8Array(n);
+  for (const w of words) for (let i = Math.floor(w.start / winSec); i <= Math.min(n - 1, Math.floor(w.end / winSec)); i++) speech[i] = 1;
+  const lens = [...new Set([MIN_CLIP_SEC, Math.round((MIN_CLIP_SEC + maxSec) / 2), maxSec])].filter((l) => l <= dur);
+  const step = Math.max(1, Math.round(5 / winSec));
+  const all: Candidate[] = [];
+  for (const len of lens) {
+    const wl = Math.round(len / winSec);
+    for (let s = 0; s + wl <= n; s += step) {
+      let sum = 0, sq = 0, pk = 0, sp = 0;
+      for (let i = s; i < s + wl; i++) { sum += rms[i]; sq += rms[i] * rms[i]; pk = Math.max(pk, rms[i]); sp += speech[i]; }
+      const m = sum / wl;
+      const sd = Math.sqrt(Math.max(0, sq / wl - m * m));
+      const score = 0.4 * Math.min(m / mean, 3) / 3 + 0.25 * Math.min(sd / mean, 2) / 2 + 0.15 * (pk / max) + (words.length ? 0.2 * (sp / wl) : 0);
+      all.push({ start: s * winSec, end: (s + wl) * winSec, score });
+    }
+  }
+  const best = removeOverlaps(all).slice(0, limit);
+  const top = best[0]?.score || 1;
+  return best.map((c) => ({ ...c, score: Math.round((c.score / top) * 100) / 100 }));
+}
+
+/** Time (s) of the loudest window inside [start, end): the thumbnail frame. */
+export function peakTime(rms: number[], start: number, end: number, winSec = WIN_SEC): number {
+  let best = start, bestV = -1;
+  for (let i = Math.floor(start / winSec); i < Math.min(rms.length, Math.ceil(end / winSec)); i++) {
+    if (rms[i] > bestV) { bestV = rms[i]; best = i * winSec + winSec / 2; }
+  }
+  return clamp(best, start, end);
+}
+
+/** Moves a cut to the middle of the quietest window within ±radius seconds, so clips don't start/end mid-word. */
+export function snapQuiet(rms: number[], t: number, radius = 0.75, winSec = WIN_SEC): number {
+  const c = Math.floor(t / winSec), r = Math.round(radius / winSec);
+  let best = c, bestV = Infinity;
+  for (let i = Math.max(0, c - r); i <= Math.min(rms.length - 1, c + r); i++) if (rms[i] < bestV) { bestV = rms[i]; best = i; }
+  return bestV === Infinity ? t : best * winSec + winSec / 2;
+}
+
+/** Whisper output chunks → words. Chunks holding several words (chunk-level timestamps) get their span split evenly. */
+export function wordsFromChunks(chunks: { text: string; timestamp: [number | null, number | null] }[], offset = 0): Word[] {
+  const out: Word[] = [];
+  chunks.forEach((c, i) => {
+    const s = c.timestamp?.[0];
+    if (typeof s !== "number" || !Number.isFinite(s)) return;
+    const nextStart = chunks[i + 1]?.timestamp?.[0];
+    let e = c.timestamp?.[1];
+    if (typeof e !== "number" || !Number.isFinite(e) || e < s) e = typeof nextStart === "number" && nextStart > s ? nextStart : s + 1;
+    const parts = String(c.text ?? "").trim().split(/\s+/).filter(Boolean);
+    const step = (e - s) / Math.max(1, parts.length);
+    parts.forEach((p, j) => out.push({ start: offset + s + j * step, end: offset + s + (j + 1) * step, text: p }));
+  });
+  return out;
+}
+
+const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+/** Transcript as "[m:ss] text" lines (~10 s each) for the prompt; when too long, keeps only lines near the candidates, then cuts. */
+export function promptTranscript(words: Word[], cands: Candidate[], maxChars = 60_000): string {
+  const lines: { t: number; text: string }[] = [];
+  for (const w of words) {
+    const last = lines[lines.length - 1];
+    if (last && w.start - last.t < 10) last.text += " " + w.text;
+    else lines.push({ t: w.start, text: w.text });
+  }
+  // Untrusted text: strip angle brackets so it can't close the <transcript> tag in the prompt.
+  const fmt = (ls: typeof lines) => ls.map((l) => `[${mmss(l.t)}] ${l.text.replace(/[<>]/g, "")}`).join("\n");
+  let out = fmt(lines);
+  if (out.length > maxChars) out = fmt(lines.filter((l) => cands.some((c) => l.t >= c.start - 30 && l.t <= c.end + 30)));
+  return out.slice(0, maxChars);
+}
+
+const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max).trim() : "");
+
+/** Validates Claude's reply: a JSON array of moments → clamped to the video, max maxSec long, ≥5 s, no overlaps, best first. */
+export function validateMoments(text: string, o: { duration: number; maxSec: number; count: number }): Moment[] {
+  const a = text.indexOf("["), b = text.lastIndexOf("]");
+  if (a < 0 || b <= a) return [];
+  let raw: unknown;
+  try { raw = JSON.parse(text.slice(a, b + 1)); } catch { return []; }
+  if (!Array.isArray(raw)) return [];
+  const out: Moment[] = [];
+  for (const it of raw) {
+    if (!it || typeof it !== "object") continue;
+    const r = it as Record<string, unknown>;
+    const s0 = Number(r.start), e0 = Number(r.end);
+    if (!Number.isFinite(s0) || !Number.isFinite(e0)) continue;
+    const start = clamp(s0, 0, o.duration);
+    const end = Math.min(clamp(e0, 0, o.duration), start + o.maxSec);
+    if (end - start < 5) continue;
+    let score = Number(r.score);
+    if (!Number.isFinite(score)) score = 0.5;
+    else if (score > 1) score /= 100; // some replies use 0..100
+    const title = str(r.title, 70) || `Clip at ${mmss(start)}`;
+    const hook = str(r.hook, 60).split(" ").slice(0, 6).join(" ").slice(0, 40).trim();
+    out.push({ start, end, title, hook, reason: str(r.reason, 300), score: Math.round(clamp(score, 0, 1) * 100) / 100 });
+  }
+  return removeOverlaps(out).slice(0, o.count);
+}
+
+/** Fallback when Claude is unavailable: top candidates with generic titles. */
+export function fallbackMoments(cands: Candidate[], count: number): Moment[] {
+  return cands.slice(0, count).map((c, i) => ({
+    start: c.start, end: c.end, score: c.score, title: `Highlight ${i + 1} (${mmss(c.start)})`, hook: "Wait for this", reason: "Loudest, most active stretch",
+  }));
+}
+
+// ---- ASS subtitles ----
+
+/** h:mm:ss.cc */
+export function assTime(sec: number): string {
+  const cs = Math.round(Math.max(0, sec) * 100);
+  const h = Math.floor(cs / 360000), m = Math.floor(cs / 6000) % 60, s = Math.floor(cs / 100) % 60;
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs % 100).padStart(2, "0")}`;
+}
+
+/** Dialogue text: braces start override blocks and backslashes escapes in libass, so swap them for look-alikes; one line only. */
+export function assText(s: string): string {
+  return s.replace(/\\/g, "＼").replace(/\{/g, "(").replace(/\}/g, ")").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** 2–4 words per caption line; breaks early on sentence ends and pauses. */
+export function captionLines(words: Word[]): Word[] {
+  const lines: Word[] = [];
+  let cur: Word[] = [];
+  const flush = () => { if (cur.length) lines.push({ start: cur[0].start, end: cur[cur.length - 1].end, text: cur.map((w) => w.text).join(" ") }); cur = []; };
+  words.forEach((w, i) => {
+    cur.push(w);
+    const next = words[i + 1];
+    const chars = cur.reduce((n, x) => n + x.text.length + 1, 0);
+    const breakHere = !next || cur.length >= 4 || (cur.length >= 2 && (chars > 16 || /[.!?,;:]$/.test(w.text) || next.start - w.end > 0.6));
+    if (breakHere) flush();
+  });
+  return lines;
+}
+
+const CHERRY_ASS = "&H00632EFF"; // #ff2e63 as &HAABBGGRR
+
+/** Subtitle file for one clip: the hook on top for the first 2.5 s, then word-timed captions lower-middle. Times are clip-relative. */
+export function buildAss(o: { hook: string; words: Word[]; duration: number }): string {
+  const ev: string[] = [];
+  if (o.hook.trim()) ev.push(`Dialogue: 1,${assTime(0)},${assTime(Math.min(2.5, o.duration))},Hook,,0,0,0,,${assText(o.hook).toUpperCase()}`);
+  for (const l of captionLines(o.words)) {
+    if (l.end <= 0 || l.start >= o.duration) continue;
+    ev.push(`Dialogue: 0,${assTime(Math.max(0, l.start))},${assTime(Math.min(o.duration, Math.max(l.end, l.start + 0.3)))},Cap,,0,0,0,,${assText(l.text).toUpperCase()}`);
+  }
+  return [
+    "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "WrapStyle: 0", "ScaledBorderAndShadow: yes", "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    "Style: Cap,Arial,88,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,2,2,60,60,560,1",
+    `Style: Hook,Arial,92,&H00FFFFFF,&H00FFFFFF,${CHERRY_ASS},${CHERRY_ASS},-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1`,
+    "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text", ...ev, "",
+  ].join("\n");
+}
+
+// ---- ffmpeg arguments (always an args array, never a shell) ----
+
+const sec = (s: number) => (Math.round(s * 1000) / 1000).toString();
+
+// ffmpeg sniffs formats by content: a playlist disguised as .mp4 could pull in other local files. Only real video containers, only plain files.
+const IN = ["-format_whitelist", "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm", "-protocol_whitelist", "file", "-i"];
+export const probeArgs = (input: string) => ["-hide_banner", "-nostdin", ...IN, input];
+export const audioArgs = (input: string, out: string) =>
+  ["-hide_banner", "-nostdin", "-y", ...IN, input, "-t", String(MAX_SOURCE_SEC), "-vn", "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "f32le", out];
+
+/** 1080x1920: blurred, darkened cover copy behind the clip scaled to fit. Blur at quarter size, it's far cheaper. */
+export function verticalFilter(ass?: string): string {
+  // The ass filter's path is parsed by the filter-graph syntax; ffmpeg runs with cwd = the clip folder so a bare safe name suffices.
+  if (ass !== undefined && !/^[\w.-]+\.ass$/.test(ass)) throw new Error("unsafe ass file name");
+  return "[0:v]split=2[bg0][fg0];" +
+    "[bg0]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=12:2,scale=1080:1920,setsar=1,eq=brightness=-0.28[bg];" +
+    "[fg0]scale=1080:1920:force_original_aspect_ratio=decrease,setsar=1[fg];" +
+    `[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p${ass ? `,ass=${ass}` : ""}[v]`;
+}
+
+export const renderArgs = (o: { input: string; start: number; duration: number; ass?: string; out: string }) => [
+  "-hide_banner", "-nostdin", "-y", "-ss", sec(o.start), "-t", sec(o.duration), ...IN, o.input,
+  "-filter_complex", verticalFilter(o.ass), "-map", "[v]", "-map", "0:a:0?",
+  "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-r", "30",
+  "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", o.out,
+];
+
+export const frameArgs = (input: string, at: number, out: string) =>
+  ["-hide_banner", "-nostdin", "-y", "-ss", sec(at), ...IN, input, "-filter_complex", verticalFilter(), "-map", "[v]", "-frames:v", "1", "-q:v", "2", out];
+
+// ---- input validation ----
+
+/** A plain inbox file name with a video extension: no separators, "..", NUL, control chars or ':' (Windows streams/drives). */
+export function isInboxName(name: unknown): name is string {
+  if (typeof name !== "string" || !name || name.length > 255 || name !== name.trim()) return false;
+  if (/[\\/:\0]|[\x00-\x1f]/.test(name)) return false; // separators are banned, so ".." inside a name ("So... this.mp4") is harmless
+  return VIDEO_EXTS.includes(path.extname(name).toLowerCase());
+}
+
+export const isJobId = (s: unknown): s is string => typeof s === "string" && /^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(s);
+export const isClipId = (s: unknown): s is string => typeof s === "string" && /^clip-\d{1,2}$/.test(s);
+
+/** Resolves a "/"-separated relative path inside base, or null if it could escape (absolute, drive, UNC, "..", NUL). */
+export function resolveInside(base: string, rel: string, p: typeof path = path): string | null {
+  if (typeof rel !== "string" || !rel || rel.length > 512 || rel.includes("\0")) return null;
+  if (/^[a-zA-Z]:/.test(rel) || /^[\\/]/.test(rel)) return null;
+  const parts = rel.split(/[\\/]/);
+  if (parts.some((s) => !s || s === "." || s === ".." || s.includes(":"))) return null;
+  const root = p.resolve(base);
+  const abs = p.resolve(root, ...parts);
+  return abs.startsWith(root + p.sep) ? abs : null;
+}
+
+/** HTTP Range → inclusive byte span; null = no/ignorable header (send everything), "bad" = 416. Only single ranges. */
+export function parseByteRange(h: string | null, size: number): { start: number; end: number } | null | "bad" {
+  if (!h) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(h.trim());
+  if (!m || (!m[1] && !m[2])) return h.includes(",") ? null : "bad";
+  let start: number, end: number;
+  if (!m[1]) { start = Math.max(0, size - Number(m[2])); end = size - 1; }
+  else { start = Number(m[1]); end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1; }
+  return start > end || start >= size ? "bad" : { start, end };
+}
+
+// ---- thumbnail ----
+
+export const escapeXml = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]!).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+
+/** Up to 4 lines of ~14 characters. */
+export function wrapTitle(title: string, width = 14, maxLines = 4): string[] {
+  const lines: string[] = [];
+  for (const w of title.trim().split(/\s+/).filter(Boolean)) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && (last + " " + w).length <= width) lines[lines.length - 1] = last + " " + w;
+    else lines.push(w);
+  }
+  if (lines.length > maxLines) { lines.length = maxLines; lines[maxLines - 1] += "…"; }
+  return lines;
+}
+
+/** Title overlay for the thumbnail: huge white bold text with a cherry stroke and glow, over a dark band. */
+export function thumbSvg(title: string, w = 1080, h = 1920): string {
+  const lines = wrapTitle(title.toUpperCase());
+  const longest = Math.max(1, ...lines.map((l) => l.length));
+  const size = Math.min(170, Math.floor((w - 120) / (longest * 0.62)));
+  const lh = Math.round(size * 1.08);
+  const top = Math.round(h * 0.42 - (lines.length * lh) / 2 + size * 0.8);
+  const text = (attrs: string) => `<text x="${w / 2}" text-anchor="middle" font-family="Arial Black, Arial, Helvetica, sans-serif" font-weight="900" font-size="${size}" ${attrs}>` +
+    lines.map((l, i) => `<tspan x="${w / 2}" y="${top + i * lh}">${escapeXml(l)}</tspan>`).join("") + "</text>";
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="0.5" stop-color="#000" stop-opacity="0.55"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient>` +
+    `<filter id="f" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="18"/></filter></defs>` +
+    `<rect x="0" y="${Math.round(h * 0.2)}" width="${w}" height="${Math.round(h * 0.45)}" fill="url(#g)"/>` +
+    text(`fill="#ff2e63" stroke="#ff2e63" stroke-width="${Math.round(size * 0.3)}" filter="url(#f)" opacity="0.8"`) +
+    text(`fill="#ff2e63" stroke="#ff2e63" stroke-width="${Math.round(size * 0.16)}" stroke-linejoin="round"`) +
+    text(`fill="#ffffff" stroke="#000000" stroke-width="3"`) +
+    "</svg>";
+}

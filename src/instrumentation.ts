@@ -4,5 +4,7 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { startScheduler } = await import("./lib/scheduler");
     startScheduler();
+    const { startClipQueue } = await import("./lib/clips/factory");
+    startClipQueue(); // resume queued clip jobs without waiting for the STUDIO page to be opened
   }
 }
