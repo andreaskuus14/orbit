@@ -69,12 +69,13 @@ export function useWakeWord(enabled: boolean, paused: boolean) {
           if (!interrupted && over) { dispatchEvent(new Event(VOICE_INTERRUPT)); arm(); } // recognizers sometimes skip interim results
           if (STOP_WORDS.test(text) && (interrupted || over)) { interrupted = false; armedUntil = 0; setState("listening"); continue; } // "stop" just silences ORBIT; it isn't a question
           interrupted = false;
-          if (wake) { if (isSleepCommand(text)) ask(text); else if (wake.question) ask(wake.question); else arm(); } // "Orbit, shut down" keeps its name
+          if (wake) { if (isSleepCommand(text)) ask(text); else if (wake.question && !/^(wake|woke)( up)?\W*$/i.test(wake.question)) ask(wake.question); else arm(); } // "Orbit, wake up" while open just listens // "Orbit, shut down" keeps its name
           else if (armedUntil > Date.now()) { const q = normalizeTranscript(text); if (q) ask(q); }
         }
       };
       r.onerror = (e) => {
-        if (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "audio-capture") {
+        // audio-capture (mic unplugged / Bluetooth reconnecting) is temporary: retry with backoff instead of stopping for good.
+        if (e.error === "not-allowed" || e.error === "service-not-allowed") {
           alive = false; setState("off"); setError(speechErrorMessage(e.error) ?? "");
         } else if (e.error !== "no-speech" && e.error !== "aborted") failures++;
       };

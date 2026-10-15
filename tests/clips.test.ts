@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import {
   cleanWords, audioArgs, probeArgs, assText, assTime, buildAss, captionLines, escapeXml, fallbackMoments, frameArgs, isInboxName, isJobId, parseByteRange, parseDuration,
-  peakTime, promptTranscript, removeOverlaps, renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet, thumbSvg, validateMoments,
+  peakTime, promptTranscript, removeOverlaps, renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, validateMoments,
   verticalFilter, wordsFromChunks, wrapTitle, type Word,
   cleanPermission, isDownloadId, parseClipUrl, parseYtdlpProgress, validOptions, ytdlpArgs, ytdlpError, ytdlpOutputFile,
 } from "../src/lib/clips/pure.ts";
@@ -65,18 +65,40 @@ test("validateMoments clamps, caps and removes overlaps", () => {
   assert.equal(validateMoments(reply, { duration: 120, maxSec: 45, count: 1 }).length, 1);
 });
 
+test("validateMoments keeps the end of a too-long pick and reads clock times", () => {
+  const o = { duration: 4000, maxSec: 45, count: 5 };
+  assert.deepEqual(validateMoments('[{"start":10,"end":100}]', o).map((m) => [m.start, m.end]), [[55, 100]]);
+  assert.deepEqual(validateMoments('[{"start":"1:05","end":"1:30.5"}]', o).map((m) => [m.start, m.end]), [[65, 90.5]]);
+  assert.deepEqual(validateMoments('[{"start":"1:00:00","end":"1:00:20.5"}]', o).map((m) => [m.start, m.end]), [[3600, 3620.5]]);
+  assert.deepEqual(validateMoments('[{"start":"12","end":30}]', o).map((m) => [m.start, m.end]), [[12, 30]]);
+  assert.deepEqual(validateMoments('[{"start":"1:5","end":"soon"}]', o), []);
+});
+
+test("snapToSpeech snaps to sentence/pause boundaries within 3 s", () => {
+  const w = (text: string, start: number, end = start + 0.4): Word => ({ text, start, end });
+  const words = [w("so", 9), w("anyway.", 9.5), w("Here's", 10), w("the", 10.5), w("thing", 11), w("I", 13), w("mean", 13.5), w("wow.", 20), w("ok", 20.5)];
+  // start 11.2 → "Here's" (after a sentence end) beats "I" at 13 (after a pause) by distance; end 20.5 → "wow." ends a sentence
+  assert.deepEqual(snapToSpeech({ start: 11.2, end: 20.5 }, words), { start: 10, end: 20.4 });
+  assert.deepEqual(snapToSpeech({ start: 12.8, end: 14 }, words), { start: 13, end: 13.9 }, "pause before I, end of the last word before the gap");
+  assert.deepEqual(snapToSpeech({ start: 50, end: 60 }, words), { start: undefined, end: undefined }, "nothing in range → caller falls back");
+  assert.deepEqual(snapToSpeech({ start: 1, end: 5 }, []), { start: undefined, end: undefined });
+});
+
 test("fallbackMoments gives generic titles", () => {
   const f = fallbackMoments([{ start: 65, end: 90, score: 1 }, { start: 0, end: 20, score: 0.5 }], 1);
   assert.deepEqual(f, [{ start: 65, end: 90, score: 1, title: "Highlight 1 (1:05)", hook: "Wait for this", reason: "Loudest, most active stretch" }]);
 });
 
-test("promptTranscript groups lines and trims to candidates", () => {
-  const words: Word[] = Array.from({ length: 200 }, (_, i) => ({ start: i * 3, end: i * 3 + 1, text: `w${i}<x>` }));
+test("promptTranscript breaks on sentences, pauses and ~10 s, and trims to candidates", () => {
+  const words: Word[] = Array.from({ length: 200 }, (_, i) => ({ start: i * 0.5, end: i * 0.5 + 0.4, text: `w${i}<x>` }));
   const full = promptTranscript(words, []);
-  assert.ok(full.startsWith("[0:00] w0x w1x w2x w3x\n[0:12]"));
+  assert.ok(full.startsWith("[0.0s] w0x w1x"), full.slice(0, 30));
+  assert.ok(full.includes("\n[10.0s] w20x "), "10 s cap");
   assert.ok(!full.includes("<"));
-  const cut = promptTranscript(words, [{ start: 300, end: 330, score: 1 }], 500);
-  assert.ok(cut.length <= 500 && cut.startsWith("[4:"), cut.slice(0, 20));
+  const w = (text: string, start: number): Word => ({ text, start, end: start + 0.3 });
+  assert.equal(promptTranscript([w("Hi", 83.4), w("there.", 83.7), w("So", 84.0), w("um", 84.3), w("yes", 85.5)], []), "[83.4s] Hi there.\n[84.0s] So um\n[85.5s] yes");
+  const cut = promptTranscript(words, [{ start: 60, end: 70, score: 1 }], 200);
+  assert.ok(cut.length <= 200 && cut.startsWith("[30.0s]"), cut.slice(0, 20));
 });
 
 test("ASS time format and escaping", () => {
@@ -102,6 +124,12 @@ test("buildAss has the hook first 2.5 s and escaped captions", () => {
   assert.ok(!buildAss({ hook: "", words: [], duration: 5 }).includes("Dialogue:"));
 });
 
+test("buildAss shrinks a line whose word is longer than 13 chars", () => {
+  const ass = buildAss({ hook: "", words: [{ text: "Congratulations!!", start: 0, end: 1 }, { text: "short", start: 2, end: 3 }], duration: 5 });
+  assert.match(ass, /Cap,,0,0,0,,\{\\fs67\}CONGRATULATIONS!! SHORT\n/); // floor(88 * 13 / 17)
+  assert.match(buildAss({ hook: "", words: [{ text: "thirteenchars", start: 0, end: 1 }], duration: 5 }), /Cap,,0,0,0,,THIRTEENCHARS\n/);
+});
+
 test("ffmpeg arg builders", () => {
   const r = renderArgs({ input: "C:\\v\\a b.mp4", start: 12.3456, duration: 30, ass: "clip-1.ass", out: "clip-1.mp4" });
   assert.deepEqual(r.slice(3, 7), ["-ss", "12.346", "-t", "30"]);
@@ -109,6 +137,9 @@ test("ffmpeg arg builders", () => {
   for (const args of [r, probeArgs("x.mp4"), audioArgs("x.mp4", "a.f32"), frameArgs("x.mp4", 1, "f.jpg")]) // inputs are always whitelisted
     assert.equal(args[args.indexOf("-i") - 1], "file");
   assert.ok(r.includes("libx264") && r.includes("+faststart") && r.at(-1) === "clip-1.mp4");
+  assert.equal(r[r.indexOf("-ac") + 1], "2", "5.1 sources are downmixed to stereo");
+  const a = audioArgs("x.mp4", "a.f32");
+  assert.deepEqual(a.slice(a.indexOf("-af"), a.indexOf("-af") + 4), ["-af", "aresample=async=1:first_pts=0", "-f", "f32le"]);
   assert.ok(r[r.indexOf("-filter_complex") + 1].endsWith(",ass=clip-1.ass[v]"));
   assert.throws(() => verticalFilter("C:\\x\\y.ass"));
   assert.throws(() => verticalFilter("a'b.ass"));
@@ -150,6 +181,8 @@ test("thumbnail SVG escapes XML and wraps", () => {
   assert.equal(wrapTitle("a b c d e f g h i j k l m n o p q r s t u v w x y z aa bb cc dd ee ff gg hh", 3, 2).length, 2);
   const svg = thumbSvg(`Tom & Jerry's <script>`);
   assert.ok(svg.includes("TOM &amp; JERRY&apos;S") && !svg.includes("<script>") && svg.includes("#ff2e63"));
+  assert.ok(thumbSvg("unbelievable!!").includes('font-size="80"'), "14 chars at 0.85 em must fit 960 px"); // floor(960 / (14 * 0.85))
+  assert.ok(thumbSvg("hi").includes('font-size="170"'));
 });
 
 test("parseClipUrl allows only https YouTube/Twitch hosts", () => {
@@ -209,6 +242,13 @@ test("cleanWords collapses Whisper repetition loops, keeps normal speech", () =>
   const normal = ["go", "go", "now", "we", "won", "we", "won"].map(w); // short repeats (≤2×) stay
   assert.equal(cleanWords(normal).length, 7);
   assert.equal(cleanWords([{ start: 2, end: 1, text: "bad" }, { start: NaN, end: 1, text: "x" }, w("ok", 3)]).length, 1);
+});
+
+test("cleanWords drops chunk-overlap duplicates", () => {
+  const w = (text: string, start: number): Word => ({ text, start, end: start + 0.3 });
+  const doubled = [w("no", 10), w("way", 10.3), w("dude", 10.6), w("no", 10.05), w("way", 10.35), w("dude", 10.62), w("next", 11)];
+  assert.equal(cleanWords(doubled).map((x) => x.text).join(" "), "no way dude next");
+  assert.equal(cleanWords([w("b", 1), w("a", 0)]).map((x) => x.text).join(" "), "a b", "sorted by start");
 });
 
 test("buildAss never shows two captions at once", () => {

@@ -30,19 +30,20 @@ try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexExcepti
 if (-not $owned -and -not $DebugRun) { Write-Log "Another ORBIT wake listener is already running; exiting."; exit 0 }
 if (-not $DebugRun) { Set-Content -Path $pidFile -Value $PID }
 
-function Test-Orbit {
-  try { (Invoke-WebRequest "$Url/login" -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200 } catch { $false }
-}
-
 function Wake-Orbit {
-  if (-not (Test-Orbit)) {
-    # Same start-up as the desktop shortcut: production build (rebuilt if needed) under the restart supervisor.
-    Write-Log "ORBIT server not answering; running scripts\launch.ps1 -ServerOnly (may build first, up to 10 min)."
-    $launcher = Join-Path $root "scripts\launch.ps1"
-    $p = Start-Process powershell.exe -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`" -ServerOnly" -WindowStyle Hidden -PassThru
-    $null = $p.Handle; $p.WaitForExit() # not -Wait: in PowerShell 5.1 that also waits for the supervisor it leaves running
-    if ($p.ExitCode -ne 0) { Write-Log "ERROR: ORBIT didn't start. See $(Join-Path $root 'orbit-server.log')"; return }
-    Write-Log "ORBIT server is up."
+  # Always through the launcher: it returns in a second or two when the server is up and current, and otherwise
+  # starts or restarts it (production build, rebuilt after an update) under the restart supervisor.
+  $launcher = Join-Path $root "scripts\launch.ps1"
+  $p = Start-Process powershell.exe -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`" -ServerOnly" -WindowStyle Hidden -PassThru
+  $null = $p.Handle; $p.WaitForExit() # not -Wait: in PowerShell 5.1 that also waits for the supervisor it leaves running
+  if ($p.ExitCode -ne 0) { Write-Log "ERROR: ORBIT didn't start. See $(Join-Path $root 'orbit-server.log')"; return }
+  if ($script:canFocus) {
+    $win = [OrbitWindow]::Find()
+    if ($win -ne [IntPtr]::Zero) {
+      [OrbitWindow]::Focus($win)
+      Write-Log "ORBIT window already open; brought it to the front."
+      return
+    }
   }
   $target = "$Url/?wake=1"
   $chrome = @(
@@ -60,8 +61,105 @@ function Wake-Orbit {
   }
 }
 
+# A fresh recognizer with the wake grammar, its event subscriptions, listening. Throws when there is no microphone.
+function New-Engine {
+  $e = New-Object System.Speech.Recognition.SpeechRecognitionEngine($info)
+  try { $e.SetInputToDefaultAudioDevice() } catch { $e.Dispose(); throw }
+  $choices = New-Object System.Speech.Recognition.Choices
+  $choices.Add([string[]]@("orbit wake up", "orbital wake up", "hey orbit wake up", "orbit wake"))
+  $gb = New-Object System.Speech.Recognition.GrammarBuilder
+  $gb.Culture = $info.Culture
+  $gb.Append($choices)
+  $wake = New-Object System.Speech.Recognition.Grammar($gb)
+  $wake.Name = "wake"
+  $e.LoadGrammar($wake)
+  # Optional dictation grammar to soak up ordinary speech. Off by default: with non-native accents dictation "wins"
+  # the wake phrase too (e.g. "orbit wake up" heard as "all are the way up"), so nothing ever triggers.
+  if ($Dictation) { try { $e.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)) } catch { } }
+  # Always on: audio level events are the heartbeat the watchdog below uses to spot a silently dead microphone.
+  Register-ObjectEvent -InputObject $e -EventName AudioLevelUpdated -SourceIdentifier "orbit.level" | Out-Null
+  Register-ObjectEvent -InputObject $e -EventName SpeechRecognized -SourceIdentifier "orbit.heard" | Out-Null
+  Register-ObjectEvent -InputObject $e -EventName RecognizeCompleted -SourceIdentifier "orbit.done" | Out-Null
+  $e.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
+  return $e
+}
+
+# Drops the current recognizer, its subscriptions (so New-Engine can reuse the identifiers) and its queued events.
+function Remove-Engine {
+  foreach ($id in "orbit.level", "orbit.heard", "orbit.done") {
+    try { Unregister-Event -SourceIdentifier $id -ErrorAction SilentlyContinue } catch { }
+    try { Remove-Event -SourceIdentifier $id -ErrorAction SilentlyContinue } catch { }
+  }
+  if ($script:engine) { try { $script:engine.Dispose() } catch { } }
+  $script:engine = $null
+}
+
+# Start listening again, retrying with a growing pause until a microphone is there. -Rebuild replaces the recognizer.
+function Connect-Listener([switch]$Rebuild, [switch]$Quiet) {
+  if ($Rebuild) { Remove-Engine }
+  $wait = 2
+  while ($true) {
+    Start-Sleep -Seconds $wait
+    try {
+      if ($Rebuild) { $script:engine = New-Engine }
+      else {
+        $script:engine.SetInputToDefaultAudioDevice()
+        $script:engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
+      }
+      if (-not $Quiet) { Write-Log "Listening again." }
+      $script:lastAudio = Get-Date
+      return
+    } catch {
+      if ($wait -eq 2) { Write-Log "No microphone yet ($($_.Exception.Message)); will keep retrying." }
+      $wait = [math]::Min($wait * 2, 60)
+    }
+  }
+}
+
 try {
   try { Add-Type -AssemblyName System.Speech } catch { Write-Log "ERROR: System.Speech isn't available on this PC (needs Windows with .NET Framework)."; exit 2 }
+
+  # Finds an open ORBIT window (Chrome/Edge window class; title is the page title "ORBIT", or "ORBIT - Google Chrome"
+  # for a tab) so a wake can bring it forward instead of opening a second one.
+  $script:canFocus = $false
+  try {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class OrbitWindow {
+  delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  public static IntPtr Find() {
+    IntPtr found = IntPtr.Zero;
+    EnumWindows(delegate (IntPtr h, IntPtr l) {
+      if (!IsWindowVisible(h)) return true;
+      StringBuilder c = new StringBuilder(64); GetClassName(h, c, 64);
+      if (c.ToString() != "Chrome_WidgetWin_1") return true;
+      StringBuilder t = new StringBuilder(256); GetWindowText(h, t, 256);
+      if (!t.ToString().StartsWith("ORBIT", StringComparison.Ordinal)) return true;
+      found = h; return false;
+    }, IntPtr.Zero);
+    return found;
+  }
+  public static void Focus(IntPtr h) {
+    ShowWindow(h, IsIconic(h) ? 9 : 5); // SW_RESTORE : SW_SHOW
+    // Windows refuses SetForegroundWindow from a background process (it only flashes the taskbar) unless a key
+    // event just happened: a lone Alt tap lifts that lock.
+    keybd_event(0x12, 0, 0, UIntPtr.Zero); keybd_event(0x12, 0, 2, UIntPtr.Zero);
+    SetForegroundWindow(h);
+  }
+}
+"@
+    $script:canFocus = $true
+  } catch { Write-Log "WARNING: can't look for an open ORBIT window ($($_.Exception.Message)); each wake opens a new one." }
 
   # The phrases are English: prefer an English recognizer matching the Windows language, then en-US, then any English one.
   $installed = @([System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers())
@@ -75,48 +173,47 @@ try {
     Write-Log "WARNING: no English recognizer; using $($info.Culture.Name), which may not understand the English wake phrase. Add English (United States) speech in Windows settings."
   }
 
-  $engine = New-Object System.Speech.Recognition.SpeechRecognitionEngine($info)
-  try { $engine.SetInputToDefaultAudioDevice() } catch {
-    Write-Log "ERROR: no microphone available ($($_.Exception.Message)). Plug one in and check Settings > Privacy > Microphone > 'Let desktop apps access your microphone'."
-    exit 4
-  }
-
-  $choices = New-Object System.Speech.Recognition.Choices
-  $choices.Add([string[]]@("orbit wake up", "orbital wake up", "hey orbit wake up", "orbit wake"))
-  $gb = New-Object System.Speech.Recognition.GrammarBuilder
-  $gb.Culture = $info.Culture
-  $gb.Append($choices)
-  $wake = New-Object System.Speech.Recognition.Grammar($gb)
-  $wake.Name = "wake"
-  $engine.LoadGrammar($wake)
-  # Optional dictation grammar to soak up ordinary speech. Off by default: with non-native accents dictation "wins"
-  # the wake phrase too (e.g. "orbit wake up" heard as "all are the way up"), so nothing ever triggers.
-  if ($Dictation) { try { $engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)) } catch { } }
-  # Loose on purpose: dictation often hears "orbit" as "or bit", "orbits", "orbital", "a bit" and "wake up" as "wake-up"/"wakeup".
-  $phrase = '\b(orbit|orbits|orbital|orbitals|or bit|orb it|our bit|orbed)\s+(\w+\s+)?(wake|wakes|woke|wake up|wakeup)\b'
-  # Always on: audio level events are the heartbeat the watchdog below uses to spot a silently dead microphone.
-  Register-ObjectEvent -InputObject $engine -EventName AudioLevelUpdated -SourceIdentifier "orbit.level" | Out-Null
   if ($DebugRun) {
     Write-Host "DEBUG: printing everything heard (not logged). Talk normally, then say 'orbit wake up'. Ctrl+C to stop." -ForegroundColor Cyan
   }
-
-  Register-ObjectEvent -InputObject $engine -EventName SpeechRecognized -SourceIdentifier "orbit.heard" | Out-Null
-  Register-ObjectEvent -InputObject $engine -EventName RecognizeCompleted -SourceIdentifier "orbit.done" | Out-Null
-  $engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
+  try { $script:engine = New-Engine } catch {
+    Write-Log "ERROR: no microphone available ($($_.Exception.Message)). Plug one in and check Settings > Privacy > Microphone > 'Let desktop apps access your microphone'."
+    exit 4
+  }
+  # Loose on purpose: dictation often hears "orbit" as "or bit", "orbits", "orbital", "a bit" and "wake up" as "wake-up"/"wakeup".
+  $phrase = '\b(orbit|orbits|orbital|orbitals|or bit|orb it|our bit|orbed)\s+(\w+\s+)?(wake|wakes|woke|wake up|wakeup)\b'
   Write-Log "Listening for 'orbital wake up' (recognizer $($info.Culture.Name), min confidence $MinConfidence, pid $PID)."
 
   $last = [datetime]::MinValue
   $lastLevel = [datetime]::MinValue
-  $lastAudio = Get-Date
+  $script:lastAudio = Get-Date
+  $cancelAt = $null # when the watchdog cancelled recognition; "orbit.done" should follow
+  # Silence before each watchdog restart. A quiet room may send no level events at all, so restarts that bring none
+  # back wait longer each time instead of restarting (and logging) every minute forever.
+  $silenceSteps = @(60, 300, 900)
+  $silentRestarts = 0
   while ($true) {
     $ev = Wait-Event -Timeout 15
     if (-not $ev) {
+      if ($cancelAt -and ((Get-Date) - $cancelAt).TotalSeconds -ge 15) {
+        # The cancel never completed: the recognizer itself is wedged, so build a new one.
+        Write-Log "The listener didn't stop after 15 s; rebuilding the recognizer."
+        $cancelAt = $null
+        Connect-Listener -Rebuild
+        continue
+      }
       # Watchdog: after a screen lock / user switch / sleep, Windows can hand the recognizer a dead audio stream that
-      # never errors. No level events for 60 s means no audio: cancel, which fires "orbit.done" and reconnects below.
-      if (((Get-Date) - $lastAudio).TotalSeconds -ge 60) {
-        Write-Log "No audio from the microphone for 60 s; restarting the listener."
-        $lastAudio = Get-Date
-        try { $engine.RecognizeAsyncCancel() } catch { }
+      # never errors. No level events for a while means no audio: cancel, which fires "orbit.done" and reconnects below.
+      $limit = $silenceSteps[[math]::Min($silentRestarts, $silenceSteps.Count - 1)]
+      if (-not $cancelAt -and ((Get-Date) - $script:lastAudio).TotalSeconds -ge $limit) {
+        $silentRestarts++
+        if ($silentRestarts -le $silenceSteps.Count) {
+          $next = $silenceSteps[[math]::Min($silentRestarts, $silenceSteps.Count - 1)]
+          Write-Log ("No audio from the microphone for {0} s; restarting the listener (next check after {1} s of silence{2})." -f $limit, $next, $(if ($silentRestarts -eq $silenceSteps.Count) { "; not logged again until audio returns" } else { "" }))
+        }
+        $script:lastAudio = Get-Date
+        $cancelAt = Get-Date
+        try { $script:engine.RecognizeAsyncCancel() } catch { }
       }
       continue
     }
@@ -125,25 +222,15 @@ try {
       # The mic dropped (unplugged, switched device, another app took it, PC woke from sleep): reconnect instead of
       # dying, retrying with a growing pause, so the listener survives without a restart.
       $err = $ev.SourceEventArgs.Error
-      Write-Log "Audio input stopped ($(if ($err) { $err.Message } else { 'microphone disconnected?' })); reconnecting."
-      $wait = 2
-      while ($true) {
-        Start-Sleep -Seconds $wait
-        try {
-          $engine.SetInputToDefaultAudioDevice()
-          $engine.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
-          Write-Log "Listening again."
-          $lastAudio = Get-Date
-          break
-        } catch {
-          if ($wait -eq 2) { Write-Log "No microphone yet ($($_.Exception.Message)); will keep retrying." }
-          $wait = [math]::Min($wait * 2, 60)
-        }
-      }
+      $watchdog = [bool]$cancelAt # the watchdog already logged this restart
+      $cancelAt = $null
+      if (-not $watchdog) { Write-Log "Audio input stopped ($(if ($err) { $err.Message } else { 'microphone disconnected?' })); reconnecting." }
+      Connect-Listener -Quiet:$watchdog
       continue
     }
     if ($ev.SourceIdentifier -eq "orbit.level") { # proves the mic reaches the recognizer
-      $lastAudio = Get-Date
+      $script:lastAudio = Get-Date
+      $silentRestarts = 0
       if ($DebugRun -and ((Get-Date) - $lastLevel).TotalSeconds -ge 1) { $lastLevel = Get-Date; Write-Host ("  mic level {0,3} {1}" -f $ev.SourceEventArgs.AudioLevel, ("#" * [math]::Ceiling($ev.SourceEventArgs.AudioLevel / 5))) }
       continue
     }

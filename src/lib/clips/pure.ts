@@ -90,6 +90,19 @@ export function snapQuiet(rms: number[], t: number, radius = 0.75, winSec = WIN_
   return bestV === Infinity ? t : best * winSec + winSec / 2;
 }
 
+/** Snaps a moment's cuts to speech boundaries: start to the nearest word (±3 s) that follows a pause ≥ 0.35 s or a sentence end,
+ *  end to the nearest word that ends a sentence or is followed by a pause. undefined = no such word, use snapQuiet. */
+export function snapToSpeech(m: { start: number; end: number }, words: Word[], radius = 3, pause = 0.35): { start?: number; end?: number } {
+  const ends = (w: Word) => /[.!?]["')\]]*$/.test(w.text);
+  let start: number | undefined, end: number | undefined;
+  words.forEach((w, i) => {
+    const prev = words[i - 1], next = words[i + 1];
+    if (Math.abs(w.start - m.start) <= radius && (!prev || w.start - prev.end >= pause || ends(prev)) && (start === undefined || Math.abs(w.start - m.start) < Math.abs(start - m.start))) start = w.start;
+    if (Math.abs(w.end - m.end) <= radius && (!next || next.start - w.end >= pause || ends(w)) && (end === undefined || Math.abs(w.end - m.end) < Math.abs(end - m.end))) end = w.end;
+  });
+  return { start, end };
+}
+
 /** Whisper output chunks → words. Chunks holding several words (chunk-level timestamps) get their span split evenly. */
 export function wordsFromChunks(chunks: { text: string; timestamp: [number | null, number | null] }[], offset = 0): Word[] {
   const out: Word[] = [];
@@ -108,20 +121,24 @@ export function wordsFromChunks(chunks: { text: string; timestamp: [number | nul
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-/** Transcript as "[m:ss] text" lines (~10 s each) for the prompt; when too long, keeps only lines near the candidates, then cuts. */
+/** Transcript as "[83.4s] text" lines for the prompt, one per sentence/pause (max ~10 s), so Claude sees where thoughts start;
+ *  when too long, keeps only lines near the candidates, then cuts. */
 export function promptTranscript(words: Word[], cands: Candidate[], maxChars = 60_000): string {
   const lines: { t: number; text: string }[] = [];
-  for (const w of words) {
-    const last = lines[lines.length - 1];
-    if (last && w.start - last.t < 10) last.text += " " + w.text;
+  words.forEach((w, i) => {
+    const last = lines[lines.length - 1], prev = words[i - 1];
+    if (last && w.start - last.t < 10 && !/[.!?]["')\]]*$/.test(prev.text) && w.start - prev.end <= 0.6) last.text += " " + w.text;
     else lines.push({ t: w.start, text: w.text });
-  }
+  });
   // Untrusted text: strip angle brackets so it can't close the <transcript> tag in the prompt.
-  const fmt = (ls: typeof lines) => ls.map((l) => `[${mmss(l.t)}] ${l.text.replace(/[<>]/g, "")}`).join("\n");
+  const fmt = (ls: typeof lines) => ls.map((l) => `[${l.t.toFixed(1)}s] ${l.text.replace(/[<>]/g, "")}`).join("\n");
   let out = fmt(lines);
   if (out.length > maxChars) out = fmt(lines.filter((l) => cands.some((c) => l.t >= c.start - 30 && l.t <= c.end + 30)));
   return out.slice(0, maxChars);
 }
+
+/** A time as seconds: a number, or a "m:ss(.d)" / "h:mm:ss(.d)" string (Claude sometimes answers in clock format). */
+const toSec = (v: unknown) => typeof v === "string" && /^\d+(:\d{2}){1,2}(\.\d+)?$/.test(v.trim()) ? v.trim().split(":").reduce((a, p) => a * 60 + Number(p), 0) : Number(v);
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max).trim() : "");
 
@@ -136,10 +153,10 @@ export function validateMoments(text: string, o: { duration: number; maxSec: num
   for (const it of raw) {
     if (!it || typeof it !== "object") continue;
     const r = it as Record<string, unknown>;
-    const s0 = Number(r.start), e0 = Number(r.end);
+    const s0 = toSec(r.start), e0 = toSec(r.end);
     if (!Number.isFinite(s0) || !Number.isFinite(e0)) continue;
-    const start = clamp(s0, 0, o.duration);
-    const end = Math.min(clamp(e0, 0, o.duration), start + o.maxSec);
+    const end = clamp(e0, 0, o.duration);
+    const start = Math.max(clamp(s0, 0, o.duration), end - o.maxSec); // too long: keep the end, that's where the payoff is
     if (end - start < 5) continue;
     let score = Number(r.score);
     if (!Number.isFinite(score)) score = 0.5;
@@ -177,7 +194,11 @@ const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
 /** Whisper hallucination guard: on music/noise it loops one phrase ("I'M GOING TO BE NINE HOURS." ×20). A run of 2-12 words
  *  repeated back-to-back more than twice keeps one copy; bad timestamps (NaN, end < start) are dropped. */
 export function cleanWords(words: Word[]): Word[] {
-  const ws = words.filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end >= w.start && norm(w.text));
+  const ws: Word[] = [];
+  // transformers.js chunk overlaps (and our segment overlap) emit some words twice with near-equal times: keep the first copy.
+  for (const w of words.filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end >= w.start && norm(w.text)).sort((a, b) => a.start - b.start)) {
+    if (!ws.length || w.start >= ws[ws.length - 1].end - 0.15) ws.push(w);
+  }
   const out: Word[] = [];
   for (let i = 0; i < ws.length;) {
     let skipped = false;
@@ -222,7 +243,9 @@ export function buildAss(o: { hook: string; words: Word[]; duration: number }): 
     const start = Math.max(0, l.start), next = lines[i + 1]?.start ?? Infinity;
     const end = Math.min(o.duration, Math.max(l.end, start + 0.3), next);
     if (end - start < 0.05 || start >= o.duration) return;
-    ev.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${assText(l.text).toUpperCase()}`);
+    // A single long word ("CONGRATULATIONS!") can't wrap and would run off a 1080 px wide screen: shrink the line to fit ~13 chars.
+    const long = Math.max(...l.text.split(" ").map((w) => w.length));
+    ev.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${long > 13 ? `{\\fs${Math.floor((88 * 13) / long)}}` : ""}${assText(l.text).toUpperCase()}`);
   });
   return [
     "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "WrapStyle: 0", "ScaledBorderAndShadow: yes", "",
@@ -242,7 +265,8 @@ const sec = (s: number) => (Math.round(s * 1000) / 1000).toString();
 const IN = ["-format_whitelist", "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm", "-protocol_whitelist", "file", "-i"];
 export const probeArgs = (input: string) => ["-hide_banner", "-nostdin", ...IN, input];
 export const audioArgs = (input: string, out: string) =>
-  ["-hide_banner", "-nostdin", "-y", ...IN, input, "-t", String(MAX_SOURCE_SEC), "-vn", "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "f32le", out];
+  ["-hide_banner", "-nostdin", "-y", ...IN, input, "-t", String(MAX_SOURCE_SEC), "-vn", "-ac", "1", "-ar", String(SAMPLE_RATE),
+    "-af", "aresample=async=1:first_pts=0", "-f", "f32le", out]; // fill audio gaps/late starts with silence so PCM time = video time
 
 /** 1080x1920: blurred, darkened cover copy behind the clip scaled to fit. Blur at quarter size, it's far cheaper. */
 export function verticalFilter(ass?: string): string {
@@ -258,7 +282,7 @@ export const renderArgs = (o: { input: string; start: number; duration: number; 
   "-hide_banner", "-nostdin", "-y", "-ss", sec(o.start), "-t", sec(o.duration), ...IN, o.input,
   "-filter_complex", verticalFilter(o.ass), "-map", "[v]", "-map", "0:a:0?",
   "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-r", "30",
-  "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", o.out,
+  "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", o.out,
 ];
 
 export const frameArgs = (input: string, at: number, out: string) =>
@@ -381,7 +405,7 @@ export function wrapTitle(title: string, width = 14, maxLines = 4): string[] {
 export function thumbSvg(title: string, w = 1080, h = 1920): string {
   const lines = wrapTitle(title.toUpperCase());
   const longest = Math.max(1, ...lines.map((l) => l.length));
-  const size = Math.min(170, Math.floor((w - 120) / (longest * 0.62)));
+  const size = Math.min(170, Math.floor((w - 120) / (longest * 0.85)));
   const lh = Math.round(size * 1.08);
   const top = Math.round(h * 0.42 - (lines.length * lh) / 2 + size * 0.8);
   const text = (attrs: string) => `<text x="${w / 2}" text-anchor="middle" font-family="Arial Black, Arial, Helvetica, sans-serif" font-weight="900" font-size="${size}" ${attrs}>` +

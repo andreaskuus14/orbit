@@ -20,6 +20,9 @@ export const parseRange = (s: string | null | undefined): RangeDays | null => (s
 export const isVideoId = (s: string) => /^[A-Za-z0-9_-]{11}$/.test(s);
 
 export const YT_SCOPES = ["https://www.googleapis.com/auth/yt-analytics.readonly", "https://www.googleapis.com/auth/youtube.readonly"];
+export const YT_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
+/** Whether a grant's space-separated `scope` string includes every needed scope. */
+export const hasScopes = (granted: string | undefined, needed: string[]) => needed.every((s) => (granted ?? "").split(" ").includes(s));
 export const OAUTH_ENV = ["YOUTUBE_OAUTH_CLIENT_ID", "YOUTUBE_OAUTH_CLIENT_SECRET"];
 export const OAUTH_COOKIE = "orbit_yt_oauth";
 export const OAUTH_PATH = "/api/studio/oauth";
@@ -112,7 +115,47 @@ export function sameSecret(a: string, b: string) {
 
 export function authUrl(o: { clientId: string; redirectUri: string; state: string; challenge: string }) {
   return `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
-    client_id: o.clientId, redirect_uri: o.redirectUri, response_type: "code", scope: YT_SCOPES.join(" "),
+    client_id: o.clientId, redirect_uri: o.redirectUri, response_type: "code", scope: [...YT_SCOPES, YT_UPLOAD_SCOPE].join(" "),
     access_type: "offline", prompt: "consent", state: o.state, code_challenge: o.challenge, code_challenge_method: "S256",
   })}`;
+}
+
+// ---- uploads (YouTube Data API v3 videos.insert) ----
+
+export type Privacy = "private" | "unlisted" | "public";
+const PRIVACY: Privacy[] = ["private", "unlisted", "public"];
+export type VideoResource = {
+  snippet: { title: string; description: string; categoryId: string };
+  status: { privacyStatus: Privacy; selfDeclaredMadeForKids: false; publishAt?: string };
+};
+
+/** Publish request body + clip → the video resource to upload, or a message for a 400. A schedule must be private until publishAt. */
+export function videoResource(b: Record<string, unknown>, clip: { title: string; hook: string }, now = Date.now()): VideoResource | string {
+  const {
+    title = clip.title.replace(/[<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 100),
+    description = `${clip.hook.replace(/[<>]/g, "")}\n\n#shorts`.trim(), privacy = "private", publishAt,
+  } = b;
+  const t = typeof title === "string" ? title.trim() : "";
+  if (!t || t.length > 100 || /[<>]/.test(t)) return "title must be 1-100 characters without < or >";
+  if (typeof description !== "string" || new TextEncoder().encode(description).length > 5000 || /[<>]/.test(description))
+    return "description must be at most 5000 bytes without < or >";
+  if (!PRIVACY.includes(privacy as Privacy)) return "privacy must be private, unlisted or public";
+  let at: string | undefined;
+  if (publishAt != null && publishAt !== "") {
+    const ms = typeof publishAt === "string" ? Date.parse(publishAt) : NaN;
+    if (!(ms > now) || ms > now + 183 * DAY) return "publishAt must be a future date within 6 months";
+    at = new Date(ms).toISOString();
+  }
+  return { snippet: { title: t, description, categoryId: "24" }, status: { privacyStatus: at ? "private" : (privacy as Privacy), selfDeclaredMadeForKids: false, ...(at && { publishAt: at }) } };
+}
+
+/** A YouTube API error response → a message for the owner. Only reason codes are used, never Google's free text. */
+export function uploadError(status: number, json: unknown): string {
+  const e = (json as { error?: { errors?: { reason?: unknown }[]; details?: { reason?: unknown }[] } } | null)?.error;
+  const reasons = [...(e?.errors ?? []), ...(e?.details ?? [])].map((r) => r?.reason).filter((r): r is string => typeof r === "string");
+  const has = (...r: string[]) => reasons.some((x) => r.includes(x));
+  if (has("quotaExceeded", "uploadLimitExceeded", "dailyLimitExceeded")) return "YouTube's daily upload limit is reached; try tomorrow";
+  if (has("insufficientPermissions", "ACCESS_TOKEN_SCOPE_INSUFFICIENT")) return "Reconnect YouTube to allow uploads";
+  if (status === 401 || has("authError", "invalid_grant")) return "Reconnect YouTube";
+  return `YouTube upload failed (${status}${reasons[0] ? ` ${reasons[0].slice(0, 40)}` : ""})`;
 }

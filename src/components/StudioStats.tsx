@@ -380,7 +380,7 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
         </p>
       )}
 
-      {(live || (loading && !data)) && (
+      {(!data || data.connected) && ( // keep range/scope chips when a request failed, so the user can switch back
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="flex gap-1" role="group" aria-label="Date range">
             {RANGES.map(([d, l]) => <button key={d} className="chip num" aria-pressed={range === d} onClick={() => setRange(d)}>{l}</button>)}

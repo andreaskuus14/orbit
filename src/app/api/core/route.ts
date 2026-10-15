@@ -3,6 +3,7 @@ import { runCore } from "@/lib/core";
 import { reflectOnTurn } from "@/lib/reflect";
 import { emit } from "@/lib/claude";
 import { str } from "@/lib/pure";
+import type { NavTarget } from "@/lib/nav-pure";
 
 export const maxDuration = 300;
 
@@ -33,9 +34,9 @@ export async function POST(req: Request) {
   const cid = conversationId as string;
 
   // Shared by both response styles: answer, then save it once at the end.
-  const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void) => {
+  const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void) => {
     const { data: prior } = await sb.from("messages").select("role, content").eq("conversation_id", cid).order("created_at");
-    const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset, voice);
+    const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset, voice, onNavigate);
     await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await emit(sb, user.id, "core.completed", "core", { conversationId: cid });
     void reflectOnTurn(sb, user.id, cid); // learn in the background; never delays the answer, never throws
@@ -48,7 +49,7 @@ export async function POST(req: Request) {
   };
 
   if (new URL(req.url).searchParams.get("stream") === "1") {
-    // NDJSON events: {type:"start",conversationId} {type:"delta",text}* then {type:"done",...} or {type:"error",error}.
+    // NDJSON events: {type:"start",conversationId} {type:"delta",text}* {type:"navigate",to}? then {type:"done",...} or {type:"error",error}.
     const ac = new AbortController();
     req.signal.addEventListener("abort", () => ac.abort(), { once: true }); // client went away: kill the CLI
     const enc = new TextEncoder();
@@ -60,7 +61,8 @@ export async function POST(req: Request) {
         try {
           const { text, citations, trace } = await answer(
             (text) => { shown += text; send({ type: "delta", text }); }, ac.signal,
-            () => { if (shown) { shown = ""; send({ type: "reset" }); } });
+            () => { if (shown) { shown = ""; send({ type: "reset" }); } },
+            (to) => send({ type: "navigate", to }));
           send({ type: "done", conversationId: cid, answer: text, citations, trace });
         } catch (e) {
           // Stopped: keep what was already shown, so the saved chat matches the screen.

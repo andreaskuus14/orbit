@@ -68,7 +68,7 @@ Run `npm run app:install` once. It puts an **ORBIT** icon on your Desktop and in
 
 ## Tests
 `npm test` runs unit tests (search fusion, citations, SSRF guard, HTML extraction, validation) and a **real** call through your Claude Code CLI (skipped if it isn't installed).
-**Not verified in the build environment:** `npm install`, `next build`, type-checking and the UI (its network blocked npm). Run `npm run typecheck && npm run build` first and send me any errors.
+**Not verified in the build environment:** `npm install`, `next build`, type-checking and the UI (its network blocked npm). Run `npm run typecheck && npm run app:rebuild` first (not `npm run build` while ORBIT runs: it overwrites the running server's build) and send me any errors.
 
 ## Layout
 `src/lib/claude.ts` Claude Code bridge · `core.ts` CORE turn · `memory.ts` capture/search · `src/components/Galaxy.tsx` 3D scene · `panels.tsx` workspaces · `supabase/migrations` schema with row-level security on every table.

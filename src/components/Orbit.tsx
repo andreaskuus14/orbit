@@ -10,6 +10,7 @@ import { VOICE_ASK } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
+import { NAV_EVENT, navReply, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
@@ -44,6 +45,10 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const voice = useVoiceInput();
   const [wakeGreeting, setWakeGreeting] = useState<string | null>(null);
   const [tapToTalk, setTapToTalk] = useState(false);
+  // CORE navigation: sub-targets for the worlds (new object per command), and a world we're flying to through the galaxy.
+  const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string } | null>(null);
+  const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" } | null>(null);
+  const [approach, setApproach] = useState<PanelId | null>(null);
 
   // Back from Google's YouTube consent screen (?studio=…): reopen STUDIO; StudioStats reads and clears the query.
   useEffect(() => { if (new URLSearchParams(location.search).has("studio")) setPanel("studio"); }, []);
@@ -77,12 +82,19 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     })();
   }, [startVoice]);
 
-  // Voice questions (mic or "Hey Orbit") always go to CORE, whatever the bar's mode.
+  // Voice questions (mic or "Hey Orbit") go to CORE whatever the bar's mode; navigation commands fly straight there.
   useEffect(() => {
     const onAsk = (e: Event) => {
       const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
       if (!text) return;
       setCmdErr("");
+      const nav = parseNavCommand(text); // "go to local news": fly there and say so, without opening CORE
+      if (nav) {
+        stopSpeech();
+        if (speechSettings().speak) speakChunk(navReply(nav));
+        dispatchEvent(new CustomEvent(NAV_EVENT, { detail: nav }));
+        return;
+      }
       dispatchEvent(new CustomEvent(VOICE_ASKED));
       setPending(text); setPanel("core");
     };
@@ -145,9 +157,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); cmdRef.current?.focus(); }
       // ← / → fly to the previous / next planet; Esc closes. Neither while typing (Esc in a form would lose the draft).
       const el = e.target as HTMLElement | null;
-      const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable);
-      if (e.key === "Escape" && !typing) setPanel(null);
-      if (!typing && !e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+      // VIDEO/AUDIO: Chrome seeks a focused player with ←/→ after this handler sees the key.
+      const typing = !!el && (/^(INPUT|TEXTAREA|SELECT|VIDEO|AUDIO)$/.test(el.tagName) || el.isContentEditable);
+      const inWorld = !!el?.closest?.(".studio, [role=region]"); // arrows inside a world's panels are for its controls
+      if (e.key === "Escape" && !typing) { setPanel(null); setApproach(null); }
+      if (!typing && !inWorld && !e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
         setPanel((cur) => {
           const i = cur ? ORDER.indexOf(cur) : -1;
           const next = e.key === "ArrowRight" ? (i + 1) % ORDER.length : (i <= 0 ? ORDER.length : i) - 1;
@@ -163,6 +177,32 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const openTask = useCallback((id: string) => { setFocusTask(id); setPanel("operations"); }, []);
   const openMemory = useCallback((id: string) => { setFocusMemory(id); setPanel("memory"); }, []);
   const consumed = useCallback(() => setPending(null), []);
+
+  // orbit:navigate (command bar, CORE, voice): drawers open over the galaxy as a click does; a world is entered by
+  // flying to its planet in the galaxy first (also when leaving another world), then the world's own fly-in takes over.
+  useEffect(() => {
+    const onNav = (e: Event) => {
+      const t = (e as CustomEvent<NavTarget>).detail;
+      if (t.country || t.region) setNewsFocus({ country: t.country, region: t.region });
+      if (t.view) setStudioOpen({ view: t.view });
+      if (t.panel === (approach ?? panel)) return; // already there (or on the way): the world flies to the sub-target itself
+      const world = t.panel === "intelligence" || (t.panel !== null && WORLDS.includes(t.panel));
+      if (world && view === "3d" && !reduced) { setPanel(null); setApproach(t.panel); return; }
+      setApproach(null);
+      if (t.panel) select(t.panel); else setPanel(null);
+    };
+    addEventListener(NAV_EVENT, onNav);
+    return () => removeEventListener(NAV_EVENT, onNav);
+  }, [panel, approach, view, reduced, select]);
+  useEffect(() => {
+    if (!approach) return;
+    const t = setTimeout(() => { setPanel(approach); setApproach(null); }, 1800); // ≈ the galaxy's flight time
+    return () => clearTimeout(t);
+  }, [approach]);
+  useEffect(() => { if (panel) setApproach(null); }, [panel]); // a click or arrow key during the flight wins
+  // Sub-targets apply to one visit only: drop them once we've left that world.
+  useEffect(() => { if (panel !== "intelligence" && approach !== "intelligence") setNewsFocus(null); }, [panel, approach]);
+  useEffect(() => { if (panel !== "studio" && approach !== "studio") setStudioOpen(null); }, [panel, approach]);
   const clearGreeting = useCallback(() => setWakeGreeting(null), []);
 
   async function runCommand(e: React.FormEvent) {
@@ -172,6 +212,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     if (!text) return;
     voice.clearError();
     setCmdErr("");
+    const nav = parseNavCommand(text); // in either mode: "open game dev" is a place, not a question or a task
+    if (nav) { setCmd(""); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: nav })); return; }
     if (cmdMode === "ask") { setCmd(""); setPending(text); setPanel("core"); return; }
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
     try {
@@ -190,14 +232,14 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   return (
     <main className="relative h-dvh w-full overflow-hidden">
       {panel === "intelligence" && !gameOpen ? (
-        <NewsGlobe reduced={reduced} onClose={() => setPanel(null)} />
+        <NewsGlobe reduced={reduced} onClose={() => setPanel(null)} focus={newsFocus} />
       ) : panel === "studio" ? (
-        <StudioWorld flat={view !== "3d"} reduced={reduced} onClose={() => setPanel(null)} onOpenTask={openTask} />
+        <StudioWorld flat={view !== "3d"} reduced={reduced} onClose={() => setPanel(null)} onOpenTask={openTask} open={studioOpen} />
       ) : panel === "creation" ? (
         <DevWorld flat={view !== "3d"} reduced={reduced} onClose={() => setPanel(null)} onOpenTask={openTask} onPlaying={setGameOpen} />
       ) : view === "3d" && gameOpen ? null : view === "3d" ? (
         <div className="absolute inset-0">
-          <Galaxy selected={panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} />
+          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} />
         </div>
       ) : (
         <nav aria-label="Planets" className="absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">

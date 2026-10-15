@@ -8,7 +8,10 @@ import { bytes, isJobActive, mmss, parseClipUrl } from "@/lib/clips/format";
 // Mirrors src/lib/clips/types.ts (declared here so this file stands alone).
 type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
-  status: ClipStatus; video?: string; thumb?: string; error?: string };
+  status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish };
+type ClipPublish = { status: "uploading" | "done" | "failed"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string };
+type YtStatus = { configured: boolean; connected: boolean; canUpload?: boolean };
+type PublishBody = { title: string; description: string; privacy: "private" | "unlisted" | "public"; publishAt?: string };
 type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering" | "done" | "failed";
 type ClipJob = { id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: { count: number; maxSec: number; captions: boolean } };
@@ -79,6 +82,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
   const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true });
   const [showRejected, setShowRejected] = useState(false);
   const [visible, setVisible] = useState(true);
+  const [yt, setYt] = useState<YtStatus | null>(null);
   const seq = useRef(0);
 
   const load = useCallback(async (quiet = false) => {
@@ -91,6 +95,8 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
     finally { setLoading(false); } // unconditional: an edit bumps seq, which must not strand the spinner
   }, []);
   useEffect(() => { void load(); }, [load]);
+  const loadYt = useCallback(() => api<YtStatus>("/api/studio/oauth/status").then(setYt, () => setYt(null)), []);
+  useEffect(() => { void loadYt(); }, [loadYt]);
 
   // Poll every 2 s while anything is in progress and the tab is visible.
   useEffect(() => {
@@ -98,7 +104,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
     on(); document.addEventListener("visibilitychange", on);
     return () => document.removeEventListener("visibilitychange", on);
   }, []);
-  const active = !!data?.jobs.some(isJobActive) || !!data?.downloads?.some((d) => d.status === "queued" || d.status === "downloading");
+  const active = !!data?.jobs.some((j) => isJobActive(j) || j.clips.some((c) => c.publish?.status === "uploading")) || !!data?.downloads?.some((d) => d.status === "queued" || d.status === "downloading");
   useEffect(() => {
     if (!active || !visible) return;
     const t = setInterval(() => void load(true), 2000);
@@ -128,6 +134,12 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
   const patchClip = (job: string, clip: string, body: { status?: "approved" | "rejected"; title?: string }) => act(`clip:${job}/${clip}`, async () => {
     const { clip: next } = await api<{ clip: Clip }>(`${API}/${encodeURIComponent(job)}/${encodeURIComponent(clip)}`, { method: "PATCH", body });
     seq.current++; // a poll already in flight carries the pre-edit state: drop it
+    setData((d) => d && { ...d, jobs: d.jobs.map((j) => (j.id !== job ? j : { ...j, clips: j.clips.map((c) => (c.id === clip ? next : c)) })) });
+  });
+
+  const publish = (job: string, clip: string, body: PublishBody) => act(`pub:${job}/${clip}`, async () => {
+    const { clip: next } = await api<{ clip: Clip }>(`${API}/${encodeURIComponent(job)}/${encodeURIComponent(clip)}/publish`, { method: "POST", body });
+    seq.current++;
     setData((d) => d && { ...d, jobs: d.jobs.map((j) => (j.id !== job ? j : { ...j, clips: j.clips.map((c) => (c.id === clip ? next : c)) })) });
   });
 
@@ -167,7 +179,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
         <h2 className="hud-title studio-title truncate">CLIP FACTORY</h2>
         <div className="flex items-center gap-2">
           {active && <span className="muted text-[11px]" aria-live="polite">Working… auto-updating</span>}
-          <button className="chip" onClick={() => load()} disabled={loading} aria-label="Refresh clip factory">{loading ? "Loading…" : "Refresh"}</button>
+          <button className="chip" onClick={() => { void load(); void loadYt(); }} disabled={loading} aria-label="Refresh clip factory">{loading ? "Loading…" : "Refresh"}</button>
           {onClose && <button className="chip" onClick={onClose} aria-label="Close clip factory">×</button>}
         </div>
       </div>
@@ -279,9 +291,9 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
             {!jobs.length && <p className="muted text-sm">No clip jobs yet. Pick a video in the inbox and press “Make clips”.</p>}
             <div className="space-y-3">
               {jobs.map((j) => (
-                <JobCard key={j.id} job={j} reduced={reduced} showRejected={showRejected} busy={busy} Note={Note}
+                <JobCard key={j.id} job={j} reduced={reduced} showRejected={showRejected} busy={busy} Note={Note} yt={yt}
                   onRetry={() => make(j.source, j.options, true)} onDelete={() => del(j.id)}
-                  onPatch={(clip, body) => patchClip(j.id, clip, body)} />
+                  onPatch={(clip, body) => patchClip(j.id, clip, body)} onPublish={(clip, body) => publish(j.id, clip, body)} />
               ))}
             </div>
           </Section>
@@ -385,10 +397,11 @@ function Choice({ legend, values, value, fmt, onChange }: { legend: string; valu
 /* ---------- jobs & clips ---------- */
 
 type PatchFn = (clip: string, body: { status?: "approved" | "rejected"; title?: string }) => Promise<boolean>;
+type PublishFn = (clip: string, body: PublishBody) => Promise<boolean>;
 
-function JobCard({ job, reduced, showRejected, busy, Note, onRetry, onDelete, onPatch }: {
-  job: ClipJob; reduced: boolean; showRejected: boolean; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode;
-  onRetry: () => void; onDelete: () => void; onPatch: PatchFn;
+function JobCard({ job, reduced, showRejected, busy, Note, yt, onRetry, onDelete, onPatch, onPublish }: {
+  job: ClipJob; reduced: boolean; showRejected: boolean; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode; yt: YtStatus | null;
+  onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn;
 }) {
   const working = isJobActive(job), pct = Math.round(Math.min(1, Math.max(0, job.progress || 0)) * 100);
   const clips = job.clips.filter((c) => showRejected || c.status !== "rejected");
@@ -425,7 +438,12 @@ function JobCard({ job, reduced, showRejected, busy, Note, onRetry, onDelete, on
 
       {clips.length > 0 && (
         <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2" aria-label={`Clips from ${job.source}`}>
-          {clips.map((c) => <li key={c.id}><ClipCard clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />} /></li>)}
+          {clips.map((c) => (
+            <li key={c.id}>
+              <ClipCard clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />}
+                publish={c.status === "approved" && <PublishBox clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish} note={<Note k={`pub:${job.id}/${c.id}`} />} />} />
+            </li>
+          ))}
         </ul>
       )}
       {!clips.length && job.status === "done" && <p className="muted mt-2 text-xs">{hidden ? `All ${hidden} clips are rejected (use “Show rejected”).` : "No clips were found in this video."}</p>}
@@ -433,7 +451,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, onRetry, onDelete, on
   );
 }
 
-function ClipCard({ clip: c, busy, onPatch, note }: { clip: Clip; busy: boolean; onPatch: PatchFn; note: ReactNode }) {
+function ClipCard({ clip: c, busy, onPatch, note, publish }: { clip: Clip; busy: boolean; onPatch: PatchFn; note: ReactNode; publish: ReactNode }) {
   const [play, setPlay] = useState(false);
   const [edit, setEdit] = useState<string | null>(null);
   const reviewable = c.status === "ready" || c.status === "approved" || c.status === "rejected";
@@ -463,7 +481,6 @@ function ClipCard({ clip: c, busy, onPatch, note }: { clip: Clip; busy: boolean;
       </div>
 
       <Status text={CLIP_LABEL[c.status] ?? c.status} tone={toneOf(c.status)} />
-      {c.status === "approved" && <p className="rounded-md px-1.5 py-1 text-[11px]" style={{ background: "rgba(255,143,171,0.16)", color: "#ffd6e0" }}>✓ Approved — ready to publish (publishing comes next)</p>}
 
       {edit != null ? (
         <form className="flex flex-col gap-1" onSubmit={(e) => { e.preventDefault(); void save(); }}>
@@ -489,12 +506,85 @@ function ClipCard({ clip: c, busy, onPatch, note }: { clip: Clip; busy: boolean;
         {reviewable && (
           <>
             {c.status !== "rejected" && <button className="chip" onClick={() => onPatch(c.id, { status: "approved" })} disabled={busy || c.status === "approved"} aria-pressed={c.status === "approved"} aria-label={`Approve ${c.title}`}>✓ Approve</button>}
-            {c.status !== "rejected" && <ConfirmButton label="✕ Reject" aria={`Reject ${c.title}`} onConfirm={() => void onPatch(c.id, { status: "rejected" })} disabled={busy} />}
+            {c.status !== "rejected" && <ConfirmButton label="✕ Reject" aria={`Reject ${c.title}`} onConfirm={() => void onPatch(c.id, { status: "rejected" })} disabled={busy || c.publish?.status === "uploading"} />}
           </>
         )}
         {c.video && <a className="chip" href={media(c.video)} download aria-label={`Download ${c.title}`}>⬇ Download</a>}
       </div>
       {note}
+      {publish}
     </div>
+  );
+}
+
+const LOCKED_NOTE = "Google keeps API uploads from unverified apps private. If YouTube locks it as private, open it in YouTube Studio and set it to Public.";
+const PUB_BOX = { background: "rgba(255,143,171,0.12)", color: "#ffd6e0" };
+const ext = { target: "_blank", rel: "noopener noreferrer" } as const;
+/** datetime-local value ("YYYY-MM-DDTHH:mm", local time) for a Date. */
+const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+
+function PublishBox({ clip: c, yt, reduced, busy, onPublish, note }: { clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; onPublish: PublishFn; note: ReactNode }) {
+  const [form, setForm] = useState<PublishBody | null>(null);
+  const [at, setAt] = useState("");
+  const p = c.publish;
+  const open = () => { setAt(""); setForm({ title: c.title.replace(/[<>]/g, "").slice(0, 100), description: `${c.hook.replace(/[<>]/g, "")}\n\n#shorts`.trim(), privacy: "private" }); };
+  const submit = async () => {
+    if (!form) return;
+    if (await onPublish(c.id, { ...form, ...(at ? { publishAt: new Date(at).toISOString() } : {}) })) setForm(null);
+  };
+  const reconnect = (text: string) => <p className="rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX}>{text} <a className="underline" href="/api/studio/oauth/start">Connect YouTube</a></p>;
+
+  if (p?.status === "uploading") {
+    return <Progress pct={Math.round(Math.min(1, Math.max(0, p.progress ?? 0)) * 100)} step="Uploading to YouTube" label={`Upload progress for ${c.title}`} reduced={reduced} />;
+  }
+  if (p?.status === "done" && p.videoId) {
+    return (
+      <div className="space-y-1 rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX} role="status">
+        <p>✓ On YouTube{p.privacy ? ` · ${p.privacy}` : ""}</p>
+        <a className="block underline" href={`https://youtube.com/shorts/${p.videoId}`} {...ext}>Open on YouTube ↗</a>
+        <a className="block underline" href={`https://studio.youtube.com/video/${p.videoId}/edit`} {...ext}>Open in YouTube Studio ↗</a>
+        <p className="muted">{LOCKED_NOTE}</p>
+      </div>
+    );
+  }
+  if (yt && !yt.configured) return <p className="muted text-xs">YouTube sign-in isn&apos;t set up: add YOUTUBE_OAUTH_CLIENT_ID and YOUTUBE_OAUTH_CLIENT_SECRET to .env.local.</p>;
+  if (!yt?.connected) return reconnect("YouTube isn't connected.");
+  if (!yt.canUpload) return reconnect("Reconnect YouTube to allow uploads.");
+  if (!form) {
+    return (
+      <div className="space-y-1">
+        {p?.status === "failed" && <p className="error text-[11px]" role="alert">⚠ {p.error || "The upload failed."}</p>}
+        <button className="chip" onClick={open} aria-label={`Publish ${c.title} to YouTube`}>{p?.status === "failed" ? "↻ Try publishing again" : "▶ Publish"}</button>
+        {note}
+      </div>
+    );
+  }
+  const set = (patch: Partial<PublishBody>) => setForm((f) => f && { ...f, ...patch });
+  const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  return (
+    <form className="flex flex-col gap-1.5 rounded-md border border-white/10 p-1.5" aria-label={`Publish ${c.title} to YouTube`} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+      <label><span className={label}>Title</span>
+        <input className="field w-full !px-2 !py-1 !text-xs" value={form.title} maxLength={100} required onChange={(e) => set({ title: e.target.value })} />
+      </label>
+      <label><span className={label}>Description</span>
+        <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} value={form.description} maxLength={5000} onChange={(e) => set({ description: e.target.value })} />
+      </label>
+      <label><span className={label}>Visibility</span>
+        <select className="field w-full !px-2 !py-1 !text-xs" value={form.privacy} disabled={!!at} onChange={(e) => set({ privacy: e.target.value as PublishBody["privacy"] })}>
+          <option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>
+        </select>
+      </label>
+      <label><span className={label}>Schedule (optional)</span>
+        <input className="field w-full !px-2 !py-1 !text-xs" type="datetime-local" value={at} min={localInput(new Date())} onChange={(e) => setAt(e.target.value)} />
+      </label>
+      {at && <p className="muted text-[11px]">Stays private until then, then goes public.</p>}
+      {/[<>]/.test(form.title + form.description) && <p className="error text-[11px]">YouTube doesn&apos;t allow &lt; or &gt;.</p>}
+      <p className="muted text-[11px]">{LOCKED_NOTE}</p>
+      <div className="flex gap-1">
+        <button type="submit" className="chip" disabled={busy || !form.title.trim() || /[<>]/.test(form.title + form.description)}>{busy ? "Starting…" : "▶ Upload"}</button>
+        <button type="button" className="chip" onClick={() => setForm(null)}>Cancel</button>
+      </div>
+      {note}
+    </form>
   );
 }

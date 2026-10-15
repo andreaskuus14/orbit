@@ -5,6 +5,7 @@ import { goToSleep } from "./voice/sleep";
 import { createClient } from "@/lib/supabase/client";
 import { numberCitations } from "@/lib/pure";
 import { takeLines } from "@/lib/streamjson";
+import { NAV_EVENT, navReply, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { planetById, type PlanetId } from "@/lib/planets";
 import { Markdown } from "./AgentsPanels";
@@ -46,9 +47,10 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   // Abort a running answer only on a real unmount: React dev mode unmounts and remounts once right away,
   // which used to cancel the command-bar question instantly ("Stopped.").
   const alive = useRef(false);
+  const flying = useRef(false); // we navigated away ourselves: let the spoken "Flying to …" finish
   useEffect(() => {
     alive.current = true;
-    return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) { ac?.abort(); stopSpeech(); } }, 0); };
+    return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) { ac?.abort(); if (!flying.current) stopSpeech(); } }, 0); };
   }, []);
 
   const send = useCallback(async (text: string, fromVoice?: boolean) => {
@@ -61,12 +63,16 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     const talk = fromVoice || takeVoiceAsked();
     const say = (parts: string[]) => { if (talk && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
     const voiceOut = sentenceStream();
+    const fly = (to: NavTarget) => { flying.current = to.panel !== "core"; dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to })); };
     setMsgs((m) => [...m, { role: "user", content: message }]);
     setInput("");
+    const nav = parseNavCommand(message); // plain "go to / open / show me X": no model call
+    if (nav) { setMsgs((m) => [...m, { role: "assistant", content: navReply(nav) }]); say([navReply(nav)]); fly(nav); return; }
     setBusy(true);
     const ac = new AbortController();
     abort.current = ac;
     let partial = "";
+    let navTo: NavTarget | null = null; // CORE's navigate tool: fly once the answer is done, so leaving the panel can't cut it off
     let raf = 0;
     const flush = () => { cancelAnimationFrame(raf); raf = 0; };
     try {
@@ -83,13 +89,15 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       let buf = "";
       let finished = false;
       const handle = (line: string) => {
-        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string };
+        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget };
         if (ev.conversationId) convo.current = ev.conversationId;
         if (ev.type === "delta" && ev.text) {
           partial += ev.text;
           say(voiceOut.push(ev.text));
           // One render per frame at most, and only the streaming bubble changes.
           if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLive(partial); });
+        } else if (ev.type === "navigate" && ev.to) {
+          navTo = ev.to;
         } else if (ev.type === "reset") {
           partial = "";
           voiceOut.reset();
@@ -102,6 +110,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? ""));
           setLive(null);
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace }]);
+          if (navTo) fly(navTo);
         } else if (ev.type === "error") {
           throw new Error(ev.error || "CORE failed");
         }

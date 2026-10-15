@@ -19,6 +19,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ job: s
     const clip = job?.clips.find((c) => c.id === clipId);
     if (!job || !clip) return Response.json({ error: "Clip not found" }, { status: 404 });
     if (status && (clip.status === "rendering" || clip.status === "failed")) return Response.json({ error: `Clip is ${clip.status}` }, { status: 409 });
+    if (status === "rejected" && clip.publish?.status === "uploading") return Response.json({ error: "Wait for the YouTube upload to finish" }, { status: 409 });
     if (status === "approved" && clip.status === "rejected") return Response.json({ error: "Rejected clips' files are deleted" }, { status: 409 });
     await updateClip(job, clip, { status, title: typeof title === "string" ? title.replace(/\s+/g, " ").trim().slice(0, 70) : undefined });
     return Response.json({ clip });

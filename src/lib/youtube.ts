@@ -43,7 +43,9 @@ async function load(key: string, who: { handle: string } | { id: string }): Prom
   const ch = await api<{ items?: ChannelItem[] }>("channels", { part: "snippet,statistics,contentDetails", ...("handle" in who ? { forHandle: who.handle } : { id: who.id }) }, key);
   const c = ch.items?.[0];
   if (!c) throw new Error("YouTube channel not found. Check YOUTUBE_CHANNEL.");
-  const pl = await api<{ items?: { contentDetails: { videoId: string } }[] }>("playlistItems", { part: "contentDetails", playlistId: c.contentDetails.relatedPlaylists.uploads, maxResults: "50" }, key);
+  // A channel with no uploads has no uploads playlist yet: YouTube answers 404 rather than an empty list.
+  const pl = await api<{ items?: { contentDetails: { videoId: string } }[] }>("playlistItems", { part: "contentDetails", playlistId: c.contentDetails.relatedPlaylists.uploads, maxResults: "50" }, key)
+    .catch((e: Error) => { if (/^YouTube API 404/.test(e.message)) return { items: [] }; throw e; });
   const ids = (pl.items ?? []).map((i) => i.contentDetails.videoId).filter(Boolean);
   const vs = ids.length ? await api<{ items?: VideoItem[] }>("videos", { part: "snippet,statistics,contentDetails", id: ids.join(",") }, key) : { items: [] };
   const videos: Video[] = (vs.items ?? []).map((v) => ({

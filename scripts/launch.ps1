@@ -85,6 +85,15 @@ if ($Rebuild) {
 }
 
 $health = Get-Health
+if ($health -and $health.mode -eq "production" -and -not $Dev) {
+  # A running server keeps serving its old build after an update or a manual "npm run build" (which also breaks it).
+  $diskId = "$(Get-Content $buildId -Raw -ErrorAction SilentlyContinue)".Trim()
+  if ((Test-BuildStale) -or ($health.buildId -and $diskId -ne $health.buildId)) {
+    Write-Log "ORBIT changed since the server started; restarting it on a fresh build."
+    & (Join-Path $PSScriptRoot "stop.ps1")
+    $health = $null
+  }
+}
 if (-not $health) {
   $stale = (-not $Dev) -and (Test-BuildStale)
   # Port check, not HTTP: a server busy compiling can miss the timeout, and a second one would land on 3001.

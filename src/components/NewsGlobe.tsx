@@ -586,7 +586,8 @@ type Data = { hours: number; total: number; untagged: number; hotspots: Hotspot[
 type Search = { q: string; results: Result[]; hotspots: Hotspot[] };
 const WINDOWS = [{ h: 24, label: "24h" }, { h: 72, label: "3d" }, { h: 168, label: "7d" }];
 
-export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; reduced: boolean }) {
+/** focus: a country or region from CORE navigation; a new object flies there with the same camera moves as a click. */
+export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string } | null }) {
   const glr = useGlRecovery();
   const [hours, setHours] = useState(72);
   const [data, setData] = useState<Data | null>(null);
@@ -602,6 +603,12 @@ export default function NewsGlobe({ onClose, reduced }: { onClose: () => void; r
   // Only the latest request may update the screen (fast clicks, Clear during a search).
   const loadSeq = useRef(0);
   const searchSeq = useRef(0);
+  useEffect(() => {
+    if (!goTo || (!goTo.country && !goTo.region)) return;
+    searchSeq.current++; setSearching(false); setSearch(null); // region chips only exist outside search
+    setRegion(goTo.region ?? (goTo.country ? regionOf(goTo.country) : null));
+    setSelected(goTo.country ?? null);
+  }, [goTo]);
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;

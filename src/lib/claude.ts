@@ -39,6 +39,12 @@ async function prepare(system: string, format: string[]) {
   return { dir, start };
 }
 
+/** Not awaited and never throws: after a timeout kill, Windows keeps the dir locked (EPERM) until the tree exits,
+ *  and a cleanup error must not replace the real one. rm itself retries EPERM/EBUSY with backoff. */
+function removeTempDir(dir: string) {
+  rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
+}
+
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer). */
 /** With shell:true on Windows, kill() only ends cmd.exe and leaves claude running: kill the whole tree there. */
 function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean }) {
@@ -75,7 +81,7 @@ async function runClaude(prompt: string, system: string): Promise<ClaudeResult> 
       child.stdin.end(prompt);
     });
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    removeTempDir(dir);
   }
 }
 
@@ -125,7 +131,7 @@ async function runClaudeStream(prompt: string, system: string, onDelta: (text: s
       child.stdin.end(prompt);
     });
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    removeTempDir(dir);
   }
 }
 

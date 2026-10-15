@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { YT_SCOPES } from "./yt-analytics-pure";
+import { YT_SCOPES, hasScopes } from "./yt-analytics-pure";
 
 // STUDIO analytics: Google OAuth for the owner's channel. The refresh token lives only in a file outside the repo (0600 on Unix; on Windows the
 // %LOCALAPPDATA% ACL, i.e. this user + admins, protects it)
@@ -96,7 +96,8 @@ export async function connect(code: string, verifier: string, redirectUri: strin
   if (!t.access_token || !t.refresh_token) throw new OAuthError("no_refresh");
   const fail = async (reason: string) => { await revoke(t.refresh_token!); throw new OAuthError(reason); }; // don't leave an unused grant alive
   const scope = t.scope ?? "";
-  if (!YT_SCOPES.every((s) => scope.split(" ").includes(s))) await fail("scope"); // user unticked a box on the consent screen
+  // Only the read scopes are required (analytics); upload is optional and checked when publishing.
+  if (!hasScopes(scope, YT_SCOPES)) await fail("scope"); // user unticked a box on the consent screen
   const res = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", {
     headers: { authorization: `Bearer ${t.access_token}` }, signal: AbortSignal.timeout(10_000), cache: "no-store",
   }).catch(() => null);

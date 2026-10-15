@@ -13,7 +13,9 @@ export async function GET() {
   startClipQueue();
   await ensureDirs();
   const [jobs, downloads] = await Promise.all([listJobs(), listDownloads()]);
-  return Response.json({ root: studioRoot(), tools: await checkTools(), inbox: await listInbox(jobs, downloads), jobs: jobs.slice(0, 30), downloads: downloads.slice(0, 20) });
+  // Newest 30, plus any older job still running or holding clips to review/publish, so those never drop off the list.
+  const shown = jobs.filter((j, i) => i < 30 || !["done", "failed"].includes(j.status) || j.clips.some((c) => c.status === "ready" || c.status === "approved"));
+  return Response.json({ root: studioRoot(), tools: await checkTools(), inbox: await listInbox(jobs, downloads), jobs: shown, downloads: downloads.slice(0, 20) });
 }
 
 export async function POST(req: Request) {

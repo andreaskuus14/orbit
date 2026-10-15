@@ -252,7 +252,7 @@ function ViewOffset() {
 
 type Sort = "newest" | "views" | "takeoff";
 
-export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { onClose: () => void; reduced: boolean; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */ }) {
+export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }: { onClose: () => void; reduced: boolean; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" } | null /* from CORE navigation */ }) {
   const glr = useGlRecovery();
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
@@ -262,6 +262,17 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { on
   const [sort, setSort] = useState<Sort>("newest");
   const [stats, setStats] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio"));
   const [clips, setClips] = useState(false); // Stats and Clips share the left overlay: opening one closes the other
+  useEffect(() => { if (open) { setStats(open.view === "stats"); setClips(open.view === "clips"); } }, [open]);
+  useEffect(() => { // Esc closes the open overlay first; capture phase + preventDefault keeps Orbit from closing the world
+    if (!stats && !clips) return;
+    const h = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== "Escape" || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault(); setStats(false); setClips(false);
+    };
+    addEventListener("keydown", h, true);
+    return () => removeEventListener("keydown", h, true);
+  }, [stats, clips]);
   const [idea, setIdea] = useState<{ busy: boolean; error?: string }>({ busy: false });
   const seq = useRef(0);
 
@@ -359,8 +370,9 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { on
       </Canvas>}
 
       {hoverVid && (
-        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="studio-tip" style={{ transform: `translate(${hover.x + 16}px, ${hover.y + 14}px)` }}>
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-[17] overflow-hidden">
+          {/* flip left/up near the right/bottom edge so the card isn't cut off */}
+          <div className="studio-tip" style={{ transform: `translate(${hover.x + 256 > innerWidth ? hover.x - 256 : hover.x + 16}px, ${hover.y + 210 > innerHeight ? hover.y - 210 : hover.y + 14}px)` }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {hoverVid.thumb && <img src={hoverVid.thumb} alt="" referrerPolicy="no-referrer" />}
             <b>{clip(hoverVid.title, 60)}</b>
@@ -384,7 +396,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { on
         <div className="flex items-center justify-between gap-2">
           <div className="hud-title studio-title">STUDIO{live ? ` · ${live.channel.title.toUpperCase()}` : ""}</div>
           <div className="flex shrink-0 gap-1">
-            {data?.configured !== false && <button className="chip" aria-pressed={stats} onClick={() => { setStats((s) => !s); setClips(false); }}>📈 Stats</button>}
+            {<button className="chip" aria-pressed={stats} onClick={() => { setStats((s) => !s); setClips(false); }}>📈 Stats</button>}
             <button className="chip" aria-pressed={clips} onClick={() => { setClips((c) => !c); setStats(false); }}>🎬 Clips</button>
             {data?.configured !== false && <button className="chip" onClick={() => load(true)} disabled={loading} aria-label="Refresh channel data">{loading ? "Loading…" : "Refresh"}</button>}
           </div>
@@ -474,7 +486,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat }: { on
         </div>
       )}
 
-      <button className="chip absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+      <button className="chip absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
   );
 }
