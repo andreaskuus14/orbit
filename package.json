@@ -2,7 +2,7 @@
   "name": "orbit",
   "version": "0.1.0",
   "private": true,
-  "description": "ORBIT — your mind has a universe. Phase 1: auth, galaxy, CORE chat, memory.",
+  "description": "ORBIT \u2014 your mind has a universe. Phase 1: auth, galaxy, CORE chat, memory.",
   "scripts": {
     "dev": "next dev -H 127.0.0.1 -p 3000",
     "build": "next build",
@@ -26,15 +26,17 @@
     "node": ">=22.6"
   },
   "dependencies": {
-    "@react-three/drei": "^10.7.0",
     "@huggingface/transformers": "^3.7.0",
+    "@react-three/drei": "^10.7.0",
     "@react-three/fiber": "^9.3.0",
+    "@react-three/postprocessing": "^3.0.4",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.75.0",
     "ffmpeg-static": "^5.2.0",
     "mammoth": "^1.9.0",
     "next": "^15.5.0",
     "playwright-core": "^1.55.0",
+    "postprocessing": "^6.37.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "three": "^0.180.0",
