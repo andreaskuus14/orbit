@@ -2,7 +2,8 @@
 # Offline Windows speech recognition (System.Speech). No audio is stored or sent anywhere.
 # Exit codes: 0 already running, 2 System.Speech missing, 3 no recognizer, 4 no microphone, 5 audio input stopped.
 param(
-  [double]$MinConfidence = 0.7,
+  [double]$MinConfidence = 0.5, # the wake grammar only knows the wake phrases, so modest confidence is enough
+  [switch]$DebugRun,             # wake:debug - print everything heard to this window (never to the log), ignore a background listener
   [int]$CooldownSeconds = 10,
   [string]$Url = "http://localhost:3000"
 )
@@ -25,8 +26,8 @@ function Write-Log([string]$msg) {
 # One listener at a time (the Startup shortcut and install.ps1 may both start one).
 $mutex = New-Object System.Threading.Mutex($false, "Local\orbit-wake")
 try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
-if (-not $owned) { Write-Log "Another ORBIT wake listener is already running; exiting."; exit 0 }
-Set-Content -Path $pidFile -Value $PID
+if (-not $owned -and -not $DebugRun) { Write-Log "Another ORBIT wake listener is already running; exiting."; exit 0 }
+if (-not $DebugRun) { Set-Content -Path $pidFile -Value $PID }
 
 function Test-Orbit {
   try { (Invoke-WebRequest "$Url/login" -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200 } catch { $false }
@@ -97,7 +98,12 @@ try {
   # A dictation grammar soaks up ordinary speech, so it isn't forced onto the wake phrases (far fewer false triggers).
   # Its text never leaves this process and is never logged.
   try { $engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)) } catch { Write-Log "Note: dictation grammar unavailable; expect more false triggers." }
-  $phrase = '^(hey )?orbit(al)? wake( up)?$'
+  # Loose on purpose: dictation often hears "orbit" as "or bit", "orbits", "orbital", "a bit" and "wake up" as "wake-up"/"wakeup".
+  $phrase = '\b(orbit|orbits|orbital|orbitals|or bit|orb it|our bit|orbed)\s+(\w+\s+)?(wake|wakes|woke|wake up|wakeup)\b'
+  if ($DebugRun) {
+    Register-ObjectEvent -InputObject $engine -EventName AudioLevelUpdated -SourceIdentifier "orbit.level" | Out-Null
+    Write-Host "DEBUG: printing everything heard (not logged). Talk normally, then say 'orbit wake up'. Ctrl+C to stop." -ForegroundColor Cyan
+  }
 
   Register-ObjectEvent -InputObject $engine -EventName SpeechRecognized -SourceIdentifier "orbit.heard" | Out-Null
   Register-ObjectEvent -InputObject $engine -EventName RecognizeCompleted -SourceIdentifier "orbit.done" | Out-Null
@@ -105,6 +111,7 @@ try {
   Write-Log "Listening for 'orbital wake up' (recognizer $($info.Culture.Name), min confidence $MinConfidence, pid $PID)."
 
   $last = [datetime]::MinValue
+  $lastLevel = [datetime]::MinValue
   while ($true) {
     $ev = Wait-Event
     Remove-Event -EventIdentifier $ev.EventIdentifier
@@ -113,9 +120,14 @@ try {
       Write-Log "ERROR: audio input stopped ($(if ($err) { $err.Message } else { 'microphone disconnected?' })). Exiting."
       exit 5
     }
+    if ($ev.SourceIdentifier -eq "orbit.level") { # proves the mic reaches the recognizer
+      if (((Get-Date) - $lastLevel).TotalSeconds -ge 1) { $lastLevel = Get-Date; Write-Host ("  mic level {0,3} {1}" -f $ev.SourceEventArgs.AudioLevel, ("#" * [math]::Ceiling($ev.SourceEventArgs.AudioLevel / 5))) }
+      continue
+    }
     if ($ev.SourceIdentifier -ne "orbit.heard") { continue }
     $r = $ev.SourceEventArgs.Result
-    $text = $r.Text.ToLowerInvariant().Trim(" .,!?".ToCharArray())
+    $text = (($r.Text.ToLowerInvariant() -replace "[^a-z ]", " ") -replace "\s+", " ").Trim()
+    if ($DebugRun) { Write-Host ("  heard '{0}'  grammar={1}  confidence={2:N2}" -f $text, $r.Grammar.Name, $r.Confidence) }
     if ($r.Grammar.Name -ne "wake" -and $text -notmatch $phrase) { continue }
     if ($r.Confidence -lt $MinConfidence) { Write-Log ("Heard '{0}' at confidence {1:N2} (below {2}); ignored." -f $text, $r.Confidence, $MinConfidence); continue }
     if (((Get-Date) - $last).TotalSeconds -lt $CooldownSeconds) { continue }
@@ -125,6 +137,6 @@ try {
     $last = Get-Date # cooldown counts from when ORBIT opened, not from when the server started booting
   }
 } finally {
-  Remove-Item $pidFile -ErrorAction SilentlyContinue
+  if (-not $DebugRun) { Remove-Item $pidFile -ErrorAction SilentlyContinue }
   if ($owned) { $mutex.ReleaseMutex() }
 }
