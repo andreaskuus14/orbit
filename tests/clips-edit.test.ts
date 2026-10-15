@@ -24,8 +24,8 @@ test("asrRegions: whole short videos, loudest padded stretches of long ones, bud
 });
 
 test("asrPieces: ≤ 300 s pieces that overlap 5 s inside their region only", () => {
-  assert.deepEqual(asrPieces([{ start: 0, end: 700 }]), [{ from: 0, to: 300, sec: 300 }, { from: 295, to: 600, sec: 300 }, { from: 595, to: 700, sec: 100 }]);
-  assert.deepEqual(asrPieces([{ start: 100, end: 250 }, { start: 1000, end: 1000.5 }]), [{ from: 100, to: 250, sec: 150 }]);
+  assert.deepEqual(asrPieces([{ start: 0, end: 700 }]), [{ from: 0, start: 0, to: 300, sec: 300 }, { from: 295, start: 300, to: 600, sec: 300 }, { from: 595, start: 600, to: 700, sec: 100 }]);
+  assert.deepEqual(asrPieces([{ start: 100, end: 250 }, { start: 1000, end: 1000.5 }]), [{ from: 100, start: 100, to: 250, sec: 150 }]);
 });
 
 test("groupSpans: about equal, time-ordered groups; cuts inside a span overlap", () => {
@@ -109,4 +109,14 @@ test("renderFilter: cuts, audio, layouts, zooms", () => {
   assert.ok(renderFilter({ duration: 10, layout: "split" }).includes("crop=iw/3:ih:iw*2/3:0"));
   assert.ok(renderFilter({ duration: 10, zooms: [3] }).includes("zoompan=z='1+0.12*(clip("));
   assert.ok(frameArgs("in.mp4", 1, "f.jpg", "fill").join(" ").includes("crop=1080:1920"));
+});
+
+test("spanCover and asrPieces seam ownership", async () => {
+  const { spanCover, asrPieces } = await import("../src/lib/clips/pure.ts");
+  const spans = [{ start: 0, end: 60 }, { start: 100, end: 160 }];
+  assert.equal(spanCover({ start: 10, end: 40 }, spans), 1);
+  assert.ok(Math.abs(spanCover({ start: 50, end: 110 }, spans) - 20 / 60) < 1e-9); // crosses an untranscribed gap
+  assert.equal(spanCover({ start: 5, end: 5 }, spans), 0);
+  const p = asrPieces([{ start: 0, end: 700 }], 300, 5);
+  assert.deepEqual(p.map((x) => [x.from, x.start]), [[0, 0], [295, 300], [595, 600]]); // overlap read for context, ownership from `start`
 });

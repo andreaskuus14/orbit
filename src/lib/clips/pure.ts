@@ -183,6 +183,9 @@ export function fallbackMoments(cands: Candidate[], count: number): Moment[] {
 
 const spanSec = (spans: Span[]) => spans.reduce((s, x) => s + x.end - x.start, 0);
 export const totalSec = spanSec;
+/** Share (0..1) of a moment that lies inside the transcribed spans: picks outside them have no transcript to back them. */
+export const spanCover = (m: { start: number; end: number }, spans: Span[]) =>
+  m.end > m.start ? spans.reduce((s, x) => s + Math.max(0, Math.min(m.end, x.end) - Math.max(m.start, x.start)), 0) / (m.end - m.start) : 0;
 
 /** Whisper is the slow step, so long videos only get their loudest stretches transcribed: the top loudness candidates
  *  (more when more clips are wanted) padded ±pad s and merged. Short videos are transcribed whole. */
@@ -202,9 +205,9 @@ export function asrRegions(rms: number[], duration: number, o: { maxSec: number;
 
 /** Regions → Whisper pieces of ≤ seg s (bounded memory, progress and cancel points). A piece re-reads `overlap` s before its start
  *  (never before its region) so seam words survive; cleanWords drops the doubles. `sec` = new audio, for progress. */
-export function asrPieces(regions: Span[], seg = 300, overlap = 5): { from: number; to: number; sec: number }[] {
-  const out: { from: number; to: number; sec: number }[] = [];
-  for (const r of regions) for (let t = r.start; t < r.end - 1; t += seg) out.push({ from: Math.max(r.start, t - overlap), to: Math.min(r.end, t + seg), sec: Math.min(seg, r.end - t) });
+export function asrPieces(regions: Span[], seg = 300, overlap = 5): { from: number; start: number; to: number; sec: number }[] {
+  const out: { from: number; start: number; to: number; sec: number }[] = [];
+  for (const r of regions) for (let t = r.start; t < r.end - 1; t += seg) out.push({ from: Math.max(r.start, t - overlap), start: t, to: Math.min(r.end, t + seg), sec: Math.min(seg, r.end - t) });
   return out;
 }
 

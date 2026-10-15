@@ -13,7 +13,7 @@ import type { Clip, ClipJob, ClipOptions, ClipPublish, Download, InboxFile, JobS
 import {
   MAX_SOURCE_SEC, MIN_CLIP_SEC, SAMPLE_RATE, VIDEO_EXTS, WIN_SEC, asrPieces, asrRegions, audioArgs, buildAss, clipLoudness, fallbackMoments, frameArgs,
   groupSpans, isInboxName, isPlainName, keepSegments, markLoud, mergeRanked, parseDuration, parseYtdlpProgress, peakTime, probeArgs, promptTranscript,
-  renderArgs, resolveInside, retimeWords, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, totalSec, validOptions, validateMoments,
+  renderArgs, resolveInside, retimeWords, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, totalSec, spanCover, validOptions, validateMoments,
   wordsFromChunks, cleanWords, ytdlpArgs, ytdlpError, ytdlpOutputFile, zoomTimes, YTDLP_FILE_MARK,
   type Candidate, type Moment, type Span, type Word,
 } from "./pure";
@@ -34,7 +34,8 @@ const ASR_MODEL = process.env.ORBIT_WHISPER_MODEL || "onnx-community/whisper-bas
 // told the language is English (skips language guessing, fewer wrong-language lines on shouting).
 const ASR_MODEL_EN = process.env.ORBIT_WHISPER_MODEL_EN;
 const ASR_DTYPE = process.env.ORBIT_WHISPER_DTYPE; // e.g. "q8": faster on CPU, slightly less accurate; unset = transformers.js default
-const ASR_PARALLEL = Math.max(1, Number(process.env.ORBIT_ASR_PARALLEL) || 2); // pieces transcribed at once on the one loaded model
+// onnxruntime-node runs inference on the main thread, so 2 pieces on one model don't truly overlap: default 1 (full cores).
+const ASR_PARALLEL = Math.max(1, Number(process.env.ORBIT_ASR_PARALLEL) || 1);
 const ASR_SEGMENT_SEC = 300;
 const ASR_OVERLAP_SEC = 5;
 const ACTIVE: JobStatus[] = ["probing", "transcribing", "finding", "rendering"];
@@ -254,7 +255,8 @@ async function set(job: ClipJob, status: JobStatus, progress: number, step: stri
 async function runJob(job: ClipJob, signal: AbortSignal) {
   const dir = path.join(clipsDir(), job.id);
   const pcmName = "audio.f32";
-  const o = { ...(validOptions({}) as Required<ClipOptions>), ...job.options }; // jobs saved before the edit options existed get the defaults
+  // Jobs saved before the edit options existed get the defaults; before "language" existed, Whisper auto-detected.
+  const o = { ...(validOptions({}) as Required<ClipOptions>), language: "auto" as const, ...job.options };
   const timings = (job.timings = { audio: 0, transcribe: 0, pick: 0, render: 0 });
   let mark = Date.now();
   const lap = (k: keyof typeof timings) => { timings[k] = Math.round((Date.now() - mark) / 100) / 10; mark = Date.now(); };
@@ -401,7 +403,7 @@ async function transcribe(pcmFile: string, spans: Span[], language: ClipOptions[
   const { asr, model } = await asrFor(language);
   const wordTs = (S.wordTs ??= new Map());
   // English-only (.en) models reject a language option.
-  const lang = language === "en" && !/\.en\b/.test(model) ? { language: "english", task: "transcribe" } : {};
+  const lang = language === "en" && !/\.en(?![a-z])/i.test(model) ? { language: "english", task: "transcribe" } : {}; // also "*.en_timestamped"
   const pieces = asrPieces(spans, ASR_SEGMENT_SEC, ASR_OVERLAP_SEC);
   const total = pieces.reduce((s, p) => s + p.sec, 0) || 1;
   const slot = createLimiter(ASR_PARALLEL);
@@ -424,7 +426,8 @@ async function transcribe(pcmFile: string, spans: Span[], language: ClipOptions[
       out ??= await run(true);
       done += p.sec;
       await progress(Math.min(1, done / total));
-      return wordsFromChunks(out.chunks ?? [], p.from);
+      // The overlap is context only: keep words from where this piece's new audio starts (the previous piece owns the rest).
+      return wordsFromChunks(out.chunks ?? [], p.from).filter((w) => w.start >= p.start);
     }, signal)));
     // allSettled: running pieces finish before the file closes; then the first failure (or the cancel) wins.
     signal.throwIfAborted();
@@ -477,11 +480,13 @@ ${promptTranscript(ws, cs)}
 async function pickMoments(words: Word[], cands: Candidate[], spans: Span[], duration: number, o: Required<ClipOptions>, signal: AbortSignal,
   step: (s: string) => Promise<void>): Promise<Moment[]> {
   const partial = totalSec(spans) < duration - 1;
-  const groups = groupSpans(spans, Math.min(3, Math.max(1, Math.round(totalSec(spans) / 600)))); // ~10 transcript minutes per scout
+  // ≤ 2 scouts: the CLI allows 3 at once in total, so one slot always stays free for CORE chats and agents.
+  const groups = groupSpans(spans, Math.min(2, Math.max(1, Math.round(totalSec(spans) / 600)))); // ~10 transcript minutes per scout
   if (groups.length <= 1) {
     const m = await scout(words, cands, spans, partial, o.count, duration, o, signal);
-    if (!m.length) throw new Error("reply had no valid moments");
-    return m;
+    const ok = m.filter((x) => spanCover(x, spans) >= 0.8);
+    if (!ok.length) throw new Error("reply had no valid moments");
+    return ok;
   }
   await step(`${groups.length} scouts reading the transcript in parallel`);
   const n = Math.min(o.count, Math.max(2, Math.ceil((o.count * 1.5) / groups.length)));
@@ -493,7 +498,7 @@ async function pickMoments(words: Word[], cands: Candidate[], spans: Span[], dur
   })));
   const all = lists.flat();
   if (!all.length) throw new Error(errors[0] ?? "replies had no valid moments");
-  if (all.length <= o.count) return mergeRanked([], all, o.count);
+  if (all.length <= o.count) return mergeRanked([], all.filter((x) => spanCover(x, spans) >= 0.8), o.count);
   await step(`Ranking ${all.length} candidate moments`);
   const text = (m: Moment) => words.filter((w) => w.start >= m.start && w.end <= m.end).map((w) => w.text).join(" ").replace(/[<>]/g, "").slice(0, 700);
   const prompt = `Pick the best ${o.count} of these ${all.length} candidates (moments ${MIN_CLIP_SEC}-${o.maxSec} s).
@@ -502,7 +507,9 @@ ${all.map((m, i) => `#${i + 1} ${m.start.toFixed(1)}-${m.end.toFixed(1)} s, scou
 </candidates>`;
   const final = await askClaudeStream(prompt, RANK, () => {}, signal)
     .then((r) => validateMoments(r.text, { duration, maxSec: o.maxSec, count: o.count }), (e) => { if (signal.aborted) throw e; return [] as Moment[]; });
-  return mergeRanked(final, all, o.count);
+  const ok = mergeRanked(final, all, o.count).filter((x) => spanCover(x, spans) >= 0.8); // a scout may wander outside the transcript
+  if (!ok.length) throw new Error("no moments inside the transcribed parts");
+  return ok;
 }
 
 async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o: Required<ClipOptions>, clip: Clip, words: Word[], rms: number[], audio: boolean, signal: AbortSignal) {
