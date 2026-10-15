@@ -10,10 +10,12 @@ import { GameLabPanel } from "./GameLab";
 import { VOICE_ASK } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
+import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
+const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "ORBIT is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
 
 export default function Orbit({ userId, email }: { userId: string; email: string }) {
   const sb = useMemo(() => createClient(), []);
@@ -38,6 +40,37 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const pulses = useRef<Record<string, number>>({});
   const cmdRef = useRef<HTMLInputElement>(null);
   const voice = useVoiceInput();
+  const [wakeGreeting, setWakeGreeting] = useState<string | null>(null);
+  const [tapToTalk, setTapToTalk] = useState(false);
+
+  // Opened by scripts/wake ("orbital wake up") as /?wake=1: CORE greets you aloud, then listens for your question.
+  // No cleanup on purpose: dev mode re-runs this effect, and the URL is already cleaned so the second run is a no-op.
+  const { start: startVoice } = voice;
+  useEffect(() => {
+    const url = new URL(location.href);
+    if (url.searchParams.get("wake") !== "1") return;
+    url.searchParams.delete("wake");
+    history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+    const text = WAKE_GREETINGS[Math.floor(Math.random() * WAKE_GREETINGS.length)];
+    setWakeGreeting(text);
+    setPanel("core");
+    void (async () => {
+      if (speechSettings().speak && "speechSynthesis" in window) {
+        speakChunk(text);
+        // Without a user gesture Chrome rejects speech (unless launched with --autoplay-policy=no-user-gesture-required):
+        // it either errors at once or never starts. Not speaking within 1.5 s = blocked.
+        const t0 = performance.now();
+        let started = false;
+        while (!started && isSpeaking() && performance.now() - t0 < 1500) {
+          await new Promise((r) => setTimeout(r, 100));
+          started = speechSynthesis.speaking;
+        }
+        if (!started) { stopSpeech(); setTapToTalk(true); return; }
+        await finish();
+      }
+      startVoice();
+    })();
+  }, [startVoice]);
 
   // Voice questions (mic or "Hey Orbit") always go to CORE, whatever the bar's mode.
   useEffect(() => {
@@ -124,6 +157,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const openTask = useCallback((id: string) => { setFocusTask(id); setPanel("operations"); }, []);
   const openMemory = useCallback((id: string) => { setFocusMemory(id); setPanel("memory"); }, []);
   const consumed = useCallback(() => setPending(null), []);
+  const clearGreeting = useCallback(() => setWakeGreeting(null), []);
 
   async function runCommand(e: React.FormEvent) {
     e.preventDefault();
@@ -187,7 +221,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <aside className="glass drawer" role="dialog" aria-label={title}>
           <div className="mb-3 flex items-center justify-between"><h2 className="brand text-base">{title}</h2><button className="chip" onClick={() => setPanel(null)} aria-label="Close panel">Close</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {panel === "core" ? <CorePanel initial={pending} onConsumed={consumed} onOpenMemory={openMemory} />
+            {panel === "core" ? <CorePanel initial={pending} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
               : panel === "memory" ? <MemoryPanel focusId={focusMemory} onChanged={refreshCount} />
               : panel === "profile" ? <ProfilePanel />
               : panel === "analytics" ? <AnalyticsPanel />
@@ -212,6 +246,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           </dl>
           <p className="muted mt-2 text-[10px] tracking-wider">← → FLY BETWEEN PLANETS</p>
         </aside>
+      )}
+
+      {tapToTalk && !voice.listening && (
+        <button type="button" className="chip fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 px-10 py-6 text-xl"
+          onClick={() => { setTapToTalk(false); voice.start(); }} autoFocus>
+          Tap to talk
+        </button>
       )}
 
       <form onSubmit={runCommand} className="glass cmdbar">

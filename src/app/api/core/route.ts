@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { runCore } from "@/lib/core";
+import { reflectOnTurn } from "@/lib/reflect";
 import { emit } from "@/lib/claude";
 import { str } from "@/lib/pure";
 
@@ -36,6 +37,7 @@ export async function POST(req: Request) {
     const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset);
     await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await emit(sb, user.id, "core.completed", "core", { conversationId: cid });
+    void reflectOnTurn(sb, user.id, cid); // learn in the background; never delays the answer, never throws
     return out;
   };
   const fail = async (e: unknown) => {

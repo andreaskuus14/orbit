@@ -13,7 +13,10 @@
     "app:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-shortcut.ps1",
     "app:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop.ps1",
     "app:autostart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-shortcut.ps1 -Autostart",
-    "app:autostart-off": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-shortcut.ps1 -RemoveAutostart"
+    "app:autostart-off": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-shortcut.ps1 -RemoveAutostart",
+    "wake:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wake/install.ps1",
+    "wake:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wake/uninstall.ps1",
+    "wake:run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wake/orbit-wake.ps1"
   },
   "engines": {
     "node": ">=22.6"

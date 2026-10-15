@@ -23,8 +23,16 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
 /* ---------------- CORE chat ---------------- */
-export function CorePanel({ initial, onConsumed, onOpenMemory }: { initial: string | null; onConsumed: () => void; onOpenMemory: (id: string) => void }) {
+export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreeted }: { initial: string | null; onConsumed: () => void; onOpenMemory: (id: string) => void; greeting?: string | null; onGreeted?: () => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
+  // "Orbital wake up" greeting: shown as a CORE bubble only (local state, never sent to /api/core or saved).
+  const greeted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!greeting || greeted.current === greeting) return;
+    greeted.current = greeting;
+    setMsgs((m) => [...m, { role: "assistant", content: greeting }]);
+    onGreeted?.(); // shown once: reopening the panel later starts clean
+  }, [greeting]); // eslint-disable-line react-hooks/exhaustive-deps
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<string | null>(null); // the answer while it streams in
@@ -203,6 +211,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const [links, setLinks] = useState<LinkRow[]>([]);
   const [form, setForm] = useState({ kind: "note" as Kind, title: "", content: "", url: "", tags: "" });
   const [saving, setSaving] = useState(false);
+  const [learnedOnly, setLearnedOnly] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function upload(file: File) {
@@ -269,6 +278,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   }
 
   const suggested = links.filter((l) => l.status === "suggested");
+  const shown = learnedOnly ? items.filter((m) => isLearned(m.source)) : items;
 
   if (open) {
     return (
@@ -333,18 +343,21 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
           <input className="field flex-1" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your memory" aria-label="Search memories" />
           <button className="btn">Search</button>
         </form>
-        {q.trim() && mode && <p className="muted text-xs">{mode === "hybrid" ? "Keyword + semantic search" : "Keyword search"}</p>}
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <button type="button" className="chip" aria-pressed={learnedOnly} onClick={() => setLearnedOnly(!learnedOnly)}>Learned by CORE</button>
+          {q.trim() && mode && <span className="muted text-xs">{mode === "hybrid" ? "Keyword + semantic search" : "Keyword search"}</span>}
+        </div>
         <ul className="space-y-2">
-          {items.map((m) => (
+          {shown.map((m) => (
             <li key={m.id}>
               <button className="card w-full text-left" onClick={() => setOpen(m)}>
-                <div className="font-medium">{m.title}</div>
+                <div className="font-medium">{m.title}{isLearned(m.source) && <span className="badge learned ml-2 align-middle">LEARNED BY CORE</span>}</div>
                 <div className="muted line-clamp-2 text-xs">{m.content.slice(0, 200)}</div>
                 <div className="muted mt-1 text-[11px]">{m.kind} · {when(m.created_at)}{m.tags.length ? ` · ${m.tags.map((t) => `#${t}`).join(" ")}` : ""}</div>
               </button>
             </li>
           ))}
-          {!items.length && !err && <li className="muted">{q.trim() ? "Nothing matched." : "No memories yet. Capture your first one above."}</li>}
+          {!shown.length && !err && <li className="muted">{learnedOnly ? "CORE hasn't saved anything by itself here yet." : q.trim() ? "Nothing matched." : "No memories yet. Capture your first one above."}</li>}
         </ul>
       </div>
     </div>
@@ -356,6 +369,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
 }
 
 /* ---------------- PROFILE ---------------- */
+const isLearned = (source: string | null | undefined) => source === "core" || source === "core-auto" || source === "core-summary";
 const LIST_FIELDS = [["interests", "Interests"], ["projects", "Current projects"], ["goals", "Goals"], ["news_topics", "Preferred news topics"], ["research_priorities", "Research priorities"]] as const;
 
 export function ProfilePanel() {
@@ -373,6 +387,7 @@ export function ProfilePanel() {
     try { await api("/api/profile", { method: "PUT", body: JSON.stringify(p) }); setMsg("Saved."); } catch (e2) { setMsg(e2 instanceof Error ? e2.message : "Could not save"); }
   }
   return (
+    <div className="space-y-6">
     <form onSubmit={save} className="space-y-3">
       <p className="muted text-sm">CORE reads this. Only what you write here is used; ORBIT never turns guesses into profile facts.</p>
       <label className="block text-sm">Name<input className="field mt-1 w-full" value={p.display_name ?? ""} onChange={(e) => setP({ ...p, display_name: e.target.value })} /></label>
@@ -383,6 +398,80 @@ export function ProfilePanel() {
       <label className="block text-sm">How CORE should talk to you<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={1000} /></label>
       <button className="btn">Save profile</button> {msg && <span className="muted text-sm">{msg}</span>}
     </form>
+    <PlaybookSection />
+    </div>
+  );
+}
+
+type PlaybookData = { available: boolean; message?: string; rules: string[]; version: number; history: { version: number; rules: string[]; source: string; at: string }[] };
+const sourceLabel = (s: string) => (s.startsWith("user") ? "you" + (s === "user:clear" ? " (cleared)" : "") : s.startsWith("revert") ? `revert to ${s.slice(7)}` : "CORE");
+
+function PlaybookSection() {
+  const [d, setD] = useState<PlaybookData | null>(null);
+  const [draft, setDraft] = useState<string[]>([]);
+  const [add, setAdd] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const apply = (r: PlaybookData) => { setD(r); setDraft(r.rules); };
+
+  useEffect(() => { api<PlaybookData>("/api/playbook").then(apply).catch((e) => setMsg(e.message)); }, []);
+
+  async function post(body: object, done = "Saved.") {
+    setBusy(true); setMsg("");
+    try {
+      const res = await fetch("/api/playbook", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: d?.version, ...body }) });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 409) { apply(await api<PlaybookData>("/api/playbook")); setMsg(json.error || "CORE updated the rules meanwhile. Reloaded."); return false; }
+      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      apply(json as PlaybookData); setMsg(done); return true;
+    } catch (e) { setMsg(e instanceof Error ? e.message : "Could not save"); return false; }
+    finally { setBusy(false); }
+  }
+
+  const dirty = !!d && JSON.stringify(draft) !== JSON.stringify(d.rules);
+  return (
+    <section className="space-y-2" aria-labelledby="playbook-h">
+      <h3 id="playbook-h" className="h3">How CORE has adapted</h3>
+      <p className="muted text-xs">CORE learns from your chats by saving memories and updating these rules. It doesn&apos;t retrain its underlying model. Rules can only be about answer style (length, tone, format, language), never tools, data, links or approvals, and you can edit or remove any of them.</p>
+      {d && !d.available ? <p className="muted text-sm">{d.message}</p> : !d ? (!msg && <p className="muted text-sm">Loading…</p>) : (
+        <>
+          <ul className="space-y-2">
+            {draft.map((r, i) => (
+              <li key={i} className="flex gap-2">
+                <input className="field flex-1 text-sm" value={r} maxLength={200} aria-label={`Rule ${i + 1}`} disabled={busy}
+                  onChange={(e) => setDraft(draft.map((x, j) => (j === i ? e.target.value : x)))}
+                  onKeyDown={(e) => { if (e.key === "Enter" && dirty) void post({ action: "set", rules: draft }); }} />
+                <button type="button" className="chip" disabled={busy} aria-label={`Delete rule ${i + 1}`} onClick={() => post({ action: "set", rules: draft.filter((_, j) => j !== i) }, "Rule removed.")}>Delete</button>
+              </li>
+            ))}
+            {!draft.length && <li className="muted text-sm">No learned rules yet. CORE adds them when it notices how you like things done.</li>}
+          </ul>
+          {dirty && <div className="flex gap-2"><button type="button" className="btn" disabled={busy} onClick={() => post({ action: "set", rules: draft })}>Save changes</button><button type="button" className="chip" onClick={() => setDraft(d.rules)}>Undo edits</button></div>}
+          <form className="flex gap-2" onSubmit={async (e) => { e.preventDefault(); if (add.trim() && await post({ action: "set", rules: [...draft, add] }, "Rule added.")) setAdd(""); }}>
+            <input className="field flex-1 text-sm" value={add} onChange={(e) => setAdd(e.target.value)} placeholder="Add a rule, e.g. Answer in short bullet points" maxLength={200} aria-label="New rule" disabled={busy || draft.length >= 30} />
+            <button className="btn" disabled={busy || !add.trim() || draft.length >= 30}>Add</button>
+          </form>
+          <div className="flex flex-wrap items-center gap-2">
+            {!!d.rules.length && <button type="button" className="chip" disabled={busy} onClick={() => confirm("Remove all learned rules? You can revert from history.") && post({ action: "clear" }, "Cleared.")}>Clear all</button>}
+            {d.version > 0 && <span className="muted text-xs">Version {d.version}</span>}
+          </div>
+          {d.history.length > 1 && (
+            <details className="learn-history">
+              <summary className="link text-xs">Previous versions</summary>
+              <ul className="mt-2 space-y-1">
+                {d.history.filter((h) => h.version !== d.version).map((h) => (
+                  <li key={h.version} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="muted" title={h.rules.join("\n") || "(no rules)"}>v{h.version} · {sourceLabel(h.source)} · {h.rules.length} rule{h.rules.length === 1 ? "" : "s"} · {when(h.at)}</span>
+                    <button type="button" className="chip" disabled={busy} onClick={() => post({ action: "revert", version: h.version }, `Reverted to v${h.version}.`)}>Revert</button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </>
+      )}
+      {msg && <p className="muted text-sm" role="status">{msg}</p>}
+    </section>
   );
 }
 

@@ -52,6 +52,15 @@ export async function createMemory(sb: SupabaseClient, userId: string, input: Me
   return { memory: data, embedded: !!embedding, suggested };
 }
 
+/** The caller's memories whose embedding is at least `min` cosine-similar to `text` ([] when embeddings are off). Needs a user-session client (match_memories filters by auth.uid()). */
+export async function findSimilar(sb: SupabaseClient, text: string, min = 0.9, count = 3) {
+  const e = await embed(text, "document");
+  if (!e) return [];
+  const { data, error } = await sb.rpc("match_memories", { query_embedding: JSON.stringify(e), match_count: count });
+  if (error) throw error;
+  return ((data ?? []) as { id: string; title: string; kind: string; similarity: number }[]).filter((m) => m.similarity >= min);
+}
+
 /** Hybrid search: Postgres full-text + pgvector similarity, fused by reciprocal rank. */
 /** userId is required when sb bypasses row-level security (background automations); harmless otherwise. */
 export async function searchMemories(sb: SupabaseClient, query: string, limit = 10, userId?: string) {
