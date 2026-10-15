@@ -41,3 +41,9 @@ test("partialAnswer decodes the growing final string of CORE's JSON reply", () =
   assert.equal(partialAnswer('{"final":"a\\u00'), "a");
   assert.equal(partialAnswer('{"final":"a\\'), "a");
 });
+
+test("partialAnswer never streams XML tool calls", async () => {
+  const { partialAnswer } = await import("../src/lib/streamjson.ts");
+  assert.equal(partialAnswer('<invoke name="read_news">'), null);
+  assert.equal(partialAnswer('Let me look.\n<invoke name="read_news">'), "Let me look.");
+});

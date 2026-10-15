@@ -183,3 +183,11 @@ test("extractLinks returns absolute headline links only", () => {
     { text: "Pope recovering as expected after surgery, doctors say", url: "https://other.org/a?x=1&y=2" },
   ]);
 });
+
+test("parseAgentReply turns stray XML tool calls into a tool step instead of an answer", async () => {
+  const { parseAgentReply } = await import("../src/lib/pure.ts");
+  const r = parseAgentReply('Checking.\n<invoke name="read_news">\n<parameter name="query">breaking news</parameter>\n</invoke>\n<invoke name="read_news"><parameter name="query">x</parameter></invoke>');
+  assert.equal(r.tool, "read_news");
+  assert.deepEqual(r.input, { query: "breaking news" });
+  assert.equal(r.final, undefined);
+});

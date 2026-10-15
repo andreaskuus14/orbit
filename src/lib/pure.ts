@@ -231,6 +231,13 @@ export function parseAgentReply(text: string): AgentStep {
       /* fall through: treat as plain answer */
     }
   }
+  // The model sometimes writes its native XML tool-call syntax instead of our JSON: run the first call, don't show it.
+  const call = /<invoke name="([\w.-]+)">([\s\S]*?)(?:<\/invoke>|$)/.exec(t);
+  if (call) {
+    const input: Record<string, unknown> = {};
+    for (const m of call[2].matchAll(/<parameter name="([\w.-]+)">([\s\S]*?)<\/parameter>/g)) input[m[1]] = m[2].trim();
+    return { thought: t.slice(0, call.index).replace(/<\/?function_calls>/g, "").trim(), tool: call[1], input };
+  }
   return { thought: "", final: text.trim() };
 }
 
