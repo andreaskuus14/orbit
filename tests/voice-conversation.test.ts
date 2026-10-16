@@ -24,8 +24,13 @@ test("idle ignores everything but start; stop ends", () => {
   assert.equal(run([[{ type: "start", persist: true }, 0], [{ type: "stop" }, 1]]).phase, "idle");
 });
 
-test("30 s of silence while listening ends it; talking or speaking keeps it alive", () => {
+test("stay mode is open mic: silence never ends it, only stop does", () => {
   const s = convStep(IDLE, { type: "start", persist: true }, 0);
+  assert.equal(convStep(s, { type: "tick" }, 60 * 60_000).phase, "listening");
+});
+
+test("one-follow-up mode: 30 s of silence while listening ends it; talking or speaking keeps it alive", () => {
+  const s = convStep(IDLE, { type: "start", persist: false }, 0);
   assert.equal(convStep(s, { type: "tick" }, SILENCE_MS - 1).phase, "listening");
   assert.equal(convStep(s, { type: "tick" }, SILENCE_MS).phase, "idle");
   assert.equal(run([[{ type: "hearing" }, 20_000], [{ type: "tick" }, SILENCE_MS + 1]], s).phase, "listening");
@@ -45,7 +50,7 @@ test("one follow-up only: ends after the follow-up's answer", () => {
 });
 
 test("start and end phrases", () => {
-  for (const t of ["Let's talk", "Orbit, let's talk", "hey orbit lets chat", "conversation mode", "start conversation mode", "Let's have a conversation."])
+  for (const t of ["Let's talk", "Orbit, let's talk", "hey orbit lets chat", "conversation mode", "start conversation mode", "Let's have a conversation.", "let's just talk", "Orbit, let's just chat for a bit"])
     assert.equal(isConversationStart(t), true, t);
   for (const t of ["let's talk about Estonia", "what is conversation mode", "talk to me"]) assert.equal(isConversationStart(t), false, t);
   for (const t of ["That's all", "that's all, thanks", "Stop listening", "Goodbye", "Orbit, goodbye", "that's it for now", "end conversation"])

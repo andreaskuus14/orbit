@@ -154,7 +154,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
               <option value="stay">Stays on until I say stop</option>
               <option value="once">One follow-up only</option>
             </select>
-            <span className="muted text-[10px]">ORBIT keeps listening after each answer, no &ldquo;Orbit&rdquo; needed. Ends after 30 s of silence or when you say &ldquo;that&rsquo;s all&rdquo;.</span>
+            <span className="muted text-[10px]">ORBIT keeps listening after each answer, no &ldquo;Orbit&rdquo; needed. The mic stays open until you say &ldquo;that&rsquo;s all&rdquo; or click 💬 (one-follow-up mode ends after 30 s of silence).</span>
           </label>
           <span className="voice-sub">Spoken answers</span>
           <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>

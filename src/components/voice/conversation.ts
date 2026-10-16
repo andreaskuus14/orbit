@@ -2,7 +2,7 @@
 // Pure (no DOM): the phase machine, start/end phrases and the barge-in rule. Tested in tests/voice-conversation.test.ts.
 import { isEcho } from "./hear.ts";
 
-export const SILENCE_MS = 30_000; // listening this long with nobody talking ends the conversation
+export const SILENCE_MS = 30_000; // "one follow-up" mode: this long with nobody talking ends it ("stay" mode is open mic until told to stop)
 export const THINK_MS = 20_000; // asked but ORBIT never spoke (speech off, error): go back to listening
 
 export type ConvPhase = "idle" | "listening" | "thinking" | "speaking";
@@ -34,14 +34,14 @@ export function convStep(s: Conv, e: ConvEvent, now: number): Conv {
     case "speaking": return { ...s, phase: "speaking", since: now };
     case "spoke": return s.streams ? { ...s, phase: "thinking", since: now } : finished(s, now); // gap between streamed sentences
     case "tick":
-      if (s.phase === "listening" && now - s.since >= SILENCE_MS) return IDLE;
+      if (s.phase === "listening" && !s.persist && now - s.since >= SILENCE_MS) return IDLE;
       return s.phase === "thinking" && now - s.since >= THINK_MS ? { ...s, phase: "listening", since: now, streams: 0 } : s;
   }
 }
 const finished = (s: Conv, now: number): Conv => !s.persist && s.asked >= 2 ? IDLE : { ...s, phase: "listening", since: now };
 
 const ORBIT = String.raw`(?:(?:hey|ok|okay)[\s,]+)?(?:orbit[\s,.!]+)?`;
-const START = new RegExp(String.raw`^${ORBIT}(?:(?:let'?s|let us)\s+(?:talk|chat|have a (?:chat|conversation))|(?:start\s+|enter\s+|turn on\s+)?conversation mode(?:\s+on)?)\W*$`, "i");
+const START = new RegExp(String.raw`^${ORBIT}(?:(?:let'?s|let us)\s+(?:just\s+)?(?:talk|chat|have a (?:chat|conversation))(?:\s+for a (?:bit|while))?|(?:start\s+|enter\s+|turn on\s+)?conversation mode(?:\s+on)?)\W*$`, "i");
 const END = new RegExp(String.raw`^${ORBIT}(?:that'?s all|that is all|that'?s it|stop listening|good ?bye|bye|end (?:the )?conversation|(?:stop|exit|end) conversation mode|conversation mode off)(?:[\s,.]+(?:orbit|thanks|thank you|for now))*\W*$`, "i");
 export const isConversationStart = (text: string) => START.test(text.trim());
 export const isConversationEnd = (text: string) => END.test(text.trim());
