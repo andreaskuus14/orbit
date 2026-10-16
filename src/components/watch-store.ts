@@ -1,25 +1,39 @@
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import type { PanelId } from "@/lib/planets";
-import { mergeByDate, parseWatchChoice, parseWatchCommand, parseWatchControl, watchReply, type WatchCommand, type WatchVideo } from "@/lib/watch-pure";
+import { afterPage, autoLoad, dedupe, findMode, mergeByDate, parseWatchChoice, parseWatchCommand, parseWatchControl, watchReply, type Sort, type WatchCommand, type WatchVideo } from "@/lib/watch-pure";
 import { addCreator, addTopic, addWatched, parseCreators, parseHistory, parseTopics, removeCreator, removeTopic, togglePin, type SavedCreator, type Watched } from "@/lib/theater-history-pure";
 
 // THEATER state shared by the command bar / voice (runWatchCommand) and TheaterWorld. Module state, not React: the find
 // starts before the world has mounted (it's still flying there).
 
+export type FeedKind = "creator" | "topic" | "trending" | "all";
 export type WatchState = {
   creator: string; shorts: boolean; status: "loading" | "ready" | "error"; error?: string;
   channel?: { id: string; title: string }; videos: WatchVideo[]; playing: number | null; notice?: string;
   askedAt?: number; // "Which one should I open?" was asked: the next utterance may be the answer (for 60 s, once)
-  topic?: string; // a topic grid ("CS2", or "All" = saved creators merged); its chip shows as selected
+  topic?: string; // the selected category chip ("CS2", "All", "Trending")
   note?: string; // "No channel @x — showing videos about “x”"
+  kind?: FeedKind; sort?: Sort; fallback?: boolean; // what to ask the server for the next page
+  next?: string; pages?: number; more?: boolean; stalled?: boolean; // endless scroll: page token, pages loaded, loading one, stopped (failed / no growth)
+  emptyRun?: number; // pages in a row that added nothing
+  unitsLeft?: number; // today's YouTube units left (as of the last paid call)
 };
-type Found = { channel?: { id: string; title: string }; topic?: string; note?: string; videos?: WatchVideo[]; error?: string };
+type Found = { channel?: { id: string; title: string }; topic?: string; note?: string; videos?: WatchVideo[]; next?: string; unitsLeft?: number; error?: string };
 const lookup = async (q: Record<string, string>, what: string): Promise<Found> => {
   const res = await fetch(`/api/theater?${new URLSearchParams(q)}`, { cache: "no-store" });
   const json: Found = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `Couldn't look up ${what} (${res.status})`);
   return json;
 };
+/** The server query for a feed (page = the next page's token). fallback=1 only on the typed/spoken Find. */
+function feedQuery(s: WatchState, page?: string): Record<string, string> {
+  const q: Record<string, string> = s.kind === "trending" ? { trending: "1" } : s.kind === "topic" ? { topic: s.creator } : { creator: s.creator };
+  if (s.kind === "creator" && s.fallback && !page) q.fallback = "1";
+  q.sort = s.sort ?? "viral";
+  if (s.shorts) q.shorts = "1";
+  if (page) q.page = page;
+  return q;
+}
 /** Player commands TheaterWorld carries out (detail: "pauseVideo" | "playVideo" | "fullscreen" | "exitFullscreen"). */
 export const WATCH_CONTROL = "orbit:watch-control";
 
@@ -30,46 +44,89 @@ export const subscribeWatch = (f: () => void) => { subs.add(f); return () => { s
 export function setWatch(next: WatchState | null) { state = next; subs.forEach((f) => f()); }
 const patch = (p: Partial<WatchState>) => { if (state) setWatch({ ...state, ...p }); };
 
+// Paid topic pages (101 units each) per feed for this session: switching chips or sort back and forth can't re-spend the auto-load allowance.
+const topicPages = new Map<string, number>();
+const feedKey = (s: WatchState) => `${s.kind}|${s.creator.toLowerCase()}|${s.sort}|${s.shorts}`;
+const countPage = (s: WatchState) => { if (s.kind === "topic") topicPages.set(feedKey(s), (topicPages.get(feedKey(s)) ?? 0) + 1); };
+/** Whether the endless scroll may fetch the next page by itself (the UI shows "Load more" otherwise). */
+export const canAutoLoad = (s: WatchState) => autoLoad(s.kind, s.kind === "topic" ? topicPages.get(feedKey(s)) ?? 0 : s.pages ?? 1, !!s.stalled);
+// Units left today, as the lowest value any response reported (responses can arrive out of order).
+const minUnits = (a?: number, b?: number) => (a == null ? b : b == null ? a : Math.min(a, b));
+
 let seq = 0;
 type Say = (msg: string, ok: boolean) => void;
-/** Looks the creator (or topic) up; say() gets "Found 3 new … Which one should I open?" or the error. An unknown creator comes
- *  back as a topic search (with a note). */
-export function findVideos(cmd: WatchCommand, say?: Say) {
+/** Looks the creator (or topic) up; say() gets "Found … Which one should I open?" or the error. An unknown creator comes back
+ *  as a topic search (with a note). */
+export function findVideos(cmd: WatchCommand, say?: Say, sort: Sort = "viral") {
+  startFeed({ creator: cmd.creator, shorts: cmd.shorts, status: "loading", videos: [], playing: null, kind: cmd.topic ? "topic" : "creator", sort,
+    topic: cmd.topic ? cmd.creator : undefined, fallback: !cmd.topic }, say);
+}
+/** "📈 Trending Gaming": YouTube's Gaming chart, 1 unit a page. */
+export const findTrending = () => startFeed({ creator: "Trending Gaming", shorts: false, status: "loading", videos: [], playing: null, kind: "trending", sort: "viral", topic: "Trending" });
+
+function startFeed(base: WatchState, say?: Say) {
   const n = ++seq;
-  setWatch({ creator: cmd.creator, shorts: cmd.shorts, status: "loading", videos: [], playing: null, topic: cmd.topic ? cmd.creator : undefined });
-  lookup(cmd.topic ? { topic: cmd.creator, ...(cmd.shorts ? { shorts: "1" } : {}) } : { creator: cmd.creator, fallback: "1", ...(cmd.shorts ? { shorts: "1" } : {}) }, cmd.creator)
+  setWatch({ ...base, unitsLeft: state?.unitsLeft });
+  lookup(feedQuery(base), base.creator)
     .then((json) => {
       if (n !== seq) return;
       const videos = json.videos ?? [];
-      if (json.channel) setSaved({ creators: addCreator(saved().creators, cmd.creator) });
-      setWatch({ creator: cmd.creator, shorts: cmd.shorts, status: "ready", channel: json.channel, videos, playing: null, askedAt: videos.length ? Date.now() : undefined,
-        topic: json.topic ? cmd.creator : undefined, note: json.note });
-      const reply = watchReply(json.channel?.title ?? json.topic ?? cmd.creator, videos, cmd.shorts, !json.channel && !!json.topic);
+      const fellBack = base.kind === "creator" && !json.channel && !!json.topic;
+      if (json.channel) setSaved({ creators: addCreator(saved().creators, base.creator) });
+      const ready: WatchState = { ...base, status: "ready", channel: json.channel, videos, next: json.next, pages: 1, unitsLeft: minUnits(json.unitsLeft, state?.unitsLeft),
+        kind: fellBack ? "topic" : base.kind, topic: fellBack ? base.creator : base.topic, note: json.note, askedAt: videos.length ? Date.now() : undefined };
+      countPage(ready);
+      setWatch(ready);
+      const reply = watchReply(json.channel?.title ?? json.topic ?? base.creator, videos, base.shorts, !json.channel);
       say?.(json.note ? `${json.note}. ${reply}` : reply, true);
     })
     .catch((e) => {
       if (n !== seq) return;
-      const msg = e instanceof Error ? e.message : `Couldn't look up ${cmd.creator}`;
+      const msg = e instanceof Error ? e.message : `Couldn't look up ${base.creator}`;
       patch({ status: "error", error: msg });
       say?.(msg, false);
     });
 }
 
-/** "All": the newest uploads of the first 4 saved creators (pinned first), merged by date. Each is 2-3 units unless the server's
- *  10-minute cache has it. */
-export function findAll() {
+/** Endless scroll: appends the next page (deduped). `manual` = the "Load more" button (topic pages cost 101 units each, so only
+ *  the first 3 load by themselves). */
+export function loadMore(manual = false) {
+  const s = state;
+  if (!s || s.status !== "ready" || !s.next || s.more || (!manual && !canAutoLoad(s))) return;
+  const n = seq;
+  patch({ more: true });
+  lookup(feedQuery(s, s.next), s.creator)
+    .then((json) => {
+      if (n !== seq || !state) return;
+      countPage(state);
+      const videos = dedupe([...state.videos, ...(json.videos ?? [])]);
+      const { emptyRun, stalled } = afterPage(state.kind, state.videos.length, videos.length, s.next, json.next, state.emptyRun);
+      setWatch({ ...state, more: false, stalled, emptyRun, videos, next: json.next, pages: (state.pages ?? 1) + 1, unitsLeft: minUnits(json.unitsLeft, state.unitsLeft) });
+    })
+    .catch((e) => { if (n === seq) patch({ more: false, stalled: true, notice: e instanceof Error ? e.message : "Couldn't load more" }); });
+}
+
+/** 🔥 Viral / 🆕 Newest: reloads the current feed in that order. */
+export function setSort(sort: Sort) {
+  const s = state;
+  if (!s || s.sort === sort || s.kind === "trending") return;
+  if (s.kind === "all") return findAll(sort);
+  startFeed({ creator: s.creator, shorts: s.shorts, status: "loading", videos: [], playing: null, kind: s.kind, sort, topic: s.topic, fallback: false });
+}
+
+/** "All": the newest uploads of the first 4 saved creators (pinned first), merged. Each is 2-3 units unless the server's
+ *  10-minute cache has it; always fetched newest-first (one cache entry), then ordered by `sort`. */
+export function findAll(sort: Sort = "viral") {
   const n = ++seq, names = saved().creators.slice(0, 4).map((c) => c.name);
-  if (!names.length) {
-    setWatch({ creator: "All", shorts: false, status: "ready", videos: [], playing: null, topic: "All", note: "Search a creator first: All shows your creators' newest videos." });
-    return;
-  }
-  setWatch({ creator: "All", shorts: false, status: "loading", videos: [], playing: null, topic: "All" });
-  void Promise.allSettled(names.map((c) => lookup({ creator: c }, c))).then((rs) => {
+  const base: WatchState = { creator: "All", shorts: false, status: "ready", videos: [], playing: null, topic: "All", kind: "all", sort, unitsLeft: state?.unitsLeft };
+  if (!names.length) return setWatch({ ...base, note: "Search a creator first: All shows your creators' newest videos." });
+  setWatch({ ...base, status: "loading" });
+  void Promise.allSettled(names.map((c) => lookup({ creator: c, sort: "new" }, c))).then((rs) => {
     if (n !== seq) return;
     const ok = rs.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
-    const videos = mergeByDate(ok.map((j) => (j.videos ?? []).map((v) => ({ ...v, channel: v.channel || j.channel?.title }))));
     const failed = rs.length - ok.length;
-    setWatch({ creator: "All", shorts: false, status: "ready", videos, playing: null, topic: "All", note: failed ? `${failed} of ${rs.length} creators couldn't be loaded.` : undefined });
+    setWatch({ ...base, videos: mergeByDate(ok.map((j) => j.videos ?? []), 48, sort), unitsLeft: ok.reduce((m, j) => minUnits(m, j.unitsLeft), base.unitsLeft),
+      note: failed ? `${failed} of ${rs.length} creators couldn't be loaded.` : undefined });
   });
 }
 
@@ -92,7 +149,8 @@ export function runWatchCommand(text: string, current: PanelId | null, say: Say)
   const cmd = parseWatchCommand(text);
   if (cmd) {
     dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: "theater" } }));
-    findVideos(cmd, say);
+    // "show me the newest cs2 videos": a game shorthand / category is a topic, never a channel lookup (@cs2 is someone else)
+    findVideos({ ...cmd, topic: cmd.topic || findMode(cmd.creator, saved().topics) === "topic" }, say, /\b(?:newest|latest|most recent|recent|new)\b/i.test(text) ? "new" : "viral");
     return true;
   }
   if (here && s?.askedAt) patch({ askedAt: undefined }); // not an answer: later "yes"/"no" belong to CORE

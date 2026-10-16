@@ -5,7 +5,9 @@ import { PLANETS } from "./planets.ts";
 
 /** topic: true = "show me cs2 videos" (a YouTube search for `creator` as words), else a channel lookup. */
 export type WatchCommand = { creator: string; shorts: boolean; topic?: boolean };
-export type WatchVideo = { id: string; title: string; publishedAt: string; views: number; durationSec: number; thumb: string; channel?: string };
+export type WatchVideo = { id: string; title: string; publishedAt: string; views: number; durationSec: number; thumb: string; channel?: string; live?: boolean };
+/** Feed order: "viral" = most viewed first, "new" = newest first. */
+export type Sort = "viral" | "new";
 export type WatchControl = "pause" | "play" | "next" | "close" | "fullscreen" | "exitFullscreen";
 
 const PREFIX = /^(?:(?:(?:hey|hi|ok|okay) )?(?:orbit|core)|please|can you|could you|would you|will you|hey|ok|okay|now|just|um|uh|so) /i;
@@ -72,7 +74,7 @@ const ORBIT_PLACE = (t: string) => {
   return ["core", "galaxy", "clips", "stats", "my clips", "my channel"].includes(w) || PLANETS.some((p) => p.id === w || p.name.toLowerCase() === w);
 };
 
-const ALIASES: Record<string, string> = { cs2: "Counter-Strike 2", cs: "Counter-Strike 2", fn: "Fortnite", mc: "Minecraft", gta: "GTA", val: "Valorant", r6: "Rainbow Six Siege" };
+export const ALIASES: Record<string, string> = { cs2: "Counter-Strike 2", cs: "Counter-Strike 2", fn: "Fortnite", mc: "Minecraft", gta: "GTA", val: "Valorant", r6: "Rainbow Six Siege" };
 /** A topic chip / spoken topic → the search words (game shorthands expanded), or null when it isn't one (1-60 chars). */
 export function topicQuery(raw: unknown): string | null {
   const t = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
@@ -115,13 +117,26 @@ export const embedUrl = (id: string, origin: string) => isVideoId(id)
 
 /** What Google bills per call: search.list 100 units, every list call we use here 1. */
 export const unitCost = (endpoint: string) => (endpoint === "search" ? 100 : 1);
-const plan = (units: number, unitsLeft: number) => (unitsLeft >= units ? units : "Today's YouTube budget is used up; it resets at midnight Pacific time");
+export const plan = (units: number, unitsLeft: number): number | string => (unitsLeft >= units ? units : "Today's YouTube budget is used up; it resets at midnight Pacific time");
 /** YouTube units for one lookup: channel (skipped when its id is cached) + uploads playlist + video stats, 1 each. A string = can't. */
 export const planWatch = (channelCached: boolean, unitsLeft: number): number | string => plan(channelCached ? 2 : 3, unitsLeft);
 /** A topic: search.list + one videos.list. */
 export const planTopic = (unitsLeft: number): number | string => plan(unitCost("search") + unitCost("videos"), unitsLeft);
 
 /** Only YouTube's image host goes into <img src> (thumbnails come from the API or localStorage). */
+/** nextPageToken handed back by the client: opaque, but only these characters are forwarded to YouTube. */
+export const isPageToken = (s: unknown): s is string => typeof s === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(s);
+/** An optional ISO country code for YouTube's regionCode. */
+export const regionCode = (s: unknown) => (typeof s === "string" && /^[A-Za-z]{2}$/.test(s) ? s.toUpperCase() : undefined);
+
+/** The Find box: "@x" or a channel link → creator; a game shorthand (cs2, fn…) or a category chip name → topic, never a
+ *  channel lookup (YouTube has an unrelated @cs2); anything else → creator first, with the topic fallback. */
+export function findMode(input: string, topics: readonly string[]): "creator" | "topic" {
+  const t = input.replace(/\s+/g, " ").trim().toLowerCase();
+  if (t.startsWith("@") || /(?:^|\/\/|\.)(?:youtube\.com|youtu\.be)\//.test(t)) return "creator";
+  return Object.hasOwn(ALIASES, t) || topics.some((x) => x.trim().toLowerCase() === t) ? "topic" : "creator";
+}
+
 export const safeThumb = (u: unknown) => (typeof u === "string" && /^https:\/\/i\d?\.ytimg\.com\//.test(u) ? u : "");
 
 type Thumbs = Record<string, { url?: unknown } | undefined> | undefined;
@@ -137,26 +152,41 @@ export function pickVideos(items: unknown, shorts: boolean, live = true): WatchV
     const t = sn.thumbnails;
     const video: WatchVideo = { id: v.id, title: str(sn.title).slice(0, 200), publishedAt: str(sn.publishedAt), views: Number(v.statistics?.viewCount) || 0,
       durationSec: parseIsoDuration(str(v.contentDetails?.duration)), thumb: safeThumb(str(t?.medium?.url) || str(t?.high?.url) || str(t?.default?.url)),
-      channel: str(sn.channelTitle).slice(0, 100) };
+      channel: str(sn.channelTitle).slice(0, 100), ...(sn.liveBroadcastContent === "live" ? { live: true } : {}) };
     return isShort(video) === shorts ? [video] : [];
   });
 }
 /** The newest `n` uploads of a channel. */
 export const pickLatest = (items: unknown, shorts: boolean, n = 3): WatchVideo[] =>
   pickVideos(items, shorts).sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)).slice(0, n);
-/** "All": several creators' videos merged newest first, each id once. */
-export function mergeByDate(lists: WatchVideo[][], n = 24): WatchVideo[] {
+/** Most viewed first ("viral") or newest first ("new"); a new array. */
+export const sortVideos = (vs: WatchVideo[], sort: Sort): WatchVideo[] =>
+  [...vs].sort(sort === "viral" ? (a, b) => b.views - a.views : (a, b) => (Date.parse(b.publishedAt) || 0) - (Date.parse(a.publishedAt) || 0));
+/** Each id once, first occurrence kept (feed pages can overlap). */
+export function dedupe(vs: WatchVideo[]): WatchVideo[] {
   const seen = new Set<string>();
-  return lists.flat().filter((v) => !seen.has(v.id) && !!seen.add(v.id)).sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)).slice(0, n);
+  return vs.filter((v) => !seen.has(v.id) && !!seen.add(v.id));
 }
+/** "All": several creators' videos merged (newest or most viewed first), each id once. */
+export const mergeByDate = (lists: WatchVideo[][], n = 48, sort: Sort = "new"): WatchVideo[] => sortVideos(dedupe(lists.flat()), sort).slice(0, n);
+/** Endless scroll loads the next page by itself, except after a failure and beyond 3 topic pages (101 units each). */
+export const autoLoad = (kind: string | undefined, pages: number, stalled: boolean) => !stalled && (kind !== "topic" || pages < 3);
+/** After a page: stop auto-paging when YouTube repeats the token, or when pages add nothing (a creator's Shorts-only page is
+ *  cheap: 2 in a row; any other feed: 1). The "Load more" button takes over. */
+export function afterPage(kind: string | undefined, before: number, after: number, prevNext: string | undefined, next: string | undefined, emptyRun = 0) {
+  const run = after > before ? 0 : emptyRun + 1;
+  return { emptyRun: run, stalled: (!!next && next === prevNext) || run >= (kind === "creator" ? 2 : 1) };
+}
+/** Published in the last 24 h (the "NEW" badge). */
+export const isNew = (v: WatchVideo, now: number) => now - Date.parse(v.publishedAt) < 86_400_000;
 
 /** "Found 3 new Jynxzi videos: 1. …, 2. …, 3. … Which one should I open?" */
 export function watchReply(channel: string, videos: WatchVideo[], shorts = false, topic = false): string {
   const kind = shorts ? "Short" : "video";
-  if (topic) return videos.length ? `${videos.length === 1 ? `Here is a popular ${kind}` : `Here are ${videos.length} popular ${kind}s`} about ${channel} from the last two weeks. Which one should I open?`
+  if (topic) return videos.length ? `${videos.length === 1 ? `Here is a ${kind}` : `Here are ${videos.length} ${kind}s`} about ${channel}. Which one should I open?`
     : `I couldn't find any recent ${shorts ? "Shorts" : "videos"} about ${channel}.`;
   if (!videos.length) return `I couldn't find any recent ${shorts ? "Shorts" : "long videos"} from ${channel}.`;
-  const list = videos.map((v, i) => `${i + 1}. ${v.title}`).join(", ");
+  const list = videos.slice(0, 3).map((v, i) => `${i + 1}. ${v.title}`).join(", ") + (videos.length > 3 ? " and more" : ""); // speech: only the top 3
   return videos.length === 1
     ? `Found 1 new ${channel} ${kind}: ${list}. Should I open it?`
     : `Found ${videos.length} new ${channel} ${kind}s: ${list}. Which one should I open?`;

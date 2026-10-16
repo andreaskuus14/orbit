@@ -1,14 +1,20 @@
 import { requireUser } from "@/lib/supabase/server";
 import { scoutFail as fail } from "@/lib/clips/scout";
 import { theater } from "@/lib/watch";
+import { isPageToken, regionCode } from "@/lib/watch-pure";
 
 export const dynamic = "force-dynamic";
 
-// THEATER: GET ?creator=jynxzi[&shorts=1] → { channel, videos } (the creator's 3 newest uploads; 2-3 YouTube units, cached 10 min).
-// ?topic=cs2[&shorts=1] (or an unknown creator with &fallback=1) → { topic, videos[, note] } (12 popular from the last 14 days; 101 units, cached 30 min).
+// THEATER: GET ?creator=jynxzi | ?topic=cs2 | ?trending=1, plus [&sort=viral|new][&shorts=1][&page=<nextPageToken>][&region=US][&fallback=1]
+// → { videos, next?, channel?, topic?, note?, unitsLeft? }. Costs: creator 2-3 units a page, topic 101, trending 1 (see lib/watch.ts).
 export async function GET(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const q = new URL(req.url).searchParams;
-  try { return Response.json(await theater(q.get("creator"), q.get("topic"), q.get("shorts") === "1", q.get("fallback") === "1")); } catch (e) { return fail(e); }
+  const page = q.get("page");
+  if (page != null && !isPageToken(page)) return Response.json({ error: "Bad page token" }, { status: 400 });
+  try {
+    return Response.json(await theater({ creator: q.get("creator"), topic: q.get("topic"), trending: q.get("trending") === "1", shorts: q.get("shorts") === "1",
+      sort: q.get("sort") === "new" ? "new" : "viral", page: page ?? undefined, region: regionCode(q.get("region")), fallback: q.get("fallback") === "1" }));
+  } catch (e) { return fail(e); }
 }

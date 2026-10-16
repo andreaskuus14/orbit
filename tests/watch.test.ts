@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ago, embedUrl, isVideoId, length, mergeByDate, pruneCache, parseWatchChoice, parseWatchCommand, parseWatchControl, pickLatest, pickVideos, planTopic, planWatch, safeThumb, topicQuery, unitCost, watchReply } from "../src/lib/watch-pure.ts";
+import { afterPage, ago, autoLoad, dedupe, embedUrl, findMode, isNew, isPageToken, isVideoId, length, mergeByDate, pruneCache, regionCode, sortVideos, parseWatchChoice, parseWatchCommand, parseWatchControl, pickLatest, pickVideos, planTopic, planWatch, safeThumb, topicQuery, unitCost, watchReply } from "../src/lib/watch-pure.ts";
 import { parseNavCommand } from "../src/lib/nav-pure.ts";
 
 test("watch commands", () => {
@@ -74,7 +74,7 @@ test("pickVideos (topics) and mergeByDate (All)", () => {
   assert.deepEqual(pickVideos(items, false).map((v) => v.id), ["aaaaaaaaaaa", "ccccccccccc"]); // creator lookups keep live streams as before
   const v = (id: string, at: string) => ({ id, title: id, publishedAt: at, views: 0, durationSec: 60, thumb: "" });
   assert.deepEqual(mergeByDate([[v("a", "2026-10-01"), v("b", "2026-10-03")], [v("c", "2026-10-02"), v("a", "2026-10-01")]]).map((x) => x.id), ["b", "c", "a"]);
-  assert.match(watchReply("Counter-Strike 2", [v("a", "")], false, true), /^Here is a popular video about Counter-Strike 2/);
+  assert.match(watchReply("Counter-Strike 2", [v("a", "")], false, true), /^Here is a video about Counter-Strike 2/);
   assert.match(watchReply("Counter-Strike 2", [], false, true), /couldn't find any recent videos about/);
 });
 
@@ -170,4 +170,54 @@ test("pruneCache: expired dropped, size capped (oldest first)", () => {
   pruneCache(big, 1000, 500);
   assert.equal(big.size, 199);
   assert.ok(big.has("k249") && !big.has("k0"));
+});
+
+test("Find box: creator vs topic", () => {
+  const chips = ["CS2", "Fortnite", "Minecraft", "Rocket League"];
+  for (const t of ["cs2", "CS2", " cs ", "fn", "mc", "gta", "val", "r6", "minecraft", "Rocket  League"]) assert.equal(findMode(t, chips), "topic", t);
+  for (const t of ["@cs2", "@minecraft", "https://www.youtube.com/@jynxzi", "youtube.com/channel/UCabc", "https://youtu.be/dQw4w9WgXcQ", "Jynxzi", "MrBeast", ""])
+    assert.equal(findMode(t, chips), "creator", t);
+  assert.equal(findMode("valorant", []), "creator"); // not a shorthand or chip: creator first, topic fallback
+});
+
+test("feed paging helpers", () => {
+  assert.ok(isPageToken("CDIQAA"));
+  assert.ok(isPageToken("EAAaBlBUOkNESQ_-"));
+  for (const bad of ["", "a".repeat(201), "abc&key=x", "a b", "../x", 5, null]) assert.ok(!isPageToken(bad), String(bad));
+  assert.equal(regionCode("us"), "US");
+  assert.equal(regionCode("USA"), undefined);
+  assert.equal(regionCode(null), undefined);
+  assert.ok(autoLoad("creator", 40, false));
+  assert.ok(autoLoad("trending", 9, false));
+  assert.ok(autoLoad("topic", 2, false));
+  assert.ok(!autoLoad("topic", 3, false)); // 4th topic page (101 units) only by the button
+  assert.ok(!autoLoad("creator", 1, true)); // a failed page stops auto-loading
+  const v = (id: string, at: string, views: number) => ({ id, title: id, publishedAt: at, views, durationSec: 60, thumb: "" });
+  const vs = [v("a", "2026-10-01T00:00:00Z", 5), v("b", "2026-10-03T00:00:00Z", 1), v("c", "2026-10-02T00:00:00Z", 9)];
+  assert.deepEqual(sortVideos(vs, "viral").map((x) => x.id), ["c", "a", "b"]);
+  assert.deepEqual(sortVideos(vs, "new").map((x) => x.id), ["b", "c", "a"]);
+  assert.deepEqual(mergeByDate([vs], 48, "viral").map((x) => x.id), ["c", "a", "b"]);
+  assert.deepEqual(dedupe([...vs, v("a", "", 0)]).length, 3);
+  const now = Date.parse("2026-10-03T12:00:00Z");
+  assert.ok(isNew(vs[1], now));
+  assert.ok(!isNew(vs[2], now));
+});
+
+test("live flag and spoken reply caps at 3 titles", () => {
+  const it = (id: string, live: string) => ({ id, snippet: { title: id, publishedAt: "2026-10-10T00:00:00Z", liveBroadcastContent: live }, contentDetails: { duration: "PT0S" }, statistics: { viewCount: "1" } });
+  const [lv] = pickVideos([it("lllllllllll", "live")], false);
+  assert.equal(lv.live, true);
+  assert.equal(pickVideos([it("nnnnnnnnnnn", "none")], false)[0].live, undefined);
+  const v = (t: string) => ({ id: "x", title: t, publishedAt: "", views: 0, durationSec: 0, thumb: "" });
+  assert.equal(watchReply("J", [v("A"), v("B"), v("C"), v("D")]), "Found 4 new J videos: 1. A, 2. B, 3. C and more. Which one should I open?");
+});
+
+test("afterPage: no-growth and repeated tokens stop auto-paging", () => {
+  assert.deepEqual(afterPage("topic", 10, 20, "A", "B"), { emptyRun: 0, stalled: false });
+  assert.deepEqual(afterPage("topic", 10, 10, "A", "B"), { emptyRun: 1, stalled: true });
+  assert.deepEqual(afterPage("trending", 10, 10, "A", "B"), { emptyRun: 1, stalled: true });
+  assert.deepEqual(afterPage("creator", 10, 10, "A", "B"), { emptyRun: 1, stalled: false }); // one Shorts-only page is fine
+  assert.deepEqual(afterPage("creator", 10, 10, "B", "C", 1), { emptyRun: 2, stalled: true }); // two in a row is not
+  assert.deepEqual(afterPage("creator", 10, 30, "A", "A"), { emptyRun: 0, stalled: true }); // same token again
+  assert.deepEqual(afterPage("creator", 10, 30, "A", undefined), { emptyRun: 0, stalled: false }); // end of feed
 });
