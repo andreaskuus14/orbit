@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { MIN_LEAD_MS } from "./clips/schedule.ts";
 
 // STUDIO analytics: pure helpers for the YouTube Analytics v2 API and the OAuth loopback flow (no server imports; tested).
 
@@ -143,7 +144,7 @@ export function videoResource(b: Record<string, unknown>, clip: { title: string;
   let at: string | undefined;
   if (publishAt != null && publishAt !== "") {
     const ms = typeof publishAt === "string" ? Date.parse(publishAt) : NaN;
-    if (!(ms > now) || ms > now + 183 * DAY) return "publishAt must be a future date within 6 months";
+    if (!(ms >= now + MIN_LEAD_MS) || ms > now + 183 * DAY) return "Pick a publish time at least 15 minutes from now and within 6 months";
     at = new Date(ms).toISOString();
   }
   return { snippet: { title: t, description, categoryId: "24" }, status: { privacyStatus: at ? "private" : (privacy as Privacy), selfDeclaredMadeForKids: false, ...(at && { publishAt: at }) } };

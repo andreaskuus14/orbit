@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  asrPieces, asrRegions, frameArgs, groupSpans, keepSegments, markLoud, mergeRanked, renderFilter, retime, retimeWords, validateMoments, zoomExpr, zoomTimes,
+  ASR_MAX_SEC, asrBudgetSec, asrPieces, asrRegions, frameArgs, groupSpans, keepSegments, markLoud, mergeRanked, renderFilter, retime, retimeWords, validateMoments, zoomExpr, zoomTimes,
   type Moment, type Pt, type Word,
 } from "../src/lib/clips/pure.ts";
 
@@ -21,6 +21,28 @@ test("asrRegions: whole short videos, loudest padded stretches of long ones, bud
   const total = (o: { maxSec: number; count: number }) => asrRegions(rms, 3600, o).reduce((s, r) => s + r.end - r.start, 0);
   assert.ok(total({ maxSec: 45, count: 5 }) < 3600 / 2);
   assert.ok(total({ maxSec: 45, count: 10 }) > total({ maxSec: 45, count: 1 }));
+});
+
+test("asrBudgetSec: ~20% of the video, ≥ 10 min, scaled by clip count, never over 25 min", () => {
+  assert.equal(asrBudgetSec(3600, 5), 720);
+  assert.equal(asrBudgetSec(1200, 5), 600);
+  assert.ok(asrBudgetSec(3600, 10) > asrBudgetSec(3600, 1));
+  for (const h of [2, 3, 5, 8]) for (const n of [1, 5, 10]) assert.ok(asrBudgetSec(h * 3600, n) <= ASR_MAX_SEC);
+  assert.equal(asrBudgetSec(8 * 3600, 5), ASR_MAX_SEC);
+  assert.ok(asrBudgetSec(700, 10) <= 700);
+});
+
+test("asrRegions: an 8 h stream transcribes ≤ 25 min, and finds a reaction spike in a quiet hour", () => {
+  const n = 8 * 3600 * 2; // 0.5 s windows
+  // Hours 0-3 loud steady game audio (0.4), hours 4-7 quiet (0.1) with one shout at 6 h; noise keeps candidates distinct.
+  const rms = Array.from({ length: n }, (_, i) => (i < n / 2 ? 0.4 : 0.1) + ((i * 7919) % 13) * 0.004 + (i >= 43200 && i < 43260 ? 0.5 : 0));
+  const t0 = performance.now();
+  const reg = asrRegions(rms, 8 * 3600, { maxSec: 45, count: 5 });
+  assert.ok(performance.now() - t0 < 5000, "stays cheap");
+  const total = reg.reduce((s, r) => s + r.end - r.start, 0);
+  assert.ok(total <= ASR_MAX_SEC && total > ASR_MAX_SEC / 2, `total ${total}`);
+  assert.ok(reg.some((r) => r.start <= 21600 && r.end >= 21630), "covers the shout at 6 h");
+  for (let i = 1; i < reg.length; i++) assert.ok(reg[i].start > reg[i - 1].end, "sorted, merged");
 });
 
 test("asrPieces: ≤ 300 s pieces that overlap 5 s inside their region only", () => {

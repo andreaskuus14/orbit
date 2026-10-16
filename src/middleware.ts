@@ -5,7 +5,8 @@ import { isAllowedEmail } from "@/lib/allow";
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health"];
 
 export async function middleware(request: NextRequest) {
-  if (request.nextUrl.pathname === "/api/health") return NextResponse.next(); // launcher polls it; no session work
+  // Launcher / night run poll these; no session work. (busy checks its own Host header and returns only booleans.)
+  if (request.nextUrl.pathname === "/api/health" || request.nextUrl.pathname === "/api/studio/busy") return NextResponse.next();
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

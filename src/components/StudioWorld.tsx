@@ -253,7 +253,7 @@ function ViewOffset() {
 
 type Sort = "newest" | "views" | "takeoff";
 
-export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }: { onClose: () => void; reduced: boolean; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "none" } | null /* from CORE navigation */ }) {
+export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }: { onClose: () => void; reduced: boolean; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
   const glr = useGlRecovery();
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
@@ -263,13 +263,13 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
   const [sort, setSort] = useState<Sort>("newest");
   const [stats, setStats] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio"));
   const [clips, setClips] = useState(false); // Stats and Clips share the left overlay: opening one closes the other
-  useEffect(() => { if (open) { setStats(open.view === "stats"); setClips(open.view === "clips"); } }, [open]);
+  useEffect(() => { if (open) { setStats(open.view === "stats"); setClips(open.view === "clips" || open.view === "review"); } }, [open]);
   useEffect(() => { // Esc closes the open overlay first; capture phase + preventDefault keeps Orbit from closing the world
     if (!stats && !clips) return;
     const h = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (e.key !== "Escape" || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      if (document.querySelector(".drawer")) return; // CORE is open on top: Esc closes that first
+      if (document.querySelector(".drawer, .review-queue")) return; // CORE or the clip review is on top: Esc closes that first
       e.preventDefault(); setStats(false); setClips(false);
     };
     addEventListener("keydown", h, true);
@@ -485,7 +485,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
       )}
       {clips && (
         <div className="absolute inset-x-3 top-[4.5rem] bottom-36 z-[16] min-[900px]:right-[32rem]">
-          <ClipFactory onClose={() => setClips(false)} reduced={reduced} />
+          <ClipFactory onClose={() => setClips(false)} reduced={reduced} review={open?.view === "review" ? open : null} />
         </div>
       )}
 

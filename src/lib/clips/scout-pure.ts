@@ -1,6 +1,7 @@
 // Video Scout (pure, tested): settings validation, candidate filters, scoring, quota accounting, Claude-reply checks.
 import { parseIsoDuration } from "../youtube-pure.ts";
 import { isVideoId } from "../yt-analytics-pure.ts";
+import { MAX_SOURCE_SEC } from "./pure.ts"; // the clip job's own limit
 
 export type ScoutCreator = { channelId: string; title: string; autoClip: boolean };
 // maxAgeHours: keyword searches; creatorMaxAgeDays: watchlist uploads (creators post every few days, not hourly)
@@ -23,7 +24,8 @@ export type Candidate = { id: string; title: string; channel: string; channelId:
   description: string; stats: ScoutStats; source: "watchlist" | "keyword"; baseline?: number }; // baseline: the channel's median views/hour
 
 export const DAILY_UNITS = 1500; // our own cap, well under the default 10,000/day so STUDIO stats and uploads keep working
-export const SEARCH_UNITS = 100, MAX_SEARCHES = 3, MAX_SOURCE_SEC = 3 * 3600; // a clip job refuses videos over 3 h
+export const SEARCH_UNITS = 100, MAX_SEARCHES = 3;
+export { MAX_SOURCE_SEC };
 export const DEFAULTS: ScoutSettings = { watchlist: [], keywords: [], maxAgeHours: 48, creatorMaxAgeDays: 7, minMinutes: 8, dailyAuto: 1, runAt: 6 };
 const SEEN_MAX = 1000, PICKS_MAX = 10;
 
@@ -162,7 +164,7 @@ export function skipReason(c: Candidate, o: { now: number; maxAgeHours: number; 
 
 /** "25 found · 0 picks — 14 too short (<15 min), 9 older than 48 h, 2 live": why the list is short. */
 export function skipSummary(found: number, picks: number, skipped: Record<string, number>, s: Pick<ScoutSettings, "minMinutes" | "maxAgeHours" | "creatorMaxAgeDays">): string {
-  const label: Record<string, string> = { short: `too short (<${s.minMinutes} min)`, long: "too long (>3 h)", old: `older than ${s.maxAgeHours} h`,
+  const label: Record<string, string> = { short: `too short (<${s.minMinutes} min)`, long: `too long (>${MAX_SOURCE_SEC / 3600} h)`, old: `older than ${s.maxAgeHours} h`,
     oldCreator: `creator uploads older than ${s.creatorMaxAgeDays} d`, live: "live/upcoming", made: "already downloaded", seen: "dismissed or queued before" };
   const why = Object.entries(skipped).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${label[k] ?? k}`);
   return `${found} found · ${picks} pick${picks === 1 ? "" : "s"}${why.length ? ` — ${why.join(", ")}` : ""}`;

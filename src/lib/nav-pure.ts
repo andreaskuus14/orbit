@@ -4,10 +4,10 @@ import { COUNTRIES, REGIONS, displayName } from "./geo.ts";
 import { planetById, type PanelId } from "./planets.ts";
 
 /** panel null = back to the galaxy. country is a world-atlas name (as NewsGlobe uses), region a REGIONS key.
- *  view "none" closes STUDIO's overlay; search runs the globe's news search ("" clears search and selection);
+ *  view "none" closes STUDIO's overlay, "review" opens the clip factory's review queue; search runs the globe's news search ("" clears search and selection);
  *  zoom acts on whatever world is on screen and never navigates (panel is ignored). */
 export type NavTarget = {
-  panel: PanelId | null; country?: string; region?: string; view?: "stats" | "clips" | "none";
+  panel: PanelId | null; country?: string; region?: string; view?: "stats" | "clips" | "review" | "none";
   search?: string; zoom?: "in" | "out" | "reset";
 };
 export const NAV_EVENT = "orbit:navigate"; // detail: NavTarget
@@ -34,6 +34,7 @@ put({ panel: "vault" }, "vault, files");
 // "my analytics" is the channel; plain "analytics" is the ANALYTICS planet (AI usage).
 put({ panel: "studio", view: "stats" }, "stats, my stats, statistics, stats in the studio, statistics in the studio, channel stats, youtube stats, video stats, studio stats, my analytics, channel analytics, youtube analytics");
 put({ panel: "studio", view: "clips" }, "clips, my clips, clip factory, the clip factory, clip maker, shorts, studio clips, clips in the studio, clips in studio, the clips in the studio, eclipse, eclipses, the eclipse, the eclipses");
+put({ panel: "studio", view: "review" }, "review, the review, morning review, clip review, clips review, review queue, review clips, review my clips, review the clips, review new clips, review new");
 
 const REGION_ALIAS: Record<string, string> = {
   "north america": "Americas", "south america": "Americas", "latin america": "Americas", mideast: "Middle East",
@@ -124,6 +125,7 @@ export function parseNavCommand(text: string, ctx: { current?: PanelId | null } 
     const bare = q[1] !== undefined && !/^search (?:the )?(?:news|headlines)\b/.test(s);
     return !bare || ctx.current === "intelligence" || (t && !t.search) || / (?:news|headlines)$/.test(x) ? t : null;
   }
+  if (s !== "review" && PLACES[s]?.view === "review") return PLACES[s]; // "morning review", "review my clips": commands without a verb
   const v = VERB.exec(s);
   if (!v) return null;
   const rest = s.slice(v[0].length).trim();
@@ -141,7 +143,7 @@ export function validateNav(input: Record<string, unknown>): NavTarget | null {
   const dest = s(input.target) ? findPlace(s(input.target)) : null;
   if (s(input.search) && (!dest || dest.panel === "intelligence")) return newsFor(s(input.search));
   if (input.search === "" && (!dest || (dest.panel === "intelligence" && !dest.country && !dest.region))) return { panel: "intelligence", search: "" };
-  if ((input.view === "stats" || input.view === "clips" || input.view === "none") && (!dest || dest.panel === "studio")) return { panel: "studio", view: input.view };
+  if ((input.view === "stats" || input.view === "clips" || input.view === "review" || input.view === "none") && (!dest || dest.panel === "studio")) return { panel: "studio", view: input.view };
   return dest;
 }
 
@@ -149,7 +151,7 @@ export function validateNav(input: Record<string, unknown>): NavTarget | null {
 export function navLabel(t: NavTarget): string {
   if (!t.panel) return "the galaxy";
   const name = t.panel === "core" ? "CORE" : t.panel === "profile" ? "your profile" : planetById(t.panel)!.name.charAt(0) + planetById(t.panel)!.name.slice(1).toLowerCase();
-  const sub = t.country ? displayName(t.country) : t.region ?? (t.view === "stats" ? "Stats" : t.view === "clips" ? "Clips" : "");
+  const sub = t.country ? displayName(t.country) : t.region ?? (t.view === "stats" ? "Stats" : t.view === "clips" ? "Clips" : t.view === "review" ? "Clip review" : "");
   return sub ? `${name} → ${sub}` : name;
 }
 export const navReply = (t: NavTarget) =>

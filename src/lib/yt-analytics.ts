@@ -82,3 +82,6 @@ export async function getAnalytics({ range, videoId, force = false }: { range: R
   cache.set(key, { at: Date.now(), ttl: warnings.length ? 60_000 : 15 * 60_000, data });
   return data;
 }
+
+/** One Analytics v2 report for the owner (retries once on 401). Used by the clip learning loop. */
+export const getAnalyticsReport = (s: Stored, q: ReportQuery) => report(s, q);

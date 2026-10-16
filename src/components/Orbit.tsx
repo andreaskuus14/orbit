@@ -47,7 +47,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [tapToTalk, setTapToTalk] = useState(false);
   // CORE navigation: sub-targets for the worlds (new object per command), and a world we're flying to through the galaxy.
   const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string; search?: string } | null>(null);
-  const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "none" } | null>(null);
+  const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "review" | "none" } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
   // CORE opened from inside a world floats over it instead of leaving it; closing CORE returns to that world.
   const [behind, setBehind] = useState<PanelId | null>(null);

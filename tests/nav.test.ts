@@ -40,6 +40,11 @@ const yes: [string, object][] = [
   ["please go to the memory planet now", { panel: "memory" }],
   ["show my channel", { panel: "studio", view: "none" }],
   ["go straight to the clips", { panel: "studio", view: "clips" }],
+  ["review clips", { panel: "studio", view: "review" }],
+  ["Morning review", { panel: "studio", view: "review" }],
+  ["open review", { panel: "studio", view: "review" }],
+  ["Orbit, review my clips please", { panel: "studio", view: "review" }],
+  ["show me the morning review", { panel: "studio", view: "review" }],
   ["zoom in on Germany", { panel: "intelligence", country: "Germany" }],
   // news search (no context needed: the verb makes it unambiguous)
   ["search the news for AI chips", { panel: "intelligence", search: "ai chips" }],
@@ -69,7 +74,7 @@ test("parseNavCommand leaves questions and other requests to CORE", () => {
     "what's going on in Germany?", "tell me about Estonia", "news about AI", "what's the news about AI?",
     "go to sleep", "orbit, shut down", "open the pod bay doors", "show me how to cook pasta",
     "what are my stats?", "how is the studio doing", "open https://example.com", "go", "show me",
-    "open intelligence and tell me about Germany", "show me what's happening in Germany", "switch to 2d view",
+    "open intelligence and tell me about Germany", "review", "review this essay for me", "show me what's happening in Germany", "switch to 2d view",
     "remember that I like Estonia", "summarize the local news", "estonia", "the moon's orbit",
     // without context, bare / zoom words are CORE's
     "zoom in", "closer", "stats", "clips", "close stats", "analytics",
@@ -123,6 +128,8 @@ test("parseNavCommand understands in-world commands in context", () => {
 test("validateNav accepts only allowlisted places", () => {
   assert.deepEqual(validateNav({ target: "intelligence", country: "Germany" }), { panel: "intelligence", country: "Germany" });
   assert.deepEqual(validateNav({ target: "studio", view: "clips" }), { panel: "studio", view: "clips" });
+  assert.deepEqual(validateNav({ target: "studio", view: "review" }), { panel: "studio", view: "review" });
+  assert.deepEqual(validateNav({ target: "morning review" }), { panel: "studio", view: "review" });
   assert.deepEqual(validateNav({ target: "game dev" }), { panel: "creation" });
   assert.deepEqual(validateNav({ target: "galaxy" }), { panel: null });
   assert.equal(validateNav({ target: "https://evil.example" }), null);
@@ -148,6 +155,7 @@ test("navReply says what happens", () => {
 test("navLabel reads naturally", () => {
   assert.equal(navLabel({ panel: "intelligence", country: "United States of America" }), "Intelligence → United States");
   assert.equal(navLabel({ panel: "studio", view: "stats" }), "Studio → Stats");
+  assert.equal(navLabel({ panel: "studio", view: "review" }), "Studio → Clip review");
   assert.equal(navLabel({ panel: null }), "the galaxy");
 });
 

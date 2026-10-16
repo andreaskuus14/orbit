@@ -1,6 +1,9 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CAPTION_STYLES, CHANNEL_LINK_MSG, REJECT_REASONS, bytes, channelLink, isJobActive, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
+import ReviewQueue from "./ReviewQueue";
+import ClipPicks from "./ClipPicks";
+import LearnedCard from "./LearnedCard";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -8,14 +11,19 @@ import { CAPTION_STYLES, CHANNEL_LINK_MSG, REJECT_REASONS, bytes, channelLink, i
 // Mirrors src/lib/clips/types.ts (declared here so this file stands alone).
 type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
-  status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; variantOf?: string; edit?: VersionEdit };
-type ClipPublish = { status: "uploading" | "done" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string };
+  status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; variantOf?: string; edit?: VersionEdit;
+  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[] };
+type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string; scheduledFor?: string };
+// Mirrors src/lib/clips/schedule.ts + publish-schedule.ts (GET /api/studio/clips/schedule).
+type PubSettings = { timezone: string; slots: string[]; perDay: number };
+type Batch = { running: boolean; total: number; scheduled: number; error?: string; at: string };
+type Schedule = { settings: PubSettings; next: string[]; batch: Batch | null };
 type CaptionStyle = (typeof CAPTION_STYLES)[number];
 type VersionEdit = { layout: "fit" | "fill" | "split"; camSide: "left" | "right"; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean };
 type VersionBody = Partial<VersionEdit> & { hook?: string; title?: string; start: number; end: number; suggest: boolean };
 type Quarantined = { file: string; reason: string; at: string };
 type YtStatus = { configured: boolean; connected: boolean; canUpload?: boolean };
-type PublishBody = { title: string; description: string; privacy: "private" | "unlisted" | "public"; publishAt?: string; force?: boolean };
+type PublishBody = { title: string; description: string; privacy: "private" | "unlisted" | "public"; publishAt?: string; force?: boolean }; // publishAt: ISO, or "next" = next free slot
 type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering" | "done" | "failed";
 type ClipJob = { id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
@@ -78,7 +86,8 @@ function ConfirmButton({ label, sure = "Sure?", aria, onConfirm, disabled, class
 
 /* ---------- panel ---------- */
 
-export default function ClipFactory({ reduced, onClose }: { reduced: boolean; onClose?: () => void }) {
+const seenReview = new WeakSet<object>();
+export default function ClipFactory({ reduced, onClose, review }: { reduced: boolean; onClose?: () => void; review?: object | null /* a new object opens the morning review */ }) {
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -90,6 +99,9 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
   const [showRejected, setShowRejected] = useState(false);
   const [visible, setVisible] = useState(true);
   const [yt, setYt] = useState<YtStatus | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  // Each review request opens once; the same object lingers in Orbit's state until STUDIO is left.
+  useEffect(() => { if (review && !seenReview.has(review)) { seenReview.add(review); setReviewing(true); } }, [review]);
   const seq = useRef(0);
 
   const load = useCallback(async (quiet = false) => {
@@ -147,6 +159,9 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
   const patchClip = (job: string, clip: string, body: PatchBody) => act(`clip:${job}/${clip}`, async () => {
     putClip(job, clip, (await api<{ clip: Clip }>(clipUrl(job, clip), { method: "PATCH", body })).clip);
   });
+  const moreTitles = (job: string, clip: string) => act(`titles:${job}/${clip}`, async () => {
+    putClip(job, clip, (await api<{ clip: Clip }>(`${clipUrl(job, clip)}/titles`, { method: "POST" })).clip);
+  });
   const publish = (job: string, clip: string, body: PublishBody) => act(`pub:${job}/${clip}`, async () => {
     putClip(job, clip, (await api<{ clip: Clip }>(`${clipUrl(job, clip)}/publish`, { method: "POST", body })).clip);
     setData((d) => d && { ...d, publishing: `${job}/${clip}` }); // started under the server's lock: it's the running upload
@@ -188,6 +203,9 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
   const jobs = [...(data?.jobs ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const byId = new Map(jobs.map((j) => [j.id, j]));
   const rejectedCount = jobs.reduce((s, j) => s + j.clips.filter((c) => c.status === "rejected").length, 0);
+  const unpublished = jobs.reduce((s, j) => s + j.clips.filter((c) => c.status === "approved" && (!c.publish || c.publish.status === "failed")).length, 0);
+  const fresh = jobs.reduce((s, j) => s + j.clips.filter((c) => c.status === "ready").length, 0);
+  if (reviewing) return <ReviewQueue reduced={reduced} onClose={() => { setReviewing(false); void load(true); }} />;
 
   return (
     <div className={`studio-clips glass @container h-full w-full overflow-y-auto p-3 sm:p-4 ${reduced ? "" : "panel-in"}`} role="region" aria-label="Clip factory" aria-busy={loading}>
@@ -195,6 +213,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
         <h2 className="hud-title studio-title truncate">CLIP FACTORY</h2>
         <div className="flex items-center gap-2">
           {active && <span className="muted text-[11px]" aria-live="polite">Working… auto-updating</span>}
+          {fresh > 0 && <button className="chip" onClick={() => setReviewing(true)} aria-label={`Review ${fresh} new clips`}>☀ Review {fresh} new</button>}
           <button className="chip" onClick={() => { void load(); void loadYt(); }} disabled={loading} aria-label="Refresh clip factory">{loading ? "Loading…" : "Refresh"}</button>
           {onClose && <button className="chip" onClick={onClose} aria-label="Close clip factory">×</button>}
         </div>
@@ -219,6 +238,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
           {(!data.tools.ffmpeg || !data.tools.transcriber) && <ToolsBanner tools={data.tools} />}
           {!!data.quarantined?.length && <QuarantineNotice root={data.root} files={data.quarantined} />}
 
+          <LearnedCard />
           <ScoutSection visible={visible} onQueued={() => void load(true)} />
 
           <Section title="Inbox">
@@ -303,18 +323,21 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
             )}
           </Section>
 
-          <Section title="Clip jobs" right={rejectedCount > 0 && (
-            <button className="chip" aria-pressed={showRejected} onClick={() => setShowRejected((s) => !s)}>
-              {showRejected ? "Hide" : "Show"} rejected ({rejectedCount})
-            </button>
-          )}>
+          <Section title="Clip jobs" right={<>
+            <ScheduleAll count={unpublished} canUpload={!!yt?.canUpload} onChange={load} />
+            {rejectedCount > 0 && (
+              <button className="chip" aria-pressed={showRejected} onClick={() => setShowRejected((s) => !s)}>
+                {showRejected ? "Hide" : "Show"} rejected ({rejectedCount})
+              </button>
+            )}
+          </>}>
             {!jobs.length && <p className="muted text-sm">No clip jobs yet. Pick a video in the inbox and press “Make clips”.</p>}
             <div className="space-y-3">
               {jobs.map((j) => (
                 <JobCard key={j.id} job={j} reduced={reduced} showRejected={showRejected} busy={busy} Note={Note} yt={yt} publishing={data.publishing}
                   onRetry={() => make(j.source, j.options, true)} onDelete={() => del(j.id)}
                   onPatch={(clip, body) => patchClip(j.id, clip, body)} onPublish={(clip, body) => publish(j.id, clip, body)}
-                  onCheck={(clip) => checkYouTube(j.id, clip)} onVersion={(clip, body) => version(j.id, clip, body)} />
+                  onCheck={(clip) => checkYouTube(j.id, clip)} onVersion={(clip, body) => version(j.id, clip, body)} onTitles={(clip) => moreTitles(j.id, clip)} />
               ))}
             </div>
           </Section>
@@ -634,14 +657,14 @@ function EditOptions({ opts, setOpts }: { opts: Opts; setOpts: (f: (o: Opts) => 
 
 /* ---------- jobs & clips ---------- */
 
-type PatchBody = { status?: "approved" | "rejected"; title?: string; reason?: string };
+type PatchBody = { status?: "approved" | "rejected"; title?: string; reason?: string; thumb?: string };
 type PatchFn = (clip: string, body: PatchBody) => Promise<boolean>;
 type PublishFn = (clip: string, body: PublishBody) => Promise<boolean>;
 type VersionFn = (clip: string, body: VersionBody) => Promise<boolean>;
 
-function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRetry, onDelete, onPatch, onPublish, onCheck, onVersion }: {
+function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRetry, onDelete, onPatch, onPublish, onCheck, onVersion, onTitles }: {
   job: ClipJob; publishing?: string | null; reduced: boolean; showRejected: boolean; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode; yt: YtStatus | null;
-  onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn; onCheck: (clip: string) => Promise<boolean>; onVersion: VersionFn;
+  onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn; onCheck: (clip: string) => Promise<boolean>; onVersion: VersionFn; onTitles: (clip: string) => Promise<boolean>;
 }) {
   const o = job.options; // what the original clips were rendered with (mirrors baseEdit in pure.ts)
   const base: VersionEdit = { layout: o.layout ?? "fit", camSide: o.camSide ?? "right", captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true };
@@ -689,6 +712,11 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
           {clips.map((c) => (
             <li key={c.id}>
               <ClipCard clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />}
+                picks={(c.status === "ready" || c.status === "approved") && <>
+                  <ClipPicks clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPick={(body) => void onPatch(c.id, body)}
+                    onMore={() => void onTitles(c.id)} moreBusy={!!busy[`titles:${job.id}/${c.id}`]} />
+                  <Note k={`titles:${job.id}/${c.id}`} />
+                </>}
                 version={(c.status === "ready" || c.status === "approved") && !working &&
                   <VersionBox clip={c} base={c.edit ?? base} busy={!!busy[`ver:${job.id}/${c.id}`]} onVersion={onVersion} note={<Note k={`ver:${job.id}/${c.id}`} />} />}
                 publish={c.status === "approved" && <PublishBox clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish}
@@ -703,7 +731,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
   );
 }
 
-function ClipCard({ clip: c, busy, onPatch, note, version, publish }: { clip: Clip; busy: boolean; onPatch: PatchFn; note: ReactNode; version: ReactNode; publish: ReactNode }) {
+function ClipCard({ clip: c, busy, onPatch, note, picks, version, publish }: { clip: Clip; busy: boolean; onPatch: PatchFn; note: ReactNode; picks: ReactNode; version: ReactNode; publish: ReactNode }) {
   const [play, setPlay] = useState(false);
   const [edit, setEdit] = useState<string | null>(null);
   const reviewable = c.status === "ready" || c.status === "approved" || c.status === "rejected";
@@ -753,6 +781,7 @@ function ClipCard({ clip: c, busy, onPatch, note, version, publish }: { clip: Cl
           <button className="chip shrink-0 !px-1.5 !py-0" onClick={() => setEdit(c.title)} aria-label={`Edit title: ${c.title}`}>✎</button>
         </div>
       )}
+      {picks}
       {c.hook && <p className="leading-snug">“{c.hook}”</p>}
       {c.reason && <p className="muted text-[11px] leading-snug">{c.reason}</p>}
       <p className="muted num text-[11px]">{mmss(c.start)}–{mmss(c.end)} · {mmss(len)} · score {score(c.score)}/100</p>
@@ -850,18 +879,24 @@ function VersionBox({ clip: c, base, busy, onVersion, note }: { clip: Clip; base
 const LOCKED_NOTE = "Google keeps API uploads from unverified apps private. If YouTube locks it as private, open it in YouTube Studio and set it to Public.";
 const PUB_BOX = { background: "rgba(255,143,171,0.12)", color: "#ffd6e0" };
 const ext = { target: "_blank", rel: "noopener noreferrer" } as const;
+type PubWhen = "now" | "next" | "pick";
+const WHEN_LABEL: Record<PubWhen, string> = { now: "Now", next: "Next best slot", pick: "Pick a time" };
+const MIN_LEAD = 15 * 60_000; // mirrors MIN_LEAD_MS: YouTube needs publishAt in the future, we keep a margin for the upload
 /** datetime-local value ("YYYY-MM-DDTHH:mm", local time) for a Date. */
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
 function PublishBox({ clip: c, yt, reduced, busy, stale, onPublish, onCheck, note }: { clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; stale: boolean; onPublish: PublishFn; onCheck: () => void; note: ReactNode }) {
   const [form, setForm] = useState<PublishBody | null>(null);
   const [at, setAt] = useState("");
+  const [mode, setMode] = useState<PubWhen>("now");
+  const [sched, setSched] = useState<Schedule | null>(null);
   const p = c.publish;
   const unsure = p?.status === "unknown" || stale; // the last upload may be on YouTube: only an explicit "Upload again anyway" re-uploads
-  const open = () => { setAt(""); setForm({ title: c.title.replace(/[<>]/g, "").slice(0, 100), description: `${c.hook.replace(/[<>]/g, "")}\n\n#shorts`.trim(), privacy: "private" }); };
+  const open = () => { setAt(""); setMode("now"); void api<Schedule>(`${API}/schedule`).then(setSched, () => setSched(null)); setForm({ title: c.title.replace(/[<>]/g, "").slice(0, 100), description: `${c.hook.replace(/[<>]/g, "")}\n\n#shorts`.trim(), privacy: "private" }); };
   const submit = async () => {
     if (!form) return;
-    if (await onPublish(c.id, { ...form, ...(at ? { publishAt: new Date(at).toISOString() } : {}), ...(unsure ? { force: true } : {}) })) setForm(null);
+    const publishAt = mode === "next" ? "next" : mode === "pick" && at ? new Date(at).toISOString() : undefined;
+    if (await onPublish(c.id, { ...form, ...(publishAt ? { publishAt } : {}), ...(unsure ? { force: true } : {}) })) setForm(null);
   };
   const reconnect = (text: string) => <p className="rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX}>{text} <a className="underline" href="/api/studio/oauth/start">Connect YouTube</a></p>;
 
@@ -875,6 +910,17 @@ function PublishBox({ clip: c, yt, reduced, busy, stale, onPublish, onCheck, not
         <a className="block underline" href={`https://youtube.com/shorts/${p.videoId}`} {...ext}>Open on YouTube ↗</a>
         <a className="block underline" href={`https://studio.youtube.com/video/${p.videoId}/edit`} {...ext}>Open in YouTube Studio ↗</a>
         <p className="muted">{LOCKED_NOTE}</p>
+      </div>
+    );
+  }
+  if (p?.status === "scheduled" && p.videoId) {
+    const live = !!p.scheduledFor && Date.parse(p.scheduledFor) <= Date.now();
+    return (
+      <div className="space-y-1 rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX} role="status">
+        <p>{live ? `✓ Live since ${when(p.scheduledFor!)}` : `🕒 Goes live ${p.scheduledFor ? when(p.scheduledFor) : "at the scheduled time"}`}</p>
+        <a className="block underline" href={`https://youtube.com/shorts/${p.videoId}`} {...ext}>Open on YouTube ↗</a>
+        <a className="block underline" href={`https://studio.youtube.com/video/${p.videoId}/edit`} {...ext}>{live ? "Open in YouTube Studio ↗" : "Reschedule or unschedule in YouTube Studio ↗"}</a>
+        {!live && <p className="muted">ORBIT can upload but not edit videos, so change the time in YouTube Studio (Visibility → Schedule).</p>}
       </div>
     );
   }
@@ -905,6 +951,7 @@ function PublishBox({ clip: c, yt, reduced, busy, stale, onPublish, onCheck, not
   }
   const set = (patch: Partial<PublishBody>) => setForm((f) => f && { ...f, ...patch });
   const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  const tooSoon = mode === "pick" && !!at && new Date(at).getTime() < Date.now() + MIN_LEAD;
   return (
     <form className="flex flex-col gap-1.5 rounded-md border border-white/10 p-1.5" aria-label={`Publish ${c.title} to YouTube`} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <label><span className={label}>Title</span>
@@ -914,21 +961,100 @@ function PublishBox({ clip: c, yt, reduced, busy, stale, onPublish, onCheck, not
         <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} value={form.description} maxLength={5000} onChange={(e) => set({ description: e.target.value })} />
       </label>
       <label><span className={label}>Visibility</span>
-        <select className="field w-full !px-2 !py-1 !text-xs" value={form.privacy} disabled={!!at} onChange={(e) => set({ privacy: e.target.value as PublishBody["privacy"] })}>
+        <select className="field w-full !px-2 !py-1 !text-xs" value={mode === "now" ? form.privacy : "private"} disabled={mode !== "now"} onChange={(e) => set({ privacy: e.target.value as PublishBody["privacy"] })}>
           <option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>
         </select>
       </label>
-      <label><span className={label}>Schedule (optional)</span>
-        <input className="field w-full !px-2 !py-1 !text-xs" type="datetime-local" value={at} min={localInput(new Date())} onChange={(e) => setAt(e.target.value)} />
-      </label>
-      {at && <p className="muted text-[11px]">Stays private until then, then goes public.</p>}
+      <Choice legend="When" values={["now", "next", "pick"] as PubWhen[]} value={mode} fmt={(v) => WHEN_LABEL[v]} onChange={setMode} />
+      {mode === "next" && <p className="muted text-[11px]">{sched ? (sched.next[0] ? `Next free slot: ${when(sched.next[0])}` : "No free slot in the next 6 months — edit your slots.") : "Finding the next free slot…"}</p>}
+      {mode === "pick" && (
+        <label><span className="sr-only">Publish time</span>
+          <input className="field w-full !px-2 !py-1 !text-xs" type="datetime-local" value={at} min={localInput(new Date(Date.now() + MIN_LEAD))} required onChange={(e) => setAt(e.target.value)} />
+        </label>
+      )}
+      {tooSoon && <p className="error text-[11px]">Pick a time at least 15 minutes from now.</p>}
+      {mode !== "now" && <p className="muted text-[11px]">Uploads now as private; YouTube makes it public at that time, even if this PC is off.</p>}
+      {mode !== "now" && sched && <SlotSettings sched={sched} onSaved={setSched} />}
       {/[<>]/.test(form.title + form.description) && <p className="error text-[11px]">YouTube doesn&apos;t allow &lt; or &gt;.</p>}
       <p className="muted text-[11px]">{LOCKED_NOTE}</p>
       <div className="flex gap-1">
-        <button type="submit" className="chip" disabled={busy || !form.title.trim() || /[<>]/.test(form.title + form.description)}>{busy ? "Starting…" : "▶ Upload"}</button>
+        <button type="submit" className="chip" disabled={busy || !form.title.trim() || /[<>]/.test(form.title + form.description) || (mode === "pick" && (!at || tooSoon))}>{busy ? "Starting…" : mode === "now" ? "▶ Upload" : "🕒 Schedule"}</button>
         <button type="button" className="chip" onClick={() => setForm(null)}>Cancel</button>
       </div>
       {note}
     </form>
+  );
+}
+
+/** "Slots: 12:00, 17:00, 21:00 · edit" — the owner's publishing slots (in their time zone), edited inline inside the publish form. */
+function SlotSettings({ sched, onSaved }: { sched: Schedule; onSaved: (s: Schedule) => void }) {
+  const [edit, setEdit] = useState<{ slots: string; perDay: number; timezone: string } | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const s = sched.settings, local = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!edit) return (
+    <p className="muted text-[11px]">
+      Slots: {s.slots.join(", ")}{s.perDay < s.slots.length ? ` · max ${s.perDay}/day` : ""}{s.timezone !== local ? ` (${s.timezone})` : ""} ·{" "}
+      <button type="button" className="underline" onClick={() => setEdit({ slots: s.slots.join(", "), perDay: s.perDay, timezone: s.timezone })} aria-label="Edit publishing slots">edit</button>
+    </p>
+  );
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await api<Pick<Schedule, "settings" | "next">>(`${API}/schedule`, { method: "PUT", body: { timezone: edit.timezone.trim(), slots: edit.slots.split(/[\s,]+/).filter(Boolean), perDay: edit.perDay } });
+      onSaved({ ...sched, ...r }); setEdit(null);
+    } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't save the slots"); }
+    finally { setBusy(false); }
+  };
+  const enter = (e: { key: string; preventDefault: () => void }) => { if (e.key === "Enter") { e.preventDefault(); void save(); } }; // inside the publish form: don't upload
+  const field = "field w-full !px-2 !py-1 !text-xs", label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  return (
+    <fieldset className="flex flex-col gap-1 rounded-md border border-white/10 p-1.5">
+      <legend className={label}>Publishing slots</legend>
+      <label><span className={label}>Times (HH:MM)</span><input className={field} value={edit.slots} onKeyDown={enter} onChange={(e) => setEdit({ ...edit, slots: e.target.value })} placeholder="12:00, 17:00, 21:00" /></label>
+      <label><span className={label}>Clips per day</span><input className={field} type="number" min={1} max={12} value={edit.perDay} onKeyDown={enter} onChange={(e) => setEdit({ ...edit, perDay: Number(e.target.value) })} /></label>
+      <label><span className={label}>Time zone</span><input className={field} value={edit.timezone} onKeyDown={enter} onChange={(e) => setEdit({ ...edit, timezone: e.target.value })} placeholder="Europe/Tallinn" /></label>
+      {err && <p className="error text-[11px]" role="alert">{err}</p>}
+      <div className="flex gap-1">
+        <button type="button" className="chip" onClick={() => void save()} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+        <button type="button" className="chip" onClick={() => setEdit(null)}>Cancel</button>
+      </div>
+    </fieldset>
+  );
+}
+
+/** "Schedule all approved": the server uploads every approved, unpublished clip into the next free slots, one at a time. */
+function ScheduleAll({ count, canUpload, onChange }: { count: number; canUpload: boolean; onChange: (quiet?: boolean) => void }) {
+  const [batch, setBatch] = useState<Batch | null>(null);
+  const [mine, setMine] = useState(false); // only show a result for a run seen in this panel
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void api<Schedule>(`${API}/schedule`).then((s) => { setBatch(s.batch); if (s.batch?.running) setMine(true); }, () => {}); }, []);
+  useEffect(() => {
+    if (!batch?.running) return;
+    const t = setInterval(() => void api<Schedule>(`${API}/schedule`).then((s) => { setBatch(s.batch); onChange(true); }, () => {}), 2000);
+    return () => clearInterval(t);
+  }, [batch?.running, onChange]);
+  const start = async () => {
+    setBusy(true); setErr("");
+    try { setBatch((await api<{ batch: Batch }>(`${API}/schedule`, { method: "POST" })).batch); setMine(true); onChange(true); }
+    catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't start scheduling");
+      if (e instanceof HttpError && e.status === 409) { // maybe already running (another tab): pick up its progress
+        const s = await api<Schedule>(`${API}/schedule`).catch(() => null);
+        if (s?.batch?.running) { setBatch(s.batch); setMine(true); setErr(""); }
+      }
+    }
+    finally { setBusy(false); }
+  };
+  if (batch?.running) return <span className="muted text-[11px]" aria-live="polite">🕒 Scheduling {Math.min(batch.scheduled + 1, batch.total)}/{batch.total}…</span>;
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      {count > 0 && canUpload && <ConfirmButton label={`🕒 Schedule all approved (${count})`} sure={`Upload ${count} into the next slots?`} aria={`Schedule all ${count} approved clips into the next free slots`} onConfirm={() => void start()} disabled={busy} />}
+      {mine && batch && (batch.error
+        ? <p className="error text-[11px]" role="alert">{batch.scheduled} scheduled. {batch.error}</p>
+        : <p className="ok text-[11px]" role="status">✓ {batch.scheduled} scheduled</p>)}
+      {err && <p className="error text-[11px]" role="alert">{err}</p>}
+    </div>
   );
 }

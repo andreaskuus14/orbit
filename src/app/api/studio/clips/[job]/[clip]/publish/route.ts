@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { requireUser } from "@/lib/supabase/server";
 import { clipFile, getJob, isPublishing, publishingKey, saveJob, startClipQueue, startPublish, withJobLock } from "@/lib/clips/factory";
 import { isClipId, isJobId } from "@/lib/clips/pure";
+import { freeSlots } from "@/lib/clips/publish-schedule";
 import { YT_UPLOAD_SCOPE, hasScopes, videoResource } from "@/lib/yt-analytics-pure";
 import { readStored } from "@/lib/yt-oauth";
 
@@ -34,8 +35,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ job: st
       await saveJob(job);
     }
     if (clip.publish?.status === "unknown" && !force) return Response.json({ error: "The last upload's outcome is unknown — check YouTube first", clip }, { status: 409 });
-    if ((st === "done" || (st === "uploading" && mine)) && !force) return Response.json({ error: st === "done" ? "Already published" : "Already uploading" }, { status: 409 });
+    if ((st === "done" || st === "scheduled" || (st === "uploading" && mine)) && !force) return Response.json({ error: st === "uploading" ? "Already uploading" : st === "done" ? "Already published" : "Already scheduled" }, { status: 409 });
     if (isPublishing()) return Response.json({ error: "Another clip is uploading — try again when it's done" }, { status: 409 });
+    if (meta.publishAt === "next") { // "Next best slot": picked here, under the lock, so two clips can't get the same one
+      [meta.publishAt] = await freeSlots();
+      if (!meta.publishAt) return Response.json({ error: "No free slot in the next 6 months — edit your slots" }, { status: 409 });
+    }
     const video = videoResource(meta, clip);
     if (typeof video === "string") return Response.json({ error: video }, { status: 400 });
     await startPublish(job, clip, file, video);

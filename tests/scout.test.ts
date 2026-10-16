@@ -78,7 +78,8 @@ test("skipReason: seen/made, live, too short, too long, too old", () => {
   assert.equal(skipReason(cand({ live: "live" }), o), "live");
   assert.equal(skipReason(cand({ live: "upcoming", durationSec: 0 }), o), "live");
   assert.equal(skipReason(cand({ durationSec: 14 * 60 }), o), "short");
-  assert.equal(skipReason(cand({ durationSec: 4 * 3600 }), o), "long");
+  assert.equal(skipReason(cand({ durationSec: 6 * 3600 }), o), ""); // stream VODs are the best source
+  assert.equal(skipReason(cand({ durationSec: 8 * 3600 + 1 }), o), "long");
   assert.equal(skipReason(cand({ publishedAt: hAgo(49), source: "keyword" }), o), "old");
   assert.equal(skipReason(cand({ publishedAt: hAgo(49) }), o), ""); // watchlist: 7-day window
   assert.equal(skipReason(cand({ publishedAt: hAgo(8 * 24) }), o), "oldCreator");

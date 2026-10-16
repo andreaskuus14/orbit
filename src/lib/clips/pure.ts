@@ -1,21 +1,28 @@
 import path from "node:path";
 import { CAPTION_STYLES, REJECT_REASONS, rootClipId } from "./format.ts";
 import type { CaptionStyle, ClipOptions, Feedback, FeedbackAction, VersionEdit } from "./types";
+import { validTitleOptions, type TitleOption } from "./titles.ts";
 
 // Pure helpers for the Clip Factory (no I/O), unit-tested in tests/clips.test.ts.
 
 export type Word = { start: number; end: number; text: string; loud?: boolean }; // loud: shouted, gets the big caption
 export type Span = { start: number; end: number };
-export type Moment = { start: number; end: number; title: string; hook: string; reason: string; score: number };
+export type Moment = { start: number; end: number; title: string; hook: string; reason: string; score: number; titleOptions?: TitleOption[] };
 export type Candidate = { start: number; end: number; score: number };
 
 export const VIDEO_EXTS = [".mp4", ".mov", ".mkv", ".webm", ".m4v"];
-export const MAX_SOURCE_SEC = 3 * 3600;
+export const MAX_SOURCE_SEC = 8 * 3600; // stream VODs; analysis cost stays flat (asrBudgetSec), so length only costs disk and download time
 export const MIN_CLIP_SEC = 15;
 export const WIN_SEC = 0.5;
 export const SAMPLE_RATE = 16_000;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Latest "time=01:02:03.45" in an ffmpeg stats chunk (seconds processed), or null. */
+export function ffmpegTime(chunk: string): number | null {
+  const all = [...chunk.matchAll(/time=(\d+):(\d{2}):(\d{2}(?:\.\d+)?)/g)], m = all[all.length - 1];
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : null;
+}
 
 /** Total length from `ffmpeg -i` stderr ("Duration: 01:02:03.45"), or null when missing/N/A. */
 export function parseDuration(stderr: string): number | null {
@@ -170,7 +177,8 @@ export function validateMoments(text: string, o: { duration: number; maxSec: num
     else if (score > 1) score /= 100; // some replies use 0..100
     const title = str(r.title, 60) || `Clip at ${mmss(start)}`;
     const hook = shortHook(r.hook);
-    out.push({ start, end, title, hook, reason: str(r.reason, 300), score: Math.round(clamp(score, 0, 1) * 100) / 100 });
+    const titleOptions = validTitleOptions(r.titles); // optional extra: a bad list just means no options (the single title stays)
+    out.push({ start, end, title, hook, reason: str(r.reason, 300), score: Math.round(clamp(score, 0, 1) * 100) / 100, ...(titleOptions.length ? { titleOptions } : {}) });
   }
   return removeOverlaps(out).slice(0, o.count);
 }
@@ -190,18 +198,40 @@ export const totalSec = spanSec;
 export const spanCover = (m: { start: number; end: number }, spans: Span[]) =>
   m.end > m.start ? spans.reduce((s, x) => s + Math.max(0, Math.min(m.end, x.end) - Math.max(m.start, x.start)), 0) / (m.end - m.start) : 0;
 
-/** Whisper is the slow step, so long videos only get their loudest stretches transcribed: the top loudness candidates
- *  (more when more clips are wanted) padded ±pad s and merged. Short videos are transcribed whole. */
-export function asrRegions(rms: number[], duration: number, o: { maxSec: number; count: number }, shortSec = 720, pad = 20): Span[] {
-  if (duration <= shortSec) return [{ start: 0, end: duration }];
-  const limit = Math.min(30, Math.max(12, o.count * 3));
-  const spans = scoreCandidates(rms, o.maxSec, [], limit)
-    .map((c) => ({ start: Math.max(0, c.start - pad), end: Math.min(duration, c.end + pad) })).sort((a, b) => a.start - b.start);
+export const ASR_MAX_SEC = 25 * 60;
+/** Seconds of audio Whisper may transcribe: 20% of the video (at least 10 min), ×0.6..1.5 by clips wanted, never over 25 min,
+ *  so an 8 h stream costs about what a 2 h video does. */
+export const asrBudgetSec = (duration: number, count: number) => Math.min(ASR_MAX_SEC, duration, Math.max(600, 0.2 * duration) * (0.5 + count / 10));
+
+const mergeSpans = (spans: Span[], gap = 5): Span[] => {
   const out: Span[] = [];
-  for (const s of spans) {
+  for (const s of [...spans].sort((a, b) => a.start - b.start)) {
     const last = out[out.length - 1];
-    if (last && s.start <= last.end + 5) last.end = Math.max(last.end, s.end);
-    else out.push(s);
+    if (last && s.start <= last.end + gap) last.end = Math.max(last.end, s.end);
+    else out.push({ ...s });
+  }
+  return out;
+};
+
+/** Whisper is the slow step, so long videos only get their most energetic stretches transcribed, up to asrBudgetSec: loudness
+ *  candidates re-ranked by how far they jump above the 2 min before them (a reaction spike, the audio stand-in for a chat spike;
+ *  also fair across hours where the game volume changed), padded ±pad s and merged. Short videos are transcribed whole. */
+export function asrRegions(rms: number[], duration: number, o: { maxSec: number; count: number }, shortSec = 720, pad = 20, winSec = WIN_SEC): Span[] {
+  if (duration <= shortSec) return [{ start: 0, end: duration }];
+  const budget = asrBudgetSec(duration, o.count);
+  const pre = [0];
+  for (const v of rms) pre.push(pre[pre.length - 1] + v);
+  const mean = (a: number, b: number) => { a = clamp(a, 0, rms.length); b = clamp(b, a, rms.length); return b > a ? (pre[b] - pre[a]) / (b - a) : 0; };
+  const all = mean(0, rms.length) || 1;
+  const ranked = scoreCandidates(rms, o.maxSec, [], 200).map((c) => {
+    const s = Math.floor(c.start / winSec), e = Math.ceil(c.end / winSec);
+    const base = mean(s - Math.round(120 / winSec), s) || all;
+    return { ...c, rank: 0.7 * c.score + 0.3 * Math.min(mean(s, e) / base, 4) / 4 };
+  }).sort((a, b) => b.rank - a.rank);
+  let out: Span[] = [];
+  for (const c of ranked) {
+    const next = mergeSpans([...out, { start: Math.max(0, c.start - pad), end: Math.min(duration, c.end + pad) }]);
+    if (spanSec(next) <= budget) out = next;
   }
   return out;
 }
@@ -509,8 +539,11 @@ export const ytdlpArgs = (url: string, ffmpegDir: string) => [
   "--encoding", "utf-8", // printed paths must decode as UTF-8 even under a non-UTF-8 Windows code page
   "--no-playlist", "--no-part", "--no-mtime", "--restrict-filenames", "--newline", "--progress",
   "--max-downloads", "1", // a channel/playlist page would otherwise pull every video into the inbox
-  "--match-filter", "duration<=10800 & !is_live", "--max-filesize", "4G",
-  "-f", "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b", "--merge-output-format", "mp4",
+  "--match-filter", `duration<=${MAX_SOURCE_SEC} & !is_live`, "--max-filesize", "12G",
+  // ≤1080p; a video stream over 4 GB (≈ 3 h of 1080p: duration can't be used in a format filter) drops to ≤720p, over 10 GB to ≤480p.
+  // shortcut: file size stands in for length (yt-dlp can't filter formats by duration); upgrade if VODs land in the wrong quality
+  "-f", "bv*[height<=1080][ext=mp4][filesize<?4G][filesize_approx<?4G]+ba[ext=m4a]/bv*[height<=720][ext=mp4][filesize<?10G][filesize_approx<?10G]+ba[ext=m4a]" +
+    "/bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=720]/b", "--merge-output-format", "mp4",
   "--ffmpeg-location", ffmpegDir, "-o", "%(uploader).40s - %(title).80s [%(id)s].%(ext)s",
   "--print", `after_move:${YTDLP_FILE_MARK}%(filepath)s`, // marked: other plain lines ("Aborting remaining downloads") reach stdout too
   "--no-quiet", // --print implies --quiet, which hides the "Destination:" lines used to clean up partial files
@@ -533,8 +566,8 @@ const YTDLP_ERRORS: [RegExp, string][] = [
   [/confirm you.?re not a bot/i, "YouTube blocked the download; try again later or update yt-dlp: `yt-dlp -U`"],
   [/members[- ]only|join this channel|subscriber[- ]only/i, "This video is for channel members/subscribers only; ORBIT can't download it."],
   [/confirm your age|age[- ]restricted|inappropriate for some users/i, "This video is age-restricted; ORBIT can't download it."],
-  [/does not pass filter|is live|live event|currently live|premieres in/i, "Live streams and videos over 3 hours can't be downloaded; wait for the finished VOD (up to 3 h)."],
-  [/larger than max-filesize/i, "The video is bigger than 4 GB."],
+  [/does not pass filter|is live|live event|currently live|premieres in/i, `Live streams and videos over ${MAX_SOURCE_SEC / 3600} hours can't be downloaded; wait for the finished VOD (up to ${MAX_SOURCE_SEC / 3600} h).`],
+  [/larger than max-filesize/i, "The video is bigger than 12 GB."],
   [/private video/i, "This video is private."],
   [/video unavailable|has been removed|does not exist/i, "The video is unavailable (removed, private or region-locked)."],
 ];
@@ -638,7 +671,7 @@ export function thumbSvg(title: string, w = 1080, h = 1920): string {
 export const STATE_V = 1; // bump when a job/download file's shape changes incompatibly
 const JOB_STATUSES = ["queued", "probing", "transcribing", "finding", "rendering", "done", "failed"];
 const CLIP_STATUSES = ["rendering", "ready", "failed", "approved", "rejected"];
-const PUB_STATUSES = ["uploading", "done", "failed", "unknown"];
+const PUB_STATUSES = ["uploading", "done", "scheduled", "failed", "unknown"];
 const DL_STATUSES = ["queued", "downloading", "done", "failed"];
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isStr = (v: unknown): v is string => typeof v === "string";

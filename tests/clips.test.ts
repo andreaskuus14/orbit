@@ -5,7 +5,7 @@ import {
   cleanWords, audioArgs, probeArgs, assText, assTime, buildAss, captionGroups, escapeXml, fallbackMoments, frameArgs, isInboxName, isJobId, parseByteRange, parseDuration,
   peakTime, promptTranscript, removeOverlaps, renderArgs, renderFilter, resolveInside, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, validateMoments,
   wordsFromChunks, wrapTitle, type Word,
-  cleanPermission, isDownloadId, parseClipUrl, parseYtdlpProgress, validOptions, ytdlpArgs, ytdlpError, ytdlpOutputFile,
+  MAX_SOURCE_SEC, ffmpegTime, cleanPermission, isDownloadId, parseClipUrl, parseYtdlpProgress, validOptions, ytdlpArgs, ytdlpError, ytdlpOutputFile,
 } from "../src/lib/clips/pure.ts";
 
 test("parseDuration reads ffmpeg's Duration line", () => {
@@ -222,6 +222,17 @@ test("yt-dlp progress, output files and errors", () => {
   assert.match(ytdlpError("ERROR: [youtube] x: Sign in to confirm you're not a bot"), /yt-dlp -U/);
   assert.match(ytdlpError("[download] x does not pass filter (duration<=10800 & !is_live), skipping .."), /Live streams/);
   assert.equal(ytdlpError("junk\nERROR: something odd\n"), "something odd");
+});
+
+test("long sources: 8 h limit, ≤1080p download that drops to ≤720p for big streams, ffmpeg progress time", () => {
+  assert.equal(MAX_SOURCE_SEC, 8 * 3600);
+  const a = ytdlpArgs("https://youtu.be/a", "C:/ff");
+  assert.equal(a[a.indexOf("--match-filter") + 1], "duration<=28800 & !is_live");
+  const f = a[a.indexOf("-f") + 1];
+  assert.ok(!/height<=(1440|2160)|bv\*\+/.test(f) && f.startsWith("bv*[height<=1080]") && f.includes("bv*[height<=720]"), f);
+  assert.match(ytdlpError("[download] x does not pass filter (duration<=28800 & !is_live), skipping .."), /over 8 hours/);
+  assert.equal(ffmpegTime("size=  1kB time=00:00:01.00 bitrate\rsize=  2kB time=01:02:03.50 bitrate=1"), 3723.5);
+  assert.equal(ffmpegTime("Duration: 01:00:00.00, start"), null);
 });
 
 test("ytdlpArgs keeps the URL last, after --", () => {

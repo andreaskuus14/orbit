@@ -23,5 +23,6 @@ How it works:
 - The launcher waits for `http://127.0.0.1:3000/api/health` (`{ ok, mode, uptimeSec, buildId }`, no login needed, nothing private).
 - Logs: `orbit-server.log` (server output), `orbit-build.log` (last build), `orbit-launcher.log` (launcher and supervisor messages). The server and launcher logs move to `.1` above 5 MB, checked at each (re)start.
 - The wake listener (`scripts\wake`) and the sign-in auto-start use the same launcher.
+- The overnight run (`scripts\night`, `npm run night:install`) wakes the PC, starts ORBIT the same way, lets the scout and clip jobs finish, then sleeps the PC. See `scripts\night\README.md`.
 - While ORBIT runs, rebuild with `npm run app:rebuild`, not `npm run build`: a plain build writes straight into `.next` under the running server. (If you do, the next launch or wake notices the new build and restarts the server on it.)
 - `npm run dev` / `app:dev` use their own folder, `.next-dev`, so they never touch the production build. Switching between dev and production: `npm run app:stop` first, then start the one you want.
