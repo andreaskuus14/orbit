@@ -6,10 +6,14 @@ import { createClient } from "@/lib/supabase/client";
 import { numberCitations } from "@/lib/pure";
 import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
+import type { Suggestion, InsightAction } from "@/lib/insights-pure";
+import type { Plan } from "@/lib/plans-pure";
 import { NAV_EVENT, navReply, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { planetById, type PlanetId } from "@/lib/planets";
 import { Markdown } from "./AgentsPanels";
+import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
+import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
 import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
@@ -45,6 +49,8 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const [stepText, setStepText] = useState<string | null>(null); // what CORE is doing right now ("Reading news…")
   const [copied, setCopied] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
+  const att = useAttachments(); // files for the next message (📎 / drop / paste)
+  const fileRef = useRef<HTMLInputElement>(null);
   const lastQ = useRef(""); // for Retry and ↑ in an empty input
   const convo = useRef<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -65,7 +71,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
 
   const send = useCallback(async (text: string, fromVoice?: boolean) => {
     const message = text.trim();
-    if (!message || busy) return;
+    if ((!message && !att.has()) || busy) return;
     stopSpeech();
     if (isSleepCommand(message)) { void goToSleep(); return; }
     // Speak only answers to spoken questions; settings are re-read per chunk so toggling takes effect live.
@@ -74,10 +80,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     const say = (parts: string[]) => { if (talk && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
     const voiceOut = sentenceStream();
     const fly = (to: NavTarget) => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to }));
-    setMsgs((m) => [...m, { role: "user", content: message }]);
+    const files = att.take();
+    setMsgs((m) => [...m, { role: "user", content: [message, files.length && `📎 ${files.map((f) => f.name).join(", ")}`].filter(Boolean).join("\n") }]);
     setInput("");
     lastQ.current = message;
-    const nav = parseNavCommand(message, { current: "core" }); // plain "go to / open / show me X": no model call
+    const nav = files.length ? null : parseNavCommand(message, { current: "core" }); // plain "go to / open / show me X": no model call
     if (nav) { setMsgs((m) => [...m, { role: "assistant", content: navReply(nav) }]); say([navReply(nav)]); fly(nav); return; }
     setBusy(true);
     setStepText(null);
@@ -90,7 +97,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     try {
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current, voice: talk }),
+        body: JSON.stringify({ message, conversationId: convo.current, voice: talk, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
@@ -151,6 +158,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       setStepText(null);
       setBusy(false);
       if (abort.current === ac) abort.current = null;
+      if (talk) dispatchEvent(new Event("orbit:core-done")); // voice conversation listens again only after this (bus.ts CORE_DONE)
     }
   }, [busy]);
 
@@ -230,7 +238,10 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   )), [msgs, onOpenMemory, speaking, copied, busy, send]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+      onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); void att.add(e.dataTransfer.files); } }}>
+      <CoreSuggests tick={msgs.length} />
+      <PlanCard tick={msgs.length} />
       <div className="flex-1 space-y-4 overflow-y-auto pr-1" aria-live="polite" aria-busy={busy}>
         {!msgs.length && <p className="muted">Ask CORE anything. It answers from your memories, reads links you paste, checks the latest news, and hands bigger jobs to your agents. Sources are cited.</p>}
         {history}
@@ -246,16 +257,83 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
             </div>)}
         <div ref={end} />
       </div>
+      <AttachChips items={att.items} error={att.error} onRemove={att.remove} />
       <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
-        <input ref={inputRef} className="field flex-1" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Message CORE  (↑ last question · Esc stops)"
+        <input ref={fileRef} type="file" multiple accept={ACCEPT} className="sr-only" tabIndex={-1} aria-hidden onChange={(e) => { if (e.target.files) void att.add(e.target.files); e.target.value = ""; }} />
+        <button type="button" className="btn" title="Attach images or documents (or drop / paste them)" aria-label="Attach files" disabled={busy} onClick={() => fileRef.current?.click()}>📎</button>
+        <input ref={inputRef} className="field flex-1" value={input} onChange={(e) => setInput(e.target.value)} onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void att.add(e.clipboardData.files); } }} placeholder="Message CORE  (↑ last question · Esc stops)"
           onKeyDown={(e) => { if (e.key === "ArrowUp" && !input && lastQ.current) { e.preventDefault(); setInput(lastQ.current); } }} maxLength={8000} aria-label="Message CORE" />
         {busy
           ? <button type="button" className="btn" onClick={() => { abort.current?.abort(); stopSpeech(); }}>Stop</button>
           : speaking && !input.trim()
             ? <button type="button" className="btn" onClick={stopSpeech}>Stop</button>
-            : <button className="btn" disabled={!input.trim()}>Send</button>}
+            : <button className="btn" disabled={!input.trim() && !att.items.length}>Send</button>}
       </form>
     </div>
+  );
+}
+
+/** "CORE suggests": up to 3 proactive suggestions (src/lib/insights-pure.ts), each with its one-click action and dismiss. */
+function CoreSuggests({ tick }: { tick: number }) {
+  const [items, setItems] = useState<Suggestion[]>([]);
+  const [busyKey, setBusyKey] = useState("");
+  const [err, setErr] = useState("");
+  const load = useCallback(() => { api<{ items: Suggestion[] }>("/api/insights").then((r) => setItems(r.items), () => {}); }, []);
+  useEffect(() => { load(); const t = setInterval(load, 60_000); return () => clearInterval(t); }, [load, tick]);
+  const mark = (key: string, op: "dismiss" | "done") => api("/api/insights", { method: "POST", body: JSON.stringify({ key, op }) }).catch(() => {}).finally(load);
+  const run = async (s: Suggestion, a: InsightAction) => {
+    setBusyKey(s.key); setErr("");
+    try {
+      for (const p of a.post ?? []) {
+        const u = new URL(p.url, location.origin); // only our own STUDIO routes
+        if (u.origin !== location.origin || !u.pathname.startsWith("/api/studio/") || /\.\.|%2e/i.test(p.url)) throw new Error("Unexpected action");
+        await api(u.pathname + u.search, { method: "POST", body: JSON.stringify(p.body ?? {}) });
+      }
+      if (a.nav) dispatchEvent(new CustomEvent(NAV_EVENT, { detail: a.nav }));
+      await mark(s.key, "done");
+    } catch (e) { setErr(`${a.label}: ${e instanceof Error ? e.message : "failed"}`); }
+    setBusyKey("");
+  };
+  if (!items.length) return null;
+  return (
+    <section className="mb-3 space-y-1.5" aria-label="CORE suggests">
+      <div className="muted text-xs uppercase tracking-wide">CORE suggests</div>
+      {items.slice(0, 3).map((s) => (
+        <div key={s.key} className="glass flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm">
+          <span className="min-w-0 flex-1" title={s.detail}>{s.priority === "high" && <span aria-label="Important">● </span>}{s.title}</span>
+          {s.actions.map((a) => <button key={a.label} type="button" className="chip" disabled={!!busyKey} onClick={() => void run(s, a)}>{busyKey === s.key ? "…" : a.label}</button>)}
+          <button type="button" className="chip" aria-label={`Dismiss: ${s.title}`} title="Dismiss" disabled={!!busyKey} onClick={() => void mark(s.key, "dismiss")}>✕</button>
+        </div>
+      ))}
+      {err && <p className="text-xs text-red-400" role="alert">{err}</p>}
+    </section>
+  );
+}
+
+/** A CORE plan's progress ("Step 2/4: rendering… 62%"), the OK button for scheduling steps, and Cancel. */
+function PlanCard({ tick }: { tick: number }) {
+  const [plan, setPlan] = useState<(Plan & { line: string }) | null>(null);
+  const [err, setErr] = useState("");
+  const active = plan?.status === "running" || plan?.status === "waiting";
+  const load = useCallback(() => { api<{ plan: (Plan & { line: string }) | null }>("/api/plans").then((r) => setPlan(r.plan), () => {}); }, []);
+  useEffect(() => { load(); const t = setInterval(load, active ? 4000 : 30_000); return () => clearInterval(t); }, [load, active, tick]);
+  const act = (op: "confirm" | "cancel") => {
+    if (!plan) return;
+    setErr("");
+    api<{ plan: Plan & { line: string } }>("/api/plans", { method: "POST", body: JSON.stringify({ id: plan.id, op, step: plan.current }) })
+      .then((r) => setPlan(r.plan), (e) => setErr(e instanceof Error ? e.message : "failed"));
+  };
+  if (!plan || (!active && Date.now() - Date.parse(plan.updatedAt) > 10 * 60_000)) return null;
+  return (
+    <section className="glass mb-3 rounded-lg px-3 py-2 text-sm" aria-label="CORE plan" aria-live="polite">
+      <div className="flex flex-wrap items-center gap-2">
+        <b className="min-w-0 flex-1">{plan.goal}</b>
+        {plan.status === "waiting" && <button type="button" className="btn" onClick={() => act("confirm")}>OK, schedule</button>}
+        {active && <button type="button" className="chip" onClick={() => act("cancel")}>Cancel</button>}
+      </div>
+      <div className={plan.status === "failed" ? "mt-1 text-red-400" : "muted mt-1"}>{plan.line}</div>
+      {err && <p className="text-xs text-red-400" role="alert">{err}</p>}
+    </section>
   );
 }
 
@@ -273,6 +351,13 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const [form, setForm] = useState({ kind: "note" as Kind, title: "", content: "", url: "", tags: "" });
   const [saving, setSaving] = useState(false);
   const [learnedOnly, setLearnedOnly] = useState(false);
+  const [beliefs, setBeliefs] = useState(false);
+  useEffect(() => {
+    if (takeBeliefsRequest()) setBeliefs(true); // "what do you know about me" opened MEMORY
+    const h = (e: Event) => { if ((e as CustomEvent<NavTarget>).detail?.beliefs) { takeBeliefsRequest(); setBeliefs(true); } };
+    addEventListener(NAV_EVENT, h);
+    return () => removeEventListener(NAV_EVENT, h);
+  }, []);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function upload(file: File) {
@@ -341,6 +426,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const suggested = links.filter((l) => l.status === "suggested");
   const shown = learnedOnly ? items.filter((m) => isLearned(m.source)) : items;
 
+  if (beliefs) return <BeliefsPanel onBack={() => setBeliefs(false)} />;
   if (open) {
     return (
       <div className="space-y-3">
@@ -399,7 +485,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
       )}
 
       <div>
-        <div className="flex items-center justify-between"><h3 className="h3">Memories</h3><a className="link text-xs" href="/api/export">Export JSON</a></div>
+        <div className="flex items-center justify-between"><h3 className="h3">Memories</h3><span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>What ORBIT believes</button><a className="link text-xs" href="/api/export">Export JSON</a></span></div>
         <form className="my-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); void load(q.trim()); }}>
           <input className="field flex-1" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your memory" aria-label="Search memories" />
           <button className="btn">Search</button>

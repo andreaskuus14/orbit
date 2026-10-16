@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
-import { loadVoiceSettings, recognizerFor, voiceContext, VOICE_ASK, VOICE_INTERRUPT, type HandsFree } from "./bus";
+import { useEffect, useRef, useState } from "react";
+import { loadVoiceSettings, recognizerFor, voiceContext, CORE_DONE, VOICE_ASK, VOICE_CONVERSATION, VOICE_INTERRUPT, type HandsFree } from "./bus";
 import { alternatives, getSpeechRecognition, speechErrorMessage, VOICE_LISTEN, VOICE_PAUSE, VOICE_RESUME, type SpeechRec } from "./useVoiceInput";
 import { extractWakeQuestion, isSleepCommand } from "./wake";
 import { correctTranscript, endpointDelay, finalJoiner, isEcho, pickBestAlternative, shouldBargeIn, STOP_WORDS } from "./hear";
-import { isSpeaking, onSpeakingChange, speakingOrJustEnded, spokenText } from "./speak";
+import { isSpeaking, onSpeakingChange, speakChunk, speakingOrJustEnded, speechSettings, spokenText } from "./speak";
+import { conversationBargeIn, convStep, IDLE, isConversationEnd, isConversationStart, type ConvEvent, type ConvPhase } from "./conversation";
 import { recordUtterance, transcribeAudio } from "./whisper";
 
 const AWAY_MS = 60_000; // window unfocused this long → stop listening
@@ -26,6 +27,29 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
   const [visible, setVisible] = useState(true);
   const [away, setAway] = useState(false);
   const [held, setHeld] = useState(false); // push-to-talk has the mic
+  // Conversation mode: survives the listening effect restarting (push-to-talk, focus), so it lives in a ref.
+  const conv = useRef(IDLE);
+  const [conversation, setConversation] = useState<ConvPhase>("idle");
+  const convApply = (e: ConvEvent) => { conv.current = convStep(conv.current, e, Date.now()); setConversation(conv.current.phase); };
+
+  useEffect(() => {
+    const toggle = (e: Event) => {
+      const on = (e as CustomEvent<{ on?: boolean }>).detail?.on ?? conv.current.phase === "idle";
+      if (!on) return convApply({ type: "stop" });
+      convApply({ type: "start", persist: loadVoiceSettings().conversation !== "once" });
+      if (speechSettings().speak) speakChunk("I'm listening.");
+    };
+    addEventListener(VOICE_CONVERSATION, toggle);
+    const offSpeaking = onSpeakingChange((on) => convApply({ type: on ? "speaking" : "spoke" }));
+    const done = () => convApply({ type: "done" });
+    addEventListener(CORE_DONE, done);
+    return () => { removeEventListener(VOICE_CONVERSATION, toggle); removeEventListener(CORE_DONE, done); offSpeaking(); };
+  }, []);
+  useEffect(() => { // silence / stuck-thinking timeouts
+    if (conversation === "idle") return;
+    const t = setInterval(() => convApply({ type: "tick" }), 1000);
+    return () => clearInterval(t);
+  }, [conversation === "idle"]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const on = () => setVisible(document.visibilityState === "visible");
@@ -45,6 +69,8 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
     if (!engine) setError("");
     if (!engine || paused || held || !visible || away || (engine === "chrome" && !Ctor)) { setState("off"); return; }
     let alive = true, failures = 0, armedUntil = 0, rec: SpeechRec | null = null;
+    // The next utterance needs no wake word: after a bare "Orbit", or while a conversation waits for the user.
+    const open = () => armedUntil > Date.now() || conv.current.phase === "listening";
     let timer: ReturnType<typeof setTimeout> | undefined, disarm: ReturnType<typeof setTimeout> | undefined;
     const arm = () => {
       armedUntil = Date.now() + ARMED_MS;
@@ -54,6 +80,7 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
     };
     const ask = (text: string) => {
       armedUntil = 0; clearTimeout(disarm); setState("listening"); setInterim("");
+      convApply({ type: "ask" }); // every voice ask ends with orbit:core-done (CorePanel, or Orbit for navigation/follows)
       dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text } }));
     };
     // A finished utterance (finals joined over the grace window) that started with the wake word or came while armed.
@@ -61,6 +88,9 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
       if (!alive) return;
       setInterim("");
       const wake = extractWakeQuestion(text);
+      const q = wake ? wake.question : text;
+      if (conv.current.phase !== "idle" && isConversationEnd(q)) { armedUntil = 0; clearTimeout(disarm); setState("listening"); convApply({ type: "stop" }); return; } // before sleep: "goodbye" ends the talk, not ORBIT
+      if (isConversationStart(q)) { armedUntil = 0; clearTimeout(disarm); setState("listening"); dispatchEvent(new CustomEvent(VOICE_CONVERSATION, { detail: { on: true } })); return; }
       if (isSleepCommand(text)) ask(text); // "Orbit, shut down" keeps its name
       else if (!wake) ask(text); // the question after a bare "Orbit"
       else if (wake.question && !/^(wake|woke)( up)?\W*$/i.test(wake.question)) ask(wake.question);
@@ -73,7 +103,7 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
       setState("listening");
       while (alive) {
         if (isSpeaking()) { await sleep(300, ctrl.signal); if (!isSpeaking()) await sleep(500, ctrl.signal); continue; } // ORBIT's voice would come back through the mic
-        const signal = ctrl.signal, armed = armedUntil > Date.now();
+        const signal = ctrl.signal, armed = open();
         try {
           const audio = await recordUtterance(signal, () => {}, armed ? LOCAL_ARMED : LOCAL);
           if (!audio || !alive || signal.aborted) continue;
@@ -81,7 +111,7 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
           const text = correctTranscript(await transcribeAudio(audio, signal));
           setInterim("");
           failures = 0; setError("");
-          if (text && (extractWakeQuestion(text) || armedUntil > Date.now())) route(text);
+          if (text && (extractWakeQuestion(text) || open())) route(text);
         } catch (e) {
           setInterim("");
           if (!alive) return;
@@ -114,22 +144,25 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
           if (!text) continue;
           const armed = armedUntil > Date.now();
           // While ORBIT talks only "stop…" or "Orbit, …" may cut it off; its own voice through the speakers never counts.
-          const barge = isSpeaking() ? shouldBargeIn(text, spokenText()) : null;
+          // In a conversation any real speech (≥2 words ORBIT didn't just say) also cuts it off.
+          const barge = isSpeaking() ? shouldBargeIn(text, spokenText()) ?? (conv.current.phase !== "idle" && conversationBargeIn(text, spokenText()) ? "talk" : null) : null;
           if (!barge && !interrupted && speakingOrJustEnded(ECHO_TAIL_MS) && isEcho(text, spokenText())) continue;
           if (!barge && !interrupted && !joiner.pending && !armed && speakingOrJustEnded(START_GUARD_MS)) continue;
           const wake = extractWakeQuestion(text);
           if (barge && !interrupted) { interrupted = true; dispatchEvent(new Event(VOICE_INTERRUPT)); } // interim: cut off at once
+          const free = open() || interrupted; // barged in: take these words even though the cut-off answer still streams
           if (!res.isFinal) {
             if (barge !== "stop" && (wake || armed)) arm(); // still talking: keep the window open
+            if (free) convApply({ type: "hearing" });
             lastInterim = text;
             joiner.hold(text); // any interim = still talking: restart the silence timer
-            if (wake || armed || joiner.pending) setInterim(text);
+            if (wake || free || joiner.pending) setInterim(text);
             continue;
           }
           lastInterim = "";
           if (STOP_WORDS.test(text) && (barge || interrupted)) { interrupted = false; armedUntil = 0; clearTimeout(disarm); joiner.cancel(); setInterim(""); setState("listening"); continue; } // "stop" just silences ORBIT; it isn't a question
           interrupted = false;
-          if (wake || armed || joiner.pending) { joiner.add(text); setInterim(text); }
+          if (wake || free || joiner.pending) { joiner.add(text); setInterim(text); }
         }
       };
       r.onerror = (e) => {
@@ -143,9 +176,9 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
       // are kept (the joiner holds them as its tail; a question with no final yet gets them added).
       r.onend = () => {
         if (!alive) return;
-        if (lastInterim && (joiner.pending || armedUntil > Date.now())) joiner.add(lastInterim);
+        if (lastInterim && (joiner.pending || open())) joiner.add(lastInterim);
         // 0 ms only after a session that heard something: a session that "aborted" at once would spin otherwise.
-        timer = setTimeout(run, failures ? Math.min(30000, 1000 * 2 ** failures) : heardAny && (joiner.pending || armedUntil > Date.now()) ? 0 : 250);
+        timer = setTimeout(run, failures ? Math.min(30000, 1000 * 2 ** failures) : heardAny && (joiner.pending || open()) ? 0 : 250);
       };
       try { r.start(); setState(armedUntil > Date.now() ? "armed" : "listening"); }
       catch { failures++; timer = setTimeout(run, Math.min(30000, 1000 * 2 ** failures)); }
@@ -164,5 +197,5 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
     return () => removeEventListener(VOICE_RESUME, resume);
   }, []);
 
-  return { state, error, interim };
+  return { state, error, interim, conversation };
 }

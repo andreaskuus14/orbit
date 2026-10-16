@@ -18,6 +18,24 @@ function show(n: Note) {
   note.onclick = () => { window.focus(); note.close(); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to })); };
 }
 
+// CORE's new high-priority suggestions (hot Short, downloads paused, repeated failures) as a desktop note; first poll is a baseline.
+const SEEN = "orbit.insightsSeen";
+async function insightNotes() {
+  const r = await fetch("/api/insights");
+  if (!r.ok || !("Notification" in window) || Notification.permission !== "granted") return;
+  const high = ((await r.json()).items ?? []).filter((i: { priority: string }) => i.priority === "high") as { key: string; title: string; detail: string }[];
+  let seen: string[] | null = null;
+  try { seen = JSON.parse(localStorage.getItem(SEEN) ?? "null"); } catch { /* start over */ }
+  try { localStorage.setItem(SEEN, JSON.stringify([...new Set([...(seen ?? []), ...high.map((i) => i.key)])].slice(-200))); } catch { /* may repeat */ }
+  if (!Array.isArray(seen)) return;
+  for (const i of high.filter((i) => !seen!.includes(i.key)).slice(0, 2)) {
+    try {
+      const n = new Notification(`CORE suggests: ${i.title}`, { body: i.detail, tag: `orbit-insight-${i.key}`, icon: "/brand/orbit-mark.png" });
+      n.onclick = () => { window.focus(); n.close(); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: { panel: "core" } satisfies NavTarget })); };
+    } catch { /* Android Chrome: "Illegal constructor" */ }
+  }
+}
+
 export function StudioNotifier() {
   const [ask, setAsk] = useState(false);
   useEffect(() => { setAsk("Notification" in window && Notification.permission === "default"); }, []);
@@ -38,6 +56,7 @@ export function StudioNotifier() {
           if (res.notes.length && document.hasFocus() && speechSettings().speak && !speakingOrJustEnded(30_000)) res.notes.forEach((n) => speakChunk(n.spoken));
         }
       } catch { /* offline / server restarting: next poll */ }
+      await insightNotes().catch(() => {});
       busy = false;
       schedule();
     };

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
-import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voiceLevel, VOICE_ASK, type HandsFree, type VoiceSettings } from "./bus";
+import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voiceLevel, VOICE_ASK, VOICE_CONVERSATION, type HandsFree, type VoiceSettings } from "./bus";
 import { getSpeechRecognition, type VoiceInput } from "./useVoiceInput";
 import { useWakeWord } from "./useWakeWord";
 
@@ -95,6 +95,10 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
 
   const chromeOk = typeof window === "undefined" || !!getSpeechRecognition();
   const routeText = route === "whisper" ? "🎙 Local (Whisper on this PC)" : route === "chrome" ? "🎙 Chrome (audio sent to Google while listening)" : "🎙 Hands-free off";
+  const talking = wake.conversation !== "idle";
+  const [talkNote, setTalkNote] = useState(""); // screen readers hear start and end
+  useEffect(() => { setTalkNote((n) => talking ? "Conversation mode started" : n ? "Conversation mode ended" : ""); }, [talking]);
+  const setTalking = (on: boolean) => dispatchEvent(new CustomEvent(VOICE_CONVERSATION, { detail: { on } }));
   const micLabel = !voice.supported ? "Voice input isn't supported in this browser" : listening ? "Stop listening (Esc cancels)" : "Ask by voice (Ctrl+M)";
 
   return (
@@ -105,6 +109,11 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
         </svg>
+      </button>
+      <button type="button" className="chip voice-gear" onClick={() => setTalking(!talking)} aria-pressed={talking}
+        disabled={s.handsFree === "off" && !talking} aria-label={talking ? "End conversation mode" : "Conversation mode: keep listening after each answer"}
+        title={s.handsFree === "off" ? "Conversation mode needs hands-free on (voice settings)" : talking ? "End conversation mode" : "Conversation mode (or say “Orbit, let’s talk”)"}>
+        <span aria-hidden="true">💬</span>
       </button>
       <button ref={gearRef} type="button" className="chip voice-gear" onClick={() => setOpen((o) => !o)}
         aria-label="Voice settings" title="Voice settings" aria-expanded={open} aria-controls={popId}>
@@ -140,6 +149,13 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
               <option value="et-EE">Eesti</option>
             </select>
           </label>
+          <label className="voice-col">Conversation mode (&ldquo;Orbit, let&rsquo;s talk&rdquo;)
+            <select className="field" value={s.conversation} onChange={(e) => update({ conversation: e.target.value === "once" ? "once" : "stay" })}>
+              <option value="stay">Stays on until I say stop</option>
+              <option value="once">One follow-up only</option>
+            </select>
+            <span className="muted text-[10px]">ORBIT keeps listening after each answer, no &ldquo;Orbit&rdquo; needed. Ends after 30 s of silence or when you say &ldquo;that&rsquo;s all&rdquo;.</span>
+          </label>
           <span className="voice-sub">Spoken answers</span>
           <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>
           <label className="voice-col">Voice
@@ -158,7 +174,12 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           {wake.interim ? <i>{wake.interim}…</i> : heard ? <>Heard: <b>{heard}</b></> : <>Hands-free paused: {wake.error}</>}
         </span>
       )}
-      {(wake.state !== "off" || wake.error) && (
+      <span className="sr-only" role="status" aria-live="polite">{talkNote}</span>
+      {talking ? (
+        <button type="button" className="voice-wake armed" onClick={() => setTalking(false)} title="Click to end conversation mode">
+          💬 Talking — say &lsquo;that&rsquo;s all&rsquo; to stop
+        </button>
+      ) : (wake.state !== "off" || wake.error) && (
         <span className={"voice-wake" + (wake.state === "armed" ? " armed" : "") + (wake.error ? " bad" : "")} role="status"
           title={wake.error || "Hands-free mode: ORBIT is listening for “Hey Orbit”. Turn it off in voice settings."}>
           <span className="voice-dot" aria-hidden="true" />

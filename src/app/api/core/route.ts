@@ -1,10 +1,13 @@
 import { requireUser } from "@/lib/supabase/server";
 import { runCore, CoreStopped } from "@/lib/core";
 import { reflectOnTurn } from "@/lib/reflect";
+import { learnFacts } from "@/lib/facts";
 import { emit } from "@/lib/claude";
 import { stepLabel } from "@/lib/core-ui";
 import { str } from "@/lib/pure";
 import type { NavTarget } from "@/lib/nav-pure";
+import { parseAttachments } from "@/lib/attach-pure";
+import { prepareAttachments } from "@/lib/core-attach";
 
 export const maxDuration = 300;
 
@@ -12,9 +15,15 @@ export async function POST(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const body = await req.json().catch(() => ({}));
-  const message = str(body.message, 8000, 1);
+  const files = parseAttachments(body.attachments); // up to 3, type checked by magic bytes, base64 in the JSON body
+  if ("error" in files) return Response.json({ error: files.error }, { status: 400 });
+  const typed = str(body.message ?? "", 8000); // null only when too long or not a string
+  const message = typed === null ? null : typed || (files.files.length ? "Take a look at what I attached." : null);
   const voice = body.voice === true; // asked out loud: answer short enough to listen to
   if (!message) return Response.json({ error: "Message is required (max 8000 chars)" }, { status: 400 });
+  const attach = await prepareAttachments(files.files);
+  // shortcut: only the names are saved, so later turns can't see the files again; store them in the vault if that's needed.
+  const content = files.files.length ? `${message}\n\n[attached: ${files.files.map((f) => f.name).join(", ")}]` : message;
 
   // Conversation: reuse if it belongs to the user (RLS enforces this), else start a new one.
   let conversationId: string | null = typeof body.conversationId === "string" ? body.conversationId : null;
@@ -28,7 +37,7 @@ export async function POST(req: Request) {
     conversationId = data.id;
   }
 
-  const { error: userMsgErr } = await sb.from("messages").insert({ user_id: user.id, conversation_id: conversationId, role: "user", content: message });
+  const { data: userMsg, error: userMsgErr } = await sb.from("messages").insert({ user_id: user.id, conversation_id: conversationId, role: "user", content }).select("id").single();
   if (userMsgErr) return Response.json({ error: userMsgErr.message }, { status: 500 });
 
   await emit(sb, user.id, "core.started", "core", { conversationId });
@@ -37,10 +46,11 @@ export async function POST(req: Request) {
   // Shared by both response styles: answer, then save it once at the end.
   const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void) => {
     const { data: prior } = await sb.from("messages").select("role, content").eq("conversation_id", cid).order("created_at");
-    const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset, voice, onNavigate, onStep);
+    const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset, voice, onNavigate, onStep, attach);
     await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await emit(sb, user.id, "core.completed", "core", { conversationId: cid });
     void reflectOnTurn(sb, user.id, cid); // learn in the background; never delays the answer, never throws
+    void learnFacts(sb, user.id, message, userMsg?.id ?? null, files.files.length > 0); // beliefs from the user's own words only (none on attachment turns); never throws
     return out;
   };
   const fail = async (e: unknown) => {

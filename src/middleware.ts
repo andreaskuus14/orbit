@@ -1,10 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isAllowedEmail } from "@/lib/allow";
+import { crossSiteBlocked } from "@/lib/csrf";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health"];
 
 export async function middleware(request: NextRequest) {
+  if (crossSiteBlocked(request.method, request.nextUrl.pathname, { secFetchSite: request.headers.get("sec-fetch-site"), origin: request.headers.get("origin"), host: request.headers.get("host") }))
+    return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 });
   // Launcher / night run poll these; no session work. (busy checks its own Host header and returns only booleans.)
   if (request.nextUrl.pathname === "/api/health" || request.nextUrl.pathname === "/api/studio/busy") return NextResponse.next();
   let response = NextResponse.next({ request });

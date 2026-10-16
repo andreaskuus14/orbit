@@ -32,6 +32,9 @@ const yes: [string, object][] = [
   ["take me home", { panel: null }],
   ["Orbit, open my notes", { panel: "memory" }],
   ["switch to agents", { panel: "agents" }],
+  ["open the agents station", { panel: "agents" }],
+  ["go to my agents", { panel: "agents" }],
+  ["take me to the station", { panel: "agents" }],
   ["bring up my tasks", { panel: "operations" }],
   ["navigate to the vault", { panel: "vault" }],
   ["open life", { panel: "life" }],
@@ -201,4 +204,11 @@ test("doctor aliases open the ORBIT doctor without leaving the current place", (
   assert.equal(parseNavCommand("is everything working in the studio"), null);
   assert.equal(navReply({ panel: null, doctor: true }), "Checking everything. One moment.");
   assert.deepEqual(validateNav({ target: "orbit doctor" }), { panel: null, doctor: true });
+});
+
+test("'what do you know about me' opens What ORBIT believes", () => {
+  for (const t of ["What do you know about me?", "Orbit, what do you know about me", "show me what you know about me", "what does orbit know about me", "what orbit believes"])
+    assert.deepEqual(parseNavCommand(t), { panel: "memory", beliefs: true }, t);
+  assert.equal(parseNavCommand("what do you know about Germany?"), null);
+  assert.equal(navReply({ panel: "memory", beliefs: true }), "Here's what I know about you.");
 });

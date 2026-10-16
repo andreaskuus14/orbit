@@ -4,12 +4,18 @@ import { str } from "@/lib/pure";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 
+// Last stale-task sweep per user: the AGENTS station polls this every 3 s, the sweep only needs to run once a minute.
+const swept = new Map<string, number>();
+
 export async function GET(req: Request) {
-  const { sb, res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   // Tasks left "running" by a server restart can never finish: mark them failed so they don't look stuck.
-  await sb.from("tasks").update({ status: "failed", error: "Interrupted (ORBIT restarted). Press Retry.", finished_at: new Date().toISOString() })
-    .eq("status", "running").lt("started_at", new Date(Date.now() - 20 * 60_000).toISOString());
+  if (Date.now() - (swept.get(user.id) ?? 0) > 60_000) {
+    swept.set(user.id, Date.now());
+    await sb.from("tasks").update({ status: "failed", error: "Interrupted (ORBIT restarted). Press Retry.", finished_at: new Date().toISOString() })
+      .eq("status", "running").lt("started_at", new Date(Date.now() - 20 * 60_000).toISOString());
+  }
   const p = new URL(req.url).searchParams;
   let q = sb.from("tasks").select(COLS).is("parent_id", null).order("created_at", { ascending: false }).limit(60);
   if (p.get("agent")) q = q.eq("agent", p.get("agent")!);

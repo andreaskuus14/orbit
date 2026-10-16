@@ -11,8 +11,9 @@ export const voiceContext: { current?: PanelId | null } = {};
 /** handsFree: who listens for "Orbit…" — nobody, Chrome's recognizer (audio goes to Google while listening) or local
  *  Whisper on this PC. engine: who transcribes push-to-talk questions (forced to Whisper when hands-free is local). lang: Chrome's language. */
 export type HandsFree = "off" | "chrome" | "local";
-export type VoiceSettings = { speak: boolean; handsFree: HandsFree; voiceURI: string | null; rate: number; lang: string; engine: "chrome" | "whisper" };
-export const DEFAULT_VOICE: VoiceSettings = { speak: true, handsFree: "chrome", voiceURI: null, rate: 1.05, lang: "en-US", engine: "chrome" }; // hands-free on: the user asked for it; Settings says Chrome streams audio while it listens
+/** conversation: after "Orbit, let's talk", keep listening until told to stop ("stay") or for one follow-up only ("once"). */
+export type VoiceSettings = { speak: boolean; handsFree: HandsFree; voiceURI: string | null; rate: number; lang: string; engine: "chrome" | "whisper"; conversation: "stay" | "once" };
+export const DEFAULT_VOICE: VoiceSettings = { speak: true, handsFree: "chrome", voiceURI: null, rate: 1.05, lang: "en-US", engine: "chrome", conversation: "stay" }; // hands-free on: the user asked for it; Settings says Chrome streams audio while it listens
 
 /** Stored settings (any version) → current shape. Old { wake: boolean }: on + Whisper meant "keep my audio local", so it
  *  becomes local hands-free; on + Chrome stays Chrome. */
@@ -27,6 +28,7 @@ export function migrateVoiceSettings(raw: unknown): VoiceSettings {
     voiceURI: typeof o.voiceURI === "string" ? o.voiceURI : null,
     rate: typeof o.rate === "number" && Number.isFinite(o.rate) ? o.rate : DEFAULT_VOICE.rate,
     lang: typeof o.lang === "string" && o.lang ? o.lang : DEFAULT_VOICE.lang,
+    conversation: o.conversation === "once" ? "once" : "stay",
   };
 }
 
@@ -49,3 +51,7 @@ export function saveVoiceSettings(s: VoiceSettings) {
 export const VOICE_ASK = "orbit:voice-ask"; // detail: { text: string }
 /** Fired when the user starts talking, so any answer being spoken stops (barge-in). */
 export const VOICE_INTERRUPT = "orbit:voice-interrupt";
+/** Start/stop conversation mode (the 💬 toggle). detail: { on: boolean } */
+export const VOICE_CONVERSATION = "orbit:voice-conversation";
+/** CorePanel finished (or failed/stopped) a spoken answer's stream. */
+export const CORE_DONE = "orbit:core-done";

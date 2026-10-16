@@ -10,6 +10,7 @@ export type NavTarget = {
   panel: PanelId | null; country?: string; region?: string; view?: "stats" | "clips" | "review" | "none";
   search?: string; zoom?: "in" | "out" | "reset"; morning?: true; // morning: open the "Good morning" card on the galaxy and read it aloud
   doctor?: true; // doctor: open the ORBIT doctor (health checks) and read the result aloud; stays where you are
+  beliefs?: true; // beliefs: MEMORY opens "What ORBIT believes"
 };
 export const NAV_EVENT = "orbit:navigate"; // detail: NavTarget
 /** "local news" means this country. */
@@ -25,7 +26,7 @@ put({ panel: "profile" }, "profile, my profile");
 put({ panel: "memory" }, "memory, memories, my memories, notes, my notes, second brain, my second brain, brain");
 put({ panel: "intelligence" }, "intelligence, news, the news, world news, latest news, globe, the globe, news globe, world pulse, headlines, pulse");
 put({ panel: "operations" }, "operations, ops, tasks, my tasks, automations, my automations, projects");
-put({ panel: "agents" }, "agents, my agents, ai agents, workforce");
+put({ panel: "agents" }, "agents, my agents, ai agents, workforce, agents station, agent station, the agents station, station, the station");
 put({ panel: "analytics" }, "analytics, usage, ai usage, my usage, activity");
 put({ panel: "studio" }, "studio, youtube, youtube studio");
 put({ panel: "studio", view: "none" }, "channel, my channel, youtube channel, my videos"); // the channel itself, overlays closed
@@ -37,6 +38,7 @@ put({ panel: "studio", view: "stats" }, "stats, my stats, statistics, stats in t
 put({ panel: "studio", view: "clips" }, "clips, my clips, clip factory, the clip factory, clip maker, shorts, studio clips, clips in the studio, clips in studio, clips of the studio, the clips of the studio, clips of the soda, the clips in the studio, eclipse, eclipses, the eclipse, the eclipses");
 put({ panel: "studio", view: "review" }, "review, the review, morning review, clip review, clips review, review queue, review clips, review my clips, review the clips, review new clips, review new");
 put({ panel: null, morning: true }, "good morning, morning briefing, my morning briefing, morning brief, daily briefing, my daily briefing, daily brief, whats new today, brief me, morning card");
+put({ panel: "memory", beliefs: true }, "what do you know about me, what you know about me, what does orbit know about me, what orbit knows about me, what do you believe about me, what does orbit believe, what orbit believes, what orbit believes about me");
 put({ panel: null, doctor: true }, "check orbit, check on orbit, orbit doctor, doctor, the doctor, run diagnostics, run a diagnostic, run diagnostic, diagnostics, run the diagnostics, is everything working, is everything ok, is everything okay, is everything alright, system check, run a system check, health check, run a health check, check everything, check the system");
 
 const REGION_ALIAS: Record<string, string> = {
@@ -133,7 +135,7 @@ export function parseNavCommand(text: string, ctx: { current?: PanelId | null } 
     return !bare || ctx.current === "intelligence" || (t && !t.search) || / (?:news|headlines)$/.test(x) ? t : null;
   }
   if (s !== "review" && PLACES[s]?.view === "review") return PLACES[s]; // "morning review", "review my clips": commands without a verb
-  if (PLACES[s]?.morning) return PLACES[s]; // "good morning", "brief me"
+  if (PLACES[s]?.morning || PLACES[s]?.beliefs) return PLACES[s]; // "good morning", "brief me", "what do you know about me"
   const v = VERB.exec(s);
   if (!v) return null;
   const rest = s.slice(v[0].length).trim();
@@ -159,6 +161,7 @@ export function validateNav(input: Record<string, unknown>): NavTarget | null {
 export function navLabel(t: NavTarget): string {
   if (t.morning) return "your morning briefing";
   if (t.doctor) return "the ORBIT doctor";
+  if (t.beliefs) return "what ORBIT believes";
   if (!t.panel) return "the galaxy";
   const name = t.panel === "core" ? "CORE" : t.panel === "profile" ? "your profile" : planetById(t.panel)!.name.charAt(0) + planetById(t.panel)!.name.slice(1).toLowerCase();
   const sub = t.country ? displayName(t.country) : t.region ?? (t.view === "stats" ? "Stats" : t.view === "clips" ? "Clips" : t.view === "review" ? "Clip review" : "");
@@ -167,6 +170,7 @@ export function navLabel(t: NavTarget): string {
 export const navReply = (t: NavTarget) =>
   t.morning ? "Here's your morning briefing."
     : t.doctor ? "Checking everything. One moment."
+    : t.beliefs ? "Here's what I know about you."
     : t.zoom ? (t.zoom === "reset" ? "Resetting the view." : `Zooming ${t.zoom}.`)
     : t.search ? `Searching the news for “${t.search}”.`
     : t.search === "" ? "Showing the whole world."

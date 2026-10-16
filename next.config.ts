@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   devIndicators: false, // the dev "N" badge covered the System panel
   // Document parsers, ffmpeg binary and Whisper (native onnxruntime) run server-side only; keep them out of the bundler.
   serverExternalPackages: ["unpdf", "mammoth", "playwright-core", "ffmpeg-static", "@huggingface/transformers"],
+  // The middleware buffers request bodies (10 MB by default); CORE attachments are up to 3 files as base64 JSON (~40 MB).
+  experimental: { middlewareClientMaxBodySize: "45mb" },
   async headers() {
     return [
       {

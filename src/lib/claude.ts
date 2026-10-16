@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.ts";
+import { streamJsonInput } from "./attach-pure.ts";
+
+/** An image sent to the model with the prompt (validated by attach-pure). */
+export type PromptImage = { type: string; data: Uint8Array };
 
 // CORE runs on the local Claude Code CLI (`claude -p`) under your own Claude login, so there is no API key
 // and no per-token bill. ORBIT must therefore run on the machine where `claude` is installed and signed in.
@@ -117,22 +121,24 @@ function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean
   else child.kill("SIGKILL");
 }
 
-export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string };
+export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[] };
 
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer). Aborting `signal` kills the CLI. */
-export function askClaude(prompt: string, system: string, { lane = "background", signal, model }: AskOpts = {}): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model), signal);
+export function askClaude(prompt: string, system: string, { lane = "background", signal, model, images = [] }: AskOpts = {}): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images), signal);
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI. */
-export function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model), signal);
+export function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = []): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images), signal);
 }
 
-async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string): Promise<ClaudeResult> {
+async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = []): Promise<ClaudeResult> {
   signal?.throwIfAborted();
   const t0 = Date.now();
-  const { dir, start } = await prepare(system, ["--output-format", "stream-json", "--verbose", "--include-partial-messages"], model);
+  // With images, stdin carries one stream-json user message (image blocks + text); tools stay disabled.
+  const input = images.length ? ["--input-format", "stream-json"] : [];
+  const { dir, start } = await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model);
   try {
     return await new Promise<ClaudeResult>((resolve, reject) => {
       const child = start();
@@ -168,7 +174,7 @@ async function runClaudeStream(prompt: string, system: string, onDelta: (text: s
         resolve({ text: (r.text || streamed).trim(), inputTokens: r.inputTokens, outputTokens: r.outputTokens, ms: Date.now() - t0 });
       });
       child.stdin.on("error", () => { /* EPIPE when the CLI is killed mid-write; the close handler reports it */ });
-      child.stdin.end(prompt);
+      child.stdin.end(images.length ? streamJsonInput(prompt, images) : prompt);
     });
   } finally {
     removeTempDir(dir);

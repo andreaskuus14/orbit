@@ -1,32 +1,12 @@
 import { requireUser } from "@/lib/supabase/server";
 import { createMemory, type Kind } from "@/lib/memory";
-import { cleanTags, createLimiter, str } from "@/lib/pure";
+import { cleanTags, str } from "@/lib/pure";
+import { extractText, DOCX, TEXT } from "@/lib/extract";
 
 export const maxDuration = 60;
 
 const MAX_BYTES = 4 * 1024 * 1024; // matches the vault bucket's file_size_limit
-const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const IMAGES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-const TEXT = ["text/plain", "text/markdown", "text/csv"];
-
-// PDF/Word parsing is CPU- and memory-heavy: at most 2 documents at once, the rest wait.
-const g = globalThis as unknown as { __orbitParseLimit?: ReturnType<typeof createLimiter> };
-const parseSlot = (g.__orbitParseLimit ??= createLimiter(2));
-
-/** Pull readable text out of a document so CORE can search and cite it. */
-async function extractText(buf: Buffer, type: string): Promise<string> {
-  if (type === "application/pdf") {
-    const { extractText: pdf } = await import("unpdf");
-    const { text } = await pdf(new Uint8Array(buf), { mergePages: true });
-    return Array.isArray(text) ? text.join("\n") : text;
-  }
-  if (type === DOCX) {
-    const mammoth = await import("mammoth");
-    return (await mammoth.extractRawText({ buffer: buf })).value;
-  }
-  if (TEXT.includes(type)) return buf.toString("utf8");
-  return "";
-}
 
 /** Upload a PDF, Word, text or image file: stored privately in the vault, text extracted into a memory. */
 export async function POST(req: Request) {
@@ -48,7 +28,7 @@ export async function POST(req: Request) {
   const buf = Buffer.from(await file.arrayBuffer());
   let text = "";
   try {
-    text = (await parseSlot(() => extractText(buf, type))).replace(/\u0000/g, "").trim();
+    text = await extractText(buf, type);
   } catch (e) {
     return Response.json({ error: `Couldn't read that file: ${e instanceof Error ? e.message : "unknown error"}` }, { status: 422 });
   }

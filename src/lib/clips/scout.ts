@@ -339,6 +339,9 @@ export async function runScoutNow() {
 }
 
 async function tick() {
+  // CORE's proactive insights + plan resume ride on this timer (local files only; each self-limits to every 15 min / once)
+  void import("../insights").then((m) => m.refreshInsights()).catch((e) => console.error("[orbit] insights failed:", msg(e)));
+  void import("../plans").then((m) => m.resumePlans()).catch((e) => console.error("[orbit] plan resume failed:", msg(e)));
   if (S.running || !apiKey()) return;
   try { // start() re-checks S.running after the await
     const s = await load(), now = new Date();

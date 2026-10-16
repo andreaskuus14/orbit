@@ -7,7 +7,7 @@ test("migrateVoiceSettings maps the old wake/engine pair to hands-free modes", (
   assert.equal(migrateVoiceSettings({ wake: true, engine: "whisper" }).handsFree, "local"); // chose Whisper = wanted audio local
   assert.equal(migrateVoiceSettings({ wake: false, engine: "whisper" }).handsFree, "off");
   const m = migrateVoiceSettings({ speak: false, wake: true, voiceURI: "v1", rate: 1.2, lang: "et-EE", engine: "whisper" });
-  assert.deepEqual(m, { speak: false, handsFree: "local", voiceURI: "v1", rate: 1.2, lang: "et-EE", engine: "whisper" });
+  assert.deepEqual(m, { speak: false, handsFree: "local", voiceURI: "v1", rate: 1.2, lang: "et-EE", engine: "whisper", conversation: "stay" });
   assert.equal("wake" in m, false);
 });
 

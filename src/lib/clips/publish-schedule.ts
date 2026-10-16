@@ -25,11 +25,12 @@ export const batchStatus = () => B.batch ?? null;
 
 const eligible = (c: Clip) => c.status === "approved" && (!c.publish || c.publish.status === "failed");
 
-/** Starts scheduling every approved, unpublished clip (background, sequential). Returns the batch, or a message for a 409. */
-export async function scheduleAll(): Promise<Batch | string> {
+/** Starts scheduling every approved, unpublished clip (background, sequential). Returns the batch, or a message for a 409.
+ *  only: "<job>/<clip>" keys to limit it to (a CORE plan's picks). */
+export async function scheduleAll(only?: string[]): Promise<Batch | string> {
   if (B.batch?.running) return "Already scheduling clips";
   const batch: Batch = (B.batch = { running: true, total: 0, scheduled: 0, at: new Date().toISOString() }); // claimed before any await
-  const todo = await listJobs().then((jobs) => jobs.flatMap((j) => j.clips.filter(eligible).map((c) => [j.id, c.id] as const)), (e) => { batch.running = false; throw e; });
+  const todo = await listJobs().then((jobs) => jobs.flatMap((j) => j.clips.filter((c) => eligible(c) && (!only || only.includes(`${j.id}/${c.id}`))).map((c) => [j.id, c.id] as const)), (e) => { batch.running = false; throw e; });
   if (!todo.length) { batch.running = false; return "No approved, unpublished clips to schedule"; }
   batch.total = todo.length;
   void (async () => {

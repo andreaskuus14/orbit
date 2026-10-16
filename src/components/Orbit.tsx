@@ -23,7 +23,8 @@ const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <G
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
 const StudioWorld = dynamic(() => import("./StudioWorld"), { ssr: false });
 const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false });
-const WORLDS: PanelId[] = ["studio", "creation"]; // full-screen worlds with their own side panel (no drawer)
+const AgentsStation = dynamic(() => import("./AgentsStation"), { ssr: false });
+const WORLDS: PanelId[] = ["studio", "creation", "agents"]; // full-screen worlds with their own side panel (no drawer)
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "ORBIT is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
 
@@ -74,7 +75,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   // Fetch the world chunks while idle, so entering a world never waits on a JS download (next/dynamic reuses them).
   useEffect(() => {
-    const load = () => { for (const p of [import("./NewsGlobe"), import("./StudioWorld"), import("./DevWorld")]) p.catch(() => {}); }; // best-effort warm-up
+    const load = () => { for (const p of [import("./NewsGlobe"), import("./StudioWorld"), import("./DevWorld"), import("./AgentsStation")]) p.catch(() => {}); }; // best-effort warm-up
     if ("requestIdleCallback" in window) requestIdleCallback(load, { timeout: 5000 }); else setTimeout(load, 1500);
   }, []);
 
@@ -116,7 +117,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
       if (!text) return;
       setCmdErr("");
-      const fr = runFollowCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); }); // "follow Estonia" / "unfollow AI": speaks the real outcome
+      const fr = runFollowCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // done signal: a voice conversation listens again // "follow Estonia" / "unfollow AI": speaks the real outcome
       if (fr) { stopSpeech(); return; }
       let nav = parseNavCommand(text, { current: shown }); // "go to local news"
       if (nav?.zoom && !scene3d) nav = null; // no 3D scene on screen: zooming would do nothing
@@ -124,6 +125,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         stopSpeech();
         if (speechSettings().speak) speakChunk(navReply(nav));
         dispatchEvent(new CustomEvent(NAV_EVENT, { detail: nav }));
+        dispatchEvent(new Event("orbit:core-done")); // handled here, no CORE stream: a voice conversation listens again
         return;
       }
       dispatchEvent(new CustomEvent(VOICE_ASKED));
@@ -290,6 +292,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <StudioWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} />
       ) : shown === "creation" ? (
         <DevWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} />
+      ) : shown === "agents" ? (
+        <AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} />
       ) : view === "3d" && gameOpen ? null : view === "3d" ? (
         <div className="absolute inset-0">
           <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} />
