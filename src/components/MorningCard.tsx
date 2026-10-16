@@ -2,6 +2,7 @@
 // "Good morning" card on the galaxy: shown once per day on the first open after 05:00, or on "good morning" (then read aloud).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
+import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { localDay, shouldAutoShow, type Morning, type MorningNav } from "@/lib/morning-pure";
 import { speakChunk, speechSettings } from "./voice/speak";
 
@@ -56,7 +57,9 @@ export function MorningCard({ home }: { home: boolean }) {
   if (!open || !home) return null;
   const go = (k: MorningNav) => { setOpen(false); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: NAV[k] })); };
   const toggleSpeak = (v: boolean) => { setSpeakMorning(v); save({ ...load(), speak: v }); };
-  const s = data?.studio, i = data?.intel, a = data?.agents, l = data?.life;
+  // Orbit's OPEN_MEMORY_EVENT handler also switches to the MEMORY panel.
+  const openMem = (id: string) => { setOpen(false); dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id } })); };
+  const s = data?.studio, i = data?.intel, a = data?.agents, l = data?.life, rc = data?.recall;
   const best = s?.yesterday.filter((y) => y.views !== null).sort((x, y) => y.views! - x.views!)[0];
 
   return (
@@ -95,6 +98,12 @@ export function MorningCard({ home }: { home: boolean }) {
             <div>
               <b>Life</b>
               <p className="muted">{l.habits ? `${l.done}/${l.habits} habits done today` : "No habits scheduled today"}{l.next ? ` · reminder ${l.next.at}: ${l.next.text}` : ""}</p>
+            </div>
+          )}
+          {rc && rc.length > 0 && (
+            <div>
+              <b>From your memory</b>
+              <ul className="muted grid gap-1">{rc.map((m) => <li key={m.id}><button className="text-left underline" onClick={() => openMem(m.id)}>{m.title}</button> <span className="text-xs">· {m.label}</span></li>)}</ul>
             </div>
           )}
           <p><b>Next:</b> {data.suggestion.nav ? <button className="underline" onClick={() => go(data.suggestion.nav!)}>{data.suggestion.text}</button> : data.suggestion.text}</p>

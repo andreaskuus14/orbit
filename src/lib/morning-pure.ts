@@ -1,6 +1,7 @@
 // "Good morning" briefing (pure, tested in tests/morning.test.ts): turns already-gathered ORBIT data into the card's sections
 // and a spoken version built from a template — no AI call, so it's instant and free. Gathering: morning.ts.
 import type { Clip } from "./clips/types";
+import type { Recall } from "./resurface-pure";
 
 export type MorningNav = "review" | "news" | "tasks" | "agents" | "life";
 export type StudioIn = {
@@ -12,7 +13,7 @@ export type MorningIntel = { title: string; at: string; headlines: string[] };
 export type MorningAgents = { done: string[]; failed: number; proposals: string[] };
 export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
 export type Morning = {
-  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife;
+  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; recall?: Recall[];
   suggestion: { text: string; nav: MorningNav | null }; spoken: string;
 };
 
@@ -89,13 +90,15 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   if (l?.next) must.push(`Reminder at ${l.next.at}: ${l.next.text}.`);
   if (l?.habits) opt.push(l.done >= l.habits ? `All ${n(l.habits, "habit")} done for today.` : `${n(l.habits - l.done, "habit")} to do today.`);
   if (i?.headlines.length) opt.push(`In the news: ${i.headlines.slice(0, 2).join(". ")}.`);
+  const said = m.recall?.length ? plain(m.recall[0].title) : ""; // an emoji-only title says nothing: skip it
+  if (said) opt.push(`From your memory, ${m.recall![0].label}: ${said}.`); // last, so dropped first
   const tail = `My suggestion: ${m.suggestion.text}`;
   const words = (xs: string[]) => xs.join(" ").split(/\s+/).length;
   while (opt.length && words([...must, ...opt, tail]) > MAX_WORDS) opt.pop();
   return plain([...must, ...opt, tail].join(" ").replace(/\.\./g, "."));
 }
 
-export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life">, now: number, tz: string): Morning {
+export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "recall">, now: number, tz: string): Morning {
   const base = { ...parts, greeting: greeting(now, tz), suggestion: suggest(parts) };
   return { ...base, spoken: spokenBriefing(base) };
 }

@@ -82,3 +82,16 @@ test("LIFE in the briefing: today's habits, next reminder today only", async () 
   const m = buildMorning({ life: l }, now, "Europe/Tallinn");
   assert.match(m.spoken, /Reminder at 15:30: Gym\./);
 });
+
+test("memory recall: optional spoken sentence, dropped first when over the cap", () => {
+  const recall = [{ id: "1", title: "Launch the **pet sim**", label: "1 month ago" }];
+  assert.match(buildMorning({ recall }, NOW, TZ).spoken, /From your memory, 1 month ago: Launch the pet sim\. My suggestion/);
+  const long = Array.from({ length: 30 }, (_, i) => `Headline number ${i} about something long that keeps going on and on for a while and then some more words here`);
+  const m = buildMorning({
+    studio: { ready: 4, approved: 0, today: ["12:00"], yesterday: [{ title: "Big one", views: 5000 }], scout: "Top niche: Speedruns.", pausedUntil: "10:30" },
+    intel: { title: "x", at: "", headlines: long }, agents: { done: long, failed: 1, proposals: ["a"] }, recall,
+  }, NOW, TZ);
+  assert.doesNotMatch(m.spoken, /From your memory/);
+  assert.match(m.spoken, /YouTube downloads are paused/); // an earlier optional sentence survives
+  assert.ok(m.spoken.split(/\s+/).length <= MAX_WORDS);
+});

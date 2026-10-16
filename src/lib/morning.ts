@@ -4,6 +4,7 @@ import { youtubePauseUntil } from "./clips/pure";
 import { readPublishSettings } from "./clips/publish-schedule";
 import { scoutView } from "./clips/scout";
 import { learnProblem, type LearnState } from "./clips/learn-pure";
+import { pickRecall, type Recall } from "./resurface-pure";
 import { buildMorning, lifeSection, pulseHeadlines, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningStudio } from "./morning-pure";
 
 // Gathers the "Good morning" briefing: every section in parallel with a timeout, a failing source just drops its section.
@@ -45,10 +46,19 @@ async function agents(sb: SupabaseClient, now: number): Promise<MorningAgents> {
   return { done: t.filter((x) => x.status === "done").map((x) => x.title), failed: t.filter((x) => x.status === "failed").length, proposals: (props.data ?? []).map((p) => p.title) };
 }
 
+// shortcut: only the 500 newest memories older than 6 days are candidates, so older anniversaries are missed; add a date-filtered query if that matters.
+async function recall(sb: SupabaseClient, now: number, tz: string): Promise<Recall[]> {
+  const { data, error } = await sb.from("memories").select("id, title, kind, created_at").neq("kind", "conversation")
+    .lt("created_at", new Date(now - 6 * 86_400_000).toISOString()).order("created_at", { ascending: false }).limit(500);
+  if (error) throw new Error(error.message);
+  return pickRecall(data ?? [], now, tz);
+}
+
 export async function getMorning(sb: SupabaseClient, now = Date.now()): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
-  const [s, i, a, l] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
-    within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, Intl.DateTimeFormat().resolvedOptions().timeZone)))]); // LIFE uses the PC's local days, not the publish timezone
-  const life = ok(l);
-  return buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined }, now, tz);
+  const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
+  const [s, i, a, l, r] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
+    within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz))]);
+  const life = ok(l), rec = ok(r);
+  return buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, recall: rec?.length ? rec : undefined }, now, tz);
 }
