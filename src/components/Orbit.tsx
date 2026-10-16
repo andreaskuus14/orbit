@@ -296,7 +296,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       </header>
 
       {panel && !WORLDS.includes(panel) && (
-        <aside className={`glass drawer${behind && WORLDS.includes(behind) ? " drawer-left" : ""}`} role="dialog" aria-label={title}>
+        <aside className={`glass drawer${behind && WORLDS.includes(behind) ? " drawer-dock" : ""}`} role="dialog" aria-label={title}>
           <div className="mb-3 flex items-center justify-between"><h2 className="brand text-base">{title}</h2><button className="chip" onClick={() => setPanel(null)} aria-label="Close panel">Close</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {panel === "core" ? <CorePanel initial={pending} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />

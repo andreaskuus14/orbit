@@ -334,21 +334,27 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .studio .glass { background: linear-gradient(160deg, rgba(255, 46, 99, 0.10), rgba(20, 2, 10, 0.55) 45%), rgba(12, 2, 8, 0.62); border-color: rgba(255, 143, 171, 0.22); box-shadow: 0 0 40px rgba(201, 24, 74, 0.18), inset 0 1px 0 rgba(255, 214, 224, 0.12); }
 .studio .card { background: linear-gradient(165deg, rgba(255, 214, 224, 0.07), rgba(255, 255, 255, 0.01) 55%), rgba(30, 4, 14, 0.55); border-color: rgba(255, 143, 171, 0.14); }
 .studio .chip { background: linear-gradient(180deg, rgba(255, 214, 224, 0.08), rgba(255, 255, 255, 0.01)), rgba(30, 4, 14, 0.6); border-color: rgba(255, 143, 171, 0.2); }
-.studio .chip:hover, .studio .chip[aria-pressed="true"] { border-color: var(--cherry); background: rgba(255, 46, 99, 0.16); box-shadow: 0 0 14px var(--cherry-soft); }
+.studio .chip:hover, .studio .chip[aria-pressed="true"], .studio .chip[aria-selected="true"] { border-color: var(--cherry); background: rgba(255, 46, 99, 0.16); box-shadow: 0 0 14px var(--cherry-soft); }
 .studio .btn { background: linear-gradient(90deg, #c9184a, #ff2e63); box-shadow: 0 0 20px var(--cherry-soft); }
 .studio .btn:hover:not(:disabled) { box-shadow: 0 0 28px rgba(255, 46, 99, 0.55); }
 .studio .hud-row:hover { background: rgba(255, 46, 99, 0.10); }
 .studio .hud-row.on { background: rgba(255, 46, 99, 0.16); }
 .studio .field:focus-visible, .studio .btn:focus-visible, .studio .chip:focus-visible, .studio .hud-row:focus-visible { outline-color: #ff8fab; }
+/* Clip factory: every focusable gets a visible cherry ring (play tiles, summaries, (?) helps, checkboxes, links). */
+.studio-clips :is(button, a, summary, input, select, textarea):focus-visible { outline: 2px solid #ff8fab; outline-offset: 2px; }
+.studio-clips .aspect-\[9\/16\] > button:focus-visible { outline-offset: -3px; } /* play tile: its box clips an outside ring */
 .studio-title { color: #ffd6e0; text-shadow: 0 0 14px rgba(255, 46, 99, 0.7); letter-spacing: 0.22em; }
 .studio dd { color: #ffe5ec; text-shadow: 0 0 10px rgba(255, 46, 99, 0.35); }
 .studio-tip { position: absolute; left: 0; top: 0; width: 15rem; display: grid; gap: 0.3rem; padding: 0.45rem; border-radius: 12px; font-size: 12px; color: #ffe5ec; background: rgba(18, 2, 9, 0.78); backdrop-filter: blur(12px); border: 1px solid rgba(255, 143, 171, 0.35); box-shadow: 0 0 22px rgba(255, 46, 99, 0.25); }
 .studio-tip img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; }
 .studio-tip span { color: #ff8fab; font-size: 11px; }
 
-/* CORE over STUDIO / GAME DEV: their panel owns the right side, so CORE opens on the left. Solid enough to read over the world. */
-/* Studio panel only docks right from 900px; below that the phone drawer rule must keep its width. */
-@media (min-width: 900px) { .drawer.drawer-left { right: auto; left: 0.75rem; background: rgba(6, 4, 12, 0.88); } }
+/* CORE over a world (STUDIO / GAME DEV) docks under the world's right-hand panel, in the free bottom-right corner,
+   and that panel gets shorter so the two never overlap. Below 900px the panel sits at the bottom: keep the phone drawer. */
+@media (min-width: 900px) {
+  .drawer.drawer-dock { top: auto; bottom: 0.75rem; height: 50dvh; background: rgba(6, 4, 12, 0.9); }
+  :root:has(.drawer.drawer-dock) .globe-in section.hud-panel.panel-in { max-height: calc(50dvh - 6.5rem) !important; }
+}
 /* Worlds' own panels, chips and buttons a little smaller (the 3D canvas keeps its size). */
 .globe-in > :not(:has(canvas)):not(.pointer-events-none) { zoom: 0.9; } /* not the hover-tip layers: they place tips at raw mouse coordinates */
 

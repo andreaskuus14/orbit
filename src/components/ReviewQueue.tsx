@@ -139,7 +139,7 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
       <p className="ok mt-1 min-h-[1.25rem] truncate text-xs" role="status" aria-live="polite">{said}</p>
 
       {err && <p className="error mt-3" role="alert">{err}</p>}
-      {!items && !err && <p className="muted mt-3 text-sm">Loading new clips…</p>}
+      {!items && !err && <div className="mt-3 grid flex-1 gap-4 min-[700px]:grid-cols-[auto_1fr]" role="status" aria-label="Loading new clips"><span className="sr-only">Loading new clips…</span><div aria-hidden className={`mx-auto aspect-[9/16] h-[min(36rem,calc(100vh-17rem))] max-w-full rounded-xl bg-white/5 ${reduced ? "" : "animate-pulse"}`} /><div aria-hidden className="space-y-2">{[60, 24, 24, 40].map((h, k) => <div key={k} className={`rounded-lg bg-white/5 ${reduced ? "" : "animate-pulse"}`} style={{ height: h }} />)}</div></div>}
 
       {cur && c && (
         <div className="mt-2 grid flex-1 gap-4 min-[700px]:grid-cols-[auto_1fr]">

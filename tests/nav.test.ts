@@ -177,3 +177,7 @@ test("'eclipse' is the clips (common mishearing)", () => {
   for (const t of ["take me to the eclipse", "open the eclipse", "show me the clips in the studio"])
     assert.deepEqual(parseNavCommand(t), { panel: "studio", view: "clips" }, t);
 });
+
+test("'stats of the studio' (and the common mishearing 'the soda') opens studio stats", () => {
+  for (const t of ["show me the stats of the studio", "show me the stats of the soda"]) assert.deepEqual(parseNavCommand(t, { current: "studio" }), { panel: "studio", view: "stats" }, t);
+});

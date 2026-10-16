@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CAPTION_STYLES, CHANNEL_LINK_MSG, REJECT_REASONS, bytes, channelLink, isJobActive, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
 import ReviewQueue from "./ReviewQueue";
 import ClipPicks from "./ClipPicks";
@@ -72,12 +72,42 @@ function Section({ title, children, right }: { title: string; children: ReactNod
 }
 const Skeleton = ({ h, reduced }: { h: number; reduced: boolean }) => <div aria-hidden className={`card ${reduced ? "" : "animate-pulse"}`} style={{ height: h, opacity: 0.6 }} />;
 
+type Tab = "find" | "clips" | "insights";
+const TAB_KEY = "orbit.clipFactory.tab";
+const readTab = (): Tab | null => {
+  try { const t = localStorage.getItem(TAB_KEY); return t === "find" || t === "clips" || t === "insights" ? t : null; }
+  catch { return null; } // storage unavailable (or server render)
+};
+
+/** "(?)": a long explanation behind a small button; hover shows it as a tooltip, click/tap/keyboard toggles it inline. */
+function Help({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <>
+      {/* 24px hit target around a 16px circle; negative margin keeps the text line height */}
+      <button type="button" className="muted -my-1 inline-grid h-6 w-6 place-items-center rounded-full align-middle"
+        title={text} aria-label="More info" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
+        <span aria-hidden className="grid h-4 w-4 place-items-center rounded-full border border-white/20 text-[10px] leading-none">?</span>
+      </button>
+      <span id={id} hidden={!open} className="muted mt-0.5 block w-full text-[11px] leading-snug">{text}</span>
+    </>
+  );
+}
+
+/** Same empty state everywhere: one helpful sentence and (optionally) the button that fixes it. */
+const Empty = ({ text, action }: { text: string; action?: ReactNode }) => (
+  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-white/10 p-3 text-sm">
+    <p className="muted min-w-0 flex-1">{text}</p>{action}
+  </div>
+);
+
 /** Two-click confirm without window.confirm: first click arms ("Sure?"), second runs; blur or 4 s disarms. */
-function ConfirmButton({ label, sure = "Sure?", aria, onConfirm, disabled, className = "chip" }: { label: string; sure?: string; aria: string; onConfirm: () => void; disabled?: boolean; className?: string }) {
+function ConfirmButton({ id, label, sure = "Sure?", aria, onConfirm, disabled, className = "chip" }: { id?: string; label: string; sure?: string; aria: string; onConfirm: () => void; disabled?: boolean; className?: string }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(false), 4000); return () => clearTimeout(t); }, [armed]);
   return (
-    <button className={className} disabled={disabled} onBlur={() => setArmed(false)} aria-label={armed ? `Confirm: ${aria}` : aria}
+    <button id={id} className={className} disabled={disabled} onBlur={() => setArmed(false)} aria-label={armed ? `Confirm: ${aria}` : aria}
       style={armed ? { borderColor: "#fb7185" } : undefined} onClick={() => (armed ? (setArmed(false), onConfirm()) : setArmed(true))}>
       {armed ? sure : label}
     </button>
@@ -100,6 +130,8 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const [visible, setVisible] = useState(true);
   const [yt, setYt] = useState<YtStatus | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [tab, setTab] = useState<Tab | null>(null); // null until the first load picks one
+  const [scoutRun, setScoutRun] = useState(0); // bumped by the "Find videos" next step: ScoutSection runs the scout
   // Each review request opens once; the same object lingers in Orbit's state until STUDIO is left.
   useEffect(() => { if (review && !seenReview.has(review)) { seenReview.add(review); setReviewing(true); } }, [review]);
   const seq = useRef(0);
@@ -205,16 +237,41 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const rejectedCount = jobs.reduce((s, j) => s + j.clips.filter((c) => c.status === "rejected").length, 0);
   const unpublished = jobs.reduce((s, j) => s + j.clips.filter((c) => c.status === "approved" && (!c.publish || c.publish.status === "failed")).length, 0);
   const fresh = jobs.reduce((s, j) => s + j.clips.filter((c) => c.status === "ready").length, 0);
-  if (reviewing) return <ReviewQueue reduced={reduced} onClose={() => { setReviewing(false); void load(true); }} />;
+  const workingJobs = jobs.filter(isJobActive), dls = (data?.downloads ?? []).filter((d) => d.status === "queued" || d.status === "downloading");
+  // Open on the tab with work in it; otherwise where the owner left off.
+  const auto: Tab = fresh || workingJobs.length ? "clips" : readTab() ?? "find";
+  useEffect(() => { if (data && !tab) setTab(auto); }, [data, tab, auto]);
+  const shown = tab ?? auto;
+  const selectTab = (t: Tab) => { setTab(t); try { localStorage.setItem(TAB_KEY, t); } catch { /* storage unavailable */ } };
+  if (reviewing) return <ReviewQueue reduced={reduced} onClose={() => { setReviewing(false); setTab("clips"); void load(true); }} />;
+
+  const avg = (xs: number[]) => Math.round((xs.reduce((s, x) => s + Math.min(1, Math.max(0, x || 0)), 0) / Math.max(1, xs.length)) * 100);
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const workText = workingJobs.length ? `⏳ ${plural(workingJobs.length, "job")} working… ${avg(workingJobs.map((j) => j.progress))}%`
+    : dls.length ? `⬇ ${plural(dls.length, "download")}… ${avg(dls.map((d) => d.progress))}%` : "";
+  const workNext = <button className="chip num" onClick={() => selectTab(workingJobs.length ? "clips" : "find")} aria-label={`${workText}. Show progress`}>{workText}</button>;
+  const goSchedule = () => { selectTab("clips"); requestAnimationFrame(() => document.getElementById("schedule-all")?.focus()); };
+  // One obvious next step, in priority order: review > schedule > connect YouTube > wait for work > find videos.
+  const next = fresh ? <button className="btn" onClick={() => setReviewing(true)} aria-label={`Review ${fresh} new clips`}>☀ {plural(fresh, "clip")} ready to review</button>
+    : unpublished && yt?.canUpload ? <button className="btn" onClick={goSchedule} aria-label={`Schedule all ${unpublished} approved clips`}>🕒 {unpublished} approved → Schedule all</button>
+    : unpublished && yt?.configured ? <a className="btn" href="/api/studio/oauth/start">🔗 Connect YouTube to publish {unpublished} approved</a>
+    : workText ? workNext
+    : <button className="btn" onClick={() => { selectTab("find"); setScoutRun((n) => n + 1); }} aria-label="Find videos: run the video scout">🔭 Find videos</button>;
+  const tabs: [Tab, string][] = [["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["insights", "🧠 Insights"]];
+  const onTabKey = (e: KeyboardEvent) => {
+    const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    const t = tabs[(tabs.findIndex(([id]) => id === shown) + d + tabs.length) % tabs.length][0];
+    selectTab(t); document.getElementById(`cf-tab-${t}`)?.focus();
+  };
 
   return (
     <div className={`studio-clips glass @container h-full w-full overflow-y-auto p-3 sm:p-4 ${reduced ? "" : "panel-in"}`} role="region" aria-label="Clip factory" aria-busy={loading}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="hud-title studio-title truncate">CLIP FACTORY</h2>
         <div className="flex items-center gap-2">
-          {active && <span className="muted text-[11px]" aria-live="polite">Working… auto-updating</span>}
-          {fresh > 0 && <button className="chip" onClick={() => setReviewing(true)} aria-label={`Review ${fresh} new clips`}>☀ Review {fresh} new</button>}
-          <button className="chip" onClick={() => { void load(); void loadYt(); }} disabled={loading} aria-label="Refresh clip factory">{loading ? "Loading…" : "Refresh"}</button>
+          <button className="chip" onClick={() => { void load(); void loadYt(); }} disabled={loading} aria-label={loading ? "Refreshing clip factory" : "Refresh clip factory"}>↻ Refresh</button>
           {onClose && <button className="chip" onClick={onClose} aria-label="Close clip factory">×</button>}
         </div>
       </div>
@@ -227,7 +284,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
       )}
 
       {loading && !data && !err && (
-        <div className="mt-3 space-y-3" aria-label="Loading clip factory">
+        <div className="mt-3 space-y-3" role="status" aria-label="Loading clip factory"><span className="sr-only">Loading…</span>
           <Skeleton h={120} reduced={reduced} /><Skeleton h={90} reduced={reduced} />
           <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2">{Array.from({ length: 4 }, (_, k) => <Skeleton key={k} h={260} reduced={reduced} />)}</div>
         </div>
@@ -235,11 +292,30 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
 
       {data && (
         <div className="mt-3 space-y-3">
+          <section className="card flex min-h-[3.25rem] flex-wrap items-center gap-x-3 gap-y-1.5" aria-label="Next step">
+            <span className="muted text-[10px] uppercase tracking-widest">Next</span>
+            {next}
+            {workText && next !== workNext && <span className="muted num text-[11px]">{workText}</span>}
+            <span className="sr-only" aria-live="polite">{active ? "Working… auto-updating" : ""}</span>{/* no % here: it would be re-announced every poll */}
+          </section>
+
           {(!data.tools.ffmpeg || !data.tools.transcriber) && <ToolsBanner tools={data.tools} />}
           {!!data.quarantined?.length && <QuarantineNotice root={data.root} files={data.quarantined} />}
 
-          <LearnedCard />
-          <ScoutSection visible={visible} onQueued={() => void load(true)} />
+          <div role="tablist" aria-label="Clip factory sections" className="flex flex-wrap gap-1.5" onKeyDown={onTabKey}>
+            {tabs.map(([id, text]) => (
+              <button key={id} id={`cf-tab-${id}`} role="tab" className="chip !px-3 !py-1" aria-selected={shown === id} aria-controls={`cf-panel-${id}`}
+                tabIndex={shown === id ? 0 : -1} onClick={() => selectTab(id)}>{text}</button>
+            ))}
+          </div>
+
+          {/* Panels stay mounted (hidden) so forms, polling and scroll state survive switching tabs. */}
+          <div id="cf-panel-insights" role="tabpanel" aria-labelledby="cf-tab-insights" hidden={shown !== "insights"} className="space-y-3">
+            <LearnedCard defaultOpen />
+          </div>
+
+          <div id="cf-panel-find" role="tabpanel" aria-labelledby="cf-tab-find" hidden={shown !== "find"} className="space-y-3">
+          <ScoutSection visible={visible} onQueued={() => void load(true)} runSignal={scoutRun} reduced={reduced} />
 
           <Section title="Inbox">
             <p className="text-sm">Drop long videos into your Studio inbox folder:</p>
@@ -249,7 +325,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
               {notes.opened && !notes.open && <span className="ok text-xs" role="status">{notes.opened}</span>}
             </div>
             <Note k="open" />
-            <p className="muted mt-2 text-xs">Only use videos you own or have permission to clip (your own uploads, or creators who allow clipping).</p>
+            <p className="muted mt-2 text-xs">Only clip videos you&apos;re allowed to. <Help text="Use your own uploads, or creators who allow clipping." /></p>
 
             <AddFromLink tools={data.tools} opts={opts} setOpts={setOpts} busy={busy.dl} onSubmit={(body) => download(body)} />
             <Note k="dl" />
@@ -282,7 +358,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
             )}
 
             {!data.inbox.length ? (
-              <p className="muted mt-3 text-sm">The inbox is empty. Drop a video file into the folder, then press Refresh.</p>
+              <Empty text="The inbox is empty. Drop a video file into the folder, then refresh." action={<button className="chip" onClick={() => void load()} disabled={loading}>↻ Refresh</button>} />
             ) : (
               <ul className="mt-3 space-y-2" aria-label="Inbox videos">
                 {data.inbox.map((f) => {
@@ -322,16 +398,18 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
               </ul>
             )}
           </Section>
+          </div>
 
+          <div id="cf-panel-clips" role="tabpanel" aria-labelledby="cf-tab-clips" hidden={shown !== "clips"} className="space-y-3">
           <Section title="Clip jobs" right={<>
             <ScheduleAll count={unpublished} canUpload={!!yt?.canUpload} onChange={load} />
             {rejectedCount > 0 && (
-              <button className="chip" aria-pressed={showRejected} onClick={() => setShowRejected((s) => !s)}>
+              <button className="chip" aria-pressed={showRejected} onClick={() => setShowRejected((s) => !s)} aria-label={`${showRejected ? "Hide" : "Show"} ${rejectedCount} rejected clips`}>
                 {showRejected ? "Hide" : "Show"} rejected ({rejectedCount})
               </button>
             )}
           </>}>
-            {!jobs.length && <p className="muted text-sm">No clip jobs yet. Pick a video in the inbox and press “Make clips”.</p>}
+            {!jobs.length && <Empty text="No clips yet. Find a video to clip, or add one from a link." action={<button className="btn" onClick={() => selectTab("find")}>🔭 Find videos</button>} />}
             <div className="space-y-3">
               {jobs.map((j) => (
                 <JobCard key={j.id} job={j} reduced={reduced} showRejected={showRejected} busy={busy} Note={Note} yt={yt} publishing={data.publishing}
@@ -341,6 +419,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
               ))}
             </div>
           </Section>
+          </div>
         </div>
       )}
     </div>
@@ -366,7 +445,7 @@ const compact = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3
 const ago = (iso: string) => { const h = (Date.now() - Date.parse(iso)) / 3_600_000; return !Number.isFinite(h) ? "" : h < 1 ? "just now" : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} d ago`; };
 
 /** Finds source videos by itself: approved creators (watchlist) + niche keyword searches, ranked for clip potential. */
-function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () => void }) {
+function ScoutSection({ visible, onQueued, runSignal, reduced }: { visible: boolean; onQueued: () => void; runSignal: number; reduced: boolean }) {
   const [d, setD] = useState<ScoutData | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -387,6 +466,13 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
   }
   const Note = ({ k }: { k: string }) => (notes[k] ? <p className="error mt-1 text-xs" role="alert">{notes[k]}</p> : null);
   const run = () => act("run", async () => { await api(SCOUT, { method: "POST" }); setD((x) => x && { ...x, running: true }); });
+  // The panel's "Find videos" next step bumps runSignal: run once it's loaded (if it can run and isn't already).
+  const seenSignal = useRef(runSignal);
+  useEffect(() => {
+    if (runSignal === seenSignal.current) return;
+    seenSignal.current = runSignal; // consumed even when the scout isn't loaded (or failed to): never fire later by surprise
+    if (d?.configured && !d.running) void run();
+  }, [runSignal, d]); // eslint-disable-line react-hooks/exhaustive-deps -- run is recreated each render; the signal is the trigger
   const pick = (p: ScoutPick, action: "clip" | "dismiss") => act(`pick:${p.videoId}`, async () => {
     setD(await api<ScoutData>(`${SCOUT}/picks`, { method: "POST", body: { videoId: p.videoId, action } }));
     if (action === "clip") onQueued();
@@ -405,18 +491,21 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
   return (
     <Section title="Video scout" right={d && (
       <div className="flex items-center gap-1.5">
-        <button className="chip" aria-expanded={open} aria-controls="scout-settings" onClick={() => setOpen((o) => !o)}>⚙ Settings</button>
-        <button className="chip" onClick={() => void run()} disabled={busy.run || d.running || !d.configured}>{d.running ? (d.researching ? "Researching…" : "Scouting…") : busy.run ? "Starting…" : "🔭 Run scout now"}</button>
+        <button className="chip" aria-expanded={open} aria-controls="scout-settings" onClick={() => setOpen((o) => !o)} aria-label="Scout settings">⚙ Settings</button>
+        <button className="btn !px-3 !py-1 !text-xs" onClick={() => void run()} disabled={busy.run || d.running || !d.configured} aria-label="Run the video scout now">{d.running ? (d.researching ? "Researching…" : "Scouting…") : busy.run ? "Starting…" : "🔭 Run scout now"}</button>
       </div>
     )}>
       {err && <p className="error text-xs" role="alert">{err}</p>}
+      {!d && !err && <div className="space-y-2" role="status" aria-label="Loading the scout"><span className="sr-only">Loading the scout…</span><Skeleton h={18} reduced={reduced} /><Skeleton h={90} reduced={reduced} /></div>}
       {d && !d.configured && <p className="text-xs">Add <code className="num rounded bg-black/40 px-1">YOUTUBE_API_KEY</code> to .env.local and restart ORBIT so the scout can search YouTube.</p>}
       {d && s && (
         <>
+          <div className="flex flex-wrap items-center gap-x-1">
           <p className="muted num text-[11px]" aria-live="polite">
-            {last ? `Last run ${when(last.at)} · ${last.candidates} videos checked · ranked by ${last.ranker === "claude" ? "Claude" : "stats"}${last.auto ? ` · ${last.auto} auto-clipped` : ""}` : "Never run yet"}
-            {` · YouTube budget today ${d.usedToday}/${d.budget} units · daily run ${String(s.runAt).padStart(2, "0")}:00`}
+            {last ? `Last run ${ago(last.at)} · ${last.candidates} videos checked${last.auto ? ` · ${last.auto} auto-clipped` : ""}` : "Never run yet"}
           </p>
+            <Help text={`${last ? `Last run ${when(last.at)}, ranked by ${last.ranker === "claude" ? "Claude" : "stats"}. ` : ""}YouTube budget today ${d.usedToday}/${d.budget} units. Runs daily at ${String(s.runAt).padStart(2, "0")}:00.`} />
+          </div>
           {last && !last.ok && <p className="error mt-1 text-xs" role="alert">⚠ {last.error}</p>}
           {!!last?.warnings?.length && <ul className="mt-1 space-y-0.5 text-[11px]" aria-label="Scout warnings">{last.warnings.slice(0, 5).map((w, k) => <li key={k}>⚠ {w}</li>)}</ul>}
           <Note k="run" />
@@ -427,7 +516,10 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
           {open && <ScoutSettingsForm s={s} busy={busy} Note={Note} onSave={save} />}
           {last?.ok && last.summary && <p className="num mt-2 text-[11px]" role="status">{last.summary}</p>}
           {!picks.length ? (
-            <p className="muted mt-2 text-sm">{s.watchlist.length || s.keywords.length || s.aiKeywords.length ? `No picks yet.${last ? " Try a lower min length or a higher max age in ⚙ Settings, or add more creators." : " Press Run scout now."}` : "Add a creator above (someone who allows clipping) or keywords in ⚙ Settings, then run the scout."}</p>
+            s.watchlist.length || s.keywords.length || s.aiKeywords.length
+              ? <Empty text={last ? "No picks yet. Lower the min length or raise the max age in ⚙ Settings, or add more creators." : "No picks yet. Run the scout to find videos."}
+                  action={<button className="chip" onClick={() => void run()} disabled={busy.run || d.running || !d.configured}>🔭 Run scout</button>} />
+              : <Empty text="Add a creator above (someone who allows clipping), then run the scout." />
           ) : (
             <ul className="mt-2 space-y-2" aria-label="Scout picks">
               {picks.map((p) => (
@@ -457,7 +549,7 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
               ))}
             </ul>
           )}
-          {picks.some((p) => p.source === "keyword") && <p className="muted mt-2 text-[11px]">Keyword finds come from creators you haven&apos;t approved: check they allow clipping before you press Clip it.</p>}
+          {picks.some((p) => p.source === "keyword") && <p className="muted mt-2 text-[11px]">🔎 Keyword finds: check permission first. <Help text="Keyword finds come from creators you haven't approved: check they allow clipping before you press Clip it." /></p>}
         </>
       )}
     </Section>
@@ -472,13 +564,13 @@ function CreatorsBox({ s, busy, Note, added, onSave, onAdd }: { s: ScoutSettings
   return (
     <div className="mt-2 rounded-xl border border-white/10 p-2 text-xs">
       <b className="block text-sm">★ Creators</b>
-      <p className="muted text-[11px]">Only creators who allow clipping. Auto-clip lets the daily run download their best new video by itself (up to the daily limit); finished clips still wait for your review.</p>
+      <p className="muted text-[11px]">Only creators who allow clipping. <Help text="Auto-clip lets the daily run download their best new video by itself (up to the daily limit); finished clips still wait for your review." /></p>
       <ul className="mt-1 space-y-1" aria-label="Watchlist">
         {s.watchlist.map((w) => (
           <li key={w.channelId} className="flex flex-wrap items-center gap-2">
             <span className="min-w-0 flex-1 truncate" title={w.channelId}>{w.title}</span>
             <label className="flex items-center gap-1"><input type="checkbox" checked={w.autoClip} disabled={busy.watch}
-              onChange={(e) => setWatch({ channelId: w.channelId, autoClip: e.target.checked })} /> Auto-clip</label>
+              onChange={(e) => setWatch({ channelId: w.channelId, autoClip: e.target.checked })} aria-label={`Auto-clip ${w.title}`} /> Auto-clip</label>
             <ConfirmButton label="Remove" aria={`Remove ${w.title} from the watchlist`} disabled={busy.watch} onConfirm={() => setWatch({ channelId: w.channelId, remove: true })} />
           </li>
         ))}
@@ -486,7 +578,7 @@ function CreatorsBox({ s, busy, Note, added, onSave, onAdd }: { s: ScoutSettings
       <Note k="watch" />
       <form className="mt-1 flex gap-1" onSubmit={async (e) => { e.preventDefault(); if (input.trim() && (await onAdd(input.trim()))) setInput(""); }}>
         <input className="field min-w-0 flex-1 !px-2 !py-1 !text-xs" placeholder="Add a creator: @handle, name or channel/video link" value={input} maxLength={200} onChange={(e) => setInput(e.target.value)} aria-label="Creator to add" />
-        <button type="submit" className="chip" disabled={busy.add || !input.trim()}>{busy.add ? "Adding…" : "+ Add"}</button>
+        <button type="submit" className="chip" disabled={busy.add || !input.trim()} aria-label="Add creator">{busy.add ? "Adding…" : "+ Add"}</button>
       </form>
       <Note k="add" />
       {added && !busy.add && <p className="ok mt-1 text-xs" role="status">{added}</p>}
@@ -503,12 +595,15 @@ function NicheCard({ d, busy, Note, onSave, onAdd, onResearch, onUse }: { d: Sco
     <div className="mt-2 rounded-xl border border-white/10 p-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <b className="flex-1 text-sm">🧭 Niche report</b>
-        <button className="chip" onClick={onResearch} disabled={busy.niche || d.running || !d.configured}>{d.researching ? "Researching…" : "🔭 Find my niche"}</button>
+        <button className="chip" onClick={onResearch} disabled={busy.niche || d.running || !d.configured} aria-label="Research my niche">{d.researching ? "Researching…" : "🔭 Find my niche"}</button>
       </div>
+      <div className="flex flex-wrap items-center gap-x-1">
       <p className="muted num text-[11px]" aria-live="polite">
-        {rep ? `Report ${when(rep.at)} · refreshes weekly${s.nicheAuto ? " · auto-applies the top niche" : ""}` : "ORBIT reads this week's trending gaming/entertainment videos and top clip Shorts, then suggests a niche and the creators to clip (about 410 YouTube units, refreshes weekly)."}
+        {rep ? `Report ${when(rep.at)} · refreshes weekly${s.nicheAuto ? " · auto-applies the top niche" : ""}` : "Suggests a niche and creators to clip."}
         {run && ` · last research ${when(run.at)}, ${run.units} units`}
       </p>
+        {!rep && <Help text="ORBIT reads this week's trending gaming/entertainment videos and top clip Shorts, then suggests a niche and the creators to clip (about 410 YouTube units, refreshes weekly)." />}
+      </div>
       {run && !run.ok && <p className="error mt-1 text-xs" role="alert">⚠ {run.error}</p>}
       {!!run?.warnings?.length && <ul className="mt-1 space-y-0.5 text-[11px]" aria-label="Niche research notes">{run.warnings.slice(0, 4).map((w, k) => <li key={k}>{w.startsWith("Auto:") ? "✓" : "⚠"} {w}</li>)}</ul>}
       <Note k="niche" />
@@ -519,7 +614,7 @@ function NicheCard({ d, busy, Note, onSave, onAdd, onResearch, onUse }: { d: Sco
               <div className="flex flex-wrap items-center gap-1">
                 <b className="flex-1">{n.name}</b>
                 <Status text={`score ${n.score}/100`} tone={n.score >= 70 ? "good" : undefined} />
-                {inUse(n.keywords) ? <Status text="✓ Keywords in use" tone="good" /> : <button className="chip" onClick={() => onUse(n.name)} disabled={busy.niche}>Use this niche</button>}
+                {inUse(n.keywords) ? <Status text="✓ Keywords in use" tone="good" /> : <button className="chip" onClick={() => onUse(n.name)} disabled={busy.niche} aria-label={`Use the niche ${n.name}`}>Use this niche</button>}
               </div>
               <p className="mt-0.5 leading-snug">{n.why}</p>
               <p className="muted text-[11px]">Keywords: {n.keywords.join(" · ")}</p>
@@ -537,7 +632,7 @@ function NicheCard({ d, busy, Note, onSave, onAdd, onResearch, onUse }: { d: Sco
       )}
       {!!s.aiKeywords.length && (
         <p className="mt-1 text-[11px]">AI keywords searched with yours: {s.aiKeywords.join(" · ")}{" "}
-          <button className="chip" onClick={() => void onSave("aikw", { aiKeywords: [] })} disabled={busy.aikw}>Clear</button></p>
+          <button className="chip" onClick={() => void onSave("aikw", { aiKeywords: [] })} disabled={busy.aikw} aria-label="Clear AI keywords">Clear</button></p>
       )}
       <Note k="aikw" />
     </div>
@@ -572,7 +667,7 @@ function ScoutSettingsForm({ s, busy, Note, onSave }: { s: ScoutSettings; busy: 
       <div>
         <label className="flex items-center gap-1"><input type="checkbox" checked={s.nicheAuto} disabled={busy.nicheAuto}
           onChange={(e) => void onSave("nicheAuto", { nicheAuto: e.target.checked })} /> Auto-apply the weekly niche report (its keywords + watch its creators)</label>
-        <p className="muted text-[11px]">Auto-clip stays your choice per creator: clipping without the creator&apos;s permission risks copyright strikes.</p>
+        <p className="muted text-[11px]">Auto-clip stays your choice per creator. <Help text="Clipping without the creator's permission risks copyright strikes." /></p>
         <Note k="nicheAuto" />
       </div>
     </div>
@@ -621,7 +716,7 @@ function Progress({ pct, step, label, reduced }: { pct: number; step: string; la
         className="h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,214,224,0.08)" }}>
         <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "linear-gradient(90deg, #800f2f, #ff2e63)", transition: reduced ? "none" : "width 0.4s" }} />
       </div>
-      <p className="muted mt-1 text-xs"><span className="num">{pct}%</span> · {step}</p>
+      <p className="muted mt-1 truncate text-xs leading-4" title={step}><span className="num">{pct}%</span> · {step}</p>
     </div>
   );
 }
@@ -796,6 +891,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
 function ClipCard({ clip: c, busy, onPatch, note, picks, version, publish }: { clip: Clip; busy: boolean; onPatch: PatchFn; note: ReactNode; picks: ReactNode; version: ReactNode; publish: ReactNode }) {
   const [play, setPlay] = useState(false);
   const [edit, setEdit] = useState<string | null>(null);
+  const [more, setMore] = useState(false);
   const reviewable = c.status === "ready" || c.status === "approved" || c.status === "rejected";
   const len = Math.max(0, c.end - c.start);
   const save = async () => {
@@ -810,7 +906,7 @@ function ClipCard({ clip: c, busy, onPatch, note, picks, version, publish }: { c
         {play && c.video ? (
           <video className="h-full w-full object-cover" src={media(c.video)} poster={c.thumb ? media(c.thumb) : undefined} controls playsInline preload="none" autoPlay aria-label={`Clip: ${c.title}`} />
         ) : c.video ? (
-          <button className="group grid h-full w-full place-items-center" onClick={() => setPlay(true)} aria-label={`Play clip: ${c.title}`}>
+          <button className="group grid h-full w-full place-items-center rounded-lg" onClick={() => setPlay(true)} aria-label={`Play clip: ${c.title}`}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {c.thumb && <img src={media(c.thumb)} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />}
             <span aria-hidden className="relative rounded-full bg-black/60 px-3 py-1.5 text-base">▶</span>
@@ -843,9 +939,9 @@ function ClipCard({ clip: c, busy, onPatch, note, picks, version, publish }: { c
           <button className="chip shrink-0 !px-1.5 !py-0" onClick={() => setEdit(c.title)} aria-label={`Edit title: ${c.title}`}>✎</button>
         </div>
       )}
-      {picks}
+      {c.status === "ready" && picks /* while reviewing, title/thumb picks stay in view */}
       {c.hook && <p className="leading-snug">“{c.hook}”</p>}
-      {c.reason && <p className="muted text-[11px] leading-snug">{c.reason}</p>}
+      {c.reason && <p className="muted line-clamp-2 text-[11px] leading-snug" title={c.reason}>{c.reason}</p>}
       <p className="muted num text-[11px]">{mmss(c.start)}–{mmss(c.end)} · {mmss(len)} · score {score(c.score)}/100</p>
       {c.video && c.error && <p className="muted text-[11px] leading-snug">⚠ {c.error}</p>}
 
@@ -856,11 +952,21 @@ function ClipCard({ clip: c, busy, onPatch, note, picks, version, publish }: { c
             {c.status !== "rejected" && <RejectButton title={c.title} onReject={(reason) => void onPatch(c.id, { status: "rejected", ...(reason ? { reason } : {}) })} disabled={busy || c.publish?.status === "uploading"} />}
           </>
         )}
-        {c.video && <a className="chip" href={media(c.video)} download aria-label={`Download ${c.title}`}>⬇ Download</a>}
       </div>
       {note}
-      {version}
       {publish}
+      {(c.video || version || (c.status !== "ready" && picks)) && (
+        <>
+          <button className="chip self-start !px-2 !py-0.5 !text-[10px]" aria-expanded={more} aria-controls={`more-${c.id}`} onClick={() => setMore((m) => !m)}
+            aria-label={`${more ? "Fewer" : "More"} options for ${c.title}`}>{more ? "Less ▴" : "More… ▾"}</button>
+          {/* hidden, not unmounted: an open "Another version" form keeps what was typed */}
+          <div id={`more-${c.id}`} hidden={!more} className="flex flex-col gap-1.5">
+            {c.status !== "ready" && picks}
+            {version}
+            {c.video && <a className="chip self-start" href={media(c.video)} download aria-label={`Download ${c.title}`}>⬇ Download</a>}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -971,7 +1077,7 @@ function PublishBox({ clip: c, yt, reduced, busy, stale, onPublish, onCheck, not
         <p>✓ On YouTube{p.privacy ? ` · ${p.privacy}` : ""}</p>
         <a className="block underline" href={`https://youtube.com/shorts/${p.videoId}`} {...ext}>Open on YouTube ↗</a>
         <a className="block underline" href={`https://studio.youtube.com/video/${p.videoId}/edit`} {...ext}>Open in YouTube Studio ↗</a>
-        <p className="muted">{LOCKED_NOTE}</p>
+        <p className="muted">Stuck on private? <Help text={LOCKED_NOTE} /></p>
       </div>
     );
   }
@@ -982,7 +1088,7 @@ function PublishBox({ clip: c, yt, reduced, busy, stale, onPublish, onCheck, not
         <p>{live ? `✓ Live since ${when(p.scheduledFor!)}` : `🕒 Goes live ${p.scheduledFor ? when(p.scheduledFor) : "at the scheduled time"}`}</p>
         <a className="block underline" href={`https://youtube.com/shorts/${p.videoId}`} {...ext}>Open on YouTube ↗</a>
         <a className="block underline" href={`https://studio.youtube.com/video/${p.videoId}/edit`} {...ext}>{live ? "Open in YouTube Studio ↗" : "Reschedule or unschedule in YouTube Studio ↗"}</a>
-        {!live && <p className="muted">ORBIT can upload but not edit videos, so change the time in YouTube Studio (Visibility → Schedule).</p>}
+        {!live && <p className="muted">Change the time in YouTube Studio. <Help text="ORBIT can upload but not edit videos, so change the time in YouTube Studio (Visibility → Schedule)." /></p>}
       </div>
     );
   }
@@ -1038,7 +1144,7 @@ function PublishBox({ clip: c, yt, reduced, busy, stale, onPublish, onCheck, not
       {mode !== "now" && <p className="muted text-[11px]">Uploads now as private; YouTube makes it public at that time, even if this PC is off.</p>}
       {mode !== "now" && sched && <SlotSettings sched={sched} onSaved={setSched} />}
       {/[<>]/.test(form.title + form.description) && <p className="error text-[11px]">YouTube doesn&apos;t allow &lt; or &gt;.</p>}
-      <p className="muted text-[11px]">{LOCKED_NOTE}</p>
+      <p className="muted text-[11px]">YouTube may keep it private. <Help text={LOCKED_NOTE} /></p>
       <div className="flex gap-1">
         <button type="submit" className="chip" disabled={busy || !form.title.trim() || /[<>]/.test(form.title + form.description) || (mode === "pick" && (!at || tooSoon))}>{busy ? "Starting…" : mode === "now" ? "▶ Upload" : "🕒 Schedule"}</button>
         <button type="button" className="chip" onClick={() => setForm(null)}>Cancel</button>
@@ -1112,7 +1218,7 @@ function ScheduleAll({ count, canUpload, onChange }: { count: number; canUpload:
   if (batch?.running) return <span className="muted text-[11px]" aria-live="polite">🕒 Scheduling {Math.min(batch.scheduled + 1, batch.total)}/{batch.total}…</span>;
   return (
     <div className="flex flex-col items-end gap-0.5">
-      {count > 0 && canUpload && <ConfirmButton label={`🕒 Schedule all approved (${count})`} sure={`Upload ${count} into the next slots?`} aria={`Schedule all ${count} approved clips into the next free slots`} onConfirm={() => void start()} disabled={busy} />}
+      {count > 0 && canUpload && <ConfirmButton id="schedule-all" className="btn !px-3 !py-1 !text-xs" label={`🕒 Schedule all approved (${count})`} sure={`Upload ${count} into the next slots?`} aria={`Schedule all ${count} approved clips into the next free slots`} onConfirm={() => void start()} disabled={busy} />}
       {mine && batch && (batch.error
         ? <p className="error text-[11px]" role="alert">{batch.scheduled} scheduled. {batch.error}</p>
         : <p className="ok text-[11px]" role="status">✓ {batch.scheduled} scheduled</p>)}

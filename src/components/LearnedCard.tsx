@@ -7,7 +7,7 @@ import type { Insights } from "@/lib/clips/learn-pure";
 const when = (iso?: string) => { const t = iso ? Date.parse(iso) : NaN; return Number.isFinite(t) ? new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "never"; };
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
-export default function LearnedCard() {
+export default function LearnedCard({ defaultOpen }: { defaultOpen?: boolean }) {
   const [d, setD] = useState<Insights | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
@@ -20,11 +20,11 @@ export default function LearnedCard() {
   const none = <p className="muted">Not enough data yet.</p>;
   const row = (label: string, items: string[]) => <li><span className="muted">{label}:</span> {items.join(", ")}</li>;
   return (
-    <details className="card text-xs" aria-label="What ORBIT learned">
+    <details className="card text-xs" aria-label="What ORBIT learned" open={defaultOpen}>
       <summary className="hud-title studio-title cursor-pointer !text-[0.7rem]">WHAT ORBIT LEARNED <span className="muted normal-case">· updated {when(d?.checkedAt)}</span></summary>
       <div className="mt-2 space-y-2">
         {err && <p className="error" role="alert">{err}</p>}
-        {!d && !err && <p className="muted">Loading…</p>}
+        {!d && !err && <div className="space-y-2" role="status" aria-label="Loading"><span className="sr-only">Loading…</span>{[0, 1, 2].map((k) => <div key={k} aria-hidden className="h-10 animate-pulse rounded-lg bg-white/5" />)}</div>}
         {d && (<>
           <div>
             <h4 className="muted mb-1">Top clips ({d.scored} of {d.published} published have 72 h stats)</h4>
