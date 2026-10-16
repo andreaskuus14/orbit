@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { emptyState, parseState, RATE_MS, step } from "../src/lib/studio-notify.ts";
 
 const T = Date.parse("2026-10-16T12:00:00Z");
-const clip = (id: string, status: string, publish?: object) => ({ id, title: `Clip ${id}`, status, publish });
+const clip = (id: string, status: string, publish?: { status: string; scheduledFor?: string }) => ({ id, title: `Clip ${id}`, status, publish });
 const job = (id: string, status: string, clips: ReturnType<typeof clip>[] = []) => ({ id, source: `${id} video.mp4`, status, clips });
 
 test("first poll is a silent baseline", () => {

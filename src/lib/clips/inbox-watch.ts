@@ -71,7 +71,7 @@ export const defaultInboxAuto = (now: Date, enabled = true): InboxAuto => ({ ena
 
 type St = { timer?: NodeJS.Timeout; busy?: boolean; seen: Map<string, Seen>; lock: Promise<unknown> };
 const g = globalThis as unknown as { __orbitInboxWatch?: St }; // survives dev hot reloads: one timer
-const S = (g.__orbitInboxWatch ??= { seen: new Map(), lock: Promise.resolve() });
+const S: St = (g.__orbitInboxWatch ??= { seen: new Map(), lock: Promise.resolve() } as St);
 const factory = () => import("./factory");
 const settingsFile = async () => path.join((await factory()).studioRoot(), "inbox-auto.json");
 
