@@ -23,7 +23,7 @@ export default function LifeReminders() {
             const ok = await fetch("/api/life", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fired", id: r.id }) })
               .then(async (x) => x.ok && (await x.json()).ok === true).catch(() => false); // false: another ORBIT window already showed it
             if (!ok || !alive) continue;
-            setToasts((t) => (t.some((x) => x.id === r.id) ? t : [...t, r]));
+            setToasts((t) => (t.some((x) => x.id === r.id && x.at === r.at) ? t : [...t, r])); // a repeating one keeps its id
             notify({ title: "Reminder", body: r.text, kind: "life", nav: { panel: "life" } });
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
               try { new Notification("ORBIT reminder", { body: r.text, tag: r.id }); } catch { /* ignore */ }
@@ -40,9 +40,9 @@ export default function LifeReminders() {
   return (
     <div className="fixed bottom-4 left-4 z-50 flex max-w-xs flex-col gap-2">
       {toasts.map((r) => (
-        <div key={r.id} role="status" className="card flex items-start gap-2 text-sm">
+        <div key={`${r.id}@${r.at}`} role="status" className="card flex items-start gap-2 text-sm">
           <span className="flex-1">⏰ {r.text}</span>
-          <button className="chip" onClick={() => setToasts((t) => t.filter((x) => x.id !== r.id))}>Dismiss</button>
+          <button className="chip" onClick={() => setToasts((t) => t.filter((x) => x !== r))}>Dismiss</button>
         </div>
       ))}
     </div>

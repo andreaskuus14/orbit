@@ -39,10 +39,11 @@ export async function runLifeTool(tool: LifeTool, input: Record<string, unknown>
         return "error" in r ? `Error: ${r.error}` : `Done: added the habit "${name}".`;
       }
       case "life_remind": {
-        const text = str(input.text, 140), at = str(input.at, 40);
+        const text = str(input.text, 140), at = str(input.at, 40), repeat = str(input.repeat, 10).toLowerCase();
         if (!text || !at) return "Error: text and at (ISO date-time) are required";
-        const r = await (await life()).addReminder(text, at);
-        return "error" in r ? `Error: ${r.error}` : `Done: reminder "${text}" set for ${new Date(at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}.`;
+        if (repeat && repeat !== "daily" && repeat !== "weekdays" && repeat !== "weekly") return "Error: repeat must be daily, weekdays or weekly";
+        const r = await (await life()).addReminder(text, at, repeat ? (repeat as "daily" | "weekdays" | "weekly") : undefined);
+        return "error" in r ? `Error: ${r.error}` : `Done: reminder "${text}" set for ${new Date(at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}${repeat ? `, repeating ${repeat}` : ""}.`;
       }
       case "life_journal": {
         const days = Math.min(31, Math.max(1, Math.round(Number(input.days)) || 7));

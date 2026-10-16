@@ -2,7 +2,10 @@
 // Days are local "YYYY-MM-DD" keys; day steps go through the Date constructor so DST never skips or repeats a day.
 
 export type Habit = { id: string; name: string; emoji: string; days: number[]; created: string; done: string[] };
-export type Reminder = { id: string; text: string; at: string; fired?: string };
+export const REPEATS = ["daily", "weekdays", "weekly"] as const;
+export type Repeat = (typeof REPEATS)[number];
+/** repeat absent = one-off (old data has none). A recurring reminder is one record whose `at` moves forward and never gets `fired`. */
+export type Reminder = { id: string; text: string; at: string; fired?: string; repeat?: Repeat; time?: string }; // time: "HH:MM" wall clock of a repeating one
 export type LifeStore = { habits: Habit[]; reminders: Reminder[]; focus: Record<string, number>; journal: Record<string, string> };
 export type DayDot = { date: string; scheduled: boolean; done: boolean };
 export type HabitView = Habit & { streak: number; week: DayDot[]; doneToday: boolean; scheduledToday: boolean };
@@ -76,6 +79,24 @@ export function reminderTimeError(iso: unknown, now: number): string | null {
   if (t < now - 60_000) return "That time is in the past";
   if (t > now + 366 * DAY_MS) return "Reminders can be at most a year ahead";
   return null;
+}
+export const isRepeat = (v: unknown): v is Repeat => (REPEATS as readonly unknown[]).includes(v);
+export const REPEAT_LABEL: Record<Repeat, string> = { daily: "every day", weekdays: "weekdays", weekly: "every week" };
+
+/** Next occurrence strictly after `now`, at the same local wall-clock time as `atIso` (DST-safe: built from local Date fields).
+ *  A reminder missed for days jumps straight to the next future slot instead of firing a burst. */
+/** time ("HH:MM", stored when created) keeps the wall-clock time: otherwise a DST-skipped 02:30 that JS turned into 03:30 would stay 03:30. */
+export function nextOccurrence(atIso: string, repeat: Repeat, now: number, time?: string): string {
+  const b = new Date(atIso);
+  const hm = /^(\d{2}):(\d{2})$/.exec(time ?? "");
+  const h = hm ? Number(hm[1]) : b.getHours(), mi = hm ? Number(hm[2]) : b.getMinutes(), sec = hm ? 0 : b.getSeconds();
+  const step = repeat === "weekly" ? 7 : 1;
+  for (let k = step; k <= 800; k += step) { // 800 days covers the 1-year scheduling cap plus a long absence
+    const d = new Date(b.getFullYear(), b.getMonth(), b.getDate() + k, h, mi, sec);
+    if (repeat === "weekdays" && (d.getDay() === 0 || d.getDay() === 6)) continue;
+    if (d.getTime() > now) return d.toISOString();
+  }
+  return new Date(now + DAY_MS).toISOString(); // unreachable in practice (absent > 2 years)
 }
 export const dueReminders = (rs: Reminder[], now: number) => rs.filter((r) => !r.fired && Date.parse(r.at) <= now);
 /** Upcoming plus anything from the last day, soonest first. */

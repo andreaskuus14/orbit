@@ -1,10 +1,11 @@
 import { requireUser } from "@/lib/supabase/server";
 import { addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal } from "@/lib/life";
-import { MAX_FOCUS_MIN } from "@/lib/life-pure";
+import { MAX_FOCUS_MIN, isRepeat } from "@/lib/life-pure";
 
 export const dynamic = "force-dynamic";
 
 // LIFE workspace. GET → full state (?due=1 → { due } reminders whose time has come and that haven't fired).
+// addReminder takes optional repeat: daily|weekdays|weekly.
 // POST { action: addHabit|removeHabit|check|addReminder|removeReminder|fired|focus|journal, ... }.
 
 export async function GET(req: Request) {
@@ -43,7 +44,8 @@ export async function POST(req: Request) {
     case "addReminder": {
       const text = str(b.text, 200), at = str(b.at, 40);
       if (text === null || at === null) return bad("Invalid text or time");
-      return out(await addReminder(text, at));
+      if (b.repeat !== undefined && b.repeat !== null && !isRepeat(b.repeat)) return bad("Repeat must be daily, weekdays or weekly");
+      return out(await addReminder(text, at, b.repeat ?? undefined));
     }
     case "removeReminder":
       return id ? Response.json({ removed: await removeReminder(id) }) : bad("Missing id");

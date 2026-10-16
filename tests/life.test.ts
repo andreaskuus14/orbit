@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   addDays, weekday, weekStart, isDateKey, streak, last7, matchHabit, reminderTimeError, dueReminders, visibleReminders, pruneReminders,
-  cleanName, cleanEmoji, cleanDays, view, summaryText, emptyStore, ALL_DAYS, journalText, type Habit,
+  cleanName, cleanEmoji, cleanDays, view, summaryText, emptyStore, ALL_DAYS, journalText, nextOccurrence, isRepeat, type Habit,
 } from "../src/lib/life-pure.ts";
 
 test("date keys step whole days, across month/year and DST", () => {
@@ -116,4 +116,47 @@ test("journalText: last N days, newest first, weekday labels, whole-entry cap", 
   const big = { "2026-10-16": "a".repeat(2000), "2026-10-15": "b".repeat(2000), "2026-10-14": "c".repeat(2000) };
   const out = journalText(big, "2026-10-16", 7, 4100);
   assert.ok(out.length <= 4100 + 30 && out.endsWith("(older entries omitted)") && !out.includes("c"));
+});
+
+test("nextOccurrence: same local wall-clock time, DST-safe, weekdays skip weekends, missed → next future slot", () => {
+  const prevTz = process.env.TZ;
+  process.env.TZ = "Europe/Berlin"; // EU DST ends Sun 2026-10-25, starts Sun 2026-03-29
+  try {
+    const loc = (y: number, m: number, d: number, h = 9, mi = 0) => new Date(y, m - 1, d, h, mi);
+    const at = (y: number, m: number, d: number, h = 9, mi = 0) => loc(y, m, d, h, mi).toISOString();
+    const just = (y: number, m: number, d: number, h = 9) => loc(y, m, d, h).getTime() + 1000; // the poll right after it was due
+    // Daily across the DST-end weekend keeps 09:00 local (UTC offset changes).
+    const n1 = nextOccurrence(at(2026, 10, 24), "daily", just(2026, 10, 24));
+    assert.equal(n1, at(2026, 10, 25));
+    assert.equal(new Date(n1).getHours(), 9);
+    assert.equal(nextOccurrence(n1, "daily", just(2026, 10, 25)), at(2026, 10, 26));
+    assert.equal(Date.parse(at(2026, 10, 26)) - Date.parse(at(2026, 10, 25)), 86400_000);
+    assert.equal(Date.parse(at(2026, 10, 25)) - Date.parse(at(2026, 10, 24)), 90000_000, "25 h day: not +86400000");
+    // DST start, plus a nonexistent local time (02:30 on Mar 29) returns to 02:30 the day after.
+    assert.equal(nextOccurrence(at(2026, 3, 28, 2, 30), "daily", just(2026, 3, 28, 2)), new Date(2026, 2, 29, 2, 30).toISOString());
+    assert.equal(nextOccurrence(at(2026, 3, 28, 2, 30), "daily", Date.parse(at(2026, 3, 29, 12))), at(2026, 3, 30, 2, 30));
+    // Chained runs keep 02:30 when the original time is stored (not drifting to 03:30 after the skipped hour).
+    const skipped = nextOccurrence(at(2026, 3, 28, 2, 30), "daily", just(2026, 3, 28, 2), "02:30");
+    assert.equal(nextOccurrence(skipped, "daily", Date.parse(skipped) + 60_000, "02:30"), at(2026, 3, 30, 2, 30));
+    // Weekdays: Friday → Monday; weekly: +7 days across DST.
+    assert.equal(nextOccurrence(at(2026, 10, 16), "weekdays", just(2026, 10, 16)), at(2026, 10, 19));
+    assert.equal(nextOccurrence(at(2026, 10, 19), "weekdays", just(2026, 10, 19)), at(2026, 10, 20));
+    assert.equal(nextOccurrence(at(2026, 10, 21), "weekly", just(2026, 10, 21)), at(2026, 10, 28));
+    // Missed for days (ORBIT closed): jump to the next future occurrence, no burst.
+    assert.equal(nextOccurrence(at(2026, 10, 10), "daily", Date.parse(at(2026, 10, 16, 12))), at(2026, 10, 17));
+    assert.equal(nextOccurrence(at(2026, 10, 10), "daily", Date.parse(at(2026, 10, 16, 8))), at(2026, 10, 16));
+    assert.equal(nextOccurrence(at(2026, 10, 9), "weekdays", Date.parse(at(2026, 10, 17, 12))), at(2026, 10, 19)); // Saturday → Monday
+    assert.equal(nextOccurrence(at(2026, 9, 2), "weekly", Date.parse(at(2026, 10, 16, 12))), at(2026, 10, 21)); // still Wednesdays
+  } finally {
+    if (prevTz === undefined) delete process.env.TZ; else process.env.TZ = prevTz;
+  }
+  assert.ok(isRepeat("daily") && isRepeat("weekdays") && isRepeat("weekly"));
+  assert.ok(!isRepeat("hourly") && !isRepeat(undefined));
+});
+
+test("recurring reminders are never pruned and are due while their time has come", () => {
+  const now = Date.parse("2026-10-16T12:00:00Z");
+  const rs = [{ id: "r", text: "x", at: "2026-10-10T09:00:00Z", repeat: "daily" as const }];
+  assert.deepEqual(pruneReminders(rs, now).map((r) => r.id), ["r"]);
+  assert.deepEqual(dueReminders(rs, now).map((r) => r.id), ["r"]);
 });

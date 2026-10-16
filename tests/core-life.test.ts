@@ -5,6 +5,7 @@ import { isLifeTool, lifeWriteBlocked } from "../src/lib/core-life.ts";
 test("LIFE writes only when the latest message asks for them", () => {
   assert.equal(lifeWriteBlocked("life_remind", "remind me at 6 to call mom", false), null);
   assert.equal(lifeWriteBlocked("life_add_habit", "add a habit: read 20 pages", false), null);
+  assert.equal(lifeWriteBlocked("life_remind", "remind me every day at 9 to stretch", false), null);
   assert.equal(lifeWriteBlocked("life_check", "mark gym done", false), null);
   assert.equal(lifeWriteBlocked("life_check", "I finished reading today", false), null);
   assert.equal(lifeWriteBlocked("life_status", "how are my habits?", true), null);

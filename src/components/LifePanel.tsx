@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, type HabitView, type LifeState } from "@/lib/life-pure";
+import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, REPEAT_LABEL, isRepeat, type HabitView, type LifeState } from "@/lib/life-pure";
 import type { LifeView } from "@/lib/nav-pure";
 import { VOICE_ASK } from "./voice/bus";
 
@@ -227,13 +227,14 @@ function Focus({ st, reload }: { st: LifeState; reload: () => Promise<void> }) {
 function Reminders({ st, act }: { st: LifeState; act: Act }) {
   const [text, setText] = useState("");
   const [at, setAt] = useState("");
+  const [repeat, setRepeat] = useState("");
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("unsupported");
   useEffect(() => { if (typeof Notification !== "undefined") setPerm(Notification.permission); }, []);
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
     const d = new Date(at); // datetime-local is local time without zone
     if (!text.trim() || isNaN(d.getTime())) return;
-    if (await act({ action: "addReminder", text, at: d.toISOString() })) { setText(""); setAt(""); }
+    if (await act({ action: "addReminder", text, at: d.toISOString(), ...(repeat ? { repeat } : {}) })) { setText(""); setAt(""); setRepeat(""); }
   };
   return (
     <div className="space-y-3">
@@ -241,6 +242,9 @@ function Reminders({ st, act }: { st: LifeState; act: Act }) {
         <input className="field w-full" value={text} onChange={(e) => setText(e.target.value)} placeholder="Remind me to…" aria-label="Reminder text" maxLength={MAX_REMINDER} required />
         <div className="flex gap-2">
           <input className="field flex-1" type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} aria-label="Reminder date and time" required />
+          <select className="field" value={repeat} onChange={(e) => setRepeat(e.target.value)} aria-label="Repeat">
+            <option value="">Once</option><option value="daily">Every day</option><option value="weekdays">Weekdays</option><option value="weekly">Every week</option>
+          </select>
           <button className="btn" disabled={!text.trim() || !at}>Add</button>
         </div>
       </form>
@@ -252,7 +256,7 @@ function Reminders({ st, act }: { st: LifeState; act: Act }) {
           <li key={r.id} className="card flex items-center gap-2 text-sm">
             <span className="flex-1">
               {r.text}
-              <span className="muted block text-xs">{new Date(r.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}{r.fired ? " · done" : ""}</span>
+              <span className="muted block text-xs">{new Date(r.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}{r.fired ? " · done" : ""}{isRepeat(r.repeat) ? ` · ↻ ${REPEAT_LABEL[r.repeat]}` : ""}</span>
             </span>
             <button className="chip" onClick={() => act({ action: "removeReminder", id: r.id })} aria-label={`Delete reminder ${r.text}`}>Delete</button>
           </li>

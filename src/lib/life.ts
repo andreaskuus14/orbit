@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import {
   MAX_HABITS, MAX_JOURNAL, MAX_OPEN_REMINDERS, MAX_REMINDER, addDays, cleanDays, cleanEmoji, cleanName, dateKey, dueReminders,
-  emptyStore, isDateKey, journalText, matchHabit, pruneReminders, reminderTimeError, streak, summaryText, view,
-  type Habit, type LifeState, type LifeStore, type Reminder,
+  emptyStore, isDateKey, isRepeat, nextOccurrence, journalText, matchHabit, pruneReminders, reminderTimeError, streak, summaryText, view,
+  type Habit, type LifeState, type LifeStore, type Reminder, type Repeat,
 } from "./life-pure";
 
 // LIFE workspace (habits, focus, reminders, journal), stored locally in <ORBIT data dir>/life.json like follows.json.
@@ -88,14 +88,16 @@ export async function checkHabit(nameOrId: string, done = true, date?: string): 
   });
 }
 
-export async function addReminder(text: string, atIso: string): Promise<{ reminder: Reminder } | { error: string }> {
+export async function addReminder(text: string, atIso: string, repeat?: Repeat): Promise<{ reminder: Reminder } | { error: string }> {
   const tx = typeof text === "string" ? text.replace(/\s+/g, " ").trim() : "";
   if (!tx || tx.length > MAX_REMINDER) return { error: `Reminder text must be 1–${MAX_REMINDER} characters` };
   const err = reminderTimeError(atIso, Date.now());
   if (err) return { error: err };
+  if (repeat !== undefined && !isRepeat(repeat)) return { error: "Repeat must be daily, weekdays or weekly" };
   return update((s) => {
     if (s.reminders.filter((r) => !r.fired).length >= MAX_OPEN_REMINDERS) return { error: `Up to ${MAX_OPEN_REMINDERS} open reminders` };
-    const reminder: Reminder = { id: randomUUID(), text: tx, at: new Date(atIso).toISOString() };
+    const d = new Date(atIso);
+    const reminder: Reminder = { id: randomUUID(), text: tx, at: d.toISOString(), ...(repeat ? { repeat, time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` } : {}) };
     s.reminders.push(reminder);
     return { reminder };
   });
@@ -104,7 +106,14 @@ export async function removeReminder(id: string): Promise<boolean> {
   return update((s) => { const before = s.reminders.length; s.reminders = s.reminders.filter((r) => r.id !== id); return s.reminders.length < before; });
 }
 export async function markFired(id: string): Promise<boolean> {
-  return update((s) => { const r = s.reminders.find((x) => x.id === id); const fresh = !!r && !r.fired; if (fresh) r!.fired = new Date().toISOString(); return fresh; }); // false when another window already showed it
+  return update((s) => {
+    const r = s.reminders.find((x) => x.id === id), now = Date.now();
+    // false when another window already showed it (one-off already fired, or the recurring one already moved forward)
+    if (!r || r.fired || Date.parse(r.at) > now) return false;
+    if (isRepeat(r.repeat)) r.at = nextOccurrence(r.at, r.repeat, now, r.time);
+    else r.fired = new Date(now).toISOString();
+    return true;
+  });
 }
 export async function getDue(): Promise<Reminder[]> { return dueReminders((await read()).reminders, Date.now()); }
 
