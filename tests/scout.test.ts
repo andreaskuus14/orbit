@@ -180,3 +180,72 @@ test("wrong box: links and @handles aren't keywords", () => {
   // A stored file is never rejected by the keyword guard (it would be quarantined, wiping the watchlist).
   assert.notEqual(typeof parseScout({ ...emptyScout(), keywords: ["youtuber fails", "@odd"] }), "string");
 });
+
+// ---- niche finder ----
+import { allKeywords, autoApplyNiche, nicheDue, parseNiches, planResearch } from "../src/lib/clips/scout-pure.ts";
+
+const niche = (extra: Record<string, unknown> = {}) => ({ name: "Rage gaming", why: "Rage Shorts avg 52k views/h, 7 of top 20", score: 81,
+  keywords: ["rainbow six rage", "jynxzi stream"], creators: [{ name: "Jynxzi", evidence: "3 clips over 1M views" }], ...extra });
+
+test("parseNiches: strict JSON, 1-3 valid niches, best first", () => {
+  const ok = parseNiches("Here:\n" + JSON.stringify({ niches: [niche({ name: "Bee", score: 40 }), niche()] }));
+  assert.ok(typeof ok !== "string");
+  assert.deepEqual(ok.map((n) => n.name), ["Rage gaming", "Bee"]);
+  const bad = (n: Record<string, unknown>) => assert.equal(typeof parseNiches(JSON.stringify({ niches: [niche(n)] })), "string", JSON.stringify(n));
+  bad({ why: "x".repeat(241) }); bad({ why: "no numbers in this one" }); bad({ score: 101 }); bad({ score: "80" });
+  bad({ keywords: ["one"] }); bad({ keywords: ["a", "b", "c", "d", "e"] }); bad({ keywords: ["ok kw", "@Jynxzi"] }); bad({ keywords: ["ok kw", "youtube.com/@x"] }); bad({ keywords: ["ok kw", "x"] });
+  bad({ creators: [{ name: "x".repeat(41), evidence: "e" }] }); bad({ creators: [{ name: "a", evidence: "e".repeat(161) }] }); bad({ creators: Array(5).fill({ name: "a", evidence: "e" }) });
+  assert.equal(typeof parseNiches("not json"), "string");
+  assert.equal(typeof parseNiches(JSON.stringify({ niches: [] })), "string");
+  assert.equal(typeof parseNiches(JSON.stringify({ niches: [niche(), niche(), niche({ name: "C" }), niche({ name: "D" })] })), "string");
+  assert.equal(typeof parseNiches(JSON.stringify({ niches: [niche(), niche()] })), "string"); // duplicate names
+});
+
+test("AI keywords: kept apart from the owner's, merged without duplicates, replaced as a whole", () => {
+  assert.deepEqual(allKeywords({ keywords: ["Jynxzi Stream", "pod"], aiKeywords: ["jynxzi stream", "r6 rage"] }), ["Jynxzi Stream", "pod", "r6 rage"]);
+  const s = { ...emptyScout(), keywords: ["pod"], aiKeywords: ["old ai"] };
+  const v = validSettings({ aiKeywords: ["new ai", "rage"] }, s);
+  assert.ok(typeof v !== "string");
+  assert.deepEqual(v.keywords, ["pod"]); assert.deepEqual(v.aiKeywords, ["new ai", "rage"]);
+  const p = planRun({ ...emptyScout(), aiKeywords: ["r6 rage"] }, new Date(NOW)); // AI keywords alone are enough to run
+  assert.ok(typeof p !== "string"); assert.deepEqual(p.keywords, ["r6 rage"]);
+});
+
+test("nicheAuto applies the top niche but never turns on auto-clip", () => {
+  const s = { ...emptyScout(), nicheAuto: true, keywords: ["pod"], aiKeywords: ["old"], watchlist: [{ channelId: UC("a"), title: "A", autoClip: true }, { channelId: UC("b"), title: "B", autoClip: false }],
+    niche: { at: hAgo(1), niches: [niche({ keywords: ["k1 rage", "k2 rage"] }), niche({ name: "Other", score: 10 })], creators: [
+      { channelId: UC("a"), title: "A", subscribers: 5, niche: "Rage gaming", evidence: "e" }, { channelId: UC("c"), title: "C", subscribers: 5, niche: "Rage gaming", evidence: "e" },
+      { channelId: UC("d"), title: "D", subscribers: 5, niche: "Other", evidence: "e" }] } };
+  assert.deepEqual(autoApplyNiche(s), ["C"]);
+  assert.deepEqual(s.aiKeywords, ["k1 rage", "k2 rage"]); assert.deepEqual(s.keywords, ["pod"]);
+  assert.deepEqual(s.watchlist.map((w) => [w.title, w.autoClip]), [["A", true], ["B", false], ["C", false]]); // A untouched, C off, D (not top) skipped
+});
+
+test("parseScout: a bad niche block is dropped, the file is kept", () => {
+  const good = { at: hAgo(1), niches: [niche()], creators: [{ channelId: UC("a"), title: "A", subscribers: 9, niche: "Rage gaming", evidence: "e" }] };
+  const ok = parseScout({ ...emptyScout(), niche: good, nicheRun: { at: hAgo(1), ok: true, units: 400, warnings: [] } });
+  assert.ok(typeof ok !== "string"); assert.equal(ok.niche?.niches[0].name, "Rage gaming"); assert.equal(ok.nicheRun?.units, 400);
+  for (const bad of [{ ...good, niches: [niche({ why: "x".repeat(300) })] }, { ...good, creators: [{ channelId: "nope" }] }, "junk", { at: 1 }]) {
+    const s = parseScout({ ...emptyScout(), keywords: ["pod"], niche: bad, nicheRun: 5 });
+    assert.ok(typeof s !== "string", JSON.stringify(bad));
+    assert.equal(s.niche, undefined); assert.equal(s.nicheRun, undefined); assert.deepEqual(s.keywords, ["pod"]);
+  }
+});
+
+test("planResearch: ≤ ~600 units, fewer searches on a tight budget, weekly / daily retry", () => {
+  const now = new Date("2026-10-16T18:00:00Z"), day = quotaDay(now);
+  const watch = [{ channelId: UC("a"), title: "A", autoClip: false }, { channelId: UC("b"), title: "B", autoClip: false }, { channelId: UC("c"), title: "C", autoClip: false }];
+  const full = planResearch({ ...emptyScout(), watchlist: watch }, now);
+  assert.ok(typeof full !== "string");
+  assert.deepEqual(full.queries, ["stream highlights", "funny stream moments", "A clips", "B clips"]);
+  assert.equal(full.units, 2 + 6 + 4 * 101); assert.ok(full.units <= 600);
+  const none = planResearch(emptyScout(), now);
+  assert.ok(typeof none !== "string"); assert.equal(none.queries.length, 3);
+  const tight = planResearch({ ...emptyScout(), watchlist: watch, quota: { day, used: DAILY_UNITS - 250 } }, now);
+  assert.ok(typeof tight !== "string"); assert.equal(tight.queries.length, 2); assert.ok(tight.units <= 250);
+  assert.match(planResearch({ ...emptyScout(), quota: { day, used: DAILY_UNITS - 100 } }, now) as string, /budget/);
+  assert.equal(nicheDue(emptyScout(), now), true);
+  const ran = (h: number, ok: boolean) => ({ ...emptyScout(), nicheRun: { at: new Date(now.getTime() - h * 3_600_000).toISOString(), ok, units: 0, warnings: [] } });
+  assert.equal(nicheDue(ran(6 * 24, true), now), false); assert.equal(nicheDue(ran(7 * 24, true), now), true);
+  assert.equal(nicheDue(ran(12, false), now), false); assert.equal(nicheDue(ran(25, false), now), true);
+});

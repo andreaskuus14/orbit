@@ -5,7 +5,8 @@ import { MAX_SOURCE_SEC } from "./pure.ts"; // the clip job's own limit
 
 export type ScoutCreator = { channelId: string; title: string; autoClip: boolean };
 // maxAgeHours: keyword searches; creatorMaxAgeDays: watchlist uploads (creators post every few days, not hourly)
-export type ScoutSettings = { watchlist: ScoutCreator[]; keywords: string[]; maxAgeHours: number; creatorMaxAgeDays: number; minMinutes: number; dailyAuto: number; runAt: number };
+// aiKeywords: set from a niche report (replaced as a whole), searched together with the owner's own keywords
+export type ScoutSettings = { watchlist: ScoutCreator[]; keywords: string[]; aiKeywords: string[]; nicheAuto: boolean; maxAgeHours: number; creatorMaxAgeDays: number; minMinutes: number; dailyAuto: number; runAt: number };
 export type ScoutStats = { views: number; likes: number; comments: number };
 export type PickStatus = "new" | "queued" | "dismissed";
 export type ScoutPick = { videoId: string; url: string; title: string; channel: string; channelId: string; durationSec: number; publishedAt: string;
@@ -18,6 +19,7 @@ export type Scout = ScoutSettings & {
   auto: { day: string; n: number }; // auto clip jobs started on this local day
   lastRun?: ScoutRun; lastScheduled?: string; // local day the scheduled run last happened (or failed)
   kwNext: number; // rotates keyword searches when there are more keywords than one run may search
+  niche?: NicheReport; nicheRun?: NicheRun; // the weekly niche research: last good report, last attempt
 };
 /** A video as the filters/scorer see it (built from videos.list). */
 export type Candidate = { id: string; title: string; channel: string; channelId: string; publishedAt: string; durationSec: number; live: string;
@@ -26,7 +28,7 @@ export type Candidate = { id: string; title: string; channel: string; channelId:
 export const DAILY_UNITS = 1500; // our own cap, well under the default 10,000/day so STUDIO stats and uploads keep working
 export const SEARCH_UNITS = 100, MAX_SEARCHES = 3;
 export { MAX_SOURCE_SEC };
-export const DEFAULTS: ScoutSettings = { watchlist: [], keywords: [], maxAgeHours: 48, creatorMaxAgeDays: 7, minMinutes: 8, dailyAuto: 1, runAt: 6 };
+export const DEFAULTS: ScoutSettings = { watchlist: [], keywords: [], aiKeywords: [], nicheAuto: false, maxAgeHours: 48, creatorMaxAgeDays: 7, minMinutes: 8, dailyAuto: 1, runAt: 6 };
 const SEEN_MAX = 1000, PICKS_MAX = 10;
 
 export const emptyScout = (): Scout => ({ v: 2, ...DEFAULTS, picks: [], seen: [], quota: { day: "", used: 0 }, auto: { day: "", n: 0 }, kwNext: 0 });
@@ -56,6 +58,16 @@ export function validSettings(b: Record<string, unknown>, cur: ScoutSettings): S
     const kw = b.keywords.map((k) => line(k, 80));
     if (kw.some((k) => k.length < 2)) return "each keyword must be 2-80 characters";
     out.keywords = [...new Set(kw)];
+  }
+  if (b.aiKeywords !== undefined) {
+    if (!Array.isArray(b.aiKeywords) || b.aiKeywords.length > 8) return "aiKeywords must be a list of at most 8";
+    const kw = b.aiKeywords.map((k) => line(k, 80));
+    if (kw.some((k) => k.length < 2)) return "each keyword must be 2-80 characters";
+    out.aiKeywords = [...new Set(kw)];
+  }
+  if (b.nicheAuto !== undefined) {
+    if (typeof b.nicheAuto !== "boolean") return "nicheAuto must be true or false";
+    out.nicheAuto = b.nicheAuto;
   }
   if (b.creator !== undefined) { // one creator at a time, applied to the current list (a stale UI snapshot can't drop others)
     const c = b.creator;
@@ -92,7 +104,9 @@ export function parseScout(x: unknown): Scout | string {
   const auto = isObj(x.auto) && typeof x.auto.day === "string" && typeof x.auto.n === "number" ? { day: x.auto.day, n: x.auto.n } : base.auto;
   return { ...base, ...s, picks, quota, auto, seen: (Array.isArray(x.seen) ? x.seen : []).filter(isVid).slice(-SEEN_MAX),
     lastRun: isObj(x.lastRun) ? (x.lastRun as ScoutRun) : undefined, lastScheduled: typeof x.lastScheduled === "string" ? x.lastScheduled : undefined,
-    kwNext: Number.isInteger(x.kwNext) ? (x.kwNext as number) : 0 };
+    kwNext: Number.isInteger(x.kwNext) ? (x.kwNext as number) : 0,
+    niche: parseNicheBlock(x.niche), // a bad report is dropped, never a reason to reject the file
+    nicheRun: isObj(x.nicheRun) && typeof x.nicheRun.at === "string" && typeof x.nicheRun.ok === "boolean" ? ({ ...x.nicheRun, warnings: Array.isArray(x.nicheRun.warnings) ? x.nicheRun.warnings.filter((w) => typeof w === "string") : [] } as NicheRun) : undefined };
 }
 
 export const watchUrl = (id: string) => `https://www.youtube.com/watch?v=${id}`;
@@ -110,18 +124,19 @@ export const charge = (q: Scout["quota"], units: number, now: Date) => ({ day: q
 /** What a run may spend: watchlist reads always (cheap), then up to 3 keyword searches (100 units each) that fit in today's budget.
  *  Worst-case watchlist cost: 1 playlistItems per creator + 1 videos.list per 50 of their 25 latest uploads. */
 export function planRun(s: Scout, now: Date): { keywords: string[]; kwNext: number } | string {
+  const kws = allKeywords(s);
   const left = DAILY_UNITS - usedToday(s.quota, now);
   const watch = s.watchlist.length + Math.ceil((s.watchlist.length * 25) / 50);
-  if (!s.watchlist.length && !s.keywords.length) return "Add a creator or a keyword first";
+  if (!s.watchlist.length && !kws.length) return "Add a creator or a keyword first";
   if (left < watch + (s.watchlist.length ? 0 : SEARCH_UNITS + 1)) return `Today's scout budget is used up (${DAILY_UNITS - left}/${DAILY_UNITS} units); it resets at midnight Pacific time`;
-  const n = Math.min(MAX_SEARCHES, s.keywords.length, Math.floor((left - watch) / (SEARCH_UNITS + 1))); // +1: the videos.list for its results
-  const start = s.keywords.length ? s.kwNext % s.keywords.length : 0;
-  const keywords = Array.from({ length: n }, (_, i) => s.keywords[(start + i) % s.keywords.length]);
-  return { keywords, kwNext: s.keywords.length ? (start + n) % s.keywords.length : 0 };
+  const n = Math.min(MAX_SEARCHES, kws.length, Math.floor((left - watch) / (SEARCH_UNITS + 1))); // +1: the videos.list for its results
+  const start = kws.length ? s.kwNext % kws.length : 0;
+  const keywords = Array.from({ length: n }, (_, i) => kws[(start + i) % kws.length]);
+  return { keywords, kwNext: kws.length ? (start + n) % kws.length : 0 };
 }
 
 /** The scheduled run is due once per local day, at or after runAt (a day missed while ORBIT was off runs at the next start). */
-export const scoutDue = (s: Scout, now: Date) => now.getHours() >= s.runAt && s.lastScheduled !== localDay(now) && (s.watchlist.length > 0 || s.keywords.length > 0);
+export const scoutDue = (s: Scout, now: Date) => now.getHours() >= s.runAt && s.lastScheduled !== localDay(now) && (s.watchlist.length > 0 || allKeywords(s).length > 0);
 
 // ---- candidates ----
 
@@ -240,4 +255,113 @@ export function buildPicks(cs: Candidate[], ranking: ReturnType<typeof parseRank
 export function autoPicks(picks: ScoutPick[], watchlist: ScoutCreator[], slots: number): ScoutPick[] {
   const ok = new Set(watchlist.filter((w) => w.autoClip).map((w) => w.channelId));
   return picks.filter((p) => p.status === "new" && p.source === "watchlist" && ok.has(p.channelId)).sort((a, b) => b.score - a.score).slice(0, Math.max(0, slots));
+}
+
+// ---- niche finder ----
+
+export type Niche = { name: string; why: string; score: number; keywords: string[]; creators: { name: string; evidence: string }[] };
+export type NicheCreator = { channelId: string; title: string; subscribers: number; niche: string; evidence: string };
+export type NicheReport = { at: string; niches: Niche[]; creators: NicheCreator[] };
+export type NicheRun = { at: string; ok: boolean; error?: string; units: number; warnings: string[] };
+export const NICHE_LOOKUPS = 6, NICHE_CHARTS = ["20", "24"]; // Gaming, Entertainment
+const DAY_MS = 86_400_000;
+
+/** The owner's keywords, then the AI ones he doesn't already have (case-insensitive). */
+export function allKeywords(s: Pick<ScoutSettings, "keywords" | "aiKeywords">): string[] {
+  const seen = new Set<string>();
+  return [...s.keywords, ...(s.aiKeywords ?? [])].filter((k) => { const l = k.toLowerCase(); return !seen.has(l) && !!seen.add(l); });
+}
+
+/** Weekly after a good report; a failed attempt retries after a day (not every 5 min: it spends quota). */
+export const nicheDue = (s: Scout, now: Date) => !s.nicheRun || !(now.getTime() - Date.parse(s.nicheRun.at) < (s.nicheRun.ok ? 7 : 1) * DAY_MS);
+
+/** Research spend: 2 chart lists (1 each) + per seed search 100 + 1 videos.list + up to 6 channel lookups → at most 412 units. Fewer searches when the day's budget is tight. */
+export function planResearch(s: Scout, now: Date): { queries: string[]; units: number } | string {
+  const picks = (id: string) => s.picks.filter((p) => p.channelId === id).length;
+  const watched = [...s.watchlist].sort((a, b) => picks(b.channelId) - picks(a.channelId)).slice(0, 2); // creators that produce picks first
+  const seeds = ["stream highlights", "funny stream moments", ...watched.map((w) => `${w.title} clips`)];
+  if (seeds.length < 3) seeds.push("streamer clips");
+  const fixed = NICHE_CHARTS.length + NICHE_LOOKUPS, left = DAILY_UNITS - usedToday(s.quota, now);
+  const n = Math.min(seeds.length, Math.floor((left - fixed) / (SEARCH_UNITS + 1)));
+  if (n < 1) return `Today's YouTube budget is used up (${DAILY_UNITS - left}/${DAILY_UNITS} units); niche research needs ${fixed + SEARCH_UNITS + 1}+. It resets at midnight Pacific time`;
+  return { queries: seeds.slice(0, n), units: fixed + n * (SEARCH_UNITS + 1) };
+}
+
+/** Compact table for Claude: fastest first, untrusted text stripped of <>| so it can't break the table or tags. */
+export function nichePrompt(cs: Candidate[], now: number, history: string): string {
+  const clean = (t: string) => t.replace(/[<>|]/g, "");
+  const rows = cs.map((c) => { const h = Math.max(1, hoursSince(c.publishedAt, now)); return { c, h, vph: c.stats.views / h }; })
+    .sort((a, b) => b.vph - a.vph).slice(0, 150);
+  return `This week's most popular US Gaming + Entertainment videos and the top recent Shorts for clip-style searches (${rows.length} videos).
+<videos>
+title | channel | views | age h | views/h | duration s | type
+${rows.map(({ c, h, vph }) => `${clean(c.title).slice(0, 90)} | ${clean(c.channel)} | ${c.stats.views} | ${Math.round(h)} | ${Math.round(vph)} | ${c.durationSec} | ${c.durationSec <= 180 ? "short" : "long"}`).join("\n")}
+</videos>
+<history>
+${clean(history)}
+</history>`;
+}
+
+/** What the scout has been producing, so each report builds on the last (creators/keywords that yield picks, what the owner clipped). */
+export function nicheContext(s: Scout): string {
+  const stat = (ps: ScoutPick[]) => `${ps.length} recent pick${ps.length === 1 ? "" : "s"}, ${ps.filter((p) => p.status === "queued").length} clipped by the owner`;
+  const kwPicks = s.picks.filter((p) => p.source === "keyword");
+  return [
+    s.watchlist.length ? `Watched creators: ${s.watchlist.map((w) => `${w.title} (${stat(s.picks.filter((p) => p.source === "watchlist" && p.channelId === w.channelId))})`).join("; ")}` : "Watched creators: none yet",
+    `Search keywords: ${allKeywords(s).join(", ") || "none"} → keyword finds: ${stat(kwPicks)}${kwPicks.length ? ` from ${[...new Set(kwPicks.map((p) => p.channel))].slice(0, 6).join(", ")}` : ""}`,
+    s.niche ? `Previous report (${s.niche.at.slice(0, 10)}): ${s.niche.niches.map((n) => `${n.name} ${n.score}`).join(", ")}` : "",
+    s.lastRun?.summary ? `Last scout run: ${s.lastRun.summary}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+/** Exactly fits [lo, hi] after cleaning, else null (too long is invalid, not truncated). */
+const fit = (v: unknown, lo: number, hi: number) => { const t = line(v, hi + 1); return t.length >= lo && t.length <= hi ? t : null; };
+
+function validNiche(n: unknown): Niche | null {
+  if (!isObj(n) || typeof n.score !== "number" || !(n.score >= 0 && n.score <= 100)) return null;
+  const name = fit(n.name, 2, 60), why = fit(n.why, 10, 240);
+  if (!name || !why || !/\d/.test(why)) return null; // "why" must cite numbers from the data
+  if (!Array.isArray(n.keywords) || n.keywords.length < 2 || n.keywords.length > 4) return null;
+  const keywords = [...new Set(n.keywords.map((k) => fit(k, 2, 60)))]; // dedupe before the count check, so a saved report re-validates on load
+  if (keywords.length < 2 || keywords.some((k) => !k || looksLikeChannel(k))) return null;
+  if (!Array.isArray(n.creators) || n.creators.length > 4) return null;
+  const creators = n.creators.map((c) => (isObj(c) ? { name: fit(c.name, 1, 40), evidence: fit(c.evidence, 1, 160) } : null));
+  if (creators.some((c) => !c?.name || !c.evidence)) return null;
+  return { name, why, score: Math.round(n.score), keywords: keywords as string[], creators: creators as Niche["creators"] };
+}
+
+/** Strict check of Claude's niche reply: {"niches":[1-3 valid niches]}, distinct names → best first, or why it's unusable. */
+export function parseNiches(text: string): Niche[] | string {
+  const a = text.indexOf("{"), b = text.lastIndexOf("}");
+  let raw: unknown = null;
+  try { if (a >= 0 && b > a) raw = JSON.parse(text.slice(a, b + 1)); } catch { /* reported below */ }
+  if (!isObj(raw) || !Array.isArray(raw.niches) || !raw.niches.length || raw.niches.length > 3) return "Claude's niche report wasn't the expected JSON; nothing was saved";
+  const out = raw.niches.map(validNiche);
+  if (out.some((n) => !n) || new Set(out.map((n) => n!.name)).size !== out.length) return "Claude's niche report had an invalid niche (missing numbers, bad keywords or too-long text); nothing was saved";
+  return (out as Niche[]).sort((x, y) => y.score - x.score);
+}
+
+/** scout.json's niche block → a report, or undefined when anything is off. */
+export function parseNicheBlock(x: unknown): NicheReport | undefined {
+  if (!isObj(x) || typeof x.at !== "string" || !Array.isArray(x.niches) || !x.niches.length || x.niches.length > 3 || !Array.isArray(x.creators)) return undefined;
+  const niches = x.niches.map(validNiche);
+  const creators = x.creators.map((c) => isObj(c) && isChannelId(c.channelId) && typeof c.subscribers === "number" && fit(c.title, 1, 100) && fit(c.niche, 2, 60) && fit(c.evidence, 1, 160)
+    ? { channelId: c.channelId, title: fit(c.title, 1, 100)!, subscribers: c.subscribers, niche: fit(c.niche, 2, 60)!, evidence: fit(c.evidence, 1, 160)! } : null);
+  if (niches.some((n) => !n) || creators.some((c) => !c)) return undefined;
+  return { at: x.at, niches: niches as Niche[], creators: creators as NicheCreator[] };
+}
+
+/** nicheAuto: the top niche's keywords replace the AI keywords and its found creators join the watchlist with autoClip OFF.
+ *  Never touches the owner's keywords or an existing creator's autoClip. Returns who was added. */
+export function autoApplyNiche(s: Scout): string[] {
+  const top = s.niche?.niches[0];
+  if (!top) return [];
+  s.aiKeywords = [...top.keywords];
+  const added: string[] = [];
+  for (const c of s.niche!.creators) {
+    if (c.niche !== top.name || s.watchlist.length >= 50 || s.watchlist.some((w) => w.channelId === c.channelId)) continue;
+    s.watchlist.push({ channelId: c.channelId, title: c.title, autoClip: false });
+    added.push(c.title);
+  }
+  return added;
 }

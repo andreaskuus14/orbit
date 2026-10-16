@@ -355,9 +355,12 @@ type ScoutPick = { videoId: string; url: string; title: string; channel: string;
   stats: { views: number; likes: number; comments: number }; score: number; reason: string; source: "watchlist" | "keyword"; status: "new" | "queued" | "dismissed"; error?: string };
 type CreatorOp = { channelId: string; autoClip?: boolean; remove?: true }; // PATCH { creator }: one creator, applied server-side
 type ScoutPatch = Partial<ScoutSettings> & { creator?: CreatorOp };
-type ScoutSettings = { watchlist: ScoutCreator[]; keywords: string[]; maxAgeHours: number; creatorMaxAgeDays: number; minMinutes: number; dailyAuto: number; runAt: number };
-type ScoutData = { scout: ScoutSettings & { picks: ScoutPick[]; lastRun?: { at: string; ok: boolean; error?: string; warnings: string[]; candidates: number; units: number; ranker: "claude" | "score"; auto: number; summary?: string } };
-  running: boolean; configured: boolean; budget: number; usedToday: number };
+type ScoutSettings = { watchlist: ScoutCreator[]; keywords: string[]; aiKeywords: string[]; nicheAuto: boolean; maxAgeHours: number; creatorMaxAgeDays: number; minMinutes: number; dailyAuto: number; runAt: number };
+type ScoutData = { scout: ScoutSettings & { picks: ScoutPick[]; lastRun?: { at: string; ok: boolean; error?: string; warnings: string[]; candidates: number; units: number; ranker: "claude" | "score"; auto: number; summary?: string };
+  niche?: NicheReport; nicheRun?: { at: string; ok: boolean; error?: string; units: number; warnings: string[] } };
+  running: boolean; researching?: boolean; configured: boolean; budget: number; usedToday: number };
+type NicheReport = { at: string; niches: { name: string; why: string; score: number; keywords: string[] }[];
+  creators: { channelId: string; title: string; subscribers: number; niche: string; evidence: string }[] };
 const SCOUT = `${API}/scout`;
 const compact = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : String(Math.round(n)));
 const ago = (iso: string) => { const h = (Date.now() - Date.parse(iso)) / 3_600_000; return !Number.isFinite(h) ? "" : h < 1 ? "just now" : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} d ago`; };
@@ -403,7 +406,7 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
     <Section title="Video scout" right={d && (
       <div className="flex items-center gap-1.5">
         <button className="chip" aria-expanded={open} aria-controls="scout-settings" onClick={() => setOpen((o) => !o)}>⚙ Settings</button>
-        <button className="chip" onClick={() => void run()} disabled={busy.run || d.running || !d.configured}>{d.running ? "Scouting…" : busy.run ? "Starting…" : "🔭 Run scout now"}</button>
+        <button className="chip" onClick={() => void run()} disabled={busy.run || d.running || !d.configured}>{d.running ? (d.researching ? "Researching…" : "Scouting…") : busy.run ? "Starting…" : "🔭 Run scout now"}</button>
       </div>
     )}>
       {err && <p className="error text-xs" role="alert">{err}</p>}
@@ -418,10 +421,13 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
           {!!last?.warnings?.length && <ul className="mt-1 space-y-0.5 text-[11px]" aria-label="Scout warnings">{last.warnings.slice(0, 5).map((w, k) => <li key={k}>⚠ {w}</li>)}</ul>}
           <Note k="run" />
           <CreatorsBox s={s} busy={busy} Note={Note} added={added} onSave={save} onAdd={addCreator} />
+          <NicheCard d={d} busy={busy} Note={Note} onSave={save} onAdd={addCreator}
+            onResearch={() => act("niche", async () => { await api(`${SCOUT}/niche`, { method: "POST", body: {} }); setD((x) => x && { ...x, running: true, researching: true }); })}
+            onUse={(name) => act("niche", async () => { setD(await api<ScoutData>(`${SCOUT}/niche`, { method: "POST", body: { use: name } })); })} />
           {open && <ScoutSettingsForm s={s} busy={busy} Note={Note} onSave={save} />}
           {last?.ok && last.summary && <p className="num mt-2 text-[11px]" role="status">{last.summary}</p>}
           {!picks.length ? (
-            <p className="muted mt-2 text-sm">{s.watchlist.length || s.keywords.length ? `No picks yet.${last ? " Try a lower min length or a higher max age in ⚙ Settings, or add more creators." : " Press Run scout now."}` : "Add a creator above (someone who allows clipping) or keywords in ⚙ Settings, then run the scout."}</p>
+            <p className="muted mt-2 text-sm">{s.watchlist.length || s.keywords.length || s.aiKeywords.length ? `No picks yet.${last ? " Try a lower min length or a higher max age in ⚙ Settings, or add more creators." : " Press Run scout now."}` : "Add a creator above (someone who allows clipping) or keywords in ⚙ Settings, then run the scout."}</p>
           ) : (
             <ul className="mt-2 space-y-2" aria-label="Scout picks">
               {picks.map((p) => (
@@ -488,6 +494,56 @@ function CreatorsBox({ s, busy, Note, added, onSave, onAdd }: { s: ScoutSettings
   );
 }
 
+/** AI niche finder: what's winning for clip channels this week, with source creators to watch. Refreshed weekly by the scout timer. */
+function NicheCard({ d, busy, Note, onSave, onAdd, onResearch, onUse }: { d: ScoutData; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode;
+  onSave: (key: string, body: ScoutPatch) => Promise<boolean>; onAdd: (input: string) => Promise<boolean>; onResearch: () => void; onUse: (name: string) => void }) {
+  const s = d.scout, rep = s.niche, run = s.nicheRun, watching = new Set(s.watchlist.map((w) => w.channelId));
+  const inUse = (kw: string[]) => kw.length === s.aiKeywords.length && kw.every((k) => s.aiKeywords.includes(k));
+  return (
+    <div className="mt-2 rounded-xl border border-white/10 p-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <b className="flex-1 text-sm">🧭 Niche report</b>
+        <button className="chip" onClick={onResearch} disabled={busy.niche || d.running || !d.configured}>{d.researching ? "Researching…" : "🔭 Find my niche"}</button>
+      </div>
+      <p className="muted num text-[11px]" aria-live="polite">
+        {rep ? `Report ${when(rep.at)} · refreshes weekly${s.nicheAuto ? " · auto-applies the top niche" : ""}` : "ORBIT reads this week's trending gaming/entertainment videos and top clip Shorts, then suggests a niche and the creators to clip (about 410 YouTube units, refreshes weekly)."}
+        {run && ` · last research ${when(run.at)}, ${run.units} units`}
+      </p>
+      {run && !run.ok && <p className="error mt-1 text-xs" role="alert">⚠ {run.error}</p>}
+      {!!run?.warnings?.length && <ul className="mt-1 space-y-0.5 text-[11px]" aria-label="Niche research notes">{run.warnings.slice(0, 4).map((w, k) => <li key={k}>{w.startsWith("Auto:") ? "✓" : "⚠"} {w}</li>)}</ul>}
+      <Note k="niche" />
+      {rep && (
+        <ol className="mt-1 space-y-2" aria-label="Suggested niches">
+          {rep.niches.map((n) => (
+            <li key={n.name} className="rounded-lg border border-white/10 p-2">
+              <div className="flex flex-wrap items-center gap-1">
+                <b className="flex-1">{n.name}</b>
+                <Status text={`score ${n.score}/100`} tone={n.score >= 70 ? "good" : undefined} />
+                {inUse(n.keywords) ? <Status text="✓ Keywords in use" tone="good" /> : <button className="chip" onClick={() => onUse(n.name)} disabled={busy.niche}>Use this niche</button>}
+              </div>
+              <p className="mt-0.5 leading-snug">{n.why}</p>
+              <p className="muted text-[11px]">Keywords: {n.keywords.join(" · ")}</p>
+              <ul className="mt-1 space-y-0.5" aria-label={`Creators for ${n.name}`}>
+                {rep.creators.filter((c) => c.niche === n.name).map((c) => (
+                  <li key={c.channelId} className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-0 flex-1"><b>{c.title}</b> <span className="muted num">{compact(c.subscribers)} subs</span> — {c.evidence}</span>
+                    {watching.has(c.channelId) ? <Status text="★ Watching" /> : <button className="chip" onClick={() => void onAdd(c.channelId)} disabled={busy.add} aria-label={`Watch ${c.title}`}>＋ Watch</button>}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ol>
+      )}
+      {!!s.aiKeywords.length && (
+        <p className="mt-1 text-[11px]">AI keywords searched with yours: {s.aiKeywords.join(" · ")}{" "}
+          <button className="chip" onClick={() => void onSave("aikw", { aiKeywords: [] })} disabled={busy.aikw}>Clear</button></p>
+      )}
+      <Note k="aikw" />
+    </div>
+  );
+}
+
 function ScoutSettingsForm({ s, busy, Note, onSave }: { s: ScoutSettings; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode;
   onSave: (key: string, body: ScoutPatch) => Promise<boolean> }) {
   const [f, setF] = useState({ keywords: s.keywords.join("\n"), maxAgeHours: s.maxAgeHours, creatorMaxAgeDays: s.creatorMaxAgeDays, minMinutes: s.minMinutes, dailyAuto: s.dailyAuto, runAt: s.runAt });
@@ -513,6 +569,12 @@ function ScoutSettingsForm({ s, busy, Note, onSave }: { s: ScoutSettings; busy: 
         <button type="submit" className="btn" disabled={busy.settings}>{busy.settings ? "Saving…" : "Save settings"}</button>
         <Note k="settings" />
       </form>
+      <div>
+        <label className="flex items-center gap-1"><input type="checkbox" checked={s.nicheAuto} disabled={busy.nicheAuto}
+          onChange={(e) => void onSave("nicheAuto", { nicheAuto: e.target.checked })} /> Auto-apply the weekly niche report (its keywords + watch its creators)</label>
+        <p className="muted text-[11px]">Auto-clip stays your choice per creator: clipping without the creator&apos;s permission risks copyright strikes.</p>
+        <Note k="nicheAuto" />
+      </div>
     </div>
   );
 }
