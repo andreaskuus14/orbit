@@ -100,7 +100,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   return (
     <>
       <button ref={micRef} type="button" className={"chip voice-mic" + (listening ? " on" : "")} onClick={toggle}
-        aria-pressed={listening} aria-label={micLabel} title={micLabel} aria-disabled={!voice.supported || undefined}>
+        aria-pressed={listening} aria-label={micLabel} title={`${micLabel}\n${routeText}`} aria-disabled={!voice.supported || undefined}>
         <span className="voice-ring" aria-hidden="true" />
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
@@ -158,7 +158,6 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           {wake.interim ? <i>{wake.interim}…</i> : heard ? <>Heard: <b>{heard}</b></> : <>Hands-free paused: {wake.error}</>}
         </span>
       )}
-      {ready && !open && <span className={"voice-route" + (route === "whisper" ? " local" : route === "chrome" ? " cloud" : "")} title="Where your microphone audio goes">{routeText}</span>}
       {(wake.state !== "off" || wake.error) && (
         <span className={"voice-wake" + (wake.state === "armed" ? " armed" : "") + (wake.error ? " bad" : "")} role="status"
           title={wake.error || "Hands-free mode: ORBIT is listening for “Hey Orbit”. Turn it off in voice settings."}>

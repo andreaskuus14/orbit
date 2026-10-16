@@ -414,7 +414,7 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
                     <div className="mt-1 flex flex-wrap items-center gap-1">
                       <Status text={`score ${p.score}/100`} tone={p.score >= 70 ? "good" : undefined} />
                       <Status text={p.source === "watchlist" ? "★ Watchlist" : "🔎 Keyword"} />
-                      {p.status === "queued" ? <Status text="⬇ Queued" tone="good" /> : (
+                      {p.status === "queued" ? <Status text="✓ Sent to clip maker ↓" tone="good" /> : (
                         <>
                           <button className="chip" onClick={() => void pick(p, "clip")} disabled={busy[`pick:${p.videoId}`]} aria-label={`Clip ${p.title}`}>✂ Clip it</button>
                           <button className="chip" onClick={() => void pick(p, "dismiss")} disabled={busy[`pick:${p.videoId}`]} aria-label={`Dismiss ${p.title}`}>Dismiss</button>
