@@ -11,6 +11,7 @@ import * as THREE from "three";
 import { PLANETS, type PanelId, type PlanetDef, type PlanetId } from "@/lib/planets";
 import { QUALITY, stepQuality, type QualityLevel, type QualityMode, type QualityState } from "@/lib/quality-pure";
 import { GalaxyLoader } from "./GalaxyLoader";
+import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
 
 export type GalaxyProps = {
   selected: PanelId | null;
@@ -27,6 +28,7 @@ export type GalaxyProps = {
   panelOpen: boolean;
   fast?: boolean;            // a command-bar/voice flight on the way into a world: ≤ 1.2 s
   quality?: QualityMode;     // "auto" adapts to the measured frame rate
+  lifeProgress?: { done: number; total: number } | null; // real: today's scheduled LIFE habits done / total
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -351,6 +353,23 @@ function Atmosphere({ size, color }: { size: number; color: string }) {
   );
 }
 
+/** LIFE's habit ring: a thin arc whose sweep is today's done/total, closed (and gently pulsing) when all are done. */
+function LifeRing({ size, done, total, still }: { size: number; done: number; total: number; still: boolean }) {
+  const step = lifeRingStep(done, total); // quantized: geometry rebuilds only per 1/12 step, never per frame
+  const geo = useMemo(() => (step > 0 ? new THREE.TorusGeometry(size * 1.6, 0.025, 8, Math.max(8, Math.round(128 * step)), step * Math.PI * 2) : null), [size, step]);
+  useEffect(() => () => geo?.dispose(), [geo]);
+  const mat = useRef<THREE.MeshStandardMaterial>(null);
+  useFrame(({ clock }) => {
+    if (mat.current) mat.current.emissiveIntensity = lifeRingGlow(step, clock.elapsedTime, still); // clamped to [0, 1.5]
+  });
+  if (!geo) return null;
+  return (
+    <mesh geometry={geo} rotation={[Math.PI / 2 - 0.45, 0.15, 0]}>
+      <meshStandardMaterial ref={mat} color="#34d399" emissive="#34d399" emissiveIntensity={lifeRingGlow(step, 0, true)} transparent opacity={0.75} depthWrite={false} roughness={1} />
+    </mesh>
+  );
+}
+
 /* ---------- themed planet life: each world gives off its own particles ---------- */
 
 // mode: 0 embers rise, 1 belt sweeps the equator, 2 snow drifts down, 3 fireflies blink, 4 crystal glints, 5 sea mist.
@@ -488,10 +507,11 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false }: {
+function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false }: {
   p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
   agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
+  life?: { done: number; total: number } | null; still?: boolean; // still = reduced motion or low quality: no animation
 }) {
   const group = useRef<THREE.Group>(null);
   const mesh = useRef<THREE.Mesh>(null);
@@ -554,6 +574,7 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
         {p.id === "intelligence" && <Lightning size={size} reduced={reduced} flash={flash} />}
         {look.ring && <PlanetRing size={size} color={look.ring} />}
         {p.id === "memory" && <Moons count={memoryCount} reduced={reduced} />}
+        {p.id === "life" && life && <LifeRing size={size} done={life.done} total={life.total} still={still} />}
         {Array.from({ length: Math.min(agentBusy, 5) }, (_, k) => (
           <AgentSatellite key={k} size={size} active reduced={reduced} offset={(k * Math.PI * 2) / Math.min(agentBusy, 5)} />
         ))}
@@ -951,7 +972,8 @@ export default function Galaxy(props: GalaxyProps) {
           <Planet key={p.id} p={p} index={i} selected={props.selected === p.id} onSelect={props.onSelect}
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
-            failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)} />
+            failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
+            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} />
         ))}
         <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={80} enableDamping />
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} />

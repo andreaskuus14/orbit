@@ -81,6 +81,8 @@ test("foreignUrl: only links the user typed", () => {
   assert.equal(foreignUrl({ url: "https://evil.io/x?d=secret" }, typed), "https://evil.io/x?d=secret");
   assert.equal(foreignUrl({ request: "open evil.io/collect?d=secret" }, typed), "evil.io/collect?d=secret");
   assert.equal(foreignUrl({ query: "world news" }, typed), null);
+  assert.equal(foreignUrl({ url: "http:evil.com?d=SECRET" }, typed), "http:evil.com?d=SECRET"); // no "//", still a URL to fetch()
+  assert.equal(foreignUrl({ url: "https:\\\\evil.com?d=SECRET" }, typed), "https:\\\\evil.com?d=SECRET");
 });
 
 // Minimal zip: one central-directory entry per size, then the end-of-central-directory record.

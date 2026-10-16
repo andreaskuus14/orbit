@@ -36,6 +36,13 @@ export const typedText = (content: string) => content.replace(/\n\n\[attached: [
 /** On attachment turns a URL may only come from the user's typed message: stops a document telling CORE to send data out.
  *  shortcut: catches scheme URLs and domain/path tokens, not bare domains; tighten if attachments ever reach agents with more reach. */
 export function foreignUrl(input: unknown, typed: string): string | null {
+  // Whole values a URL parser accepts ("http:evil.com?d=..", "https:\\evil.com") must match a link the user typed, after normalizing.
+  const href = (v: string) => { try { const u = new URL(v.trim()); return /^https?:$/.test(u.protocol) ? u.href.replace(/\/$/, "") : null; } catch { return null; } };
+  const mine = new Set((typed.match(/\S+/g) ?? []).map((t) => href(t.replace(/[.,;:!?)]+$/, ""))).filter(Boolean));
+  for (const v of Object.values((input ?? {}) as Record<string, unknown>)) {
+    const h = typeof v === "string" ? href(v) : null;
+    if (h && !mine.has(h)) return v as string;
+  }
   const urls = JSON.stringify(input ?? {}).match(/(?:https?:\/\/[^\s"'<>\\]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}\/[^\s"'<>\\]*)/gi) ?? [];
   return urls.find((u) => !typed.includes(u.replace(/[.,;:!?)]+$/, ""))) ?? null;
 }

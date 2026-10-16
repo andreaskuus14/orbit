@@ -187,11 +187,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   // 2D cards: today's LIFE progress, refreshed whenever a panel closes (habits may have changed).
   const [lifeLine, setLifeLine] = useState("");
+  const [lifeProgress, setLifeProgress] = useState<{ done: number; total: number } | null>(null); // drives the LIFE ring in the galaxy
   useEffect(() => {
     if (panel) return;
     fetch("/api/life").then((r) => (r.ok ? r.json() : null)).then((st: { habits?: { scheduledToday: boolean; doneToday: boolean }[] } | null) => {
       const today = st?.habits?.filter((h) => h.scheduledToday) ?? [];
       setLifeLine(today.length ? `${today.filter((h) => h.doneToday).length}/${today.length} habits done today` : "");
+      setLifeProgress({ done: today.filter((h) => h.doneToday).length, total: today.length });
     }).catch(() => {});
   }, [panel]);
   const refreshCount = useCallback(async () => {
@@ -327,7 +329,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : view === "3d" && gameOpen ? null : view === "3d" ? (
         <div className="absolute inset-0">
-          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} />
+          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} />
         </div>
       ) : (
         <nav aria-label="Planets" className="absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
