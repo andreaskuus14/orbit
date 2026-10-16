@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   sanitizeName, uniqueName, withSuffix, renameTarget, kindOf, serveHeaders, contentDisposition, parseRange, extractType, memoryType, snippet, uploadError,
-  MAX_FILE, MAX_TOTAL, MAX_FILES,
+  MAX_FILE, MAX_TOTAL, MAX_FILES, cloudKey, nameFromKey, cloudPath, mergeCloud, cloudFailure, mimeOf,
 } from "../src/lib/vault-pure.ts";
 
 test("sanitizeName strips paths, bad chars, dots and reserved names", () => {
@@ -120,4 +120,41 @@ test("snippets and upload limits", () => {
   assert.match(uploadError(MAX_FILE + 1, { bytes: 0, count: 0 })!, /40 MB/);
   assert.match(uploadError(10, { bytes: 0, count: MAX_FILES })!, /full/);
   assert.match(uploadError(10, { bytes: MAX_TOTAL - 5, count: 1 })!, /space/);
+});
+
+const UID = "0b7d3c1e-2f4a-4c5b-9d6e-7f8a9b0c1d2e";
+
+test("cloud keys are reversible and only ever valid vault names", () => {
+  for (const n of ["report.pdf", "a (2).txt", "ä ö.md", "x#y[1].png", "b64.trick.txt", "日本語.txt", "x".repeat(116) + ".pdf"]) {
+    const k = cloudKey(n);
+    assert.match(k, /^[A-Za-z0-9 _.()!'@=+,&$;-]+$/, n);
+    assert.equal(nameFromKey(k), n, n);
+  }
+  assert.equal(cloudKey("report.pdf"), "report.pdf");
+  assert.ok(cloudKey("b64.trick.txt").startsWith("b64.") && cloudKey("b64.trick.txt") !== "b64.trick.txt");
+  for (const bad of [".emptyFolderPlaceholder", "b64.!!!", "b64.Li4vZXRjL3Bhc3N3ZA", "CON", "a~1.txt", "../x", "a/b"]) assert.equal(nameFromKey(bad), null, bad);
+});
+
+test("cloudPath takes the uid from the session and re-validates the name", () => {
+  assert.equal(cloudPath(UID, "a.txt"), `${UID}/vault-files/a.txt`);
+  assert.equal(cloudPath(UID, "ä.txt"), `${UID}/vault-files/${cloudKey("ä.txt")}`);
+  for (const bad of ["../a.txt", "a/b.txt", "", ".index.json", "REPORT~1.PDF", "nul"]) assert.throws(() => cloudPath(UID, bad), /Invalid file name/, bad);
+  for (const bad of ["", "../x", "not-a-uuid", `${UID}/x`]) assert.throws(() => cloudPath(bad, "a.txt"), /Invalid user id/, bad);
+});
+
+test("mergeCloud marks copies and lists cloud-only files", () => {
+  const f = (name: string) => ({ name, size: 1, mtime: 1, type: "text" as const });
+  const { files, cloudOnly } = mergeCloud([f("a.txt"), f("B.txt")], new Map([["a.txt", 1], ["b.txt", 5], ["z.txt", 9]]));
+  assert.deepEqual(files.map((x) => [x.name, x.cloud]), [["a.txt", true], ["B.txt", false]]);
+  assert.deepEqual(cloudOnly, [{ name: "z.txt", size: 9 }]); // b.txt matches B.txt locally (Windows is case-insensitive)
+  assert.deepEqual(mergeCloud([f("a.txt")], null), { files: [f("a.txt")], cloudOnly: [] });
+});
+
+test("cloud failure hints and content types", () => {
+  assert.match(cloudFailure("The object exceeded the maximum allowed size"), /0009_vault_cloud\.sql/);
+  assert.match(cloudFailure("new row violates row-level security policy"), /0009_vault_cloud\.sql/);
+  assert.equal(cloudFailure("fetch failed"), "fetch failed");
+  assert.equal(cloudFailure("403 Unauthorized: jwt expired"), "403 Unauthorized: jwt expired"); // expired session ≠ missing migration
+  assert.equal(mimeOf("a.html"), "application/octet-stream");
+  assert.equal(mimeOf("a.png"), "image/png");
 });

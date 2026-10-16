@@ -63,4 +63,69 @@ test("delete", async () => {
   await assert.rejects(v.deleteFile("notes.txt"), /not found/);
   assert.deepEqual(await v.searchVault("needle"), []);
 });
+
+// Minimal in-memory stand-in for sb.storage.from("vault"), recording the paths it is given.
+function fakeSb(opts: { failUpload?: string } = {}) {
+  const objects = new Map<string, Blob>();
+  const api = {
+    async upload(p: string, body: Buffer, o: { upsert?: boolean }) {
+      if (opts.failUpload) return { error: { message: opts.failUpload } };
+      if (objects.has(p) && !o.upsert) return { error: { message: "The resource already exists", statusCode: "409" } };
+      objects.set(p, new Blob([new Uint8Array(body)])); return { error: null };
+    },
+    async list(prefix: string) {
+      return { data: [...objects].filter(([k]) => k.startsWith(prefix + "/")).map(([k, b]) => ({ name: k.slice(prefix.length + 1), id: k, metadata: { size: b.size } })), error: null };
+    },
+    async remove(ps: string[]) { ps.forEach((p) => objects.delete(p)); return { error: null }; },
+    async move(a: string, b: string) { const o = objects.get(a); if (!o) return { error: { message: "Object not found" } }; objects.delete(a); objects.set(b, o); return { error: null }; },
+    async download(p: string) { const o = objects.get(p); return o ? { data: o, error: null } : { data: null, error: { message: "Object not found" } }; },
+  };
+  return { objects, sb: { storage: { from: (b: string) => { assert.equal(b, "vault"); return api; } } } as never };
+}
+const UID = "0b7d3c1e-2f4a-4c5b-9d6e-7f8a9b0c1d2e";
+
+test("cloud copy: put, list, move, remove, sync, restore", async () => {
+  const { objects, sb } = fakeSb();
+  const p = (n: string) => `${UID}/vault-files/${n}`;
+  await v.saveUpload(new File(["one"], "c1.txt"));
+  await v.saveUpload(new File(["two"], "c2.txt"));
+  assert.equal(await v.cloudPut(sb, UID, "c1.txt"), "ok");
+  assert.match(await v.cloudPut(sb, UID, "c1.txt"), /^failed: a different "c1.txt" is already in the cloud/); // never upserts
+  assert.equal(await v.cloudPut(sb, UID, "../c1.txt"), "failed: Invalid file name");
+  assert.deepEqual([...(await v.cloudList(sb, UID, true))], [["c1.txt", 3]]);
+  const s = await v.syncToCloud(sb, UID);
+  assert.ok(s.uploaded >= 1 && s.failed === 0 && s.remaining === 0, JSON.stringify(s));
+  assert.ok(objects.has(p("c2.txt")));
+  assert.equal(await v.cloudMove(sb, UID, "c2.txt", "c3.txt"), "ok");
+  assert.ok(objects.has(p("c3.txt")) && !objects.has(p("c2.txt")));
+  assert.equal(await v.cloudRemove(sb, UID, "c1.txt"), "ok");
+  assert.equal(await v.cloudRemove(sb, UID, "c1.txt"), "ok"); // not found is fine
+  await v.deleteFile("c2.txt");
+  await assert.rejects(v.restoreFromCloud(sb, UID, "c2.txt"), /Cloud download failed/);
+  assert.equal(await v.restoreFromCloud(sb, UID, "c3.txt"), "c3.txt");
+  assert.equal(await readFile(path.join(dir, "c3.txt"), "utf8"), "two");
+  await assert.rejects(v.restoreFromCloud(sb, UID, "c3.txt"), /already exists/); // never overwrites or renames a local file
+  await assert.rejects(v.restoreFromCloud(sb, UID, "../x"), /Invalid/);
+  for (const k of objects.keys()) assert.ok(k.startsWith(`${UID}/vault-files/`), k);
+  const bad = fakeSb({ failUpload: "The object exceeded the maximum allowed size" });
+  assert.match(await v.cloudPut(bad.sb, UID, "c3.txt"), /^failed: .*0009_vault_cloud\.sql$/);
+});
+
+test("cloud-only files are never overwritten or orphaned", async () => {
+  const { objects, sb } = fakeSb();
+  const key = `${UID}/vault-files/only.txt`;
+  objects.set(key, new Blob(["precious"]));
+  await v.cloudList(sb, UID, true);
+  const taken = await v.cloudOnlyNames(sb, UID);
+  assert.deepEqual(taken, ["only.txt"]);
+  assert.equal(await v.saveUpload(new File(["new"], "only.txt"), { taken }), "only (2).txt");
+  await assert.rejects(v.renameFile("only (2).txt", "only", taken), /already exists/);
+  // Even when the cloud listing missed it, a clashing key is refused rather than overwritten.
+  await v.saveUpload(new File(["other"], "clash.txt"));
+  objects.set(`${UID}/vault-files/clash.txt`, new Blob(["cloud original"]));
+  assert.match(await v.cloudPut(sb, UID, "clash.txt"), /^failed:/);
+  assert.equal(await objects.get(key)!.text(), "precious");
+  assert.equal(await objects.get(`${UID}/vault-files/clash.txt`)!.text(), "cloud original");
+});
+
 // Quota (40 MB / 5 GB / 2000 files) is a constant, not injectable here; uploadError is unit-tested in tests/vault.test.ts.

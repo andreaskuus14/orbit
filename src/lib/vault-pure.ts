@@ -154,3 +154,56 @@ export function uploadError(size: number, used: { bytes: number; count: number }
   if (used.bytes + size > MAX_TOTAL) return `Not enough vault space: ${fmtSize(MAX_TOTAL - used.bytes)} left of 5 GB`;
   return null;
 }
+
+// ---- cloud copy: private 'vault' bucket, <user id>/vault-files/<key> ----
+export const CLOUD_MAX = 50 * 1024 * 1024; // bucket limit after 0009_vault_cloud.sql
+export type CloudFile = VaultFile & { cloud?: boolean }; // undefined = cloud state unknown (listing failed)
+
+/** Content type for the cloud copy: the serving allowlist, else octet-stream. */
+export const mimeOf = (name: string) => MIME[ext(name)] ?? "application/octet-stream";
+
+// Supabase object keys only allow a small ASCII set; any other name (ä, #, [ ], …) is stored base64url-encoded with a "b64." prefix.
+const KEY_SAFE = /^[A-Za-z0-9 _.()!'@=+,&$;-]+$/;
+const b64u = (s: string) => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+/** Vault name → storage object key (reversible). */
+export function cloudKey(name: string): string {
+  return KEY_SAFE.test(name) && !name.startsWith("b64.") ? name : `b64.${b64u(name)}`;
+}
+
+/** Storage object key → vault name, or null when it isn't a valid vault name (placeholders, foreign objects). */
+export function nameFromKey(key: string): string | null {
+  let name = key;
+  if (key.startsWith("b64.")) {
+    try {
+      const bin = atob(key.slice(4).replace(/-/g, "+").replace(/_/g, "/"));
+      name = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+    } catch { return null; }
+    if (cloudKey(name) !== key) return null; // only the canonical encoding
+  } else if (!KEY_SAFE.test(key)) return null;
+  return sanitizeName(name) === name ? name : null;
+}
+
+/** The only way a storage path is built: user id from the session, name re-validated here. */
+export function cloudPath(uid: string, name: string): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uid)) throw new Error("Invalid user id");
+  if (typeof name !== "string" || !name || sanitizeName(name) !== name) throw new Error("Invalid file name");
+  return `${cloudDir(uid)}/${cloudKey(name)}`;
+}
+export const cloudDir = (uid: string) => `${uid}/vault-files`;
+
+/** Mark local files that have a cloud copy; cloud files with no local file (case-insensitively) are "only in the cloud". */
+export function mergeCloud(local: VaultFile[], cloud: Map<string, number> | null): { files: CloudFile[]; cloudOnly: { name: string; size: number }[] } {
+  if (!cloud) return { files: local, cloudOnly: [] };
+  const lower = new Set(local.map((f) => f.name.toLowerCase()));
+  return {
+    files: local.map((f) => ({ ...f, cloud: cloud.has(f.name) })),
+    cloudOnly: [...cloud].filter(([n]) => !lower.has(n.toLowerCase())).map(([name, size]) => ({ name, size })).sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
+/** Short cloud failure text; size/permission errors point at the migration the owner has to run. */
+export function cloudFailure(msg: unknown): string {
+  const m = String(msg || "unknown error").slice(0, 200);
+  return /size|exceed|too large|payload|413|policy|row-level/i.test(m) ? `${m}. Run supabase/migrations/0009_vault_cloud.sql` : m;
+}

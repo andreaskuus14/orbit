@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addCreator, addWatched, parseCreators, parseHistory, removeCreator, togglePin, type SavedCreator } from "../src/lib/theater-history-pure.ts";
+import { DEFAULT_TOPICS, addCreator, addTopic, addWatched, parseCreators, parseHistory, parseTopics, removeCreator, removeTopic, togglePin, type SavedCreator } from "../src/lib/theater-history-pure.ts";
 
 const names = (l: SavedCreator[]) => l.map((c) => (c.pinned ? `*${c.name}` : c.name));
 
@@ -64,4 +64,17 @@ test("history: stored JSON is validated", () => {
   assert.equal(out[0].thumb, "");
   assert.equal(out[0].views, 0);
   assert.equal(out[1].thumb, "https://i.ytimg.com/vi/aaaaaaaaaaa/mqdefault.jpg");
+});
+
+test("topics: defaults, dedupe, cap 12, validation", () => {
+  assert.deepEqual(parseTopics(null), DEFAULT_TOPICS); // never saved
+  assert.deepEqual(parseTopics([]), []); // all removed stays removed
+  assert.deepEqual(parseTopics(["CS2", "cs2", 4, "", "All", " Rocket  League "]), ["CS2", "Rocket League"]);
+  let l = addTopic(DEFAULT_TOPICS, "Apex");
+  assert.equal(l.at(-1), "Apex");
+  assert.equal(addTopic(l, "apex"), l);
+  for (let i = 0; i < 10; i++) l = addTopic(l, `t${i}`);
+  assert.equal(l.length, 12);
+  assert.deepEqual(removeTopic(l, "CS2").includes("CS2"), false);
+  assert.equal(addTopic([], "x".repeat(61)).length, 0);
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ago, embedUrl, isVideoId, length, parseWatchChoice, parseWatchCommand, parseWatchControl, pickLatest, planWatch, watchReply } from "../src/lib/watch-pure.ts";
+import { ago, embedUrl, isVideoId, length, mergeByDate, pruneCache, parseWatchChoice, parseWatchCommand, parseWatchControl, pickLatest, pickVideos, planTopic, planWatch, safeThumb, topicQuery, unitCost, watchReply } from "../src/lib/watch-pure.ts";
 import { parseNavCommand } from "../src/lib/nav-pure.ts";
 
 test("watch commands", () => {
@@ -22,9 +22,60 @@ test("watch commands", () => {
   ];
   for (const [t, creator, shorts = false] of yes) assert.deepEqual(parseWatchCommand(t), { creator, shorts }, t);
   for (const t of ["what's the latest news", "show me my videos", "open my latest videos", "how do I upload a video", "show me videos", "what did you upload",
-    "show me funny cat videos", "who is Jynxzi", "play some music", "show me the latest news from Germany", "open the clip factory", "show my stats",
+    "who is Jynxzi", "play some music", "show me the latest news from Germany", "open the clip factory", "show my stats",
     "what's Jynxzi's newest video about", "show me Jynxzi", "tell me about Jynxzi's latest videos", "show me videos from last week", "show me the latest videos by category", "show me the latest news videos", "what did Trump post today", "what has everybody posted", "show me videos from 2024", "show me the latest videos from this year", "find videos by date"])
     assert.equal(parseWatchCommand(t), null, t);
+});
+
+test("topic commands", () => {
+  const yes: [string, string, boolean?][] = [
+    ["show me cs2 videos", "cs2"],
+    ["Show me videos about Minecraft.", "Minecraft"],
+    ["show me some Fortnite videos", "Fortnite"],
+    ["show me funny cat videos", "funny cat"],
+    ["find videos on rocket league", "rocket league"],
+    ["show me the latest videos about GTA", "GTA"],
+  ];
+  for (const [t, topic, shorts = false] of yes)
+    assert.deepEqual(parseWatchCommand(t), { creator: topic, shorts, topic: true }, t);
+  assert.deepEqual(parseWatchCommand("show me Jynxzi's latest videos"), { creator: "Jynxzi", shorts: false }); // still a creator
+  assert.deepEqual(parseWatchCommand("play the newest valorant shorts"), { creator: "valorant", shorts: true }); // creator lookup → server falls back to a topic
+  for (const t of ["show me my videos", "show me some videos", "show me youtube videos", "show me news videos", "show me videos about", "show me Jynxzi's videos about cars", "show me gaming videos"])
+    assert.ok(!parseWatchCommand(t)?.topic, t);
+});
+
+test("topic query, units, thumbnails", () => {
+  assert.equal(topicQuery("cs2"), "Counter-Strike 2");
+  assert.equal(topicQuery(" CS2 "), "Counter-Strike 2");
+  assert.equal(topicQuery("fn"), "Fortnite");
+  assert.equal(topicQuery("mc"), "Minecraft");
+  assert.equal(topicQuery("val"), "Valorant");
+  assert.equal(topicQuery("r6"), "Rainbow Six Siege");
+  assert.equal(topicQuery("gta"), "GTA");
+  assert.equal(topicQuery("rocket   league"), "rocket league");
+  for (const bad of ["", "   ", "x".repeat(61), 5, null, "a\u0007b"]) assert.equal(topicQuery(bad), null, String(bad));
+  assert.equal(unitCost("search"), 100);
+  assert.equal(unitCost("videos"), 1);
+  assert.equal(planTopic(5000), 101);
+  assert.equal(typeof planTopic(100), "string");
+  assert.equal(safeThumb("https://i.ytimg.com/vi/x/mqdefault.jpg"), "https://i.ytimg.com/vi/x/mqdefault.jpg");
+  for (const bad of ["http://i.ytimg.com/x", "https://evil.com/i.ytimg.com/", "https://i.ytimg.com.evil.com/x", "javascript:alert(1)", 3]) assert.equal(safeThumb(bad), "", String(bad));
+});
+
+test("pickVideos (topics) and mergeByDate (All)", () => {
+  const it = (id: string, dur: string, live = "none", views = "1") => ({ id, snippet: { title: id, channelTitle: "Ch", publishedAt: "2026-10-10T00:00:00Z", liveBroadcastContent: live,
+    thumbnails: { medium: { url: "https://evil.com/x.jpg" } } }, contentDetails: { duration: dur }, statistics: { viewCount: views } });
+  const items = [it("aaaaaaaaaaa", "PT20M"), it("bbbbbbbbbbb", "PT30S"), it("ccccccccccc", "PT0S", "live"), it("ddddddddddd", "PT0S", "upcoming")];
+  const long = pickVideos(items, false, false);
+  assert.deepEqual(long.map((v) => v.id), ["aaaaaaaaaaa"]);
+  assert.equal(long[0].channel, "Ch");
+  assert.equal(long[0].thumb, ""); // not YouTube's image host
+  assert.deepEqual(pickVideos(items, true, false).map((v) => v.id), ["bbbbbbbbbbb"]);
+  assert.deepEqual(pickVideos(items, false).map((v) => v.id), ["aaaaaaaaaaa", "ccccccccccc"]); // creator lookups keep live streams as before
+  const v = (id: string, at: string) => ({ id, title: id, publishedAt: at, views: 0, durationSec: 60, thumb: "" });
+  assert.deepEqual(mergeByDate([[v("a", "2026-10-01"), v("b", "2026-10-03")], [v("c", "2026-10-02"), v("a", "2026-10-01")]]).map((x) => x.id), ["b", "c", "a"]);
+  assert.match(watchReply("Counter-Strike 2", [v("a", "")], false, true), /^Here is a popular video about Counter-Strike 2/);
+  assert.match(watchReply("Counter-Strike 2", [], false, true), /couldn't find any recent videos about/);
 });
 
 test("choices", () => {
@@ -92,4 +143,31 @@ test("reply and formatting", () => {
 
 test("theater navigation", () => {
   for (const t of ["go to the theater", "open the cinema", "take me to the theater"]) assert.deepEqual(parseNavCommand(t), { panel: "theater" }, t);
+});
+
+test("ORBIT places are not YouTube topics", async () => {
+  const { parseWatchCommand } = await import("../src/lib/watch-pure.ts");
+  assert.equal(parseWatchCommand("show me the studio videos"), null);
+  assert.equal(parseWatchCommand("show me cs2 videos")?.topic, true);
+});
+
+test("in-theater phrases never become topic searches", () => {
+  const ts = ["play the next video", "show me the second video", "show me the 2nd video", "play the tenth video",
+    ...["previous", "same", "another", "full", "random"].map((w) => `play the ${w} video`),
+    ...["saved", "watched", "liked", "favorite", "favourite", "older", "long", "short", "newer", "other", "more"].map((w) => `show me ${w} videos`),
+    "show me those videos", "show me that video", "play this video"];
+  for (const t of ts) assert.equal(parseWatchCommand(t), null, t);
+  assert.equal(parseWatchChoice("show me the second video", 3), 1); // answered as a choice instead
+  assert.deepEqual(parseWatchCommand("show me rocket league videos"), { creator: "rocket league", shorts: false, topic: true }); // real topics still pass
+  assert.deepEqual(parseWatchCommand("show me Rainbow Six videos"), { creator: "Rainbow Six", shorts: false, topic: true });
+});
+
+test("pruneCache: expired dropped, size capped (oldest first)", () => {
+  const m = new Map<string, { at: number }>([["old", { at: 0 }], ["a", { at: 900 }], ["b", { at: 950 }], ["c", { at: 990 }]]);
+  pruneCache(m, 1000, 500, 3);
+  assert.deepEqual([...m.keys()], ["b", "c"]); // "old" expired; "a" dropped to leave room for the new entry
+  const big = new Map(Array.from({ length: 250 }, (_, i) => [`k${i}`, { at: 1000 }] as [string, { at: number }]));
+  pruneCache(big, 1000, 500);
+  assert.equal(big.size, 199);
+  assert.ok(big.has("k249") && !big.has("k0"));
 });

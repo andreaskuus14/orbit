@@ -5,7 +5,7 @@ import { extractText, DOCX, TEXT } from "@/lib/extract";
 
 export const maxDuration = 60;
 
-const MAX_BYTES = 4 * 1024 * 1024; // matches the vault bucket's file_size_limit
+const MAX_BYTES = 4 * 1024 * 1024; // MEMORY's own cap (the bucket allows 50 MB once 0009 runs, for VAULT cloud copies)
 const IMAGES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 /** Upload a PDF, Word, text or image file: stored privately in the vault, text extracted into a memory. */

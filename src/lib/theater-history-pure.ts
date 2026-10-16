@@ -1,6 +1,6 @@
 // THEATER memory: "Your creators" chips and the "Continue watching" row. Pure list logic (no DOM); the store keeps them in
 // localStorage, so everything read back is validated here. Tested in tests/theater-history.test.ts.
-import { isVideoId, type WatchVideo } from "./watch-pure.ts";
+import { isVideoId, safeThumb, topicQuery, type WatchVideo } from "./watch-pure.ts";
 
 export type SavedCreator = { name: string; pinned: boolean };
 export type Watched = WatchVideo & { channel: string; at: number };
@@ -39,7 +39,6 @@ export function togglePin(list: SavedCreator[], name: string): SavedCreator[] {
 
 export const removeCreator = (list: SavedCreator[], name: string) => list.filter((c) => key(c.name) !== key(name));
 
-const THUMB = /^https:\/\/(?:[\w-]+\.)*ytimg\.com\//; // only YouTube's image host goes into <img src>
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0);
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
 
@@ -50,9 +49,8 @@ export function parseHistory(raw: unknown): Watched[] {
   return raw.flatMap((v: Record<string, unknown> | null) => {
     if (!v || !isVideoId(v.id) || seen.has(v.id)) return [];
     seen.add(v.id);
-    const thumb = text(v.thumb, 500);
     return [{ id: v.id, title: text(v.title, 200), publishedAt: text(v.publishedAt, 40), views: num(v.views), durationSec: num(v.durationSec),
-      thumb: THUMB.test(thumb) ? thumb : "", channel: text(v.channel, 100), at: Math.min(num(v.at), 8.64e15) }]; // Date's max, so the "opened" label can format it
+      thumb: safeThumb(text(v.thumb, 500)), channel: text(v.channel, 100), at: Math.min(num(v.at), 8.64e15) }]; // Date's max, so the "opened" label can format it
   }).sort((a, b) => b.at - a.at).slice(0, MAX_HISTORY);
 }
 
@@ -61,3 +59,19 @@ export function addWatched(list: Watched[], v: WatchVideo, channel: string, at: 
   if (!isVideoId(v.id)) return list;
   return [{ ...v, channel, at }, ...list.filter((x) => x.id !== v.id)].slice(0, MAX_HISTORY);
 }
+
+// Category chips ("All" is fixed and not in the list). No stored list yet = the defaults.
+export const DEFAULT_TOPICS = ["CS2", "Fortnite", "Minecraft", "Valorant", "GTA"];
+export const MAX_TOPICS = 12;
+/** Stored topics → valid labels (deduped case-insensitively, max 12); not an array = never saved → defaults. */
+export function parseTopics(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return DEFAULT_TOPICS;
+  return raw.reduce<string[]>((acc, t) => (typeof t === "string" ? addTopic(acc, t) : acc), []);
+}
+/** Appends a topic; a duplicate, an invalid label or a 13th is refused (unchanged list). */
+export function addTopic(list: string[], t: string): string[] {
+  const n = t.replace(/\s+/g, " ").trim();
+  if (!topicQuery(n) || n.toLowerCase() === "all" || list.length >= MAX_TOPICS || list.some((x) => key(x) === key(n))) return list;
+  return [...list, n];
+}
+export const removeTopic = (list: string[], t: string) => list.filter((x) => key(x) !== key(t));

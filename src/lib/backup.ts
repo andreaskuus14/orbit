@@ -83,7 +83,7 @@ export async function buildExport(sb: SupabaseClient, user: { id: string; email?
     files: {
       note: signFiles
         ? `Original uploaded files are not inside this JSON. Each url downloads one file and expires at ${new Date(now.getTime() + FILE_URL_TTL * 1000).toISOString()}; export again for fresh links.`
-        : "Original uploaded files are copied next to this backup, in files/<storage_path>. VAULT planet files stay on this PC (ORBIT data folder\\vault) and are not included.",
+        : "Original uploaded files are copied next to this backup, in files/<storage_path>. VAULT planet files are not in this export (they live on this PC, with cloud copies in your Supabase storage under <user id>/vault-files/).",
       items: files,
     },
   };
@@ -145,7 +145,7 @@ async function mirrorFiles(sb: SupabaseClient, userId: string, items: FileItem[]
     if (!dest.startsWith(path.resolve(filesDir) + path.sep)) continue; // never write outside the backup folder
     const have = await stat(dest).then((s) => s.size, () => -1);
     if (have >= 0 && have === sizes.get(storage_path)) continue;
-    const { data, error } = await vault.download(storage_path); // files are capped at 4 MB by the bucket
+    const { data, error } = await vault.download(storage_path); // MEMORY files are capped at 4 MB by the upload route
     if (error || !data) { console.error(`[orbit] backup: couldn't download ${storage_path}: ${error?.message}`); continue; }
     await mkdir(path.dirname(dest), { recursive: true });
     await writeFile(dest + ".tmp", Buffer.from(await data.arrayBuffer()));

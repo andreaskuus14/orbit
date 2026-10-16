@@ -6,7 +6,9 @@ import os from "node:os";
 import path from "node:path";
 // .ts extensions + lazy extract import so tests/vault-io.test.ts runs under node --experimental-strip-types.
 import { DOCX } from "./attach-pure.ts";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  CLOUD_MAX, cloudDir, cloudFailure, cloudPath, mergeCloud, mimeOf, nameFromKey,
   INDEX_FILE, INDEX_TEXT_MAX, PREVIEW_BYTES, extractType, kindOf, parseRange, renameTarget, sanitizeName, snippet, uniqueName, uploadError, type VaultFile,
 } from "./vault-pure.ts";
 
@@ -35,6 +37,7 @@ async function filePath(name: unknown): Promise<string> {
 // Mutations run one at a time so uniqueness checks and renames can't race.
 const g = globalThis as unknown as {
   __orbitVault?: Promise<unknown>; __orbitVaultIndex?: Promise<unknown>;
+  __orbitVaultCloud?: { uid: string; at: number; items: Map<string, number> };
   __orbitVaultIdx?: { data: Index; checkedAt: number; stale: boolean }; // parsed .index.json, kept in memory
 };
 function locked<T>(fn: () => Promise<T>): Promise<T> {
@@ -59,14 +62,17 @@ export async function usage(files?: VaultFile[]) {
   return { bytes: list.reduce((a, f) => a + f.size, 0), count: list.length };
 }
 
-/** Store one uploaded file (tmp + rename). Returns the stored name. */
-export function saveUpload(file: File): Promise<string> {
+/** Store one uploaded file (tmp + rename). Returns the stored name. exact: keep the name or refuse (restore from cloud).
+ *  taken: extra names to avoid (cloud-only files, so a new file never claims — and later overwrites — their cloud copy). */
+export function saveUpload(file: File, opts: { exact?: boolean; taken?: string[] } = {}): Promise<string> {
   return locked(async () => {
     const dir = await ensureDir();
     const files = await listVault();
     const err = uploadError(file.size, await usage(files));
     if (err) throw new VaultError(err, 413);
-    const name = uniqueName(sanitizeName(file.name), files.map((f) => f.name));
+    const clean = sanitizeName(file.name);
+    const name = uniqueName(clean, [...files.map((f) => f.name), ...(opts.taken ?? [])]);
+    if (opts.exact && name !== clean) throw new VaultError(`"${clean}" already exists on this PC`, 409);
     const tmp = path.join(dir, `.upload-${crypto.randomUUID()}.tmp`);
     try {
       await pipeline(Readable.fromWeb(file.stream() as import("node:stream/web").ReadableStream), createWriteStream(tmp, { flags: "wx" }));
@@ -80,12 +86,13 @@ export function saveUpload(file: File): Promise<string> {
   });
 }
 
-export function renameFile(from: unknown, to: unknown): Promise<string> {
+/** taken: extra names that count as existing (cloud-only files). */
+export function renameFile(from: unknown, to: unknown, taken: string[] = []): Promise<string> {
   return locked(async () => {
     const src = await filePath(from);
     const target = renameTarget(from as string, to);
     if (target === from) return target;
-    const others = (await listVault()).filter((f) => f.name !== from).map((f) => f.name);
+    const others = [...(await listVault()).filter((f) => f.name !== from).map((f) => f.name), ...taken];
     if (others.some((n) => n.toLowerCase() === target.toLowerCase())) throw new VaultError(`"${target}" already exists`, 409);
     const dest = path.resolve(vaultDir(), target);
     // Refuse any existing dest (incl. 8.3 short-name aliases); only a case-only rename of the same file may "exist".
@@ -212,4 +219,91 @@ export async function readVaultText(name: string, maxChars = 8000): Promise<stri
     if (kindOf(name) === "text") return (await previewText(name)).text.slice(0, maxChars);
     return null;
   } catch { return null; }
+}
+
+// ---- cloud copy (private Supabase 'vault' bucket, RLS as the signed-in user). Local stays the main copy; cloud errors never fail local work. ----
+const CLOUD_TTL = 60_000;
+const bucket = (sb: SupabaseClient) => sb.storage.from("vault");
+const errText = (e: unknown) => cloudFailure(e && typeof e === "object" && "message" in e ? (e as { message: unknown }).message : e);
+
+/** Cloud copies as name → size (cached 60 s per user). Throws the cloud error text on failure. */
+export async function cloudList(sb: SupabaseClient, uid: string, fresh = false): Promise<Map<string, number>> {
+  const c = g.__orbitVaultCloud;
+  if (!fresh && c && c.uid === uid && Date.now() - c.at < CLOUD_TTL) return c.items;
+  const items = new Map<string, number>();
+  for (let offset = 0; offset < 5000; offset += 1000) {
+    const { data, error } = await bucket(sb).list(cloudDir(uid), { limit: 1000, offset });
+    if (error) throw new Error(errText(error));
+    for (const o of data ?? []) { const n = nameFromKey(o.name); if (n && o.id) items.set(n, Number(o.metadata?.size) || 0); } // id null = folder
+    if ((data ?? []).length < 1000) break;
+  }
+  g.__orbitVaultCloud = { uid, at: Date.now(), items };
+  return items;
+}
+/** Cloud files with no local file; [] when the cloud can't be listed. */
+export async function cloudOnlyNames(sb: SupabaseClient, uid: string): Promise<string[]> {
+  try { return mergeCloud(await listVault(), await cloudList(sb, uid)).cloudOnly.map((c) => c.name); } catch { return []; }
+}
+const cached = (uid: string) => (g.__orbitVaultCloud?.uid === uid ? g.__orbitVaultCloud.items : null);
+
+/** Upload a local vault file's bytes to its cloud copy. Returns "ok" or "failed: <reason>". */
+export async function cloudPut(sb: SupabaseClient, uid: string, name: string): Promise<string> {
+  try {
+    const p = cloudPath(uid, name);
+    const buf = await readFile(await filePath(name));
+    if (buf.length > CLOUD_MAX) return "failed: larger than the 50 MB cloud limit";
+    const opts = { contentType: mimeOf(name), cacheControl: "0" };
+    // Never upsert: an object already at this key may be the only copy of a different file.
+    const { error } = await bucket(sb).upload(p, buf, { ...opts, upsert: false });
+    if (error && /exist|duplicate|409/i.test(`${error.message} ${(error as { statusCode?: unknown }).statusCode ?? ""}`))
+      return `failed: a different "${name}" is already in the cloud; rename this file and sync again`;
+    if (error) return `failed: ${errText(error)}`;
+    cached(uid)?.set(name, buf.length);
+    return "ok";
+  } catch (e) { return `failed: ${e instanceof VaultError ? e.message : errText(e)}`; }
+}
+
+export async function cloudRemove(sb: SupabaseClient, uid: string, name: string): Promise<string> {
+  try {
+    const { error } = await bucket(sb).remove([cloudPath(uid, name)]); // a missing object is not an error here
+    if (error) return `failed: ${errText(error)}`;
+    cached(uid)?.delete(name);
+    return "ok";
+  } catch (e) { return `failed: ${errText(e)}`; }
+}
+
+export async function cloudMove(sb: SupabaseClient, uid: string, from: string, to: string): Promise<string> {
+  try {
+    const items = cached(uid);
+    if (items && !items.has(from)) return cloudPut(sb, uid, to); // no old copy: just upload the renamed file
+    const { error } = await bucket(sb).move(cloudPath(uid, from), cloudPath(uid, to));
+    if (error && /not.?found|404/i.test(error.message)) return cloudPut(sb, uid, to);
+    if (error) return `failed: ${errText(error)}`;
+    if (items) { items.set(to, items.get(from) ?? 0); items.delete(from); }
+    return "ok";
+  } catch (e) { return `failed: ${errText(e)}`; }
+}
+
+/** Upload local files missing from the cloud, one at a time; stops after 200 files or before passing ~45 s. */
+export async function syncToCloud(sb: SupabaseClient, uid: string) {
+  const started = Date.now();
+  const cloud = await cloudList(sb, uid, true);
+  const missing = (await listVault()).filter((f) => !cloud.has(f.name) && f.size <= CLOUD_MAX).sort((a, b) => b.mtime - a.mtime);
+  let uploaded = 0, failed = 0, firstError: string | null = null, tried = 0;
+  for (const f of missing) {
+    if (tried >= 200) break;
+    tried++;
+    if (Date.now() - started + f.size / 1000 > 45_000) break; // ~1 MB/s estimate: never run into the 60 s route limit
+    const r = await cloudPut(sb, uid, f.name);
+    if (r === "ok") uploaded++; else { failed++; firstError ??= `${f.name}: ${r.replace(/^failed: /, "")}`; }
+  }
+  return { uploaded, failed, remaining: missing.length - tried, firstError };
+}
+
+/** Download a cloud-only file into the local vault under the same name (same checks and limits as an upload). */
+export async function restoreFromCloud(sb: SupabaseClient, uid: string, name: unknown): Promise<string> {
+  if (typeof name !== "string" || !name || sanitizeName(name) !== name) throw new VaultError("Invalid file name");
+  const { data, error } = await bucket(sb).download(cloudPath(uid, name));
+  if (error || !data) throw new VaultError(`Cloud download failed: ${errText(error)}`, 502);
+  return saveUpload(new File([data], name), { exact: true });
 }

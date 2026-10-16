@@ -7,8 +7,8 @@ import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import { QUALITY, type QualityMode } from "@/lib/quality-pure";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
-import { ago, embedUrl, isVideoId, length } from "@/lib/watch-pure";
-import { WATCH_CONTROL, closeWatch, findVideos, forgetCreator, getSaved, getSavedServer, getWatch, pinCreator, play, replay, setWatch, subscribeSaved, subscribeWatch } from "./watch-store";
+import { ago, embedUrl, isVideoId, length, safeThumb } from "@/lib/watch-pure";
+import { WATCH_CONTROL, closeWatch, findAll, findVideos, forgetCreator, forgetTopic, saveTopic, getSaved, getSavedServer, getWatch, pinCreator, play, replay, setWatch, subscribeSaved, subscribeWatch } from "./watch-store";
 
 // THEATER: a dark cinema floating in space. "Show me Jynxzi's latest videos" lists the creator's 3 newest uploads here; the chosen
 // one plays in the big screen through YouTube's official embed (youtube-nocookie). Standard materials only (safe for Bloom).
@@ -91,6 +91,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
   const [query, setQuery] = useState("");
   const findBox = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState("");
+  const [adding, setAdding] = useState<string | null>(null); // the "+ Add" topic box (null = closed)
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(location.origin), []);
   const q = QUALITY[quality === "low" ? 0 : quality === "high" ? 2 : 1];
@@ -198,11 +199,63 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
         </section>
       )}
 
+      {!playing && (
+        <section className="absolute inset-x-3 top-[4.5rem] bottom-[calc(40dvh+9rem)] z-[13] overflow-y-auto min-[900px]:bottom-36 min-[900px]:right-[32rem]" aria-label="Browse videos">
+          <ul className="flex flex-wrap items-center gap-1.5" aria-label="Categories">
+            {["All", ...saved.topics].map((t) => {
+              const on = w?.topic?.toLowerCase() === t.toLowerCase();
+              return (
+                <li key={t} className="chip flex items-center gap-0.5 !py-0.5" style={on ? { borderColor: "#f59e0b", background: "#f59e0b22" } : undefined}>
+                  <button className="px-1 text-sm" aria-pressed={on} onClick={() => (t === "All" ? findAll() : findVideos({ creator: t, shorts: false, topic: true }))}
+                    aria-label={t === "All" ? "All: newest videos from your creators" : `Popular ${t} videos`} style={on ? { color: "#f59e0b" } : undefined}>{t}</button>
+                  {t !== "All" && <button className="muted px-1" onClick={() => forgetTopic(t)} aria-label={`Remove category ${t}`} title="Remove">×</button>}
+                </li>
+              );
+            })}
+            <li>
+              {adding === null ? (
+                saved.topics.length < 12 && <button className="chip !py-0.5 text-sm" onClick={() => setAdding("")} aria-label="Add a category">+ Add</button>
+              ) : (
+                <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); const t = adding.trim(); if (t) { saveTopic(t); findVideos({ creator: t, shorts: false, topic: true }); } setAdding(null); }}>
+                  <input className="field !py-0.5 text-sm" autoFocus value={adding} maxLength={60} onChange={(e) => setAdding(e.target.value)} placeholder="Topic, e.g. Rocket League"
+                    aria-label="New category" onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setAdding(null); } }} />
+                  <button className="chip !py-0.5 text-sm" type="submit">Add</button>
+                </form>
+              )}
+            </li>
+          </ul>
+          {w?.status === "ready" && w.videos.length > 0 && (
+            <ol className="mt-3 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }} aria-label={w.topic ? `${w.topic} videos` : "Newest videos"}>
+              {w.videos.map((v, i) => {
+                const thumb = safeThumb(v.thumb);
+                return (
+                  <li key={v.id}>
+                    <button data-watch={i} onClick={() => play(i)}
+                      aria-label={`${i + 1}. ${v.title}${v.channel ? `, ${v.channel}` : ""}, ${fmt.format(v.views)} views, ${ago(v.publishedAt, now)}`}
+                      className="group w-full rounded-xl border border-white/10 bg-black/45 p-2 text-left backdrop-blur-md transition hover:-translate-y-1 hover:border-[#f59e0b]/60 hover:shadow-[0_8px_30px_#f59e0b33] focus-visible:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#f59e0b] motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+                      <span className="relative block aspect-video overflow-hidden rounded-lg bg-black/60">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {thumb && <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" referrerPolicy="no-referrer" />}
+                        <span className="absolute left-1.5 top-1.5 rounded bg-black/75 px-1.5 text-xs font-bold">{i + 1}</span>
+                        {v.durationSec > 0 && <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1 text-xs font-semibold">{length(v.durationSec)}</span>}
+                      </span>
+                      <b className="mt-2 line-clamp-2 text-sm leading-snug group-hover:text-[#fbbf24]">{v.title}</b>
+                      {v.channel && <span className="muted mt-1 block truncate text-xs">{v.channel}</span>}
+                      <span className="muted block text-xs">{fmt.format(v.views)} views · {ago(v.publishedAt, now)}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
+      )}
+
       <section className="glass hud-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]"
         aria-label="Theater">
-        <div className="hud-title" style={{ color: GOLD }}>THEATER{w?.channel ? ` · ${w.channel.title.toUpperCase()}` : ""}</div>
+        <div className="hud-title" style={{ color: GOLD }}>THEATER{w?.channel ? ` · ${w.channel.title.toUpperCase()}` : w?.topic ? ` · ${w.topic.toUpperCase()}` : ""}</div>
         <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); const c = query.trim(); if (c) findVideos({ creator: c, shorts: false }); }}>
-          <input ref={findBox} className="field w-full" value={query} onChange={(e) => setQuery(e.target.value)} maxLength={40} placeholder="Creator, e.g. Jynxzi" aria-label="Creator name or @handle" />
+          <input ref={findBox} className="field w-full" value={query} onChange={(e) => setQuery(e.target.value)} maxLength={40} placeholder="Creator or topic, e.g. Jynxzi or cs2" aria-label="Creator name, @handle or topic" />
           <button className="chip shrink-0" type="submit">Find</button>
         </form>
         {saved.creators.length > 0 && (
@@ -235,34 +288,15 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
             </ul>
           </div>
         )}
-        {!w && <p className="muted mt-2 text-sm">Say “show me Jynxzi&apos;s latest videos” (or “…latest shorts”). ORBIT finds the 3 newest and asks which one to open.</p>}
+        {!w && <p className="muted mt-2 text-sm">Say “show me Jynxzi&apos;s latest videos” or “show me cs2 videos”, or pick a category. ORBIT finds them and asks which one to open.</p>}
         <div aria-live="polite">
-          {w?.status === "loading" && <p className="muted mt-2 text-sm">Looking for {w.creator}&apos;s newest {w.shorts ? "Shorts" : "videos"}…</p>}
+          {w?.status === "loading" && <p className="muted mt-2 text-sm">{w.topic === "All" ? "Loading your creators’ newest videos…" : w.topic ? `Finding popular videos about ${w.topic}…` : `Looking for ${w.creator}’s newest ${w.shorts ? "Shorts" : "videos"}…`}</p>}
+          {w?.note && <p className="mt-2 text-sm" style={{ color: GOLD }}>{w.note}</p>}
           {w?.status === "error" && <p className="error mt-2" role="alert">{w.error}</p>}
           {w?.notice && <p className="mt-2 text-sm">{w.notice}</p>}
-          {w?.status === "ready" && !w.videos.length && <p className="muted mt-2 text-sm">No recent {w.shorts ? "Shorts" : "long videos"} from {w.channel?.title ?? w.creator}.</p>}
-          {w?.status === "ready" && w.videos.length > 0 && w.playing === null && <p className="mt-2 text-sm">Which one should I open? Say “the second one”, “number 3” or “yes” for the first.</p>}
+          {w?.status === "ready" && !w.videos.length && !w.note && <p className="muted mt-2 text-sm">No recent {w.shorts ? "Shorts" : "long videos"} {w.topic ? "about" : "from"} {w.channel?.title ?? w.creator}.</p>}
+          {w?.status === "ready" && w.videos.length > 0 && w.playing === null && <p className="mt-2 text-sm">Pick a video, or say “the second one”, “number 3” or “yes” for the first.</p>}
         </div>
-        {w?.status === "ready" && (
-          <ol className="mt-2 space-y-2" aria-label="Newest videos">
-            {w.videos.map((v, i) => (
-              <li key={v.id}>
-                <button className={`card flex w-full gap-3 text-left${w.playing === i ? " on" : ""}`} aria-pressed={w.playing === i} data-watch={i} onClick={() => play(i)}>
-                  <span className="relative shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {v.thumb ? <img src={v.thumb} alt="" width={160} height={90} className="rounded-md" loading="lazy" referrerPolicy="no-referrer" /> : <span className="block h-[90px] w-[160px] rounded-md bg-black/40" />}
-                    <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 text-xs font-bold">{i + 1}</span>
-                    <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[11px]">{length(v.durationSec)}</span>
-                  </span>
-                  <span className="min-w-0">
-                    <b className="line-clamp-2 text-sm leading-snug">{v.title}</b>
-                    <span className="muted mt-1 block text-xs">{ago(v.publishedAt, now)} · {fmt.format(v.views)} views</span>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        )}
         {w && <button className="chip mt-3" onClick={closeWatch}>Clear</button>}
       </section>
 

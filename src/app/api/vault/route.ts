@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
-import { VaultError, deleteFile, listVault, previewText, readStream, renameFile, saveUpload, searchVault, usage } from "@/lib/vault";
-import { MAX_FILE, serveHeaders } from "@/lib/vault-pure";
+import { VaultError, cloudList, cloudOnlyNames, cloudMove, cloudPut, cloudRemove, deleteFile, listVault, previewText, readStream, renameFile, restoreFromCloud, saveUpload, searchVault, syncToCloud, usage } from "@/lib/vault";
+import { MAX_FILE, mergeCloud, serveHeaders } from "@/lib/vault-pure";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -12,12 +12,12 @@ function fail(e: unknown) {
 }
 
 // VAULT:
-//   GET                         → { files, usage }
+//   GET                         → { files (with cloud: boolean), cloudOnly, cloudError, usage }
 //   GET ?file=name&raw=1        → the file (Range supported), strict headers
 //   GET ?file=name&preview=1    → { text, truncated } (text/code only, first 20 KB)
 //   GET ?q=text&content=1       → { results: [{ name, snippet }] }
 export async function GET(req: Request) {
-  const { res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   const q = new URL(req.url).searchParams;
   try {
@@ -32,13 +32,16 @@ export async function GET(req: Request) {
     if (file !== null && q.get("preview") === "1") return Response.json(await previewText(file));
     if (q.get("content") === "1") return Response.json({ results: await searchVault(q.get("q") ?? "", 50) });
     const files = await listVault();
-    return Response.json({ files, usage: await usage(files) });
+    let cloud: Map<string, number> | null = null, cloudError: string | null = null;
+    try { cloud = await cloudList(sb, user.id); } catch (e) { cloudError = e instanceof Error ? e.message : "cloud unavailable"; }
+    return Response.json({ ...mergeCloud(files, cloud), cloudError, usage: await usage(files) });
   } catch (e) { return fail(e); }
 }
 
-// POST multipart (field "file", one or more) → upload; POST JSON { action: "rename", name, to } → rename.
+// POST multipart (field "file", one or more) → upload (+ cloud copy) → { saved, errors, cloud: "ok" | "failed: …" }
+// POST JSON { action: "rename", name, to } | { action: "sync" } | { action: "restore", name }
 export async function POST(req: Request) {
-  const { res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   try {
     const ct = req.headers.get("content-type") ?? "";
@@ -50,26 +53,43 @@ export async function POST(req: Request) {
       const form = await req.formData().catch(() => null);
       const files = form?.getAll("file").filter((f): f is File => f instanceof File) ?? [];
       if (!files.length) return Response.json({ error: "No file uploaded" }, { status: 400 });
-      const saved: string[] = [];
+      const taken = await cloudOnlyNames(sb, user.id);
+      const saved: string[] = [], sizes: number[] = [];
       const errors: string[] = [];
       for (const f of files) {
-        try { saved.push(await saveUpload(f)); } catch (e) { errors.push(`${f.name}: ${e instanceof VaultError ? e.message : "could not save"}`); if (!(e instanceof VaultError)) console.error("[vault]", e); }
+        try { saved.push(await saveUpload(f, { taken })); sizes.push(f.size); } catch (e) { errors.push(`${f.name}: ${e instanceof VaultError ? e.message : "could not save"}`); if (!(e instanceof VaultError)) console.error("[vault]", e); }
       }
-      return Response.json({ saved, errors }, { status: saved.length ? 201 : 400 });
+      // The cloud copy never fails the local save. Big files upload in the background so the request can't time out;
+      // until then the listing shows them as not in the cloud, and Sync now retries any that failed.
+      let cloud = "ok";
+      for (const [i, n] of saved.entries()) {
+        if (sizes[i] > 10 * 1024 * 1024) {
+          void cloudPut(sb, user.id, n).then((r) => { if (r !== "ok") console.warn("[vault] cloud copy", n, r); }, (e) => console.warn("[vault] cloud copy", n, e));
+          if (cloud === "ok") cloud = "pending";
+          continue;
+        }
+        const r = await cloudPut(sb, user.id, n);
+        if (r !== "ok" && !cloud.startsWith("failed")) cloud = r;
+      }
+      return Response.json({ saved, errors, cloud }, { status: saved.length ? 201 : 400 });
     }
     const body = await req.json().catch(() => null) as { action?: unknown; name?: unknown; to?: unknown } | null;
-    if (body?.action !== "rename" || typeof body.to !== "string" || !body.to.trim()) return Response.json({ error: "Expected { action: 'rename', name, to }" }, { status: 400 });
-    return Response.json({ name: await renameFile(body.name, body.to) });
+    if (body?.action === "sync") return Response.json(await syncToCloud(sb, user.id));
+    if (body?.action === "restore") return Response.json({ name: await restoreFromCloud(sb, user.id, body.name) }, { status: 201 });
+    if (body?.action !== "rename" || typeof body.to !== "string" || !body.to.trim()) return Response.json({ error: "Expected { action: 'rename' | 'sync' | 'restore', … }" }, { status: 400 });
+    const from = body.name as string; // validated by renameFile
+    const name = await renameFile(body.name, body.to, await cloudOnlyNames(sb, user.id));
+    return Response.json({ name, cloud: name === from ? "ok" : await cloudMove(sb, user.id, from, name) });
   } catch (e) { return fail(e); }
 }
 
 // DELETE JSON { name } → permanently removes that vault file.
 export async function DELETE(req: Request) {
-  const { res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   try {
     const body = await req.json().catch(() => null) as { name?: unknown } | null;
     await deleteFile(body?.name);
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, cloud: await cloudRemove(sb, user.id, body?.name as string) }); // name validated by deleteFile
   } catch (e) { return fail(e); }
 }

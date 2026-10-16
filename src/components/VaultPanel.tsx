@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VOICE_ASK } from "./voice/bus";
-import { MAX_FILE, MEMORY_MAX, fmtSize, memoryType, type Kind, type VaultFile } from "@/lib/vault-pure";
+import { MAX_FILE, MEMORY_MAX, fmtSize, memoryType, type CloudFile, type Kind } from "@/lib/vault-pure";
 
 type Usage = { bytes: number; count: number };
 type Sort = "newest" | "name" | "size";
 const ICON: Record<Kind, string> = { image: "IMG", video: "VID", audio: "AUD", pdf: "PDF", text: "TXT", doc: "DOC", other: "FILE" };
+const cloudWarn = (r: unknown) => (typeof r === "string" && r.startsWith("failed") ? `Saved on this PC; cloud copy failed: ${r.replace(/^failed: /, "")}` : "");
+const JSON_POST = (body: unknown): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const raw = (name: string) => `/api/vault?file=${encodeURIComponent(name)}&raw=1`;
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -17,13 +19,15 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function VaultPanel() {
-  const [files, setFiles] = useState<VaultFile[]>([]);
+  const [files, setFiles] = useState<CloudFile[]>([]);
   const [use, setUse] = useState<Usage>({ bytes: 0, count: 0 });
+  const [cloudOnly, setCloudOnly] = useState<{ name: string; size: number }[]>([]);
+  const [cloudError, setCloudError] = useState<string | null>(null);
   const [sort, setSort] = useState<Sort>("newest");
   const [q, setQ] = useState("");
   const [inside, setInside] = useState(false);
   const [hits, setHits] = useState<Record<string, string> | null>(null);
-  const [open, setOpen] = useState<VaultFile | null>(null);
+  const [open, setOpen] = useState<CloudFile | null>(null);
   const [text, setText] = useState<{ text: string; truncated: boolean } | null>(null);
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
@@ -32,7 +36,10 @@ export function VaultPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    try { const r = await call<{ files: VaultFile[]; usage: Usage }>("/api/vault"); setFiles(r.files); setUse(r.usage); }
+    try {
+      const r = await call<{ files: CloudFile[]; usage: Usage; cloudOnly: { name: string; size: number }[]; cloudError: string | null }>("/api/vault");
+      setFiles(r.files); setUse(r.usage); setCloudOnly(r.cloudOnly ?? []); setCloudError(r.cloudError ?? null);
+    }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not load the vault"); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -67,6 +74,7 @@ export function VaultPanel() {
     if (!arr.length) return;
     setErr(""); setNote("");
     const saved: string[] = [], errors: string[] = [];
+    let pending = false;
     // One file per request: the middleware caps request bodies at 45 MB.
     for (const [i, f] of arr.entries()) {
       if (f.size > MAX_FILE) { errors.push(`${f.name}: files can be at most 40 MB (${fmtSize(f.size)})`); continue; }
@@ -75,41 +83,62 @@ export function VaultPanel() {
         const fd = new FormData();
         fd.append("file", f);
         const r = await fetch("/api/vault", { method: "POST", body: fd });
-        const j = await r.json().catch(() => ({})) as { saved?: string[]; errors?: string[]; error?: string };
+        const j = await r.json().catch(() => ({})) as { saved?: string[]; errors?: string[]; error?: string; cloud?: string };
         saved.push(...(j.saved ?? []));
+        if (j.cloud === "pending") pending = true;
+        if (cloudWarn(j.cloud)) errors.push(`${f.name}: ${cloudWarn(j.cloud)}`);
         errors.push(...(j.errors ?? []), ...(j.error ? [`${f.name}: ${j.error}`] : []));
         if (!r.ok && !j.error && !j.errors?.length) errors.push(`${f.name}: upload failed (${r.status})`);
       } catch { errors.push(`${f.name}: upload failed`); }
     }
     setBusy("");
-    if (saved.length) setNote(`Saved ${saved.length} file${saved.length > 1 ? "s" : ""}: ${saved.join(", ")}`);
+    if (saved.length) setNote(`Saved ${saved.length} file${saved.length > 1 ? "s" : ""}: ${saved.join(", ")}${pending ? ". Large files are copied to the cloud in the background." : ""}`);
     if (errors.length) setErr(errors.join("\n"));
     if (fileRef.current) fileRef.current.value = "";
     await load();
   }
 
-  async function rename(f: VaultFile) {
+  async function rename(f: CloudFile) {
     const to = prompt("New name (the extension is kept unless you type one):", f.name);
     if (!to || to.trim() === f.name) return;
     try {
-      const r = await call<{ name: string }>("/api/vault", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rename", name: f.name, to }) });
+      const r = await call<{ name: string; cloud?: string }>("/api/vault", JSON_POST({ action: "rename", name: f.name, to }));
       await load();
       if (open?.name === f.name) setOpen({ ...f, name: r.name });
       setNote(`Renamed to ${r.name}`);
+      setErr(cloudWarn(r.cloud).replace("Saved on this PC", "Renamed on this PC"));
     } catch (e) { setErr(e instanceof Error ? e.message : "Rename failed"); }
   }
 
-  async function remove(f: VaultFile) {
+  async function remove(f: CloudFile) {
     if (!confirm(`Permanently delete "${f.name}"? This can't be undone.`)) return;
     try {
-      await call("/api/vault", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: f.name }) });
+      const r = await call<{ cloud?: string }>("/api/vault", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: f.name }) });
       if (open?.name === f.name) setOpen(null);
+      setErr(cloudWarn(r.cloud).replace("Saved on this PC; cloud copy failed", "Deleted on this PC; removing the cloud copy failed"));
       await load();
     } catch (e) { setErr(e instanceof Error ? e.message : "Delete failed"); }
   }
 
+  async function sync() {
+    setErr(""); setNote(""); setBusy("Copying files to the cloud…");
+    try {
+      const r = await call<{ uploaded: number; failed: number; remaining: number; firstError: string | null }>("/api/vault", JSON_POST({ action: "sync" }));
+      setNote(`Cloud sync: ${r.uploaded} uploaded${r.failed ? `, ${r.failed} failed` : ""}${r.remaining ? `, ${r.remaining} still to go (press Sync now again)` : ""}.`);
+      if (r.firstError) setErr(`Cloud copy failed for ${r.firstError}`);
+    } catch (e) { setErr(e instanceof Error ? e.message : "Sync failed"); }
+    finally { setBusy(""); await load(); }
+  }
+
+  async function restore(name: string) {
+    setErr(""); setNote(""); setBusy(`Downloading ${name} from the cloud…`);
+    try { const r = await call<{ name: string }>("/api/vault", JSON_POST({ action: "restore", name })); setNote(`Downloaded ${r.name} to this PC.`); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Download failed"); }
+    finally { setBusy(""); await load(); }
+  }
+
   // Same request the MEMORY panel's "Upload file" makes.
-  async function toMemory(f: VaultFile) {
+  async function toMemory(f: CloudFile) {
     if (!confirm(`Upload a copy of "${f.name}" to MEMORY? It will be stored in ORBIT's cloud memory (your Supabase project), not only on this PC.`)) return;
     setErr(""); setNote(""); setBusy(`Saving ${f.name} to MEMORY…`);
     try {
@@ -164,7 +193,11 @@ export function VaultPanel() {
 
   return (
     <div className={`space-y-4 ${rootCls}`} {...dropProps}>
-      <p className="muted text-xs">Files stay on this PC only (ORBIT data folder\vault). They&apos;re not in ORBIT&apos;s backups — keep copies of anything important.</p>
+      <p className="muted text-xs">Files are kept on this PC, with a private copy in your Supabase cloud (free plan: 1 GB total).</p>
+      <p className="muted text-xs">
+        {cloudError ? <>Cloud unavailable: {cloudError}</> : <>{files.filter((f) => f.cloud).length} of {files.length} files in the cloud</>}
+        {" · "}<button className="link" disabled={!!busy} onClick={sync}>Sync now</button>
+      </p>
       <div className="flex flex-wrap items-center gap-2">
         <label className={`chip cursor-pointer${busy ? " opacity-50" : ""}`}>
           Upload files
@@ -193,10 +226,26 @@ export function VaultPanel() {
                   {hits?.[f.name] && <span className="muted block truncate text-xs">{hits[f.name]}</span>}
                 </span>
                 <span className="muted shrink-0 text-xs">{fmtSize(f.size)} · {new Date(f.mtime).toLocaleDateString()}</span>
+                {f.cloud === true && <span className="shrink-0 text-xs" role="img" aria-label="Cloud copy saved" title="Cloud copy saved">☁</span>}
+                {f.cloud === false && <span className="shrink-0 text-xs" role="img" aria-label="Not in the cloud yet" title="Not in the cloud yet (Sync now)">⚠</span>}
               </button>
             </li>
           ))}
         </ul>
+      )}
+      {cloudOnly.length > 0 && (
+        <div className="space-y-1">
+          <h3 className="h3">Only in the cloud</h3>
+          <ul className="space-y-1">
+            {cloudOnly.map((c) => (
+              <li key={c.name} className="card flex items-center gap-3">
+                <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                <span className="muted shrink-0 text-xs">{fmtSize(c.size)}</span>
+                <button className="chip" disabled={!!busy} onClick={() => restore(c.name)}>Download to this PC</button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
