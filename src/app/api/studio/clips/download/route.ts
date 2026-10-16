@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { checkTools, createDownload, listDownloads, startClipQueue } from "@/lib/clips/factory";
+import { startClipQueue, startDownload } from "@/lib/clips/factory";
 import { cleanPermission, parseClipUrl, validOptions } from "@/lib/clips/pure";
 
 export const dynamic = "force-dynamic";
@@ -21,9 +21,7 @@ export async function POST(req: Request) {
     autoClip = validOptions(b.autoClip as Record<string, unknown>);
     if (typeof autoClip === "string") return Response.json({ error: autoClip }, { status: 400 });
   }
-  const tools = await checkTools();
-  if (!tools.ytdlp || !tools.ffmpeg) return Response.json({ error: !tools.ytdlp ? "yt-dlp is missing: winget install yt-dlp.yt-dlp" : "ffmpeg is missing", tools }, { status: 503 });
-  const dup = (await listDownloads()).find((d) => d.url === url && (d.status === "queued" || d.status === "downloading"));
-  if (dup) return Response.json({ error: "This link is already downloading", download: dup }, { status: 409 });
-  return Response.json({ download: await createDownload(url, permission, autoClip) });
+  const r = await startDownload(url, permission, autoClip);
+  if ("error" in r) { const { status, ...body } = r; return Response.json(body, { status }); }
+  return Response.json(r);
 }

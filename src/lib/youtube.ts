@@ -14,7 +14,7 @@ const cache = (g.__orbitStudioCache ??= new Map());
 const inflight = new Map<string, Promise<Studio>>();
 const failed = new Map<string, { at: number; err: unknown }>();
 
-async function api<T>(path: string, params: Record<string, string>, key: string): Promise<T> {
+export async function api<T>(path: string, params: Record<string, string>, key: string): Promise<T> {
   const url = `https://www.googleapis.com/youtube/v3/${path}?${new URLSearchParams({ ...params, key })}`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(10_000), cache: "no-store" });

@@ -112,7 +112,7 @@ function runFfmpeg(ff: string, args: string[], o: { cwd?: string; signal?: Abort
 export const saveJob = (job: ClipJob) => saveState(job.id, jobFile(job.id), job);
 const saveDownload = (d: Download) => saveState(d.id, dlFile(d.id), d);
 
-function saveState(id: string, file: string, data: unknown): Promise<void> {
+export function saveState(id: string, file: string, data: unknown): Promise<void> {
   // One write chain for all jobs and downloads: no interleaved tmp files, and a deleted one never gets written back.
   const p = S.write.then(async () => {
     if (S.deleted.has(id)) return;
@@ -131,7 +131,7 @@ function saveState(id: string, file: string, data: unknown): Promise<void> {
 }
 
 /** A state file parsed and checked; a damaged one is moved to <dir>/_quarantine (never deleted) and reads as null. */
-async function readState<T>(dir: string, id: string, problem: (x: unknown, id: string) => string): Promise<T | null> {
+export async function readState<T>(dir: string, id: string, problem: (x: unknown, id: string) => string): Promise<T | null> {
   let text: string;
   try { text = await readFile(path.join(dir, `${id}.json`), "utf8"); }
   catch (e) { // missing, locked (antivirus) or an I/O hiccup (EMFILE/EIO): the file itself may be fine, so leave it
@@ -161,12 +161,12 @@ async function quarantine(dir: string, id: string, reason: string) {
 /** Damaged job/download files set aside, newest first. */
 export async function listQuarantined(): Promise<Quarantined[]> {
   const out: Quarantined[] = [];
-  for (const [dir, rel] of [[jobsDir(), "jobs"], [dlDir(), "downloads"]]) {
+  for (const [dir, rel] of [[jobsDir(), "jobs"], [dlDir(), "downloads"], [studioRoot(), ""]]) { // root: scout.json
     const q = path.join(dir, "_quarantine");
     for (const n of await readdir(q).catch(() => [] as string[])) {
       if (!n.endsWith(".json") || n.endsWith(".reason.json")) continue;
       const m = await readFile(path.join(q, n.replace(/\.json$/, ".reason.json")), "utf8").then((t) => JSON.parse(t), () => null);
-      out.push({ file: `${rel}/_quarantine/${n}`, reason: typeof m?.reason === "string" ? m.reason : "unknown", at: typeof m?.at === "string" ? m.at : "" });
+      out.push({ file: [rel, "_quarantine", n].filter(Boolean).join("/"), reason: typeof m?.reason === "string" ? m.reason : "unknown", at: typeof m?.at === "string" ? m.at : "" });
     }
   }
   return out.sort((a, b) => b.at.localeCompare(a.at));
@@ -713,6 +713,15 @@ export async function createDownload(url: string, permission: string, autoClip?:
   await saveDownload(d);
   kickDownloads();
   return d;
+}
+
+/** Add-from-link and the scout's "Clip it": checks the tools and duplicates, then queues the download. */
+export async function startDownload(url: string, permission: string, autoClip?: ClipJob["options"]): Promise<{ download: Download } | { error: string; status: number; tools?: ToolsStatus; download?: Download }> {
+  const tools = await checkTools();
+  if (!tools.ytdlp || !tools.ffmpeg) return { error: !tools.ytdlp ? "yt-dlp is missing: winget install yt-dlp.yt-dlp" : "ffmpeg is missing", status: 503, tools };
+  const dup = (await listDownloads()).find((d) => d.url === url && (d.status === "queued" || d.status === "downloading"));
+  if (dup) return { error: "This link is already downloading", status: 409, download: dup };
+  return { download: await createDownload(url, permission, autoClip) };
 }
 
 /** Cancels (its partial files are removed by the failing run) and forgets a download. A finished video stays in the inbox. */
