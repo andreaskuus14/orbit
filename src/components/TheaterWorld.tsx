@@ -1,0 +1,233 @@
+"use client";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import * as THREE from "three";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Stars } from "@react-three/drei";
+import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
+import { useGlRecovery } from "./useGlRecovery";
+import { QUALITY, type QualityMode } from "@/lib/quality-pure";
+import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
+import { ago, embedUrl, length } from "@/lib/watch-pure";
+import { WATCH_CONTROL, closeWatch, findVideos, getWatch, play, setWatch, subscribeWatch } from "./watch-store";
+
+// THEATER: a dark cinema floating in space. "Show me Jynxzi's latest videos" lists the creator's 3 newest uploads here; the chosen
+// one plays in the big screen through YouTube's official embed (youtube-nocookie). Standard materials only (safe for Bloom).
+
+const fmt = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+const GOLD = "#fbbf24";
+const YT_ORIGIN = "https://www.youtube-nocookie.com";
+
+function Screen({ lit, reduced }: { lit: boolean; reduced: boolean }) {
+  const glow = useRef<THREE.MeshStandardMaterial>(null);
+  useFrame(({ clock }) => { // a slow "projector" breathing on the frame; steady when reduced
+    if (glow.current) glow.current.emissiveIntensity = (lit ? 1.4 : 0.9) + (reduced ? 0 : Math.sin(clock.elapsedTime * 0.8) * 0.15);
+  });
+  const W = 8, H = 4.5, T = 0.08;
+  return (
+    <group position={[0, 2.6, -4]}>
+      <mesh>
+        <planeGeometry args={[W, H]} />
+        <meshStandardMaterial color="#05050a" emissive={GOLD} emissiveIntensity={lit ? 0.12 : 0.04} roughness={0.9} />
+      </mesh>
+      {[[0, H / 2, W + T, T], [0, -H / 2, W + T, T], [W / 2, 0, T, H + T], [-W / 2, 0, T, H + T]].map(([x, y, w, h], i) => (
+        <mesh key={i} position={[x, y, 0.02]}>
+          <boxGeometry args={[w, h, T]} />
+          <meshStandardMaterial ref={i === 0 ? glow : undefined} color="#3a2a0a" emissive={GOLD} emissiveIntensity={1} toneMapped />
+        </mesh>
+      ))}
+      <pointLight position={[0, 0, 2]} intensity={lit ? 18 : 8} color="#ffd28a" distance={14} />
+    </group>
+  );
+}
+
+/** Rows of seats curving toward the screen (one instanced mesh). */
+function Seats() {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const spots = useMemo(() => {
+    const out: [number, number, number, number][] = [];
+    for (let row = 0; row < 5; row++) for (let k = -5; k <= 5; k++) {
+      const a = k * 0.09, r = 6 + row * 1.1;
+      out.push([Math.sin(a) * r, row * 0.25, -4 + Math.cos(a) * r, -a]);
+    }
+    return out;
+  }, []);
+  useEffect(() => {
+    const m = new THREE.Object3D();
+    spots.forEach(([x, y, z, ry], i) => { m.position.set(x, y, z); m.rotation.set(0, ry, 0); m.updateMatrix(); ref.current?.setMatrixAt(i, m.matrix); });
+    if (ref.current) ref.current.instanceMatrix.needsUpdate = true;
+  }, [spots]);
+  return (
+    <instancedMesh ref={ref} args={[undefined, undefined, spots.length]}>
+      <boxGeometry args={[0.5, 0.55, 0.45]} />
+      <meshStandardMaterial color="#4c0519" roughness={0.8} emissive="#1a0208" emissiveIntensity={0.5} />
+    </instancedMesh>
+  );
+}
+
+/** Shifts the scene left of the side panel on wide screens, and drifts the camera a little. */
+function Rig({ reduced }: { reduced: boolean }) {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
+  const size = useThree((s) => s.size);
+  useEffect(() => {
+    if (size.width >= 900) camera.setViewOffset(size.width, size.height, 240, 0, size.width, size.height);
+    else camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+  }, [camera, size]);
+  useFrame(({ clock }) => {
+    camera.position.x = reduced ? 0 : Math.sin(clock.elapsedTime * 0.1) * 0.4;
+    camera.lookAt(0, 2.2, -4);
+  });
+  return null;
+}
+
+export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" }: { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode }) {
+  const glr = useGlRecovery();
+  const w = useSyncExternalStore(subscribeWatch, getWatch, () => null);
+  const playing = w?.playing != null ? w.videos[w.playing] : null;
+  const box = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [query, setQuery] = useState("");
+  const findBox = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState("");
+  const [origin, setOrigin] = useState("");
+  useEffect(() => setOrigin(location.origin), []);
+  const q = QUALITY[quality === "low" ? 0 : quality === "high" ? 2 : 1];
+  const notice = (msg: string) => { const s = getWatch(); if (s) setWatch({ ...s, notice: msg }); };
+
+  function fullscreen() {
+    box.current?.requestFullscreen?.().catch(() => notice("The browser wants a click for full screen: press ⛶ Fullscreen."));
+  }
+  // Voice/typed player controls (IFrame API over postMessage: enablejsapi=1 + origin in the embed URL).
+  useEffect(() => {
+    const h = (e: Event) => {
+      const c = (e as CustomEvent<string>).detail;
+      if (c === "fullscreen") fullscreen();
+      else if (c === "exitFullscreen") { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); }
+      else frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: c, args: [] }), YT_ORIGIN);
+    };
+    addEventListener(WATCH_CONTROL, h);
+    return () => removeEventListener(WATCH_CONTROL, h);
+  }, []);
+  const was = useRef<number | null>(null);
+  useEffect(() => { // video closed (✕, Esc or voice): focus its card in the list, else the Find box, so the keyboard isn't lost
+    const p = w?.playing ?? null;
+    if (was.current !== null && p === null) (document.querySelector<HTMLElement>(`[data-watch="${was.current}"]`) ?? findBox.current)?.focus();
+    was.current = p;
+  }, [w?.playing]);
+  useEffect(() => () => { if (getWatch()?.playing != null) play(null); }, []); // leaving THEATER stops the video
+  useEffect(() => { // Esc: stop the video, then close the list. Capture + preventDefault keeps Orbit from leaving the world.
+    if (!w) return;
+    const h = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== "Escape" || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (document.querySelector(".drawer:not(.drawer-out), dialog[open], [popover]:popover-open")) return; // CORE/dialog on top closes first
+      e.preventDefault();
+      if (getWatch()?.playing != null) play(null); else closeWatch();
+    };
+    addEventListener("keydown", h, true);
+    return () => removeEventListener("keydown", h, true);
+  }, [w]);
+
+  async function post(what: string, url: string, body: object, ok: (json: Record<string, unknown>) => string, then?: () => void) {
+    setBusy(what);
+    try {
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Failed (${res.status})`);
+      notice(ok(json)); then?.();
+    } catch (e) { notice(e instanceof Error ? e.message : "Failed"); }
+    finally { setBusy(""); }
+  }
+  const addCreator = () => w?.channel && post("add", "/api/studio/clips/scout/creators", { input: w.channel.id }, (j) => {
+    const a = j.added as { title?: string; already?: boolean } | undefined;
+    return a?.already ? `${a.title} is already a scout creator.` : `Added ${a?.title ?? w.channel!.title} to scout creators (auto-clip off).`;
+  });
+  // The clip factory's add-from-link path; YouTube often blocks yt-dlp, and then its pause message is shown as is.
+  const clipThis = () => playing && post("clip", "/api/studio/clips/download",
+    { url: `https://www.youtube.com/watch?v=${playing.id}`, permission: "Owner chose to clip this in THEATER" },
+    () => "Downloading for the clip factory…",
+    () => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: "studio", view: "clips" } })));
+
+  const src = playing && origin ? embedUrl(playing.id, origin) : "";
+  const now = Date.now();
+
+  return (
+    <div role="region" className="absolute inset-0 globe-in" aria-label="Theater: watch YouTube videos" style={{ background: "#030208" }}>
+      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={reduced || playing ? "demand" : "always"} camera={{ position: [0, 2.4, 9], fov: 50 }} dpr={[1, q.dpr]} gl={{ antialias: true }}>
+        <color attach="background" args={["#030208"]} />
+        <Stars radius={70} depth={40} count={reduced ? 600 : Math.min(2500, q.stars)} factor={2} fade speed={reduced ? 0 : 0.3} />
+        <ambientLight intensity={0.25} color="#ffe7c2" />
+        <mesh rotation-x={-Math.PI / 2} position={[0, -0.3, 2]}>
+          <circleGeometry args={[12, 48]} />
+          <meshStandardMaterial color="#0a0610" roughness={1} />
+        </mesh>
+        <Screen lit={!!playing} reduced={reduced} />
+        <Seats />
+        <Rig reduced={reduced} />
+        {q.bloom > 0 && (
+          <EffectComposer multisampling={q.msaa}>
+            <Bloom intensity={reduced ? 0.3 : 0.5 * q.bloom} luminanceThreshold={0.7} luminanceSmoothing={0.3} mipmapBlur />
+            <Vignette offset={0.3} darkness={0.7} />
+          </EffectComposer>
+        )}
+      </Canvas>}
+
+      {playing && (
+        <section className="absolute inset-x-3 top-[4.5rem] z-[16] flex flex-col items-center min-[900px]:right-[32rem]" aria-label="Now playing">
+          <div ref={box} className="w-full max-w-[min(100%,calc((100dvh-16rem)*16/9))] overflow-hidden rounded-xl bg-black shadow-[0_0_60px_#fbbf2455]" style={{ aspectRatio: "16 / 9" }}>
+            {src && <iframe ref={frame} key={playing.id} src={src} title={`YouTube video player: ${playing.title}`} className="h-full w-full"
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />}
+          </div>
+          <div className="glass mt-2 flex w-full max-w-3xl flex-wrap items-center gap-2 p-2">
+            <b className="mr-auto truncate text-sm" title={playing.title}>{playing.title}</b>
+            <button className="chip" onClick={fullscreen} title="Full screen (say “full screen”)">⛶ Fullscreen</button>
+            <a className="chip" href={`https://www.youtube.com/watch?v=${playing.id}`} target="_blank" rel="noreferrer">Open on YouTube ↗</a>
+            {w?.channel && <button className="chip" onClick={addCreator} disabled={!!busy}>{busy === "add" ? "Adding…" : `Add ${w.channel.title} to scout creators`}</button>}
+            <button className="chip" onClick={clipThis} disabled={!!busy} title="Downloads with yt-dlp (YouTube sometimes blocks it), then opens Studio's clips">{busy === "clip" ? "Starting…" : "Clip this → Studio"}</button>
+            <button className="chip" onClick={() => play(null)} aria-label="Close video">✕ Close</button>
+          </div>
+        </section>
+      )}
+
+      <section className="glass hud-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]"
+        aria-label="Theater">
+        <div className="hud-title" style={{ color: GOLD }}>THEATER{w?.channel ? ` · ${w.channel.title.toUpperCase()}` : ""}</div>
+        <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); const c = query.trim(); if (c) findVideos({ creator: c, shorts: false }); }}>
+          <input ref={findBox} className="field w-full" value={query} onChange={(e) => setQuery(e.target.value)} maxLength={40} placeholder="Creator, e.g. Jynxzi" aria-label="Creator name or @handle" />
+          <button className="chip shrink-0" type="submit">Find</button>
+        </form>
+        {!w && <p className="muted mt-2 text-sm">Say “show me Jynxzi&apos;s latest videos” (or “…latest shorts”). ORBIT finds the 3 newest and asks which one to open.</p>}
+        <div aria-live="polite">
+          {w?.status === "loading" && <p className="muted mt-2 text-sm">Looking for {w.creator}&apos;s newest {w.shorts ? "Shorts" : "videos"}…</p>}
+          {w?.status === "error" && <p className="error mt-2" role="alert">{w.error}</p>}
+          {w?.notice && <p className="mt-2 text-sm">{w.notice}</p>}
+          {w?.status === "ready" && !w.videos.length && <p className="muted mt-2 text-sm">No recent {w.shorts ? "Shorts" : "long videos"} from {w.channel?.title ?? w.creator}.</p>}
+          {w?.status === "ready" && w.videos.length > 0 && w.playing === null && <p className="mt-2 text-sm">Which one should I open? Say “the second one”, “number 3” or “yes” for the first.</p>}
+        </div>
+        {w?.status === "ready" && (
+          <ol className="mt-2 space-y-2" aria-label="Newest videos">
+            {w.videos.map((v, i) => (
+              <li key={v.id}>
+                <button className={`card flex w-full gap-3 text-left${w.playing === i ? " on" : ""}`} aria-pressed={w.playing === i} data-watch={i} onClick={() => play(i)}>
+                  <span className="relative shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {v.thumb ? <img src={v.thumb} alt="" width={160} height={90} className="rounded-md" loading="lazy" referrerPolicy="no-referrer" /> : <span className="block h-[90px] w-[160px] rounded-md bg-black/40" />}
+                    <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 text-xs font-bold">{i + 1}</span>
+                    <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[11px]">{length(v.durationSec)}</span>
+                  </span>
+                  <span className="min-w-0">
+                    <b className="line-clamp-2 text-sm leading-snug">{v.title}</b>
+                    <span className="muted mt-1 block text-xs">{ago(v.publishedAt, now)} · {fmt.format(v.views)} views</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        )}
+        {w && <button className="chip mt-3" onClick={closeWatch}>Clear</button>}
+      </section>
+
+      <button className="chip absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+    </div>
+  );
+}

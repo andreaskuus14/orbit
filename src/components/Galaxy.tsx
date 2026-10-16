@@ -144,6 +144,7 @@ const PHOTOS: Record<PlanetId, { file: string; id: string; crop: [number, number
   vault: { file: "glacier", id: "20261014_232114_c73e34e3-2e16-44e8-97af-a160226d854a", crop: [0, 0, 1, 1] },
   analytics: { file: "crystal", id: "20261014_232113_02a85430-cdfa-4d9e-ab99-403515937ee7", crop: [0.22, 0.16, 0.78, 0.84] },
   studio: { file: "ruby", id: "20261015_150355_c603bd15-0860-4501-b765-28d2d52631c2", crop: [0, 0, 1, 1] },
+  theater: { file: "crystal", id: "20261014_232113_02a85430-cdfa-4d9e-ab99-403515937ee7", crop: [0.22, 0.16, 0.78, 0.84] }, // shares ANALYTICS' photo, tinted gold
 };
 
 function loadImage(src: string) {
@@ -199,6 +200,7 @@ const SURFACE: Record<PlanetId, { rough: number; metal?: number; bump: number; g
   vault: { rough: 0.35, bump: 1.8 },
   analytics: { rough: 0.4, metal: 0.25, bump: 1.8 },
   studio: { rough: 0.45, bump: 1.4, glow: "#ff2d55" },
+  theater: { rough: 0.5, bump: 1.2, glow: "#f59e0b", tint: "#ffd28a" },
 };
 
 type Look = { kind: "band" | "rock"; colors: string[]; base?: string; ring?: string; scale: number };
@@ -214,6 +216,7 @@ const LOOKS: Record<PlanetId, Look> = {
   vault: { kind: "band", colors: ["#e9eef2", "#cfd9e0", "#f5f7f9", "#bcc8d1"], ring: "#e2e8ee", scale: 0.79 },
   analytics: { kind: "band", colors: ["#8f86c9", "#a59de0", "#7b72b8", "#c3bdf0"], ring: "#b3abea", scale: 1.0 },
   studio: { kind: "rock", base: "#7f1d1d", colors: ["#b91c1c", "#e11d48", "#4c0519"], scale: 1.1 },
+  theater: { kind: "band", colors: ["#b45309", "#f59e0b", "#78350f", "#fcd34d"], ring: "#fbbf24", scale: 0.9 },
 };
 
 /* ---------- scene pieces ---------- */
@@ -361,6 +364,7 @@ const THEME: Record<PlanetId, { mode: number; count: number; size: [number, numb
   vault: { mode: 2, count: 50, size: [2, 4], color: "#e6f8ff" },
   analytics: { mode: 4, count: 30, size: [6, 12], color: "#dbe2ff" },
   studio: { mode: 0, count: 40, size: [2.5, 5.5], color: "#ffd1dc", color2: "#ff2d55" }, // sparks rising like a live broadcast
+  theater: { mode: 3, count: 25, size: [3, 6], color: "#fde68a" }, // projector-dust glints
 };
 
 // All motion runs on the GPU from a per-particle seed: no per-frame JS work, however many planets.

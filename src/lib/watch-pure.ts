@@ -26,9 +26,11 @@ const FORMS = [
   new RegExp(`^${VERB} (?:the )?${REC} (?:from|by) (.+)$`, "i"), //                         show me the latest from X
   new RegExp(`^${VERB} (?:the )?${REC} (.+?) ${KIND}$`, "i"), //                            show me the newest X video
   new RegExp(`^${VERB} (.+?) ${REC} ${KIND}$`, "i"), //                                     play X newest video (speech dropped the 's)
-  /^what (?:did|has|have) (.+?) (?:just )?(?:upload(?:ed)?|post(?:ed)?)(?: (?:recently|lately|today|yesterday|this week))?$/i,
+  /^what (?:did|has|have) (.+?) (?:just )?upload(?:ed)?(?: (?:recently|lately|today|yesterday|this week))?$/i,
+  /^what (?:did|has|have) (@[\w.-]+) (?:just )?post(?:ed)?(?: (?:recently|lately|today|yesterday|this week))?$/i, // "post" alone is social media talk
 ];
-const NOT_CREATOR = /^(?:my|our|your|his|her|their|its|the|this|that|these|those|me|us|him|them|it|he|she|they|you|i|we|some|any|all|someone|somebody|anyone|everyone|people|youtube|trending|popular|funny|cat|cats|dog|dogs|music|today|yesterday|good|best|top|new|cool|random|more|other)$/i;
+const NOT_CREATOR = /^(?:my|our|your|his|her|their|its|the|this|that|these|those|me|us|him|them|it|he|she|they|you|i|we|some|any|all|someone|somebody|anyone|everyone|people|youtube|trending|popular|funny|cat|cats|dog|dogs|music|today|yesterday|good|best|top|new|cool|random|more|other|news|trailer|trailers|category|categories|date|views|popularity|everybody|everything|week|month|year|time|game|games|sports|gaming|movie|movies|tv|kids|life)$/i;
+const NOT_START = /^(?:my|our|your|the|some|this|that|last|next|today|yesterday) |^\d+$/i;
 
 /** The whole message must be a "find this creator's videos" command; ordinary questions → null. */
 export function parseWatchCommand(text: string): WatchCommand | null {
@@ -38,7 +40,7 @@ export function parseWatchCommand(text: string): WatchCommand | null {
     if (!m) continue;
     const creator = m[1].trim().replace(/^@/, "").replace(/(?:'s|s'|')$/, "");
     if (!/^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,39}$/u.test(creator) || creator.split(" ").length > 4) return null;
-    if (NOT_CREATOR.test(creator) || /^(?:my|our|your|the|some) /i.test(creator) || new RegExp(`\\b${KIND}\\b`, "i").test(creator)) return null;
+    if (NOT_CREATOR.test(creator) || NOT_START.test(creator) || new RegExp(`\\b${KIND}\\b`, "i").test(creator)) return null;
     return { creator, shorts: /\bshorts?\b/i.test(s) };
   }
   return null;

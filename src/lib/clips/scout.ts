@@ -81,9 +81,9 @@ export async function addCreator(input: unknown) {
 }
 
 type Channel = { id?: string; snippet?: { title?: string }; statistics?: { subscriberCount?: string } };
-type Call = <T>(p: string, params: Record<string, string>) => Promise<T>;
+export type Call = <T>(p: string, params: Record<string, string>) => Promise<T>;
 /** A parsed creator input → their channel (1 unit; a video link 2), or undefined when YouTube has none. */
-async function lookupChannel(who: CreatorInput, call: Call): Promise<Channel | undefined> {
+export async function lookupChannel(who: CreatorInput, call: Call): Promise<Channel | undefined> {
   let q: Record<string, string>;
   if ("video" in who) {
     const v = await call<{ items?: { snippet?: { channelId?: string } }[] }>("videos", { part: "snippet", id: who.video });

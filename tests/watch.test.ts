@@ -12,6 +12,7 @@ test("watch commands", () => {
     ["Hey Orbit, play Kai Cenat’s newest video please", "Kai Cenat"],
     ["what did Jynxzi upload", "Jynxzi"],
     ["What has xQc uploaded recently?", "xQc"],
+    ["what did @Jynxzi post today", "Jynxzi"],
     ["show me the latest videos from Jynxzi", "Jynxzi"],
     ["find videos by @jynxzi", "jynxzi"],
     ["show me the newest Jynxzi video", "Jynxzi"],
@@ -22,7 +23,7 @@ test("watch commands", () => {
   for (const [t, creator, shorts = false] of yes) assert.deepEqual(parseWatchCommand(t), { creator, shorts }, t);
   for (const t of ["what's the latest news", "show me my videos", "open my latest videos", "how do I upload a video", "show me videos", "what did you upload",
     "show me funny cat videos", "who is Jynxzi", "play some music", "show me the latest news from Germany", "open the clip factory", "show my stats",
-    "what's Jynxzi's newest video about", "show me Jynxzi", "tell me about Jynxzi's latest videos"])
+    "what's Jynxzi's newest video about", "show me Jynxzi", "tell me about Jynxzi's latest videos", "show me videos from last week", "show me the latest videos by category", "show me the latest news videos", "what did Trump post today", "what has everybody posted", "show me videos from 2024", "show me the latest videos from this year", "find videos by date"])
     assert.equal(parseWatchCommand(t), null, t);
 });
 

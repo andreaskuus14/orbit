@@ -18,13 +18,15 @@ import { GalaxyLoader } from "./GalaxyLoader";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
 import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
 import { runFollowCommand } from "./follow-command";
+import { runWatchCommand } from "./watch-store";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
 const StudioWorld = dynamic(() => import("./StudioWorld"), { ssr: false });
 const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false });
 const AgentsStation = dynamic(() => import("./AgentsStation"), { ssr: false });
-const WORLDS: PanelId[] = ["studio", "creation", "agents"]; // full-screen worlds with their own side panel (no drawer)
+const TheaterWorld = dynamic(() => import("./TheaterWorld"), { ssr: false });
+const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater"]; // full-screen worlds with their own side panel (no drawer)
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "ORBIT is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
 
@@ -75,7 +77,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   // Fetch the world chunks while idle, so entering a world never waits on a JS download (next/dynamic reuses them).
   useEffect(() => {
-    const load = () => { for (const p of [import("./NewsGlobe"), import("./StudioWorld"), import("./DevWorld"), import("./AgentsStation")]) p.catch(() => {}); }; // best-effort warm-up
+    const load = () => { for (const p of [import("./NewsGlobe"), import("./StudioWorld"), import("./DevWorld"), import("./AgentsStation"), import("./TheaterWorld")]) p.catch(() => {}); }; // best-effort warm-up
     if ("requestIdleCallback" in window) requestIdleCallback(load, { timeout: 5000 }); else setTimeout(load, 1500);
   }, []);
 
@@ -119,6 +121,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       setCmdErr("");
       const fr = runFollowCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // done signal: a voice conversation listens again // "follow Estonia" / "unfollow AI": speaks the real outcome
       if (fr) { stopSpeech(); return; }
+      if (runWatchCommand(text, shown, (msg) => { stopSpeech(); if (msg && speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) return; // "show me Jynxzi's latest videos", then "the second one"
       let nav = parseNavCommand(text, { current: shown }); // "go to local news"
       if (nav?.zoom && !scene3d) nav = null; // no 3D scene on screen: zooming would do nothing
       if (nav) {
@@ -266,6 +269,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     voice.clearError();
     setCmdErr("");
     if (runFollowCommand(text, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // "follow Estonia" / "unfollow AI"
+    if (runWatchCommand(text, shown, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // THEATER: find/choose/control videos
     let nav = parseNavCommand(text, { current: shown }); // in either mode
     if (nav?.zoom && !scene3d) nav = null; // no 3D scene on screen: zooming would do nothing ("open game dev" is a place, not a question or a task)
     if (nav) { setCmd(""); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: nav })); return; }
@@ -294,6 +298,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <DevWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} />
       ) : shown === "agents" ? (
         <AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} />
+      ) : shown === "theater" ? (
+        <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : view === "3d" && gameOpen ? null : view === "3d" ? (
         <div className="absolute inset-0">
           <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} />
