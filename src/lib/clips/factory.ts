@@ -7,17 +7,19 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { SMART_MODEL, askClaudeStream } from "../claude";
 import { createLimiter } from "../pure";
+import { asrPipeline, asrWorkers } from "../asr-pool";
 import { CHANNEL_LINK_MSG, channelLink, rootClipId } from "./format";
 import { isVideoId, uploadError, type VideoResource } from "../yt-analytics-pure";
 import { OAuthError, getAccessToken, invalidateAccess, readStored } from "../yt-oauth";
 import { TITLES_RULE, creatorFromSource, thumbTimes } from "./titles";
+import { sourceNote } from "./inbox-watch";
 import type { Clip, ClipJob, ClipOptions, ClipPublish, Download, InboxFile, JobStatus, Quarantined, ToolsStatus } from "./types";
 import {
   MAX_SOURCE_SEC, MIN_CLIP_SEC, SAMPLE_RATE, VIDEO_EXTS, WIN_SEC, asrPieces, asrRegions, audioArgs, buildAss, clipLoudness, fallbackMoments, frameArgs,
-  ffmpegTime, groupSpans, isInboxName, isPlainName, keepSegments, markLoud, mergeRanked, parseDuration, parseYtdlpProgress, peakTime, probeArgs, promptTranscript,
-  renderArgs, resolveInside, retimeWords, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, totalSec, spanCover, validOptions, validateMoments,
-  wordsFromChunks, cleanWords, ytdlpArgs, ytdlpError, ytdlpOutputFile, zoomTimes, YTDLP_FILE_MARK,
-  STATE_V, addFeedback, baseEdit, downloadProblem, jobProblem, matchUpload, nextVersionId, packAnalysis, parseAnalysis, parseSuggestion, quarantineName,
+  ffmpegTime, groupSpans, isInboxName, isPlainName, editPlan, markLoud, mergeRanked, parseDuration, parseYtdlpProgress, peakTime, probeArgs, promptTranscript,
+  renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, totalSec, spanCover, validOptions, validateMoments,
+  wordsFromChunks, cleanWords, ytdlpArgs, ytdlpError, ytdlpOutputFile, YTDLP_FILE_MARK,
+  STATE_V, addFeedback, cleanPermission, baseEdit, downloadProblem, jobProblem, matchUpload, nextVersionId, packAnalysis, parseAnalysis, parseSuggestion, quarantineName,
   reconcileOutcome, setRejectReason, uploadsFrom, versionSpan, youtubePauseUntil,
   type Analysis, type Candidate, type Moment, type Span, type VersionReq, type Word,
 } from "./pure";
@@ -38,8 +40,8 @@ const ASR_MODEL = process.env.ORBIT_WHISPER_MODEL || "onnx-community/whisper-bas
 // told the language is English (skips language guessing, fewer wrong-language lines on shouting).
 const ASR_MODEL_EN = process.env.ORBIT_WHISPER_MODEL_EN;
 const ASR_DTYPE = process.env.ORBIT_WHISPER_DTYPE; // e.g. "q8": faster on CPU, slightly less accurate; unset = transformers.js default
-// onnxruntime-node runs inference on the main thread, so 2 pieces on one model don't truly overlap: default 1 (full cores).
-const ASR_PARALLEL = Math.max(1, Number(process.env.ORBIT_ASR_PARALLEL) || 1);
+// Pieces in flight; each needs its own ASR worker to truly overlap, so default = the clip lane's worker count.
+const ASR_PARALLEL = Math.max(1, Number(process.env.ORBIT_ASR_PARALLEL) || asrWorkers());
 const ASR_SEGMENT_SEC = 300;
 const ASR_OVERLAP_SEC = 5;
 const ACTIVE: JobStatus[] = ["probing", "transcribing", "finding", "rendering"];
@@ -194,18 +196,18 @@ export async function listInbox(jobs: ClipJob[], downloads: Download[] = []): Pr
   const files = await Promise.all(names.map(async (name) => {
     const s = await stat(path.join(inboxDir(), name)).catch(() => null);
     if (!s?.isFile()) return null;
-    const permission = await readFile(path.join(inboxDir(), `${name}.source.json`), "utf8")
-      .then((t) => { const p = JSON.parse(t)?.permission; return typeof p === "string" ? p.slice(0, 300) : undefined; }, () => undefined);
+    const [txt, json] = await Promise.all([".source.txt", ".source.json"].map((x) => readFile(path.join(inboxDir(), name + x), "utf8").catch(() => null)));
+    const permission = sourceNote(txt, json) || undefined;
     return { name, size: s.size, mtime: s.mtime.toISOString(), jobId: jobs.find((j) => j.source === name)?.id, permission }; // jobs are newest first
   }));
   return files.filter((f): f is NonNullable<typeof f> => !!f).sort((a, b) => b.mtime.localeCompare(a.mtime));
 }
 
-export async function createJob(source: string, options: ClipJob["options"]): Promise<ClipJob> {
+export async function createJob(source: string, options: ClipJob["options"], permission?: string): Promise<ClipJob> {
   const now = new Date().toISOString();
   const job: ClipJob = {
     v: STATE_V, id: `${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`, source, createdAt: now, updatedAt: now,
-    status: "queued", progress: 0, step: "Waiting to start", warnings: [], clips: [], options,
+    status: "queued", progress: 0, step: "Waiting to start", warnings: [], clips: [], options, ...(permission ? { permission } : {}),
   };
   await saveJob(job);
   kick();
@@ -445,15 +447,10 @@ function loadAsr(model: string): Promise<Asr> {
   const models = (S.asrModels ??= new Map());
   let p = models.get(model);
   if (!p) {
-    p = (async () => {
-      const tf = await import("@huggingface/transformers");
-      tf.env.cacheDir = path.join(studioRoot(), "models"); // model download lives in the studio folder, not node_modules
-      // Parallel pieces share the CPU: split the cores between them instead of each runner claiming all of them.
-      const intraOpNumThreads = Math.max(1, Math.floor(availableParallelism() / ASR_PARALLEL));
-      return (await tf.pipeline("automatic-speech-recognition", model, {
-        session_options: { intraOpNumThreads }, ...(ASR_DTYPE ? { dtype: ASR_DTYPE as "q8" } : {}),
-      })) as unknown as Asr;
-    })();
+    // Parallel pieces share the CPU: split the cores between them instead of each runner claiming all of them.
+    const intraOpNumThreads = Math.max(1, Math.floor(availableParallelism() / ASR_PARALLEL));
+    // Runs in a worker thread (asr-pool); model download lives in the studio folder, not node_modules.
+    p = asrPipeline("clip", model, { session_options: { intraOpNumThreads }, ...(ASR_DTYPE ? { dtype: ASR_DTYPE } : {}) }, path.join(studioRoot(), "models")) as Promise<Asr>;
     models.set(model, p);
     p.catch(() => models.delete(model)); // let the next job retry a failed download
   }
@@ -590,11 +587,11 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
   const ass = `${clip.id}.ass`, video = `${clip.id}.mp4`, frame = `${clip.id}.frame.jpg`;
   const pts = clipLoudness(rms, clip.start, clip.end);
   const local = markLoud(words.filter((w) => w.end > clip.start && w.start < clip.end).map((w) => ({ ...w, start: w.start - clip.start, end: w.end - clip.start })), pts);
-  const segs = o.jumpCuts && audio ? keepSegments(local, pts, duration) : [{ start: 0, end: duration }];
-  const zooms = o.zooms && audio ? zoomTimes(pts, segs) : [];
-  await writeFile(path.join(dir, ass), buildAss({ hook: clip.hook, words: o.captions ? retimeWords(local, segs) : [], duration: totalSec(segs), style: o.style }), "utf8");
+  const { segs, zooms, teaser, words: capWords, total } = editPlan(local, pts, duration, audio, o);
+  await writeFile(path.join(dir, ass), buildAss({ hook: clip.hook, words: capWords, duration: total, style: o.style }), "utf8");
   try {
-    await runFfmpeg(ff, renderArgs({ input: src, start: clip.start, duration, segs, audio, layout: o.layout, camSide: o.camSide, zooms, ass, out: video }), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
+    await runFfmpeg(ff, renderArgs({ input: src, start: clip.start, duration, segs, audio, layout: o.layout, camSide: o.camSide, zooms, ass, out: video,
+      teaser, progressBar: o.progressBar, fadeOut: o.loopEnd }), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
     clip.video = `clips/${job.id}/${video}`;
   } catch (e) {
     await rm(path.join(dir, video), { force: true }); // don't leave a truncated mp4 behind
@@ -641,7 +638,7 @@ export async function startVersion(job: ClipJob, base: Clip, req: VersionReq, a:
   if (!id) return "This clip has too many versions";
   const root = rootClipId(base.id);
   const clip: Clip = { id, ...span, title: req.title ?? base.title, hook: req.hook ?? base.hook, reason: base.reason, score: base.score, status: "rendering", titleOptions: base.titleOptions,
-    variantOf: root, edit: { ...(base.edit ?? baseEdit(job.options)), ...req.edit } };
+    variantOf: root, edit: { ...baseEdit(job.options), ...base.edit, ...req.edit } }; // older edits lack newer fields
   job.clips.splice(job.clips.findLastIndex((c) => rootClipId(c.id) === root) + 1, 0, clip);
   addFeedback(job, base.id, "version");
   job.updatedAt = new Date().toISOString();
@@ -699,7 +696,7 @@ async function renderVersion(jobId: string, clipId: string, suggest: { title: bo
       }
     }
     const e = clip.edit;
-    const o = { ...(validOptions({}) as Required<ClipOptions>), ...job.options, layout: e.layout, camSide: e.camSide, jumpCuts: e.jumpCuts, zooms: e.zooms,
+    const o = { ...(validOptions({}) as Required<ClipOptions>), ...job.options, ...e,
       captions: e.captions !== "none", style: e.captions === "none" ? undefined : e.captions };
     const dir = path.join(clipsDir(), jobId);
     await mkdir(dir, { recursive: true });
@@ -763,12 +760,18 @@ export async function deleteDownload(id: string) {
 
 /** Only names this download saw yt-dlp create, only inside the inbox. */
 // Retries: right after a kill, yt-dlp/ffmpeg may still hold the file open on Windows.
-const rmParts = (parts?: string[]) => Promise.all((parts ?? []).filter(isPlainName).map(async (n) => {
-  for (let i = 0; i < 6; i++) {
-    try { await rm(path.join(inboxDir(), n), { force: true }); return; }
-    catch { await new Promise((r) => setTimeout(r, 250 * 2 ** i)); }
-  }
-}));
+// Returns the names it couldn't delete: they stay in d.parts so the inbox list and the auto-clip watcher keep ignoring them.
+const rmParts = async (parts?: string[]): Promise<string[] | undefined> => {
+  const left = await Promise.all((parts ?? []).filter(isPlainName).map(async (n) => {
+    for (let i = 0; i < 6; i++) {
+      try { await rm(path.join(inboxDir(), n), { force: true }); return null; }
+      catch { await new Promise((r) => setTimeout(r, 250 * 2 ** i)); }
+    }
+    return n;
+  }));
+  const stuck = left.filter((n): n is string => !!n);
+  return stuck.length ? stuck : undefined;
+};
 
 function kickDownloads() {
   S.dlAgain = true;
@@ -779,8 +782,7 @@ function kickDownloads() {
       await ensureDirs();
       for (const d of await listDownloads()) {
         if (d.status !== "downloading") continue;
-        await rmParts(d.parts);
-        Object.assign(d, { status: "failed", step: "Failed", error: "interrupted — start again", parts: undefined });
+        Object.assign(d, { status: "failed", step: "Failed", error: "interrupted — start again", parts: await rmParts(d.parts) });
         await saveDownload(d);
       }
       S.dlRecovered = true;
@@ -838,12 +840,11 @@ async function runDownload(d: Download, signal: AbortSignal) {
     await writeFile(path.join(inboxDir(), `${file}.source.json`), JSON.stringify({ url: d.url, permission: d.permission, downloadedAt: new Date().toISOString() }, null, 2));
     Object.assign(d, { file, parts: undefined });
     const dup = d.autoClip && (await listJobs()).some((j) => j.source === file && j.status !== "failed"); // same video linked twice
-    if (d.autoClip && !dup) await createJob(file, d.autoClip);
+    if (d.autoClip && !dup) await createJob(file, d.autoClip, cleanPermission(d.permission) || undefined);
     Object.assign(d, { status: "done", progress: 1, step: d.autoClip ? "Downloaded — making clips" : "Downloaded" });
     await saveDownload(d);
   } catch (e) {
-    await rmParts(d.parts);
-    Object.assign(d, { status: "failed", step: "Failed", parts: undefined, error: signal.aborted ? "Cancelled" : e instanceof Error ? e.message : String(e) });
+    Object.assign(d, { status: "failed", step: "Failed", parts: await rmParts(d.parts), error: signal.aborted ? "Cancelled" : e instanceof Error ? e.message : String(e) });
     await saveDownload(d);
     throw e;
   }

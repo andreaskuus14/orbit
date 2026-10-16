@@ -181,3 +181,24 @@ test("'eclipse' is the clips (common mishearing)", () => {
 test("'stats of the studio' (and the common mishearing 'the soda') opens studio stats", () => {
   for (const t of ["show me the stats of the studio", "show me the stats of the soda"]) assert.deepEqual(parseNavCommand(t, { current: "studio" }), { panel: "studio", view: "stats" }, t);
 });
+
+test("morning briefing aliases open the morning card", () => {
+  for (const t of ["good morning", "Good morning, Orbit!", "hey orbit good morning", "morning briefing", "what's new today", "brief me", "brief me please", "open my morning briefing", "show me the daily briefing"])
+    assert.deepEqual(parseNavCommand(t), { panel: null, morning: true }, t);
+  assert.deepEqual(parseNavCommand("good morning", { current: "studio" }), { panel: null, morning: true });
+  assert.deepEqual(parseNavCommand("brief me", { current: "intelligence" }), { panel: null, morning: true });
+  assert.deepEqual(parseNavCommand("morning review"), { panel: "studio", view: "review" }); // still the clip review
+  assert.equal(parseNavCommand("what's new in AI today?"), null);
+  assert.equal(navReply({ panel: null, morning: true }), "Here's your morning briefing.");
+  assert.deepEqual(validateNav({ target: "morning briefing" }), { panel: null, morning: true });
+});
+
+test("doctor aliases open the ORBIT doctor without leaving the current place", () => {
+  for (const t of ["check orbit", "Check ORBIT please", "run diagnostics", "Orbit doctor", "hey orbit, run diagnostics", "is everything working", "Is everything working, Orbit?", "open the doctor", "run a health check"])
+    assert.deepEqual(parseNavCommand(t), { panel: null, doctor: true }, t);
+  assert.deepEqual(parseNavCommand("check orbit", { current: "studio" }), { panel: null, doctor: true });
+  assert.equal(parseNavCommand("check"), null); // the "orbit" is needed
+  assert.equal(parseNavCommand("is everything working in the studio"), null);
+  assert.equal(navReply({ panel: null, doctor: true }), "Checking everything. One moment.");
+  assert.deepEqual(validateNav({ target: "orbit doctor" }), { panel: null, doctor: true });
+});

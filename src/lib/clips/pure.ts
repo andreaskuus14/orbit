@@ -362,6 +362,47 @@ export function markLoud(words: Word[], pts: Pt[]): Word[] {
   });
 }
 
+const FRAME = 1 / 30;
+
+/** Cold-open teaser (clip time): 1.6 s around the loudest moment (1 s before, 0.6 s after), stretched to the end of the word it
+ *  cuts into while ≤ 2 s; null when the peak is in the first 3 s (the clip already opens on it), outside the kept parts, or the clip is silent. */
+export function coldOpenSpan(pts: Pt[], words: Word[], dur: number, segs: Span[] = [{ start: 0, end: dur }]): Span | null {
+  const peak = pts.reduce<Pt | null>((b, p) => (p.v > (b?.v ?? 0) ? p : b), null);
+  if (!peak || peak.t < 3 || dur < 5 || !segs.some((s) => peak.t >= s.start && peak.t <= s.end)) return null; // teasing a cut-out moment would be a false promise
+  const start = clamp(peak.t - 1, 0, dur - 1.6);
+  const cut = words.find((w) => w.start < start + 1.6 && w.end > start + 1.6);
+  return { start, end: Math.min(dur, cut && cut.end - start <= 2 ? cut.end : start + 1.6) };
+}
+
+/** Loop-friendly end: the kept parts end 0.3 s after the last word or at the end of the last above-median window, whichever is later
+ *  (no words: 0.3 s after the last window above a third of the median), so the loop skips dead air but keeps a late scream. Unchanged if under 5 s would be left. */
+export function trimTail(segs: Span[], words: Word[], pts: Pt[]): Span[] {
+  const med = median(pts.map((p) => p.v));
+  const loud = pts.filter((p) => p.v > med / 3);
+  const lastAbove = pts.filter((p) => p.v > med).pop();
+  const last = words.length ? Math.max(Math.max(...words.map((w) => w.end)) + 0.3, lastAbove ? lastAbove.t + WIN_SEC / 2 : 0)
+    : loud.length ? loud[loud.length - 1].t + WIN_SEC / 2 + 0.3 : Infinity;
+  const out = segs.filter((s) => s.start < last).map((s) => ({ start: s.start, end: Math.min(s.end, last) }));
+  return out.length && spanSec(out) >= Math.min(5, spanSec(segs)) ? out : segs;
+}
+
+export type EditPlan = { segs: Span[]; zooms: number[]; teaser?: Span; words: Word[]; total: number };
+/** The whole edit of one clip on its output timeline: [teaser][jump-cut clip]. words/zooms are output times; teaser is clip time. */
+export function editPlan(local: Word[], pts: Pt[], dur: number, audio: boolean,
+  o: { jumpCuts?: boolean; zooms?: boolean; captions?: boolean; coldOpen?: boolean; loopEnd?: boolean }): EditPlan {
+  let segs = o.jumpCuts && audio ? keepSegments(local, pts, dur) : [{ start: 0, end: dur }];
+  if (o.loopEnd && audio) segs = trimTail(segs, local, pts);
+  let teaser = (o.coldOpen && audio && coldOpenSpan(pts, local, dur, segs)) || undefined;
+  if (teaser && teaser.end - teaser.start + spanSec(segs) > 180) teaser = undefined; // Shorts max 3 min
+  const lead = teaser ? teaser.end - teaser.start : 0;
+  const shift = (ws: Word[], d: number) => ws.map((w) => ({ ...w, start: w.start + d, end: w.end + d }));
+  const words = !o.captions ? [] : [
+    ...(teaser ? shift(local.filter((w) => w.start >= teaser.start && w.end <= teaser.end), -teaser.start) : []),
+    ...shift(retimeWords(local, segs), lead),
+  ];
+  return { segs, zooms: o.zooms && audio ? zoomTimes(pts, segs).map((t) => t + lead) : [], teaser, words, total: lead + spanSec(segs) };
+}
+
 // ---- ASS subtitles ----
 
 /** h:mm:ss.cc */
@@ -418,7 +459,8 @@ export function captionGroups(words: Word[]): Word[][] {
 }
 
 const CHERRY_ASS = "&H00632EFF"; // #ff2e63 as &HAABBGGRR
-const CAP_FS = 92, CAP_CHARS = 15; // ~15 uppercase chars of bold Arial 92 fit 960 px
+// Shorts-safe area: bottom edge 640 px up (clear of the bottom ~22% title/channel UI), 150 px right margin (like/comment buttons).
+const CAP_FS = 100, CAP_CHARS = 13, CAP_MARGIN = { l: 70, r: 150, v: 640 }; // ~13 uppercase chars of bold Arial 100 fit the 860 px between margins
 const ASS_YELLOW = "&H00E5FF&", ASS_CHERRY = "&H632EFF&"; // #ffe500, #ff2e63 (override colours are &HBBGGRR&)
 
 /** Subtitle file for one clip: the hook on top for the first 2.5 s, then karaoke captions lower-middle: 1-3 words on screen, the spoken
@@ -456,7 +498,7 @@ export function buildAss(o: { hook: string; words: Word[]; duration: number; sty
     "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "WrapStyle: 0", "ScaledBorderAndShadow: yes", "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Cap,Arial,${CAP_FS},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,8,3,2,60,60,560,1`,
+    `Style: Cap,Arial,${CAP_FS},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,10,5,2,${CAP_MARGIN.l},${CAP_MARGIN.r},${CAP_MARGIN.v},1`,
     `Style: Hook,Arial,92,&H00FFFFFF,&H00FFFFFF,${CHERRY_ASS},${CHERRY_ASS},-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1`,
     "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text", ...ev, "",
   ].join("\n");
@@ -492,7 +534,10 @@ export function layoutFilter(inp: string, out: string, layout: Layout = "fit", c
     `[bg][fg]overlay=(W-w)/2:(H-h)/2[${out}]`;
 }
 
-export type RenderOpts = { duration: number; segs?: Span[]; audio?: boolean; layout?: Layout; camSide?: CamSide; zooms?: number[]; ass?: string };
+// teaser: cold open (clip time), read from a second input of the same file (input 1) so the main parts don't buffer while it plays.
+// progressBar: a thin bar along the bottom edge filling over the video; fadeOut: 4-frame audio fade at the end (smooth loop).
+export type RenderOpts = { duration: number; segs?: Span[]; audio?: boolean; layout?: Layout; camSide?: CamSide; zooms?: number[]; ass?: string;
+  teaser?: Span; progressBar?: boolean; fadeOut?: boolean };
 
 /** The whole edit as one filter graph: jump cuts (trim/atrim + concat: frame/sample exact and A/V stay in sync per part), layout,
  *  punch-in zooms, captions, then loudness-normalised stereo 48 kHz audio. Outputs [v] and, with audio, [a]. */
@@ -501,24 +546,40 @@ export function renderFilter(o: RenderOpts): string {
   if (o.ass !== undefined && !/^[\w.-]+\.ass$/.test(o.ass)) throw new Error("unsafe ass file name");
   const segs = o.segs?.length ? o.segs : [{ start: 0, end: o.duration }];
   // Loudness first, on the uncut audio: after concat, loudnorm drops the last second or so of a short clip (ffmpeg 6).
-  const f: string[] = o.audio ? ["[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo[an]"] : []; // loudnorm resamples to 192 kHz
+  const LN = "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo"; // loudnorm resamples to 192 kHz
+  const lead = o.teaser ? o.teaser.end - o.teaser.start : 0;
+  // With a teaser the audio comes from input 2 (audio-only copy of the clip span): the teaser's audio is cut from the same normalised
+  // track (same level), and input 0's video doesn't pile up in memory while the teaser waits for audio from later in the clip.
+  const f: string[] = o.audio ? [`[${lead ? 2 : 0}:a]${LN}[an]`] : [];
+  const total = lead + spanSec(segs);
   let v = "0:v", a = "an";
-  if (segs.length > 1 || segs[0].start > 0 || segs[0].end < o.duration) {
+  if (lead || segs.length > 1 || segs[0].start > 0 || segs[0].end < o.duration) {
     const n = segs.length, ids = segs.map((_, i) => i);
     f.push(`[0:v]fps=30,split=${n}${ids.map((i) => `[vs${i}]`).join("")}`, ...segs.map((s, i) => `[vs${i}]trim=start=${sec(s.start)}:end=${sec(s.end)},setpts=PTS-STARTPTS[vt${i}]`));
-    if (o.audio) f.push(`[an]asplit=${n}${ids.map((i) => `[as${i}]`).join("")}`, ...segs.map((s, i) => `[as${i}]atrim=start=${sec(s.start)}:end=${sec(s.end)},asetpts=PTS-STARTPTS[at${i}]`));
-    f.push(`${ids.map((i) => `[vt${i}]${o.audio ? `[at${i}]` : ""}`).join("")}concat=n=${n}:v=1:a=${o.audio ? 1 : 0}[vc]${o.audio ? "[ac]" : ""}`);
+    if (o.audio) f.push(`[an]asplit=${n + (lead ? 1 : 0)}${ids.map((i) => `[as${i}]`).join("")}${lead ? "[ast]" : ""}`, ...segs.map((s, i) => `[as${i}]atrim=start=${sec(s.start)}:end=${sec(s.end)},asetpts=PTS-STARTPTS[at${i}]`));
+    const parts = ids.map((i) => `[vt${i}]${o.audio ? `[at${i}]` : ""}`);
+    if (lead) {
+      f.push(`[1:v]fps=30,trim=duration=${sec(lead)},setpts=PTS-STARTPTS[vtt]`);
+      if (o.audio) f.push(`[ast]atrim=start=${sec(o.teaser!.start)}:end=${sec(o.teaser!.end)},asetpts=PTS-STARTPTS[att]`);
+      parts.unshift(`[vtt]${o.audio ? "[att]" : ""}`);
+    }
+    f.push(`${parts.join("")}concat=n=${parts.length}:v=1:a=${o.audio ? 1 : 0}[vc]${o.audio ? "[ac]" : ""}`);
     v = "vc"; a = "ac";
   }
   f.push(layoutFilter(v, "lay", o.layout, o.camSide));
   const zoom = o.zooms?.length ? `zoompan=z='${zoomExpr(o.zooms)}':d=1:x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':s=1080x1920:fps=30,setsar=1,` : "";
-  f.push(`[lay]fps=30,${zoom}format=yuv420p${o.ass ? `,ass=${o.ass}` : ""}[v]`);
-  if (o.audio) f.push(`[${a}]anull[a]`);
+  const flash = lead ? `drawbox=c=white@0.85:t=fill:enable='between(t,${sec(lead)},${sec(lead + 3 * FRAME - 0.001)})',` : ""; // 3-frame white flash teaser → clip
+  // drawbox can't size by time, so the bar is a solid strip slid in from the left by overlay (evaluated per frame).
+  const bar = o.progressBar ? `[vb];color=c=0xff2e63:s=1080x12:r=30[bar];[vb][bar]overlay=x='-w+w*t/${sec(total)}':y=H-h:eval=frame:shortest=1,format=yuv420p` : "";
+  f.push(`[lay]fps=30,${zoom}${flash}format=yuv420p${o.ass ? `,ass=${o.ass}` : ""}${bar}[v]`);
+  if (o.audio) f.push(`[${a}]${o.fadeOut && total > 4 * FRAME ? `afade=t=out:st=${sec(total - 4 * FRAME)}:d=${sec(4 * FRAME)}` : "anull"}[a]`);
   return f.join(";");
 }
 
 export const renderArgs = (o: RenderOpts & { input: string; start: number; out: string }) => [
   "-hide_banner", "-nostdin", "-y", "-ss", sec(o.start), "-t", sec(o.duration), ...IN, o.input,
+  ...(o.teaser ? ["-an", "-ss", sec(o.start + o.teaser.start), "-t", sec(o.teaser.end - o.teaser.start), ...IN, o.input] : []),
+  ...(o.teaser && o.audio ? ["-vn", "-ss", sec(o.start), "-t", sec(o.duration), ...IN, o.input] : []),
   "-filter_complex", renderFilter(o), "-map", "[v]", ...(o.audio ? ["-map", "[a]"] : []),
   "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-r", "30",
   "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", o.out,
@@ -592,16 +653,18 @@ export function isPlainName(name: unknown): name is string {
 }
 
 const LAYOUTS = ["fit", "fill", "split"], SIDES = ["left", "right"], LANGS = ["auto", "en"];
-/** Clip options from a request body (defaults: 5 clips, 45 s, captions, fit layout, jump cuts, zooms, English) or an error message. */
+/** Clip options from a request body (defaults: 5 clips, 45 s, captions, fit layout, jump cuts, zooms, English, cold open, loop end,
+ *  no progress bar) or an error message. */
 export function validOptions(b: Record<string, unknown>): Required<ClipOptions> | string {
-  const { count = 5, maxSec = 45, captions = true, layout = "fit", camSide = "right", jumpCuts = true, zooms = true, language = "en" } = b;
+  const { count = 5, maxSec = 45, captions = true, layout = "fit", camSide = "right", jumpCuts = true, zooms = true, language = "en",
+    coldOpen = true, progressBar = false, loopEnd = true } = b;
   if (!Number.isInteger(count) || (count as number) < 1 || (count as number) > 10) return "count must be 1-10";
   if (!Number.isInteger(maxSec) || (maxSec as number) < 15 || (maxSec as number) > 120) return "maxSec must be 15-120";
-  for (const [k, v] of Object.entries({ captions, jumpCuts, zooms })) if (typeof v !== "boolean") return `${k} must be a boolean`;
+  for (const [k, v] of Object.entries({ captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd })) if (typeof v !== "boolean") return `${k} must be a boolean`;
   if (!LAYOUTS.includes(layout as string)) return "layout must be fit, fill or split";
   if (!SIDES.includes(camSide as string)) return "camSide must be left or right";
   if (!LANGS.includes(language as string)) return "language must be auto or en";
-  return { count, maxSec, captions, layout, camSide, jumpCuts, zooms, language } as Required<ClipOptions>;
+  return { count, maxSec, captions, layout, camSide, jumpCuts, zooms, language, coldOpen, progressBar, loopEnd } as Required<ClipOptions>;
 }
 
 export const isJobId = (s: unknown): s is string => typeof s === "string" && /^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(s);
@@ -740,22 +803,24 @@ export const MAX_NUDGE_SEC = 10;
 
 /** Version request body → request, or a message for a 400. start/end are nudges in seconds (clamped to ±10). */
 export function validVersion(b: Record<string, unknown>): VersionReq | string {
-  const { layout, camSide, captions, jumpCuts, zooms, hook, title, start = 0, end = 0, suggest = false } = b;
+  const { layout, camSide, captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd, hook, title, start = 0, end = 0, suggest = false } = b;
   if (layout !== undefined && !LAYOUTS.includes(layout as string)) return "layout must be fit, fill or split";
   if (camSide !== undefined && !SIDES.includes(camSide as string)) return "camSide must be left or right";
   if (captions !== undefined && !CAPTION_STYLES.includes(captions as CaptionStyle)) return "captions must be karaoke, classic or none";
-  for (const [k, v] of Object.entries({ jumpCuts, zooms, suggest })) if (v !== undefined && typeof v !== "boolean") return `${k} must be a boolean`;
+  for (const [k, v] of Object.entries({ jumpCuts, zooms, coldOpen, progressBar, loopEnd, suggest })) if (v !== undefined && typeof v !== "boolean") return `${k} must be a boolean`;
   if (hook !== undefined && (typeof hook !== "string" || hook.length > 200)) return "hook must be text";
   if (title !== undefined && (typeof title !== "string" || !title.trim() || title.length > 200)) return "title must be a non-empty string";
   if (!isNum(start) || !isNum(end)) return "start and end must be numbers of seconds";
-  const edit = Object.fromEntries(Object.entries({ layout, camSide, captions, jumpCuts, zooms }).filter(([, v]) => v !== undefined)) as Partial<VersionEdit>;
+  const edit = Object.fromEntries(Object.entries({ layout, camSide, captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd }).filter(([, v]) => v !== undefined)) as Partial<VersionEdit>;
   return { edit, hook: hook === undefined ? undefined : shortHook(hook), title: title === undefined ? undefined : str(title, 70),
     dStart: clamp(start, -MAX_NUDGE_SEC, MAX_NUDGE_SEC), dEnd: clamp(end, -MAX_NUDGE_SEC, MAX_NUDGE_SEC), suggest: suggest as boolean };
 }
 
-/** The edit settings a job's original clips were rendered with. */
+/** The edit settings a job's original clips were rendered with. coldOpen/progressBar/loopEnd missing = a job from before they
+ *  existed, rendered without them (validOptions sets them on new jobs), so its versions keep that look unless the owner ticks them. */
 export const baseEdit = (o: ClipOptions): VersionEdit =>
-  ({ layout: o.layout ?? "fit", camSide: o.camSide ?? "right", captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true });
+  ({ layout: o.layout ?? "fit", camSide: o.camSide ?? "right", captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true,
+    coldOpen: o.coldOpen ?? false, progressBar: o.progressBar ?? false, loopEnd: o.loopEnd ?? false });
 
 /** A clip's span nudged and kept inside the video; a message when the result would be under 5 s or over 3 min (the Shorts limit). */
 export function versionSpan(clip: Span, dStart: number, dEnd: number, duration: number): Span | string {

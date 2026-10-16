@@ -12,6 +12,8 @@ export async function register() {
     startScheduler();
     const { startClipQueue } = await import("./lib/clips/factory");
     startClipQueue(); // resume queued clip jobs without waiting for the STUDIO page to be opened
+    const { startInboxWatch } = await import("./lib/clips/inbox-watch");
+    startInboxWatch(); // auto-clips stream files dropped into the inbox
     // Own timer, not startScheduler(): that one is off without SUPABASE_SECRET_KEY, and the scout only needs local files + YOUTUBE_API_KEY.
     const { startScout } = await import("./lib/clips/scout");
     startScout();

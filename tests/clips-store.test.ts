@@ -68,6 +68,8 @@ test("validVersion: options checked, nudges clamped to ±10 s, text cleaned", ()
   assert.match(validVersion({ captions: "fancy" }) as string, /captions/);
   assert.match(validVersion({ layout: "wide" }) as string, /layout/);
   assert.match(validVersion({ zooms: "yes" }) as string, /zooms/);
+  assert.match(validVersion({ coldOpen: 1 }) as string, /coldOpen/);
+  assert.deepEqual((validVersion({ progressBar: true, loopEnd: false }) as { edit: object }).edit, { progressBar: true, loopEnd: false });
   assert.match(validVersion({ start: "5" }) as string, /numbers/);
   assert.match(validVersion({ end: NaN }) as string, /numbers/);
   assert.match(validVersion({ title: "  " }) as string, /title/);
@@ -86,7 +88,8 @@ test("version ids number after the original and its other versions", () => {
   assert.equal(nextVersionId([{ id: "clip-1-v99" }], "clip-1"), null);
   assert.equal(rootClipId("clip-12-v3"), "clip-12");
   assert.ok(isClipId("clip-1-v2") && isClipId("clip-10") && !isClipId("clip-1-v") && !isClipId("clip-1-v100") && !isClipId("clip-1-x2"));
-  assert.deepEqual(baseEdit({ count: 5, maxSec: 45, captions: false }), { layout: "fit", camSide: "right", captions: "none", jumpCuts: true, zooms: true });
+  assert.deepEqual(baseEdit({ count: 5, maxSec: 45, captions: false }), { layout: "fit", camSide: "right", captions: "none", jumpCuts: true, zooms: true,
+    coldOpen: false, progressBar: false, loopEnd: false }); // old job: rendered without the retention edits
 });
 
 test("parseSuggestion takes title/hook from a JSON object reply", () => {

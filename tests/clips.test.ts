@@ -119,8 +119,8 @@ test("buildAss: hook first 2.5 s, karaoke captions with the spoken word highligh
   assert.match(ass, /PlayResX: 1080\nPlayResY: 1920/);
   assert.match(ass, /Dialogue: 1,0:00:00.00,0:00:02.50,Hook,,0,0,0,,WAIT \(FOR\) IT/);
   const hi = (t: string, c = "&H00E5FF&", s = 115) => `{\\c${c}\\t(0,80,\\fscx${s}\\fscy${s})}${t}{\\c&HFFFFFF&\\fscx100\\fscy100}`;
-  assert.ok(ass.includes(`Dialogue: 0,0:00:00.50,0:00:01.00,Cap,,0,0,0,,${hi("HELLO")} WORLD)\n`), ass);
-  assert.ok(ass.includes(`Dialogue: 0,0:00:01.00,0:00:01.50,Cap,,0,0,0,,HELLO ${hi("WORLD)")}\n`));
+  assert.ok(ass.includes(`Dialogue: 0,0:00:00.50,0:00:01.00,Cap,,0,0,0,,{\\fs86}${hi("HELLO")} WORLD)\n`), ass); // 14 chars + 3: shrunk to fit the safe zone
+  assert.ok(ass.includes(`Dialogue: 0,0:00:01.00,0:00:01.50,Cap,,0,0,0,,{\\fs86}HELLO ${hi("WORLD)")}\n`));
   assert.ok(!ass.includes("GONE"));
   assert.ok(!buildAss({ hook: "", words: [], duration: 5 }).includes("Dialogue:"));
   const loud = buildAss({ hook: "", words: [{ text: "no", start: 0, end: 0.3 }, { text: "WAY", start: 0.3, end: 0.6, loud: true }], duration: 5 });
@@ -129,8 +129,8 @@ test("buildAss: hook first 2.5 s, karaoke captions with the spoken word highligh
 
 test("buildAss shrinks a line that wouldn't fit", () => {
   const ass = buildAss({ hook: "", words: [{ text: "Congratulations!!", start: 0, end: 1 }], duration: 5 });
-  assert.match(ass, /Cap,,0,0,0,,\{\\fs69\}\{/); // floor(92 * 15 / (17 + 3))
-  assert.match(buildAss({ hook: "", words: [{ text: "twelve chars", start: 0, end: 1 }], duration: 5 }), /Cap,,0,0,0,,\{\\c/);
+  assert.match(ass, /Cap,,0,0,0,,\{\\fs65\}\{/); // floor(100 * 13 / (17 + 3))
+  assert.match(buildAss({ hook: "", words: [{ text: "ten chars", start: 0, end: 1 }], duration: 5 }), /Cap,,0,0,0,,\{\\c/);
 });
 
 test("ffmpeg arg builders", () => {
@@ -243,9 +243,12 @@ test("ytdlpArgs keeps the URL last, after --", () => {
 });
 
 test("validOptions and isDownloadId", () => {
-  assert.deepEqual(validOptions({}), { count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", jumpCuts: true, zooms: true, language: "en" });
+  assert.deepEqual(validOptions({}), { count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", jumpCuts: true, zooms: true, language: "en",
+    coldOpen: true, progressBar: false, loopEnd: true });
+  assert.match(validOptions({ coldOpen: "yes" }) as string, /coldOpen/);
+  assert.equal((validOptions({ progressBar: true }) as { progressBar: boolean }).progressBar, true);
   assert.deepEqual(validOptions({ layout: "split", camSide: "left", jumpCuts: false, zooms: false, language: "auto" }),
-    { count: 5, maxSec: 45, captions: true, layout: "split", camSide: "left", jumpCuts: false, zooms: false, language: "auto" });
+    { count: 5, maxSec: 45, captions: true, layout: "split", camSide: "left", jumpCuts: false, zooms: false, language: "auto", coldOpen: true, progressBar: false, loopEnd: true });
   for (const bad of [{ count: 11 }, { captions: "yes" }, { layout: "zoom" }, { camSide: "top" }, { jumpCuts: 1 }, { zooms: null }, { language: "de" }])
     assert.equal(typeof validOptions(bad), "string", JSON.stringify(bad));
   assert.ok(isDownloadId("dl-mgr1abc-a1b2c3"));

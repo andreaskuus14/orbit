@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ASR_MAX_SEC, asrBudgetSec, asrPieces, asrRegions, frameArgs, groupSpans, keepSegments, markLoud, mergeRanked, renderFilter, retime, retimeWords, validateMoments, zoomExpr, zoomTimes,
+  ASR_MAX_SEC, asrBudgetSec, coldOpenSpan, editPlan, trimTail, asrPieces, asrRegions, frameArgs, groupSpans, keepSegments, markLoud, mergeRanked, renderArgs, renderFilter, retime, retimeWords, validateMoments, zoomExpr, zoomTimes,
   type Moment, type Pt, type Word,
 } from "../src/lib/clips/pure.ts";
 
@@ -141,4 +141,40 @@ test("spanCover and asrPieces seam ownership", async () => {
   assert.equal(spanCover({ start: 5, end: 5 }, spans), 0);
   const p = asrPieces([{ start: 0, end: 700 }], 300, 5);
   assert.deepEqual(p.map((x) => [x.from, x.start]), [[0, 0], [295, 300], [595, 600]]); // overlap read for context, ownership from `start`
+});
+
+test("retention edits: cold-open span, loop-friendly tail, edit plan", () => {
+  const pts = Array.from({ length: 40 }, (_, i) => ({ t: i * 0.5 + 0.25, v: i === 20 ? 9 : 1 })); // 20 s, peak at 10.25 s
+  assert.deepEqual(coldOpenSpan(pts, [], 20), { start: 9.25, end: 10.85 });
+  assert.deepEqual(coldOpenSpan(pts, [{ start: 10.5, end: 11.1, text: "x" }], 20), { start: 9.25, end: 11.1 }, "stretched to the end of the word it cuts");
+  assert.equal(coldOpenSpan(pts, [{ start: 10.5, end: 11.5, text: "x" }], 20)!.end, 10.85, "never over 2 s");
+  assert.equal(coldOpenSpan(pts.map((p) => ({ ...p, v: p.t < 2 ? 9 : 1 })), [], 20), null, "peak in the first 3 s: no teaser");
+  const words = [{ start: 1, end: 2, text: "a" }, { start: 6, end: 7, text: "b" }];
+  assert.deepEqual(trimTail([{ start: 0, end: 4 }, { start: 5, end: 20 }], words, pts), [{ start: 0, end: 4 }, { start: 5, end: 10.5 }], "keeps the late loud peak");
+  assert.deepEqual(trimTail([{ start: 0, end: 20 }], words, pts.map((p) => ({ ...p, v: 1 }))), [{ start: 0, end: 7.3 }], "0.3 s after the last word");
+  assert.deepEqual(trimTail([{ start: 0, end: 20 }], [{ start: 1, end: 2, text: "a" }], pts.map((p) => ({ ...p, v: 1 }))), [{ start: 0, end: 20 }], "under 5 s left: unchanged");
+  const plan = editPlan(words, pts, 20, true, { captions: true, coldOpen: true, loopEnd: true, zooms: true });
+  assert.deepEqual(plan.teaser, { start: 9.25, end: 10.85 });
+  assert.ok(Math.abs(plan.total - (1.6 + 10.5)) < 1e-9);
+  assert.equal(coldOpenSpan(pts, [], 20, [{ start: 0, end: 9 }, { start: 11, end: 20 }]), null, "peak cut out by a jump cut: no teaser");
+  const long = Array.from({ length: 360 }, (_, i) => ({ t: i * 0.5 + 0.25, v: i === 200 ? 9 : 1 }));
+  assert.equal(editPlan([], long, 179.5, true, { coldOpen: true }).teaser, undefined, "teaser would push it over 3 min");
+  assert.deepEqual(plan.words.map((w) => +w.start.toFixed(3)), [2.6, 7.6], "clip words shifted after the teaser");
+  assert.equal(editPlan(words, pts, 20, false, { coldOpen: true }).teaser, undefined, "no audio: no peak, no teaser");
+});
+
+test("renderFilter: teaser from input 1 with a flash, progress bar, end fade", () => {
+  const f = renderFilter({ duration: 10, audio: true, teaser: { start: 6, end: 7.5 }, progressBar: true, fadeOut: true });
+  assert.ok(f.includes("[1:v]fps=30,trim=duration=1.5") && f.includes("[2:a]loudnorm") && f.includes("[ast]atrim=start=6:end=7.5"), "teaser audio cut from the main normalised track");
+  assert.ok(f.includes("[vtt][att][vt0][at0]concat=n=2"), "teaser first, even with no jump cuts");
+  assert.ok(f.includes("between(t,1.5,1.599)"), "3-frame flash at the seam");
+  assert.ok(f.includes("overlay=x='-w+w*t/11.5'"), "bar fills over teaser + clip");
+  assert.ok(f.includes("afade=t=out:st=11.367:d=0.133"));
+  const plain = renderFilter({ duration: 10, audio: true });
+  assert.ok(!plain.includes("concat") && !plain.includes("color=c=") && plain.includes("[an]anull[a]") && !plain.includes("afade"));
+  const args = renderArgs({ input: "s.mp4", start: 100, duration: 10, teaser: { start: 6, end: 7.5 }, out: "o.mp4" });
+  assert.deepEqual(args.slice(args.lastIndexOf("-ss"), args.lastIndexOf("-ss") + 4), ["-ss", "106", "-t", "1.5"]);
+  assert.equal(args.filter((x) => x === "s.mp4").length, 2);
+  const withAudio = renderArgs({ input: "s.mp4", start: 100, duration: 10, audio: true, teaser: { start: 6, end: 7.5 }, out: "o.mp4" });
+  assert.ok(withAudio.filter((x) => x === "s.mp4").length === 3 && withAudio.includes("-an") && withAudio.includes("-vn"));
 });

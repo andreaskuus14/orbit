@@ -1,0 +1,160 @@
+import { exec } from "node:child_process";
+import { access, readFile, stat, statfs } from "node:fs/promises";
+import path from "node:path";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { CLAUDE_BIN, MODEL, SMART_MODEL } from "./claude";
+import { checkTools, listDownloads, studioRoot } from "./clips/factory";
+import { youtubePauseUntil } from "./clips/pure";
+import { scoutView } from "./clips/scout";
+import { api } from "./youtube";
+import { oauthEnv, readStored, wasExpired } from "./yt-oauth";
+import { YT_UPLOAD_SCOPE, hasScopes } from "./yt-analytics-pure";
+import {
+  buildCheck, check, diskCheck, envCheck, launcherCheck, modelCheck, nightCheck, quotaCheck, summarize, ytdlpCheck, type Check, type Report,
+} from "./doctor-pure";
+
+// ORBIT doctor: runs every check in parallel, each with its own timeout, and returns plain-English verdicts (see doctor-pure.ts).
+// Nothing here returns a secret: env checks report names only, and error text from outside is never passed through raw.
+
+const WIN = process.platform === "win32";
+const root = () => process.cwd(); // the launcher starts the server in the ORBIT folder, where its logs live
+const exists = (p: string) => access(p).then(() => true, () => false);
+const tail = (f: string, bytes = 20_000) => readFile(f, "utf8").then((s) => s.slice(-bytes), () => "");
+
+// Cached on globalThis (survives dev hot reloads): the CLI and yt-dlp take ~1 s to start, the API call costs quota.
+const g = globalThis as unknown as { __orbitDoctor?: Map<string, { until: number; v: unknown }> };
+const cache = (g.__orbitDoctor ??= new Map());
+async function cached<T>(key: string, fn: () => Promise<T>, ttl: (v: T) => number): Promise<T> {
+  const c = cache.get(key);
+  if (c && c.until > Date.now()) return c.v as T;
+  const v = await fn();
+  cache.set(key, { until: Date.now() + ttl(v), v });
+  return v;
+}
+
+/** `<bin> --version` (shell: Windows installs claude as claude.cmd); null when it can't run. The bin comes from env/our constants, never user input. */
+const version = (bin: string) => new Promise<string | null>((resolve) => {
+  exec(`"${bin}" --version`, { timeout: 5000, windowsHide: true }, (err, out) => resolve(err ? null : out.trim().split(/\r?\n/)[0].slice(0, 80) || null));
+});
+
+/** A check that throws becomes "fail", one that hangs becomes "warn"; neither holds up the report. */
+function guard(id: string, label: string, run: () => Promise<Check | Check[]>, ms = 8000): Promise<Check | Check[]> {
+  let t: NodeJS.Timeout | undefined;
+  const late = new Promise<Check>((r) => { t = setTimeout(() => r(check(id, label, "warn", `Didn't answer within ${ms / 1000} s`, "Try again in a minute; if it stays slow, restart ORBIT.")), ms); });
+  const real = run().catch((e) => check(id, label, "fail", `The check itself failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 150)}`, "Restart ORBIT and run the check again."));
+  return Promise.race([real, late]).finally(() => clearTimeout(t));
+}
+
+const H = 3_600_000;
+
+async function claudeCheck(): Promise<Check> {
+  const v = await cached("claude", () => version(CLAUDE_BIN), (x) => (x ? 10 * 60_000 : 60_000));
+  return v ? check("claude", "Claude (the AI behind CORE)", "ok", `Claude Code ${v}`)
+    : check("claude", "Claude (the AI behind CORE)", "fail", `Couldn't start "${path.basename(CLAUDE_BIN)}", so CORE, agents and clips can't think`,
+      "Install Claude Code, open a terminal and run: claude (sign in once). Then restart ORBIT.");
+}
+
+async function supabaseCheck(sb: SupabaseClient): Promise<Check> {
+  const { error } = await sb.from("memories").select("id", { head: true }).limit(1).abortSignal(AbortSignal.timeout(5000));
+  return error ? check("supabase", "Database (Supabase)", "fail", "Couldn't reach the database",
+    "Check your internet. If it lasts, open supabase.com: free projects pause after a week unused; click Restore project.")
+    : check("supabase", "Database (Supabase)", "ok", "Reachable");
+}
+
+async function youtubeKeyCheck(): Promise<Check> {
+  const key = process.env.YOUTUBE_API_KEY?.trim();
+  const L = "YouTube API key";
+  if (!key) return check("ytkey", L, "warn", "Not set: STUDIO stats and the Video Scout are off", "Add YOUTUBE_API_KEY to .env.local (Google Cloud → APIs & Services → Credentials), then restart ORBIT.");
+  // 1 quota unit; api() already strips the key from its error text.
+  const err = await cached("ytkey", () => api("i18nLanguages", { part: "snippet", hl: "en" }, key).then(() => "", (e: Error) => e.message.slice(0, 160)), (e) => (e ? 5 * 60_000 : H));
+  if (!err) return check("ytkey", L, "ok", "Works");
+  return /quota/i.test(err) ? check("ytkey", L, "warn", "Google's daily limit for this key is used up", "Nothing to fix: it resets at midnight Pacific time.")
+    : check("ytkey", L, "fail", `Google refused it (${err})`, "Check YOUTUBE_API_KEY in .env.local and that \"YouTube Data API v3\" is enabled for it in Google Cloud, then restart ORBIT.");
+}
+
+async function scoutQuotaCheck(): Promise<Check> {
+  const v = await scoutView();
+  return quotaCheck(v.budget, v.usedToday);
+}
+
+async function oauthCheck(): Promise<Check> {
+  const L = "YouTube channel connection";
+  const s = await readStored();
+  const connect = "Open STUDIO → Stats and click Connect YouTube.";
+  if (wasExpired()) return check("oauth", L, "fail", "Google's sign-in expired, so stats and uploads stopped", connect);
+  if (!s) return oauthEnv() ? check("oauth", L, "warn", "Not connected: no channel stats or uploads", connect)
+    : check("oauth", L, "ok", "Not set up (optional)", "For channel stats and uploads, add YOUTUBE_OAUTH_CLIENT_ID and YOUTUBE_OAUTH_CLIENT_SECRET to .env.local.");
+  if (!oauthEnv()) return check("oauth", L, "fail", `Connected to ${s.channelTitle || "your channel"}, but the Google client settings are missing`, "Add YOUTUBE_OAUTH_CLIENT_ID and YOUTUBE_OAUTH_CLIENT_SECRET back to .env.local, then restart ORBIT.");
+  return hasScopes(s.scope, [YT_UPLOAD_SCOPE]) ? check("oauth", L, "ok", `Connected to ${s.channelTitle || "your channel"}; uploads allowed`)
+    : check("oauth", L, "warn", `Connected to ${s.channelTitle || "your channel"}, but uploading isn't allowed`, "In STUDIO → Stats click Disconnect, then Connect again and tick the upload box.");
+}
+
+async function toolChecks(): Promise<Check[]> {
+  const t = await checkTools();
+  const model = process.env.ORBIT_WHISPER_MODEL || "onnx-community/whisper-base_timestamped"; // same default as factory.ts
+  const [ver, downloads, haveModel] = await Promise.all([
+    t.ytdlp ? cached("ytdlp", () => version(process.env.ORBIT_YTDLP || "yt-dlp"), () => 10 * 60_000) : null,
+    listDownloads().catch(() => []),
+    exists(path.join(studioRoot(), "models", model)),
+  ]);
+  return [
+    t.ffmpeg ? check("ffmpeg", "Video tool (ffmpeg)", "ok", "Found")
+      : check("ffmpeg", "Video tool (ffmpeg)", "fail", "Not found, so clips can't be cut or rendered", "In the ORBIT folder run: npm install. Or set ORBIT_FFMPEG in .env.local to the full path of ffmpeg.exe."),
+    ytdlpCheck(t.ytdlp, ver, youtubePauseUntil(downloads, "https://www.youtube.com/"), Date.now()),
+    !t.transcriber ? check("whisper", "Speech-to-text (Whisper)", "fail", "The transcriber library is missing, so clips get no captions", "In the ORBIT folder run: npm install")
+      : haveModel ? check("whisper", "Speech-to-text (Whisper)", "ok", `Model ${model.split("/").pop()} downloaded`)
+      : check("whisper", "Speech-to-text (Whisper)", "warn", "Model not downloaded yet", "Nothing to do: it downloads by itself (about 200 MB) on the first clip job. Keep the internet on."),
+  ];
+}
+
+async function disk(): Promise<Check> {
+  const dir = (await exists(studioRoot())) ? studioRoot() : root();
+  const s = await statfs(dir);
+  return diskCheck(s.bavail * s.bsize, WIN ? `drive ${path.parse(dir).root.replace(/\\$/, "")}` : dir);
+}
+
+async function build(): Promise<Check> {
+  const failed = await exists(path.join(root(), ".next-build", "BUILD_FAILED")); // written by scripts/launch.ps1
+  return buildCheck(failed, failed ? await tail(path.join(root(), "orbit-build.log")) : "", process.env.NODE_ENV === "production");
+}
+
+async function night(): Promise<Check> {
+  const s = await stat(path.join(root(), "orbit-night.log")).catch(() => null);
+  return nightCheck(s ? s.mtimeMs : null, Date.now());
+}
+
+async function wake(): Promise<Check> {
+  const L = "Voice wake-up (\"Orbital wake up\")";
+  const lnk = path.join(process.env.APPDATA ?? "", "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "ORBIT wake.lnk");
+  if (!(await exists(lnk))) return check("wake", L, "ok", "Not installed (optional)", "To wake ORBIT by voice, run: npm run wake:install");
+  const last = (await tail(path.join(process.env.LOCALAPPDATA ?? "", "orbit-wake", "wake.log"), 2000)).trim().split(/\r?\n/).pop() ?? "";
+  return /ERROR/.test(last) ? check("wake", L, "warn", `Installed, but its last log line is an error: ${last.slice(0, 160)}`, "Run: npm run wake:install (restarts the listener). Details are in %LOCALAPPDATA%\\orbit-wake\\wake.log")
+    : check("wake", L, "ok", "Installed");
+}
+
+const ENV_REQUIRED = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"];
+const ENV_OPTIONAL = {
+  YOUTUBE_API_KEY: "STUDIO stats and scout", YOUTUBE_CHANNEL: "your channel in STUDIO", YOUTUBE_OAUTH_CLIENT_ID: "channel connection",
+  YOUTUBE_OAUTH_CLIENT_SECRET: "channel connection", SUPABASE_SECRET_KEY: "briefings while the browser is closed", VOYAGE_API_KEY: "smarter memory search",
+};
+
+/** All checks in parallel; worst case ~8 s (each guard's timeout). */
+export async function runDoctor(sb: SupabaseClient): Promise<Report> {
+  const t0 = Date.now();
+  const results = await Promise.all([
+    guard("claude", "Claude (the AI behind CORE)", claudeCheck),
+    Promise.resolve(modelCheck(MODEL, SMART_MODEL)),
+    guard("supabase", "Database (Supabase)", () => supabaseCheck(sb)),
+    guard("ytkey", "YouTube API key", youtubeKeyCheck),
+    guard("quota", "YouTube scout budget", scoutQuotaCheck),
+    guard("oauth", "YouTube channel connection", oauthCheck),
+    guard("tools", "Clip tools (ffmpeg, yt-dlp, Whisper)", toolChecks),
+    guard("disk", "Free disk space", disk),
+    guard("build", "Last update build", build),
+    guard("launcher", "Server stability", async () => launcherCheck(await tail(path.join(root(), "orbit-launcher.log"), 50_000), new Date())),
+    guard("night", "Overnight run", night),
+    ...(WIN ? [guard("wake", "Voice wake-up", wake)] : []),
+    Promise.resolve(envCheck(process.env, ENV_REQUIRED, ENV_OPTIONAL)),
+  ]);
+  return summarize(results.flat(), Date.now() - t0);
+}

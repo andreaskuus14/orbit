@@ -8,7 +8,8 @@ import { planetById, type PanelId } from "./planets.ts";
  *  zoom acts on whatever world is on screen and never navigates (panel is ignored). */
 export type NavTarget = {
   panel: PanelId | null; country?: string; region?: string; view?: "stats" | "clips" | "review" | "none";
-  search?: string; zoom?: "in" | "out" | "reset";
+  search?: string; zoom?: "in" | "out" | "reset"; morning?: true; // morning: open the "Good morning" card on the galaxy and read it aloud
+  doctor?: true; // doctor: open the ORBIT doctor (health checks) and read the result aloud; stays where you are
 };
 export const NAV_EVENT = "orbit:navigate"; // detail: NavTarget
 /** "local news" means this country. */
@@ -35,6 +36,8 @@ put({ panel: "vault" }, "vault, files");
 put({ panel: "studio", view: "stats" }, "stats, my stats, statistics, stats in the studio, stats of the studio, the stats of the studio, stats of the soda, the stats of the soda, statistics in the studio, channel stats, youtube stats, video stats, studio stats, my analytics, channel analytics, youtube analytics");
 put({ panel: "studio", view: "clips" }, "clips, my clips, clip factory, the clip factory, clip maker, shorts, studio clips, clips in the studio, clips in studio, clips of the studio, the clips of the studio, clips of the soda, the clips in the studio, eclipse, eclipses, the eclipse, the eclipses");
 put({ panel: "studio", view: "review" }, "review, the review, morning review, clip review, clips review, review queue, review clips, review my clips, review the clips, review new clips, review new");
+put({ panel: null, morning: true }, "good morning, morning briefing, my morning briefing, morning brief, daily briefing, my daily briefing, daily brief, whats new today, brief me, morning card");
+put({ panel: null, doctor: true }, "check orbit, check on orbit, orbit doctor, doctor, the doctor, run diagnostics, run a diagnostic, run diagnostic, diagnostics, run the diagnostics, is everything working, is everything ok, is everything okay, is everything alright, system check, run a system check, health check, run a health check, check everything, check the system");
 
 const REGION_ALIAS: Record<string, string> = {
   "north america": "Americas", "south america": "Americas", "latin america": "Americas", mideast: "Middle East",
@@ -107,7 +110,11 @@ function inWorld(s: string, here: PanelId | null): NavTarget | null {
 export function parseNavCommand(text: string, ctx: { current?: PanelId | null } = {}): NavTarget | null {
   let s = norm(text);
   for (let prev = ""; prev !== s;) { prev = s; s = s.replace(PREFIX, ""); }
+  const said = SUFFIX.exec(s)?.[0] ?? "";
   s = s.replace(SUFFIX, "");
+  // "check orbit": SUFFIX ate the "orbit" that this phrase needs
+  const doc = PLACES[s]?.doctor ? PLACES[s] : / orbit\b/.test(said) && PLACES[`${s} orbit`]?.doctor ? PLACES[`${s} orbit`] : null;
+  if (doc) return doc;
   if (ctx.current !== undefined) {
     const here = ctx.current;
     if (ZOOM_RESET.test(s)) return { panel: here, zoom: "reset" };
@@ -126,6 +133,7 @@ export function parseNavCommand(text: string, ctx: { current?: PanelId | null } 
     return !bare || ctx.current === "intelligence" || (t && !t.search) || / (?:news|headlines)$/.test(x) ? t : null;
   }
   if (s !== "review" && PLACES[s]?.view === "review") return PLACES[s]; // "morning review", "review my clips": commands without a verb
+  if (PLACES[s]?.morning) return PLACES[s]; // "good morning", "brief me"
   const v = VERB.exec(s);
   if (!v) return null;
   const rest = s.slice(v[0].length).trim();
@@ -149,13 +157,17 @@ export function validateNav(input: Record<string, unknown>): NavTarget | null {
 
 /** "Intelligence → Estonia", "Studio → Stats", "the galaxy". */
 export function navLabel(t: NavTarget): string {
+  if (t.morning) return "your morning briefing";
+  if (t.doctor) return "the ORBIT doctor";
   if (!t.panel) return "the galaxy";
   const name = t.panel === "core" ? "CORE" : t.panel === "profile" ? "your profile" : planetById(t.panel)!.name.charAt(0) + planetById(t.panel)!.name.slice(1).toLowerCase();
   const sub = t.country ? displayName(t.country) : t.region ?? (t.view === "stats" ? "Stats" : t.view === "clips" ? "Clips" : t.view === "review" ? "Clip review" : "");
   return sub ? `${name} → ${sub}` : name;
 }
 export const navReply = (t: NavTarget) =>
-  t.zoom ? (t.zoom === "reset" ? "Resetting the view." : `Zooming ${t.zoom}.`)
+  t.morning ? "Here's your morning briefing."
+    : t.doctor ? "Checking everything. One moment."
+    : t.zoom ? (t.zoom === "reset" ? "Resetting the view." : `Zooming ${t.zoom}.`)
     : t.search ? `Searching the news for “${t.search}”.`
     : t.search === "" ? "Showing the whole world."
     : t.view === "none" ? "Here's your channel."

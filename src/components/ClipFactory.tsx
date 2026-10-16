@@ -4,6 +4,7 @@ import { CAPTION_STYLES, CHANNEL_LINK_MSG, REJECT_REASONS, bytes, channelLink, i
 import ReviewQueue from "./ReviewQueue";
 import ClipPicks from "./ClipPicks";
 import LearnedCard from "./LearnedCard";
+import EngageCard, { DescribeButton } from "./EngageCard";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -19,7 +20,8 @@ type PubSettings = { timezone: string; slots: string[]; perDay: number };
 type Batch = { running: boolean; total: number; scheduled: number; error?: string; at: string };
 type Schedule = { settings: PubSettings; next: string[]; batch: Batch | null };
 type CaptionStyle = (typeof CAPTION_STYLES)[number];
-type VersionEdit = { layout: "fit" | "fill" | "split"; camSide: "left" | "right"; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean };
+type VersionEdit = { layout: "fit" | "fill" | "split"; camSide: "left" | "right"; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean;
+  coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean };
 type VersionBody = Partial<VersionEdit> & { hook?: string; title?: string; start: number; end: number; suggest: boolean };
 type Quarantined = { file: string; reason: string; at: string };
 type YtStatus = { configured: boolean; connected: boolean; canUpload?: boolean };
@@ -29,7 +31,7 @@ type ClipJob = { id: string; source: string; createdAt: string; updatedAt: strin
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
   timings?: { audio: number; transcribe: number; pick: number; render: number } };
 type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: "fit" | "fill" | "split"; camSide?: "left" | "right";
-  jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en" };
+  jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en"; coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean };
 type InboxFile = { name: string; size: number; mtime: string; jobId?: string; permission?: string };
 type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
 type Download = { id: string; url: string; status: "queued" | "downloading" | "done" | "failed"; progress: number; step: string; file?: string; error?: string;
@@ -125,12 +127,13 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [conflict, setConflict] = useState<Record<string, ClipOptions>>({}); // source → options that got a 409
   const [form, setForm] = useState<string | null>(null);
-  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", jumpCuts: true, zooms: true, language: "en" });
+  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", jumpCuts: true, zooms: true, language: "en", coldOpen: true, progressBar: false, loopEnd: true });
   const [showRejected, setShowRejected] = useState(false);
   const [visible, setVisible] = useState(true);
   const [yt, setYt] = useState<YtStatus | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [tab, setTab] = useState<Tab | null>(null); // null until the first load picks one
+  const [autoInbox, setAutoInbox] = useState<boolean | null>(null); // null: not loaded (or the settings file is locked)
   const [scoutRun, setScoutRun] = useState(0); // bumped by the "Find videos" next step: ScoutSection runs the scout
   // Each review request opens once; the same object lingers in Orbit's state until STUDIO is left.
   useEffect(() => { if (review && !seenReview.has(review)) { seenReview.add(review); setReviewing(true); } }, [review]);
@@ -224,6 +227,18 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
     setData((d) => d && { ...d, downloads: d.downloads.filter((x) => x.id !== id) });
   });
 
+  useEffect(() => { void api<{ enabled: boolean }>(`${API}/inbox-auto`).then((s) => setAutoInbox(s.enabled), () => setAutoInbox(null)); }, []);
+  // The watcher starts jobs on its own: look for them every 30 s while nothing else is polling.
+  useEffect(() => {
+    if (!autoInbox || !visible || active) return;
+    const t = setInterval(() => void load(true), 30_000);
+    return () => clearInterval(t);
+  }, [autoInbox, visible, active, load]);
+  // Turning it on saves the current clip settings as the auto-clip defaults.
+  const toggleAuto = (enabled: boolean) => act("auto", async () => {
+    setAutoInbox((await api<{ enabled: boolean }>(`${API}/inbox-auto`, { method: "POST", body: { enabled, ...opts, captions: opts.captions && !!data?.tools.transcriber } })).enabled);
+  });
+
   const openFolder = () => act("open", async () => {
     try { await api(`${API}/open`, { method: "POST" }); setNotes((n) => ({ ...n, opened: "Opened in Explorer." })); }
     catch (e) {
@@ -312,6 +327,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
           {/* Panels stay mounted (hidden) so forms, polling and scroll state survive switching tabs. */}
           <div id="cf-panel-insights" role="tabpanel" aria-labelledby="cf-tab-insights" hidden={shown !== "insights"} className="space-y-3">
             <LearnedCard defaultOpen />
+            <EngageCard />
           </div>
 
           <div id="cf-panel-find" role="tabpanel" aria-labelledby="cf-tab-find" hidden={shown !== "find"} className="space-y-3">
@@ -325,6 +341,12 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
               {notes.opened && !notes.open && <span className="ok text-xs" role="status">{notes.opened}</span>}
             </div>
             <Note k="open" />
+            <label className="mt-2 flex items-center gap-1.5 text-sm">
+              <input type="checkbox" checked={!!autoInbox} disabled={autoInbox === null || busy.auto} onChange={(e) => void toggleAuto(e.target.checked)} />
+              Auto-clip new files dropped here <Help text="Uses the clip settings below as they are when you turn this on. Files already in the folder are left alone." />
+            </label>
+            <Note k="auto" />
+            <p className="muted mt-1 text-xs">Put stream files from creators here — ORBIT clips them automatically.</p>
             <p className="muted mt-2 text-xs">Only clip videos you&apos;re allowed to. <Help text="Use your own uploads, or creators who allow clipping." /></p>
 
             <AddFromLink tools={data.tools} opts={opts} setOpts={setOpts} busy={busy.dl} onSubmit={(body) => download(body)} />
@@ -808,6 +830,15 @@ function EditOptions({ opts, setOpts }: { opts: Opts; setOpts: (f: (o: Opts) => 
       <label className="flex items-center gap-1.5" title="A quick zoom on the loudest moments, at most one every 6 s">
         <input type="checkbox" checked={opts.zooms} onChange={(e) => setOpts((o) => ({ ...o, zooms: e.target.checked }))} /> Zoom punch-ins
       </label>
+      <label className="flex items-center gap-1.5" title="Opens with 1-2 s of the loudest moment, then a white flash into the clip (skipped when it's in the first 3 s)">
+        <input type="checkbox" checked={opts.coldOpen} onChange={(e) => setOpts((o) => ({ ...o, coldOpen: e.target.checked }))} /> Cold open (peak first)
+      </label>
+      <label className="flex items-center gap-1.5" title="Ends at most 0.3 s after the last word, with a short audio fade, so the replay loops smoothly">
+        <input type="checkbox" checked={opts.loopEnd} onChange={(e) => setOpts((o) => ({ ...o, loopEnd: e.target.checked }))} /> Loop-friendly ending
+      </label>
+      <label className="flex items-center gap-1.5" title="A thin bar along the bottom edge that fills as the clip plays">
+        <input type="checkbox" checked={opts.progressBar} onChange={(e) => setOpts((o) => ({ ...o, progressBar: e.target.checked }))} /> Progress bar
+      </label>
     </>
   );
 }
@@ -824,7 +855,8 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
   onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn; onCheck: (clip: string) => Promise<boolean>; onVersion: VersionFn; onTitles: (clip: string) => Promise<boolean>;
 }) {
   const o = job.options; // what the original clips were rendered with (mirrors baseEdit in pure.ts)
-  const base: VersionEdit = { layout: o.layout ?? "fit", camSide: o.camSide ?? "right", captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true };
+  const base: VersionEdit = { layout: o.layout ?? "fit", camSide: o.camSide ?? "right", captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true,
+    coldOpen: o.coldOpen ?? false, progressBar: o.progressBar ?? false, loopEnd: o.loopEnd ?? false }; // missing = job from before these options
   const working = isJobActive(job), pct = Math.round(Math.min(1, Math.max(0, job.progress || 0)) * 100);
   const clips = job.clips.filter((c) => showRejected || c.status !== "rejected");
   const hidden = job.clips.length - clips.length;
@@ -875,8 +907,8 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
                   <Note k={`titles:${job.id}/${c.id}`} />
                 </>}
                 version={(c.status === "ready" || c.status === "approved") && !working &&
-                  <VersionBox clip={c} base={c.edit ?? base} busy={!!busy[`ver:${job.id}/${c.id}`]} onVersion={onVersion} note={<Note k={`ver:${job.id}/${c.id}`} />} />}
-                publish={c.status === "approved" && <PublishBox clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish}
+                  <VersionBox clip={c} base={{ ...base, ...c.edit }} busy={!!busy[`ver:${job.id}/${c.id}`]} onVersion={onVersion} note={<Note k={`ver:${job.id}/${c.id}`} />} />}
+                publish={c.status === "approved" && <PublishBox jobId={job.id} clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish}
                   stale={c.publish?.status === "uploading" && publishing !== `${job.id}/${c.id}`}
                   onCheck={() => onCheck(c.id)} note={<Note k={`pub:${job.id}/${c.id}`} />} />} />
             </li>
@@ -1023,6 +1055,9 @@ function VersionBox({ clip: c, base, busy, onVersion, note }: { clip: Clip; base
       <Choice legend="Captions" values={[...CAPTION_STYLES]} value={f.captions} fmt={(v) => CAPTION_LABEL[v]} onChange={(captions) => set({ captions })} />
       <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.jumpCuts} onChange={(e) => set({ jumpCuts: e.target.checked })} /> Jump cuts</label>
       <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.zooms} onChange={(e) => set({ zooms: e.target.checked })} /> Zooms</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!f.coldOpen} onChange={(e) => set({ coldOpen: e.target.checked })} /> Cold open</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!f.loopEnd} onChange={(e) => set({ loopEnd: e.target.checked })} /> Loop ending</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!f.progressBar} onChange={(e) => set({ progressBar: e.target.checked })} /> Progress bar</label>
       <fieldset>
         <legend className={label}>Trim</legend>
         {nudgeRow("start", "Start")}{nudgeRow("end", "End")}
@@ -1053,7 +1088,7 @@ const MIN_LEAD = 15 * 60_000; // mirrors MIN_LEAD_MS: YouTube needs publishAt in
 /** datetime-local value ("YYYY-MM-DDTHH:mm", local time) for a Date. */
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
-function PublishBox({ clip: c, yt, reduced, busy, stale, onPublish, onCheck, note }: { clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; stale: boolean; onPublish: PublishFn; onCheck: () => void; note: ReactNode }) {
+function PublishBox({ jobId, clip: c, yt, reduced, busy, stale, onPublish, onCheck, note }: { jobId: string; clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; stale: boolean; onPublish: PublishFn; onCheck: () => void; note: ReactNode }) {
   const [form, setForm] = useState<PublishBody | null>(null);
   const [at, setAt] = useState("");
   const [mode, setMode] = useState<PubWhen>("now");
@@ -1128,6 +1163,7 @@ function PublishBox({ clip: c, yt, reduced, busy, stale, onPublish, onCheck, not
       <label><span className={label}>Description</span>
         <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} value={form.description} maxLength={5000} onChange={(e) => set({ description: e.target.value })} />
       </label>
+      <DescribeButton job={jobId} clip={c.id} onText={(description) => set({ description })} />
       <label><span className={label}>Visibility</span>
         <select className="field w-full !px-2 !py-1 !text-xs" value={mode === "now" ? form.privacy : "private"} disabled={mode !== "now"} onChange={(e) => set({ privacy: e.target.value as PublishBody["privacy"] })}>
           <option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>

@@ -11,6 +11,9 @@ import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { NAV_EVENT, navReply, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
+import { StudioNotifier } from "./StudioNotifier";
+import { MorningCard } from "./MorningCard";
+import { DoctorPanel } from "./DoctorPanel";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
@@ -44,6 +47,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const cmdRef = useRef<HTMLInputElement>(null);
   const voice = useVoiceInput();
   const [wakeGreeting, setWakeGreeting] = useState<string | null>(null);
+  const [doctor, setDoctor] = useState<null | "click" | "nav">(null); // ORBIT doctor; "nav" (voice/command) reads the result aloud
   const [tapToTalk, setTapToTalk] = useState(false);
   // CORE navigation: sub-targets for the worlds (new object per command), and a world we're flying to through the galaxy.
   const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string; search?: string } | null>(null);
@@ -206,6 +210,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     const onNav = (e: Event) => {
       const t = (e as CustomEvent<NavTarget>).detail;
       if (t.zoom) return; // ZoomRig in the canvas on screen handles it
+      if (t.doctor) { setDoctor("nav"); return; } // opens over whatever is on screen
       if (t.country || t.region || t.search !== undefined) setNewsFocus({ country: t.country, region: t.region, search: t.search });
       if (t.view) setStudioOpen({ view: t.view });
       if (t.panel === (approach ?? shown)) { if (panel === "core") setPanel(shown); return; } // already there: close CORE over it, the world flies to the sub-target // already there (or on the way): the world flies to the sub-target itself
@@ -289,6 +294,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <div className="flex items-center gap-2 text-xs">
           <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title="Realtime link to the backend that animates the galaxy">{live === "live" ? "LIVE" : live === "offline" ? "OFFLINE" : "CONNECTING"}</span>
           {process.env.NODE_ENV === "development" && <span className="pill hidden sm:inline-flex" title="Running the development server (slower). Start ORBIT from the desktop shortcut for the production server.">DEV</span>}
+          <StudioNotifier />
           <button className="chip" onClick={() => setView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "2D view" : "3D view"}</button>
           <button className="chip" onClick={() => select("profile")}>Profile</button>
           <button className="chip" onClick={signOut} title={email}>Sign out</button>
@@ -311,6 +317,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </aside>
       )}
 
+      <MorningCard home={!shown && !approach} />
       {!shown && (
         <aside className="glass hud-panel status-hud" aria-label="System status">
           <div className="hud-title">SYSTEM</div>
@@ -321,9 +328,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
             <div><dt>Pulse</dt><dd className={pulseFailed ? "bad" : pulseBusy ? "warn" : "ok"}>{pulseBusy ? "Writing" : pulseFailed ? "Last failed" : "Idle"}</dd></div>
             <div><dt>Automations</dt><dd className={automationFailing ? "bad" : "ok"}>{automationFailing ? "Needs attention" : "OK"}</dd></div>
           </dl>
+          <button className="chip mt-2" onClick={() => setDoctor("click")}>🩺 Check ORBIT</button>
           <p className="muted mt-2 text-[10px] tracking-wider">← → FLY BETWEEN PLANETS</p>
         </aside>
       )}
+      {doctor && <DoctorPanel key={doctor} speak={doctor === "nav"} onClose={() => setDoctor(null)} />}
 
       {tapToTalk && !voice.listening && (
         <button type="button" className="chip fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 px-10 py-6 text-xl"
