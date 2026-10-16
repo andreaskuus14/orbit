@@ -2,11 +2,12 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isAllowedEmail } from "@/lib/allow";
 import { crossSiteBlocked } from "@/lib/csrf";
+import { publicOrigin } from "@/lib/origin-pure";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health"];
 
 export async function middleware(request: NextRequest) {
-  if (crossSiteBlocked(request.method, request.nextUrl.pathname, { secFetchSite: request.headers.get("sec-fetch-site"), origin: request.headers.get("origin"), host: request.headers.get("host") }))
+  if (crossSiteBlocked(request.method, request.nextUrl.pathname, { secFetchSite: request.headers.get("sec-fetch-site"), origin: request.headers.get("origin"), host: request.headers.get("host"), forwardedHost: request.headers.get("x-forwarded-host") }))
     return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 });
   // Launcher / night run poll these; no session work. (busy checks its own Host header and returns only booleans.)
   if (request.nextUrl.pathname === "/api/health" || request.nextUrl.pathname === "/api/studio/busy") return NextResponse.next();
@@ -32,9 +33,8 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   // Redirect while keeping any auth cookies Supabase just set (e.g. on sign-out).
   const redirectTo = (pathname: string, search = "") => {
-    const url = request.nextUrl.clone();
-    url.pathname = pathname;
-    url.search = search;
+    // Absolute URL on the address the browser used (phone via Tailscale), not the localhost the proxy talks to.
+    const url = new URL(pathname + search, publicOrigin({ host: request.headers.get("host"), forwardedHost: request.headers.get("x-forwarded-host"), forwardedProto: request.headers.get("x-forwarded-proto") }, request.url));
     const r = NextResponse.redirect(url);
     response.cookies.getAll().forEach((c) => r.cookies.set(c));
     return r;
