@@ -25,7 +25,8 @@ export type Scout = ScoutSettings & {
 export type Candidate = { id: string; title: string; channel: string; channelId: string; publishedAt: string; durationSec: number; live: string;
   description: string; stats: ScoutStats; source: "watchlist" | "keyword"; baseline?: number }; // baseline: the channel's median views/hour
 
-export const DAILY_UNITS = 1500; // our own cap, well under the default 10,000/day so STUDIO stats and uploads keep working
+// Our own cap under the default 10,000/day, leaving room for uploads (videos.insert can cost up to 1,600 each) and STUDIO stats.
+export const DAILY_UNITS = Math.max(200, Math.min(9000, Number(process.env.ORBIT_YT_DAILY_UNITS) || 4000));
 export const SEARCH_UNITS = 100, MAX_SEARCHES = 3;
 export { MAX_SOURCE_SEC };
 export const DEFAULTS: ScoutSettings = { watchlist: [], keywords: [], aiKeywords: [], nicheAuto: false, maxAgeHours: 48, creatorMaxAgeDays: 7, minMinutes: 8, dailyAuto: 1, runAt: 6 };
