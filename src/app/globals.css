@@ -364,3 +364,56 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .voice-route.cloud { color: var(--rose); }
 .voice-sub { font-size: 0.65rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border-top: 1px solid var(--line); padding-top: 0.5rem; }
 .voice-note { margin: 0; }
+
+/* ---------- main HUD polish: top bar, ⋯ menu, shortcuts overlay, galaxy loader (cherry / violet accents) ---------- */
+:root { --cherry: #ff2e63; --plum: #a855f7; --plum-soft: rgba(168, 85, 247, 0.28); }
+/* Fallback ring for anything focusable without its own (zero specificity: the rules above still win). */
+:where(button, a, summary, select, input, textarea, [tabindex]):focus-visible { outline: 2px solid #c084fc; outline-offset: 2px; }
+
+.hud-bar-top { display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex-wrap: nowrap; font-size: 0.75rem; }
+/* No display here: these rules are unlayered and would beat Tailwind's hidden / sm:inline-flex. Buttons centre their text. */
+.hud-bar-top > .chip, .hud-bar-top > .pill { height: 1.9rem; white-space: nowrap; }
+.hud-bar-top > .chip:hover, :root:has(#hud-menu:popover-open) .hud-more { border-color: #c084fc; box-shadow: 0 0 14px var(--plum-soft); }
+.hud-more { width: 1.9rem; padding: 0; font-size: 1rem; line-height: 1; letter-spacing: 0; }
+.logo .brand { white-space: nowrap; }
+
+.hud-menu { position: fixed; inset: auto; top: 3.6rem; right: 1rem; margin: 0; width: 15rem; padding: 0.4rem; color: var(--ink); display: none; flex-direction: column; gap: 0.15rem; font-size: 0.82rem;
+  background: linear-gradient(160deg, rgba(168, 85, 247, 0.12), rgba(10, 4, 20, 0.6) 50%), rgba(8, 6, 18, 0.9); border-color: rgba(192, 132, 252, 0.25); }
+.hud-menu:popover-open { display: flex; animation: menu-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.hud-menu-item { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.65rem; border-radius: 10px; text-align: left; }
+.hud-menu-item:hover { background: rgba(168, 85, 247, 0.14); }
+.hud-menu-group { display: flex; align-items: center; gap: 0.3rem; padding: 0.4rem 0.65rem; border-block: 1px solid rgba(192, 132, 252, 0.14); margin-block: 0.15rem; }
+.hud-menu-group .muted { margin-right: auto; }
+.hud-menu-group .chip { padding: 0.15rem 0.55rem; }
+.hud-menu-group .chip[aria-pressed="true"] { border-color: var(--cherry); background: rgba(255, 46, 99, 0.16); box-shadow: 0 0 10px rgba(255, 46, 99, 0.25); }
+kbd { font-family: var(--font-mono); font-size: 0.68rem; padding: 0.05rem 0.4rem; border-radius: 5px; border: 1px solid rgba(192, 132, 252, 0.35); background: rgba(168, 85, 247, 0.1); color: #e9d5ff; white-space: nowrap; }
+
+.keys-overlay { width: min(34rem, calc(100vw - 2rem)); max-height: min(80dvh, 40rem); overflow-y: auto; padding: 1.1rem 1.2rem; color: var(--ink); margin: auto;
+  background: linear-gradient(160deg, rgba(168, 85, 247, 0.12), rgba(255, 46, 99, 0.04) 60%), rgba(8, 6, 18, 0.92); border-color: rgba(192, 132, 252, 0.25); }
+.keys-overlay[open] { animation: panel-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.keys-overlay::backdrop { background: rgba(2, 1, 8, 0.55); backdrop-filter: blur(3px); }
+.keys-overlay .h3 { color: #f0abfc; }
+.keys-list { display: grid; gap: 0.3rem; }
+.keys-list > div { display: grid; grid-template-columns: 7.5rem 1fr; align-items: baseline; gap: 0.75rem; font-size: 0.82rem; }
+.keys-list dd { color: #cbd5e1; }
+
+/* Panels: drawer slides out the way it came in; HUD cards fade up. */
+.drawer.drawer-out { animation: slide-out 0.2s ease-in forwards; pointer-events: none; }
+.status-hud { animation: panel-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes slide-out { to { opacity: 0; transform: translateX(16px); } }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+
+.galaxy-loader { position: absolute; inset: 0; z-index: 5; display: grid; place-content: center; justify-items: center; gap: 1.1rem; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, rgba(168, 85, 247, 0.12), rgba(255, 46, 99, 0.04) 35%, var(--bg) 70%);
+  font-family: var(--font-display); letter-spacing: 0.32em; font-size: 0.72rem; text-transform: uppercase; color: #d8b4fe; transition: opacity 0.8s ease, visibility 0s 0.8s; }
+.galaxy-loader.done { opacity: 0; visibility: hidden; }
+.galaxy-loader-orb { position: relative; width: 4.5rem; height: 4.5rem; }
+.galaxy-loader-orb::before { content: ""; position: absolute; inset: 38%; border-radius: 50%; background: #ffe8f0; box-shadow: 0 0 18px 6px rgba(255, 46, 99, 0.55), 0 0 40px 14px rgba(168, 85, 247, 0.35); animation: blink 2.2s ease-in-out infinite; }
+.galaxy-loader-orb i { position: absolute; inset: 0; border-radius: 50%; border: 1px solid rgba(216, 180, 254, 0.35); border-top-color: #ff6b9a; animation: orbit-spin 2.4s linear infinite; }
+.galaxy-loader-orb i:nth-child(2) { inset: 14%; animation-duration: 1.7s; animation-direction: reverse; border-top-color: #c084fc; }
+.galaxy-loader-orb i:nth-child(3) { inset: -16%; animation-duration: 3.6s; border-color: rgba(216, 180, 254, 0.12); border-top-color: rgba(255, 107, 154, 0.6); }
+@keyframes orbit-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .galaxy-loader.done { transition: none; }
+  .drawer.drawer-out { display: none; }
+}

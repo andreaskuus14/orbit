@@ -12,6 +12,8 @@ import { decodeCountries, unwrapRing, type CountryShape } from "@/lib/topo";
 import { COUNTRIES as GAZ, displayName, importance, regionOf, REGIONS, type Hotspot } from "@/lib/geo";
 import { dedupe } from "@/lib/dashboard";
 import CountryDash, { StoryCard, type Result } from "./CountryDash";
+import { FOLLOWS_EVENT } from "./follow-command";
+import { REFRESH_MS } from "@/lib/follows-pure";
 
 // INTELLIGENCE → World Pulse: a holographic Earth where the news happens.
 // Country shapes come from world-atlas; each country in the news gets a cluster of twinkling city-light dots
@@ -466,8 +468,23 @@ function Rig({ focus, reduced, offsetX }: { focus: { key: string; lat: number; l
   return null;
 }
 
-function Globe({ tint, mode, region, reduced, lit, selected, hover, onPick, onHover }: {
-  tint: Map<string, number>; mode: "news" | "search"; region: string | null; reduced: boolean; lit: string[]; selected: string | null; hover: string | null;
+/** Countries with news on followed topics: a slow, faint glow that breathes (opacity clamped to 0.06–0.3; steady when reduced). */
+function FollowPulse({ names, reduced }: { names: string[]; reduced: boolean }) {
+  const key = names.join("|");
+  const mat = useMemo(() => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }), []);
+  useEffect(() => () => mat.dispose(), [mat]);
+  useEffect(() => {
+    const tex = key ? overlayTexture(key, "rgba(252,211,77,1)") : null;
+    mat.map = tex; mat.needsUpdate = true;
+    if (tex) overlayInUse.add(tex);
+    return () => { if (tex) overlayInUse.delete(tex); };
+  }, [key, mat]);
+  useFrame(({ clock }) => { mat.opacity = reduced ? 0.18 : THREE.MathUtils.clamp(0.18 + 0.12 * Math.sin(clock.elapsedTime * 1.6), 0.06, 0.3); });
+  return key ? <mesh material={mat} renderOrder={2}><sphereGeometry args={[R * 1.002, 96, 96]} /></mesh> : null;
+}
+
+function Globe({ tint, mode, region, reduced, lit, selected, hover, onPick, onHover, followed }: {
+  followed: string[]; tint: Map<string, number>; mode: "news" | "search"; region: string | null; reduced: boolean; lit: string[]; selected: string | null; hover: string | null;
   onPick: (n: string | null) => void; onHover: (n: string | null, x: number, y: number) => void;
 }) {
   const texture = useMemo(() => baseTexture(tint, mode), [tint, mode]); // region is NOT an input: switching regions repaints nothing
@@ -509,6 +526,7 @@ function Globe({ tint, mode, region, reduced, lit, selected, hover, onPick, onHo
       <Overlay name={selected} color="rgba(103,232,249,1)" max={0.9} />
       <Dimmer on={lit.length > 0} />
       <Overlay name={lit.length ? lit.join("|") : null} color="rgba(125,211,252,1)" max={0.9} />
+      <FollowPulse names={lit.length ? [] : followed} reduced={reduced} />
       <mesh material={rim}><sphereGeometry args={[R * 1.003, 96, 96]} /></mesh>
       <mesh material={atmosphere} scale={1.1}><sphereGeometry args={[R, 96, 96]} /></mesh>
     </group>
@@ -601,6 +619,15 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
   const [searching, setSearching] = useState(false);
   const [liveNews, setLiveNews] = useState<{ name: string; items: Result[] | null; error?: string } | null>(null);
   const [region, setRegion] = useState<string | null>(null);
+  const [followed, setFollowed] = useState<string[]>([]); // countries in followed-topic news (server refetches at most every 30 min)
+  useEffect(() => {
+    const get = () => fetch("/api/news/follows", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (Array.isArray(j?.countries)) setFollowed(j.countries.filter((n: string) => INDEX.has(n)).sort()); }).catch(() => {});
+    get();
+    const t = setInterval(get, REFRESH_MS);
+    addEventListener(FOLLOWS_EVENT, get);
+    return () => { clearInterval(t); removeEventListener(FOLLOWS_EVENT, get); };
+  }, []);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
   // Only the latest request may update the screen (fast clicks, Clear during a search).
   const loadSeq = useRef(0);
@@ -725,7 +752,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
       <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, 2]} gl={{ antialias: true, powerPreference: "high-performance" }}>
         <color attach="background" args={["#01040b"]} />
         <Stars radius={70} depth={40} count={reduced ? 1500 : 5000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
-        <Globe tint={tint} mode={mode} region={activeRegion} reduced={reduced} lit={lit} selected={selected}
+        <Globe tint={tint} mode={mode} region={activeRegion} reduced={reduced} lit={lit} selected={selected} followed={followed}
           hover={hover.name} onPick={(n) => setSelected((cur) => (n && n !== cur ? n : n ? null : cur))} onHover={onHover} />
         {/* all dots; out-of-region ones fade out in the shader, so a region switch rebuilds nothing */}
         <NewsDots hotspots={hs} mode={mode} reduced={reduced} />

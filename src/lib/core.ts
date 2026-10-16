@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { askClaude, askClaudeStream, recordUsage, MODEL } from "./claude";
+import { askClaude, askClaudeStream, recordUsage, MODEL, FAST_MODEL } from "./claude";
+import { pickModel } from "./core-ui";
 import { partialAnswer } from "./streamjson";
 import { searchMemories, MEMORY_COLUMNS } from "./memory";
 import { selectPassages } from "./passages";
@@ -67,11 +68,12 @@ ${facts || "(empty)"}`;
  * One CORE turn: retrieve relevant memories, ask Claude, return answer + citations + execution trace.
  * With onDelta, the answer text streams out as it is written (tool-call replies stream nothing); `signal` stops it.
  */
-export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice = false, onNavigate?: (to: NavTarget) => void) {
+export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void) {
   const trace: TraceStep[] = [];
   const question = history[history.length - 1].content;
 
   let t = Date.now();
+  onStep?.("search_memory", {});
   let { results, mode } = await searchMemories(sb, question, 8, userId);
   if (!results.length) {
     // Broad questions ("what did I save?") match nothing specific: show CORE the latest memories instead.
@@ -103,14 +105,19 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
 
   const system = systemPrompt(profile as Profile | null, new Date().toISOString().slice(0, 10));
   const steps: string[] = [];
+  // Short chit-chat goes to the fast model; if it still reaches for a tool, that step is redone on the main model.
+  let tier = pickModel(question, [...history].reverse().find((h) => h.role === "assistant")?.content);
   const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
   let answer = "";
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
       const last = step === MAX_STEPS - 1;
       signal?.throwIfAborted();
+      onStep?.("think", {});
       const ask = `${prompt}\n\n${voice ? "The user is SPEAKING to you and will hear your answer read aloud: by default answer in 1-3 short conversational sentences, no lists, headings or links. If they ask for detail, an explanation or a story, give the full answer in spoken-style paragraphs.\n\n" : ""}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
+      const model = tier === "fast" ? FAST_MODEL : MODEL;
       let r;
+      try {
       if (onDelta) {
         // The model writes a JSON envelope; forward only the newly decoded part of its "final" answer.
         let raw = "", sent = 0;
@@ -118,18 +125,25 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
           raw += d;
           const shown = partialAnswer(raw);
           if (shown && shown.length > sent) { onDelta(shown.slice(sent)); sent = shown.length; }
-        }, signal, "foreground");
+        }, signal, "foreground", model);
       } else {
-        r = await askClaude(ask, system, { lane: "foreground", signal });
+        r = await askClaude(ask, system, { lane: "foreground", signal, model });
       }
-      await recordUsage(sb, userId, "core.chat", r);
+      } catch (e) {
+        // Fast model unavailable or failed: redo this step on the main model (a Stop still ends the turn).
+        if (tier !== "fast" || signal?.aborted) throw e;
+        onReset?.(); tier = "smart"; step--; continue;
+      }
+      await recordUsage(sb, userId, "core.chat", r, model);
       const reply = parseAgentReply(r.text);
-      trace.push({ step: "think", detail: `${MODEL} · ${reply.thought || (reply.final !== undefined ? "answering" : "")}`.slice(0, 200), ms: r.ms, ok: true });
+      trace.push({ step: "think", detail: `${model} · ${reply.thought || (reply.final !== undefined ? "answering" : "")}`.slice(0, 200), ms: r.ms, ok: true });
+      if (tier === "fast" && reply.tool) { onReset?.(); tier = "smart"; step--; continue; }
       if (reply.final !== undefined || !reply.tool || last) { answer = reply.final ?? r.text; break; }
 
       t = Date.now();
       let out: string;
       onReset?.(); // this step was a tool call: clear anything it streamed before the next step answers
+      onStep?.(reply.tool, reply.input ?? {});
       try { out = reply.tool === "navigate" ? navigateTool(reply.input ?? {}, !steps.some((s) => !s.startsWith("You called navigate")), onNavigate)
         : isStudioTool(reply.tool) ? await runStudioTool(reply.tool, question, steps.some((s) => !s.startsWith("You called navigate")))
         : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question, signal, stopped); }
@@ -147,7 +161,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     .map((id) => byId.get(id))
     .filter((m): m is NonNullable<typeof m> => !!m)
     .map((m) => ({ id: m.id, title: m.title, kind: m.kind }));
-  return { text: answer || "(no answer)", citations, trace };
+  return { text: answer || "(no answer)", citations, trace, model: tier };
 }
 
 /** Thrown when Stop also cancelled agent tasks: `completed` says what they had finished, for the saved chat. */

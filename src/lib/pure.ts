@@ -242,6 +242,12 @@ export function parseAgentReply(text: string): AgentStep {
 }
 
 /** URL-safe agent id from a display name ("Market Scout!" → "market-scout"). */
+/** read_news "hours": 1-48, or 0 (no/invalid/≤0 value) for the default 7-day search. */
+export function newsHours(v: unknown): number {
+  const h = Math.round(Number(v) || 0);
+  return h > 0 ? Math.min(48, h) : 0;
+}
+
 export function slugify(name: string): string {
   return name.toLowerCase().normalize("NFKD").replace(/[^\w\s-]/g, "").trim().replace(/[\s_-]+/g, "-").slice(0, 40);
 }

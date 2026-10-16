@@ -92,7 +92,7 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
   // Window capture so StudioWorld/Orbit don't also act on these keys (StudioWorld skips Esc while .review-queue exists).
   const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
   onKey.current = (e) => {
-    if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector(".drawer")) return; // CORE on top owns the keyboard
+    if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector(".drawer:not(.drawer-out), dialog[open]")) return; // CORE on top owns the keyboard
     const t = e.target as HTMLElement | null;
     if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) { if (e.key === "Escape") { e.preventDefault(); setMode("idle"); } return; }
     if ((e.key === "Enter" || e.key === " ") && t?.closest("form, [role=group]")) return; // a focused reason chip / form button does its own thing

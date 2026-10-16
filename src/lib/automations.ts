@@ -44,7 +44,8 @@ const g = globalThis as unknown as { __orbitEventCursor?: number };
 export async function handleEvents(sb: SupabaseClient) {
   if (g.__orbitEventCursor === undefined) {
     // Start from "now" so a restart never replays old events.
-    const { data } = await sb.from("events").select("id").order("id", { ascending: false }).limit(1);
+    const { data, error } = await sb.from("events").select("id").order("id", { ascending: false }).limit(1);
+    if (error) throw error; // a failed read must not start the cursor at 0 and replay every past event
     g.__orbitEventCursor = data?.[0]?.id ?? 0;
     return;
   }

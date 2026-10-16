@@ -1,0 +1,51 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { stepQuality, parseQualityMode, type QualityState } from "../src/lib/quality-pure.ts";
+
+const run = (s: QualityState, fps: number, secs: number, max: 0 | 1 | 2 = 2) => {
+  for (let t = 0; t < secs; t += 0.5) s = stepQuality(s, fps, 0.5, max);
+  return s;
+};
+const start: QualityState = { level: 2, low: 0, high: 0 };
+
+test("steps down only after 3 s below 40 fps", () => {
+  assert.equal(run(start, 30, 2.5).level, 2);
+  assert.equal(run(start, 30, 3).level, 1);
+  assert.equal(run(start, 30, 6).level, 0);
+  assert.equal(run(start, 30, 60).level, 0); // floor
+});
+
+test("a good sample resets the slow streak", () => {
+  let s = run(start, 30, 2.5);
+  s = stepQuality(s, 50, 0.5);
+  assert.equal(run(s, 30, 2.5).level, 2);
+});
+
+test("steps up only after 10 s above 55 fps, capped by max", () => {
+  const low: QualityState = { level: 0, low: 0, high: 0 };
+  assert.equal(run(low, 60, 9.5).level, 0);
+  assert.equal(run(low, 60, 10).level, 1);
+  assert.equal(run(low, 60, 40, 1).level, 1);
+  assert.equal(run(start, 60, 30, 1).level, 1); // reduced motion clamps a high start down
+});
+
+test("after a step down it never climbs back to the level it fell from", () => {
+  let s = run(start, 30, 3);
+  assert.equal(s.level, 1);
+  s = run(s, 60, 60);
+  assert.equal(s.level, 1); // vsync 60 fps no longer see-saws 2 → 1 → 2
+  s = run(s, 30, 3);
+  s = run(s, 60, 15);
+  assert.equal(s.level, 0);
+});
+
+test("ignores hidden-tab gaps and bad numbers", () => {
+  assert.deepEqual(stepQuality(start, 5, 30), start);
+  assert.deepEqual(stepQuality(start, NaN, 0.5), start);
+});
+
+test("parses the stored mode", () => {
+  assert.equal(parseQualityMode("low"), "low");
+  assert.equal(parseQualityMode(null), "auto");
+  assert.equal(parseQualityMode("ultra"), "auto");
+});

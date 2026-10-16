@@ -4,7 +4,7 @@ import { createMemory, searchMemories, fetchPage, safeFetch, MEMORY_COLUMNS, KIN
 import { runPulse, topicFeedUrl } from "./pulse";
 import { readArticle } from "./news";
 import { verifyAnswer, type Source } from "./verify";
-import { parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
+import { newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 
 // ORBIT's agent workforce. Each agent is Claude (via Claude Code) with its own instructions and an allow-list of
 // real tools. Agents work in steps: every reply is one JSON object that either calls a tool or gives the final
@@ -91,7 +91,7 @@ export const TOOLS: Record<string, Tool> = {
     run: async ({ pages }, i) => {
       const q = s(i.query, 200) || (i.hours ? "news" : "");
       if (!q) return "Error: query is required";
-      const hours = Math.min(48, Math.max(1, Math.round(Number(i.hours) || 0))) || 0;
+      const hours = newsHours(i.hours);
       const { res } = await safeFetch(topicFeedUrl(q, hours ? `${hours}h` : "7d"), "application/rss+xml, application/xml, text/xml");
       let items = parseFeed((await res.text()).slice(0, 2_000_000)).items;
       if (hours) { // newest first, and drop anything Google let through that's older than asked

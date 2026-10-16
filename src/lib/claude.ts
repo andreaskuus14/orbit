@@ -11,6 +11,8 @@ export const CLAUDE_BIN = process.env.ORBIT_CLAUDE_BIN || "claude";
 export const MODEL = process.env.ORBIT_MODEL || "sonnet";
 /** Stronger (slower) model for the few judgement calls where quality matters most: final clip ranking, niche research. */
 export const SMART_MODEL = process.env.ORBIT_MODEL_SMART || "opus";
+/** Quick model for CORE's short chit-chat turns that need no tools (see pickModel in core-ui.ts). */
+export const FAST_MODEL = process.env.ORBIT_MODEL_FAST || "haiku";
 const TIMEOUT_MS = 120_000;
 const WIN = process.platform === "win32";
 const HINT = "Install Claude Code and run `claude` once to sign in (or set ORBIT_CLAUDE_BIN to its full path).";
@@ -88,7 +90,7 @@ export type ClaudeResult = { text: string; inputTokens: number; outputTokens: nu
 
 /** Shared setup for every CLI call: system prompt in a temp dir, fixed flags, all tools disabled. */
 async function prepare(system: string, format: string[], model = MODEL) {
-  if (!/^[\w.:-]+$/.test(model)) throw new Error("ORBIT_MODEL / ORBIT_MODEL_SMART contains invalid characters");
+  if (!/^[\w.:-]+$/.test(model)) throw new Error("ORBIT_MODEL / ORBIT_MODEL_SMART / ORBIT_MODEL_FAST contains invalid characters");
   // The system prompt goes in a file and the user prompt on stdin, so no user text is ever on the command line.
   const dir = await mkdtemp(join(tmpdir(), "orbit-"));
   const sysFile = join(dir, "system.txt");
@@ -141,7 +143,7 @@ async function runClaudeStream(prompt: string, system: string, onDelta: (text: s
       const onAbort = () => { killTree(child); reject(new DOMException("Stopped", "AbortError")); };
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted) onAbort();
-      const ms = model && model !== MODEL ? 3 * TIMEOUT_MS : TIMEOUT_MS; // the stronger model thinks longer
+      const ms = model === SMART_MODEL && model !== MODEL ? 3 * TIMEOUT_MS : TIMEOUT_MS; // the stronger model thinks longer
       const timer = setTimeout(() => { killTree(child); reject(new Error(`Claude Code timed out after ${ms / 60_000} minutes`)); }, ms);
       const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
       const handle = (line: string) => {
@@ -174,9 +176,9 @@ async function runClaudeStream(prompt: string, system: string, onDelta: (text: s
 }
 
 /** Token log only; cost is 0 because the subscription is flat-rate. */
-export async function recordUsage(sb: SupabaseClient, userId: string, purpose: string, r: ClaudeResult) {
+export async function recordUsage(sb: SupabaseClient, userId: string, purpose: string, r: ClaudeResult, model = MODEL) {
   const { error } = await sb.from("usage").insert({
-    user_id: userId, model: MODEL, purpose, input_tokens: r.inputTokens, output_tokens: r.outputTokens, cost_usd: 0,
+    user_id: userId, model, purpose, input_tokens: r.inputTokens, output_tokens: r.outputTokens, cost_usd: 0,
   });
   if (error) console.error("[orbit] failed to record usage", error);
 }

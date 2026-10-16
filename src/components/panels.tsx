@@ -5,6 +5,7 @@ import { goToSleep } from "./voice/sleep";
 import { createClient } from "@/lib/supabase/client";
 import { numberCitations } from "@/lib/pure";
 import { takeLines } from "@/lib/streamjson";
+import { followUps } from "@/lib/core-ui";
 import { NAV_EVENT, navReply, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { planetById, type PlanetId } from "@/lib/planets";
@@ -15,7 +16,7 @@ import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechG
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
 type Cite = { id: string; title: string; kind: string };
 type Step = { step: string; detail: string; ms: number; ok: boolean };
-type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean };
+type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart"; chips?: string[] };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
@@ -41,6 +42,10 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const [live, setLive] = useState<string | null>(null); // the answer while it streams in
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => onSpeakingChange(setSpeaking), []);
+  const [stepText, setStepText] = useState<string | null>(null); // what CORE is doing right now ("Reading news…")
+  const [copied, setCopied] = useState(-1);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastQ = useRef(""); // for Retry and ↑ in an empty input
   const convo = useRef<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
@@ -71,9 +76,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     const fly = (to: NavTarget) => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to }));
     setMsgs((m) => [...m, { role: "user", content: message }]);
     setInput("");
+    lastQ.current = message;
     const nav = parseNavCommand(message, { current: "core" }); // plain "go to / open / show me X": no model call
     if (nav) { setMsgs((m) => [...m, { role: "assistant", content: navReply(nav) }]); say([navReply(nav)]); fly(nav); return; }
     setBusy(true);
+    setStepText(null);
     const ac = new AbortController();
     abort.current = ac;
     let partial = "";
@@ -94,13 +101,15 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       let buf = "";
       let finished = false;
       const handle = (line: string) => {
-        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget };
+        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; model?: "fast" | "smart" };
         if (ev.conversationId) convo.current = ev.conversationId;
         if (ev.type === "delta" && ev.text) {
           partial += ev.text;
           say(voiceOut.push(ev.text));
           // One render per frame at most, and only the streaming bubble changes.
           if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLive(partial); });
+        } else if (ev.type === "step" && ev.label) {
+          setStepText(ev.label);
         } else if (ev.type === "navigate" && ev.to) {
           navTo = ev.to;
         } else if (ev.type === "reset") {
@@ -114,7 +123,8 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           // The final answer equals the streamed text up to citation markers (stripped for speech): speak only the tail.
           say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? ""));
           setLive(null);
-          setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace }]);
+          setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model,
+            chips: followUps(message, (ev.trace ?? []).map((s) => s.step)) }]);
         } else if (ev.type === "error") {
           throw new Error(ev.error || "CORE failed");
         }
@@ -138,9 +148,22 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     } finally {
       flush();
       setLive(null);
+      setStepText(null);
       setBusy(false);
       if (abort.current === ac) abort.current = null;
     }
+  }, [busy]);
+
+  // While CORE is open: Ctrl/⌘+K focuses its input (capture phase + preventDefault, so Orbit's command-bar shortcut skips it)
+  // and Esc stops a streaming answer instead of closing the panel.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return; // VoiceControls already used this Esc (both listen in the capture phase)
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); inputRef.current?.focus(); }
+      else if (e.key === "Escape" && busy) { e.preventDefault(); e.stopPropagation(); abort.current?.abort(); stopSpeech(); }
+    };
+    addEventListener("keydown", h, true);
+    return () => removeEventListener("keydown", h, true);
   }, [busy]);
 
   // React dev mode runs effects twice; remember what we already sent so the command bar message goes out once.
@@ -166,18 +189,35 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   // Memoised so streaming deltas re-render only the live bubble, not the whole history.
   const history = useMemo(() => msgs.map((m, i) => (
     <div key={i} className={m.role === "user" ? "bubble user" : `bubble core${m.error ? " err" : ""}`}>
-      {m.role === "assistant" && !m.error && (
-        <button type="button" className="speak-btn" aria-label={speaking ? "Stop speaking" : "Read aloud"} title={speaking ? "Stop speaking" : "Read aloud"}
-          onClick={() => { const was = speaking; stopSpeech(); if (!was) speechChunks(m.content).forEach(speakChunk); }}>
-          {speaking ? "■" : "🔊"}
-        </button>
-      )}
       {m.role === "assistant" && !m.error
         ? <Markdown text={numberCitations(m.content, (m.citations ?? []).map((c) => c.id))} openMemory={onOpenMemory} />
         : <div className="whitespace-pre-wrap">{m.content}</div>}
       {!!m.citations?.length && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {m.citations.map((c, n) => <button key={c.id} className="chip" onClick={() => onOpenMemory(c.id)}>[{n + 1}] {c.title}</button>)}
+        </div>
+      )}
+      {m.role === "assistant" && (
+        <div className="mt-2 flex flex-wrap items-center gap-1 text-xs">
+          {!m.error && <>
+            <button type="button" className="chip" aria-label={copied === i ? "Copied" : "Copy answer"} title="Copy"
+              onClick={() => { void navigator.clipboard?.writeText(m.content.replace(/\s*\[[ma]:[^\]]+\]/g, "")).then(() => { setCopied(i); setTimeout(() => setCopied((c) => (c === i ? -1 : c)), 1500); }); }}>
+              {copied === i ? "✓ Copied" : "Copy"}
+            </button>
+            <button type="button" className="chip" aria-label={speaking ? "Stop speaking" : "Read aloud"} title={speaking ? "Stop speaking" : "Read aloud"}
+              onClick={() => { const was = speaking; stopSpeech(); if (!was) speechChunks(m.content).forEach((c) => speakChunk(c)); }}>
+              {speaking ? "■ Stop" : "🔊 Read aloud"}
+            </button>
+          </>}
+          {i === msgs.length - 1 && lastQ.current && !busy && (
+            <button type="button" className="chip" title="Ask the last question again" onClick={() => void send(lastQ.current)}>↻ Retry</button>
+          )}
+          {m.model && <span className="muted ml-auto opacity-60" title={m.model === "fast" ? "Quick reply from the fast model" : "Answered by the main model"}>{m.model}</span>}
+        </div>
+      )}
+      {!busy && i === msgs.length - 1 && !!m.chips?.length && (
+        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Suggested follow-ups">
+          {m.chips.map((c) => <button key={c} type="button" className="chip" onClick={() => void send(c)}>{c}</button>)}
         </div>
       )}
       {!!m.trace?.length && (
@@ -187,7 +227,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
         </details>
       )}
     </div>
-  )), [msgs, onOpenMemory, speaking]);
+  )), [msgs, onOpenMemory, speaking, copied, busy, send]);
 
   return (
     <div className="flex h-full flex-col">
@@ -200,11 +240,15 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
               <Markdown text={numberCitations(live, [])} openMemory={onOpenMemory} />
               <span aria-hidden className="inline-block h-4 w-1.5 translate-y-0.5 rounded-sm bg-current opacity-60" style={{ animation: "blink 1s steps(2) infinite" }} />
             </div>
-          : <div className="bubble core muted">CORE is working… (reading pages or asking an agent can take a minute)</div>)}
+          : <div className="bubble core muted" role="status">
+              <span aria-hidden className="mr-2 inline-block h-2 w-2 rounded-full bg-current" style={{ animation: "blink 1s steps(2) infinite" }} />
+              {stepText ?? "Thinking…"}{stepText && /Asking|Reading the page/.test(stepText) && <span className="opacity-70"> (this can take a minute)</span>}
+            </div>)}
         <div ref={end} />
       </div>
       <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
-        <input className="field flex-1" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Message CORE" maxLength={8000} aria-label="Message CORE" />
+        <input ref={inputRef} className="field flex-1" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Message CORE  (↑ last question · Esc stops)"
+          onKeyDown={(e) => { if (e.key === "ArrowUp" && !input && lastQ.current) { e.preventDefault(); setInput(lastQ.current); } }} maxLength={8000} aria-label="Message CORE" />
         {busy
           ? <button type="button" className="btn" onClick={() => { abort.current?.abort(); stopSpeech(); }}>Stop</button>
           : speaking && !input.trim()

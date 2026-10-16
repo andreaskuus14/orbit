@@ -191,3 +191,13 @@ test("parseAgentReply turns stray XML tool calls into a tool step instead of an 
   assert.deepEqual(r.input, { query: "breaking news" });
   assert.equal(r.final, undefined);
 });
+
+test("newsHours: no hours means the 7-day search, not the last hour", async () => {
+  const { newsHours } = await import("../src/lib/pure.ts");
+  assert.equal(newsHours(undefined), 0);
+  assert.equal(newsHours("abc"), 0);
+  assert.equal(newsHours(-3), 0);
+  assert.equal(newsHours(1), 1);
+  assert.equal(newsHours("6"), 6);
+  assert.equal(newsHours(100), 48);
+});

@@ -9,6 +9,8 @@ import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postp
 import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import { PLANETS, type PanelId, type PlanetDef, type PlanetId } from "@/lib/planets";
+import { QUALITY, stepQuality, type QualityLevel, type QualityMode, type QualityState } from "@/lib/quality-pure";
+import { GalaxyLoader } from "./GalaxyLoader";
 
 export type GalaxyProps = {
   selected: PanelId | null;
@@ -24,6 +26,7 @@ export type GalaxyProps = {
   reduced: boolean;
   panelOpen: boolean;
   fast?: boolean;            // a command-bar/voice flight on the way into a world: ≤ 1.2 s
+  quality?: QualityMode;     // "auto" adapts to the measured frame rate
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -891,24 +894,55 @@ function Rig({ selected, positions, reduced, panelOpen, fast }: { selected: Pane
   return null;
 }
 
+/** Averages the frame rate over 0.5 s windows and asks for a cheaper/richer level (rules in lib/quality-pure). */
+function QualityMonitor({ level, max, onLevel }: { level: QualityLevel; max: QualityLevel; onLevel: (l: QualityLevel) => void }) {
+  const st = useRef({ warm: 0, frames: 0, t: 0, q: { level, low: 0, high: 0 } as QualityState });
+  useEffect(() => { st.current.q = { ...st.current.q, level, low: 0, high: 0 }; st.current.warm = 0; }, [level]); // a level change hitches: re-warm
+  useFrame((_, dt) => {
+    const s = st.current;
+    if ((s.warm += dt) < 2) return; // first frames compile shaders and upload textures
+    s.frames++; s.t += dt;
+    if (s.t < 0.5) return;
+    s.q = stepQuality(s.q, s.frames / s.t, s.t, max);
+    s.frames = 0; s.t = 0;
+    if (s.q.level !== level) onLevel(s.q.level);
+  });
+  return null;
+}
+
+/** Tells the page the scene has drawn a couple of frames, so the loader can fade out. */
+function FirstFrames({ onReady }: { onReady: () => void }) {
+  const n = useRef(0);
+  useFrame(() => { if (++n.current === 3) onReady(); });
+  return null;
+}
+
 export default function Galaxy(props: GalaxyProps) {
   const positions = useMemo<Positions>(() => Object.fromEntries(PLANETS.map((p) => [p.id, new THREE.Vector3()])), []);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
   const glr = useGlRecovery();
+  const [ready, setReady] = useState(false);
+  const onReady = useCallback(() => setReady(true), []);
+  useEffect(() => { const t = setTimeout(onReady, 8000); return () => clearTimeout(t); }, [onReady]); // never hang on the loader if no frame draws
+  const max: QualityLevel = props.reduced ? 1 : 2;
+  const [autoLevel, setAutoLevel] = useState<QualityLevel>(max);
+  const mode = props.quality ?? "auto";
+  const level: QualityLevel = mode === "high" ? 2 : mode === "low" ? 0 : (Math.min(autoLevel, max) as QualityLevel);
+  const q = QUALITY[level];
   return (
     <div className="relative h-full w-full">
-      <Canvas key={glr.key} onCreated={glr.onCreated} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, 1.75]}
+      <Canvas key={glr.key} onCreated={glr.onCreated} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, q.dpr]}
         gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping }}>
         <color attach="background" args={["#02040b"]} />
         <ambientLight intensity={0.06} color="#9aa8c0" /> {/* low fill: the CORE is the sun, worlds get a real day and night side */}
         <Nebula />
         <NebulaPlates reduced={props.reduced} />
-        <Stars radius={110} depth={60} count={props.reduced ? 2000 : 6000} factor={3.2} fade speed={props.reduced ? 0 : 0.5} />
+        <Stars radius={110} depth={60} count={props.reduced ? Math.min(2000, q.stars) : q.stars} factor={3.2} fade speed={props.reduced ? 0 : 0.5} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
-        <AsteroidBelt inner={5.5} outer={6.0} count={900} seed={3} reduced={props.reduced} />
-        <AsteroidBelt inner={32} outer={34} count={2200} seed={9} reduced={props.reduced} thickness={0.6} />
+        <AsteroidBelt inner={5.5} outer={6.0} count={Math.round(900 * q.belt)} seed={3} reduced={props.reduced} />
+        <AsteroidBelt inner={32} outer={34} count={Math.round(2200 * q.belt)} seed={9} reduced={props.reduced} thickness={0.6} />
         {PLANETS.map((p, i) => (
           <Planet key={p.id} p={p} index={i} selected={props.selected === p.id} onSelect={props.onSelect}
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
@@ -919,12 +953,18 @@ export default function Galaxy(props: GalaxyProps) {
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} />
         <ZoomRig home={HOME.length()} reduced={props.reduced} />
         <LabelProjector positions={positions} labels={labels} />
-        <EffectComposer multisampling={4}>
-          <Bloom intensity={props.reduced ? 0.6 : 0.95} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />
-          <Vignette offset={0.28} darkness={0.7} />
-          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        </EffectComposer>
+        <FirstFrames onReady={onReady} />
+        {mode === "auto" && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
+        {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}
+        {q.bloom > 0 && (
+          <EffectComposer key={level} multisampling={q.msaa}>
+            <Bloom intensity={props.reduced ? Math.min(0.6, q.bloom) : q.bloom} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />
+            <Vignette offset={0.28} darkness={0.7} />
+            <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+          </EffectComposer>
+        )}
       </Canvas>
+      <GalaxyLoader done={ready} />
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning ? "#fb7185" : "#ffe2b0" }}>
           CORE{props.warning ? " · last request failed" : ""}

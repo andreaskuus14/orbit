@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { runPulse } from "./pulse";
 import { handleEvents, runDueAutomations } from "./automations";
+import { kickQueue } from "./agents";
 import { dueSlots, type BriefingKind } from "./pure";
 import { generateProposals, proposalsDue } from "./proactive";
 import { maybeBackup } from "./backup";
@@ -29,6 +30,7 @@ async function tick(sb: SupabaseClient) {
     await handleEvents(sb).catch((e) => console.error("[orbit] automation events failed:", e?.message ?? e));
     for (const { id } of users ?? []) {
       await runDueAutomations(sb, id).catch((e) => console.error("[orbit] scheduled automations failed:", e?.message ?? e));
+      void kickQueue(sb, id); // tasks still queued after a restart (the in-process queue is gone) start again
       const since = new Date(Date.now() - 8 * 86400_000).toISOString();
       const { data: recent } = await sb.from("briefings").select("kind, created_at").eq("user_id", id).gte("created_at", since).order("created_at", { ascending: false });
       // Failed attempts count as "ran" too, so a broken feed doesn't retry every minute.

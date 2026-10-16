@@ -37,8 +37,9 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) return Response.json({ error: "No file uploaded" }, { status: 400 });
   if (file.size > MAX_BYTES) return Response.json({ error: "Files can be at most 4 MB" }, { status: 413 });
 
-  // Browsers sometimes send .md as empty type; fall back on the extension.
-  const type = file.type || (/\.(md|markdown)$/i.test(file.name) ? "text/markdown" : /\.txt$/i.test(file.name) ? "text/plain" : "");
+  // Browsers send .md as an empty type, and on Windows .csv often as application/vnd.ms-excel (Excel's registry entry): trust the extension for text files.
+  const byExt = /\.(md|markdown)$/i.test(file.name) ? "text/markdown" : /\.txt$/i.test(file.name) ? "text/plain" : /\.csv$/i.test(file.name) ? "text/csv" : "";
+  const type = byExt && !TEXT.includes(file.type) ? byExt : file.type;
   const isImage = IMAGES.includes(type);
   if (!isImage && type !== "application/pdf" && type !== DOCX && !TEXT.includes(type)) {
     return Response.json({ error: "Supported: PDF, Word (.docx), text, Markdown, CSV, PNG, JPEG, WebP, GIF" }, { status: 415 });

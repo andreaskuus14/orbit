@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { runCore, CoreStopped } from "@/lib/core";
 import { reflectOnTurn } from "@/lib/reflect";
 import { emit } from "@/lib/claude";
+import { stepLabel } from "@/lib/core-ui";
 import { str } from "@/lib/pure";
 import type { NavTarget } from "@/lib/nav-pure";
 
@@ -34,9 +35,9 @@ export async function POST(req: Request) {
   const cid = conversationId as string;
 
   // Shared by both response styles: answer, then save it once at the end.
-  const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void) => {
+  const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void) => {
     const { data: prior } = await sb.from("messages").select("role, content").eq("conversation_id", cid).order("created_at");
-    const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset, voice, onNavigate);
+    const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset, voice, onNavigate, onStep);
     await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await emit(sb, user.id, "core.completed", "core", { conversationId: cid });
     void reflectOnTurn(sb, user.id, cid); // learn in the background; never delays the answer, never throws
@@ -49,7 +50,7 @@ export async function POST(req: Request) {
   };
 
   if (new URL(req.url).searchParams.get("stream") === "1") {
-    // NDJSON events: {type:"start",conversationId} {type:"delta",text}* {type:"navigate",to}? then {type:"done",...} or {type:"error",error}.
+    // NDJSON events: {type:"start",conversationId} {type:"step",label}* {type:"delta",text}* {type:"navigate",to}? then {type:"done",...} or {type:"error",error}.
     const ac = new AbortController();
     req.signal.addEventListener("abort", () => ac.abort(), { once: true }); // client went away: kill the CLI
     const enc = new TextEncoder();
@@ -59,11 +60,12 @@ export async function POST(req: Request) {
         send({ type: "start", conversationId: cid });
         let shown = "";
         try {
-          const { text, citations, trace } = await answer(
+          const { text, citations, trace, model } = await answer(
             (text) => { shown += text; send({ type: "delta", text }); }, ac.signal,
             () => { if (shown) { shown = ""; send({ type: "reset" }); } },
-            (to) => send({ type: "navigate", to }));
-          send({ type: "done", conversationId: cid, answer: text, citations, trace });
+            (to) => send({ type: "navigate", to }),
+            (tool, input) => send({ type: "step", label: stepLabel(tool, input) }));
+          send({ type: "done", conversationId: cid, answer: text, citations, trace, model });
         } catch (e) {
           // Stopped: keep what was already shown, plus what any agent task cancelled by the stop had finished.
           const done = e instanceof CoreStopped ? e.completed : "";
@@ -78,8 +80,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { text, citations, trace } = await answer();
-    return Response.json({ conversationId: cid, answer: text, citations, trace });
+    const { text, citations, trace, model } = await answer();
+    return Response.json({ conversationId: cid, answer: text, citations, trace, model });
   } catch (e) {
     return Response.json({ conversationId: cid, error: await fail(e) }, { status: 502 });
   }

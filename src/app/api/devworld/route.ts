@@ -16,7 +16,8 @@ export async function GET() {
   if (res) return res;
   const { data, error } = await sb.from("game_saves").select("save, updated_at").eq("game", GAME).maybeSingle();
   if (error) return Response.json({ error: missingTable(error.message) }, { status: 500 });
-  if (!data?.save) return Response.json({ world: SEED_WORLD, seeded: true, updatedAt: null });
+  // A row with a nulled save still exists: hand back its updated_at as the base, or every PUT would insert → 23505 → 409 forever.
+  if (!data?.save) return Response.json({ world: SEED_WORLD, seeded: true, updatedAt: data?.updated_at ?? null });
   // Validated on write; re-check so a hand-edited row can't break the UI. Don't fall back to the seed: the next save would overwrite it.
   const v = validateDevWorld(data.save);
   if (!v.ok) return Response.json({ error: `Stored dev world is invalid: ${v.error}` }, { status: 500 });

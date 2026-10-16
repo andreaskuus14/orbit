@@ -75,9 +75,9 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); toggle(); return; }
-      if (e.key !== "Escape") return;
-      if (open) { e.stopPropagation(); setOpen(false); gearRef.current?.focus(); }
-      else if (listening) { e.stopPropagation(); cancel(); }
+      if (e.key !== "Escape" || e.defaultPrevented) return; // preventDefault: one Esc does one thing (CorePanel checks it too)
+      if (open) { e.preventDefault(); e.stopPropagation(); setOpen(false); gearRef.current?.focus(); }
+      else if (listening) { e.preventDefault(); e.stopPropagation(); cancel(); }
     };
     addEventListener("keydown", onKey, true);
     return () => removeEventListener("keydown", onKey, true);

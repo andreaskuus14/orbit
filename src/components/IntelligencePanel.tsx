@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { highlight } from "./Highlight";
+import { FollowingSection } from "./FollowingSection";
 
 type Cite = { id: string; title: string; url: string; source: string | null; published_at: string | null };
 type Briefing = { id: string; kind: string; title: string; content: string; citations: Cite[]; article_count: number; created_at: string };
@@ -136,6 +137,8 @@ export function IntelligencePanel() {
         {running && <p className="muted text-xs">Fetching feeds, grouping stories and writing the briefing. This usually takes under a minute.</p>}
         {err && <p className="error">{err}</p>}
       </div>
+
+      <FollowingSection />
 
       <div className="flex gap-1.5" role="tablist">
         {(["briefings", "sources", "articles"] as const).map((t) => (
