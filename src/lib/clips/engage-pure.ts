@@ -95,12 +95,12 @@ const TAG = /^#[\p{L}\p{N}_]{1,40}$/u;
 
 /** Claude's {"description","hashtags"} → the publish description: 1–2 lines, the credit line when the creator is known, then 3–5
  *  hashtags incl. #shorts. null when the reply is unusable. */
-export function buildDescription(text: string, creator: string): string | null {
+export function buildDescription(text: string, creator: string, fixed: string[] = []): string | null { // fixed: always-on tags (devlog: #roblox #gamedev #devlog)
   const v = jsonObject(text);
   if (!v || !str(v.description) || !Array.isArray(v.hashtags)) return null;
   const lines = v.description.split(/\r?\n/).map((l) => clean(l, DESC_MAX)).filter((l) => l && !LINK.test(l)).slice(0, 2);
   if (!lines.length) return null;
-  const seen = new Set<string>(["#shorts"]), tags = ["#shorts"];
+  const tags = ["#shorts", ...fixed], seen = new Set<string>(tags.map((t) => t.toLowerCase()));
   for (const h of v.hashtags) {
     const t = clean(h, 41).replace(/^#?/, "#").replace(/\s+/g, "");
     if (TAG.test(t) && !seen.has(t.toLowerCase()) && tags.length < 5) { seen.add(t.toLowerCase()); tags.push(t); }

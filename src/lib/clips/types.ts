@@ -18,11 +18,13 @@ export type ClipJob = { v?: number; id: string; source: string; createdAt: strin
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
   permission?: string; // source/permission note (inbox auto-clip: from <video>.source.txt / .source.json)
   timings?: { audio: number; transcribe: number; pick: number; render: number }; // seconds per stage
-  feedback?: Feedback[] }; // review decisions, kept for learning what makes a good clip
+  feedback?: Feedback[]; // review decisions, kept for learning what makes a good clip
+  devlogDay?: number }; // devlog preset: this recording's "Day N" (taken from the series counter once, on the first run)
 // The edit options are optional: jobs saved before they existed get the defaults (validOptions({})).
 export type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: "fit" | "fill" | "split"; camSide?: "left" | "right";
   jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en";
-  coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean }; // retention edits: teaser of the peak first, bottom progress bar, trimmed tail + audio fade
+  coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean; // retention edits: teaser of the peak first, bottom progress bar, trimmed tail + audio fade
+  preset?: "viral" | "devlog" }; // moment-picking style: streamer highlights, or game-dev progress (devlog.ts); missing = viral
 export type InboxFile = { name: string; size: number; mtime: string; jobId?: string; permission?: string }; // permission: from <name>.source.json
 export type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
 export type DownloadStatus = "queued" | "downloading" | "done" | "failed";

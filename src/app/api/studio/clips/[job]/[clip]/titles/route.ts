@@ -4,6 +4,7 @@ import { getJob, isJobBusy, loadAnalysis, saveJob, startClipQueue, withJobLock }
 import { tastePrompt } from "@/lib/clips/learn";
 import { isClipId, isJobId } from "@/lib/clips/pure";
 import { TITLES_SYSTEM, creatorFromSource, parseTitleOptions } from "@/lib/clips/titles";
+import { devlogMoment } from "@/lib/clips/devlog";
 
 // "✨ More titles": one background Claude call → 3 scored title options on clip.titleOptions (replacing older ones).
 // Picking one is a normal PATCH { title }. Works for clips made before options existed.
@@ -26,6 +27,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ job: st
   try {
     const r = await askClaude(prompt, TITLES_SYSTEM + (await tastePrompt()), { lane: "background", signal: req.signal });
     options = parseTitleOptions(r.text);
+    if (job.devlogDay) options = devlogMoment({ title: "", titleOptions: options }, job.devlogDay).titleOptions ?? []; // keep "Day N" (and dedupe)
   } catch (e) {
     return Response.json({ error: `Claude: ${e instanceof Error ? e.message : e}` }, { status: 502 });
   }

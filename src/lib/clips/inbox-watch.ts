@@ -1,7 +1,8 @@
-import { access, readdir, readFile, stat } from "node:fs/promises";
+import { access, readdir, readFile, rename, stat } from "node:fs/promises";
 import path from "node:path";
 import { cleanPermission, isInboxName, validOptions } from "./pure.ts";
 import type { ClipOptions, Download } from "./types";
+import { DEVLOG_DIR, bumpDay, isRemuxedMkv, maxJobDay } from "./devlog.ts";
 
 // Inbox watcher: stream files the owner drops into <studio>/inbox (from creators, clipping programs, Discord) get a clip job on their own.
 // Polls instead of fs.watch, which misses events on Windows network/OneDrive folders. factory is imported lazily so the pure
@@ -67,42 +68,80 @@ export function inboxAutoProblem(x: unknown): string {
 
 export const defaultInboxAuto = (now: Date, enabled = true): InboxAuto => ({ enabled, options: validOptions({}) as Required<ClipOptions>, since: now.toISOString() });
 
+// Devlog folder (<inbox>/devlog): the owner's own build recordings (OBS) → devlog-preset jobs. Each finished file is moved up into the
+// inbox (the pipeline reads sources from there) and started; started holds its inbox name so the main watcher never re-clips it.
+// days: the "Day N" counter per series (devlog.ts bumpDay). Always starts OFF.
+export type DevlogAuto = InboxAuto & { days: Record<string, number> };
+export const defaultDevlog = (now: Date): DevlogAuto =>
+  ({ enabled: false, options: validOptions({ count: 3, maxSec: 60, preset: "devlog" }) as Required<ClipOptions>, since: now.toISOString(), days: {} });
+export function devlogProblem(x: unknown): string {
+  const p = inboxAutoProblem(x);
+  if (p) return p;
+  const d = (x as Record<string, unknown>).days;
+  return d && typeof d === "object" && Object.values(d).every((n) => Number.isInteger(n)) ? "" : "days must be { series: number }";
+}
+/** Inbox name for a devlog file: its own name, or a "devlog-<n>-" prefixed one when the inbox already has that name. */
+export function devlogTarget(name: string, taken: Set<string>, n = Date.now()): string {
+  if (!taken.has(name)) return name;
+  const pre = `devlog-${n.toString(36)}-`;
+  return pre + name.slice(-(255 - pre.length)); // cut from the start: the extension must survive
+}
+
 // ---- I/O ----
 
-type St = { timer?: NodeJS.Timeout; busy?: boolean; seen: Map<string, Seen>; lock: Promise<unknown> };
+type St = { timer?: NodeJS.Timeout; busy?: boolean; seen: Map<string, Seen>; seenDev?: Map<string, Seen>; lock: Promise<unknown>; devProblem?: string };
 const g = globalThis as unknown as { __orbitInboxWatch?: St }; // survives dev hot reloads: one timer
 const S: St = (g.__orbitInboxWatch ??= { seen: new Map(), lock: Promise.resolve() } as St);
 const factory = () => import("./factory");
-const settingsFile = async () => path.join((await factory()).studioRoot(), "inbox-auto.json");
+// One settings file per id in the studio root: inbox-auto.json, devlog.json. fresh(on): defaults; on = a first-ever file (never after damage).
+type Store<T> = { id: string; problem: (x: unknown) => string; fresh: (on: boolean) => T };
+const INBOX: Store<InboxAuto> = { id: "inbox-auto", problem: inboxAutoProblem, fresh: (on) => defaultInboxAuto(new Date(), on) };
+const DEVLOG: Store<DevlogAuto> = { id: "devlog", problem: devlogProblem, fresh: () => defaultDevlog(new Date()) };
+const settingsFile = async (id: string) => path.join((await factory()).studioRoot(), `${id}.json`);
+const settingsExist = async (id: string) => access(await settingsFile(id)).then(() => true, () => false);
 
-const settingsExist = async () => access(await settingsFile()).then(() => true, () => false);
-
-/** Settings, created with defaults (on, from now) the first time. null = file there but unreadable (locked): try again later. */
-export async function readInboxAuto(): Promise<InboxAuto | null> {
+/** Settings, created with defaults the first time. null = file there but unreadable (locked): try again later. */
+async function readSettings<T extends InboxAuto>(st: Store<T>): Promise<T | null> {
   const f = await factory();
-  const existed = await settingsExist();
-  const x = await f.readState<InboxAuto>(f.studioRoot(), "inbox-auto", inboxAutoProblem);
+  const existed = await settingsExist(st.id);
+  const x = await f.readState<T>(f.studioRoot(), st.id, st.problem);
   if (x) return { ...x, options: validOptions(x.options as unknown as Record<string, unknown>) as Required<ClipOptions> };
-  if (await settingsExist()) return null;
-  return updateInboxAuto(() => {}, existed); // existed but now gone = readState quarantined a damaged file
+  if (await settingsExist(st.id)) return null;
+  return updateSettings(st, () => {}, existed); // existed but now gone = readState quarantined a damaged file
 }
 
-/** Read-modify-write of inbox-auto.json, one at a time (tmp + rename via saveState). */
-export function updateInboxAuto(fn: (s: InboxAuto) => void, damaged = false): Promise<InboxAuto> {
+/** Read-modify-write of a settings file, one at a time (tmp + rename via saveState). */
+function updateSettings<T>(st: Store<T>, fn: (s: T) => void, damaged = false): Promise<T> {
   const p = S.lock.then(async () => {
     const f = await factory();
-    const existed = await settingsExist();
-    const cur = await f.readState<InboxAuto>(f.studioRoot(), "inbox-auto", inboxAutoProblem);
-    if (!cur && await settingsExist()) throw new Error("Couldn't read inbox-auto.json (locked by another program?); try again");
+    const existed = await settingsExist(st.id);
+    const cur = await f.readState<T>(f.studioRoot(), st.id, st.problem);
+    if (!cur && await settingsExist(st.id)) throw new Error(`Couldn't read ${st.id}.json (locked by another program?); try again`);
     // Only a first-ever file starts on; after a damaged one was set aside, auto-clip stays off until the owner turns it back on.
-    const s = cur ?? defaultInboxAuto(new Date(), !(damaged || existed));
+    const s = cur ?? st.fresh(!(damaged || existed));
     fn(s);
-    await f.saveState("inbox-auto", await settingsFile(), s);
+    await f.saveState(st.id, await settingsFile(st.id), s);
     return s;
   });
   S.lock = p.catch(() => {});
   return p;
 }
+
+export const readInboxAuto = () => readSettings(INBOX);
+export const updateInboxAuto = (fn: (s: InboxAuto) => void) => updateSettings(INBOX, fn);
+export const readDevlog = () => readSettings(DEVLOG);
+export const updateDevlog = (fn: (s: DevlogAuto) => void) => updateSettings(DEVLOG, fn);
+export const devlogDir = async () => path.join((await factory()).inboxDir(), DEVLOG_DIR);
+/** Takes the series' next "Day N" (saved before it's used, so two jobs never share a day). */
+export async function nextDevlogDay(): Promise<number> {
+  let day = 1;
+  const floor = maxJobDay(await (await factory()).listJobs());
+  await updateDevlog((s) => { const b = bumpDay(s.days, undefined, floor); s.days = b.days; day = b.day; });
+  return day;
+}
+
+/** Last devlog move problem worth showing the owner (e.g. the folder is on another drive), "" = none. */
+export const devlogMoveProblem = () => S.devProblem ?? "";
 
 /** Starts the 30 s poll once per server process. */
 export function startInboxWatch() {
@@ -112,28 +151,70 @@ export function startInboxWatch() {
   void poll();
 }
 
+/** Video files in dir with their stats. own: names ORBIT itself is downloading/downloaded. */
+async function listVideos(dir: string, own: Set<unknown>): Promise<Polled[]> {
+  const names = (await readdir(dir).catch(() => [] as string[])).filter((n) => isInboxName(n) && !isTempName(n));
+  return (await Promise.all(names.map(async (name): Promise<Polled | null> => {
+    const s = await stat(path.join(dir, name)).catch(() => null);
+    if (!s?.isFile()) return null;
+    // A downloaded file whose download record was removed still has ORBIT's .source.json with the link.
+    const meta = await readFile(path.join(dir, `${name}.source.json`), "utf8").then((t) => JSON.parse(t), () => null);
+    // Windows copies keep the original mtime; birthtime/ctime is when the file landed here.
+    return { name, size: s.size, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, arrivedMs: Math.max(s.birthtimeMs, s.ctimeMs, s.mtimeMs), fromOrbit: own.has(name) || typeof meta?.url === "string" };
+  }))).filter((x): x is Polled => !!x);
+}
+
+/** Devlog folder pass: finished recordings → moved into the inbox → devlog job (lands in the review queue; never published on its own). */
+async function pollDevlog(f: Awaited<ReturnType<typeof factory>>, inboxNames: Set<string>): Promise<Started[]> {
+  const dir = await devlogDir();
+  const files = await listVideos(dir, new Set());
+  S.seenDev = trackStable(S.seenDev ?? new Map(), files);
+  const cfg = await readDevlog();
+  if (!cfg?.enabled) return cfg?.started ?? [];
+  const others = [...files.map((x) => x.name), ...(cfg.started ?? []).map((x) => x.name)];
+  const ready = readyFiles(files, S.seenDev, new Set(), Date.parse(cfg.since)).filter((x) => !isRemuxedMkv(x.name, others));
+  if (!ready.length) return cfg.started ?? [];
+  const tools = await f.checkTools();
+  if (!tools.ffmpeg) return cfg.started ?? [];
+  let started = cfg.started ?? [];
+  for (const file of ready) {
+    const target = devlogTarget(file.name, inboxNames);
+    const s = await updateDevlog((x) => { x.started = rememberStarted(x.started, { ...file, name: target }); }); // rename keeps size + mtime
+    started = s.started ?? [];
+    try { await rename(path.join(dir, file.name), path.join(f.inboxDir(), target)); S.devProblem = ""; }
+    catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "EXDEV") { // rename can't cross drives: say so once, not every 30 s
+        const msg = "The devlog folder is on a different drive than the inbox, so recordings can't be moved. Keep it inside the inbox folder.";
+        if (S.devProblem !== msg) console.error(`[orbit] devlog: ${msg}`);
+        S.devProblem = msg;
+      } else console.error(`[orbit] devlog: couldn't move ${file.name} (still recording?):`, e instanceof Error ? e.message : e);
+      continue;
+    }
+    inboxNames.add(target);
+    await f.createJob(target, { ...cfg.options, preset: "devlog", captions: cfg.options.captions && tools.transcriber }, "Own recording (devlog)");
+    console.log(`[orbit] devlog: auto-clipping ${target}`);
+  }
+  return started;
+}
+
 async function poll() {
   if (S.busy) return;
   S.busy = true;
   try {
     const f = await factory();
     const dir = f.inboxDir();
-    const [jobs, downloads] = await Promise.all([f.listJobs(), f.listDownloads()]);
-    const own = new Set(downloads.flatMap((d: Download) => [d.file, ...(d.parts ?? [])]).filter(Boolean));
-    const names = (await readdir(dir).catch(() => [] as string[])).filter((n) => isInboxName(n) && !isTempName(n));
-    const files = (await Promise.all(names.map(async (name): Promise<Polled | null> => {
-      const s = await stat(path.join(dir, name)).catch(() => null);
-      if (!s?.isFile()) return null;
-      // A downloaded file whose download record was removed still has ORBIT's .source.json with the link.
-      const meta = await readFile(path.join(dir, `${name}.source.json`), "utf8").then((t) => JSON.parse(t), () => null);
-      // Windows copies keep the original mtime; birthtime/ctime is when the file landed here.
-      return { name, size: s.size, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, arrivedMs: Math.max(s.birthtimeMs, s.ctimeMs, s.mtimeMs), fromOrbit: own.has(name) || typeof meta?.url === "string" };
-    }))).filter((x): x is Polled => !!x);
+    const own = new Set((await f.listDownloads()).flatMap((d: Download) => [d.file, ...(d.parts ?? [])]).filter(Boolean));
+    const devStarted = await pollDevlog(f, new Set(await readdir(dir).catch(() => [] as string[]))).catch(async (e) => {
+      console.error("[orbit] devlog watch error:", e instanceof Error ? e.message : e);
+      return (await readDevlog().catch(() => null))?.started ?? [];
+    });
+    const files = await listVideos(dir, own); // after the devlog pass: its moved files already have jobs
     S.seen = trackStable(S.seen, files);
 
     const cfg = await readInboxAuto();
     if (!cfg?.enabled) return;
-    const ready = readyFiles(files, S.seen, new Set(jobs.map((j) => j.source)), Date.parse(cfg.since), cfg.started);
+    const jobSources = new Set((await f.listJobs()).map((j) => j.source));
+    const ready = readyFiles(files, S.seen, jobSources, Date.parse(cfg.since), [...(cfg.started ?? []), ...devStarted]);
     if (!ready.length) return;
     const tools = await f.checkTools();
     if (!tools.ffmpeg) return; // don't burn the file's one auto job on a failure; retried once ffmpeg is there
@@ -142,7 +223,7 @@ async function poll() {
       await updateInboxAuto((s) => { s.started = rememberStarted(s.started, file); }); // before the job: a failed save must not lead to repeats
       const [txt, json] = await Promise.all([`${name}.source.txt`, `${name}.source.json`].map((n) => readFile(path.join(dir, n), "utf8").catch(() => null)));
       const note = sourceNote(txt, json);
-      await f.createJob(name, { ...cfg.options, captions: cfg.options.captions && tools.transcriber }, note || undefined);
+      await f.createJob(name, { ...cfg.options, preset: "viral", captions: cfg.options.captions && tools.transcriber }, note || undefined); // never a devlog: that's the devlog folder's job
       console.log(`[orbit] inbox: auto-clipping ${name}`);
     }
   } catch (e) {

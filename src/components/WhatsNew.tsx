@@ -4,8 +4,10 @@ import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { PALETTE_EVENT } from "@/lib/palette-pure";
 
 // One-time "what's new" card after an update. Bump KEY's version when a new round ships something worth showing.
-const KEY = "orbit.whatsnew.2026-10-16";
+const KEY = "orbit.whatsnew.2026-10-16b";
 const ITEMS: { icon: string; title: string; text: string; go?: NavTarget; event?: string }[] = [
+  { icon: "🏕", title: "GAME DEV: Roblox tools", text: "Scene from a sentence, free-model virus scan, textures, code helper, style lock and a playtest bot.", go: { panel: "creation" } },
+  { icon: "🛠", title: "Devlog → Shorts", text: "Point OBS at the devlog folder; recordings become “Day N” Shorts in REVIEW.", go: { panel: "studio", view: "clips" } },
   { icon: "🌱", title: "LIFE", text: "Habits with streaks, reminders (also “every day at 9”), a focus timer and a journal. Say “start focus”.", go: { panel: "life" } },
   { icon: "🗄️", title: "VAULT", text: "Your private files on this PC: drop, preview, search inside, ask CORE.", go: { panel: "vault" } },
   { icon: "⌕", title: "Search everything", text: "Ctrl+P: planets, actions, memories and files.", event: PALETTE_EVENT },

@@ -15,6 +15,8 @@ import { Markdown } from "./AgentsPanels";
 import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
 import { LifeStats } from "./LifeStats";
+import { ChatSheet, chatsApi, useCoreChats } from "./CoreChats";
+import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, codeBlocks } from "@/lib/core-chats-pure";
 import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
@@ -54,6 +56,51 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const fileRef = useRef<HTMLInputElement>(null);
   const lastQ = useRef(""); // for Retry and ↑ in an empty input
   const convo = useRef<string | null>(null);
+  // Saved chats: every message is stored server-side as it is sent; this is just which chat is open.
+  const chats = useCoreChats();
+  const [chatId, setChatIdState] = useState<string | null>(null);
+  const [newProject, setNewProject] = useState<string | null>(null); // project picked for a chat that has no messages yet
+  const [sheet, setSheet] = useState(false);
+  const [pinned, setPinned] = useState("");
+  const opening = useRef(0); // bumped by every switch/new chat/send: a slow openChat that lost the race is dropped
+  const setChatId = useCallback((id: string | null) => {
+    convo.current = id;
+    setChatIdState(id);
+    try { if (id) localStorage.setItem(ACTIVE_CHAT_KEY, id); else localStorage.removeItem(ACTIVE_CHAT_KEY); } catch { /* private mode */ }
+  }, []);
+  const newChat = useCallback((projectId: string | null = null) => {
+    abort.current?.abort(); stopSpeech();
+    opening.current++;
+    setMsgs([]); setChatId(null); setNewProject(projectId); setSheet(false); lastQ.current = "";
+  }, [setChatId]);
+  const openChat = useCallback(async (id: string) => {
+    setSheet(false);
+    if (id === convo.current) return;
+    abort.current?.abort(); stopSpeech();
+    const mine = ++opening.current;
+    try {
+      const r = await chatsApi<{ messages: Msg[] }>(undefined, `?id=${encodeURIComponent(id)}`);
+      if (mine !== opening.current) return;
+      if (!r.messages.length) { newChat(); return; } // deleted (or not this user's): start fresh
+      setMsgs(r.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace })));
+      setChatId(id); setNewProject(null);
+      lastQ.current = [...r.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    } catch (e) { if (mine === opening.current) { setMsgs([{ role: "assistant", content: e instanceof Error ? e.message : "Couldn't open that chat", error: true }]); setChatId(null); } }
+  }, [setChatId, newChat]);
+  // Reopen the last chat on mount (the panel remounts each time it opens); palette/voice "new chat" starts fresh.
+  useEffect(() => {
+    let last: string | null = null;
+    try { last = localStorage.getItem(ACTIVE_CHAT_KEY); } catch { /* private mode */ }
+    if (last && !initial && !greeting) void openChat(last);
+    const h = () => newChat();
+    addEventListener(CORE_NEW_CHAT, h);
+    return () => removeEventListener(CORE_NEW_CHAT, h);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const project = (chatId ? chats.map[chatId] : null) ?? newProject; // newProject covers a just-created chat before the list reloads
+  const pin = async (text: string, title?: string) => {
+    if (!project) return;
+    if (await chats.act({ action: "pin", projectId: project, text: text.replace(/\s*\[[ma]:[^\]]+\]/g, ""), title })) { setPinned(text); setTimeout(() => setPinned(""), 1500); }
+  };
   const end = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
   // Abort a running answer only on a real unmount: React dev mode unmounts and remounts once right away,
@@ -75,6 +122,8 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     if ((!message && !att.has()) || busy) return;
     stopSpeech();
     if (isSleepCommand(message)) { void goToSleep(); return; }
+    opening.current++; // sending wins over a chat still loading
+    if (/^(start (a )?)?new (chat|conversation)[.!]?$/i.test(message) && !att.has()) { newChat(); return; }
     // Speak only answers to spoken questions; settings are re-read per chunk so toggling takes effect live.
     let myGen = speechGen(); // a later stop() (barge-in, Stop button) silences the rest of this answer
     const talk = fromVoice || takeVoiceAsked();
@@ -98,7 +147,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     try {
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current, voice: talk, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
+        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
@@ -110,7 +159,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       let finished = false;
       const handle = (line: string) => {
         const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; model?: "fast" | "smart" };
-        if (ev.conversationId) convo.current = ev.conversationId;
+        if (ev.conversationId && ev.conversationId !== convo.current) { setChatId(ev.conversationId); void chats.reload(); }
         if (ev.type === "delta" && ev.text) {
           partial += ev.text;
           say(voiceOut.push(ev.text));
@@ -160,8 +209,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       setBusy(false);
       if (abort.current === ac) abort.current = null;
       if (talk) dispatchEvent(new Event("orbit:core-done")); // voice conversation listens again only after this (bus.ts CORE_DONE)
+      void chats.reload(); // Recents order + title
     }
-  }, [busy]);
+  }, [busy, newProject, newChat, setChatId, chats.reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // While CORE is open: Ctrl/⌘+K focuses its input (capture phase + preventDefault, so Orbit's command-bar shortcut skips it)
   // and Esc stops a streaming answer instead of closing the panel.
@@ -217,6 +267,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
               onClick={() => { const was = speaking; stopSpeech(); if (!was) speechChunks(m.content).forEach((c) => speakChunk(c)); }}>
               {speaking ? "■ Stop" : "🔊 Read aloud"}
             </button>
+            <button type="button" className="chip" disabled={!project} title={project ? "Pin this reply to the project" : "Move this chat into a project to pin replies"}
+              onClick={() => void pin(m.content)}>{pinned === m.content ? "✓ Pinned" : "📌 Pin"}</button>
+            {project && codeBlocks(m.content) && (
+              <button type="button" className="chip" title="Pin only the code blocks to the project" onClick={() => void pin(codeBlocks(m.content), `Code: ${chats.chats.find((c) => c.id === chatId)?.title ?? "chat"}`.slice(0, 100))}>
+                {pinned === codeBlocks(m.content) ? "✓ Pinned" : "📌 Pin code"}</button>
+            )}
           </>}
           {i === msgs.length - 1 && lastQ.current && !busy && (
             <button type="button" className="chip" title="Ask the last question again" onClick={() => void send(lastQ.current)}>↻ Retry</button>
@@ -236,11 +292,27 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
         </details>
       )}
     </div>
-  )), [msgs, onOpenMemory, speaking, copied, busy, send]);
+  )), [msgs, onOpenMemory, speaking, copied, busy, send, project, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex h-full flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+    <div className="relative flex h-full flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
       onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); void att.add(e.dataTransfer.files); } }}>
+      <div className="mb-2 flex items-center gap-1.5 text-xs">
+        <button type="button" className="chip" aria-expanded={sheet} onClick={() => setSheet((v) => !v)} title="Chats and projects">☰ Chats</button>
+        <span className="min-w-0 flex-1 truncate font-semibold">{chatId ? chats.chats.find((c) => c.id === chatId)?.title ?? "Chat" : "New chat"}</span>
+        <span className="muted shrink-0" aria-live="polite">{busy ? "Saving…" : chatId ? "✓ Saved" : ""}</span>
+        {!!chats.projects.length && (
+          <select className="field max-w-[8rem] py-1 text-xs" aria-label="Project for this chat" value={project ?? ""}
+            onChange={(e) => { const v = e.target.value || null; setNewProject(v); if (chatId) void chats.act({ action: "move", id: chatId, projectId: v }); }}>
+            <option value="">No project</option>
+            {chats.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
+        <button type="button" className="chip" onClick={() => newChat()} disabled={!msgs.length && !chatId} title="Start a new chat">＋ New</button>
+      </div>
+      {chats.error && !sheet && <p className="error mb-2 text-xs" role="alert">{chats.error}</p>}
+      {sheet && <ChatSheet {...chats} activeId={chatId} onOpen={(id) => void openChat(id)} onNew={newChat} onClose={() => setSheet(false)}
+        onDeleted={(id) => { if (id === chatId) newChat(); }} />}
       <CoreSuggests tick={msgs.length} />
       <PlanCard tick={msgs.length} />
       <div className="flex-1 space-y-4 overflow-y-auto pr-1" aria-live="polite" aria-busy={busy}>

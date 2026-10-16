@@ -6,6 +6,7 @@ import { NAV_EVENT, validateNav, type NavTarget } from "@/lib/nav-pure";
 import { rank, pushRecent, rowsOf, PALETTE_EVENT, OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { VOICE_ASK } from "./voice/bus";
 import { SHORTCUTS_EVENT } from "./ShortcutsOverlay";
+import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT } from "@/lib/core-chats-pure";
 
 export { PALETTE_EVENT, OPEN_MEMORY_EVENT };
 
@@ -22,6 +23,10 @@ const GOTO: Item[] = [
   { id: "go:profile", label: "Profile", run: () => nav({ panel: "profile" }) },
 ];
 const ACTIONS: Item[] = [
+  { id: "act:newchat", label: "New chat", hint: "CORE", keywords: "core new conversation start fresh", run: () => {
+    try { localStorage.removeItem(ACTIVE_CHAT_KEY); } catch { /* private mode */ } // a CORE panel that mounts now starts empty
+    nav({ panel: "core" }); dispatchEvent(new Event(CORE_NEW_CHAT)); // an already-open panel resets
+  } },
   { id: "act:doctor", label: "Check ORBIT health", hint: "Run the ORBIT doctor", keywords: "doctor diagnostics", run: () => nav({ panel: null, doctor: true }) },
   { id: "act:keys", label: "Keyboard shortcuts", keywords: "keys help", run: () => dispatchEvent(new Event(SHORTCUTS_EVENT)) },
   { id: "act:morning", label: "Good morning briefing", keywords: "brief daily", run: () => nav({ panel: null, morning: true }) },

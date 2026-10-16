@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   addToBoard, allowedImage, cleanQuery, createCache, groupBoard, normaliseCreator, normaliseOpenverse, normaliseReddit, parseIdeas, parsePicks,
   parseToolboxIds, pickPrompt, removeFromBoard, safeLink, urls, validateBoardItem, validateItem, MAX_BOARD, type RefItem,
+  addToStyle, ideasPrompt, parseStyle, rankByStyle, removeFromStyle, studioPrompt, styledQuery, stylePrompt, validateStyle, MAX_STYLE,
 } from "../src/lib/refs-pure.ts";
 
 test("cleanQuery and URL builders encode the word", () => {
@@ -120,4 +121,46 @@ test("cache: TTL expiry and bounded size", () => {
   assert.equal(c.get("c", 1), 3);
   assert.equal(c.get("c", 2000), undefined);
   assert.equal(c.size, 1);
+});
+
+test("style lock: ≤5 cap, validation, AI summary parse, untrusted text stripped", () => {
+  let items: RefItem[] = [];
+  for (let i = 0; i < MAX_STYLE; i++) items = addToStyle(items, { ...tree, id: `rbx:${i + 1}`, assetId: i + 1, link: urls.asset(i + 1) })!;
+  assert.equal(items.length, 5);
+  assert.equal(addToStyle(items, { ...tree, id: "rbx:99", assetId: 99, link: urls.asset(99) }), null); // full
+  assert.equal(addToStyle(items, items[0]), items); // re-add is a no-op even when full
+  assert.deepEqual(removeFromStyle(items, "rbx:1").map((i) => i.id), ["rbx:2", "rbx:3", "rbx:4", "rbx:5"]);
+  const v = validateStyle({ items: [...items, tree, { bad: 1 }, { ...tree, id: "rbx:6", assetId: 6, link: urls.asset(6) }], summary: "x<y>".repeat(200), keywords: ["Low-Poly", "low-poly", "", 3, "a", "b", "c", "d", "e"], updatedAt: "nope" });
+  assert.equal(v.items.length, 5);
+  assert.equal(v.summary.length, 300);
+  assert.ok(!v.summary.includes("<"));
+  assert.deepEqual(v.keywords, ["low-poly", "a", "b", "c", "d", "e"]);
+  assert.equal(v.updatedAt, "");
+  assert.deepEqual(validateStyle(null), { items: [], summary: "", keywords: [], updatedAt: "" });
+  const sp = stylePrompt([pic, tree]);
+  assert.ok(sp.includes("<refs>") && !sp.includes("<b>") && sp.includes("source=Openverse (CC images)"));
+  assert.deepEqual(parseStyle('[{"summary":"Bright pastel low-poly, chunky shapes","keywords":["Pastel","low-poly","pastel"]}]'), { summary: "Bright pastel low-poly, chunky shapes", keywords: ["pastel", "low-poly"] });
+  assert.equal(parseStyle('[{"summary":"' + "w ".repeat(60) + '","keywords":["a"]}]')?.summary.split(" ").length, 40);
+  assert.equal(parseStyle("garbage"), null);
+  assert.equal(parseStyle('[{"summary":"x","keywords":[]}]'), null);
+});
+
+test("style applied: query keywords, Creator Store re-rank, prompts, Studio prompt ≤200", () => {
+  assert.equal(styledQuery("tree", ["low-poly", "pastel", "cozy"]), "tree low-poly pastel");
+  assert.equal(styledQuery("low-poly tree", ["low-poly", "pastel"]), "low-poly tree pastel");
+  assert.equal(styledQuery("tree", []), "tree");
+  assert.equal(styledQuery("x".repeat(55), ["pastel", "ab"]), "x".repeat(55));
+  const its = [{ title: "Oak" }, { title: "Low-Poly Pine" }, { title: "Birch" }, { title: "Pastel Willow" }];
+  assert.deepEqual(rankByStyle(its, ["low-poly", "pastel"]).map((i) => i.title), ["Low-Poly Pine", "Pastel Willow", "Oak", "Birch"]);
+  assert.equal(rankByStyle(its, []), its);
+  assert.match(pickPrompt("tree", [tree], "pastel <low-poly>"), /game style .*"pastel low-poly"\n/);
+  assert.ok(!pickPrompt("tree", [tree]).includes("style"));
+  assert.match(ideasPrompt("tree", "pastel"), /owner's game style: "pastel"/);
+  assert.equal(ideasPrompt("tree"), 'Subject: "tree"');
+  assert.equal(studioPrompt("tree — oak", "pastel"), "tree — oak — style: pastel");
+  assert.equal(studioPrompt("tree", ""), "tree");
+  const long = studioPrompt("tree — " + "o".repeat(50), "s".repeat(300));
+  assert.equal(long.length, 200);
+  assert.ok(long.endsWith("…") && long.includes(" — style: "));
+  assert.equal(studioPrompt("p".repeat(250), "pastel"), "p".repeat(200)); // no room: prompt kept, style dropped
 });

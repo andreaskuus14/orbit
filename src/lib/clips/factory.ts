@@ -12,7 +12,8 @@ import { CHANNEL_LINK_MSG, channelLink, rootClipId } from "./format";
 import { isVideoId, uploadError, type VideoResource } from "../yt-analytics-pure";
 import { OAuthError, getAccessToken, invalidateAccess, readStored } from "../yt-oauth";
 import { TITLES_RULE, creatorFromSource, thumbTimes } from "./titles";
-import { sourceNote } from "./inbox-watch";
+import { nextDevlogDay, sourceNote } from "./inbox-watch";
+import { DEVLOG_DIR, devlogMoment, devlogTitle, momentPrompts, sameSourceDay } from "./devlog";
 import type { Clip, ClipJob, ClipOptions, ClipPublish, Download, InboxFile, JobStatus, Quarantined, ToolsStatus } from "./types";
 import {
   MAX_SOURCE_SEC, MIN_CLIP_SEC, SAMPLE_RATE, VIDEO_EXTS, WIN_SEC, asrPieces, asrRegions, audioArgs, buildAss, clipLoudness, fallbackMoments, frameArgs,
@@ -61,7 +62,7 @@ const g = globalThis as unknown as { __orbitClips?: State };
 const S = (g.__orbitClips ??= { write: Promise.resolve(), deleted: new Set() });
 
 export async function ensureDirs() {
-  for (const d of [inboxDir(), clipsDir(), jobsDir(), dlDir()]) await mkdir(d, { recursive: true });
+  for (const d of [inboxDir(), clipsDir(), jobsDir(), dlDir(), path.join(inboxDir(), DEVLOG_DIR)]) await mkdir(d, { recursive: true });
 }
 
 // ---- tools ----
@@ -387,6 +388,11 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
     signal.throwIfAborted();
     if (!moments.length) moments = fallbackMoments(cands, o.count);
     if (!moments.length) throw new Error("No usable moments found");
+    if (o.preset === "devlog") {
+      job.devlogDay ??= sameSourceDay(await listJobs(), job) ?? await nextDevlogDay().catch((e) => { job.warnings.push(`Couldn't read the devlog day counter, titles have no "Day N": ${e instanceof Error ? e.message : e}`); return undefined; });
+      const day = job.devlogDay;
+      if (day) moments = moments.map((m) => devlogMoment(m, day));
+    }
     lap("pick");
     await writeFile(analysisFile(job.id), JSON.stringify(packAnalysis({ duration, hasAudio, spans, words, rms, cands, moments }))).catch((e) =>
       job.warnings.push(`Couldn't save the analysis, so "Another version" needs a new job: ${e instanceof Error ? e.message : e}`));
@@ -542,7 +548,7 @@ Each transcript line starts with its time in seconds, e.g. [83.4s]; lines break 
 <transcript>
 ${promptTranscript(ws, cs)}
 </transcript>${creatorLine(creator)}`;
-  const r = await askClaudeStream(prompt, SYSTEM + (await import("./learn").then((m) => m.tastePrompt(), () => "")), () => {}, signal); // streaming variant: the only one that takes a signal, so cancel/delete stops Claude
+  const r = await askClaudeStream(prompt, (momentPrompts(o.preset)?.scout ?? SYSTEM) + (await import("./learn").then((m) => m.tastePrompt(), () => "")), () => {}, signal); // streaming variant: the only one that takes a signal, so cancel/delete stops Claude
   return validateMoments(r.text, { duration, maxSec: o.maxSec, count: n });
 }
 
@@ -575,7 +581,7 @@ async function pickMoments(words: Word[], cands: Candidate[], spans: Span[], dur
 <candidates>
 ${all.map((m, i) => `#${i + 1} ${m.start.toFixed(1)}-${m.end.toFixed(1)} s, scout score ${Math.round(m.score * 100)}: ${m.title} | hook: ${m.hook} | ${m.reason}\n${text(m)}`).join("\n\n")}
 </candidates>${creatorLine(creator)}`;
-  const final = await askClaudeStream(prompt, RANK + (await import("./learn").then((m) => m.tastePrompt(), () => "")), () => {}, signal, "background", SMART_MODEL) // learned taste (learn.ts)
+  const final = await askClaudeStream(prompt, (momentPrompts(o.preset)?.rank ?? RANK) + (await import("./learn").then((m) => m.tastePrompt(), () => "")), () => {}, signal, "background", SMART_MODEL) // learned taste (learn.ts)
     .then((r) => validateMoments(r.text, { duration, maxSec: o.maxSec, count: o.count }), (e) => { if (signal.aborted) throw e; return [] as Moment[]; });
   const ok = mergeRanked(final, all, o.count).filter((x) => spanCover(x, spans) >= 0.8); // a scout may wander outside the transcript
   if (!ok.length) throw new Error("no moments inside the transcribed parts");
@@ -687,7 +693,7 @@ async function renderVersion(jobId: string, clipId: string, suggest: { title: bo
         if (!text) throw new Error("no transcript for this part");
         const r = await askClaudeStream(`Current title: ${clip.title.replace(/[<>]/g, "")}\nCurrent hook: ${clip.hook.replace(/[<>]/g, "")}\n<transcript>\n${text}\n</transcript>`, SUGGEST, () => {}, signal);
         const s = parseSuggestion(r.text);
-        if (suggest.title && s.title) clip.title = suggested.title = s.title;
+        if (suggest.title && s.title) clip.title = suggested.title = job.devlogDay ? devlogTitle(job.devlogDay, s.title) : s.title;
         if (suggest.hook && s.hook) clip.hook = suggested.hook = s.hook;
         if (!s.title && !s.hook) throw new Error("reply had no title or hook");
       } catch (e) {
@@ -840,7 +846,7 @@ async function runDownload(d: Download, signal: AbortSignal) {
     await writeFile(path.join(inboxDir(), `${file}.source.json`), JSON.stringify({ url: d.url, permission: d.permission, downloadedAt: new Date().toISOString() }, null, 2));
     Object.assign(d, { file, parts: undefined });
     const dup = d.autoClip && (await listJobs()).some((j) => j.source === file && j.status !== "failed"); // same video linked twice
-    if (d.autoClip && !dup) await createJob(file, d.autoClip, cleanPermission(d.permission) || undefined);
+    if (d.autoClip && !dup) await createJob(file, { ...d.autoClip, preset: "viral" }, cleanPermission(d.permission) || undefined);
     Object.assign(d, { status: "done", progress: 1, step: d.autoClip ? "Downloaded — making clips" : "Downloaded" });
     await saveDownload(d);
   } catch (e) {

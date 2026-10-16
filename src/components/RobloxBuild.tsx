@@ -1,14 +1,14 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
-import type { BuildResult, Item, PlanResult } from "@/lib/roblox-pure";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { BuildResult, Item, PlanResult, ScanResult } from "@/lib/roblox-pure";
 
-const PINK = "#f472b6";
+export const PINK = "#f472b6";
 const OPEN_STUDIO = "Open Roblox Studio with your place and enable the MCP plugin, then check again.";
 type Status = { configured: boolean; help?: string; studio?: { open: boolean; place: string; notes: string } };
 type Plan = PlanResult & { planId: string; expiresAt: number };
-type Built = BuildResult & { image: string | null };
+export type Built = BuildResult & { image: string | null };
 
-async function call<T>(init?: RequestInit, query = ""): Promise<T> {
+export async function call<T>(init?: RequestInit, query = ""): Promise<T> {
   const res = await fetch(`/api/roblox${query}`, { cache: "no-store", headers: { "content-type": "application/json" }, ...init });
   const j = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (res.status === 401 || res.status === 403) throw new Error("You're signed out. Reload ORBIT and sign in.");
@@ -16,7 +16,70 @@ async function call<T>(init?: RequestInit, query = ""): Promise<T> {
   return j;
 }
 
-const describe = (item: Item) => (item.kind === "asset" ? `${item.name} (asset ${item.assetId})` : `Generate: “${item.prompt}”`);
+const describe = (item: Item) =>
+  item.kind === "asset" ? `${item.name} (asset ${item.assetId})`
+  : item.kind === "texture" ? `Re-texture ${item.target || "the selected mesh"}: “${item.prompt}”`
+  : item.kind === "material" ? `Material${item.base ? ` (${item.base})` : ""}: “${item.prompt}”`
+  : item.kind === "scene" ? `Scene: “${item.prompt}”`
+  : `Generate: “${item.prompt}”`;
+
+/** Paths to scan after a build: what it reported inserting (the server keeps only Workspace paths). */
+export const scanTargets = (b: Built) => b.inserted.map((x) => x.path).filter(Boolean);
+
+/** Read-only free-model check. Runs whenever `autoPaths` changes to a new array (memoise it!) (after a build) and on the button. ORBIT never deletes anything. */
+export function ScanPanel({ autoPaths }: { autoPaths: string[] | null }) {
+  const [res, setRes] = useState<ScanResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const run = useCallback(async (paths?: string[]) => {
+    setBusy(true); setErr(""); setRes(null);
+    try { setRes(await call<ScanResult>({ method: "POST", body: JSON.stringify({ action: "scan", paths }) })); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }, []);
+  useEffect(() => { if (autoPaths) void run(autoPaths); }, [autoPaths, run]);
+
+  const ok = res?.done && res.clean;
+  return (
+    <div className="rounded-lg border p-2 text-xs" style={{ borderColor: `${PINK}44` }} aria-live="polite">
+      <div className="flex items-center justify-between gap-2">
+        <b style={{ color: PINK }}>Free-model scan</b>
+        <button className="chip" onClick={() => run()} disabled={busy}>{busy ? "Scanning (read-only, up to 3 min)…" : "Scan ORBIT Builds"}</button>
+      </div>
+      {res && !res.done && <p className="muted mt-1">{res.notes || "The scan didn't finish."}</p>}
+      {res?.done && (
+        <div className="mt-1 grid gap-1">
+          <p style={{ color: ok ? "var(--mint)" : "#fbbf24" }}>
+            <b>{ok ? "No risky code reported" : "⚠️ Risky"}</b> · {res.parts} parts · {res.meshes} meshes · {res.scripts} scripts · lag risk {res.lag}
+          </p>
+          {ok && <p className="muted text-[11px]">A model read these scripts; it can be fooled.</p>}
+          {!!res.raw?.length && (
+            <div>
+              <p className="muted text-[11px]">ORBIT&apos;s own pattern check of the raw script text matched these lines (they may be in scripts outside the scanned folder):</p>
+              {res.raw.map((l, i) => <code key={i} className="block whitespace-pre-wrap break-all text-[11px]">{l}</code>)}
+            </div>
+          )}
+          {res.lag === "high" && <p className="muted">That&apos;s a lot of parts: it may lag on phones.</p>}
+          {res.findings.length > 0 && (
+            <>
+              <ul className="grid gap-1">
+                {res.findings.map((f, i) => (
+                  <li key={i} className="rounded-md p-1" style={{ background: f.level === "high" ? "rgba(251,113,133,0.12)" : "rgba(251,191,36,0.10)" }}>
+                    <span className="font-mono text-[11px]">{f.script}{f.line ? `:${f.line}` : ""}</span> <span className="muted">· {f.label}</span>
+                    <code className="mt-0.5 block whitespace-pre-wrap break-all text-[11px]">{f.excerpt}</code>
+                  </li>
+                ))}
+              </ul>
+              <p><b>Delete these scripts in Studio before publishing.</b> <span className="muted">ORBIT only reads; it doesn&apos;t delete anything.</span></p>
+            </>
+          )}
+          {res.notes && <p className="muted">{res.notes}</p>}
+        </div>
+      )}
+      {err && <p className="error" role="alert">{err}</p>}
+    </div>
+  );
+}
 
 /** Put an item into the owner's open Roblox Studio place: check status → Plan (dry run) → review → Build it → result. */
 export default function RobloxBuild({ item, onDone }: { item: Item | null; onDone?: () => void }) {
@@ -59,6 +122,7 @@ export default function RobloxBuild({ item, onDone }: { item: Item | null; onDon
     finally { setBusy(""); }
   };
 
+  const autoScan = useMemo(() => (built?.done ? scanTargets(built) : null), [built]); // one scan per finished build
   const studio = status?.studio;
   const btn = { background: `linear-gradient(90deg, ${PINK}, #db2777)`, boxShadow: `0 0 18px ${PINK}55` };
 
@@ -122,6 +186,8 @@ export default function RobloxBuild({ item, onDone }: { item: Item | null; onDon
             )}
           </div>
         )}
+
+        {status?.configured && item?.kind === "asset" && <ScanPanel autoPaths={autoScan} />}
 
         {err && <p className="error" role="alert">{err}</p>}
       </div>

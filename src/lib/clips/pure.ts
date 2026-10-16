@@ -652,19 +652,20 @@ export function isPlainName(name: unknown): name is string {
   return !/[\\/:\0]|[\x00-\x1f]/.test(name); // separators are banned, so ".." inside a name ("So... this.mp4") is harmless
 }
 
-const LAYOUTS = ["fit", "fill", "split"], SIDES = ["left", "right"], LANGS = ["auto", "en"];
+const LAYOUTS = ["fit", "fill", "split"], SIDES = ["left", "right"], LANGS = ["auto", "en"], PRESETS = ["viral", "devlog"];
 /** Clip options from a request body (defaults: 5 clips, 45 s, captions, fit layout, jump cuts, zooms, English, cold open, loop end,
  *  no progress bar) or an error message. */
 export function validOptions(b: Record<string, unknown>): Required<ClipOptions> | string {
   const { count = 5, maxSec = 45, captions = true, layout = "fit", camSide = "right", jumpCuts = true, zooms = true, language = "en",
-    coldOpen = true, progressBar = false, loopEnd = true } = b;
+    coldOpen = true, progressBar = false, loopEnd = true, preset = "viral" } = b;
   if (!Number.isInteger(count) || (count as number) < 1 || (count as number) > 10) return "count must be 1-10";
   if (!Number.isInteger(maxSec) || (maxSec as number) < 15 || (maxSec as number) > 120) return "maxSec must be 15-120";
   for (const [k, v] of Object.entries({ captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd })) if (typeof v !== "boolean") return `${k} must be a boolean`;
   if (!LAYOUTS.includes(layout as string)) return "layout must be fit, fill or split";
   if (!SIDES.includes(camSide as string)) return "camSide must be left or right";
   if (!LANGS.includes(language as string)) return "language must be auto or en";
-  return { count, maxSec, captions, layout, camSide, jumpCuts, zooms, language, coldOpen, progressBar, loopEnd } as Required<ClipOptions>;
+  if (!PRESETS.includes(preset as string)) return "preset must be viral or devlog";
+  return { count, maxSec, captions, layout, camSide, jumpCuts, zooms, language, coldOpen, progressBar, loopEnd, preset } as Required<ClipOptions>;
 }
 
 export const isJobId = (s: unknown): s is string => typeof s === "string" && /^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(s);

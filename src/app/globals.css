@@ -489,3 +489,10 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
   /* CORE docked over a world takes the same right-hand spot: hide the world panel meanwhile instead of squeezing it. */
   :root:has(.drawer.drawer-dock:not(.drawer-out)) .world-panel { display: none; }
 }
+
+/* CORE chat list: a sheet over the CORE panel (Claude-app style sidebar); full width on phones. */
+.chat-sheet { position: absolute; z-index: 6; top: 0; bottom: 0; left: 0; width: min(19rem, 100%); padding: 0.75rem; overflow-y: auto; border-radius: 16px; background-color: rgba(8, 14, 28, 0.88); animation: sheet-from-left 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes sheet-from-left { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+.chat-sheet-backdrop { position: absolute; inset: 0; z-index: 5; background: rgba(2, 6, 16, 0.45); border-radius: 16px; }
+@media (max-width: 640px) { .chat-sheet { width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .chat-sheet { animation: none; } }

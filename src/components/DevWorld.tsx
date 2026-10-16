@@ -13,6 +13,10 @@ import RefBoard from "./RefBoard";
 import SoundFinder from "./SoundFinder";
 import ThumbMaker from "./ThumbMaker";
 import TrendRadar from "./TrendRadar";
+import CodeHelper from "./CodeHelper";
+import ScenePlanner from "./ScenePlanner";
+import TextureStudio from "./TextureStudio";
+import PlaytestBot from "./PlaytestBot";
 import {
   ART_KEYS, PLATFORMS, PLAYABLE_IDS, SEVERITIES, STAGES, STATUSES, bugStats, isActive, qaPrompt, slugify, validateDevWorld,
   type Bug, type DevWorld as World, type Game, type Platform, type Severity, type Stage, type Status,
@@ -152,7 +156,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
   const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [tab, setTab] = useState<"games" | "refs" | "sounds" | "thumbs" | "trends">("games");
+  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest">("games");
   const saved = useRef<World | null>(null); // last world the server accepted: the rollback target
   const queue = useRef(Promise.resolve());
   const seq = useRef(0);
@@ -243,7 +247,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Studio view">
           <button className="chip" aria-pressed={tab === "games"} onClick={() => setTab("games")}>🎮 Games</button>
           <button className="chip" aria-pressed={tab === "refs"} onClick={() => setTab("refs")} style={tab === "refs" ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>🎨 References</button>
-          {([["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"]] as const).map(([k, label]) => (
+          {([["scene", "🏕 Scene"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"]] as const).map(([k, label]) => (
             <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
           ))}
         </div>
@@ -251,6 +255,10 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {tab === "sounds" && <SoundFinder />}
         <div hidden={tab !== "thumbs"}><ThumbMaker /></div>
         {tab === "trends" && <TrendRadar />}
+        {tab === "scene" && <ScenePlanner />}
+        {tab === "textures" && <TextureStudio />}
+        <div hidden={tab !== "playtest"}><PlaytestBot world={world} commit={commit} gameId={selected} /></div>
+        <div hidden={tab !== "code"}><CodeHelper /></div>
         {tab !== "games" ? null : !world ? (
           loadErr ? <><p className="error">{loadErr}</p><button className="chip mt-2" onClick={() => void load()}>Retry</button></> : <p className="muted">Loading studio…</p>
         ) : game ? (

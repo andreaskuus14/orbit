@@ -79,7 +79,10 @@ export async function buildExport(sb: SupabaseClient, user: { id: string; email?
     user: { id: user.id, email: user.email ?? null },
     tables,
     missing_tables: missing,
-    local: { life: await import("./life").then((m) => m.exportLife()).catch((e) => ({ error: `life.json could not be read: ${e instanceof Error ? e.message : e}` })) }, // LIFE lives in a local file, not Supabase
+    local: { // LIFE and CORE projects live in local files, not Supabase
+      life: await import("./life").then((m) => m.exportLife()).catch((e) => ({ error: `life.json could not be read: ${e instanceof Error ? e.message : e}` })),
+      core_projects: await import("./core-chats").then((m) => m.getChats(user.id)).catch((e) => ({ error: `core-chats.json could not be read: ${e instanceof Error ? e.message : e}` })),
+    },
     files: {
       note: signFiles
         ? `Original uploaded files are not inside this JSON. Each url downloads one file and expires at ${new Date(now.getTime() + FILE_URL_TTL * 1000).toISOString()}; export again for fresh links.`

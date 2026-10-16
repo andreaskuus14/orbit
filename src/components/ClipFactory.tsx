@@ -6,6 +6,7 @@ import ClipPicks from "./ClipPicks";
 import LearnedCard from "./LearnedCard";
 import EngageCard, { DescribeButton } from "./EngageCard";
 import StudioCalendar from "./StudioCalendar";
+import { devlogHashtags } from "@/lib/clips/devlog";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -32,7 +33,7 @@ type ClipJob = { id: string; source: string; createdAt: string; updatedAt: strin
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
   timings?: { audio: number; transcribe: number; pick: number; render: number } };
 type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: "fit" | "fill" | "split"; camSide?: "left" | "right";
-  jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en"; coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean };
+  jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en"; coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean; preset?: "viral" | "devlog" };
 type InboxFile = { name: string; size: number; mtime: string; jobId?: string; permission?: string };
 type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
 type Download = { id: string; url: string; status: "queued" | "downloading" | "done" | "failed"; progress: number; step: string; file?: string; error?: string;
@@ -128,7 +129,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [conflict, setConflict] = useState<Record<string, ClipOptions>>({}); // source → options that got a 409
   const [form, setForm] = useState<string | null>(null);
-  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", jumpCuts: true, zooms: true, language: "en", coldOpen: true, progressBar: false, loopEnd: true });
+  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", jumpCuts: true, zooms: true, language: "en", coldOpen: true, progressBar: false, loopEnd: true, preset: "viral" });
   const [showRejected, setShowRejected] = useState(false);
   const [visible, setVisible] = useState(true);
   const [yt, setYt] = useState<YtStatus | null>(null);
@@ -237,7 +238,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   }, [autoInbox, visible, active, load]);
   // Turning it on saves the current clip settings as the auto-clip defaults.
   const toggleAuto = (enabled: boolean) => act("auto", async () => {
-    setAutoInbox((await api<{ enabled: boolean }>(`${API}/inbox-auto`, { method: "POST", body: { enabled, ...opts, captions: opts.captions && !!data?.tools.transcriber } })).enabled);
+    setAutoInbox((await api<{ enabled: boolean }>(`${API}/inbox-auto`, { method: "POST", body: { enabled, ...opts, preset: "viral", captions: opts.captions && !!data?.tools.transcriber } })).enabled);
   });
 
   const openFolder = () => act("open", async () => {
@@ -410,6 +411,9 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
                       </div>
                       {form === f.name && !f.jobId && (
                         <form id={fid} className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-2 text-xs" onSubmit={(e) => { e.preventDefault(); void make(f.name, { ...opts, captions: opts.captions && data.tools.transcriber }); }}>
+                          <Choice legend="Style" values={["viral", "devlog"] as Opts["preset"][]} value={opts.preset} fmt={(v) => (v === "devlog" ? "🛠 Devlog" : "🔥 Highlights")}
+                            hint={opts.preset === "devlog" ? "Your own build session: progress, bugs, explanations → \"Day N of building my Roblox game\"" : undefined}
+                            onChange={(preset) => setOpts((o) => ({ ...o, preset, ...(preset === "devlog" ? { count: 3, maxSec: 60 } : {}) }))} />
                           <Choice legend="Number of clips" values={[3, 5, 8]} value={opts.count} fmt={String} onChange={(count) => setOpts((o) => ({ ...o, count }))} />
                           <Choice legend="Max length" values={[30, 45, 60]} value={opts.maxSec} fmt={(v) => `${v} s`} onChange={(maxSec) => setOpts((o) => ({ ...o, maxSec }))} />
                           <label className="flex items-center gap-1.5">
@@ -428,6 +432,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
               </ul>
             )}
           </Section>
+          <DevlogCard onChange={() => void load(true)} />
           </div>
 
           <div id="cf-panel-clips" role="tabpanel" aria-labelledby="cf-tab-clips" hidden={shown !== "clips"} className="space-y-3">
@@ -762,7 +767,7 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
   const okUrl = parseClipUrl(url.trim()), ch = okUrl ? channelLink(okUrl) : null; // a channel page: wrong box
   const submit = async () => {
     if (!okUrl || ch) return;
-    if (await onSubmit({ url: okUrl, permission: "", ...(auto ? { autoClip: { ...opts, captions: opts.captions && tools.transcriber } } : {}) })) setUrl("");
+    if (await onSubmit({ url: okUrl, permission: "", ...(auto ? { autoClip: { ...opts, preset: "viral", captions: opts.captions && tools.transcriber } } : {}) })) setUrl("");
   };
   return (
     <form className="mt-3 space-y-2 rounded-xl border border-white/10 p-2 text-xs" aria-label="Add from link" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
@@ -811,6 +816,38 @@ function Choice<T extends string | number>({ legend, values, value, fmt, onChang
       </div>
       {hint && <p className="muted mt-1 text-[10px]">{hint}</p>}
     </fieldset>
+  );
+}
+
+/** Devlog folder: OBS recordings saved into <inbox>/devlog become 3 devlog Shorts each, waiting in review (never published on their own). */
+type DevlogState = { enabled: boolean; days: Record<string, number>; path: string; problem?: string }; // GET/POST /api/studio/clips/devlog
+function DevlogCard({ onChange }: { onChange: () => void }) {
+  const [s, setS] = useState<DevlogState | null>(null);
+  const [busy, setBusy] = useState(""), [note, setNote] = useState(""), [err, setErr] = useState("");
+  useEffect(() => { void api<DevlogState>(`${API}/devlog`).then(setS, (e) => setErr(e instanceof Error ? e.message : "Couldn't load")); }, []);
+  const run = async (k: string, fn: () => Promise<void>) => { setBusy(k); setErr(""); setNote(""); try { await fn(); } catch (e) { setErr(e instanceof Error ? e.message : "Something went wrong"); } finally { setBusy(""); } };
+  const toggle = (enabled: boolean) => run("auto", async () => { setS(await api<DevlogState>(`${API}/devlog`, { method: "POST", body: { enabled } })); onChange(); });
+  const open = () => run("open", async () => {
+    try { await api(`${API}/open`, { method: "POST", body: { folder: "devlog" } }); setNote("Opened in Explorer."); }
+    catch (e) { throw e instanceof HttpError && e.status === 501 ? new Error("Opening the folder only works on the Windows PC. Use the path above.") : e; }
+  });
+  const day = s ? Math.max(0, ...Object.values<number>(s.days)) : 0;
+  return (
+    <Section title="🛠 Devlog → Shorts">
+      <p className="text-sm">Point OBS&apos;s recording path at this folder. Each finished build session becomes 3 devlog Shorts (≤ 60 s) titled &quot;Day N of building my Roblox game: …&quot;, waiting for you in review. Record to mp4, or turn off OBS auto-remux.</p>
+      {s && <code className="num mt-1 block overflow-x-auto whitespace-nowrap rounded bg-black/40 p-2 text-xs">{s.path}</code>}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button className="chip" onClick={open} disabled={!!busy}>{busy === "open" ? "Opening…" : "📂 Open devlog folder"}</button>
+        {note && <span className="ok text-xs" role="status">{note}</span>}
+        {s && <span className="muted num text-[11px]">{day ? `Last devlog: Day ${day}` : "No devlogs yet: the next one is Day 1"}</span>}
+      </div>
+      <label className="mt-2 flex items-center gap-1.5 text-sm">
+        <input type="checkbox" checked={!!s?.enabled} disabled={!s || !!busy} onChange={(e) => void toggle(e.target.checked)} />
+        Devlog folder: auto-clip new recordings <Help text="Off by default. Only recordings that land here after you turn it on are clipped. Clips are never published on their own." />
+      </label>
+      {s?.problem && <p className="error mt-1 text-xs" role="alert">{s.problem}</p>}
+      {err && <p className="error mt-1 text-xs" role="alert">{err}</p>}
+    </Section>
   );
 }
 
@@ -916,7 +953,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
                 </>}
                 version={(c.status === "ready" || c.status === "approved") && !working &&
                   <VersionBox clip={c} base={{ ...base, ...c.edit }} busy={!!busy[`ver:${job.id}/${c.id}`]} onVersion={onVersion} note={<Note k={`ver:${job.id}/${c.id}`} />} />}
-                publish={c.status === "approved" && <PublishBox jobId={job.id} clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish}
+                publish={c.status === "approved" && <PublishBox jobId={job.id} devlog={job.options.preset === "devlog"} clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish}
                   stale={c.publish?.status === "uploading" && publishing !== `${job.id}/${c.id}`}
                   onCheck={() => onCheck(c.id)} note={<Note k={`pub:${job.id}/${c.id}`} />} />} />
             </li>
@@ -1096,14 +1133,14 @@ const MIN_LEAD = 15 * 60_000; // mirrors MIN_LEAD_MS: YouTube needs publishAt in
 /** datetime-local value ("YYYY-MM-DDTHH:mm", local time) for a Date. */
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
-function PublishBox({ jobId, clip: c, yt, reduced, busy, stale, onPublish, onCheck, note }: { jobId: string; clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; stale: boolean; onPublish: PublishFn; onCheck: () => void; note: ReactNode }) {
+function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublish, onCheck, note }: { jobId: string; devlog: boolean; clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; stale: boolean; onPublish: PublishFn; onCheck: () => void; note: ReactNode }) {
   const [form, setForm] = useState<PublishBody | null>(null);
   const [at, setAt] = useState("");
   const [mode, setMode] = useState<PubWhen>("now");
   const [sched, setSched] = useState<Schedule | null>(null);
   const p = c.publish;
   const unsure = p?.status === "unknown" || stale; // the last upload may be on YouTube: only an explicit "Upload again anyway" re-uploads
-  const open = () => { setAt(""); setMode("now"); void api<Schedule>(`${API}/schedule`).then(setSched, () => setSched(null)); setForm({ title: c.title.replace(/[<>]/g, "").slice(0, 100), description: `${c.hook.replace(/[<>]/g, "")}\n\n#shorts`.trim(), privacy: "private" }); };
+  const open = () => { setAt(""); setMode("now"); void api<Schedule>(`${API}/schedule`).then(setSched, () => setSched(null)); setForm({ title: c.title.replace(/[<>]/g, "").slice(0, 100), description: `${c.hook.replace(/[<>]/g, "")}\n\n${devlog ? devlogHashtags() : "#shorts"}`.trim(), privacy: "private" }); };
   const submit = async () => {
     if (!form) return;
     const publishAt = mode === "next" ? "next" : mode === "pick" && at ? new Date(at).toISOString() : undefined;

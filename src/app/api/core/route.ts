@@ -8,6 +8,8 @@ import { str } from "@/lib/pure";
 import type { NavTarget } from "@/lib/nav-pure";
 import { parseAttachments, attachedSuffix } from "@/lib/attach-pure";
 import { prepareAttachments } from "@/lib/core-attach";
+import { chatProjectContext, updateChats } from "@/lib/core-chats";
+import { MAX_MESSAGES, chatTitle, isId, moveChat } from "@/lib/core-chats-pure";
 
 export const maxDuration = 300;
 
@@ -32,9 +34,15 @@ export async function POST(req: Request) {
     if (!data) conversationId = null;
   }
   if (!conversationId) {
-    const { data, error } = await sb.from("conversations").insert({ user_id: user.id, title: message.slice(0, 60) }).select("id").single();
+    const { data, error } = await sb.from("conversations").insert({ user_id: user.id, title: chatTitle(message) }).select("id").single();
     if (error) return Response.json({ error: error.message }, { status: 500 });
-    conversationId = data.id;
+    const newId: string = data.id;
+    conversationId = newId;
+    // A new chat started inside a project (chosen before the first message); moveChat ignores unknown projects.
+    if (isId(body.projectId)) await updateChats(user.id, (s) => moveChat(s, newId, body.projectId)).catch(() => {});
+  } else {
+    const { count } = await sb.from("messages").select("id", { count: "exact", head: true }).eq("conversation_id", conversationId);
+    if ((count ?? 0) >= MAX_MESSAGES - 1) return Response.json({ error: `This chat is full (${MAX_MESSAGES} messages). Start a new chat.` }, { status: 400 });
   }
 
   const { data: userMsg, error: userMsgErr } = await sb.from("messages").insert({ user_id: user.id, conversation_id: conversationId, role: "user", content }).select("id").single();
@@ -45,9 +53,14 @@ export async function POST(req: Request) {
 
   // Shared by both response styles: answer, then save it once at the end.
   const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void) => {
-    const { data: prior } = await sb.from("messages").select("role, content").eq("conversation_id", cid).order("created_at");
-    const out = await runCore(sb, user.id, (prior ?? []) as { role: "user" | "assistant"; content: string }[], onDelta, signal, onReset, voice, onNavigate, onStep, attach);
+    // runCore only uses the last 9 turns (8 of transcript + the question), so long chats don't load all 400.
+    const [{ data: prior }, project] = await Promise.all([
+      sb.from("messages").select("role, content").eq("conversation_id", cid).order("created_at", { ascending: false }).limit(9),
+      chatProjectContext(user.id, cid),
+    ]);
+    const out = await runCore(sb, user.id, ((prior ?? []) as { role: "user" | "assistant"; content: string }[]).reverse(), onDelta, signal, onReset, voice, onNavigate, onStep, attach, project.text, project.tainted);
     await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
+    await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
     await emit(sb, user.id, "core.completed", "core", { conversationId: cid });
     void reflectOnTurn(sb, user.id, cid); // learn in the background; never delays the answer, never throws
     void learnFacts(sb, user.id, message, userMsg?.id ?? null, files.files.length > 0); // beliefs from the user's own words only (none on attachment turns); never throws

@@ -5,6 +5,7 @@ import { api } from "../youtube";
 import { getJob, listJobs, readState, saveState, studioRoot } from "./factory";
 import { tastePrompt } from "./learn";
 import { creatorFromSource } from "./titles";
+import { DEVLOG_TAGS } from "./devlog";
 import { DESC_SYSTEM, DRAFTS_SYSTEM, buildDescription, clean, engageDue, engageProblem, latestPublished, parseDrafts, unanswered, type EngageState, type ReplyDrafts } from "./engage-pure";
 
 // Comments inbox + reply drafts + description writer for published Shorts. <studio>/engage.json caches the comments
@@ -58,7 +59,7 @@ export async function writeDescription(jobId: string, clipId: string, signal?: A
   const creator = creatorFromSource(job.source);
   const prompt = `Title: ${clean(clip.title, 100)}\nHook: ${clean(clip.hook, 300)}\nWhy it works: ${clean(clip.reason, 300)}${creator ? `\nCreator: ${creator}` : ""}`;
   const r = await askClaude(prompt, DESC_SYSTEM + (await tastePrompt()), { lane: "background", signal });
-  const text = buildDescription(r.text, creator);
+  const text = buildDescription(r.text, creator, job.options.preset === "devlog" ? DEVLOG_TAGS : []);
   if (!text) throw new Error("Claude's reply had no usable description — try again");
   return text;
 }

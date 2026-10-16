@@ -1,17 +1,19 @@
-import { PlanError, RobloxBusyError, makePlan, robloxConfig, runBuild, studioStatus } from "@/lib/roblox";
-import { validateItem } from "@/lib/roblox-pure";
+import { InputError, PlanError, RobloxBusyError, makePlan, robloxConfig, runBuild, runPlaytest, runScan, studioStatus } from "@/lib/roblox";
+import { MAX_SCENE, playtestGoal, scanPaths, validateItem } from "@/lib/roblox-pure";
 import { requireUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const fail = (e: unknown) => {
-  const status = e instanceof RobloxBusyError ? 409 : e instanceof PlanError ? 410 : 502;
+  const status = e instanceof RobloxBusyError ? 409 : e instanceof PlanError ? 410 : e instanceof InputError ? 400 : 502;
   return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status });
 };
 
 // Roblox Studio bridge. GET ?status=1: configured + Studio open (cached 30 s). POST {action:"plan", item} → dry run with read-only
-// tools; POST {action:"build", planId} → carries out that confirmed plan. Signed-in only; CSRF is checked by middleware.
+// tools; POST {action:"build", planId, keep?} → carries out that confirmed plan (keep = ticked scene object indexes);
+// POST {action:"scan", paths?} → read-only free-model scan of Workspace paths (default Workspace.ORBIT Builds);
+// POST {action:"playtest", goal?} → look-only play-mode run (start, walk, console, stop) returning findings. Signed-in only; CSRF is checked by middleware.
 export async function GET(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
@@ -26,7 +28,7 @@ export async function POST(req: Request) {
   if (res) return res;
   const cfg = robloxConfig();
   if (!cfg.configured) return Response.json({ configured: false, help: cfg.help, error: "The Roblox Studio bridge isn't set up yet." }, { status: 400 });
-  const body = (await req.json().catch(() => null)) as { action?: unknown; item?: unknown; planId?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as { action?: unknown; item?: unknown; planId?: unknown; keep?: unknown; paths?: unknown; goal?: unknown } | null;
   try {
     if (body?.action === "plan") {
       const v = validateItem(body.item);
@@ -34,8 +36,15 @@ export async function POST(req: Request) {
       return Response.json(await makePlan(user.id, v.item));
     }
     if (body?.action === "build" && typeof body.planId === "string" && /^[0-9a-f-]{36}$/.test(body.planId)) {
-      return Response.json(await runBuild(user.id, body.planId));
+      const keep = Array.isArray(body.keep) ? body.keep.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < MAX_SCENE) : undefined;
+      return Response.json(await runBuild(user.id, body.planId, keep));
     }
-    return Response.json({ error: "Send {action:\"plan\", item} or {action:\"build\", planId}" }, { status: 400 });
+    if (body?.action === "scan") return Response.json(await runScan(scanPaths(body.paths)));
+    if (body?.action === "playtest") {
+      const g = playtestGoal(body.goal);
+      if ("error" in g) return Response.json({ error: g.error }, { status: 400 });
+      return Response.json(await runPlaytest(g.goal));
+    }
+    return Response.json({ error: "Send {action:\"plan\", item}, {action:\"build\", planId} {action:\"scan\"} or {action:\"playtest\"}" }, { status: 400 });
   } catch (e) { return fail(e); }
 }
