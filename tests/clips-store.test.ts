@@ -144,3 +144,14 @@ test("feedback: events appended, reason attached to the latest reject, capped", 
   assert.equal(jobProblem(job({ feedback: j.feedback })), "");
   assert.match(jobProblem(job({ feedback: {} })), /feedback/);
 });
+
+test("youtubePauseUntil: YouTube pauses 3 h after a bot-wall failure; other hosts never", async () => {
+  const { youtubePauseUntil } = await import("../src/lib/clips/pure.ts");
+  const now = Date.parse("2026-10-16T10:00:00Z");
+  const blocked = [{ status: "failed" as const, error: "YouTube blocked the download; try again later", createdAt: "2026-10-16T09:00:00Z" }];
+  assert.equal(youtubePauseUntil(blocked, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", now), Date.parse("2026-10-16T12:00:00Z"));
+  assert.equal(youtubePauseUntil(blocked, "https://youtu.be/dQw4w9WgXcQ", now), Date.parse("2026-10-16T12:00:00Z"));
+  assert.equal(youtubePauseUntil(blocked, "https://www.twitch.tv/videos/123", now), 0);
+  assert.equal(youtubePauseUntil(blocked, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", now + 3 * 3600_000), 0);
+  assert.equal(youtubePauseUntil([{ status: "failed", error: "network", createdAt: "2026-10-16T09:59:00Z" }], "https://youtu.be/dQw4w9WgXcQ", now), 0);
+});

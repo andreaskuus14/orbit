@@ -18,7 +18,7 @@ import {
   renderArgs, resolveInside, retimeWords, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, totalSec, spanCover, validOptions, validateMoments,
   wordsFromChunks, cleanWords, ytdlpArgs, ytdlpError, ytdlpOutputFile, zoomTimes, YTDLP_FILE_MARK,
   STATE_V, addFeedback, baseEdit, downloadProblem, jobProblem, matchUpload, nextVersionId, packAnalysis, parseAnalysis, parseSuggestion, quarantineName,
-  reconcileOutcome, setRejectReason, uploadsFrom, versionSpan,
+  reconcileOutcome, setRejectReason, uploadsFrom, versionSpan, youtubePauseUntil,
   type Analysis, type Candidate, type Moment, type Span, type VersionReq, type Word,
 } from "./pure";
 
@@ -742,8 +742,14 @@ export async function startDownload(url: string, permission: string, autoClip?: 
   if (ch) return { error: CHANNEL_LINK_MSG[ch], status: 400 };
   const tools = await checkTools();
   if (!tools.ytdlp || !tools.ffmpeg) return { error: !tools.ytdlp ? "yt-dlp is missing: winget install yt-dlp.yt-dlp" : "ffmpeg is missing", status: 503, tools };
-  const dup = (await listDownloads()).find((d) => d.url === url && (d.status === "queued" || d.status === "downloading"));
+  const all = await listDownloads();
+  const dup = all.find((d) => d.url === url && (d.status === "queued" || d.status === "downloading"));
   if (dup) return { error: "This link is already downloading", status: 409, download: dup };
+  // After YouTube's "confirm you're not a bot" wall, every new request just fails again and keeps the block alive: pause YouTube downloads.
+  const pauseUntil = youtubePauseUntil(all, url);
+  if (pauseUntil) return { error: `YouTube is blocking downloads from this PC right now, so ORBIT pauses YouTube downloads until ${new Date(pauseUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. Twitch/Kick links and files you put in the inbox still work.`, status: 429 };
+  const old = all.find((d) => d.url === url && d.status === "failed"); // same link failed before: replace it instead of stacking duplicates
+  if (old) await rm(dlFile(old.id), { force: true });
   return { download: await createDownload(url, permission, autoClip) };
 }
 

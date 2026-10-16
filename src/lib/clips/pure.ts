@@ -1,6 +1,6 @@
 import path from "node:path";
 import { CAPTION_STYLES, REJECT_REASONS, rootClipId } from "./format.ts";
-import type { CaptionStyle, ClipOptions, Feedback, FeedbackAction, VersionEdit } from "./types";
+import type { CaptionStyle, ClipOptions, Download, Feedback, FeedbackAction, VersionEdit } from "./types";
 import { validTitleOptions, type TitleOption } from "./titles.ts";
 
 // Pure helpers for the Clip Factory (no I/O), unit-tested in tests/clips.test.ts.
@@ -829,4 +829,13 @@ export function setRejectReason(job: { feedback?: Feedback[] }, clipId: string, 
   const ev = job.feedback?.findLast((e) => e.clipId === clipId && e.action === "rejected");
   if (ev) ev.reason = reason;
   return !!ev;
+}
+
+const YT_PAUSE_MS = 3 * 3600_000;
+/** When the newest YouTube download failed on the bot wall less than 3 h ago, the time YouTube downloads may resume; else 0. */
+export function youtubePauseUntil(all: Pick<Download, "status" | "error" | "createdAt">[], url: string, now = Date.now()): number {
+  if (!/(^|\.)(youtube\.com|youtu\.be)$/i.test(new URL(url).hostname)) return 0;
+  const blocked = all.filter((d) => d.status === "failed" && /not a bot|blocked the download/i.test(d.error ?? "")).map((d) => Date.parse(d.createdAt)).filter(Number.isFinite);
+  const last = blocked.length ? Math.max(...blocked) : 0;
+  return last && now - last < YT_PAUSE_MS ? last + YT_PAUSE_MS : 0;
 }
