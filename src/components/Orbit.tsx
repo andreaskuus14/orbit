@@ -16,6 +16,7 @@ import { NotificationCenter } from "./NotificationCenter";
 import { notify } from "@/lib/notify-pure";
 import { OPEN_MEMORY_EVENT, PALETTE_EVENT } from "@/lib/palette-pure";
 import { MorningCard } from "./MorningCard";
+import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
@@ -397,6 +398,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       )}
 
       <MorningCard home={!shown && !approach} />
+      <WhatsNew home={!shown && !approach} />
       {!shown && (
         <aside className="glass hud-panel status-hud" aria-label="System status">
           <div className="hud-title">SYSTEM</div>
