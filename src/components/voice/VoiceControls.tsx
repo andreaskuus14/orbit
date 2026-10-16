@@ -125,7 +125,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
               : "ORBIT only listens when you click the mic (Ctrl+M)."}</span>
           </label>
           <label className="voice-col">Question transcription
-            <select className="field" value={pttEngine} disabled={s.handsFree === "local"} onChange={(e) => update({ engine: e.target.value === "whisper" ? "whisper" : "chrome" })}>
+            <select className="field" value={pttEngine ?? s.engine} disabled={s.handsFree === "local"} onChange={(e) => update({ engine: e.target.value === "whisper" ? "whisper" : "chrome" })}>
               <option value="chrome" disabled={!chromeOk}>Chrome (fast; audio goes to Google)</option>
               <option value="whisper">Local Whisper (on this PC)</option>
             </select>
