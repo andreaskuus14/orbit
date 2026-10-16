@@ -38,6 +38,17 @@ const yes: [string, object][] = [
   ["bring up my tasks", { panel: "operations" }],
   ["navigate to the vault", { panel: "vault" }],
   ["open life", { panel: "life" }],
+  ["show my habits", { panel: "life", life: "habits" }],
+  ["start focus", { panel: "life", life: "focus", start: true }],
+  ["start a focus timer", { panel: "life", life: "focus", start: true }],
+  ["Start focus mode.", { panel: "life", life: "focus", start: true }],
+  ["Orbit, start pomodoro please", { panel: "life", life: "focus", start: true }],
+  ["focus timer", { panel: "life", life: "focus" }],
+  ["open the focus timer", { panel: "life", life: "focus" }],
+  ["open my journal", { panel: "life", life: "journal" }],
+  ["journal", { panel: "life", life: "journal" }],
+  ["show my reminders", { panel: "life", life: "reminders" }],
+  ["open my files", { panel: "vault" }],
   ["open core", { panel: "core" }],
   ["open my profile", { panel: "profile" }],
   ["please go to the memory planet now", { panel: "memory" }],
@@ -83,6 +94,8 @@ test("parseNavCommand leaves questions and other requests to CORE", () => {
     "zoom in", "closer", "stats", "clips", "close stats", "analytics",
     // searches that aren't the news
     "search my memories for Estonia", "search google for cats", "search in my notes", "search x", "look up the weather",
+    // LIFE: questions about focus/journals aren't commands
+    "what is a focus timer?", "how does pomodoro work", "start a journal about my trip", "start focusing on the essay", "write in my journal that I slept well", "focus",
   ]) assert.equal(parseNavCommand(text), null, text);
 });
 
@@ -153,6 +166,9 @@ test("navReply says what happens", () => {
   assert.equal(navReply({ panel: "intelligence", search: "ai" }), "Searching the news for “ai”.");
   assert.equal(navReply({ panel: "intelligence", search: "" }), "Showing the whole world.");
   assert.equal(navReply({ panel: "studio", view: "stats" }), "Flying to Studio → Stats.");
+  assert.equal(navReply({ panel: "life", life: "focus", start: true }), "Focus timer started.");
+  assert.equal(navReply({ panel: "life", life: "journal" }), "Flying to Life → Journal.");
+  assert.deepEqual(validateNav({ target: "my journal" }), { panel: "life", life: "journal" });
 });
 
 test("navLabel reads naturally", () => {

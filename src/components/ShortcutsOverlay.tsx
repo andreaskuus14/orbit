@@ -8,6 +8,7 @@ export const SHORTCUTS_EVENT = "orbit:shortcuts";
 const GROUPS: [string, [string, string][]][] = [
   ["Everywhere", [
     ["Ctrl/⌘ K", "Focus the command bar (or CORE's input when CORE is open)"],
+    ["Ctrl/⌘ P", "Search everything: planets, actions, memories, VAULT files"],
     ["Ctrl M", "Start / stop voice input"],
     ["Esc (CORE answering)", "Stop the answer"],
     ["↑ (empty CORE input)", "Bring back your last question"],

@@ -29,6 +29,7 @@ const TABLES: [string, string, string, string][] = [
   ["events", "*", "id", "user_id"],
   ["usage", "*", "id", "user_id"],
   ["job_runs", "*", "id", "user_id"],
+  ["memory_facts", "*", "id", "user_id"], // migration 0008 (skipped until it is applied)
 ];
 
 // Table not created yet (migration not applied): skip it instead of failing the whole export.
@@ -78,10 +79,11 @@ export async function buildExport(sb: SupabaseClient, user: { id: string; email?
     user: { id: user.id, email: user.email ?? null },
     tables,
     missing_tables: missing,
+    local: { life: await import("./life").then((m) => m.exportLife()).catch((e) => ({ error: `life.json could not be read: ${e instanceof Error ? e.message : e}` })) }, // LIFE lives in a local file, not Supabase
     files: {
       note: signFiles
         ? `Original uploaded files are not inside this JSON. Each url downloads one file and expires at ${new Date(now.getTime() + FILE_URL_TTL * 1000).toISOString()}; export again for fresh links.`
-        : "Original uploaded files are copied next to this backup, in files/<storage_path>.",
+        : "Original uploaded files are copied next to this backup, in files/<storage_path>. VAULT planet files stay on this PC (ORBIT data folder\\vault) and are not included.",
       items: files,
     },
   };

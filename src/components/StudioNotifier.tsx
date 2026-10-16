@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { parseState, step, type Note, type NotifyState } from "@/lib/studio-notify";
+import { notify } from "@/lib/notify-pure";
 import { speakChunk, speakingOrJustEnded, speechSettings } from "./voice/speak";
 
 const KEY = "orbit.studioNotify";
@@ -29,6 +30,7 @@ async function insightNotes() {
   try { localStorage.setItem(SEEN, JSON.stringify([...new Set([...(seen ?? []), ...high.map((i) => i.key)])].slice(-200))); } catch { /* may repeat */ }
   if (!Array.isArray(seen)) return;
   for (const i of high.filter((i) => !seen!.includes(i.key)).slice(0, 2)) {
+    notify({ title: `CORE suggests: ${i.title}`, body: i.detail, kind: "core", nav: { panel: "core" } });
     try {
       const n = new Notification(`CORE suggests: ${i.title}`, { body: i.detail, tag: `orbit-insight-${i.key}`, icon: "/brand/orbit-mark.png" });
       n.onclick = () => { window.focus(); n.close(); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: { panel: "core" } satisfies NavTarget })); };
@@ -52,6 +54,7 @@ export function StudioNotifier() {
           const res = step(state, await r.json(), Date.now());
           save(res.state);
           res.notes.forEach(show);
+          res.notes.forEach((n) => notify({ title: n.title, body: n.body, kind: "studio", nav: { panel: "studio", view: n.cat === "ready" ? "review" : "clips" } }));
           // Spoken heads-up only when ORBIT is in front, voice answers are on, and nobody's mid-conversation.
           if (res.notes.length && document.hasFocus() && speechSettings().speak && !speakingOrJustEnded(30_000)) res.notes.forEach((n) => speakChunk(n.spoken));
         }

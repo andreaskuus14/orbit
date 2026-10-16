@@ -10,8 +10,11 @@ import { VOICE_ASK, voiceContext } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
-import { NAV_EVENT, navReply, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
+import { NAV_EVENT, navReply, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
 import { StudioNotifier } from "./StudioNotifier";
+import { NotificationCenter } from "./NotificationCenter";
+import { notify } from "@/lib/notify-pure";
+import { OPEN_MEMORY_EVENT, PALETTE_EVENT } from "@/lib/palette-pure";
 import { MorningCard } from "./MorningCard";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
@@ -26,6 +29,10 @@ const StudioWorld = dynamic(() => import("./StudioWorld"), { ssr: false });
 const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false });
 const AgentsStation = dynamic(() => import("./AgentsStation"), { ssr: false });
 const TheaterWorld = dynamic(() => import("./TheaterWorld"), { ssr: false });
+const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
+const VaultPanel = dynamic(() => import("./VaultPanel").then((m) => m.VaultPanel), { ssr: false });
+const LifeReminders = dynamic(() => import("./LifeReminders"), { ssr: false });
+const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
 const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater"]; // full-screen worlds with their own side panel (no drawer)
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "ORBIT is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
@@ -59,6 +66,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   // CORE navigation: sub-targets for the worlds (new object per command), and a world we're flying to through the galaxy.
   const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string; search?: string } | null>(null);
   const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "review" | "none" } | null>(null);
+  const [lifeOpen, setLifeOpen] = useState<{ tab: LifeView; start?: true } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
   // CORE opened from inside a world floats over it instead of leaving it; closing CORE returns to that world.
   const [behind, setBehind] = useState<PanelId | null>(null);
@@ -197,7 +205,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         if (e.type === "pulse.failed") { setPulseBusy(false); setPulseFailed(true); }
         const taskId = (payload.new as { payload?: { taskId?: string } }).payload?.taskId;
         if (e.type === "agent.started" && taskId) setRunningTasks((r) => (r.includes(taskId) ? r : [...r, taskId]));
-        if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) { setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations(); }
+        if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) { setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations(); notify({ title: e.type === "agent.completed" ? "Agent task finished" : "Agent task failed", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations" } }); }
       })
       .subscribe((s) => setLive(s === "SUBSCRIBED" ? "live" : s === "CLOSED" || s === "CHANNEL_ERROR" || s === "TIMED_OUT" ? "offline" : "connecting"));
     return () => { void sb.removeChannel(ch); };
@@ -207,7 +215,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return; // a widget (e.g. a chart's arrow-key scrub) already handled it
       if (document.querySelector("dialog[open], :popover-open")) return; // Esc there closes the overlay/menu, not the panel
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); cmdRef.current?.focus(); }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); cmdRef.current?.focus(); }
       // ← / → fly to the previous / next planet; Esc closes. Neither while typing (Esc in a form would lose the draft).
       const el = e.target as HTMLElement | null;
       // VIDEO/AUDIO: Chrome seeks a focused player with ←/→ after this handler sees the key.
@@ -229,6 +237,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const select = useCallback((id: PanelId) => { setPanel(id); if (id !== "memory") setFocusMemory(null); if (id !== "operations") setFocusTask(null); }, []);
   const openTask = useCallback((id: string) => { setFocusTask(id); setPanel("operations"); }, []);
   const openMemory = useCallback((id: string) => { setFocusMemory(id); setPanel("memory"); }, []);
+  useEffect(() => { // search palette picked a memory: open it in MEMORY
+    const f = (e: Event) => { const id = (e as CustomEvent<{ id?: string }>).detail?.id; if (typeof id === "string" && id) openMemory(id); };
+    addEventListener(OPEN_MEMORY_EVENT, f);
+    return () => removeEventListener(OPEN_MEMORY_EVENT, f);
+  }, [openMemory]);
   const consumed = useCallback(() => setPending(null), []);
 
   // orbit:navigate (command bar, CORE, voice): drawers open over the galaxy as a click does; from the galaxy a world is
@@ -240,6 +253,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if (t.doctor) { setDoctor("nav"); return; } // opens over whatever is on screen
       if (t.country || t.region || t.search !== undefined) setNewsFocus({ country: t.country, region: t.region, search: t.search });
       if (t.view) setStudioOpen({ view: t.view });
+      if (t.life) setLifeOpen({ tab: t.life, start: t.start });
       if (t.panel === (approach ?? shown)) { if (panel === "core") setPanel(shown); return; } // already there: close CORE over it, the world flies to the sub-target // already there (or on the way): the world flies to the sub-target itself
       const world = t.panel === "intelligence" || (t.panel !== null && WORLDS.includes(t.panel));
       const inWorld = isWorld(shown);
@@ -259,6 +273,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   // Sub-targets apply to one visit only: drop them once we've left that world.
   useEffect(() => { if (shown !== "intelligence" && approach !== "intelligence") setNewsFocus(null); }, [shown, approach]);
   useEffect(() => { if (shown !== "studio" && approach !== "studio") setStudioOpen(null); }, [shown, approach]);
+  useEffect(() => { if (panel !== "life") setLifeOpen(null); }, [panel]); // so reopening LIFE later doesn't replay a start
   const clearGreeting = useCallback(() => setWakeGreeting(null), []);
 
   async function runCommand(e: React.FormEvent) {
@@ -327,7 +342,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <div className="hud-bar-top">
           <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title="Realtime link to the backend that animates the galaxy">{live === "live" ? "LIVE" : live === "offline" ? "OFFLINE" : "CONNECTING"}</span>
           {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start ORBIT from the desktop shortcut for the production server.">DEV</span>}
+          <NotificationCenter />
           <StudioNotifier />
+          <button className="chip" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label="Search everything (Ctrl+P)" title="Search everything: planets, actions, memories, files (Ctrl+P)">⌕</button>
           <button className="chip" onClick={() => setView(view === "3d" ? "2d" : "3d")} title="Switch between the 3D galaxy and the fast 2D list">{view === "3d" ? "2D view" : "3D view"}</button>
           <button className="chip hud-more" popoverTarget="hud-menu" aria-label="More options" title="More: profile, 3D quality, shortcuts, sign out">⋯</button>
         </div>
@@ -348,6 +365,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <button className="hud-menu-item" onClick={signOut} title={email}>Sign out</button>
       </div>
       <ShortcutsOverlay />
+      <CommandPalette />
+      <LifeReminders />
 
       {drawer && !WORLDS.includes(drawer) && (
         <aside className={`glass drawer${behind && WORLDS.includes(behind) ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
@@ -361,6 +380,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
               : drawer === "intelligence" ? <IntelligencePanel />
               : drawer === "operations" ? <OperationsPanel focusTask={focusTask} openMemory={openMemory} />
               : drawer === "agents" ? <AgentsPanel onOpenTask={openTask} />
+              : drawer === "life" ? <LifePanel open={lifeOpen} />
+              : drawer === "vault" ? <VaultPanel />
               : <LaterPanel id={drawer as PlanetId} />}
           </div>
         </aside>

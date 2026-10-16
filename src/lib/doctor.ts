@@ -1,16 +1,19 @@
 import { exec } from "node:child_process";
-import { access, readFile, stat, statfs } from "node:fs/promises";
+import { access, readFile, stat, statfs, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CLAUDE_BIN, MODEL, SMART_MODEL } from "./claude";
 import { checkTools, listDownloads, studioRoot } from "./clips/factory";
 import { youtubePauseUntil } from "./clips/pure";
 import { scoutView } from "./clips/scout";
+import { isMissingTable } from "./proactive-pure";
+import { usage, vaultDir } from "./vault";
+import { MAX_FILES, MAX_TOTAL } from "./vault-pure";
 import { api } from "./youtube";
 import { oauthEnv, readStored, wasExpired } from "./yt-oauth";
 import { YT_UPLOAD_SCOPE, hasScopes } from "./yt-analytics-pure";
 import {
-  buildCheck, check, diskCheck, envCheck, launcherCheck, modelCheck, nightCheck, quotaCheck, summarize, ytdlpCheck, type Check, type Report,
+  buildCheck, check, diskCheck, envCheck, factsCheck, launcherCheck, lifeCheck, modelCheck, nightCheck, quotaCheck, summarize, vaultCheck, ytdlpCheck, type Check, type Report,
 } from "./doctor-pure";
 
 // ORBIT doctor: runs every check in parallel, each with its own timeout, and returns plain-English verdicts (see doctor-pure.ts).
@@ -132,6 +135,30 @@ async function wake(): Promise<Check> {
     : check("wake", L, "ok", "Installed");
 }
 
+async function life(): Promise<Check> {
+  const f = path.join(path.dirname(vaultDir()), "life.json"); // life.ts and vault.ts share the ORBIT data dir
+  try { JSON.parse(await readFile(f, "utf8")); return lifeCheck("ok"); }
+  catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return lifeCheck("missing");
+    return lifeCheck("bad", e instanceof SyntaxError ? "broken JSON" : (e as NodeJS.ErrnoException).code ?? "unreadable");
+  }
+}
+
+async function vault(): Promise<Check> {
+  const dir = vaultDir();
+  if (!(await exists(dir))) return vaultCheck(false, true, 0, 0, MAX_TOTAL, MAX_FILES); // checked first: usage() would create the folder
+  // access(W_OK) ignores folder permissions on Windows, so really write (and remove) a tiny probe file.
+  const probe = path.join(dir, ".doctor-probe");
+  const writable = await writeFile(probe, "").then(() => unlink(probe).then(() => true, () => true), () => false);
+  const u = await usage();
+  return vaultCheck(true, writable, u.bytes, u.count, MAX_TOTAL, MAX_FILES);
+}
+
+async function facts(sb: SupabaseClient): Promise<Check> {
+  const { error } = await sb.from("memory_facts").select("id", { head: true }).limit(1).abortSignal(AbortSignal.timeout(5000));
+  return factsCheck(isMissingTable(error), error ? error.message || "unknown error" : null);
+}
+
 const ENV_REQUIRED = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"];
 const ENV_OPTIONAL = {
   YOUTUBE_API_KEY: "STUDIO stats and scout", YOUTUBE_CHANNEL: "your channel in STUDIO", YOUTUBE_OAUTH_CLIENT_ID: "channel connection",
@@ -153,6 +180,9 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
     guard("build", "Last update build", build),
     guard("launcher", "Server stability", async () => launcherCheck(await tail(path.join(root(), "orbit-launcher.log"), 50_000), new Date())),
     guard("night", "Overnight run", night),
+    guard("life", "LIFE data (habits, reminders)", life),
+    guard("vault", "VAULT (your files)", vault),
+    guard("facts", "Belief memory", () => facts(sb)),
     ...(WIN ? [guard("wake", "Voice wake-up", wake)] : []),
     Promise.resolve(envCheck(process.env, ENV_REQUIRED, ENV_OPTIONAL)),
   ]);

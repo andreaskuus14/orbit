@@ -14,6 +14,7 @@ import { planetById, type PlanetId } from "@/lib/planets";
 import { Markdown } from "./AgentsPanels";
 import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
+import { LifeStats } from "./LifeStats";
 import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
@@ -648,6 +649,7 @@ export function AnalyticsPanel() {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2">{stat(s.memories, "memories")}{stat(s.messages, "chat messages")}{stat(s.calls, "CORE calls")}{stat(s.tokens.toLocaleString(), "tokens used")}</div>
       <p className="muted text-xs">CORE runs on your Claude subscription, so there is no per-token cost to track.</p>
+      <LifeStats />
       <h3 className="h3">Recent activity</h3>
       <ul className="space-y-1 text-sm">{s.events.map((e, i) => <li key={i}><b>{e.type}</b> <span className="muted">{when(e.created_at)}</span></li>)}{!s.events.length && <li className="muted">Nothing yet.</li>}</ul>
     </div>

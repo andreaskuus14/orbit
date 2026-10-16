@@ -1,6 +1,7 @@
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import type { PanelId } from "@/lib/planets";
 import { parseWatchChoice, parseWatchCommand, parseWatchControl, watchReply, type WatchCommand, type WatchVideo } from "@/lib/watch-pure";
+import { addCreator, addWatched, parseCreators, parseHistory, removeCreator, togglePin, type SavedCreator, type Watched } from "@/lib/theater-history-pure";
 
 // THEATER state shared by the command bar / voice (runWatchCommand) and TheaterWorld. Module state, not React: the find
 // starts before the world has mounted (it's still flying there).
@@ -31,6 +32,7 @@ export function findVideos(cmd: WatchCommand, say?: Say) {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Couldn't look up ${cmd.creator} (${res.status})`);
       if (n !== seq) return;
+      setSaved({ creators: addCreator(saved().creators, cmd.creator) });
       setWatch({ creator: cmd.creator, shorts: cmd.shorts, status: "ready", channel: json.channel, videos: json.videos ?? [], playing: null, askedAt: json.videos?.length ? Date.now() : undefined });
       say?.(watchReply(json.channel?.title ?? cmd.creator, json.videos ?? [], cmd.shorts), true);
     })
@@ -42,7 +44,11 @@ export function findVideos(cmd: WatchCommand, say?: Say) {
     });
 }
 
-export const play = (i: number | null) => patch({ playing: i, notice: undefined, askedAt: undefined });
+export function play(i: number | null) {
+  const v = i !== null ? state?.videos[i] : undefined;
+  if (v && state) setSaved({ history: addWatched(saved().history, v, state.channel?.title ?? state.creator, Date.now()) });
+  patch({ playing: i, notice: undefined, askedAt: undefined });
+}
 export const closeWatch = () => { seq++; setWatch(null); };
 const control = (c: string) => dispatchEvent(new CustomEvent(WATCH_CONTROL, { detail: c }));
 
@@ -72,4 +78,34 @@ export function runWatchCommand(text: string, current: PanelId | null, say: Say)
   if (ch === null) { patch({ askedAt: undefined }); return false; } // not an answer: later "yes"/"no" belong to CORE
   if (ch === "cancel") { closeWatch(); say("Okay.", true); } else { play(ch); say("", true); }
   return true;
+}
+
+// "Your creators" chips + "Continue watching", kept in localStorage (try/catch: private mode / blocked storage just means no memory).
+type Saved = { creators: SavedCreator[]; history: Watched[] };
+const CREATORS_KEY = "orbit.theater.creators", HISTORY_KEY = "orbit.theater.history";
+const EMPTY: Saved = { creators: [], history: [] };
+let savedState: Saved | null = null;
+const savedSubs = new Set<() => void>();
+const load = (k: string): unknown => { try { return JSON.parse(localStorage.getItem(k) ?? "null"); } catch { return null; } };
+const store = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* no storage: in-memory only */ } };
+/** Snapshot for useSyncExternalStore (same object until something changes). */
+export const getSaved = (): Saved => typeof window === "undefined" ? EMPTY : saved();
+export const getSavedServer = () => EMPTY;
+function saved(): Saved {
+  return (savedState ??= typeof window === "undefined" ? EMPTY : { creators: parseCreators(load(CREATORS_KEY)), history: parseHistory(load(HISTORY_KEY)) });
+}
+export const subscribeSaved = (f: () => void) => { savedSubs.add(f); return () => { savedSubs.delete(f); }; };
+function setSaved(p: Partial<Saved>) {
+  savedState = { ...saved(), ...p };
+  if (p.creators) store(CREATORS_KEY, p.creators);
+  if (p.history) store(HISTORY_KEY, p.history);
+  savedSubs.forEach((f) => f());
+}
+export const pinCreator = (name: string) => setSaved({ creators: togglePin(saved().creators, name) });
+export const forgetCreator = (name: string) => setSaved({ creators: removeCreator(saved().creators, name) });
+/** Re-opens a watched video straight in the player: no lookup, no YouTube units. */
+export function replay(v: Watched) {
+  seq++; // a lookup still in flight must not replace this
+  setWatch({ creator: v.channel, shorts: false, status: "ready", videos: [v], playing: null });
+  play(0);
 }

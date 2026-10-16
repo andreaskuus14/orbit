@@ -12,8 +12,8 @@ export const PLANETS: PlanetDef[] = [
   { id: "creation", name: "GAME DEV", color: "#f472b6", radius: 9, speed: 0.075, size: 0.55, phase: 4, live: true, blurb: "Your games: art, bug tracker, QA playtests and Planet Forge." },
   { id: "operations", name: "OPERATIONS", color: "#38bdf8", radius: 13, speed: 0.065, size: 0.5, phase: 3, live: true, blurb: "Agent tasks, projects and your automations." },
   { id: "agents", name: "AGENTS", color: "#a78bfa", radius: 19.6, speed: 0.055, size: 0.6, phase: 3, live: true, blurb: "Your AI workforce: Nova, Atlas, Pulse, Echo, Forge and more." },
-  { id: "life", name: "LIFE", color: "#34d399", radius: 24, speed: 0.048, size: 0.5, phase: 3, live: false, blurb: "Calendar, habits and routines." },
-  { id: "vault", name: "VAULT", color: "#fbbf24", radius: 26.3, speed: 0.04, size: 0.5, phase: 3, live: false, blurb: "Files and digital assets (Drive and cloud storage)." },
+  { id: "life", name: "LIFE", color: "#34d399", radius: 24, speed: 0.048, size: 0.5, phase: 3, live: true, blurb: "Habits with streaks, reminders, focus timer and a daily journal." },
+  { id: "vault", name: "VAULT", color: "#fbbf24", radius: 26.3, speed: 0.04, size: 0.5, phase: 3, live: true, blurb: "Your private file vault: drop files in, preview, search inside, ask CORE." },
   { id: "analytics", name: "ANALYTICS", color: "#60a5fa", radius: 29.3, speed: 0.034, size: 0.55, phase: 1, live: true, blurb: "Your real activity and AI usage." },
   // Beyond the outer belt (32–34): the YouTube channel sits apart as its own system.
   { id: "studio", name: "STUDIO", color: "#f43f5e", radius: 37, speed: 0.03, size: 0.6, phase: 4, live: true, blurb: "Your YouTube channel: videos as moons, comets when one takes off." },

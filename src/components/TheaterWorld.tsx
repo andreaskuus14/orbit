@@ -7,8 +7,8 @@ import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import { QUALITY, type QualityMode } from "@/lib/quality-pure";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
-import { ago, embedUrl, length } from "@/lib/watch-pure";
-import { WATCH_CONTROL, closeWatch, findVideos, getWatch, play, setWatch, subscribeWatch } from "./watch-store";
+import { ago, embedUrl, isVideoId, length } from "@/lib/watch-pure";
+import { WATCH_CONTROL, closeWatch, findVideos, forgetCreator, getSaved, getSavedServer, getWatch, pinCreator, play, replay, setWatch, subscribeSaved, subscribeWatch } from "./watch-store";
 
 // THEATER: a dark cinema floating in space. "Show me Jynxzi's latest videos" lists the creator's 3 newest uploads here; the chosen
 // one plays in the big screen through YouTube's official embed (youtube-nocookie). Standard materials only (safe for Bloom).
@@ -84,6 +84,8 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
   const glr = useGlRecovery();
   const w = useSyncExternalStore(subscribeWatch, getWatch, () => null);
   const playing = w?.playing != null ? w.videos[w.playing] : null;
+  const saved = useSyncExternalStore(subscribeSaved, getSaved, getSavedServer);
+  const history = saved.history.filter((v) => isVideoId(v.id));
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const [query, setQuery] = useState("");
@@ -115,12 +117,19 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
     was.current = p;
   }, [w?.playing]);
   useEffect(() => () => { if (getWatch()?.playing != null) play(null); }, []); // leaving THEATER stops the video
-  useEffect(() => { // Esc: stop the video, then close the list. Capture + preventDefault keeps Orbit from leaving the world.
-    if (!w) return;
+  useEffect(() => { // Esc: leave full screen (browser), then stop the video, then close the list. "f": toggle full screen.
+    if (!w) return; // Capture + preventDefault keeps Orbit from leaving the world.
     const h = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (e.key !== "Escape" || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
       if (document.querySelector(".drawer:not(.drawer-out), dialog[open], [popover]:popover-open")) return; // CORE/dialog on top closes first
+      if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat && getWatch()?.playing != null) {
+        e.preventDefault();
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); else fullscreen();
+        return;
+      }
+      if (e.key !== "Escape") return;
+      if (document.fullscreenElement) { e.preventDefault(); return; } // the browser exits full screen; don't also close THEATER
       e.preventDefault();
       if (getWatch()?.playing != null) play(null); else closeWatch();
     };
@@ -180,7 +189,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
           </div>
           <div className="glass mt-2 flex w-full max-w-3xl flex-wrap items-center gap-2 p-2">
             <b className="mr-auto truncate text-sm" title={playing.title}>{playing.title}</b>
-            <button className="chip" onClick={fullscreen} title="Full screen (say “full screen”)">⛶ Fullscreen</button>
+            <button className="chip" onClick={fullscreen} title="Full screen (press F or say “full screen”)">⛶ Fullscreen</button>
             <a className="chip" href={`https://www.youtube.com/watch?v=${playing.id}`} target="_blank" rel="noreferrer">Open on YouTube ↗</a>
             {w?.channel && <button className="chip" onClick={addCreator} disabled={!!busy}>{busy === "add" ? "Adding…" : `Add ${w.channel.title} to scout creators`}</button>}
             <button className="chip" onClick={clipThis} disabled={!!busy} title="Downloads with yt-dlp (YouTube sometimes blocks it), then opens Studio's clips">{busy === "clip" ? "Starting…" : "Clip this → Studio"}</button>
@@ -196,6 +205,36 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
           <input ref={findBox} className="field w-full" value={query} onChange={(e) => setQuery(e.target.value)} maxLength={40} placeholder="Creator, e.g. Jynxzi" aria-label="Creator name or @handle" />
           <button className="chip shrink-0" type="submit">Find</button>
         </form>
+        {saved.creators.length > 0 && (
+          <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Your creators">
+            {saved.creators.map((c) => (
+              <li key={c.name} className="chip flex items-center gap-0.5 !px-1 !py-0.5" style={c.pinned ? { borderColor: "#f59e0b" } : undefined}>
+                <button className="px-1" onClick={() => pinCreator(c.name)} aria-pressed={c.pinned} aria-label={`${c.pinned ? "Unpin" : "Pin"} ${c.name}`}
+                  title={c.pinned ? "Unpin" : "Pin to the front"} style={{ color: c.pinned ? "#f59e0b" : undefined }}>{c.pinned ? "★" : "☆"}</button>
+                <button className="px-1 text-sm" onClick={() => { setQuery(c.name); findVideos({ creator: c.name, shorts: false }); }} aria-label={`Find ${c.name}'s newest videos`}>{c.name}</button>
+                <button className="muted px-1" onClick={() => forgetCreator(c.name)} aria-label={`Remove ${c.name}`} title="Remove">×</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {history.length > 0 && (
+          <div className="mt-3">
+            <div className="muted text-xs font-semibold uppercase tracking-wide">Continue watching</div>
+            <ul className="mt-1 flex gap-2 overflow-x-auto pb-1" aria-label="Continue watching">
+              {history.map((v) => (
+                <li key={v.id} className="shrink-0">
+                  <button className={`card w-[124px] p-1 text-left${playing?.id === v.id ? " on" : ""}`} onClick={() => replay(v)}
+                    aria-label={`Play again: ${v.title}${v.channel ? ` by ${v.channel}` : ""}, opened ${ago(new Date(v.at).toISOString(), now)}`} title={v.title}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {v.thumb ? <img src={v.thumb} alt="" width={116} height={65} className="rounded" loading="lazy" referrerPolicy="no-referrer" /> : <span className="block h-[65px] w-[116px] rounded bg-black/40" />}
+                    <b className="mt-1 line-clamp-2 text-[11px] leading-tight">{v.title}</b>
+                    <span className="muted block truncate text-[10px]">{v.channel}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {!w && <p className="muted mt-2 text-sm">Say “show me Jynxzi&apos;s latest videos” (or “…latest shorts”). ORBIT finds the 3 newest and asks which one to open.</p>}
         <div aria-live="polite">
           {w?.status === "loading" && <p className="muted mt-2 text-sm">Looking for {w.creator}&apos;s newest {w.shorts ? "Shorts" : "videos"}…</p>}

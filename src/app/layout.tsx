@@ -8,7 +8,13 @@ const rajdhani = Rajdhani({ subsets: ["latin"], weight: ["500", "600", "700"], v
 const jetbrains = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
 
 export const metadata: Metadata = { title: "ORBIT", description: "Your mind has a universe." };
-export const viewport: Viewport = { themeColor: "#02040b", colorScheme: "dark" };
+export const viewport: Viewport = {
+  themeColor: "#02040b",
+  colorScheme: "dark",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover", // lets env(safe-area-inset-*) in globals.css report the notch / home bar
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

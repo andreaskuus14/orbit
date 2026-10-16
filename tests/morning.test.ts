@@ -63,3 +63,22 @@ test("auto-show once per local day from 05:00", () => {
   assert.equal(shouldAutoShow("2026-10-16", new Date(2026, 9, 16, 9, 0)), false);
   assert.equal(shouldAutoShow("2026-10-15", new Date(2026, 9, 16, 9, 0)), true);
 });
+
+test("LIFE in the briefing: today's habits, next reminder today only", async () => {
+  const { lifeSection } = await import("../src/lib/morning-pure.ts");
+  const now = Date.parse("2026-10-16T07:00:00Z"); // 10:00 in Tallinn
+  const l = lifeSection({
+    habits: [{ scheduledToday: true, doneToday: true }, { scheduledToday: true, doneToday: false }, { scheduledToday: false, doneToday: false }],
+    reminders: [
+      { text: "Call mom", at: "2026-10-16T15:00:00Z" },
+      { text: "Gym", at: "2026-10-16T12:30:00Z" },
+      { text: "old", at: "2026-10-16T06:00:00Z" },
+      { text: "tomorrow", at: "2026-10-17T09:00:00Z" },
+      { text: "fired", at: "2026-10-16T11:00:00Z", fired: "x" },
+    ],
+  }, now, "Europe/Tallinn");
+  assert.deepEqual(l, { habits: 2, done: 1, next: { text: "Gym", at: "15:30" } });
+  assert.equal(suggest({ life: l }).nav, "life");
+  const m = buildMorning({ life: l }, now, "Europe/Tallinn");
+  assert.match(m.spoken, /Reminder at 15:30: Gym\./);
+});

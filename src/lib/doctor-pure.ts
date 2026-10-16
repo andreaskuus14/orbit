@@ -90,6 +90,32 @@ export function quotaCheck(budget: number, used: number): Check {
   return left < 100 ? check("quota", "YouTube scout budget", "warn", txt, "Nothing to fix: the budget resets at midnight Pacific time.") : check("quota", "YouTube scout budget", "ok", txt);
 }
 
+/** life.json: missing = not used yet; unreadable or broken JSON = fail (LIFE won't load and won't overwrite it). */
+export function lifeCheck(state: "missing" | "ok" | "bad", why = ""): Check {
+  const L = "LIFE data (habits, reminders)";
+  if (state === "missing") return check("life", L, "ok", "Not used yet");
+  if (state === "ok") return check("life", L, "ok", "Readable");
+  return check("life", L, "fail", `life.json can't be read${why ? ` (${why.slice(0, 120)})` : ""}, so LIFE is stuck`, "Fix or move %LOCALAPPDATA%\\orbit\\life.json, then reload LIFE.");
+}
+
+/** Vault folder: missing = not used yet; not writable = fail; above 90% of either limit = warn. */
+export function vaultCheck(found: boolean, writable: boolean, bytes: number, count: number, maxBytes: number, maxFiles: number): Check {
+  const L = "VAULT (your files)";
+  if (!found) return check("vault", L, "ok", "Not used yet");
+  const txt = `${(bytes / GB).toFixed(2)} of ${(maxBytes / GB).toFixed(0)} GB, ${count} of ${maxFiles} files`;
+  if (!writable) return check("vault", L, "fail", `${txt}; ORBIT can't write to the vault folder, so uploads fail`, "Check the vault folder isn't read-only (right-click → Properties) and that no other program locks it.");
+  if (bytes > maxBytes * 0.9 || count > maxFiles * 0.9) return check("vault", L, "warn", `${txt}: almost full`, "Delete or download-and-remove files you no longer need in VAULT.");
+  return check("vault", L, "ok", txt);
+}
+
+/** Belief memory needs migration 0008; error is the cheap select's result. */
+export function factsCheck(missing: boolean, message: string | null): Check {
+  const L = "Belief memory";
+  if (missing) return check("facts", L, "warn", "Off: the memory_facts table doesn't exist yet", "Run supabase/migrations/0008_memory_facts.sql in the Supabase SQL editor to turn on belief memory.");
+  if (message != null) return check("facts", L, "warn", `Couldn't read beliefs: ${message.slice(0, 150)}`, "Check your internet; if it lasts, ask Claude Code to look at the memory_facts table.");
+  return check("facts", L, "ok", "On");
+}
+
 const rank: Record<Status, number> = { ok: 0, warn: 1, fail: 2 };
 
 /** Worst first, then the original order. */

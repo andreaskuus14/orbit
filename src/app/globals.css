@@ -417,3 +417,33 @@ kbd { font-family: var(--font-mono); font-size: 0.68rem; padding: 0.05rem 0.4rem
   .galaxy-loader.done { transition: none; }
   .drawer.drawer-out { display: none; }
 }
+
+/* ---------- phone / installed-app (PWA) ---------- */
+/* Safe areas: env() is 0 on desktop and without viewport-fit=cover, so these keep the desktop layout identical. */
+main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
+.hud-menu { top: calc(3.6rem + env(safe-area-inset-top, 0px)); }
+.cmdbar { bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 1100px) { .globe-country { bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); } }
+.globe-regions { bottom: calc(5.4rem + env(safe-area-inset-bottom, 0px)); }
+
+@media (max-width: 640px) {
+  body { overflow-x: clip; }
+  /* 16px stops iOS Safari zooming into a focused field. */
+  .field, input, select, textarea { font-size: 16px; }
+  .logo .muted { display: none; } /* tagline would push the header chips off-screen */
+  .cmdbar { width: calc(100vw - 1rem); }
+  /* Drawer becomes a bottom sheet; the command bar floats over its foot, so pad the content clear of it. */
+  .drawer { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 85dvh; max-height: calc(100dvh - 4rem - env(safe-area-inset-top, 0px));
+    border-radius: 20px 20px 0 0; padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); animation-name: sheet-in; }
+  .drawer.drawer-out { animation-name: sheet-out; }
+  /* Morning briefing card has no height cap of its own. */
+  section[aria-label="Morning briefing"] { max-height: calc(100dvh - 11rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
+}
+@keyframes sheet-in { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes sheet-out { to { opacity: 0; transform: translateY(24px); } }
+
+/* Touch screens: finger-sized targets. */
+@media (pointer: coarse) {
+  .chip, .hud-menu-item { min-height: 40px; }
+  .hud-more { min-width: 40px; }
+}

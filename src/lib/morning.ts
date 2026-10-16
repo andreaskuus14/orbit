@@ -4,7 +4,7 @@ import { youtubePauseUntil } from "./clips/pure";
 import { readPublishSettings } from "./clips/publish-schedule";
 import { scoutView } from "./clips/scout";
 import { learnProblem, type LearnState } from "./clips/learn-pure";
-import { buildMorning, pulseHeadlines, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningStudio } from "./morning-pure";
+import { buildMorning, lifeSection, pulseHeadlines, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningStudio } from "./morning-pure";
 
 // Gathers the "Good morning" briefing: every section in parallel with a timeout, a failing source just drops its section.
 // Reads stored data only (no Pulse run, no YouTube stats fetch, no AI call).
@@ -47,6 +47,8 @@ async function agents(sb: SupabaseClient, now: number): Promise<MorningAgents> {
 
 export async function getMorning(sb: SupabaseClient, now = Date.now()): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
-  const [s, i, a] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now))]);
-  return buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a) }, now, tz);
+  const [s, i, a, l] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
+    within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, Intl.DateTimeFormat().resolvedOptions().timeZone)))]); // LIFE uses the PC's local days, not the publish timezone
+  const life = ok(l);
+  return buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined }, now, tz);
 }

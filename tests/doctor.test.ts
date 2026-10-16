@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildCheck, check, diskCheck, envCheck, launcherCheck, modelCheck, nightCheck, quotaCheck, summarize, validModel, ytdlpCheck,
+  buildCheck, check, diskCheck, envCheck, factsCheck, launcherCheck, lifeCheck, modelCheck, nightCheck, quotaCheck, summarize, validModel, vaultCheck, ytdlpCheck,
 } from "../src/lib/doctor-pure.ts";
 
 const GB = 1024 ** 3, DAY = 86_400_000;
@@ -97,4 +97,32 @@ test("scout quota", () => {
   assert.match(quotaCheck(1500, 200).detail, /1300 of 1500/);
   assert.equal(quotaCheck(1500, 1450).status, "warn");
   assert.match(quotaCheck(1500, 2000).detail, /^0 of/);
+});
+
+test("life data", () => {
+  assert.equal(lifeCheck("missing").status, "ok");
+  assert.match(lifeCheck("missing").detail, /Not used yet/);
+  assert.equal(lifeCheck("ok").status, "ok");
+  const bad = lifeCheck("bad", "broken JSON");
+  assert.equal(bad.status, "fail");
+  assert.equal(bad.fix, "Fix or move %LOCALAPPDATA%\\orbit\\life.json, then reload LIFE.");
+});
+
+test("vault: missing, read-only, 90% thresholds", () => {
+  const T = 5 * GB, F = 2000;
+  assert.equal(vaultCheck(false, false, 0, 0, T, F).status, "ok");
+  assert.equal(vaultCheck(true, false, 0, 0, T, F).status, "fail");
+  assert.equal(vaultCheck(true, true, 1 * GB, 10, T, F).status, "ok");
+  assert.equal(vaultCheck(true, true, 4.5 * GB, 10, T, F).status, "ok"); // exactly 90%
+  assert.equal(vaultCheck(true, true, 4.6 * GB, 10, T, F).status, "warn");
+  assert.equal(vaultCheck(true, true, 0, 1801, T, F).status, "warn");
+  assert.match(vaultCheck(true, true, 1 * GB, 10, T, F).detail, /1\.00 of 5 GB, 10 of 2000 files/);
+});
+
+test("belief memory migration", () => {
+  assert.equal(factsCheck(false, null).status, "ok");
+  const miss = factsCheck(true, "relation does not exist");
+  assert.equal(miss.status, "warn");
+  assert.match(miss.fix!, /0008_memory_facts\.sql in the Supabase SQL editor/);
+  assert.match(factsCheck(false, "timeout").detail, /timeout/);
 });

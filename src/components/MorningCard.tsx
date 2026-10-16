@@ -9,7 +9,7 @@ const KEY = "orbit.morning"; // { day: last auto-shown local day, speak: read it
 type Saved = { day?: string; speak?: boolean };
 const load = (): Saved => { try { return JSON.parse(localStorage.getItem(KEY) || "{}") ?? {}; } catch { return {}; } };
 const save = (s: Saved) => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage unavailable: may show again next open */ } };
-const NAV: Record<MorningNav, NavTarget> = { review: { panel: "studio", view: "review" }, news: { panel: "intelligence" }, tasks: { panel: "operations" }, agents: { panel: "agents" } };
+const NAV: Record<MorningNav, NavTarget> = { review: { panel: "studio", view: "review" }, news: { panel: "intelligence" }, tasks: { panel: "operations" }, agents: { panel: "agents" }, life: { panel: "life" } };
 const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`;
 
 export function MorningCard({ home }: { home: boolean }) {
@@ -56,7 +56,7 @@ export function MorningCard({ home }: { home: boolean }) {
   if (!open || !home) return null;
   const go = (k: MorningNav) => { setOpen(false); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: NAV[k] })); };
   const toggleSpeak = (v: boolean) => { setSpeakMorning(v); save({ ...load(), speak: v }); };
-  const s = data?.studio, i = data?.intel, a = data?.agents;
+  const s = data?.studio, i = data?.intel, a = data?.agents, l = data?.life;
   const best = s?.yesterday.filter((y) => y.views !== null).sort((x, y) => y.views! - x.views!)[0];
 
   return (
@@ -91,11 +91,18 @@ export function MorningCard({ home }: { home: boolean }) {
               <p className="muted">{n(a.done.length, "task")} finished overnight{a.failed ? ` · ${a.failed} failed` : ""} · {n(a.proposals.length, "proposal")} waiting</p>
             </div>
           )}
+          {l && (
+            <div>
+              <b>Life</b>
+              <p className="muted">{l.habits ? `${l.done}/${l.habits} habits done today` : "No habits scheduled today"}{l.next ? ` · reminder ${l.next.at}: ${l.next.text}` : ""}</p>
+            </div>
+          )}
           <p><b>Next:</b> {data.suggestion.nav ? <button className="underline" onClick={() => go(data.suggestion.nav!)}>{data.suggestion.text}</button> : data.suggestion.text}</p>
           <div className="flex flex-wrap gap-2">
             {s && <button className="chip" onClick={() => go("review")}>Review clips</button>}
             {i && <button className="chip" onClick={() => go("news")}>Open news</button>}
             {a && <button className="chip" onClick={() => go("tasks")}>Open tasks</button>}
+            {l && <button className="chip" onClick={() => go("life")}>Open life</button>}
           </div>
           <label className="muted flex items-center gap-2 text-xs"><input type="checkbox" checked={speakMorning} onChange={(e) => toggleSpeak(e.target.checked)} /> Read it aloud each morning</label>
         </div>

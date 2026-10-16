@@ -11,7 +11,9 @@ export type NavTarget = {
   search?: string; zoom?: "in" | "out" | "reset"; morning?: true; // morning: open the "Good morning" card on the galaxy and read it aloud
   doctor?: true; // doctor: open the ORBIT doctor (health checks) and read the result aloud; stays where you are
   beliefs?: true; // beliefs: MEMORY opens "What ORBIT believes"
+  life?: LifeView; start?: true; // life: LIFE opens on that tab; start (with life "focus"): start the focus timer
 };
+export type LifeView = "today" | "habits" | "focus" | "reminders" | "journal";
 export const NAV_EVENT = "orbit:navigate"; // detail: NavTarget
 /** "local news" means this country. */
 export const LOCAL_COUNTRY = "Estonia";
@@ -32,8 +34,14 @@ put({ panel: "studio" }, "studio, youtube, youtube studio");
 put({ panel: "theater" }, "theater, theatre, cinema, movie theater, watch, watch videos, the big screen, big screen");
 put({ panel: "studio", view: "none" }, "channel, my channel, youtube channel, my videos"); // the channel itself, overlays closed
 put({ panel: "creation" }, "creation, game dev, gamedev, game development, games, my games, game lab, dev world, planet forge");
-put({ panel: "life" }, "life, calendar, habits");
-put({ panel: "vault" }, "vault, files");
+put({ panel: "life" }, "life, calendar");
+// LIFE tabs: also accepted as a bare message ("journal", "focus timer"), like "good morning".
+put({ panel: "life", life: "habits" }, "habits, my habits");
+put({ panel: "life", life: "reminders" }, "reminders, my reminders");
+put({ panel: "life", life: "focus" }, "focus timer, the focus timer, my focus timer, focus mode, pomodoro, pomodoro timer");
+put({ panel: "life", life: "journal" }, "journal, my journal");
+const START_FOCUS = /^(?:start|begin)(?: (?:a|the|my))? (?:focus(?:ing)?|pomodoro)(?: (?:timer|mode|session))?$/;
+put({ panel: "vault" }, "vault, files, my files, file vault, documents, my documents");
 // "my analytics" is the channel; plain "analytics" is the ANALYTICS planet (AI usage).
 put({ panel: "studio", view: "stats" }, "stats, my stats, statistics, stats in the studio, stats of the studio, the stats of the studio, stats of the soda, the stats of the soda, statistics in the studio, channel stats, youtube stats, video stats, studio stats, my analytics, channel analytics, youtube analytics");
 put({ panel: "studio", view: "clips" }, "clips, my clips, clip factory, the clip factory, clip maker, shorts, studio clips, clips in the studio, clips in studio, clips of the studio, the clips of the studio, clips of the soda, the clips in the studio, eclipse, eclipses, the eclipse, the eclipses");
@@ -136,7 +144,8 @@ export function parseNavCommand(text: string, ctx: { current?: PanelId | null } 
     return !bare || ctx.current === "intelligence" || (t && !t.search) || / (?:news|headlines)$/.test(x) ? t : null;
   }
   if (s !== "review" && PLACES[s]?.view === "review") return PLACES[s]; // "morning review", "review my clips": commands without a verb
-  if (PLACES[s]?.morning || PLACES[s]?.beliefs) return PLACES[s]; // "good morning", "brief me", "what do you know about me"
+  if (START_FOCUS.test(s)) return { panel: "life", life: "focus", start: true }; // "start focus", "start a pomodoro"
+  if (PLACES[s]?.morning || PLACES[s]?.beliefs || PLACES[s]?.life) return PLACES[s]; // "good morning", "brief me", "what do you know about me"
   const v = VERB.exec(s);
   if (!v) return null;
   const rest = s.slice(v[0].length).trim();
@@ -165,7 +174,7 @@ export function navLabel(t: NavTarget): string {
   if (t.beliefs) return "what ORBIT believes";
   if (!t.panel) return "the galaxy";
   const name = t.panel === "core" ? "CORE" : t.panel === "profile" ? "your profile" : planetById(t.panel)!.name.charAt(0) + planetById(t.panel)!.name.slice(1).toLowerCase();
-  const sub = t.country ? displayName(t.country) : t.region ?? (t.view === "stats" ? "Stats" : t.view === "clips" ? "Clips" : t.view === "review" ? "Clip review" : "");
+  const sub = t.country ? displayName(t.country) : t.region ?? (t.view === "stats" ? "Stats" : t.view === "clips" ? "Clips" : t.view === "review" ? "Clip review" : t.life ? t.life.charAt(0).toUpperCase() + t.life.slice(1) : "");
   return sub ? `${name} → ${sub}` : name;
 }
 export const navReply = (t: NavTarget) =>
@@ -176,4 +185,5 @@ export const navReply = (t: NavTarget) =>
     : t.search ? `Searching the news for “${t.search}”.`
     : t.search === "" ? "Showing the whole world."
     : t.view === "none" ? "Here's your channel."
+    : t.start ? "Focus timer started."
     : `Flying to ${navLabel(t)}.`;

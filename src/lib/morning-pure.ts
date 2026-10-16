@@ -2,7 +2,7 @@
 // and a spoken version built from a template — no AI call, so it's instant and free. Gathering: morning.ts.
 import type { Clip } from "./clips/types";
 
-export type MorningNav = "review" | "news" | "tasks" | "agents";
+export type MorningNav = "review" | "news" | "tasks" | "agents" | "life";
 export type StudioIn = {
   clips: Pick<Clip, "title" | "status" | "publish">[]; views: Record<string, number>; // views: videoId → latest views (learn.json)
   pausedUntil: number; scout: { newPicks: number; topNiche?: string; summary?: string } | null; tz: string;
@@ -10,8 +10,9 @@ export type StudioIn = {
 export type MorningStudio = { ready: number; approved: number; today: string[]; yesterday: { title: string; views: number | null }[]; scout: string; pausedUntil: string };
 export type MorningIntel = { title: string; at: string; headlines: string[] };
 export type MorningAgents = { done: string[]; failed: number; proposals: string[] };
+export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
 export type Morning = {
-  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents;
+  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife;
   suggestion: { text: string; nav: MorningNav | null }; spoken: string;
 };
 
@@ -54,12 +55,13 @@ export function studioSection(x: StudioIn, now: number): MorningStudio {
   };
 }
 
-export function suggest(m: Pick<Morning, "studio" | "intel" | "agents">): Morning["suggestion"] {
+export function suggest(m: Pick<Morning, "studio" | "intel" | "agents" | "life">): Morning["suggestion"] {
   const s = m.studio, a = m.agents;
   if (s?.ready) return { text: `Review your ${n(s.ready, "new clip")}.`, nav: "review" };
   if (a?.proposals.length) return { text: `Approve or dismiss ${n(a.proposals.length, "agent proposal")}.`, nav: "agents" };
   if (s?.approved && !s.today.length) return { text: `Schedule your ${n(s.approved, "approved clip")}, nothing goes live today.`, nav: "review" };
   if (a?.failed) return { text: `Check the ${n(a.failed, "task")} that failed overnight.`, nav: "tasks" };
+  if (m.life && m.life.habits > m.life.done) return { text: `Do your ${n(m.life.habits - m.life.done, "habit")} for today.`, nav: "life" };
   if (m.intel?.headlines.length) return { text: "Read today's news briefing.", nav: "news" };
   return { text: "Drop a video in the inbox or give your agents a task.", nav: null };
 }
@@ -83,6 +85,9 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
     if (a.done.length) opt.push(`Overnight your agents finished ${n(a.done.length, "task")}${a.failed ? ` and ${a.failed} failed` : ""}.`);
     else if (a.failed) opt.push(`${n(a.failed, "agent task")} failed overnight.`);
   }
+  const l = m.life;
+  if (l?.next) must.push(`Reminder at ${l.next.at}: ${l.next.text}.`);
+  if (l?.habits) opt.push(l.done >= l.habits ? `All ${n(l.habits, "habit")} done for today.` : `${n(l.habits - l.done, "habit")} to do today.`);
   if (i?.headlines.length) opt.push(`In the news: ${i.headlines.slice(0, 2).join(". ")}.`);
   const tail = `My suggestion: ${m.suggestion.text}`;
   const words = (xs: string[]) => xs.join(" ").split(/\s+/).length;
@@ -90,7 +95,7 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   return plain([...must, ...opt, tail].join(" ").replace(/\.\./g, "."));
 }
 
-export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents">, now: number, tz: string): Morning {
+export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life">, now: number, tz: string): Morning {
   const base = { ...parts, greeting: greeting(now, tz), suggestion: suggest(parts) };
   return { ...base, spoken: spokenBriefing(base) };
 }
@@ -98,3 +103,11 @@ export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents">
 /** Auto-show once per local day, from 05:00 on. lastDay: the stored "YYYY-MM-DD" it was last shown. */
 export const localDay = (now: Date) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 export const shouldAutoShow = (lastDay: string | null, now: Date) => now.getHours() >= 5 && lastDay !== localDay(now);
+
+/** LIFE for the briefing: today's scheduled habits and the next reminder still due today (local server time). */
+export function lifeSection(x: { habits: { scheduledToday: boolean; doneToday: boolean }[]; reminders: { text: string; at: string; fired?: string }[] }, now: number, tz: string): MorningLife {
+  const today = x.habits.filter((h) => h.scheduledToday);
+  const next = x.reminders.filter((r) => !r.fired && Date.parse(r.at) > now && day(Date.parse(r.at), tz) === day(now, tz))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))[0];
+  return { habits: today.length, done: today.filter((h) => h.doneToday).length, next: next ? { text: plain(next.text), at: hm(Date.parse(next.at), tz) } : null };
+}
