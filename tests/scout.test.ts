@@ -175,6 +175,7 @@ test("skipSummary explains an empty list", () => {
 
 test("wrong box: links and @handles aren't keywords", () => {
   for (const k of ["https://www.youtube.com/@Jynxzi", "@Jynxzi", "youtube.com/@Jynxzi", "youtu.be/abc", "www.twitch.tv/x"]) assert.equal(looksLikeChannel(k), true, k);
-  for (const k of ["Funny jynxzi reaction", "rainbow six siege rage"]) assert.equal(looksLikeChannel(k), false, k);
-  assert.match(validSettings({ keywords: ["https://www.youtube.com/@Jynxzi"] }, DEFAULTS) as string, /Creators/);
+  for (const k of ["Funny jynxzi reaction", "rainbow six siege rage", "youtuber fails", "best youtube rage"]) assert.equal(looksLikeChannel(k), false, k);
+  // A stored file is never rejected by the keyword guard (it would be quarantined, wiping the watchlist).
+  assert.notEqual(typeof parseScout({ ...emptyScout(), keywords: ["youtuber fails", "@odd"] }), "string");
 });

@@ -53,7 +53,6 @@ export function validSettings(b: Record<string, unknown>, cur: ScoutSettings): S
     if (!Array.isArray(b.keywords) || b.keywords.length > 20) return "keywords must be a list of at most 20";
     const kw = b.keywords.map((k) => line(k, 80));
     if (kw.some((k) => k.length < 2)) return "each keyword must be 2-80 characters";
-    if (kw.some(looksLikeChannel)) return "Put channel links under Creators; keywords are search words";
     out.keywords = [...new Set(kw)];
   }
   if (b.creator !== undefined) { // one creator at a time, applied to the current list (a stale UI snapshot can't drop others)
@@ -73,7 +72,7 @@ export function validSettings(b: Record<string, unknown>, cur: ScoutSettings): S
 }
 
 /** A link or @handle typed where search words belong. */
-export const looksLikeChannel = (k: string) => /^@|:\/\/|^www\.|youtu\.?be|\.(com|tv)\b/i.test(k);
+export const looksLikeChannel = (k: string) => /^@|:\/\/|^www\.|youtu\.be\/|youtube\.com\/|(twitch\.tv|kick\.com)\//i.test(k);
 
 const PICK_STATUS: PickStatus[] = ["new", "queued", "dismissed"];
 /** scout.json → a Scout, or why it's unusable (then it's quarantined). Bad picks are dropped rather than failing the whole file. */

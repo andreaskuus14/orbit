@@ -365,8 +365,8 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
     setD(await api<ScoutData>(`${SCOUT}/picks`, { method: "POST", body: { videoId: p.videoId, action } }));
     if (action === "clip") onQueued();
   });
-  const save = (key: string, body: ScoutPatch) => act(key, async () => { setD(await api<ScoutData>(SCOUT, { method: "PATCH", body })); });
   const [added, setAdded] = useState("");
+  const save = (key: string, body: ScoutPatch) => { setAdded(""); return act(key, async () => { setD(await api<ScoutData>(SCOUT, { method: "PATCH", body })); }); };
   const addCreator = (input: string) => act("add", async () => {
     setAdded("");
     const r = await api<ScoutData & { added: { title: string; subscribers: number | null; already: boolean } }>(`${SCOUT}/creators`, { method: "POST", body: { input } });

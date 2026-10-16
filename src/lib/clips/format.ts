@@ -39,7 +39,11 @@ export function channelLink(href: string): "youtube" | "other" | null {
   let u: URL;
   try { u = new URL(href); } catch { return null; }
   const parts = u.pathname.split("/").filter(Boolean);
-  if (u.hostname.endsWith("youtube.com")) return /^(@|channel$|c$|user$)/.test(parts[0] ?? "") ? "youtube" : null;
+  if (u.hostname.endsWith("youtube.com")) {
+    if (parts[0] === "playlist") return "other"; // a whole playlist, not one video
+    return parts.length && !/^(watch|shorts|live|embed|v)$/.test(parts[0]) ? "youtube" : null; // /@x, /channel/…, /c/x, /user/x, /PewDiePie
+  }
+  if (u.searchParams.has("clip")) return null; // kick.com/name?clip=… is one clip
   if (u.hostname === "clips.twitch.tv" || u.hostname === "youtu.be") return null;
   return parts.length === 1 && parts[0] !== "videos" ? "other" : null; // twitch.tv/name, kick.com/name: a live channel, not a video
 }

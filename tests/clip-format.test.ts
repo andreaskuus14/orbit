@@ -37,6 +37,8 @@ test("channelLink: channel pages are refused by the download box, single videos 
   assert.equal(k("https://www.youtube.com/user/Name"), "youtube");
   assert.equal(k("https://www.twitch.tv/jynxzi"), "other");
   assert.equal(k("https://kick.com/someone"), "other");
+  assert.equal(k("https://www.youtube.com/PewDiePie"), "youtube"); // old vanity URL = whole channel
+  assert.equal(k("https://www.youtube.com/playlist?list=PLx"), "other");
   for (const v of ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/shorts/dQw4w9WgXcQ",
-    "https://www.youtube.com/live/dQw4w9WgXcQ", "https://www.twitch.tv/videos/123", "https://clips.twitch.tv/SomeClip", "https://kick.com/someone/videos/abc"]) assert.equal(k(v), null, v);
+    "https://www.youtube.com/live/dQw4w9WgXcQ", "https://www.twitch.tv/videos/123", "https://clips.twitch.tv/SomeClip", "https://kick.com/someone/videos/abc", "https://kick.com/xqc?clip=clip_01ABC"]) assert.equal(k(v), null, v);
 });

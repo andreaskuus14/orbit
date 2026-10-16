@@ -8,7 +8,7 @@ import { cleanPermission, parseClipUrl, validOptions } from "./pure";
 import type { ClipOptions } from "./types";
 import {
   DAILY_UNITS, SEARCH_UNITS, autoPicks, baselineVph, buildPicks, charge, emptyScout, localDay, parseRanking, parseScout, planRun, pureScore, rankPrompt,
-  remember, scoutDue, watchUrl, skipReason, skipSummary, toCandidates, usedToday, validSettings, videoIdOf, type Candidate, type Scout, type ScoutPick, type ScoutRun,
+  looksLikeChannel, remember, scoutDue, watchUrl, skipReason, skipSummary, toCandidates, usedToday, validSettings, videoIdOf, type Candidate, type Scout, type ScoutPick, type ScoutRun,
 } from "./scout-pure";
 
 // Video Scout: finds fresh long videos from approved creators (watchlist) and niche keyword searches, ranks them for clip potential,
@@ -117,6 +117,9 @@ export function actOnPick(videoId: unknown, action: unknown) {
 }
 
 export const patchSettings = (b: Record<string, unknown>) => updateScout((s) => {
+  // Only on user edits: a stored file must never be rejected (and quarantined) by this guard.
+  if (Array.isArray(b.keywords) && b.keywords.some((k) => typeof k === "string" && looksLikeChannel(k)))
+    throw new ScoutError("Put channel links under Creators; keywords are search words");
   const next = validSettings(b, s);
   if (typeof next === "string") throw new ScoutError(next);
   Object.assign(s, next);
