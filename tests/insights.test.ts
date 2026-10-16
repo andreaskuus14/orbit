@@ -95,3 +95,45 @@ test("state check and 'anything I should do?'", () => {
   for (const q of ["Anything I should do?", "what should I do today", "what's next?", "any suggestions?", "Is there anything I need to do"]) assert.ok(asksWhatToDo(q), q);
   for (const q of ["what is the weather", "do you know Kai Cenat?"]) assert.ok(!asksWhatToDo(q), q);
 });
+
+// LIFE rules. NOW is Fri 13:00 in Tallinn (UTC+3); 16:00Z = 19:00, 18:00Z = 21:00 local.
+const hv = (name: string, streak: number, o: Record<string, unknown> = {}) =>
+  ({ id: name, name, emoji: "💧", days: [0, 1, 2, 3, 4, 5, 6], created: "2026-01-01", done: [], week: [], streak, scheduledToday: true, doneToday: false, ...o });
+const life = (habits: ReturnType<typeof hv>[], focus = { today: 0, week: 0 }) => ({ habits, focus });
+const lifeAt = (iso: string, l: ReturnType<typeof life>) => detect(base({ now: Date.parse(iso), life: l })).filter((x) => x.kind === "life");
+
+test("life: evening streak guard picks the longest streak, normal priority, opens LIFE today", () => {
+  const habits = [hv("Water", 4), hv("Read", 9), hv("Run", 2), hv("Walk", 20, { doneToday: true }), hv("Gym", 30, { scheduledToday: false })];
+  const s = lifeAt("2026-10-16T16:00:00Z", life(habits));
+  assert.deepEqual(s.map((x) => x.key), ["streak:2026-10-16"]);
+  assert.equal(s[0].title, "Keep your 🔥9 streak: 💧 Read isn't done yet");
+  assert.equal(s[0].priority, "normal");
+  assert.deepEqual(s[0].actions[0].nav, { panel: "life", life: "today" });
+  assert.equal(lifeAt("2026-10-16T14:59:00Z", life(habits)).length, 0); // 17:59 local
+  assert.equal(lifeAt("2026-10-16T16:00:00Z", life([hv("Run", 2)])).length, 0);
+});
+
+test("life: after 20:00 also a low 'N habits left'", () => {
+  const s = lifeAt("2026-10-16T18:00:00Z", life([hv("Water", 4), hv("Run", 0)]));
+  assert.deepEqual(s.map((x) => [x.key, x.priority]), [["streak:2026-10-16", "normal"], ["habitsleft:2026-10-16", "low"]]);
+  assert.equal(s[1].title, "2 habits left today");
+  assert.equal(lifeAt("2026-10-16T18:00:00Z", life([hv("Run", 0, { doneToday: true })])).length, 0);
+});
+
+test("life: no focus yet on a weekday 10–17 when focus is used", () => {
+  const s = lifeAt("2026-10-16T10:00:00Z", life([], { today: 0, week: 50 }));
+  assert.deepEqual(s.map((x) => [x.key, x.priority]), [["focus:2026-10-16", "low"]]);
+  assert.deepEqual(s[0].actions[0].nav, { panel: "life", life: "focus" });
+  assert.equal(lifeAt("2026-10-16T10:00:00Z", life([], { today: 25, week: 50 })).length, 0);
+  assert.equal(lifeAt("2026-10-16T10:00:00Z", life([], { today: 0, week: 0 })).length, 0); // never uses focus
+  assert.equal(lifeAt("2026-10-17T10:00:00Z", life([], { today: 0, week: 50 })).length, 0); // Saturday
+  assert.equal(lifeAt("2026-10-16T14:00:00Z", life([], { today: 0, week: 50 })).length, 0); // 17:00 local
+  assert.equal(detect(base({ life: null })).length, 0);
+});
+
+test("visible: high, then normal, then low", () => {
+  const mk = (key: string, priority: "high" | "normal" | "low", createdAt: number) =>
+    ({ key, kind: "life" as const, priority, title: key, detail: "", actions: [], createdAt, expiresAt: NOW + H });
+  const v = visible({ v: 1, at: NOW, items: [mk("l", "low", 3), mk("n", "normal", 1), mk("h", "high", 0), mk("n2", "normal", 2)] }, NOW);
+  assert.deepEqual(v.map((x) => x.key), ["h", "n2", "n", "l"]);
+});

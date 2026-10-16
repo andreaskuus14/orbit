@@ -51,7 +51,9 @@ export function pickBestAlternative(alts: string[], ctx: HearCtx = {}): string {
     const t = correctTranscript(a);
     if (!t) return;
     // Lower alternatives may pick a command, never create a wake: room talk ending in "a bit" mustn't arm ORBIT.
-    const cmd = (i === 0 || !question) && (parseNavCommand(t, ctx) || isSleepCommand(t));
+    const nav = (i === 0 || !question) ? parseNavCommand(t, ctx) : null;
+    // A lower guess may not start the timer or jump to a LIFE tab ("journal" heard inside "journal entry for today").
+    const cmd = (i === 0 || !question) && ((nav && (i === 0 || !nav.life)) || isSleepCommand(t));
     const score = cmd ? 2 : (i === 0 && extractWakeQuestion(t)) || STOP_WORDS.test(t) ? 1 : 0;
     if (score > top) { best = t; top = score; }
   });

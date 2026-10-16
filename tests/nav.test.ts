@@ -166,7 +166,7 @@ test("navReply says what happens", () => {
   assert.equal(navReply({ panel: "intelligence", search: "ai" }), "Searching the news for “ai”.");
   assert.equal(navReply({ panel: "intelligence", search: "" }), "Showing the whole world.");
   assert.equal(navReply({ panel: "studio", view: "stats" }), "Flying to Studio → Stats.");
-  assert.equal(navReply({ panel: "life", life: "focus", start: true }), "Focus timer started.");
+  assert.equal(navReply({ panel: "life", life: "focus", start: true }), "Focus timer on.");
   assert.equal(navReply({ panel: "life", life: "journal" }), "Flying to Life → Journal.");
   assert.deepEqual(validateNav({ target: "my journal" }), { panel: "life", life: "journal" });
 });
@@ -227,4 +227,10 @@ test("'what do you know about me' opens What ORBIT believes", () => {
     assert.deepEqual(parseNavCommand(t), { panel: "memory", beliefs: true }, t);
   assert.equal(parseNavCommand("what do you know about Germany?"), null);
   assert.equal(navReply({ panel: "memory", beliefs: true }), "Here's what I know about you.");
+});
+
+test("bare LIFE words don't hijack an answer to CORE", () => {
+  assert.equal(parseNavCommand("journal", { current: "core" }), null);
+  assert.deepEqual(parseNavCommand("open my journal", { current: "core" })?.life, "journal");
+  assert.equal(parseNavCommand("journal", { current: null })?.life, "journal");
 });

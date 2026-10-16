@@ -49,7 +49,7 @@ CORE runs on **Claude Code under your own Claude login**, so there is no API key
 - **VAULT** (planet): a private file vault on this PC in `<ORBIT data folder>\vault` (40 MB per file, 5 GB / 2000 files). Upload or drop files, preview images/video/audio/text/PDF, search names or text inside (PDF, Word, text), rename, delete, ask CORE about a file, or save a copy to MEMORY (that copy goes to Supabase). VAULT files are **not** in exports or the weekly backup: keep copies of anything important.
 - **Search everything**: Ctrl/⌘+P (or ⌕ in the top bar): planets, actions, memories, VAULT file names, or "Ask CORE".
 - **Notifications** (🔔 in the top bar): history of STUDIO notes, reminders and agent tasks; click one to go there.
-- ORBIT is installable as an app (manifest + icons) and the layout works on phone-sized screens; it still only listens on 127.0.0.1.
+- ORBIT is installable as an app (manifest + icons) and the layout works on phone-sized screens; it still only listens on 127.0.0.1. **Phone access:** see [docs/PHONE.md](docs/PHONE.md) (private HTTPS through Tailscale Serve, no ports opened).
 
 ## Not built yet (shown honestly as "Phase N" in the UI)
 Integrations (Gmail, Calendar, GitHub, Notion) (rest of Phase 3), creation studio for documents and code, voice, knowledge-graph view (Phase 4), hardening and public deployment (Phase 5). Also: CORE cannot save memories itself (use the capture box), and uploaded images are stored but not described automatically. Uploads (PDF, Word .docx, text, Markdown, CSV, images, max 4 MB) are stored privately in the `vault` bucket; their text is extracted for search.

@@ -145,7 +145,7 @@ export function parseNavCommand(text: string, ctx: { current?: PanelId | null } 
   }
   if (s !== "review" && PLACES[s]?.view === "review") return PLACES[s]; // "morning review", "review my clips": commands without a verb
   if (START_FOCUS.test(s)) return { panel: "life", life: "focus", start: true }; // "start focus", "start a pomodoro"
-  if (PLACES[s]?.morning || PLACES[s]?.beliefs || PLACES[s]?.life) return PLACES[s]; // "good morning", "brief me", "what do you know about me"
+  if (PLACES[s]?.morning || PLACES[s]?.beliefs || (PLACES[s]?.life && ctx.current !== "core")) return PLACES[s]; // in CORE a bare "journal" may answer its question // "good morning", "brief me", "what do you know about me"
   const v = VERB.exec(s);
   if (!v) return null;
   const rest = s.slice(v[0].length).trim();
@@ -185,5 +185,5 @@ export const navReply = (t: NavTarget) =>
     : t.search ? `Searching the news for “${t.search}”.`
     : t.search === "" ? "Showing the whole world."
     : t.view === "none" ? "Here's your channel."
-    : t.start ? "Focus timer started."
+    : t.start ? "Focus timer on." // may already be running (or on a break): the panel decides
     : `Flying to ${navLabel(t)}.`;

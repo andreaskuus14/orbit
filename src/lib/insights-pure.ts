@@ -1,11 +1,12 @@
 // CORE's proactive insights (pure, tested in tests/insights.test.ts): cheap rules over STUDIO's local state turn noteworthy
 // situations into suggestions with one-click actions. No AI calls. Server glue: src/lib/insights.ts; state: <studio>/insights.json.
 import type { NavTarget } from "./nav-pure";
+import type { LifeState } from "./life-pure";
 
 /** One click: POSTs to our own STUDIO routes in order (same validation as the UI buttons), or a fly-to. */
 export type InsightAction = { label: string; post?: { url: string; body?: Record<string, unknown> }[]; nav?: NavTarget };
 export type Suggestion = {
-  key: string; kind: "hot" | "upload" | "ready" | "approved" | "tomorrow" | "doctor"; priority: "high" | "normal";
+  key: string; kind: "hot" | "upload" | "ready" | "approved" | "tomorrow" | "doctor" | "life"; priority: "high" | "normal" | "low"; // only "high" becomes a desktop note
   title: string; detail: string; actions: InsightAction[]; createdAt: number; expiresAt: number;
   dismissed?: boolean; snoozeUntil?: number;
 };
@@ -21,6 +22,7 @@ export type InsightInput = {
   ytPausedUntil: number;
   learn: { videoId: string; jobId: string; clipId: string; title: string; sourceChannel: string; publishedAt?: string; snaps: { "24h"?: Snap; "72h"?: Snap } }[];
   picks: { videoId: string; title: string; channel: string; source: string; status: string }[];
+  life?: Pick<LifeState, "habits" | "focus"> | null; // null when life.json can't be read
 };
 
 const H = 3_600_000, DAY = 24 * H;
@@ -38,6 +40,13 @@ export const dayIn = (ms: number, tz: string) => new Intl.DateTimeFormat("en-CA"
 const SCHEDULE: InsightAction = { label: "Schedule them", post: [{ url: "/api/studio/clips/schedule" }] };
 const REVIEW: InsightAction = { label: "Review now", nav: { panel: "studio", view: "review" } };
 const DOCTOR: InsightAction = { label: "Open doctor", nav: { panel: null, doctor: true } };
+const LIFE_TODAY: InsightAction = { label: "Open LIFE", nav: { panel: "life", life: "today" } };
+const LIFE_FOCUS: InsightAction = { label: "Open focus", nav: { panel: "life", life: "focus" } };
+/** Local hour (0–23) and weekday (0 = Sunday) of `ms` in `tz`. */
+const clock = (ms: number, tz: string) => {
+  const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", hour: "numeric", weekday: "short" }).formatToParts(ms);
+  return { hour: Number(p.find((x) => x.type === "hour")!.value), dow: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.find((x) => x.type === "weekday")!.value) };
+};
 const SCOUT: InsightAction = { label: "Run the scout", post: [{ url: "/api/studio/clips/scout" }] };
 
 type Draft = Omit<Suggestion, "createdAt" | "dismissed" | "snoozeUntil">;
@@ -103,6 +112,20 @@ export function detect(x: InsightInput): Draft[] {
     + x.downloads.filter((d) => d.status === "failed" && !BLOCKED.test(d.error ?? "") && now - Date.parse(d.createdAt) < DAY).length;
   if (failed >= 2) out.push({ key: `failures:${today}`, kind: "doctor", priority: "high", title: `${n(failed, "job")} failed in the last day`,
     detail: "Something may be broken (tools, disk, network).", actions: [DOCTOR], expiresAt: now + DAY });
+
+  // 7.-9. LIFE: evening streak guard, late-day habits left, no focus yet on a workday. Never "high" (no desktop notes).
+  if (x.life) {
+    const { hour, dow } = clock(now, tz), left = x.life.habits.filter((h) => h.scheduledToday && !h.doneToday);
+    const best = left.filter((h) => h.streak >= 3).sort((a, b) => b.streak - a.streak)[0];
+    if (hour >= 18 && best) out.push({ key: `streak:${today}`, kind: "life", priority: "normal",
+      title: `Keep your 🔥${best.streak} streak: ${clean(`${best.emoji} ${best.name}`, 70)} isn't done yet`,
+      detail: "Check it off before midnight to keep the streak going.", actions: [LIFE_TODAY], expiresAt: now + 4 * H });
+    if (hour >= 20 && left.length) out.push({ key: `habitsleft:${today}`, kind: "life", priority: "low", title: `${n(left.length, "habit")} left today`,
+      detail: left.slice(0, 3).map((h) => clean(h.name, 30)).join(", ") + (left.length > 3 ? ", …" : ""), actions: [LIFE_TODAY], expiresAt: now + 4 * H });
+    if (dow >= 1 && dow <= 5 && hour >= 10 && hour < 17 && x.life.focus.today === 0 && x.life.focus.week > 0)
+      out.push({ key: `focus:${today}`, kind: "life", priority: "low", title: "Start a focus session?",
+        detail: "No focus time logged today yet.", actions: [LIFE_FOCUS], expiresAt: now + 4 * H });
+  }
   return out;
 }
 
@@ -114,10 +137,11 @@ export function merge(s: InsightState, found: Draft[], now: number): InsightStat
   return { v: 1, at: now, items: items.filter((i) => i.expiresAt > now).slice(0, MAX_ITEMS) };
 }
 
+const RANK = { high: 0, normal: 1, low: 2 } as const;
 /** What to show: not dismissed, not snoozed, not expired; high priority first, then newest. */
 export const visible = (s: InsightState, now: number) =>
   s.items.filter((i) => !i.dismissed && !(i.snoozeUntil && i.snoozeUntil > now) && i.expiresAt > now)
-    .sort((a, b) => (a.priority === b.priority ? b.createdAt - a.createdAt : a.priority === "high" ? -1 : 1));
+    .sort((a, b) => (RANK[a.priority] ?? 1) - (RANK[b.priority] ?? 1) || b.createdAt - a.createdAt);
 
 /** dismiss / done (hidden until it expires) or snooze (hidden for hours). Returns false for an unknown key. */
 export function act(s: InsightState, key: string, op: "dismiss" | "done" | "snooze", now: number, hours = 4): boolean {

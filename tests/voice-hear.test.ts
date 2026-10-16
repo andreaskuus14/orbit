@@ -84,3 +84,8 @@ test("cleanWhisperText strips tags and stock hallucinations", () => {
   assert.equal(cleanWhisperText("(music) What's new?"), "What's new?");
   assert.equal(cleanWhisperText("Thank you."), "Thank you.");
 });
+
+test("a lower voice guess can't jump to a LIFE tab or start the timer", () => {
+  assert.equal(pickBestAlternative(["journal entry for today", "journal"]), "journal entry for today");
+  assert.equal(pickBestAlternative(["start focusing on it", "start focusing"]), "start focusing on it");
+});

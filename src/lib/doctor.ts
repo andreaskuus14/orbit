@@ -185,6 +185,10 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
     guard("facts", "Belief memory", () => facts(sb)),
     ...(WIN ? [guard("wake", "Voice wake-up", wake)] : []),
     Promise.resolve(envCheck(process.env, ENV_REQUIRED, ENV_OPTIONAL)),
+    // Matters most once ORBIT is reachable from a phone (docs/PHONE.md): without it any account in the Supabase project gets in.
+    Promise.resolve((process.env.ORBIT_ALLOWED_EMAILS ?? "").trim()
+      ? check("allow", "Who can sign in", "ok", "Only the emails in ORBIT_ALLOWED_EMAILS")
+      : check("allow", "Who can sign in", "warn", "ORBIT_ALLOWED_EMAILS is empty, so any account in your Supabase project can use ORBIT", "Add ORBIT_ALLOWED_EMAILS=your@email to .env.local and restart ORBIT")),
   ]);
   return summarize(results.flat(), Date.now() - t0);
 }

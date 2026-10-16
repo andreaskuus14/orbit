@@ -184,6 +184,15 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, []);
   useEffect(() => { refreshAutomations(); }, [refreshAutomations]);
 
+  // 2D cards: today's LIFE progress, refreshed whenever a panel closes (habits may have changed).
+  const [lifeLine, setLifeLine] = useState("");
+  useEffect(() => {
+    if (panel) return;
+    fetch("/api/life").then((r) => (r.ok ? r.json() : null)).then((st: { habits?: { scheduledToday: boolean; doneToday: boolean }[] } | null) => {
+      const today = st?.habits?.filter((h) => h.scheduledToday) ?? [];
+      setLifeLine(today.length ? `${today.filter((h) => h.doneToday).length}/${today.length} habits done today` : "");
+    }).catch(() => {});
+  }, [panel]);
   const refreshCount = useCallback(async () => {
     const { count } = await sb.from("memories").select("id", { count: "exact", head: true });
     setMemoryCount(count ?? 0);
@@ -327,7 +336,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
             {PLANETS.map((p) => (
               <li key={p.id}><button className="planet-card" onClick={() => select(p.id)} style={{ borderColor: p.color }}>
                 <b style={{ color: p.color }}>{p.name}</b>
-                <span className="muted text-sm">{p.id === "memory" ? `${memoryCount} memories` : p.id === "intelligence" && pulseBusy ? "Pulse is writing a briefing…" : p.id === "intelligence" && pulseFailed ? "Last briefing failed" : p.id === "operations" && automationFailing ? "An automation's last run failed" : p.id === "agents" && runningTasks.length ? `${runningTasks.length} agent task${runningTasks.length > 1 ? "s" : ""} running…` : p.live ? p.blurb : `${p.blurb} · Phase ${p.phase}`}</span></button></li>
+                <span className="muted text-sm">{p.id === "memory" ? `${memoryCount} memories` : p.id === "intelligence" && pulseBusy ? "Pulse is writing a briefing…" : p.id === "intelligence" && pulseFailed ? "Last briefing failed" : p.id === "operations" && automationFailing ? "An automation's last run failed" : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? `${runningTasks.length} agent task${runningTasks.length > 1 ? "s" : ""} running…` : p.live ? p.blurb : `${p.blurb} · Phase ${p.phase}`}</span></button></li>
             ))}
           </ul>
         </nav>
