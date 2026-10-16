@@ -426,24 +426,66 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
 @media (max-width: 1100px) { .globe-country { bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); } }
 .globe-regions { bottom: calc(5.4rem + env(safe-area-inset-bottom, 0px)); }
 
-@media (max-width: 640px) {
-  body { overflow-x: clip; }
-  /* 16px stops iOS Safari zooming into a focused field. */
-  .field, input, select, textarea { font-size: 16px; }
-  .logo .muted { display: none; } /* tagline would push the header chips off-screen */
-  .cmdbar { width: calc(100vw - 1rem); }
-  /* Drawer becomes a bottom sheet; the command bar floats over its foot, so pad the content clear of it. */
-  .drawer { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 85dvh; max-height: calc(100dvh - 4rem - env(safe-area-inset-top, 0px));
-    border-radius: 20px 20px 0 0; padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); animation-name: sheet-in; }
-  .drawer.drawer-out { animation-name: sheet-out; }
-  /* Morning briefing card has no height cap of its own. */
-  section[aria-label="Morning briefing"] { max-height: calc(100dvh - 11rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
-}
-@keyframes sheet-in { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
-@keyframes sheet-out { to { opacity: 0; transform: translateY(24px); } }
-
 /* Touch screens: finger-sized targets. */
 @media (pointer: coarse) {
   .chip, .hud-menu-item { min-height: 40px; }
   .hud-more { min-width: 40px; }
+}
+
+/* Phones, both orientations. --hdr / --bar (header and command-bar heights) are set per orientation below. */
+@media (max-width: 640px), (max-height: 520px) and (pointer: coarse) {
+  body { overflow-x: clip; }
+  .field, input, select, textarea { font-size: 16px; } /* 16px stops iOS zooming into a focused field */
+  main > header { gap: 0.5rem; padding: max(0.4rem, env(safe-area-inset-top, 0px)) max(0.75rem, env(safe-area-inset-right, 0px)) 0.4rem max(0.75rem, env(safe-area-inset-left, 0px)); }
+  .logo { gap: 0.45rem; }
+  .logo img { width: 30px; height: 30px; border-radius: 8px; }
+  .logo .brand { font-size: 0.95rem; letter-spacing: 0.3em; }
+  .logo .muted { display: none; }
+  .hud-menu { top: var(--hdr); right: max(0.75rem, env(safe-area-inset-right, 0px)); }
+  .status-hud, .world-back, .agents-log { display: none; } /* the ORBIT logo already goes home */
+  /* The worlds' 0.9 zoom also scales offsets, which would misalign the sheets. */
+  .globe-in > :not(:has(canvas)):not(.pointer-events-none) { zoom: 1; }
+  /* Hands-free status shrinks to its dot (text stays for screen readers); the "Talking" button keeps its words. */
+  span.voice-wake { font-size: 0; gap: 0; padding: 0.3rem; left: 0.9rem; bottom: calc(100% + 0.2rem); }
+  .morning-card, .whats-new { top: var(--hdr); max-height: calc(100dvh - var(--hdr) - var(--bar) - 0.5rem); overflow-y: auto; }
+  .globe-search { top: var(--hdr); transform: none; }
+  .globe-regions { bottom: auto; transform: none; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+}
+
+/* Portrait phone: bottom sheets; the command bar floats over their foot, so their content is padded clear of it. */
+@media (max-width: 640px) {
+  :root { --hdr: calc(3.4rem + env(safe-area-inset-top, 0px)); --bar: calc(6.25rem + env(safe-area-inset-bottom, 0px)); } /* clears the voice route chip above the bar too */
+  .cmdbar { width: calc(100vw - 1rem); }
+  .drawer { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 85dvh; max-height: calc(100dvh - var(--hdr));
+    border-radius: 20px 20px 0 0; padding-bottom: var(--bar); animation-name: sheet-in; }
+  .drawer.drawer-out { animation-name: sheet-out; }
+  .world-panel, .globe-country, .globe-country.dash { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 60dvh;
+    border-radius: 20px 20px 0 0; padding-bottom: var(--bar); }
+  .globe-search { left: 0.5rem; right: 0.5rem; width: auto; }
+  .globe-regions { top: calc(var(--hdr) + 3.7rem); left: 0.5rem; right: 0.5rem; max-width: none; }
+}
+@keyframes sheet-in { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes sheet-out { to { opacity: 0; transform: translateY(24px); } }
+
+/* Short landscape phone: slim header and command bar, one right-hand sheet between them, world controls on the left. */
+@media (max-height: 520px) and (pointer: coarse) {
+  :root { --hdr: calc(2.9rem + env(safe-area-inset-top, 0px)); --bar: calc(3.6rem + env(safe-area-inset-bottom, 0px));
+    --sheet: min(380px, 45vw); --edge-l: max(0.5rem, env(safe-area-inset-left, 0px)); --edge-r: max(0.5rem, env(safe-area-inset-right, 0px));
+    --left-w: min(30rem, calc(100vw - var(--sheet) - var(--edge-l) - var(--edge-r) - 0.75rem)); }
+  .hud-bar-top > .chip, .hud-bar-top > .pill { height: 2rem; min-height: 2rem; }
+  .hud-more { width: 2rem; min-width: 2rem; }
+  .cmdbar { bottom: calc(0.4rem + env(safe-area-inset-bottom, 0px)); width: min(720px, calc(100vw - var(--edge-l) - var(--edge-r))); padding: 0.2rem; }
+  .cmdbar .field { padding-block: 0.3rem; }
+  .cmdbar .chip { min-height: 2.25rem; font-size: 0.7rem; }
+  .drawer, .drawer.drawer-dock, .world-panel, .globe-country, .globe-country.dash {
+    top: var(--hdr); bottom: var(--bar); right: var(--edge-r); left: auto; width: var(--sheet); height: auto; max-height: none;
+    padding: 0.75rem; border-radius: 16px; }
+  .drawer { animation-name: slide-in; }
+  .drawer.drawer-out { animation-name: slide-out; }
+  .globe-search { left: var(--edge-l); width: var(--left-w); padding: 0.25rem; }
+  .globe-search .field { padding-block: 0.3rem; }
+  .globe-search .btn { padding: 0.3rem 0.8rem; }
+  .globe-regions { top: calc(var(--hdr) + 2.9rem); left: var(--edge-l); max-width: var(--left-w); }
+  /* CORE docked over a world takes the same right-hand spot: hide the world panel meanwhile instead of squeezing it. */
+  :root:has(.drawer.drawer-dock:not(.drawer-out)) .world-panel { display: none; }
 }

@@ -24,14 +24,44 @@ export function agentStatus(tasks: StationTask[], agent: string, running = 0): A
 export const STATUS_COLOR: Record<Exclude<AgentStatus, "idle" | "working">, string> = { waiting: "#fbbf24", failed: "#ef4444" };
 export const STATUS_LABEL: Record<AgentStatus, string> = { idle: "Idle", working: "Working…", waiting: "Needs your approval", failed: "Last task failed" };
 
-/** Emissive colour + strength at time t (s). Always finite and in [0, 2.5]: Bloom blacks out the screen on NaN/negative. */
+/** Emissive colour + strength at time t (s). Always finite and in [0, 2]: Bloom blacks out the screen on NaN/negative/huge. */
 export function statusGlow(status: AgentStatus, agentColor: string, t: number, reduced = false): { color: string; intensity: number } {
   const s = Number.isFinite(t) && !reduced ? t : 0;
-  let color = agentColor, intensity = 0.12; // idle: dim
+  let color = agentColor, intensity = 0.2; // idle: dim
   if (status === "working") intensity = 0.9 + 0.6 * Math.sin(s * 3); // pulse 0.3–1.5
   else if (status === "waiting") { color = STATUS_COLOR.waiting; intensity = reduced || Math.floor(s * 2) % 2 === 0 ? 1.6 : 0.2; } // 1 Hz blink
   else if (status === "failed") { color = STATUS_COLOR.failed; intensity = 1.1; }
-  return { color, intensity: clamp(intensity, 0, 2.5) };
+  return { color, intensity: clamp(intensity, 0, 2) };
+}
+
+export const ORBIT_R = [3, 4.1] as const;
+
+/** Where module i of n is at time t: two counter-rotating rings around the hub. Writes into `out` (no per-frame allocation). */
+export function orbitPos<V extends { x: number; y: number; z: number }>(i: number, n: number, t: number, out: V): V {
+  const s = Number.isFinite(t) ? t : 0, outer = i % 2;
+  const a = (i / Math.max(1, n)) * Math.PI * 2 + s * (outer ? -0.12 : 0.18);
+  out.x = Math.cos(a) * ORBIT_R[outer];
+  out.y = Math.sin(s * 0.8 + i) * 0.18 + (outer ? 0.35 : -0.2);
+  out.z = Math.sin(a) * ORBIT_R[outer];
+  return out;
+}
+
+/** Non-emissive look per status: drone scale, halo opacity, data-beam opacity/speed, approval beacon. All finite and clamped. */
+export type StatusVisual = { scale: number; halo: number; beam: number; beamSpeed: number; beacon: number };
+export function statusVisual(status: AgentStatus, t: number, reduced = false): StatusVisual {
+  const s = Number.isFinite(t) && !reduced ? t : 0;
+  let scale = 1, halo = 0.3, beam = 0, beamSpeed = 0, beacon = 0;
+  if (status === "working") { const w = 0.5 + 0.5 * Math.sin(s * 3); scale = 1 + 0.12 * w; halo = 0.35 + 0.35 * w; beam = 0.8; beamSpeed = reduced ? 0 : 0.6; }
+  else if (status === "waiting") beacon = reduced || Math.floor(s * 2) % 2 === 0 ? 1 : 0.15; // same 1 Hz blink as statusGlow
+  else if (status === "idle") { scale = 0.92; halo = 0.12; }
+  return { scale: clamp(scale, 0.5, 1.5), halo: clamp(halo, 0, 0.8), beam: clamp(beam, 0, 1), beamSpeed: clamp(beamSpeed, 0, 2), beacon: clamp(beacon, 0, 1) };
+}
+
+/** Position in [0, 1) of particle k of `count` along the hub→agent beam at time t. */
+export function streamFrac(k: number, count: number, t: number, speed: number): number {
+  const v = k / Math.max(1, count) + (Number.isFinite(t) ? t : 0) * (Number.isFinite(speed) ? speed : 0);
+  const f = v - Math.floor(v);
+  return Number.isFinite(f) ? f : 0;
 }
 
 export const clamp = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);

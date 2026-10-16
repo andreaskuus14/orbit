@@ -63,7 +63,7 @@ export function MorningCard({ home }: { home: boolean }) {
   const best = s?.yesterday.filter((y) => y.views !== null).sort((x, y) => y.views! - x.views!)[0];
 
   return (
-    <section className="glass hud-panel absolute right-3 top-16 z-20 w-[min(22rem,calc(100vw-1.5rem))] p-4 text-sm" aria-label="Morning briefing">
+    <section className="glass hud-panel morning-card absolute right-3 top-16 z-20 w-[min(22rem,calc(100vw-1.5rem))] p-4 text-sm" aria-label="Morning briefing">
       <div className="mb-2 flex items-center justify-between">
         <h2 className="hud-title">{data ? data.greeting.toUpperCase() : "GOOD MORNING"}</h2>
         <button className="chip" onClick={() => setOpen(false)} aria-label="Dismiss morning briefing">Close</button>

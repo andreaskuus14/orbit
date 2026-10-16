@@ -8,96 +8,241 @@ import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import { ZoomRig } from "./ZoomRig";
 import { AgentsPanel, type Task } from "./AgentsPanels";
+import AgentMission, { STATUS_DOT, api, usePoll } from "./AgentMission";
+import TeamBuilder from "./TeamBuilder";
+import { CHAIN_TITLE, type ChainView } from "@/lib/chains-pure";
+import { beamPairs, chainActive } from "@/lib/mission-pure";
 import { QUALITY, type QualityMode } from "@/lib/quality-pure";
-import { STATUS_LABEL, activityFeed, agentStatus, clamp, currentTask, statusGlow, type AgentStatus } from "@/lib/station-pure";
+import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clamp, currentTask, orbitPos, statusGlow, statusVisual, streamFrac, type AgentStatus } from "@/lib/station-pure";
 
 // AGENTS → a space station: each agent is a drone module orbiting the hub, glowing by status.
 // Data: /api/agents (roster + running counts incl. sub-tasks), /api/tasks (top-level tasks), /api/tasks/:id (live trace).
 // Built-in materials only and every emissive/opacity value goes through clamp(), so Bloom never sees NaN/negative output.
 
 type Agent = { slug: string; name: string; role: string; color: string; builtin: boolean; stats: { running: number } };
-type Detail = { task: Task; children: Task[] };
 
 const HOME = 11;
-const STATUS_DOT: Record<AgentStatus, string> = { idle: "var(--muted)", working: "var(--cyan)", waiting: "#fbbf24", failed: "#fb7185" };
-
-async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
-  return json as T;
-}
 const ago = (iso: number) => { const s = Math.max(0, (Date.now() - iso) / 1000); return s < 60 ? "now" : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`; };
-
-/** Where module i of n is at time t: two counter-rotating rings around the hub. */
-function modulePos(i: number, n: number, t: number, out: THREE.Vector3) {
-  const outer = i % 2, r = 3 + outer * 1.1;
-  const a = (i / Math.max(1, n)) * Math.PI * 2 + t * (outer ? -0.12 : 0.18);
-  return out.set(Math.cos(a) * r, Math.sin(t * 0.8 + i) * 0.18 + (outer ? 0.35 : -0.2), Math.sin(a) * r);
-}
-
-/** Visible-tab polling: runs fn now and every ms while enabled. */
-function usePoll(fn: () => void, ms: number, enabled: boolean) {
-  useEffect(() => {
-    if (!enabled) return;
-    fn();
-    const h = setInterval(fn, ms);
-    return () => clearInterval(h);
-  }, [fn, ms, enabled]);
-}
 
 /* ---------- scene ---------- */
 
-function Hub({ reduced }: { reduced: boolean }) {
-  const rings = useRef<THREE.Group>(null);
-  useFrame((_, dt) => { if (rings.current && !reduced) rings.current.rotation.y += dt * 0.15; });
+const CDN = "https://d8j0ntlcm91z4.cloudfront.net/user_3K4zaF8Ip5JyEmwNLHr5iAw89pD/hf_";
+const HULL = ["/textures/station-hull.webp", `${CDN}20261016_163030_8d81849e-003d-43e6-a8ad-9cc2449bbf46.png`] as const;
+const SKY = ["/textures/station-sky.webp", `${CDN}20261016_163030_6e995a4e-305a-4521-b084-41c641fe9555.png`] as const;
+const CORE = ["/textures/agent-core.webp", `${CDN}20261016_163031_a88c09d7-3df1-44d1-b5eb-8281fbb14a3a.png`] as const;
+
+/** Local copy first (`npm run textures`), then the CDN; null keeps the plain look. repeatX > 0 mirrors the map around a sphere/torus (no seam). */
+function useTex([local, cdn]: readonly [string, string], repeatX = 0) {
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    let dead = false, made: THREE.Texture | null = null;
+    const load = (url: string) => new THREE.TextureLoader().loadAsync(url);
+    load(local).catch(() => load(cdn)).then((t) => {
+      t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+      if (repeatX) { t.wrapS = THREE.MirroredRepeatWrapping; t.repeat.x = repeatX; }
+      made = t;
+      if (dead) t.dispose(); else setTex(t);
+    }).catch(() => { /* offline */ });
+    return () => { dead = true; made?.dispose(); };
+  }, [local, cdn, repeatX]);
+  return tex;
+}
+
+/** Soft round glow (halo sprites, dust, beam particles): one small canvas texture for the whole station. */
+function useGlowTexture() {
+  const tex = useMemo(() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d")!, grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,255,255,1)"); grad.addColorStop(0.25, "rgba(255,255,255,0.55)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }, []);
+  useEffect(() => () => tex.dispose(), [tex]);
+  return tex;
+}
+
+/** The violet nebula on a huge inverted sphere, dimmed so the panels stay readable. */
+function Sky() {
+  const tex = useTex(SKY, 2);
+  if (!tex) return null;
+  return <mesh><sphereGeometry args={[200, 48, 32]} /><meshBasicMaterial map={tex} color="#77729a" side={THREE.BackSide} depthWrite={false} /></mesh>;
+}
+
+/** Slow drifting dust around the station. */
+function Dust({ count, glow, reduced }: { count: number; glow: THREE.Texture; reduced: boolean }) {
+  const ref = useRef<THREE.Points>(null);
+  const geo = useMemo(() => {
+    const a = new Float32Array(count * 3);
+    for (let k = 0; k < count; k++) {
+      const r = 2 + Math.random() * 12, th = Math.random() * Math.PI * 2;
+      a[k * 3] = Math.cos(th) * r; a[k * 3 + 1] = (Math.random() - 0.5) * 6; a[k * 3 + 2] = Math.sin(th) * r;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(a, 3));
+    return g;
+  }, [count]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  useFrame((_, dt) => { if (ref.current && !reduced) ref.current.rotation.y += dt * 0.012; });
+  return <points ref={ref} geometry={geo}><pointsMaterial map={glow} size={0.06} color="#c4b5fd" transparent opacity={0.45} blending={THREE.AdditiveBlending} depthWrite={false} /></points>;
+}
+
+function Hub({ reduced, lite, hull }: { reduced: boolean; lite: boolean; hull: THREE.Texture | null }) {
+  const ring = useRef<THREE.Group>(null);
+  const ringTex = useMemo(() => { if (!hull) return null; const c = hull.clone(); c.repeat.set(8, 1); c.needsUpdate = true; return c; }, [hull]);
+  useEffect(() => () => ringTex?.dispose(), [ringTex]);
+  useFrame((_, dt) => { if (ring.current && !reduced) ring.current.rotation.y += dt * 0.12; });
   return (
     <group>
-      <mesh><sphereGeometry args={[0.55, 40, 40]} /><meshBasicMaterial color={[1.6, 1.2, 2]} toneMapped={false} /></mesh>
-      <mesh><sphereGeometry args={[0.8, 32, 32]} /><meshStandardMaterial color="#334155" metalness={0.8} roughness={0.35} transparent opacity={0.45} /></mesh>
-      <group ref={rings}>
-        <mesh rotation-x={Math.PI / 2}><torusGeometry args={[1.4, 0.06, 12, 96]} /><meshStandardMaterial color="#94a3b8" metalness={0.7} roughness={0.4} /></mesh>
+      {/* core module: hull panels, its cyan/violet light strips glow through the emissive map */}
+      <mesh>
+        <sphereGeometry args={[0.8, 64, 48]} />
+        <meshStandardMaterial key={hull ? "map" : "plain"} map={hull} emissiveMap={hull} color={hull ? "#ffffff" : "#334155"} emissive={hull ? "#b8a4ff" : "#1e1b4b"} emissiveIntensity={hull ? 0.55 : 0.4} metalness={0.55} roughness={0.4} />
+      </mesh>
+      {!lite && <mesh rotation-x={Math.PI / 2}><torusGeometry args={[0.805, 0.012, 8, 96]} /><meshBasicMaterial color={[0.45, 1.5, 1.7]} toneMapped={false} /></mesh>}
+      {[1, -1].map((s) => (
+        <group key={s} position-y={s * 0.95}>
+          <mesh><cylinderGeometry args={[0.05, 0.12, 0.35, 12]} /><meshStandardMaterial color="#64748b" metalness={0.8} roughness={0.3} /></mesh>
+          <mesh position-y={s * 0.22}><sphereGeometry args={[0.045, 12, 12]} /><meshBasicMaterial color={[1.4, 1.0, 1.9]} toneMapped={false} /></mesh>
+        </group>
+      ))}
+      {/* habitat ring: hull-textured torus with light strips, joined to the core by four spokes */}
+      <group rotation-z={0.12}><group ref={ring}>
+        <mesh rotation-x={Math.PI / 2}>
+          <torusGeometry args={[1.6, 0.11, 20, 128]} />
+          <meshStandardMaterial key={ringTex ? "map" : "plain"} map={ringTex} emissiveMap={ringTex} color={ringTex ? "#ffffff" : "#94a3b8"} emissive={ringTex ? "#7dd3fc" : "#000000"} emissiveIntensity={ringTex ? 0.45 : 0} metalness={0.7} roughness={0.35} />
+        </mesh>
+        {!lite && <mesh rotation-x={Math.PI / 2}><torusGeometry args={[1.47, 0.008, 6, 160]} /><meshBasicMaterial color={[0.4, 1.3, 1.6]} toneMapped={false} /></mesh>}
+        {!lite && <mesh rotation-x={Math.PI / 2}><torusGeometry args={[1.73, 0.008, 6, 160]} /><meshBasicMaterial color={[1.1, 0.75, 1.8]} toneMapped={false} /></mesh>}
         {[0, 1, 2, 3].map((k) => (
           <group key={k} rotation-y={(k * Math.PI) / 2}>
-            <mesh position={[0.95, 0, 0]} rotation-z={Math.PI / 2}><cylinderGeometry args={[0.03, 0.03, 0.9, 8]} /><meshStandardMaterial color="#64748b" metalness={0.6} /></mesh>
+            <mesh position={[1.17, 0, 0]} rotation-z={Math.PI / 2}><cylinderGeometry args={[0.035, 0.035, 0.8, 8]} /><meshStandardMaterial color="#64748b" metalness={0.7} roughness={0.35} /></mesh>
           </group>
         ))}
-      </group>
-      {[3, 4.1].map((r) => (
-        <mesh key={r} rotation-x={-Math.PI / 2}><ringGeometry args={[r - 0.006, r + 0.006, 128]} /><meshBasicMaterial color="#a78bfa" transparent opacity={0.1} side={THREE.DoubleSide} depthWrite={false} /></mesh>
+      </group></group>
+      {/* orbit lanes: a faint wide band with a brighter centre line */}
+      {ORBIT_R.map((r) => (
+        <group key={r} rotation-x={-Math.PI / 2}>
+          <mesh><ringGeometry args={[r - 0.07, r + 0.07, 160]} /><meshBasicMaterial color="#8b5cf6" transparent opacity={0.07} side={THREE.DoubleSide} blending={THREE.AdditiveBlending} depthWrite={false} /></mesh>
+          <mesh><ringGeometry args={[r - 0.008, r + 0.008, 160]} /><meshBasicMaterial color="#c4b5fd" transparent opacity={0.22} side={THREE.DoubleSide} blending={THREE.AdditiveBlending} depthWrite={false} /></mesh>
+        </group>
       ))}
+      <directionalLight position={[5, 6, 4]} intensity={1.6} color="#ddd6fe" />
+      <directionalLight position={[-6, -2, -5]} intensity={0.8} color="#67e8f9" />
       <pointLight intensity={2} decay={0} color="#ddd6fe" />
     </group>
   );
 }
 
-function Module({ agent, i, n, status, selected, reduced, onPick, onHover }: {
-  agent: Agent; i: number; n: number; status: AgentStatus; selected: boolean; reduced: boolean;
+type Pos = () => THREE.Object3D | null | undefined;
+/** Data stream: hub → agent (working) or, with `source`, agent → agent (team hand-off). A faint line plus a few particles riding it. */
+function Beam({ target, source, color, glow, count, reduced, strength = 1 }: { target: Pos; source?: Pos; color: string; glow: THREE.Texture; count: number; reduced: boolean; strength?: number }) {
+  const line = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
+    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: clamp(0.22 * strength, 0, 0.6), blending: THREE.AdditiveBlending, depthWrite: false }));
+    l.frustumCulled = false;
+    return l;
+  }, [color, strength]);
+  const pts = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3)); return g; }, [count]);
+  useEffect(() => () => { line.geometry.dispose(); (line.material as THREE.Material).dispose(); }, [line]);
+  useEffect(() => () => pts.dispose(), [pts]);
+  useFrame(({ clock }) => {
+    const p = target()?.position;
+    if (!p) return;
+    const q = source ? source()?.position : null;
+    if (source && !q) return;
+    const sx = q ? q.x : p.x * 0.3, sy = q ? q.y : p.y * 0.3, sz = q ? q.z : p.z * 0.3; // hub beams start just outside the core
+    const la = line.geometry.attributes.position as THREE.BufferAttribute, a = la.array as Float32Array;
+    a[0] = sx; a[1] = sy; a[2] = sz; a[3] = p.x; a[4] = p.y; a[5] = p.z;
+    la.needsUpdate = true;
+    const v = statusVisual("working", clock.elapsedTime, reduced);
+    const pa = pts.attributes.position as THREE.BufferAttribute, b = pa.array as Float32Array;
+    for (let k = 0; k < count; k++) {
+      const f = (0.65 / 0.7) * streamFrac(k, count, clock.elapsedTime, v.beamSpeed);
+      b[k * 3] = sx + (p.x - sx) * f; b[k * 3 + 1] = sy + (p.y - sy) * f; b[k * 3 + 2] = sz + (p.z - sz) * f;
+    }
+    pa.needsUpdate = true;
+  });
+  return (
+    <>
+      <primitive object={line} />
+      <points geometry={pts} frustumCulled={false}><pointsMaterial map={glow} size={0.14 * clamp(strength, 0.5, 1.6)} color={color} transparent opacity={clamp(0.85 * strength, 0, 1)} blending={THREE.AdditiveBlending} depthWrite={false} /></points>
+    </>
+  );
+}
+
+function Module({ agent, i, n, status, selected, reduced, lite, core, glow, groups, onPick, onHover }: {
+  agent: Agent; i: number; n: number; status: AgentStatus; selected: boolean; reduced: boolean; lite: boolean;
+  core: THREE.Texture | null; glow: THREE.Texture; groups: Map<string, THREE.Group>;
   onPick: (slug: string) => void; onHover: (slug: string | null, x: number, y: number) => void;
 }) {
   const ref = useRef<THREE.Group>(null);
+  const slug = agent.slug;
+  const setRef = useCallback((g: THREE.Group | null) => { ref.current = g; if (g) groups.set(slug, g); else groups.delete(slug); }, [groups, slug]);
+  const toMe = useCallback(() => ref.current, []);
+  const gem = useRef<THREE.Mesh>(null);
+  const arm = useRef<THREE.Group>(null);
   const body = useRef<THREE.MeshStandardMaterial>(null);
-  const halo = useRef<THREE.MeshBasicMaterial>(null);
+  const halo = useRef<THREE.SpriteMaterial>(null);
+  const beacon = useRef<THREE.MeshBasicMaterial>(null);
+  const shown = useRef<{ c: string; m: unknown }>({ c: "", m: null }); // Color.set() parses strings: only call it on change (or a new material)
   useFrame(({ clock }) => {
     const t = reduced ? 0 : clock.elapsedTime;
-    if (ref.current) { modulePos(i, n, t, ref.current.position); ref.current.rotation.y = t * 0.6; }
+    if (ref.current) { orbitPos(i, n, t, ref.current.position); arm.current?.lookAt(ref.current.position); }
+    if (gem.current) gem.current.rotation.y = t * 0.6;
     const g = statusGlow(status, agent.color, clock.elapsedTime, reduced);
-    if (body.current) { body.current.emissive.set(g.color); body.current.emissiveIntensity = clamp(g.intensity, 0, 2.5); }
-    if (halo.current) { halo.current.color.set(g.color); halo.current.opacity = clamp(g.intensity * 0.18, 0, 0.45); }
+    const v = statusVisual(status, clock.elapsedTime, reduced);
+    if (g.color !== shown.current.c || body.current !== shown.current.m) { shown.current = { c: g.color, m: body.current }; body.current?.emissive.set(g.color); halo.current?.color.set(g.color); }
+    if (body.current) body.current.emissiveIntensity = clamp(g.intensity, 0, 2);
+    if (gem.current) gem.current.scale.setScalar(v.scale);
+    if (halo.current) halo.current.opacity = v.halo;
+    if (beacon.current) beacon.current.opacity = v.beacon;
   });
   return (
-    <group ref={ref}>
-      <mesh
-        onClick={(e) => { e.stopPropagation(); if (e.delta <= 5) onPick(agent.slug); }}
-        onPointerMove={(e) => { e.stopPropagation(); onHover(agent.slug, e.nativeEvent.clientX, e.nativeEvent.clientY); }}
-        onPointerOut={(e) => onHover(null, e.nativeEvent.clientX, e.nativeEvent.clientY)}>
-        <octahedronGeometry args={[0.26, 0]} />
-        <meshStandardMaterial ref={body} color={agent.color} emissive={agent.color} emissiveIntensity={0.12} flatShading metalness={0.3} roughness={0.5} />
-      </mesh>
-      <mesh rotation-x={Math.PI / 2}><torusGeometry args={[0.38, 0.015, 6, 32]} /><meshStandardMaterial color="#cbd5e1" metalness={0.8} roughness={0.3} /></mesh>
-      <mesh><sphereGeometry args={[0.5, 16, 16]} /><meshBasicMaterial ref={halo} transparent opacity={0} depthWrite={false} /></mesh>
-      {selected && <mesh rotation-x={Math.PI / 2}><torusGeometry args={[0.62, 0.012, 8, 64]} /><meshBasicMaterial color="#e9d5ff" /></mesh>}
-    </group>
+    <>
+      {/* docking arm from the core toward this drone */}
+      <group ref={arm}>
+        <mesh position-z={1.2} rotation-x={Math.PI / 2}><cylinderGeometry args={[0.022, 0.03, 0.75, 8]} /><meshStandardMaterial color="#64748b" metalness={0.8} roughness={0.35} /></mesh>
+        <mesh position-z={1.58}><sphereGeometry args={[0.04, 10, 10]} /><meshBasicMaterial color={agent.color} toneMapped={false} /></mesh>
+      </group>
+      {status === "working" && <Beam target={toMe} color={agent.color} glow={glow} count={lite ? 4 : 8} reduced={reduced} />}
+      <group ref={setRef}>
+        <mesh ref={gem}
+          onClick={(e) => { e.stopPropagation(); if (e.delta <= 5) onPick(agent.slug); }}
+          onPointerMove={(e) => { e.stopPropagation(); onHover(agent.slug, e.nativeEvent.clientX, e.nativeEvent.clientY); }}
+          onPointerOut={(e) => onHover(null, e.nativeEvent.clientX, e.nativeEvent.clientY)}>
+          <octahedronGeometry args={[0.26, 0]} />
+          <meshStandardMaterial key={core ? "map" : "plain"} ref={body} map={core} emissiveMap={core} color={agent.color} emissive={agent.color} emissiveIntensity={0.2} flatShading metalness={0.45} roughness={0.25} />
+        </mesh>
+        <mesh rotation-x={Math.PI / 2}><torusGeometry args={[0.38, 0.012, 6, 48]} /><meshStandardMaterial color="#cbd5e1" metalness={0.85} roughness={0.25} /></mesh>
+        <sprite scale={1.4}><spriteMaterial ref={halo} map={glow} transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} /></sprite>
+        {status === "waiting" && <mesh position-y={0.5}><sphereGeometry args={[0.06, 12, 12]} /><meshBasicMaterial ref={beacon} color="#fbbf24" transparent toneMapped={false} /></mesh>}
+        {selected && <mesh rotation-x={Math.PI / 2}><torusGeometry args={[0.62, 0.012, 8, 64]} /><meshBasicMaterial color="#e9d5ff" /></mesh>}
+      </group>
+    </>
+  );
+}
+
+/** One place for the shared textures, so every drone reuses one upload. */
+function Station({ list, status, selected, reduced, lite, dust, handoffs, onPick, onHover }: {
+  list: Agent[]; status: Record<string, AgentStatus>; selected: string | null; reduced: boolean; lite: boolean; dust: number; handoffs: [string, string][];
+  onPick: (slug: string) => void; onHover: (slug: string | null, x: number, y: number) => void;
+}) {
+  const hull = useTex(HULL, 2), core = useTex(CORE), glow = useGlowTexture();
+  const groups = useMemo(() => new Map<string, THREE.Group>(), []);
+  const color = (slug: string) => list.find((a) => a.slug === slug)?.color ?? "#c4b5fd";
+  return (
+    <>
+      <Sky />
+      <Dust count={dust} glow={glow} reduced={reduced} />
+      <Hub reduced={reduced} lite={lite} hull={hull} />
+      {list.map((a, i) => <Module key={a.slug} agent={a} i={i} n={list.length} status={status[a.slug]} selected={a.slug === selected} reduced={reduced} lite={lite} core={core} glow={glow} groups={groups} onPick={onPick} onHover={onHover} />)}
+      {/* team hand-off: previous step's drone → current step's drone */}
+      {handoffs.map(([from, to]) => <Beam key={`${from}>${to}`} source={() => groups.get(from)} target={() => groups.get(to)} color={color(to)} glow={glow} count={lite ? 5 : 10} reduced={reduced} strength={1.4} />)}
+    </>
   );
 }
 
@@ -115,7 +260,7 @@ function Follow({ index, n, reduced }: { index: number; n: number; reduced: bool
   }, [index, controls]);
   useFrame(({ clock }, dt) => {
     if (!controls) return;
-    const p = index >= 0 ? modulePos(index, n, reduced ? 0 : clock.elapsedTime, tmp.p) : tmp.p.set(0, 0, 0);
+    const p = index >= 0 ? orbitPos(index, n, reduced ? 0 : clock.elapsedTime, tmp.p) : tmp.p.set(0, 0, 0);
     const before = tmp.d.copy(controls.target);
     controls.target.lerp(p, reduced ? 1 : 1 - Math.exp(-6 * dt));
     camera.position.add(before.sub(controls.target).negate()); // move with the target
@@ -153,6 +298,9 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
+  const [tab, setTab] = useState<"agents" | "teams">("agents");
+  const [chains, setChains] = useState<ChainView[] | null>(null);
+  const [chainErr, setChainErr] = useState("");
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const last = useRef<string | null>(null); // agent whose detail was open: its row gets focus back
   useEffect(() => {
@@ -172,6 +320,10 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const loadTasks = useCallback(() => { api<{ tasks: Task[] }>("/api/tasks").then((r) => { setTasks(r.tasks); setErr(""); }).catch((e) => setErr(e.message)); }, []);
   usePoll(loadAgents, 10_000, visible);
   usePoll(loadTasks, 3_000, visible);
+  // Chains only advance when GET /api/chains runs: 4 s while one is live (or the Teams tab is open), else a slow check for new ones.
+  const loadChains = useCallback(() => { api<{ chains: ChainView[] }>("/api/chains").then((r) => { setChains(r.chains); setChainErr(""); }).catch((e) => setChainErr(e.message)); }, []);
+  usePoll(loadChains, chainActive(chains ?? []) || tab === "teams" ? 4_000 : 30_000, visible);
+  const handoffs = useMemo(() => beamPairs(chains ?? []), [chains]);
 
   const onHover = useCallback((id: string | null, x: number, y: number) => {
     setHover((h) => (h.id === id && Math.abs(h.x - x) < 2 && Math.abs(h.y - y) < 2 ? h : { id, x, y }));
@@ -180,7 +332,8 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   useEffect(() => () => { document.body.style.cursor = ""; }, []);
 
   const list = useMemo(() => agents ?? [], [agents]);
-  const status = useMemo(() => Object.fromEntries(list.map((a) => [a.slug, agentStatus(tasks, a.slug, a.stats.running)])) as Record<string, AgentStatus>, [list, tasks]);
+  // A team's parent row (agent nova, "running" for the whole chain) is bookkeeping, not Nova's own work.
+  const status = useMemo(() => { const own = tasks.filter((t) => !t.title.startsWith(CHAIN_TITLE)); return Object.fromEntries(list.map((a) => [a.slug, agentStatus(own, a.slug, a.stats.running)])) as Record<string, AgentStatus>; }, [list, tasks]);
   const names = useMemo(() => Object.fromEntries(list.map((a) => [a.slug, a.name])), [list]);
   const feed = useMemo(() => activityFeed(tasks, 10), [tasks]);
   const agent = list.find((a) => a.slug === selected) ?? null;
@@ -194,9 +347,8 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => setSelected(null)}>
         <color attach="background" args={["#03020c"]} />
         <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />
-        <ambientLight intensity={0.4} />
-        <Hub reduced={reduced} />
-        {list.map((a, i) => <Module key={a.slug} agent={a} i={i} n={list.length} status={status[a.slug]} selected={a.slug === selected} reduced={reduced} onPick={setSelected} onHover={onHover} />)}
+        <ambientLight intensity={0.35} />
+        <Station list={list} status={status} selected={selected} reduced={reduced} lite={q.bloom === 0} dust={q.bloom === 0 ? 120 : q.bloom < 0.9 ? 350 : 700} handoffs={handoffs} onPick={setSelected} onHover={onHover} />
         <OrbitControls makeDefault enablePan={false} minDistance={2} maxDistance={HOME * 2.5} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Follow index={list.findIndex((a) => a.slug === selected)} n={list.length} reduced={reduced} />
         <Rig />
@@ -218,18 +370,30 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         </div>
       )}
 
-      <section className="glass hud-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
+      <section className="glass hud-panel world-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
         aria-label="Agents station">
         {!agents ? (
           err ? <><p className="error">{err}</p><button className="chip mt-2" onClick={loadAgents}>Retry</button></> : <p className="muted">Docking…</p>
         ) : agent ? (
-          <AgentDetail key={agent.slug} agent={agent} status={status[agent.slug]} tasks={tasks} visible={visible} onBack={() => setSelected(null)} onChanged={loadTasks} onOpenTask={onOpenTask} />
+          <AgentMission key={agent.slug} agent={agent} status={status[agent.slug]} visible={visible} onClose={() => setSelected(null)} onChanged={loadTasks} onOpenTask={onOpenTask} />
         ) : manage ? (
           <><button className="chip mb-3" onClick={() => { setManage(false); loadAgents(); }}>← Station</button><AgentsPanel onOpenTask={(id) => onOpenTask?.(id)} /></>
         ) : (
           <>
             <div className="hud-title">AGENTS STATION</div>
-            <p className="muted text-xs">{list.length} agents · {list.filter((a) => status[a.slug] === "working").length} working · {list.filter((a) => status[a.slug] === "waiting").length} need approval</p>
+            <p className="muted text-xs">{list.length} agents · {list.filter((a) => status[a.slug] === "working").length} working · {list.filter((a) => status[a.slug] === "waiting").length} need approval{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</p>
+            <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Station views">
+              {(["agents", "teams"] as const).map((t) => (
+                <button key={t} id={`st-tab-${t}`} role="tab" aria-selected={tab === t} aria-controls={`st-panel-${t}`} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
+                  {t === "agents" ? "🛰 Agents" : "👥 Teams"}
+                </button>
+              ))}
+            </div>
+            {tab === "teams" ? (
+              <div id="st-panel-teams" role="tabpanel" aria-labelledby="st-tab-teams" className="mt-3">
+                <TeamBuilder agents={list} chains={chains} error={chainErr} onChanged={loadChains} onOpenTask={onOpenTask} />
+              </div>
+            ) : <div id="st-panel-agents" role="tabpanel" aria-labelledby="st-tab-agents">
             <ul className="mt-3 space-y-1">
               {list.map((a) => (
                 <li key={a.slug}>
@@ -241,12 +405,13 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
               ))}
             </ul>
             <button className="chip mt-3" onClick={() => setManage(true)}>Manage agents & proposals</button>
+            </div>}
           </>
         )}
         {err && agents && <p className="error mt-2" role="alert">{err}</p>}
       </section>
 
-      <div role="log" aria-label="Agent activity" aria-relevant="additions" className="glass absolute z-[14] inset-x-3 bottom-[6.25rem] flex gap-4 overflow-x-auto whitespace-nowrap rounded-full px-4 py-1.5 text-xs min-[900px]:right-[32rem]">
+      <div role="log" aria-label="Agent activity" aria-relevant="additions" className="glass agents-log absolute z-[14] inset-x-3 bottom-[6.25rem] flex gap-4 overflow-x-auto whitespace-nowrap rounded-full px-4 py-1.5 text-xs min-[900px]:right-[32rem]">
         <span className="hud-title shrink-0 text-[0.7rem]">ACTIVITY</span>
         {feed.map((e) => (
           <span key={e.key} className="shrink-0">
@@ -256,103 +421,8 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         {!feed.length && <span className="muted">No agent activity yet. Give an agent a job.</span>}
       </div>
 
-      <button className="chip absolute z-[15] left-3 top-[4.5rem] min-[900px]:left-auto min-[900px]:top-auto min-[900px]:bottom-[8.5rem] min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+      <button className="chip world-back absolute z-[15] left-3 top-[4.5rem] min-[900px]:left-auto min-[900px]:top-auto min-[900px]:bottom-[8.5rem] min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
   );
 }
 
-function AgentDetail({ agent, status, tasks, visible, onBack, onChanged, onOpenTask }: {
-  agent: Agent; status: AgentStatus; tasks: Task[]; visible: boolean; onBack: () => void; onChanged: () => void; onOpenTask?: (id: string) => void;
-}) {
-  const [job, setJob] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const [detail, setDetail] = useState<Detail | null>(null);
-  const title = useRef<HTMLHeadingElement>(null);
-  useEffect(() => { title.current?.focus(); }, []);
-  const mine = tasks.filter((t) => t.agent === agent.slug);
-  const cur = currentTask(mine, agent.slug);
-  const curId = cur?.id ?? null;
-
-  const load = useCallback(() => {
-    if (!curId) { setDetail(null); return; }
-    api<Detail>(`/api/tasks/${curId}`).then((r) => { setDetail(r); setErr(""); }).catch((e) => setErr(e.message));
-  }, [curId]);
-  usePoll(load, 3_000, visible);
-
-  async function act(action: "approve" | "reject" | "cancel", id: string) {
-    setErr(""); setBusy(true);
-    try { await api(`/api/tasks/${id}`, { method: "POST", body: JSON.stringify({ action }) }); load(); onChanged(); }
-    catch (e) { setErr(e instanceof Error ? e.message : "Failed"); }
-    finally { setBusy(false); }
-  }
-  async function give(e: React.FormEvent) {
-    e.preventDefault();
-    if (!job.trim()) return;
-    setErr(""); setBusy(true);
-    try { await api("/api/tasks", { method: "POST", body: JSON.stringify({ request: job, agent: agent.slug }) }); setJob(""); onChanged(); }
-    catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not create the task"); }
-    finally { setBusy(false); }
-  }
-
-  const d = detail && detail.task.id === curId ? detail : null;
-  // Approve the task that actually holds the pending actions: a parent waiting on a delegated sub-task has none itself.
-  const holder = d ? [d.task, ...d.children].find((t) => t.pending.some((p) => p.status === "pending")) : undefined;
-  const steps = d ? [...d.task.trace.map((s) => ({ ...s, who: d.task.agent })), ...d.children.flatMap((c) => c.trace.map((s) => ({ ...s, who: c.agent })))] : [];
-
-  return (
-    <div className="space-y-3">
-      <button className="chip" onClick={onBack}>← All agents</button>
-      <div>
-        <h2 ref={title} tabIndex={-1} className="text-lg font-semibold outline-none" style={{ color: agent.color }}>{agent.name}</h2>
-        <p className="muted text-xs">{agent.role}</p>
-        <p className="text-xs" style={{ color: STATUS_DOT[status] }}>● {STATUS_LABEL[status]}</p>
-      </div>
-
-      <form onSubmit={give} className="flex gap-2">
-        <input className="field min-w-0 flex-1" value={job} onChange={(e) => setJob(e.target.value)} placeholder={`Give ${agent.name} a job`} aria-label={`Job for ${agent.name}`} maxLength={8000} />
-        <button className="btn" disabled={busy || !job.trim()}>Start</button>
-      </form>
-
-      {cur ? (
-        <section className="card space-y-2" aria-label="Current task">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-medium">{cur.title}</p>
-            <span className="shrink-0 text-xs muted">{cur.status.replace("_", " ")}</span>
-          </div>
-          {holder && (
-            <div className="space-y-1 text-xs" style={{ color: "#fbbf24" }}>
-              {holder.pending.filter((p) => p.status === "pending").map((p, i) => <p key={i}><b>{p.tool.replace(/_/g, " ")}</b>: {String(p.input.title ?? p.input.name ?? "")}</p>)}
-              <div className="flex gap-2">
-                <button className="btn" disabled={busy} onClick={() => void act("approve", holder.id)}>Approve</button>
-                <button className="btn danger" disabled={busy} onClick={() => void act("reject", holder.id)}>Reject</button>
-              </div>
-            </div>
-          )}
-          {(cur.status === "queued" || cur.status === "running") && <button className="chip" disabled={busy} onClick={() => void act("cancel", cur.id)}>Cancel task</button>}
-          {!holder && d && cur.status === "awaiting_approval" && onOpenTask && (
-            <button className="link text-xs" style={{ color: "#fbbf24" }} onClick={() => onOpenTask(cur.id)}>Waiting on a nested sub-task: open full task to approve →</button>
-          )}
-          {cur.error && <p className="error text-xs">{cur.error}</p>}
-          <ol className="max-h-56 space-y-0.5 overflow-y-auto text-xs" aria-label="Trace">
-            {steps.map((s, n) => <li key={n}>{s.ok ? "✓" : "✗"} <b>{s.who !== agent.slug ? `${s.who} · ` : ""}{s.step}</b> <span className="muted">{s.detail}</span></li>)}
-            {!steps.length && <li className="muted">{d ? "No steps yet." : "Loading trace…"}</li>}
-          </ol>
-          {onOpenTask && <button className="link text-xs" onClick={() => onOpenTask(cur.id)}>Open full task →</button>}
-        </section>
-      ) : <p className="muted text-sm">No tasks yet.</p>}
-
-      {mine.length > 1 && (
-        <section aria-label="Recent tasks">
-          <div className="hud-title">RECENT</div>
-          <ul className="mt-1 space-y-1 text-xs">
-            {mine.filter((t) => t.id !== curId).slice(0, 6).map((t) => (
-              <li key={t.id}><button className="text-left" onClick={() => onOpenTask?.(t.id)}>{t.title} <span className="muted">· {t.status.replace("_", " ")}</span></button></li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {err && <p className="error" role="alert">{err}</p>}
-    </div>
-  );
-}

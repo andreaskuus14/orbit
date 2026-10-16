@@ -9,6 +9,10 @@ import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import { ZoomRig } from "./ZoomRig";
 import { GAME_COMPONENTS } from "./GameLab";
+import RefBoard from "./RefBoard";
+import SoundFinder from "./SoundFinder";
+import ThumbMaker from "./ThumbMaker";
+import TrendRadar from "./TrendRadar";
 import {
   ART_KEYS, PLATFORMS, PLAYABLE_IDS, SEVERITIES, STAGES, STATUSES, bugStats, isActive, qaPrompt, slugify, validateDevWorld,
   type Bug, type DevWorld as World, type Game, type Platform, type Severity, type Stage, type Status,
@@ -148,6 +152,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
   const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [tab, setTab] = useState<"games" | "refs" | "sounds" | "thumbs" | "trends">("games");
   const saved = useRef<World | null>(null); // last world the server accepted: the rollback target
   const queue = useRef(Promise.resolve());
   const seq = useRef(0);
@@ -213,7 +218,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <ambientLight intensity={0.35} />
         <ForgeStar reduced={reduced} />
         {games.map((g, i) => <OrbitPath key={`p-${g.id}`} r={orbitR(i)} />)}
-        {games.map((g, i) => <Island key={g.id} game={g} i={i} selected={g.id === selected} reduced={reduced} onPick={setSelected} onHover={onHover} />)}
+        {games.map((g, i) => <Island key={g.id} game={g} i={i} selected={g.id === selected} reduced={reduced} onPick={(id) => { setSelected(id); setTab("games"); }} onHover={onHover} />)}
         <BugSwarm games={games} bugs={bugs} reduced={reduced} />
         <OrbitControls makeDefault enablePan={false} minDistance={3} maxDistance={far * 2} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Rig />
@@ -233,9 +238,20 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         </div>
       )}
 
-      <section className="glass hud-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
+      <section className="glass hud-panel world-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
         aria-label="Game studio">
-        {!world ? (
+        <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Studio view">
+          <button className="chip" aria-pressed={tab === "games"} onClick={() => setTab("games")}>🎮 Games</button>
+          <button className="chip" aria-pressed={tab === "refs"} onClick={() => setTab("refs")} style={tab === "refs" ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>🎨 References</button>
+          {([["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"]] as const).map(([k, label]) => (
+            <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
+          ))}
+        </div>
+        <div hidden={tab !== "refs"}><RefBoard /></div>
+        {tab === "sounds" && <SoundFinder />}
+        <div hidden={tab !== "thumbs"}><ThumbMaker /></div>
+        {tab === "trends" && <TrendRadar />}
+        {tab !== "games" ? null : !world ? (
           loadErr ? <><p className="error">{loadErr}</p><button className="chip mt-2" onClick={() => void load()}>Retry</button></> : <p className="muted">Loading studio…</p>
         ) : game ? (
           <GameDetail key={game.id} game={game} world={world} commit={commit} onBack={() => setSelected(null)} onPlay={setPlaying}
@@ -264,10 +280,10 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
               : <button className="chip mt-3" onClick={() => setAdding(true)} disabled={games.length >= 30}>+ Add game</button>}
           </>
         )}
-        {err && <p className="error mt-2" role="alert">{err}</p>}
+        {err && tab === "games" && <p className="error mt-2" role="alert">{err}</p>}
       </section>
 
-      <button className="chip absolute z-[15] left-3 top-[4.5rem] min-[900px]:left-auto min-[900px]:top-auto min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+      <button className="chip world-back absolute z-[15] left-3 top-[4.5rem] min-[900px]:left-auto min-[900px]:top-auto min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
       {/* Portal: like GameLab, so no ancestor's backdrop-filter traps the full-screen game. */}
       {Game && createPortal(<Game onExit={() => setPlaying(null)} />, document.body)}
     </div>

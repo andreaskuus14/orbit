@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { BUILTIN_AGENTS, TOOLS } from "@/lib/agents";
 import { slugify, str } from "@/lib/pure";
+import { CHAIN_TITLE } from "@/lib/chains-pure";
 
 /** All agents with live status, task history counts and token usage (last 30 days). */
 export async function GET() {
@@ -9,13 +10,13 @@ export async function GET() {
   const since = new Date(Date.now() - 30 * 86400_000).toISOString();
   const [custom, tasks, usage] = await Promise.all([
     sb.from("agents").select("slug, name, role, instructions, tools, enabled, created_at").order("created_at"),
-    sb.from("tasks").select("agent, status"),
+    sb.from("tasks").select("agent, status, title"),
     sb.from("usage").select("purpose, input_tokens, output_tokens").like("purpose", "agent.%").gte("created_at", since),
   ]);
   const err = custom.error || tasks.error || usage.error;
   if (err) return Response.json({ error: err.message }, { status: 500 });
   const stats = (slug: string) => {
-    const t = (tasks.data ?? []).filter((x) => x.agent === slug);
+    const t = (tasks.data ?? []).filter((x) => x.agent === slug && !String(x.title).startsWith(CHAIN_TITLE)); // a team's parent row isn't Nova working
     const u = (usage.data ?? []).filter((x) => x.purpose === `agent.${slug}`);
     return {
       running: t.filter((x) => x.status === "running").length,

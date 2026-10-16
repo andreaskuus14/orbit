@@ -394,7 +394,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
         </div>
       )}
 
-      <section className="glass hud-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]"
+      <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]"
         aria-label="Channel">
         <div className="flex items-center justify-between gap-2">
           <div className="hud-title studio-title">STUDIO{live ? ` · ${live.channel.title.toUpperCase()}` : ""}</div>
@@ -489,7 +489,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
         </div>
       )}
 
-      <button className="chip absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+      <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
   );
 }

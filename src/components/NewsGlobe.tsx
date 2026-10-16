@@ -869,7 +869,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
         </nav>
       )}
 
-      <button className="chip absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+      <button className="chip world-back absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
   );
 }

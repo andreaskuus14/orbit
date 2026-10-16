@@ -30,6 +30,9 @@ const COVERS = {
   "devworld/pet-sim": "20261015_150352_957122e5-c83e-42e7-8ade-ff9de67346a9",
   "devworld/planet-forge": "20261015_150352_5c47883a-6fa2-4ba1-a9a9-9520ea1ad083",
   "textures/studio-sky": "20261015_155233_8e54e375-f89b-40d9-bd6e-5aa9ce4a7de4",
+  "textures/station-hull": "20261016_163030_8d81849e-003d-43e6-a8ad-9cc2449bbf46", // AGENTS station hub
+  "textures/station-sky": "20261016_163030_6e995a4e-305a-4521-b084-41c641fe9555", // AGENTS station backdrop
+  "textures/agent-core": "20261016_163031_a88c09d7-3df1-44d1-b5eb-8281fbb14a3a", // AGENTS drone crystals
 };
 
 await mkdir("public/textures", { recursive: true });

@@ -23,6 +23,7 @@ import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
 import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
 import { runFollowCommand } from "./follow-command";
 import { runWatchCommand } from "./watch-store";
+import { runAgentCommand } from "./agent-command";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
@@ -33,6 +34,8 @@ const TheaterWorld = dynamic(() => import("./TheaterWorld"), { ssr: false });
 const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
 const VaultPanel = dynamic(() => import("./VaultPanel").then((m) => m.VaultPanel), { ssr: false });
 const LifeReminders = dynamic(() => import("./LifeReminders"), { ssr: false });
+const MarketsPanel = dynamic(() => import("./MarketsPanel"), { ssr: false });
+const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
 const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater"]; // full-screen worlds with their own side panel (no drawer)
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
@@ -130,6 +133,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       setCmdErr("");
       const fr = runFollowCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // done signal: a voice conversation listens again // "follow Estonia" / "unfollow AI": speaks the real outcome
       if (fr) { stopSpeech(); return; }
+      const ar = runAgentCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // "Atlas, research CS2 trends": a real task
+      if (ar) { stopSpeech(); if (speechSettings().speak) speakChunk(ar); return; }
       if (runWatchCommand(text, shown, (msg) => { stopSpeech(); if (msg && speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) return; // "show me Jynxzi's latest videos", then "the second one"
       let nav = parseNavCommand(text, { current: shown }); // "go to local news"
       if (nav?.zoom && !scene3d) nav = null; // no 3D scene on screen: zooming would do nothing
@@ -379,6 +384,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       <ShortcutsOverlay />
       <CommandPalette />
       <LifeReminders />
+      <MarketWatcher />
 
       {drawer && !WORLDS.includes(drawer) && (
         <aside className={`glass drawer${behind && WORLDS.includes(behind) ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
@@ -394,6 +400,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
               : drawer === "agents" ? <AgentsPanel onOpenTask={openTask} />
               : drawer === "life" ? <LifePanel open={lifeOpen} />
               : drawer === "vault" ? <VaultPanel />
+              : drawer === "markets" ? <MarketsPanel />
               : <LaterPanel id={drawer as PlanetId} />}
           </div>
         </aside>

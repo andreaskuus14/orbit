@@ -1,5 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { ConflictError, cancelTask, kickQueue, resolvePending } from "@/lib/agents";
+import { cancelChain } from "@/lib/chains";
+import { CHAIN_TITLE } from "@/lib/chains-pure";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 type Ctx = { params: Promise<{ id: string }> };
@@ -30,7 +32,7 @@ export async function POST(req: Request, { params }: Ctx) {
     }
     if (action === "retry") {
       const { data, error } = await sb.from("tasks").update({ status: "queued", error: null, result: null, trace: [], pending: [], started_at: null, finished_at: null })
-        .eq("id", id).in("status", ["failed", "cancelled"]).is("parent_id", null).select("id");
+        .eq("id", id).in("status", ["failed", "cancelled"]).is("parent_id", null).not("title", "like", "Team: %").select("id"); // a team runs its own steps (src/lib/chains.ts)
       if (error) throw error;
       if (!data?.length) return Response.json({ error: "Only failed or cancelled tasks can be retried" }, { status: 400 });
       void kickQueue(sb, user.id);
@@ -38,7 +40,8 @@ export async function POST(req: Request, { params }: Ctx) {
     }
     if (action === "cancel") {
       // RLS-scoped read first: the in-process abort must never stop another user's task.
-      const { data: own } = await sb.from("tasks").select("id").eq("id", id).maybeSingle();
+      const { data: own } = await sb.from("tasks").select("id, title").eq("id", id).maybeSingle();
+      if (own && String(own.title).startsWith(CHAIN_TITLE) && (await cancelChain(sb, id))) return Response.json({ ok: true }); // a team: stop its steps too
       if (!own || !(await cancelTask(sb, id))) return Response.json({ error: "Only queued or running tasks can be cancelled" }, { status: 400 });
       return Response.json({ ok: true });
     }

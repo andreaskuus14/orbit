@@ -285,7 +285,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
         )}
       </section>
 
-      <section className="glass hud-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]"
+      <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]"
         aria-label="Theater">
         <div className="hud-title" style={{ color: GOLD }}>THEATER{w?.channel ? ` · ${w.channel.title.toUpperCase()}` : w?.topic ? ` · ${w.topic.toUpperCase()}` : ""}</div>
         <form className="mt-2 flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); const c = query.trim(); if (c) findVideos({ creator: c, shorts: false, topic: mode === "topic" }, undefined, w?.sort); }}>
@@ -341,7 +341,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
         {w && <button className="chip mt-3" onClick={closeWatch}>Clear</button>}
       </section>
 
-      <button className="chip absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+      <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
   );
 }
