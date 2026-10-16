@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadVoiceSettings, recognizerFor, voiceContext, voiceLevel, VOICE_ASK, VOICE_INTERRUPT } from "./bus";
 import { normalizeTranscript } from "./wake";
-import { correctTranscript, mergeFinals, pickBestAlternative } from "./hear";
+import { correctTranscript, endpointDelay, mergeFinals, pickBestAlternative } from "./hear";
 import { recordUtterance, transcribeAudio } from "./whisper";
 
 /** Dispatched by Orbit right before a voice question is handed to CORE; the spoken-answers code reads answers aloud only then. */
@@ -47,8 +47,6 @@ export function speechErrorMessage(code: string): string | null {
     default: return "Voice input stopped unexpectedly. Try again.";
   }
 }
-
-const SILENCE_MS = 1500;
 
 /** Mic loudness meter: writes a smoothed 0..1 level into voiceLevel.mic each frame. Returns a stop function. */
 function startMeter(): () => void {
@@ -142,10 +140,10 @@ export function useVoiceInput(): VoiceInput {
 
     const rec = new Ctor();
     rec.lang = speechLang();
-    rec.continuous = true; // we end the utterance ourselves after SILENCE_MS
+    rec.continuous = true; // we end the utterance ourselves after endpointDelay() of silence
     rec.interimResults = true;
     rec.maxAlternatives = 5; // pickBestAlternative chooses (commands and the wake word win)
-    let finalText = "", silence: ReturnType<typeof setTimeout> | undefined, heard = false, stopMeter = () => {};
+    let finalText = "", tmpText = "", silence: ReturnType<typeof setTimeout> | undefined, heard = false, stopMeter = () => {};
     session.current = { stop: () => rec.stop(), cancel: () => { cancelled = true; rec.abort(); } };
 
     rec.onresult = (e) => {
@@ -157,12 +155,15 @@ export function useVoiceInput(): VoiceInput {
         if (r.isFinal) fin.push(pickBestAlternative(alternatives(r), voiceContext)); else tmp += r[0].transcript;
       }
       finalText = mergeFinals(fin);
-      setInterim(normalizeTranscript(finalText + " " + tmp));
-      clearTimeout(silence);
-      silence = setTimeout(() => rec.stop(), SILENCE_MS);
+      tmpText = tmp;
+      const all = normalizeTranscript(finalText + " " + tmp);
+      setInterim(all);
+      clearTimeout(silence); // interim results count as speech too
+      silence = setTimeout(() => rec.stop(), endpointDelay(all)); // longer after "and", "the", "um"…
+
     };
     rec.onerror = (e) => { if (!cancelled) { const m = speechErrorMessage(e.error); if (m) setError(m); } };
-    rec.onend = () => { clearTimeout(silence); stopMeter(); end(finalText); };
+    rec.onend = () => { clearTimeout(silence); stopMeter(); end(tmpText.trim() ? mergeFinals([finalText, tmpText]) : finalText); }; // Chrome ended before finalizing the last words: keep them
 
     try { rec.start(); } catch { session.current = null; dispatchEvent(new Event(VOICE_RESUME)); setError("Couldn't start voice input. Try again."); return; }
     stopMeter = startMeter();

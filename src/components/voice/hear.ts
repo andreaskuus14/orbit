@@ -4,7 +4,8 @@ import { parseNavCommand } from "../../lib/nav-pure.ts";
 import type { PanelId } from "../../lib/planets.ts";
 import { extractWakeQuestion, isSleepCommand, normalizeTranscript } from "./wake.ts";
 
-export const STOP_WORDS = /^\s*(stop|wait|hold on|enough|quiet|shut up|pause|okay stop|ok stop|no)\W*$/i;
+// The whole utterance must be the command, optionally after "(hey) Orbit": "stop", "Orbit, stop", "be quiet".
+export const STOP_WORDS = /^\s*(?:(?:hey|ok|okay)?[\s,]*orbit[\s,.!]+)?(?:please[\s,]+)?(stop(?: it| talking| please)?|wait|hold on|enough|quiet|be quiet|shut up|pause|okay stop|ok stop|no)\W*$/i;
 
 // Never real English as heard, so safe anywhere in a sentence.
 const ANYWHERE: [RegExp, string][] = [
@@ -70,17 +71,55 @@ export function mergeFinals(parts: string[]): string {
   return out.join(" ");
 }
 
-/** Collects finals and flushes them as one text once nobody has spoken for graceMs (hold() = interim speech, keep
- *  waiting), but never later than maxMs after the first one. */
-export function finalJoiner(graceMs: number, flush: (text: string) => void, maxMs = 10_000) {
-  let parts: string[] = [], since = 0, t: ReturnType<typeof setTimeout> | undefined;
-  const fire = () => { t = undefined; const text = mergeFinals(parts); parts = []; if (text) flush(text); };
-  const wait = () => { clearTimeout(t); t = setTimeout(fire, Math.max(0, Math.min(graceMs, since + maxMs - Date.now()))); };
+// An utterance ending like this is a speaker pausing to think mid-sentence, not a finished question.
+const TRAILING = /\b(?:and|or|but|the|a|an|to|of|with|for|uh|uhm|um|umm|erm|er|hmm|like|so|because|if|my|your|in|on|at|is|are|about|from|what|how)\W*$/i;
+export const ENDPOINT_MS = 1500, ENDPOINT_LONG_MS = 2500;
+/** How long to wait after the last recognizer result before treating `text` as finished. */
+export function endpointDelay(text: string): number {
+  const t = normalizeTranscript(text), q = extractWakeQuestion(t)?.question ?? t;
+  // A complete command ("open studio", "zoom in" — its "in" isn't trailing) shouldn't wait the long pause.
+  if (parseNavCommand(q, { current: "intelligence" }) || isSleepCommand(t)) return ENDPOINT_MS;
+  return q.split(" ").filter(Boolean).length < 3 || TRAILING.test(q) ? ENDPOINT_LONG_MS : ENDPOINT_MS;
+}
+
+// Words too common to tell ORBIT's voice from the user's (plus the wake word itself).
+const COMMON = new Set("orbit orbits the and but for you your are was were what what's with this that from have has not can its it's".split(" "));
+const echoWords = (t: string) => (t.toLowerCase().match(/[\p{L}\p{N}']{3,}/gu) ?? []).filter((w) => !COMMON.has(w));
+/** True when `heard` is mostly words of `spoken` (ORBIT's own voice coming back through the speakers). Nothing
+ *  word-like (noise, "uh", "a") counts as echo too: it is never a reason to act. */
+export function isEcho(heard: string, spoken: string): boolean {
+  // Stop phrases and "Orbit, …" questions are made of common words: echo only when ORBIT just said that exact phrase.
+  if (STOP_WORDS.test(heard) || extractWakeQuestion(heard)) return saidPhrase(heard, spoken);
+  const w = echoWords(heard);
+  if (!w.length) return true;
+  const said = new Set(echoWords(spoken));
+  return w.filter((x) => said.has(x)).length / w.length >= 0.5;
+}
+
+/** While ORBIT speaks, only a stop phrase or the wake word starting a new question may cut it off — never noise,
+ *  other speech, or ORBIT's own echo. */
+export function shouldBargeIn(heard: string, spoken: string): "stop" | "wake" | null {
+  if (isEcho(heard, spoken)) return null;
+  return STOP_WORDS.test(heard) ? "stop" : extractWakeQuestion(heard) ? "wake" : null;
+}
+const allWords = (t: string) => ` ${(t.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? []).join(" ")} `;
+const saidPhrase = (heard: string, spoken: string) => allWords(heard).trim() !== "" && allWords(spoken).includes(allWords(heard));
+
+/** Collects finals and flushes them as one text once nobody has spoken for the grace time (hold() = interim speech,
+ *  keep waiting; the interim text counts toward the adaptive delay and is kept if the flush comes first), but never
+ *  later than maxMs after the first one. */
+export function finalJoiner(grace: number | ((text: string) => number), flush: (text: string) => void, maxMs = 30_000) {
+  let parts: string[] = [], tail = "", since = 0, t: ReturnType<typeof setTimeout> | undefined;
+  const fire = () => { t = undefined; const text = mergeFinals(tail ? [...parts, tail] : parts); parts = []; tail = ""; if (text) flush(text); };
+  const wait = () => {
+    const g = typeof grace === "number" ? grace : grace(mergeFinals(tail ? [...parts, tail] : parts));
+    clearTimeout(t); t = setTimeout(fire, Math.max(0, Math.min(g, since + maxMs - Date.now())));
+  };
   return {
-    add(text: string) { if (!parts.length) since = Date.now(); parts.push(text); wait(); },
-    hold() { if (parts.length) wait(); },
+    add(text: string) { if (!parts.length) since = Date.now(); parts.push(text); tail = ""; wait(); },
+    hold(interim = "") { if (parts.length) { tail = interim; wait(); } },
     get pending() { return parts.length > 0; },
-    cancel() { clearTimeout(t); t = undefined; parts = []; },
+    cancel() { clearTimeout(t); t = undefined; parts = []; tail = ""; },
   };
 }
 

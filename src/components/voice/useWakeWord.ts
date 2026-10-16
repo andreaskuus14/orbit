@@ -3,16 +3,14 @@ import { useEffect, useState } from "react";
 import { loadVoiceSettings, recognizerFor, voiceContext, VOICE_ASK, VOICE_INTERRUPT, type HandsFree } from "./bus";
 import { alternatives, getSpeechRecognition, speechErrorMessage, VOICE_LISTEN, VOICE_PAUSE, VOICE_RESUME, type SpeechRec } from "./useVoiceInput";
 import { extractWakeQuestion, isSleepCommand } from "./wake";
-import { correctTranscript, finalJoiner, pickBestAlternative, STOP_WORDS } from "./hear";
-import { isEcho, isSpeaking, onSpeakingChange } from "./speak";
+import { correctTranscript, endpointDelay, finalJoiner, isEcho, pickBestAlternative, shouldBargeIn, STOP_WORDS } from "./hear";
+import { isSpeaking, onSpeakingChange, speakingOrJustEnded, spokenText } from "./speak";
 import { recordUtterance, transcribeAudio } from "./whisper";
 
 const AWAY_MS = 60_000; // window unfocused this long → stop listening
 const ARMED_MS = 12_000; // after a bare "Hey Orbit", how long the next utterance counts as the question (kept open while you talk)
-const GRACE_MS = 900; // after a final result, wait this long for more speech: Chrome often splits one sentence into two finals
-/** Real speech over ORBIT's voice: a one-word command like "stop", or 2+ words that aren't ORBIT's own echo. */
-const talkingOver = (text: string) =>
-  isSpeaking() && (STOP_WORDS.test(text) || (text.trim().split(/\s+/).length >= 2 && !isEcho(text)));
+const ECHO_TAIL_MS = 1500; // after ORBIT stops talking, results that echo its words are still its own voice arriving late
+const START_GUARD_MS = 400; // right after ORBIT stops, nothing starts a new utterance (the tail of its own audio)
 
 const LOCAL = { maxSec: 8, minSpeechSec: 0.4 }; // waiting for "Orbit": short clips only, and never noise
 const LOCAL_ARMED = { maxSec: 15, minSpeechSec: 0.4 }; // the question after "Orbit, wake up" may be longer
@@ -69,7 +67,7 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
       else if (!wake.question && recognizerFor(loadVoiceSettings(), "pushToTalk") === "whisper") { armedUntil = 0; clearTimeout(disarm); setState("listening"); dispatchEvent(new Event(VOICE_LISTEN)); } // bare "Orbit": Whisper records the question
       else arm(); // "Orbit, wake up" while open just listens
     };
-    const joiner = finalJoiner(GRACE_MS, route);
+    const joiner = finalJoiner(endpointDelay, route); // waits 1.5–2.5 s of silence (longer after "and", "the", "um"…)
     let ctrl = new AbortController(); // local mode: aborts the current recording/transcription
     const runLocal = async () => {
       setState("listening");
@@ -107,26 +105,31 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
       r.continuous = true;
       r.interimResults = true; // interim lets us barge in on a spoken answer as soon as "Hey Orbit" is heard
       r.maxAlternatives = 5; // pickBestAlternative chooses (commands and the wake word win)
-      let interrupted = false;
+      let interrupted = false, lastInterim = "", heardAny = false;
       r.onresult = (e) => {
-        failures = 0;
+        failures = 0; heardAny = true;
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const res = e.results[i];
           const text = res.isFinal ? pickBestAlternative(alternatives(res), voiceContext) : correctTranscript(res[0].transcript);
+          if (!text) continue;
+          const armed = armedUntil > Date.now();
+          // While ORBIT talks only "stop…" or "Orbit, …" may cut it off; its own voice through the speakers never counts.
+          const barge = isSpeaking() ? shouldBargeIn(text, spokenText()) : null;
+          if (!barge && !interrupted && speakingOrJustEnded(ECHO_TAIL_MS) && isEcho(text, spokenText())) continue;
+          if (!barge && !interrupted && !joiner.pending && !armed && speakingOrJustEnded(START_GUARD_MS)) continue;
           const wake = extractWakeQuestion(text);
+          if (barge && !interrupted) { interrupted = true; dispatchEvent(new Event(VOICE_INTERRUPT)); } // interim: cut off at once
           if (!res.isFinal) {
-            // The wake phrase interrupts, and so does any real speech while ORBIT is talking (but not ORBIT's own echo).
-            if ((wake || talkingOver(text)) && !interrupted) { interrupted = true; dispatchEvent(new Event(VOICE_INTERRUPT)); arm(); }
-            else if (armedUntil > Date.now()) arm(); // still talking: keep the window open
-            joiner.hold();
-            if (wake || armedUntil > Date.now() || joiner.pending) setInterim(text);
+            if (barge !== "stop" && (wake || armed)) arm(); // still talking: keep the window open
+            lastInterim = text;
+            joiner.hold(text); // any interim = still talking: restart the silence timer
+            if (wake || armed || joiner.pending) setInterim(text);
             continue;
           }
-          const over = talkingOver(text);
-          if (!interrupted && over) { dispatchEvent(new Event(VOICE_INTERRUPT)); arm(); } // recognizers sometimes skip interim results
-          if (STOP_WORDS.test(text) && (interrupted || over)) { interrupted = false; armedUntil = 0; joiner.cancel(); setInterim(""); setState("listening"); continue; } // "stop" just silences ORBIT; it isn't a question
+          lastInterim = "";
+          if (STOP_WORDS.test(text) && (barge || interrupted)) { interrupted = false; armedUntil = 0; clearTimeout(disarm); joiner.cancel(); setInterim(""); setState("listening"); continue; } // "stop" just silences ORBIT; it isn't a question
           interrupted = false;
-          if (text && (wake || armedUntil > Date.now() || joiner.pending)) { joiner.add(text); setInterim(text); }
+          if (wake || armed || joiner.pending) { joiner.add(text); setInterim(text); }
         }
       };
       r.onerror = (e) => {
@@ -136,7 +139,14 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
         } else if (e.error !== "no-speech" && e.error !== "aborted") failures++;
       };
       // Chrome ends continuous recognition every ~60 s (and after no-speech): restart, backing off on errors.
-      r.onend = () => { if (alive) timer = setTimeout(run, failures ? Math.min(30000, 1000 * 2 ** failures) : 250); };
+      // Mid-question, restart at once: words spoken in the gap would be lost. Words still only interim when Chrome ended
+      // are kept (the joiner holds them as its tail; a question with no final yet gets them added).
+      r.onend = () => {
+        if (!alive) return;
+        if (lastInterim && (joiner.pending || armedUntil > Date.now())) joiner.add(lastInterim);
+        // 0 ms only after a session that heard something: a session that "aborted" at once would spin otherwise.
+        timer = setTimeout(run, failures ? Math.min(30000, 1000 * 2 ** failures) : heardAny && (joiner.pending || armedUntil > Date.now()) ? 0 : 250);
+      };
       try { r.start(); setState(armedUntil > Date.now() ? "armed" : "listening"); }
       catch { failures++; timer = setTimeout(run, Math.min(30000, 1000 * 2 ** failures)); }
     };

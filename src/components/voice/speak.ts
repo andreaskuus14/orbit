@@ -40,7 +40,7 @@ export function takeVoiceAsked(ms = 5000) { const r = Date.now() - voiceAskedAt 
 export const speechGen = () => gen;
 export const isSpeaking = () => !!current || queue.length > 0;
 export function onSpeakingChange(cb: (speaking: boolean) => void) { listeners.add(cb); return () => { listeners.delete(cb); }; }
-const notify = () => { const s = isSpeaking(); listeners.forEach((cb) => cb(s)); };
+const notify = () => { const s = isSpeaking(); if (!s) endedAt = Date.now(); listeners.forEach((cb) => cb(s)); };
 
 function pump() {
   const s = synth();
@@ -60,27 +60,24 @@ function pump() {
   u.onboundary = (e) => { if (e.name !== "sentence") { pulse = 1; lastWord = performance.now(); } };
   u.onend = u.onerror = () => { if (current !== u) return; current = null; pump(); };
   current = u;
+  lastTwo = [...lastTwo.slice(-1), text];
   stuckSince = 0;
   s.speak(u);
   if (s.paused) s.resume(); // Chrome can get stuck paused (e.g. after the tab was hidden)
   animate();
 }
 
-/** Queue one chunk (a sentence; keep it short — Chrome cuts utterances off after ~15 s). */
 // What ORBIT said lately, so the mic can tell the user's voice from ORBIT's own voice coming out of the speakers.
-let spokenRecent = "";
-const words = (t: string) => t.toLowerCase().match(/[\p{L}\p{N}']{3,}/gu) ?? [];
-/** True when a transcript is mostly words ORBIT just said (its own echo), not the user talking over it. */
-export function isEcho(transcript: string) {
-  const w = words(transcript);
-  if (!w.length) return true;
-  const said = new Set(words(spokenRecent));
-  return w.filter((x) => said.has(x)).length / w.length >= 0.5;
-}
+// Only the chunk being spoken and the one before (not queued ones, not old answers); cleared by stop().
+let lastTwo: string[] = [];
+export const spokenText = () => lastTwo.join(" ");
+let endedAt = 0;
+/** True while ORBIT talks and for tailMs after: the recognizer delivers the end of ORBIT's audio a moment late. */
+export const speakingOrJustEnded = (tailMs: number) => isSpeaking() || Date.now() - endedAt < tailMs;
 
+/** Queue one chunk (a sentence; keep it short — Chrome cuts utterances off after ~15 s). */
 export function speakChunk(text: string, forGen?: number) {
   if (!synth() || !text.trim() || (forGen !== undefined && forGen !== gen)) return;
-  spokenRecent = (spokenRecent + " " + text).slice(-800);
   queue.push(text);
   const was = !!current;
   pump();
@@ -94,6 +91,7 @@ export function finish(): Promise<void> {
 
 export function stop() {
   queue = [];
+  lastTwo = [];
   gen++;
   clearTimeout(scheduled); scheduled = 0;
   afterCancel = true;

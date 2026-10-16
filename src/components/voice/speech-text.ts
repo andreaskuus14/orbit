@@ -53,8 +53,8 @@ function nextCut(buf: string, final: boolean): number {
   return final && buf.length ? buf.length : -1;
 }
 
-/** Split chunks that would run past Chrome's ~15 s utterance cutoff, at a comma or space. */
-export function splitLong(s: string, max = 200): string[] {
+/** Split chunks that would run past Chrome's ~15 s utterance cutoff, at a comma or space. 150 chars ≈ 10 s at rate 1.05. */
+export function splitLong(s: string, max = 150): string[] {
   const out: string[] = [];
   while (s.length > max) {
     let i = Math.max(s.lastIndexOf(", ", max), s.lastIndexOf("; ", max));
