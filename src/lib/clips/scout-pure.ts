@@ -3,14 +3,16 @@ import { parseIsoDuration } from "../youtube-pure.ts";
 import { isVideoId } from "../yt-analytics-pure.ts";
 
 export type ScoutCreator = { channelId: string; title: string; autoClip: boolean };
-export type ScoutSettings = { watchlist: ScoutCreator[]; keywords: string[]; maxAgeHours: number; minMinutes: number; dailyAuto: number; runAt: number };
+// maxAgeHours: keyword searches; creatorMaxAgeDays: watchlist uploads (creators post every few days, not hourly)
+export type ScoutSettings = { watchlist: ScoutCreator[]; keywords: string[]; maxAgeHours: number; creatorMaxAgeDays: number; minMinutes: number; dailyAuto: number; runAt: number };
 export type ScoutStats = { views: number; likes: number; comments: number };
 export type PickStatus = "new" | "queued" | "dismissed";
 export type ScoutPick = { videoId: string; url: string; title: string; channel: string; channelId: string; durationSec: number; publishedAt: string;
   stats: ScoutStats; score: number; reason: string; source: "watchlist" | "keyword"; status: PickStatus; error?: string };
-export type ScoutRun = { at: string; ok: boolean; error?: string; warnings: string[]; candidates: number; units: number; ranker: "claude" | "score"; auto: number };
+export type ScoutRun = { at: string; ok: boolean; error?: string; warnings: string[]; candidates: number; units: number; ranker: "claude" | "score"; auto: number;
+  skipped?: Record<string, number>; summary?: string }; // why candidates were left out, and that as one line for the UI
 export type Scout = ScoutSettings & {
-  v: 1; picks: ScoutPick[]; seen: string[]; // seen: video ids dismissed or queued, never suggested again
+  v: 2; picks: ScoutPick[]; seen: string[]; // seen: video ids dismissed or queued, never suggested again
   quota: { day: string; used: number }; // units spent on the Pacific-time day YouTube's quota resets on
   auto: { day: string; n: number }; // auto clip jobs started on this local day
   lastRun?: ScoutRun; lastScheduled?: string; // local day the scheduled run last happened (or failed)
@@ -22,10 +24,10 @@ export type Candidate = { id: string; title: string; channel: string; channelId:
 
 export const DAILY_UNITS = 1500; // our own cap, well under the default 10,000/day so STUDIO stats and uploads keep working
 export const SEARCH_UNITS = 100, MAX_SEARCHES = 3, MAX_SOURCE_SEC = 3 * 3600; // a clip job refuses videos over 3 h
-export const DEFAULTS: ScoutSettings = { watchlist: [], keywords: [], maxAgeHours: 48, minMinutes: 15, dailyAuto: 1, runAt: 6 };
+export const DEFAULTS: ScoutSettings = { watchlist: [], keywords: [], maxAgeHours: 48, creatorMaxAgeDays: 7, minMinutes: 8, dailyAuto: 1, runAt: 6 };
 const SEEN_MAX = 1000, PICKS_MAX = 10;
 
-export const emptyScout = (): Scout => ({ v: 1, ...DEFAULTS, picks: [], seen: [], quota: { day: "", used: 0 }, auto: { day: "", n: 0 }, kwNext: 0 });
+export const emptyScout = (): Scout => ({ v: 2, ...DEFAULTS, picks: [], seen: [], quota: { day: "", used: 0 }, auto: { day: "", n: 0 }, kwNext: 0 });
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
 const line = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max).trim() : "");
@@ -51,6 +53,7 @@ export function validSettings(b: Record<string, unknown>, cur: ScoutSettings): S
     if (!Array.isArray(b.keywords) || b.keywords.length > 20) return "keywords must be a list of at most 20";
     const kw = b.keywords.map((k) => line(k, 80));
     if (kw.some((k) => k.length < 2)) return "each keyword must be 2-80 characters";
+    if (kw.some(looksLikeChannel)) return "Put channel links under Creators; keywords are search words";
     out.keywords = [...new Set(kw)];
   }
   if (b.creator !== undefined) { // one creator at a time, applied to the current list (a stale UI snapshot can't drop others)
@@ -60,7 +63,7 @@ export function validSettings(b: Record<string, unknown>, cur: ScoutSettings): S
     out.watchlist = c.remove === true ? out.watchlist.filter((w) => w.channelId !== c.channelId)
       : out.watchlist.map((w) => (w.channelId === c.channelId ? { ...w, autoClip: c.autoClip as boolean } : w));
   }
-  const nums: [keyof ScoutSettings, number, number][] = [["maxAgeHours", 1, 336], ["minMinutes", 1, 180], ["dailyAuto", 0, 5], ["runAt", 0, 23]];
+  const nums: [keyof ScoutSettings, number, number][] = [["maxAgeHours", 1, 336], ["creatorMaxAgeDays", 1, 60], ["minMinutes", 1, 180], ["dailyAuto", 0, 5], ["runAt", 0, 23]];
   for (const [k, lo, hi] of nums) {
     if (b[k] === undefined) continue;
     if (!int(b[k], lo, hi)) return `${k} must be a whole number ${lo}-${hi}`;
@@ -69,12 +72,16 @@ export function validSettings(b: Record<string, unknown>, cur: ScoutSettings): S
   return out;
 }
 
+/** A link or @handle typed where search words belong. */
+export const looksLikeChannel = (k: string) => /^@|:\/\/|^www\.|youtu\.?be|\.(com|tv)\b/i.test(k);
+
 const PICK_STATUS: PickStatus[] = ["new", "queued", "dismissed"];
 /** scout.json → a Scout, or why it's unusable (then it's quarantined). Bad picks are dropped rather than failing the whole file. */
 export function parseScout(x: unknown): Scout | string {
   if (!isObj(x)) return "not an object";
-  if (x.v !== 1) return "unknown version";
-  const s = validSettings(x, DEFAULTS);
+  if (x.v !== 1 && x.v !== 2) return "unknown version";
+  // v1 → v2: the min length default dropped from 15 to 8 min (many creator edits are 8-15 min); a value the owner changed is kept
+  const s = validSettings(x.v === 1 && x.minMinutes === 15 ? { ...x, minMinutes: 8 } : x, DEFAULTS);
   if (typeof s === "string") return s;
   const base = emptyScout();
   const picks = (Array.isArray(x.picks) ? x.picks : []).filter((p): p is ScoutPick => isObj(p) && isVid(p.videoId) && typeof p.title === "string"
@@ -100,10 +107,10 @@ export const usedToday = (q: Scout["quota"], now: Date) => (q.day === quotaDay(n
 export const charge = (q: Scout["quota"], units: number, now: Date) => ({ day: quotaDay(now), used: usedToday(q, now) + units });
 
 /** What a run may spend: watchlist reads always (cheap), then up to 3 keyword searches (100 units each) that fit in today's budget.
- *  Worst-case watchlist cost: 1 playlistItems per creator + 1 videos.list per 50 of their 10 latest uploads. */
+ *  Worst-case watchlist cost: 1 playlistItems per creator + 1 videos.list per 50 of their 25 latest uploads. */
 export function planRun(s: Scout, now: Date): { keywords: string[]; kwNext: number } | string {
   const left = DAILY_UNITS - usedToday(s.quota, now);
-  const watch = s.watchlist.length + Math.ceil((s.watchlist.length * 10) / 50);
+  const watch = s.watchlist.length + Math.ceil((s.watchlist.length * 25) / 50);
   if (!s.watchlist.length && !s.keywords.length) return "Add a creator or a keyword first";
   if (left < watch + (s.watchlist.length ? 0 : SEARCH_UNITS + 1)) return `Today's scout budget is used up (${DAILY_UNITS - left}/${DAILY_UNITS} units); it resets at midnight Pacific time`;
   const n = Math.min(MAX_SEARCHES, s.keywords.length, Math.floor((left - watch) / (SEARCH_UNITS + 1))); // +1: the videos.list for its results
@@ -143,14 +150,23 @@ export function toCandidates(items: unknown, source: Candidate["source"]): Candi
 const hoursSince = (iso: string, now: number) => (now - Date.parse(iso)) / 3_600_000;
 
 /** Why a candidate is skipped, or "" to keep it. */
-export function skipReason(c: Candidate, o: { now: number; maxAgeHours: number; minMinutes: number; skip: Set<string> }): string {
-  if (o.skip.has(c.id)) return "seen";
+export function skipReason(c: Candidate, o: { now: number; maxAgeHours: number; creatorMaxAgeDays: number; minMinutes: number; seen: Set<string>; made: Set<string> }): string {
+  if (o.made.has(c.id)) return "made";
+  if (o.seen.has(c.id)) return "seen";
   if (c.live !== "none") return "live"; // live now or upcoming: no finished video to download yet
   if (!(c.durationSec >= o.minMinutes * 60)) return "short";
   if (c.durationSec > MAX_SOURCE_SEC) return "long";
   const h = hoursSince(c.publishedAt, o.now);
-  if (!Number.isFinite(h) || h > o.maxAgeHours) return "old";
+  if (!Number.isFinite(h) || h > (c.source === "watchlist" ? o.creatorMaxAgeDays * 24 : o.maxAgeHours)) return c.source === "watchlist" ? "oldCreator" : "old";
   return "";
+}
+
+/** "25 found · 0 picks — 14 too short (<15 min), 9 older than 48 h, 2 live": why the list is short. */
+export function skipSummary(found: number, picks: number, skipped: Record<string, number>, s: Pick<ScoutSettings, "minMinutes" | "maxAgeHours" | "creatorMaxAgeDays">): string {
+  const label: Record<string, string> = { short: `too short (<${s.minMinutes} min)`, long: "too long (>3 h)", old: `older than ${s.maxAgeHours} h`,
+    oldCreator: `creator uploads older than ${s.creatorMaxAgeDays} d`, live: "live/upcoming", made: "already downloaded", seen: "dismissed or queued before" };
+  const why = Object.entries(skipped).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${label[k] ?? k}`);
+  return `${found} found · ${picks} pick${picks === 1 ? "" : "s"}${why.length ? ` — ${why.join(", ")}` : ""}`;
 }
 
 /** Median views/hour of a channel's videos (age floored at 1 h); 0 with fewer than 3. */

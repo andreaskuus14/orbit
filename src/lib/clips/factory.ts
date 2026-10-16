@@ -7,7 +7,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { askClaudeStream } from "../claude";
 import { createLimiter } from "../pure";
-import { rootClipId } from "./format";
+import { CHANNEL_LINK_MSG, channelLink, rootClipId } from "./format";
 import { isVideoId, uploadError, type VideoResource } from "../yt-analytics-pure";
 import { OAuthError, getAccessToken, invalidateAccess, readStored } from "../yt-oauth";
 import type { Clip, ClipJob, ClipOptions, ClipPublish, Download, InboxFile, JobStatus, Quarantined, ToolsStatus } from "./types";
@@ -717,6 +717,8 @@ export async function createDownload(url: string, permission: string, autoClip?:
 
 /** Add-from-link and the scout's "Clip it": checks the tools and duplicates, then queues the download. */
 export async function startDownload(url: string, permission: string, autoClip?: ClipJob["options"]): Promise<{ download: Download } | { error: string; status: number; tools?: ToolsStatus; download?: Download }> {
+  const ch = channelLink(url); // wrong box: yt-dlp would fetch a whole channel (or a live stream)
+  if (ch) return { error: CHANNEL_LINK_MSG[ch], status: 400 };
   const tools = await checkTools();
   if (!tools.ytdlp || !tools.ffmpeg) return { error: !tools.ytdlp ? "yt-dlp is missing: winget install yt-dlp.yt-dlp" : "ffmpeg is missing", status: 503, tools };
   const dup = (await listDownloads()).find((d) => d.url === url && (d.status === "queued" || d.status === "downloading"));

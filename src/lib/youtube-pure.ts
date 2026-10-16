@@ -62,3 +62,20 @@ export function parseIsoDuration(s: string | null | undefined) {
 }
 
 export const isShort = (v: Pick<Video, "durationSec">) => v.durationSec > 0 && v.durationSec <= 60;
+
+export type CreatorInput = { handle: string } | { id: string } | { username: string } | { video: string };
+/** Forgiving "add a creator" input: anything parseChannelInput takes, plus a bare name ("jynxzi" → @jynxzi), /c/ and /user/ URLs,
+ *  m./music. hosts, and a video link (watch?v=, youtu.be, /shorts/, /live/) whose channel is then looked up. */
+export function parseCreatorInput(s: string | null | undefined): CreatorInput | null {
+  const v = (s ?? "").trim();
+  const ch = parseChannelInput(v);
+  if (ch) return ch;
+  const rest = v.replace(/^(?:https?:\/\/)?(?:www\.|m\.|music\.)?/i, "");
+  const vid = rest.match(/^youtu\.be\/([\w-]{11})(?:[/?#]|$)/i) ?? rest.match(/^youtube\.com\/(?:shorts|live|embed)\/([\w-]{11})(?:[/?#]|$)/i)
+    ?? (/^youtube\.com\/watch\?/i.test(rest) ? rest.match(/[?&]v=([\w-]{11})(?:[&#]|$)/) : null);
+  if (vid) return { video: vid[1] };
+  const url = rest.match(/^youtube\.com\/(@[\w.-]{3,30}|c\/[\w.-]{1,100}|user\/[\w.-]{1,100})(?:[/?#]|$)/i);
+  if (url) return url[1].startsWith("user/") ? { username: url[1].slice(5) } : { handle: url[1].startsWith("@") ? url[1] : `@${url[1].slice(2)}` }; // /c/ names mostly match the handle
+  if (/^[\w.-]{3,30}$/.test(v)) return { handle: `@${v}` };
+  return null;
+}

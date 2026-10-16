@@ -2,13 +2,13 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 import { askClaude } from "../claude";
 import { api } from "../youtube";
-import { parseChannelInput } from "../youtube-pure";
+import { parseCreatorInput } from "../youtube-pure";
 import { listDownloads, readState, saveState, startDownload, studioRoot } from "./factory";
 import { cleanPermission, parseClipUrl, validOptions } from "./pure";
 import type { ClipOptions } from "./types";
 import {
   DAILY_UNITS, SEARCH_UNITS, autoPicks, baselineVph, buildPicks, charge, emptyScout, localDay, parseRanking, parseScout, planRun, pureScore, rankPrompt,
-  remember, scoutDue, watchUrl, skipReason, toCandidates, usedToday, validSettings, videoIdOf, type Candidate, type Scout, type ScoutPick, type ScoutRun,
+  remember, scoutDue, watchUrl, skipReason, skipSummary, toCandidates, usedToday, validSettings, videoIdOf, type Candidate, type Scout, type ScoutPick, type ScoutRun,
 } from "./scout-pure";
 
 // Video Scout: finds fresh long videos from approved creators (watchlist) and niche keyword searches, ranks them for clip potential,
@@ -54,27 +54,38 @@ export async function scoutView() {
 
 // ---- adding creators ----
 
+/** Adds a creator from a handle, bare name, channel link or one of their video links. Returns who was added so the owner can check it's the right channel. */
 export async function addCreator(input: unknown) {
-  const who = typeof input === "string" ? parseChannelInput(input) : null;
-  if (!who) throw new ScoutError("Use a channel link, @handle or UC… channel id");
+  const who = typeof input === "string" ? parseCreatorInput(input) : null;
+  if (!who) throw new ScoutError("Use @handle, a channel name, or a channel or video link");
   const key = apiKey();
   if (!key) throw new ScoutError("Add YOUTUBE_API_KEY to .env.local first", 503);
   const s = await load();
-  if (DAILY_UNITS - usedToday(s.quota, new Date()) < 1) throw new ScoutError("Today's YouTube budget is used up; try after midnight Pacific time", 429);
-  type Ch = { items?: { id?: string; snippet?: { title?: string } }[] };
-  let r: Ch;
-  try { r = await api<Ch>("channels", { part: "snippet", ...("handle" in who ? { forHandle: who.handle } : { id: who.id }) }, key); }
-  finally { await updateScout((x) => { x.quota = charge(x.quota, 1, new Date()); }).catch(() => {}); }
-  const c = r.items?.[0];
-  if (!c?.id) throw new ScoutError("YouTube has no channel with that handle or id", 404);
-  const id = c.id, title = c.snippet?.title ?? id;
-  return updateScout((x) => {
-    if (x.watchlist.some((w) => w.channelId === id)) return x;
+  if (DAILY_UNITS - usedToday(s.quota, new Date()) < 2) throw new ScoutError("Today's YouTube budget is used up; try after midnight Pacific time", 429);
+  type Ch = { items?: { id?: string; snippet?: { title?: string }; statistics?: { subscriberCount?: string } }[] };
+  let units = 0;
+  const call = <T>(p: string, params: Record<string, string>) => { units++; return api<T>(p, params, key); };
+  let c: NonNullable<Ch["items"]>[number] | undefined;
+  try {
+    let q: Record<string, string>;
+    if ("video" in who) {
+      const v = await call<{ items?: { snippet?: { channelId?: string } }[] }>("videos", { part: "snippet", id: who.video });
+      const id = v.items?.[0]?.snippet?.channelId;
+      if (!id) throw new ScoutError("YouTube has no video with that link", 404);
+      q = { id };
+    } else q = "handle" in who ? { forHandle: who.handle } : "username" in who ? { forUsername: who.username } : { id: who.id };
+    c = (await call<Ch>("channels", { part: "snippet,statistics", ...q })).items?.[0];
+  } finally { await updateScout((x) => { x.quota = charge(x.quota, units, new Date()); }).catch(() => {}); }
+  if (!c?.id) throw new ScoutError("YouTube has no channel with that name; try the @handle from the channel page", 404);
+  const id = c.id, title = c.snippet?.title ?? id, subscribers = Number(c.statistics?.subscriberCount) || null;
+  let already = false;
+  await updateScout((x) => {
+    if ((already = x.watchlist.some((w) => w.channelId === id))) return;
     const next = validSettings({ watchlist: [...x.watchlist, { channelId: id, title, autoClip: false }] }, x);
     if (typeof next === "string") throw new ScoutError(next);
     Object.assign(x, next);
-    return x;
   });
+  return { channelId: id, title, subscribers, already };
 }
 
 // ---- acting on picks ----
@@ -146,13 +157,13 @@ async function run(scheduled: boolean) {
     const s = await load();
     const plan = planRun(s, now);
     if (typeof plan === "string") throw new Error(plan);
-    const skip = new Set([...s.seen, ...(await listDownloads()).map((d) => videoIdOf(d.url) ?? "")]);
-    const opts = { now: now.getTime(), maxAgeHours: s.maxAgeHours, minMinutes: s.minMinutes, skip };
+    const seen = new Set(s.seen), made = new Set((await listDownloads()).map((d) => videoIdOf(d.url) ?? ""));
+    const opts = { now: now.getTime(), maxAgeHours: s.maxAgeHours, creatorMaxAgeDays: s.creatorMaxAgeDays, minMinutes: s.minMinutes, seen, made };
 
     const ids: string[] = [];
     for (const w of s.watchlist) {
-      try { // uploads playlist = channel id with UC → UU (saves a channels.list call per creator)
-        const r = await yt<{ items?: { contentDetails?: { videoId?: string } }[] }>("playlistItems", { part: "contentDetails", playlistId: `UU${w.channelId.slice(2)}`, maxResults: "10" }, 1);
+      try { // uploads playlist = channel id with UC → UU (saves a channels.list call per creator); 25 so a burst of Shorts can't hide the long uploads
+        const r = await yt<{ items?: { contentDetails?: { videoId?: string } }[] }>("playlistItems", { part: "contentDetails", playlistId: `UU${w.channelId.slice(2)}`, maxResults: "25" }, 1);
         ids.push(...(r.items ?? []).map((i) => i.contentDetails?.videoId ?? "").filter(Boolean));
         found++;
       } catch (e) { if (!/^YouTube API 404/.test(msg(e))) warnings.push(`${w.title}: ${msg(e)}`); else found++; } // 404: no uploads yet
@@ -162,7 +173,7 @@ async function run(scheduled: boolean) {
       try {
         const vs = await videos(ids, "watchlist");
         // Baseline from each creator's latest uploads (already fetched): "3× their usual pace" beats raw views for small channels.
-        const byCh = Map.groupBy(vs, (v) => v.channelId);
+        const byCh = Map.groupBy(vs.filter((v) => v.durationSec > 60), (v) => v.channelId); // Shorts would skew "usual views"
         for (const v of vs) all.push({ ...v, baseline: baselineVph(byCh.get(v.channelId) ?? [], opts.now) || undefined });
       } catch (e) { warnings.push(`Watchlist videos: ${msg(e)}`); found = 0; }
     }
@@ -170,14 +181,16 @@ async function run(scheduled: boolean) {
       try {
         const r = await yt<{ items?: { id?: { videoId?: string } }[] }>("search", { part: "snippet", type: "video", order: "viewCount", q, maxResults: "25",
           publishedAfter: rfc3339(opts.now - s.maxAgeHours * 3_600_000), videoDuration: s.minMinutes >= 20 ? "long" : "any" }, SEARCH_UNITS); // one bucket per call ("medium" is 4-20 min); skipReason enforces minMinutes
-        const kid = (r.items ?? []).map((i) => i.id?.videoId ?? "").filter((id) => id && !skip.has(id) && !all.some((c) => c.id === id));
+        const kid = (r.items ?? []).map((i) => i.id?.videoId ?? "").filter((id) => id && !all.some((c) => c.id === id));
         all.push(...(kid.length ? await videos(kid, "keyword") : []));
         found++;
       } catch (e) { warnings.push(`Keyword "${q}": ${msg(e)}`); }
     }
     if (!found && warnings.length) throw new Error(warnings[0]); // every call failed (bad key, quota): show that, not "no picks"
 
-    const top = all.filter((c) => !skipReason(c, opts)).sort((a, b) => pureScore(b, opts.now) - pureScore(a, opts.now)).slice(0, 15);
+    const skipped: Record<string, number> = {};
+    const kept = all.filter((c) => { const why = skipReason(c, opts); if (why) skipped[why] = (skipped[why] ?? 0) + 1; return !why; });
+    const top = kept.sort((a, b) => pureScore(b, opts.now) - pureScore(a, opts.now)).slice(0, 15);
     let ranking: ReturnType<typeof parseRanking> = null;
     if (top.length) {
       try {
@@ -199,7 +212,7 @@ async function run(scheduled: boolean) {
         if (err) { p.error = err; warnings.push(`Auto-clip "${p.title}": ${err}`); } else auto++;
       }
       s.auto = { day: today, n: done + auto };
-      finish(s, { ok: true, warnings, candidates: all.length, ranker: ranking ? "claude" : "score", auto });
+      finish(s, { ok: true, warnings, candidates: all.length, ranker: ranking ? "claude" : "score", auto, skipped, summary: skipSummary(all.length, s.picks.length, skipped, s) });
     });
   } catch (e) {
     console.error("[orbit] scout run failed:", msg(e));

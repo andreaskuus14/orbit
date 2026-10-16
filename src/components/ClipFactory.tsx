@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { CAPTION_STYLES, REJECT_REASONS, bytes, isJobActive, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
+import { CAPTION_STYLES, CHANNEL_LINK_MSG, REJECT_REASONS, bytes, channelLink, isJobActive, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -332,8 +332,8 @@ type ScoutPick = { videoId: string; url: string; title: string; channel: string;
   stats: { views: number; likes: number; comments: number }; score: number; reason: string; source: "watchlist" | "keyword"; status: "new" | "queued" | "dismissed"; error?: string };
 type CreatorOp = { channelId: string; autoClip?: boolean; remove?: true }; // PATCH { creator }: one creator, applied server-side
 type ScoutPatch = Partial<ScoutSettings> & { creator?: CreatorOp };
-type ScoutSettings = { watchlist: ScoutCreator[]; keywords: string[]; maxAgeHours: number; minMinutes: number; dailyAuto: number; runAt: number };
-type ScoutData = { scout: ScoutSettings & { picks: ScoutPick[]; lastRun?: { at: string; ok: boolean; error?: string; warnings: string[]; candidates: number; units: number; ranker: "claude" | "score"; auto: number } };
+type ScoutSettings = { watchlist: ScoutCreator[]; keywords: string[]; maxAgeHours: number; creatorMaxAgeDays: number; minMinutes: number; dailyAuto: number; runAt: number };
+type ScoutData = { scout: ScoutSettings & { picks: ScoutPick[]; lastRun?: { at: string; ok: boolean; error?: string; warnings: string[]; candidates: number; units: number; ranker: "claude" | "score"; auto: number; summary?: string } };
   running: boolean; configured: boolean; budget: number; usedToday: number };
 const SCOUT = `${API}/scout`;
 const compact = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : String(Math.round(n)));
@@ -366,7 +366,14 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
     if (action === "clip") onQueued();
   });
   const save = (key: string, body: ScoutPatch) => act(key, async () => { setD(await api<ScoutData>(SCOUT, { method: "PATCH", body })); });
-  const addCreator = (input: string) => act("add", async () => { setD(await api<ScoutData>(`${SCOUT}/creators`, { method: "POST", body: { input } })); });
+  const [added, setAdded] = useState("");
+  const addCreator = (input: string) => act("add", async () => {
+    setAdded("");
+    const r = await api<ScoutData & { added: { title: string; subscribers: number | null; already: boolean } }>(`${SCOUT}/creators`, { method: "POST", body: { input } });
+    setD(r);
+    const a = r.added; // shown so the owner can check it's the right channel
+    setAdded(`${a.already ? "Already watching" : "✓ Added"} ${a.title}${a.subscribers != null ? ` (${compact(a.subscribers)} subscribers)` : ""}. Not the one? Remove it and paste a link to one of their videos.`);
+  });
 
   const s = d?.scout, last = s?.lastRun, picks = (s?.picks ?? []).filter((p) => p.status !== "dismissed");
   return (
@@ -387,9 +394,11 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
           {last && !last.ok && <p className="error mt-1 text-xs" role="alert">⚠ {last.error}</p>}
           {!!last?.warnings?.length && <ul className="mt-1 space-y-0.5 text-[11px]" aria-label="Scout warnings">{last.warnings.slice(0, 5).map((w, k) => <li key={k}>⚠ {w}</li>)}</ul>}
           <Note k="run" />
-          {open && <ScoutSettingsForm s={s} busy={busy} Note={Note} onSave={save} onAdd={addCreator} />}
+          <CreatorsBox s={s} busy={busy} Note={Note} added={added} onSave={save} onAdd={addCreator} />
+          {open && <ScoutSettingsForm s={s} busy={busy} Note={Note} onSave={save} />}
+          {last?.ok && last.summary && <p className="num mt-2 text-[11px]" role="status">{last.summary}</p>}
           {!picks.length ? (
-            <p className="muted mt-2 text-sm">{s.watchlist.length || s.keywords.length ? "No picks yet. Run the scout, or widen the age/length limits in Settings." : "Add creators who allow clipping, or niche keywords, in Settings."}</p>
+            <p className="muted mt-2 text-sm">{s.watchlist.length || s.keywords.length ? `No picks yet.${last ? " Try a lower min length or a higher max age in ⚙ Settings, or add more creators." : " Press Run scout now."}` : "Add a creator above (someone who allows clipping) or keywords in ⚙ Settings, then run the scout."}</p>
           ) : (
             <ul className="mt-2 space-y-2" aria-label="Scout picks">
               {picks.map((p) => (
@@ -426,48 +435,56 @@ function ScoutSection({ visible, onQueued }: { visible: boolean; onQueued: () =>
   );
 }
 
-function ScoutSettingsForm({ s, busy, Note, onSave, onAdd }: { s: ScoutSettings; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode;
+/** Creators the owner approved for clipping: always visible at the top of the scout (the main way to feed it). */
+function CreatorsBox({ s, busy, Note, added, onSave, onAdd }: { s: ScoutSettings; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode; added: string;
   onSave: (key: string, body: ScoutPatch) => Promise<boolean>; onAdd: (input: string) => Promise<boolean> }) {
   const [input, setInput] = useState("");
-  const [f, setF] = useState({ keywords: s.keywords.join("\n"), maxAgeHours: s.maxAgeHours, minMinutes: s.minMinutes, dailyAuto: s.dailyAuto, runAt: s.runAt });
+  const setWatch = (creator: CreatorOp) => void onSave("watch", { creator });
+  return (
+    <div className="mt-2 rounded-xl border border-white/10 p-2 text-xs">
+      <b className="block text-sm">★ Creators</b>
+      <p className="muted text-[11px]">Only creators who allow clipping. Auto-clip lets the daily run download their best new video by itself (up to the daily limit); finished clips still wait for your review.</p>
+      <ul className="mt-1 space-y-1" aria-label="Watchlist">
+        {s.watchlist.map((w) => (
+          <li key={w.channelId} className="flex flex-wrap items-center gap-2">
+            <span className="min-w-0 flex-1 truncate" title={w.channelId}>{w.title}</span>
+            <label className="flex items-center gap-1"><input type="checkbox" checked={w.autoClip} disabled={busy.watch}
+              onChange={(e) => setWatch({ channelId: w.channelId, autoClip: e.target.checked })} /> Auto-clip</label>
+            <ConfirmButton label="Remove" aria={`Remove ${w.title} from the watchlist`} disabled={busy.watch} onConfirm={() => setWatch({ channelId: w.channelId, remove: true })} />
+          </li>
+        ))}
+      </ul>
+      <Note k="watch" />
+      <form className="mt-1 flex gap-1" onSubmit={async (e) => { e.preventDefault(); if (input.trim() && (await onAdd(input.trim()))) setInput(""); }}>
+        <input className="field min-w-0 flex-1 !px-2 !py-1 !text-xs" placeholder="Add a creator: @handle, name or channel/video link" value={input} maxLength={200} onChange={(e) => setInput(e.target.value)} aria-label="Creator to add" />
+        <button type="submit" className="chip" disabled={busy.add || !input.trim()}>{busy.add ? "Adding…" : "+ Add"}</button>
+      </form>
+      <Note k="add" />
+      {added && !busy.add && <p className="ok mt-1 text-xs" role="status">{added}</p>}
+    </div>
+  );
+}
+
+function ScoutSettingsForm({ s, busy, Note, onSave }: { s: ScoutSettings; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode;
+  onSave: (key: string, body: ScoutPatch) => Promise<boolean> }) {
+  const [f, setF] = useState({ keywords: s.keywords.join("\n"), maxAgeHours: s.maxAgeHours, creatorMaxAgeDays: s.creatorMaxAgeDays, minMinutes: s.minMinutes, dailyAuto: s.dailyAuto, runAt: s.runAt });
   const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
-  const numField = (k: "maxAgeHours" | "minMinutes" | "dailyAuto" | "runAt", name: string, min: number, max: number) => (
+  const numField = (k: "maxAgeHours" | "creatorMaxAgeDays" | "minMinutes" | "dailyAuto" | "runAt", name: string, min: number, max: number) => (
     <label className="w-28"><span className={label}>{name}</span>
       <input className="field w-full !px-2 !py-1 !text-xs" type="number" min={min} max={max} value={f[k]} onChange={(e) => setF((x) => ({ ...x, [k]: Math.round(Number(e.target.value)) }))} />
     </label>
   );
-  const setWatch = (creator: CreatorOp) => void onSave("watch", { creator });
   return (
     <div id="scout-settings" className="mt-2 space-y-3 rounded-xl border border-white/10 p-2 text-xs">
-      <div>
-        <b className="block text-sm">★ Approved creators</b>
-        <p className="muted text-[11px]">Only creators who allow clipping. Auto-clip lets the daily run download their best new video by itself (up to the daily limit); finished clips still wait for your review.</p>
-        <ul className="mt-1 space-y-1" aria-label="Watchlist">
-          {s.watchlist.map((w) => (
-            <li key={w.channelId} className="flex flex-wrap items-center gap-2">
-              <span className="min-w-0 flex-1 truncate" title={w.channelId}>{w.title}</span>
-              <label className="flex items-center gap-1"><input type="checkbox" checked={w.autoClip} disabled={busy.watch}
-                onChange={(e) => setWatch({ channelId: w.channelId, autoClip: e.target.checked })} /> Auto-clip</label>
-              <ConfirmButton label="Remove" aria={`Remove ${w.title} from the watchlist`} disabled={busy.watch} onConfirm={() => setWatch({ channelId: w.channelId, remove: true })} />
-            </li>
-          ))}
-        </ul>
-        <Note k="watch" />
-        <form className="mt-1 flex gap-1" onSubmit={async (e) => { e.preventDefault(); if (input.trim() && (await onAdd(input.trim()))) setInput(""); }}>
-          <input className="field min-w-0 flex-1 !px-2 !py-1 !text-xs" placeholder="Channel link, @handle or UC… id" value={input} maxLength={200} onChange={(e) => setInput(e.target.value)} aria-label="Creator to add" />
-          <button type="submit" className="chip" disabled={busy.add || !input.trim()}>{busy.add ? "Adding…" : "+ Add"}</button>
-        </form>
-        <Note k="add" />
-      </div>
       <form className="space-y-2" onSubmit={(e) => {
         e.preventDefault();
-        void onSave("settings", { keywords: f.keywords.split("\n").map((k) => k.trim()).filter(Boolean), maxAgeHours: f.maxAgeHours, minMinutes: f.minMinutes, dailyAuto: f.dailyAuto, runAt: f.runAt });
+        void onSave("settings", { keywords: f.keywords.split("\n").map((k) => k.trim()).filter(Boolean), maxAgeHours: f.maxAgeHours, creatorMaxAgeDays: f.creatorMaxAgeDays, minMinutes: f.minMinutes, dailyAuto: f.dailyAuto, runAt: f.runAt });
       }}>
-        <label className="block"><span className={label}>Keywords (one per line; up to 3 searched per run, 100 units each)</span>
+        <label className="block"><span className={label}>Keywords: search words to discover new creators (one per line; up to 3 searched per run, 100 units each). Channel links go under Creators.</span>
           <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} value={f.keywords} onChange={(e) => setF((x) => ({ ...x, keywords: e.target.value }))} />
         </label>
         <div className="flex flex-wrap gap-2">
-          {numField("maxAgeHours", "Max age (h)", 1, 336)}{numField("minMinutes", "Min length (min)", 1, 180)}
+          {numField("creatorMaxAgeDays", "Creator videos max age (d)", 1, 60)}{numField("maxAgeHours", "Keyword videos max age (h)", 1, 336)}{numField("minMinutes", "Min length (min)", 1, 180)}
           {numField("dailyAuto", "Auto clips/day", 0, 5)}{numField("runAt", "Daily run (hour)", 0, 23)}
         </div>
         <button type="submit" className="btn" disabled={busy.settings}>{busy.settings ? "Saving…" : "Save settings"}</button>
@@ -532,9 +549,9 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
 }) {
   const [url, setUrl] = useState("");
   const [auto, setAuto] = useState(false);
-  const okUrl = parseClipUrl(url.trim());
+  const okUrl = parseClipUrl(url.trim()), ch = okUrl ? channelLink(okUrl) : null; // a channel page: wrong box
   const submit = async () => {
-    if (!okUrl) return;
+    if (!okUrl || ch) return;
     if (await onSubmit({ url: okUrl, permission: "", ...(auto ? { autoClip: { ...opts, captions: opts.captions && tools.transcriber } } : {}) })) setUrl("");
   };
   return (
@@ -546,6 +563,7 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
           onChange={(e) => setUrl(e.target.value)} aria-invalid={!!url.trim() && !okUrl} />
       </label>
       {!!url.trim() && !okUrl && <p className="error">That doesn&apos;t look like a YouTube, Twitch or Kick video link.</p>}
+      {ch && <p className="error" role="alert">{CHANNEL_LINK_MSG[ch]}</p>}
       <label className="flex items-center gap-1.5">
         <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Make clips when it&apos;s downloaded
       </label>
@@ -560,7 +578,7 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
           <EditOptions opts={opts} setOpts={setOpts} />
         </div>
       )}
-      <button type="submit" className="btn" disabled={busy || !okUrl || !tools.ytdlp || !tools.ffmpeg}>{busy ? "Adding…" : "⬇ Download"}</button>
+      <button type="submit" className="btn" disabled={busy || !okUrl || !!ch || !tools.ytdlp || !tools.ffmpeg}>{busy ? "Adding…" : "⬇ Download"}</button>
       {!tools.ytdlp && <p>Needs yt-dlp. On the PC, run <code className="num rounded bg-black/40 px-1">{YTDLP_SETUP}</code> in PowerShell, then restart ORBIT.</p>}
     </form>
   );

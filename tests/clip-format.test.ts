@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bytes, isJobActive, mmss } from "../src/lib/clips/format.ts";
+import { bytes, channelLink, isJobActive, mmss, parseClipUrl } from "../src/lib/clips/format.ts";
 
 test("mmss: m:ss, rounding, junk input", () => {
   assert.equal(mmss(0), "0:00");
@@ -26,4 +26,17 @@ test("isJobActive: working statuses or any rendering clip", () => {
   assert.equal(isJobActive({ status: "done", clips: [{ status: "ready" }, { status: "approved" }] }), false);
   assert.equal(isJobActive({ status: "failed" }), false);
   assert.equal(isJobActive({ status: "done", clips: [{ status: "ready" }, { status: "rendering" }] }), true);
+});
+
+test("channelLink: channel pages are refused by the download box, single videos pass", () => {
+  const k = (s: string) => channelLink(parseClipUrl(s)!);
+  assert.equal(k("https://www.youtube.com/@Jynxzi"), "youtube");
+  assert.equal(k("youtube.com/@Jynxzi/videos"), "youtube");
+  assert.equal(k("https://www.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa"), "youtube");
+  assert.equal(k("https://www.youtube.com/c/Name"), "youtube");
+  assert.equal(k("https://www.youtube.com/user/Name"), "youtube");
+  assert.equal(k("https://www.twitch.tv/jynxzi"), "other");
+  assert.equal(k("https://kick.com/someone"), "other");
+  for (const v of ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+    "https://www.youtube.com/live/dQw4w9WgXcQ", "https://www.twitch.tv/videos/123", "https://clips.twitch.tv/SomeClip", "https://kick.com/someone/videos/abc"]) assert.equal(k(v), null, v);
 });

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  DAILY_UNITS, DEFAULTS, autoPicks, baselineVph, buildPicks, charge, emptyScout, parseRanking, parseScout, planRun, pureScore, quotaDay, scoutDue, skipReason,
+  DAILY_UNITS, DEFAULTS, looksLikeChannel, skipSummary, autoPicks, baselineVph, buildPicks, charge, emptyScout, parseRanking, parseScout, planRun, pureScore, quotaDay, scoutDue, skipReason,
   toCandidates, usedToday, validSettings, videoIdOf, type Candidate, type ScoutPick,
 } from "../src/lib/clips/scout-pure.ts";
 
@@ -15,7 +15,7 @@ test("validSettings: patches, bounds, dedupe, cleaning", () => {
   const s = validSettings({ keywords: [" minecraft  speedrun ", "minecraft speedrun", "pod"], maxAgeHours: 24, dailyAuto: 0 }, DEFAULTS);
   assert.ok(typeof s !== "string");
   assert.deepEqual(s.keywords, ["minecraft speedrun", "pod"]);
-  assert.equal(s.maxAgeHours, 24); assert.equal(s.dailyAuto, 0); assert.equal(s.minMinutes, 15); assert.equal(s.runAt, 6);
+  assert.equal(s.maxAgeHours, 24); assert.equal(s.dailyAuto, 0); assert.equal(s.minMinutes, 8); assert.equal(s.creatorMaxAgeDays, 7); assert.equal(s.runAt, 6);
   assert.match(validSettings({ runAt: 24 }, DEFAULTS) as string, /runAt/);
   assert.match(validSettings({ maxAgeHours: 1.5 }, DEFAULTS) as string, /maxAgeHours/);
   assert.match(validSettings({ keywords: ["x"] }, DEFAULTS) as string, /keyword/);
@@ -27,7 +27,10 @@ test("validSettings: patches, bounds, dedupe, cleaning", () => {
 
 test("parseScout: defaults, rejects bad files, drops bad picks", () => {
   assert.equal(typeof parseScout(null), "string");
-  assert.equal(typeof parseScout({ v: 2 }), "string");
+  assert.equal(typeof parseScout({ v: 3 }), "string");
+  const m = parseScout({ v: 1, minMinutes: 15 }), kept = parseScout({ v: 1, minMinutes: 20 }), v2 = parseScout({ v: 2, minMinutes: 15 });
+  assert.ok(typeof m !== "string" && typeof kept !== "string" && typeof v2 !== "string");
+  assert.equal(m.minMinutes, 8); assert.equal(m.v, 2); assert.equal(kept.minMinutes, 20); assert.equal(v2.minMinutes, 15); // migrated once, old default only
   assert.equal(typeof parseScout({ v: 1, runAt: 99 }), "string");
   const s = parseScout({ v: 1, picks: [{ videoId: "nope" }, { videoId: "aaaaaaaaaaa", url: "u", title: "t", score: 5, status: "new", source: "keyword", stats: {} }], seen: ["bbbbbbbbbbb", 3] });
   assert.ok(typeof s !== "string");
@@ -68,15 +71,18 @@ test("scoutDue: once per local day after runAt, catches up a missed day", () => 
 });
 
 test("skipReason: seen/made, live, too short, too long, too old", () => {
-  const o = { now: NOW, maxAgeHours: 48, minMinutes: 15, skip: new Set(["sssssssssss"]) };
+  const o = { now: NOW, maxAgeHours: 48, creatorMaxAgeDays: 7, minMinutes: 15, seen: new Set(["sssssssssss"]), made: new Set(["mmmmmmmmmmm"]) };
   assert.equal(skipReason(cand(), o), "");
   assert.equal(skipReason(cand({ id: "sssssssssss" }), o), "seen");
+  assert.equal(skipReason(cand({ id: "mmmmmmmmmmm" }), o), "made");
   assert.equal(skipReason(cand({ live: "live" }), o), "live");
   assert.equal(skipReason(cand({ live: "upcoming", durationSec: 0 }), o), "live");
   assert.equal(skipReason(cand({ durationSec: 14 * 60 }), o), "short");
   assert.equal(skipReason(cand({ durationSec: 4 * 3600 }), o), "long");
-  assert.equal(skipReason(cand({ publishedAt: hAgo(49) }), o), "old");
-  assert.equal(skipReason(cand({ publishedAt: "garbage" }), o), "old");
+  assert.equal(skipReason(cand({ publishedAt: hAgo(49), source: "keyword" }), o), "old");
+  assert.equal(skipReason(cand({ publishedAt: hAgo(49) }), o), ""); // watchlist: 7-day window
+  assert.equal(skipReason(cand({ publishedAt: hAgo(8 * 24) }), o), "oldCreator");
+  assert.equal(skipReason(cand({ publishedAt: "garbage", source: "keyword" }), o), "old");
 });
 
 test("videoIdOf and toCandidates", () => {
@@ -159,4 +165,16 @@ test("parseScout rebuilds pick urls from the video id", () => {
   const s = parseScout({ v: 1, picks: [{ videoId: "aaaaaaaaaaa", url: "https://evil.example/x", title: "t", score: 5, status: "new", source: "keyword", stats: {} }] });
   assert.ok(typeof s !== "string");
   assert.equal(s.picks[0].url, "https://www.youtube.com/watch?v=aaaaaaaaaaa");
+});
+
+test("skipSummary explains an empty list", () => {
+  assert.equal(skipSummary(25, 0, { short: 14, old: 9, live: 2, made: 0 }, { minMinutes: 15, maxAgeHours: 48, creatorMaxAgeDays: 7 }),
+    "25 found · 0 picks — 14 too short (<15 min), 9 older than 48 h, 2 live/upcoming");
+  assert.equal(skipSummary(3, 1, {}, DEFAULTS), "3 found · 1 pick");
+});
+
+test("wrong box: links and @handles aren't keywords", () => {
+  for (const k of ["https://www.youtube.com/@Jynxzi", "@Jynxzi", "youtube.com/@Jynxzi", "youtu.be/abc", "www.twitch.tv/x"]) assert.equal(looksLikeChannel(k), true, k);
+  for (const k of ["Funny jynxzi reaction", "rainbow six siege rage"]) assert.equal(looksLikeChannel(k), false, k);
+  assert.match(validSettings({ keywords: ["https://www.youtube.com/@Jynxzi"] }, DEFAULTS) as string, /Creators/);
 });

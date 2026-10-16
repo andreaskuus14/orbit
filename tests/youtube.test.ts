@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { moonRadius, takeoff, parseChannelInput, parseIsoDuration, type Video } from "../src/lib/youtube-pure.ts";
+import { moonRadius, takeoff, parseChannelInput, parseCreatorInput, parseIsoDuration, type Video } from "../src/lib/youtube-pure.ts";
 
 const NOW = Date.parse("2026-10-15T12:00:00Z");
 const v = (id: string, daysAgo: number, views: number): Video => ({
@@ -55,4 +55,23 @@ test("parseIsoDuration reads YouTube durations", () => {
   assert.equal(parseIsoDuration("PT45S"), 45);
   assert.equal(parseIsoDuration("P1DT5M"), 86_700);
   assert.equal(parseIsoDuration("garbage"), 0);
+});
+
+test("parseCreatorInput: handles, bare names, channel URL kinds, video links", () => {
+  const id = "UC" + "a".repeat(22), vid = "dQw4w9WgXcQ";
+  assert.deepEqual(parseCreatorInput("@Jynxzi"), { handle: "@Jynxzi" });
+  assert.deepEqual(parseCreatorInput(" jynxzi "), { handle: "@jynxzi" });
+  assert.deepEqual(parseCreatorInput("https://m.youtube.com/@Jynxzi/videos"), { handle: "@Jynxzi" });
+  assert.deepEqual(parseCreatorInput("https://www.youtube.com/c/Jynxzi"), { handle: "@Jynxzi" });
+  assert.deepEqual(parseCreatorInput("youtube.com/user/OldName/featured"), { username: "OldName" });
+  assert.deepEqual(parseCreatorInput(`https://youtube.com/channel/${id}`), { id });
+  assert.deepEqual(parseCreatorInput(id), { id });
+  assert.deepEqual(parseCreatorInput(`https://www.youtube.com/watch?v=${vid}&t=30s`), { video: vid });
+  assert.deepEqual(parseCreatorInput(`https://www.youtube.com/watch?feature=share&v=${vid}`), { video: vid });
+  assert.deepEqual(parseCreatorInput(`https://youtu.be/${vid}?si=x`), { video: vid });
+  assert.deepEqual(parseCreatorInput(`youtube.com/shorts/${vid}`), { video: vid });
+  assert.deepEqual(parseCreatorInput(`https://www.youtube.com/live/${vid}`), { video: vid });
+  assert.equal(parseCreatorInput("https://evil.com/@x"), null);
+  assert.equal(parseCreatorInput("funny jynxzi reaction"), null);
+  assert.equal(parseCreatorInput(""), null);
 });

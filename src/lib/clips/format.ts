@@ -34,6 +34,17 @@ export function parseClipUrl(input: unknown): string | null {
   return u.protocol === "https:" && LINK_HOSTS.has(u.hostname) && !u.username && !u.password && !u.port ? u.href : null;
 }
 
+/** A parseClipUrl link that is a channel page rather than one video: "youtube" for YouTube channels (they belong in the scout's creators). */
+export function channelLink(href: string): "youtube" | "other" | null {
+  let u: URL;
+  try { u = new URL(href); } catch { return null; }
+  const parts = u.pathname.split("/").filter(Boolean);
+  if (u.hostname.endsWith("youtube.com")) return /^(@|channel$|c$|user$)/.test(parts[0] ?? "") ? "youtube" : null;
+  if (u.hostname === "clips.twitch.tv" || u.hostname === "youtu.be") return null;
+  return parts.length === 1 && parts[0] !== "videos" ? "other" : null; // twitch.tv/name, kick.com/name: a live channel, not a video
+}
+export const CHANNEL_LINK_MSG = { youtube: "That's a channel link. Add it under Video scout → Creators so ORBIT watches its new videos.", other: "That's a channel page, not a video: paste a link to one video." };
+
 /** Optional note on how the creator allows clipping, as one line ("" when none); null only when invalid (> 300 chars or not a string). */
 export function cleanPermission(s: unknown): string | null {
   if (s === undefined || s === null) return "";
