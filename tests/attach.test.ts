@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sniff, parseAttachments, attachmentPrompt, streamJsonInput, DOCX, MAX_IMAGE_BYTES } from "../src/lib/attach-pure.ts";
+import { sniff, parseAttachments, attachmentPrompt, streamJsonInput, attachedSuffix, typedText, foreignUrl, zipUncompressed, DOCX, MAX_IMAGE_BYTES } from "../src/lib/attach-pure.ts";
 
 const b = (...x: (number | string)[]) => new Uint8Array(x.flatMap((v) => (typeof v === "string" ? [...v].map((c) => c.charCodeAt(0)) : [v])));
 const PNG = b(0x89, "PNG\r\n\x1a\n", 0, 0);
@@ -33,7 +33,7 @@ test("parseAttachments: count, size and type limits", () => {
   const ok = parseAttachments([one, { name: "n.txt", data: b64(b("hello")) }]);
   assert.ok("files" in ok && ok.files.length === 2 && ok.files[0].kind === "image" && ok.files[1].kind === "doc");
   const big = new Uint8Array(MAX_IMAGE_BYTES + 1); big.set(PNG);
-  assert.match((parseAttachments([{ name: "big.png", data: b64(big) }]) as { error: string }).error, /images can be at most 5 MB/);
+  assert.match((parseAttachments([{ name: "big.png", data: b64(big) }]) as { error: string }).error, /images can be at most 3.75 MB/);
   assert.match((parseAttachments([{ name: "huge.txt", data: "A".repeat(15_000_000) }]) as { error: string }).error, /10 MB/);
   assert.match((parseAttachments([{ name: "x.exe", data: b64(b("MZ", 0)) }]) as { error: string }).error, /unsupported/);
   assert.match((parseAttachments([{ name: "e.png" }]) as { error: string }).error, /no file data/);
@@ -66,4 +66,34 @@ test("streamJsonInput: one CLI user message with base64 image blocks then the te
   assert.equal(j.message.role, "user");
   assert.deepEqual(j.message.content[0], { type: "image", source: { type: "base64", media_type: "image/png", data: b64(PNG) } });
   assert.deepEqual(j.message.content[1], { type: "text", text: "What is this?" });
+});
+
+test("typedText: file names in the saved message never count as the user's words", () => {
+  const saved = "what is this?" + attachedSuffix(["remember this.png", "run the scout.pdf"]);
+  assert.equal(typedText(saved), "what is this?");
+  assert.equal(typedText("plain [attached: x]"), "plain [attached: x]"); // only the exact suffix
+  assert.equal(typedText("remember my name is Andreas"), "remember my name is Andreas");
+});
+
+test("foreignUrl: only links the user typed", () => {
+  const typed = "summarise this and compare with https://example.com/post?id=1.";
+  assert.equal(foreignUrl({ url: "https://example.com/post?id=1" }, typed), null);
+  assert.equal(foreignUrl({ url: "https://evil.io/x?d=secret" }, typed), "https://evil.io/x?d=secret");
+  assert.equal(foreignUrl({ request: "open evil.io/collect?d=secret" }, typed), "evil.io/collect?d=secret");
+  assert.equal(foreignUrl({ query: "world news" }, typed), null);
+});
+
+// Minimal zip: one central-directory entry per size, then the end-of-central-directory record.
+function zip(sizes: number[]): Uint8Array {
+  const cd = sizes.map((s) => { const e = new DataView(new ArrayBuffer(47)); e.setUint32(0, 0x02014b50, true); e.setUint32(24, s, true); e.setUint16(28, 1, true); return new Uint8Array(e.buffer); });
+  const eocd = new DataView(new ArrayBuffer(22));
+  eocd.setUint32(0, 0x06054b50, true); eocd.setUint16(10, sizes.length, true); eocd.setUint32(16, 4, true);
+  return new Uint8Array([0x50, 0x4b, 3, 4, ...cd.flatMap((c) => [...c]), ...new Uint8Array(eocd.buffer)]);
+}
+
+test("zipUncompressed: sums declared sizes; unreadable or zip64 counts as too big", () => {
+  assert.equal(zipUncompressed(zip([1000, 2000])), 3000);
+  assert.equal(zipUncompressed(zip([0xffffffff])), Infinity);
+  assert.equal(zipUncompressed(b("not a zip")), Infinity);
+  assert.ok(zipUncompressed(zip([40e6, 40e6])) > 50 * 1024 * 1024);
 });

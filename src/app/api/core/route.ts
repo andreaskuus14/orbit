@@ -6,7 +6,7 @@ import { emit } from "@/lib/claude";
 import { stepLabel } from "@/lib/core-ui";
 import { str } from "@/lib/pure";
 import type { NavTarget } from "@/lib/nav-pure";
-import { parseAttachments } from "@/lib/attach-pure";
+import { parseAttachments, attachedSuffix } from "@/lib/attach-pure";
 import { prepareAttachments } from "@/lib/core-attach";
 
 export const maxDuration = 300;
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   if (!message) return Response.json({ error: "Message is required (max 8000 chars)" }, { status: 400 });
   const attach = await prepareAttachments(files.files);
   // shortcut: only the names are saved, so later turns can't see the files again; store them in the vault if that's needed.
-  const content = files.files.length ? `${message}\n\n[attached: ${files.files.map((f) => f.name).join(", ")}]` : message;
+  const content = files.files.length ? message + attachedSuffix(files.files.map((f) => f.name)) : message;
 
   // Conversation: reuse if it belongs to the user (RLS enforces this), else start a new one.
   let conversationId: string | null = typeof body.conversationId === "string" ? body.conversationId : null;

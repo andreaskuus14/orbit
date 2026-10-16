@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, askClaudeStream, recordUsage, MODEL, FAST_MODEL, type PromptImage } from "./claude";
+import { typedText, foreignUrl } from "./attach-pure";
 import { pickModel } from "./core-ui";
 import { partialAnswer } from "./streamjson";
 import { searchMemories, MEMORY_COLUMNS } from "./memory";
@@ -74,7 +75,7 @@ ${facts || "(empty)"}`;
  */
 export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }) {
   const trace: TraceStep[] = [];
-  const question = history[history.length - 1].content;
+  const question = typedText(history[history.length - 1].content); // attached file names never count as the user's words
 
   let t = Date.now();
   onStep?.("search_memory", {});
@@ -157,6 +158,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       try { out = reply.tool === "navigate" ? navigateTool(reply.input ?? {}, !dataIn(), onNavigate)
         : isStudioTool(reply.tool) ? await runStudioTool(reply.tool, question, dataIn())
         : reply.tool === "plan_task" ? await runPlanTool(reply.input ?? {}, question, dataIn())
+        : attach && ["fetch_url", "read_news", "ask_agent"].includes(reply.tool) && foreignUrl(reply.input, question) ? "Error: with attached files, only open links the user typed in their message"
         : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question, signal, stopped); }
       catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
       trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 140)} → ${out.slice(0, 140)}`, ms: Date.now() - t, ok: !out.startsWith("Error:") });

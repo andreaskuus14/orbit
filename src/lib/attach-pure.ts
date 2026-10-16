@@ -2,7 +2,7 @@
 // Keep this file free of imports and non-erasable TS syntax (it runs under node --experimental-strip-types).
 
 export const MAX_FILES = 3;
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 3.75 * 1024 * 1024; // the API limit (5 MB) applies to the base64 form
 export const MAX_DOC_BYTES = 10 * 1024 * 1024;
 const DOC_CHARS = 30_000; // per document in the prompt
 
@@ -26,6 +26,38 @@ export function sniff(b: Uint8Array, name: string): Sniffed | null {
   if (!ext || b.includes(0)) return null;
   try { new TextDecoder("utf-8", { fatal: true }).decode(b); } catch { return null; }
   return { kind: "doc", type: ext === "csv" ? "text/csv" : ext === "txt" ? "text/plain" : "text/markdown" };
+}
+
+/** Suffix saved after the user's message on attachment turns; never part of what gates actions (see typedText). */
+export const attachedSuffix = (names: string[]) => `\n\n[attached: ${names.join(", ")}]`;
+/** The user's typed words of a saved message: file names must not unlock save_memory, studio actions or reflection. */
+export const typedText = (content: string) => content.replace(/\n\n\[attached: [^\n]*\]$/, "");
+
+/** On attachment turns a URL may only come from the user's typed message: stops a document telling CORE to send data out.
+ *  shortcut: catches scheme URLs and domain/path tokens, not bare domains; tighten if attachments ever reach agents with more reach. */
+export function foreignUrl(input: unknown, typed: string): string | null {
+  const urls = JSON.stringify(input ?? {}).match(/(?:https?:\/\/[^\s"'<>\\]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}\/[^\s"'<>\\]*)/gi) ?? [];
+  return urls.find((u) => !typed.includes(u.replace(/[.,;:!?)]+$/, ""))) ?? null;
+}
+
+/** Total uncompressed size declared in a zip's central directory; Infinity when unreadable or zip64 (too big to trust). */
+export function zipUncompressed(b: Uint8Array): number {
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  for (let e = b.length - 22; e >= Math.max(0, b.length - 65557); e--) {
+    if (v.getUint32(e, true) !== 0x06054b50) continue;
+    const n = v.getUint16(e + 10, true);
+    let at = v.getUint32(e + 16, true), total = 0;
+    if (n === 0xffff || at === 0xffffffff) return Infinity;
+    for (let i = 0; i < n; i++) {
+      if (at + 46 > b.length || v.getUint32(at, true) !== 0x02014b50) return Infinity;
+      const size = v.getUint32(at + 24, true);
+      if (size === 0xffffffff) return Infinity;
+      total += size;
+      at += 46 + v.getUint16(at + 28, true) + v.getUint16(at + 30, true) + v.getUint16(at + 32, true);
+    }
+    return total;
+  }
+  return Infinity;
 }
 
 /** Validate the raw `attachments` field of a CORE request ([{name, data: base64}]). */

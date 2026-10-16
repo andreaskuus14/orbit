@@ -4,6 +4,7 @@ import { createMemory, findSimilar } from "./memory";
 import { embed } from "./embeddings";
 import { getPlaybook, applyPlaybookEdits } from "./playbook";
 import { parseReflection, allowedSaves, summaryDue, normTitle, shouldReflect, hasPreferenceSignal, type MemoryDraft } from "./reflect-pure";
+import { typedText } from "./attach-pure";
 
 const DUPLICATE_SIMILARITY = 0.92;
 
@@ -70,7 +71,7 @@ async function reflect(sb: SupabaseClient, userId: string, conversationId: strin
   ]);
   if (msgs.error) throw msgs.error;
   // Only the user's own words: CORE's answers and tool output (web pages, agent results) can carry injected text.
-  const lines = (msgs.data ?? []).reverse().map((m) => String(m.content).slice(0, 3000));
+  const lines = (msgs.data ?? []).reverse().map((m) => typedText(String(m.content)).slice(0, 3000));
   const latest = lines[lines.length - 1];
   const wantSummary = summaryDue(turns.count ?? 0);
   if (!latest || !shouldReflect(latest, wantSummary)) return; // short chit-chat: not worth a model call

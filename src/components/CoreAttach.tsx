@@ -17,19 +17,26 @@ const base64 = (b: Blob) => new Promise<string>((ok, fail) => {
   r.readAsDataURL(b);
 });
 
-/** Shrink an image to EDGE px on its long side (GIFs become a still PNG when shrunk). Small images pass through untouched. */
+/** Shrink an image to EDGE px on its long side; if it is still over the limit, re-encode as JPEG at falling quality and size.
+ *  GIFs become a still image when re-encoded. Small images pass through untouched. */
 async function downscale(f: File): Promise<File> {
   const bmp = await createImageBitmap(f);
-  const k = EDGE / Math.max(bmp.width, bmp.height);
-  if (k >= 1) { bmp.close(); return f; }
-  const c = document.createElement("canvas");
-  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-  c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
-  bmp.close();
-  const type = f.type === "image/gif" ? "image/png" : f.type;
-  const blob = await new Promise<Blob | null>((ok) => c.toBlob(ok, type, 0.9));
-  if (!blob) throw new Error("couldn't resize");
-  return new File([blob], type === f.type ? f.name : f.name.replace(/\.gif$/i, ".png"), { type });
+  const k = Math.min(1, EDGE / Math.max(bmp.width, bmp.height));
+  if (k === 1 && f.size <= MAX_IMAGE_BYTES) { bmp.close(); return f; }
+  const same = f.type === "image/gif" ? "image/png" : f.type;
+  const tries: [string, number, number][] = [[same, 0.9, k], ["image/jpeg", 0.85, k], ["image/jpeg", 0.7, k], ["image/jpeg", 0.7, k * 0.7], ["image/jpeg", 0.6, k * 0.5]];
+  try {
+    for (const [type, q, scale] of tries) {
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(bmp.width * scale)); c.height = Math.max(1, Math.round(bmp.height * scale));
+      const ctx = c.getContext("2d")!;
+      if (type === "image/jpeg") { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height); } // JPEG has no transparency
+      ctx.drawImage(bmp, 0, 0, c.width, c.height);
+      const blob = await new Promise<Blob | null>((ok) => c.toBlob(ok, type, q));
+      if (blob && blob.size <= MAX_IMAGE_BYTES) return new File([blob], type === f.type ? f.name : `${f.name.replace(/\.\w+$/, "")}.${type === "image/jpeg" ? "jpg" : "png"}`, { type });
+    }
+    throw new Error(`${f.name}: too large even after compressing`);
+  } finally { bmp.close(); }
 }
 
 async function load(f: File): Promise<Pending> {
@@ -37,7 +44,7 @@ async function load(f: File): Promise<Pending> {
   if (!image && !DOC.test(f.name)) throw new Error(`${f.name}: unsupported. Images (PNG, JPEG, WebP, GIF) or PDF, Word, text, CSV`);
   if (!image && f.size > MAX_DOC_BYTES) throw new Error(`${f.name}: documents can be at most 10 MB`);
   const file = image ? await downscale(f) : f;
-  if (image && file.size > MAX_IMAGE_BYTES) throw new Error(`${f.name}: images can be at most 5 MB`);
+  if (image && file.size > MAX_IMAGE_BYTES) throw new Error(`${f.name}: images can be at most 3.75 MB`);
   return { id: crypto.randomUUID(), name: file.name || "pasted.png", data: await base64(file), image, preview: image ? URL.createObjectURL(file) : undefined, file };
 }
 
