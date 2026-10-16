@@ -1,6 +1,6 @@
 import { access } from "node:fs/promises";
 import path from "node:path";
-import { askClaude } from "../claude";
+import { SMART_MODEL, askClaude } from "../claude";
 import { tastePrompt } from "./learn";
 import { api } from "../youtube";
 import { parseCreatorInput, type CreatorInput } from "../youtube-pure";
@@ -277,7 +277,7 @@ async function research() {
     }
     if (!all.length) throw new Error(warnings[0] ?? "YouTube returned no videos to research");
 
-    const r = await askClaude(nichePrompt(all, now.getTime(), nicheContext(s)) + await tastePrompt(), NICHE, { lane: "background", signal: AbortSignal.timeout(5 * 60_000) });
+    const r = await askClaude(nichePrompt(all, now.getTime(), nicheContext(s)) + await tastePrompt(), NICHE, { lane: "background", signal: AbortSignal.timeout(8 * 60_000), model: SMART_MODEL });
     const niches = parseNiches(r.text);
     if (typeof niches === "string") throw new Error(niches);
 

@@ -5,7 +5,7 @@ import { access, mkdir, open, readdir, readFile, rename, rm, stat, statfs, write
 import { availableParallelism } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { askClaudeStream } from "../claude";
+import { SMART_MODEL, askClaudeStream } from "../claude";
 import { createLimiter } from "../pure";
 import { CHANNEL_LINK_MSG, channelLink, rootClipId } from "./format";
 import { isVideoId, uploadError, type VideoResource } from "../yt-analytics-pure";
@@ -578,7 +578,7 @@ async function pickMoments(words: Word[], cands: Candidate[], spans: Span[], dur
 <candidates>
 ${all.map((m, i) => `#${i + 1} ${m.start.toFixed(1)}-${m.end.toFixed(1)} s, scout score ${Math.round(m.score * 100)}: ${m.title} | hook: ${m.hook} | ${m.reason}\n${text(m)}`).join("\n\n")}
 </candidates>${creatorLine(creator)}`;
-  const final = await askClaudeStream(prompt, RANK + (await import("./learn").then((m) => m.tastePrompt(), () => "")), () => {}, signal) // learned taste (learn.ts)
+  const final = await askClaudeStream(prompt, RANK + (await import("./learn").then((m) => m.tastePrompt(), () => "")), () => {}, signal, "background", SMART_MODEL) // learned taste (learn.ts)
     .then((r) => validateMoments(r.text, { duration, maxSec: o.maxSec, count: o.count }), (e) => { if (signal.aborted) throw e; return [] as Moment[]; });
   const ok = mergeRanked(final, all, o.count).filter((x) => spanCover(x, spans) >= 0.8); // a scout may wander outside the transcript
   if (!ok.length) throw new Error("no moments inside the transcribed parts");

@@ -187,18 +187,23 @@ import { allKeywords, autoApplyNiche, nicheDue, parseNiches, planResearch } from
 const niche = (extra: Record<string, unknown> = {}) => ({ name: "Rage gaming", why: "Rage Shorts avg 52k views/h, 7 of top 20", score: 81,
   keywords: ["rainbow six rage", "jynxzi stream"], creators: [{ name: "Jynxzi", evidence: "3 clips over 1M views" }], ...extra });
 
-test("parseNiches: strict JSON, 1-3 valid niches, best first", () => {
+test("parseNiches: tolerant — trims prose, drops bad parts, keeps valid niches, best first", () => {
   const ok = parseNiches("Here:\n" + JSON.stringify({ niches: [niche({ name: "Bee", score: 40 }), niche()] }));
   assert.ok(typeof ok !== "string");
   assert.deepEqual(ok.map((n) => n.name), ["Rage gaming", "Bee"]);
-  const bad = (n: Record<string, unknown>) => assert.equal(typeof parseNiches(JSON.stringify({ niches: [niche(n)] })), "string", JSON.stringify(n));
-  bad({ why: "x".repeat(241) }); bad({ why: "no numbers in this one" }); bad({ score: 101 }); bad({ score: "80" });
-  bad({ keywords: ["one"] }); bad({ keywords: ["a", "b", "c", "d", "e"] }); bad({ keywords: ["ok kw", "@Jynxzi"] }); bad({ keywords: ["ok kw", "youtube.com/@x"] }); bad({ keywords: ["ok kw", "x"] });
-  bad({ creators: [{ name: "x".repeat(41), evidence: "e" }] }); bad({ creators: [{ name: "a", evidence: "e".repeat(161) }] }); bad({ creators: Array(5).fill({ name: "a", evidence: "e" }) });
+  const one = (n: Record<string, unknown>) => { const r = parseNiches(JSON.stringify({ niches: [niche(n)] })); assert.ok(typeof r !== "string", JSON.stringify(n)); return r[0]; };
+  assert.ok(one({ why: "word ".repeat(80) }).why.length <= 240); // long prose is trimmed, not fatal
+  assert.equal(one({ score: 130 }).score, 100); assert.equal(one({ score: "80" }).score, 80);
+  assert.deepEqual(one({ keywords: ["ok kw", "@Jynxzi", "fine kw", "x"] }).keywords, ["ok kw", "fine kw"]); // bad keywords dropped
+  assert.equal(one({ creators: [{ name: "x".repeat(41), evidence: "e" }, { name: "Good", evidence: "e" }] }).creators.length, 1);
+  // unusable niches are skipped; the report fails only when none is usable
+  const mixed = parseNiches(JSON.stringify({ niches: [niche({ keywords: ["one"] }), niche({ name: "Kept" })] }));
+  assert.ok(typeof mixed !== "string"); assert.deepEqual(mixed.map((n) => n.name), ["Kept"]);
+  assert.equal(typeof parseNiches(JSON.stringify({ niches: [niche({ keywords: ["one"] })] })), "string");
   assert.equal(typeof parseNiches("not json"), "string");
   assert.equal(typeof parseNiches(JSON.stringify({ niches: [] })), "string");
-  assert.equal(typeof parseNiches(JSON.stringify({ niches: [niche(), niche(), niche({ name: "C" }), niche({ name: "D" })] })), "string");
-  assert.equal(typeof parseNiches(JSON.stringify({ niches: [niche(), niche()] })), "string"); // duplicate names
+  const dup = parseNiches(JSON.stringify({ niches: [niche(), niche(), niche({ name: "Cc" }), niche({ name: "Dd" })] }));
+  assert.ok(typeof dup !== "string"); assert.equal(dup.length, 3); // duplicates dropped, max 3
 });
 
 test("AI keywords: kept apart from the owner's, merged without duplicates, replaced as a whole", () => {
@@ -225,7 +230,7 @@ test("parseScout: a bad niche block is dropped, the file is kept", () => {
   const good = { at: hAgo(1), niches: [niche()], creators: [{ channelId: UC("a"), title: "A", subscribers: 9, niche: "Rage gaming", evidence: "e" }] };
   const ok = parseScout({ ...emptyScout(), niche: good, nicheRun: { at: hAgo(1), ok: true, units: 400, warnings: [] } });
   assert.ok(typeof ok !== "string"); assert.equal(ok.niche?.niches[0].name, "Rage gaming"); assert.equal(ok.nicheRun?.units, 400);
-  for (const bad of [{ ...good, niches: [niche({ why: "x".repeat(300) })] }, { ...good, creators: [{ channelId: "nope" }] }, "junk", { at: 1 }]) {
+  for (const bad of [{ ...good, niches: [niche({ keywords: ["one"] })] }, { ...good, creators: [{ channelId: "nope" }] }, "junk", { at: 1 }]) {
     const s = parseScout({ ...emptyScout(), keywords: ["pod"], niche: bad, nicheRun: 5 });
     assert.ok(typeof s !== "string", JSON.stringify(bad));
     assert.equal(s.niche, undefined); assert.equal(s.nicheRun, undefined); assert.deepEqual(s.keywords, ["pod"]);

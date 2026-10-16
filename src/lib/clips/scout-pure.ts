@@ -317,28 +317,39 @@ export function nicheContext(s: Scout): string {
 /** Exactly fits [lo, hi] after cleaning, else null (too long is invalid, not truncated). */
 const fit = (v: unknown, lo: number, hi: number) => { const t = line(v, hi + 1); return t.length >= lo && t.length <= hi ? t : null; };
 
+// Prose from Claude is trimmed to fit (at a word, with "…") instead of failing the whole report; names/keywords stay strict.
+const trim = (v: unknown, lo: number, hi: number) => {
+  const t = line(v, 2000);
+  if (t.length < lo) return null;
+  return t.length <= hi ? t : t.slice(0, t.lastIndexOf(" ", hi - 1) > hi / 2 ? t.lastIndexOf(" ", hi - 1) : hi - 1) + "…";
+};
+
+/** One niche from Claude (or from scout.json): bad keywords/creators are dropped, not fatal; null when unusable. */
 function validNiche(n: unknown): Niche | null {
-  if (!isObj(n) || typeof n.score !== "number" || !(n.score >= 0 && n.score <= 100)) return null;
-  const name = fit(n.name, 2, 60), why = fit(n.why, 10, 240);
-  if (!name || !why || !/\d/.test(why)) return null; // "why" must cite numbers from the data
-  if (!Array.isArray(n.keywords) || n.keywords.length < 2 || n.keywords.length > 4) return null;
-  const keywords = [...new Set(n.keywords.map((k) => fit(k, 2, 60)))]; // dedupe before the count check, so a saved report re-validates on load
-  if (keywords.length < 2 || keywords.some((k) => !k || looksLikeChannel(k))) return null;
-  if (!Array.isArray(n.creators) || n.creators.length > 4) return null;
-  const creators = n.creators.map((c) => (isObj(c) ? { name: fit(c.name, 1, 40), evidence: fit(c.evidence, 1, 160) } : null));
-  if (creators.some((c) => !c?.name || !c.evidence)) return null;
-  return { name, why, score: Math.round(n.score), keywords: keywords as string[], creators: creators as Niche["creators"] };
+  if (!isObj(n)) return null;
+  const score = typeof n.score === "number" ? n.score : typeof n.score === "string" && n.score.trim() ? Number(n.score) : NaN;
+  if (!Number.isFinite(score)) return null;
+  const name = fit(n.name, 2, 60), why = trim(n.why, 10, 240);
+  if (!name || !why) return null;
+  const keywords = [...new Set((Array.isArray(n.keywords) ? n.keywords : []).map((k) => fit(k, 2, 60)).filter((k): k is string => !!k && !looksLikeChannel(k)))].slice(0, 4);
+  if (keywords.length < 2) return null;
+  const creators = (Array.isArray(n.creators) ? n.creators : []).flatMap((c) => {
+    const nm = isObj(c) ? fit(c.name, 1, 40) : null, ev = isObj(c) ? trim(c.evidence, 1, 160) : null;
+    return nm && ev ? [{ name: nm, evidence: ev }] : [];
+  }).slice(0, 4);
+  return { name, why, score: Math.round(Math.min(100, Math.max(0, score))), keywords, creators };
 }
 
-/** Strict check of Claude's niche reply: {"niches":[1-3 valid niches]}, distinct names → best first, or why it's unusable. */
+/** Claude's niche reply: {"niches":[...]} → the valid niches (distinct names), best first, or why none is usable. */
 export function parseNiches(text: string): Niche[] | string {
   const a = text.indexOf("{"), b = text.lastIndexOf("}");
   let raw: unknown = null;
   try { if (a >= 0 && b > a) raw = JSON.parse(text.slice(a, b + 1)); } catch { /* reported below */ }
-  if (!isObj(raw) || !Array.isArray(raw.niches) || !raw.niches.length || raw.niches.length > 3) return "Claude's niche report wasn't the expected JSON; nothing was saved";
-  const out = raw.niches.map(validNiche);
-  if (out.some((n) => !n) || new Set(out.map((n) => n!.name)).size !== out.length) return "Claude's niche report had an invalid niche (missing numbers, bad keywords or too-long text); nothing was saved";
-  return (out as Niche[]).sort((x, y) => y.score - x.score);
+  if (!isObj(raw) || !Array.isArray(raw.niches) || !raw.niches.length) return "Claude's niche report wasn't the expected JSON; nothing was saved";
+  const seen = new Set<string>();
+  const out = raw.niches.map(validNiche).filter((n): n is Niche => !!n).sort((x, y) => y.score - x.score).filter((n) => !seen.has(n.name.toLowerCase()) && !!seen.add(n.name.toLowerCase())).slice(0, 3); // best copy of each name, top 3
+  if (!out.length) return "Claude's niche report had no usable niche; nothing was saved";
+  return out;
 }
 
 /** scout.json's niche block → a report, or undefined when anything is off. */

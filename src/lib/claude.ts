@@ -9,6 +9,8 @@ import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.
 // and no per-token bill. ORBIT must therefore run on the machine where `claude` is installed and signed in.
 export const CLAUDE_BIN = process.env.ORBIT_CLAUDE_BIN || "claude";
 export const MODEL = process.env.ORBIT_MODEL || "sonnet";
+/** Stronger (slower) model for the few judgement calls where quality matters most: final clip ranking, niche research. */
+export const SMART_MODEL = process.env.ORBIT_MODEL_SMART || "opus";
 const TIMEOUT_MS = 120_000;
 const WIN = process.platform === "win32";
 const HINT = "Install Claude Code and run `claude` once to sign in (or set ORBIT_CLAUDE_BIN to its full path).";
@@ -85,8 +87,8 @@ export function stoppedReport(headline: string, steps: { step: string; detail: s
 export type ClaudeResult = { text: string; inputTokens: number; outputTokens: number; ms: number };
 
 /** Shared setup for every CLI call: system prompt in a temp dir, fixed flags, all tools disabled. */
-async function prepare(system: string, format: string[]) {
-  if (!/^[\w.:-]+$/.test(MODEL)) throw new Error("ORBIT_MODEL contains invalid characters");
+async function prepare(system: string, format: string[], model = MODEL) {
+  if (!/^[\w.:-]+$/.test(model)) throw new Error("ORBIT_MODEL / ORBIT_MODEL_SMART contains invalid characters");
   // The system prompt goes in a file and the user prompt on stdin, so no user text is ever on the command line.
   const dir = await mkdtemp(join(tmpdir(), "orbit-"));
   const sysFile = join(dir, "system.txt");
@@ -94,7 +96,7 @@ async function prepare(system: string, format: string[]) {
   const q = (a: string) => (WIN ? `"${a}"` : a); // Windows needs a shell to run claude.cmd, so quote args there
   const args = ["-p", ...format, "--tools", q(""), "--no-session-persistence",
     // Ignore user-level plugins/hooks/skills and all MCP connectors (CORE must have no tools) but keep the login. Not --bare: it skips OAuth.
-    "--setting-sources", "local", "--disable-slash-commands", "--strict-mcp-config", "--model", MODEL, "--system-prompt-file", q(sysFile)];
+    "--setting-sources", "local", "--disable-slash-commands", "--strict-mcp-config", "--model", model, "--system-prompt-file", q(sysFile)];
   const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: process.env, cwd: dir, windowsHide: true };
   // On Windows, claude may be claude.cmd, which needs a shell; pass one pre-quoted command string (args hold no user text).
   const start = () => (WIN ? spawn(`${q(CLAUDE_BIN)} ${args.join(" ")}`, { ...opts, shell: true }) : spawn(CLAUDE_BIN, args, opts));
@@ -113,22 +115,22 @@ function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean
   else child.kill("SIGKILL");
 }
 
-export type AskOpts = { lane?: Lane; signal?: AbortSignal };
+export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string };
 
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer). Aborting `signal` kills the CLI. */
-export function askClaude(prompt: string, system: string, { lane = "background", signal }: AskOpts = {}): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal), signal);
+export function askClaude(prompt: string, system: string, { lane = "background", signal, model }: AskOpts = {}): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model), signal);
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI. */
-export function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background"): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal), signal);
+export function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model), signal);
 }
 
-async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ClaudeResult> {
+async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string): Promise<ClaudeResult> {
   signal?.throwIfAborted();
   const t0 = Date.now();
-  const { dir, start } = await prepare(system, ["--output-format", "stream-json", "--verbose", "--include-partial-messages"]);
+  const { dir, start } = await prepare(system, ["--output-format", "stream-json", "--verbose", "--include-partial-messages"], model);
   try {
     return await new Promise<ClaudeResult>((resolve, reject) => {
       const child = start();
@@ -139,7 +141,8 @@ async function runClaudeStream(prompt: string, system: string, onDelta: (text: s
       const onAbort = () => { killTree(child); reject(new DOMException("Stopped", "AbortError")); };
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted) onAbort();
-      const timer = setTimeout(() => { killTree(child); reject(new Error("Claude Code timed out after 2 minutes")); }, TIMEOUT_MS);
+      const ms = model && model !== MODEL ? 3 * TIMEOUT_MS : TIMEOUT_MS; // the stronger model thinks longer
+      const timer = setTimeout(() => { killTree(child); reject(new Error(`Claude Code timed out after ${ms / 60_000} minutes`)); }, ms);
       const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
       const handle = (line: string) => {
         const ev = parseStreamJsonLine(line);
