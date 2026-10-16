@@ -347,6 +347,14 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .studio-tip span { color: #ff8fab; font-size: 11px; }
 
 /* CORE over STUDIO / GAME DEV: their panel owns the right side, so CORE opens on the left. Solid enough to read over the world. */
-.drawer.drawer-left { right: auto; left: 0.75rem; background: rgba(6, 4, 12, 0.88); }
+/* Studio panel only docks right from 900px; below that the phone drawer rule must keep its width. */
+@media (min-width: 900px) { .drawer.drawer-left { right: auto; left: 0.75rem; background: rgba(6, 4, 12, 0.88); } }
 /* Worlds' own panels, chips and buttons a little smaller (the 3D canvas keeps its size). */
 .globe-in > :not(:has(canvas)):not(.pointer-events-none) { zoom: 0.9; } /* not the hover-tip layers: they place tips at raw mouse coordinates */
+
+/* Voice: where the microphone audio goes (local Whisper vs Chrome/Google vs off). */
+.voice-route { position: absolute; right: 1rem; bottom: calc(100% + 0.35rem); max-width: calc(100% - 9rem); padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.65rem; color: var(--muted); background: var(--glass); border: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.voice-route.local { color: var(--cyan); border-color: var(--cyan); }
+.voice-route.cloud { color: var(--rose); }
+.voice-sub { font-size: 0.65rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border-top: 1px solid var(--line); padding-top: 0.5rem; }
+.voice-note { margin: 0; }

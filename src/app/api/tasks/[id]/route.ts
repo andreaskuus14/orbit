@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { ConflictError, kickQueue, resolvePending } from "@/lib/agents";
+import { ConflictError, cancelTask, kickQueue, resolvePending } from "@/lib/agents";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 type Ctx = { params: Promise<{ id: string }> };
@@ -16,7 +16,7 @@ export async function GET(_: Request, { params }: Ctx) {
   return Response.json({ task, children: children ?? [] });
 }
 
-/** approve | reject (pending actions), retry (failed/cancelled), cancel (queued). */
+/** approve | reject (pending actions), retry (failed/cancelled), cancel (queued or running, with its sub-tasks). */
 export async function POST(req: Request, { params }: Ctx) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
@@ -37,9 +37,9 @@ export async function POST(req: Request, { params }: Ctx) {
       return Response.json({ ok: true });
     }
     if (action === "cancel") {
-      const { data, error } = await sb.from("tasks").update({ status: "cancelled", finished_at: new Date().toISOString() }).eq("id", id).eq("status", "queued").select("id");
-      if (error) throw error;
-      if (!data?.length) return Response.json({ error: "Only queued tasks can be cancelled" }, { status: 400 });
+      // RLS-scoped read first: the in-process abort must never stop another user's task.
+      const { data: own } = await sb.from("tasks").select("id").eq("id", id).maybeSingle();
+      if (!own || !(await cancelTask(sb, id))) return Response.json({ error: "Only queued or running tasks can be cancelled" }, { status: 400 });
       return Response.json({ ok: true });
     }
     return Response.json({ error: "Unknown action" }, { status: 400 });

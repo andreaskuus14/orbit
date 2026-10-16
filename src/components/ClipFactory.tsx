@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { bytes, isJobActive, mmss, parseClipUrl } from "@/lib/clips/format";
+import { CAPTION_STYLES, REJECT_REASONS, bytes, isJobActive, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -8,10 +8,14 @@ import { bytes, isJobActive, mmss, parseClipUrl } from "@/lib/clips/format";
 // Mirrors src/lib/clips/types.ts (declared here so this file stands alone).
 type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
-  status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish };
-type ClipPublish = { status: "uploading" | "done" | "failed"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string };
+  status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; variantOf?: string; edit?: VersionEdit };
+type ClipPublish = { status: "uploading" | "done" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string };
+type CaptionStyle = (typeof CAPTION_STYLES)[number];
+type VersionEdit = { layout: "fit" | "fill" | "split"; camSide: "left" | "right"; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean };
+type VersionBody = Partial<VersionEdit> & { hook?: string; title?: string; start: number; end: number; suggest: boolean };
+type Quarantined = { file: string; reason: string; at: string };
 type YtStatus = { configured: boolean; connected: boolean; canUpload?: boolean };
-type PublishBody = { title: string; description: string; privacy: "private" | "unlisted" | "public"; publishAt?: string };
+type PublishBody = { title: string; description: string; privacy: "private" | "unlisted" | "public"; publishAt?: string; force?: boolean };
 type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering" | "done" | "failed";
 type ClipJob = { id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
@@ -22,7 +26,7 @@ type InboxFile = { name: string; size: number; mtime: string; jobId?: string; pe
 type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
 type Download = { id: string; url: string; status: "queued" | "downloading" | "done" | "failed"; progress: number; step: string; file?: string; error?: string;
   createdAt: string; permission: string; autoClip?: ClipJob["options"] };
-type Data = { root: string; tools: ToolsStatus; inbox: InboxFile[]; jobs: ClipJob[]; downloads: Download[] };
+type Data = { root: string; tools: ToolsStatus; inbox: InboxFile[]; jobs: ClipJob[]; downloads: Download[]; quarantined?: Quarantined[]; publishing?: string | null };
 type Opts = Required<ClipOptions>;
 
 const API = "/api/studio/clips";
@@ -107,7 +111,8 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
     on(); document.addEventListener("visibilitychange", on);
     return () => document.removeEventListener("visibilitychange", on);
   }, []);
-  const active = !!data?.jobs.some((j) => isJobActive(j) || j.clips.some((c) => c.publish?.status === "uploading")) || !!data?.downloads?.some((d) => d.status === "queued" || d.status === "downloading");
+  // An "uploading" clip the server isn't uploading (a lost final save) never changes on its own: don't poll for it.
+  const active = !!data?.jobs.some((j) => isJobActive(j) || j.clips.some((c) => c.publish?.status === "uploading" && data.publishing === `${j.id}/${c.id}`)) || !!data?.downloads?.some((d) => d.status === "queued" || d.status === "downloading");
   useEffect(() => {
     if (!active || !visible) return;
     const t = setInterval(() => void load(true), 2000);
@@ -134,16 +139,24 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
     }
   });
 
-  const patchClip = (job: string, clip: string, body: { status?: "approved" | "rejected"; title?: string }) => act(`clip:${job}/${clip}`, async () => {
-    const { clip: next } = await api<{ clip: Clip }>(`${API}/${encodeURIComponent(job)}/${encodeURIComponent(clip)}`, { method: "PATCH", body });
+  const clipUrl = (job: string, clip: string) => `${API}/${encodeURIComponent(job)}/${encodeURIComponent(clip)}`;
+  const putClip = (job: string, clip: string, next: Clip) => {
     seq.current++; // a poll already in flight carries the pre-edit state: drop it
     setData((d) => d && { ...d, jobs: d.jobs.map((j) => (j.id !== job ? j : { ...j, clips: j.clips.map((c) => (c.id === clip ? next : c)) })) });
+  };
+  const patchClip = (job: string, clip: string, body: PatchBody) => act(`clip:${job}/${clip}`, async () => {
+    putClip(job, clip, (await api<{ clip: Clip }>(clipUrl(job, clip), { method: "PATCH", body })).clip);
   });
-
   const publish = (job: string, clip: string, body: PublishBody) => act(`pub:${job}/${clip}`, async () => {
-    const { clip: next } = await api<{ clip: Clip }>(`${API}/${encodeURIComponent(job)}/${encodeURIComponent(clip)}/publish`, { method: "POST", body });
-    seq.current++;
-    setData((d) => d && { ...d, jobs: d.jobs.map((j) => (j.id !== job ? j : { ...j, clips: j.clips.map((c) => (c.id === clip ? next : c)) })) });
+    putClip(job, clip, (await api<{ clip: Clip }>(`${clipUrl(job, clip)}/publish`, { method: "POST", body })).clip);
+    setData((d) => d && { ...d, publishing: `${job}/${clip}` }); // started under the server's lock: it's the running upload
+  });
+  const checkYouTube = (job: string, clip: string) => act(`pub:${job}/${clip}`, async () => {
+    putClip(job, clip, (await api<{ clip: Clip }>(`${clipUrl(job, clip)}/publish/check`, { method: "POST" })).clip);
+  });
+  const version = (job: string, clip: string, body: VersionBody) => act(`ver:${job}/${clip}`, async () => {
+    await api(`${clipUrl(job, clip)}/version`, { method: "POST", body });
+    await load(true); // the new version sits after the original's other versions, as the server ordered them
   });
 
   const del = (job: string) => act(`del:${job}`, async () => {
@@ -204,6 +217,7 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
       {data && (
         <div className="mt-3 space-y-3">
           {(!data.tools.ffmpeg || !data.tools.transcriber) && <ToolsBanner tools={data.tools} />}
+          {!!data.quarantined?.length && <QuarantineNotice root={data.root} files={data.quarantined} />}
 
           <Section title="Inbox">
             <p className="text-sm">Drop long videos into your Studio inbox folder:</p>
@@ -295,9 +309,10 @@ export default function ClipFactory({ reduced, onClose }: { reduced: boolean; on
             {!jobs.length && <p className="muted text-sm">No clip jobs yet. Pick a video in the inbox and press “Make clips”.</p>}
             <div className="space-y-3">
               {jobs.map((j) => (
-                <JobCard key={j.id} job={j} reduced={reduced} showRejected={showRejected} busy={busy} Note={Note} yt={yt}
+                <JobCard key={j.id} job={j} reduced={reduced} showRejected={showRejected} busy={busy} Note={Note} yt={yt} publishing={data.publishing}
                   onRetry={() => make(j.source, j.options, true)} onDelete={() => del(j.id)}
-                  onPatch={(clip, body) => patchClip(j.id, clip, body)} onPublish={(clip, body) => publish(j.id, clip, body)} />
+                  onPatch={(clip, body) => patchClip(j.id, clip, body)} onPublish={(clip, body) => publish(j.id, clip, body)}
+                  onCheck={(clip) => checkYouTube(j.id, clip)} onVersion={(clip, body) => version(j.id, clip, body)} />
               ))}
             </div>
           </Section>
@@ -322,6 +337,22 @@ function ToolsBanner({ tools }: { tools: ToolsStatus }) {
           {copied ? "Copied ✓" : "Copy"}
         </button>
       </div>
+    </div>
+  );
+}
+
+function QuarantineNotice({ root, files }: { root: string; files: Quarantined[] }) {
+  const sep = root.includes("\\") ? "\\" : "/";
+  const dirs = [...new Set(files.map((q) => q.file.split("/").slice(0, -1).join(sep)))];
+  const n = files.length;
+  return (
+    <div className="card text-sm" role="alert" style={{ borderColor: "#fb923c" }}>
+      <b>⚠ {n === 1 ? "1 damaged job file was set aside" : `${n} damaged job files were set aside`}:</b>
+      <ul className="mt-1 text-xs">{files.slice(0, 5).map((q) => <li key={q.file}><span className="num">{q.file.split("/").pop()}</span> — {q.reason}{q.at ? ` · ${when(q.at)}` : ""}</li>)}</ul>
+      {n > 5 && <p className="muted text-xs">…and {n - 5} more.</p>}
+      <p className="mt-1 text-xs">Moved, not deleted. They&apos;re in:</p>
+      {dirs.map((d) => <code key={d} className="num mt-1 block overflow-x-auto whitespace-nowrap rounded bg-black/40 p-2 text-xs">{root}{sep}{d}</code>)}
+      <p className="muted mt-1 text-xs">Move or delete them there to clear this notice.</p>
     </div>
   );
 }
@@ -430,13 +461,17 @@ function EditOptions({ opts, setOpts }: { opts: Opts; setOpts: (f: (o: Opts) => 
 
 /* ---------- jobs & clips ---------- */
 
-type PatchFn = (clip: string, body: { status?: "approved" | "rejected"; title?: string }) => Promise<boolean>;
+type PatchBody = { status?: "approved" | "rejected"; title?: string; reason?: string };
+type PatchFn = (clip: string, body: PatchBody) => Promise<boolean>;
 type PublishFn = (clip: string, body: PublishBody) => Promise<boolean>;
+type VersionFn = (clip: string, body: VersionBody) => Promise<boolean>;
 
-function JobCard({ job, reduced, showRejected, busy, Note, yt, onRetry, onDelete, onPatch, onPublish }: {
-  job: ClipJob; reduced: boolean; showRejected: boolean; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode; yt: YtStatus | null;
-  onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn;
+function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRetry, onDelete, onPatch, onPublish, onCheck, onVersion }: {
+  job: ClipJob; publishing?: string | null; reduced: boolean; showRejected: boolean; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode; yt: YtStatus | null;
+  onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn; onCheck: (clip: string) => Promise<boolean>; onVersion: VersionFn;
 }) {
+  const o = job.options; // what the original clips were rendered with (mirrors baseEdit in pure.ts)
+  const base: VersionEdit = { layout: o.layout ?? "fit", camSide: o.camSide ?? "right", captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true };
   const working = isJobActive(job), pct = Math.round(Math.min(1, Math.max(0, job.progress || 0)) * 100);
   const clips = job.clips.filter((c) => showRejected || c.status !== "rejected");
   const hidden = job.clips.length - clips.length;
@@ -481,7 +516,11 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, onRetry, onDelete
           {clips.map((c) => (
             <li key={c.id}>
               <ClipCard clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />}
-                publish={c.status === "approved" && <PublishBox clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish} note={<Note k={`pub:${job.id}/${c.id}`} />} />} />
+                version={(c.status === "ready" || c.status === "approved") && !working &&
+                  <VersionBox clip={c} base={c.edit ?? base} busy={!!busy[`ver:${job.id}/${c.id}`]} onVersion={onVersion} note={<Note k={`ver:${job.id}/${c.id}`} />} />}
+                publish={c.status === "approved" && <PublishBox clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish}
+                  stale={c.publish?.status === "uploading" && publishing !== `${job.id}/${c.id}`}
+                  onCheck={() => onCheck(c.id)} note={<Note k={`pub:${job.id}/${c.id}`} />} />} />
             </li>
           ))}
         </ul>
@@ -491,7 +530,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, onRetry, onDelete
   );
 }
 
-function ClipCard({ clip: c, busy, onPatch, note, publish }: { clip: Clip; busy: boolean; onPatch: PatchFn; note: ReactNode; publish: ReactNode }) {
+function ClipCard({ clip: c, busy, onPatch, note, version, publish }: { clip: Clip; busy: boolean; onPatch: PatchFn; note: ReactNode; version: ReactNode; publish: ReactNode }) {
   const [play, setPlay] = useState(false);
   const [edit, setEdit] = useState<string | null>(null);
   const reviewable = c.status === "ready" || c.status === "approved" || c.status === "rejected";
@@ -520,7 +559,10 @@ function ClipCard({ clip: c, busy, onPatch, note, publish }: { clip: Clip; busy:
         )}
       </div>
 
-      <Status text={CLIP_LABEL[c.status] ?? c.status} tone={toneOf(c.status)} />
+      <div className="flex flex-wrap gap-1">
+        <Status text={CLIP_LABEL[c.status] ?? c.status} tone={toneOf(c.status)} />
+        {c.variantOf && <Status text={`↳ v${c.id.match(/-v(\d+)$/)?.[1] ?? "?"} of ${rootClipId(c.id).replace("clip-", "clip ")}`} />}
+      </div>
 
       {edit != null ? (
         <form className="flex flex-col gap-1" onSubmit={(e) => { e.preventDefault(); void save(); }}>
@@ -541,19 +583,94 @@ function ClipCard({ clip: c, busy, onPatch, note, publish }: { clip: Clip; busy:
       {c.hook && <p className="leading-snug">“{c.hook}”</p>}
       {c.reason && <p className="muted text-[11px] leading-snug">{c.reason}</p>}
       <p className="muted num text-[11px]">{mmss(c.start)}–{mmss(c.end)} · {mmss(len)} · score {score(c.score)}/100</p>
+      {c.video && c.error && <p className="muted text-[11px] leading-snug">⚠ {c.error}</p>}
 
       <div className="mt-auto flex flex-wrap gap-1">
         {reviewable && (
           <>
             {c.status !== "rejected" && <button className="chip" onClick={() => onPatch(c.id, { status: "approved" })} disabled={busy || c.status === "approved"} aria-pressed={c.status === "approved"} aria-label={`Approve ${c.title}`}>✓ Approve</button>}
-            {c.status !== "rejected" && <ConfirmButton label="✕ Reject" aria={`Reject ${c.title}`} onConfirm={() => void onPatch(c.id, { status: "rejected" })} disabled={busy || c.publish?.status === "uploading"} />}
+            {c.status !== "rejected" && <RejectButton title={c.title} onReject={(reason) => void onPatch(c.id, { status: "rejected", ...(reason ? { reason } : {}) })} disabled={busy || c.publish?.status === "uploading"} />}
           </>
         )}
         {c.video && <a className="chip" href={media(c.video)} download aria-label={`Download ${c.title}`}>⬇ Download</a>}
       </div>
       {note}
+      {version}
       {publish}
     </div>
+  );
+}
+
+/** Reject in two clicks; while armed, a reason chip rejects in one click with that reason (optional, stored as feedback). */
+function RejectButton({ title, disabled, onReject }: { title: string; disabled?: boolean; onReject: (reason?: string) => void }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(false), 8000); return () => clearTimeout(t); }, [armed]);
+  if (!armed) return <button className="chip" disabled={disabled} onClick={() => setArmed(true)} aria-label={`Reject ${title}`}>✕ Reject</button>;
+  const go = (r?: string) => { setArmed(false); onReject(r); };
+  return (
+    <div role="group" aria-label={`Reject ${title}`} className="flex w-full flex-wrap items-center gap-1"
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setArmed(false); }}>
+      <button className="chip" autoFocus style={{ borderColor: "#fb7185" }} onClick={() => go()} aria-label={`Confirm: reject ${title}`}>Sure? ✕</button>
+      <span className="muted text-[10px]">or why:</span>
+      {REJECT_REASONS.map((r) => <button key={r} className="chip !px-1.5 !py-0 !text-[10px]" onClick={() => go(r)} aria-label={`Reject ${title}: ${r}`}>{r}</button>)}
+    </div>
+  );
+}
+
+const CAPTION_LABEL: Record<CaptionStyle, string> = { karaoke: "Karaoke", classic: "Classic", none: "None" };
+const signed = (n: number) => `${n > 0 ? "+" : ""}${n} s`;
+
+type VersionForm = VersionEdit & { title: string; hook: string; start: number; end: number; suggest: boolean };
+/** "Another version": same moment re-rendered with other settings, from the saved analysis (fast, no transcription). */
+function VersionBox({ clip: c, base, busy, onVersion, note }: { clip: Clip; base: VersionEdit; busy: boolean; onVersion: VersionFn; note: ReactNode }) {
+  const [f, setF] = useState<VersionForm | null>(null);
+  if (!f) return (
+    <div>
+      <button className="chip" onClick={() => setF({ ...base, title: c.title, hook: c.hook, start: 0, end: 0, suggest: false })} aria-label={`Make another version of ${c.title}`}>↻ Another version</button>
+      {note}
+    </div>
+  );
+  const set = (p: Partial<VersionForm>) => setF((x) => x && { ...x, ...p });
+  const nudge = (k: "start" | "end", d: number) => { const v = Math.max(-10, Math.min(10, f[k] + d)); set(k === "start" ? { start: v } : { end: v }); };
+  const submit = async () => {
+    const { title, hook, suggest, ...rest } = f;
+    const body: VersionBody = { ...rest, suggest, ...(!suggest && title.trim() && title.trim() !== c.title ? { title: title.trim() } : {}), ...(!suggest && hook.trim() !== c.hook ? { hook: hook.trim() } : {}) };
+    if (await onVersion(c.id, body)) setF(null);
+  };
+  const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  const nudgeRow = (k: "start" | "end", name: string) => ( // a plain function, not a component: re-renders keep button focus
+    <div className="flex items-center gap-1">
+      <span className="w-8 text-[10px]">{name}</span>
+      <button type="button" className="chip !px-1.5 !py-0" onClick={() => nudge(k, -1)} disabled={f[k] <= -10} aria-label={`${name} 1 s earlier`}>−1s</button>
+      <span className="num w-10 text-center text-[11px]">{signed(f[k])}</span>
+      <button type="button" className="chip !px-1.5 !py-0" onClick={() => nudge(k, 1)} disabled={f[k] >= 10} aria-label={`${name} 1 s later`}>+1s</button>
+    </div>
+  );
+  return (
+    <form className="flex flex-col gap-1.5 rounded-md border border-white/10 p-1.5" aria-label={`Another version of ${c.title}`} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+      <Choice legend="Layout" values={["fit", "fill", "split"] as VersionEdit["layout"][]} value={f.layout} fmt={(v) => LAYOUT[v][0]} onChange={(layout) => set({ layout })} />
+      {f.layout === "split" && <Choice legend="Facecam" values={["left", "right"] as VersionEdit["camSide"][]} value={f.camSide} fmt={(v) => (v === "left" ? "Left" : "Right")} onChange={(camSide) => set({ camSide })} />}
+      <Choice legend="Captions" values={[...CAPTION_STYLES]} value={f.captions} fmt={(v) => CAPTION_LABEL[v]} onChange={(captions) => set({ captions })} />
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.jumpCuts} onChange={(e) => set({ jumpCuts: e.target.checked })} /> Jump cuts</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.zooms} onChange={(e) => set({ zooms: e.target.checked })} /> Zooms</label>
+      <fieldset>
+        <legend className={label}>Trim</legend>
+        {nudgeRow("start", "Start")}{nudgeRow("end", "End")}
+        <p className="muted num mt-0.5 text-[10px]">{mmss(Math.max(0, c.start + f.start))}–{mmss(c.end + f.end)}</p>
+      </fieldset>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.suggest} onChange={(e) => set({ suggest: e.target.checked })} /> ✨ New title &amp; hook by Claude</label>
+      {!f.suggest && (
+        <>
+          <label><span className={label}>Title</span><input className="field w-full !px-2 !py-1 !text-xs" value={f.title} maxLength={70} onChange={(e) => set({ title: e.target.value })} /></label>
+          <label><span className={label}>Hook (first 2 s)</span><input className="field w-full !px-2 !py-1 !text-xs" value={f.hook} maxLength={40} placeholder="No hook" onChange={(e) => set({ hook: e.target.value })} /></label>
+        </>
+      )}
+      <div className="flex gap-1">
+        <button type="submit" className="chip" disabled={busy}>{busy ? "Starting…" : "↻ Render"}</button>
+        <button type="button" className="chip" onClick={() => setF(null)}>Cancel</button>
+      </div>
+      {note}
+    </form>
   );
 }
 
@@ -563,18 +680,19 @@ const ext = { target: "_blank", rel: "noopener noreferrer" } as const;
 /** datetime-local value ("YYYY-MM-DDTHH:mm", local time) for a Date. */
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
-function PublishBox({ clip: c, yt, reduced, busy, onPublish, note }: { clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; onPublish: PublishFn; note: ReactNode }) {
+function PublishBox({ clip: c, yt, reduced, busy, stale, onPublish, onCheck, note }: { clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; stale: boolean; onPublish: PublishFn; onCheck: () => void; note: ReactNode }) {
   const [form, setForm] = useState<PublishBody | null>(null);
   const [at, setAt] = useState("");
   const p = c.publish;
+  const unsure = p?.status === "unknown" || stale; // the last upload may be on YouTube: only an explicit "Upload again anyway" re-uploads
   const open = () => { setAt(""); setForm({ title: c.title.replace(/[<>]/g, "").slice(0, 100), description: `${c.hook.replace(/[<>]/g, "")}\n\n#shorts`.trim(), privacy: "private" }); };
   const submit = async () => {
     if (!form) return;
-    if (await onPublish(c.id, { ...form, ...(at ? { publishAt: new Date(at).toISOString() } : {}) })) setForm(null);
+    if (await onPublish(c.id, { ...form, ...(at ? { publishAt: new Date(at).toISOString() } : {}), ...(unsure ? { force: true } : {}) })) setForm(null);
   };
   const reconnect = (text: string) => <p className="rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX}>{text} <a className="underline" href="/api/studio/oauth/start">Connect YouTube</a></p>;
 
-  if (p?.status === "uploading") {
+  if (p?.status === "uploading" && !stale) {
     return <Progress pct={Math.round(Math.min(1, Math.max(0, p.progress ?? 0)) * 100)} step="Uploading to YouTube" label={`Upload progress for ${c.title}`} reduced={reduced} />;
   }
   if (p?.status === "done" && p.videoId) {
@@ -584,6 +702,19 @@ function PublishBox({ clip: c, yt, reduced, busy, onPublish, note }: { clip: Cli
         <a className="block underline" href={`https://youtube.com/shorts/${p.videoId}`} {...ext}>Open on YouTube ↗</a>
         <a className="block underline" href={`https://studio.youtube.com/video/${p.videoId}/edit`} {...ext}>Open in YouTube Studio ↗</a>
         <p className="muted">{LOCKED_NOTE}</p>
+      </div>
+    );
+  }
+  if (unsure && !form) { // no plain retry: it could duplicate the video
+    return (
+      <div className="space-y-1 rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX} role="status">
+        <p>⏳ {(p?.status === "unknown" && p.error) || "Outcome unknown — check YouTube"}</p>
+        {!yt?.connected && reconnect("Checking needs YouTube connected.")}
+        <div className="flex flex-wrap gap-1">
+          <button className="chip" onClick={onCheck} disabled={busy} aria-label={`Check YouTube for ${c.title}`}>{busy ? "Checking…" : "🔍 Check YouTube"}</button>
+          {yt?.canUpload && <ConfirmButton label="Upload again anyway" sure="Could duplicate — sure?" aria={`Upload ${c.title} again even though it may already be on YouTube`} onConfirm={open} disabled={busy} />}
+        </div>
+        {note}
       </div>
     );
   }

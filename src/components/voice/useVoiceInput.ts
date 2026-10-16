@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadVoiceSettings, voiceContext, voiceLevel, VOICE_ASK, VOICE_INTERRUPT } from "./bus";
+import { loadVoiceSettings, recognizerFor, voiceContext, voiceLevel, VOICE_ASK, VOICE_INTERRUPT } from "./bus";
 import { normalizeTranscript } from "./wake";
 import { correctTranscript, mergeFinals, pickBestAlternative } from "./hear";
 import { recordUtterance, transcribeAudio } from "./whisper";
@@ -95,15 +95,15 @@ export function useVoiceInput(): VoiceInput {
   const [error, setError] = useState("");
   const session = useRef<{ stop(): void; cancel(): void } | null>(null);
 
-  useEffect(() => { setSupported(!!getSpeechRecognition()); }, []);
+  useEffect(() => { setSupported(!!getSpeechRecognition() || !!navigator.mediaDevices?.getUserMedia); }, []); // no Chrome recognizer: Whisper still works
 
   const stop = useCallback(() => { session.current?.stop(); }, []);
   const cancel = useCallback(() => { session.current?.cancel(); }, []);
 
   const start = useCallback(() => {
     if (session.current) return;
-    const whisper = loadVoiceSettings().engine === "whisper";
-    const Ctor = getSpeechRecognition();
+    const whisper = recognizerFor(loadVoiceSettings(), "pushToTalk") === "whisper"; // always Whisper in local-only hands-free
+    const Ctor = whisper ? null : getSpeechRecognition();
     if (!whisper && !Ctor) { setError("Voice input isn't supported in this browser. Use Chrome or Edge."); return; }
     let cancelled = false, ended = false;
     const end = (text: string) => {
@@ -119,7 +119,7 @@ export function useVoiceInput(): VoiceInput {
     setInterim("");
     dispatchEvent(new Event(VOICE_PAUSE)); // wake mode aborts its recognition before ours starts: Chrome allows one at a time
 
-    if (whisper || !Ctor) {
+    if (!Ctor) {
       const ctrl = new AbortController();
       let finishRecording = () => {};
       session.current = { stop: () => finishRecording(), cancel: () => { cancelled = true; ctrl.abort(); end(""); } };

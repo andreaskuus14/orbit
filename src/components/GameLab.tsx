@@ -11,7 +11,7 @@ export const GAME_COMPONENTS: Record<string, ComponentType<{ onExit: () => void 
   "planet-forge": dynamic(() => import("@/games/planet-forge/PlanetForge"), { ssr: false, loading: Loading }),
 };
 
-type Info = { settings: Record<string, number>; hasSave: boolean; updatedAt: string | null };
+type Info = { settings: Record<string, number>; hasSave: boolean; damaged: string | null; updatedAt: string | null };
 
 export function GameLabPanel({ onPlaying }: { onPlaying?: (playing: boolean) => void }) {
   const [playing, setPlaying] = useState<string | null>(null);
@@ -40,7 +40,7 @@ function GameCard({ game, onPlay, active }: { game: GameMeta; onPlay: () => void
       const res = await fetch(`/api/games/${game.id}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Couldn't load (${res.status})`);
-      setInfo({ settings: json.settings, hasSave: !!json.save, updatedAt: json.updatedAt });
+      setInfo({ settings: json.settings, hasSave: !!json.save, damaged: json.damaged ?? null, updatedAt: json.updatedAt });
     } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't load"); }
   }, [game.id]);
   useEffect(() => { if (!active) void refresh(); }, [active, refresh]); // refresh after returning from the game
@@ -56,6 +56,7 @@ function GameCard({ game, onPlay, active }: { game: GameMeta; onPlay: () => void
       </div>
       <p className="muted text-sm">{game.description}</p>
       {info?.hasSave && info.updatedAt && <p className="muted text-xs">Saved game · last saved {new Date(info.updatedAt).toLocaleString()}</p>}
+      {info?.damaged && <p className="error text-xs">Your saved game is damaged. Open the game to download it or start fresh; it won&apos;t be overwritten until you choose.</p>}
       {err && <p className="error">{err}</p>}
       <details>
         <summary className="cursor-pointer text-sm">Controls</summary>

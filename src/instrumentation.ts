@@ -1,11 +1,12 @@
 // Next.js calls this once when the server starts. The `if` block form lets Next drop the import from the
 // edge build entirely (an early `return` doesn't), which matters because the scheduler uses Node-only APIs.
 export async function register() {
-  if (process.env.NEXT_RUNTIME === "nodejs") {
+  // Not in "next build" workers: launch.ps1 builds next to the live server, which already runs the scheduler.
+  if (process.env.NEXT_RUNTIME === "nodejs" && process.env.NEXT_PHASE !== "phase-production-build") {
     if (process.env.NODE_ENV === "production") {
       const { readFileSync } = await import("node:fs");
       const { join } = await import("node:path");
-      try { (globalThis as { __orbitBuildId?: string | null }).__orbitBuildId = readFileSync(join(process.cwd(), ".next", "BUILD_ID"), "utf8").trim(); } catch { /* reported as null */ }
+      try { (globalThis as { __orbitBuildId?: string | null }).__orbitBuildId = readFileSync(join(process.cwd(), process.env.ORBIT_DIST_DIR || ".next", "BUILD_ID"), "utf8").trim(); } catch { /* reported as null */ }
     }
     const { startScheduler } = await import("./lib/scheduler");
     startScheduler();

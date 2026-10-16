@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import { requireUser } from "@/lib/supabase/server";
-import { clipFile, getJob, isPublishing, startClipQueue, startPublish, withJobLock } from "@/lib/clips/factory";
+import { clipFile, getJob, isPublishing, publishingKey, saveJob, startClipQueue, startPublish, withJobLock } from "@/lib/clips/factory";
 import { isClipId, isJobId } from "@/lib/clips/pure";
 import { YT_UPLOAD_SCOPE, hasScopes, videoResource } from "@/lib/yt-analytics-pure";
 import { readStored } from "@/lib/yt-oauth";
@@ -26,9 +26,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ job: st
     if (clip.status !== "approved") return Response.json({ error: "Only approved clips can be published" }, { status: 409 });
     const file = clipFile(clip);
     if (!file || !(await stat(file).catch(() => null))?.isFile()) return Response.json({ error: "The clip's video file is missing" }, { status: 409 });
-    const st = clip.publish?.status;
-    // "uploading" with nothing running = a final save failed (S.pub is only set under this lock): let it be retried.
-    if ((st === "done" || (st === "uploading" && isPublishing())) && !force) return Response.json({ error: st === "done" ? "Already published" : "Already uploading" }, { status: 409 });
+    const st = clip.publish?.status, mine = publishingKey() === `${jobId}/${clipId}`;
+    // "uploading" with nothing running = the final save failed (S.pub is only set under this lock), so the video may be on YouTube:
+    // like "unknown", it must be checked (Check YouTube) before a retry. force = the owner explicitly uploads again anyway.
+    if (st === "uploading" && !mine) {
+      clip.publish = { ...clip.publish!, status: "unknown", error: "Outcome unknown — check YouTube", at: new Date().toISOString() };
+      await saveJob(job);
+    }
+    if (clip.publish?.status === "unknown" && !force) return Response.json({ error: "The last upload's outcome is unknown — check YouTube first", clip }, { status: 409 });
+    if ((st === "done" || (st === "uploading" && mine)) && !force) return Response.json({ error: st === "done" ? "Already published" : "Already uploading" }, { status: 409 });
     if (isPublishing()) return Response.json({ error: "Another clip is uploading — try again when it's done" }, { status: 409 });
     const video = videoResource(meta, clip);
     if (typeof video === "string") return Response.json({ error: video }, { status: 400 });

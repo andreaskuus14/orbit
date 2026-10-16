@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.ts";
-import { createLimiter } from "./pure.ts";
 
 // CORE runs on the local Claude Code CLI (`claude -p`) under your own Claude login, so there is no API key
 // and no per-token bill. ORBIT must therefore run on the machine where `claude` is installed and signed in.
@@ -14,11 +13,74 @@ const TIMEOUT_MS = 120_000;
 const WIN = process.platform === "win32";
 const HINT = "Install Claude Code and run `claude` once to sign in (or set ORBIT_CLAUDE_BIN to its full path).";
 
-// At most 3 `claude` processes at once across the whole server (chat, agents, briefings); the rest queue.
-// Kept on globalThis so dev hot reloads don't create a second, independent limit.
+// At most 3 `claude` processes at once across the whole server; the rest queue in two lanes. Foreground (CORE chat,
+// voice) is served first and background (agents, automations, briefings, clips) may hold at most limit-1 slots, so a
+// chat never waits behind a pile of agent work. Kept on globalThis so dev hot reloads don't create a second limit.
 const MAX_CLI = Number(process.env.ORBIT_CLAUDE_CONCURRENCY) || 3;
-const gl = globalThis as unknown as { __orbitClaudeLimit?: ReturnType<typeof createLimiter> };
-const cliSlot = (gl.__orbitClaudeLimit ??= createLimiter(MAX_CLI));
+const gl = globalThis as unknown as { __orbitClaudeLanes?: ReturnType<typeof createLaneLimiter> };
+const cliSlot = (gl.__orbitClaudeLanes ??= createLaneLimiter(MAX_CLI));
+
+export type Lane = "foreground" | "background";
+export class BusyError extends Error {}
+
+export function createLaneLimiter(max: number, maxBackgroundWaiting = 20) {
+  let active = 0, bgActive = 0;
+  const bgMax = Math.max(1, max - 1); // with a limit of 1 there is nothing to reserve
+  const waiting: Record<Lane, (() => void)[]> = { foreground: [], background: [] };
+  const pump = () => {
+    while (active < max) {
+      const fg = waiting.foreground.length > 0;
+      if (!fg && !(waiting.background.length && bgActive < bgMax)) return;
+      active++;
+      if (!fg) bgActive++;
+      (fg ? waiting.foreground : waiting.background).shift()!();
+    }
+  };
+  return async function run<T>(lane: Lane, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
+    const q = waiting[lane];
+    if (lane === "background" && q.length >= maxBackgroundWaiting) throw new BusyError(`ORBIT is busy: ${q.length} Claude jobs are already waiting. Try again in a few minutes.`);
+    await new Promise<void>((resolve, reject) => {
+      const go = () => { signal?.removeEventListener("abort", stop); resolve(); };
+      const stop = () => { const i = q.indexOf(go); if (i >= 0) { q.splice(i, 1); reject(signal?.reason); } };
+      q.push(go);
+      signal?.addEventListener("abort", stop, { once: true });
+      pump();
+    });
+    try { return await fn(); }
+    finally { active--; if (lane === "background") bgActive--; pump(); }
+  };
+}
+
+/* Agent task budgets: one per task tree (a task and everything it delegates), shared by all its Claude calls. */
+export class BudgetError extends Error {}
+export function createBudget(ms = 8 * 60_000, calls = 12) {
+  return { signal: AbortSignal.timeout(ms), minutes: ms / 60_000, calls, used: 0 };
+}
+export type Budget = ReturnType<typeof createBudget>;
+
+/** Call before every Claude call of a task: throws when the task was stopped or its budget is spent. */
+export function chargeCall(b: Budget, signal: AbortSignal) {
+  if (b.signal.aborted) throw new BudgetError(`Budget exceeded: the ${b.minutes}-minute limit was reached`);
+  signal.throwIfAborted();
+  if (b.used >= b.calls) throw new BudgetError(`Budget exceeded: all ${b.calls} Claude calls were used`);
+  b.used++;
+}
+
+/** Why a task stopped early: its budget ran out, it was cancelled, or neither (a normal error). */
+export function stopKind(b: Budget, signal: AbortSignal, e: unknown): "budget" | "cancelled" | null {
+  if (e instanceof BudgetError || b.signal.aborted) return "budget";
+  return signal.aborted ? "cancelled" : null;
+}
+
+/** The result of a stopped task: what it had already finished, so stopping never throws work away silently. */
+export function stoppedReport(headline: string, steps: { step: string; detail: string; ok: boolean }[], kids: { agent: string; title: string; status: string }[]) {
+  const done = [
+    ...steps.filter((s) => s.ok && !["think", "verify", "error"].includes(s.step) && !s.detail.endsWith("working…")).map((s) => `- ${s.step}: ${s.detail.slice(0, 160)}`),
+    ...kids.filter((k) => k.status === "done" || k.status === "awaiting_approval").map((k) => `- ${k.agent} finished sub-task "${k.title}"`),
+  ];
+  return `**${headline}.** ${done.length ? `Completed before stopping:\n${done.join("\n")}` : "Nothing was completed yet."}`;
+}
 
 export type ClaudeResult = { text: string; inputTokens: number; outputTokens: number; ms: number };
 
@@ -45,49 +107,22 @@ function removeTempDir(dir: string) {
   rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
 }
 
-/** One headless Claude Code call with all tools disabled (it can only read the prompt and answer). */
 /** With shell:true on Windows, kill() only ends cmd.exe and leaves claude running: kill the whole tree there. */
 function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean }) {
   if (WIN && child.pid) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" }).on("error", () => child.kill("SIGKILL"));
   else child.kill("SIGKILL");
 }
 
-export function askClaude(prompt: string, system: string): Promise<ClaudeResult> {
-  return cliSlot(() => runClaude(prompt, system));
-}
+export type AskOpts = { lane?: Lane; signal?: AbortSignal };
 
-async function runClaude(prompt: string, system: string): Promise<ClaudeResult> {
-  const t0 = Date.now();
-  const { dir, start } = await prepare(system, ["--output-format", "json"]);
-  try {
-    return await new Promise<ClaudeResult>((resolve, reject) => {
-      const child = start();
-      let out = "";
-      let err = "";
-      const timer = setTimeout(() => { killTree(child); reject(new Error("Claude Code timed out after 2 minutes")); }, TIMEOUT_MS);
-      child.stdout.on("data", (d) => (out += d));
-      child.stderr.on("data", (d) => (err += d));
-      child.on("error", (e) => { clearTimeout(timer); reject(new Error(`Could not start "${CLAUDE_BIN}": ${e.message}. ${HINT}`)); });
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        let j: { result?: string; is_error?: boolean; usage?: { input_tokens?: number; output_tokens?: number } };
-        try { j = JSON.parse(out); } catch {
-          return reject(new Error(`Claude Code failed: ${(err || out).slice(0, 300) || `exit ${code}`}. ${HINT}`));
-        }
-        if (j.is_error || code !== 0) return reject(new Error(j.result || err || `claude exited ${code}`));
-        resolve({ text: (j.result ?? "").trim(), inputTokens: j.usage?.input_tokens ?? 0, outputTokens: j.usage?.output_tokens ?? 0, ms: Date.now() - t0 });
-      });
-      child.stdin.on("error", () => { /* EPIPE when the CLI is killed mid-write; the close handler reports it */ });
-      child.stdin.end(prompt);
-    });
-  } finally {
-    removeTempDir(dir);
-  }
+/** One headless Claude Code call with all tools disabled (it can only read the prompt and answer). Aborting `signal` kills the CLI. */
+export function askClaude(prompt: string, system: string, { lane = "background", signal }: AskOpts = {}): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal), signal);
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI. */
-export function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ClaudeResult> {
-  return cliSlot(() => runClaudeStream(prompt, system, onDelta, signal), signal);
+export function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background"): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal), signal);
 }
 
 async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal): Promise<ClaudeResult> {
@@ -101,7 +136,7 @@ async function runClaudeStream(prompt: string, system: string, onDelta: (text: s
       let err = "";
       let streamed = "";
       let result: StreamResult | null = null;
-      const onAbort = () => { killTree(child); reject(new DOMException("CORE was stopped", "AbortError")); };
+      const onAbort = () => { killTree(child); reject(new DOMException("Stopped", "AbortError")); };
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted) onAbort();
       const timer = setTimeout(() => { killTree(child); reject(new Error("Claude Code timed out after 2 minutes")); }, TIMEOUT_MS);

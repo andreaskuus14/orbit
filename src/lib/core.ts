@@ -99,35 +99,41 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
 
   const system = systemPrompt(profile as Profile | null, new Date().toISOString().slice(0, 10));
   const steps: string[] = [];
+  const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
   let answer = "";
-  for (let step = 0; step < MAX_STEPS; step++) {
-    const last = step === MAX_STEPS - 1;
-    signal?.throwIfAborted();
-    const ask = `${prompt}\n\n${voice ? "The user is SPEAKING to you and will hear your answer read aloud: by default answer in 1-3 short conversational sentences, no lists, headings or links. If they ask for detail, an explanation or a story, give the full answer in spoken-style paragraphs.\n\n" : ""}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
-    let r;
-    if (onDelta) {
-      // The model writes a JSON envelope; forward only the newly decoded part of its "final" answer.
-      let raw = "", sent = 0;
-      r = await askClaudeStream(ask, system, (d) => {
-        raw += d;
-        const shown = partialAnswer(raw);
-        if (shown && shown.length > sent) { onDelta(shown.slice(sent)); sent = shown.length; }
-      }, signal);
-    } else {
-      r = await askClaude(ask, system);
-    }
-    await recordUsage(sb, userId, "core.chat", r);
-    const reply = parseAgentReply(r.text);
-    trace.push({ step: "think", detail: `${MODEL} · ${reply.thought || (reply.final !== undefined ? "answering" : "")}`.slice(0, 200), ms: r.ms, ok: true });
-    if (reply.final !== undefined || !reply.tool || last) { answer = reply.final ?? r.text; break; }
+  try {
+    for (let step = 0; step < MAX_STEPS; step++) {
+      const last = step === MAX_STEPS - 1;
+      signal?.throwIfAborted();
+      const ask = `${prompt}\n\n${voice ? "The user is SPEAKING to you and will hear your answer read aloud: by default answer in 1-3 short conversational sentences, no lists, headings or links. If they ask for detail, an explanation or a story, give the full answer in spoken-style paragraphs.\n\n" : ""}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
+      let r;
+      if (onDelta) {
+        // The model writes a JSON envelope; forward only the newly decoded part of its "final" answer.
+        let raw = "", sent = 0;
+        r = await askClaudeStream(ask, system, (d) => {
+          raw += d;
+          const shown = partialAnswer(raw);
+          if (shown && shown.length > sent) { onDelta(shown.slice(sent)); sent = shown.length; }
+        }, signal, "foreground");
+      } else {
+        r = await askClaude(ask, system, { lane: "foreground", signal });
+      }
+      await recordUsage(sb, userId, "core.chat", r);
+      const reply = parseAgentReply(r.text);
+      trace.push({ step: "think", detail: `${MODEL} · ${reply.thought || (reply.final !== undefined ? "answering" : "")}`.slice(0, 200), ms: r.ms, ok: true });
+      if (reply.final !== undefined || !reply.tool || last) { answer = reply.final ?? r.text; break; }
 
-    t = Date.now();
-    let out: string;
-    onReset?.(); // this step was a tool call: clear anything it streamed before the next step answers
-    try { out = reply.tool === "navigate" ? navigateTool(reply.input ?? {}, !steps.some((s) => !s.startsWith("You called navigate")), onNavigate) : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question); }
-    catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
-    trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 140)} → ${out.slice(0, 140)}`, ms: Date.now() - t, ok: !out.startsWith("Error:") });
-    steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${out.slice(0, 8000)}`);
+      t = Date.now();
+      let out: string;
+      onReset?.(); // this step was a tool call: clear anything it streamed before the next step answers
+      try { out = reply.tool === "navigate" ? navigateTool(reply.input ?? {}, !steps.some((s) => !s.startsWith("You called navigate")), onNavigate) : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question, signal, stopped); }
+      catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
+      trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 140)} → ${out.slice(0, 140)}`, ms: Date.now() - t, ok: !out.startsWith("Error:") });
+      steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${out.slice(0, 8000)}`);
+    }
+  } catch (e) {
+    if (signal?.aborted && stopped.length) throw new CoreStopped(stopped.join("\n\n"));
+    throw e;
   }
 
   const byId = new Map([...results, ...recentChats].map((m) => [m.id as string, m]));
@@ -136,6 +142,11 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     .filter((m): m is NonNullable<typeof m> => !!m)
     .map((m) => ({ id: m.id, title: m.title, kind: m.kind }));
   return { text: answer || "(no answer)", citations, trace };
+}
+
+/** Thrown when Stop also cancelled agent tasks: `completed` says what they had finished, for the saved chat. */
+export class CoreStopped extends DOMException {
+  constructor(readonly completed: string) { super("CORE was stopped", "AbortError"); }
 }
 
 // Only the user's request may move the screen: honoured as the turn's first tool call, before any page, news or agent
@@ -150,7 +161,7 @@ function navigateTool(input: Record<string, unknown>, first: boolean, onNavigate
 }
 
 /** CORE's tools: the agents' page and news readers, plus handing a whole job to an agent (a normal, visible task). */
-async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, input: Record<string, unknown>, question: string): Promise<string> {
+async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, input: Record<string, unknown>, question: string, signal?: AbortSignal, stopped: string[] = []): Promise<string> {
   const ctx = { sb, userId, task: { id: "", agent: "core", title: "", request: "", parent_id: null, project_id: null }, depth: 1, pending: [], trace: [], pages: new Map() };
   if (tool === "fetch_url" || tool === "read_news") return TOOLS[tool].run(ctx, input);
   if (tool === "save_memory") {
@@ -169,8 +180,9 @@ async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, inp
     if (!(await getAgent(sb, agent, userId))) return `Error: unknown agent "${agent}"`;
     const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent, title: `CORE asked: ${request}`.slice(0, 200), request }).select("id").single();
     if (error) throw error;
-    const out = await runTask(sb, userId, data.id, 1);
-    if (out.status === "failed") return `Error: ${agent} failed: ${out.error}`;
+    const out = await runTask(sb, userId, data.id, 1, undefined, signal); // CORE's Stop cancels this task and its sub-tasks
+    if (out.status === "cancelled") { stopped.push(`${agent}: ${out.result ?? "Cancelled."}`); return `Error: ${agent} was cancelled`; }
+    if (out.status === "failed") return `Error: ${agent} failed: ${out.error}${out.result ? `\n${out.result}` : ""}`;
     return `${agent}'s result${out.status === "awaiting_approval" ? " (it also proposed actions the user can approve in OPERATIONS)" : ""}:\n${(out.result ?? "").slice(0, 8000)}`;
   }
   return `Error: unknown tool "${tool}"`;

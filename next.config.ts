@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 
 const nextConfig: NextConfig = {
   // Another package-lock.json in the home folder confuses Next; pin the project root.
@@ -21,4 +22,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// scripts/launch.ps1 builds into .next-build (ORBIT_DIST_DIR) and swaps it into .next only when the build succeeds.
+// The dev server gets its own folder so "npm run dev" never overwrites the production release.
+export default function config(phase: string): NextConfig {
+  return { ...nextConfig, distDir: process.env.ORBIT_DIST_DIR || (phase === PHASE_DEVELOPMENT_SERVER ? ".next-dev" : ".next") };
+}

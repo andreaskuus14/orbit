@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
-import { DEFAULT_VOICE, loadVoiceSettings, saveVoiceSettings, voiceLevel, VOICE_ASK, type VoiceSettings } from "./bus";
-import type { VoiceInput } from "./useVoiceInput";
+import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voiceLevel, VOICE_ASK, type HandsFree, type VoiceSettings } from "./bus";
+import { getSpeechRecognition, type VoiceInput } from "./useVoiceInput";
 import { useWakeWord } from "./useWakeWord";
 
 function sortVoices(all: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
@@ -14,17 +14,22 @@ function sortVoices(all: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
 /** Mic button, voice settings popover and the "Hey Orbit" indicator for the command bar. */
 export function VoiceControls({ voice }: { voice: VoiceInput }) {
   const [s, setS] = useState<VoiceSettings>(DEFAULT_VOICE);
+  const [ready, setReady] = useState(false); // stored settings loaded; until then hands-free stays off (never start Chrome by default)
   const [open, setOpen] = useState(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const micRef = useRef<HTMLButtonElement>(null);
   const gearRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const popId = useId();
-  const wake = useWakeWord(s.wake, voice.listening, s.lang);
+  const wake = useWakeWord(ready ? s.handsFree : "off", voice.listening, s.lang);
+  const pttEngine = recognizerFor(s, "pushToTalk");
+  // Where the microphone audio goes right now: push-to-talk while it records, otherwise hands-free.
+  const route = voice.listening ? pttEngine : recognizerFor(s, "handsFree");
   const [heard, setHeard] = useState(""); // the final text, shown briefly so you see what ORBIT understood
 
   useEffect(() => {
     setS(loadVoiceSettings());
+    setReady(true);
     const on = (e: Event) => setS((e as CustomEvent<VoiceSettings>).detail ?? loadVoiceSettings());
     addEventListener("orbit:voice-settings", on);
     return () => removeEventListener("orbit:voice-settings", on);
@@ -45,7 +50,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   }, []);
 
   // Local Whisper: load the model in the background so the first question doesn't wait for it.
-  useEffect(() => { if (s.engine === "whisper") void fetch("/api/voice/transcribe").catch(() => {}); }, [s.engine]);
+  useEffect(() => { if (pttEngine === "whisper") void fetch("/api/voice/transcribe").catch(() => {}); }, [pttEngine]);
 
   // Voices load asynchronously in Chrome.
   useEffect(() => {
@@ -88,6 +93,8 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
     return () => removeEventListener("pointerdown", away);
   }, [open]);
 
+  const chromeOk = typeof window === "undefined" || !!getSpeechRecognition();
+  const routeText = route === "whisper" ? "🎙 Local (Whisper on this PC)" : route === "chrome" ? "🎙 Chrome (audio sent to Google while listening)" : "🎙 Hands-free off";
   const micLabel = !voice.supported ? "Voice input isn't supported in this browser" : listening ? "Stop listening (Esc cancels)" : "Ask by voice (Ctrl+M)";
 
   return (
@@ -107,16 +114,24 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
       </button>
       {open && (
         <div ref={popRef} id={popId} className="glass voice-pop" role="dialog" aria-label="Voice settings">
-          <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>
-          <label className="voice-row"><input type="checkbox" checked={s.wake} disabled={!voice.supported} onChange={(e) => update({ wake: e.target.checked })} />
-            <span>&ldquo;Hey Orbit&rdquo; hands-free<span className="muted block text-[10px]">While on, Chrome continuously streams your microphone audio to Google&rsquo;s speech service, whenever this tab is visible and the window was used in the last minute.</span></span></label>
-          <label className="voice-col">Speech recognition
-            <select className="field" value={s.engine} onChange={(e) => update({ engine: e.target.value === "whisper" ? "whisper" : "chrome" })}>
-              <option value="chrome">Chrome (fast)</option>
-              <option value="whisper">Local Whisper (accurate, private)</option>
+          <label className="voice-col">Hands-free (say &ldquo;Orbit&hellip;&rdquo;)
+            <select className="field" value={s.handsFree} onChange={(e) => update({ handsFree: e.target.value as HandsFree })}>
+              <option value="off">Off</option>
+              <option value="chrome" disabled={!chromeOk}>Chrome recognition (audio goes to Google while listening)</option>
+              <option value="local">Local only (Whisper on this PC)</option>
             </select>
-            {s.engine === "whisper" && <span className="muted text-[10px]">English only. Runs on this PC; the first use downloads the model. &ldquo;Hey Orbit&rdquo; still uses Chrome to hear the wake word: say &ldquo;Orbit&rdquo;, wait for Listening, then ask.</span>}
+            <span className="muted text-[10px]">{s.handsFree === "chrome" ? "Chrome streams your microphone audio to Google’s speech service whenever this tab is visible and the window was used in the last minute."
+              : s.handsFree === "local" ? "Audio never leaves this PC. Say “Orbit, …” in one go; ORBIT stops listening while it talks (click the mic to interrupt). English only; the first use downloads the model."
+              : "ORBIT only listens when you click the mic (Ctrl+M)."}</span>
           </label>
+          <label className="voice-col">Question transcription
+            <select className="field" value={pttEngine} disabled={s.handsFree === "local"} onChange={(e) => update({ engine: e.target.value === "whisper" ? "whisper" : "chrome" })}>
+              <option value="chrome" disabled={!chromeOk}>Chrome (fast; audio goes to Google)</option>
+              <option value="whisper">Local Whisper (on this PC)</option>
+            </select>
+            {s.handsFree === "local" && <span className="muted text-[10px]">Local only hands-free keeps the mic button on Whisper too.</span>}
+          </label>
+          <p className="muted text-[10px] voice-note">Local means the audio stays on this PC. Your words (text) still go to Claude to answer; memories are stored in your Supabase.</p>
           <label className="voice-col">Language (Chrome)
             <select className="field" value={s.lang} onChange={(e) => update({ lang: e.target.value })}>
               <option value="en-US">English (US)</option>
@@ -125,6 +140,8 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
               <option value="et-EE">Eesti</option>
             </select>
           </label>
+          <span className="voice-sub">Spoken answers</span>
+          <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>
           <label className="voice-col">Voice
             <select className="field" value={s.voiceURI ?? ""} onChange={(e) => update({ voiceURI: e.target.value || null })}>
               <option value="">Default</option>
@@ -136,11 +153,12 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           </label>
         </div>
       )}
-      {(wake.interim || heard) && (
+      {(wake.interim || heard || wake.error) && (
         <span className="voice-heard" role="status" aria-live="polite">
-          {wake.interim ? <i>{wake.interim}…</i> : <>Heard: <b>{heard}</b></>}
+          {wake.interim ? <i>{wake.interim}…</i> : heard ? <>Heard: <b>{heard}</b></> : <>Hands-free paused: {wake.error}</>}
         </span>
       )}
+      {ready && !open && <span className={"voice-route" + (route === "whisper" ? " local" : route === "chrome" ? " cloud" : "")} title="Where your microphone audio goes">{routeText}</span>}
       {(wake.state !== "off" || wake.error) && (
         <span className={"voice-wake" + (wake.state === "armed" ? " armed" : "") + (wake.error ? " bad" : "")} role="status"
           title={wake.error || "Hands-free mode: ORBIT is listening for “Hey Orbit”. Turn it off in voice settings."}>

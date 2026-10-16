@@ -5,10 +5,11 @@ import {
   planetStatus, planetEffects, devCost, devBlocker, gateBlocker, gateRemaining, gateProgress, upgradeCost, missing, canAfford,
   capacity, nearGate, planetDef, planetPos, fmtBag, won,
   PLANETS, RESOURCES, UPGRADES, UPGRADE_IDS, OBJECTIVES, GATE_OBJECTIVE, UNSTABLE_BELOW, RECOVER_AT, WORLD, DEFAULT_SETTINGS,
-  type GameState, type GameEvent, type PlanetId, type Settings, type ActionResult, type Bag, type UpgradeId, type DevPath,
+  type GameState, type GameEvent, type SaveFile, type PlanetId, type Settings, type ActionResult, type Bag, type UpgradeId, type DevPath,
 } from "./rules";
 import { createFx, fxEvents, updateFx, draw, fitView, toWorld, RES_COLOR, STATUS_COLOR, type Fx, type View } from "./render";
 import { play, isMuted, setMuted } from "./audio";
+import { createSaveQueue } from "../saves";
 
 const API = "/api/games/planet-forge";
 type Overlay = "intro" | "pause" | "reset" | "won" | null;
@@ -17,7 +18,7 @@ type SaveStatus = { kind: "idle" | "saving" | "saved" | "error" | "off"; text?: 
 const AUTOSAVE_MS = 30_000;
 
 export default function PlanetForge({ onExit }: { onExit: () => void }) {
-  const [phase, setPhase] = useState<{ kind: "loading" } | { kind: "error"; message: string } | { kind: "ready" }>({ kind: "loading" });
+  const [phase, setPhase] = useState<{ kind: "loading" } | { kind: "error"; message: string } | { kind: "damaged"; error: string; raw: unknown } | { kind: "ready" }>({ kind: "loading" });
   const [hud, setHud] = useState<GameState | null>(null);
   const [overlay, setOverlayState] = useState<Overlay>(null);
   const [shop, setShop] = useState(false);
@@ -41,7 +42,6 @@ export default function PlanetForge({ onExit }: { onExit: () => void }) {
   const reduced = useRef(false);
   const savingEnabled = useRef(true);
   const loaded = useRef(false); // a game is in memory; only then may an unmount save over the stored one
-  const saving = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const throttle = useRef<Record<string, number>>({});
   const toastId = useRef(0);
@@ -62,22 +62,28 @@ export default function PlanetForge({ onExit }: { onExit: () => void }) {
   }, []);
 
   // ---------- saving ----------
-  const save = useCallback(async (opts: { keepalive?: boolean } = {}) => {
-    if (!savingEnabled.current || saving.current) return;
-    saving.current = true;
+  // One request at a time, newest snapshot wins; a 409 (reset or written elsewhere) stops saving until the game is reopened.
+  const [queue] = useState(() => createSaveQueue<SaveFile>(async (save, base, keepalive) => {
     setSaveStatus({ kind: "saving" });
     try {
-      const res = await fetch(API, {
-        method: "PUT", headers: { "Content-Type": "application/json" }, keepalive: opts.keepalive,
-        body: JSON.stringify({ save: serialize(stateRef.current, settingsRef.current) }),
-      });
+      const res = await fetch(API, { method: "PUT", headers: { "Content-Type": "application/json" }, keepalive, body: JSON.stringify({ save, ...base }) });
       const json = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        const error = json.error || "Your save changed elsewhere. Reopen the game to keep saving.";
+        setSaveStatus({ kind: "off", text: `Saving stopped: ${error}` });
+        return { ok: false, conflict: true, error };
+      }
       if (!res.ok) throw new Error(json.error || `Save failed (${res.status})`);
       setSaveStatus({ kind: "saved", text: `Saved ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` });
+      return { ok: true, rev: json.rev };
     } catch (e) {
-      setSaveStatus({ kind: "error", text: e instanceof Error ? e.message : "Save failed" });
-    } finally { saving.current = false; }
-  }, []);
+      const error = e instanceof Error ? e.message : "Save failed";
+      setSaveStatus({ kind: "error", text: error });
+      return { ok: false, conflict: false, error };
+    }
+  }));
+  const save = useCallback((opts: { keepalive?: boolean } = {}) =>
+    savingEnabled.current ? queue.push(serialize(stateRef.current, settingsRef.current), !!opts.keepalive) : Promise.resolve(), [queue]);
   const saveSoon = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => void save(), 1500);
@@ -103,12 +109,16 @@ export default function PlanetForge({ onExit }: { onExit: () => void }) {
       const st: Settings = { ...DEFAULT_SETTINGS, ...(json.settings ?? {}) };
       settingsRef.current = st;
       setSettings(st);
+      queue.rebase(json.gen ?? 0, json.rev ?? 0);
       savingEnabled.current = true;
       const extra = json.settingsReset ? ["Your stored settings were invalid and have been replaced by the defaults."] : [];
       if (!json.save) return startFresh(extra);
       const parsed = parseSave(json.save, st);
-      if (!parsed.ok) {
-        return startFresh([...extra, `Your saved game couldn't be loaded (${parsed.error}). A new game has started; the old save is replaced the next time the game saves.`]);
+      const damaged = json.damaged || (!parsed.ok && parsed.error);
+      if (damaged || !parsed.ok) {
+        // Keep the damaged save untouched (the server refuses to overwrite it too) until the player chooses Start fresh.
+        savingEnabled.current = false;
+        return setPhase({ kind: "damaged", error: String(damaged), raw: json.save });
       }
       stateRef.current = parsed.state;
       fxRef.current = createFx(parsed.state);
@@ -296,15 +306,30 @@ export default function PlanetForge({ onExit }: { onExit: () => void }) {
   const mineUp = () => { mineHeld.current = false; };
 
   // ---------- reset ----------
-  const reset = useCallback(async () => {
+  const reset = useCallback(async (enableSaving = false) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
     try {
-      const res = await fetch(API, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Reset failed");
+      // The queue waits for an in-flight save and drops queued ones, so nothing from the old game lands after the reset.
+      await queue.reset(async () => {
+        const res = await fetch(API, { method: "DELETE" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || "Reset failed");
+        return json.gen;
+      });
+      if (enableSaving) savingEnabled.current = true;
       startFresh([]);
       toast("New game started.", "info");
-      setSaveStatus({ kind: "idle" });
+      if (savingEnabled.current) setSaveStatus({ kind: "idle" });
     } catch (e) { toast(e instanceof Error ? e.message : "Reset failed", "warn"); }
-  }, [startFresh, toast]);
+  }, [queue, startFresh, toast]);
+
+  const downloadDamaged = (raw: unknown) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(raw, null, 2)], { type: "application/json" }));
+    a.download = `planet-forge-damaged-save-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
 
   const playUnsaved = () => {
     savingEnabled.current = false;
@@ -323,6 +348,24 @@ export default function PlanetForge({ onExit }: { onExit: () => void }) {
           <p className="error">{phase.message}</p>
           <div className="flex flex-wrap gap-2">
             <button className="btn" onClick={() => void load()}>Try again</button>
+            <button className="chip" onClick={playUnsaved}>Play without saving</button>
+            <button className="chip" onClick={onExit}>Back to Game Lab</button>
+          </div>
+        </div>
+      </div>
+    </Shell>
+  );
+
+  if (phase.kind === "damaged") return (
+    <Shell onExit={onExit}>
+      <div className="grid h-full place-items-center p-6">
+        <div className="glass max-w-md space-y-3 p-5" role="alert">
+          <h2 className="brand">PLANET FORGE</h2>
+          <p className="error">Your saved game couldn&apos;t be loaded: {phase.error}.</p>
+          <p className="text-sm">It is still stored and won&apos;t be overwritten. Download a copy if you want to keep it; Start fresh deletes it and begins a new game.</p>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn" onClick={() => downloadDamaged(phase.raw)}>Download damaged save</button>
+            <button className="btn danger" onClick={() => void reset(true)}>Start fresh</button>
             <button className="chip" onClick={playUnsaved}>Play without saving</button>
             <button className="chip" onClick={onExit}>Back to Game Lab</button>
           </div>

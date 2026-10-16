@@ -132,7 +132,7 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
       {task.result && <div className="card"><Markdown text={task.result} openMemory={openMemory} /></div>}
       {task.error && <p className="error">{task.error}</p>}
       {(task.status === "failed" || task.status === "cancelled") && !task.parent_id && <button className="chip" onClick={() => act("retry")}>Retry</button>}
-      {task.status === "queued" && <button className="chip" onClick={() => act("cancel")}>Cancel</button>}
+      {(task.status === "queued" || task.status === "running") && <button className="chip" onClick={() => act("cancel")}>Cancel task</button>}
 
       {!!children.length && (
         <div>
@@ -140,7 +140,8 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
           <ul className="mt-1 space-y-2">
             {children.map((c) => (
               <li key={c.id} className="card text-sm">
-                <div><b>{c.agent}</b> · {c.title} · <span style={{ color: STATUS[c.status].color }}>{STATUS[c.status].label}</span></div>
+                <div><b>{c.agent}</b> · {c.title} · <span style={{ color: STATUS[c.status].color }}>{STATUS[c.status].label}</span>
+                  {c.status === "running" && <button className="chip ml-2" onClick={() => act("cancel", c.id)}>Cancel</button>}</div>
                 {c.result && <details className="mt-1"><summary className="cursor-pointer muted text-xs">result</summary><div className="mt-2"><Markdown text={c.result} openMemory={openMemory} /></div></details>}
                 {c.error && <p className="error">{c.error}</p>}
               </li>

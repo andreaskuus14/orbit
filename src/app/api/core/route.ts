@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { runCore } from "@/lib/core";
+import { runCore, CoreStopped } from "@/lib/core";
 import { reflectOnTurn } from "@/lib/reflect";
 import { emit } from "@/lib/claude";
 import { str } from "@/lib/pure";
@@ -65,8 +65,9 @@ export async function POST(req: Request) {
             (to) => send({ type: "navigate", to }));
           send({ type: "done", conversationId: cid, answer: text, citations, trace });
         } catch (e) {
-          // Stopped: keep what was already shown, so the saved chat matches the screen.
-          if (ac.signal.aborted && shown) await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: `${shown}\n\n_Stopped._` });
+          // Stopped: keep what was already shown, plus what any agent task cancelled by the stop had finished.
+          const done = e instanceof CoreStopped ? e.completed : "";
+          if (ac.signal.aborted && (shown || done)) await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: [shown, done, "_Stopped._"].filter(Boolean).join("\n\n") });
           send({ type: "error", conversationId: cid, error: await fail(e) });
         }
         try { ctrl.close(); } catch { /* already cancelled */ }

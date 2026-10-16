@@ -63,8 +63,9 @@ function useScrub(n: number, indexAt: (x: number) => number) {
       tabIndex: 0,
       onPointerMove: (e: PointerEvent<HTMLDivElement>) => {
         if (!n) return;
-        const r = e.currentTarget.getBoundingClientRect();
-        setI(clamp(indexAt(e.clientX - r.left), 0, n - 1));
+        // CSS zoom on world overlays: screen px → layout px, or the crosshair lags the cursor.
+        const el = e.currentTarget, r = el.getBoundingClientRect(), z = el.offsetWidth ? r.width / el.offsetWidth : 1;
+        setI(clamp(indexAt((e.clientX - r.left) / z), 0, n - 1));
       },
       onPointerLeave: () => setI(null),
       onBlur: () => setI(null),

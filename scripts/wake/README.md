@@ -13,7 +13,7 @@ If Chrome blocks the voice (it only allows speech without a click when Chrome wa
 - Uses the speech recognition built into Windows (System.Speech). It runs **fully offline**. No audio is recorded, stored or sent anywhere.
 - It only reacts to the wake phrases. Windows also matches other speech to text inside the listener so it isn't mistaken for the phrase; that text is thrown away and never logged.
 - The log (`%LOCALAPPDATA%\orbit-wake\wake.log`, max ~200 KB) only records start-up, the wake phrases it heard and their confidence, and errors.
-- After ORBIT opens, the question you ask goes through ORBIT's normal voice input. Chrome sends that audio to Google to transcribe, just like the mic button does.
+- After ORBIT opens, the question you ask goes through ORBIT's normal voice input. In "Chrome recognition" mode Chrome sends that audio to Google to transcribe; in "Local only" mode it's transcribed by Whisper on this PC.
 
 ## Install / uninstall
 

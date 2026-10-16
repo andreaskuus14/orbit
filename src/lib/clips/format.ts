@@ -41,3 +41,9 @@ export function cleanPermission(s: unknown): string | null {
   const t = s.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/g, " ").trim();
   return t.length <= 300 ? t : null;
 }
+
+/** Quick reasons offered when rejecting a clip (stored as review feedback). */
+export const REJECT_REASONS = ["boring", "no context", "bad cut", "bad captions", "too long", "other"] as const;
+export const CAPTION_STYLES = ["karaoke", "classic", "none"] as const;
+/** "clip-2-v3" → "clip-2": the original a version was made from. */
+export const rootClipId = (id: string) => id.replace(/-v\d+$/, "");

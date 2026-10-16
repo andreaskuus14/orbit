@@ -1,5 +1,6 @@
 import path from "node:path";
-import type { ClipOptions } from "./types";
+import { CAPTION_STYLES, REJECT_REASONS, rootClipId } from "./format.ts";
+import type { CaptionStyle, ClipOptions, Feedback, FeedbackAction, VersionEdit } from "./types";
 
 // Pure helpers for the Clip Factory (no I/O), unit-tested in tests/clips.test.ts.
 
@@ -143,6 +144,8 @@ export function promptTranscript(words: Word[], cands: Candidate[], maxChars = 6
 const toSec = (v: unknown) => typeof v === "string" && /^\d+(:\d{2}){1,2}(\.\d+)?$/.test(v.trim()) ? v.trim().split(":").reduce((a, p) => a * 60 + Number(p), 0) : Number(v);
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max).trim() : "");
+/** On-screen hook text: max 6 words, 40 characters. */
+const shortHook = (v: unknown) => str(v, 60).split(" ").slice(0, 6).join(" ").slice(0, 40).trim();
 
 /** Validates Claude's reply: a JSON array of moments → clamped to the video, max maxSec long, ≥5 s, no overlaps, best first. */
 export function validateMoments(text: string, o: { duration: number; maxSec: number; count: number }): Moment[] {
@@ -166,7 +169,7 @@ export function validateMoments(text: string, o: { duration: number; maxSec: num
     if (!Number.isFinite(score)) score = 0.5;
     else if (score > 1) score /= 100; // some replies use 0..100
     const title = str(r.title, 60) || `Clip at ${mmss(start)}`;
-    const hook = str(r.hook, 60).split(" ").slice(0, 6).join(" ").slice(0, 40).trim();
+    const hook = shortHook(r.hook);
     out.push({ start, end, title, hook, reason: str(r.reason, 300), score: Math.round(clamp(score, 0, 1) * 100) / 100 });
   }
   return removeOverlaps(out).slice(0, o.count);
@@ -390,7 +393,7 @@ const ASS_YELLOW = "&H00E5FF&", ASS_CHERRY = "&H632EFF&"; // #ffe500, #ff2e63 (o
 
 /** Subtitle file for one clip: the hook on top for the first 2.5 s, then karaoke captions lower-middle: 1-3 words on screen, the spoken
  *  word yellow and popping to 115% (a shouted word: cherry, 135%). Times are relative to the (jump-cut) clip. */
-export function buildAss(o: { hook: string; words: Word[]; duration: number }): string {
+export function buildAss(o: { hook: string; words: Word[]; duration: number; style?: "karaoke" | "classic" }): string {
   const ev: string[] = [];
   if (o.hook.trim()) ev.push(`Dialogue: 1,${assTime(0)},${assTime(Math.min(2.5, o.duration))},Hook,,0,0,0,,${assText(o.hook).toUpperCase()}`);
   const groups = captionGroups(cleanWords(o.words));
@@ -401,6 +404,13 @@ export function buildAss(o: { hook: string; words: Word[]; duration: number }): 
     // A long line can't wrap nicely and would run off a 1080 px screen: shrink it (+3 chars of room for the pop).
     const len = text.join(" ").length + 3;
     const fs = len > CAP_CHARS ? `{\\fs${Math.floor((CAP_FS * CAP_CHARS) / len)}}` : "";
+    if (o.style === "classic") { // plain white line per group, no per-word highlight
+      const start = Math.max(last, g[0].start), end = Math.min(o.duration, Math.max(g[g.length - 1].end, start + 0.3), nextGroup);
+      if (end - start < 0.05 || start >= o.duration) return;
+      last = end;
+      ev.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${fs}${text.join(" ")}`);
+      return;
+    }
     g.forEach((w, i) => {
       // Never overlap: libass stacks simultaneous captions into a wall of text, so each event ends where the next begins.
       const start = Math.max(last, w.start);
@@ -563,7 +573,7 @@ export function validOptions(b: Record<string, unknown>): Required<ClipOptions> 
 
 export const isJobId = (s: unknown): s is string => typeof s === "string" && /^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(s);
 export const isDownloadId = (s: unknown): s is string => typeof s === "string" && /^dl-[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(s);
-export const isClipId = (s: unknown): s is string => typeof s === "string" && /^clip-\d{1,2}$/.test(s);
+export const isClipId = (s: unknown): s is string => typeof s === "string" && /^clip-\d{1,2}(-v\d{1,2})?$/.test(s); // -vN: another version
 
 /** Resolves a "/"-separated relative path inside base, or null if it could escape (absolute, drive, UNC, "..", NUL). */
 export function resolveInside(base: string, rel: string, p: typeof path = path): string | null {
@@ -621,4 +631,169 @@ export function thumbSvg(title: string, w = 1080, h = 1920): string {
     text(`fill="#ff2e63" stroke="#ff2e63" stroke-width="${Math.round(size * 0.16)}" stroke-linejoin="round"`) +
     text(`fill="#ffffff" stroke="#000000" stroke-width="3"`) +
     "</svg>";
+}
+
+// ---- state files: validation, quarantine ----
+
+export const STATE_V = 1; // bump when a job/download file's shape changes incompatibly
+const JOB_STATUSES = ["queued", "probing", "transcribing", "finding", "rendering", "done", "failed"];
+const CLIP_STATUSES = ["rendering", "ready", "failed", "approved", "rejected"];
+const PUB_STATUSES = ["uploading", "done", "failed", "unknown"];
+const DL_STATUSES = ["queued", "downloading", "done", "failed"];
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const vProblem = (v: unknown) => v === undefined ? "" : !Number.isInteger(v) ? "bad version field" : (v as number) > STATE_V ? `written by a newer ORBIT (v${v})` : "";
+
+/** Why a parsed job file can't be used ("" = fine). Checks what the server and UI rely on; unknown extra fields are fine. */
+export function jobProblem(x: unknown, id?: string): string {
+  if (!isObj(x)) return "not a JSON object";
+  const v = vProblem(x.v);
+  if (v) return v;
+  if (!isJobId(x.id) || (id !== undefined && x.id !== id)) return "id missing or doesn't match the file name";
+  if (![x.source, x.createdAt, x.updatedAt, x.step].every(isStr)) return "source, dates or step missing";
+  if (!JOB_STATUSES.includes(x.status as string) || !isNum(x.progress)) return "status or progress invalid";
+  if (!Array.isArray(x.warnings) || !x.warnings.every(isStr)) return "warnings must be a list of text";
+  if (!isObj(x.options) || !isNum(x.options.count) || !isNum(x.options.maxSec)) return "options missing";
+  if (!Array.isArray(x.clips)) return "clips must be a list";
+  for (const [i, c] of x.clips.entries()) {
+    const ok = isObj(c) && isClipId(c.id) && isNum(c.start) && isNum(c.end) && [c.title, c.hook, c.reason].every(isStr) && isNum(c.score) &&
+      CLIP_STATUSES.includes(c.status as string) && (c.publish === undefined || (isObj(c.publish) && PUB_STATUSES.includes(c.publish.status as string)));
+    if (!ok) return `clip ${i + 1} is malformed`;
+  }
+  if (x.feedback !== undefined && !Array.isArray(x.feedback)) return "feedback must be a list";
+  return "";
+}
+
+export function downloadProblem(x: unknown, id?: string): string {
+  if (!isObj(x)) return "not a JSON object";
+  const v = vProblem(x.v);
+  if (v) return v;
+  if (!isDownloadId(x.id) || (id !== undefined && x.id !== id)) return "id missing or doesn't match the file name";
+  if (![x.url, x.step, x.createdAt, x.permission].every(isStr)) return "url, step, date or permission missing";
+  if (!DL_STATUSES.includes(x.status as string) || !isNum(x.progress)) return "status or progress invalid";
+  if (x.parts !== undefined && !(Array.isArray(x.parts) && x.parts.every(isStr))) return "parts must be a list of file names";
+  return "";
+}
+
+/** "<id>.<UTC timestamp>.json": the name a damaged state file gets in _quarantine (never overwrites an earlier one). */
+export const quarantineName = (id: string, now: Date) => `${id}.${now.toISOString().replace(/[:.]/g, "-")}.json`;
+
+// ---- saved analysis (re-used by new versions: no re-transcribing) ----
+
+export type Analysis = { v: 1; duration: number; hasAudio: boolean; spans: Span[]; words: Word[]; rms: number[]; cands: Candidate[]; moments: Moment[] };
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Rounded for size: a 3 h VOD is 21 600 loudness windows. */
+export const packAnalysis = (a: Omit<Analysis, "v">): Analysis => ({
+  v: 1, ...a, words: a.words.map((w) => ({ start: r3(w.start), end: r3(w.end), text: w.text })), rms: a.rms.map((x) => Math.round(x * 1e5) / 1e5),
+});
+
+/** analysis.json text → Analysis, or null when damaged/old (the caller then can't make versions without a new job). */
+export function parseAnalysis(text: string): Analysis | null {
+  let a: unknown;
+  try { a = JSON.parse(text); } catch { return null; }
+  if (!isObj(a) || a.v !== 1 || !isNum(a.duration) || typeof a.hasAudio !== "boolean" || !Array.isArray(a.rms) || !a.rms.every(isNum)) return null;
+  const words = Array.isArray(a.words) && a.words.every((w) => isObj(w) && isNum(w.start) && isNum(w.end) && isStr(w.text)) ? (a.words as Word[]) : null;
+  if (!words) return null;
+  const list = <T>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
+  return { v: 1, duration: a.duration, hasAudio: a.hasAudio, words, rms: a.rms as number[], spans: list(a.spans), cands: list(a.cands), moments: list(a.moments) };
+}
+
+// ---- "make another version" ----
+
+export type VersionReq = { edit: Partial<VersionEdit>; hook?: string; title?: string; dStart: number; dEnd: number; suggest: boolean };
+export const MAX_NUDGE_SEC = 10;
+
+/** Version request body → request, or a message for a 400. start/end are nudges in seconds (clamped to ±10). */
+export function validVersion(b: Record<string, unknown>): VersionReq | string {
+  const { layout, camSide, captions, jumpCuts, zooms, hook, title, start = 0, end = 0, suggest = false } = b;
+  if (layout !== undefined && !LAYOUTS.includes(layout as string)) return "layout must be fit, fill or split";
+  if (camSide !== undefined && !SIDES.includes(camSide as string)) return "camSide must be left or right";
+  if (captions !== undefined && !CAPTION_STYLES.includes(captions as CaptionStyle)) return "captions must be karaoke, classic or none";
+  for (const [k, v] of Object.entries({ jumpCuts, zooms, suggest })) if (v !== undefined && typeof v !== "boolean") return `${k} must be a boolean`;
+  if (hook !== undefined && (typeof hook !== "string" || hook.length > 200)) return "hook must be text";
+  if (title !== undefined && (typeof title !== "string" || !title.trim() || title.length > 200)) return "title must be a non-empty string";
+  if (!isNum(start) || !isNum(end)) return "start and end must be numbers of seconds";
+  const edit = Object.fromEntries(Object.entries({ layout, camSide, captions, jumpCuts, zooms }).filter(([, v]) => v !== undefined)) as Partial<VersionEdit>;
+  return { edit, hook: hook === undefined ? undefined : shortHook(hook), title: title === undefined ? undefined : str(title, 70),
+    dStart: clamp(start, -MAX_NUDGE_SEC, MAX_NUDGE_SEC), dEnd: clamp(end, -MAX_NUDGE_SEC, MAX_NUDGE_SEC), suggest: suggest as boolean };
+}
+
+/** The edit settings a job's original clips were rendered with. */
+export const baseEdit = (o: ClipOptions): VersionEdit =>
+  ({ layout: o.layout ?? "fit", camSide: o.camSide ?? "right", captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true });
+
+/** A clip's span nudged and kept inside the video; a message when the result would be under 5 s or over 3 min (the Shorts limit). */
+export function versionSpan(clip: Span, dStart: number, dEnd: number, duration: number): Span | string {
+  const start = r3(clamp(clip.start + dStart, 0, duration)), end = r3(clamp(clip.end + dEnd, 0, duration));
+  if (end - start < 5) return "That trim would leave less than 5 s";
+  return end - start > 180 ? "Shorts can be at most 3 minutes" : { start, end };
+}
+
+/** Next free "<root>-vN" (the original counts as v1), or null past v99. */
+export function nextVersionId(clips: { id: string }[], id: string): string | null {
+  const root = rootClipId(id);
+  const n = 1 + Math.max(1, ...clips.filter((c) => rootClipId(c.id) === root).map((c) => Number(/-v(\d+)$/.exec(c.id)?.[1] ?? 1)));
+  return n > 99 ? null : `${root}-v${n}`;
+}
+
+/** Claude's {"title","hook"} reply → the usable parts (empty ones dropped). */
+export function parseSuggestion(text: string): { title?: string; hook?: string } {
+  const a = text.indexOf("{"), b = text.lastIndexOf("}");
+  let r: unknown;
+  try { r = a >= 0 && b > a ? JSON.parse(text.slice(a, b + 1)) : null; } catch { r = null; }
+  if (!isObj(r)) return {};
+  const title = str(r.title, 60), hook = shortHook(r.hook);
+  return { ...(title ? { title } : {}), ...(hook ? { hook } : {}) };
+}
+
+// ---- publish reconciliation ----
+
+export type Upload = { videoId: string; title: string; publishedAt: string; privacy?: string };
+
+/** playlistItems.list (part=snippet,status) JSON → uploads; malformed items are skipped. */
+export function uploadsFrom(json: unknown): Upload[] {
+  const items = isObj(json) && Array.isArray(json.items) ? json.items : [];
+  return items.flatMap((it) => {
+    const sn = isObj(it) && isObj(it.snippet) ? it.snippet : null, id = sn && isObj(sn.resourceId) ? sn.resourceId.videoId : null;
+    if (!sn || !isStr(id) || !/^[A-Za-z0-9_-]{11}$/.test(id) || !isStr(sn.title) || !isStr(sn.publishedAt)) return [];
+    const privacy = isObj(it) && isObj(it.status) && isStr(it.status.privacyStatus) ? it.status.privacyStatus : undefined;
+    return [{ videoId: id, title: sn.title, publishedAt: sn.publishedAt, ...(privacy ? { privacy } : {}) }];
+  });
+}
+
+/** The channel upload that is this interrupted upload: the title sent (whitespace-normalised), added from 10 min before the upload
+ *  started (clock skew) to 6 h after; the one closest to the start wins. null = not found here, which doesn't prove it's missing. */
+export function matchUpload(items: Upload[], want: { title: string; since: string }): Upload | null {
+  const norm = (t: string) => t.replace(/\s+/g, " ").trim(), t0 = Date.parse(want.since), title = norm(want.title);
+  if (!Number.isFinite(t0)) return null;
+  const hits = items.filter((u) => { const t = Date.parse(u.publishedAt); return norm(u.title) === title && t >= t0 - 600_000 && t <= t0 + 6 * 3600_000; });
+  return hits.sort((a, b) => Math.abs(Date.parse(a.publishedAt) - t0) - Math.abs(Date.parse(b.publishedAt) - t0))[0] ?? null;
+}
+
+/** Check result → publish patch. Not found stays "unknown", never "failed": the playlist can lag, hold > 10 newer uploads, or show a
+ *  later publish time once a video goes public — and a "failed" would invite a duplicate upload. */
+export function reconcileOutcome(hit: Upload | null, privacy?: string) {
+  return hit
+    ? { status: "done" as const, progress: 1, videoId: hit.videoId, url: `https://youtube.com/shorts/${hit.videoId}`, error: undefined, privacy: hit.privacy ?? privacy }
+    : { status: "unknown" as const, error: "Not among your 10 newest uploads yet — check again in a few minutes, or upload again" };
+}
+
+// ---- review feedback ----
+
+export const isRejectReason = (s: unknown): s is string => REJECT_REASONS.includes(s as (typeof REJECT_REASONS)[number]);
+
+/** Appends a review event (the newest 500 are kept). */
+export function addFeedback(job: { feedback?: Feedback[] }, clipId: string, action: FeedbackAction, reason?: string, at = new Date().toISOString()) {
+  const f = (job.feedback ??= []);
+  f.push({ clipId, action, ...(reason ? { reason } : {}), at });
+  if (f.length > 500) f.splice(0, f.length - 500);
+}
+
+/** Attaches a reason to the clip's latest reject event (picked after rejecting); false when there is none. */
+export function setRejectReason(job: { feedback?: Feedback[] }, clipId: string, reason: string): boolean {
+  const ev = job.feedback?.findLast((e) => e.clipId === clipId && e.action === "rejected");
+  if (ev) ev.reason = reason;
+  return !!ev;
 }
