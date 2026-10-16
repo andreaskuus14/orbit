@@ -6,10 +6,11 @@ import { PALETTE_EVENT } from "@/lib/palette-pure";
 // One-time "what's new" card after an update. Bump KEY's version when a new round ships something worth showing.
 const KEY = "orbit.whatsnew.2026-10-16";
 const ITEMS: { icon: string; title: string; text: string; go?: NavTarget; event?: string }[] = [
-  { icon: "🌱", title: "LIFE", text: "Habits with streaks, reminders, a focus timer and a journal. Say “start focus”.", go: { panel: "life" } },
+  { icon: "🌱", title: "LIFE", text: "Habits with streaks, reminders (also “every day at 9”), a focus timer and a journal. Say “start focus”.", go: { panel: "life" } },
   { icon: "🗄️", title: "VAULT", text: "Your private files on this PC: drop, preview, search inside, ask CORE.", go: { panel: "vault" } },
   { icon: "⌕", title: "Search everything", text: "Ctrl+P: planets, actions, memories and files.", event: PALETTE_EVENT },
   { icon: "📅", title: "STUDIO calendar", text: "Your week of Shorts and free slots, in Clip Factory → Calendar.", go: { panel: "studio", view: "clips" } },
+  { icon: "🧠", title: "From your memory", text: "The morning briefing brings back what you saved a week, month or year ago." },
   { icon: "🔔", title: "Notifications", text: "The bell keeps STUDIO notes, reminders and agent results." },
   { icon: "🎬", title: "THEATER", text: "Your creators as chips, and Continue watching.", go: { panel: "theater" } },
 ];
