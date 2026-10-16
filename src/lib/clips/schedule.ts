@@ -31,11 +31,11 @@ const fmt = (tz: string) => {
   return f;
 };
 /** Wall clock in tz at instant ms, as [y, m, d, h, min]. */
-function wall(ms: number, tz: string): number[] {
+export function wall(ms: number, tz: string): number[] {
   const p = Object.fromEntries(fmt(tz).formatToParts(ms).map((x) => [x.type, x.value]));
   return [p.year, p.month, p.day, p.hour, p.minute].map(Number);
 }
-const dayKey = (ms: number, tz: string) => wall(ms, tz).slice(0, 3).join("-");
+export const dayKey = (ms: number, tz: string) => wall(ms, tz).slice(0, 3).join("-");
 
 /** The instant when the wall clock in tz shows y-m-d hh:mm (a time skipped by a spring-forward jump lands one hour later). */
 export function zonedTime(y: number, m: number, d: number, hhmm: string, tz: string): number {

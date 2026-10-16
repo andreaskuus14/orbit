@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, type HabitView, type LifeState } from "@/lib/life-pure";
 import type { LifeView } from "@/lib/nav-pure";
+import { VOICE_ASK } from "./voice/bus";
 
 // LIFE workspace drawer: today's habits, habit list, focus timer, reminders, journal. All data via /api/life.
 
@@ -271,9 +272,10 @@ function Journal({ st, act }: { st: LifeState; act: Act }) {
   latest.current = { text, base: today.text, date: today.date };
   // Closing the drawer while typing may unmount without a blur: save what's there on the way out.
   useEffect(() => () => { const l = latest.current; if (l.text !== l.base) post({ action: "journal", text: l.text, date: l.date }).catch(() => {}); }, []);
-  const save = async () => {
-    if (text === today.text) return;
-    if (await act({ action: "journal", text, date: today.date })) setSaved("Saved");
+  const save = async () => { // true when today's text is saved (or unchanged)
+    if (text === today.text) return true;
+    if (await act({ action: "journal", text, date: today.date })) { setSaved("Saved"); return true; }
+    return false;
   };
   return (
     <div className="space-y-3">
@@ -290,6 +292,8 @@ function Journal({ st, act }: { st: LifeState; act: Act }) {
           </li>
         ))}
       </ul>
+      {st.journal.filter((j) => j.text.trim()).length >= 2 && (
+        <button className="btn" onClick={async () => { if (!(await save())) return; dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text: "Read my journal from the last 7 days and reflect: patterns, wins, and one suggestion for next week." } })); }}>Reflect with CORE</button>)}
     </div>
   );
 }

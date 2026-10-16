@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   addDays, weekday, weekStart, isDateKey, streak, last7, matchHabit, reminderTimeError, dueReminders, visibleReminders, pruneReminders,
-  cleanName, cleanEmoji, cleanDays, view, summaryText, emptyStore, ALL_DAYS, type Habit,
+  cleanName, cleanEmoji, cleanDays, view, summaryText, emptyStore, ALL_DAYS, journalText, type Habit,
 } from "../src/lib/life-pure.ts";
 
 test("date keys step whole days, across month/year and DST", () => {
@@ -106,4 +106,14 @@ test("view + summary", () => {
   assert.match(t, /Pending: Run \(streak 1\)/);
   assert.match(t, /Focus today: 50 min/);
   assert.ok(t.length <= 600);
+});
+
+test("journalText: last N days, newest first, weekday labels, whole-entry cap", () => {
+  const j = { "2026-10-16": " today ", "2026-10-14": "wed", "2026-10-15": "  ", "2026-10-09": "too old", "2026-10-17": "future" };
+  assert.equal(journalText(j, "2026-10-16", 7), "2026-10-16 (Friday): today\n2026-10-14 (Wednesday): wed");
+  assert.equal(journalText(j, "2026-10-16", 1), "2026-10-16 (Friday): today");
+  assert.equal(journalText({}, "2026-10-16", 7), "");
+  const big = { "2026-10-16": "a".repeat(2000), "2026-10-15": "b".repeat(2000), "2026-10-14": "c".repeat(2000) };
+  const out = journalText(big, "2026-10-16", 7, 4100);
+  assert.ok(out.length <= 4100 + 30 && out.endsWith("(older entries omitted)") && !out.includes("c"));
 });

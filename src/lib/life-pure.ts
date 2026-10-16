@@ -113,3 +113,19 @@ export function summaryText(st: LifeState, now: number): string {
   const out = lines.filter(Boolean).join(" ");
   return out.length > 600 ? out.slice(0, 599) + "…" : out;
 }
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** Journal entries of the last `days` days (today included), newest first, as "YYYY-MM-DD (Weekday): text", whole entries up to `max` chars. */
+export function journalText(journal: Record<string, string>, today: string, days: number, max = 8000): string {
+  const out: string[] = [];
+  let len = 0;
+  for (let i = 0; i < days; i++) {
+    const date = addDays(today, -i), text = journal[date]?.trim();
+    if (!text) continue;
+    const line = `${date} (${WEEKDAYS[weekday(date)]}): ${text}`;
+    if (len + line.length > max) { out.push("(older entries omitted)"); break; }
+    out.push(line);
+    len += line.length + 1;
+  }
+  return out.join("\n");
+}

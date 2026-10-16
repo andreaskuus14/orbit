@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   MAX_HABITS, MAX_JOURNAL, MAX_OPEN_REMINDERS, MAX_REMINDER, addDays, cleanDays, cleanEmoji, cleanName, dateKey, dueReminders,
-  emptyStore, isDateKey, matchHabit, pruneReminders, reminderTimeError, streak, summaryText, view,
+  emptyStore, isDateKey, journalText, matchHabit, pruneReminders, reminderTimeError, streak, summaryText, view,
   type Habit, type LifeState, type LifeStore, type Reminder,
 } from "./life-pure";
 
@@ -52,6 +52,8 @@ const today = () => dateKey(new Date());
 export async function getLife(): Promise<LifeState> { return view(await read(), Date.now()); }
 /** The raw stored LIFE data (full journal and focus history), for exports and backups. */
 export const exportLife = (): Promise<LifeStore> => read();
+/** The last `days` days of journal entries as plain text, newest first ("" when none). */
+export const journalDigest = async (days: number): Promise<string> => journalText((await read()).journal, today(), days);
 
 export async function addHabit(name: string, emoji?: string, days?: number[]): Promise<{ habit: Habit } | { error: string }> {
   const n = cleanName(name), e = cleanEmoji(emoji), d = cleanDays(days);

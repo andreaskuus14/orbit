@@ -5,6 +5,7 @@ import ReviewQueue from "./ReviewQueue";
 import ClipPicks from "./ClipPicks";
 import LearnedCard from "./LearnedCard";
 import EngageCard, { DescribeButton } from "./EngageCard";
+import StudioCalendar from "./StudioCalendar";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -74,10 +75,10 @@ function Section({ title, children, right }: { title: string; children: ReactNod
 }
 const Skeleton = ({ h, reduced }: { h: number; reduced: boolean }) => <div aria-hidden className={`card ${reduced ? "" : "animate-pulse"}`} style={{ height: h, opacity: 0.6 }} />;
 
-type Tab = "find" | "clips" | "insights";
+type Tab = "find" | "clips" | "calendar" | "insights";
 const TAB_KEY = "orbit.clipFactory.tab";
 const readTab = (): Tab | null => {
-  try { const t = localStorage.getItem(TAB_KEY); return t === "find" || t === "clips" || t === "insights" ? t : null; }
+  try { const t = localStorage.getItem(TAB_KEY); return t === "find" || t === "clips" || t === "calendar" || t === "insights" ? t : null; }
   catch { return null; } // storage unavailable (or server render)
 };
 
@@ -265,6 +266,8 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const workText = workingJobs.length ? `⏳ ${plural(workingJobs.length, "job")} working… ${avg(workingJobs.map((j) => j.progress))}%`
     : dls.length ? `⬇ ${plural(dls.length, "download")}… ${avg(dls.map((d) => d.progress))}%` : "";
   const workNext = <button className="chip num" onClick={() => selectTab(workingJobs.length ? "clips" : "find")} aria-label={`${workText}. Show progress`}>{workText}</button>;
+  // Calendar card → the clip's card in the Clips tab (ids set in JobCard).
+  const openClip = (job: string, clip: string) => { selectTab("clips"); requestAnimationFrame(() => { const el = document.getElementById(`cf-clip-${job}/${clip}`); el?.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" }); el?.focus({ preventScroll: true }); }); };
   const goSchedule = () => { selectTab("clips"); requestAnimationFrame(() => document.getElementById("schedule-all")?.focus()); };
   // One obvious next step, in priority order: review > schedule > connect YouTube > wait for work > find videos.
   const next = fresh ? <button className="btn" onClick={() => setReviewing(true)} aria-label={`Review ${fresh} new clips`}>☀ {plural(fresh, "clip")} ready to review</button>
@@ -272,7 +275,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
     : unpublished && yt?.configured ? <a className="btn" href="/api/studio/oauth/start">🔗 Connect YouTube to publish {unpublished} approved</a>
     : workText ? workNext
     : <button className="btn" onClick={() => { selectTab("find"); setScoutRun((n) => n + 1); }} aria-label="Find videos: run the video scout">🔭 Find videos</button>;
-  const tabs: [Tab, string][] = [["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["insights", "🧠 Insights"]];
+  const tabs: [Tab, string][] = [["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["calendar", "📅 Calendar"], ["insights", "🧠 Insights"]];
   const onTabKey = (e: KeyboardEvent) => {
     const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (!d) return;
@@ -328,6 +331,11 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
           <div id="cf-panel-insights" role="tabpanel" aria-labelledby="cf-tab-insights" hidden={shown !== "insights"} className="space-y-3">
             <LearnedCard defaultOpen />
             <EngageCard />
+          </div>
+
+          <div id="cf-panel-calendar" role="tabpanel" aria-labelledby="cf-tab-calendar" hidden={shown !== "calendar"} className="space-y-3">
+            {shown === "calendar" && <StudioCalendar jobs={data.jobs} waiting={unpublished} onOpen={openClip}
+              scheduleAll={yt?.canUpload ? <button className="btn" onClick={goSchedule}>🕒 Schedule all</button> /* the one ScheduleAll lives in Clips (it polls) */ : unpublished > 0 && yt?.configured ? <a className="chip" href="/api/studio/oauth/start">🔗 Connect YouTube</a> : null} />}
           </div>
 
           <div id="cf-panel-find" role="tabpanel" aria-labelledby="cf-tab-find" hidden={shown !== "find"} className="space-y-3">
@@ -899,7 +907,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
       {clips.length > 0 && (
         <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2" aria-label={`Clips from ${job.source}`}>
           {clips.map((c) => (
-            <li key={c.id}>
+            <li key={c.id} id={`cf-clip-${job.id}/${c.id}`} tabIndex={-1} className="rounded-xl focus:outline focus:outline-2 focus:outline-[#f43f5e]">
               <ClipCard clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />}
                 picks={(c.status === "ready" || c.status === "approved") && <>
                   <ClipPicks clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPick={(body) => void onPatch(c.id, body)}
