@@ -4,10 +4,17 @@ const AGENTS = "nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa";
 // Anything that needs memories, tools or real thinking stays on the main model.
 const HEAVY = new RegExp(String.raw`https?:|www\.|\.(com|org|net|io)\b|\b(memor|note|remember|save|saved|news|headline|studio|clip|shorts?\b|scout|niche|schedul|youtube|channel|video|agent|${AGENTS}|file|upload|document|search|find|look\s*up|latest|today|yesterday|tonight|this week|go to|open|show|fly|navigate|zoom|globe|planet|project|idea|goal|research|explain|why|how (do|does|can|should|would)|write|story|summar|plan|code|compare|analy|list|my|mine|i (said|told|wrote|asked)|we (talked|discussed)|earlier|last time|weather|price|stock|score)`, "i");
 const AFFIRM = /^\W*(yes|yeah|yep|yup|sure|ok(ay)?|do it|go ahead|please( do)?|sounds good|go for it)\b/i;
+// The user asks for depth outright ("deep: ...", "think hard").
+const DEEP_ASK = /^\W*deep\s*:|\bthink (hard|deeply|carefully|it through)\b|\bdeep[- ]dive\b/i;
+// Clearly hard work (planning, architecture, code, comparisons) that also states constraints or asks a question.
+const HARD = /\b(plan|roadmap|strateg(y|ies|ic)|architect(ure)?|design|refactor|debug|algorithm|compare|comparison|versus|trade-?offs?|pros and cons|analy[sz]e|analysis|evaluate|optimi[sz]e|prove|derive)\b/i;
+const CONSTRAINED = /[?:]|\b(given|must|need|without|budget|constraint)/i;
 
-/** "fast" only for short chit-chat that clearly needs no tool or memory; everything else is "smart" (the main model). */
-export function pickModel(question: string, prevAssistant = ""): "fast" | "smart" {
+/** "fast" for short chit-chat that clearly needs no tool or memory; "deep" for clearly hard asks (plan + answer +
+ *  self-check on the deep model); everything else is "smart" (the main model). */
+export function pickModel(question: string, prevAssistant = ""): "fast" | "smart" | "deep" {
   const q = question.trim();
+  if (DEEP_ASK.test(q) || (q.length > 160 && HARD.test(q) && CONSTRAINED.test(q))) return "deep";
   if (!q || q.length > 80 || q.split(/\s+/).length > 12 || q.includes("\n")) return "smart";
   if (HEAVY.test(q)) return "smart";
   // "yes" to CORE's own offer ("Want me to run the scout?") is a request to act: keep tools on hand.
@@ -23,7 +30,7 @@ export function stepLabel(tool: string, input: Record<string, unknown> = {}): st
     ask_agent: `Asking ${agent}…`, save_memory: "Saving to memory…", navigate: "Flying there…",
     studio_status: "Checking the studio…", learned: "Checking what works…", run_scout: "Starting the scout…",
     run_niche: "Starting niche research…", schedule_approved: "Scheduling clips…",
-    suggestions: "Checking what needs attention…", plan_task: "Starting the plan…",
+    suggestions: "Checking what needs attention…", plan_task: "Starting the plan…", review: "Double-checking the answer…",
   };
   return labels[tool] ?? "Working…";
 }
@@ -43,4 +50,10 @@ export function followUps(question: string, tools: string[]): string[] {
   if (/\b(idea|project|plan|goal)s?\b/i.test(question)) return ["What should I do next?", "Save this to memory"];
   if (question.trim().length > 25) return ["Tell me more", "Give me a short version"];
   return [];
+}
+
+/** Agents: one self-review pass only for big results (long, or built from several tool steps), to save cost.
+ *  Top-level research is already cross-checked by verifyAnswer and sub-tasks are reviewed by their parent. */
+export function needsSelfReview(result: string, toolSteps: number, depth: number, verified: boolean): boolean {
+  return depth === 0 && !verified && (result.length >= 1500 || toolSteps >= 3);
 }

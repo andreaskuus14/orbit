@@ -1,11 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { askClaude, recordUsage, emit, MODEL, createBudget, chargeCall, stopKind, stoppedReport, BudgetError, type Budget } from "./claude";
+import { askClaude, recordUsage, emit, reviewDraft, MODEL, createBudget, chargeCall, stopKind, stoppedReport, BudgetError, type Budget } from "./claude";
 import { createMemory, searchMemories, fetchPage, safeFetch, MEMORY_COLUMNS, KINDS, type Kind } from "./memory";
 import { runPulse, topicFeedUrl } from "./pulse";
 import { localNews, readArticle } from "./news";
 import { findCountry } from "./countries-pure";
 import { displayName } from "./geo";
 import { verifyAnswer, type Source } from "./verify";
+import { needsSelfReview } from "./core-ui";
 import { newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 
 // ORBIT's agent workforce. Each agent is Claude (via Claude Code) with its own instructions and an allow-list of
@@ -358,7 +359,8 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
 
       if (reply.final !== undefined || !reply.tool || forceFinal) {
         let result = reply.final ?? r.text;
-        if (isResearch(agent) && depth === 0) { // delegated sub-tasks skip it: the parent verifies the final answer
+        const verified = isResearch(agent) && depth === 0;
+        if (verified) { // delegated sub-tasks skip it: the parent verifies the final answer
           // Cross-check the draft's key claims before delivering it (read-only; approvals are untouched).
           trace.push({ step: "verify", detail: "cross-checking key claims → working…", ms: 0, ok: true });
           await save({});
@@ -367,6 +369,15 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
           const v = await verifyAnswer(sb, userId, result, [...ctx.pages.values()], { signal, beforeCall: () => chargeCall(budget, signal) });
           trace.push(...v.trace);
           result = v.text;
+        }
+        // Big results get one tool-less self-review, only while the budget still has a call to spare.
+        // ...and more than 150 s left, so the review (up to 2 min) can't push the task past its time budget.
+        if (needsSelfReview(result, transcript.length, depth, verified) && budget.used < budget.calls && budget.deadline - Date.now() > 150_000) {
+          chargeCall(budget, signal);
+          const t0 = Date.now();
+          const rv = await reviewDraft(`TASK: ${task.title}\n\n${task.request}`, result, transcript.join("\n\n"), { signal, onUsage: (rr) => recordUsage(sb, userId, `agent.${agent.slug}.review`, rr) });
+          result = rv.text;
+          if (rv.reviewed) trace.push({ step: "review", detail: `${MODEL} · self-reviewed`, ms: Date.now() - t0, ok: true });
         }
         // A delegated agent may be waiting for approval too: surface that on this task so the user sees it.
         const { data: waitingKids } = await sb.from("tasks").select("id").eq("parent_id", taskId).eq("status", "awaiting_approval").limit(1);

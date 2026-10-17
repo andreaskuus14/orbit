@@ -6,7 +6,7 @@ export const PINK = "#f472b6";
 const OPEN_STUDIO = "Open Roblox Studio with your place and enable the MCP plugin, then check again.";
 type Status = { configured: boolean; help?: string; studio?: { open: boolean; place: string; notes: string } };
 type Plan = PlanResult & { planId: string; expiresAt: number };
-export type Built = BuildResult & { image: string | null };
+export type Built = BuildResult & { image: string | null; historyId?: string };
 
 export async function call<T>(init?: RequestInit, query = ""): Promise<T> {
   const res = await fetch(`/api/roblox${query}`, { cache: "no-store", headers: { "content-type": "application/json" }, ...init });

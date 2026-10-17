@@ -1,9 +1,9 @@
-import { InputError, PlanError, RobloxBusyError, makePlan, robloxConfig, runBuild, runPlaytest, runScan, studioStatus } from "@/lib/roblox";
-import { MAX_SCENE, playtestGoal, scanPaths, validateItem } from "@/lib/roblox-pure";
+import { InputError, PlanError, RobloxBusyError, getHistory, makePlan, readShot, robloxConfig, runBuild, runPlaytest, runScan, studioStatus } from "@/lib/roblox";
+import { MAX_KEEP, playtestGoal, scanPaths, validateItem } from "@/lib/roblox-pure";
 import { requireUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 480; // map plans/builds may take 7 minutes
 
 const fail = (e: unknown) => {
   const status = e instanceof RobloxBusyError ? 409 : e instanceof PlanError ? 410 : e instanceof InputError ? 400 : 502;
@@ -14,12 +14,20 @@ const fail = (e: unknown) => {
 // tools; POST {action:"build", planId, keep?} → carries out that confirmed plan (keep = ticked scene object indexes);
 // POST {action:"scan", paths?} → read-only free-model scan of Workspace paths (default Workspace.ORBIT Builds);
 // POST {action:"playtest", goal?} → look-only play-mode run (start, walk, console, stop) returning findings. Signed-in only; CSRF is checked by middleware.
+// GET ?history=1 → the last 30 builds' before/after rows; GET ?shot=<id>&side=before|after → that PNG.
 export async function GET(req: Request) {
-  const { res } = await requireUser();
+  const { user, res } = await requireUser();
   if (res) return res;
+  const q = new URL(req.url).searchParams;
+  if (q.get("history") === "1") return Response.json({ history: (await getHistory(user.id).catch(() => [])).reverse() });
+  if (q.has("shot")) {
+    const png = await readShot(user.id, q.get("shot"), q.get("side"));
+    return png ? new Response(new Uint8Array(png), { headers: { "content-type": "image/png", "cache-control": "private, max-age=86400", "x-content-type-options": "nosniff" } })
+      : Response.json({ error: "Screenshot not found" }, { status: 404 });
+  }
   const cfg = robloxConfig();
   if (!cfg.configured) return Response.json({ configured: false, help: cfg.help });
-  if (new URL(req.url).searchParams.get("status") !== "1") return Response.json({ configured: true });
+  if (q.get("status") !== "1") return Response.json({ configured: true });
   return Response.json({ configured: true, studio: await studioStatus() });
 }
 
@@ -36,7 +44,7 @@ export async function POST(req: Request) {
       return Response.json(await makePlan(user.id, v.item));
     }
     if (body?.action === "build" && typeof body.planId === "string" && /^[0-9a-f-]{36}$/.test(body.planId)) {
-      const keep = Array.isArray(body.keep) ? body.keep.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < MAX_SCENE) : undefined;
+      const keep = Array.isArray(body.keep) ? body.keep.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < MAX_KEEP) : undefined;
       return Response.json(await runBuild(user.id, body.planId, keep));
     }
     if (body?.action === "scan") return Response.json(await runScan(scanPaths(body.paths)));

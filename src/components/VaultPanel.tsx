@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VOICE_ASK } from "./voice/bus";
+import { WorkspacePanel } from "./WorkspacePanel";
 import { MAX_FILE, MEMORY_MAX, fmtSize, memoryType, type CloudFile, type Kind } from "@/lib/vault-pure";
 
 type Usage = { bytes: number; count: number };
@@ -247,6 +248,7 @@ export function VaultPanel() {
           </ul>
         </div>
       )}
+      <WorkspacePanel />
     </div>
   );
 }

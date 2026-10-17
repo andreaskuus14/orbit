@@ -20,13 +20,16 @@ test("summary: all ok, worst first, spoken top problems", () => {
 });
 
 test("model names", () => {
-  for (const m of ["sonnet", "opus", "haiku", "claude-sonnet-4-5", "sonnet[1m]", "claude-opus-4-1-20250805"]) assert.ok(validModel(m), m);
+  for (const m of ["sonnet", "opus", "haiku", "claude-sonnet-4-5", "sonnet[1m]", "claude-opus-4-1-20250805", "fable", "claude-fable-1"]) assert.ok(validModel(m), m);
   for (const m of ["", "gpt-4", "sonet", "claude"]) assert.ok(!validModel(m), m);
   assert.equal(modelCheck("sonnet", "opus").status, "ok");
   const bad = modelCheck("sonet", "opus");
   assert.equal(bad.status, "fail");
   assert.match(bad.detail, /ORBIT_MODEL="sonet"/);
   assert.doesNotMatch(bad.detail, /ORBIT_MODEL_SMART/);
+  assert.match(modelCheck("sonnet", "opus", "haiku", "opsu").detail, /ORBIT_MODEL_DEEP="opsu"/);
+  assert.equal(modelCheck("sonnet", "opus", "haiku", "fable", "high").status, "ok");
+  assert.equal(modelCheck("sonnet", "opus", "haiku", "opus", "turbo").status, "warn");
 });
 
 test("disk thresholds", () => {

@@ -4,7 +4,8 @@ import { isAllowedEmail } from "@/lib/allow";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { publicOrigin } from "@/lib/origin-pure";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health"];
+// /w = workspace previews: the route checks the signed link + session itself (sandboxed pages' CSS/JS requests carry no cookies).
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health", "/w"];
 
 export async function middleware(request: NextRequest) {
   if (crossSiteBlocked(request.method, request.nextUrl.pathname, { secFetchSite: request.headers.get("sec-fetch-site"), origin: request.headers.get("origin"), host: request.headers.get("host"), forwardedHost: request.headers.get("x-forwarded-host") }))

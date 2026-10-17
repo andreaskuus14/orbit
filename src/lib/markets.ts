@@ -158,6 +158,8 @@ async function sync(checkAlerts: boolean) {
 
 /** For MarketWatcher: alert rules that fired just now (each at most once per rule per day). Also drives the daily bot run. */
 export async function firedAlerts() { return (await sync(true)).fired; }
+/** Stored alert rules with their text, no quote fetch (the morning "since you left" recap). */
+export const listAlerts = async () => (await read()).alerts.map((a) => ({ ...a, text: alertText(a) }));
 
 const accountView = (a: Account, prices: Record<string, number>) => ({
   cash: a.cash, equity: equity(a, prices), started: a.started, trades: a.trades.slice(0, 50), curve: a.curve, ...vsIndex(a),

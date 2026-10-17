@@ -247,7 +247,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Studio view">
           <button className="chip" aria-pressed={tab === "games"} onClick={() => setTab("games")}>🎮 Games</button>
           <button className="chip" aria-pressed={tab === "refs"} onClick={() => setTab("refs")} style={tab === "refs" ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>🎨 References</button>
-          {([["scene", "🏕 Scene"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"]] as const).map(([k, label]) => (
+          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"]] as const).map(([k, label]) => (
             <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
           ))}
         </div>

@@ -9,15 +9,18 @@ const GB = 1024 ** 3;
 const DAY = 86_400_000;
 export const check = (id: string, label: string, status: Status, detail: string, fix?: string): Check => ({ id, label, status, detail, ...(fix ? { fix } : {}) });
 
-/** Claude Code model names ORBIT_MODEL / ORBIT_MODEL_SMART accept: an alias or a full claude-* id. */
-export const validModel = (m: string) => /^(?:sonnet|opus|haiku|opusplan|default)(?:\[1m\])?$|^claude-[a-z0-9.-]+(?:\[1m\])?$/i.test(m.trim());
+/** Claude Code model names ORBIT_MODEL / ORBIT_MODEL_SMART / ORBIT_MODEL_DEEP accept: an alias (fable only if the plan has it) or a full claude-* id. */
+export const validModel = (m: string) => /^(?:sonnet|opus|haiku|fable|opusplan|default)(?:\[1m\])?$|^claude-[a-z0-9.-]+(?:\[1m\])?$/i.test(m.trim());
 
-export function modelCheck(model: string, smart: string): Check {
-  const bad = [["ORBIT_MODEL", model], ["ORBIT_MODEL_SMART", smart]].filter(([, v]) => !validModel(v));
-  return bad.length
-    ? check("models", "AI model names", "fail", `Not a Claude model name: ${bad.map(([k, v]) => `${k}="${v.slice(0, 40)}"`).join(", ")}`,
-      `In .env.local set ${bad.map(([k]) => k).join(" and ")} to sonnet, opus or haiku (or delete the line), then restart ORBIT.`)
-    : check("models", "AI model names", "ok", `${model} (everyday), ${smart} (important decisions)`);
+export function modelCheck(model: string, smart: string, fast = "haiku", deep = "opus", effort = ""): Check {
+  const bad = [["ORBIT_MODEL", model], ["ORBIT_MODEL_SMART", smart], ["ORBIT_MODEL_FAST", fast], ["ORBIT_MODEL_DEEP", deep]].filter(([, v]) => !validModel(v));
+  if (bad.length) return check("models", "AI model names", "fail", `Not a Claude model name: ${bad.map(([k, v]) => `${k}="${v.slice(0, 40)}"`).join(", ")}`,
+    `In .env.local set ${bad.map(([k]) => k).join(" and ")} to sonnet, opus or haiku (or delete the line), then restart ORBIT.`);
+  const names = `${model} (everyday), ${smart} (important decisions), ${fast} (quick replies), ${deep} (deep answers)`;
+  return effort.trim() && !/^(low|medium|high|xhigh|max)$/.test(effort.trim())
+    ? check("models", "AI model names", "warn", `${names}. ORBIT_DEEP_EFFORT="${effort.slice(0, 20)}" is not a valid effort, so deep answers run without it`,
+      "In .env.local set ORBIT_DEEP_EFFORT to low, medium, high, xhigh or max (or delete the line), then restart ORBIT.")
+    : check("models", "AI model names", "ok", names);
 }
 
 export function diskCheck(freeBytes: number, where: string): Check {

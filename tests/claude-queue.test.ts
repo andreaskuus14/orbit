@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createLaneLimiter, BusyError, createBudget, chargeCall, BudgetError, stopKind, stoppedReport } from "../src/lib/claude.ts";
+import { createLaneLimiter, BusyError, createBudget, chargeCall, BudgetError, stopKind, stoppedReport, acceptReview } from "../src/lib/claude.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 /** A job that runs until released; `started` records the start order. */
@@ -104,4 +104,14 @@ test("stoppedReport lists finished steps and sub-tasks only", () => {
   assert.match(r, /atlas finished sub-task "Research"/);
   assert.doesNotMatch(r, /think|fetch_url|qa/);
   assert.match(stoppedReport("Cancelled", [], []), /Nothing was completed yet/);
+});
+
+test("acceptReview: keeps citations, links and approval notes", () => {
+  const d = "Use the plan [m:abc] and see [docs](https://x.dev/a). The memory save waits for your approval.";
+  assert.equal(acceptReview(d, "Plan [m:abc], details at [docs](https://x.dev/a). It waits for your approval."), true);
+  assert.equal(acceptReview(d, "Plan, details at [docs](https://x.dev/a). It waits for your approval."), false); // dropped [m:abc]
+  assert.equal(acceptReview(d, "Plan [m:abc] [m:zzz] [docs](https://x.dev/a), waits for approval."), false); // invented id
+  assert.equal(acceptReview(d, "Plan [m:abc] [docs](https://x.dev/a)."), false); // approval note gone
+  assert.equal(acceptReview(d, '{"tool": "fetch_url", "input": {}}'), false);
+  assert.equal(acceptReview(d, ""), false);
 });

@@ -4,8 +4,12 @@ import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { PALETTE_EVENT } from "@/lib/palette-pure";
 
 // One-time "what's new" card after an update. Bump KEY's version when a new round ships something worth showing.
-const KEY = "orbit.whatsnew.2026-10-17";
+const KEY = "orbit.whatsnew.2026-10-17b";
 const ITEMS: { icon: string; title: string; text: string; go?: NavTarget; event?: string }[] = [
+  { icon: "🧠", title: "CORE deep mode", text: "Start with “deep:” or say “think hard” — CORE plans, answers and double-checks.", go: { panel: "core" } },
+  { icon: "📁", title: "CORE makes real files", text: "“Build me a website” saves real files. Open them in VAULT → Workspaces with ▶ preview.", go: { panel: "vault" } },
+  { icon: "🏗", title: "GAME DEV Wave B", text: "Map from your reference board, asset packs, GUI scripts and before/after build history.", go: { panel: "creation" } },
+  { icon: "👋", title: "Welcome back", text: "After 3+ hours away, one card shows what happened while you were gone." },
   { icon: "🎙", title: "Voice", text: "Say “let's just talk” for open mic. Try “ORBIT mic” and “Remember my voice” in voice settings." },
   { icon: "🌍", title: "Every country", text: "All countries on the globe, local news per country (Estonia: ERR, Postimees).", go: { panel: "intelligence" } },
   { icon: "💬", title: "CORE chats & projects", text: "☰ Chats to reopen old chats, ＋ New, and projects with pinned notes.", go: { panel: "core" } },
@@ -23,18 +27,27 @@ const ITEMS: { icon: string; title: string; text: string; go?: NavTarget; event?
 export function WhatsNew({ home }: { home: boolean }) {
   const [open, setOpen] = useState(false);
   useEffect(() => { try { if (!localStorage.getItem(KEY)) setOpen(true); } catch { /* no storage: skip the card */ } }, []);
-  if (!open || !home) return null;
   const close = () => { setOpen(false); try { localStorage.setItem(KEY, "1"); } catch { /* ignore */ } };
+  useEffect(() => {
+    if (!open || !home) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [open, home]);
+  if (!open || !home) return null;
   const go = (it: (typeof ITEMS)[number]) => {
     close();
     if (it.go) dispatchEvent(new CustomEvent(NAV_EVENT, { detail: it.go }));
     else if (it.event) dispatchEvent(new Event(it.event));
   };
   return (
-    <section className="glass hud-panel whats-new absolute left-3 top-16 z-20 w-[min(22rem,calc(100vw-1.5rem))] p-4 text-sm" aria-label="What's new in ORBIT">
+    <>
+    {/* Phones only (CSS): the card becomes a top sheet over a tap-to-dismiss backdrop. */}
+    <div className="sheet-backdrop" onClick={close} aria-hidden />
+    <section className="glass hud-panel whats-new absolute left-3 top-16 z-20 w-[min(22rem,calc(100vw-1.5rem))] p-4 text-sm" role="dialog" aria-labelledby="whats-new-title">
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="hud-title">WHAT&apos;S NEW</h2>
-        <button className="chip" onClick={close} aria-label="Dismiss what's new">Got it</button>
+        <h2 id="whats-new-title" className="hud-title">WHAT&apos;S NEW</h2>
+        <button className="chip" onClick={close} aria-label="Dismiss what's new" autoFocus>Got it</button>
       </div>
       <ul className="grid gap-2">
         {ITEMS.map((it) => (
@@ -46,5 +59,6 @@ export function WhatsNew({ home }: { home: boolean }) {
         ))}
       </ul>
     </section>
+    </>
   );
 }

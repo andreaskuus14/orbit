@@ -22,28 +22,33 @@ export const KNOWN_TOOLS = [...BUILD_TOOLS, ...DENY_TOOLS, ...SCAN_ONLY_TOOLS, .
 
 export const MAX_GENERATIONS = 3;
 export const MAX_SURFACE_CALLS = 2; // generate_texture / generate_material per build
+export const MAX_BUILD_CAPTURES = 2; // screen_capture per build: one "before", one "after"
 const full = (t: string) => `mcp__${SERVER}__${t}`;
 const short = (name: string) => (name.startsWith(`mcp__${SERVER}__`) ? name.slice(SERVER.length + 7) : "");
 
 export type Mode = "status" | "plan" | "build" | "scan" | "playtest";
 export const PLAYTEST_CAPS = { start_stop_play: 2, character_navigation: 12, screen_capture: 4, total: 40 };
-/** The one write tool (family) each item kind may use in its build. */
-const WRITE: Record<Item["kind"], string[]> = {
-  asset: ["insert_asset"], scene: ["insert_asset"], generate: ["generate_mesh", "generate_procedural_model", "wait_job_finished"], // texture/material are their own kinds
+/** The one write tool (family) each item kind may use in its build. Layout kinds (scene/map/pack) get exactly what their ticked items need (writeTools). */
+const WRITE: Record<Exclude<Item["kind"], LayoutKind>, string[]> = {
+  asset: ["insert_asset"], generate: ["generate_mesh", "generate_procedural_model", "wait_job_finished"], // texture/material are their own kinds
   texture: ["generate_texture"], material: ["generate_material"], // no wait_job_finished: async generation is refused by the guard
 };
+export type LayoutKind = "scene" | "map" | "pack";
+export const isLayout = (i?: Item): i is Item & { kind: LayoutKind } => i?.kind === "scene" || i?.kind === "map" || i?.kind === "pack";
+const writeTools = (item: Item): string[] => !isLayout(item) ? WRITE[item.kind]
+  : [...(item.objects?.length ? ["insert_asset"] : []), ...new Set((item.generate ?? []).map((g) => g.tool)), ...(item.generate?.length ? ["wait_job_finished"] : [])];
 /** Every known Studio tool not in `allowed` (full names in, full names out). --disallowedTools removes a tool outright, while the permission mode alone proved not to. */
 export const denyFor = (allowed: string[]) => [...new Set([...DENY_TOOLS, ...KNOWN_TOOLS])].map(full).filter((t) => !allowed.includes(t));
 
 /** The minimal tool set for one run. A build is bound to its item: an asset may only be inserted, a description only generated. */
 export function toolFlags(mode: Mode, item?: Item): { allowed: string[]; disallowed: string[] } {
   if (mode === "build" && !item) throw new Error("A build needs its confirmed item");
-  if (mode === "build" && item?.kind === "scene" && !item.objects?.length) throw new Error("A scene build needs its ticked objects");
+  if (mode === "build" && isLayout(item) && !item.objects?.length && !item.generate?.length) throw new Error("A scene build needs its ticked objects");
   const base = mode === "status" ? ["get_studio_state", "list_roblox_studios"]
     : mode === "plan" ? READ_TOOLS
     : mode === "scan" ? SCAN_TOOLS
     : mode === "playtest" ? PLAYTEST_TOOLS
-    : [...READ_TOOLS, ...WRITE[item!.kind], "screen_capture"];
+    : [...READ_TOOLS, ...writeTools(item!), "screen_capture"];
   const allowed = base.filter((t) => !DENY_TOOLS.includes(t) && (mode === "scan" || !SCAN_ONLY_TOOLS.includes(t))
     && (mode === "playtest" || !PLAYTEST_ONLY_TOOLS.includes(t))).map(full);
   return { allowed, disallowed: denyFor(allowed) };
@@ -84,9 +89,10 @@ export const underAny = (p: string, roots: string[]) => roots.some((r) => normPa
 /** Stateful per-run check of each tool call. Returns why a call is refused, or null. Fails closed on calls before the init list. */
 export function createToolGuard(mode: Mode, item?: Item) {
   const allowed = toolFlags(mode, item).allowed;
-  let sawInit = false, inserts = 0, generations = 0, total = 0;
+  let sawInit = false, inserts = 0, generations = 0, total = 0, captures = 0, waits = 0;
+  const genLeft = isLayout(item) ? (item.generate ?? []).map((x) => ({ tool: x.tool, prompt: normPrompt(x.prompt) })) : []; // multiset of ticked generations not yet used
   const used = new Set<string>(), counts: Record<string, number> = {};
-  const cap = item?.kind === "texture" || item?.kind === "material" ? MAX_SURFACE_CALLS : MAX_GENERATIONS;
+  const cap = item?.kind === "texture" || item?.kind === "material" ? MAX_SURFACE_CALLS : isLayout(item) ? Math.min(item.generate?.length ?? 0, MAX_GENERATIONS) : MAX_GENERATIONS;
   return {
     init(tools: unknown): string | null {
       sawInit = true;
@@ -103,7 +109,16 @@ export function createToolGuard(mode: Mode, item?: Item) {
         if (cap && n > cap) return `Refused: more than ${cap} ${t} calls in one playtest.`;
         if (t === "start_stop_play" && input.is_start !== (n === 1)) return "Refused: a playtest starts play once, then stops it once.";
       }
-      if (t === "insert_asset" && item?.kind === "scene") {
+      if (mode === "build" && t === "screen_capture" && ++captures > MAX_BUILD_CAPTURES) return `Refused: more than ${MAX_BUILD_CAPTURES} screenshots in one build.`;
+      if (isLayout(item) && (t === "generate_mesh" || t === "generate_procedural_model")) {
+        if (input.hintImage != null) return "Refused: no reference images.";
+        if (!genLeft.some((x) => x.tool === t)) return `Refused: more ${t} calls than the generated items you ticked.`;
+        const k = genLeft.findIndex((x) => x.tool === t && x.prompt === normPrompt(input.textPrompt));
+        if (k < 0) return `Refused: ${t} was called with a prompt that isn't one of your ticked items.`;
+        genLeft.splice(k, 1);
+      }
+      if (isLayout(item) && t === "wait_job_finished" && ++waits > 2 * (item.generate?.length ?? 0)) return "Refused: too many wait_job_finished calls.";
+      if (t === "insert_asset" && isLayout(item)) {
         const id = String(input.assetId ?? "").trim(), ticked = (item.objects ?? []).map((o) => o.assetId);
         if (!ticked.includes(id)) return "Refused: it tried to insert an asset that isn't in your ticked list.";
         if (!inWorkspace(input.parentPath)) return "Refused: it tried to insert outside Workspace.";
@@ -165,10 +180,17 @@ export function mcpConfigJson(c: { command: string; args: string[] }): string {
 export const MATERIALS = ["Plastic", "Wood", "Slate", "Concrete", "Metal", "Grass", "Brick", "Fabric"] as const;
 export type Material = (typeof MATERIALS)[number];
 export type Vec3 = [number, number, number];
-export type SceneObject = { name: string; assetId: string; position: Vec3; rotation: Vec3 };
+export type SceneObject = { name: string; assetId: string; position: Vec3; rotation: Vec3; zone?: string };
+export const GEN_TOOLS = ["generate_mesh", "generate_procedural_model"] as const;
+export type GenObject = { name: string; tool: (typeof GEN_TOOLS)[number]; prompt: string; zone?: string };
+/** objects/generate/sceneName are set by the server from the stored plan at build time, never accepted from the client. */
+type Ticked = { objects?: SceneObject[]; generate?: GenObject[]; sceneName?: string };
 export type Item = { kind: "asset"; assetId: number; name: string } | { kind: "generate"; prompt: string }
-  /** objects/sceneName are set by the server from the stored plan at build time, never accepted from the client. */
-  | { kind: "scene"; prompt: string; objects?: SceneObject[]; sceneName?: string }
+  | ({ kind: "scene"; prompt: string } & Ticked)
+  /** Map from the reference board: brief + the owner's style lock + chosen reference titles (all quoted as data). */
+  | ({ kind: "map"; prompt: string; style?: string; refs?: string[] } & Ticked)
+  /** Asset pack: `count` variants (PACK_MIN..PACK_MAX) of one theme. */
+  | ({ kind: "pack"; prompt: string; count?: number } & Ticked)
   | { kind: "texture"; prompt: string; target?: string }
   | { kind: "material"; prompt: string; base?: Material };
 
@@ -183,9 +205,19 @@ export function validateItem(x: unknown): { item: Item } | { error: string } {
     const name = clean(typeof o.name === "string" ? o.name : "").slice(0, 100) || `Asset ${id}`;
     return { item: { kind: "asset", assetId: id, name } };
   }
-  if (o.kind === "generate" || o.kind === "scene" || o.kind === "texture" || o.kind === "material") {
+  if (o.kind === "generate" || o.kind === "scene" || o.kind === "texture" || o.kind === "material" || o.kind === "map" || o.kind === "pack") {
     const prompt = clean(typeof o.prompt === "string" ? o.prompt : "");
     if (prompt.length < 3 || prompt.length > 200) return { error: "Describe what to make in 3 to 200 characters" };
+    if (o.kind === "map") {
+      const style = clean(typeof o.style === "string" ? o.style : "").slice(0, 300);
+      const refs = [...new Set((Array.isArray(o.refs) ? o.refs : []).map((r) => clean(typeof r === "string" ? r : "").slice(0, 100)).filter(Boolean))].slice(0, MAX_MAP_REFS);
+      return { item: { kind: "map", prompt, ...(style ? { style } : {}), ...(refs.length ? { refs } : {}) } };
+    }
+    if (o.kind === "pack") {
+      const count = o.count ?? 6;
+      if (typeof count !== "number" || !Number.isInteger(count) || count < PACK_MIN || count > PACK_MAX) return { error: `A pack has ${PACK_MIN} to ${PACK_MAX} variants` };
+      return { item: { kind: "pack", prompt, count } };
+    }
     if (o.kind === "texture") {
       const target = clean(typeof o.target === "string" ? o.target : "");
       if (target && (target.length > 200 || !wsPath(target))) return { error: "The object to re-texture must be a path inside Workspace, like Workspace.ORBIT Builds.Tree" };
@@ -197,7 +229,7 @@ export function validateItem(x: unknown): { item: Item } | { error: string } {
     }
     return { item: { kind: o.kind, prompt } };
   }
-  return { error: "item.kind must be asset, generate, scene, texture or material" };
+  return { error: "item.kind must be asset, generate, scene, map, pack, texture or material" };
 }
 
 /** The item as quoted data for a prompt. JSON.stringify escapes quotes, so a name can't break out of its string. */
@@ -208,6 +240,11 @@ export function itemData(item: Item): string {
     case "scene": return item.objects?.length
       ? `Insert this confirmed scene ${JSON.stringify(item.sceneName ?? "Scene")} (from the sentence ${JSON.stringify(item.prompt)}). Objects: ${JSON.stringify(item.objects.map((o) => ({ name: o.name, assetId: o.assetId })))}.`
       : `Build a small scene from this sentence: ${JSON.stringify(item.prompt)}.`;
+    case "map": case "pack": return item.objects || item.generate
+      ? `Insert this confirmed ${item.kind} ${JSON.stringify(item.sceneName ?? "Build")} (from ${JSON.stringify(item.prompt)}). Objects: ${JSON.stringify((item.objects ?? []).map((o) => ({ name: o.name, assetId: o.assetId })))}. Generations: ${JSON.stringify((item.generate ?? []).map((g) => ({ name: g.name, tool: g.tool, prompt: g.prompt })))}.`
+      : item.kind === "map"
+        ? `Plan a map from this brief: ${JSON.stringify(item.prompt)}. Visual style: ${JSON.stringify(item.style || "(none set)")}. Reference titles: ${JSON.stringify(item.refs ?? [])}.`
+        : `Plan an asset pack of ${item.count ?? 6} variants of this theme: ${JSON.stringify(item.prompt)}.`;
     case "texture": return `Re-texture the existing MeshPart or Model ${item.target ? `at ${JSON.stringify(item.target)}` : "currently selected in Studio (it must be one MeshPart or Model inside Workspace)"} with this look: ${JSON.stringify(item.prompt)}.`;
     case "material": return `Create a new MaterialVariant from this description: ${JSON.stringify(item.prompt)}${item.base ? `, on base material ${item.base}` : ""}.`;
   }
@@ -221,6 +258,7 @@ const READY = "Use ready=false if Studio is not open or the tools are unavailabl
 
 export function planPrompt(item: Item): string {
   if (item.kind === "scene") return scenePlanPrompt(item);
+  if (item.kind === "map" || item.kind === "pack") return layoutPlanPrompt(item);
   const surface = item.kind === "texture" || item.kind === "material";
   return [
     "DRY RUN. You may only look, never change anything. Work out how you would put this item into the open Roblox Studio place.",
@@ -256,15 +294,45 @@ function scenePlanPrompt(item: Item & { kind: "scene" }): string {
   ].join("\n\n");
 }
 
-export type ScenePlan = { scene: string; origin: Vec3; objects: SceneObject[] };
+export const MAX_MAP = 30, MAX_MAP_OFFSET = 500, MAX_MAP_REFS = 8, PACK_MIN = 4, PACK_MAX = 8;
+/** Caps per layout kind: free-model objects, offset range, generate_* items, and (packs) the total variant range. */
+export const LAYOUT_CAPS: Record<LayoutKind, { max: number; offset: number; maxGen: number; total?: [number, number] }> = {
+  scene: { max: MAX_SCENE, offset: MAX_OFFSET, maxGen: 0 },
+  map: { max: MAX_MAP, offset: MAX_MAP_OFFSET, maxGen: MAX_GENERATIONS },
+  pack: { max: PACK_MAX, offset: MAX_OFFSET, maxGen: MAX_GENERATIONS, total: [PACK_MIN, PACK_MAX] },
+};
+/** Highest keep index the build route accepts (objects first, then generated items). */
+export const MAX_KEEP = MAX_MAP + MAX_GENERATIONS;
+
+function layoutPlanPrompt(item: Item & { kind: "map" | "pack" }): string {
+  const c = LAYOUT_CAPS[item.kind], map = item.kind === "map";
+  return [
+    `DRY RUN. You may only look, never change anything. Plan ${map ? "a map layout" : "an asset pack"} for the open Roblox Studio place.`,
+    UNTRUSTED,
+    `<item>${itemData(item)}</item>`,
+    `Steps: ${FIND} Pick a name (at most 60 characters) and an origin: the camera focus if get_studio_state reports one, else [0, 5, 0]. Use search_game_tree to check whether Workspace already has an \"ORBIT Builds\" folder.`,
+    map
+      ? `Split the map into at most 8 named zones (e.g. \"spawn\", \"forest\", \"village\") that fit the brief and the visual style. Fill them with at most ${c.max} free models: for each, call search_asset with scope \"creator_store\", assetType \"Model\" and priceFilter \"free\" (try verifiedCreatorsOnly true first) and pick a result from a verified creator with many votes. Use each assetId only once.`
+      : `Make exactly ${item.count ?? 6} clearly different variants of the one theme (shape, size, colour), all in the same style. Prefer free models: call search_asset with scope \"creator_store\", assetType \"Model\" and priceFilter \"free\" (try verifiedCreatorsOnly true first), verified creators with many votes, each assetId once.`,
+    `Where no good free model exists, you may add at most ${c.maxGen} generated items instead, each with tool \"generate_mesh\" (one object) or \"generate_procedural_model\" (a structure), and a prompt of at most 200 characters${map ? " that matches the visual style" : ""}.`,
+    map
+      ? `Give each object a zone name, a position offset in studs from the origin (x, y, z each between -${c.offset} and ${c.offset}) and a rotation in degrees (x, y, z), so the zones form a sensible layout.`
+      : `Lay the variants out in a row 12 studs apart: give each a position offset in studs from the origin (each between -${c.offset} and ${c.offset}) and a rotation in degrees.`,
+    "Answer with at most 8 short lines describing the layout.",
+    `Then end with ONE final line of JSON, all on one line, exactly like: {\"ready\": true, \"place\": \"<place name>\", \"notes\": \"<problems, or empty>\", \"scene\": \"<name>\", \"origin\": [0, 5, 0], \"objects\": [{\"name\": \"Oak tree\", \"assetId\": \"123456\", \"position\": [10, 0, -4], \"rotation\": [0, 90, 0]${map ? ", \"zone\": \"forest\"" : ""}}], \"generate\": [{\"name\": \"Stone arch\", \"tool\": \"generate_mesh\", \"prompt\": \"mossy stone arch\"${map ? ", \"zone\": \"forest\"" : ""}}]}. assetId is a string of digits; \"generate\" may be empty. ${READY}`,
+  ].join("\n\n");
+}
+
+export type ScenePlan = { scene: string; origin: Vec3; objects: SceneObject[]; generate?: GenObject[] };
 const vec = (v: unknown, lim: number): Vec3 | null =>
   Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= lim) ? [v[0], v[1], v[2]] : null;
 
-/** Strict check of the scene JSON from the plan's last line. Duplicate assetIds are dropped (each may be inserted once). */
-export function parseScenePlan(j: Record<string, unknown>): ScenePlan | { error: string } {
-  const objs = j.objects;
-  if (!Array.isArray(objs) || !objs.length) return { error: "The scene plan has no objects." };
-  if (objs.length > MAX_SCENE) return { error: `The scene plan has more than ${MAX_SCENE} objects.` };
+/** Strict check of the scene/map/pack JSON from the plan's last line (caps from LAYOUT_CAPS). Duplicate assetIds are dropped (each may be inserted once). */
+export function parseScenePlan(j: Record<string, unknown>, caps: (typeof LAYOUT_CAPS)[LayoutKind] = LAYOUT_CAPS.scene): ScenePlan | { error: string } {
+  const objs = Array.isArray(j.objects) ? j.objects : [], gens = caps.maxGen && Array.isArray(j.generate) ? j.generate : [];
+  if (!objs.length && !gens.length) return { error: "The scene plan has no objects." };
+  if (objs.length > caps.max) return { error: `The plan has more than ${caps.max} objects.` };
+  if (gens.length > caps.maxGen) return { error: `The plan has more than ${caps.maxGen} generated items.` };
   const origin = vec(j.origin, 100_000);
   if (!origin) return { error: "The scene plan has no valid origin." };
   const objects: SceneObject[] = [];
@@ -274,12 +342,23 @@ export function parseScenePlan(j: Record<string, unknown>): ScenePlan | { error:
     if (!name) return { error: "Every object needs a name." };
     const assetId = typeof o.assetId === "number" && Number.isSafeInteger(o.assetId) ? String(o.assetId) : o.assetId;
     if (typeof assetId !== "string" || !/^[1-9]\d{0,12}$/.test(assetId)) return { error: `${name}: assetId must be a string of digits.` };
-    const position = vec(o.position, MAX_OFFSET), rotation = vec(o.rotation, 360);
-    if (!position || !rotation) return { error: `${name}: position must be within ±${MAX_OFFSET} studs and rotation within ±360°.` };
-    if (!objects.some((x) => x.assetId === assetId)) objects.push({ name, assetId, position, rotation });
+    const position = vec(o.position, caps.offset), rotation = vec(o.rotation, 360);
+    if (!position || !rotation) return { error: `${name}: position must be within ±${caps.offset} studs and rotation within ±360°.` };
+    const zone = str(o.zone, 40);
+    if (!objects.some((x) => x.assetId === assetId)) objects.push({ name, assetId, position, rotation, ...(zone ? { zone } : {}) });
   }
+  const generate: GenObject[] = [];
+  for (const raw of gens) {
+    const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    const name = str(o.name, 60), prompt = str(o.prompt, 200), zone = str(o.zone, 40);
+    if (!name || prompt.length < 3) return { error: "Every generated item needs a name and a prompt." };
+    if (!GEN_TOOLS.includes(o.tool as GenObject["tool"])) return { error: `${name}: tool must be generate_mesh or generate_procedural_model.` };
+    generate.push({ name, tool: o.tool as GenObject["tool"], prompt, ...(zone ? { zone } : {}) });
+  }
+  const total = objects.length + generate.length;
+  if (caps.total && (total < caps.total[0] || total > caps.total[1])) return { error: `A pack needs ${caps.total[0]} to ${caps.total[1]} different variants (got ${total}).` };
   const scene = (typeof j.scene === "string" ? clean(j.scene) : "").slice(0, 60) || "Scene";
-  return { scene, origin, objects };
+  return caps.maxGen ? { scene, origin, objects, generate } : { scene, origin, objects };
 }
 
 export const POSITION_NOTE = "insert_asset has no position or CFrame option, so ORBIT can't place the objects: they land at Studio's default insert spot. Move them using the offsets from the plan.";
@@ -291,16 +370,19 @@ export function buildPrompt(item: Item, plan: string): string {
     `<item>${itemData(item)}</item>`,
     `<confirmed_plan>\n${plan.replace(/<\/?\s*confirmed_plan\s*>/gi, "")}\n</confirmed_plan>`,
     ...(item.kind === "texture" || item.kind === "material" ? [] : [WHERE]),
-    BUILD_RULE[item.kind](item as never),
-    "Any other tool call stops the whole run. When done, call screen_capture once so the owner can see the result.",
+    (BUILD_RULE[item.kind] as (i: Item) => string)(item),
+    `Any other tool call stops the whole run. Call screen_capture once BEFORE your first change (the "before" picture) and once when done (the "after" picture): at most ${MAX_BUILD_CAPTURES} screen_capture calls.`,
     "End with ONE final line of JSON exactly like: {\"done\": true, \"inserted\": [{\"name\": \"<instance name>\", \"path\": \"<e.g. Workspace.ORBIT Builds.Tree>\"}], \"notes\": \"<short summary or problem>\"}.",
   ].join("\n\n");
 }
 
+const LAYOUT_RULE = "Call insert_asset once for each object listed in <item> (its assetId, assetName = its name, a parentPath inside Workspace), never the same assetId twice. For each item under Generations, call its tool exactly once with textPrompt set to exactly its prompt (never hintImage), and wait for the job with wait_job_finished. Do nothing else. insert_asset has no position option, so don't try to move anything.";
 const BUILD_RULE: { [K in Item["kind"]]: (i: Item & { kind: K }) => string } = {
   asset: (i) => `Call insert_asset exactly once, with assetId "${i.assetId}" and a parentPath inside Workspace. Do not insert anything else.`,
   generate: () => `Use only the generation tools (at most ${MAX_GENERATIONS} calls in total) and never insert_asset. If a generation tool returns a job, wait for it with wait_job_finished.`,
   scene: () => "Call insert_asset once for each object listed in <item> and nothing else: its assetId, assetName = its name, and a parentPath inside Workspace. Never insert the same assetId twice. insert_asset has no position option, so don't try to move anything.",
+  map: () => LAYOUT_RULE,
+  pack: () => `${LAYOUT_RULE} Keep the whole pack together in one Workspace folder: use parentPath \"Workspace.ORBIT Builds\" when that folder exists.`,
   texture: () => `Call generate_texture at most ${MAX_SURFACE_CALLS} times in total, always with instance_path set to the full Workspace path of the target from the plan (never rely on the selection) and never with hintImage. In "inserted", list the re-textured object.`,
   material: (i) => `Call generate_material at most ${MAX_SURFACE_CALLS} times in total, with baseMaterial ${i.base ? `"${i.base}"` : `one of ${MATERIALS.join(", ")}`}, a fitting materialPattern, a short materialId and a materialDescription from the description. Never pass async. Don't apply the material to any part. In "inserted", list the MaterialVariant name and put its BaseMaterial in notes.`,
 };
@@ -323,7 +405,7 @@ export type BuildResult = { done: boolean; inserted: { name: string; path: strin
 export function parseBuildResult(text: string): BuildResult | null {
   const j = lastJsonLine(text);
   if (!j || typeof j.done !== "boolean") return null;
-  const inserted = (Array.isArray(j.inserted) ? j.inserted : []).slice(0, 20)
+  const inserted = (Array.isArray(j.inserted) ? j.inserted : []).slice(0, MAX_KEEP + 7)
     .map((x) => (x && typeof x === "object" ? x as Record<string, unknown> : {}))
     .map((x) => ({ name: str(x.name, 100), path: str(x.path, 300) }))
     .filter((x) => x.name || x.path);
@@ -355,6 +437,10 @@ export const MAX_IMAGE_B64 = 3_000_000; // ~2.2 MB PNG
 export function imageFromStreamLine(line: string): string | null {
   let j: unknown;
   try { j = JSON.parse(line); } catch { return null; }
+  return j && typeof j === "object" && (j as { type?: unknown }).type === "user" ? imageIn(j) : null;
+}
+/** The last valid PNG image block anywhere inside `v`, as a data URL. */
+function imageIn(v0: unknown): string | null {
   let found: string | null = null;
   const walk = (v: unknown, depth: number) => {
     if (!v || typeof v !== "object" || depth > 8) return;
@@ -368,8 +454,85 @@ export function imageFromStreamLine(line: string): string | null {
     }
     Object.values(o).forEach((x) => walk(x, depth + 1));
   };
-  if (j && typeof j === "object" && (j as { type?: unknown }).type === "user") walk(j, 0);
+  walk(v0, 0);
   return found;
+}
+
+const CHANGES = ["insert_asset", ...GENERATE_TOOLS];
+/** Generation prompts compare case/space-insensitively (the model may re-space them); a missing prompt never matches. */
+function normPrompt(v: unknown): string { return typeof v === "string" ? clean(v).toLowerCase() : "\u0000"; }
+/** Splits a build's screenshots into "before" (a screen_capture called before any change) and "after" (the last screen_capture called after a change), from stream-json lines. */
+export function createCaptureTap() {
+  let beforeId = "", changed = false, before: string | null = null, after: string | null = null;
+  const afterIds = new Set<string>(); // screen_capture calls made after a change
+  return {
+    line(line: string) {
+      let j: { type?: unknown; message?: { content?: unknown } };
+      try { j = JSON.parse(line); } catch { return; }
+      const content = j?.message?.content;
+      if (!Array.isArray(content)) return;
+      for (const b of content as Record<string, unknown>[]) {
+        if (!b || typeof b !== "object") continue;
+        if (j.type === "assistant" && b.type === "tool_use") {
+          const t = short(String(b.name ?? ""));
+          if (t === "screen_capture" && typeof b.id === "string") {
+            if (!changed && !beforeId) beforeId = b.id;
+            else if (changed) afterIds.add(b.id);
+          }
+          if (CHANGES.includes(t)) changed = true;
+        }
+        if (j.type === "user" && b.type === "tool_result") {
+          const id = String(b.tool_use_id ?? ""), isBefore = !!beforeId && id === beforeId;
+          if (!isBefore && !afterIds.has(id)) continue; // only screen_capture results count
+          const img = imageIn(b);
+          if (img && isBefore) before = img;
+          else if (img) after = img;
+        }
+      }
+    },
+    shots: () => ({ before, after }),
+  };
+}
+
+/* ---------- Build history (before/after screenshots, stored as PNG files in ORBIT's local data folder) ---------- */
+
+export const MAX_HISTORY = 30;
+export type HistoryEntry = { id: string; userId: string; at: string; kind: Item["kind"]; label: string; before: boolean; after: boolean };
+const KINDS: Item["kind"][] = ["asset", "generate", "scene", "map", "pack", "texture", "material"];
+export const historyId = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v);
+/** The stored index, strictly (bad rows, and rows without an owner, dropped), oldest first, at most MAX_HISTORY. */
+export function parseHistory(raw: unknown): HistoryEntry[] {
+  return (Array.isArray(raw) ? raw : []).flatMap((x): HistoryEntry[] => {
+    const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
+    if (!historyId(o.id) || typeof o.userId !== "string" || !o.userId || o.userId.length > 100 || !KINDS.includes(o.kind as Item["kind"]) || !Number.isFinite(Date.parse(String(o.at)))) return [];
+    return [{ id: o.id, userId: o.userId, at: String(o.at), kind: o.kind as Item["kind"], label: str(o.label, 120), before: o.before === true, after: o.after === true }];
+  }).slice(-MAX_HISTORY);
+}
+/** Appends `e`, keeping the newest MAX_HISTORY (across users: one shared folder); `drop` are the entries whose PNG files must be deleted. */
+export function pushHistory(list: HistoryEntry[], e: HistoryEntry): { list: HistoryEntry[]; drop: HistoryEntry[] } {
+  const all = [...list.filter((x) => x.id !== e.id), e];
+  return { list: all.slice(-MAX_HISTORY), drop: all.slice(0, Math.max(0, all.length - MAX_HISTORY)) };
+}
+/** Short label for a history row. */
+export function historyLabel(item: Item): string {
+  return item.kind === "asset" ? item.name : isLayout(item) && item.sceneName ? `${item.kind}: ${item.sceneName}` : `${item.kind}: ${item.prompt}`.slice(0, 120);
+}
+
+/* ---------- GUI builder script (GUIs live in StarterGui/PlayerGui, outside Workspace: no Studio tool may create them, so ORBIT only writes Luau text for the owner to paste) ---------- */
+
+export const MAX_GUI_BRIEF = 300;
+/** The request handed to the Luau Code Helper (/api/luau, mode "write", LocalScript in StarterPlayerScripts). */
+export function guiRequest(brief: unknown, style: unknown): { request: string } | { error: string } {
+  const b = clean(typeof brief === "string" ? brief : "");
+  if (b.length < 3 || b.length > MAX_GUI_BRIEF) return { error: `Describe the GUI in 3 to ${MAX_GUI_BRIEF} characters` };
+  const st = clean(typeof style === "string" ? style : "").slice(0, 300);
+  return { request: [
+    `Build this Roblox GUI entirely from code with Instance.new: ${JSON.stringify(b)}.`,
+    st ? `Match this visual style (colours, shapes, mood): ${JSON.stringify(st)}.` : "",
+    "Create one ScreenGui under Players.LocalPlayer:WaitForChild(\"PlayerGui\") with ResetOnSpawn = false; give every instance a clear Name.",
+    "Use scale-based UDim2 sizes and UIAspectRatioConstraint so it works on phones; use UICorner, UIStroke, UIPadding and UIListLayout/UIGridLayout where they help.",
+    "No asset ids, no require, no RemoteEvents: buttons only toggle frames or print. Keep it under 200 lines.",
+  ].filter(Boolean).join("\n") };
 }
 
 /* ---------- Free-model scan (read-only) ---------- */
@@ -377,7 +540,7 @@ export function imageFromStreamLine(line: string): string | null {
 export const DEFAULT_SCAN_PATHS = ["Workspace.ORBIT Builds"];
 /** Workspace paths to scan (bad entries dropped; none left → the ORBIT Builds folder). */
 export function scanPaths(x: unknown): string[] {
-  const ok = (Array.isArray(x) ? x : []).slice(0, 20).map((p) => (typeof p === "string" ? clean(p) : "")).filter((p) => p.length <= 300 && wsPath(p));
+  const ok = (Array.isArray(x) ? x : []).slice(0, MAX_KEEP + 7).map((p) => (typeof p === "string" ? clean(p) : "")).filter((p) => p.length <= 300 && wsPath(p));
   return ok.length ? [...new Set(ok)] : DEFAULT_SCAN_PATHS;
 }
 

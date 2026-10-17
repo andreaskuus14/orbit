@@ -23,7 +23,7 @@ import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechG
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
 type Cite = { id: string; title: string; kind: string };
 type Step = { step: string; detail: string; ms: number; ok: boolean };
-type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart"; chips?: string[] };
+type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[] };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
@@ -158,7 +158,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       let buf = "";
       let finished = false;
       const handle = (line: string) => {
-        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; model?: "fast" | "smart" };
+        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; model?: "fast" | "smart" | "deep" };
         if (ev.conversationId && ev.conversationId !== convo.current) { setChatId(ev.conversationId); void chats.reload(); }
         if (ev.type === "delta" && ev.text) {
           partial += ev.text;
@@ -277,7 +277,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           {i === msgs.length - 1 && lastQ.current && !busy && (
             <button type="button" className="chip" title="Ask the last question again" onClick={() => void send(lastQ.current)}>↻ Retry</button>
           )}
-          {m.model && <span className="muted ml-auto opacity-60" title={m.model === "fast" ? "Quick reply from the fast model" : "Answered by the main model"}>{m.model}</span>}
+          {m.model && <span className="muted ml-auto opacity-60" title={m.model === "fast" ? "Quick reply from the fast model" : m.model === "deep" ? (m.trace?.some((x) => x.step === "review") ? "Deep answer: planned, then self-checked by the strongest model" : "Deep answer from the strongest model") : "Answered by the main model"}>{m.model}</span>}
         </div>
       )}
       {!busy && i === msgs.length - 1 && !!m.chips?.length && (

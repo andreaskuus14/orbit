@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_WORDS, buildMorning, pulseHeadlines, shouldAutoShow, studioSection, suggest } from "../src/lib/morning-pure.ts";
+import { MAX_WORDS, RECAP_AWAY_MS, RECAP_MAX_MS, awaySince, buildMorning, countSince, parseSince, pulseHeadlines, shouldAutoShow, sinceEmpty, sinceSection, studioSection, suggest } from "../src/lib/morning-pure.ts";
 
 const TZ = "Europe/Tallinn";
 const NOW = Date.parse("2026-10-16T06:30:00Z"); // 09:30 in Tallinn
@@ -94,4 +94,49 @@ test("memory recall: optional spoken sentence, dropped first when over the cap",
   assert.doesNotMatch(m.spoken, /From your memory/);
   assert.match(m.spoken, /YouTube downloads are paused/); // an earlier optional sentence survives
   assert.ok(m.spoken.split(/\s+/).length <= MAX_WORDS);
+});
+
+const H = 3_600_000;
+test("awaySince: only after ≥ 3 h away, clamped to 7 days, ignores missing/future values", () => {
+  assert.equal(awaySince(null, NOW), null);
+  assert.equal(awaySince(NOW - RECAP_AWAY_MS + 1, NOW), null);
+  assert.equal(awaySince(NOW - RECAP_AWAY_MS, NOW), NOW - RECAP_AWAY_MS);
+  assert.equal(awaySince(NOW + H, NOW), null);
+  assert.equal(awaySince(NOW - 30 * 24 * H, NOW), NOW - RECAP_MAX_MS);
+});
+
+test("parseSince validates the query value", () => {
+  assert.equal(parseSince(null, NOW), null);
+  assert.equal(parseSince("", NOW), null);
+  assert.equal(parseSince("abc", NOW), null);
+  assert.equal(parseSince(String(NOW + 1), NOW), null);
+  assert.equal(parseSince(String(NOW - 5 * H), NOW), NOW - 5 * H);
+  assert.equal(parseSince("0", NOW), NOW - RECAP_MAX_MS);
+});
+
+test("sinceSection counts only what happened in the window", () => {
+  const from = NOW - 8 * H, iso = (t: number) => new Date(t).toISOString();
+  const day = (t: number) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const s = sinceSection({
+    tasks: [{ status: "done" }, { status: "done" }, { status: "failed" }],
+    jobs: [
+      { updatedAt: iso(NOW - H), clips: [{ status: "ready" }, { status: "ready" }, { status: "approved" }] },
+      { updatedAt: iso(NOW - 20 * H), clips: [{ status: "ready" }] }, // before the window
+    ],
+    reminders: [
+      { text: "Call **mom** 📞", at: iso(NOW - 2 * H) }, // came due, no window showed it yet
+      { text: "Gym", at: iso(NOW - 3 * H), fired: iso(NOW - 3 * H) },
+      { text: "Old", at: iso(NOW - 30 * H), fired: iso(NOW - 30 * H) },
+      { text: "Later", at: iso(NOW + H) },
+    ],
+    alerts: [{ text: "AAPL above 200", firedOn: day(NOW) }, { text: "TSLA below 100" }, { text: "MSFT moves", firedOn: "2020-01-01" }],
+  }, from, NOW);
+  assert.deepEqual(s, { from, done: 2, failed: 1, clips: 2, reminders: ["Call mom", "Gym"], alerts: ["AAPL above 200"] });
+  assert.equal(sinceEmpty(s, 0), false);
+  assert.equal(sinceEmpty({ from, done: 0, failed: 0, clips: 0, reminders: [], alerts: [] }, 0), true);
+  assert.equal(sinceEmpty({ from, done: 0, failed: 0, clips: 0, reminders: [], alerts: [] }, 1), false);
+});
+
+test("countSince counts bell items from the window start on", () => {
+  assert.equal(countSince([{ at: NOW - 9 * H }, { at: NOW - 8 * H }, { at: NOW }], NOW - 8 * H), 2);
 });

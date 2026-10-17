@@ -2,7 +2,7 @@ import { exec } from "node:child_process";
 import { access, readFile, stat, statfs, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { CLAUDE_BIN, MODEL, SMART_MODEL } from "./claude";
+import { CLAUDE_BIN, MODEL, SMART_MODEL, FAST_MODEL, DEEP_MODEL } from "./claude";
 import { checkTools, listDownloads, studioRoot } from "./clips/factory";
 import { youtubePauseUntil } from "./clips/pure";
 import { scoutView } from "./clips/scout";
@@ -170,7 +170,7 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
   const t0 = Date.now();
   const results = await Promise.all([
     guard("claude", "Claude (the AI behind CORE)", claudeCheck),
-    Promise.resolve(modelCheck(MODEL, SMART_MODEL)),
+    Promise.resolve(modelCheck(MODEL, SMART_MODEL, FAST_MODEL, DEEP_MODEL, process.env.ORBIT_DEEP_EFFORT ?? "")),
     guard("supabase", "Database (Supabase)", () => supabaseCheck(sb)),
     guard("ytkey", "YouTube API key", youtubeKeyCheck),
     guard("quota", "YouTube scout budget", scoutQuotaCheck),

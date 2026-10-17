@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { CLAUDE_BIN, FAST_MODEL, MODEL, type createLaneLimiter } from "./claude";
@@ -8,7 +8,7 @@ import { safeFetch } from "./memory";
 import { allowedImage, urls } from "./refs-pure";
 import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson";
 import {
-  PLAN_TTL_MS, POSITION_NOTE, STATUS_PROMPT, buildPrompt, hookSettingsJson, pinTarget, rawRiskLines, safeHookPath, consoleErrors, createToolTap, parsePlaytest, playtestPrompt, createToolGuard, denyFor, guardEvent, imageFromStreamLine, lastJsonLine, safeModel, safePath, mcpConfigJson, parseBuildResult, parseConfig, parsePlan,
+  LAYOUT_CAPS, MAX_IMAGE_B64, createCaptureTap, historyId, historyLabel, isLayout, parseHistory, pushHistory, type HistoryEntry, PLAN_TTL_MS, POSITION_NOTE, STATUS_PROMPT, buildPrompt, hookSettingsJson, pinTarget, rawRiskLines, safeHookPath, consoleErrors, createToolTap, parsePlaytest, playtestPrompt, createToolGuard, denyFor, guardEvent, imageFromStreamLine, lastJsonLine, safeModel, safePath, mcpConfigJson, parseBuildResult, parseConfig, parsePlan,
   parseScanResult, parseScenePlan, parseStatus, planExpired, planPrompt, scanPrompt, toolFlags,
   type BuildResult, type Item, type Mode, type PlanResult, type PlaytestResult, type ScanResult, type ScenePlan,
 } from "./roblox-pure";
@@ -23,7 +23,8 @@ const SYSTEM = "You are ORBIT's Roblox Studio helper. You act only through the R
 export const robloxConfig = () => parseConfig(process.env);
 
 type Run = { text: string; image: string | null };
-const MAX_OUT = 2_000_000; // chars of stdout line buffer / stderr / streamed text before the run is stopped
+const MAX_OUT = 2_000_000; // chars of stderr / streamed text before the run is stopped
+const MAX_LINE = MAX_IMAGE_B64 + 500_000; // one stdout line may carry a full screen_capture PNG
 
 /** Shares claude.ts's global CLI limiter (created when claude.ts loads) so this never exceeds ORBIT's process cap. */
 const lanes = () => (globalThis as unknown as { __orbitClaudeLanes?: ReturnType<typeof createLaneLimiter> }).__orbitClaudeLanes;
@@ -39,9 +40,11 @@ export async function runStudio(run: StudioRun): Promise<Run> {
   return slot ? slot("foreground", go) : go();
 }
 
+/** Maps and packs search, insert and generate many things: they get longer than the other plans/builds. */
+const timeoutFor = (mode: Mode, item?: Item) => ((item?.kind === "map" || item?.kind === "pack") && (mode === "plan" || mode === "build") ? 420_000 : TIMEOUT[mode]);
 /** The standard run for a mode/item: its minimal allowlist and its guard. */
-const studio = (mode: Mode, prompt: string, item?: Item) =>
-  runStudio({ mode, item, allowed: toolFlags(mode, item).allowed, guard: createToolGuard(mode, item), prompt, timeoutMs: TIMEOUT[mode] });
+const studio = (mode: Mode, prompt: string, item?: Item, onLine?: (line: string) => void) =>
+  runStudio({ mode, item, allowed: toolFlags(mode, item).allowed, guard: createToolGuard(mode, item), prompt, timeoutMs: timeoutFor(mode, item), onLine });
 
 // First guard layer: a PreToolUse hook that judges each call before it reaches Studio (see scripts/roblox-hook.mjs).
 const HOOK = path.join(process.cwd(), "scripts", "roblox-hook.mjs");
@@ -103,7 +106,7 @@ async function spawnStudio({ mode, item, allowed, guard, prompt, timeoutMs: ms, 
         const { lines, rest } = takeLines(buf + d);
         buf = rest;
         lines.forEach(handle);
-        if (buf.length > MAX_OUT) { buf = ""; stop("Studio's answer was too large. Stopped."); }
+        if (buf.length > MAX_LINE) { buf = ""; stop("Studio's answer was too large. Stopped."); }
       });
       child.stderr.on("data", (d) => { err += d; if (err.length > MAX_OUT) { err = err.slice(0, 1000); stop("Claude Code wrote too much error output. Stopped."); } });
       child.on("error", (e) => settle(() => reject(new Error(`Could not start "${CLAUDE_BIN}": ${e.message}`))));
@@ -163,8 +166,8 @@ export async function makePlan(userId: string, item: Item): Promise<PlanOut> {
     const plan = parsePlan(r.text);
     if (!plan) throw new Error("ORBIT couldn't read the plan from Studio. Try again.");
     let scene: ScenePlan | undefined;
-    if (item.kind === "scene" && plan.ready) {
-      const s = parseScenePlan(lastJsonLine(r.text) ?? {});
+    if (isLayout(item) && plan.ready) {
+      const s = parseScenePlan(lastJsonLine(r.text) ?? {}, LAYOUT_CAPS[item.kind]);
       if ("error" in s) throw new Error(`ORBIT couldn't use the scene plan: ${s.error} Try again.`);
       scene = s;
     }
@@ -180,7 +183,7 @@ export async function makePlan(userId: string, item: Item): Promise<PlanOut> {
     if (plan.ready) st.plans.set(id, { id, userId, item: stored, plan, scene, createdAt: now });
     return { planId: plan.ready ? id : "", expiresAt: now + PLAN_TTL_MS, ...plan, scene };
   });
-  return out.scene ? { ...out, thumbs: await thumbs(out.scene.objects.map((o) => Number(o.assetId))) } : out;
+  return out.scene?.objects.length ? { ...out, thumbs: await thumbs(out.scene.objects.map((o) => Number(o.assetId))) } : out;
 }
 
 /** Creator Store thumbnails (rbxcdn images only) for the scene table; best effort, {} on any failure. */
@@ -201,25 +204,29 @@ async function thumbs(ids: number[]): Promise<Record<string, string>> {
 export class PlanError extends Error {}
 export class InputError extends Error {}
 
-/** `keep`: indexes of the scene objects the owner left ticked (scene plans only; others ignore it). */
-export async function runBuild(userId: string, planId: string, keep?: number[]): Promise<BuildResult & { image: string | null }> {
+/** `keep`: indexes the owner left ticked (scene/map/pack plans only; objects first, then generated items; others ignore it). */
+export async function runBuild(userId: string, planId: string, keep?: number[]): Promise<BuildResult & { image: string | null; historyId?: string }> {
   const p = st.plans.get(planId);
   if (!p || p.userId !== userId) throw new PlanError("That plan wasn't found. Make a new plan.");
   if (planExpired(p.createdAt, Date.now())) { st.plans.delete(planId); throw new PlanError("That plan expired (plans last 10 minutes). Make a new plan."); }
   let item = p.item;
-  if (item.kind === "scene") {
-    const objects = (p.scene?.objects ?? []).filter((_, i) => keep?.includes(i));
-    if (!objects.length) throw new InputError("Tick at least one object to build.");
-    item = { ...item, objects, sceneName: p.scene?.scene };
+  if (isLayout(item)) {
+    const all = p.scene?.objects ?? [], objects = all.filter((_, i) => keep?.includes(i));
+    const generate = (p.scene?.generate ?? []).filter((_, i) => keep?.includes(all.length + i));
+    if (!objects.length && !generate.length) throw new InputError("Tick at least one object to build.");
+    item = { ...item, objects, generate, sceneName: p.scene?.scene };
   }
   if (item.kind === "texture" && !item.target) throw new PlanError("That plan has no object to re-texture. Make a new plan.");
   return exclusive(async () => {
     st.plans.delete(planId); // single use
     st.status = undefined;
-    const r = await studio("build", buildPrompt(item, p.plan.text), item);
+    const tap = createCaptureTap();
+    const r = await studio("build", buildPrompt(item, p.plan.text), item, tap.line);
     const out = parseBuildResult(r.text) ?? { done: false, inserted: [], notes: `Studio finished but ORBIT couldn't read the result. Check Workspace. ${r.text.slice(-300)}` };
-    if (item.kind === "scene") out.notes = `${out.notes} ${POSITION_NOTE}`.trim();
-    return { ...out, image: r.image };
+    if (isLayout(item) && item.objects?.length) out.notes = `${out.notes} ${POSITION_NOTE}`.trim();
+    const shots = tap.shots();
+    const id = await saveHistory(userId, item, shots.before, shots.after).catch(() => undefined); // best effort: a full disk mustn't fail a finished build
+    return id ? { ...out, image: null, historyId: id } : { ...out, image: r.image }; // with history, the UI loads the PNGs from there
   });
 }
 
@@ -242,4 +249,54 @@ export async function runPlaytest(goal: string): Promise<PlaytestResult & { imag
     const out = parsePlaytest(r.text) ?? { done: false, findings: [], notes: "ORBIT couldn't read the bot's findings. Check that play mode stopped in Studio." };
     return { ...out, consoleErrors: consoleErrors(tap.text()), image: r.image };
   });
+}
+
+/* ---------- Build history: before/after PNGs in ORBIT's local data folder (the dev-world game_saves row is capped at 256 KB, too small for screenshots) ---------- */
+
+const histDir = () => {
+  const local = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "orbit") : path.join(os.homedir(), ".orbit");
+  return path.join(process.env.ORBIT_DATA_DIR?.trim() || local, "roblox-builds");
+};
+const histIndex = () => path.join(histDir(), "index.json");
+const shotFile = (id: string, side: "before" | "after") => path.join(histDir(), `${id}-${side}.png`);
+const hg = globalThis as unknown as { __orbitRbxHist?: Promise<unknown> };
+
+/** Every stored row (all users), oldest first. A missing or corrupt index counts as empty (it only holds screenshots). */
+async function readIndex(): Promise<HistoryEntry[]> {
+  try { return parseHistory(JSON.parse(await readFile(histIndex(), "utf8"))); }
+  catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT" || e instanceof SyntaxError) return []; throw e; }
+}
+/** This user's rows, oldest first. */
+export const getHistory = async (userId: string) => (await readIndex()).filter((e) => e.userId === userId);
+
+/** One build's screenshots (data URLs from imageFromStreamLine, already PNG-checked) → files + index row; the oldest beyond MAX_HISTORY are deleted. */
+function saveHistory(userId: string, item: Item, before: string | null, after: string | null): Promise<string | undefined> {
+  if (!before && !after) return Promise.resolve(undefined);
+  const p = (hg.__orbitRbxHist ?? Promise.resolve()).catch(() => {}).then(async () => {
+    const id = randomUUID();
+    await mkdir(histDir(), { recursive: true });
+    const png = (d: string) => Buffer.from(d.slice(d.indexOf(",") + 1), "base64");
+    if (before) await writeFile(shotFile(id, "before"), png(before));
+    if (after) await writeFile(shotFile(id, "after"), png(after));
+    const { list, drop } = pushHistory(await readIndex(), { id, userId, at: new Date().toISOString(), kind: item.kind, label: historyLabel(item), before: !!before, after: !!after });
+    await writeFile(`${histIndex()}.tmp`, JSON.stringify(list));
+    await rename(`${histIndex()}.tmp`, histIndex());
+    for (const d of drop) for (const side of ["before", "after"] as const) await rm(shotFile(d.id, side), { force: true });
+    // Orphans (a crash between writing PNGs and the index, or a reset index) are swept too.
+    const keep = new Set(list.map((e) => e.id));
+    for (const f of await readdir(histDir())) {
+      const m = /^(.+)-(before|after)\.png$/.exec(f);
+      if (m && !keep.has(m[1])) await rm(path.join(histDir(), f), { force: true });
+    }
+    return id;
+  });
+  hg.__orbitRbxHist = p;
+  return p;
+}
+
+/** One stored screenshot of this user's, or null. `id` and `side` are validated here (they come from the URL). */
+export async function readShot(userId: string, id: unknown, side: unknown): Promise<Buffer | null> {
+  if (!historyId(id) || (side !== "before" && side !== "after")) return null;
+  if (!(await getHistory(userId).catch(() => [])).some((e) => e.id === id)) return null;
+  try { return await readFile(shotFile(id, side)); } catch { return null; }
 }

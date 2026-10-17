@@ -1,12 +1,16 @@
 import { requireUser } from "@/lib/supabase/server";
-import { getMorning } from "@/lib/morning";
+import { getMorning, getSince } from "@/lib/morning";
+import { parseSince } from "@/lib/morning-pure";
 
-/** The "Good morning" briefing: card sections plus a template-built spoken version (no AI call). */
-export async function GET() {
+/** The "Good morning" briefing: card sections plus a template-built spoken version (no AI call).
+ *  ?since=<ms> adds the "since you left" section; with &recap=1 only that section is gathered and returned. */
+export async function GET(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
+  const q = new URL(req.url).searchParams, now = Date.now(), from = parseSince(q.get("since"), now);
   try {
-    return Response.json(await getMorning(sb));
+    if (q.get("recap") === "1") return from === null ? Response.json({ error: "since is required" }, { status: 400 }) : Response.json({ since: await getSince(sb, from, now) });
+    return Response.json(await getMorning(sb, now, from));
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Briefing failed" }, { status: 500 });
   }

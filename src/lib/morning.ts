@@ -5,7 +5,7 @@ import { readPublishSettings } from "./clips/publish-schedule";
 import { scoutView } from "./clips/scout";
 import { learnProblem, type LearnState } from "./clips/learn-pure";
 import { pickRecall, type Recall } from "./resurface-pure";
-import { buildMorning, lifeSection, pulseHeadlines, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningStudio } from "./morning-pure";
+import { buildMorning, lifeSection, pulseHeadlines, sinceSection, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningSince, type MorningStudio } from "./morning-pure";
 
 // Gathers the "Good morning" briefing: every section in parallel with a timeout, a failing source just drops its section.
 // Reads stored data only (no Pulse run, no YouTube stats fetch, no AI call).
@@ -54,11 +54,24 @@ async function recall(sb: SupabaseClient, now: number, tz: string): Promise<Reca
   return pickRecall(data ?? [], now, tz);
 }
 
-export async function getMorning(sb: SupabaseClient, now = Date.now()): Promise<Morning> {
+/** "Since you left": each source on its own timeout; a failing one just counts as nothing new. */
+export async function getSince(sb: SupabaseClient, from: number, now = Date.now()): Promise<MorningSince> {
+  const [t, j, l, m] = await Promise.allSettled([
+    within(Promise.resolve(sb.from("tasks").select("status").is("parent_id", null).in("status", ["done", "failed"]).gte("finished_at", new Date(from).toISOString()).limit(200))
+      .then((r) => { if (r.error) throw new Error(r.error.message); return r.data ?? []; })),
+    within(listJobs()),
+    within(import("./life").then((x) => x.exportLife())), // raw store: getLife() hides reminders older than a day
+    within(import("./markets").then((x) => x.listAlerts())),
+  ]);
+  return sinceSection({ tasks: ok(t) ?? [], jobs: ok(j) ?? [], reminders: ok(l)?.reminders ?? [], alerts: ok(m) ?? [] }, from, now);
+}
+
+export async function getMorning(sb: SupabaseClient, now = Date.now(), from: number | null = null): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
-  const [s, i, a, l, r] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
-    within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz))]);
-  const life = ok(l), rec = ok(r);
-  return buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, recall: rec?.length ? rec : undefined }, now, tz);
+  const [s, i, a, l, r, sn] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
+    within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
+    from === null ? Promise.resolve(undefined) : getSince(sb, from, now)]);
+  const life = ok(l), rec = ok(r), since = ok(sn);
+  return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, recall: rec?.length ? rec : undefined }, now, tz), ...(since && { since }) };
 }

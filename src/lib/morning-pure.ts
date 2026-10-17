@@ -13,7 +13,7 @@ export type MorningIntel = { title: string; at: string; headlines: string[] };
 export type MorningAgents = { done: string[]; failed: number; proposals: string[] };
 export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
 export type Morning = {
-  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; recall?: Recall[];
+  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; recall?: Recall[]; since?: MorningSince;
   suggestion: { text: string; nav: MorningNav | null }; spoken: string;
 };
 
@@ -114,3 +114,45 @@ export function lifeSection(x: { habits: { scheduledToday: boolean; doneToday: b
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))[0];
   return { habits: today.length, done: today.filter((h) => h.doneToday).length, next: next ? { text: plain(next.text), at: hm(Date.parse(next.at), tz) } : null };
 }
+
+/* ---------- "Since you left" recap: shown on return after RECAP_AWAY_MS away, or merged into the morning card ---------- */
+export const RECAP_AWAY_MS = 3 * 3_600_000;
+export const RECAP_MAX_MS = 7 * DAY; // older last-seen values are clamped: a recap of "everything since March" isn't a recap
+export type MorningSince = { from: number; done: number; failed: number; clips: number; reminders: string[]; alerts: string[] };
+
+/** The start of the away window, or null when the user wasn't away long enough (or lastSeen is missing/in the future). */
+export function awaySince(lastSeen: number | null, now: number): number | null {
+  if (lastSeen === null || !Number.isFinite(lastSeen) || lastSeen > now || now - lastSeen < RECAP_AWAY_MS) return null;
+  return Math.max(lastSeen, now - RECAP_MAX_MS);
+}
+
+/** The ?since= query value (ms epoch) validated and clamped; null when absent or nonsense. */
+export function parseSince(raw: string | null, now: number): number | null {
+  const t = raw === null || raw.trim() === "" ? NaN : Number(raw);
+  return Number.isFinite(t) && t < now ? Math.max(t, now - RECAP_MAX_MS) : null;
+}
+
+/** What happened in [from, now]. Server-local days for alerts (markets' firedOn is a server-local "YYYY-MM-DD"). */
+export function sinceSection(x: {
+  tasks: { status: string }[]; // root tasks already filtered to finished_at ≥ from
+  jobs: { updatedAt: string; clips: { status: string }[] }[];
+  reminders: { text: string; at: string; fired?: string }[];
+  alerts: { text: string; firedOn?: string }[];
+}, from: number, now: number): MorningSince {
+  const inWin = (t: number) => t >= from && t <= now;
+  const fromDay = localDay(new Date(from));
+  return {
+    from,
+    done: x.tasks.filter((t) => t.status === "done").length,
+    failed: x.tasks.filter((t) => t.status === "failed").length,
+    // shortcut: clips have no own timestamp, so a ready clip counts when its job changed in the window; add Clip.readyAt if this overcounts.
+    clips: x.jobs.filter((j) => inWin(Date.parse(j.updatedAt))).reduce((k, j) => k + j.clips.filter((c) => c.status === "ready").length, 0),
+    // A one-off came due while away whether or not a window showed it yet. shortcut: recurring ones move `at` forward and are missed.
+    reminders: x.reminders.filter((r) => inWin(Date.parse(r.fired ?? r.at))).map((r) => plain(r.text)).slice(0, 3),
+    alerts: x.alerts.filter((a) => a.firedOn && a.firedOn >= fromDay && a.firedOn <= localDay(new Date(now))).map((a) => a.text).slice(0, 3),
+  };
+}
+
+/** Client-side counts from the bell's history (localStorage). */
+export const countSince = (items: { at: number }[], from: number) => items.filter((i) => i.at >= from).length;
+export const sinceEmpty = (s: MorningSince, notes: number) => !s.done && !s.failed && !s.clips && !s.reminders.length && !s.alerts.length && !notes;
