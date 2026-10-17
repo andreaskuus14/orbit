@@ -59,7 +59,8 @@ async function claudeCheck(): Promise<Check> {
 
 async function supabaseCheck(sb: SupabaseClient): Promise<Check> {
   const { error } = await sb.from("memories").select("id", { head: true }).limit(1).abortSignal(AbortSignal.timeout(5000));
-  return error ? check("supabase", "Database (Supabase)", "fail", "Couldn't reach the database",
+  // 42501 = permission denied: the database answered, the anon role (self-test at boot, no session) just can't read the table.
+  return error && error.code !== "42501" ? check("supabase", "Database (Supabase)", "fail", "Couldn't reach the database",
     "Check your internet. If it lasts, open supabase.com: free projects pause after a week unused; click Restore project.")
     : check("supabase", "Database (Supabase)", "ok", "Reachable");
 }

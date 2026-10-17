@@ -9,7 +9,8 @@ export type Clip = { id: string; start: number; end: number; title: string; hook
 export type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string;
   startedAt?: string; title?: string; scheduledFor?: string }; // what was sent and when: matched against the channel's uploads
 export type CaptionStyle = "karaoke" | "classic" | "none";
-export type VersionEdit = { layout: "fit" | "fill" | "split"; camSide: "left" | "right"; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean;
+// layout follow: crop tracks the action (reframe.ts). camSide tl/tr/bl/br: split with a corner cam box (camSize = box width / frame width) on top.
+export type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: "left" | "right" | "tl" | "tr" | "bl" | "br"; camSize?: number; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean;
   coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean }; // optional: versions saved before these existed (baseEdit fills them)
 export type FeedbackAction = "approved" | "rejected" | "version" | "published";
 export type Feedback = { clipId: string; action: FeedbackAction; reason?: string; at: string };
@@ -19,9 +20,10 @@ export type ClipJob = { v?: number; id: string; source: string; createdAt: strin
   permission?: string; // source/permission note (inbox auto-clip: from <video>.source.txt / .source.json)
   timings?: { audio: number; transcribe: number; pick: number; render: number }; // seconds per stage
   feedback?: Feedback[]; // review decisions, kept for learning what makes a good clip
+  resumes?: number; // times re-queued automatically after ORBIT restarted mid-run (max 1)
   devlogDay?: number }; // devlog preset: this recording's "Day N" (taken from the series counter once, on the first run)
 // The edit options are optional: jobs saved before they existed get the defaults (validOptions({})).
-export type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: "fit" | "fill" | "split"; camSide?: "left" | "right";
+export type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: VersionEdit["layout"]; camSide?: VersionEdit["camSide"]; camSize?: number;
   jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en";
   coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean; // retention edits: teaser of the peak first, bottom progress bar, trimmed tail + audio fade
   preset?: "viral" | "devlog" }; // moment-picking style: streamer highlights, or game-dev progress (devlog.ts); missing = viral

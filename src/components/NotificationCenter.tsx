@@ -2,7 +2,8 @@
 // The HUD bell: history of everything ORBIT announced (STUDIO, LIFE reminders, agents…). Emitters call notify() from notify-pure.ts.
 import { useEffect, useState } from "react";
 import { NAV_EVENT } from "@/lib/nav-pure";
-import { NOTIFY_EVENT, NOTIFY_KEY, KIND_ICON, addItem, parseItems, relTime, unreadCount, type NotifyDetail, type NotifyItem } from "@/lib/notify-pure";
+import { NOTIFY_EVENT, NOTIFY_KEY, KIND_ICON, addItem, notify, parseItems, relTime, unreadCount, type NotifyDetail, type NotifyItem } from "@/lib/notify-pure";
+import type { BootResult } from "@/lib/doctor-boot-pure";
 
 const load = () => { try { return parseItems(localStorage.getItem(NOTIFY_KEY)); } catch { return []; } };
 const save = (l: NotifyItem[]) => { try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(l)); } catch { /* storage unavailable: history lives until reload */ } };
@@ -19,6 +20,14 @@ export function NotificationCenter() {
     const onStorage = (e: StorageEvent) => { if (e.key === NOTIFY_KEY) setItems(load()); };
     addEventListener(NOTIFY_EVENT, onNotify);
     addEventListener("storage", onStorage);
+    // Once per server boot: the self-test's notice (crash since last boot or a failing check), remembered so reloads don't repeat it.
+    void fetch("/api/doctor?boot=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((b: BootResult | null) => {
+      try {
+        if (!b?.notice || localStorage.getItem("orbit.bootSeen") === b.bootId) return;
+        localStorage.setItem("orbit.bootSeen", b.bootId);
+      } catch { return; }
+      notify(b.notice);
+    }).catch(() => { /* server down or signed out: nothing to announce */ });
     return () => { removeEventListener(NOTIFY_EVENT, onNotify); removeEventListener("storage", onStorage); };
   }, []);
 

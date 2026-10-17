@@ -4,7 +4,7 @@
 
 export const STEP_ORDER = ["clip", "wait", "pick_best", "approve", "schedule"] as const;
 export type StepType = (typeof STEP_ORDER)[number];
-export type StepArgs = { source?: string; count?: number; maxSec?: number; layout?: "fit" | "fill" | "split"; n?: number };
+export type StepArgs = { source?: string; count?: number; maxSec?: number; layout?: "fit" | "fill" | "split" | "follow"; n?: number };
 export type PlanStep = { type: StepType; args: StepArgs; status: "pending" | "running" | "done" | "failed"; confirmed?: boolean; note?: string };
 export type PlanStatus = "running" | "waiting" | "done" | "failed" | "cancelled";
 export type Plan = { id: string; goal: string; createdAt: string; updatedAt: string; status: PlanStatus; current: number; steps: PlanStep[];
@@ -37,7 +37,7 @@ export function validatePlan(x: unknown): { goal: string; steps: PlanStep[] } | 
       if (source !== "latest" && !(typeof source === "string" && VIDEO.test(source))) return 'clip.source must be "latest" (newest unclipped inbox video) or an inbox video file name';
       if (!int(count, 1, 10)) return "clip.count must be 1-10";
       if (maxSec !== undefined && !int(maxSec, 15, 120)) return "clip.maxSec must be 15-120";
-      if (layout !== undefined && !["fit", "fill", "split"].includes(layout as string)) return "clip.layout must be fit, fill or split";
+      if (layout !== undefined && !["fit", "fill", "split", "follow"].includes(layout as string)) return "clip.layout must be fit, fill, split or follow";
       Object.assign(args, { source, count }, maxSec === undefined ? {} : { maxSec }, layout === undefined ? {} : { layout });
     }
     if (type === "pick_best") {

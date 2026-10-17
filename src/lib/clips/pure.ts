@@ -1,7 +1,8 @@
 import path from "node:path";
 import { CAPTION_STYLES, REJECT_REASONS, rootClipId } from "./format.ts";
-import type { CaptionStyle, ClipOptions, Download, Feedback, FeedbackAction, VersionEdit } from "./types";
+import type { CaptionStyle, ClipJob, ClipOptions, Download, Feedback, FeedbackAction, VersionEdit } from "./types";
 import { validTitleOptions, type TitleOption } from "./titles.ts";
+import { pathExpr, remapPath, TRACK_FPS, TRACK_H, TRACK_W, type Key } from "./reframe.ts";
 
 // Pure helpers for the Clip Factory (no I/O), unit-tested in tests/clips.test.ts.
 
@@ -519,9 +520,18 @@ export type Layout = NonNullable<ClipOptions["layout"]>;
 type CamSide = NonNullable<ClipOptions["camSide"]>;
 
 /** Source video [inp] → 1080x1920 [out]. fit: whole frame over a blurred, darkened cover copy (blurred at quarter size, far cheaper);
- *  fill: centre crop; split: gameplay (the 9:8 middle of the non-cam two thirds) on top, the cam third below. */
-export function layoutFilter(inp: string, out: string, layout: Layout = "fit", camSide: CamSide = "right"): string {
+ *  fill: centre crop; follow: a 9:16 crop whose left edge is (iw-ow)*follow (an expression in t, 0..1: reframe.ts);
+ *  split, side cam: gameplay (the 9:8 middle of the non-cam two thirds) on top, the cam third below;
+ *  split, corner cam (tl/tr/bl/br): the 16:9 cam box (camSize of the width) on top, the 9:8 middle of the frame below. */
+export function layoutFilter(inp: string, out: string, layout: Layout = "fit", camSide: CamSide = "right", follow = "0.5", camSize = 0.3): string {
   if (layout === "fill") return `[${inp}]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[${out}]`;
+  if (layout === "follow") return `[${inp}]crop='min(iw,ih*9/16)':'min(ih,iw*16/9)':'(iw-ow)*(${follow})':'(ih-oh)/2',scale=1080:1920,setsar=1[${out}]`;
+  if (layout === "split" && camSide.length === 2) {
+    const s = String(Number.isFinite(camSize) ? Math.min(0.6, Math.max(0.1, camSize)) : 0.3), x = camSide[1] === "r" ? "iw-ow" : "0", y = camSide[0] === "b" ? "ih-oh" : "0";
+    // shortcut: the game crop is the frame's middle, so a big cam can show again in its corner; use follow tracking there if that bites.
+    return `[${inp}]split=2[c0][g0];[c0]crop='min(iw*${s},ih*16/9)':'min(iw*${s}*9/16,ih)':'${x}':'${y}',scale=1080:608:force_original_aspect_ratio=increase,crop=1080:608,setsar=1[c1];` +
+      `[g0]crop='min(iw,ih*135/164)':'min(ih,iw*164/135)',scale=1080:1312,setsar=1[g1];[c1][g1]vstack[${out}]`;
+  }
   if (layout === "split") {
     const w = "min(iw*2/3,ih*9/8)", x = camSide === "right" ? "(iw*2/3-ow)/2" : "iw/3+(iw*2/3-ow)/2";
     // shortcut: the cam is assumed to fill a full-height third (centre-cropped); add a cam box option if real layouts need it.
@@ -536,7 +546,8 @@ export function layoutFilter(inp: string, out: string, layout: Layout = "fit", c
 
 // teaser: cold open (clip time), read from a second input of the same file (input 1) so the main parts don't buffer while it plays.
 // progressBar: a thin bar along the bottom edge filling over the video; fadeOut: 4-frame audio fade at the end (smooth loop).
-export type RenderOpts = { duration: number; segs?: Span[]; audio?: boolean; layout?: Layout; camSide?: CamSide; zooms?: number[]; ass?: string;
+// follow: crop keys in clip seconds (reframe.ts trackAction; remapped onto the edited timeline here); camSize: corner cam box width / frame width.
+export type RenderOpts = { duration: number; segs?: Span[]; audio?: boolean; layout?: Layout; camSide?: CamSide; zooms?: number[]; ass?: string; follow?: Key[]; camSize?: number;
   teaser?: Span; progressBar?: boolean; fadeOut?: boolean };
 
 /** The whole edit as one filter graph: jump cuts (trim/atrim + concat: frame/sample exact and A/V stay in sync per part), layout,
@@ -566,7 +577,7 @@ export function renderFilter(o: RenderOpts): string {
     f.push(`${parts.join("")}concat=n=${parts.length}:v=1:a=${o.audio ? 1 : 0}[vc]${o.audio ? "[ac]" : ""}`);
     v = "vc"; a = "ac";
   }
-  f.push(layoutFilter(v, "lay", o.layout, o.camSide));
+  f.push(layoutFilter(v, "lay", o.layout, o.camSide, pathExpr(remapPath(o.follow ?? [], segs, o.teaser)), o.camSize));
   const zoom = o.zooms?.length ? `zoompan=z='${zoomExpr(o.zooms)}':d=1:x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':s=1080x1920:fps=30,setsar=1,` : "";
   const flash = lead ? `drawbox=c=white@0.85:t=fill:enable='between(t,${sec(lead)},${sec(lead + 3 * FRAME - 0.001)})',` : ""; // 3-frame white flash teaser → clip
   // drawbox can't size by time, so the bar is a solid strip slid in from the left by overlay (evaluated per frame).
@@ -585,8 +596,14 @@ export const renderArgs = (o: RenderOpts & { input: string; start: number; out: 
   "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", o.out,
 ];
 
-export const frameArgs = (input: string, at: number, out: string, layout?: Layout, camSide?: CamSide) =>
-  ["-hide_banner", "-nostdin", "-y", "-ss", sec(at), ...IN, input, "-filter_complex", layoutFilter("0:v", "v", layout, camSide), "-map", "[v]", "-frames:v", "1", "-q:v", "2", out];
+export const frameArgs = (input: string, at: number, out: string, layout?: Layout, camSide?: CamSide, followAt = 0.5, camSize?: number) =>
+  ["-hide_banner", "-nostdin", "-y", "-ss", sec(at), ...IN, input, "-filter_complex", layoutFilter("0:v", "v", layout, camSide, n4(followAt), camSize), "-map", "[v]", "-frames:v", "1", "-q:v", "2", out];
+const n4 = (x: number) => String(Math.round(x * 10000) / 10000);
+
+/** Tiny grey frames of a clip span on stdout, for reframe.ts trackAction. */
+export const trackArgs = (input: string, start: number, duration: number) =>
+  ["-hide_banner", "-nostdin", "-ss", sec(start), "-t", sec(duration), ...IN, input, "-map", "0:v:0", "-an", "-sn",
+    "-vf", `fps=${TRACK_FPS},scale=${TRACK_W}:${TRACK_H}:flags=area,format=gray`, "-f", "rawvideo", "pipe:1"];
 
 // ---- yt-dlp ("Add from link") ----
 
@@ -652,20 +669,23 @@ export function isPlainName(name: unknown): name is string {
   return !/[\\/:\0]|[\x00-\x1f]/.test(name); // separators are banned, so ".." inside a name ("So... this.mp4") is harmless
 }
 
-const LAYOUTS = ["fit", "fill", "split"], SIDES = ["left", "right"], LANGS = ["auto", "en"], PRESETS = ["viral", "devlog"];
+const LAYOUTS = ["fit", "fill", "split", "follow"], SIDES = ["left", "right", "tl", "tr", "bl", "br"], LANGS = ["auto", "en"], PRESETS = ["viral", "devlog"];
+const LAYOUT_ERR = "layout must be fit, fill, split or follow", CAM_SIDE_ERR = "camSide must be left, right, tl, tr, bl or br", CAM_SIZE_ERR = "camSize must be 0.1-0.6";
+const isCamSize = (v: unknown) => typeof v === "number" && v >= 0.1 && v <= 0.6;
 /** Clip options from a request body (defaults: 5 clips, 45 s, captions, fit layout, jump cuts, zooms, English, cold open, loop end,
  *  no progress bar) or an error message. */
 export function validOptions(b: Record<string, unknown>): Required<ClipOptions> | string {
-  const { count = 5, maxSec = 45, captions = true, layout = "fit", camSide = "right", jumpCuts = true, zooms = true, language = "en",
+  const { count = 5, maxSec = 45, captions = true, layout = "fit", camSide = "right", camSize = 0.3, jumpCuts = true, zooms = true, language = "en",
     coldOpen = true, progressBar = false, loopEnd = true, preset = "viral" } = b;
   if (!Number.isInteger(count) || (count as number) < 1 || (count as number) > 10) return "count must be 1-10";
   if (!Number.isInteger(maxSec) || (maxSec as number) < 15 || (maxSec as number) > 120) return "maxSec must be 15-120";
   for (const [k, v] of Object.entries({ captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd })) if (typeof v !== "boolean") return `${k} must be a boolean`;
-  if (!LAYOUTS.includes(layout as string)) return "layout must be fit, fill or split";
-  if (!SIDES.includes(camSide as string)) return "camSide must be left or right";
+  if (!LAYOUTS.includes(layout as string)) return LAYOUT_ERR;
+  if (!SIDES.includes(camSide as string)) return CAM_SIDE_ERR;
+  if (!isCamSize(camSize)) return CAM_SIZE_ERR;
   if (!LANGS.includes(language as string)) return "language must be auto or en";
   if (!PRESETS.includes(preset as string)) return "preset must be viral or devlog";
-  return { count, maxSec, captions, layout, camSide, jumpCuts, zooms, language, coldOpen, progressBar, loopEnd, preset } as Required<ClipOptions>;
+  return { count, maxSec, captions, layout, camSide, camSize, jumpCuts, zooms, language, coldOpen, progressBar, loopEnd, preset } as Required<ClipOptions>;
 }
 
 export const isJobId = (s: unknown): s is string => typeof s === "string" && /^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(s);
@@ -762,6 +782,33 @@ export function jobProblem(x: unknown, id?: string): string {
   return "";
 }
 
+export const RESUMED_NOTE = "Resumed after ORBIT restarted";
+
+/** A job that was mid-run when ORBIT stopped (crash or restart). Stopped while rendering with clips already made: those are kept and
+ *  the job is done. Otherwise the first time it is queued again as the same job (devlogDay, options, permission kept); a second
+ *  interruption, or clips already reviewed/published, leaves it failed. Mutates job. */
+export function recoverInterrupted(job: ClipJob): "resumed" | "failed" | "done" {
+  const made = job.clips.filter((c) => c.status === "ready" || c.status === "approved").length;
+  if (job.status === "rendering" && made) {
+    const lost = job.clips.filter((c) => c.status === "rendering");
+    lost.forEach((c) => { c.status = "failed"; c.error = "interrupted"; });
+    if (lost.length) job.warnings.push(`ORBIT restarted while rendering: ${lost.length} clip${lost.length > 1 ? "s" : ""} weren't rendered`);
+    Object.assign(job, { status: "done", progress: 1, step: `${made} clips ready`, error: undefined });
+    return "done";
+  }
+  const touched = job.clips.some((c) => c.status === "approved" || c.status === "rejected" || c.publish) || !!job.feedback?.length;
+  if (job.resumes || touched) {
+    job.status = "failed";
+    job.error = job.resumes
+      ? "interrupted twice: ORBIT restarted during this job again, so it wasn't retried. If it keeps happening, check the server log (transcription may be crashing ORBIT); start again."
+      : "interrupted — start again";
+    job.clips.forEach((c) => { if (c.status === "rendering") { c.status = "failed"; c.error = "interrupted"; } });
+    return "failed";
+  }
+  Object.assign(job, { resumes: 1, status: "queued", progress: 0, step: `Waiting to start (${RESUMED_NOTE.toLowerCase()})`, error: undefined, clips: [], warnings: [RESUMED_NOTE] });
+  return "resumed";
+}
+
 export function downloadProblem(x: unknown, id?: string): string {
   if (!isObj(x)) return "not a JSON object";
   const v = vProblem(x.v);
@@ -804,15 +851,16 @@ export const MAX_NUDGE_SEC = 10;
 
 /** Version request body → request, or a message for a 400. start/end are nudges in seconds (clamped to ±10). */
 export function validVersion(b: Record<string, unknown>): VersionReq | string {
-  const { layout, camSide, captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd, hook, title, start = 0, end = 0, suggest = false } = b;
-  if (layout !== undefined && !LAYOUTS.includes(layout as string)) return "layout must be fit, fill or split";
-  if (camSide !== undefined && !SIDES.includes(camSide as string)) return "camSide must be left or right";
+  const { layout, camSide, camSize, captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd, hook, title, start = 0, end = 0, suggest = false } = b;
+  if (layout !== undefined && !LAYOUTS.includes(layout as string)) return LAYOUT_ERR;
+  if (camSide !== undefined && !SIDES.includes(camSide as string)) return CAM_SIDE_ERR;
+  if (camSize !== undefined && !isCamSize(camSize)) return CAM_SIZE_ERR;
   if (captions !== undefined && !CAPTION_STYLES.includes(captions as CaptionStyle)) return "captions must be karaoke, classic or none";
   for (const [k, v] of Object.entries({ jumpCuts, zooms, coldOpen, progressBar, loopEnd, suggest })) if (v !== undefined && typeof v !== "boolean") return `${k} must be a boolean`;
   if (hook !== undefined && (typeof hook !== "string" || hook.length > 200)) return "hook must be text";
   if (title !== undefined && (typeof title !== "string" || !title.trim() || title.length > 200)) return "title must be a non-empty string";
   if (!isNum(start) || !isNum(end)) return "start and end must be numbers of seconds";
-  const edit = Object.fromEntries(Object.entries({ layout, camSide, captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd }).filter(([, v]) => v !== undefined)) as Partial<VersionEdit>;
+  const edit = Object.fromEntries(Object.entries({ layout, camSide, camSize, captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd }).filter(([, v]) => v !== undefined)) as Partial<VersionEdit>;
   return { edit, hook: hook === undefined ? undefined : shortHook(hook), title: title === undefined ? undefined : str(title, 70),
     dStart: clamp(start, -MAX_NUDGE_SEC, MAX_NUDGE_SEC), dEnd: clamp(end, -MAX_NUDGE_SEC, MAX_NUDGE_SEC), suggest: suggest as boolean };
 }
@@ -820,7 +868,7 @@ export function validVersion(b: Record<string, unknown>): VersionReq | string {
 /** The edit settings a job's original clips were rendered with. coldOpen/progressBar/loopEnd missing = a job from before they
  *  existed, rendered without them (validOptions sets them on new jobs), so its versions keep that look unless the owner ticks them. */
 export const baseEdit = (o: ClipOptions): VersionEdit =>
-  ({ layout: o.layout ?? "fit", camSide: o.camSide ?? "right", captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true,
+  ({ layout: o.layout ?? "fit", camSide: o.camSide ?? "right", camSize: o.camSize ?? 0.3, captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true,
     coldOpen: o.coldOpen ?? false, progressBar: o.progressBar ?? false, loopEnd: o.loopEnd ?? false });
 
 /** A clip's span nudged and kept inside the video; a message when the result would be under 5 s or over 3 min (the Shorts limit). */

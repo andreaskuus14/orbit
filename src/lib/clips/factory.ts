@@ -7,7 +7,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { SMART_MODEL, askClaudeStream } from "../claude";
 import { createLimiter } from "../pure";
-import { asrPipeline, asrWorkers } from "../asr-pool";
+import { asrPipeline, asrWorkers, type AsrPhase } from "../asr-pool";
 import { CHANNEL_LINK_MSG, channelLink, rootClipId } from "./format";
 import { isVideoId, uploadError, type VideoResource } from "../yt-analytics-pure";
 import { OAuthError, getAccessToken, invalidateAccess, readStored } from "../yt-oauth";
@@ -18,12 +18,13 @@ import type { Clip, ClipJob, ClipOptions, ClipPublish, Download, InboxFile, JobS
 import {
   MAX_SOURCE_SEC, MIN_CLIP_SEC, SAMPLE_RATE, VIDEO_EXTS, WIN_SEC, asrPieces, asrRegions, audioArgs, buildAss, clipLoudness, fallbackMoments, frameArgs,
   ffmpegTime, groupSpans, isInboxName, isPlainName, editPlan, markLoud, mergeRanked, parseDuration, parseYtdlpProgress, peakTime, probeArgs, promptTranscript,
-  renderArgs, resolveInside, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, totalSec, spanCover, validOptions, validateMoments,
+  renderArgs, resolveInside, trackArgs, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, totalSec, spanCover, validOptions, validateMoments,
   wordsFromChunks, cleanWords, ytdlpArgs, ytdlpError, ytdlpOutputFile, YTDLP_FILE_MARK,
   STATE_V, addFeedback, cleanPermission, baseEdit, downloadProblem, jobProblem, matchUpload, nextVersionId, packAnalysis, parseAnalysis, parseSuggestion, quarantineName,
-  reconcileOutcome, setRejectReason, uploadsFrom, versionSpan, youtubePauseUntil,
+  reconcileOutcome, recoverInterrupted, setRejectReason, uploadsFrom, versionSpan, youtubePauseUntil,
   type Analysis, type Candidate, type Moment, type Span, type VersionReq, type Word,
 } from "./pure";
+import { TRACK_FAIL, pathAt, trackAction } from "./reframe";
 
 // Clip Factory: long videos dropped in <studio>/inbox become vertical Shorts in <studio>/clips/<jobId>/.
 // One job at a time, in-process; state is one JSON file per job so it survives restarts.
@@ -41,7 +42,7 @@ const ASR_MODEL = process.env.ORBIT_WHISPER_MODEL || "onnx-community/whisper-bas
 // told the language is English (skips language guessing, fewer wrong-language lines on shouting).
 const ASR_MODEL_EN = process.env.ORBIT_WHISPER_MODEL_EN;
 const ASR_DTYPE = process.env.ORBIT_WHISPER_DTYPE; // e.g. "q8": faster on CPU, slightly less accurate; unset = transformers.js default
-// Pieces in flight; each needs its own ASR worker to truly overlap, so default = the clip lane's worker count.
+// Pieces in flight; each needs its own ASR child process to truly overlap, so default = the clip lane's count (1).
 const ASR_PARALLEL = Math.max(1, Number(process.env.ORBIT_ASR_PARALLEL) || asrWorkers());
 const ASR_SEGMENT_SEC = 300;
 const ASR_OVERLAP_SEC = 5;
@@ -260,7 +261,7 @@ export function startClipQueue() {
   kickDownloads();
 }
 
-/** Jobs and uploads that were mid-run when the server stopped can't be resumed. Runs inside the queue loop so it never races a starting job;
+/** Jobs and uploads that were mid-run when the server stopped: a job is re-queued once (recoverInterrupted), uploads are checked. Runs inside the queue loop so it never races a starting job;
  *  under the edit lock (re-reading each job) so it can't overwrite a clip edit or a publish that started meanwhile. */
 async function recover() {
   await ensureDirs();
@@ -275,11 +276,7 @@ async function recover() {
     // The upload may have finished before the restart: check the channel before offering a retry.
     stuck.forEach((c) => { c.publish = { ...c.publish!, status: "unknown", error: UNKNOWN, at: new Date().toISOString() }; unsure.push([id, c.id]); });
     rendering.forEach((c) => { c.status = "failed"; c.error = "interrupted"; });
-    if (active) {
-      job.status = "failed";
-      job.error = "interrupted — start again";
-      job.clips.forEach((c) => { if (c.status === "rendering") { c.status = "failed"; c.error = "interrupted"; } });
-    }
+    if (active && recoverInterrupted(job) === "resumed") console.error(`[orbit] clip job ${id} was interrupted by a restart: resuming it once`);
     job.updatedAt = new Date().toISOString();
     await saveJob(job);
     if (active) await rm(path.join(clipsDir(), job.id, "audio.f32"), { force: true }); // up to ~690 MB left by the crash
@@ -363,8 +360,10 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
           // Long videos: only the loudest stretches are transcribed (loudness is cheap, Whisper is the slow step).
           spans = asrRegions(rms, duration, o);
           const what = spans.length === 1 && spans[0].end - spans[0].start >= duration - 1 ? "" : ` the ${Math.round(totalSec(spans) / 60)} loudest minutes`;
-          await set(job, "transcribing", 0.08, "Loading Whisper (first run downloads ~300 MB)");
-          words = cleanWords(await transcribe(pcmFile, spans, o.language, signal, (f) => set(job, "transcribing", 0.08 + 0.45 * f, `Transcribing${what} ${Math.round(f * 100)}%`))); // also feeds Claude a transcript without loops
+          await set(job, "transcribing", 0.08, "Loading Whisper");
+          const phase = (p: AsrPhase) => signal.aborted ? undefined : void set(job, "transcribing", 0.08, p.phase === "loading" ? "Loading Whisper"
+            : `Downloading Whisper (first run, ~300 MB)${p.f !== undefined ? ` ${Math.round(p.f * 100)}%` : ""}`).catch(() => {});
+          words = cleanWords(await transcribe(pcmFile, spans, o.language, signal, phase, (f) => set(job, "transcribing", 0.08 + 0.45 * f, `Transcribing${what} ${Math.round(f * 100)}%`))); // also feeds Claude a transcript without loops
         } catch (e) {
           if (signal.aborted) throw e;
           job.warnings.push(`Transcription failed, continuing without captions: ${e instanceof Error ? e.message : e}`);
@@ -449,41 +448,48 @@ async function loudness(pcmFile: string): Promise<number[]> {
   } finally { await fh.close(); }
 }
 
-function loadAsr(model: string): Promise<Asr> {
+function loadAsr(model: string, onPhase?: (p: AsrPhase) => void): Promise<Asr> {
   const models = (S.asrModels ??= new Map());
   let p = models.get(model);
   if (!p) {
     // Parallel pieces share the CPU: split the cores between them instead of each runner claiming all of them.
     const intraOpNumThreads = Math.max(1, Math.floor(availableParallelism() / ASR_PARALLEL));
-    // Runs in a worker thread (asr-pool); model download lives in the studio folder, not node_modules.
-    p = asrPipeline("clip", model, { session_options: { intraOpNumThreads }, ...(ASR_DTYPE ? { dtype: ASR_DTYPE } : {}) }, path.join(studioRoot(), "models")) as Promise<Asr>;
+    // Runs in a child process (asr-pool); model download lives in the studio folder, not node_modules. Cached: loaded once per model.
+    p = asrPipeline("clip", model, { session_options: { intraOpNumThreads }, ...(ASR_DTYPE ? { dtype: ASR_DTYPE } : {}) }, path.join(studioRoot(), "models"), onPhase) as Promise<Asr>;
     models.set(model, p);
     p.catch(() => models.delete(model)); // let the next job retry a failed download
   }
   return p;
 }
 
-async function asrFor(language: ClipOptions["language"]): Promise<{ asr: Asr; model: string }> {
+async function asrFor(language: ClipOptions["language"], onPhase?: (p: AsrPhase) => void): Promise<{ asr: Asr; model: string }> {
   if (language === "en" && ASR_MODEL_EN) {
-    try { return { asr: await loadAsr(ASR_MODEL_EN), model: ASR_MODEL_EN }; }
+    try { return { asr: await loadAsr(ASR_MODEL_EN, onPhase), model: ASR_MODEL_EN }; }
     catch (e) { console.error("[orbit] English Whisper model failed, using the main one:", e instanceof Error ? e.message : e); }
   }
-  return { asr: await loadAsr(ASR_MODEL), model: ASR_MODEL };
+  return { asr: await loadAsr(ASR_MODEL, onPhase), model: ASR_MODEL };
 }
 
-async function transcribe(pcmFile: string, spans: Span[], language: ClipOptions["language"], signal: AbortSignal, progress: (f: number) => Promise<void>): Promise<Word[]> {
-  const { asr, model } = await asrFor(language);
+async function transcribe(pcmFile: string, spans: Span[], language: ClipOptions["language"], signal: AbortSignal, onPhase: (p: AsrPhase) => void, progress: (f: number) => Promise<void>): Promise<Word[]> {
+  // The model load is shared (cached per model) and can't be cancelled: stop waiting for it on cancel instead.
+  const { asr, model } = await Promise.race([asrFor(language, onPhase), new Promise<never>((_, reject) => {
+    signal.throwIfAborted();
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  })]);
   const wordTs = (S.wordTs ??= new Map());
   // English-only (.en) models reject a language option.
   const lang = language === "en" && !/\.en(?![a-z])/i.test(model) ? { language: "english", task: "transcribe" } : {}; // also "*.en_timestamped"
   const pieces = asrPieces(spans, ASR_SEGMENT_SEC, ASR_OVERLAP_SEC);
   const total = pieces.reduce((s, p) => s + p.sec, 0) || 1;
   const slot = createLimiter(ASR_PARALLEL);
-  let done = 0;
+  // First failed piece stops the rest (no point transcribing 20 more pieces when Whisper is down); cancel stops them too.
+  const stop = new AbortController(), cancel = () => stop.abort(signal.reason);
+  signal.addEventListener("abort", cancel, { once: true });
+  let done = 0, first: unknown;
   const fh = await open(pcmFile, "r");
   try {
-    const results = await Promise.allSettled(pieces.map((p) => slot(async () => {
-      signal.throwIfAborted();
+    const results = await Promise.allSettled(pieces.map((p) => slot(async () => { try {
+      stop.signal.throwIfAborted();
       const audio = await readPcm(fh, p.from, p.to - p.from);
       if (audio.length < SAMPLE_RATE) return [];
       const run = (ts: unknown) => asr(audio, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: ts, ...lang });
@@ -500,13 +506,12 @@ async function transcribe(pcmFile: string, spans: Span[], language: ClipOptions[
       await progress(Math.min(1, done / total));
       // The overlap is context only: keep words from where this piece's new audio starts (the previous piece owns the rest).
       return wordsFromChunks(out.chunks ?? [], p.from).filter((w) => w.start >= p.start);
-    }, signal)));
-    // allSettled: running pieces finish before the file closes; then the first failure (or the cancel) wins.
+    } catch (e) { if (!stop.signal.aborted) { first = e; stop.abort(e); } throw e; } }, stop.signal)));
+    // allSettled: running pieces finish before the file closes; then the cancel (or the first failure) wins.
     signal.throwIfAborted();
-    const bad = results.find((r) => r.status === "rejected");
-    if (bad) throw (bad as PromiseRejectedResult).reason;
+    if (first !== undefined) throw first;
     return results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-  } finally { await fh.close(); }
+  } finally { signal.removeEventListener("abort", cancel); await fh.close(); }
 }
 
 const SYSTEM = `You are a top Shorts editor. You pick the moments of a long video (often a streamer's VOD: loud game audio, shouting) that make the most entertaining vertical clips.
@@ -595,8 +600,9 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
   const local = markLoud(words.filter((w) => w.end > clip.start && w.start < clip.end).map((w) => ({ ...w, start: w.start - clip.start, end: w.end - clip.start })), pts);
   const { segs, zooms, teaser, words: capWords, total } = editPlan(local, pts, duration, audio, o);
   await writeFile(path.join(dir, ass), buildAss({ hook: clip.hook, words: capWords, duration: total, style: o.style }), "utf8");
+  const follow = o.layout === "follow" ? await trackAction(ff, trackArgs(src, clip.start, duration), signal).catch((e) => { if (signal.aborted) throw e; if (!job.warnings.includes(TRACK_FAIL)) job.warnings.push(TRACK_FAIL); return []; }) : [];
   try {
-    await runFfmpeg(ff, renderArgs({ input: src, start: clip.start, duration, segs, audio, layout: o.layout, camSide: o.camSide, zooms, ass, out: video,
+    await runFfmpeg(ff, renderArgs({ input: src, start: clip.start, duration, segs, audio, layout: o.layout, camSide: o.camSide, camSize: o.camSize, follow, zooms, ass, out: video,
       teaser, progressBar: o.progressBar, fadeOut: o.loopEnd }), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
     clip.video = `clips/${job.id}/${video}`;
   } catch (e) {
@@ -612,7 +618,7 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
   for (const [k, t] of thumbTimes(rms, clip.start, clip.end, peakTime(rms, clip.start, clip.end)).entries()) {
     const thumb = k ? `${clip.id}.t${k}.jpg` : `${clip.id}.jpg`;
     try { // a missing thumbnail shouldn't throw away a good render
-      await runFfmpeg(ff, frameArgs(src, t, frame, o.layout, o.camSide), { cwd: dir, signal, timeoutMs: 60_000 });
+      await runFfmpeg(ff, frameArgs(src, t, frame, o.layout, o.camSide, pathAt(follow, t - clip.start), o.camSize), { cwd: dir, signal, timeoutMs: 60_000 });
       if (sharp) await sharp(path.join(dir, frame)).composite([{ input: Buffer.from(thumbSvg(clip.title)), top: 0, left: 0 }]).jpeg({ quality: 88 }).toFile(path.join(dir, thumb));
       else await rename(path.join(dir, frame), path.join(dir, thumb));
       thumbs.push(`clips/${job.id}/${thumb}`);

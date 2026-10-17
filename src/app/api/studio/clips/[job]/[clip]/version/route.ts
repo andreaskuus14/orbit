@@ -5,7 +5,7 @@ import { getJob, inboxDir, isJobBusy, loadAnalysis, startClipQueue, startVersion
 import { isClipId, isInboxName, isJobId, validVersion } from "@/lib/clips/pure";
 
 // "Another version" of a clip: re-rendered from the job's saved analysis (no transcription; Claude only with suggest: true for an
-// untyped title/hook). Body: { layout?, camSide?, captions?: "karaoke"|"classic"|"none", hook?, title?, start?, end? (±10 s nudges), jumpCuts?, zooms?, suggest? }.
+// untyped title/hook). Body: { layout?, camSide?, camSize?, captions?: "karaoke"|"classic"|"none", hook?, title?, start?, end? (±10 s nudges), jumpCuts?, zooms?, suggest? }.
 export async function POST(req: Request, { params }: { params: Promise<{ job: string; clip: string }> }) {
   const { res } = await requireUser();
   if (res) return res;

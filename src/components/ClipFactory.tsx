@@ -22,7 +22,7 @@ type PubSettings = { timezone: string; slots: string[]; perDay: number };
 type Batch = { running: boolean; total: number; scheduled: number; error?: string; at: string };
 type Schedule = { settings: PubSettings; next: string[]; batch: Batch | null };
 type CaptionStyle = (typeof CAPTION_STYLES)[number];
-type VersionEdit = { layout: "fit" | "fill" | "split"; camSide: "left" | "right"; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean;
+type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: CamSide; camSize?: number; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean;
   coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean };
 type VersionBody = Partial<VersionEdit> & { hook?: string; title?: string; start: number; end: number; suggest: boolean };
 type Quarantined = { file: string; reason: string; at: string };
@@ -32,7 +32,8 @@ type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering"
 type ClipJob = { id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
   timings?: { audio: number; transcribe: number; pick: number; render: number } };
-type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: "fit" | "fill" | "split"; camSide?: "left" | "right";
+type CamSide = "left" | "right" | "tl" | "tr" | "bl" | "br";
+type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: VersionEdit["layout"]; camSide?: CamSide; camSize?: number;
   jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en"; coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean; preset?: "viral" | "devlog" };
 type InboxFile = { name: string; size: number; mtime: string; jobId?: string; permission?: string };
 type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
@@ -129,7 +130,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [conflict, setConflict] = useState<Record<string, ClipOptions>>({}); // source → options that got a 409
   const [form, setForm] = useState<string | null>(null);
-  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", jumpCuts: true, zooms: true, language: "en", coldOpen: true, progressBar: false, loopEnd: true, preset: "viral" });
+  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", camSize: 0.3, jumpCuts: true, zooms: true, language: "en", coldOpen: true, progressBar: false, loopEnd: true, preset: "viral" });
   const [showRejected, setShowRejected] = useState(false);
   const [visible, setVisible] = useState(true);
   const [yt, setYt] = useState<YtStatus | null>(null);
@@ -854,19 +855,32 @@ function DevlogCard({ onChange }: { onChange: () => void }) {
 const LAYOUT: Record<Opts["layout"], [string, string]> = {
   fit: ["Fit", "Whole frame over a blurred background"],
   fill: ["Fill", "Crops the middle to full screen (facecam-centred streams)"],
-  split: ["Split", "Gameplay on top, facecam below"],
+  split: ["Split", "Facecam and gameplay stacked"],
+  follow: ["Follow action", "A 9:16 crop that pans to the person / action (cuts jump)"],
 };
+const LAYOUTS: Opts["layout"][] = ["fit", "fill", "follow", "split"];
+const CAM_SIDES: CamSide[] = ["left", "right", "tl", "tr", "bl", "br"];
+const CAM_LABEL: Record<CamSide, string> = { left: "Left third", right: "Right third", tl: "Top-left box", tr: "Top-right box", bl: "Bottom-left box", br: "Bottom-right box" };
+const CAM_SIZES = [0.22, 0.3, 0.4], CAM_SIZE_LABEL = ["Small", "Medium", "Large"];
+/** Facecam position (+ box size for a corner cam: shown on top, the frame's middle below) for the split layout. */
+function CamPicker({ side, size, set }: { side: CamSide; size?: number; set: (p: { camSide?: CamSide; camSize?: number }) => void }) {
+  return (
+    <>
+      <Choice legend="Facecam" values={CAM_SIDES} value={side} fmt={(v) => CAM_LABEL[v]} onChange={(camSide) => set({ camSide })}
+        hint={side.length === 2 ? "Cam box on top, gameplay below" : "Gameplay on top, cam third below"} />
+      {side.length === 2 && <Choice legend="Cam box width" values={CAM_SIZES} value={CAM_SIZES.includes(size ?? 0.3) ? (size ?? 0.3) : 0.3}
+        fmt={(v) => CAM_SIZE_LABEL[CAM_SIZES.indexOf(v)]} onChange={(camSize) => set({ camSize })} />}
+    </>
+  );
+}
 
 /** Layout, pacing, zooms and language for a clip job. */
 function EditOptions({ opts, setOpts }: { opts: Opts; setOpts: (f: (o: Opts) => Opts) => void }) {
   return (
     <>
-      <Choice legend="Layout" values={["fit", "fill", "split"] as Opts["layout"][]} value={opts.layout} fmt={(v) => LAYOUT[v][0]} hint={LAYOUT[opts.layout][1]}
+      <Choice legend="Layout" values={LAYOUTS} value={opts.layout} fmt={(v) => LAYOUT[v][0]} hint={LAYOUT[opts.layout][1]}
         onChange={(layout) => setOpts((o) => ({ ...o, layout }))} />
-      {opts.layout === "split" && (
-        <Choice legend="Facecam side" values={["left", "right"] as Opts["camSide"][]} value={opts.camSide} fmt={(v) => (v === "left" ? "Left third" : "Right third")}
-          onChange={(camSide) => setOpts((o) => ({ ...o, camSide }))} />
-      )}
+      {opts.layout === "split" && <CamPicker side={opts.camSide} size={opts.camSize} set={(p) => setOpts((o) => ({ ...o, ...p }))} />}
       <Choice legend="Speech" values={["en", "auto"] as Opts["language"][]} value={opts.language} fmt={(v) => (v === "en" ? "English" : "Any language")}
         onChange={(language) => setOpts((o) => ({ ...o, language }))} />
       <label className="flex items-center gap-1.5" title="Cuts pauses of 0.7 s or more">
@@ -900,7 +914,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
   onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn; onCheck: (clip: string) => Promise<boolean>; onVersion: VersionFn; onTitles: (clip: string) => Promise<boolean>;
 }) {
   const o = job.options; // what the original clips were rendered with (mirrors baseEdit in pure.ts)
-  const base: VersionEdit = { layout: o.layout ?? "fit", camSide: o.camSide ?? "right", captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true,
+  const base: VersionEdit = { layout: o.layout ?? "fit", camSide: o.camSide ?? "right", camSize: o.camSize, captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true,
     coldOpen: o.coldOpen ?? false, progressBar: o.progressBar ?? false, loopEnd: o.loopEnd ?? false }; // missing = job from before these options
   const working = isJobActive(job), pct = Math.round(Math.min(1, Math.max(0, job.progress || 0)) * 100);
   const clips = job.clips.filter((c) => showRejected || c.status !== "rejected");
@@ -1095,8 +1109,8 @@ function VersionBox({ clip: c, base, busy, onVersion, note }: { clip: Clip; base
   );
   return (
     <form className="flex flex-col gap-1.5 rounded-md border border-white/10 p-1.5" aria-label={`Another version of ${c.title}`} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <Choice legend="Layout" values={["fit", "fill", "split"] as VersionEdit["layout"][]} value={f.layout} fmt={(v) => LAYOUT[v][0]} onChange={(layout) => set({ layout })} />
-      {f.layout === "split" && <Choice legend="Facecam" values={["left", "right"] as VersionEdit["camSide"][]} value={f.camSide} fmt={(v) => (v === "left" ? "Left" : "Right")} onChange={(camSide) => set({ camSide })} />}
+      <Choice legend="Layout" values={LAYOUTS} value={f.layout} fmt={(v) => LAYOUT[v][0]} onChange={(layout) => set({ layout })} />
+      {f.layout === "split" && <CamPicker side={f.camSide} size={f.camSize} set={set} />}
       <Choice legend="Captions" values={[...CAPTION_STYLES]} value={f.captions} fmt={(v) => CAPTION_LABEL[v]} onChange={(captions) => set({ captions })} />
       <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.jumpCuts} onChange={(e) => set({ jumpCuts: e.target.checked })} /> Jump cuts</label>
       <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.zooms} onChange={(e) => set({ zooms: e.target.checked })} /> Zooms</label>

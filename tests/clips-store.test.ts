@@ -88,7 +88,7 @@ test("version ids number after the original and its other versions", () => {
   assert.equal(nextVersionId([{ id: "clip-1-v99" }], "clip-1"), null);
   assert.equal(rootClipId("clip-12-v3"), "clip-12");
   assert.ok(isClipId("clip-1-v2") && isClipId("clip-10") && !isClipId("clip-1-v") && !isClipId("clip-1-v100") && !isClipId("clip-1-x2"));
-  assert.deepEqual(baseEdit({ count: 5, maxSec: 45, captions: false }), { layout: "fit", camSide: "right", captions: "none", jumpCuts: true, zooms: true,
+  assert.deepEqual(baseEdit({ count: 5, maxSec: 45, captions: false }), { layout: "fit", camSide: "right", camSize: 0.3, captions: "none", jumpCuts: true, zooms: true,
     coldOpen: false, progressBar: false, loopEnd: false }); // old job: rendered without the retention edits
 });
 
@@ -157,4 +157,44 @@ test("youtubePauseUntil: YouTube pauses 3 h after a bot-wall failure; other host
   assert.equal(youtubePauseUntil(blocked, "https://www.twitch.tv/videos/123", now), 0);
   assert.equal(youtubePauseUntil(blocked, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", now + 3 * 3600_000), 0);
   assert.equal(youtubePauseUntil([{ status: "failed", error: "network", createdAt: "2026-10-16T09:59:00Z" }], "https://youtu.be/dQw4w9WgXcQ", now), 0);
+});
+
+test("interrupted job: resumed once as the same job, failed with a clear message the second time", async () => {
+  const { recoverInterrupted, RESUMED_NOTE } = await import("../src/lib/clips/pure.ts");
+  const job = { id: "abc123-0a0b0c", source: "v.mp4", createdAt: "", updatedAt: "", status: "transcribing", progress: 0.3, step: "Transcribing 40%",
+    warnings: ["old"], clips: [{ id: "clip-1", start: 0, end: 1, title: "", hook: "", reason: "", score: 0, status: "rendering" }], options: { count: 3, maxSec: 60 }, devlogDay: 7 } as never as import("../src/lib/clips/types.ts").ClipJob;
+  assert.equal(recoverInterrupted(job), "resumed");
+  assert.equal(job.status, "queued");
+  assert.equal(job.resumes, 1);
+  assert.equal(job.devlogDay, 7);
+  assert.deepEqual(job.warnings, [RESUMED_NOTE]);
+  assert.deepEqual(job.clips, []);
+  // ORBIT went down again mid-run
+  job.status = "rendering";
+  job.clips = [{ id: "clip-1", start: 0, end: 1, title: "", hook: "", reason: "", score: 0, status: "rendering" }];
+  assert.equal(recoverInterrupted(job), "failed");
+  assert.equal(job.status, "failed");
+  assert.match(job.error!, /interrupted twice/);
+  assert.equal(job.clips[0].status, "failed");
+  assert.equal(job.resumes, 1);
+});
+
+test("interrupted while rendering with clips made: keeps them, job done, the rest failed", async () => {
+  const { recoverInterrupted } = await import("../src/lib/clips/pure.ts");
+  const job = { id: "abc123-0a0b0d", status: "rendering", progress: 0.7, warnings: [], options: { count: 3, maxSec: 60 },
+    clips: [{ id: "clip-1", status: "approved" }, { id: "clip-2", status: "ready" }, { id: "clip-3", status: "rendering" }] } as never as import("../src/lib/clips/types.ts").ClipJob;
+  assert.equal(recoverInterrupted(job), "done");
+  assert.equal(job.status, "done");
+  assert.equal(job.resumes, undefined);
+  assert.deepEqual(job.clips.map((c) => [c.status, c.error]), [["approved", undefined], ["ready", undefined], ["failed", "interrupted"]]);
+  assert.match(job.warnings[0], /1 clip weren't rendered/);
+});
+
+test("interrupted job with a reviewed (rejected) clip but none kept isn't re-run (would drop the review)", async () => {
+  const { recoverInterrupted } = await import("../src/lib/clips/pure.ts");
+  const job = { id: "abc123-0a0b0e", status: "rendering", progress: 0.7, warnings: [], options: { count: 2, maxSec: 60 },
+    clips: [{ id: "clip-1", status: "rejected" }, { id: "clip-2", status: "rendering" }] } as never as import("../src/lib/clips/types.ts").ClipJob;
+  assert.equal(recoverInterrupted(job), "failed");
+  assert.equal(job.error, "interrupted — start again");
+  assert.deepEqual(job.clips.map((c) => c.status), ["rejected", "failed"]);
 });

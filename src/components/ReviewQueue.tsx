@@ -8,7 +8,7 @@ import ClipPicks from "./ClipPicks";
 
 // Mirrors src/lib/clips/types.ts (only what the review reads).
 type CaptionStyle = (typeof CAPTION_STYLES)[number];
-type VersionEdit = { layout: "fit" | "fill" | "split"; camSide: "left" | "right"; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean };
+type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: "left" | "right" | "tl" | "tr" | "bl" | "br"; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean };
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   status: "rendering" | "ready" | "failed" | "approved" | "rejected"; video?: string; thumb?: string; edit?: VersionEdit;
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[] };
@@ -20,7 +20,7 @@ type Mode = "idle" | "reject" | "title" | "version";
 const API = "/api/studio/clips";
 const media = (p: string) => `${API}/media?f=${encodeURIComponent(p)}`;
 const score = (s: number) => Math.round(Number.isFinite(s) ? (s <= 1 ? s * 100 : s) : 0); // same scale rule as ClipFactory
-const LAYOUTS: VersionEdit["layout"][] = ["fit", "fill", "split"];
+const LAYOUTS: VersionEdit["layout"][] = ["fit", "fill", "follow", "split"];
 
 async function api<T>(url: string, method?: string, body?: unknown): Promise<T> {
   const res = await fetch(url, { method, cache: "no-store", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
