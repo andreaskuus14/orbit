@@ -11,7 +11,9 @@ import world from "world-atlas/countries-110m.json";
 import { decodeCountries, unwrapRing, type CountryShape } from "@/lib/topo";
 import { COUNTRIES as GAZ, displayName, importance, regionOf, REGIONS, type Hotspot } from "@/lib/geo";
 import { dedupe } from "@/lib/dashboard";
-import CountryDash, { StoryCard, type Result } from "./CountryDash";
+import CountryDash, { ErrorNote, getJson, safeHref, StoryCard, type Result } from "./CountryDash";
+import { countryByName, findCountry, WORLD } from "@/lib/countries-pure";
+import { capShare } from "@/lib/local-news-pure";
 import { FOLLOWS_EVENT } from "./follow-command";
 import { REFRESH_MS } from "@/lib/follows-pure";
 
@@ -25,6 +27,12 @@ const TEX_W = 4096, TEX_H = 2048;
 const PICK_W = 2048, PICK_H = 1024;
 const COUNTRIES: CountryShape[] = decodeCountries(world as never);
 const INDEX = new Map(COUNTRIES.map((c, i) => [c.name, i]));
+// Countries the 110m atlas has no shape for (Malta, Singapore, island states): a clickable marker instead.
+const MARKERS = (WORLD.filter((c) => !INDEX.has(c.name) && c.lat !== undefined) as { name: string; lat: number; lon: number }[])
+  .map((m) => ({ ...m, pos: toVec(m.lat, m.lon, R * 1.004) }));
+// Every selectable country (atlas shapes + the rest), for the picker.
+const PICKABLE = [...new Set([...COUNTRIES.map((c) => c.name).filter((n) => n && n !== "Antarctica"), ...WORLD.map((c) => c.name)])]
+  .sort((a, b) => displayName(a).localeCompare(displayName(b)));
 const ease = (t: number) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
 
 /** Lat/lon → point on the sphere, matching three.js SphereGeometry's equirectangular UVs. */
@@ -90,16 +98,18 @@ function centroid(i: number) {
   return n ? { lat: sy / n, lon: ((((sx / n) + 180) % 360) + 360) % 360 - 180 } : null;
 }
 // Every atlas country gets the region of its nearest gazetteer country (so Slovakia counts as Europe); far away → none.
-const ATLAS_REGION: (string | null)[] = COUNTRIES.map((c, i) => {
-  const own = regionOf(c.name);
-  const m = own ? null : centroid(i);
-  if (own || !m) return own;
+function nearestRegion(m: { lat: number; lon: number }) {
   let best: string | null = null, bd = 25 ** 2;
   for (const g of GAZ) {
     const dl = Math.abs(g.lon - m.lon), dx = Math.min(dl, 360 - dl) * Math.cos((m.lat * Math.PI) / 180), dy = g.lat - m.lat;
     if (dx * dx + dy * dy < bd) { bd = dx * dx + dy * dy; best = regionOf(g.name); }
   }
   return best;
+}
+const ATLAS_REGION: (string | null)[] = COUNTRIES.map((c, i) => {
+  const own = regionOf(c.name);
+  const m = own ? null : centroid(i);
+  return own || !m ? own : nearestRegion(m);
 });
 const REGION_KEYS = Object.keys(REGIONS); // region id = index + 1 in masks and shaders; 0 = no region
 const regionId = (name: string) => { const r = regionOf(name); return r ? REGION_KEYS.indexOf(r) + 1 : 0; };
@@ -483,6 +493,30 @@ function FollowPulse({ names, reduced }: { names: string[]; reduced: boolean }) 
   return key ? <mesh material={mat} renderOrder={2}><sphereGeometry args={[R * 1.002, 96, 96]} /></mesh> : null;
 }
 
+const markerGeo = new THREE.SphereGeometry(0.018, 12, 12);
+const markerMat = new THREE.MeshBasicMaterial({ color: "#67e8f9", transparent: true, opacity: 0.85 });
+const markerOnMat = new THREE.MeshBasicMaterial({ color: "#a5f3fc", transparent: true, opacity: 0.95 });
+let markerRegions: (string | null)[] | null = null; // lazily: nearest gazetteer region, so region mode hides the others
+
+/** Small clickable dots for countries without a shape on the map (shared geometry and materials). */
+function Markers({ selected, hover, region, onPick, onHover }: { selected: string | null; hover: string | null; region: string | null; onPick: (n: string) => void; onHover: (n: string | null, x: number, y: number) => void }) {
+  const regions = (markerRegions ??= MARKERS.map(nearestRegion));
+  return (
+    <group>
+      {MARKERS.map((m, i) => {
+        if (region && regions[i] !== region && m.name !== selected) return null;
+        const on = m.name === selected || m.name === hover;
+        return (
+          <mesh key={m.name} position={m.pos} scale={on ? 1.6 : 1} geometry={markerGeo} material={on ? markerOnMat : markerMat}
+            onClick={(e) => { e.stopPropagation(); if (e.delta <= 5) onPick(m.name); }}
+            onPointerMove={(e) => { e.stopPropagation(); onHover(m.name, e.nativeEvent.clientX, e.nativeEvent.clientY); }} // stop: the globe behind would reset hover
+            onPointerOut={(e) => onHover(null, e.nativeEvent.clientX, e.nativeEvent.clientY)} />
+        );
+      })}
+    </group>
+  );
+}
+
 function Globe({ tint, mode, region, reduced, lit, selected, hover, onPick, onHover, followed }: {
   followed: string[]; tint: Map<string, number>; mode: "news" | "search"; region: string | null; reduced: boolean; lit: string[]; selected: string | null; hover: string | null;
   onPick: (n: string | null) => void; onHover: (n: string | null, x: number, y: number) => void;
@@ -516,12 +550,13 @@ function Globe({ tint, mode, region, reduced, lit, selected, hover, onPick, onHo
   return (
     <group>
       <mesh
-        onClick={(e) => { if (e.delta <= 5) onPick(at(e)); }}
-        onPointerMove={(e) => onHover(at(e), e.nativeEvent.clientX, e.nativeEvent.clientY)}
+        onClick={(e) => { e.stopPropagation(); if (e.delta <= 5) onPick(at(e)); }} // stop: far-side markers sit behind the globe
+        onPointerMove={(e) => { e.stopPropagation(); onHover(at(e), e.nativeEvent.clientX, e.nativeEvent.clientY); }}
         onPointerOut={(e) => onHover(null, e.nativeEvent.clientX, e.nativeEvent.clientY)}>
         <sphereGeometry args={[R, 128, 128]} />
         <primitive object={material} attach="material" map={texture} />
       </mesh>
+      <Markers selected={selected} hover={hover} region={region} onPick={(n) => onPick(n)} onHover={onHover} />
       <Overlay name={hover && hover !== selected ? hover : null} color="rgba(186,230,253,1)" max={0.45} />
       <Overlay name={selected} color="rgba(103,232,249,1)" max={0.9} />
       <Dimmer on={lit.length > 0} />
@@ -617,7 +652,8 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState<Search | null>(null);
   const [searching, setSearching] = useState(false);
-  const [liveNews, setLiveNews] = useState<{ name: string; items: Result[] | null; error?: string } | null>(null);
+  const [liveNews, setLiveNews] = useState<{ name: string; items: Result[] | null; local?: Result[]; error?: string } | null>(null);
+  const [pick, setPick] = useState("");
   const [region, setRegion] = useState<string | null>(null);
   const [followed, setFollowed] = useState<string[]>([]); // countries in followed-topic news (server refetches at most every 30 min)
   useEffect(() => {
@@ -636,9 +672,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
     const seq = ++searchSeq.current;
     setSearching(true); setErr("");
     try {
-      const res = await fetch(`/api/news/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Search failed");
+      const json = await getJson(`/api/news/search?q=${encodeURIComponent(q)}`, "Search failed");
       if (seq !== searchSeq.current) return;
       setSearch({ q, results: json.results ?? [], hotspots: json.hotspots ?? [] });
       setSelected(null);
@@ -657,9 +691,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
     try {
-      const res = await fetch(`/api/news/geo?hours=${hours}`, { cache: "no-store" });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Couldn't load news (${res.status})`);
+      const json = await getJson(`/api/news/geo?hours=${hours}`, "Couldn't load news");
       if (seq === loadSeq.current) { setData(json); setErr(""); }
     } catch (e) { if (seq === loadSeq.current) setErr(e instanceof Error ? e.message : "Couldn't load news"); }
   }, [hours]);
@@ -675,12 +707,18 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
     if (!selected) { setLiveNews(null); return; }
     let gone = false;
     setLiveNews({ name: selected, items: null });
-    fetch(`/api/news/search?country=${encodeURIComponent(selected)}`, { cache: "no-store" })
-      .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "Couldn't load headlines"); return j; })
-      .then((j) => { if (!gone) setLiveNews({ name: selected, items: j.results ?? [] }); })
+    getJson(`/api/news/search?country=${encodeURIComponent(selected)}`, "Couldn't load headlines") // also returns its local press
+      .then((j) => { if (!gone) setLiveNews({ name: selected, items: j.results ?? [], local: j.local ?? [] }); })
       .catch((e) => { if (!gone) setLiveNews({ name: selected, items: [], error: e instanceof Error ? e.message : "Couldn't load headlines" }); });
     return () => { gone = true; };
   }, [selected]);
+
+  function pickCountry(e: React.FormEvent) {
+    e.preventDefault();
+    const t = pick.trim().toLowerCase();
+    const name = PICKABLE.find((n) => n.toLowerCase() === t || displayName(n).toLowerCase() === t) ?? findCountry(t)?.name;
+    if (name) { setSelected(name); setPick(""); }
+  }
 
   function runSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -701,8 +739,14 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
     for (const h of hs) for (const s of h.stories) { const a = tags.get(s.url) ?? []; if (!a.includes(h.name)) a.push(h.name); tags.set(s.url, a); }
     const time = (s: Result) => (s.published_at ? Date.parse(s.published_at) || 0 : 0);
     const all = listed.flatMap((h) => h.stories).map((s): Result => ({ ...s, countries: tags.get(s.url) ?? [], live: false, score: importance(s.title) }));
-    return dedupe(all.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || time(b) - time(a))).slice(0, 12);
+    // No single country may fill more than 30% of the list (feeds are US-heavy); grouped by region below.
+    return capShare(dedupe(all.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || time(b) - time(a))), (s) => s.countries[0], 18, 0.3);
   }, [hs, listed]);
+  const storySections = useMemo(() => {
+    const m = new Map<string, Result[]>();
+    for (const s of topStories) { const r = regionOf(s.countries[0] ?? "") ?? "World"; m.set(r, [...(m.get(r) ?? []), s]); }
+    return [...m.entries()];
+  }, [topStories]);
   const [tab, setTab] = useState<"countries" | "stories">("countries");
   const [hotStory, setHotStory] = useState<Result | null>(null);
   const [pinStory, setPinStory] = useState<Result | null>(null);
@@ -711,18 +755,18 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
   const story = !search && !selected && tab === "stories" ? hotStory ?? pinStory : null;
   const lit = useMemo(() => story?.countries ?? [], [story]);
   useEffect(() => { if (lit[0]) setCamTo(lit[0]); }, [lit]);
-  const storyAt = (e: React.SyntheticEvent<HTMLUListElement>) => {
-    const li = (e.target as HTMLElement).closest("li");
-    return li ? topStories[Array.from(e.currentTarget.children).indexOf(li)] ?? null : null;
+  const storyAt = (e: React.SyntheticEvent<HTMLElement>) => {
+    const href = (e.target as HTMLElement).closest("li")?.querySelector("a.link")?.getAttribute("href");
+    return href ? topStories.find((s) => safeHref(s.url) === href) ?? null : null;
   };
 
   const focus = useMemo(() => {
     const place = (name: string) => {
       const h = hs.find((x) => x.name === name);
       if (h) return { key: name, lat: h.lat, lon: h.lon };
-      const i = INDEX.get(name); // a country without stories: fly to the middle of its shape
-      const m = i === undefined ? null : centroid(i);
-      return m ? { key: name, ...m } : null;
+      const i = INDEX.get(name); // a country without stories: fly to the middle of its shape, or to its marker
+      const m = i === undefined ? MARKERS.find((x) => x.name === name) ?? null : centroid(i);
+      return m ? { key: name, lat: m.lat, lon: m.lon } : null;
     };
     if (selected) return place(selected);
     const p = camTo && tab === "stories" ? place(camTo) : null;
@@ -814,6 +858,12 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
               </div>
             </div>
             <p className="muted text-xs">{data ? `${data.total} stories · ${hs.length} countries${region ? ` · showing ${region}` : ""}` : err ? "" : "Loading…"}</p>
+            <form onSubmit={pickCountry} className="mt-2 flex gap-1" role="search" aria-label="Open any country">
+              <input className="field w-full" list="globe-countries" value={pick} onChange={(e) => setPick(e.target.value)} maxLength={60}
+                placeholder={`Any country… (${PICKABLE.length})`} aria-label="Country name" />
+              <button className="chip shrink-0" disabled={!pick.trim()}>Open</button>
+              <datalist id="globe-countries">{PICKABLE.map((n) => <option key={n} value={displayName(n)} />)}</datalist>
+            </form>
             {data && !hs.length && <p className="mt-3 text-sm">No placed stories yet. Run a <b>World brief</b> in the panel on the right and the globe lights up.</p>}
             {hs.length > 0 && (
               <div className="mt-2 flex gap-1" role="group" aria-label="List view">
@@ -831,7 +881,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
               <>
                 <p className="muted mt-2 text-xs">Hover or click a story to light up the countries it mentions.</p>
                 {/* StoryCard renders the <li>; delegate hover/click from the list so it stays untouched. */}
-                <ul className="mt-2 space-y-2 globe-stories"
+                <div className="mt-2"
                   onMouseOver={(e) => setHotStory(storyAt(e))} onFocus={(e) => setHotStory(storyAt(e))}
                   onMouseLeave={() => setHotStory(null)} onBlur={() => setHotStory(null)}
                   onClick={(e) => {
@@ -839,19 +889,25 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
                     const s = storyAt(e);
                     setPinStory((p) => (s && p?.url !== s.url ? s : null));
                   }}>
-                  {topStories.map((s) => <StoryCard key={s.url} s={s} onCountry={setSelected} />)}
-                </ul>
+                  {storySections.map(([r, list]) => (
+                    <div key={r} className="mt-2">
+                      {storySections.length > 1 && <div className="dash-label px-1" style={{ color: REGION_COLOR[r] }}>{r.toUpperCase()}</div>}
+                      <ul className="mt-1 space-y-2 globe-stories">{list.map((s) => <StoryCard key={s.url} s={s} onCountry={setSelected} />)}</ul>
+                    </div>
+                  ))}
+                </div>
                 {!topStories.length && <p className="mt-3 text-sm">No stories here yet.</p>}
               </>
             )}
             {data && data.untagged > 0 && <p className="muted mt-2 text-xs">{data.untagged} stories don&apos;t name a country. Click any country for its live headlines.</p>}
           </>
         )}
-        {err && <p className="error mt-2">{err}</p>}
+        {err && <ErrorNote error={err} />}
       </section>}
 
       {selected && (
-        <CountryDash key={selected} name={selected} id={COUNTRIES[INDEX.get(selected) ?? -1]?.id ?? ""} stories={selectedStories}
+        <CountryDash key={selected} name={selected} id={countryByName(selected)?.id ?? COUNTRIES[INDEX.get(selected) ?? -1]?.id ?? ""} stories={selectedStories}
+          local={liveNews?.name === selected ? liveNews.local : undefined}
           loading={liveNews?.name === selected && !liveNews.items} error={liveNews?.error}
           rank={stored ? { pos: hs.indexOf(stored) + 1, of: hs.length, count: stored.count } : null}
           onCountry={setSelected} onBack={() => setSelected(null)} backLabel={search ? "Results" : "All countries"} />

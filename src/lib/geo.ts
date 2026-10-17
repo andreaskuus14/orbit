@@ -165,6 +165,7 @@ const DISPLAY: Record<string, string> = {
   "Central African Rep.": "Central African Republic", "Bosnia and Herz.": "Bosnia and Herzegovina", "Dominican Rep.": "Dominican Republic",
   "Eq. Guinea": "Equatorial Guinea", "W. Sahara": "Western Sahara", "Solomon Is.": "Solomon Islands", "Falkland Is.": "Falkland Islands",
   "N. Cyprus": "Northern Cyprus", "Fr. S. Antarctic Lands": "French Southern Lands", "Côte d'Ivoire": "Ivory Coast", "eSwatini": "Eswatini",
+  "Macedonia": "North Macedonia",
 };
 export const displayName = (name: string) => DISPLAY[name] ?? name;
 

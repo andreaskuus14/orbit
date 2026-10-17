@@ -84,6 +84,15 @@ export function endpointDelay(text: string): number {
   return q.split(" ").filter(Boolean).length < 3 || TRAILING.test(q) ? ENDPOINT_LONG_MS : ENDPOINT_MS;
 }
 
+export const TURN_MS = 600, TURN_LONG_MS = 1400;
+/** ORBIT mic end of turn: how much longer to wait, `quietMs` after speech stopped, before answering `text` — short after
+ *  a complete sentence or command, long after "and", "um", "so" or a fragment. 0 = answer now. */
+export function turnWaitMs(text: string, quietMs: number): number {
+  const t = normalizeTranscript(text), q = extractWakeQuestion(t)?.question ?? t;
+  const done = parseNavCommand(q, { current: "intelligence" }) || isSleepCommand(t) || (/[.?!]$/.test(q) || q.split(" ").length >= 3) && !TRAILING.test(q);
+  return Math.max(0, (done ? TURN_MS : TURN_LONG_MS) - quietMs);
+}
+
 // Words too common to tell ORBIT's voice from the user's (plus the wake word itself).
 const COMMON = new Set("orbit orbits the and but for you your are was were what what's with this that from have has not can its it's".split(" "));
 const echoWords = (t: string) => (t.toLowerCase().match(/[\p{L}\p{N}']{3,}/gu) ?? []).filter((w) => !COMMON.has(w));

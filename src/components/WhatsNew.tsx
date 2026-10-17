@@ -4,8 +4,11 @@ import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { PALETTE_EVENT } from "@/lib/palette-pure";
 
 // One-time "what's new" card after an update. Bump KEY's version when a new round ships something worth showing.
-const KEY = "orbit.whatsnew.2026-10-16b";
+const KEY = "orbit.whatsnew.2026-10-17";
 const ITEMS: { icon: string; title: string; text: string; go?: NavTarget; event?: string }[] = [
+  { icon: "🎙", title: "Voice", text: "Say “let's just talk” for open mic. Try “ORBIT mic” and “Remember my voice” in voice settings." },
+  { icon: "🌍", title: "Every country", text: "All countries on the globe, local news per country (Estonia: ERR, Postimees).", go: { panel: "intelligence" } },
+  { icon: "💬", title: "CORE chats & projects", text: "☰ Chats to reopen old chats, ＋ New, and projects with pinned notes.", go: { panel: "core" } },
   { icon: "🏕", title: "GAME DEV: Roblox tools", text: "Scene from a sentence, free-model virus scan, textures, code helper, style lock and a playtest bot.", go: { panel: "creation" } },
   { icon: "🛠", title: "Devlog → Shorts", text: "Point OBS at the devlog folder; recordings become “Day N” Shorts in REVIEW.", go: { panel: "studio", view: "clips" } },
   { icon: "🌱", title: "LIFE", text: "Habits with streaks, reminders (also “every day at 9”), a focus timer and a journal. Say “start focus”.", go: { panel: "life" } },

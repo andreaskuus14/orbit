@@ -297,6 +297,12 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .voice-ring { position: absolute; inset: -2px; border-radius: 999px; border: 2px solid var(--cyan); opacity: 0; pointer-events: none; }
 .voice-mic.on .voice-ring { opacity: calc(0.35 + var(--lvl) * 0.65); transform: scale(calc(1 + var(--lvl) * 0.6)); box-shadow: 0 0 calc(6px + var(--lvl) * 18px) rgba(34, 211, 238, 0.6); }
 .voice-mic.on::after { content: ""; position: absolute; inset: -2px; border-radius: 999px; border: 1px solid var(--cyan); animation: voice-pulse 1.4s ease-out infinite; pointer-events: none; }
+/* ORBIT mic: always-on ring; data-mic set per frame by VoiceControls */
+.voice-mic.live { color: var(--cyan); border-color: var(--line-strong); }
+.voice-mic.live .voice-ring { opacity: 0.3; }
+.voice-mic.live[data-mic="hearing"] .voice-ring { opacity: calc(0.45 + var(--lvl) * 0.55); transform: scale(calc(1 + var(--lvl) * 0.5)); box-shadow: 0 0 calc(4px + var(--lvl) * 16px) rgba(34, 211, 238, 0.55); }
+.voice-mic.live[data-mic="thinking"] .voice-ring { border-style: dashed; border-color: var(--amber); opacity: 0.7; animation: blink 1.2s ease-in-out infinite; }
+.voice-mic.live[data-mic="speaking"] .voice-ring { border-color: var(--violet); opacity: 0.85; }
 @keyframes voice-pulse { from { transform: scale(1); opacity: 0.7; } to { transform: scale(1.7); opacity: 0; } }
 .voice-gear { display: inline-grid; place-items: center; flex-shrink: 0; width: 2rem; padding: 0; color: var(--muted); }
 .cmdbar .field.voice-live { color: var(--cyan); font-style: italic; }
@@ -317,6 +323,7 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 @media (prefers-reduced-motion: reduce) {
   .voice-mic.on .voice-ring { transform: none; }
   .voice-mic.on::after { display: none; }
+  .voice-mic.live .voice-ring { transform: none !important; animation: none !important; }
 }
 
 /* voice output */

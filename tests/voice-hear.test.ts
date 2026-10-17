@@ -1,6 +1,6 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { cleanWhisperText, correctTranscript, finalJoiner, mergeFinals, pickBestAlternative } from "../src/components/voice/hear.ts";
+import { cleanWhisperText, correctTranscript, finalJoiner, mergeFinals, pickBestAlternative, TURN_LONG_MS, TURN_MS, turnWaitMs } from "../src/components/voice/hear.ts";
 
 test("correctTranscript fixes misheard wake word only at the start before a command", () => {
   assert.equal(correctTranscript("or bit open studio"), "Orbit open studio");
@@ -88,4 +88,11 @@ test("cleanWhisperText strips tags and stock hallucinations", () => {
 test("a lower voice guess can't jump to a LIFE tab or start the timer", () => {
   assert.equal(pickBestAlternative(["journal entry for today", "journal"]), "journal entry for today");
   assert.equal(pickBestAlternative(["start focusing on it", "start focusing"]), "start focusing on it");
+});
+
+test("ORBIT mic end of turn: short after a finished sentence, long after a trailing word", () => {
+  for (const t of ["What's the weather in Tallinn?", "Open studio", "Tell me a joke.", "Yes.", "Orbit, go to sleep"]) assert.equal(turnWaitMs(t, 0), TURN_MS, t);
+  for (const t of ["What's the weather and", "Tell me about the, um", "So", "I was thinking that maybe we could, but"]) assert.equal(turnWaitMs(t, 0), TURN_LONG_MS, t);
+  assert.equal(turnWaitMs("Tell me a joke.", 600), 0); // the mic already waited 600 ms of quiet: answer now
+  assert.equal(turnWaitMs("Tell me about the", 600), TURN_LONG_MS - 600);
 });

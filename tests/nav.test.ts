@@ -234,3 +234,12 @@ test("bare LIFE words don't hijack an answer to CORE", () => {
   assert.deepEqual(parseNavCommand("open my journal", { current: "core" })?.life, "journal");
   assert.equal(parseNavCommand("journal", { current: null })?.life, "journal");
 });
+
+test("ambiguous country names need a news word or the globe; every other country opens by name", () => {
+  assert.equal(parseNavCommand("show me Jordan", { current: "core" }), null);
+  assert.equal(parseNavCommand("Chad"), null);
+  assert.deepEqual(parseNavCommand("show me Jordan news", { current: "core" }), { panel: "intelligence", country: "Jordan" });
+  assert.deepEqual(parseNavCommand("Georgia", { current: "intelligence" }), { panel: "intelligence", country: "Georgia" });
+  assert.deepEqual(parseNavCommand("show me Malta"), { panel: "intelligence", country: "Malta" });
+  assert.deepEqual(parseNavCommand("show me news from Singapore"), { panel: "intelligence", country: "Singapore" });
+});

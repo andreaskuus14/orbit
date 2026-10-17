@@ -61,3 +61,35 @@ test("vadStep ends after speech then ~1 s of silence, or with no speech at all",
   const d = run(Array(400).fill(0.1)); // nonstop talking stops at the 30 s cap
   assert.equal(d.done, true); assert.equal(d.ms, 30000);
 });
+
+test("ORBIT mic VAD: onset needs 120 ms, hangover holds through short pauses, ends after 600 ms quiet; hiss isn't speech", async () => {
+  const { MIC_START, micStep, zcr } = await import("../src/lib/audio-pure.ts");
+  const run = (frames: [number, number][], frameMs = 40) => {
+    let m = MIC_START; const events: string[] = [];
+    for (const [level, z] of frames) { const r = micStep(m, level, z, frameMs); m = r.m; if (r.event) events.push(r.event); }
+    return { m, events };
+  };
+  const quiet = (n: number) => Array(n).fill([0.002, 0.05]) as [number, number][];
+  const talk = (n: number) => Array(n).fill([0.1, 0.05]) as [number, number][];
+  assert.deepEqual(run([...quiet(5), ...talk(2), ...quiet(20)]).events, []); // 80 ms: a click
+  assert.deepEqual(run([...quiet(5), ...talk(10), ...quiet(14)]).events, ["start"]); // 560 ms quiet: still in the turn
+  assert.deepEqual(run([...quiet(5), ...talk(10), ...quiet(10), ...talk(5), ...quiet(15)]).events, ["start", "end"]); // pause bridged
+  assert.deepEqual(run([...quiet(5), ...(Array(20).fill([0.1, 0.6]) as [number, number][])]).events, []); // loud hiss: high ZCR
+  const r = run([...quiet(5), ...talk(10)]);
+  assert.equal(r.m.speechMs, 400);
+  assert.equal(zcr(new Float32Array([1, -1, 1, -1, 1])), 1);
+  assert.equal(zcr(new Float32Array([0.1, 0.2, 0.3])), 0);
+});
+
+test("encodeWav writes 16 kHz mono PCM16 that decodeAudioBody reads back", async () => {
+  const { encodeWav } = await import("../src/lib/audio-pure.ts");
+  const x = Float32Array.from({ length: ASR_RATE }, (_, i) => Math.sin(i / 10) * 0.5);
+  x[0] = 2; x[1] = NaN; // clipped / junk samples stay valid
+  const w = encodeWav(x);
+  assert.equal(w.length, 44 + ASR_RATE * 2);
+  const d = decodeAudioBody(w);
+  assert.ok("audio" in d);
+  assert.equal(d.audio.length, ASR_RATE);
+  assert.ok(Math.abs(d.audio[0] - 1) < 1e-3 && d.audio[1] === 0);
+  for (let i = 2; i < x.length; i += 997) assert.ok(Math.abs(d.audio[i] - x[i]) < 1e-4, `sample ${i}`);
+});

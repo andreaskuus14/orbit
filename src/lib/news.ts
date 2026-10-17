@@ -1,6 +1,7 @@
 import { safeFetch } from "./memory";
-import { decodeGoogleNewsId, extractArticle, extractLinks } from "./pure";
+import { decodeGoogleNewsId, extractArticle, extractLinks, parseFeed } from "./pure";
 import { renderPage } from "./browser";
+import { googleNewsSearchUrl, googleNewsTopUrl, isEditionOf, LOCAL_FEEDS } from "./local-news-pure";
 
 // Turning news links into readable full articles. Google News RSS wraps every link in a news.google.com
 // redirect; we unwrap it (old ids decode locally, new ids go through the same endpoint Google's own page uses).
@@ -78,4 +79,49 @@ export async function readArticle(url: string, maxChars = 4000, useBrowser = tru
   const text = art.text.length >= Math.min(1500, maxChars) || art.text.length >= visible.length ? art.text : visible;
   if (text.length < 150 || (plain && plain.text.length >= text.length)) return plain;
   return { url: page.url, title: art.title, text, links: extractLinks(page.html, page.url) };
+}
+
+/* ---------- local news per country ---------- */
+
+export type LocalItem = { title: string; url: string; source: string | null; published_at: string | null; summary: string };
+const RSS = "application/rss+xml, application/xml, text/xml";
+const lg = globalThis as unknown as { __orbitLocalCache?: Map<string, { at: number; items: LocalItem[] }> };
+const localCache = (lg.__orbitLocalCache ??= new Map());
+
+async function feedItems(url: string, fallbackSource: string | null, cc?: string): Promise<LocalItem[]> {
+  try {
+    const { res, url: finalUrl } = await safeFetch(url, RSS);
+    // shortcut: "no edition" is inferred from Google redirecting to another gl (US); if Google changes that, local
+    // sections fill with foreign news — switch to a fixed edition list then. Searches (q) skip the check on purpose:
+    // the query keeps them relevant even when Google answers from the US edition.
+    if (cc && !isEditionOf(finalUrl.toString(), cc)) return [];
+    return parseFeed((await res.text()).slice(0, 2_000_000)).items.slice(0, 30).map((it) => ({
+      // Google News appends " - Source" to headlines.
+      title: it.source && it.title.endsWith(` - ${it.source}`) ? it.title.slice(0, -(it.source.length + 3)) : it.title,
+      url: it.url, source: it.source ?? fallbackSource, published_at: it.published, summary: it.summary,
+    }));
+  } catch { return []; } // one feed down must not blank the rest
+}
+
+/** Local headlines for a country (ISO2): its Google News edition (top stories, or a search when q is given) plus
+ *  curated native feeds. Newest first, cached 10 min. Feed text is untrusted data: parseFeed strips HTML. */
+export async function localNews(cc: string, lang: string, q = "", hours = 0): Promise<LocalItem[]> {
+  const key = `${cc}|${lang}|${q}|${hours}`;
+  const hit = localCache.get(key);
+  // Empty results (outage, or no edition and no native feeds) are kept 1 min so we neither hammer nor pin them.
+  if (hit && Date.now() - hit.at < (hit.items.length ? 10 * 60_000 : 60_000)) return hit.items;
+  const words = q.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2);
+  const native = (LOCAL_FEEDS[cc] ?? []).map((f) => feedItems(f.url, f.title));
+  const google = feedItems(q ? googleNewsSearchUrl(q, cc, lang, hours ? `${hours}h` : "7d") : googleNewsTopUrl(cc, lang), null, q ? undefined : cc);
+  const lists = await Promise.all([google, ...native]);
+  const since = hours ? Date.now() - hours * 3600_000 : 0;
+  const seen = new Set<string>();
+  const items = lists.flatMap((l, i) => (i && words.length ? l.filter((it) => words.some((w) => `${it.title} ${it.summary}`.toLowerCase().includes(w))) : l))
+    .filter((it) => !since || !it.published_at || Date.parse(it.published_at) >= since)
+    .filter((it) => { const k = it.title.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
+    .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""))
+    .slice(0, 40);
+  if (localCache.size > 200) localCache.clear();
+  localCache.set(key, { at: Date.now(), items });
+  return items;
 }

@@ -2,8 +2,9 @@
 // Local Whisper voice input: record one utterance in the browser (16 kHz mono, in memory only) and have the ORBIT
 // server transcribe it (/api/voice/transcribe). Nothing is stored.
 import { voiceLevel } from "./bus";
-import { ASR_RATE, concat, downsample, MAX_AUDIO_SEC, rms, VAD_START, vadStep } from "@/lib/audio-pure";
+import { ASR_RATE, concat, downsample, encodeWav, MAX_AUDIO_SEC, rms, VAD_START, vadStep } from "@/lib/audio-pure";
 import { cleanWhisperText } from "./hear";
+import { MIC, resumeOnGesture } from "./voiceprint";
 
 /** Hands-free local listening: wait for speech indefinitely (keeping only a short pre-roll), cap the utterance at
  *  maxSec, and skip anything with less than minSpeechSec of speech so room noise never reaches Whisper. */
@@ -13,14 +14,14 @@ const PREROLL_SEC = 0.5;
 /** Record until ~1 s of silence after speech, stop() (via onStop), or 30 s. Resolves null when no speech was heard.
  *  With `idle`, waits for speech instead of giving up after 8 s and leaves the mic level meter alone. */
 export async function recordUtterance(signal: AbortSignal, onStop: (stop: () => void) => void, idle?: IdleListen): Promise<Float32Array | null> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-  let ctx: AudioContext | null = null, timer: ReturnType<typeof setTimeout> | undefined;
+  const stream = await navigator.mediaDevices.getUserMedia(MIC);
+  let ctx: AudioContext | null = null, timer: ReturnType<typeof setTimeout> | undefined, unhook = () => {};
   const chunks: Float32Array[] = [];
   let vad = VAD_START, manual = false, rate = 48000;
   try {
     ctx = new AudioContext();
     rate = ctx.sampleRate;
-    await ctx.resume().catch(() => {}); // created without a click (wake word): may start suspended
+    unhook = resumeOnGesture(ctx); // created without a click (wake word): may start suspended until the next click/key
     const src = ctx.createMediaStreamSource(stream);
     const proc = ctx.createScriptProcessor(4096, 1, 1); // shortcut: deprecated but simplest; move to an AudioWorklet if Chrome removes it
     await new Promise<void>((resolve, reject) => {
@@ -47,6 +48,7 @@ export async function recordUtterance(signal: AbortSignal, onStop: (stop: () => 
     });
   } finally {
     clearTimeout(timer);
+    unhook();
     stream.getTracks().forEach((t) => t.stop());
     void ctx?.close().catch(() => {});
     if (!idle) voiceLevel.mic = 0;
@@ -57,9 +59,10 @@ export async function recordUtterance(signal: AbortSignal, onStop: (stop: () => 
   return vad.speech || (manual && audio.length > ASR_RATE / 2) ? audio : null;
 }
 
-export async function transcribeAudio(audio: Float32Array, signal: AbortSignal): Promise<string> {
-  const res = await fetch("/api/voice/transcribe", {
-    method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: audio.buffer as ArrayBuffer, signal,
+/** lang: "en" (English-only model, the default), "et" or "auto" (multilingual model). Sent as 16-bit WAV. */
+export async function transcribeAudio(audio: Float32Array, signal: AbortSignal, lang: "en" | "et" | "auto" = "en"): Promise<string> {
+  const res = await fetch(`/api/voice/transcribe?lang=${lang}`, {
+    method: "POST", headers: { "Content-Type": "audio/wav" }, body: encodeWav(audio) as Uint8Array<ArrayBuffer>, signal,
   });
   const json = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
   if (!res.ok) throw Object.assign(new Error(json.error || `Transcription failed (${res.status})`), { status: res.status }); // 503 = model not ready

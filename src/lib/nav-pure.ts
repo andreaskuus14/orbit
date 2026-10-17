@@ -1,6 +1,7 @@
 // CORE navigation: clear "go to / open / show me X" commands become a place in ORBIT without a model call.
 // Pure (no DOM) — tested in tests/nav.test.ts. Anything that isn't plainly navigation returns null and goes to CORE.
 import { COUNTRIES, REGIONS, displayName } from "./geo.ts";
+import { WORLD } from "./countries-pure.ts";
 import { planetById, type PanelId } from "./planets.ts";
 
 /** panel null = back to the galaxy. country is a world-atlas name (as NewsGlobe uses), region a REGIONS key.
@@ -65,11 +66,16 @@ for (const c of COUNTRIES) {
   const ok = (t: string) => /^[A-Z.]{2,5}$/.test(t) || stems.includes(norm(t).slice(0, 4));
   for (const a of [c.name, displayName(c.name), ...c.terms.filter(ok)]) if (!COUNTRY_ALIAS.has(norm(a))) COUNTRY_ALIAS.set(norm(a), c.name);
 }
+// Every other country by name too (Malta, Singapore, Laos…): the globe can open any of them.
+for (const c of WORLD) for (const a of [c.name, displayName(c.name)]) if (!COUNTRY_ALIAS.has(norm(a))) COUNTRY_ALIAS.set(norm(a), c.name);
 
+const AMBIGUOUS = new Set(["chad", "jordan", "georgia", "turkey", "china", "guinea", "niger", "togo", "dominica", "chile"]);
 function place(x: string, news: boolean): NavTarget | null {
   x = x.replace(/^the /, "");
   if (news && /^(?:local|home|here|my country)$/.test(x)) return { panel: "intelligence", country: LOCAL_COUNTRY };
   if (REGION_ALIAS[x]) return { panel: "intelligence", region: REGION_ALIAS[x] };
+  // Names that are also people, foods or US states only count with a news word or on the globe ("Jordan news").
+  if (!news && AMBIGUOUS.has(x)) return null;
   const c = COUNTRY_ALIAS.get(x);
   return c ? { panel: "intelligence", country: c } : null;
 }

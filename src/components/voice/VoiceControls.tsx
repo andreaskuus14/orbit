@@ -1,8 +1,58 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
-import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voiceLevel, VOICE_ASK, VOICE_CONVERSATION, type HandsFree, type VoiceSettings } from "./bus";
-import { getSpeechRecognition, type VoiceInput } from "./useVoiceInput";
+import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voiceLevel, whisperLang, VOICE_ASK, VOICE_CONVERSATION, type HandsFree, type VoiceSettings } from "./bus";
+import { getSpeechRecognition, VOICE_PAUSE, VOICE_RESUME, type VoiceInput } from "./useVoiceInput";
 import { useWakeWord } from "./useWakeWord";
+import { enrollment, loadVoicePrint, saveVoicePrint, startVoiceSampler, type VoicePrint, type VoiceProfile } from "./voiceprint";
+
+const ENROLL = ["The quick brown fox jumps over the lazy dog.", "Seven bright stars are shining over the quiet sea.", "I like warm soup and long walks on rainy days."];
+const ENROLL_MS = 4500;
+
+/** "Remember my voice": read three phrases, keep a rough profile on this device, set how strict open mic is about it. */
+function VoiceMatch() {
+  const [vp, setVp] = useState<VoicePrint>({ profile: null, sensitivity: 0 });
+  const [step, setStep] = useState(-1); // index of the phrase being read
+  const [msg, setMsg] = useState("");
+  useEffect(() => setVp(loadVoicePrint()), []);
+  const save = (v: VoicePrint) => { setVp(v); saveVoicePrint(v); };
+  const enroll = async () => {
+    if (enrollment.on) return;
+    enrollment.on = true;
+    setMsg("Starting the mic…");
+    dispatchEvent(new Event(VOICE_PAUSE)); // hands-free (and its voice sampler) must not act on the phrases
+    const s = startVoiceSampler();
+    let heard = 0, profile: VoiceProfile | null = null;
+    try {
+      if (!(await s.ready)) return setMsg("Couldn’t open the microphone.");
+      setMsg("");
+      for (let i = 0; i < ENROLL.length; i++) {
+        setStep(i);
+        const t0 = Date.now();
+        await new Promise((r) => setTimeout(r, ENROLL_MS));
+        if (s.features(t0)) heard++; // enough speech in this phrase
+      }
+      profile = heard === ENROLL.length ? s.features() : null; // the sampler keeps 20 s: all three phrases
+    } finally { s.stop(); setStep(-1); enrollment.on = false; dispatchEvent(new Event(VOICE_RESUME)); }
+    if (!profile) return setMsg("Didn’t hear enough speech. Check the mic and try again, a bit closer.");
+    save({ profile, sensitivity: vp.sensitivity || 0.5 });
+    setMsg("Voice saved on this device.");
+  };
+  const pct = Math.round(vp.sensitivity * 100);
+  return (
+    <>
+      <span className="voice-sub">Remember my voice (conversation mode)</span>
+      <p className="muted text-[10px]">Rough voice match — helps ignore TV and other people, not a security lock. Audio stays in this browser; only a small profile is saved here.</p>
+      {step >= 0 ? <p role="status" aria-live="polite">Read aloud ({step + 1}/3): <b>{ENROLL[step]}</b></p>
+        : <button type="button" className="chip" onClick={() => void enroll()}>{vp.profile ? "Re-record my voice" : "Record my voice (3 phrases)"}</button>}
+      {msg && <span className="muted text-[10px]" role="status">{msg}</span>}
+      <label className="voice-col">Voice match <span className="num">{pct ? `strictness ${pct}%` : "Off"}</span>
+        <input type="range" min={0} max={100} step={5} value={pct} disabled={!vp.profile} onChange={(e) => save({ ...vp, sensitivity: Number(e.target.value) / 100 })} />
+        {!vp.profile && <span className="muted text-[10px]">Off until you record your voice.</span>}
+      </label>
+      {vp.profile && <button type="button" className="chip" onClick={() => { save({ profile: null, sensitivity: 0 }); setMsg("Voice forgotten."); }}>Forget my voice</button>}
+    </>
+  );
+}
 
 function sortVoices(all: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
   const mine = (navigator.language || "en").slice(0, 2).toLowerCase();
@@ -50,7 +100,9 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   }, []);
 
   // Local Whisper: load the model in the background so the first question doesn't wait for it.
-  useEffect(() => { if (pttEngine === "whisper") void fetch("/api/voice/transcribe").catch(() => {}); }, [pttEngine]);
+  const [whisperOk, setWhisperOk] = useState(true); // false once the server said the model can't load
+  const asrLang = whisperLang(s.lang);
+  useEffect(() => { if (pttEngine === "whisper") void fetch(`/api/voice/transcribe?lang=${asrLang}`).then((r) => setWhisperOk(r.status !== 503)).catch(() => {}); }, [pttEngine, asrLang]);
 
   // Voices load asynchronously in Chrome.
   useEffect(() => {
@@ -61,14 +113,23 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
     return () => speechSynthesis.removeEventListener("voiceschanged", load);
   }, []);
 
-  // Pulse ring follows the mic level without re-rendering React.
+  // Pulse ring follows the mic level without re-rendering React. ORBIT mic: always on while it listens, with a state
+  // (data-mic: listening / hearing / thinking / speaking) for the ring's look.
+  const live = s.handsFree === "orbit" && wake.state !== "off" && !voice.listening;
+  const thinking = useRef(false);
+  thinking.current = wake.conversation === "thinking";
   useEffect(() => {
-    if (!voice.listening) return;
+    if (!voice.listening && !live) return;
     let raf = 0;
-    const tick = () => { micRef.current?.style.setProperty("--lvl", voiceLevel.mic.toFixed(3)); raf = requestAnimationFrame(tick); };
+    const tick = () => {
+      const el = micRef.current;
+      el?.style.setProperty("--lvl", voiceLevel.mic.toFixed(3));
+      if (el) el.dataset.mic = voiceLevel.speak > 0.01 ? "speaking" : voiceLevel.mic > 0.12 ? "hearing" : thinking.current ? "thinking" : "listening";
+      raf = requestAnimationFrame(tick);
+    };
     tick();
-    return () => { cancelAnimationFrame(raf); micRef.current?.style.setProperty("--lvl", "0"); };
-  }, [voice.listening]);
+    return () => { cancelAnimationFrame(raf); micRef.current?.style.setProperty("--lvl", "0"); if (micRef.current) delete micRef.current.dataset.mic; };
+  }, [voice.listening, live]);
 
   // Ctrl+M toggles the mic; Escape closes the popover or cancels listening before Orbit's Escape closes the panel.
   const { listening, toggle, cancel } = voice;
@@ -103,7 +164,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
 
   return (
     <>
-      <button ref={micRef} type="button" className={"chip voice-mic" + (listening ? " on" : "")} onClick={toggle}
+      <button ref={micRef} type="button" className={"chip voice-mic" + (listening ? " on" : live ? " live" : "")} onClick={toggle}
         aria-pressed={listening} aria-label={micLabel} title={`${micLabel}\n${routeText}`} aria-disabled={!voice.supported || undefined}>
         <span className="voice-ring" aria-hidden="true" />
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -127,18 +188,22 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
             <select className="field" value={s.handsFree} onChange={(e) => update({ handsFree: e.target.value as HandsFree })}>
               <option value="off">Off</option>
               <option value="chrome" disabled={!chromeOk}>Chrome recognition (audio goes to Google while listening)</option>
+              <option value="orbit" disabled={!whisperOk && s.handsFree !== "orbit"}>ORBIT mic (best: local Whisper, echo-cancelled open mic)</option>
               <option value="local">Local only (Whisper on this PC)</option>
             </select>
-            <span className="muted text-[10px]">{s.handsFree === "chrome" ? "Chrome streams your microphone audio to Google’s speech service whenever this tab is visible and the window was used in the last minute."
-              : s.handsFree === "local" ? "Audio never leaves this PC. Say “Orbit, …” in one go; ORBIT stops listening while it talks (click the mic to interrupt). English only; the first use downloads the model."
+            {s.handsFree === "orbit" && <label className="voice-row"><input type="checkbox" checked={s.bargeByVoice} onChange={(e) => update({ bargeByVoice: e.target.checked })} /> Interrupt by voice (headphones). Off: only &ldquo;stop&rdquo; or &ldquo;Orbit, &hellip;&rdquo; cuts ORBIT off, so it can&rsquo;t interrupt itself through the speakers.</label>}
+            {!whisperOk && <span className="muted text-[10px]">Local Whisper didn’t load on the server (see its log), so ORBIT mic and Local only are unavailable.</span>}
+            <span className="muted text-[10px]">{s.handsFree === "chrome" ? "Chrome streams your microphone audio to Google’s speech service whenever this tab is visible and the window was used in the last minute, or while conversation mode is on."
+              : s.handsFree === "orbit" ? "Audio never leaves this PC. One open, echo-cancelled mic: talk over ORBIT to interrupt it, it answers sooner after a finished sentence. English, or Estonian with the language set to Eesti. The first use downloads the model; the first Estonian use downloads another ~1 GB model and voice pauses until it's done."
+              : s.handsFree === "local" ? "Audio never leaves this PC. Say “Orbit, …” in one go; ORBIT stops listening while it talks (click the mic to interrupt). English, or Estonian with the language set to Eesti; the first use downloads the model (Estonian: another ~1 GB; voice pauses until it's done)."
               : "ORBIT only listens when you click the mic (Ctrl+M)."}</span>
           </label>
           <label className="voice-col">Question transcription
-            <select className="field" value={pttEngine ?? s.engine} disabled={s.handsFree === "local"} onChange={(e) => update({ engine: e.target.value === "whisper" ? "whisper" : "chrome" })}>
+            <select className="field" value={pttEngine ?? s.engine} disabled={s.handsFree === "local" || s.handsFree === "orbit"} onChange={(e) => update({ engine: e.target.value === "whisper" ? "whisper" : "chrome" })}>
               <option value="chrome" disabled={!chromeOk}>Chrome (fast; audio goes to Google)</option>
               <option value="whisper">Local Whisper (on this PC)</option>
             </select>
-            {s.handsFree === "local" && <span className="muted text-[10px]">Local only hands-free keeps the mic button on Whisper too.</span>}
+            {(s.handsFree === "local" || s.handsFree === "orbit") && <span className="muted text-[10px]">Local hands-free keeps the mic button on Whisper too.</span>}
           </label>
           <p className="muted text-[10px] voice-note">Local means the audio stays on this PC. Your words (text) still go to Claude to answer; memories are stored in your Supabase.</p>
           <label className="voice-col">Language (Chrome)
@@ -154,8 +219,9 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
               <option value="stay">Stays on until I say stop</option>
               <option value="once">One follow-up only</option>
             </select>
-            <span className="muted text-[10px]">ORBIT keeps listening after each answer, no &ldquo;Orbit&rdquo; needed. The mic stays open until you say &ldquo;that&rsquo;s all&rdquo; or click 💬 (one-follow-up mode ends after 30 s of silence).</span>
+            <span className="muted text-[10px]">Say &ldquo;let&rsquo;s just talk&rdquo;. ORBIT then answers questions and requests without &ldquo;Orbit&rdquo; and ignores chatter; it pauses while it speaks. Ends on &ldquo;that&rsquo;s all&rdquo; / &ldquo;stop listening&rdquo;, 💬, or 5 min without a question (one-follow-up: 30 s of silence).</span>
           </label>
+          <VoiceMatch />
           <span className="voice-sub">Spoken answers</span>
           <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>
           <label className="voice-col">Voice
@@ -169,15 +235,16 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           </label>
         </div>
       )}
-      {(wake.interim || heard || wake.error) && (
+      {(wake.interim || heard || wake.error || wake.note) && (
         <span className="voice-heard" role="status" aria-live="polite">
-          {wake.interim ? <i>{wake.interim}…</i> : heard ? <>Heard: <b>{heard}</b></> : <>Hands-free paused: {wake.error}</>}
+          {wake.interim ? <i>{wake.interim}…</i> : heard ? <>Heard: <b>{heard}</b></> : wake.note ? <i>{wake.note}</i> : <>Hands-free paused: {wake.error}</>}
         </span>
       )}
       <span className="sr-only" role="status" aria-live="polite">{talkNote}</span>
       {talking ? (
         <button type="button" className="voice-wake armed" onClick={() => setTalking(false)} title="Click to end conversation mode">
-          💬 Talking — say &lsquo;that&rsquo;s all&rsquo; to stop
+          <span className="voice-dot" aria-hidden="true" />
+          Open mic · {wake.conversation === "listening" ? "listening" : wake.conversation === "thinking" ? "thinking" : "speaking (mic paused)"} — ✕ stop
         </button>
       ) : (wake.state !== "off" || wake.error) && (
         <span className={"voice-wake" + (wake.state === "armed" ? " armed" : "") + (wake.error ? " bad" : "")} role="status"

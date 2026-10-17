@@ -2,7 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 
 // Country facts + economic time series for the globe's country dashboard.
 // Source (public, no key): World Bank Open Data for both the facts and the series.
-// The id is the ISO 3166-1 numeric code that world-atlas uses for each shape.
+// The id is the ISO 3166-1 numeric code that world-atlas uses for each shape (countries-pure.ts for the rest).
 
 type Point = { y: number; v: number };
 const SERIES = {
@@ -39,12 +39,13 @@ export async function GET(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const id = new URL(req.url).searchParams.get("id") ?? "";
-  if (!/^\d{1,3}$/.test(id)) return Response.json({ error: "No statistics for this territory" }, { status: 404 });
-  const code = id.padStart(3, "0");
+  // Kosovo has no ISO numeric code, so it comes as World Bank's own alpha-3 (XKX).
+  if (!/^(\d{1,3}|XKX)$/.test(id)) return Response.json({ error: "No statistics for this territory" }, { status: 404 });
+  const code = id === "XKX" ? id : id.padStart(3, "0");
   const hit = cache.get(code);
   if (hit && Date.now() - hit.at < DAY) return Response.json(hit.body);
 
-  const iso3 = alpha3(code);
+  const iso3 = code === "XKX" ? code : alpha3(code);
   if (!iso3) return Response.json({ error: "No statistics for this territory" }, { status: 404 });
   let c: { iso2Code?: string; name?: string; capitalCity?: string; region?: { value?: string }; incomeLevel?: { value?: string } };
   try {

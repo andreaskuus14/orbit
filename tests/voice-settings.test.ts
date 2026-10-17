@@ -7,7 +7,7 @@ test("migrateVoiceSettings maps the old wake/engine pair to hands-free modes", (
   assert.equal(migrateVoiceSettings({ wake: true, engine: "whisper" }).handsFree, "local"); // chose Whisper = wanted audio local
   assert.equal(migrateVoiceSettings({ wake: false, engine: "whisper" }).handsFree, "off");
   const m = migrateVoiceSettings({ speak: false, wake: true, voiceURI: "v1", rate: 1.2, lang: "et-EE", engine: "whisper" });
-  assert.deepEqual(m, { speak: false, handsFree: "local", voiceURI: "v1", rate: 1.2, lang: "et-EE", engine: "whisper", conversation: "stay" });
+  assert.deepEqual(m, { speak: false, handsFree: "local", voiceURI: "v1", rate: 1.2, lang: "et-EE", engine: "whisper", conversation: "stay", bargeByVoice: false });
   assert.equal("wake" in m, false);
 });
 
@@ -33,4 +33,15 @@ test("recognizerFor keeps Chrome and Off behaviour", () => {
   assert.equal(recognizerFor({ handsFree: "chrome", engine: "whisper" }, "handsFree"), "chrome");
   assert.equal(recognizerFor({ handsFree: "chrome", engine: "chrome" }, "pushToTalk"), "chrome");
   assert.equal(recognizerFor({ handsFree: "off", engine: "whisper" }, "pushToTalk"), "whisper");
+});
+
+test("ORBIT mic is a local hands-free mode: never Chrome, kept by migration", async () => {
+  const { whisperLang } = await import("../src/components/voice/bus.ts");
+  assert.equal(migrateVoiceSettings({ handsFree: "orbit" }).handsFree, "orbit");
+  assert.equal(migrateVoiceSettings({ bargeByVoice: true }).bargeByVoice, true);
+  assert.equal(migrateVoiceSettings({ bargeByVoice: "yes" }).bargeByVoice, false); // off unless explicitly on
+  for (const engine of ["chrome", "whisper"] as const) for (const use of ["handsFree", "pushToTalk"] as const)
+    assert.equal(recognizerFor({ handsFree: "orbit", engine }, use), "whisper");
+  assert.equal(whisperLang("et-EE"), "et");
+  assert.equal(whisperLang("en-GB"), "en");
 });

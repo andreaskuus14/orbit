@@ -4,6 +4,7 @@ import world from "world-atlas/countries-110m.json";
 import { COUNTRIES, displayName, importance, regionOf, type Story } from "@/lib/geo";
 import { compact, linkedCountries, severity, topSources } from "@/lib/dashboard";
 import { decodeCountries, unwrapRing } from "@/lib/topo";
+import { countryByName } from "@/lib/countries-pure";
 
 // Country dashboard for the news globe: real facts and World Bank series (/api/news/country)
 // plus statistics computed from the country's own headlines. Pure SVG, no chart library.
@@ -23,6 +24,25 @@ export const ago = (iso: string | null) => {
   return m < 60 ? `${Math.max(1, m)} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
 };
 
+export const SIGNED_OUT = "signed-out";
+/** GET JSON from ORBIT's API. One 401 is retried: parallel requests can race the session-cookie refresh.
+ *  Still 401 → Error(SIGNED_OUT), which ErrorNote shows as a quiet sign-in link instead of a red error. */
+export async function getJson(url: string, fallback: string) {
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch(url, { cache: "no-store" });
+    if (r.status === 401 && attempt === 0) { await new Promise((ok) => setTimeout(ok, 800)); continue; }
+    if (r.status === 401) throw new Error(SIGNED_OUT);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || fallback);
+    return j;
+  }
+}
+export function ErrorNote({ error }: { error: string }) {
+  return error === SIGNED_OUT
+    ? <p className="muted mt-2 text-xs">Signed out · <a className="link" href="/login">Sign in</a> to load live headlines</p>
+    : <p className="error mt-2">{error}</p>;
+}
+
 const statCache = new Map<string, Stats | { error: string }>();
 const ACCENT: Record<string, string> = { Americas: "#fbbf24", Europe: "#4ade80", "Middle East": "#f87171", Africa: "#facc15", Asia: "#fb923c", Oceania: "#22d3ee" };
 const pct1 = (v: number) => `${v.toFixed(1)}%`;
@@ -36,8 +56,8 @@ let landPath = "";
 const land = () => (landPath ||= decodeCountries(world as never).flatMap((c) => c.rings)
   .map((r) => `${svgPath(unwrapRing(r).map(([lon, lat]) => [lon + 180, 90 - lat] as const))}Z`).join(""));
 
-export default function CountryDash({ name, id, stories, loading, error, rank, onCountry, onBack, backLabel }: {
-  name: string; id: string; stories: Result[]; loading: boolean; error?: string;
+export default function CountryDash({ name, id, stories, local = [], loading, error, rank, onCountry, onBack, backLabel }: {
+  name: string; id: string; stories: Result[]; local?: Result[]; loading: boolean; error?: string;
   rank: { pos: number; of: number; count: number } | null;
   onCountry: (n: string) => void; onBack: () => void; backLabel: string;
 }) {
@@ -46,10 +66,9 @@ export default function CountryDash({ name, id, stories, loading, error, rank, o
     if (statCache.has(id)) { setStats(statCache.get(id)!); return; }
     let gone = false;
     setStats(null);
-    fetch(`/api/news/country?id=${encodeURIComponent(id)}`)
-      .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "Statistics unavailable"); return j as Stats; })
-      .then((j) => { statCache.set(id, j); if (!gone) setStats(j); })
-      .catch((e) => { if (!gone) setStats({ error: e instanceof Error ? e.message : "Statistics unavailable" }); });
+    getJson(`/api/news/country?id=${encodeURIComponent(id)}`, "Statistics unavailable")
+      .then((j: Stats) => { statCache.set(id, j); if (!gone) setStats(j); })
+      .catch((e) => { if (!gone) setStats({ error: e instanceof Error && e.message !== SIGNED_OUT ? e.message : "Statistics unavailable" }); });
     return () => { gone = true; };
   }, [id]);
 
@@ -118,6 +137,20 @@ export default function CountryDash({ name, id, stories, loading, error, rank, o
           </div>
         )}
 
+        {local.length > 0 && (
+          <div className="dash-tile">
+            <div className="dash-label">LOCAL <span className="muted">· {displayName(name)}&apos;s own press</span></div>
+            <ol className="dash-top" lang={countryByName(name)?.lang}>
+              {local.slice(0, 8).map((st) => (
+                <li key={st.url}>
+                  <a href={safeHref(st.url)} target="_blank" rel="noreferrer noopener">{st.title}</a>
+                  <span>{st.source ?? "unknown source"}{st.published_at ? ` · ${ago(st.published_at)}` : ""}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
         {ok && (s.gdp?.length || s.growth?.length) ? (
           <div className="dash-tile">
             <div className="dash-label">ECONOMY</div>
@@ -151,8 +184,8 @@ export default function CountryDash({ name, id, stories, loading, error, rank, o
         {stories.slice(3, 17).map((st) => <StoryCard key={st.url} s={st} />)}
         {loading && [0, 1, 2].map((i) => <li key={i} className="card skeleton h-14" aria-hidden />)}
       </ul>
-      {error && <p className="error mt-2">{error}</p>}
-      {!loading && !stories.length && <p className="mt-2 text-sm">No recent headlines found.</p>}
+      {error && <ErrorNote error={error} />}
+      {!loading && !stories.length && !local.length && error !== SIGNED_OUT && <p className="mt-2 text-sm">No recent headlines found.</p>}
       <p className="dash-foot">Data: World Bank Open Data · Natural Earth · news stats from the headlines shown</p>
     </section>
   );

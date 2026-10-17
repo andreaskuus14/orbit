@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, recordUsage, emit, MODEL, createBudget, chargeCall, stopKind, stoppedReport, BudgetError, type Budget } from "./claude";
 import { createMemory, searchMemories, fetchPage, safeFetch, MEMORY_COLUMNS, KINDS, type Kind } from "./memory";
 import { runPulse, topicFeedUrl } from "./pulse";
-import { readArticle } from "./news";
+import { localNews, readArticle } from "./news";
+import { findCountry } from "./countries-pure";
+import { displayName } from "./geo";
 import { verifyAnswer, type Source } from "./verify";
 import { newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 
@@ -86,19 +88,26 @@ export const TOOLS: Record<string, Tool> = {
     },
   },
   read_news: {
-    description: "Search the news AND read the top articles in full in one step. Best tool for 'what's happening with X'. Set hours (1-48) for fresh news, e.g. 1 for 'the last hour' (query can be general like \"news\"). Returns full text with publisher links and publication times.",
-    input: '{"query": string, "hours"?: number}',
+    description: "Search the news AND read the top articles in full in one step. Best tool for 'what's happening with X'. Set hours (1-48) for fresh news, e.g. 1 for 'the last hour' (query can be general like \"news\"). Set country (ISO 3166-1 alpha-2 like \"EE\", or the English name) for that country's LOCAL press in its own language (its Google News edition + native outlets); with country, query may be empty for top local headlines, or name local services/events (e.g. \"free events Tallinn\"). Returns full text with publisher links and publication times.",
+    input: '{"query": string, "hours"?: number, "country"?: string}',
     run: async ({ pages }, i) => {
-      const q = s(i.query, 200) || (i.hours ? "news" : "");
-      if (!q) return "Error: query is required";
+      const home = typeof i.country === "string" ? findCountry(i.country.slice(0, 60), displayName) : null;
+      if (i.country && !home) return "Error: unknown country; use its ISO 3166-1 alpha-2 code like \"EE\" or its English name";
+      const q = s(i.query, 200) || (i.hours && !home ? "news" : "");
+      if (!q && !home) return "Error: query is required";
       const hours = newsHours(i.hours);
-      const { res } = await safeFetch(topicFeedUrl(q, hours ? `${hours}h` : "7d"), "application/rss+xml, application/xml, text/xml");
-      let items = parseFeed((await res.text()).slice(0, 2_000_000)).items;
+      const local = async (query: string) => (await localNews(home!.iso2, home!.lang, query, hours)).map((it) => ({ title: it.title, url: it.url, source: it.source, published: it.published_at, summary: it.summary }));
+      let items = home
+        ? await local(q)
+        : parseFeed((await (await safeFetch(topicFeedUrl(q, hours ? `${hours}h` : "7d"), "application/rss+xml, application/xml, text/xml")).res.text()).slice(0, 2_000_000)).items;
+      // No Google News edition for this country and no query: fall back to news about it by name.
+      if (home && !items.length && !q) items = await local(`"${displayName(home.name)}"`);
+      if (home && !items.length) return `No local headlines found for ${displayName(home.name)}${q ? ` and "${q}"` : ""}${hours ? ` in the last ${hours} h` : ""}. Try a broader query or more hours.`;
       if (hours) { // newest first, and drop anything Google let through that's older than asked
         const since = Date.now() - hours * 3600_000;
         items = items.filter((it) => !it.published || Date.parse(it.published) >= since)
           .sort((a, b) => (b.published ?? "").localeCompare(a.published ?? ""));
-        if (!items.length) return `No headlines published in the last ${hours} h for "${q}". Try a broader query or more hours.`;
+        if (!items.length) return `No headlines published in the last ${hours} h for "${q || "local news"}". Try a broader query or more hours.`;
       }
       items = items.slice(0, 8);
       const out: string[] = [];

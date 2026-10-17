@@ -1,9 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadVoiceSettings, recognizerFor, voiceContext, voiceLevel, VOICE_ASK, VOICE_INTERRUPT } from "./bus";
+import { loadVoiceSettings, recognizerFor, voiceContext, voiceLevel, whisperLang, VOICE_ASK, VOICE_INTERRUPT } from "./bus";
 import { normalizeTranscript } from "./wake";
 import { correctTranscript, endpointDelay, mergeFinals, pickBestAlternative } from "./hear";
 import { recordUtterance, transcribeAudio } from "./whisper";
+import { MIC } from "./voiceprint";
 
 /** Dispatched by Orbit right before a voice question is handed to CORE; the spoken-answers code reads answers aloud only then. */
 export const VOICE_ASKED = "orbit:voice-asked";
@@ -57,7 +58,7 @@ function startMeter(): () => void {
     void ctx?.close().catch(() => {});
     stream = null; ctx = null; voiceLevel.mic = 0;
   };
-  navigator.mediaDevices?.getUserMedia({ audio: true }).then((s) => {
+  navigator.mediaDevices?.getUserMedia(MIC).then((s) => {
     stream = s;
     if (stopped) return release(); // stopped before the permission prompt resolved
     ctx = new AudioContext();
@@ -128,7 +129,7 @@ export function useVoiceInput(): VoiceInput {
           const audio = await recordUtterance(ctrl.signal, (f) => { finishRecording = f; });
           if (!audio) { if (!cancelled) setError("I didn't hear anything. Click the mic and try again."); return end(""); }
           setInterim("Transcribing…");
-          end(correctTranscript(await transcribeAudio(audio, ctrl.signal)));
+          end(correctTranscript(await transcribeAudio(audio, ctrl.signal, whisperLang(speechLang()))));
         } catch (e) {
           if (!cancelled) setError(e instanceof DOMException && e.name === "NotAllowedError" ? speechErrorMessage("not-allowed")!
             : e instanceof Error ? e.message : "Voice input stopped unexpectedly. Try again.");
