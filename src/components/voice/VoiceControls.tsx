@@ -176,6 +176,10 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
         title={s.handsFree === "off" ? "Conversation mode needs hands-free on (voice settings)" : talking ? "End conversation mode" : "Conversation mode (or say “Orbit, let’s talk”)"}>
         <span aria-hidden="true">💬</span>
       </button>
+      <button type="button" className="chip voice-gear" onClick={() => update({ speak: !s.speak })} aria-pressed={s.speak}
+        aria-label={s.speak ? "Mute ORBIT's voice" : "Unmute ORBIT's voice"} title={s.speak ? "ORBIT speaks answers — click to mute" : "ORBIT is muted (starts muted each time) — click to hear answers"}>
+        <span aria-hidden="true">{s.speak ? "🔊" : "🔇"}</span>
+      </button>
       <button ref={gearRef} type="button" className="chip voice-gear" onClick={() => setOpen((o) => !o)}
         aria-label="Voice settings" title="Voice settings" aria-expanded={open} aria-controls={popId}>
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

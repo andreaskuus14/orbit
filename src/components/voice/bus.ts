@@ -47,10 +47,13 @@ export function recognizerFor(s: Pick<VoiceSettings, "handsFree" | "engine">, us
 export const whisperLang = (lang: string): "et" | "en" => (/^et/i.test(lang) ? "et" : "en");
 
 const KEY = "orbit.voice";
+// Speaking is per page load: ORBIT always opens muted (the user's voice leaked into Discord calls), the 🔇 button unmutes.
+let sessionSpeak = false;
 export function loadVoiceSettings(): VoiceSettings {
-  try { return migrateVoiceSettings(JSON.parse(localStorage.getItem(KEY) || "{}")); } catch { return DEFAULT_VOICE; }
+  try { return { ...migrateVoiceSettings(JSON.parse(localStorage.getItem(KEY) || "{}")), speak: sessionSpeak }; } catch { return { ...DEFAULT_VOICE, speak: sessionSpeak }; }
 }
 export function saveVoiceSettings(s: VoiceSettings) {
+  sessionSpeak = s.speak;
   try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* private mode: settings just don't persist */ }
   window.dispatchEvent(new CustomEvent("orbit:voice-settings", { detail: s }));
 }
