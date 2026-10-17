@@ -2,10 +2,10 @@
 # Offline Windows speech recognition (System.Speech). No audio is stored or sent anywhere.
 # Exit codes: 0 already running, 2 System.Speech missing, 3 no recognizer, 4 no microphone at start.
 param(
-  [double]$MinConfidence = 0.5, # the wake grammar only knows the wake phrases, so modest confidence is enough
+  [double]$MinConfidence = 0.8, # 0.5 let YouTube audio and normal talk "match" and steal focus every few seconds
   [switch]$DebugRun,             # wake:debug - print everything heard to this window (never to the log), ignore a background listener
   [switch]$Dictation,            # stricter: also load free dictation (fewer false triggers, but misses accented speech)
-  [int]$CooldownSeconds = 10,
+  [int]$CooldownSeconds = 60,
   [string]$Url = "http://localhost:3000"
 )
 $ErrorActionPreference = "Stop"
@@ -73,6 +73,13 @@ function New-Engine {
   $wake = New-Object System.Speech.Recognition.Grammar($gb)
   $wake.Name = "wake"
   $e.LoadGrammar($wake)
+  # Garbage model: any other speech matches this wildcard grammar instead of being forced onto the wake phrase.
+  $gg = New-Object System.Speech.Recognition.GrammarBuilder
+  $gg.Culture = $info.Culture
+  $gg.AppendWildcard()
+  $other = New-Object System.Speech.Recognition.Grammar($gg)
+  $other.Name = "other"
+  $e.LoadGrammar($other)
   # Optional dictation grammar to soak up ordinary speech. Off by default: with non-native accents dictation "wins"
   # the wake phrase too (e.g. "orbit wake up" heard as "all are the way up"), so nothing ever triggers.
   if ($Dictation) { try { $e.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)) } catch { } }
