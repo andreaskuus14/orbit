@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
+import { wbPoints } from "@/lib/countries-pure";
 
 // Country facts + economic time series for the globe's country dashboard.
 // Source (public, no key): World Bank Open Data for both the facts and the series.
@@ -20,19 +21,25 @@ const alpha3 = (n: string) => { for (let i = 0; i < ISO.length; i += 6) if (ISO.
 
 
 const cache = new Map<string, { at: number; body: unknown }>();
-const DAY = 24 * 3600_000;
+const HOUR = 3600_000, DAY = 24 * HOUR;
 
 async function json(url: string) {
-  const r = await fetch(url, { headers: { Accept: "application/json", "User-Agent": "ORBIT/0.2" }, signal: AbortSignal.timeout(8000) });
+  const r = await fetch(url, { headers: { Accept: "application/json", "User-Agent": "ORBIT/0.2" }, signal: AbortSignal.timeout(6000) });
   if (!r.ok) throw Object.assign(new Error(`${new URL(url).hostname} answered ${r.status}`), { status: r.status });
   return r.json();
 }
 
+// The World Bank API often answers a burst of parallel calls with a few 502s (WAF page) or a hang: retry each call.
+async function retry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await fn(); }
+    catch (e) { if (attempt >= 2 || (e as { status?: number }).status === 404) throw e; await new Promise((ok) => setTimeout(ok, 300 + Math.random() * 500 * (attempt + 1))); }
+  }
+}
+
 async function series(iso3: string, code: string): Promise<Point[]> {
   const year = new Date().getFullYear();
-  const j = await json(`https://api.worldbank.org/v2/country/${iso3}/indicator/${code}?format=json&date=${year - 16}:${year}&per_page=40`);
-  const rows = (Array.isArray(j) && Array.isArray(j[1]) ? j[1] : []) as { date: string; value: number | null }[];
-  return rows.filter((r) => typeof r.value === "number").map((r) => ({ y: Number(r.date), v: r.value as number })).sort((a, b) => a.y - b.y);
+  return retry(async () => wbPoints(await json(`https://api.worldbank.org/v2/country/${iso3}/indicator/${code}?format=json&date=${year - 16}:${year}&per_page=40`)));
 }
 
 export async function GET(req: Request) {
@@ -49,7 +56,7 @@ export async function GET(req: Request) {
   if (!iso3) return Response.json({ error: "No statistics for this territory" }, { status: 404 });
   let c: { iso2Code?: string; name?: string; capitalCity?: string; region?: { value?: string }; incomeLevel?: { value?: string } };
   try {
-    const j = await json(`https://api.worldbank.org/v2/country/${iso3}?format=json`);
+    const j = await retry(() => json(`https://api.worldbank.org/v2/country/${iso3}?format=json`));
     c = Array.isArray(j) && Array.isArray(j[1]) ? j[1][0] ?? {} : {};
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Country data unavailable" }, { status: 502 });
@@ -61,6 +68,7 @@ export async function GET(req: Request) {
   Object.keys(SERIES).forEach((k, i) => { const g = got[i]; out[k] = g.status === "fulfilled" ? g.value : []; if (g.status === "rejected") complete = false; });
   const { area = [], ...rest } = out;
   const body = {
+    ...(complete ? {} : { partial: true }), // the browser mustn't keep this one either
     facts: {
       name: c.name, iso2: /^[A-Z]{2}$/.test(c.iso2Code ?? "") ? c.iso2Code! : null, capital: c.capitalCity || null,
       region: c.region?.value?.trim() || null, income: c.incomeLevel?.value?.trim() || null,
@@ -68,10 +76,11 @@ export async function GET(req: Request) {
     },
     series: rest,
   };
-  // Don't pin a World Bank outage for a day: cache only when every call answered (even with no data).
+  // Don't pin a World Bank outage: cache only when every call answered; a day when every headline series has data, else an hour.
   if (complete) {
     if (cache.size > 300) cache.delete(cache.keys().next().value!);
-    cache.set(code, { at: Date.now(), body });
+    const full = (["gdp", "growth", "inflation", "unemployment"] as const).every((k) => out[k].length);
+    cache.set(code, { at: Date.now() - (full ? 0 : DAY - HOUR), body });
   }
   return Response.json(body);
 }

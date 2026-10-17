@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { WORLD, countryByIso2, countryByName, findCountry } from "../src/lib/countries-pure.ts";
+import { WORLD, countryByIso2, countryByName, findCountry, wbPoints } from "../src/lib/countries-pure.ts";
 import { displayName } from "../src/lib/geo.ts";
 
 // id:name of every shape in world-atlas countries-110m.json (2.0.2), captured so this test needs no node_modules.
@@ -47,4 +47,13 @@ test("lookups: ISO2, atlas name, display name, any case", () => {
   assert.equal(findCountry("north macedonia", displayName)?.iso2, "MK");
   assert.equal(findCountry("United States", displayName)?.iso2, "US");
   assert.equal(findCountry("  "), null);
+});
+
+test("wbPoints: World Bank rows → oldest-first points, null years skipped; error answers throw (never cached as no data)", () => {
+  const head = { page: 1, pages: 1, per_page: 40, total: 3 };
+  assert.deepEqual(wbPoints([head, [{ date: "2025", value: null }, { date: "2024", value: 43.1 }, { date: "2023", value: 41.5 }]]), [{ y: 2023, v: 41.5 }, { y: 2024, v: 43.1 }]);
+  assert.deepEqual(wbPoints([{ page: 1, pages: 0, per_page: 40, total: 0 }, null]), []); // a real "no data"
+  assert.throws(() => wbPoints([{ message: [{ id: "120", key: "Invalid value" }] }]));
+  assert.throws(() => wbPoints({}));
+  assert.throws(() => wbPoints(null));
 });

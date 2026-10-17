@@ -423,3 +423,11 @@ export function createLimiter(max: number) {
     }
   };
 }
+
+/** Tools whose results are the user's private data (memory, activity). */
+export const PRIVATE_TOOLS = new Set(["search_memory", "recent_memories", "list_tasks", "orbit_stats"]);
+/** After a tool ran: mark private data in context, and remember the links the news tools returned. */
+export function noteToolResult(ctx: { priv?: boolean; links?: Set<string> }, tool: string, out: string) {
+  if (PRIVATE_TOOLS.has(tool)) ctx.priv = true;
+  if (tool === "news_search" || tool === "read_news") for (const m of out.matchAll(/https?:\/\/[^\s)\]>"]+/g)) (ctx.links ??= new Set()).add(m[0]);
+}

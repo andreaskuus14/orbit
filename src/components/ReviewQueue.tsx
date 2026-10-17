@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { CAPTION_STYLES, REJECT_REASONS, mmss } from "@/lib/clips/format";
+import { CAM_NAME, CAPTION_STYLES, LAYOUT_NAME, REJECT_REASONS, mmss } from "@/lib/clips/format";
 import ClipPicks from "./ClipPicks";
 
 // Morning review: every ready clip across all jobs, one at a time, keyboard first (A approve · R reject + 1–6 · V version · T title · ←/→ · Esc).
@@ -8,12 +8,12 @@ import ClipPicks from "./ClipPicks";
 
 // Mirrors src/lib/clips/types.ts (only what the review reads).
 type CaptionStyle = (typeof CAPTION_STYLES)[number];
-type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: "left" | "right" | "tl" | "tr" | "bl" | "br"; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean };
+type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: "left" | "right" | "tl" | "tr" | "bl" | "br"; camSize?: number; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean };
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   status: "rendering" | "ready" | "failed" | "approved" | "rejected"; video?: string; thumb?: string; edit?: VersionEdit;
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[] };
 type Job = { id: string; source: string; createdAt: string; clips: Clip[];
-  options: { captions: boolean; layout?: VersionEdit["layout"]; camSide?: VersionEdit["camSide"]; jumpCuts?: boolean; zooms?: boolean } };
+  options: { captions: boolean; layout?: VersionEdit["layout"]; camSide?: VersionEdit["camSide"]; camSize?: number; jumpCuts?: boolean; zooms?: boolean } };
 type Item = { job: string; source: string; base: VersionEdit; clip: Clip };
 type Mode = "idle" | "reject" | "title" | "version";
 
@@ -21,6 +21,7 @@ const API = "/api/studio/clips";
 const media = (p: string) => `${API}/media?f=${encodeURIComponent(p)}`;
 const score = (s: number) => Math.round(Number.isFinite(s) ? (s <= 1 ? s * 100 : s) : 0); // same scale rule as ClipFactory
 const LAYOUTS: VersionEdit["layout"][] = ["fit", "fill", "follow", "split"];
+const CAM_SIDES = Object.keys(CAM_NAME) as VersionEdit["camSide"][];
 
 async function api<T>(url: string, method?: string, body?: unknown): Promise<T> {
   const res = await fetch(url, { method, cache: "no-store", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
@@ -46,7 +47,7 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
   useEffect(() => {
     api<{ jobs: Job[] }>(API).then(({ jobs }) => setItems([...jobs].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).flatMap((j) => j.clips
       .filter((c) => c.status === "ready")
-      .map((c) => ({ job: j.id, source: j.source, clip: c, base: c.edit ?? { layout: j.options.layout ?? "fit", camSide: j.options.camSide ?? "right",
+      .map((c) => ({ job: j.id, source: j.source, clip: c, base: c.edit ?? { layout: j.options.layout ?? "fit", camSide: j.options.camSide ?? "right", camSize: j.options.camSize,
         captions: j.options.captions ? "karaoke" : "none", jumpCuts: j.options.jumpCuts ?? true, zooms: j.options.zooms ?? true } })))),
     (e) => setErr(e instanceof Error ? e.message : "Couldn't load clips"));
   }, []);
@@ -200,13 +201,18 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
             {mode === "version" && (
               <form className="flex flex-col gap-2 rounded-xl border border-white/10 p-2 text-xs" aria-label={`Another version of ${c.title}`} onSubmit={(e) => { e.preventDefault(); void version(); }}>
                 <fieldset><legend className={label}>Layout</legend>
-                  <div className="flex gap-1">{LAYOUTS.map((l) => <button key={l} type="button" className="chip" aria-pressed={ver.layout === l} onClick={() => setVer((v) => ({ ...v, layout: l }))}>{l}</button>)}</div>
+                  <div className="flex flex-wrap gap-1">{LAYOUTS.map((l) => <button key={l} type="button" className="chip" aria-pressed={ver.layout === l} onClick={() => setVer((v) => ({ ...v, layout: l }))}>{LAYOUT_NAME[l]}</button>)}</div>
                 </fieldset>
+                {ver.layout === "split" && (
+                  <fieldset><legend className={label}>Facecam</legend>
+                    <div className="flex flex-wrap gap-1">{CAM_SIDES.map((k) => <button key={k} type="button" className="chip" aria-pressed={ver.camSide === k} onClick={() => setVer((v) => ({ ...v, camSide: k }))}>{CAM_NAME[k]}</button>)}</div>
+                  </fieldset>
+                )}
                 <fieldset><legend className={label}>Captions</legend>
-                  <div className="flex gap-1">{CAPTION_STYLES.map((s) => <button key={s} type="button" className="chip" aria-pressed={ver.captions === s} onClick={() => setVer((v) => ({ ...v, captions: s }))}>{s}</button>)}</div>
+                  <div className="flex flex-wrap gap-1">{CAPTION_STYLES.map((s) => <button key={s} type="button" className="chip" aria-pressed={ver.captions === s} onClick={() => setVer((v) => ({ ...v, captions: s }))}>{s}</button>)}</div>
                 </fieldset>
                 <label className="flex items-center gap-1.5"><input type="checkbox" checked={ver.suggest} onChange={(e) => setVer((v) => ({ ...v, suggest: e.target.checked }))} /> ✨ New title &amp; hook by Claude</label>
-                <p className="muted text-[11px]">Trim, facecam side and more: “Another version” in the clip list.</p>
+                <p className="muted text-[11px]">Trim, cam box size and more: “Another version” in the clip list.</p>
                 <div className="flex gap-1">
                   <button type="submit" className="chip" disabled={busy}>{busy ? "Starting…" : "↻ Render"}</button>
                   <button type="button" className="chip" onClick={() => setMode("idle")}>Cancel</button>

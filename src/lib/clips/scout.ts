@@ -96,12 +96,17 @@ export async function lookupChannel(who: CreatorInput, call: Call): Promise<Chan
 
 // ---- acting on picks ----
 
-/** The add-from-link path with default clip options. A 409 (already downloading) counts as queued. Returns an error message or "". */
-async function queuePick(s: Scout, p: ScoutPick): Promise<string> {
+/** Clip options for scout picks: the Inbox auto-clip settings (layout etc., shown/changed by its LayoutChip); defaults if unreadable. */
+const savedClipOptions = async (): Promise<ClipOptions> =>
+  ({ ...((await import("./inbox-watch").then((m) => m.readInboxAuto(), () => null))?.options ?? validOptions({}) as ClipOptions), preset: "viral" });
+
+/** The add-from-link path with the saved clip options. A 409 (already downloading) counts as queued. Returns an error message or "". */
+async function queuePick(s: Scout, p: ScoutPick, opts?: ClipOptions, why?: string): Promise<string> {
+  opts ??= await savedClipOptions();
   const url = parseClipUrl(watchUrl(p.videoId));
   if (!url) return "Not a link the clip factory may download";
-  const note = p.source === "watchlist" ? `Scout: ${p.channel} is on the approved-creators watchlist` : `Scout: found by keyword search; the owner chose to clip it`;
-  const r = await startDownload(url, cleanPermission(note) ?? "", validOptions({}) as ClipOptions);
+  const note = why ?? (p.source === "watchlist" ? `Scout: ${p.channel} is on the approved-creators watchlist` : `Scout: found by keyword search; the owner chose to clip it`);
+  const r = await startDownload(url, cleanPermission(note) ?? "", opts);
   if ("error" in r && r.status !== 409) return r.error;
   p.status = "queued";
   p.error = undefined;
@@ -109,14 +114,14 @@ async function queuePick(s: Scout, p: ScoutPick): Promise<string> {
   return "";
 }
 
-export function actOnPick(videoId: unknown, action: unknown) {
+export function actOnPick(videoId: unknown, action: unknown, opts?: ClipOptions, why?: string) { // opts, why: the autopilot's clip options and provenance note
   if (action !== "clip" && action !== "dismiss") throw new ScoutError("action must be clip or dismiss");
   return updateScout(async (s) => {
     const p = s.picks.find((x) => x.videoId === videoId);
     if (!p) throw new ScoutError("That pick is gone; run the scout again", 404);
     if (action === "dismiss") { p.status = "dismissed"; s.seen = remember(s.seen, p.videoId); return p; }
     if (p.status === "queued") return p;
-    const err = await queuePick(s, p);
+    const err = await queuePick(s, p, opts, why);
     if (err) throw new ScoutError(err, 409);
     return p;
   });
@@ -209,13 +214,14 @@ async function run(scheduled: boolean) {
       } catch (e) { warnings.push(`Claude couldn't rank (${msg(e)}): ranked by stats instead`); }
     }
     const picks = buildPicks(top, ranking, opts.now);
+    const ap = await import("./autopilot").then((m) => m.sharedCapLeft(now), () => null); // read before our lock: autopilot reads scout.json under its own
 
     await updateScout(async (s) => {
       s.kwNext = plan.kwNext;
       s.picks = picks.filter((p) => !s.seen.includes(p.videoId)); // the owner may have acted meanwhile
       const today = localDay(now), done = s.auto.day === today ? s.auto.n : 0;
       let auto = 0;
-      for (const p of autoPicks(s.picks, s.watchlist, s.dailyAuto - done)) {
+      for (const p of autoPicks(s.picks, s.watchlist, Math.min(s.dailyAuto - done, ap ?? Infinity))) { // ap: the autopilot's shared daily cap, when it's in use
         // a throw must not reject the whole update: auto.n and seen would be lost and the daily cap exceeded later
         const err = await queuePick(s, p).catch((e) => msg(e) || "download failed");
         if (err) { p.error = err; warnings.push(`Auto-clip "${p.title}": ${err}`); } else auto++;
@@ -342,6 +348,7 @@ async function tick() {
   // CORE's proactive insights + plan resume ride on this timer (local files only; each self-limits to every 15 min / once)
   void import("../insights").then((m) => m.refreshInsights()).catch((e) => console.error("[orbit] insights failed:", msg(e)));
   void import("../plans").then((m) => m.resumePlans()).catch((e) => console.error("[orbit] plan resume failed:", msg(e)));
+  void import("./autopilot").then((m) => m.autopilotTick()).catch((e) => console.error("[orbit] autopilot check failed:", msg(e))); // no quota: auto-clip after a scout run, packaging
   if (S.running || !apiKey()) return;
   try { // start() re-checks S.running after the await
     const s = await load(), now = new Date();

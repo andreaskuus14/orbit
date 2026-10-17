@@ -26,8 +26,8 @@ export const batchStatus = () => B.batch ?? null;
 const eligible = (c: Clip) => c.status === "approved" && (!c.publish || c.publish.status === "failed");
 
 /** Starts scheduling every approved, unpublished clip (background, sequential). Returns the batch, or a message for a 409.
- *  only: "<job>/<clip>" keys to limit it to (a CORE plan's picks). */
-export async function scheduleAll(only?: string[]): Promise<Batch | string> {
+ *  only: "<job>/<clip>" keys to limit it to (a CORE plan's picks). meta: per key, a wanted slot (must still be free) and description (autopilot). */
+export async function scheduleAll(only?: string[], meta: Record<string, { publishAt?: string; description?: string }> = {}): Promise<Batch | string> {
   if (B.batch?.running) return "Already scheduling clips";
   const batch: Batch = (B.batch = { running: true, total: 0, scheduled: 0, at: new Date().toISOString() }); // claimed before any await
   const todo = await listJobs().then((jobs) => jobs.flatMap((j) => j.clips.filter((c) => eligible(c) && (!only || only.includes(`${j.id}/${c.id}`))).map((c) => [j.id, c.id] as const)), (e) => { batch.running = false; throw e; });
@@ -44,9 +44,11 @@ export async function scheduleAll(only?: string[]): Promise<Batch | string> {
           if (!job || !clip || !eligible(clip)) return "skip"; // changed meanwhile (published, rejected, deleted)
           const file = clipFile(clip);
           if (!file || !(await stat(file).catch(() => null))?.isFile()) return `${clip.title}: the video file is missing`;
-          const [at] = await freeSlots();
+          const want = meta[`${jobId}/${clipId}`];
+          if (want?.publishAt && !(await freeSlots(60)).includes(want.publishAt)) return `${clip.title}: the chosen slot isn't free any more`; // never moved silently
+          const [at] = want?.publishAt ? [want.publishAt] : await freeSlots();
           if (!at) return "No free slot in the next 6 months";
-          const video = videoResource({ publishAt: at }, clip);
+          const video = videoResource({ publishAt: at, ...(want?.description && { description: want.description }) }, clip);
           if (typeof video === "string") return `${clip.title}: ${video}`;
           await startPublish(job, clip, file, video);
           return "started";

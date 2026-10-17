@@ -222,3 +222,13 @@ export function findCountry(typed: string, display: (n: string) => string = (n) 
   if (/^[a-z]{2}$/.test(t)) return countryByIso2(t);
   return WORLD.find((c) => c.name.toLowerCase() === t || display(c.name).toLowerCase() === t) ?? null;
 }
+
+/** World Bank indicator response → points, oldest first, null years skipped. A real "no data" answer (total 0) is [];
+ *  anything else without a data array (an error message, an HTML/WAF page) throws, so it's retried and never cached. */
+export function wbPoints(j: unknown): { y: number; v: number }[] {
+  const head = Array.isArray(j) ? (j[0] as { total?: unknown; message?: unknown } | undefined) : undefined;
+  if (!Array.isArray(j) || (!Array.isArray(j[1]) && !(head?.total === 0 && !head.message))) throw new Error("World Bank sent no data table");
+  return ((j[1] ?? []) as { date?: unknown; value?: unknown }[])
+    .filter((r) => typeof r?.value === "number" && Number.isFinite(r.value) && /^\d{4}$/.test(String(r.date)))
+    .map((r) => ({ y: Number(r.date), v: r.value as number })).sort((a, b) => a.y - b.y);
+}

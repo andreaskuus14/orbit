@@ -221,6 +221,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         if (e.type === "pulse.completed") { setPulseBusy(false); setPulseFailed(false); dispatchEvent(new Event("orbit:news")); }
         if (e.type === "pulse.failed") { setPulseBusy(false); setPulseFailed(true); }
         const taskId = (payload.new as { payload?: { taskId?: string } }).payload?.taskId;
+        if (e.type === "goal.update") { const p = (payload.new as { payload?: { title?: string; text?: string } }).payload; notify({ title: `🎯 ${String(p?.title ?? "Goal")}`, body: String(p?.text ?? ""), kind: "agents", nav: { panel: "agents" } }); }
         if (e.type === "agent.started" && taskId) setRunningTasks((r) => (r.includes(taskId) ? r : [...r, taskId]));
         if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) { setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations(); notify({ title: e.type === "agent.completed" ? "Agent task finished" : "Agent task failed", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations" } }); }
       })

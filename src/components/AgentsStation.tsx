@@ -10,6 +10,7 @@ import { ZoomRig } from "./ZoomRig";
 import { AgentsPanel, type Task } from "./AgentsPanels";
 import AgentMission, { STATUS_DOT, api, usePoll } from "./AgentMission";
 import TeamBuilder from "./TeamBuilder";
+import GoalsPanel from "./GoalsPanel";
 import { CHAIN_TITLE, type ChainView } from "@/lib/chains-pure";
 import { beamPairs, chainActive } from "@/lib/mission-pure";
 import { QUALITY, type QualityMode } from "@/lib/quality-pure";
@@ -298,7 +299,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
-  const [tab, setTab] = useState<"agents" | "teams">("agents");
+  const [tab, setTab] = useState<"agents" | "teams" | "goals">("agents");
   const [chains, setChains] = useState<ChainView[] | null>(null);
   const [chainErr, setChainErr] = useState("");
   const rows = useRef(new Map<string, HTMLButtonElement>());
@@ -383,13 +384,17 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
             <div className="hud-title">AGENTS STATION</div>
             <p className="muted text-xs">{list.length} agents · {list.filter((a) => status[a.slug] === "working").length} working · {list.filter((a) => status[a.slug] === "waiting").length} need approval{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</p>
             <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Station views">
-              {(["agents", "teams"] as const).map((t) => (
+              {(["agents", "teams", "goals"] as const).map((t) => (
                 <button key={t} id={`st-tab-${t}`} role="tab" aria-selected={tab === t} aria-controls={`st-panel-${t}`} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
-                  {t === "agents" ? "🛰 Agents" : "👥 Teams"}
+                  {t === "agents" ? "🛰 Agents" : t === "teams" ? "👥 Teams" : "🎯 Goals"}
                 </button>
               ))}
             </div>
-            {tab === "teams" ? (
+            {tab === "goals" ? (
+              <div id="st-panel-goals" role="tabpanel" aria-labelledby="st-tab-goals" className="mt-3">
+                <GoalsPanel agents={list} visible={visible} onOpenTask={onOpenTask} />
+              </div>
+            ) : tab === "teams" ? (
               <div id="st-panel-teams" role="tabpanel" aria-labelledby="st-tab-teams" className="mt-3">
                 <TeamBuilder agents={list} chains={chains} error={chainErr} onChanged={loadChains} onOpenTask={onOpenTask} />
               </div>

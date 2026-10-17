@@ -30,7 +30,7 @@ export function stepLabel(tool: string, input: Record<string, unknown> = {}): st
     ask_agent: `Asking ${agent}…`, save_memory: "Saving to memory…", navigate: "Flying there…",
     studio_status: "Checking the studio…", learned: "Checking what works…", run_scout: "Starting the scout…",
     run_niche: "Starting niche research…", schedule_approved: "Scheduling clips…",
-    suggestions: "Checking what needs attention…", plan_task: "Starting the plan…", review: "Double-checking the answer…",
+    suggestions: "Checking what needs attention…", plan_task: "Starting the plan…", create_goal: "Setting up the goal…", goal_status: "Checking your goals…", review: "Double-checking the answer…",
   };
   return labels[tool] ?? "Working…";
 }

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   STATE_V, addFeedback, baseEdit, buildAss, downloadProblem, isClipId, jobProblem, matchUpload, nextVersionId, packAnalysis, parseAnalysis, parseSuggestion,
-  quarantineName, reconcileOutcome, setRejectReason, uploadsFrom, validVersion, versionSpan,
+  listedQuarantine, quarantineName, reconcileOutcome, setRejectReason, uploadsFrom, validVersion, versionSpan,
 } from "../src/lib/clips/pure.ts";
 import { rootClipId } from "../src/lib/clips/format.ts";
 
@@ -37,6 +37,14 @@ test("quarantineName is unique per moment and keeps .json", () => {
   const n = quarantineName("lq3k2a-abc123", new Date("2026-10-16T08:09:10.123Z"));
   assert.equal(n, "lq3k2a-abc123.2026-10-16T08-09-10-123Z.json");
   assert.ok(!/[:\\/]/.test(n), "valid Windows file name");
+});
+
+test("listedQuarantine shows set-aside state files only: not reasons, not the self-rebuilding insights cache", () => {
+  assert.equal(listedQuarantine("lq3k2a-abc123.2026-10-16T08-09-10-123Z.json"), true);
+  assert.equal(listedQuarantine("scout.2026-10-16T08-09-10-123Z.json"), true);
+  assert.equal(listedQuarantine("lq3k2a-abc123.2026-10-16T08-09-10-123Z.reason.json"), false);
+  assert.equal(listedQuarantine("insights.2026-10-17T12-53-46-849Z.json"), false);
+  assert.equal(listedQuarantine("notes.txt"), false);
 });
 
 test("analysis round-trips through JSON, rounded; damaged files read as null", () => {

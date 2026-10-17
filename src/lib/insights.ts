@@ -13,7 +13,7 @@ import { act, detect, emptyInsights, insightsProblem, merge, visible, RUN_EVERY_
 const file = () => path.join(studioRoot(), "insights.json");
 const g = globalThis as unknown as { __orbitInsights?: { lock: Promise<unknown> } };
 const S = (g.__orbitInsights ??= { lock: Promise.resolve() });
-const load = async () => (await readState<InsightState>(studioRoot(), "insights", insightsProblem)) ?? emptyInsights();
+const load = async () => (await readState<InsightState>(studioRoot(), "insights", insightsProblem, true)) ?? emptyInsights();
 
 function update<T>(fn: (s: InsightState) => T | Promise<T>): Promise<T> {
   const p = S.lock.then(async () => { const s = await load(); const r = await fn(s); await saveState("insights", file(), s); return r; });

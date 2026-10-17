@@ -20,7 +20,7 @@ import {
   ffmpegTime, groupSpans, isInboxName, isPlainName, editPlan, markLoud, mergeRanked, parseDuration, parseYtdlpProgress, peakTime, probeArgs, promptTranscript,
   renderArgs, resolveInside, trackArgs, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, totalSec, spanCover, validOptions, validateMoments,
   wordsFromChunks, cleanWords, ytdlpArgs, ytdlpError, ytdlpOutputFile, YTDLP_FILE_MARK,
-  STATE_V, addFeedback, cleanPermission, baseEdit, downloadProblem, jobProblem, matchUpload, nextVersionId, packAnalysis, parseAnalysis, parseSuggestion, quarantineName,
+  STATE_V, addFeedback, cleanPermission, baseEdit, downloadProblem, jobProblem, matchUpload, nextVersionId, packAnalysis, parseAnalysis, parseSuggestion, quarantineName, listedQuarantine,
   reconcileOutcome, recoverInterrupted, setRejectReason, uploadsFrom, versionSpan, youtubePauseUntil,
   type Analysis, type Candidate, type Moment, type Span, type VersionReq, type Word,
 } from "./pure";
@@ -126,9 +126,12 @@ export function saveState(id: string, file: string, data: unknown): Promise<void
   const p = S.write.then(async () => {
     if (S.deleted.has(id)) return;
     await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file + ".tmp", JSON.stringify(data, null, 2));
+    // Per-process tmp (a second ORBIT process never interleaves into it) + fsync before the rename: without it a PC restart
+    // or power cut can leave the renamed file empty/garbled (seen as "not valid JSON" quarantines after a reboot).
+    const tmp = `${file}.${process.pid}.tmp`, fh = await open(tmp, "w");
+    try { await fh.writeFile(JSON.stringify(data, null, 2)); await fh.sync(); } finally { await fh.close(); }
     for (let i = 0; ; i++) { // Windows: antivirus/indexer can briefly lock the target
-      try { await rename(file + ".tmp", file); break; }
+      try { await rename(tmp, file); break; }
       catch (e) {
         if (i >= 5 || !["EPERM", "EACCES", "EBUSY"].includes((e as NodeJS.ErrnoException).code ?? "")) throw e;
         await new Promise((r) => setTimeout(r, 50 * 2 ** i));
@@ -140,7 +143,8 @@ export function saveState(id: string, file: string, data: unknown): Promise<void
 }
 
 /** A state file parsed and checked; a damaged one is moved to <dir>/_quarantine (never deleted) and reads as null. */
-export async function readState<T>(dir: string, id: string, problem: (x: unknown, id: string) => string): Promise<T | null> {
+/** keep: a derived cache (insights.json) is never quarantined: damaged reads as null and the next save rebuilds it. */
+export async function readState<T>(dir: string, id: string, problem: (x: unknown, id: string) => string, keep = false): Promise<T | null> {
   let text: string;
   try { text = await readFile(path.join(dir, `${id}.json`), "utf8"); }
   catch (e) { // missing, locked (antivirus) or an I/O hiccup (EMFILE/EIO): the file itself may be fine, so leave it
@@ -151,7 +155,8 @@ export async function readState<T>(dir: string, id: string, problem: (x: unknown
   let x: unknown, why: string;
   try { x = JSON.parse(text); why = problem(x, id); } catch { why = "not valid JSON"; }
   if (!why) return x as T;
-  if (!S.deleted.has(id)) await quarantine(dir, id, why);
+  if (keep) console.error(`[orbit] ${id}.json is damaged (${why}); rebuilding it`);
+  else if (!S.deleted.has(id)) await quarantine(dir, id, why);
   return null;
 }
 
@@ -173,7 +178,7 @@ export async function listQuarantined(): Promise<Quarantined[]> {
   for (const [dir, rel] of [[jobsDir(), "jobs"], [dlDir(), "downloads"], [studioRoot(), ""]]) { // root: scout.json
     const q = path.join(dir, "_quarantine");
     for (const n of await readdir(q).catch(() => [] as string[])) {
-      if (!n.endsWith(".json") || n.endsWith(".reason.json")) continue;
+      if (!listedQuarantine(n)) continue;
       const m = await readFile(path.join(q, n.replace(/\.json$/, ".reason.json")), "utf8").then((t) => JSON.parse(t), () => null);
       out.push({ file: [rel, "_quarantine", n].filter(Boolean).join("/"), reason: typeof m?.reason === "string" ? m.reason : "unknown", at: typeof m?.at === "string" ? m.at : "" });
     }

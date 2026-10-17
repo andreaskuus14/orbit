@@ -14,6 +14,7 @@ type Point = { y: number; v: number };
 type Stats = {
   facts: { name: string | null; iso2: string | null; capital: string | null; region: string | null; population: number | null; area: number | null; income: string | null };
   series: Partial<Record<"gdp" | "growth" | "inflation" | "unemployment" | "population", Point[]>>;
+  partial?: boolean; // some World Bank calls failed: not cached, reopening asks again
 };
 
 export const safeHref = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
@@ -67,7 +68,7 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
     let gone = false;
     setStats(null);
     getJson(`/api/news/country?id=${encodeURIComponent(id)}`, "Statistics unavailable")
-      .then((j: Stats) => { statCache.set(id, j); if (!gone) setStats(j); })
+      .then((j: Stats) => { if (!j.partial) statCache.set(id, j); if (!gone) setStats(j); }) // partial: some World Bank calls failed, ask again next time
       .catch((e) => { if (!gone) setStats({ error: e instanceof Error && e.message !== SIGNED_OUT ? e.message : "Statistics unavailable" }); });
     return () => { gone = true; };
   }, [id]);
@@ -113,6 +114,7 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
             <Kpi label="INFLATION" pts={s.inflation} fmt={pct1} invert />
             <Kpi label="UNEMPLOYMENT" pts={s.unemployment} fmt={pct1} invert />
             {year > 0 && <p className="dash-caption dash-wide">World Bank · {year}</p>}
+            {ok.partial && <p className="dash-caption dash-wide">World Bank didn&apos;t answer every request · reopen the country to try again</p>}
           </>
         ) : stats && "error" in stats ? (
           <p className="dash-tile dash-wide text-xs muted">{stats.error}. News statistics below still work.</p>

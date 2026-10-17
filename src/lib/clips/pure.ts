@@ -822,6 +822,9 @@ export function downloadProblem(x: unknown, id?: string): string {
 
 /** "<id>.<UTC timestamp>.json": the name a damaged state file gets in _quarantine (never overwrites an earlier one). */
 export const quarantineName = (id: string, now: Date) => `${id}.${now.toISOString().replace(/[:.]/g, "-")}.json`;
+/** A _quarantine entry worth showing the owner: a set-aside state file, not its .reason.json, and not a derived cache
+ *  (insights.json rebuilds itself; older builds quarantined it and the notice called it a "damaged job file"). */
+export const listedQuarantine = (name: string) => name.endsWith(".json") && !name.endsWith(".reason.json") && !name.startsWith("insights.");
 
 // ---- saved analysis (re-used by new versions: no re-transcribing) ----
 

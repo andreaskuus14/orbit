@@ -62,3 +62,11 @@ export const REJECT_REASONS = ["boring", "no context", "bad cut", "bad captions"
 export const CAPTION_STYLES = ["karaoke", "classic", "none"] as const;
 /** "clip-2-v3" → "clip-2": the original a version was made from. */
 export const rootClipId = (id: string) => id.replace(/-v\d+$/, "");
+
+export const LAYOUT_NAME = { fit: "Fit", fill: "Fill", follow: "Follow action", split: "Split" } as const;
+export const CAM_NAME = { left: "Left third", right: "Right third", tl: "Top-left box", tr: "Top-right box", bl: "Bottom-left box", br: "Bottom-right box" } as const;
+/** A job's layout for its summary line: "Follow action", "Split · Top-right box". Missing (jobs from before layouts) = Fit. */
+export function layoutText(o: { layout?: string; camSide?: string }): string {
+  const name = LAYOUT_NAME[(o.layout ?? "fit") as keyof typeof LAYOUT_NAME] ?? o.layout ?? "Fit";
+  return o.layout === "split" ? `${name} · ${CAM_NAME[(o.camSide ?? "right") as keyof typeof CAM_NAME] ?? o.camSide}` : name;
+}

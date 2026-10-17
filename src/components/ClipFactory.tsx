@@ -1,9 +1,10 @@
 "use client";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { CAPTION_STYLES, CHANNEL_LINK_MSG, REJECT_REASONS, bytes, channelLink, isJobActive, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
+import { CAM_NAME, CAPTION_STYLES, CHANNEL_LINK_MSG, LAYOUT_NAME, REJECT_REASONS, bytes, channelLink, isJobActive, layoutText, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
 import ReviewQueue from "./ReviewQueue";
 import ClipPicks from "./ClipPicks";
 import LearnedCard from "./LearnedCard";
+import AutopilotPanel from "./AutopilotPanel";
 import EngageCard, { DescribeButton } from "./EngageCard";
 import StudioCalendar from "./StudioCalendar";
 import { devlogHashtags } from "@/lib/clips/devlog";
@@ -77,10 +78,10 @@ function Section({ title, children, right }: { title: string; children: ReactNod
 }
 const Skeleton = ({ h, reduced }: { h: number; reduced: boolean }) => <div aria-hidden className={`card ${reduced ? "" : "animate-pulse"}`} style={{ height: h, opacity: 0.6 }} />;
 
-type Tab = "find" | "clips" | "calendar" | "insights";
+type Tab = "find" | "clips" | "calendar" | "insights" | "autopilot";
 const TAB_KEY = "orbit.clipFactory.tab";
 const readTab = (): Tab | null => {
-  try { const t = localStorage.getItem(TAB_KEY); return t === "find" || t === "clips" || t === "calendar" || t === "insights" ? t : null; }
+  try { const t = localStorage.getItem(TAB_KEY); return t === "find" || t === "clips" || t === "calendar" || t === "insights" || t === "autopilot" ? t : null; }
   catch { return null; } // storage unavailable (or server render)
 };
 
@@ -137,6 +138,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const [reviewing, setReviewing] = useState(false);
   const [tab, setTab] = useState<Tab | null>(null); // null until the first load picks one
   const [autoInbox, setAutoInbox] = useState<boolean | null>(null); // null: not loaded (or the settings file is locked)
+  const [autoOpts, setAutoOpts] = useState<Opts | null>(null); // what auto-clip uses (saved when it was turned on)
   const [scoutRun, setScoutRun] = useState(0); // bumped by the "Find videos" next step: ScoutSection runs the scout
   // Each review request opens once; the same object lingers in Orbit's state until STUDIO is left.
   useEffect(() => { if (review && !seenReview.has(review)) { seenReview.add(review); setReviewing(true); } }, [review]);
@@ -230,7 +232,8 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
     setData((d) => d && { ...d, downloads: d.downloads.filter((x) => x.id !== id) });
   });
 
-  useEffect(() => { void api<{ enabled: boolean }>(`${API}/inbox-auto`).then((s) => setAutoInbox(s.enabled), () => setAutoInbox(null)); }, []);
+  const gotAuto = (s: { enabled: boolean; options: Opts }) => { setAutoInbox(s.enabled); setAutoOpts(s.options); };
+  useEffect(() => { void api<{ enabled: boolean; options: Opts }>(`${API}/inbox-auto`).then(gotAuto, () => setAutoInbox(null)); }, []);
   // The watcher starts jobs on its own: look for them every 30 s while nothing else is polling.
   useEffect(() => {
     if (!autoInbox || !visible || active) return;
@@ -239,7 +242,10 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   }, [autoInbox, visible, active, load]);
   // Turning it on saves the current clip settings as the auto-clip defaults.
   const toggleAuto = (enabled: boolean) => act("auto", async () => {
-    setAutoInbox((await api<{ enabled: boolean }>(`${API}/inbox-auto`, { method: "POST", body: { enabled, ...opts, preset: "viral", captions: opts.captions && !!data?.tools.transcriber } })).enabled);
+    gotAuto(await api<{ enabled: boolean; options: Opts }>(`${API}/inbox-auto`, { method: "POST", body: { enabled, ...opts, preset: "viral", captions: opts.captions && !!data?.tools.transcriber } }));
+  });
+  const setAutoLayout = (p: Partial<Opts>) => autoOpts && act("auto", async () => {
+    gotAuto(await api<{ enabled: boolean; options: Opts }>(`${API}/inbox-auto`, { method: "POST", body: { ...autoOpts, ...p, enabled: !!autoInbox } })); // also the scout's layout: never switches auto-clip on
   });
 
   const openFolder = () => act("open", async () => {
@@ -277,7 +283,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
     : unpublished && yt?.configured ? <a className="btn" href="/api/studio/oauth/start">🔗 Connect YouTube to publish {unpublished} approved</a>
     : workText ? workNext
     : <button className="btn" onClick={() => { selectTab("find"); setScoutRun((n) => n + 1); }} aria-label="Find videos: run the video scout">🔭 Find videos</button>;
-  const tabs: [Tab, string][] = [["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["calendar", "📅 Calendar"], ["insights", "🧠 Insights"]];
+  const tabs: [Tab, string][] = [["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["calendar", "📅 Calendar"], ["insights", "🧠 Insights"], ["autopilot", "🤖 Autopilot"]];
   const onTabKey = (e: KeyboardEvent) => {
     const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (!d) return;
@@ -330,6 +336,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
           </div>
 
           {/* Panels stay mounted (hidden) so forms, polling and scroll state survive switching tabs. */}
+          <div id="cf-panel-autopilot" role="tabpanel" aria-labelledby="cf-tab-autopilot" hidden={shown !== "autopilot"}><AutopilotPanel active={shown === "autopilot"} onChanged={() => void load(true)} /></div>
           <div id="cf-panel-insights" role="tabpanel" aria-labelledby="cf-tab-insights" hidden={shown !== "insights"} className="space-y-3">
             <LearnedCard defaultOpen />
             <EngageCard />
@@ -341,7 +348,8 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
           </div>
 
           <div id="cf-panel-find" role="tabpanel" aria-labelledby="cf-tab-find" hidden={shown !== "find"} className="space-y-3">
-          <ScoutSection visible={visible} onQueued={() => void load(true)} runSignal={scoutRun} reduced={reduced} />
+          <ScoutSection visible={visible} onQueued={() => void load(true)} runSignal={scoutRun} reduced={reduced}
+            layout={autoOpts && <LayoutChip o={autoOpts} onSave={(p) => void setAutoLayout(p)} />} />
 
           <Section title="Inbox">
             <p className="text-sm">Drop long videos into your Studio inbox folder:</p>
@@ -353,8 +361,9 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
             <Note k="open" />
             <label className="mt-2 flex items-center gap-1.5 text-sm">
               <input type="checkbox" checked={!!autoInbox} disabled={autoInbox === null || busy.auto} onChange={(e) => void toggleAuto(e.target.checked)} />
-              Auto-clip new files dropped here <Help text="Uses the clip settings below as they are when you turn this on. Files already in the folder are left alone." />
+              Auto-clip new files dropped here <Help text="Uses the clip settings below as they are when you turn this on. Files already in the folder are left alone. The video scout clips with these settings too." />
             </label>
+            {autoInbox && autoOpts && <LayoutChip o={autoOpts} onSave={(p) => void setAutoLayout(p)} />}
             <Note k="auto" />
             <p className="muted mt-1 text-xs">Put stream files from creators here — ORBIT clips them automatically.</p>
             <p className="muted mt-2 text-xs">Only clip videos you&apos;re allowed to. <Help text="Use your own uploads, or creators who allow clipping." /></p>
@@ -481,7 +490,7 @@ const compact = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3
 const ago = (iso: string) => { const h = (Date.now() - Date.parse(iso)) / 3_600_000; return !Number.isFinite(h) ? "" : h < 1 ? "just now" : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} d ago`; };
 
 /** Finds source videos by itself: approved creators (watchlist) + niche keyword searches, ranked for clip potential. */
-function ScoutSection({ visible, onQueued, runSignal, reduced }: { visible: boolean; onQueued: () => void; runSignal: number; reduced: boolean }) {
+function ScoutSection({ visible, onQueued, runSignal, reduced, layout }: { visible: boolean; onQueued: () => void; runSignal: number; reduced: boolean; layout?: ReactNode /* Clip it + creator auto-clip use the inbox auto-clip settings */ }) {
   const [d, setD] = useState<ScoutData | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -545,6 +554,7 @@ function ScoutSection({ visible, onQueued, runSignal, reduced }: { visible: bool
           {last && !last.ok && <p className="error mt-1 text-xs" role="alert">⚠ {last.error}</p>}
           {!!last?.warnings?.length && <ul className="mt-1 space-y-0.5 text-[11px]" aria-label="Scout warnings">{last.warnings.slice(0, 5).map((w, k) => <li key={k}>⚠ {w}</li>)}</ul>}
           <Note k="run" />
+          {layout}
           <CreatorsBox s={s} busy={busy} Note={Note} added={added} onSave={save} onAdd={addCreator} />
           <NicheCard d={d} busy={busy} Note={Note} onSave={save} onAdd={addCreator}
             onResearch={() => act("niche", async () => { await api(`${SCOUT}/niche`, { method: "POST", body: {} }); setD((x) => x && { ...x, running: true, researching: true }); })}
@@ -732,10 +742,10 @@ function ToolsBanner({ tools }: { tools: ToolsStatus }) {
 function QuarantineNotice({ root, files }: { root: string; files: Quarantined[] }) {
   const sep = root.includes("\\") ? "\\" : "/";
   const dirs = [...new Set(files.map((q) => q.file.split("/").slice(0, -1).join(sep)))];
-  const n = files.length;
+  const n = files.length, kind = files.every((q) => /^(jobs|downloads)\//.test(q.file)) ? "job" : "data"; // root files: scout.json, learn.json…
   return (
     <div className="card text-sm" role="alert" style={{ borderColor: "#fb923c" }}>
-      <b>⚠ {n === 1 ? "1 damaged job file was set aside" : `${n} damaged job files were set aside`}:</b>
+      <b>⚠ {n === 1 ? `1 damaged ${kind} file was set aside` : `${n} damaged ${kind} files were set aside`}:</b>
       <ul className="mt-1 text-xs">{files.slice(0, 5).map((q) => <li key={q.file}><span className="num">{q.file.split("/").pop()}</span> — {q.reason}{q.at ? ` · ${when(q.at)}` : ""}</li>)}</ul>
       {n > 5 && <p className="muted text-xs">…and {n - 5} more.</p>}
       <p className="mt-1 text-xs">Moved, not deleted. They&apos;re in:</p>
@@ -812,7 +822,7 @@ function Choice<T extends string | number>({ legend, values, value, fmt, onChang
   return (
     <fieldset>
       <legend className="muted mb-1 text-[10px] uppercase tracking-widest">{legend}</legend>
-      <div className="flex gap-1">
+      <div className="flex flex-wrap gap-1">
         {values.map((v) => <button key={v} type="button" className="chip num" aria-pressed={value === v} onClick={() => onChange(v)}>{fmt(v)}</button>)}
       </div>
       {hint && <p className="muted mt-1 text-[10px]">{hint}</p>}
@@ -821,13 +831,14 @@ function Choice<T extends string | number>({ legend, values, value, fmt, onChang
 }
 
 /** Devlog folder: OBS recordings saved into <inbox>/devlog become 3 devlog Shorts each, waiting in review (never published on their own). */
-type DevlogState = { enabled: boolean; days: Record<string, number>; path: string; problem?: string }; // GET/POST /api/studio/clips/devlog
+type DevlogState = { enabled: boolean; days: Record<string, number>; path: string; problem?: string; options?: Opts }; // GET/POST /api/studio/clips/devlog
 function DevlogCard({ onChange }: { onChange: () => void }) {
   const [s, setS] = useState<DevlogState | null>(null);
   const [busy, setBusy] = useState(""), [note, setNote] = useState(""), [err, setErr] = useState("");
   useEffect(() => { void api<DevlogState>(`${API}/devlog`).then(setS, (e) => setErr(e instanceof Error ? e.message : "Couldn't load")); }, []);
   const run = async (k: string, fn: () => Promise<void>) => { setBusy(k); setErr(""); setNote(""); try { await fn(); } catch (e) { setErr(e instanceof Error ? e.message : "Something went wrong"); } finally { setBusy(""); } };
   const toggle = (enabled: boolean) => run("auto", async () => { setS(await api<DevlogState>(`${API}/devlog`, { method: "POST", body: { enabled } })); onChange(); });
+  const setLayout = (p: Partial<LayoutOpts>) => s && run("layout", async () => { setS(await api<DevlogState>(`${API}/devlog`, { method: "POST", body: { enabled: s.enabled, ...p } })); });
   const open = () => run("open", async () => {
     try { await api(`${API}/open`, { method: "POST", body: { folder: "devlog" } }); setNote("Opened in Explorer."); }
     catch (e) { throw e instanceof HttpError && e.status === 501 ? new Error("Opening the folder only works on the Windows PC. Use the path above.") : e; }
@@ -846,6 +857,7 @@ function DevlogCard({ onChange }: { onChange: () => void }) {
         <input type="checkbox" checked={!!s?.enabled} disabled={!s || !!busy} onChange={(e) => void toggle(e.target.checked)} />
         Devlog folder: auto-clip new recordings <Help text="Off by default. Only recordings that land here after you turn it on are clipped. Clips are never published on their own." />
       </label>
+      {s?.options && <LayoutChip o={s.options} onSave={(p) => void setLayout(p)} />}
       {s?.problem && <p className="error mt-1 text-xs" role="alert">{s.problem}</p>}
       {err && <p className="error mt-1 text-xs" role="alert">{err}</p>}
     </Section>
@@ -853,14 +865,14 @@ function DevlogCard({ onChange }: { onChange: () => void }) {
 }
 
 const LAYOUT: Record<Opts["layout"], [string, string]> = {
-  fit: ["Fit", "Whole frame over a blurred background"],
-  fill: ["Fill", "Crops the middle to full screen (facecam-centred streams)"],
-  split: ["Split", "Facecam and gameplay stacked"],
-  follow: ["Follow action", "A 9:16 crop that pans to the person / action (cuts jump)"],
+  fit: [LAYOUT_NAME.fit, "Whole frame over a blurred background"],
+  fill: [LAYOUT_NAME.fill, "Crops the middle to full screen (facecam-centred streams)"],
+  split: [LAYOUT_NAME.split, "Facecam and gameplay stacked"],
+  follow: [LAYOUT_NAME.follow, "A 9:16 crop that pans to the person / action (cuts jump)"],
 };
 const LAYOUTS: Opts["layout"][] = ["fit", "fill", "follow", "split"];
 const CAM_SIDES: CamSide[] = ["left", "right", "tl", "tr", "bl", "br"];
-const CAM_LABEL: Record<CamSide, string> = { left: "Left third", right: "Right third", tl: "Top-left box", tr: "Top-right box", bl: "Bottom-left box", br: "Bottom-right box" };
+const CAM_LABEL: Record<CamSide, string> = CAM_NAME;
 const CAM_SIZES = [0.22, 0.3, 0.4], CAM_SIZE_LABEL = ["Small", "Medium", "Large"];
 /** Facecam position (+ box size for a corner cam: shown on top, the frame's middle below) for the split layout. */
 function CamPicker({ side, size, set }: { side: CamSide; size?: number; set: (p: { camSide?: CamSide; camSize?: number }) => void }) {
@@ -902,6 +914,25 @@ function EditOptions({ opts, setOpts }: { opts: Opts; setOpts: (f: (o: Opts) => 
   );
 }
 
+type LayoutOpts = Pick<Opts, "layout" | "camSide" | "camSize">;
+/** Clips started from saved settings (inbox auto-clip, devlog folder): the layout they get, changeable in place. */
+function LayoutChip({ o, onSave }: { o: LayoutOpts; onSave: (p: Partial<LayoutOpts>) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1 text-xs">
+      <span className="muted">Layout: </span>
+      <button type="button" className="chip !px-2 !py-0.5 !text-[11px]" aria-expanded={open} onClick={() => setOpen((x) => !x)}
+        aria-label={`Layout: ${layoutText(o)}. ${open ? "Close" : "Change"}`}>{layoutText(o)} · {open ? "done" : "change"}</button>
+      {open && (
+        <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-2">
+          <Choice legend="Layout" values={LAYOUTS} value={o.layout} fmt={(v) => LAYOUT[v][0]} hint={LAYOUT[o.layout][1]} onChange={(layout) => onSave({ layout })} />
+          {o.layout === "split" && <CamPicker side={o.camSide} size={o.camSize} set={onSave} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- jobs & clips ---------- */
 
 type PatchBody = { status?: "approved" | "rejected"; title?: string; reason?: string; thumb?: string };
@@ -925,7 +956,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
         <div className="min-w-0">
           <b className="block truncate text-sm" title={job.source}>{job.source}</b>
           <span className="muted num text-[11px]">
-            {when(job.createdAt)}{job.durationSec ? ` · ${mmss(job.durationSec)} long` : ""} · {job.options.count} clips ≤ {job.options.maxSec} s{job.options.captions ? " · captions" : ""}
+            {when(job.createdAt)}{job.durationSec ? ` · ${mmss(job.durationSec)} long` : ""} · {job.options.count} clips ≤ {job.options.maxSec} s{job.options.captions ? " · captions" : ""} · {layoutText(job.options)}
           </span>
         </div>
         <div className="flex items-center gap-1.5">

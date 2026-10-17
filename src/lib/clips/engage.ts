@@ -53,11 +53,11 @@ export async function draftReplies(videoId: string, signal?: AbortSignal): Promi
 }
 
 /** "✨ Write description": 1–2 lines + credit line (creator known) + 3–5 hashtags incl. #shorts, for the editable publish form. */
-export async function writeDescription(jobId: string, clipId: string, signal?: AbortSignal): Promise<string> {
+export async function writeDescription(jobId: string, clipId: string, signal?: AbortSignal, title?: string): Promise<string> { // title: the one that will be used (autopilot's pick), else the clip's
   const job = await getJob(jobId), clip = job?.clips.find((c) => c.id === clipId);
   if (!job || !clip) throw new Error("Clip not found");
   const creator = creatorFromSource(job.source);
-  const prompt = `Title: ${clean(clip.title, 100)}\nHook: ${clean(clip.hook, 300)}\nWhy it works: ${clean(clip.reason, 300)}${creator ? `\nCreator: ${creator}` : ""}`;
+  const prompt = `Title: ${clean(title ?? clip.title, 100)}\nHook: ${clean(clip.hook, 300)}\nWhy it works: ${clean(clip.reason, 300)}${creator ? `\nCreator: ${creator}` : ""}`;
   const r = await askClaude(prompt, DESC_SYSTEM + (await tastePrompt()), { lane: "background", signal });
   const text = buildDescription(r.text, creator, job.options.preset === "devlog" ? DEVLOG_TAGS : []);
   if (!text) throw new Error("Claude's reply had no usable description — try again");

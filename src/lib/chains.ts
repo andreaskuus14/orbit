@@ -101,6 +101,16 @@ async function finish(sb: SupabaseClient, id: string, status: string, result: st
   await sb.from("tasks").update({ status, result, error, finished_at: new Date().toISOString() }).eq("id", id).eq("status", "running");
 }
 
+/** Wait for one of kickQueue's agent slots, run fn holding it, then free it. False (fn not run) when `signal` aborts first.
+ *  Shared by team chains and goal steps (src/lib/goals.ts), so neither can push past MAX_RUNNING. */
+export async function withSlot(sb: SupabaseClient, userId: string, taskId: string, signal: AbortSignal, fn: () => Promise<unknown>): Promise<boolean> {
+  while (slots().size >= MAX_RUNNING && !signal.aborted) await sleep(3000);
+  if (signal.aborted) return false;
+  slots().add(taskId); // claim the slot before any await, so kickQueue can't take it meanwhile
+  try { await fn(); return true; }
+  finally { slots().delete(taskId); void kickQueue(sb, userId); }
+}
+
 /** Run the chain's next steps in order until it ends, waits for an approval, or is cancelled. Idempotent: one driver per chain. */
 export async function drive(sb: SupabaseClient, userId: string, id: string) {
   if (driving.has(id)) return;
@@ -128,17 +138,13 @@ export async function drive(sb: SupabaseClient, userId: string, id: string) {
         continue;
       }
       // run: wait for a free agent slot (shared with kickQueue), then run the step like any task.
-      while (slots().size >= MAX_RUNNING && !ac.signal.aborted) await sleep(3000);
-      if (ac.signal.aborted) continue;
-      slots().add(move.task.id); // claim the slot before any await, so kickQueue can't take it meanwhile
-      try {
+      await withSlot(sb, userId, move.task.id, ac.signal, async () => {
         if (move.prev) {
           const own = move.task.request.slice(0, meta.steps[move.k].len);
           await sb.from("tasks").update({ request: composeRequest(own, move.prev.agent, move.prev.result) }).eq("id", move.task.id).eq("status", "queued");
         }
         await runTask(sb, userId, move.task.id, 0, undefined, ac.signal);
-      }
-      finally { slots().delete(move.task.id); void kickQueue(sb, userId); }
+      });
     }
   } catch (e) {
     console.error("[orbit] chain runner failed:", id, e instanceof Error ? e.message : e);

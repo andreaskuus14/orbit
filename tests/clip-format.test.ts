@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bytes, channelLink, isJobActive, mmss, parseClipUrl } from "../src/lib/clips/format.ts";
+import { bytes, channelLink, isJobActive, layoutText, mmss, parseClipUrl } from "../src/lib/clips/format.ts";
 
 test("mmss: m:ss, rounding, junk input", () => {
   assert.equal(mmss(0), "0:00");
@@ -41,4 +41,12 @@ test("channelLink: channel pages are refused by the download box, single videos 
   assert.equal(k("https://www.youtube.com/playlist?list=PLx"), "other");
   for (const v of ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/shorts/dQw4w9WgXcQ",
     "https://www.youtube.com/live/dQw4w9WgXcQ", "https://www.twitch.tv/videos/123", "https://clips.twitch.tv/SomeClip", "https://kick.com/someone/videos/abc", "https://kick.com/xqc?clip=clip_01ABC"]) assert.equal(k(v), null, v);
+});
+
+test("layoutText: the job line's layout, facecam for split, Fit for old jobs", () => {
+  assert.equal(layoutText({ layout: "follow" }), "Follow action");
+  assert.equal(layoutText({ layout: "split", camSide: "tr" }), "Split · Top-right box");
+  assert.equal(layoutText({ layout: "split" }), "Split · Right third");
+  assert.equal(layoutText({}), "Fit");
+  assert.equal(layoutText({ layout: "fill", camSide: "tl" }), "Fill");
 });
