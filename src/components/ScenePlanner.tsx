@@ -219,8 +219,8 @@ function GuiWriter({ style }: { style: string }) {
       {res && (
         <div className="grid gap-2" aria-live="polite">
           {res.flags.length > 0 && (
-            <ul className="space-y-1 rounded-lg border border-amber-400/50 bg-amber-400/10 p-2" aria-label="Safety warnings">
-              {res.flags.map((f, i) => <li key={i}>⚠️ <b>Line {f.line}:</b> {f.message}</li>)}
+            <ul className="space-y-1 rounded-lg border border-amber-400/50 bg-amber-400/10 p-2" aria-label="Warnings">
+              {res.flags.map((f, i) => <li key={i}>{f.rule === "api" || f.rule === "deprecated" ? "📘" : "⚠️"} <b>Line {f.line}:</b> {f.message}</li>)}
             </ul>
           )}
           {res.diff ? (

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, REPEAT_LABEL, isRepeat, type HabitView, type LifeState } from "@/lib/life-pure";
 import type { LifeView } from "@/lib/nav-pure";
 import { VOICE_ASK } from "./voice/bus";
+import CalendarCard from "./CalendarCard";
 
 // LIFE workspace drawer: today's habits, habit list, focus timer, reminders, journal. All data via /api/life.
 
@@ -93,6 +94,7 @@ function Today({ st, act }: { st: LifeState; act: Act }) {
         ))}
         {!st.habits.length && <li className="muted text-sm">No habits yet. Add one under Habits.</li>}
       </ul>
+      <CalendarCard />
       <p className="muted text-xs">Focus today: {st.focus.today} min · {st.reminders.filter((r) => !r.fired).length} upcoming reminders</p>
     </div>
   );

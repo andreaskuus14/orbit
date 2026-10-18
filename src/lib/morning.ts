@@ -69,9 +69,15 @@ export async function getSince(sb: SupabaseClient, from: number, now = Date.now(
 export async function getMorning(sb: SupabaseClient, now = Date.now(), from: number | null = null): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
-  const [s, i, a, l, r, sn] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
+  const [s, i, a, l, r, sn, c] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
     within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
-    from === null ? Promise.resolve(undefined) : getSince(sb, from, now)]);
+    from === null ? Promise.resolve(undefined) : getSince(sb, from, now),
+    // Same cache entry as the LIFE card. No Google client configured → no calendar section at all.
+    within(Promise.all([import("./gcal"), import("./gcal-pure")]).then(async ([g, p]) => {
+      if (!g.calEnv()) return undefined;
+      const ev = await g.calendarEvents(7, now);
+      return { connected: !!ev, today: ev ? p.todayEvents(ev, now) : [] };
+    }))]);
   const life = ok(l), rec = ok(r), since = ok(sn);
-  return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, recall: rec?.length ? rec : undefined }, now, tz), ...(since && { since }) };
+  return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined }, now, tz), ...(since && { since }) };
 }

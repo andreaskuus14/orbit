@@ -860,7 +860,48 @@ function DevlogCard({ onChange }: { onChange: () => void }) {
       {s?.options && <LayoutChip o={s.options} onSave={(p) => void setLayout(p)} />}
       {s?.problem && <p className="error mt-1 text-xs" role="alert">{s.problem}</p>}
       {err && <p className="error mt-1 text-xs" role="alert">{err}</p>}
+      <DevlogScriptBox />
     </Section>
+  );
+}
+
+/** "Suggest a devlog script from my commits this week": one Claude call over git log/diffstat (read-only), shown for copy. Never published. */
+type GitRepos = { env: string[]; saved: string[] };
+type Script = { hook: string; script: string; titles: string[] };
+function DevlogScriptBox() {
+  const [repos, setRepos] = useState<GitRepos | null>(null), [draft, setDraft] = useState(""), [edit, setEdit] = useState(false);
+  const [busy, setBusy] = useState(""), [err, setErr] = useState(""), [out, setOut] = useState<(Script & { commits: number }) | null>(null), [copied, setCopied] = useState(false);
+  useEffect(() => { void api<GitRepos>("/api/git").then((r) => { setRepos(r); setDraft(r.saved.join("\n")); }, () => setRepos(null)); }, []);
+  const run = async (k: string, fn: () => Promise<void>) => { setBusy(k); setErr(""); try { await fn(); } catch (e) { setErr(e instanceof Error ? e.message : "Something went wrong"); } finally { setBusy(""); } };
+  const save = () => run("save", async () => { const r = await api<GitRepos>("/api/git", { method: "POST", body: { repos: draft } }); setRepos(r); setDraft(r.saved.join("\n")); setEdit(false); });
+  const suggest = () => run("suggest", async () => { setOut(null); setCopied(false); const r = await api<{ script: Script; commits: number }>("/api/git", { method: "POST", body: { action: "devlog" } }); setOut({ ...r.script, commits: r.commits }); });
+  const all = [...(repos?.env ?? []), ...(repos?.saved ?? [])];
+  const text = out ? `Hook: ${out.hook}\n\n${out.script}\n\nTitles:\n${out.titles.map((t) => `- ${t}`).join("\n")}` : "";
+  return (
+    <div className="mt-3 space-y-2 border-t border-white/10 pt-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="chip" onClick={() => void suggest()} disabled={!!busy || !all.length}>{busy === "suggest" ? "Writing…" : "✍ Suggest a devlog script from my commits this week"}</button>
+        <button className="chip text-xs" onClick={() => setEdit((v) => !v)} aria-expanded={edit}>Git repos ({all.length})</button>
+      </div>
+      {(edit || (repos && !all.length)) && (
+        <div className="space-y-1">
+          {repos?.env.map((p) => <code key={p} className="num block text-xs">{p} <span className="muted">(ORBIT_GIT_REPOS)</span></code>)}
+          <textarea className="field num w-full text-xs" rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={"C:\\Users\\you\\Games\\MyRobloxGame"} aria-label="Git repo folders, one per line (read-only access)" />
+          <button className="chip text-xs" onClick={() => void save()} disabled={!!busy}>{busy === "save" ? "Saving…" : "Save repos"}</button>
+          <span className="muted ml-2 text-[11px]">Absolute folders, one per line. ORBIT only reads git log and diff --stat.</span>
+        </div>
+      )}
+      {err && <p className="error text-xs" role="alert">{err}</p>}
+      {out && (
+        <div className="space-y-1 rounded bg-black/30 p-2">
+          <p className="muted text-[11px]">From {out.commits} commits · not published anywhere</p>
+          {out.hook && <p><b>Hook:</b> {out.hook}</p>}
+          <p className="whitespace-pre-wrap">{out.script}</p>
+          {out.titles.length > 0 && <ul className="muted list-disc pl-4 text-xs">{out.titles.map((t) => <li key={t}>{t}</li>)}</ul>}
+          <button className="chip text-xs" onClick={() => navigator.clipboard?.writeText(text).then(() => setCopied(true), () => setCopied(false))}>{copied ? "Copied" : "Copy"}</button>
+        </div>
+      )}
+    </div>
   );
 }
 

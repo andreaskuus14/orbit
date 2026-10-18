@@ -12,8 +12,9 @@ export type MorningStudio = { ready: number; approved: number; today: string[]; 
 export type MorningIntel = { title: string; at: string; headlines: string[] };
 export type MorningAgents = { done: string[]; failed: number; proposals: string[] };
 export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
+export type MorningCalendar = { connected: boolean; today: { time: string; title: string }[] }; // titles: calendar data (invites), plain text only
 export type Morning = {
-  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; recall?: Recall[]; since?: MorningSince;
+  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince;
   suggestion: { text: string; nav: MorningNav | null }; spoken: string;
 };
 
@@ -86,6 +87,8 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
     if (a.done.length) opt.push(`Overnight your agents finished ${n(a.done.length, "task")}${a.failed ? ` and ${a.failed} failed` : ""}.`);
     else if (a.failed) opt.push(`${n(a.failed, "agent task")} failed overnight.`);
   }
+  const ev = m.calendar?.today ?? [];
+  if (ev.length) must.push(`${n(ev.length, "event")} on your calendar today, first ${/^\d/.test(ev[0].time) ? `at ${ev[0].time}` : ev[0].time}: ${plain(ev[0].title)}.`);
   const l = m.life;
   if (l?.next) must.push(`Reminder at ${l.next.at}: ${l.next.text}.`);
   if (l?.habits) opt.push(l.done >= l.habits ? `All ${n(l.habits, "habit")} done for today.` : `${n(l.habits - l.done, "habit")} to do today.`);
@@ -98,7 +101,7 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   return plain([...must, ...opt, tail].join(" ").replace(/\.\./g, "."));
 }
 
-export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "recall">, now: number, tz: string): Morning {
+export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall">, now: number, tz: string): Morning {
   const base = { ...parts, greeting: greeting(now, tz), suggestion: suggest(parts) };
   return { ...base, spoken: spokenBriefing(base) };
 }

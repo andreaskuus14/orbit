@@ -140,3 +140,10 @@ test("sinceSection counts only what happened in the window", () => {
 test("countSince counts bell items from the window start on", () => {
   assert.equal(countSince([{ at: NOW - 9 * H }, { at: NOW - 8 * H }, { at: NOW }], NOW - 8 * H), 2);
 });
+
+test("calendar: today's events are said, not-connected says nothing", () => {
+  const now = Date.UTC(2026, 9, 18, 6);
+  const m = buildMorning({ calendar: { connected: true, today: [{ time: "10:00", title: "Dentist 🦷" }, { time: "14:00", title: "Call" }] } }, now, "UTC");
+  assert.match(m.spoken, /2 events on your calendar today, first at 10:00: Dentist\./);
+  assert.doesNotMatch(buildMorning({ calendar: { connected: false, today: [] } }, now, "UTC").spoken, /calendar/);
+});

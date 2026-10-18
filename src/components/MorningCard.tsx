@@ -104,7 +104,7 @@ export function MorningCard({ home }: { home: boolean }) {
   const toggleSpeak = (v: boolean) => { setSpeakMorning(v); save({ ...load(), speak: v }); };
   // Orbit's OPEN_MEMORY_EVENT handler also switches to the MEMORY panel.
   const openMem = (id: string) => { setOpen(false); dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id } })); };
-  const s = data?.studio, i = data?.intel, a = data?.agents, l = data?.life, rc = data?.recall, sn = data?.since;
+  const s = data?.studio, i = data?.intel, a = data?.agents, l = data?.life, cal = data?.calendar, rc = data?.recall, sn = data?.since;
   const away = sn ? Math.round((Date.now() - sn.from) / 3_600_000) : 0;
   const sinceBlock = sn && !sinceEmpty(sn, notes) && (
     <div>
@@ -158,6 +158,14 @@ export function MorningCard({ home }: { home: boolean }) {
             <div>
               <b>Life</b>
               <p className="muted">{l.habits ? `${l.done}/${l.habits} habits done today` : "No habits scheduled today"}{l.next ? ` · reminder ${l.next.at}: ${l.next.text}` : ""}</p>
+            </div>
+          )}
+          {cal && (
+            <div>
+              <b>Today&apos;s events</b>
+              {!cal.connected ? <p className="muted"><a className="underline" href="/api/life/calendar/oauth">Connect Google Calendar</a></p>
+                : cal.today.length ? <ul className="muted grid gap-1">{cal.today.slice(0, 6).map((e, k) => <li key={k}><span className="num">{e.time}</span> · {e.title}</li>)}</ul>
+                : <p className="muted">Nothing on your calendar today.</p>}
             </div>
           )}
           {rc && rc.length > 0 && (

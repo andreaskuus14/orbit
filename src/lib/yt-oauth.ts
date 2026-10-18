@@ -49,7 +49,7 @@ async function clearStored(expired: boolean) {
 /** The last refresh failed with invalid_grant (Google "Testing" apps expire refresh tokens after 7 days). */
 export const wasExpired = () => !!mem.expired;
 
-async function post(url: string, params: Record<string, string>) {
+export async function post(url: string, params: Record<string, string>) {
   const res = await fetch(url, {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params),
     signal: AbortSignal.timeout(10_000), cache: "no-store",
@@ -94,7 +94,7 @@ export async function connect(code: string, verifier: string, redirectUri: strin
     grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: redirectUri, client_id: cfg.id, client_secret: cfg.secret,
   }).catch(() => { throw new OAuthError("exchange"); });
   if (!t.access_token || !t.refresh_token) throw new OAuthError("no_refresh");
-  const fail = async (reason: string) => { await revoke(t.refresh_token!); throw new OAuthError(reason); }; // don't leave an unused grant alive
+  const fail = async (reason: string) => { await revokeYt(t.refresh_token!); throw new OAuthError(reason); }; // don't leave an unused grant alive
   const scope = t.scope ?? "";
   // Only the read scopes are required (analytics); upload is optional and checked when publishing.
   if (!hasScopes(scope, YT_SCOPES)) await fail("scope"); // user unticked a box on the consent screen
@@ -106,16 +106,24 @@ export async function connect(code: string, verifier: string, redirectUri: strin
   const prev = await readStored();
   try {
     await saveStored({ refresh_token: t.refresh_token, scope, channelId: ch.id, channelTitle: ch.snippet?.title ?? "", connectedAt: new Date().toISOString() });
-  } catch (e) { await revoke(t.refresh_token); throw e; } // couldn't keep it: don't leave it alive at Google
-  if (prev && prev.refresh_token !== t.refresh_token) await revoke(prev.refresh_token); // reconnect replaces the old grant
+  } catch (e) { await revokeYt(t.refresh_token); throw e; } // couldn't keep it: don't leave it alive at Google
+  if (prev && prev.refresh_token !== t.refresh_token) await revokeYt(prev.refresh_token); // reconnect replaces the old grant
   remember(t.access_token, t.expires_in, t.refresh_token);
 }
 
-const revoke = (token: string) => post("https://oauth2.googleapis.com/revoke", { token }).catch(() => {});
+export const revoke = (token: string) => post("https://oauth2.googleapis.com/revoke", { token }).catch(() => {});
+
+/** LIFE calendar may share this Google client (no GCAL_OAUTH_CLIENT_ID): Google revokes per client + user, so revoking one grant
+ *  would kill the other. True when `otherFile` (a grant of the other feature) exists in the data dir and the client is shared. */
+export const sharedGrant = async (otherFile: string) =>
+  !(process.env.GCAL_OAUTH_CLIENT_ID?.trim() && process.env.GCAL_OAUTH_CLIENT_SECRET?.trim()) &&
+  (await readFile(path.join(path.dirname(tokenFile()), otherFile)).then(() => true, () => false));
+/** Revoke a YouTube grant unless that would also kill the calendar grant (then only the local file is forgotten). */
+const revokeYt = async (token: string) => { if (!(await sharedGrant("gcal-oauth.json"))) await revoke(token); };
 
 /** Best-effort revoke at Google, then forget locally. */
 export async function disconnect() {
   const s = await readStored();
-  if (s) await revoke(s.refresh_token);
+  if (s) await revokeYt(s.refresh_token);
   await clearStored(false);
 }
