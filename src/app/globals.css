@@ -435,10 +435,28 @@ kbd { font-family: var(--font-mono); font-size: 0.68rem; padding: 0.05rem 0.4rem
 .galaxy-loader-orb i:nth-child(2) { inset: 14%; animation-duration: 1.7s; animation-direction: reverse; border-top-color: #c084fc; }
 .galaxy-loader-orb i:nth-child(3) { inset: -16%; animation-duration: 3.6s; border-color: rgba(216, 180, 254, 0.12); border-top-color: rgba(255, 107, 154, 0.6); }
 @keyframes orbit-spin { to { transform: rotate(360deg); } }
+.galaxy-loader-code { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.3em; color: #b9dcff; min-height: 1em; }
 @media (prefers-reduced-motion: reduce) {
   .galaxy-loader.done { transition: none; }
   .drawer.drawer-out { display: none; }
 }
+
+/* Galaxy HUD: restrained monospace micro-text, one cold accent (igloo-style). Above HAL's eye, clear of the command bar. */
+.galaxy-hud { position: absolute; right: 1rem; bottom: 5.5rem; z-index: 4; pointer-events: none; text-align: right; text-transform: uppercase;
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.7; letter-spacing: 0.16em; color: rgba(186, 214, 255, 0.5); white-space: pre; }
+.galaxy-hud b { color: #8fd3ff; font-weight: 500; }
+@media (max-width: 1100px) { .galaxy-hud { display: none; } }
+.hud-leader { position: absolute; left: 0; top: 0; z-index: 4; pointer-events: none; opacity: 0; transition: opacity 0.2s; will-change: transform;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; color: #dcecff; text-transform: uppercase; }
+.hud-leader.on { opacity: 1; }
+.hud-leader svg { position: absolute; left: 0; top: 0; overflow: visible; }
+.hud-leader circle { fill: #8fd3ff; }
+.hud-leader polyline { fill: none; stroke: rgba(143, 211, 255, 0.75); stroke-width: 1; stroke-dasharray: 110; animation: hud-draw 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.hud-leader-text { position: absolute; left: 80px; top: -34px; transform: translateY(-50%); white-space: nowrap; text-shadow: 0 0 8px rgba(0, 0, 0, 0.9); }
+.hud-leader-text b { color: #8fd3ff; font-weight: 500; margin-right: 0.7em; }
+.hud-leader-text small { display: block; font-size: 9px; color: rgba(186, 214, 255, 0.5); }
+@keyframes hud-draw { from { stroke-dashoffset: 110; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .hud-leader { transition: none; } .hud-leader polyline { animation: none; } }
 
 /* ---------- phone / installed-app (PWA) ---------- */
 /* Safe areas: env() is 0 on desktop and without viewport-fit=cover, so these keep the desktop layout identical. */

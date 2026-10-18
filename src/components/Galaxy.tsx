@@ -5,13 +5,15 @@ import { useGlRecovery } from "./useGlRecovery";
 import { ZoomRig } from "./ZoomRig";
 import { voiceLevel } from "./voice/bus";
 import { OrbitControls, Stars } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
-import { ToneMappingMode } from "postprocessing";
+import { EffectComposer, Bloom, Vignette, ToneMapping, Noise } from "@react-three/postprocessing";
+import { BlendFunction, ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import { PLANETS, type PanelId, type PlanetDef, type PlanetId } from "@/lib/planets";
 import { QUALITY, stepQuality, type QualityLevel, type QualityMode, type QualityState } from "@/lib/quality-pure";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
+import { fmtCoord } from "@/lib/cinematic-pure";
+import { CameraFeel, DevStats, Dust, GalaxyHud, MotionAberration, useRim, type HudEls, type Motion } from "./Cinematic";
 
 export type GalaxyProps = {
   selected: PanelId | null;
@@ -245,15 +247,23 @@ function Moons({ count, reduced }: { count: number; reduced: boolean }) {
     }),
     [count],
   );
+  const inst = useRef<THREE.InstancedMesh>(null);
+  useEffect(() => { // one draw call for all moons (was one mesh each, up to 40)
+    const m = inst.current;
+    if (!m) return;
+    const o = new THREE.Object3D();
+    items.forEach((it, i) => { o.position.set(it.x, it.y, it.z); o.updateMatrix(); m.setMatrixAt(i, o.matrix); });
+    m.count = items.length;
+    m.instanceMatrix.needsUpdate = true;
+    m.computeBoundingSphere(); // three caches the instanced bounds: recompute or moons get culled against stale ones
+  }, [items]);
   useFrame((_, dt) => { if (g.current && !reduced) g.current.rotation.y += dt * 0.4; });
   return (
     <group ref={g}>
-      {items.map((m, i) => (
-        <mesh key={i} position={[m.x, m.y, m.z]}>
-          <sphereGeometry args={[0.045, 8, 8]} />
-          <meshStandardMaterial color="#c9ccd6" roughness={1} />
-        </mesh>
-      ))}
+      <instancedMesh ref={inst} args={[undefined, undefined, 40]} count={items.length}>
+        <sphereGeometry args={[0.045, 8, 8]} />
+        <meshStandardMaterial color="#c9ccd6" roughness={1} />
+      </instancedMesh>
     </group>
   );
 }
@@ -511,8 +521,8 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false }: {
-  p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void;
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false }: {
+  p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
   agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
   life?: { done: number; total: number } | null; still?: boolean; // still = reduced motion or low quality: no animation
@@ -534,6 +544,8 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
   const phase = index * 0.95;
   const hovered = useRef(false);
   const flash = useRef(0); // lightning flash, briefly lights the storm world from inside
+  const tapT = useRef<ReturnType<typeof setTimeout>>(undefined); // touch has no hover-out: clear the hover (leader label) after a beat
+  const rim = useRim(); // cold fresnel rim: brighter on hover / focus so the world pops off the dark
 
   useFrame(({ clock }, dt) => {
     const a = phase + (reduced ? 0 : clock.elapsedTime * p.speed);
@@ -549,6 +561,7 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
     // Hover lifts the planet a little; eases, never snaps.
     const k = 1 - Math.exp(-dt * 8);
     if (group.current) group.current.scale.setScalar(THREE.MathUtils.lerp(group.current.scale.x, hovered.current || selected ? 1.08 : 1, k));
+    rim.u.uRim.value = THREE.MathUtils.lerp(rim.u.uRim.value, hovered.current ? 1.1 : selected ? 0.6 : 0.22, k);
   });
 
   return (
@@ -559,13 +572,17 @@ function Planet({ p, index, selected, onSelect, positions, pulses, memoryCount, 
           ref={mesh}
           rotation-z={0.2}
           onClick={(e) => { e.stopPropagation(); onSelect(p.id); }}
-          onPointerOver={() => { hovered.current = true; document.body.style.cursor = "pointer"; }}
-          onPointerOut={() => { hovered.current = false; document.body.style.cursor = ""; }}
+          onPointerOver={(e) => {
+            hovered.current = true; onHover(p.id, true); document.body.style.cursor = "pointer";
+            clearTimeout(tapT.current);
+            if (e.pointerType === "touch") tapT.current = setTimeout(() => { hovered.current = false; onHover(p.id, false); }, 2500);
+          }}
+          onPointerOut={() => { clearTimeout(tapT.current); hovered.current = false; onHover(p.id, false); document.body.style.cursor = ""; }}
         >
           <sphereGeometry args={[size, 128, 128]} />
           <meshStandardMaterial map={photo ?? map} color={surf.tint ?? "#ffffff"} bumpMap={photo ?? map} bumpScale={surf.bump}
             roughness={surf.rough} metalness={surf.metal ?? 0}
-            emissive={surf.glow ?? p.color} emissiveMap={surf.glow ? (photo ?? map) : null} emissiveIntensity={0} />
+            emissive={surf.glow ?? p.color} emissiveMap={surf.glow ? (photo ?? map) : null} emissiveIntensity={0} onBeforeCompile={rim.onBeforeCompile} />
         </mesh>
         {cloudTex && (
           <mesh ref={clouds} scale={1.02} rotation-z={0.2}>
@@ -816,7 +833,7 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
       <mesh onClick={(e) => { e.stopPropagation(); onSelect("core"); }}
         onPointerOver={() => (document.body.style.cursor = "pointer")} onPointerOut={() => (document.body.style.cursor = "")}>
         <sphereGeometry args={[1.9, 24, 24]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        <meshBasicMaterial visible={false} /> {/* not drawn (one draw call saved); raycasting ignores material visibility */}
       </mesh>
       <mesh ref={sat} visible={false}><sphereGeometry args={[0.14, 16, 16]} /><meshBasicMaterial color="#67e8f9" toneMapped={false} /></mesh>
       {warning && (
@@ -829,13 +846,21 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
   );
 }
 
-/** Projects each body's position to screen space every frame and moves plain DOM labels there (no extra React roots). */
-function LabelProjector({ positions, labels }: { positions: Positions; labels: RefObject<Record<string, HTMLSpanElement | null>> }) {
+const BODIES = ["core", ...PLANETS.map((p) => p.id)];
+
+/** Projects each body's position to screen space every frame and moves plain DOM labels there (no extra React roots).
+ *  Also places the HUD's leader label beside the hovered planet and writes the focus coordinates (no allocations). */
+function LabelProjector({ positions, labels, hover, selected, hud }: {
+  positions: Positions; labels: RefObject<Record<string, HTMLSpanElement | null>>;
+  hover: RefObject<PlanetId | null>; selected: PanelId | null; hud: RefObject<HudEls>;
+}) {
   const v = useMemo(() => new THREE.Vector3(), []);
-  useFrame(({ camera, size }) => {
+  const st = useRef({ t: 0, text: "" });
+  useFrame(({ camera, size, controls }, dt) => {
     const els = labels.current;
     if (!els) return;
-    for (const [id, el] of Object.entries(els)) {
+    for (const id of BODIES) {
+      const el = els[id];
       if (!el) continue;
       const p = PLANETS.find((x) => x.id === id);
       if (id === "core") v.set(0, -2.4, 0);
@@ -845,6 +870,24 @@ function LabelProjector({ positions, labels }: { positions: Positions; labels: R
       el.style.opacity = visible ? "1" : "0";
       el.style.transform = `translate(-50%, -50%) translate(${((v.x + 1) / 2) * size.width}px, ${((1 - v.y) / 2) * size.height}px)`;
     }
+    const h = hover.current, leader = hud.current.leader;
+    const hp = h ? PLANETS.find((x) => x.id === h) : undefined;
+    if (leader && hp) { // start the leader line on the planet's upper-right limb
+      const cam = camera as THREE.PerspectiveCamera;
+      const dist = Math.max(0.1, camera.position.distanceTo(positions[hp.id]));
+      const rPx = ((planetSize(hp) * 1.08) / (dist * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)))) * (size.height / 2) * 0.72;
+      v.copy(positions[hp.id]).project(camera);
+      leader.style.visibility = v.z < 1 ? "visible" : "hidden";
+      leader.style.transform = `translate(${((v.x + 1) / 2) * size.width + rPx}px, ${((1 - v.y) / 2) * size.height - rPx}px)`;
+    }
+    const s = st.current, coord = hud.current.coord;
+    if (!coord || (s.t += dt) < 0.15) return; // ~7 Hz is plenty for a readout
+    s.t = 0;
+    const fid = h ?? (selected && selected !== "core" && selected !== "profile" ? selected : null);
+    const c = controls as unknown as { target: THREE.Vector3 } | null;
+    const text = fid ? `X${fmtCoord(positions[fid].x)}  Z${fmtCoord(positions[fid].z)}`
+      : `CAM R${fmtCoord(c ? camera.position.distanceTo(c.target) : camera.position.length())}`;
+    if (text !== s.text) { s.text = text; coord.textContent = text; }
   });
   return null;
 }
@@ -958,22 +1001,37 @@ export default function Galaxy(props: GalaxyProps) {
   const mode = props.quality ?? "auto";
   const level: QualityLevel = mode === "high" ? 2 : mode === "low" ? 0 : (Math.min(autoLevel, max) as QualityLevel);
   const q = QUALITY[level];
+  const motion = useRef<Motion>({ speed: 0 });
+  const hover = useRef<PlanetId | null>(null);
+  const hoverSet = useRef<(id: PlanetId, on: boolean) => void>(() => {});
+  const hud = useRef<HudEls>({ leader: null, coord: null });
+  const onHover = useCallback((id: PlanetId, on: boolean) => {
+    if (on) hover.current = id; else if (hover.current === id) hover.current = null;
+    hoverSet.current(id, on);
+  }, []);
+  // Phones (Tailscale) get at most 1.5x: past that the fill rate costs more than the sharpness is worth.
+  const [coarse] = useState(() => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
+  const dprMax = coarse ? Math.min(1.5, q.dpr) : Math.min(2, q.dpr);
+  const film = q.film && !props.reduced; // grain is motion, aberration is motion: both off for reduced motion
   return (
     <div className="relative h-full w-full">
-      <Canvas key={glr.key} onCreated={glr.onCreated} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, q.dpr]}
+      <Canvas key={glr.key} onCreated={glr.onCreated} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, dprMax]}
         gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping }}>
         <color attach="background" args={["#02040b"]} />
+        {/* Depth haze: far orbits and belts sink into a cold blue-black (shader layers like stars/nebulae ignore it). */}
+        <fogExp2 attach="fog" args={["#070c1c", 0.0055]} />
         <ambientLight intensity={0.06} color="#9aa8c0" /> {/* low fill: the CORE is the sun, worlds get a real day and night side */}
         <Nebula />
         <NebulaPlates reduced={props.reduced} />
         <Stars radius={110} depth={60} count={props.reduced ? Math.min(2000, q.stars) : q.stars} factor={3.2} fade speed={props.reduced ? 0 : 0.5} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
+        <Dust count={q.dust} reduced={props.reduced} />
         <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
         <AsteroidBelt inner={5.5} outer={6.0} count={Math.round(900 * q.belt)} seed={3} reduced={props.reduced} />
         <AsteroidBelt inner={32} outer={34} count={Math.round(2200 * q.belt)} seed={9} reduced={props.reduced} thickness={0.6} />
         {PLANETS.map((p, i) => (
-          <Planet key={p.id} p={p} index={i} selected={props.selected === p.id} onSelect={props.onSelect}
+          <Planet key={p.id} p={p} index={i} selected={props.selected === p.id} onSelect={props.onSelect} onHover={onHover}
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
@@ -982,19 +1040,24 @@ export default function Galaxy(props: GalaxyProps) {
         <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={80} enableDamping />
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} />
         <ZoomRig home={HOME.length()} reduced={props.reduced} />
-        <LabelProjector positions={positions} labels={labels} />
+        <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} />
+        <LabelProjector positions={positions} labels={labels} hover={hover} selected={props.selected} hud={hud} />
+        {process.env.NODE_ENV === "development" && <DevStats />}
         <FirstFrames onReady={onReady} />
         {mode === "auto" && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
         {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}
         {q.bloom > 0 && (
           <EffectComposer key={level} multisampling={q.msaa}>
             <Bloom intensity={props.reduced ? Math.min(0.6, q.bloom) : q.bloom} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />
+            {film ? <MotionAberration motion={motion} /> : <></>}
             <Vignette offset={0.28} darkness={0.7} />
             <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+            {film ? <Noise blendFunction={BlendFunction.OVERLAY} opacity={0.16} /> : <></>}
           </EffectComposer>
         )}
       </Canvas>
       <GalaxyLoader done={ready} />
+      <GalaxyHud selected={props.selected} hoverSet={hoverSet} els={hud} />
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning ? "#fb7185" : "#ffe2b0" }}>
           CORE{props.warning ? " · last request failed" : ""}

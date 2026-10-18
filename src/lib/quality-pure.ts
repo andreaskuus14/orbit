@@ -18,11 +18,12 @@ export function stepQuality(s: QualityState, fps: number, dt: number, max: Quali
   return { level, low, high, ceil: s.ceil };
 }
 
-/** What each level costs. Galaxy reads these; kept here so the numbers are in one place. */
+/** What each level costs. Galaxy reads these; kept here so the numbers are in one place.
+ *  film = grain + motion aberration, dust = drifting particles: the first things to go on a step down. */
 export const QUALITY = [
-  { dpr: 1, stars: 1500, bloom: 0, msaa: 0, belt: 0.35 },
-  { dpr: 1.25, stars: 3500, bloom: 0.7, msaa: 0, belt: 0.65 },
-  { dpr: 1.75, stars: 6000, bloom: 0.95, msaa: 4, belt: 1 },
+  { dpr: 1, stars: 1500, bloom: 0, msaa: 0, belt: 0.35, film: false, dust: 0 },
+  { dpr: 1.25, stars: 3500, bloom: 0.7, msaa: 0, belt: 0.65, film: false, dust: 220 },
+  { dpr: 1.75, stars: 6000, bloom: 0.95, msaa: 4, belt: 1, film: true, dust: 600 },
 ] as const;
 
 export const parseQualityMode = (v: string | null): QualityMode => (v === "high" || v === "low" ? v : "auto");
