@@ -3,22 +3,26 @@ import { useEffect, useState } from "react";
 import { gameLink, isRbxImage, type TrendSort } from "@/lib/devtools-pure";
 import { dueAlerts, type Riser } from "@/lib/trend-rise-pure";
 import { notify } from "@/lib/notify-pure";
+import type { Topic, YtRiser } from "@/lib/yt-trend-pure";
 
 // DevWorld → Roblox Trend Radar: public Roblox discovery lists + an optional AI read of the patterns.
 const PINK = "#f472b6";
-type Trends = { source: string; sorts: TrendSort[]; at: number; error?: string; tried: string[]; risers?: Riser[] };
+type Trends = { source: string; sorts: TrendSort[]; at: number; error?: string; tried: string[]; risers?: Riser[]; yt?: { risers: YtRiser[]; topics: Topic[]; region: string; hint?: string; error?: string } };
 const ALERT_KEY = "orbit.trendAlerts";
 
 /** Bell alert for strong risers, at most once per game per day (fetch-on-view only, no schedule). */
-function alertRisers(risers: Riser[]) {
+function alertRisers(risers: Riser[], yt: YtRiser[]) {
   try {
     const day = new Date().toLocaleDateString("en-CA");
     const { due, next } = dueAlerts(risers, JSON.parse(localStorage.getItem(ALERT_KEY) || "{}"), day);
     for (const r of due) notify({ kind: "studio", title: `🔺 ${r.name} is rising`, body: `+${r.growthPct}% players in ~${r.window}. Make a Short today before it peaks.`, nav: { panel: "creation" } });
-    localStorage.setItem(ALERT_KEY, JSON.stringify(next));
+    const y = dueAlerts(yt, next, day, (r) => `yt:${r.id}`);
+    for (const r of y.due) notify({ kind: "studio", title: `📺 Rising on YouTube: ${r.title.slice(0, 60)}`, body: `${ytStat(r)} · ${r.channel}. Ride the topic with a Short today.`, nav: { panel: "creation" } });
+    localStorage.setItem(ALERT_KEY, JSON.stringify(y.next));
   } catch { /* storage blocked: skip alerts */ }
 }
-const num = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
+const num = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
+const ytStat = (r: YtRiser) => [r.isNew ? `🆕 new on the list at #${r.rank}` : `#${r.rank}`, r.viewsPerHour !== null ? `+${num(r.viewsPerHour)} views/h` : "", r.rankJump ? `▲${r.rankJump} places` : ""].filter(Boolean).join(" · ");
 
 export default function TrendRadar() {
   const [data, setData] = useState<Trends | null>(null);
@@ -30,7 +34,7 @@ export default function TrendRadar() {
 
   useEffect(() => {
     fetch("/api/devtools?trends=1", { cache: "no-store" })
-      .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Couldn't load (${r.status})`); setData(j); alertRisers(j.risers ?? []); })
+      .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Couldn't load (${r.status})`); setData(j); alertRisers(j.risers ?? [], j.yt?.risers ?? []); })
       .catch((e) => setErr(e instanceof Error ? e.message : "Couldn't load"));
   }, []);
 
@@ -57,13 +61,14 @@ export default function TrendRadar() {
           <ul className="muted list-disc pl-4 text-xs">{data.tried.map((t) => <li key={t}>{t}</li>)}</ul>
         </div>
       )}
-      {data && data.sorts.length > 0 && (
+      {data && ( // Roblox down: no list tabs, tab 0 === sorts.length so Rising (YouTube) still shows
         <>
-          <p className="muted text-xs">Source: {data.source} · fetched {new Date(data.at).toLocaleTimeString()}{data.tried.length ? ` · (fallback after: ${data.tried.join("; ")})` : ""}</p>
+          {data.sorts.length > 0 && <p className="muted text-xs">Source: {data.source} · fetched {new Date(data.at).toLocaleTimeString()}{data.tried.length ? ` · (fallback after: ${data.tried.join("; ")})` : ""}</p>}
           <div className="flex gap-1.5" role="group" aria-label="List">
             {data.sorts.map((s, i) => <button key={s.id} className="chip" aria-pressed={tab === i} onClick={() => setTab(i)} style={tab === i ? { borderColor: PINK, color: PINK } : undefined}>{s.name}</button>)}
             <button className="chip" aria-pressed={rising} onClick={() => setTab(data.sorts.length)} style={rising ? { borderColor: PINK, color: PINK } : undefined}>🔺 Rising</button>
           </div>
+          {rising && <h3 className="text-sm font-semibold">🎮 Roblox</h3>}
           {rising && (
             <ol className="space-y-1.5">
               {!data.risers?.length && <li className="muted text-sm">No risers yet. ORBIT compares each fetch with ones ~1 h and ~24 h earlier, so check back later.</li>}
@@ -77,6 +82,30 @@ export default function TrendRadar() {
                 </li>
               ))}
             </ol>
+          )}
+          {rising && (
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-semibold">📺 YouTube <span className="muted text-xs font-normal">Gaming · most popular ({data.yt?.region ?? "US"})</span></h3>
+              {data.yt?.hint && <p className="muted text-sm">{data.yt.hint}</p>}
+              {data.yt?.error && <p className="error text-sm" role="alert">{data.yt.error}</p>}
+              {!!data.yt?.topics.length && (
+                <div className="flex flex-wrap gap-1.5" aria-label="Hot topics">
+                  <span className="muted text-xs">Hot topics:</span>
+                  {data.yt.topics.map((t) => <span key={t.term} className="chip text-xs">{t.term} ×{t.count}</span>)}
+                </div>
+              )}
+              {data.yt && !data.yt.hint && !data.yt.error && !data.yt.risers.length && <p className="muted text-sm">No YouTube risers yet. ORBIT compares each fetch with an earlier one (30 min+), so check back later.</p>}
+              <ol className="space-y-1.5">
+                {data.yt?.risers.map((r) => (
+                  <li key={r.id}>
+                    <a href={`https://www.youtube.com/watch?v=${r.id}`} target="_blank" rel="noopener noreferrer" className="card block no-underline" aria-label={`${r.title} by ${r.channel}, ${ytStat(r)}, opens on YouTube`}>
+                      <span className="block truncate text-sm font-semibold">{r.strong ? "🔥 " : ""}{r.title}</span>
+                      <span className="muted block truncate text-xs">{r.channel} · {ytStat(r)} · 👁 {num(r.views)}</span>
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            </div>
           )}
           <ol className="space-y-1.5">
             {sort?.games.map((g, i) => (

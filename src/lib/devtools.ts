@@ -11,6 +11,8 @@ import {
 } from "./devtools-pure";
 import { orbitDataDir } from "./data-dir";
 import { findRisers, parseSnaps, pushSnap, toSnapshot, type Riser } from "./trend-rise-pure";
+import { findYtRisers, hotTopics, parsePopular, parseYtSnaps, type Topic, type YtRiser } from "./yt-trend-pure";
+import { OAuthError, getAccessToken, invalidateAccess, oauthEnv, readStored } from "./yt-oauth";
 
 // DevWorld game-dev tools: Openverse sound search + local favourites, and the Roblox Trend Radar.
 // All outbound HTTP goes through safeFetch (SSRF guard, size cap); results are cached in memory with a size cap.
@@ -75,21 +77,58 @@ export const removeFavourite = (id: string) => updateFavs((f) => f.filter((x) =>
 
 /* ---------- Roblox Trend Radar ---------- */
 
-export type Trends = { source: string; sorts: TrendSort[]; at: number; error?: string; tried: string[]; risers?: Riser[] };
+export type YtTrends = { risers: YtRiser[]; topics: Topic[]; region: string; hint?: string; error?: string };
+export type Trends = { source: string; sorts: TrendSort[]; at: number; error?: string; tried: string[]; risers?: Riser[]; yt?: YtTrends };
 
-/** Append a snapshot to <data dir>/trend-history.json (atomic) and return current risers. Never throws. */
+/** Append a snapshot to <data dir>/<name> (atomic; 7 days / 200 max) and return the whole history. Throws on I/O errors. */
+async function appendHistory<T extends { at: number }>(name: string, parse: (j: unknown) => T[], snap: T): Promise<T[]> {
+  const file = path.join(orbitDataDir(), name);
+  const old = parse(JSON.parse(await readFile(file, "utf8").catch(() => "[]"))); // shortcut: a corrupt file restarts history (it's only a cache)
+  const snaps = pushSnap(old, snap);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file + ".tmp", JSON.stringify(snaps));
+  await rename(file + ".tmp", file);
+  return snaps;
+}
+
+/** Append a snapshot to trend-history.json and return current risers. Never throws. */
 async function recordSnapshot(sorts: TrendSort[], now: number): Promise<Riser[]> {
-  const file = path.join(orbitDataDir(), "trend-history.json");
   try {
-    const old = parseSnaps(JSON.parse(await readFile(file, "utf8").catch(() => "[]"))); // shortcut: a corrupt file restarts history (it's only a cache)
-    const snaps = pushSnap(old, toSnapshot(sorts, now));
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file + ".tmp", JSON.stringify(snaps));
-    await rename(file + ".tmp", file);
-    return findRisers(snaps);
+    return findRisers(await appendHistory("trend-history.json", parseSnaps, toSnapshot(sorts, now)));
   } catch (e) {
     console.error("[devtools] trend history:", e instanceof Error ? e.message : e);
     return [];
+  }
+}
+
+/* YouTube Gaming chart via the owner's STUDIO OAuth grant (youtube.readonly; videos.list = 1 quota unit per call). Never throws. */
+const YT_REGION = "US";
+const YT_HINT = "Connect YouTube in STUDIO to see YouTube trends";
+async function popular(token: string): Promise<Response> {
+  const url = `https://www.googleapis.com/youtube/v3/videos?${new URLSearchParams({ part: "snippet,statistics", chart: "mostPopular", videoCategoryId: "20", regionCode: YT_REGION, maxResults: "50" })}`;
+  return fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000), cache: "no-store" });
+}
+async function ytTrends(now: number): Promise<YtTrends> {
+  const out: YtTrends = { risers: [], topics: [], region: YT_REGION };
+  const s = oauthEnv() ? await readStored() : null;
+  if (!s) return { ...out, hint: YT_HINT };
+  let token = "";
+  try {
+    token = await getAccessToken(s);
+    let res = await popular(token);
+    if (res.status === 401) { invalidateAccess(); token = await getAccessToken(s); res = await popular(token); } // token revoked/rotated early
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`YouTube API ${res.status}: ${String(json?.error?.message ?? res.statusText).slice(0, 200)}`);
+    const snap = parsePopular(json, now);
+    out.topics = hotTopics(snap.videos.map((v) => v.title));
+    if (snap.videos.length) try { // an empty chart as baseline would make the whole next top 25 look "new"
+      out.risers = findYtRisers(await appendHistory("yt-trend-history.json", parseYtSnaps, snap));
+    } catch (e) { console.error("[devtools] yt trend history:", e instanceof Error ? e.message : e); }
+    return out;
+  } catch (e) {
+    if (e instanceof OAuthError) return { ...out, hint: e.message === "invalid_grant" ? "YouTube sign-in expired. Reconnect in STUDIO to see YouTube trends" : YT_HINT };
+    const msg = e instanceof Error ? (e.name === "TimeoutError" ? "YouTube API timed out" : e.message) : "YouTube request failed";
+    return { ...out, error: token ? msg.split(token).join("***") : msg };
   }
 }
 
@@ -125,15 +164,16 @@ const tc = globalThis as unknown as { __orbitTrends?: { at: number; p: Promise<T
 export function getTrends(now = Date.now()): Promise<Trends> {
   if (tc.__orbitTrends && now - tc.__orbitTrends.at < TREND_MS) return tc.__orbitTrends.p;
   const p = (async (): Promise<Trends> => {
+    const ytP = ytTrends(now); // in parallel with Roblox; same 30-min cache, fetched only when the radar is viewed
     const tried: string[] = [];
     for (const [source, fn] of [["Roblox explore API (get-sorts)", fromExplore], ["Roblox games API (legacy sorts)", fromLegacy]] as const) {
       try {
         const sorts = await fn();
-        if (sorts.length) { await addIcons(sorts); return { source, sorts, at: now, tried, risers: await recordSnapshot(sorts, now) }; }
+        if (sorts.length) { await addIcons(sorts); return { source, sorts, at: now, tried, risers: await recordSnapshot(sorts, now), yt: await ytP }; }
         tried.push(`${source}: no games returned`);
       } catch (e) { tried.push(`${source}: ${(e as Error).message}`); }
     }
-    return { source: "none", sorts: [], at: now, tried, error: "Roblox didn't return any public game lists right now." };
+    return { source: "none", sorts: [], at: now, tried, error: "Roblox didn't return any public game lists right now.", yt: await ytP };
   })();
   tc.__orbitTrends = { at: now, p };
   void p.then((t) => { if (!t.sorts.length && tc.__orbitTrends?.p === p) tc.__orbitTrends = { at: now - TREND_MS + 2 * 60_000, p }; }); // retry a failure after 2 min

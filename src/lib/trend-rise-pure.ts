@@ -35,8 +35,8 @@ export function parseSnaps(j: unknown): Snap[] {
     .sort((a, b) => a.at - b.at);
 }
 
-/** Add a snapshot and keep the last 7 days, at most 200. */
-export const pushSnap = (list: Snap[], s: Snap): Snap[] => [...list, s].filter((x) => s.at - x.at <= KEEP_MS).slice(-KEEP_MAX);
+/** Add a snapshot and keep the last 7 days, at most 200 (Roblox and YouTube histories alike). */
+export const pushSnap = <T extends { at: number }>(list: T[], s: T): T[] => [...list, s].filter((x) => s.at - x.at <= KEEP_MS).slice(-KEEP_MAX);
 
 /** Compare the newest snapshot with ~1 h and ~24 h earlier ones; best window per game, biggest growth first. */
 export function findRisers(snaps: Snap[], limit = 10): Riser[] {
@@ -63,11 +63,11 @@ export function findRisers(snaps: Snap[], limit = 10): Riser[] {
   return [...best.values()].sort((a, b) => b.growthPct - a.growthPct || b.rankJump - a.rankJump).slice(0, limit);
 }
 
-/** Strong risers not yet alerted today; returns them plus the updated "alerted" map (universeId → YYYY-MM-DD). */
-export function dueAlerts(risers: Riser[], alerted: Record<string, string>, day: string): { due: Riser[]; next: Record<string, string> } {
-  const due = risers.filter((r) => r.strong && alerted[r.universeId] !== day);
+/** Strong risers not yet alerted today; returns them plus the updated "alerted" map (key, default universeId → YYYY-MM-DD). */
+export function dueAlerts<T extends { strong: boolean }>(risers: T[], alerted: Record<string, string>, day: string, key = (r: T) => String((r as Partial<Riser>).universeId)): { due: T[]; next: Record<string, string> } {
+  const due = risers.filter((r) => r.strong && alerted[key(r)] !== day);
   const next: Record<string, string> = {};
   for (const [k, v] of Object.entries(alerted)) if (v === day) next[k] = v; // drop older days so the map stays small
-  for (const r of due) next[r.universeId] = day;
+  for (const r of due) next[key(r)] = day;
   return { due, next };
 }
