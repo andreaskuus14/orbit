@@ -216,7 +216,7 @@ export async function runPulse(sb: SupabaseClient, userId: string, kind: PulseKi
 
     const prompt = `USER CONTEXT:\n${context || "(no profile yet)"}\n\nNEWS EVENTS (newest ${WINDOW_HOURS[kind]}h, grouped):\n${events.join("\n\n")}`;
     const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-    const r = await askClaude(prompt, systemPrompt(kind, today, focus));
+    const r = await askClaude(prompt, systemPrompt(kind, today, focus), { purpose: `pulse.${kind}` });
     await recordUsage(sb, userId, `pulse.${kind}`, r);
 
     const citations: ArticleCitation[] = parseCitations(r.text, "a")

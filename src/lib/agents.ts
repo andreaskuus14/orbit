@@ -7,6 +7,8 @@ import { findCountry } from "./countries-pure";
 import { displayName } from "./geo";
 import { verifyAnswer, type Source } from "./verify";
 import { needsSelfReview } from "./core-ui";
+import { stopAllOn } from "./stop-all";
+import { PAUSED_MSG } from "./stop-all-pure";
 import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 
 // ORBIT's agent workforce. Each agent is Claude (via Claude Code) with its own instructions and an allow-list of
@@ -321,6 +323,10 @@ const live = (g.__orbitLiveTasks ??= new Map());
 /** Run one task to completion (or to awaiting_approval). Delegated sub-tasks run inline via the delegate tool.
  *  Stops early, reporting what it finished, when `parentSignal` aborts, cancelTask is called or the budget runs out. */
 export async function runTask(sb: SupabaseClient, userId: string, taskId: string, depth = 0, budget = createBudget(), parentSignal?: AbortSignal) {
+  if (stopAllOn()) { // Stop-all: never start; the row is closed so it can't sit "running" forever
+    await sb.from("tasks").update({ status: "cancelled", error: PAUSED_MSG, finished_at: new Date().toISOString() }).eq("id", taskId).in("status", ["queued", "running"]);
+    return { status: "cancelled", result: null, error: PAUSED_MSG };
+  }
   const ac = new AbortController();
   live.set(taskId, ac);
   try { return await runTaskInner(sb, userId, taskId, depth, budget, AbortSignal.any([ac.signal, budget.signal, ...(parentSignal ? [parentSignal] : [])])); }
@@ -356,7 +362,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
       const forceFinal = step === MAX_STEPS - 1 || budget.used >= budget.calls - 1; // keep the last call for an answer
       const prompt = `TASK: ${task.title}\n\nREQUEST:\n${task.request}\n\n${transcript.length ? `YOUR STEPS SO FAR:\n${transcript.join("\n\n")}\n\n` : ""}${forceFinal ? "You are out of steps: reply now with \"final\"." : "Your next JSON reply:"}`;
       chargeCall(budget, signal);
-      const r = await askClaude(prompt, system, { signal });
+      const r = await askClaude(prompt, system, { signal, purpose: `agent.${agent.slug}` });
       await recordUsage(sb, userId, `agent.${agent.slug}`, r);
       const reply = parseAgentReply(r.text);
       trace.push({ step: "think", detail: `${MODEL} · ${reply.thought || (reply.final ? "answering" : "")}`.slice(0, 300), ms: r.ms, ok: true });
@@ -379,7 +385,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         if (needsSelfReview(result, transcript.length, depth, verified) && budget.used < budget.calls && budget.deadline - Date.now() > 150_000) {
           chargeCall(budget, signal);
           const t0 = Date.now();
-          const rv = await reviewDraft(`TASK: ${task.title}\n\n${task.request}`, result, transcript.join("\n\n"), { signal, onUsage: (rr) => recordUsage(sb, userId, `agent.${agent.slug}.review`, rr) });
+          const rv = await reviewDraft(`TASK: ${task.title}\n\n${task.request}`, result, transcript.join("\n\n"), { signal, purpose: `agent.${agent.slug}.review`, onUsage: (rr) => recordUsage(sb, userId, `agent.${agent.slug}.review`, rr) });
           result = rv.text;
           if (rv.reviewed) trace.push({ step: "review", detail: `${MODEL} · self-reviewed`, ms: Date.now() - t0, ok: true });
         }
@@ -478,6 +484,9 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
 
 /* ---------------- queue ---------------- */
 
+/** Ids of tasks (and team chains) running in this process: Stop-all cancels each through cancelTask. */
+export const liveTaskIds = () => [...live.keys()];
+
 /** Stop a task. Running here: abort it (runTask marks it and its sub-tasks cancelled and reports what finished).
  *  Otherwise only a queued task, or a running one orphaned by a restart (20+ min), is marked cancelled. False if nothing to cancel. */
 export async function cancelTask(sb: SupabaseClient, taskId: string) {
@@ -497,7 +506,7 @@ const running = (g.__orbitTaskQueue ??= new Set());
 
 /** Start queued top-level tasks while fewer than MAX_RUNNING are active. */
 export async function kickQueue(sb: SupabaseClient, userId: string) {
-  while (running.size < MAX_RUNNING) {
+  while (running.size < MAX_RUNNING && !stopAllOn()) { // Stop-all: queued tasks wait (they start on Resume)
     const { data } = await sb.from("tasks").select("id").eq("user_id", userId).eq("status", "queued").is("parent_id", null)
       .order("created_at").limit(1);
     const next = data?.[0];
@@ -505,6 +514,11 @@ export async function kickQueue(sb: SupabaseClient, userId: string) {
     running.add(next.id);
     // Claim it so a second kick doesn't start it twice.
     await sb.from("tasks").update({ status: "running", started_at: new Date().toISOString() }).eq("id", next.id).eq("status", "queued");
+    if (stopAllOn()) { // turned on meanwhile: hand it back to the queue (it starts on Resume), not cancelled
+      await sb.from("tasks").update({ status: "queued", started_at: null }).eq("id", next.id).eq("status", "running");
+      running.delete(next.id);
+      return;
+    }
     void runTask(sb, userId, next.id)
       .catch((e) => console.error("[orbit] task crashed", next.id, e))
       .finally(() => { running.delete(next.id); void kickQueue(sb, userId); });

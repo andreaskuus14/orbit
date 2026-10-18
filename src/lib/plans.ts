@@ -4,6 +4,7 @@ import { scheduleAll } from "./clips/publish-schedule";
 import { isInboxName, validOptions } from "./clips/pure";
 import { YT_UPLOAD_SCOPE, hasScopes } from "./yt-analytics-pure";
 import { readStored } from "./yt-oauth";
+import { stopAllOn } from "./stop-all";
 import { cancelPlan, confirmStep, emptyPlans, isActive, nextMove, pickBest, plansProblem, validatePlan, type Plan, type PlanStep, type PlansState } from "./plans-pure";
 
 // CORE plan runner: one plan at a time, state in <studio>/plans.json (survives restarts; resumed from the scout timer).
@@ -58,6 +59,7 @@ async function drive(id: string) {
   S.running.add(id);
   try {
     for (;;) {
+      if (stopAllOn()) return; // Stop-all: stays "running" between steps; resumePlans continues it after Resume
       const p = await get(id);
       if (!p) return;
       const move = nextMove(p);

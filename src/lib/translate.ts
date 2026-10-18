@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { askClaude, FAST_MODEL, type ClaudeResult } from "./claude";
+import { usageHold } from "./usage-meter";
 import { CACHE_MAX, MAX_BATCH, TRANSLATE_SYSTEM, cacheKey, cleanTitle, looksEnglish, lruGet, lruSet, parseTranslations, translatePrompt } from "./translate-pure";
 
 // Headline → English, for the INTELLIGENCE country card. One haiku call per batch of ≤20 uncached headlines;
@@ -38,9 +39,10 @@ export async function translateTitles(titles: string[], signal?: AbortSignal): P
   });
   const batch = todo.slice(0, MAX_BATCH);
   if (!batch.length) return { titles: out, failed: false };
+  if (usageHold()) return { titles: out, failed: true }; // background lane: originals for now, translated once usage is back under the budget
   const originals = batch.map((i) => out[i]);
   try {
-    const r = await askClaude(translatePrompt(originals), TRANSLATE_SYSTEM, { lane: "background", model: FAST_MODEL, signal, timeoutMs: 60_000 });
+    const r = await askClaude(translatePrompt(originals), TRANSLATE_SYSTEM, { lane: "background", model: FAST_MODEL, signal, timeoutMs: 60_000, purpose: "translate" });
     const { titles: tr, got } = parseTranslations(r.text, originals);
     tr.forEach((t, j) => { out[batch[j]] = t; if (got[j]) lruSet(m, cacheKey(originals[j]), t); }); // a missing answer isn't cached: retried next time
     if (got.some(Boolean)) save(m);

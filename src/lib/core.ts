@@ -23,6 +23,12 @@ import { isLifeTool, runLifeTool } from "./core-life";
 import { WS_PROMPT, isWsTool, runWsTool, wsTainted } from "./core-workspace";
 import { REA_PROMPT, isReaTool, runReaTool } from "./core-rea";
 import { escapeTags } from "./core-chats-pure";
+import { stopAllOn } from "./stop-all";
+import { coreToolRefusal } from "./stop-all-pure";
+import { logActivity } from "./activity";
+
+// CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
+const LOGGED = ["save_memory", "life_check", "life_add_habit", "life_remind", "ws_write", "ws_create", "ask_agent", "plan_task", "create_goal", "run_scout", "run_niche", "schedule_approved"];
 
 export type TraceStep = { step: string; detail: string; ms: number; ok: boolean };
 export type Citation = { id: string; title: string; kind: string };
@@ -211,18 +217,19 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       let out: string;
       onReset?.(); // this step was a tool call: clear anything it streamed before the next step answers
       onStep?.(reply.tool, reply.input ?? {});
-      try { out = reply.tool === "navigate" ? navigateTool(reply.input ?? {}, !dataIn(), onNavigate)
+      try { out = coreToolRefusal(stopAllOn(), reply.tool) || (reply.tool === "navigate" ? navigateTool(reply.input ?? {}, !dataIn(), onNavigate)
         : isStudioTool(reply.tool) ? await runStudioTool(reply.tool, question, dataIn())
         : reply.tool === "plan_task" ? await runPlanTool(reply.input ?? {}, question, dataIn())
         : reply.tool === "goal_status" || reply.tool === "create_goal" ? await (await import("./goals")).runGoalTool(sb, userId, reply.tool, reply.input ?? {}, question, dataIn())
         : isLifeTool(reply.tool) ? await runLifeTool(reply.tool, reply.input ?? {}, question, dataIn())
         : isReaTool(reply.tool) ? await runReaTool(userId, reply.tool, reply.input ?? {}, question, dataIn())
-        : isWsTool(reply.tool) ? await runWsTool(userId, reply.tool, reply.input ?? {}, question, !!attach || pinsIn || wsTainted(steps))
+        : isWsTool(reply.tool) ? await runWsTool(userId, reply.tool, reply.input ?? {}, question, !!attach || pinsIn || wsTainted(steps), steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length)
         : (pinsIn || privateIn()) && (reply.tool === "ask_agent" || reply.tool === "read_news") ? "Error: the user's private files, journal or pinned notes are in context; agents and news searches are off for the rest of this answer (they could carry that text out)"
         : (attach || pinsIn || privateIn()) && ["fetch_url", "read_news", "ask_agent"].includes(reply.tool) && foreignUrl(reply.input, question) ? "Error: with the user's files in context, only open links the user typed in their message"
-        : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question, signal, stopped); }
+        : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question, signal, stopped)); }
       catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
       trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 140)} → ${out.slice(0, 140)}`, ms: Date.now() - t, ok: !out.startsWith("Error:") });
+      if (LOGGED.includes(reply.tool) && !out.startsWith("Error:")) logActivity({ area: "core", title: `CORE ${reply.tool}: ${activityLine(reply.tool, out)}` }); // no inputs: memory / reminder / file text stays out of the log
       steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${out.slice(0, 8000)}`);
     }
   } catch (e) {
@@ -236,6 +243,13 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     .filter((m): m is NonNullable<typeof m> => !!m)
     .map((m) => ({ id: m.id, title: m.title, kind: m.kind }));
   return { text: answer || "(no answer)", citations, trace, model: tier };
+}
+
+/** What the activity log keeps of a CORE write: no memory or reminder text. */
+function activityLine(tool: string, out: string) {
+  if (tool === "save_memory") return `Saved memory ${out.match(/\[m:[^\]\s]+\]/)?.[0] ?? ""}`.trim();
+  if (tool === "life_remind") return "reminder set";
+  return out.split("\n")[0].slice(0, 160);
 }
 
 /** "2026-10-16 (Friday), 15:42 local time": CORE needs the clock to set reminders like "at 6" or "in 20 minutes". */

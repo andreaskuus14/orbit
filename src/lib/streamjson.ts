@@ -8,12 +8,14 @@ export function takeLines(buf: string): { lines: string[]; rest: string } {
   return { lines: parts.map((l) => l.replace(/\r$/, "")).filter((l) => l.trim()), rest };
 }
 
-export type StreamResult = { text: string; isError: boolean; inputTokens: number; outputTokens: number };
+/** cacheWrite/cacheRead, turns, costUsd (the CLI's API-price estimate, a proxy for plan usage) when the CLI reports them. */
+export type StreamResult = { text: string; isError: boolean; inputTokens: number; outputTokens: number; cacheWrite?: number; cacheRead?: number; turns?: number; costUsd?: number };
 
 /** One line of `claude -p --output-format stream-json`: a text delta, the final result, or null (anything else). */
 export function parseStreamJsonLine(line: string): { delta?: string; result?: StreamResult } | null {
   type Line = {
-    type?: string; result?: unknown; is_error?: boolean; usage?: { input_tokens?: number; output_tokens?: number };
+    type?: string; result?: unknown; is_error?: boolean; num_turns?: number; total_cost_usd?: number;
+    usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
     event?: { type?: string; delta?: { type?: string; text?: unknown } };
   };
   let j: Line;
@@ -28,6 +30,10 @@ export function parseStreamJsonLine(line: string): { delta?: string; result?: St
       isError: !!j.is_error,
       inputTokens: j.usage?.input_tokens ?? 0,
       outputTokens: j.usage?.output_tokens ?? 0,
+      ...(typeof j.usage?.cache_creation_input_tokens === "number" ? { cacheWrite: j.usage.cache_creation_input_tokens } : {}),
+      ...(typeof j.usage?.cache_read_input_tokens === "number" ? { cacheRead: j.usage.cache_read_input_tokens } : {}),
+      ...(typeof j.num_turns === "number" ? { turns: j.num_turns } : {}),
+      ...(typeof j.total_cost_usd === "number" ? { costUsd: j.total_cost_usd } : {}),
     } };
   }
   return null;

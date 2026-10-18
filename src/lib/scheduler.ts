@@ -6,6 +6,8 @@ import { resumeChains } from "./chains";
 import { dueSlots, type BriefingKind } from "./pure";
 import { generateProposals, proposalsDue } from "./proactive";
 import { maybeBackup } from "./backup";
+import { stopAllOn } from "./stop-all";
+import { usageHold, usageLimited } from "./usage-meter";
 
 // Server-side scheduler (briefings + automations): runs inside the ORBIT server process (npm run dev / npm start), so briefings
 // happen without a browser open. It needs SUPABASE_SECRET_KEY to act for the user with no session.
@@ -28,8 +30,11 @@ async function tick(sb: SupabaseClient) {
     const { data: users, error } = await sb.from("profiles").select("id");
     if (error) throw error;
     // Event-triggered automations first (they should feel instant), then scheduled ones, then briefings.
-    await handleEvents(sb).catch((e) => console.error("[orbit] automation events failed:", e?.message ?? e));
+    await handleEvents(sb).catch((e) => console.error("[orbit] automation events failed:", e?.message ?? e)); // still advances its cursor: startAutomation refuses while Stop-all is on
+    if (stopAllOn()) return; // Stop-all: no automations, queue starts, chain resumes, briefings, proposals or backups
+    const limited = usageLimited(); // a real Claude limit: start nothing that needs Claude, and don't burn briefing slots (failed runs count as ran)
     for (const { id } of users ?? []) {
+      if (limited) continue;
       await runDueAutomations(sb, id).catch((e) => console.error("[orbit] scheduled automations failed:", e?.message ?? e));
       void kickQueue(sb, id); // tasks still queued after a restart (the in-process queue is gone) start again
       void resumeChains(sb, id).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
@@ -51,7 +56,7 @@ async function tick(sb: SupabaseClient) {
         );
       }
       // Proactive suggestions (every 6 h, daytime) — after briefings so they see the freshest news.
-      if (await proposalsDue(sb, id).catch(() => false)) {
+      if (!usageHold() && await proposalsDue(sb, id).catch(() => false)) { // background lane: waits near the usage budget / after a limit
         await generateProposals(sb, id).then(
           (rows) => console.log(`[orbit] agents proposed ${rows.length} new task(s)`),
           (e) => console.error("[orbit] proposals failed:", e instanceof Error ? e.message : e),

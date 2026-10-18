@@ -13,6 +13,7 @@ import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } fr
 import { NAV_EVENT, navReply, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
 import { StudioNotifier } from "./StudioNotifier";
 import { NotificationCenter } from "./NotificationCenter";
+import { StopAll } from "./StopAll";
 import { notify } from "@/lib/notify-pure";
 import { OPEN_MEMORY_EVENT, PALETTE_EVENT } from "@/lib/palette-pure";
 import { MorningCard } from "./MorningCard";
@@ -360,6 +361,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <div className="hud-bar-top">
           <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title="Realtime link to the backend that animates the galaxy">{live === "live" ? "LIVE" : live === "offline" ? "OFFLINE" : "CONNECTING"}</span>
           {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start Orbital from the desktop shortcut for the production server.">DEV</span>}
+          <StopAll />
           <NotificationCenter />
           <StudioNotifier />
           <button className="chip" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label="Search everything (Ctrl+P)" title="Search everything: planets, actions, memories, files (Ctrl+P)">⌕</button>

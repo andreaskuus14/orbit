@@ -6,6 +6,7 @@ import { availableParallelism } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { SMART_MODEL, askClaudeStream } from "../claude";
+import { stopAllOn } from "../stop-all";
 import { createLimiter } from "../pure";
 import { asrPipeline, asrWorkers, type AsrPhase } from "../asr-pool";
 import { CHANNEL_LINK_MSG, channelLink, rootClipId } from "./format";
@@ -18,7 +19,7 @@ import type { Clip, ClipJob, ClipOptions, ClipPublish, Download, InboxFile, JobS
 import {
   MAX_SOURCE_SEC, MIN_CLIP_SEC, SAMPLE_RATE, VIDEO_EXTS, WIN_SEC, asrPieces, asrRegions, audioArgs, buildAss, clipLoudness, fallbackMoments, frameArgs,
   ffmpegTime, groupSpans, isInboxName, isPlainName, editPlan, markLoud, mergeRanked, parseDuration, parseYtdlpProgress, peakTime, probeArgs, promptTranscript,
-  renderArgs, resolveInside, trackArgs, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbSvg, totalSec, spanCover, validOptions, validateMoments,
+  renderArgs, resolveInside, trackArgs, rmsWindows, scoreCandidates, snapQuiet, snapToSpeech, thumbProblems, thumbSvg, lumaOf, totalSec, spanCover, validOptions, validateMoments,
   wordsFromChunks, cleanWords, ytdlpArgs, ytdlpError, ytdlpOutputFile, YTDLP_FILE_MARK,
   STATE_V, addFeedback, cleanPermission, baseEdit, downloadProblem, jobProblem, matchUpload, nextVersionId, packAnalysis, parseAnalysis, parseSuggestion, quarantineName, listedQuarantine,
   reconcileOutcome, recoverInterrupted, setRejectReason, uploadsFrom, versionSpan, youtubePauseUntil,
@@ -266,6 +267,8 @@ export function startClipQueue() {
   kickDownloads();
 }
 
+export const resumeClipQueue = () => kick(); // Stop-all turned off
+
 /** Jobs and uploads that were mid-run when the server stopped: a job is re-queued once (recoverInterrupted), uploads are checked. Runs inside the queue loop so it never races a starting job;
  *  under the edit lock (re-reading each job) so it can't overwrite a clip edit or a publish that started meanwhile. */
 async function recover() {
@@ -298,6 +301,7 @@ function kick() {
     while (S.again) {
       S.again = false;
       for (;;) {
+        if (stopAllOn()) break; // Stop-all: queued jobs (incl. download auto-clips) wait; resumeClipQueue() on Resume
         const next = (await listJobs()).filter((j) => j.status === "queued" && !S.deleted.has(j.id)).pop(); // oldest first
         if (!next) break;
         const ctrl = new AbortController();
@@ -558,7 +562,7 @@ Each transcript line starts with its time in seconds, e.g. [83.4s]; lines break 
 <transcript>
 ${promptTranscript(ws, cs)}
 </transcript>${creatorLine(creator)}`;
-  const r = await askClaudeStream(prompt, (momentPrompts(o.preset)?.scout ?? SYSTEM) + (await import("./learn").then((m) => m.tastePrompt(), () => "")), () => {}, signal); // streaming variant: the only one that takes a signal, so cancel/delete stops Claude
+  const r = await askClaudeStream(prompt, (momentPrompts(o.preset)?.scout ?? SYSTEM) + (await import("./learn").then((m) => m.tastePrompt(), () => "")), () => {}, signal, "background", undefined, [], undefined, undefined, "clips.find"); // streaming variant: the only one that takes a signal, so cancel/delete stops Claude
   return validateMoments(r.text, { duration, maxSec: o.maxSec, count: n });
 }
 
@@ -591,7 +595,7 @@ async function pickMoments(words: Word[], cands: Candidate[], spans: Span[], dur
 <candidates>
 ${all.map((m, i) => `#${i + 1} ${m.start.toFixed(1)}-${m.end.toFixed(1)} s, scout score ${Math.round(m.score * 100)}: ${m.title} | hook: ${m.hook} | ${m.reason}\n${text(m)}`).join("\n\n")}
 </candidates>${creatorLine(creator)}`;
-  const final = await askClaudeStream(prompt, (momentPrompts(o.preset)?.rank ?? RANK) + (await import("./learn").then((m) => m.tastePrompt(), () => "")), () => {}, signal, "background", SMART_MODEL) // learned taste (learn.ts)
+  const final = await askClaudeStream(prompt, (momentPrompts(o.preset)?.rank ?? RANK) + (await import("./learn").then((m) => m.tastePrompt(), () => "")), () => {}, signal, "background", SMART_MODEL, [], undefined, undefined, "clips.rank") // learned taste (learn.ts)
     .then((r) => validateMoments(r.text, { duration, maxSec: o.maxSec, count: o.count }), (e) => { if (signal.aborted) throw e; return [] as Moment[]; });
   const ok = mergeRanked(final, all, o.count).filter((x) => spanCover(x, spans) >= 0.8); // a scout may wander outside the transcript
   if (!ok.length) throw new Error("no moments inside the transcribed parts");
@@ -619,24 +623,40 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
   // Thumbnail candidates: the loudest moment (the default thumb) + 2 more loud frames; the owner picks one (clip.thumbOptions).
   const sharp = await import("sharp").then((m) => m.default, () => null);
   if (!sharp && !job.warnings.includes("sharp missing: thumbnails have no title")) job.warnings.push("sharp missing: thumbnails have no title");
-  const thumbs: string[] = [], errs: string[] = [];
+  const thumbs: string[] = [], errs: string[] = [], warns: string[] = [];
   for (const [k, t] of thumbTimes(rms, clip.start, clip.end, peakTime(rms, clip.start, clip.end)).entries()) {
-    const thumb = k ? `${clip.id}.t${k}.jpg` : `${clip.id}.jpg`;
+    const thumb = k ? `${clip.id}.t${k}.jpg` : `${clip.id}.jpg`, out = path.join(dir, thumb), tmp = `${out}.tmp`;
+    // Frame + title, then check the decoded file (not the plan): returns its problems ([] = fine, or no sharp to check with).
+    const make = async (at: number, retry: boolean): Promise<string[]> => {
+      await runFfmpeg(ff, frameArgs(src, at, frame, o.layout, o.camSide, pathAt(follow, at - clip.start), o.camSize), { cwd: dir, signal, timeoutMs: 60_000 });
+      if (!sharp) { await rename(path.join(dir, frame), out); return []; }
+      const scale = retry ? 0.85 : 1;
+      const img = retry ? sharp(path.join(dir, frame)).resize(1080, 1920, { fit: "cover" }) : sharp(path.join(dir, frame));
+      // Written whole to a tmp file first, so a failed retry never leaves a half-written thumbnail over the first one.
+      await img.composite([{ input: Buffer.from(thumbSvg(clip.title, 1080, 1920, scale)), top: 0, left: 0 }]).jpeg({ quality: 88 }).toFile(tmp);
+      const [m, s, st] = await Promise.all([sharp(tmp).metadata(), sharp(tmp).stats(), stat(tmp)]);
+      await rename(tmp, out);
+      return thumbProblems({ width: m.width ?? 0, height: m.height ?? 0, bytes: st.size, luma: lumaOf(s.channels) }, clip.title, scale);
+    };
     try { // a missing thumbnail shouldn't throw away a good render
-      await runFfmpeg(ff, frameArgs(src, t, frame, o.layout, o.camSide, pathAt(follow, t - clip.start), o.camSize), { cwd: dir, signal, timeoutMs: 60_000 });
-      if (sharp) await sharp(path.join(dir, frame)).composite([{ input: Buffer.from(thumbSvg(clip.title)), top: 0, left: 0 }]).jpeg({ quality: 88 }).toFile(path.join(dir, thumb));
-      else await rename(path.join(dir, frame), path.join(dir, thumb));
+      const failed = (e: unknown) => { if (signal.aborted || !sharp) throw e; return [e instanceof Error ? e.message : String(e)]; };
+      let problems = await make(t, false).catch(failed);
+      // One adjusted retry: a frame 1.5 s away, forced to 1080x1920, smaller title. Still bad → keep whichever file exists, with a warning.
+      if (problems.length) problems = await make(t + 1.5 < clip.end ? t + 1.5 : Math.max(clip.start, t - 1.5), true).catch(failed);
+      if (problems.length && !(await stat(out).then(() => true, () => false))) throw new Error(problems.join(", "));
+      if (problems.length) warns.push(`thumbnail ${k + 1}: ${problems.join(", ")}`);
       thumbs.push(`clips/${job.id}/${thumb}`);
     } catch (e) {
       if (signal.aborted) throw e;
       errs.push(e instanceof Error ? e.message : String(e));
     } finally {
-      await rm(path.join(dir, frame), { force: true });
+      await Promise.all([rm(path.join(dir, frame), { force: true }), rm(tmp, { force: true })]);
     }
   }
   clip.thumb = thumbs[0];
   clip.thumbOptions = thumbs.length > 1 ? thumbs : undefined;
   if (!thumbs.length) clip.error = `No thumbnail: ${errs[0]}`;
+  else if (warns.length) clip.error = [clip.error, ...warns].filter(Boolean).join(" · ");
 }
 
 // ---- versions ("Another version": re-rendered from the saved analysis, no transcription) ----
@@ -702,7 +722,7 @@ async function renderVersion(jobId: string, clipId: string, suggest: { title: bo
       try {
         const text = a.words.filter((w) => w.start >= clip.start && w.end <= clip.end).map((w) => w.text).join(" ").replace(/[<>]/g, "").slice(0, 3000);
         if (!text) throw new Error("no transcript for this part");
-        const r = await askClaudeStream(`Current title: ${clip.title.replace(/[<>]/g, "")}\nCurrent hook: ${clip.hook.replace(/[<>]/g, "")}\n<transcript>\n${text}\n</transcript>`, SUGGEST, () => {}, signal);
+        const r = await askClaudeStream(`Current title: ${clip.title.replace(/[<>]/g, "")}\nCurrent hook: ${clip.hook.replace(/[<>]/g, "")}\n<transcript>\n${text}\n</transcript>`, SUGGEST, () => {}, signal, "background", undefined, [], undefined, undefined, "clips.suggest");
         const s = parseSuggestion(r.text);
         if (suggest.title && s.title) clip.title = suggested.title = job.devlogDay ? devlogTitle(job.devlogDay, s.title) : s.title;
         if (suggest.hook && s.hook) clip.hook = suggested.hook = s.hook;

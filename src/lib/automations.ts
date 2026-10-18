@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { kickQueue } from "./agents";
 import { automationDue, type Schedule } from "./pure";
+import { stopAllOn } from "./stop-all";
+import { PAUSED_MSG } from "./stop-all-pure";
 
 // Automation engine. Each automation run becomes an ordinary agent task (traceable, retryable, approvals intact).
 // Called every minute by the server-side scheduler with the secret-key client, so every query filters by user_id.
@@ -16,6 +18,7 @@ const USER_SOURCES = ["capture", "upload", "url", "core"];
 
 /** Queue one run of an automation as an agent task and start it. */
 export async function startAutomation(sb: SupabaseClient, a: Automation, trigger: string) {
+  if (stopAllOn()) throw new Error(PAUSED_MSG);
   const request = `${a.prompt}\n\n(Automation "${a.name}", triggered: ${trigger}.)`;
   const { data, error } = await sb.from("tasks").insert({
     user_id: a.user_id, agent: a.agent, title: `⚙ ${a.name}`.slice(0, 200), request, automation_id: a.id,

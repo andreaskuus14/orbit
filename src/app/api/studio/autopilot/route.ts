@@ -1,12 +1,13 @@
 import { requireUser } from "@/lib/supabase/server";
 import { startClipQueue } from "@/lib/clips/factory";
-import { approve, autopilotView, clipNow, findCandidates, packageNow, patchSettings } from "@/lib/clips/autopilot";
+import { approve, autopilotView, clipNow, editWaiting, findCandidates, packageNow, patchSettings, reviewWaiting } from "@/lib/clips/autopilot";
 import { scoutFail as fail } from "@/lib/clips/scout";
+import { logActivity } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
 // YouTube autopilot: GET state (candidates, pipeline, proposals, what's working); PATCH settings;
-// POST {action: "find"} | {action: "clip", videoIds} | {action: "package"} | {action: "approve", key}. Logic: src/lib/clips/autopilot.ts.
+// POST {action: "find"} | {action: "clip", videoIds} | {action: "package"} | {action: "approve", key} | {action: "edit", key, title?, slot?} | {action: "review", key}. Logic: src/lib/clips/autopilot.ts.
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
@@ -32,8 +33,14 @@ export async function POST(req: Request) {
       case "find": await findCandidates(); return Response.json({ started: true }, { status: 202 });
       case "clip": return Response.json(await clipNow(b.videoIds));
       case "package": await packageNow(); return Response.json(await autopilotView());
-      case "approve": return Response.json({ batch: await approve(b.key) }, { status: 202 });
-      default: return Response.json({ error: "action must be find, clip, package or approve" }, { status: 400 });
+      case "approve": {
+        const batch = await approve(b.key);
+        logActivity({ area: "autopilot", title: `Autopilot: you approved ${String(b.key)} for upload`, link: { panel: "studio" } });
+        return Response.json({ batch }, { status: 202 });
+      }
+      case "edit": await editWaiting(b.key, { title: b.title, slot: b.slot }); return Response.json(await autopilotView());
+      case "review": await reviewWaiting(b.key); return Response.json(await autopilotView());
+      default: return Response.json({ error: "action must be find, clip, package, approve, edit or review" }, { status: 400 });
     }
   } catch (e) { return fail(e); }
 }

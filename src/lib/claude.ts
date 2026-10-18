@@ -5,6 +5,8 @@ import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.ts";
 import { streamJsonInput } from "./attach-pure.ts";
+import { recordCall } from "./usage-meter.ts";
+import { isLimitAnswer } from "./usage-meter-pure.ts";
 
 /** An image sent to the model with the prompt (validated by attach-pure). */
 export type PromptImage = { type: string; data: Uint8Array };
@@ -127,19 +129,21 @@ function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean
   else child.kill("SIGKILL");
 }
 
-export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number };
+/** purpose: what the call is for, for the usage meter (core, agent, goals, autopilot, clips, translate…); default by lane. */
+export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string };
 
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer). Aborting `signal` kills the CLI. */
-export function askClaude(prompt: string, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs }: AskOpts = {}): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs), signal);
+export function askClaude(prompt: string, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose }: AskOpts = {}): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane)), signal);
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI. */
-export function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs), signal);
+export function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane)), signal);
 }
+const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
-async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number): Promise<ClaudeResult> {
+async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background"): Promise<ClaudeResult> {
   signal?.throwIfAborted();
   const t0 = Date.now();
   // With images, stdin carries one stream-json user message (image blocks + text); tools stay disabled.
@@ -176,6 +180,11 @@ async function runClaudeStream(prompt: string, system: string, onDelta: (text: s
         done();
         if (buf.trim()) handle(buf);
         const r = result as StreamResult | null;
+        if (r && !r.isError && isLimitAnswer(r.text || streamed)) Object.assign(r, { isError: true, text: r.text || streamed }); // limit notice sent as an answer
+        const failed = !r || r.isError || code !== 0;
+        // Usage meter: every call that reached the CLI (a kill by Stop/timeout has no result and isn't counted).
+        if (r) recordCall({ purpose, model: model ?? MODEL, inTok: r.inputTokens + (r.cacheWrite ?? 0), outTok: r.outputTokens, ms: Date.now() - t0, turns: r.turns, cost: r.costUsd, ok: !failed }, failed ? `${r.text} ${err}` : "");
+        else if (err) recordCall({ purpose, model: model ?? MODEL, inTok: 0, outTok: 0, ms: Date.now() - t0, ok: false }, err); // a limit error printed only to stderr
         if (!r) return reject(new Error(`Claude Code failed: ${err.slice(0, 300) || `exit ${code}`}. ${HINT}`));
         if (r.isError || code !== 0) return reject(new Error(r.text || err || `claude exited ${code}`));
         resolve({ text: (r.text || streamed).trim(), inputTokens: r.inputTokens, outputTokens: r.outputTokens, ms: Date.now() - t0 });

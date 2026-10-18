@@ -11,7 +11,8 @@ export const MAX_DAILY = 5; // hard ceiling on autopilot downloads (= clip jobs)
 export const TRACKED_MAX = 200;
 
 /** A clip-ready proposal: nothing here is applied until the owner approves. key = "<job>/<clip>". */
-export type Proposal = { title: string; titleWhy: string; thumb?: string; description?: string; slot?: string; slotWhy: string; at: string };
+export type Proposal = { title: string; titleWhy: string; thumb?: string; description?: string; slot?: string; slotWhy: string; at: string;
+  alts?: string[]; notes?: string[]; video?: string }; // runner-up titles (one-click swap), the title critics' notes, the clip's video (card preview)
 export type Tracked = { videoId: string; title: string; channel: string; at: string; auto: boolean };
 export type Autopilot = { v: 1; auto: boolean; dailyDownloads: number; options: Required<ClipOptions>;
   day: string; downloads: number; // autopilot downloads started on `day` (local)
@@ -50,7 +51,8 @@ export function parseAutopilot(x: unknown): Autopilot | string {
   if (typeof s === "string") return s;
   const tracked = (Array.isArray(x.tracked) ? x.tracked : []).filter((t): t is Tracked => isObj(t) && str(t.videoId) && str(t.title) && str(t.channel) && str(t.at) && typeof t.auto === "boolean").slice(-TRACKED_MAX);
   const proposals = Object.fromEntries(Object.entries(isObj(x.proposals) ? x.proposals : {}).filter(([k, p]) => isKey(k) && isObj(p) && str(p.title) && str(p.titleWhy) && str(p.slotWhy) && str(p.at)
-    && (p.slot === undefined || str(p.slot)) && (p.description === undefined || str(p.description)) && (p.thumb === undefined || str(p.thumb)))) as Record<string, Proposal>;
+    && (p.slot === undefined || str(p.slot)) && (p.description === undefined || str(p.description)) && (p.thumb === undefined || str(p.thumb))
+    && (p.video === undefined || str(p.video)) && [p.alts, p.notes].every((l) => l === undefined || (Array.isArray(l) && l.every(str))))) as Record<string, Proposal>;
   return { ...s, day: str(x.day) ? x.day : "", downloads: Number.isInteger(x.downloads) ? Math.max(0, x.downloads as number) : 0, tracked, proposals,
     lastAuto: str(x.lastAuto) ? x.lastAuto : undefined };
 }
@@ -150,12 +152,28 @@ export function rankCandidates(picks: ScoutPick[], p: Prefs | undefined, now: nu
 // ---- packaging ----
 
 /** Best title option: Claude's click score × the learned multiplier for that title style. */
-export function pickTitle(opts: { text: string; score: number }[] | undefined, current: string, p?: Prefs): { title: string; why: string } {
+/** src: what the scores are (the critics' re-scores when they ran). */
+export function pickTitle(opts: { text: string; score: number }[] | undefined, current: string, p?: Prefs, src = "Claude's click guess"): { title: string; why: string } {
   const all = opts?.length ? opts : [{ text: current, score: 50 }];
   const val = (o: { text: string; score: number }) => o.score * multOf(p, "title", hookStyle(o.text));
   const best = all.reduce((a, b) => (val(b) > val(a) ? b : a));
   const st = hookStyle(best.text), m = prefOf(p, "title", st);
-  return { title: best.text, why: m && m.mult !== 1 ? `Claude's click guess ${best.score}/100 × ${m.mult.toFixed(2)} for ${st} titles on your channel (${m.n} Shorts)` : `Claude's top click guess (${best.score}/100)` };
+  return { title: best.text, why: m && m.mult !== 1 ? `${src} ${best.score}/100 × ${m.mult.toFixed(2)} for ${st} titles on your channel (${m.n} Shorts)` : `${src}: the top one (${best.score}/100)` };
+}
+
+/** The owner's edit of a waiting proposal: swap in another title (the old one becomes a runner-up) and/or pick a free slot. A message for a 400. */
+export function editProposal(p: Proposal, b: Record<string, unknown>, free: string[]): Proposal | string {
+  const out = { ...p };
+  if (b.title !== undefined) {
+    const t = str(b.title) ? b.title.replace(/[\x00-\x1f\x7f<>]/g, " ").replace(/\s+/g, " ").trim() : "";
+    if (!t || t.length > 100) return "title must be 1-100 characters";
+    if (t !== p.title) Object.assign(out, { title: t, titleWhy: "You picked this title", alts: [p.title, ...(p.alts ?? []).filter((x) => x !== t)].slice(0, 2) });
+  }
+  if (b.slot !== undefined) {
+    if (!str(b.slot) || !free.includes(b.slot)) return "That slot isn't free any more; pick another";
+    if (b.slot !== p.slot) Object.assign(out, { slot: b.slot, slotWhy: "You picked this slot" });
+  }
+  return out;
 }
 
 /** A publish slot from the free calendar slots: the earliest, unless one of the next 3 is at an hour that clearly (>10%) does better.

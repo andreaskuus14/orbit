@@ -2,6 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { BUILTIN_AGENTS, cancelTask, runTask } from "./agents";
 import { withSlot } from "./chains";
 import { askClaude, createBudget, emit, recordUsage } from "./claude";
+import { stopAllOn } from "./stop-all";
+import { PAUSED_MSG } from "./stop-all-pure";
+import { usageHold } from "./usage-meter";
 import {
   MAX_OPEN, PLAN_SYSTEM, REFLECT_SYSTEM, addSample, createGoalBlocked, goalLine, isOpen, planningActive, unstartStep, applyReflection, applyTask, approvePlan, charge, cont, decideProposal, doneSteps, editPlan, finish,
   goalProblem, isLive, newGoal, nextMove, okStep, parseJson, pause, planPrompt, reflectPrompt, resume, setPlan, startStep, stepRequest, stop,
@@ -76,6 +79,8 @@ export async function createGoal(sb: SupabaseClient, userId: string, body: unkno
 
 /** An agent drafts the plan (one Claude call, counted as a run). Nothing runs until the owner approves it. */
 export async function draftPlan(sb: SupabaseClient, userId: string, id: string): Promise<string> {
+  const held = stopAllOn() ? PAUSED_MSG : usageHold();
+  if (held) { await mutate(sb, id, (d) => { d.planError = `${held}: press Redraft later`; return ""; }); return held; }
   const started = await mutate(sb, id, (d) => {
     if (d.status !== "draft") return "Only a draft goal can be (re)planned";
     if (planningActive(d)) return "A plan is already being drafted";
@@ -87,7 +92,7 @@ export async function draftPlan(sb: SupabaseClient, userId: string, id: string):
   const doc = started.row.doc;
   let out: string;
   try {
-    const r = await askClaude(planPrompt(doc, await roster(sb, userId)), PLAN_SYSTEM);
+    const r = await askClaude(planPrompt(doc, await roster(sb, userId)), PLAN_SYSTEM, { purpose: "goals.plan" });
     await recordUsage(sb, userId, "goal.plan", r);
     const steps = validateSteps(parseJson(r.text)?.steps, doc.agents);
     out = typeof steps === "string" ? `The drafted plan wasn't usable (${steps}); press Redraft or write the steps yourself` : "";
@@ -110,11 +115,11 @@ async function sampleMetric(sb: SupabaseClient, row: GoalRow) {
 
 /** Event-driven: walk this goal forward until it needs the owner, runs out of today's budget, or ends. One driver per goal. */
 export async function advance(sb: SupabaseClient, userId: string, id: string): Promise<void> {
-  if (driving.has(id)) return;
+  if (driving.has(id) || stopAllOn() || usageHold()) return; // Stop-all / near the usage budget: no new steps (advance runs again on the next event)
   const ac = new AbortController(), me: Driver = { ac, inSlot: false };
   driving.set(id, me);
   try {
-    for (let guard = 0; guard < 40 && !ac.signal.aborted; guard++) {
+    for (let guard = 0; guard < 40 && !ac.signal.aborted && !stopAllOn() && !usageHold(); guard++) { // re-checked before every step
       const row = await load(sb, id);
       if (!row) return;
       await sampleMetric(sb, row).catch(() => {});
@@ -181,13 +186,20 @@ async function sync(sb: SupabaseClient, userId: string, id: string, doc: Goal, i
   if (what === "waiting") { await checkIn(sb, userId, id, title, `Step ${i + 1} needs your approval in Operations`); return false; }
   if (what === "failed") { await checkIn(sb, userId, id, title, `Blocked: step ${i + 1} failed`); return false; }
   try {
-    const rr = await askClaude(reflectPrompt(r.row.doc, i), REFLECT_SYSTEM);
+    const rr = await askClaude(reflectPrompt(r.row.doc, i), REFLECT_SYSTEM, { purpose: "goals.reflect" });
     await recordUsage(sb, userId, "goal.reflect", rr);
     await mutate(sb, id, (d) => { applyReflection(d, i, parseJson(rr.text)); if (d.metric.kind === "steps") addSample(d, doneSteps(d)); return ""; });
   } catch (e) { console.error("[orbit] goal reflection failed:", msg(e)); }
   const after = await load(sb, id);
   await checkIn(sb, userId, id, title, after?.doc.proposal ? `Step ${i + 1} done; a plan change waits for your approval` : `Step ${i + 1} done: ${doc.steps[i].what}`);
   return true;
+}
+
+/** Stop-all: abort every goal driver (the same abort goalAction "stop" uses): a step waiting for a slot never starts, a running
+ *  step's task is cancelled (the goal then shows that step as cancelled; Continue/Retry after Resume). Returns how many. */
+export function abortGoalDrivers() {
+  for (const d of driving.values()) d.ac.abort();
+  return driving.size;
 }
 
 /** Opening ORBIT: nudge every live goal (no-op for ones already driving). */

@@ -4,6 +4,8 @@ import { videoResource } from "../yt-analytics-pure";
 import { clipFile, getJob, isPublishing, listJobs, publishDone, readState, saveState, startPublish, studioRoot, withJobLock } from "./factory";
 import { DEFAULT_PUBLISH, nextSlots, parseSettings, usedSlots, type PublishSettings } from "./schedule";
 import type { Clip } from "./types";
+import { stopAllOn } from "../stop-all";
+import { PAUSED_MSG } from "../stop-all-pure";
 
 // Scheduled publishing (server side): owner's slot settings in <studio>/publish.json and "Schedule all approved", which uploads clips
 // one at a time into the next free slots through the normal upload path (startPublish/runPublish: no auto-retry, unknown → stop).
@@ -35,6 +37,7 @@ export async function scheduleAll(only?: string[], meta: Record<string, { publis
   batch.total = todo.length;
   void (async () => {
     for (const [jobId, clipId] of todo) {
+      if (stopAllOn()) { batch.error = PAUSED_MSG; break; } // Stop-all: the upload under way finished; no next one
       let r: string;
       do { // wait for any upload (e.g. a manual one) to finish, then start ours under the lock
         await publishDone();

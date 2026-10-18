@@ -1,6 +1,7 @@
 import { access } from "node:fs/promises";
 import path from "node:path";
 import { SMART_MODEL, askClaude } from "../claude";
+import { stopAllOn } from "../stop-all";
 import { tastePrompt } from "./learn";
 import { api } from "../youtube";
 import { parseCreatorInput, type CreatorInput } from "../youtube-pure";
@@ -208,7 +209,7 @@ async function run(scheduled: boolean) {
     let ranking: ReturnType<typeof parseRanking> = null;
     if (top.length) {
       try {
-        const r = await askClaude(rankPrompt(top, opts.now), RANK, { lane: "background", signal: AbortSignal.timeout(5 * 60_000) });
+        const r = await askClaude(rankPrompt(top, opts.now), RANK, { lane: "background", signal: AbortSignal.timeout(5 * 60_000), purpose: "scout" });
         ranking = parseRanking(r.text, new Set(top.map((c) => c.id)));
         if (!ranking) warnings.push("Claude's ranking was unusable: ranked by stats instead");
       } catch (e) { warnings.push(`Claude couldn't rank (${msg(e)}): ranked by stats instead`); }
@@ -221,7 +222,7 @@ async function run(scheduled: boolean) {
       s.picks = picks.filter((p) => !s.seen.includes(p.videoId)); // the owner may have acted meanwhile
       const today = localDay(now), done = s.auto.day === today ? s.auto.n : 0;
       let auto = 0;
-      for (const p of autoPicks(s.picks, s.watchlist, Math.min(s.dailyAuto - done, ap ?? Infinity))) { // ap: the autopilot's shared daily cap, when it's in use
+      for (const p of autoPicks(s.picks, s.watchlist, stopAllOn() ? 0 : Math.min(s.dailyAuto - done, ap ?? Infinity))) { // Stop-all mid-run: no auto-clips // ap: the autopilot's shared daily cap, when it's in use
         // a throw must not reject the whole update: auto.n and seen would be lost and the daily cap exceeded later
         const err = await queuePick(s, p).catch((e) => msg(e) || "download failed");
         if (err) { p.error = err; warnings.push(`Auto-clip "${p.title}": ${err}`); } else auto++;
@@ -283,7 +284,7 @@ async function research() {
     }
     if (!all.length) throw new Error(warnings[0] ?? "YouTube returned no videos to research");
 
-    const r = await askClaude(nichePrompt(all, now.getTime(), nicheContext(s)) + await tastePrompt(), NICHE, { lane: "background", signal: AbortSignal.timeout(8 * 60_000), model: SMART_MODEL });
+    const r = await askClaude(nichePrompt(all, now.getTime(), nicheContext(s)) + await tastePrompt(), NICHE, { lane: "background", signal: AbortSignal.timeout(8 * 60_000), model: SMART_MODEL, purpose: "scout.niche" });
     const niches = parseNiches(r.text);
     if (typeof niches === "string") throw new Error(niches);
 
@@ -345,6 +346,7 @@ export async function runScoutNow() {
 }
 
 async function tick() {
+  if (stopAllOn()) return; // Stop-all: no insights refresh, plan resume, autopilot or scheduled scout/niche runs
   // CORE's proactive insights + plan resume ride on this timer (local files only; each self-limits to every 15 min / once)
   void import("../insights").then((m) => m.refreshInsights()).catch((e) => console.error("[orbit] insights failed:", msg(e)));
   void import("../plans").then((m) => m.resumePlans()).catch((e) => console.error("[orbit] plan resume failed:", msg(e)));

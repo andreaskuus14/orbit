@@ -1,10 +1,11 @@
 import { requireUser } from "@/lib/supabase/server";
-import { createWorkspace, listFiles, listWorkspaces, previewUrl, readWsFile, trashWsFile, writeWsFile } from "@/lib/workspace";
+import { createWorkspace, listFiles, listWorkspaces, previewUrl, readCheckFile, readWsFile, trashWsFile, writeWsFile } from "@/lib/workspace";
 import { isSlug } from "@/lib/workspace-pure";
 
 export const dynamic = "force-dynamic";
 
-// WORKSPACES (files CORE builds). GET → { workspaces }; ?ws=slug → { files, preview }; ?ws=slug&file=path → { text, size }.
+// WORKSPACES (files CORE builds). GET → { workspaces }; ?ws=slug → { files, preview }; ?ws=slug&file=path → { text, size };
+// ?ws=slug&check=result → the last site check (or { check: null }); ?ws=slug&check=desktop|phone → its screenshot (PNG).
 // POST { action: create {name} | write {ws, path, content} | delete {ws, path} } (delete moves the file to the workspace's .trash).
 
 const bad = (error: string, status = 400) => Response.json({ error }, { status });
@@ -17,6 +18,17 @@ export async function GET(req: Request) {
   const ws = q.get("ws"), file = q.get("file");
   if (!ws) return Response.json({ workspaces: await listWorkspaces(user.id) });
   if (!isSlug(ws)) return bad("Invalid workspace");
+  const check = q.get("check");
+  if (check === "result") {
+    const b = await readCheckFile(user.id, ws, "result.json");
+    let parsed = null;
+    try { parsed = b && JSON.parse(b.toString("utf8")); } catch { /* damaged file: no check shown */ }
+    return Response.json({ check: parsed });
+  }
+  if (check === "desktop" || check === "phone") {
+    const b = await readCheckFile(user.id, ws, `${check}.png`);
+    return b ? new Response(new Uint8Array(b), { headers: { "Content-Type": "image/png", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } }) : bad("No screenshot", 404);
+  }
   if (file) {
     const f = await readWsFile(user.id, ws, file);
     return f ? Response.json(f) : bad("No such file", 404);

@@ -199,8 +199,8 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const patchClip = (job: string, clip: string, body: PatchBody) => act(`clip:${job}/${clip}`, async () => {
     putClip(job, clip, (await api<{ clip: Clip }>(clipUrl(job, clip), { method: "PATCH", body })).clip);
   });
-  const moreTitles = (job: string, clip: string) => act(`titles:${job}/${clip}`, async () => {
-    putClip(job, clip, (await api<{ clip: Clip }>(`${clipUrl(job, clip)}/titles`, { method: "POST" })).clip);
+  const moreTitles = (job: string, clip: string, review = false) => act(`titles:${job}/${clip}`, async () => { // review: the title critics instead of new options
+    putClip(job, clip, (await api<{ clip: Clip }>(`${clipUrl(job, clip)}/titles`, { method: "POST", ...(review && { body: { action: "review" } }) })).clip);
   });
   const publish = (job: string, clip: string, body: PublishBody) => act(`pub:${job}/${clip}`, async () => {
     putClip(job, clip, (await api<{ clip: Clip }>(`${clipUrl(job, clip)}/publish`, { method: "POST", body })).clip);
@@ -336,7 +336,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
           </div>
 
           {/* Panels stay mounted (hidden) so forms, polling and scroll state survive switching tabs. */}
-          <div id="cf-panel-autopilot" role="tabpanel" aria-labelledby="cf-tab-autopilot" hidden={shown !== "autopilot"}><AutopilotPanel active={shown === "autopilot"} onChanged={() => void load(true)} /></div>
+          <div id="cf-panel-autopilot" role="tabpanel" aria-labelledby="cf-tab-autopilot" hidden={shown !== "autopilot"}><AutopilotPanel active={shown === "autopilot"} onChanged={() => void load(true)} onOpenClip={openClip} onOpenFind={() => selectTab("find")} /></div>
           <div id="cf-panel-insights" role="tabpanel" aria-labelledby="cf-tab-insights" hidden={shown !== "insights"} className="space-y-3">
             <LearnedCard defaultOpen />
             <EngageCard />
@@ -460,7 +460,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
                 <JobCard key={j.id} job={j} reduced={reduced} showRejected={showRejected} busy={busy} Note={Note} yt={yt} publishing={data.publishing}
                   onRetry={() => make(j.source, j.options, true)} onDelete={() => del(j.id)}
                   onPatch={(clip, body) => patchClip(j.id, clip, body)} onPublish={(clip, body) => publish(j.id, clip, body)}
-                  onCheck={(clip) => checkYouTube(j.id, clip)} onVersion={(clip, body) => version(j.id, clip, body)} onTitles={(clip) => moreTitles(j.id, clip)} />
+                  onCheck={(clip) => checkYouTube(j.id, clip)} onVersion={(clip, body) => version(j.id, clip, body)} onTitles={(clip, review) => moreTitles(j.id, clip, review)} />
               ))}
             </div>
           </Section>
@@ -942,7 +942,7 @@ type VersionFn = (clip: string, body: VersionBody) => Promise<boolean>;
 
 function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRetry, onDelete, onPatch, onPublish, onCheck, onVersion, onTitles }: {
   job: ClipJob; publishing?: string | null; reduced: boolean; showRejected: boolean; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode; yt: YtStatus | null;
-  onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn; onCheck: (clip: string) => Promise<boolean>; onVersion: VersionFn; onTitles: (clip: string) => Promise<boolean>;
+  onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn; onCheck: (clip: string) => Promise<boolean>; onVersion: VersionFn; onTitles: (clip: string, review?: boolean) => Promise<boolean>;
 }) {
   const o = job.options; // what the original clips were rendered with (mirrors baseEdit in pure.ts)
   const base: VersionEdit = { layout: o.layout ?? "fit", camSide: o.camSide ?? "right", camSize: o.camSize, captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true,
@@ -993,7 +993,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
               <ClipCard clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />}
                 picks={(c.status === "ready" || c.status === "approved") && <>
                   <ClipPicks clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPick={(body) => void onPatch(c.id, body)}
-                    onMore={() => void onTitles(c.id)} moreBusy={!!busy[`titles:${job.id}/${c.id}`]} />
+                    onMore={() => void onTitles(c.id)} onReview={() => void onTitles(c.id, true)} moreBusy={!!busy[`titles:${job.id}/${c.id}`]} />
                   <Note k={`titles:${job.id}/${c.id}`} />
                 </>}
                 version={(c.status === "ready" || c.status === "approved") && !working &&

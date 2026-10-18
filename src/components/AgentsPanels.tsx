@@ -2,6 +2,7 @@
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { ProposalsPanel } from "./ProposalsPanel";
 import { highlight } from "./Highlight";
+import { ActivityView } from "./ActivityView";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
 type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string };
@@ -169,7 +170,7 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
   const [form, setForm] = useState({ request: "", agent: "nova", project_id: "" });
   const [newProject, setNewProject] = useState("");
   const [filter, setFilter] = useState<string>("");
-  const [tab, setTab] = useState<"tasks" | "automations">("tasks");
+  const [tab, setTab] = useState<"tasks" | "automations" | "activity">("tasks");
   const [err, setErr] = useState("");
 
   const load = useCallback(async () => {
@@ -214,13 +215,14 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
 
   const tabs = (
     <div className="flex gap-1.5" role="tablist">
-      {(["tasks", "automations"] as const).map((t) => (
+      {(["tasks", "automations", "activity"] as const).map((t) => (
         <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
-          {t === "tasks" ? "Tasks & projects" : "Automations"}
+          {t === "tasks" ? "Tasks & projects" : t === "automations" ? "Automations" : "Activity"}
         </button>
       ))}
     </div>
   );
+  if (tab === "activity") return <div className="space-y-4">{tabs}<ActivityView onOpenTask={setOpen} /></div>;
   if (tab === "automations") return <div className="space-y-4">{tabs}<AutomationsView agents={agents} onOpenTask={setOpen} /></div>;
 
   return (

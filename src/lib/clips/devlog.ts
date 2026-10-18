@@ -26,6 +26,13 @@ export function devlogMoment<M extends { title: string; titleOptions?: TitleOpti
   return { ...m, title: devlogTitle(day, m.title), ...(titleOptions.length ? { titleOptions } : {}) };
 }
 
+/** A title critique of a devlog clip with every option and the rewrite kept in the "Day N" template (duplicates after that dropped). */
+export function devlogCritique<C extends { options: (TitleOption & { issues: string[] })[]; rewrite?: string }>(c: C, day: number): C {
+  const seen = new Set<string>();
+  const options = c.options.map((o) => ({ ...o, text: devlogTitle(day, o.text) })).filter((o) => !seen.has(o.text) && seen.add(o.text));
+  return { ...c, options, ...(c.rewrite && { rewrite: devlogTitle(day, c.rewrite) }) };
+}
+
 /** The series' next day number (counter + 1, never below floor + 1) and the updated counters. floor: highest day already used by a job. */
 export function bumpDay(days: Record<string, number> | undefined, series = DEVLOG_SERIES, floor = 0): { day: number; days: Record<string, number> } {
   const prev = days?.[series];

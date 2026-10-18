@@ -3,6 +3,7 @@ import path from "node:path";
 import { cleanPermission, isInboxName, validOptions } from "./pure.ts";
 import type { ClipOptions, Download } from "./types";
 import { DEVLOG_DIR, bumpDay, isRemuxedMkv, maxJobDay } from "./devlog.ts";
+import { stopAllOn } from "../stop-all.ts";
 
 // Inbox watcher: stream files the owner drops into <studio>/inbox (from creators, clipping programs, Discord) get a clip job on their own.
 // Polls instead of fs.watch, which misses events on Windows network/OneDrive folders. factory is imported lazily so the pure
@@ -198,7 +199,7 @@ async function pollDevlog(f: Awaited<ReturnType<typeof factory>>, inboxNames: Se
 }
 
 async function poll() {
-  if (S.busy) return;
+  if (S.busy || stopAllOn()) return; // Stop-all: no auto-clipping; files dropped meanwhile are picked up after Resume
   S.busy = true;
   try {
     const f = await factory();

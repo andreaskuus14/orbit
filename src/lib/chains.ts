@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelTask, getAgent, kickQueue, runTask } from "./agents";
+import { stopAllOn } from "./stop-all";
 import { CHAIN_TITLE, chainView, composeRequest, nextMove, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
 
 // AGENT TEAMS runner: the chain lives in the tasks table (see chains-pure.ts), so it survives restarts. drive() walks the steps in order,
@@ -113,7 +114,7 @@ export async function withSlot(sb: SupabaseClient, userId: string, taskId: strin
 
 /** Run the chain's next steps in order until it ends, waits for an approval, or is cancelled. Idempotent: one driver per chain. */
 export async function drive(sb: SupabaseClient, userId: string, id: string) {
-  if (driving.has(id)) return;
+  if (driving.has(id) || stopAllOn()) return; // Stop-all: no driver; the chain row stays "running" and resumeChains drives it after Resume
   driving.add(id);
   const ac = new AbortController();
   live().set(id, ac);

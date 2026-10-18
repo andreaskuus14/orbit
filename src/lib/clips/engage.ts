@@ -46,7 +46,7 @@ export async function draftReplies(videoId: string, signal?: AbortSignal): Promi
   if (!sh.comments.length) throw new Error("No unanswered comments on this Short");
   const comments = sh.comments.map((c) => JSON.stringify({ commentId: c.id, author: c.author, text: c.text })).join("\n");
   const prompt = `Short title: ${sh.title}\nHook: ${sh.hook}\nWhy the moment works: ${sh.reason}\n<comments>\n${comments}\n</comments>`;
-  const r = await askClaude(prompt, DRAFTS_SYSTEM, { lane: "background", signal });
+  const r = await askClaude(prompt, DRAFTS_SYSTEM, { lane: "background", signal, purpose: "clips.engage" });
   const d = parseDrafts(r.text, sh.comments.map((c) => c.id));
   if (!d) throw new Error("Claude's reply had no usable drafts — try again");
   return d;
@@ -58,7 +58,7 @@ export async function writeDescription(jobId: string, clipId: string, signal?: A
   if (!job || !clip) throw new Error("Clip not found");
   const creator = creatorFromSource(job.source);
   const prompt = `Title: ${clean(title ?? clip.title, 100)}\nHook: ${clean(clip.hook, 300)}\nWhy it works: ${clean(clip.reason, 300)}${creator ? `\nCreator: ${creator}` : ""}`;
-  const r = await askClaude(prompt, DESC_SYSTEM + (await tastePrompt()), { lane: "background", signal });
+  const r = await askClaude(prompt, DESC_SYSTEM + (await tastePrompt()), { lane: "background", signal, purpose: "clips.description" });
   const text = buildDescription(r.text, creator, job.options.preset === "devlog" ? DEVLOG_TAGS : []);
   if (!text) throw new Error("Claude's reply had no usable description — try again");
   return text;

@@ -184,6 +184,23 @@ export function writeWsFile(uid: string, slug: string, rel: string, content: str
   });
 }
 
+// <workspace>/.orbit-check: the site check's screenshots and verdict. A dot folder, so it is never listed, counted in the caps or
+// served by the preview (checkPath refuses dot names); the WORKSPACES panel reads it through /api/workspace.
+export const CHECK_FILES = ["desktop.png", "phone.png", "result.json"] as const;
+export async function checkDir(uid: string, slug: string): Promise<string | null> {
+  const dir = await realWsDir(uid, slug);
+  if (!dir) return null;
+  const d = path.join(dir, ".orbit-check");
+  await mkdir(d, { recursive: true });
+  return (await lstat(d)).isDirectory() ? d : null; // never write through a link
+}
+export async function readCheckFile(uid: string, slug: string, name: (typeof CHECK_FILES)[number]): Promise<Buffer | null> {
+  if (!CHECK_FILES.includes(name)) return null;
+  const dir = await realWsDir(uid, slug);
+  const f = dir && path.join(dir, ".orbit-check", name);
+  try { return f && (await lstat(path.dirname(f))).isDirectory() && (await lstat(f)).isFile() ? await readFile(f) : null; } catch { return null; }
+}
+
 /** Moves the file to <workspace>/.trash/<time>-<random>-<path with / → __>; keeps the newest TRASH_MAX there (bounds disk use). */
 export function trashWsFile(uid: string, slug: string, rel: string): Promise<{ trashed: string } | { error: string }> {
   const c = checkPath(rel);

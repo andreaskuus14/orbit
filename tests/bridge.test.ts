@@ -1,9 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { askClaude } from "../src/lib/claude.ts";
 import { parseCitations } from "../src/lib/pure.ts";
 
+process.env.ORBIT_DATA_DIR = mkdtempSync(join(tmpdir(), "orbit-bridge-")); // the usage meter records these calls: never into the real data dir
 let hasClaude = true;
 try { execSync(`"${process.env.ORBIT_CLAUDE_BIN || "claude"}" --version`, { stdio: "ignore" }); } catch { hasClaude = false; }
 

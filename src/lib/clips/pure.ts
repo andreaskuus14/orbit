@@ -732,12 +732,8 @@ export function wrapTitle(title: string, width = 14, maxLines = 4): string[] {
 }
 
 /** Title overlay for the thumbnail: huge white bold text with a cherry stroke and glow, over a dark band. */
-export function thumbSvg(title: string, w = 1080, h = 1920): string {
-  const lines = wrapTitle(title.toUpperCase());
-  const longest = Math.max(1, ...lines.map((l) => l.length));
-  const size = Math.min(170, Math.floor((w - 120) / (longest * 0.85)));
-  const lh = Math.round(size * 1.08);
-  const top = Math.round(h * 0.42 - (lines.length * lh) / 2 + size * 0.8);
+export function thumbSvg(title: string, w = 1080, h = 1920, scale = 1): string {
+  const { lines, size, lh, top } = thumbLayout(title, w, h, scale);
   const text = (attrs: string) => `<text x="${w / 2}" text-anchor="middle" font-family="Arial Black, Arial, Helvetica, sans-serif" font-weight="900" font-size="${size}" ${attrs}>` +
     lines.map((l, i) => `<tspan x="${w / 2}" y="${top + i * lh}">${escapeXml(l)}</tspan>`).join("") + "</text>";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
@@ -748,6 +744,45 @@ export function thumbSvg(title: string, w = 1080, h = 1920): string {
     text(`fill="#ff2e63" stroke="#ff2e63" stroke-width="${Math.round(size * 0.16)}" stroke-linejoin="round"`) +
     text(`fill="#ffffff" stroke="#000000" stroke-width="3"`) +
     "</svg>";
+}
+
+/** Title lines, font size, line height and first baseline for thumbSvg (scale < 1 = the smaller retry title). */
+export function thumbLayout(title: string, w = 1080, h = 1920, scale = 1) {
+  const lines = wrapTitle(title.toUpperCase());
+  const longest = Math.max(1, ...lines.map((l) => l.length));
+  const size = Math.max(1, Math.floor(Math.min(170, Math.floor((w - 120) / (longest * 0.85))) * scale));
+  const lh = Math.round(size * 1.08);
+  const top = Math.round(h * 0.42 - (lines.length * lh) / 2 + size * 0.8);
+  return { lines, longest, size, lh, top };
+}
+
+// shortcut: the box is estimated from the same 0.85 em/char the layout uses (no font metrics); wide glyphs (W, M) can run ~15% past it.
+/** Estimated title box (px) incl. the solid stroke: cap top of the first line to descender of the last, centred at w/2. */
+export function thumbTextBox(title: string, w = 1080, h = 1920, scale = 1) {
+  const { lines, longest, size, lh, top } = thumbLayout(title, w, h, scale);
+  const half = (longest * size * 0.85 + size * 0.16) / 2;
+  return { x0: w / 2 - half, x1: w / 2 + half, y0: top - size * 0.8, y1: top + (lines.length - 1) * lh + size * 0.25 };
+}
+
+// Shorts safe area: the player puts the channel row, caption and buttons over the bottom ~25% and the right edge, the search bar at the top.
+export const THUMB_SAFE = { x: 0.04, top: 0.1, bottom: 0.25 };
+export const THUMB_BYTES = { min: 10 * 1024, max: 2 * 1024 * 1024 }; // 2 MB = YouTube's custom thumbnail limit
+export const THUMB_LUMA = { min: 16, max: 240 }; // mean 0-255 luma outside this = a black/blank or blown-out frame
+
+/** Rec. 709 luma of sharp's stats().channels means (1 channel = grey). */
+export const lumaOf = (ch: { mean: number }[]) => ch.length >= 3 ? 0.2126 * ch[0].mean + 0.7152 * ch[1].mean + 0.0722 * ch[2].mean : ch[0]?.mean ?? 0;
+
+/** What's wrong with a finished thumbnail ([] = fine): decoded size, title inside the safe area, not near-black/white, sane file size. */
+export function thumbProblems(f: { width: number; height: number; bytes: number; luma: number }, title: string, scale = 1, w = 1080, h = 1920): string[] {
+  const out: string[] = [];
+  if (f.width !== w || f.height !== h) out.push(`size ${f.width}x${f.height}, expected ${w}x${h}`);
+  const b = thumbTextBox(title, w, h, scale);
+  if (b.x0 < w * THUMB_SAFE.x || b.x1 > w * (1 - THUMB_SAFE.x) || b.y0 < h * THUMB_SAFE.top || b.y1 > h * (1 - THUMB_SAFE.bottom)) out.push("title outside the safe area");
+  if (f.luma < THUMB_LUMA.min) out.push("frame is nearly black");
+  else if (f.luma > THUMB_LUMA.max) out.push("frame is nearly white");
+  if (f.bytes < THUMB_BYTES.min) out.push(`file only ${Math.round(f.bytes / 1024)} KB`);
+  else if (f.bytes > THUMB_BYTES.max) out.push(`file ${(f.bytes / 1048576).toFixed(1)} MB (YouTube max 2 MB)`);
+  return out;
 }
 
 // ---- state files: validation, quarantine ----

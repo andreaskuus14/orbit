@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fmtSize } from "@/lib/vault-pure";
 
 // WORKSPACES: the real files CORE built (ask CORE "build me a website"). Browse, read, move to trash, open the live preview.
 type Ws = { slug: string; files: number; bytes: number; mtime: number; preview: string };
 type WsFile = { path: string; size: number; mtime: number };
+type Check = { at: string; rendered: boolean; line: string; issues: string[]; shots: string[] };
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -20,6 +21,8 @@ export function WorkspacePanel() {
   const [files, setFiles] = useState<{ files: WsFile[]; preview: string } | null>(null);
   const [view, setView] = useState<{ path: string; text: string } | null>(null);
   const [err, setErr] = useState("");
+  const [check, setCheck] = useState<Check | null>(null);
+  const current = useRef<string | null>(null); // the open workspace: late responses for another one are dropped
 
   const load = useCallback(async () => {
     try { setList((await call<{ workspaces: Ws[] }>("/api/workspace")).workspaces); setErr(""); } catch (e) { setErr((e as Error).message); }
@@ -27,8 +30,10 @@ export function WorkspacePanel() {
   useEffect(() => { void load(); }, [load]);
 
   const openWs = useCallback(async (slug: string) => {
-    setWs(slug); setView(null); setFiles(null);
-    try { setFiles(await call(`/api/workspace?ws=${encodeURIComponent(slug)}`)); setErr(""); } catch (e) { setErr((e as Error).message); }
+    current.current = slug; setWs(slug); setView(null); setFiles(null); setCheck(null);
+    call<{ check: Check | null }>(`/api/workspace?ws=${encodeURIComponent(slug)}&check=result`).then((r) => { if (current.current === slug) setCheck(r.check); }, () => {});
+    try { const f = await call<{ files: WsFile[]; preview: string }>(`/api/workspace?ws=${encodeURIComponent(slug)}`); if (current.current === slug) { setFiles(f); setErr(""); } }
+    catch (e) { if (current.current === slug) setErr((e as Error).message); }
   }, []);
 
   const openFile = async (path: string) => {
@@ -63,10 +68,24 @@ export function WorkspacePanel() {
       ) : (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <button className="chip" onClick={() => { setWs(null); void load(); }}>← All workspaces</button>
+            <button className="chip" onClick={() => { current.current = null; setWs(null); void load(); }}>← All workspaces</button>
             <span className="min-w-0 flex-1 truncate">{ws}</span>
             {files && <a className="chip" href={files.preview} target="_blank" rel="noopener noreferrer">▶ Open preview</a>}
           </div>
+          {check && (
+            <div className="card space-y-2" aria-label="Site check">
+              <p className="text-xs">{check.line} <span className="muted">· {new Date(check.at).toLocaleString()}</span></p>
+              {check.issues.length > 0 && <ul className="muted list-disc pl-4 text-xs">{check.issues.map((i) => <li key={i}>{i}</li>)}</ul>}
+              {check.shots.length > 0 && (
+                <div className="flex items-start gap-2">
+                  {check.shots.map((s) => (
+                    <img key={s} src={`/api/workspace?ws=${encodeURIComponent(ws)}&check=${s}&t=${encodeURIComponent(check.at)}`} alt={`${s} screenshot of ${ws}`}
+                      className={`${s === "phone" ? "w-1/4" : "w-3/4"} h-auto rounded border border-white/10`} width={s === "phone" ? 390 : 1280} height={s === "phone" ? 844 : 800} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {!files ? <p className="muted">Loading…</p> : files.files.length === 0 ? <p className="muted">Empty.</p> : (
             <ul className="space-y-1">
               {files.files.map((f) => (
