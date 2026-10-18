@@ -53,7 +53,7 @@ test("parseYaml + docFromYaml on the TweenService fixture (real creator-docs fil
   assert.equal(m0.name, "TweenService:Create");
   assert.deepEqual((m0.parameters as Record<string, unknown>[]).map((p) => p.name), ["instance", "tweenInfo", "propertyTable"]);
   assert.match(m0.summary as string, /^Creates a new `Class.Tween`/);
-  const d = docFromYaml(y)!;
+  const d = docFromYaml(y as Parameters<typeof docFromYaml>[0])!;
   assert.equal(d.kind, "class");
   assert.equal(d.members.find((m) => m.name === "Create")?.sig, "Create(instance: Instance, tweenInfo: TweenInfo, propertyTable: Dictionary): Tween");
   assert.ok(d.members.every((m) => m.kind === "method"));
