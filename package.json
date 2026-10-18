@@ -22,7 +22,8 @@
     "wake:run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wake/orbit-wake.ps1",
     "wake:debug": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wake/orbit-wake.ps1 -DebugRun",
     "night:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/night/install.ps1",
-    "night:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/night/uninstall.ps1"
+    "night:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/night/uninstall.ps1",
+    "rea:setup": "node scripts/setup-rea.mjs"
   },
   "engines": {
     "node": ">=22.6"

@@ -39,7 +39,7 @@ const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
 const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater"]; // full-screen worlds with their own side panel (no drawer)
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
-const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "ORBIT is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
+const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "Orbital is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
 
 export default function Orbit({ userId, email }: { userId: string; email: string }) {
   const sb = useMemo(() => createClient(), []);
@@ -65,7 +65,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const cmdRef = useRef<HTMLInputElement>(null);
   const voice = useVoiceInput();
   const [wakeGreeting, setWakeGreeting] = useState<string | null>(null);
-  const [doctor, setDoctor] = useState<null | "click" | "nav">(null); // ORBIT doctor; "nav" (voice/command) reads the result aloud
+  const [doctor, setDoctor] = useState<null | "click" | "nav">(null); // Orbital doctor; "nav" (voice/command) reads the result aloud
   const [tapToTalk, setTapToTalk] = useState(false);
   // CORE navigation: sub-targets for the worlds (new object per command), and a world we're flying to through the galaxy.
   const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string; search?: string } | null>(null);
@@ -352,14 +352,14 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       )}
 
       <header className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-4 py-3">
-        <button className="logo" onClick={closeWorld} aria-label="ORBIT home">
+        <button className="logo" onClick={closeWorld} aria-label="Orbital home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/orbit-mark.png" alt="" width={40} height={40} onError={(e) => { e.currentTarget.style.display = "none"; }} />
-          <span><span className="brand block">ORBIT</span><span className="muted block text-[10px] tracking-[0.2em]">YOUR MIND HAS A UNIVERSE</span></span>
+          <span><span className="brand block">Orbital</span><span className="muted block text-[10px] tracking-[0.2em]">YOUR MIND HAS A UNIVERSE</span></span>
         </button>
         <div className="hud-bar-top">
           <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title="Realtime link to the backend that animates the galaxy">{live === "live" ? "LIVE" : live === "offline" ? "OFFLINE" : "CONNECTING"}</span>
-          {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start ORBIT from the desktop shortcut for the production server.">DEV</span>}
+          {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start Orbital from the desktop shortcut for the production server.">DEV</span>}
           <NotificationCenter />
           <StudioNotifier />
           <button className="chip" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label="Search everything (Ctrl+P)" title="Search everything: planets, actions, memories, files (Ctrl+P)">⌕</button>
@@ -419,7 +419,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
             <div><dt>Pulse</dt><dd className={pulseFailed ? "bad" : pulseBusy ? "warn" : "ok"}>{pulseBusy ? "Writing" : pulseFailed ? "Last failed" : "Idle"}</dd></div>
             <div><dt>Automations</dt><dd className={automationFailing ? "bad" : "ok"}>{automationFailing ? "Needs attention" : "OK"}</dd></div>
           </dl>
-          <button className="chip mt-2" onClick={() => setDoctor("click")}>🩺 Check ORBIT</button>
+          <button className="chip mt-2" onClick={() => setDoctor("click")}>🩺 Check Orbital</button>
           <p className="muted mt-2 text-[10px] tracking-wider">← → FLY BETWEEN PLANETS · ? SHORTCUTS</p>
         </aside>
       )}

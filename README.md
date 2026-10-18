@@ -79,3 +79,7 @@ Run `npm run app:install` once. It puts an **ORBIT** icon on your Desktop and in
 
 ## Layout
 `src/lib/claude.ts` Claude Code bridge · `core.ts` CORE turn · `memory.ts` capture/search · `src/components/Galaxy.tsx` 3D scene · `panels.tsx` workspaces · `supabase/migrations` schema with row-level security on every table.
+
+## REA project analysis
+
+REA is bundled in `vendor/rea` as a local add-on controlled by ORBIT. It can inspect registered local JavaScript/TypeScript projects from CORE or the signed-in `/rea` page. Run `npm run rea:setup` to build the supplied source, then rebuild/restart ORBIT. Full setup, coverage, privacy and cancellation details are in [docs/REA.md](docs/REA.md). The bridge uses a source-only snapshot, retains complete Evidence, and never edits the original project.

@@ -13,3 +13,7 @@ orbit-server.pid
 orbit-build.log
 orbit-launcher.log
 orbit-launcher.log.1
+
+.env.local.rea-backup-*
+.env.local.rea-*.tmp
+.orbit-rea-backups/

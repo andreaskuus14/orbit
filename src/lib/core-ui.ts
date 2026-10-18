@@ -2,7 +2,7 @@
 
 const AGENTS = "nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa";
 // Anything that needs memories, tools or real thinking stays on the main model.
-const HEAVY = new RegExp(String.raw`https?:|www\.|\.(com|org|net|io)\b|\b(memor|note|remember|save|saved|news|headline|studio|clip|shorts?\b|scout|niche|schedul|youtube|channel|video|agent|${AGENTS}|file|upload|document|search|find|look\s*up|latest|today|yesterday|tonight|this week|go to|open|show|fly|navigate|zoom|globe|planet|project|idea|goal|research|explain|why|how (do|does|can|should|would)|write|story|summar|plan|code|compare|analy|list|my|mine|i (said|told|wrote|asked)|we (talked|discussed)|earlier|last time|weather|price|stock|score)`, "i");
+const HEAVY = new RegExp(String.raw`https?:|www\.|\.(com|org|net|io)\b|\b(memor|note|remember|save|saved|news|headline|studio|clip|shorts?\b|scout|niche|schedul|youtube|channel|video|agent|${AGENTS}|file|upload|document|search|find|look\s*up|latest|today|yesterday|tonight|this week|go to|open|show|fly|navigate|zoom|globe|planet|project|idea|goal|rea|repository|source|audit|research|explain|why|how (do|does|can|should|would)|write|story|summar|plan|code|compare|analy|list|my|mine|i (said|told|wrote|asked)|we (talked|discussed)|earlier|last time|weather|price|stock|score)`, "i");
 const AFFIRM = /^\W*(yes|yeah|yep|yup|sure|ok(ay)?|do it|go ahead|please( do)?|sounds good|go for it)\b/i;
 // The user asks for depth outright ("deep: ...", "think hard").
 const DEEP_ASK = /^\W*deep\s*:|\bthink (hard|deeply|carefully|it through)\b|\bdeep[- ]dive\b/i;
@@ -30,6 +30,7 @@ export function stepLabel(tool: string, input: Record<string, unknown> = {}): st
     ask_agent: `Asking ${agent}…`, save_memory: "Saving to memory…", navigate: "Flying there…",
     studio_status: "Checking the studio…", learned: "Checking what works…", run_scout: "Starting the scout…",
     run_niche: "Starting niche research…", schedule_approved: "Scheduling clips…",
+    rea_status: "Checking project analysis…", rea_analyze: "Starting project analysis…", rea_read: "Reading analysis evidence…", rea_cancel: "Stopping analysis…",
     suggestions: "Checking what needs attention…", plan_task: "Starting the plan…", create_goal: "Setting up the goal…", goal_status: "Checking your goals…", review: "Double-checking the answer…",
   };
   return labels[tool] ?? "Working…";
@@ -38,6 +39,8 @@ export function stepLabel(tool: string, input: Record<string, unknown> = {}): st
 /** 2-3 follow-up chips from the tools used (first match wins) or the question; [] when nothing fits. */
 export function followUps(question: string, tools: string[]): string[] {
   const used = (t: string) => tools.includes(t);
+  if (used("rea_analyze")) return ["Check REA analysis status", "Read the REA findings"];
+  if (used("rea_read")) return ["Explain the findings", "What should I fix first?"];
   if (used("studio_status")) return ["Review clips", "Run the scout", "What has worked best?"];
   if (used("learned")) return ["Review clips", "Find my niche", "Studio status"];
   if (used("run_scout") || used("run_niche")) return ["Studio status", "Review clips"];

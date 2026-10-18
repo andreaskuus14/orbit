@@ -1,10 +1,10 @@
 import type { MetadataRoute } from "next";
 
-// Lets Chrome/Edge treat ORBIT as an installable app with its own window and icon.
+// Lets Chrome/Edge treat Orbital as an installable app with its own window and icon.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "ORBIT",
-    short_name: "ORBIT",
+    name: "Orbital",
+    short_name: "Orbital",
     description: "Your mind has a universe.",
     start_url: "/",
     display: "standalone",
