@@ -17,6 +17,8 @@ import CodeHelper from "./CodeHelper";
 import ScenePlanner from "./ScenePlanner";
 import TextureStudio from "./TextureStudio";
 import PlaytestBot from "./PlaytestBot";
+import GridCity from "./GridCity";
+import HivePanel from "./HivePanel";
 import {
   ART_KEYS, PLATFORMS, PLAYABLE_IDS, SEVERITIES, STAGES, STATUSES, bugStats, isActive, qaPrompt, slugify, validateDevWorld,
   type Bug, type DevWorld as World, type Game, type Platform, type Severity, type Stage, type Status,
@@ -156,7 +158,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
   const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest">("games");
+  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "hive" | "grid">("games");
   const saved = useRef<World | null>(null); // last world the server accepted: the rollback target
   const queue = useRef(Promise.resolve());
   const seq = useRef(0);
@@ -247,7 +249,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Studio view">
           <button className="chip" aria-pressed={tab === "games"} onClick={() => setTab("games")}>🎮 Games</button>
           <button className="chip" aria-pressed={tab === "refs"} onClick={() => setTab("refs")} style={tab === "refs" ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>🎨 References</button>
-          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"]] as const).map(([k, label]) => (
+          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"], ["hive", "🐝 Hive"], ["grid", "🟦 Grid"]] as const).map(([k, label]) => (
             <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
           ))}
         </div>
@@ -255,6 +257,8 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {tab === "sounds" && <SoundFinder />}
         <div hidden={tab !== "thumbs"}><ThumbMaker /></div>
         {tab === "trends" && <TrendRadar />}
+        {tab === "grid" && <GridCity />}
+        <div hidden={tab !== "hive"}><HivePanel /></div>
         {tab === "scene" && <ScenePlanner />}
         {tab === "textures" && <TextureStudio />}
         <div hidden={tab !== "playtest"}><PlaytestBot world={world} commit={commit} gameId={selected} /></div>

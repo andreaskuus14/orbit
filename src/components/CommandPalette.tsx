@@ -6,6 +6,7 @@ import { NAV_EVENT, validateNav, type NavTarget } from "@/lib/nav-pure";
 import { rank, pushRecent, rowsOf, PALETTE_EVENT, OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { VOICE_ASK } from "./voice/bus";
 import { SHORTCUTS_EVENT } from "./ShortcutsOverlay";
+import { TERMINAL_EVENT } from "@/lib/terminal-pure";
 import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT } from "@/lib/core-chats-pure";
 
 export { PALETTE_EVENT, OPEN_MEMORY_EVENT };
@@ -29,6 +30,7 @@ const ACTIONS: Item[] = [
   } },
   { id: "act:doctor", label: "Check ORBIT health", hint: "Run the ORBIT doctor", keywords: "doctor diagnostics", run: () => nav({ panel: null, doctor: true }) },
   { id: "act:keys", label: "Keyboard shortcuts", keywords: "keys help", run: () => dispatchEvent(new Event(SHORTCUTS_EVENT)) },
+  { id: "act:terminal", label: "fsociety terminal", hint: "Live read-only feed ( ` )", keywords: "hacker console log mr robot", run: () => dispatchEvent(new Event(TERMINAL_EVENT)) },
   { id: "act:morning", label: "Good morning briefing", keywords: "brief daily", run: () => nav({ panel: null, morning: true }) },
   { id: "act:beliefs", label: "What ORBIT believes about me", keywords: "beliefs memory", run: () => nav({ panel: "memory", beliefs: true }) },
   { id: "act:stats", label: "STUDIO stats", hint: "Channel analytics", keywords: "youtube", run: () => nav({ panel: "studio", view: "stats" }) },

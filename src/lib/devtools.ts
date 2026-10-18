@@ -9,6 +9,8 @@ import {
   MAX_FAVS, WHY_SYSTEM, boundedSet, cleanFavourite, parseExploreSorts, parseIcons, parseLegacyList, parseOpenverse, trendPrompt,
   type Sound, type TrendSort,
 } from "./devtools-pure";
+import { orbitDataDir } from "./data-dir";
+import { findRisers, parseSnaps, pushSnap, toSnapshot, type Riser } from "./trend-rise-pure";
 
 // DevWorld game-dev tools: Openverse sound search + local favourites, and the Roblox Trend Radar.
 // All outbound HTTP goes through safeFetch (SSRF guard, size cap); results are cached in memory with a size cap.
@@ -73,7 +75,23 @@ export const removeFavourite = (id: string) => updateFavs((f) => f.filter((x) =>
 
 /* ---------- Roblox Trend Radar ---------- */
 
-export type Trends = { source: string; sorts: TrendSort[]; at: number; error?: string; tried: string[] };
+export type Trends = { source: string; sorts: TrendSort[]; at: number; error?: string; tried: string[]; risers?: Riser[] };
+
+/** Append a snapshot to <data dir>/trend-history.json (atomic) and return current risers. Never throws. */
+async function recordSnapshot(sorts: TrendSort[], now: number): Promise<Riser[]> {
+  const file = path.join(orbitDataDir(), "trend-history.json");
+  try {
+    const old = parseSnaps(JSON.parse(await readFile(file, "utf8").catch(() => "[]"))); // shortcut: a corrupt file restarts history (it's only a cache)
+    const snaps = pushSnap(old, toSnapshot(sorts, now));
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file + ".tmp", JSON.stringify(snaps));
+    await rename(file + ".tmp", file);
+    return findRisers(snaps);
+  } catch (e) {
+    console.error("[devtools] trend history:", e instanceof Error ? e.message : e);
+    return [];
+  }
+}
 
 async function fromExplore(): Promise<TrendSort[]> {
   const sid = randomUUID();
@@ -111,7 +129,7 @@ export function getTrends(now = Date.now()): Promise<Trends> {
     for (const [source, fn] of [["Roblox explore API (get-sorts)", fromExplore], ["Roblox games API (legacy sorts)", fromLegacy]] as const) {
       try {
         const sorts = await fn();
-        if (sorts.length) { await addIcons(sorts); return { source, sorts, at: now, tried }; }
+        if (sorts.length) { await addIcons(sorts); return { source, sorts, at: now, tried, risers: await recordSnapshot(sorts, now) }; }
         tried.push(`${source}: no games returned`);
       } catch (e) { tried.push(`${source}: ${(e as Error).message}`); }
     }

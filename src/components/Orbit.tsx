@@ -14,6 +14,8 @@ import { NAV_EVENT, navReply, parseNavCommand, type LifeView, type NavTarget } f
 import { StudioNotifier } from "./StudioNotifier";
 import { NotificationCenter } from "./NotificationCenter";
 import { StopAll } from "./StopAll";
+import { Terminal } from "./Terminal";
+import { HalEye } from "./HalEye";
 import { notify } from "@/lib/notify-pure";
 import { OPEN_MEMORY_EVENT, PALETTE_EVENT } from "@/lib/palette-pure";
 import { MorningCard } from "./MorningCard";
@@ -385,6 +387,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <button className="hud-menu-item" onClick={signOut} title={email}>Sign out</button>
       </div>
       <ShortcutsOverlay />
+      <Terminal />
       <CommandPalette />
       <LifeReminders />
       <MarketWatcher />
@@ -411,6 +414,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
       <MorningCard home={!shown && !approach} />
       <WhatsNew home={!shown && !approach} />
+      {!shown && !approach && <HalEye />}
       {!shown && (
         <aside className="glass hud-panel status-hud" aria-label="System status">
           <div className="hud-title">SYSTEM</div>

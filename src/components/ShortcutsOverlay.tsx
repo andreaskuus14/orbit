@@ -16,6 +16,7 @@ const GROUPS: [string, [string, string][]][] = [
     ["Esc", "Cancel listening · close a popover or panel"],
     ["← →", "Fly to the previous / next planet"],
     ["?", "Show this list"],
+    ["` (key left of 1)", "fsociety terminal: live read-only feed (same key or Esc closes)"],
   ]],
   ["Studio · review queue", [
     ["A", "Approve clip"],

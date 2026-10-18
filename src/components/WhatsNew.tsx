@@ -2,10 +2,16 @@
 import { useEffect, useState } from "react";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { PALETTE_EVENT } from "@/lib/palette-pure";
+import { TERMINAL_EVENT } from "@/lib/terminal-pure";
 
 // One-time "what's new" card after an update. Bump KEY's version when a new round ships something worth showing.
-const KEY = "orbit.whatsnew.2026-10-17b";
+const KEY = "orbit.whatsnew.2026-10-18";
 const ITEMS: { icon: string; title: string; text: string; go?: NavTarget; event?: string }[] = [
+  { icon: "🔺", title: "Rising games", text: "Trend Radar → Rising spots Roblox games growing fast, before they peak.", go: { panel: "creation" } },
+  { icon: "🟦", title: "The Grid", text: "GAME DEV → Grid: your scripts as a neon city. Red buildings have errors.", go: { panel: "creation" } },
+  { icon: "🐝", title: "The Hive", text: "GAME DEV → Hive: 6 AI minds brainstorm, vote and give you the top 3.", go: { panel: "creation" } },
+  { icon: "💻", title: "fsociety terminal", text: "Press the key left of 1 for a live hacker view of agents, health and usage.", event: TERMINAL_EVENT },
+  { icon: "🔴", title: "ORBIT eye", text: "The eye on the home screen glows when ORBIT listens or talks. Click it to mute." },
   { icon: "🧠", title: "CORE deep mode", text: "Start with “deep:” or say “think hard” — CORE plans, answers and double-checks.", go: { panel: "core" } },
   { icon: "📁", title: "CORE makes real files", text: "“Build me a website” saves real files. Open them in VAULT → Workspaces with ▶ preview.", go: { panel: "vault" } },
   { icon: "🏗", title: "GAME DEV Wave B", text: "Map from your reference board, asset packs, GUI scripts and before/after build history.", go: { panel: "creation" } },

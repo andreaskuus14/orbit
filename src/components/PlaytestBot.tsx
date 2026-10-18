@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { PlayFinding, PlaytestResult } from "@/lib/roblox-pure";
 import { MAX_BUGS, type Bug, type DevWorld as World, type Severity } from "@/lib/devworld-pure";
 import { PINK, call } from "./RobloxBuild";
+import { GRID_ERRORS_KEY } from "@/lib/grid-pure";
 
 type Result = PlaytestResult & { image: string | null };
 const SEV: Record<PlayFinding["severity"], Severity> = { high: "major", med: "minor", low: "polish" };
@@ -24,7 +25,11 @@ export default function PlaytestBot({ world, commit, gameId }: { world: World | 
 
   const run = async () => {
     setBusy(true); setErr(""); setRes(null); setAdded([]);
-    try { setRes(await call<Result>({ method: "POST", body: JSON.stringify({ action: "playtest", goal: goal.trim() }) })); }
+    try {
+      const r = await call<Result>({ method: "POST", body: JSON.stringify({ action: "playtest", goal: goal.trim() }) });
+      setRes(r);
+      try { localStorage.setItem(GRID_ERRORS_KEY, r.consoleErrors.join("\n")); } catch { /* no storage: the Grid tab just won't see them */ }
+    }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   };
