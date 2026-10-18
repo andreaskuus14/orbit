@@ -12,8 +12,11 @@ import { PLANETS, type PanelId, type PlanetDef, type PlanetId } from "@/lib/plan
 import { QUALITY, stepQuality, type QualityLevel, type QualityMode, type QualityState } from "@/lib/quality-pure";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
-import { fmtCoord } from "@/lib/cinematic-pure";
-import { CameraFeel, DevStats, Dust, GalaxyHud, MotionAberration, useRim, type HudEls, type Motion } from "./Cinematic";
+import { cullLabels, damp, fmtCoord, HOME_POS, introLabelAlpha } from "@/lib/cinematic-pure";
+import {
+  CameraFeel, DevStats, Dust, GalaxyHud, MotionAberration, newStory, StoryFocus, StoryRail, StoryReadout, StoryRig, useRim,
+  type HudEls, type Motion, type Story,
+} from "./Cinematic";
 
 export type GalaxyProps = {
   selected: PanelId | null;
@@ -231,8 +234,8 @@ const LOOKS: Record<PlanetId, Look> = {
 function OrbitPath({ r, warn = false }: { r: number; warn?: boolean }) {
   return (
     <mesh rotation-x={Math.PI / 2}>
-      <ringGeometry args={[r - (warn ? 0.03 : 0.01), r + (warn ? 0.03 : 0.01), 192]} />
-      <meshBasicMaterial color={warn ? "#f43f5e" : "#cfe0ff"} transparent opacity={warn ? 0.6 : 0.16} side={THREE.DoubleSide} depthWrite={false} />
+      <ringGeometry args={[r - (warn ? 0.03 : 0.007), r + (warn ? 0.03 : 0.007), 256]} />
+      <meshBasicMaterial color={warn ? "#f43f5e" : "#cfe0ff"} transparent opacity={warn ? 0.6 : 0.05} side={THREE.DoubleSide} depthWrite={false} />
     </mesh>
   );
 }
@@ -521,11 +524,12 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false }: {
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128 }: {
   p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
   agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
   life?: { done: number; total: number } | null; still?: boolean; // still = reduced motion or low quality: no animation
+  segs?: number; // sphere segments: fewer on lower quality levels
 }) {
   const group = useRef<THREE.Group>(null);
   const mesh = useRef<THREE.Mesh>(null);
@@ -579,14 +583,14 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
           }}
           onPointerOut={() => { clearTimeout(tapT.current); hovered.current = false; onHover(p.id, false); document.body.style.cursor = ""; }}
         >
-          <sphereGeometry args={[size, 128, 128]} />
+          <sphereGeometry args={[size, segs, segs]} />
           <meshStandardMaterial map={photo ?? map} color={surf.tint ?? "#ffffff"} bumpMap={photo ?? map} bumpScale={surf.bump}
             roughness={surf.rough} metalness={surf.metal ?? 0}
             emissive={surf.glow ?? p.color} emissiveMap={surf.glow ? (photo ?? map) : null} emissiveIntensity={0} onBeforeCompile={rim.onBeforeCompile} />
         </mesh>
         {cloudTex && (
           <mesh ref={clouds} scale={1.02} rotation-z={0.2}>
-            <sphereGeometry args={[size, 96, 96]} />
+            <sphereGeometry args={[size, segs * 0.75, segs * 0.75]} />
             <meshStandardMaterial map={cloudTex} transparent opacity={surf.clouds} depthWrite={false} roughness={1} />
           </mesh>
         )}
@@ -847,28 +851,41 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
 }
 
 const BODIES = ["core", ...PLANETS.map((p) => p.id)];
+const LABEL_W = BODIES.map((id) => (id === "core" ? 4 : PLANETS.find((p) => p.id === id)!.name.length) * 11 + 18); // px, 12px font at 0.3em tracking
 
 /** Projects each body's position to screen space every frame and moves plain DOM labels there (no extra React roots).
  *  Also places the HUD's leader label beside the hovered planet and writes the focus coordinates (no allocations). */
-function LabelProjector({ positions, labels, hover, selected, hud }: {
+function LabelProjector({ positions, labels, hover, selected, hud, story, reduced }: {
   positions: Positions; labels: RefObject<Record<string, HTMLSpanElement | null>>;
-  hover: RefObject<PlanetId | null>; selected: PanelId | null; hud: RefObject<HudEls>;
+  hover: RefObject<PlanetId | null>; selected: PanelId | null; hud: RefObject<HudEls>; story: RefObject<Story>; reduced: boolean;
 }) {
   const v = useMemo(() => new THREE.Vector3(), []);
   const st = useRef({ t: 0, text: "" });
+  const sc = useMemo(() => { const n = BODIES.length; const f = () => new Float64Array(n); return { x: f(), y: f(), prio: f(), vis: f(), alpha: f(), order: f() }; }, []);
   useFrame(({ camera, size, controls }, dt) => {
     const els = labels.current;
     if (!els) return;
-    for (const id of BODIES) {
-      const el = els[id];
-      if (!el) continue;
-      const p = PLANETS.find((x) => x.id === id);
-      if (id === "core") v.set(0, -2.4, 0);
-      else if (p) { v.copy(positions[id]); v.y -= planetSize(p) + 0.5; }
+    const S = story.current, stopId = S.stop >= 0 ? PLANETS[S.stop].id : null, h0 = hover.current;
+    for (let i = 0; i < BODIES.length; i++) {
+      const id = BODIES[i], el = els[id];
+      const p = i > 0 ? PLANETS[i - 1] : undefined;
+      if (!p) v.set(0, -2.4, 0);
+      else { v.copy(positions[id]); v.y -= planetSize(p) + 0.5; }
       v.project(camera);
-      const visible = v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
-      el.style.opacity = visible ? "1" : "0";
-      el.style.transform = `translate(-50%, -50%) translate(${((v.x + 1) / 2) * size.width}px, ${((1 - v.y) / 2) * size.height}px)`;
+      const visible = !!el && v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
+      sc.x[i] = ((v.x + 1) / 2) * size.width; sc.y[i] = ((1 - v.y) / 2) * size.height;
+      // Journey: only the current stop. Overview: hovered > opened > CORE > outer worlds; overlapping ones give way.
+      sc.prio[i] = !visible ? -1 : stopId ? (id === stopId ? 1 : -1) : id === h0 ? 1000 : id === selected ? 900 : !p ? 100 : p.radius;
+      if (el) el.style.transform = `translate(-50%, -50%) translate(${sc.x[i]}px, ${sc.y[i]}px)`;
+    }
+    cullLabels(sc.x, sc.y, LABEL_W, 22, sc.prio, sc.vis, sc.order);
+    for (let i = 0; i < BODIES.length; i++) {
+      const el = els[BODIES[i]];
+      if (!el) continue;
+      const goal = sc.vis[i] * introLabelAlpha(S.intro, i, BODIES.length);
+      let a = reduced ? goal : damp(sc.alpha[i], goal, 8, dt);
+      if (Math.abs(a - goal) < 0.01) a = goal; // snap: damp never lands, and a frozen 0.03-0.07 leaves ghost labels
+      if (a !== sc.alpha[i]) { sc.alpha[i] = a; el.style.opacity = a === 0 ? "0" : a.toFixed(3); }
     }
     const h = hover.current, leader = hud.current.leader;
     const hp = h ? PLANETS.find((x) => x.id === h) : undefined;
@@ -893,9 +910,9 @@ function LabelProjector({ positions, labels, hover, selected, hud }: {
 }
 
 // Low, oblique view like the reference illustration.
-const HOME = new THREE.Vector3(-8, 14, 44); // pulled back to fit the wider outer orbits
+const HOME = new THREE.Vector3(...HOME_POS); // pulled back to fit the wider outer orbits
 
-function Rig({ selected, positions, reduced, panelOpen, fast }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean }) {
+function Rig({ selected, positions, reduced, panelOpen, fast, story }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean; story: RefObject<Story> }) {
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; addEventListener: (t: string, f: () => void) => void; removeEventListener: (t: string, f: () => void) => void } | null;
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const size = useThree((s) => s.size);
@@ -944,6 +961,7 @@ function Rig({ selected, positions, reduced, panelOpen, fast }: { selected: Pane
 
   useFrame((_, dt) => {
     if (!controls) return;
+    if (story.current.owns) { flight.current = null; return; } // the intro / scroll journey is driving the camera
     const f = flight.current;
     if (f) {
       goals();
@@ -968,15 +986,15 @@ function Rig({ selected, positions, reduced, panelOpen, fast }: { selected: Pane
 
 /** Averages the frame rate over 0.5 s windows and asks for a cheaper/richer level (rules in lib/quality-pure). */
 function QualityMonitor({ level, max, onLevel }: { level: QualityLevel; max: QualityLevel; onLevel: (l: QualityLevel) => void }) {
-  const st = useRef({ warm: 0, frames: 0, t: 0, q: { level, low: 0, high: 0 } as QualityState });
+  const st = useRef({ warm: 0, frames: 0, t: 0, worst: 0, q: { level, low: 0, high: 0 } as QualityState });
   useEffect(() => { st.current.q = { ...st.current.q, level, low: 0, high: 0 }; st.current.warm = 0; }, [level]); // a level change hitches: re-warm
   useFrame((_, dt) => {
     const s = st.current;
     if ((s.warm += dt) < 2) return; // first frames compile shaders and upload textures
-    s.frames++; s.t += dt;
+    s.frames++; s.t += dt; s.worst = Math.max(s.worst, dt * 1000);
     if (s.t < 0.5) return;
-    s.q = stepQuality(s.q, s.frames / s.t, s.t, max);
-    s.frames = 0; s.t = 0;
+    s.q = stepQuality(s.q, s.frames / s.t, s.t, max, s.worst); // a steady vsync-halved 30 fps is not strain
+    s.frames = 0; s.t = 0; s.worst = 0;
     if (s.q.level !== level) onLevel(s.q.level);
   });
   return null;
@@ -996,10 +1014,10 @@ export default function Galaxy(props: GalaxyProps) {
   const [ready, setReady] = useState(false);
   const onReady = useCallback(() => setReady(true), []);
   useEffect(() => { const t = setTimeout(onReady, 8000); return () => clearTimeout(t); }, [onReady]); // never hang on the loader if no frame draws
-  const max: QualityLevel = props.reduced ? 1 : 2;
+  const max: QualityLevel = props.reduced ? 1 : 3;
   const [autoLevel, setAutoLevel] = useState<QualityLevel>(max);
   const mode = props.quality ?? "auto";
-  const level: QualityLevel = mode === "high" ? 2 : mode === "low" ? 0 : (Math.min(autoLevel, max) as QualityLevel);
+  const level: QualityLevel = mode === "high" ? 3 : mode === "low" ? 0 : (Math.min(autoLevel, max) as QualityLevel);
   const q = QUALITY[level];
   const motion = useRef<Motion>({ speed: 0 });
   const hover = useRef<PlanetId | null>(null);
@@ -1013,6 +1031,25 @@ export default function Galaxy(props: GalaxyProps) {
   const [coarse] = useState(() => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
   const dprMax = coarse ? Math.min(1.5, q.dpr) : Math.min(2, q.dpr);
   const film = q.film && !props.reduced; // grain is motion, aberration is motion: both off for reduced motion
+  const dof = q.dof && !props.reduced;
+  // The camera story: intro flight on every fresh load, then wheel = travel planet to planet (not with reduced motion).
+  const [intro, setIntro] = useState(!props.reduced);
+  const [introMs] = useState(intro ? 4500 : 900); // HUD title decrypts in step with the intro
+  const [stop, setStop] = useState(-1);
+  const story = useRef<Story>(newStory(intro));
+  const onIntroEnd = useCallback(() => setIntro(false), []);
+  const sizes = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, planetSize(p)])), []);
+  const { onSelect, selected } = props;
+  useEffect(() => { // Enter opens the current stop, exactly like clicking it
+    if (stop < 0 || selected !== null) return;
+    const k = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.key !== "Enter" || e.defaultPrevented || (el && (/^(INPUT|TEXTAREA|SELECT|BUTTON|A|VIDEO|AUDIO)$/.test(el.tagName) || el.isContentEditable))) return;
+      onSelect(PLANETS[stop].id);
+    };
+    addEventListener("keydown", k);
+    return () => removeEventListener("keydown", k);
+  }, [stop, selected, onSelect]);
   return (
     <div className="relative h-full w-full">
       <Canvas key={glr.key} onCreated={glr.onCreated} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, dprMax]}
@@ -1021,7 +1058,7 @@ export default function Galaxy(props: GalaxyProps) {
         {/* Depth haze: far orbits and belts sink into a cold blue-black (shader layers like stars/nebulae ignore it). */}
         <fogExp2 attach="fog" args={["#070c1c", 0.0055]} />
         <ambientLight intensity={0.06} color="#9aa8c0" /> {/* low fill: the CORE is the sun, worlds get a real day and night side */}
-        <Nebula />
+        {level >= 2 && <Nebula />} {/* two screen-filling additive sprites: pure fill-rate, the first thing to go */}
         <NebulaPlates reduced={props.reduced} />
         <Stars radius={110} depth={60} count={props.reduced ? Math.min(2000, q.stars) : q.stars} factor={3.2} fade speed={props.reduced ? 0 : 0.5} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
@@ -1035,19 +1072,21 @@ export default function Galaxy(props: GalaxyProps) {
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
-            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} />
+            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} />
         ))}
         <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={80} enableDamping />
-        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} />
+        {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
+        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} />
         <ZoomRig home={HOME.length()} reduced={props.reduced} />
-        <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} />
-        <LabelProjector positions={positions} labels={labels} hover={hover} selected={props.selected} hud={hud} />
+        <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} story={story} />
+        <LabelProjector positions={positions} labels={labels} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
         {process.env.NODE_ENV === "development" && <DevStats />}
         <FirstFrames onReady={onReady} />
         {mode === "auto" && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
         {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}
         {q.bloom > 0 && (
           <EffectComposer key={level} multisampling={q.msaa}>
+            {dof ? <StoryFocus story={story} /> : <></>}
             <Bloom intensity={props.reduced ? Math.min(0.6, q.bloom) : q.bloom} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />
             {film ? <MotionAberration motion={motion} /> : <></>}
             <Vignette offset={0.28} darkness={0.7} />
@@ -1057,7 +1096,9 @@ export default function Galaxy(props: GalaxyProps) {
         )}
       </Canvas>
       <GalaxyLoader done={ready} />
-      <GalaxyHud selected={props.selected} hoverSet={hoverSet} els={hud} />
+      <GalaxyHud selected={props.selected} hoverSet={hoverSet} els={hud} introMs={introMs} />
+      {!props.reduced && <StoryReadout stop={stop} intro={intro} onOpen={onSelect} />}
+      {!props.reduced && <StoryRail stop={stop} on={!intro && selected === null} onGo={(n) => story.current.goTo(n)} />}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning ? "#fb7185" : "#ffe2b0" }}>
           CORE{props.warning ? " · last request failed" : ""}

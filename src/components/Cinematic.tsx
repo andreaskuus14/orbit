@@ -1,13 +1,16 @@
 "use client";
 // The galaxy's cinematic layer: damped wheel zoom + idle drift, drifting dust, planet rim light,
 // motion-scaled chromatic aberration and the monospace HUD (corner readout + exploded-view leader label).
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { ChromaticAberration } from "@react-three/postprocessing";
-import type { ChromaticAberrationEffect } from "postprocessing";
+import { ChromaticAberration, DepthOfField } from "@react-three/postprocessing";
+import type { ChromaticAberrationEffect, DepthOfFieldEffect } from "postprocessing";
 import * as THREE from "three";
 import { PLANETS, type PanelId, type PlanetId } from "@/lib/planets";
-import { aberrationFor, damp, idleDrift, stepZoom, wheelKick } from "@/lib/cinematic-pure";
+import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
+import {
+  aberrationFor, damp, framePose, HOME_POS, idleDrift, INTRO_SECS, introPose, smoothDamp, stepStop, stepZoom, wheelGate, wheelKick, wheelStep,
+} from "@/lib/cinematic-pure";
 import { useScramble } from "./useScramble";
 
 export type Motion = { speed: number }; // camera speed, fraction of the orbit distance per second (smoothed)
@@ -19,7 +22,7 @@ type Controls = THREE.EventDispatcher<{ start: object; end: object }> & {
 
 /** Wheel zoom with inertia that eases to rest, an idle drift on the home view, and a camera-speed meter.
  *  Wheel input still fires the controls' "start" event, so Rig flights and ZoomRig goals stop exactly as before. */
-export function CameraFeel({ motion, reduced, home }: { motion: RefObject<Motion>; reduced: boolean; home: boolean }) {
+export function CameraFeel({ motion, reduced, home, story }: { motion: RefObject<Motion>; reduced: boolean; home: boolean; story: RefObject<Story> }) {
   const controls = useThree((s) => s.controls) as unknown as Controls | null;
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
@@ -33,6 +36,7 @@ export function CameraFeel({ motion, reduced, home }: { motion: RefObject<Motion
     const touch = () => { st.current.input = performance.now(); if (controls) controls.autoRotate = false; };
     const wheel = (e: WheelEvent) => {
       touch();
+      if (story.current.wheel?.(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; } // the scroll journey took it
       if (reduced || !controls) return; // reduced motion: OrbitControls' own instant zoom
       e.preventDefault();
       e.stopImmediatePropagation(); // capture phase: OrbitControls never sees it
@@ -48,7 +52,7 @@ export function CameraFeel({ motion, reduced, home }: { motion: RefObject<Motion
       el.removeEventListener("pointerdown", touch, { capture: true });
       removeEventListener("keydown", touch);
     };
-  }, [connected, gl, controls, reduced]);
+  }, [connected, gl, controls, reduced, story]);
 
   useFrame((_, dt) => {
     if (!controls) return;
@@ -60,7 +64,7 @@ export function CameraFeel({ motion, reduced, home }: { motion: RefObject<Motion
       s.vel = z.vel;
       if (d > 1e-6) camera.position.copy(controls.target).addScaledVector(off, z.dist / d);
     }
-    const drift = home && !reduced ? idleDrift((performance.now() - s.input) / 1000) : 0;
+    const drift = home && !reduced && !story.current.owns ? idleDrift((performance.now() - s.input) / 1000) : 0;
     controls.autoRotate = drift > 0;
     controls.autoRotateSpeed = drift;
     // Speed meter for the aberration (and anything else that wants to react to motion).
@@ -160,8 +164,8 @@ const pad = (n: number) => String(n).padStart(2, "0");
 
 /** Monospace HUD over the galaxy: a corner readout and the numbered leader label of the hovered planet.
  *  Positions/coordinates are written by the projector inside the canvas; this only owns text and the reveal. */
-export function GalaxyHud({ selected, hoverSet, els }: {
-  selected: PanelId | null; hoverSet: RefObject<(id: PlanetId, on: boolean) => void>; els: RefObject<HudEls>;
+export function GalaxyHud({ selected, hoverSet, els, introMs = 900 }: {
+  selected: PanelId | null; hoverSet: RefObject<(id: PlanetId, on: boolean) => void>; els: RefObject<HudEls>; introMs?: number;
 }) {
   const [hover, setHover] = useState<PlanetId | null>(null);
   useEffect(() => { hoverSet.current = (id, on) => setHover((h) => (on ? id : h === id ? null : h)); }, [hoverSet]);
@@ -174,7 +178,7 @@ export function GalaxyHud({ selected, hoverSet, els }: {
   }, []);
   const focusId = hover ?? (selected && selected !== "core" && selected !== "profile" ? selected : null);
   const fi = focusId ? PLANETS.findIndex((p) => p.id === focusId) : -1;
-  const title = useScramble("// ORBIT OS · SOL-01", 900);
+  const title = useScramble("// ORBIT OS · SOL-01", introMs);
   const focus = useScramble(fi >= 0 ? `FOCUS ${pad(fi + 1)} ${PLANETS[fi].name}` : selected === "core" ? "FOCUS 00 CORE" : "FOCUS -- SYSTEM");
   const hi = hover ? PLANETS.findIndex((p) => p.id === hover) : -1;
   const label = useScramble(hi >= 0 ? PLANETS[hi].name : "", 420);
@@ -195,5 +199,177 @@ export function GalaxyHud({ selected, hoverSet, els }: {
         )}
       </div>
     </>
+  );
+}
+
+/* ---------- the camera story: intro flight, scroll journey, focus (DOF), section readout and rail ---------- */
+
+/** Shared between the canvas (StoryRig writes, labels/DOF read) and the DOM HUD. Mutated per frame, never re-rendered. */
+export type Story = {
+  owns: boolean;     // the story is driving the camera (Rig / idle drift stand aside)
+  intro: number;     // intro progress 0..1 (1 = done / none)
+  stop: number;      // -1 overview, else index into PLANETS
+  dof: number;       // 0..1 how much depth of field to apply
+  focus: THREE.Vector3; focusSize: number;
+  wheel: ((e: WheelEvent) => boolean) | null; // returns true when it consumed the wheel event
+  goTo: (n: number) => void;
+};
+export const newStory = (intro: boolean): Story => ({
+  owns: intro, intro: intro ? 0 : 1, stop: -1, dof: 0, focus: new THREE.Vector3(), focusSize: 1, wheel: null, goTo: () => {},
+});
+
+type Mode = "intro" | "journey" | "settle" | "idle";
+type StoryControls = Controls & { update: () => void };
+const GLIDE = 0.32; // smoothDamp time: ~1.1 s between stops, frame-rate independent
+
+/** Drives the camera for the intro flight and the scroll journey; hands back to OrbitControls/Rig when idle. */
+export function StoryRig({ story, positions, sizes, selected, intro, onIntroEnd, onStop }: {
+  story: RefObject<Story>; positions: Record<string, THREE.Vector3>; sizes: Record<string, number>; selected: PanelId | null;
+  intro: boolean; onIntroEnd: () => void; onStop: (n: number) => void;
+}) {
+  const controls = useThree((s) => s.controls) as unknown as StoryControls | null;
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
+  const st = useRef({ mode: (intro ? "intro" : "idle") as Mode, t: 0, stop: -1, home: selected === null,
+    pose: new Float64Array(6), vel: new Float64Array(6), gate: wheelGate() });
+  useEffect(() => { st.current.home = selected === null; }, [selected]);
+
+  const endIntro = useCallback((next: Mode) => {
+    const s = st.current;
+    if (s.mode !== "intro") return;
+    s.mode = next; story.current.intro = 1; onIntroEnd();
+  }, [story, onIntroEnd]);
+  const setStop = useCallback((n: number) => {
+    const s = st.current;
+    if (n === s.stop) return;
+    s.stop = n; story.current.stop = n; onStop(n);
+  }, [story, onStop]);
+  const go = useCallback((n: number) => {
+    const s = st.current;
+    if (!s.home) return;
+    endIntro("settle");
+    n = stepStop(n, 0, PLANETS.length);
+    s.mode = n >= 0 ? "journey" : "settle"; // back to the overview: glide home (also after a drag left the camera elsewhere)
+    setStop(n);
+  }, [endIntro, setStop]);
+  const release = useCallback(() => { // the user grabbed the camera (drag, pinch/ctrl zoom, voice zoom): it's theirs
+    const s = st.current;
+    endIntro("idle");
+    s.mode = "idle"; s.vel.fill(0); setStop(-1);
+  }, [endIntro, setStop]);
+
+  useEffect(() => { if (selected !== null) release(); }, [selected, release]); // opening a planet: Rig flies
+
+  useEffect(() => {
+    const S = story.current;
+    S.goTo = go;
+    S.wheel = (e) => {
+      const s = st.current;
+      if (!s.home || e.ctrlKey || e.shiftKey || e.metaKey) return false; // modifier / pinch: the old zoom
+      if (s.mode === "intro") { endIntro("settle"); return true; }
+      const d = wheelStep(s.gate, e.deltaY, e.deltaMode, performance.now());
+      if (d) go(stepStop(s.stop, d, PLANETS.length));
+      return true;
+    };
+    const skip = () => endIntro("settle"); // any key / pointer skips the intro (a drag then releases it via "start")
+    const nav = (e: Event) => { if ((e as CustomEvent<NavTarget>).detail?.zoom) release(); };
+    addEventListener("keydown", skip, true);
+    addEventListener("pointerdown", skip, true);
+    addEventListener(NAV_EVENT, nav);
+    const c = controls as unknown as THREE.EventDispatcher<{ start: object }> | null;
+    c?.addEventListener("start", release);
+    return () => {
+      S.wheel = null; S.goTo = () => {};
+      removeEventListener("keydown", skip, true);
+      removeEventListener("pointerdown", skip, true);
+      removeEventListener(NAV_EVENT, nav);
+      c?.removeEventListener("start", release);
+    };
+  }, [story, controls, go, endIntro, release]);
+
+  useFrame((_, dt) => {
+    const s = st.current, S = story.current, P = s.pose, V = s.vel;
+    S.owns = s.mode !== "idle" && s.home;
+    // FOV: tele while travelling, narrower still on an opened planet (the dolly-in), back to 50 at home.
+    const fovGoal = selected && selected !== "core" && selected !== "profile" ? 38 : s.mode === "journey" ? 44 : 50;
+    const fov = damp(camera.fov, fovGoal, 3, dt);
+    if (Math.abs(fov - camera.fov) > 1e-4) { camera.fov = fov; camera.updateProjectionMatrix(); }
+    // Focus for the depth of field: the current stop, else the opened planet.
+    const fid = s.mode === "journey" && s.stop >= 0 ? PLANETS[s.stop].id : selected && selected !== "core" && selected !== "profile" ? selected : null;
+    if (fid) { S.focus.copy(positions[fid]); S.focusSize = sizes[fid] ?? 1; }
+    S.dof = fid ? 1 : 0;
+    if (!controls || !S.owns) return;
+    const cam = camera.position, tgt = controls.target;
+    if (s.mode === "intro") {
+      const step = Math.min(Math.max(0, dt), 0.05); // a shader-compile hitch must not eat the flight
+      s.t = Math.min(1, s.t + step / INTRO_SECS);
+      S.intro = s.t;
+      introPose(s.t, P);
+      if (step > 0) { // track velocity so a skip glides on instead of stopping dead
+        V[0] = (P[0] - cam.x) / step; V[1] = (P[1] - cam.y) / step; V[2] = (P[2] - cam.z) / step;
+        V[3] = (P[3] - tgt.x) / step; V[4] = (P[4] - tgt.y) / step; V[5] = (P[5] - tgt.z) / step;
+      }
+      cam.set(P[0], P[1], P[2]); tgt.set(P[3], P[4], P[5]);
+      if (s.t >= 1) { V.fill(0); endIntro("idle"); }
+    } else {
+      if (s.mode === "journey") {
+        const id = PLANETS[s.stop].id, p = positions[id];
+        framePose(p.x, p.z, sizes[id] ?? 1, camera.aspect, camera.fov, P);
+        P[1] += Math.min(6, 0.22 * Math.hypot(cam.x - P[0], cam.z - P[2])); // lift on long hops: an arc over the system
+      } else { P[0] = HOME_POS[0]; P[1] = HOME_POS[1]; P[2] = HOME_POS[2]; P[3] = 0; P[4] = 0; P[5] = 0; }
+      cam.set(smoothDamp(cam.x, P[0], V, 0, GLIDE, dt), smoothDamp(cam.y, P[1], V, 1, GLIDE, dt), smoothDamp(cam.z, P[2], V, 2, GLIDE, dt));
+      tgt.set(smoothDamp(tgt.x, P[3], V, 3, GLIDE, dt), smoothDamp(tgt.y, P[4], V, 4, GLIDE, dt), smoothDamp(tgt.z, P[5], V, 5, GLIDE, dt));
+      if (s.mode === "settle" && Math.hypot(cam.x - P[0], cam.y - P[1], cam.z - P[2]) + Math.hypot(tgt.x, tgt.y, tgt.z) < 0.03) {
+        cam.set(P[0], P[1], P[2]); tgt.set(0, 0, 0); V.fill(0); s.mode = "idle";
+      }
+    }
+    controls.update();
+  });
+  return null;
+}
+
+const ORIGIN: [number, number, number] = [0, 0, 0];
+/** Depth of field on the story's focus (top quality level only): bokeh eases in at a stop / opened planet, off at home. */
+export function StoryFocus({ story }: { story: RefObject<Story> }) {
+  const ref = useRef<DepthOfFieldEffect>(null);
+  useFrame((_, dt) => {
+    const e = ref.current, S = story.current;
+    if (!e) return;
+    e.target?.copy(S.focus);
+    e.bokehScale = damp(e.bokehScale, S.dof * 3, 3, dt);
+    e.cocMaterial.focusRange = S.focusSize * 4 + 2; // the planet and its moons/ring stay sharp, the system behind goes soft
+  });
+  return <DepthOfField ref={ref} target={ORIGIN} focusRange={6} bokehScale={0} />;
+}
+
+/** igloo-style section readout, bottom left: "03 / 11", the planet's name large, one line on what it does. */
+export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boolean; onOpen: (id: PanelId) => void }) {
+  const live = stop >= 0 ? stop : intro ? -2 : null; // -2 = the intro card
+  const [shown, setShown] = useState<number>(intro ? -2 : -1);
+  useEffect(() => { if (live !== null) setShown(live); }, [live]); // keep the last card while it fades out
+  const p = shown >= 0 ? PLANETS[shown] : null;
+  const name = useScramble(p ? p.name : shown === -2 ? "ORBITAL" : "", shown === -2 ? 2600 : 650);
+  if (shown === -1) return <div className="story-readout" />;
+  return (
+    <div className={`story-readout${live !== null ? " on" : ""}`} aria-hidden={live === null || undefined}>
+      <div key={p?.id ?? "intro"} className="story-anim">
+        <div className="story-idx" aria-hidden><b>{pad(p ? shown + 1 : 0)}</b> / {pad(PLANETS.length)}</div>
+        {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={live !== null ? 0 : -1}>{name}</button>
+          : <div className="story-name" aria-hidden>{name}</div>}
+        <p className="story-line">{p ? p.blurb : "Your mind has a universe."}</p>
+        <p className="story-hint" aria-hidden>{p ? "CLICK OR ENTER TO OPEN · SCROLL TO TRAVEL" : "SCROLL TO EXPLORE"}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Slim progress rail on the right edge: one dot per stop (plus the overview); click glides there. */
+export function StoryRail({ stop, on, onGo }: { stop: number; on: boolean; onGo: (n: number) => void }) {
+  return (
+    <nav className={`story-rail${on ? " on" : ""}`} aria-label="Planet journey" aria-hidden={!on || undefined}>
+      <button type="button" className="story-rail-home" aria-label="Overview" title="Overview" aria-current={stop === -1 ? "step" : undefined} onClick={() => onGo(-1)} tabIndex={on ? 0 : -1} />
+      {PLANETS.map((p, i) => (
+        <button type="button" key={p.id} aria-label={`Fly to ${p.name}`} title={p.name} aria-current={stop === i ? "step" : undefined} onClick={() => onGo(i)} tabIndex={on ? 0 : -1} />
+      ))}
+    </nav>
   );
 }

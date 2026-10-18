@@ -90,7 +90,7 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .planet-card.warn { border-color: #f43f5e !important; }
 .planet-card:hover { transform: translateY(-2px); box-shadow: 0 0 24px rgba(34, 211, 238, 0.18); background: linear-gradient(135deg, rgba(20, 44, 90, 0.8), rgba(6, 14, 34, 0.8)); }
 
-.planet-label { font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: 0.3em; white-space: nowrap; text-shadow: 0 0 10px rgba(0, 0, 0, 0.95), 0 0 14px currentColor; }
+.planet-label { opacity: 0; font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: 0.3em; white-space: nowrap; text-shadow: 0 0 10px rgba(0, 0, 0, 0.95), 0 0 14px currentColor; }
 
 /* Header logo + status pills */
 .logo { display: flex; align-items: center; gap: 0.6rem; text-align: left; border-radius: 6px; }
@@ -540,3 +540,32 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
 .chat-sheet-backdrop { position: absolute; inset: 0; z-index: 5; background: rgba(2, 6, 16, 0.45); border-radius: 16px; }
 @media (max-width: 640px) { .chat-sheet { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .chat-sheet { animation: none; } }
+
+/* Camera story (igloo-style): section readout bottom-left, progress rail on the right edge. */
+.story-readout { position: absolute; left: clamp(1rem, 3vw, 2.5rem); bottom: 7rem; z-index: 16; pointer-events: none; max-width: min(36rem, calc(100vw - 2rem));
+  opacity: 0; transform: translateY(14px); transition: opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.story-readout.on { opacity: 1; transform: none; }
+.story-anim { animation: story-up 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.story-idx { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.32em; color: rgba(186, 214, 255, 0.55); }
+.story-idx b { color: #8fd3ff; font-weight: 500; }
+.story-name { display: block; margin: 0.4rem 0 0.7rem; padding: 0; border: 0; background: none; color: #eef5ff; text-align: left; cursor: pointer; pointer-events: auto;
+  font-family: var(--font-display); font-weight: 600; font-size: clamp(2.2rem, 5.6vw, 4.6rem); line-height: 1; letter-spacing: 0.26em; white-space: nowrap;
+  text-shadow: 0 0 40px rgba(0, 0, 0, 0.75); }
+div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-events: none; } /* faded-out card: no invisible click target */
+.story-name:focus-visible { outline: 1px solid #8fd3ff; outline-offset: 6px; }
+.story-line { max-width: 30rem; font-size: 0.95rem; line-height: 1.5; color: rgba(214, 228, 255, 0.74); text-shadow: 0 0 12px rgba(0, 0, 0, 0.9); }
+.story-hint { margin-top: 0.9rem; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.22em; color: rgba(186, 214, 255, 0.38); }
+@keyframes story-up { from { opacity: 0; transform: translateY(18px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+:root:has(.story-readout.on) .status-hud { opacity: 0; visibility: hidden; }
+.story-rail { position: absolute; right: 0.9rem; top: 50%; z-index: 16; display: flex; flex-direction: column; gap: 0.15rem; transform: translateY(-50%);
+  opacity: 0; pointer-events: none; transition: opacity 0.6s ease; }
+.story-rail.on { opacity: 1; pointer-events: auto; }
+.story-rail button { display: grid; place-items: center; width: 22px; height: 18px; padding: 0; border: 0; background: none; cursor: pointer; }
+.story-rail button::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: rgba(186, 214, 255, 0.32); transition: width 0.45s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.3s, box-shadow 0.3s; }
+.story-rail button.story-rail-home::before { width: 7px; height: 7px; background: none; border: 1px solid rgba(186, 214, 255, 0.4); }
+.story-rail button:hover::before { background: #dcecff; }
+.story-rail button[aria-current="step"]::before { width: 16px; height: 2px; border-radius: 2px; border: 0; background: #8fd3ff; box-shadow: 0 0 8px rgba(143, 211, 255, 0.8); }
+.story-rail button:focus-visible { outline: 1px solid #8fd3ff; }
+@media (prefers-reduced-motion: reduce) { .story-readout, .story-rail, .story-rail button::before { transition: none; } .story-anim { animation: none; } }
+/* Opening a planet: the camera dollies in first, then the drawer slides in. */
+@media (prefers-reduced-motion: no-preference) and (min-width: 641px) { .drawer:not(.drawer-out):not(.drawer-dock) { animation-delay: 0.3s; animation-fill-mode: both; } }

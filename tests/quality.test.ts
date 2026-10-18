@@ -1,24 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stepQuality, parseQualityMode, type QualityState } from "../src/lib/quality-pure.ts";
+import { isCapped, stepQuality, parseQualityMode, type QualityState } from "../src/lib/quality-pure.ts";
 
-const run = (s: QualityState, fps: number, secs: number, max: 0 | 1 | 2 = 2) => {
-  for (let t = 0; t < secs; t += 0.5) s = stepQuality(s, fps, 0.5, max);
+const run = (s: QualityState, fps: number, secs: number, max: 0 | 1 | 2 | 3 = 2, worst = 0) => {
+  for (let t = 0; t < secs; t += 0.5) s = stepQuality(s, fps, 0.5, max, worst);
   return s;
 };
 const start: QualityState = { level: 2, low: 0, high: 0 };
 
 test("steps down only after 3 s below 40 fps", () => {
-  assert.equal(run(start, 30, 2.5).level, 2);
-  assert.equal(run(start, 30, 3).level, 1);
-  assert.equal(run(start, 30, 6).level, 0);
-  assert.equal(run(start, 30, 60).level, 0); // floor
+  assert.equal(run(start, 25, 2.5).level, 2);
+  assert.equal(run(start, 25, 3).level, 1);
+  assert.equal(run(start, 25, 6).level, 0);
+  assert.equal(run(start, 25, 60).level, 0); // floor
 });
 
 test("a good sample resets the slow streak", () => {
-  let s = run(start, 30, 2.5);
+  let s = run(start, 25, 2.5);
   s = stepQuality(s, 50, 0.5);
-  assert.equal(run(s, 30, 2.5).level, 2);
+  assert.equal(run(s, 25, 2.5).level, 2);
 });
 
 test("steps up only after 10 s above 55 fps, capped by max", () => {
@@ -30,11 +30,11 @@ test("steps up only after 10 s above 55 fps, capped by max", () => {
 });
 
 test("after a step down it never climbs back to the level it fell from", () => {
-  let s = run(start, 30, 3);
+  let s = run(start, 25, 3);
   assert.equal(s.level, 1);
   s = run(s, 60, 60);
   assert.equal(s.level, 1); // vsync 60 fps no longer see-saws 2 → 1 → 2
-  s = run(s, 30, 3);
+  s = run(s, 25, 3);
   s = run(s, 60, 15);
   assert.equal(s.level, 0);
 });
@@ -48,4 +48,12 @@ test("parses the stored mode", () => {
   assert.equal(parseQualityMode("low"), "low");
   assert.equal(parseQualityMode(null), "auto");
   assert.equal(parseQualityMode("ultra"), "auto");
+});
+
+test("a steady 30 fps browser cap is healthy, slow or erratic frames still step down", () => {
+  assert.ok(isCapped(30.3, 35) && isCapped(29.4) && !isCapped(30, 55) && !isCapped(33));
+  assert.equal(run(start, 30.3, 60, 2, 35).level, 2); // capped: never steps down
+  assert.equal(run({ level: 0, low: 0, high: 0 }, 30.3, 25, 3, 35).level, 2); // and climbs back
+  assert.equal(run(start, 30, 3, 2, 60).level, 1); // 30 fps with 60 ms spikes is strain
+  assert.equal(run(start, 26, 3, 2, 39).level, 1); // below the cap is strain
 });
