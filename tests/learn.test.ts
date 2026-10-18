@@ -106,3 +106,26 @@ test("formatTaste: empty without data, readable lines, length cap", () => {
     over: [{ dim: "creator", label: long, n: 3, value: 2 }], under: [{ dim: "creator", label: long, n: 3, value: 0.1 }] });
   assert.ok(big.length > 0 && big.length <= NOTES_MAX, String(big.length));
 });
+
+test("judgeShorts: winners/flops vs the channel median, likes count, shared pattern, edit hints need ≥ 5", async () => {
+  const { judgeShorts, sharedPattern, editHints } = await import("../src/lib/clips/learn-pure.ts");
+  const st = (views: number, likes: number) => ({ at: ago(1), views, likes, comments: 0 });
+  assert.deepEqual(judgeShorts([rec(1, 100), rec(2, 100)]), []); // < MIN_SAMPLE
+  const recs = [rec(1, 1000, { snaps: { "72h": st(1000, 50) }, durationSec: 22, sourceChannel: "Kai Cenat" }), rec(2, 900, { snaps: { "72h": st(900, 45) }, durationSec: 24, sourceChannel: "Kai Cenat" }),
+    rec(3, 300, { snaps: { "72h": st(300, 12) } }), rec(4, 300, { snaps: { "72h": st(300, 12) } }), rec(5, 300, { snaps: { "72h": st(300, 12) } }),
+    rec(6, 300, { snaps: { "72h": st(300, 1) } }), // same views, few likes → lower
+    rec(7, 50, { snaps: { "24h": st(50, 1) }, durationSec: 50 })]; // 24h-only: vs the 24h median
+  const j = judgeShorts(recs);
+  assert.equal(j.length, 7);
+  assert.deepEqual(j.filter((x) => x.verdict === "winner").map((x) => x.videoId), [vid(1), vid(2)]);
+  assert.ok(j.find((x) => x.videoId === vid(6))!.perf < j.find((x) => x.videoId === vid(3))!.perf);
+  assert.equal(j.find((x) => x.videoId === vid(7))!.snap, "24h");
+  assert.match(sharedPattern(j, "winner"), /^Mostly clips from Kai Cenat \(2 of 2\)/);
+  assert.deepEqual(editHints(j.slice(0, 4)), []); // < EDIT_MIN Shorts: nothing
+  const many = [...Array(5)].map((_, i) => rec(10 + i, 2000, { durationSec: 22 })).concat([...Array(5)].map((_, i) => rec(20 + i, 200, { durationSec: 45 })));
+  const h = editHints(judgeShorts(many));
+  assert.ok(h.some((x) => /^20–30 s clips work best/.test(x)) && h.some((x) => /^40\+ s clips under-perform/.test(x)), h.join("|"));
+  const i = insights({ ...emptyLearn(), clips: Object.fromEntries(many.map((r) => [r.videoId, r])) }, []);
+  assert.equal(i.winners!.length, 3); assert.equal(i.flops!.length, 3);
+  assert.match(formatTaste(i), /Editing hints from his channel stats: 20–30 s clips work best/);
+});

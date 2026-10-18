@@ -19,6 +19,7 @@ import { HalEye } from "./HalEye";
 import { notify } from "@/lib/notify-pure";
 import { OPEN_MEMORY_EVENT, PALETTE_EVENT } from "@/lib/palette-pure";
 import { MorningCard } from "./MorningCard";
+import { Herald } from "./Herald";
 import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
@@ -413,6 +414,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       )}
 
       <MorningCard home={!shown && !approach} />
+      <Herald home={!shown && !approach} />
       <WhatsNew home={!shown && !approach} />
       {!shown && !approach && <HalEye />}
       {!shown && (

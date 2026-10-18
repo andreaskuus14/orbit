@@ -5,6 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { CLAUDE_BIN, MODEL, SMART_MODEL, FAST_MODEL, DEEP_MODEL } from "./claude";
 import { checkTools, listDownloads, studioRoot } from "./clips/factory";
 import { youtubePauseUntil } from "./clips/pure";
+import { hyperframesCli } from "./clips/hyperframes";
+import { HF_INSTALL } from "./clips/hyperframes-pure";
 import { scoutView } from "./clips/scout";
 import { isMissingTable } from "./proactive-pure";
 import { usage, vaultDir } from "./vault";
@@ -96,10 +98,11 @@ async function oauthCheck(): Promise<Check> {
 async function toolChecks(): Promise<Check[]> {
   const t = await checkTools();
   const model = process.env.ORBIT_WHISPER_MODEL || "onnx-community/whisper-base_timestamped"; // same default as factory.ts
-  const [ver, downloads, haveModel] = await Promise.all([
+  const [ver, downloads, haveModel, hf] = await Promise.all([
     t.ytdlp ? cached("ytdlp", () => version(process.env.ORBIT_YTDLP || "yt-dlp"), () => 10 * 60_000) : null,
     listDownloads().catch(() => []),
     exists(path.join(studioRoot(), "models", model)),
+    hyperframesCli(),
   ]);
   return [
     t.ffmpeg ? check("ffmpeg", "Video tool (ffmpeg)", "ok", "Found")
@@ -108,6 +111,9 @@ async function toolChecks(): Promise<Check[]> {
     !t.transcriber ? check("whisper", "Speech-to-text (Whisper)", "fail", "The transcriber library is missing, so clips get no captions", "In the ORBIT folder run: npm install")
       : haveModel ? check("whisper", "Speech-to-text (Whisper)", "ok", `Model ${model.split("/").pop()} downloaded`)
       : check("whisper", "Speech-to-text (Whisper)", "warn", "Model not downloaded yet", "Nothing to do: it downloads by itself (about 200 MB) on the first clip job. Keep the internet on."),
+    // Optional, so never a warning: Shorts render fine (plain captions) without it.
+    hf ? check("hyperframes", "Hyperframes (optional)", "ok", "Installed: Shorts get animated captions, hook card and pop-ups")
+      : check("hyperframes", "Hyperframes (optional)", "ok", "Not installed: Shorts use the plain burned captions", `In the ORBIT folder run: ${HF_INSTALL}`),
   ];
 }
 

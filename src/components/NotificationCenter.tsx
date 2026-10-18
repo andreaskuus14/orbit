@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { NAV_EVENT } from "@/lib/nav-pure";
 import { NOTIFY_EVENT, NOTIFY_KEY, KIND_ICON, addItem, notify, parseItems, relTime, unreadCount, type NotifyDetail, type NotifyItem } from "@/lib/notify-pure";
 import type { BootResult } from "@/lib/doctor-boot-pure";
+import { HeraldToggle } from "./Herald";
 
 const load = () => { try { return parseItems(localStorage.getItem(NOTIFY_KEY)); } catch { return []; } };
 const save = (l: NotifyItem[]) => { try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(l)); } catch { /* storage unavailable: history lives until reload */ } };
@@ -49,6 +50,7 @@ export function NotificationCenter() {
         <div className="flex items-center justify-between gap-2 px-2 py-1">
           <strong className="text-xs tracking-[0.15em]">NOTIFICATIONS</strong>
           <span className="flex gap-1">
+            <HeraldToggle />
             <button className="chip" disabled={!unread} onClick={() => commit(load().map((x) => ({ ...x, read: true })))}>Mark all read</button>
             <button className="chip" disabled={!items.length} onClick={() => commit([])}>Clear</button>
           </span>

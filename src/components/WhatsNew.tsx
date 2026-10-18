@@ -5,8 +5,12 @@ import { PALETTE_EVENT } from "@/lib/palette-pure";
 import { TERMINAL_EVENT } from "@/lib/terminal-pure";
 
 // One-time "what's new" card after an update. Bump KEY's version when a new round ships something worth showing.
-const KEY = "orbit.whatsnew.2026-10-18";
+const KEY = "orbit.whatsnew.2026-10-18b";
 const ITEMS: { icon: string; title: string; text: string; go?: NavTarget; event?: string }[] = [
+  { icon: "✨", title: "Pop-ups", text: "ORBIT now pops up uploads due, viral trends (Clip it), briefings and breaking news. Mute it in the 🔔 bell." },
+  { icon: "🔥", title: "Blowing up in your niche", text: "Trend Radar → Rising shows Shorts exploding in your niche right now.", go: { panel: "creation" } },
+  { icon: "📚", title: "Viral study", text: "Press 📚 Study on a viral Short: ORBIT learns why it works and edits your clips that way.", go: { panel: "studio", view: "clips" } },
+  { icon: "🏆", title: "Winners vs flops", text: "See which of your Shorts won or flopped and why. Autopilot learns from it.", go: { panel: "studio", view: "clips" } },
   { icon: "🔺", title: "Rising games", text: "Trend Radar → Rising spots Roblox games growing fast, before they peak.", go: { panel: "creation" } },
   { icon: "🟦", title: "The Grid", text: "GAME DEV → Grid: your scripts as a neon city. Red buildings have errors.", go: { panel: "creation" } },
   { icon: "🐝", title: "The Hive", text: "GAME DEV → Hive: 6 AI minds brainstorm, vote and give you the top 3.", go: { panel: "creation" } },

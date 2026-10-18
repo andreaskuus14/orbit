@@ -390,8 +390,9 @@ export function trimTail(segs: Span[], words: Word[], pts: Pt[]): Span[] {
 export type EditPlan = { segs: Span[]; zooms: number[]; teaser?: Span; words: Word[]; total: number };
 /** The whole edit of one clip on its output timeline: [teaser][jump-cut clip]. words/zooms are output times; teaser is clip time. */
 export function editPlan(local: Word[], pts: Pt[], dur: number, audio: boolean,
-  o: { jumpCuts?: boolean; zooms?: boolean; captions?: boolean; coldOpen?: boolean; loopEnd?: boolean }): EditPlan {
-  let segs = o.jumpCuts && audio ? keepSegments(local, pts, dur) : [{ start: 0, end: dur }];
+  o: { jumpCuts?: boolean; zooms?: boolean; captions?: boolean; coldOpen?: boolean; loopEnd?: boolean },
+  tune: { zoomGap?: number; minGap?: number } = {}): EditPlan { // tune: viral-study playbook (study-pure playbookEdit); {} = defaults
+  let segs = o.jumpCuts && audio ? keepSegments(local, pts, dur, tune.minGap ? { minGap: tune.minGap, pad: 0.15, max: 40 } : undefined) : [{ start: 0, end: dur }];
   if (o.loopEnd && audio) segs = trimTail(segs, local, pts);
   let teaser = (o.coldOpen && audio && coldOpenSpan(pts, local, dur, segs)) || undefined;
   if (teaser && teaser.end - teaser.start + spanSec(segs) > 180) teaser = undefined; // Shorts max 3 min
@@ -401,7 +402,7 @@ export function editPlan(local: Word[], pts: Pt[], dur: number, audio: boolean,
     ...(teaser ? shift(local.filter((w) => w.start >= teaser.start && w.end <= teaser.end), -teaser.start) : []),
     ...shift(retimeWords(local, segs), lead),
   ];
-  return { segs, zooms: o.zooms && audio ? zoomTimes(pts, segs).map((t) => t + lead) : [], teaser, words, total: lead + spanSec(segs) };
+  return { segs, zooms: o.zooms && audio ? zoomTimes(pts, segs, tune.zoomGap).map((t) => t + lead) : [], teaser, words, total: lead + spanSec(segs) };
 }
 
 // ---- ASS subtitles ----
@@ -510,7 +511,7 @@ export function buildAss(o: { hook: string; words: Word[]; duration: number; sty
 const sec = (s: number) => (Math.round(s * 1000) / 1000).toString();
 
 // ffmpeg sniffs formats by content: a playlist disguised as .mp4 could pull in other local files. Only real video containers, only plain files.
-const IN = ["-format_whitelist", "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm", "-protocol_whitelist", "file", "-i"];
+export const IN = ["-format_whitelist", "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm", "-protocol_whitelist", "file", "-i"];
 export const probeArgs = (input: string) => ["-hide_banner", "-nostdin", ...IN, input];
 export const audioArgs = (input: string, out: string) =>
   ["-hide_banner", "-nostdin", "-y", ...IN, input, "-t", String(MAX_SOURCE_SEC), "-vn", "-ac", "1", "-ar", String(SAMPLE_RATE),

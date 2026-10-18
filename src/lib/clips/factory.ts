@@ -26,6 +26,7 @@ import {
   type Analysis, type Candidate, type Moment, type Span, type VersionReq, type Word,
 } from "./pure";
 import { TRACK_FAIL, pathAt, trackAction } from "./reframe";
+import { thumbPick, thumbText, type EditTune } from "./study-pure";
 
 // Clip Factory: long videos dropped in <studio>/inbox become vertical Shorts in <studio>/clips/<jobId>/.
 // One job at a time, in-process; state is one JSON file per job so it survives restarts.
@@ -69,13 +70,13 @@ export async function ensureDirs() {
 
 // ---- tools ----
 
-async function ffmpegPath(): Promise<string | null> {
+export async function ffmpegPath(): Promise<string | null> {
   const p = process.env.ORBIT_FFMPEG || (await import("ffmpeg-static").then((m) => (m.default as unknown as string | null) ?? null, () => null));
   return p && (await access(p).then(() => true, () => false)) ? p : null;
 }
 
 /** ORBIT_YTDLP, else yt-dlp on PATH. Scans PATH instead of running `yt-dlp --version`: the exe takes ~1 s to start and GET polls every 2 s. */
-async function ytdlpPath(): Promise<string | null> {
+export async function ytdlpPath(): Promise<string | null> {
   const exe = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
   // Absolute paths only: spawn resolves relative ones against cwd (the inbox), where a planted exe could sit.
   const cands = (process.env.ORBIT_YTDLP ? [process.env.ORBIT_YTDLP] : (process.env.PATH ?? "").split(path.delimiter).map((d) => path.join(d, exe)))
@@ -92,7 +93,7 @@ export async function checkTools(): Promise<ToolsStatus> {
   return { ffmpeg, transcriber, ytdlp, missing };
 }
 
-function runFfmpeg(ff: string, args: string[], o: { cwd?: string; signal?: AbortSignal; timeoutMs: number; okCodes?: number[]; onTime?: (sec: number) => void }): Promise<string> {
+export function runFfmpeg(ff: string, args: string[], o: { cwd?: string; signal?: AbortSignal; timeoutMs: number; okCodes?: number[]; onTime?: (sec: number) => void }): Promise<string> {
   return new Promise((resolve, reject) => {
     o.signal?.throwIfAborted();
     const child = spawn(ff, args, { cwd: o.cwd, windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
@@ -479,7 +480,7 @@ async function asrFor(language: ClipOptions["language"], onPhase?: (p: AsrPhase)
   return { asr: await loadAsr(ASR_MODEL, onPhase), model: ASR_MODEL };
 }
 
-async function transcribe(pcmFile: string, spans: Span[], language: ClipOptions["language"], signal: AbortSignal, onPhase: (p: AsrPhase) => void, progress: (f: number) => Promise<void>): Promise<Word[]> {
+export async function transcribe(pcmFile: string, spans: Span[], language: ClipOptions["language"], signal: AbortSignal, onPhase: (p: AsrPhase) => void, progress: (f: number) => Promise<void>): Promise<Word[]> {
   // The model load is shared (cached per model) and can't be cancelled: stop waiting for it on cancel instead.
   const { asr, model } = await Promise.race([asrFor(language, onPhase), new Promise<never>((_, reject) => {
     signal.throwIfAborted();
@@ -607,24 +608,32 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
   const ass = `${clip.id}.ass`, video = `${clip.id}.mp4`, frame = `${clip.id}.frame.jpg`;
   const pts = clipLoudness(rms, clip.start, clip.end);
   const local = markLoud(words.filter((w) => w.end > clip.start && w.start < clip.end).map((w) => ({ ...w, start: w.start - clip.start, end: w.end - clip.start })), pts);
-  const { segs, zooms, teaser, words: capWords, total } = editPlan(local, pts, duration, audio, o);
-  await writeFile(path.join(dir, ass), buildAss({ hook: clip.hook, words: capWords, duration: total, style: o.style }), "utf8");
+  // Viral-study playbook ({} until 5 studies): tunes zoom/cut rhythm, default caption style and the thumbnail; the edit options still decide on/off.
+  const tune: EditTune = await import("./study").then((m) => m.editTune(), () => ({}));
+  const { segs, zooms, teaser, words: capWords, total } = editPlan(local, pts, duration, audio, o, tune);
+  await writeFile(path.join(dir, ass), buildAss({ hook: clip.hook, words: capWords, duration: total, style: o.style ?? tune.style }), "utf8");
   const follow = o.layout === "follow" ? await trackAction(ff, trackArgs(src, clip.start, duration), signal).catch((e) => { if (signal.aborted) throw e; if (!job.warnings.includes(TRACK_FAIL)) job.warnings.push(TRACK_FAIL); return []; }) : [];
+  // Optional hyperframes effects layer (hyperframes.ts): when it renders, it replaces the burned ASS captions; otherwise today's path.
+  const hf = await import("./hyperframes"), fx = await hf.renderEffects(dir, clip.id, { hook: clip.hook, words: capWords, duration: total, style: o.style ?? tune.style }, signal);
+  const warn = (w: string | null | undefined) => { if (w && !job.warnings.includes(w)) job.warnings.push(w); };
+  warn(fx.warning);
   try {
-    await runFfmpeg(ff, renderArgs({ input: src, start: clip.start, duration, segs, audio, layout: o.layout, camSide: o.camSide, camSize: o.camSize, follow, zooms, ass, out: video,
+    await runFfmpeg(ff, renderArgs({ input: src, start: clip.start, duration, segs, audio, layout: o.layout, camSide: o.camSide, camSize: o.camSize, follow, zooms, ass: fx.layer ? undefined : ass, out: video,
       teaser, progressBar: o.progressBar, fadeOut: o.loopEnd }), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
+    if (fx.layer) warn(await hf.applyEffects(ff, dir, video, fx.layer, ass, signal));
     clip.video = `clips/${job.id}/${video}`;
   } catch (e) {
     await rm(path.join(dir, video), { force: true }); // don't leave a truncated mp4 behind
     throw e;
   } finally {
-    await rm(path.join(dir, ass), { force: true });
+    await Promise.all([rm(path.join(dir, ass), { force: true }), fx.layer && rm(fx.layer, { force: true })]);
   }
   // Thumbnail candidates: the loudest moment (the default thumb) + 2 more loud frames; the owner picks one (clip.thumbOptions).
   const sharp = await import("sharp").then((m) => m.default, () => null);
   if (!sharp && !job.warnings.includes("sharp missing: thumbnails have no title")) job.warnings.push("sharp missing: thumbnails have no title");
   const thumbs: string[] = [], errs: string[] = [], warns: string[] = [];
-  for (const [k, t] of thumbTimes(rms, clip.start, clip.end, peakTime(rms, clip.start, clip.end)).entries()) {
+  const text = thumbText(tune, clip.title, clip.hook);
+  for (const [k, t] of thumbTimes(rms, clip.start, clip.end, thumbPick(tune, peakTime(rms, clip.start, clip.end), clip.start, clip.end)).entries()) {
     const thumb = k ? `${clip.id}.t${k}.jpg` : `${clip.id}.jpg`, out = path.join(dir, thumb), tmp = `${out}.tmp`;
     // Frame + title, then check the decoded file (not the plan): returns its problems ([] = fine, or no sharp to check with).
     const make = async (at: number, retry: boolean): Promise<string[]> => {
@@ -633,10 +642,10 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
       const scale = retry ? 0.85 : 1;
       const img = retry ? sharp(path.join(dir, frame)).resize(1080, 1920, { fit: "cover" }) : sharp(path.join(dir, frame));
       // Written whole to a tmp file first, so a failed retry never leaves a half-written thumbnail over the first one.
-      await img.composite([{ input: Buffer.from(thumbSvg(clip.title, 1080, 1920, scale)), top: 0, left: 0 }]).jpeg({ quality: 88 }).toFile(tmp);
+      await img.composite([{ input: Buffer.from(thumbSvg(text, 1080, 1920, scale)), top: 0, left: 0 }]).jpeg({ quality: 88 }).toFile(tmp);
       const [m, s, st] = await Promise.all([sharp(tmp).metadata(), sharp(tmp).stats(), stat(tmp)]);
       await rename(tmp, out);
-      return thumbProblems({ width: m.width ?? 0, height: m.height ?? 0, bytes: st.size, luma: lumaOf(s.channels) }, clip.title, scale);
+      return thumbProblems({ width: m.width ?? 0, height: m.height ?? 0, bytes: st.size, luma: lumaOf(s.channels) }, text, scale);
     };
     try { // a missing thumbnail shouldn't throw away a good render
       const failed = (e: unknown) => { if (signal.aborted || !sharp) throw e; return [e instanceof Error ? e.message : String(e)]; };
@@ -888,10 +897,10 @@ async function runDownload(d: Download, signal: AbortSignal) {
 }
 
 /** Runs yt-dlp (no shell), feeding each output line to onLine; resolves with the output tail for error mapping. */
-function runYtdlp(exe: string, args: string[], signal: AbortSignal, onLine: (line: string, stdout: boolean) => void): Promise<string> {
+export function runYtdlp(exe: string, args: string[], signal: AbortSignal, onLine: (line: string, stdout: boolean) => void, cwd = inboxDir()): Promise<string> {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted();
-    const child = spawn(exe, args, { cwd: inboxDir(), windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(exe, args, { cwd, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let tail = "";
     for (const [stream, isOut] of [[child.stdout, true], [child.stderr, false]] as const) {
       let buf = "";

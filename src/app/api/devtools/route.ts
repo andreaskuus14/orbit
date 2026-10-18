@@ -1,11 +1,11 @@
 import { requireUser } from "@/lib/supabase/server";
-import { FavError, addFavourite, getFavourites, getTrends, removeFavourite, searchSounds, whyTrending } from "@/lib/devtools";
+import { FavError, addFavourite, getFavourites, getTrends, nicheViral, removeFavourite, searchSounds, whyTrending } from "@/lib/devtools";
 import { cleanFavourite, cleanQuery } from "@/lib/devtools-pure";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-// DevWorld game-dev tools. GET ?sounds=<q> → { sounds } (Openverse) | ?favs=1 → { favourites } | ?trends=1 → Trend Radar.
+// DevWorld game-dev tools. GET ?sounds=<q> → { sounds } (Openverse) | ?favs=1 → { favourites } | ?trends=1 → Trend Radar | ?viral=1 → Shorts blowing up in the niche (read-only, cached 3 h).
 // POST { action: "fav", sound } | { action: "unfav", id } | { action: "why" } (AI patterns for the current trend list).
 const bad = (error: string, status = 400) => Response.json({ error }, { status });
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -21,7 +21,8 @@ export async function GET(req: Request) {
     }
     if (sp.get("favs") === "1") return Response.json({ favourites: await getFavourites() });
     if (sp.get("trends") === "1") return Response.json(await getTrends());
-    return bad("Use ?sounds=, ?favs=1 or ?trends=1");
+    if (sp.get("viral") === "1") return Response.json(await nicheViral());
+    return bad("Use ?sounds=, ?favs=1, ?trends=1 or ?viral=1");
   } catch (e) { return e instanceof FavError ? bad(e.message, e.status) : bad(`Couldn't load: ${msg(e)}`, 502); }
 }
 

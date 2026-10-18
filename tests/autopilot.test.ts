@@ -79,6 +79,15 @@ test("rankCandidates: skips clipped/handled, freshness and learned creator facto
   assert.ok(r[0].why.some((w) => /2.00× usual/.test(w)));
 });
 
+test("rankCandidates: learned moment kind (topic) weighs in, floor keeps exploring", () => {
+  const p = prefs({ kind: { rage: { n: 6, mult: 1.5 }, fail: { n: 6, mult: 0.2 } } });
+  const r = rankCandidates([pick("a", { score: 50, title: "He RAGES at chat" }), pick("b", { score: 50, title: "Big fail on stream" }), pick("c", { score: 50, title: "stream" })], p, NOW, new Set());
+  assert.deepEqual(r.map((x) => [x.videoId, x.apScore]), [["a", 75], ["c", 50], ["b", 30]]); // 0.2 clamped to 0.6
+  assert.ok(r[0].why.some((w) => /rage clips: 1.50×/.test(w)));
+  assert.ok(learnPrefs([rec(1, 100, { kind: "rage" }), rec(2, 100), rec(3, 100)], "UTC", "").dims.kind?.rage);
+  assert.equal(learnPrefs([rec(1, 100), rec(2, 100), rec(3, 100)], "UTC", "").dims.kind, undefined); // "other" isn't a topic
+});
+
 test("pickTitle: Claude's score × learned title style", () => {
   const opts = [{ text: "HE LOST IT", score: 80 }, { text: "Why did he quit?", score: 70 }];
   assert.equal(pickTitle(opts, "x").title, "HE LOST IT");

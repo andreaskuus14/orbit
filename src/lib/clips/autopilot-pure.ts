@@ -1,6 +1,6 @@
 // YouTube autopilot (pure, tested in tests/autopilot.test.ts): settings + daily caps, learned preferences shrunk toward the channel's
 // usual for small samples, candidate ranking, title + slot proposals, and pipeline stages. The orchestration is autopilot.ts.
-import { hookStyle, lengthBand, scoreClips, type LearnRec } from "./learn-pure.ts";
+import { hookStyle, kindOf, lengthBand, scoreClips, type LearnRec } from "./learn-pure.ts";
 import { isClipId, isJobId, validOptions } from "./pure.ts";
 import { MIN_LEAD_MS, nextSlots, wall, type PublishSettings } from "./schedule.ts";
 import { localDay, videoIdOf, type ScoutPick } from "./scout-pure.ts";
@@ -70,8 +70,8 @@ export function spendDownload(a: Autopilot, now: Date) { a.downloads = usedDownl
 
 // ---- learned preferences ----
 
-export type Dim = "creator" | "length" | "hook" | "title" | "layout" | "hour";
-const DIMS: Dim[] = ["creator", "length", "hook", "title", "layout", "hour"];
+export type Dim = "creator" | "length" | "hook" | "title" | "layout" | "hour" | "kind";
+const DIMS: Dim[] = ["creator", "length", "hook", "title", "layout", "hour", "kind"];
 export type Pref = { n: number; mult: number }; // mult: shrunk multiplier on the channel's usual 72 h views (1 = usual)
 export type Prefs = { at: string; n: number; dims: Partial<Record<Dim, Record<string, Pref>>> };
 export const PRIOR_K = 3; // pseudo-Shorts at the channel's usual: 1 Short moves a bucket ~25% of the way, 9 Shorts ~75%
@@ -88,10 +88,10 @@ export function learnPrefs(recs: LearnRec[], tz: string, at: string): Prefs {
   const scored = scoreClips(recs), acc = new Map<string, { dim: Dim; label: string; logs: number[] }>();
   for (const { rec: r, score } of scored) {
     const pub = r.publishedAt ? Date.parse(r.publishedAt) : NaN;
-    const f: Record<Dim, string> = { creator: r.sourceChannel, length: lengthBand(r.durationSec), hook: hookStyle(r.hook), title: hookStyle(r.title), layout: r.layout,
+    const f: Record<Dim, string> = { creator: r.sourceChannel, length: lengthBand(r.durationSec), hook: hookStyle(r.hook), title: hookStyle(r.title), layout: r.layout, kind: r.kind,
       hour: Number.isFinite(pub) ? hourLabel(wall(pub, tz)[3]) : "unknown" };
     for (const d of DIMS) {
-      if (!f[d] || f[d] === "unknown") continue;
+      if (!f[d] || f[d] === "unknown" || f[d] === "other") continue;
       const k = `${d}\0${f[d]}`;
       (acc.get(k) ?? acc.set(k, { dim: d, label: f[d], logs: [] }).get(k)!).logs.push(Math.log(Math.max(0.05, score))); // 0 views → 0.05×, not -∞
     }
@@ -112,7 +112,7 @@ export function confidence(n: number): string {
 
 const PHRASE: Record<Dim, (l: string) => string> = {
   creator: (l) => `Clips from ${l}`, length: (l) => `${l.replace("-", "–")} s clips`, hook: (l) => `Hooks as ${l === "none" ? "no text" : `a ${l}`}`,
-  title: (l) => `Titles as ${l === "none" ? "no text" : `a ${l}`}`, layout: (l) => `The ${l} layout`, hour: (l) => `Posting at ${l}`,
+  title: (l) => `Titles as ${l === "none" ? "no text" : `a ${l}`}`, layout: (l) => `The ${l} layout`, hour: (l) => `Posting at ${l}`, kind: (l) => `${l[0].toUpperCase()}${l.slice(1)} moments`,
 };
 
 /** Plain-English findings, strongest first: buckets ≥ 2 Shorts whose shrunk multiplier is ≥ 15% off the usual. */
@@ -138,13 +138,16 @@ export type Ranked = ScoutPick & { apScore: number; why: string[] };
 const hoursSince = (iso: string, now: number) => (now - Date.parse(iso)) / 3_600_000;
 
 /** The scout's new picks re-ranked for the autopilot: its score (pace vs the creator's usual, engagement, length; or Claude's) × freshness ×
- *  the creator's learned multiplier (clamped 0.6-1.6 so a weak signal can't bury a hot video). `done`: video ids already clipped. */
+ *  the learned multipliers for the creator and the moment kind (topic) its title suggests, together clamped 0.6-1.6: winners' creators rise,
+ *  repeated flops sink, but a weak signal can't bury a hot video and new creators (no data = 1×) still get tried. `done`: video ids already clipped. */
 export function rankCandidates(picks: ScoutPick[], p: Prefs | undefined, now: number, done: Set<string>): Ranked[] {
   return picks.filter((x) => x.status === "new" && !done.has(x.videoId)).map((x) => {
     const age = hoursSince(x.publishedAt, now), fresh = age <= 24 ? 1 : age <= 72 ? 0.9 : 0.75; // clip while it's hot
-    const cp = prefOf(p, "creator", x.channel), cm = Math.min(1.6, Math.max(0.6, cp?.mult ?? 1));
+    const kind = kindOf(`${x.title} ${x.reason}`), kp = kind === "other" ? undefined : prefOf(p, "kind", kind);
+    const cp = prefOf(p, "creator", x.channel), cm = Math.min(1.6, Math.max(0.6, (cp?.mult ?? 1) * (kp?.mult ?? 1)));
     const why = [x.reason, `${Math.round(Math.max(0, age))} h old${fresh < 1 ? ` (×${fresh} freshness)` : ""}`, `${Math.round(x.durationSec / 60)} min long`];
     if (cp) why.push(`your clips from ${x.channel}: ${cp.mult.toFixed(2)}× usual views (${cp.n} Shorts)`);
+    if (kp) why.push(`your ${kind} clips: ${kp.mult.toFixed(2)}× usual views (${kp.n} Shorts)`);
     return { ...x, apScore: Math.round(Math.min(100, x.score * fresh * cm)), why };
   }).sort((a, b) => b.apScore - a.apScore);
 }

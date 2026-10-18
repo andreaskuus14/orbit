@@ -53,6 +53,7 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@types/three": "^0.180.0",
+    "hyperframes": "0.8.171",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.9.0"
   }

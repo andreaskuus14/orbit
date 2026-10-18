@@ -8,6 +8,7 @@ import AutopilotPanel from "./AutopilotPanel";
 import EngageCard, { DescribeButton } from "./EngageCard";
 import StudioCalendar from "./StudioCalendar";
 import { devlogHashtags } from "@/lib/clips/devlog";
+import { CLIP_PREFILL_EVENT, CLIP_PREFILL_KEY } from "@/lib/herald-pure";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -773,7 +774,15 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
   tools: ToolsStatus; opts: Opts; setOpts: (f: (o: Opts) => Opts) => void; busy?: boolean;
   onSubmit: (body: { url: string; permission: string; autoClip?: Opts }) => Promise<boolean>;
 }) {
-  const [url, setUrl] = useState("");
+  // Herald's "Clip it" leaves a link here (sessionStorage when this box isn't mounted yet, an event when it is); it only fills the box.
+  const [url, setUrl] = useState(() => { try { return sessionStorage.getItem(CLIP_PREFILL_KEY) ?? ""; } catch { return ""; } });
+  useEffect(() => {
+    const take = () => { try { sessionStorage.removeItem(CLIP_PREFILL_KEY); } catch { /* nothing to clear */ } };
+    take();
+    const f = (e: Event) => { const u = (e as CustomEvent<unknown>).detail; if (typeof u === "string") { setUrl(u); take(); } };
+    addEventListener(CLIP_PREFILL_EVENT, f);
+    return () => removeEventListener(CLIP_PREFILL_EVENT, f);
+  }, []);
   const [auto, setAuto] = useState(false);
   const okUrl = parseClipUrl(url.trim()), ch = okUrl ? channelLink(okUrl) : null; // a channel page: wrong box
   const submit = async () => {

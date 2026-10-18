@@ -4,11 +4,14 @@ import { gameLink, isRbxImage, type TrendSort } from "@/lib/devtools-pure";
 import { dueAlerts, type Riser } from "@/lib/trend-rise-pure";
 import { notify } from "@/lib/notify-pure";
 import type { Topic, YtRiser } from "@/lib/yt-trend-pure";
+import { shortsUrl, type Viral } from "@/lib/yt-viral-pure";
+import StudyButton from "./StudyButton";
 
 // DevWorld → Roblox Trend Radar: public Roblox discovery lists + an optional AI read of the patterns.
 const PINK = "#f472b6";
 type Trends = { source: string; sorts: TrendSort[]; at: number; error?: string; tried: string[]; risers?: Riser[]; yt?: { risers: YtRiser[]; topics: Topic[]; region: string; hint?: string; error?: string } };
 const ALERT_KEY = "orbit.trendAlerts";
+type NicheViral = { videos: Viral[]; queries: string[]; units: number; at: number; hint?: string; error?: string };
 
 /** Bell alert for strong risers, at most once per game per day (fetch-on-view only, no schedule). */
 function alertRisers(risers: Riser[], yt: YtRiser[]) {
@@ -31,6 +34,8 @@ export default function TrendRadar() {
   const [why, setWhy] = useState<{ text: string; at: number } | null>(null);
   const [whyBusy, setWhyBusy] = useState(false);
   const [whyErr, setWhyErr] = useState("");
+  const [viral, setViral] = useState<NicheViral | null>(null);
+  const [viralErr, setViralErr] = useState("");
 
   useEffect(() => {
     fetch("/api/devtools?trends=1", { cache: "no-store" })
@@ -50,6 +55,12 @@ export default function TrendRadar() {
 
   const sort = data?.sorts[tab];
   const rising = !!data && tab === data.sorts.length;
+  useEffect(() => { // search.list costs 100 units: only when the Rising tab is actually opened (server caches 3 h)
+    if (!rising || viral || viralErr) return;
+    fetch("/api/devtools?viral=1", { cache: "no-store" })
+      .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Couldn't load (${r.status})`); setViral(j); })
+      .catch((e) => setViralErr(e instanceof Error ? e.message : "Couldn't load"));
+  }, [rising, viral, viralErr]);
   return (
     <section className="space-y-3" aria-labelledby="tr-title">
       <h2 id="tr-title" className="text-base font-semibold" style={{ color: PINK }}>📡 Roblox Trend Radar</h2>
@@ -105,6 +116,28 @@ export default function TrendRadar() {
                   </li>
                 ))}
               </ol>
+            </div>
+          )}
+          {rising && (
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-semibold">🔥 Blowing up in your niche <span className="muted text-xs font-normal">Shorts from the last 48 h</span></h3>
+              {!viral && !viralErr && <p className="muted text-sm" aria-live="polite">Scanning your niche…</p>}
+              {viralErr && <p className="error text-sm" role="alert">{viralErr}</p>}
+              {viral?.hint && <p className="muted text-sm">{viral.hint}</p>}
+              {viral?.error && <p className="error text-sm" role="alert">{viral.error}</p>}
+              {viral && !viral.hint && !viral.error && !viral.videos.length && <p className="muted text-sm">No recent Shorts found for these searches.</p>}
+              <ol className="space-y-1.5">
+                {viral?.videos.map((v) => { const url = shortsUrl(v.id); return url && (
+                  <li key={v.id} className="card space-y-1">
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="block no-underline" aria-label={`${v.title} by ${v.channel}, ${num(v.viewsPerHour)} views per hour, opens on YouTube`}>
+                      <span className="block truncate text-sm font-semibold">{v.hot ? "🔥 " : ""}{v.title}</span>
+                      <span className="muted block truncate text-xs">{v.channel} · 👁 {num(v.views)} · +{num(v.viewsPerHour)} views/h · {v.ageHours < 24 ? `${Math.round(v.ageHours)} h` : `${(v.ageHours / 24).toFixed(1)} d`} old</span>
+                      <span className="block text-xs" style={{ color: PINK }}>💡 Clip ideas from this: find the stream behind it and clip the same kind of moment from your creators.</span>
+                    </a>
+                    <StudyButton id={v.id} title={v.title} channel={v.channel} views={v.views} source="niche" />
+                  </li>); })}
+              </ol>
+              {viral && !!viral.queries.length && <p className="muted text-xs">Searched: {viral.queries.join(", ")} · uses ~{viral.queries.length * 100 + 1} of 10,000 daily quota · cached 3 h · {new Date(viral.at).toLocaleTimeString()}</p>}
             </div>
           )}
           <ol className="space-y-1.5">

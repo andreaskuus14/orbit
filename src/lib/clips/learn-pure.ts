@@ -177,14 +177,17 @@ export function decisions(jobs: ClipJob[]): Decisions {
 // ---- summary ----
 
 export type Insights = { checkedAt?: string; warnings: string[]; published: number; scored: number;
-  top: { videoId: string; title: string; views72: number; score: number; avgViewPct?: number }[]; over: Bucket[]; under: Bucket[] } & Decisions;
+  top: { videoId: string; title: string; views72: number; score: number; avgViewPct?: number }[]; over: Bucket[]; under: Bucket[];
+  winners?: Judged[]; flops?: Judged[]; why?: { winners: string; flops: string }; judged?: number; editHints?: string[] } & Decisions;
 
 export function insights(s: LearnState, jobs: ClipJob[]): Insights {
   const recs = Object.values(s.clips), scored = scoreClips(recs);
   const p = scored.length >= MIN_SAMPLE ? perfPatterns(scored) : { over: [], under: [] };
-  const d = decisions(jobs), named = (bs: Bucket[]) => bs.map((b) => ({ ...b, text: phrase(b) })); // text: the client can't import this module (node:path via pure.ts)
+  const js = judgeShorts(recs), d = decisions(jobs), named = (bs: Bucket[]) => bs.map((b) => ({ ...b, text: phrase(b) })); // text: the client can't import this module (node:path via pure.ts)
   return { checkedAt: s.checkedAt, warnings: s.warnings, published: recs.length, scored: scored.length, ...d,
     over: named(p.over), under: named(p.under), liked: named(d.liked), disliked: named(d.disliked),
+    judged: js.length, winners: js.filter((j) => j.verdict === "winner").slice(0, 3), flops: js.filter((j) => j.verdict === "flop").reverse().slice(0, 3),
+    why: { winners: sharedPattern(js, "winner"), flops: sharedPattern(js, "flop") }, editHints: editHints(js),
     top: scored.slice(0, 3).map((x) => ({ videoId: x.rec.videoId, title: x.rec.title, views72: x.views72, score: x.score, avgViewPct: x.rec.snaps["72h"]?.avgViewPct ?? x.rec.latest?.avgViewPct })) };
 }
 
@@ -214,6 +217,7 @@ export function formatTaste(i: Insights): string {
     const tips = [...new Set(i.rejects.map((r) => ADVICE[r.reason]).filter(Boolean))];
     lines.push(`Owner rejects: ${i.rejects.slice(0, 4).map((r) => `${r.reason} (${r.n})`).join(", ")}${tips.length ? ` → ${tips.join("; ")}` : ""}.`);
   }
+  if (i.editHints?.length) lines.push(`Editing hints from his channel stats: ${i.editHints.join("; ")}.`);
   if (i.liked.length) lines.push(`Owner approves more often: ${list(i.liked)}.`);
   if (i.disliked.length) lines.push(`Owner approves less often: ${list(i.disliked)}.`);
   if (i.over.length) lines.push(`Best performers on his channel: ${list(i.over)}.`);
@@ -221,4 +225,67 @@ export function formatTaste(i: Insights): string {
   let out = "";
   for (const l of lines) { const next = out ? `${out}\n${l}` : l; if (next.length > NOTES_MAX) break; out = next; }
   return out || (lines[0] ?? "").slice(0, NOTES_MAX);
+}
+
+// ---- winners vs flops ----
+// Every Short with a 24 h or 72 h snapshot: views ÷ the channel's median at that same age, × an engagement weight ((likes + 2×comments) ÷ views
+// vs its median, sqrt-damped). ≥ WIN× = winner, ≤ FLOP× = flop. Needs MIN_SAMPLE Shorts, else the median means nothing.
+
+export const WIN = 1.5, FLOP = 0.6, EDIT_MIN = 5;
+export type Verdict = "winner" | "average" | "flop";
+type JDim = "creator" | "length" | "hookStyle" | "title" | "hour";
+export type Judged = { videoId: string; title: string; verdict: Verdict; perf: number; views: number; snap: SnapKey; likeRate: number; commentRate: number; f: Record<JDim, string> };
+
+const r2 = (x: number) => Math.round(x * 100) / 100;
+const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
+
+export function judgeShorts(recs: LearnRec[]): Judged[] {
+  const rows = recs.flatMap((r) => { const snap: SnapKey | undefined = r.snaps["72h"] ? "72h" : r.snaps["24h"] ? "24h" : undefined; return snap ? [{ r, snap, s: r.snaps[snap]! }] : []; });
+  if (rows.length < MIN_SAMPLE) return [];
+  const mv = { "24h": median(recs.flatMap((r) => (r.snaps["24h"] ? [r.snaps["24h"].views] : []))) || 1, "72h": median(recs.flatMap((r) => (r.snaps["72h"] ? [r.snaps["72h"].views] : []))) || 1 };
+  const eng = (s: Stats) => (s.views ? (s.likes + 2 * s.comments) / s.views : 0);
+  const me = median(rows.map((x) => eng(x.s)).filter((e) => e > 0));
+  return rows.map(({ r, snap, s }) => {
+    const w = me && s.views ? Math.sqrt(clamp(eng(s) / me, 1 / 3, 3)) : 1;
+    const perf = r2((s.views / mv[snap as "24h" | "72h"]) * w), pub = r.publishedAt ? new Date(r.publishedAt) : null;
+    return { videoId: r.videoId, title: r.title, perf, views: s.views, snap, likeRate: s.views ? s.likes / s.views : 0, commentRate: s.views ? s.comments / s.views : 0,
+      verdict: perf >= WIN ? "winner" : perf <= FLOP ? "flop" : "average",
+      f: { creator: r.sourceChannel, length: lengthBand(r.durationSec), hookStyle: hookStyle(r.hook), title: hookStyle(r.title),
+        hour: pub && Number.isFinite(pub.getTime()) ? `${String(pub.getUTCHours()).padStart(2, "0")}:00 UTC` : "unknown" } } satisfies Judged;
+  }).sort((a, b) => b.perf - a.perf);
+}
+
+const jPhrase = (d: JDim, l: string) => d === "title" ? `titles as ${l === "all caps" ? "ALL CAPS" : `a ${l}`}` : d === "hour" ? `posted at ${l}`
+  : phrase({ dim: d, label: l });
+const JDIMS: JDim[] = ["creator", "length", "hookStyle", "title", "hour"];
+
+/** One line on what the winners (or flops) share: per feature, a label held by ≥ 2 and ≥ half of them that is ≥ 15 points more common than overall. "" if none. */
+export function sharedPattern(js: Judged[], v: Verdict): string {
+  const xs = js.filter((j) => j.verdict === v);
+  if (xs.length < 2) return "";
+  const out: string[] = [];
+  for (const d of JDIMS) {
+    const c = new Map<string, number>();
+    for (const x of xs) if (x.f[d] !== "unknown") c.set(x.f[d], (c.get(x.f[d]) ?? 0) + 1);
+    const [label, n] = [...c].sort((a, b) => b[1] - a[1])[0] ?? ["", 0];
+    const share = n / xs.length, overall = js.filter((j) => j.f[d] === label).length / js.length;
+    if (n >= 2 && share >= 0.5 && share - overall >= 0.15) out.push(`${jPhrase(d, label)} (${n} of ${xs.length})`);
+  }
+  return out.length ? `Mostly ${out.join(", ")}` : "";
+}
+
+/** Concrete editing hints (clip length, hook style), only from buckets of ≥ EDIT_MIN Shorts clearly above/below the usual. */
+export function editHints(js: Judged[]): string[] {
+  if (js.length < EDIT_MIN) return [];
+  const all = median(js.map((j) => j.perf)) || 1, out: string[] = [];
+  for (const d of ["length", "hookStyle"] as const) {
+    const m = new Map<string, number[]>();
+    for (const j of js) (m.get(j.f[d]) ?? m.set(j.f[d], []).get(j.f[d])!).push(j.perf);
+    const bs = [...m].filter(([, ps]) => ps.length >= EDIT_MIN && ps.length < js.length).map(([l, ps]) => ({ l, n: ps.length, x: r2(median(ps) / all) })).sort((a, b) => b.x - a.x);
+    const best = bs[0], worst = bs.at(-1);
+    const what = (l: string) => (d === "length" ? `${l.replace("-", "–")} s clips` : jPhrase(d, l));
+    if (best && best.x >= 1.25) out.push(`${what(best.l)} work best (${best.x}× usual, ${best.n} Shorts)`);
+    if (worst && worst !== best && worst.x <= 0.8) out.push(`${what(worst.l)} under-perform (${worst.x}× usual, ${worst.n} Shorts)`);
+  }
+  return out;
 }
