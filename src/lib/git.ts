@@ -23,7 +23,7 @@ export const envRepos = () => parseRepoList(process.env.ORBIT_GIT_REPOS);
 export const gitRepos = async () => parseRepoList([...envRepos(), ...(await savedRepos())].join("\n"));
 
 // Inherited GIT_* (GIT_DIR, GIT_EXEC_PATH, GIT_SSH_COMMAND…) could redirect git; never prompt, never fetch lazily (partial clones).
-const gitEnv = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_/i.test(k))), GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_NO_LAZY_FETCH: "1" }) as NodeJS.ProcessEnv; // Next types make NODE_ENV required; it is inherited above
+const gitEnv = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_/i.test(k))), GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_NO_LAZY_FETCH: "1" }) as unknown as NodeJS.ProcessEnv; // Next types make NODE_ENV required; it is inherited above
 
 function git(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
