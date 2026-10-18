@@ -73,6 +73,8 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
     return () => { gone = true; };
   }, [id]);
 
+  const top = stories.slice(0, 3), press = local.slice(0, 8);
+  const tr = useTranslations([...top, ...press]);
   const linked = useMemo(() => linkedCountries(stories, name), [stories, name]);
   const week = useMemo(() => {
     const counts = new Array<number>(7).fill(0), now = Date.now();
@@ -126,12 +128,12 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
       <div className="dash-panels">
         {stories.length > 0 && (
           <div className="dash-tile">
-            <div className="dash-label">TOP STORIES</div>
+            <div className="dash-label-row"><div className="dash-label">TOP STORIES</div>{top.some((st) => tr.map[st.url]) && <LangToggle tr={tr} />}</div>
             <ol className="dash-top">
-              {stories.slice(0, 3).map((st) => (
+              {top.map((st) => (
                 <li key={st.url}>
                   {isMajor(st) && <i className="dash-major" role="img" aria-label="Major story" />}
-                  <a href={safeHref(st.url)} target="_blank" rel="noreferrer noopener">{st.title}</a>
+                  <Headline st={st} tr={tr} />
                   <span>{st.source ?? "unknown source"}{st.published_at ? ` · ${ago(st.published_at)}` : ""}</span>
                 </li>
               ))}
@@ -141,11 +143,14 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
 
         {local.length > 0 && (
           <div className="dash-tile">
-            <div className="dash-label">LOCAL <span className="muted">· {displayName(name)}&apos;s own press</span></div>
+            <div className="dash-label-row">
+              <div className="dash-label">LOCAL <span className="muted">· {displayName(name)}&apos;s own press</span></div>
+              {(press.some((st) => tr.map[st.url]) || tr.failed) && <LangToggle tr={tr} />}
+            </div>
             <ol className="dash-top" lang={countryByName(name)?.lang}>
-              {local.slice(0, 8).map((st) => (
+              {press.map((st) => (
                 <li key={st.url}>
-                  <a href={safeHref(st.url)} target="_blank" rel="noreferrer noopener">{st.title}</a>
+                  <Headline st={st} tr={tr} />
                   <span>{st.source ?? "unknown source"}{st.published_at ? ` · ${ago(st.published_at)}` : ""}</span>
                 </li>
               ))}
@@ -190,6 +195,59 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
       {!loading && !stories.length && !local.length && error !== SIGNED_OUT && <p className="mt-2 text-sm">No recent headlines found.</p>}
       <p className="dash-foot">Data: World Bank Open Data · Natural Earth · news stats from the headlines shown</p>
     </section>
+  );
+}
+
+// Headline translation (POST /api/news/translate): English by default, "Original" remembered per browser.
+const LANG_KEY = "orbit.news.lang";
+const trCache = new Map<string, string | null>(); // url → English title (null: already English / not translated)
+type Tr = { map: Record<string, string>; failed: boolean; english: boolean; setEnglish: (v: boolean) => void };
+function useTranslations(items: Result[]): Tr {
+  const [english, setEn] = useState(true);
+  const [map, setMap] = useState<Record<string, string>>({});
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { try { setEn(localStorage.getItem(LANG_KEY) !== "original"); } catch { /* private window: default English */ } }, []);
+  const setEnglish = (v: boolean) => { setEn(v); try { localStorage.setItem(LANG_KEY, v ? "english" : "original"); } catch { /* not remembered */ } };
+  const ids = items.map((st) => st.url).join("\n");
+  useEffect(() => {
+    const known = () => Object.fromEntries(items.flatMap((st) => (trCache.get(st.url) ? [[st.url, trCache.get(st.url)!]] : [])));
+    const todo = items.filter((st) => !trCache.has(st.url));
+    setMap(known());
+    setFailed(false);
+    if (!todo.length) return;
+    let gone = false;
+    fetch("/api/news/translate", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: "en", items: todo.map((st) => ({ id: st.url, title: st.title })) }) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((j: { items: { id: string; title: string; translated: boolean }[]; failed: boolean }) => {
+        if (!j.failed) j.items.forEach((x) => trCache.set(x.id, x.translated ? x.title : null));
+        else j.items.forEach((x) => { if (x.translated) trCache.set(x.id, x.title); }); // untranslated ones are asked again next time
+        if (!gone) { setMap({ ...known(), ...Object.fromEntries(j.items.filter((x) => x.translated).map((x) => [x.id, x.title])) }); setFailed(j.failed); }
+      })
+      .catch(() => { if (!gone) setFailed(true); });
+    return () => { gone = true; };
+  }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps -- ids stands for items
+  return { map, failed, english, setEnglish };
+}
+
+function LangToggle({ tr }: { tr: Tr }) {
+  return (
+    <span className="dash-lang">
+      {tr.failed && <span className="muted" title="Some headlines could not be translated">translation unavailable</span>}
+      <span role="group" aria-label="Headline language">
+        <button aria-pressed={tr.english} onClick={() => tr.setEnglish(true)}>English</button>
+        <button aria-pressed={!tr.english} onClick={() => tr.setEnglish(false)}>Original</button>
+      </span>
+    </span>
+  );
+}
+
+function Headline({ st, tr }: { st: Result; tr: Tr }) {
+  const en = tr.english ? tr.map[st.url] : undefined;
+  return (
+    <a href={safeHref(st.url)} target="_blank" rel="noreferrer noopener" lang={en ? "en" : undefined} title={en ? `Original: ${st.title}` : undefined}>
+      {en ?? st.title}{en && <small className="dash-tr" aria-label="(machine translated)">translated</small>}
+    </a>
   );
 }
 
