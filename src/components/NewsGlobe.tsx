@@ -723,6 +723,9 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
   function runSearch(e: React.FormEvent) {
     e.preventDefault();
     const q = query.trim();
+    // A country's name flies there and opens its page; 2-letter queries stay searches (findCountry reads them as ISO codes).
+    const c = q.length > 2 ? findCountry(q, displayName) : null;
+    if (c) { searchSeq.current++; setSearching(false); setSearch(null); setQuery(""); setRegion(regionOf(c.name)); setSelected(c.name); return; }
     if (q.length >= 2) void find(q);
   }
 

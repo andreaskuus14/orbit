@@ -74,10 +74,11 @@ export function Markdown({ text, openMemory }: { text: string; openMemory?: (id:
 
 /* ---------- task detail ---------- */
 
-function Approval({ pending, who, onAct }: { pending: Pending[]; who: string; onAct: (action: "approve" | "reject") => void }) {
+// ready: the server only accepts a decision once the task is "awaiting_approval"; while the agent still runs, actions queue up.
+function Approval({ pending, who, ready, onAct }: { pending: Pending[]; who: string; ready: boolean; onAct: (action: "approve" | "reject") => void }) {
   return (
     <div className="card space-y-2 text-sm" style={{ borderColor: "#fbbf24" }}>
-      <b>{who} is waiting for your approval</b>
+      <b>{ready ? `${who} is waiting for your approval` : `${who} will ask for approval when it finishes`}</b>
       {pending.filter((p) => p.status === "pending").map((p, i) => (
         <div key={i} className="text-xs">
           <b>{p.tool.replace(/_/g, " ")}</b>: {String(p.input.title ?? p.input.name ?? "")}
@@ -86,7 +87,8 @@ function Approval({ pending, who, onAct }: { pending: Pending[]; who: string; on
           {typeof p.input.request === "string" && <p className="muted">{p.input.request.slice(0, 300)} → {String(p.input.agent ?? "nova")}</p>}
         </div>
       ))}
-      <div className="flex gap-2"><button className="btn" onClick={() => onAct("approve")}>Approve</button><button className="btn danger" onClick={() => onAct("reject")}>Reject</button></div>
+      {ready ? <div className="flex gap-2"><button className="btn" onClick={() => onAct("approve")}>Approve</button><button className="btn danger" onClick={() => onAct("reject")}>Reject</button></div>
+        : <p className="muted text-xs" aria-live="polite">Still working… Approve and Reject appear when it's done.</p>}
     </div>
   );
 }
@@ -122,9 +124,9 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
       </div>
       <details className="card text-sm"><summary className="cursor-pointer muted">Request</summary><p className="mt-2 whitespace-pre-wrap">{task.request}</p></details>
 
-      {task.pending.some((p) => p.status === "pending") && <Approval pending={task.pending} who={task.agent} onAct={(a) => act(a)} />}
-      {children.filter((c) => c.pending.some((p) => p.status === "pending")).map((c) => (
-        <Approval key={c.id} pending={c.pending} who={c.agent} onAct={(a) => act(a, c.id)} />
+      {task.pending.some((p) => p.status === "pending") && task.status !== "done" && task.status !== "failed" && task.status !== "cancelled" && <Approval pending={task.pending} who={task.agent} ready={task.status === "awaiting_approval"} onAct={(a) => act(a)} />}
+      {children.filter((c) => c.pending.some((p) => p.status === "pending") && c.status !== "done" && c.status !== "failed" && c.status !== "cancelled").map((c) => (
+        <Approval key={c.id} pending={c.pending} who={c.agent} ready={c.status === "awaiting_approval"} onAct={(a) => act(a, c.id)} />
       ))}
       {task.pending.some((p) => p.status !== "pending") && (
         <ul className="muted text-xs">{task.pending.filter((p) => p.status !== "pending").map((p, i) => <li key={i}>{p.tool}: {p.status}{p.note ? ` — ${p.note}` : ""}</li>)}</ul>
