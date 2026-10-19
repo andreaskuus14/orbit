@@ -1,11 +1,14 @@
 // Clip Factory contract shared by the server (src/lib/clips/factory.ts) and the STUDIO UI.
 import type { Critique } from "./titles";
+import type { HypeView } from "./hype-pure";
+import type { Virality } from "./score-pure";
 export type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 export type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; // video/thumb = paths relative to the studio root, "/" separators
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; // owner's picks: choosing one sets title / thumb (thumbOptions: same path form as thumb)
   critic?: Critique; // title critics' review of titleOptions (critiqueClip in learn.ts)
-  variantOf?: string; edit?: VersionEdit }; // a "make another version" render: the original clip's id and the settings it was rendered with
+  variantOf?: string; edit?: VersionEdit; // a "make another version" render: the original clip's id and the settings it was rendered with
+  virality?: Virality }; // personal virality score + the features it was computed from (score-pure.ts); learned from once published
 // unknown: the upload may or may not have reached YouTube; checked against the channel's uploads before a retry is offered.
 // scheduled: on YouTube as private, YouTube makes it public at scheduledFor (ISO; also set while uploading/unknown when one was asked for).
 export type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string;
@@ -23,7 +26,8 @@ export type ClipJob = { v?: number; id: string; source: string; createdAt: strin
   timings?: { audio: number; transcribe: number; pick: number; render: number }; // seconds per stage
   feedback?: Feedback[]; // review decisions, kept for learning what makes a good clip
   resumes?: number; // times re-queued automatically after ORBIT restarted mid-run (max 1)
-  devlogDay?: number }; // devlog preset: this recording's "Day N" (taken from the series counter once, on the first run)
+  devlogDay?: number; // devlog preset: this recording's "Day N" (taken from the series counter once, on the first run)
+  hype?: HypeView }; // hype timeline (chat + audio) for the HypeWave, downsampled (hype-pure.ts)
 // The edit options are optional: jobs saved before they existed get the defaults (validOptions({})).
 export type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: VersionEdit["layout"]; camSide?: VersionEdit["camSide"]; camSize?: number;
   jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en";

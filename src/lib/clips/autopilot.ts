@@ -10,9 +10,10 @@ import { batchStatus, freeSlots, readPublishSettings, scheduleAll } from "./publ
 import { usedSlots } from "./schedule";
 import { ScoutError, actOnPick, runScoutNow, scoutView } from "./scout";
 import { autoPicks } from "./scout-pure";
+import { rankScore } from "./score-pure";
 import { isVideoId } from "../yt-analytics-pure";
 import {
-  PROPOSE_LEAD_MS, capLeft, confidence, dailyCap, editProposal, emptyAutopilot, findings, isKey, learnPrefs, parseAutopilot, patchAutopilot, pickTitle, pipeline, proposeSlot, rankCandidates, scoutAutoToday,
+  PROPOSE_LEAD_MS, capLeft, confidence, creatorVirality, dailyCap, editProposal, emptyAutopilot, findings, isKey, learnPrefs, parseAutopilot, patchAutopilot, pickTitle, pipeline, proposeSlot, rankCandidates, scoutAutoToday,
   spendDownload, stageCounts, usedDownloads, type Autopilot, type Prefs,
 } from "./autopilot-pure";
 
@@ -48,7 +49,7 @@ export async function autopilotView() {
   await learnView().catch(() => {}); // refreshes published stats at most every 6 h (1 unit per 50 Shorts)
   const now = Date.now();
   const [a, sv, prefs, downloads, jobs] = await Promise.all([A.lock.then(load), scoutView(), prefsNow(), listDownloads(), listJobs()]);
-  const candidates = rankCandidates(sv.scout.picks, prefs, now, new Set(a.tracked.map((t) => t.videoId))), scoutAuto = scoutAutoToday(sv.scout.auto, new Date(now));
+  const candidates = rankCandidates(sv.scout.picks, prefs, now, new Set(a.tracked.map((t) => t.videoId)), creatorVirality(jobs)), scoutAuto = scoutAutoToday(sv.scout.auto, new Date(now));
   const items = pipeline(a.tracked, downloads, jobs, a.proposals, now).reverse(); // newest first
   return {
     settings: { auto: a.auto, dailyDownloads: a.dailyDownloads, options: a.options },
@@ -106,7 +107,9 @@ async function packageReady() {
   const items = pipeline(a.tracked, downloads, jobs, a.proposals, now);
   const live = new Set(items.flatMap((i) => i.clips.filter((c) => c.stage === "packaging" || c.stage === "waiting").map((c) => c.key))); // still needs the owner
   const stale = Object.entries(a.proposals).filter(([k, p]) => live.has(k) && p.slot && Date.parse(p.slot) < now + 20 * 60_000).map(([k]) => k); // slot passed: propose again
-  const todo = [...items.flatMap((i) => i.clips.filter((c) => c.stage === "packaging").map((c) => c.key)), ...stale].slice(0, 3);
+  const clipOf = (key: string) => { const [j, c] = key.split("/"); return jobs.find((x) => x.id === j)?.clips.find((x) => x.id === c); };
+  const rank = (key: string) => { const c = clipOf(key); return c ? rankScore(c) : 0; }; // best-scoring clips get packaged (and so reviewed) first
+  const todo = [...items.flatMap((i) => i.clips.filter((c) => c.stage === "packaging").map((c) => c.key)).sort((a, b) => rank(b) - rank(a)), ...stale].slice(0, 3);
   const made: Record<string, Autopilot["proposals"][string]> = {};
   for (const key of todo) {
     const [jobId, clipId] = key.split("/"), job = jobs.find((j) => j.id === jobId), clip = job?.clips.find((c) => c.id === clipId);
@@ -207,7 +210,7 @@ export async function autopilotTick() {
       x.lastAuto = run.at; // set first: a failure never makes it retry (and spend) on every tick
       const sc = (await scoutView()).scout, now = new Date();
       const allowed = autoPicks(sc.picks, sc.watchlist, sc.picks.length); // only watchlist creators the owner marked autoClip
-      const top = rankCandidates(allowed, await prefsNow(), now.getTime(), new Set(x.tracked.map((t) => t.videoId)));
+      const top = rankCandidates(allowed, await prefsNow(), now.getTime(), new Set(x.tracked.map((t) => t.videoId)), creatorVirality(await listJobs()));
       const r = await clipPicks(x, top.slice(0, capLeft(x, now, scoutAutoToday(sc.auto, now))).map((c) => c.videoId), true);
       if (r.errors.length) console.error("[orbit] autopilot auto-clip:", r.errors.join("; "));
     });

@@ -8,6 +8,9 @@ import AutopilotPanel from "./AutopilotPanel";
 import EngageCard, { DescribeButton } from "./EngageCard";
 import StudioCalendar from "./StudioCalendar";
 import { devlogHashtags } from "@/lib/clips/devlog";
+import { HypeWave, ScoreRing, ScoreWhy } from "./HypeScore";
+import type { HypeView } from "@/lib/clips/hype-pure";
+import type { Virality } from "@/lib/clips/score-pure";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -16,7 +19,7 @@ import { devlogHashtags } from "@/lib/clips/devlog";
 type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; variantOf?: string; edit?: VersionEdit;
-  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[] };
+  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality };
 type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string; scheduledFor?: string };
 // Mirrors src/lib/clips/schedule.ts + publish-schedule.ts (GET /api/studio/clips/schedule).
 type PubSettings = { timezone: string; slots: string[]; perDay: number };
@@ -32,7 +35,7 @@ type PublishBody = { title: string; description: string; privacy: "private" | "u
 type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering" | "done" | "failed";
 type ClipJob = { id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
-  timings?: { audio: number; transcribe: number; pick: number; render: number } };
+  timings?: { audio: number; transcribe: number; pick: number; render: number }; hype?: HypeView };
 type CamSide = "left" | "right" | "tl" | "tr" | "bl" | "br";
 type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: VersionEdit["layout"]; camSide?: CamSide; camSize?: number;
   jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en"; coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean; preset?: "viral" | "devlog" };
@@ -1017,6 +1020,12 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
         </p>
       )}
 
+      {job.hype && (
+        <HypeWave hype={job.hype} duration={job.durationSec ?? 0} reduced={reduced}
+          clips={clips.filter((c) => !c.variantOf && c.status !== "failed").map((c) => ({ id: c.id, start: c.start, end: c.end, title: c.title, score: c.virality?.score }))}
+          onPick={(id) => { const el = document.getElementById(`cf-clip-${job.id}/${id}`); el?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" }); el?.focus({ preventScroll: true }); }} />
+      )}
+
       {job.warnings.length > 0 && <ul className="mt-2 space-y-0.5 text-xs" aria-label="Warnings">{job.warnings.map((w, k) => <li key={k}>⚠ {w}</li>)}</ul>}
 
       {job.status === "failed" && (
@@ -1031,7 +1040,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
         <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2" aria-label={`Clips from ${job.source}`}>
           {clips.map((c) => (
             <li key={c.id} id={`cf-clip-${job.id}/${c.id}`} tabIndex={-1} className="rounded-xl focus:outline focus:outline-2 focus:outline-[#f43f5e]">
-              <ClipCard clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />}
+              <ClipCard clip={c} reduced={reduced} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />}
                 picks={(c.status === "ready" || c.status === "approved") && <>
                   <ClipPicks clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPick={(body) => void onPatch(c.id, body)}
                     onMore={() => void onTitles(c.id)} onReview={() => void onTitles(c.id, true)} moreBusy={!!busy[`titles:${job.id}/${c.id}`]} />
@@ -1051,7 +1060,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
   );
 }
 
-function ClipCard({ clip: c, busy, onPatch, note, picks, version, publish }: { clip: Clip; busy: boolean; onPatch: PatchFn; note: ReactNode; picks: ReactNode; version: ReactNode; publish: ReactNode }) {
+function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publish }: { clip: Clip; reduced: boolean; busy: boolean; onPatch: PatchFn; note: ReactNode; picks: ReactNode; version: ReactNode; publish: ReactNode }) {
   const [play, setPlay] = useState(false);
   const [edit, setEdit] = useState<string | null>(null);
   const [more, setMore] = useState(false);
@@ -1079,6 +1088,7 @@ function ClipCard({ clip: c, busy, onPatch, note, picks, version, publish }: { c
             <span className={c.status === "failed" ? "error" : "muted"}>{c.status === "failed" ? `⚠ ${c.error || "Render failed"}` : "🎞 Rendering…"}</span>
           </div>
         )}
+        {c.virality && !play && <div className="pointer-events-none absolute right-1.5 top-1.5"><ScoreRing v={c.virality} reduced={reduced} /></div>}
       </div>
 
       <div className="flex flex-wrap gap-1">
@@ -1105,7 +1115,8 @@ function ClipCard({ clip: c, busy, onPatch, note, picks, version, publish }: { c
       {c.status === "ready" && picks /* while reviewing, title/thumb picks stay in view */}
       {c.hook && <p className="leading-snug">“{c.hook}”</p>}
       {c.reason && <p className="muted line-clamp-2 text-[11px] leading-snug" title={c.reason}>{c.reason}</p>}
-      <p className="muted num text-[11px]">{mmss(c.start)}–{mmss(c.end)} · {mmss(len)} · score {score(c.score)}/100</p>
+      <p className="muted num text-[11px]">{mmss(c.start)}–{mmss(c.end)} · {mmss(len)} · {c.virality ? "editor" : "score"} {score(c.score)}/100</p>
+      {c.virality && <ScoreWhy v={c.virality} />}
       {c.video && c.error && <p className="muted text-[11px] leading-snug">⚠ {c.error}</p>}
 
       <div className="mt-auto flex flex-wrap gap-1">

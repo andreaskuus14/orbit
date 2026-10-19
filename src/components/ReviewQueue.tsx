@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { CAM_NAME, CAPTION_STYLES, LAYOUT_NAME, REJECT_REASONS, mmss } from "@/lib/clips/format";
 import ClipPicks from "./ClipPicks";
+import { ScoreRing, ScoreWhy } from "./HypeScore";
+import type { Virality } from "@/lib/clips/score-pure";
 
 // Morning review: every ready clip across all jobs, one at a time, keyboard first (A approve · R reject + 1–6 · V version · T title · ←/→ · Esc).
 // Uses the clip factory's routes only: GET /api/studio/clips, PATCH …/[job]/[clip], POST …/[job]/[clip]/version and …/titles. Mounted by ClipFactory.
@@ -11,7 +13,7 @@ type CaptionStyle = (typeof CAPTION_STYLES)[number];
 type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: "left" | "right" | "tl" | "tr" | "bl" | "br"; camSize?: number; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean };
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   status: "rendering" | "ready" | "failed" | "approved" | "rejected"; video?: string; thumb?: string; edit?: VersionEdit;
-  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[] };
+  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality };
 type Job = { id: string; source: string; createdAt: string; clips: Clip[];
   options: { captions: boolean; layout?: VersionEdit["layout"]; camSide?: VersionEdit["camSide"]; camSize?: number; jumpCuts?: boolean; zooms?: boolean } };
 type Item = { job: string; source: string; base: VersionEdit; clip: Clip };
@@ -20,6 +22,7 @@ type Mode = "idle" | "reject" | "title" | "version";
 const API = "/api/studio/clips";
 const media = (p: string) => `${API}/media?f=${encodeURIComponent(p)}`;
 const score = (s: number) => Math.round(Number.isFinite(s) ? (s <= 1 ? s * 100 : s) : 0); // same scale rule as ClipFactory
+const rank = (c: Clip) => c.virality?.score ?? score(c.score); // mirrors rankScore in score-pure.ts
 const LAYOUTS: VersionEdit["layout"][] = ["fit", "fill", "follow", "split"];
 const CAM_SIDES = Object.keys(CAM_NAME) as VersionEdit["camSide"][];
 
@@ -48,7 +51,8 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
     api<{ jobs: Job[] }>(API).then(({ jobs }) => setItems([...jobs].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).flatMap((j) => j.clips
       .filter((c) => c.status === "ready")
       .map((c) => ({ job: j.id, source: j.source, clip: c, base: c.edit ?? { layout: j.options.layout ?? "fit", camSide: j.options.camSide ?? "right", camSize: j.options.camSize,
-        captions: j.options.captions ? "karaoke" : "none", jumpCuts: j.options.jumpCuts ?? true, zooms: j.options.zooms ?? true } })))),
+        captions: j.options.captions ? "karaoke" : "none", jumpCuts: j.options.jumpCuts ?? true, zooms: j.options.zooms ?? true } })))
+      .sort((a, b) => rank(b.clip) - rank(a.clip))), // most likely to do well first (stable: newest job first among equals)
     (e) => setErr(e instanceof Error ? e.message : "Couldn't load clips"));
   }, []);
 
@@ -175,7 +179,8 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
             )}
             {c.status !== "rejected" && <ClipPicks clip={c} busy={busy} big onPick={(body) => void patch(body, () => {})} onMore={() => void moreTitles()} moreBusy={writing} />}
             {c.hook && <p className="leading-snug">“{c.hook}”</p>}
-            <p className="muted num text-xs">score {score(c.score)}/100 · {mmss(c.start)}–{mmss(c.end)} · {mmss(Math.max(0, c.end - c.start))}</p>
+            {c.virality && <div className="flex items-start gap-3 rounded-xl border border-white/10 p-2"><ScoreRing key={c.id} v={c.virality} reduced={reduced} size={56} /><div className="min-w-0 flex-1"><ScoreWhy key={c.id} v={c.virality} open /></div></div>}
+            <p className="muted num text-xs">{c.virality ? "editor" : "score"} {score(c.score)}/100 · {mmss(c.start)}–{mmss(c.end)} · {mmss(Math.max(0, c.end - c.start))}</p>
             {c.reason && <p className="muted text-xs leading-snug">Why: {c.reason}</p>}
 
             <div className="mt-1 flex flex-wrap gap-1.5">
