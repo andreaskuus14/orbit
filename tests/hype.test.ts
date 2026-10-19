@@ -136,3 +136,9 @@ test("packHype: downsampled by max, normalized, peaks kept", () => {
   assert.equal(v.hint, "x");
   assert.ok(v.peaks.length >= 1);
 });
+
+test("alignToPeak: cutting down keeps the full lead before the peak", () => {
+  const r = alignToPeak({ start: 100, end: 160 }, [{ t: 98, height: 5, prom: 4, start: 95, end: 100, sharp: 1, reasons: [] } as never], 60, 999);
+  assert.equal(r.start, 95);
+  assert.equal(r.end, 155);
+});

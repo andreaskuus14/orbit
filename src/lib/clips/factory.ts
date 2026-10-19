@@ -415,7 +415,17 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
     if (!moments.length) moments = fallbackMoments(cands, o.count);
     if (!moments.length) throw new Error("No usable moments found");
     const peaks = hype?.peaks ?? [];
-    moments = moments.map((m) => alignToPeak(m, peaks, o.maxSec, duration)); // payoff inside, with a build-up before it (no peaks: unchanged)
+    // Payoff inside, with a build-up before it (no peaks: unchanged). Each peak serves one clip, and an aligned range that would overlap another clip keeps its original range.
+    const overlaps = (a: { start: number; end: number }, b: { start: number; end: number }) => a.start < b.end && b.start < a.end;
+    const claimed = new Set<number>();
+    moments = moments.reduce<typeof moments>((acc, m, i) => {
+      const others = [...acc, ...moments.slice(i + 1)];
+      const a = alignToPeak(m, peaks.filter((p) => !claimed.has(p.t) && !others.some((x) => p.t >= x.start && p.t <= x.end)), o.maxSec, duration);
+      const keep = others.some((x) => overlaps(a, x)) ? m : a;
+      const pk = peakInside(keep, peaks);
+      if (pk) claimed.add(pk.t);
+      return [...acc, keep];
+    }, []);
     if (o.preset === "devlog") {
       job.devlogDay ??= sameSourceDay(await listJobs(), job) ?? await nextDevlogDay().catch((e) => { job.warnings.push(`Couldn't read the devlog day counter, titles have no "Day N": ${e instanceof Error ? e.message : e}`); return undefined; });
       const day = job.devlogDay;

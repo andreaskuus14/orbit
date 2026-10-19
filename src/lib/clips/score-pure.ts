@@ -74,7 +74,7 @@ export function features(c: ClipIn, ctx: Ctx): { x: FVec; d: Detail } {
   x.claude = clamp01(sc); d.claude10 = Math.round(sc * 100) / 10;
   const h = ctx.hype, a = Math.max(0, Math.floor(c.start)), b = Math.max(a + 1, Math.ceil(c.end));
   let peakT = ctx.peakAt;
-  if (h) {
+  if (h && a < h.curve.length) {
     const seg = h.curve.slice(a, b), top = Math.max(...seg), i = a + seg.indexOf(top);
     const before = h.curve.slice(Math.max(0, i - 10), Math.max(1, i - 4));
     x.hypePeak = clamp01(top / 6); x.hypeSharp = clamp01((top - before.reduce((s, v) => s + v, 0) / (before.length || 1)) / 5);
@@ -191,5 +191,5 @@ export function scoreFrom(m: Model, x: FVec, d: Detail): Virality {
   return { score: Math.round(score), mult: r2(Math.exp(pred)), conf: confOf(m), learning: !m.learned, n: m.n, x, d, up: pick(true), down: pick(false) };
 }
 
-/** Review/packaging order: the virality score when there is one, else the editor's score. */
-export const rankScore = (c: { score: number; virality?: { score: number } }) => c.virality?.score ?? Math.round((c.score > 1 ? c.score / 100 : c.score) * 100);
+/** Review/packaging order: the virality score, or neutral 50 for clips made before scoring. */
+export const rankScore = (c: { score: number; virality?: { score: number } }) => c.virality?.score ?? Math.round(50 + ((c.score > 1 ? c.score / 100 : c.score) - 0.75) * 20); // no virality: near a usual clip (50), editor order kept; its 60-90 rubric is another scale

@@ -103,9 +103,10 @@ test("factorText: every key has both directions in plain words", () => {
   assert.equal(factorText("kind", false, {}, d), "Rage moments under-perform for you (0.7×)");
 });
 
-test("rankScore: virality first, else the editor's score on the same 0-100 scale", () => {
-  assert.equal(rankScore({ score: 0.42 }), 42);
-  assert.equal(rankScore({ score: 73 }), 73);
+test("rankScore: virality first, else near-neutral 50 keeping editor order", () => {
+  assert.equal(rankScore({ score: 0.75 }), 50);
+  assert.equal(rankScore({ score: 85 }), 52);
+  assert.ok(rankScore({ score: 0.9 }) < rankScore({ score: 0.6, virality: { score: 60 } }));
   assert.equal(rankScore({ score: 0.9, virality: { score: 61 } }), 61);
 });
 

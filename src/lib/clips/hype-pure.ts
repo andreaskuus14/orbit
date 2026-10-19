@@ -283,7 +283,7 @@ export function alignToPeak<T extends { start: number; end: number }>(m: T, peak
   let { start, end } = m;
   if (p.t > end - 2.5) end = Math.min(duration, p.t + 2.5);
   if (p.t < start + lead) start = Math.max(0, p.t - lead);
-  if (end - start > maxSec) start = Math.min(p.t - Math.min(lead, 1), end - maxSec);
+  if (end - start > maxSec) start = Math.max(0, Math.min(p.t - lead, end - maxSec));
   if (end - start > maxSec) end = start + maxSec;
   return { ...m, start: r2(start), end: r2(end) };
 }
