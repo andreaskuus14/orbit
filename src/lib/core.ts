@@ -98,13 +98,13 @@ ${facts || "(empty)"}`;
  * One CORE turn: retrieve relevant memories, ask Claude, return answer + citations + execution trace.
  * With onDelta, the answer text streams out as it is written (tool-call replies stream nothing); `signal` stops it.
  */
-export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false) {
+export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "") {
   const trace: TraceStep[] = [];
   const question = typedText(history[history.length - 1].content); // attached file names never count as the user's words
 
   let t = Date.now();
   onStep?.("search_memory", {});
-  let { results, mode } = await searchMemories(sb, question, 8, userId);
+  let { results, mode } = await searchMemories(sb, question, 8, userId, { projectName: memoryProject });
   if (!results.length) {
     // Broad questions ("what did I save?") match nothing specific: show CORE the latest memories instead.
     const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).order("created_at", { ascending: false }).limit(8);
@@ -112,7 +112,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     results = data ?? [];
     mode = "recent";
   }
-  trace.push({ step: "search_memory", detail: `${results.length} found (${mode})`, ms: Date.now() - t, ok: true });
+  trace.push({ step: "search_memory", detail: `${results.length} found (${mode}${mode === "recent" ? "" : `, reranked${memoryProject ? ", project context" : ""}`})`, ms: Date.now() - t, ok: true });
 
   const [{ data: profile }, playbook, { data: summaries }, known] = await Promise.all([
     sb.from("profiles").select("*").eq("id", userId).maybeSingle(),

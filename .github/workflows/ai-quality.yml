@@ -1,0 +1,41 @@
+name: AI quality checks
+
+on:
+  push:
+    branches: [codex/improve-core-memory-scorecard]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'evals/**'
+      - 'scripts/ai-scorecard.ts'
+      - 'package.json'
+      - 'tsconfig.json'
+      - '.github/workflows/ai-quality.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      # The existing bridge test skips when no signed-in Claude CLI is available.
+      # All synthetic evaluation and ordinary unit tests still run.
+      ORBIT_CLAUDE_BIN: /nonexistent/orbit-test-claude
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --no-audit --no-fund
+      - run: npx tsc --noEmit -p .
+      - run: npm test
+      - run: npm run eval:ai
+      - run: npx next build

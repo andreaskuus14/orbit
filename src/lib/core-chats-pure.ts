@@ -137,9 +137,11 @@ export function projectContext(p: Project | null | undefined): string {
 
 /** A chat's project context for CORE. tainted: pinned notes are saved CORE replies (which may quote web or agent text),
  *  so they count as untrusted data like attachments; the user's own instructions don't. */
-export function chatContext(s: ChatStore, chatId: string): { text: string; tainted: boolean } {
+export type ChatContext = { text: string; tainted: boolean; memoryProject?: string };
+
+export function chatContext(s: ChatStore, chatId: string): ChatContext {
   const p = s.projects.find((x) => x.id === s.chats[chatId]);
-  return { text: projectContext(p), tainted: !!p?.pins.length };
+  return { text: projectContext(p), tainted: !!p?.pins.length, ...(p ? { memoryProject: p.name } : {}) };
 }
 
 /** Defensive parse of the stored file for one user: drops hand-edited/broken entries instead of failing. */

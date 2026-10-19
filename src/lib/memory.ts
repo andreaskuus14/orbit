@@ -6,7 +6,9 @@ import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { embed } from "./embeddings";
 import { emit } from "./claude";
-import { rrfMerge, htmlToText, toOrQuery, pickPublicAddress, assertHttpUrl, redirectTarget, readCapped } from "./pure";
+import { htmlToText, pickPublicAddress, assertHttpUrl, redirectTarget, readCapped } from "./pure";
+import { MEMORY_COLUMNS, retrieveMemories, type MemorySearchOptions } from "./memory-search";
+export { MEMORY_COLUMNS } from "./memory-search";
 
 import { KINDS, type Kind } from "./kinds";
 export { KINDS, type Kind };
@@ -21,8 +23,6 @@ export type MemoryInput = {
   tags?: string[];
   folder?: string | null;
 };
-
-export const MEMORY_COLUMNS = "id, kind, title, content, source, url, storage_path, tags, folder, visibility, created_at, updated_at";
 
 const SUGGEST_THRESHOLD = 0.6;
 
@@ -67,33 +67,8 @@ export async function findSimilar(sb: SupabaseClient, text: string, min = 0.9, c
 
 /** Hybrid search: Postgres full-text + pgvector similarity, fused by reciprocal rank. */
 /** userId is required when sb bypasses row-level security (background automations); harmless otherwise. */
-export async function searchMemories(sb: SupabaseClient, query: string, limit = 10, userId?: string) {
-  const [fts, vec] = await Promise.all([
-    toOrQuery(query)
-      ? (userId ? sb.from("memories").select("id").eq("user_id", userId) : sb.from("memories").select("id"))
-          .textSearch("fts", toOrQuery(query), { type: "websearch", config: "english" }).limit(25)
-      : Promise.resolve({ data: [] as { id: string }[], error: null }),
-    embed(query, "query").then((e) =>
-      e ? sb.rpc("match_memories", { query_embedding: JSON.stringify(e), match_count: 25 }) : null,
-    ),
-  ]);
-  if (fts.error) throw fts.error;
-  if (vec?.error) throw vec.error;
-
-  const ranked = rrfMerge([
-    (fts.data ?? []).map((r) => r.id as string),
-    ((vec?.data ?? []) as { id: string }[]).map((r) => r.id),
-  ]).slice(0, limit);
-  if (!ranked.length) return { results: [], mode: vec ? "hybrid" : "fulltext" };
-
-  const base = sb.from("memories").select(MEMORY_COLUMNS).in("id", ranked.map((r) => r.id));
-  const { data, error } = await (userId ? base.eq("user_id", userId) : base);
-  if (error) throw error;
-  const byId = new Map((data ?? []).map((m) => [m.id as string, m]));
-  return {
-    results: ranked.map((r) => byId.get(r.id)).filter((m): m is NonNullable<typeof m> => !!m),
-    mode: vec ? "hybrid" : "fulltext",
-  };
+export async function searchMemories(sb: SupabaseClient, query: string, limit = 10, userId?: string, options: MemorySearchOptions = {}) {
+  return retrieveMemories(sb, query, limit, userId, embed, options);
 }
 
 type Pinned = { address: string; family: number };
