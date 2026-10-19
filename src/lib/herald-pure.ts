@@ -4,9 +4,10 @@ import type { NavTarget } from "./nav-pure.ts";
 import { localDay } from "./morning-pure.ts";
 
 export type HeraldKind = "upload" | "trend" | "brief" | "breaking" | "studio" | "agents";
-/** nav: fly there. clip: also prefill STUDIO's "Add from link" box with this URL (never starts a job). */
-export type HeraldAction = { label: string; nav: NavTarget; clip?: string };
-export type HeraldCard = { key: string; kind: HeraldKind; title: string; body?: string; actions: HeraldAction[] };
+/** nav: fly there. clip: also prefill STUDIO's "Add from link" box with this URL (never starts a job). href: open this https page in a new tab instead. */
+export type HeraldAction = { label: string; nav: NavTarget; clip?: string; href?: undefined } | { label: string; href: string; nav?: undefined; clip?: undefined };
+/** thumb: an https image shown small on the card (third-party, loaded without a referrer). */
+export type HeraldCard = { key: string; kind: HeraldKind; title: string; body?: string; thumb?: string; actions: HeraldAction[] };
 /** seen: key → when shown (pruned after 7 days); shown: recent show times (rate limit); snooze: quiet until; mute: off until unmuted. */
 export type HeraldState = { seen: Record<string, number>; shown: number[]; snooze: number; mute: boolean };
 

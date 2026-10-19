@@ -16,7 +16,7 @@ const save = (s: HeraldState) => { try { localStorage.setItem(HERALD_KEY, JSON.s
 const getJson = (u: string) => fetch(u, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const morningDay = (): string | null => { try { return JSON.parse(localStorage.getItem("orbit.morning") || "{}")?.day ?? null; } catch { return null; } }; // MorningCard's saved day
 const MIN = 60_000, COLLAPSE_MS = 12_000;
-const EVERY = { clips: 10 * MIN, briefs: 15 * MIN, trends: 45 * MIN }; // trends: the server caches 30 min anyway
+const EVERY = { clips: 10 * MIN, briefs: 15 * MIN, trends: 45 * MIN, reach: 30 * MIN }; // trends: the server caches 30 min, reach 3 h
 type Shown = HeraldCard & { at: number; open: boolean };
 
 export function Herald({ home }: { home: boolean }) {
@@ -42,7 +42,7 @@ export function Herald({ home }: { home: boolean }) {
   const offer = useCallback((xs: (HeraldCard | null)[]) => { queue.current.push(...xs.filter((x): x is HeraldCard => !!x)); pump(); }, [pump]);
 
   useEffect(() => {
-    const last = { clips: 0, briefs: 0, trends: 0 };
+    const last = { clips: 0, briefs: 0, trends: 0, reach: 0 };
     let busy = false, stopped = false;
     const briefs = async () => {
       const b = await getJson("/api/briefings");
@@ -62,6 +62,7 @@ export function Herald({ home }: { home: boolean }) {
         if (due.includes("clips")) { const d = await getJson("/api/studio/clips"); if (d && !stopped) offer([uploadNudge(d, Date.now())]); }
         if (due.includes("briefs")) await briefs();
         if (due.includes("trends")) { const t = await getJson("/api/devtools?trends=1"); if (t && !stopped) offer(trendCards(t)); }
+        if (due.includes("reach")) { const r = await getJson("/api/reach"); if (Array.isArray(r?.cards) && !stopped) offer(r.cards); } // server-built from the cached scan
       } finally { busy = false; }
     };
     const onVis = () => { pump(); void tick(); };
@@ -98,6 +99,7 @@ export function Herald({ home }: { home: boolean }) {
 
   const dismiss = (key: string) => setCards((cs) => cs.filter((c) => c.key !== key));
   const act = (c: Shown, a: HeraldAction) => {
+    if (a.href) { if (/^https:\/\//i.test(a.href)) open(a.href, "_blank", "noopener,noreferrer"); dismiss(c.key); return; }
     if (a.clip) { // only prefills the clip factory's link box; the user still presses Add
       try { sessionStorage.setItem(CLIP_PREFILL_KEY, a.clip); } catch { /* the event below still fills an open box */ }
       dispatchEvent(new CustomEvent(CLIP_PREFILL_EVENT, { detail: a.clip }));
@@ -120,7 +122,9 @@ export function Herald({ home }: { home: boolean }) {
       <p className="sr-only" role="status" aria-live="polite">{said}</p>
       {cards.map((c) => c.open ? (
         <article key={c.key} className={`herald-card glass k-${c.kind}`} aria-label={c.title}>
-          <span className="herald-icon" aria-hidden>{KIND_ICON[c.kind]}</span>
+          {c.thumb && /^https:\/\//i.test(c.thumb)
+            ? <img src={c.thumb} alt="" width={48} height={48} loading="lazy" referrerPolicy="no-referrer" className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+            : <span className="herald-icon" aria-hidden>{KIND_ICON[c.kind]}</span>}
           <div className="min-w-0 flex-1">
             <div className="flex items-start gap-2">
               <b className="herald-title flex-1">{c.title}</b>

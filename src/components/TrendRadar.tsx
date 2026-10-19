@@ -6,6 +6,7 @@ import { notify } from "@/lib/notify-pure";
 import type { Topic, YtRiser } from "@/lib/yt-trend-pure";
 import { shortsUrl, type Viral } from "@/lib/yt-viral-pure";
 import StudyButton from "./StudyButton";
+import ReachPanel from "./ReachPanel";
 
 // DevWorld → Roblox Trend Radar: public Roblox discovery lists + an optional AI read of the patterns.
 const PINK = "#f472b6";
@@ -140,6 +141,7 @@ export default function TrendRadar() {
               {viral && !!viral.queries.length && <p className="muted text-xs">Searched: {viral.queries.join(", ")} · uses ~{viral.queries.length * 100 + 1} of 10,000 daily quota · cached 3 h · {new Date(viral.at).toLocaleTimeString()}</p>}
             </div>
           )}
+          {rising && <ReachPanel />}
           <ol className="space-y-1.5">
             {sort?.games.map((g, i) => (
               <li key={g.universeId}>
