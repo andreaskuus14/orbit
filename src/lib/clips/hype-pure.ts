@@ -72,7 +72,7 @@ const EMOTES = new Set(["KEKW", "KEK", "KEKL", "OMEGALUL", "LUL", "LULW", "LMAO"
   "💀", "😂", "🤣", "😭", "🔥", "😱", "😳", ":face-with-tears-of-joy:", ":skull:", ":fire:", ":loudly-crying-face:"]);
 const CLIP_RE = /\bclip+\s*(it|that|this)\b|^\s*clip+\s*!*\s*$|\bCLIP\b/i;
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
-const isEmote = (tok: string) => EMOTES.has(tok) || EMOTES.has(tok.toUpperCase()) && tok.length > 2 || EMOJI_RE.test(tok) || (/^[A-Z]{3,}$/.test(tok) && tok.length <= 12);
+const isEmote = (tok: string) => EMOTES.has(tok) || EMOTES.has(tok.toUpperCase()) && tok.length > 2 || (EMOJI_RE.test(tok) && tok.length <= 16) || (/^[A-Z]{3,}$/.test(tok) && tok.length <= 12);
 
 export type ChatSeries = { rate: number[]; uniq: number[]; emote: number[]; events: number[]; clip: number[]; top: Map<number, string>; n: number };
 

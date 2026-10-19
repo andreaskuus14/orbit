@@ -13,15 +13,22 @@ import { parseTwitchChat, parseYouTubeChat, type ChatMsg } from "./hype-pure";
 // Kick: no anonymous VOD chat endpoint ORBIT uses; audio only.
 
 export type ChatLoad = { msgs: ChatMsg[]; from?: string; hint?: string };
-const MAX_JSON = 400 * 1024 ** 2; // a single-document Twitch export is parsed whole
+const MAX_JSON = 100 * 1024 ** 2; // a single-document Twitch export is parsed whole (JSON.parse needs several× its size in memory)
+const MAX_LINES_FILE = 1024 ** 3, MAX_LINE = 64 * 1024, MAX_MSGS = 2_000_000; // keep a giant replay from exhausting server memory
 
 const TWITCH_HINT = "Twitch chat replay: yt-dlp can't fetch it. For chat-aware hype, export the VOD chat with TwitchDownloader as “<video name>.chat.json” into the inbox";
 const KICK_HINT = "Kick chat replay isn't available without logging in: hype uses audio only";
 
 async function jsonLines(file: string): Promise<ChatMsg[]> {
   const out: ChatMsg[] = [];
+  if ((await stat(file)).size > MAX_LINES_FILE) return out;
+  // shortcut: readline still buffers one line whole; a >64 KB line is skipped after reading, fine for yt-dlp's per-action lines.
   const rl = createInterface({ input: createReadStream(file, "utf8"), crlfDelay: Infinity });
-  for await (const line of rl) if (line.includes("videoOffsetTimeMsec")) out.push(...parseYouTubeChat(line));
+  for await (const line of rl) {
+    if (line.length > MAX_LINE || !line.includes("videoOffsetTimeMsec")) continue;
+    out.push(...parseYouTubeChat(line));
+    if (out.length >= MAX_MSGS) { rl.close(); break; }
+  }
   return out.sort((a, b) => a.t - b.t);
 }
 
@@ -33,14 +40,14 @@ export async function loadChat(source: string, dir: string, signal: AbortSignal)
     const base = path.join(inboxDir(), source.replace(/\.[^.]+$/, ""));
     if (await exists(`${base}.live_chat.json`)) return { msgs: await jsonLines(`${base}.live_chat.json`), from: "chat file (YouTube)" };
     if (await exists(`${base}.chat.json`)) {
-      if ((await stat(`${base}.chat.json`)).size > MAX_JSON) return { msgs: [], hint: "The chat file is over 400 MB: skipped" };
+      if ((await stat(`${base}.chat.json`)).size > MAX_JSON) return { msgs: [], hint: "The chat file is over 100 MB: skipped" };
       return { msgs: parseTwitchChat(JSON.parse(await readFile(`${base}.chat.json`, "utf8"))), from: "chat file (Twitch)" };
     }
     const url = await readFile(path.join(inboxDir(), `${source}.source.json`), "utf8").then((t) => String((JSON.parse(t) as { url?: unknown }).url ?? ""), () => "");
     if (!url) return { msgs: [] };
     const host = (() => { try { return new URL(url).hostname.replace(/^www\.|^m\./, ""); } catch { return ""; } })();
-    if (/twitch\.tv$/.test(host)) return { msgs: [], hint: TWITCH_HINT };
-    if (/kick\.com$/.test(host)) return { msgs: [], hint: KICK_HINT };
+    if (/(^|\.)twitch\.tv$/.test(host)) return { msgs: [], hint: TWITCH_HINT };
+    if (/(^|\.)kick\.com$/.test(host)) return { msgs: [], hint: KICK_HINT };
     if (!/(^|\.)youtube\.com$|^youtu\.be$/.test(host)) return { msgs: [] };
     const yt = await ytdlpPath();
     if (!yt) return { msgs: [], hint: "yt-dlp missing: no YouTube chat replay" };
