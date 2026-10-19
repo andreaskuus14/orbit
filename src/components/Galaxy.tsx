@@ -11,6 +11,8 @@ import * as THREE from "three";
 import { PLANETS, type PanelId, type PlanetDef, type PlanetId } from "@/lib/planets";
 import { QUALITY, stepQuality, type QualityLevel, type QualityMode, type QualityState } from "@/lib/quality-pure";
 import { GalaxyLoader } from "./GalaxyLoader";
+import { loadImage } from "./texture-cache";
+import { FrameMark } from "./dev-timing";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
 import { cullLabels, damp, fmtCoord, HOME_POS, introLabelAlpha } from "@/lib/cinematic-pure";
 import {
@@ -32,6 +34,7 @@ export type GalaxyProps = {
   reduced: boolean;
   panelOpen: boolean;
   fast?: boolean;            // a command-bar/voice flight on the way into a world: ≤ 1.2 s
+  paused?: boolean;          // a full-screen world covers the galaxy: stay mounted (no reload, no intro replay) but draw nothing
   quality?: QualityMode;     // "auto" adapts to the measured frame rate
   lifeProgress?: { done: number; total: number } | null; // real: today's scheduled LIFE habits done / total
 };
@@ -55,6 +58,12 @@ function toTexture(c: HTMLCanvasElement) {
   t.anisotropy = 8;
   return t;
 }
+
+// Defined up here so the preload below can list them; NEBULAE adds where each plate sits.
+const NEBULAE_SRC = [
+  { file: "nebula1", id: "20261014_223957_bb790662-68c9-4e31-91a4-ada73eff783b" },
+  { file: "nebula2", id: "20261014_223957_74cb7b1b-e9b7-4dfc-9c78-04bdf27561d9" },
+];
 
 function softened(c: HTMLCanvasElement, px: number) {
   const out = document.createElement("canvas");
@@ -155,15 +164,9 @@ const PHOTOS: Record<PlanetId, { file: string; id: string; crop: [number, number
   markets: { file: "glacier", id: "20261014_232114_c73e34e3-2e16-44e8-97af-a160226d854a", crop: [0, 0, 1, 1] }, // shares VAULT's photo, tinted emerald
 };
 
-function loadImage(src: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(src));
-    img.src = src;
-  });
-}
+const photoUrl = (file: string, id: string) => [`/textures/${file}.png`, `${CDN}${id}.png`] as const;
+// Start downloading and decoding every photo as soon as this chunk loads, while the loader is still up.
+if (typeof window !== "undefined") for (const { file, id } of [...Object.values(PHOTOS), ...NEBULAE_SRC]) loadImage(...photoUrl(file, id)).catch(() => {});
 
 /** Crop, then mirror horizontally so the map wraps around the sphere with no visible seam. */
 function photoTexture(img: HTMLImageElement, [x0, y0, x1, y1]: [number, number, number, number]) {
@@ -176,21 +179,24 @@ function photoTexture(img: HTMLImageElement, [x0, y0, x1, y1]: [number, number, 
   g.save(); g.translate(w * 2, 0); g.scale(-1, 1);
   g.drawImage(img, x0 * img.width, y0 * img.height, sw, sh, 0, 0, w, h);
   g.restore();
-  return toTexture(c);
+  const t = toTexture(c);
+  t.anisotropy = 4; // plenty for a sphere; 8 costs fill rate on an iGPU
+  return t;
 }
 
+// One texture per photo + crop for the page: planets sharing a photo (ANALYTICS/THEATER, VAULT/MARKETS) share it,
+// and a remounted galaxy (2D/3D toggle, GPU reset) skips the crop and repaint. Never disposed: a handful, page-lifetime.
+const photos = new Map<string, Promise<THREE.Texture>>();
 /** Local copy first (run `npm run textures`), then Higgsfield's CDN, else null (procedural look stays). */
 function usePhoto(key: PlanetId) {
   const [tex, setTex] = useState<THREE.Texture | null>(null);
   useEffect(() => {
     let dead = false;
-    let made: THREE.Texture | null = null;
     const { file, id, crop } = PHOTOS[key];
-    loadImage(`/textures/${file}.png`)
-      .catch(() => loadImage(`${CDN}${id}.png`))
-      .then((img) => { if (!dead) { made = photoTexture(img, crop); setTex(made); } })
-      .catch(() => { /* offline: keep the painted texture */ });
-    return () => { dead = true; made?.dispose(); };
+    const k = `${file}:${crop}`;
+    if (!photos.has(k)) photos.set(k, loadImage(...photoUrl(file, id)).then((img) => photoTexture(img, crop)));
+    photos.get(k)!.then((t) => { if (!dead) setTex(t); }, () => { photos.delete(k); /* offline: keep the painted texture */ });
+    return () => { dead = true; };
   }, [key]);
   return tex;
 }
@@ -505,6 +511,7 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
 
   useFrame(({ clock }) => {
     const now = clock.elapsedTime, s = st.current;
+    if (now < s.t0) { s.t0 = -9; s.next = now + 1.5; } // the clock restarts at 0 when a paused galaxy resumes
     if (!reduced && now > s.next) {
       strike(); s.t0 = now;
       s.next = now + (s.r() < 0.3 ? 0.18 : 0.6 + s.r() * 2.4); // sometimes a quick double strike
@@ -639,8 +646,8 @@ function AsteroidBelt({ inner, outer, count, seed, reduced, thickness = 0.25 }: 
 
 // Nebula backdrops generated with Higgsfield (Z Image); their dark edges blend into space when added on top.
 const NEBULAE = [
-  { file: "nebula1", id: "20261014_223957_bb790662-68c9-4e31-91a4-ada73eff783b", pos: [-20, 14, -95] as [number, number, number], s: [150, 84] as [number, number], rot: 0.2 },
-  { file: "nebula2", id: "20261014_223957_74cb7b1b-e9b7-4dfc-9c78-04bdf27561d9", pos: [85, -8, 40] as [number, number, number], s: [120, 68] as [number, number], rot: -0.4 },
+  { ...NEBULAE_SRC[0], pos: [-20, 14, -95] as [number, number, number], s: [150, 84] as [number, number], rot: 0.2 },
+  { ...NEBULAE_SRC[1], pos: [85, -8, 40] as [number, number, number], s: [120, 68] as [number, number], rot: -0.4 },
 ];
 /** Nebula image faded to a soft round cloud: no straight edges against the sky. */
 function nebulaShader(map: THREE.Texture) {
@@ -659,9 +666,11 @@ function NebulaPlates({ reduced }: { reduced: boolean }) {
   useEffect(() => {
     let dead = false;
     const made: THREE.Texture[] = [];
-    Promise.all(NEBULAE.map((n) => loadImage(`/textures/${n.file}.png`).catch(() => loadImage(`${CDN}${n.id}.png`)).then((img) => {
+    Promise.all(NEBULAE.map((n) => loadImage(...photoUrl(n.file, n.id)).then((img) => {
       if (dead) return null; // unmounted while loading: don't create a texture nobody will dispose
-      const t = new THREE.Texture(img); t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; made.push(t); return t;
+      const t = new THREE.Texture(img); t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; made.push(t);
+      t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; // a far, screen-sized plate: mipmaps would only cost upload time
+      return t;
     }).catch(() => null))).then((t) => { if (!dead) setTexs(t); });
     return () => { dead = true; made.forEach((t) => t.dispose()); };
   }, []);
@@ -1052,7 +1061,7 @@ export default function Galaxy(props: GalaxyProps) {
   }, [stop, selected, onSelect]);
   return (
     <div className="relative h-full w-full">
-      <Canvas key={glr.key} onCreated={glr.onCreated} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, dprMax]}
+      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={props.paused ? "never" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, dprMax]}
         gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping }}>
         <color attach="background" args={["#02040b"]} />
         {/* Depth haze: far orbits and belts sink into a cold blue-black (shader layers like stars/nebulae ignore it). */}
@@ -1077,10 +1086,10 @@ export default function Galaxy(props: GalaxyProps) {
         <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={80} enableDamping />
         {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} />
-        <ZoomRig home={HOME.length()} reduced={props.reduced} />
+        {!props.paused && <ZoomRig home={HOME.length()} reduced={props.reduced} />} {/* zoom commands are for the world on screen */}
         <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} story={story} />
         <LabelProjector positions={positions} labels={labels} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
-        {process.env.NODE_ENV === "development" && <DevStats />}
+        {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
         <FirstFrames onReady={onReady} />
         {mode === "auto" && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
         {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}

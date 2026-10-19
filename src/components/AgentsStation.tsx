@@ -6,6 +6,8 @@ import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
+import { FrameMark } from "./dev-timing";
+import { loadImage } from "./texture-cache";
 import { ZoomRig } from "./ZoomRig";
 import { AgentsPanel, type Task } from "./AgentsPanels";
 import AgentMission, { STATUS_DOT, api, usePoll } from "./AgentMission";
@@ -37,8 +39,8 @@ function useTex([local, cdn]: readonly [string, string], repeatX = 0) {
   const [tex, setTex] = useState<THREE.Texture | null>(null);
   useEffect(() => {
     let dead = false, made: THREE.Texture | null = null;
-    const load = (url: string) => new THREE.TextureLoader().loadAsync(url);
-    load(local).catch(() => load(cdn)).then((t) => {
+    loadImage(local, cdn).then((img) => { // shared decoded image: reopening the world doesn't download or decode it again
+      const t = new THREE.Texture(img); t.needsUpdate = true;
       t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
       if (repeatX) { t.wrapS = THREE.MirroredRepeatWrapping; t.repeat.x = repeatX; }
       made = t;
@@ -361,6 +363,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
             <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
           </EffectComposer>
         )}
+        {process.env.NODE_ENV === "development" && <FrameMark name="agents" />}
       </Canvas>}
 
       {hovered && (

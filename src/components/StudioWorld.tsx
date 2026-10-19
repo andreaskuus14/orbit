@@ -6,6 +6,8 @@ import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
+import { FrameMark } from "./dev-timing";
+import { loadImage } from "./texture-cache";
 import { ZoomRig } from "./ZoomRig";
 import StudioStats from "./StudioStats";
 import ClipFactory from "./ClipFactory";
@@ -58,8 +60,8 @@ function useTex([local, cdn]: readonly [string, string]) {
   const [tex, setTex] = useState<THREE.Texture | null>(null);
   useEffect(() => {
     let dead = false, made: THREE.Texture | null = null;
-    const load = (url: string) => new THREE.TextureLoader().loadAsync(url);
-    load(local).catch(() => load(cdn)).then((t) => {
+    loadImage(local, cdn).then((img) => { // shared decoded image: reopening the world doesn't download or decode it again
+      const t = new THREE.Texture(img); t.needsUpdate = true;
       t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; made = t;
       if (dead) t.dispose(); else setTex(t);
     }).catch(() => { /* offline */ });
@@ -370,6 +372,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
           <Vignette offset={0.3} darkness={0.6} />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
         </EffectComposer>
+        {process.env.NODE_ENV === "development" && <FrameMark name="studio" />}
       </Canvas>}
 
       {hoverVid && (

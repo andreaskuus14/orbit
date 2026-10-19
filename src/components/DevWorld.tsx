@@ -7,6 +7,7 @@ import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
+import { FrameMark } from "./dev-timing";
 import { ZoomRig } from "./ZoomRig";
 import { GAME_COMPONENTS } from "./GameLab";
 import RefBoard from "./RefBoard";
@@ -243,6 +244,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
           <Vignette offset={0.25} darkness={0.75} />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
         </EffectComposer>
+        {process.env.NODE_ENV === "development" && <FrameMark name="creation" />}
       </Canvas>}
 
       {hovered && world && (
