@@ -21,7 +21,7 @@ const EVERY = { clips: 10 * MIN, briefs: 15 * MIN, trends: 45 * MIN, inbox: 10 *
 type Shown = HeraldCard & { at: number; open: boolean };
 
 /** "Clip it now": the same request as STUDIO's Add from link with "make clips when downloaded" on (defaults: 5 clips, ≤45 s). */
-async function startClip(url: string) {
+export async function startClip(url: string) {
   const studio = { panel: "studio" as const, view: "clips" as const };
   try {
     const r = await fetch("/api/studio/clips/download", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -114,7 +114,7 @@ export function Herald({ home }: { home: boolean }) {
 
   const dismiss = (key: string) => setCards((cs) => cs.filter((c) => c.key !== key));
   const act = (c: Shown, a: HeraldAction) => {
-    if (a.href) { window.open(a.href, "_blank", "noopener,noreferrer"); return; } // keep the card: Watch, then still Clip it
+    if (a.href) { if (/^https:\/\//i.test(a.href)) window.open(a.href, "_blank", "noopener,noreferrer"); return; } // keep the card: Watch, then still Clip it
     if (a.clip) void startClip(a.clip); // the user pressed "Clip it now": download + make clips, same as Add from link with auto-clip on
     if (a.devTab) {
       try { sessionStorage.setItem(DEV_TAB_KEY, a.devTab); } catch { /* the event below still reaches an open panel */ }

@@ -5,10 +5,12 @@ import { orbitDataDir } from "./data-dir";
 import { getTrends, nicheViral } from "./devtools";
 import { trendCards, viralCards, type HeraldCard } from "./herald-pure";
 import { mergeInbox, parseInbox, toastPicks } from "./herald-watch-pure";
+import { reachFresh } from "./reach";
+import { reachCards } from "./reach/pure";
 import { stopAllOn } from "./stop-all";
 
 // Herald watch: every 3 h (first ~2 min after start) the server scans the niche (nicheViral, ≤301 YouTube units, scout budget)
-// and trends, and appends new cards to <data dir>/herald-inbox.json for Herald.tsx (GET /api/herald). New clippable cards also get
+// and trends, runs the Reach scan (src/lib/reach), and appends new cards to <data dir>/herald-inbox.json for Herald.tsx (GET /api/herald). New clippable cards also get
 // a Windows toast that opens ORBIT. Never starts a clip job: the owner presses "Clip it now" in ORBIT.
 
 const file = () => path.join(orbitDataDir(), "herald-inbox.json");
@@ -47,8 +49,9 @@ async function tick() {
   S.running = true;
   try {
     const now = Date.now();
-    const [v, t] = await Promise.all([nicheViral(now), getTrends(now)]);
-    const cards = [...viralCards(v), ...trendCards(t)];
+    const fail = (e: unknown) => { console.error("[herald-watch]", msg(e)); return {}; }; // one source failing must not drop the others
+    const [v, t, r] = await Promise.all([nicheViral(now).catch(fail), getTrends(now).catch(fail), reachFresh(now)]);
+    const cards = [...viralCards(v), ...trendCards(t), ...(r.stopped ? [] : reachCards(r.items))];
     if (!cards.length) return;
     const old = JSON.parse(await readFile(file(), "utf8").catch(() => "[]")); // shortcut: a corrupt inbox restarts empty (it's only a cache)
     const { inbox, added } = mergeInbox(old, cards, now);
