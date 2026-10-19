@@ -29,6 +29,8 @@ export function selectCoreMemoryIds(primaryIds: string[], projectRows: MemoryMet
   if (!project || /\b(?:not|no|without|except|never|don['’]t)\b/i.test(query)) return baseline;
   const projectTerms = new Set(terms(project));
   const question = terms(query).filter((t) => !projectTerms.has(t));
+  // Empty retrieval for a vague question must reach CORE's existing eight-recent-memories fallback.
+  if (!baseline.length && !question.length) return baseline;
   const normalized = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
   const eligible = projectRows.filter((m) => {
     const title = new Set(stems(m.title));

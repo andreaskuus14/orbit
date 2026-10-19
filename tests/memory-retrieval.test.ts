@@ -12,7 +12,7 @@ test("council regression: ten project sprint notes cannot evict Roblox DataStore
   const primary = ["datastore", "cache"];
   const sprints = Array.from({ length: 10 }, (_, i) => project(`s${i}`, `Nebula sprint ${i}`));
   assert.deepEqual(selectCoreMemoryIds(primary, sprints, "Roblox DataStore", 8, "Nebula"), primary);
-  assert.equal(selectCoreMemoryIds([], sprints, "What did we decide?", 8, "Nebula").length, 2);
+  assert.deepEqual(selectCoreMemoryIds([], sprints, "What did we decide?", 8, "Nebula"), [], "leave CORE's recent-memory fallback reachable");
 });
 
 test("semantic leaders and the original selected set survive every contextual selection", () => {
@@ -75,6 +75,13 @@ function fakeStore(opts: { fts: string[]; semantic?: string[]; project?: MemoryM
   };
   return { client: client as unknown as SupabaseClient, calls };
 }
+
+test("vague no-match retrieval preserves CORE's recent-memory fallback instead of hydrating two project notes", async () => {
+  const { client, calls } = fakeStore({ fts: [], rows: [], project: [project("p1", "Nebula sprint"), project("p2", "Nebula planning")] });
+  const out = await retrieveMemories(client, "What did we decide?", 8, "owner", async () => null, { projectName: "Nebula" });
+  assert.deepEqual(out.results, []);
+  assert.ok(!calls.some((c) => c.ids), "no project bodies are fetched before CORE loads its recent memories");
+});
 
 test("query flow loads no more than the final eight bodies; project lookup is metadata only", async () => {
   const rows = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, title: "Note", content: "x".repeat(1000) }));

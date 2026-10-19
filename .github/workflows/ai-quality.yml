@@ -2,7 +2,7 @@ name: AI quality checks
 
 on:
   push:
-    branches: [codex/improve-core-memory-scorecard]
+    branches: [main]
   pull_request:
     paths:
       - 'src/**'
