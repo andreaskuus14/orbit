@@ -7,8 +7,9 @@ import { NAV_EVENT } from "@/lib/nav-pure";
 import { NOTIFY_EVENT, notify, type NotifyDetail } from "@/lib/notify-pure";
 import {
   DEV_TAB_EVENT, DEV_TAB_KEY, HERALD_KEY, KIND_ICON, MAX_ON_SCREEN, breakingCards, briefCard, fromNotify, morningCard, parseHerald,
-  pickDue, trendCards, viralCards, uploadNudge, type HeraldAction, type HeraldCard, type HeraldState,
+  pickDue, trendCards, uploadNudge, type HeraldAction, type HeraldCard, type HeraldState,
 } from "@/lib/herald-pure";
+import { inboxOffer } from "@/lib/herald-watch-pure";
 
 const MUTE_EVENT = "orbit:herald-mute";
 const load = () => { try { return parseHerald(localStorage.getItem(HERALD_KEY), Date.now()); } catch { return parseHerald(null, Date.now()); } };
@@ -16,7 +17,7 @@ const save = (s: HeraldState) => { try { localStorage.setItem(HERALD_KEY, JSON.s
 const getJson = (u: string) => fetch(u, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const morningDay = (): string | null => { try { return JSON.parse(localStorage.getItem("orbit.morning") || "{}")?.day ?? null; } catch { return null; } }; // MorningCard's saved day
 const MIN = 60_000, COLLAPSE_MS = 12_000;
-const EVERY = { clips: 10 * MIN, briefs: 15 * MIN, trends: 45 * MIN, viral: 180 * MIN }; // trends: server caches 30 min; viral: 3 h (≤301 YouTube units, inside the scout budget)
+const EVERY = { clips: 10 * MIN, briefs: 15 * MIN, trends: 45 * MIN, inbox: 10 * MIN }; // trends: server caches 30 min; inbox: the server's niche scan (src/lib/herald-watch.ts) does the YouTube calls
 type Shown = HeraldCard & { at: number; open: boolean };
 
 /** "Clip it now": the same request as STUDIO's Add from link with "make clips when downloaded" on (defaults: 5 clips, ≤45 s). */
@@ -56,7 +57,7 @@ export function Herald({ home }: { home: boolean }) {
   const offer = useCallback((xs: (HeraldCard | null)[]) => { queue.current.push(...xs.filter((x): x is HeraldCard => !!x)); pump(); }, [pump]);
 
   useEffect(() => {
-    const last = { clips: 0, briefs: 0, trends: 0 };
+    const last = { clips: 0, briefs: 0, trends: 0, inbox: 0 };
     let busy = false, stopped = false;
     const briefs = async () => {
       const b = await getJson("/api/briefings");
@@ -76,7 +77,7 @@ export function Herald({ home }: { home: boolean }) {
         if (due.includes("clips")) { const d = await getJson("/api/studio/clips"); if (d && !stopped) offer([uploadNudge(d, Date.now())]); }
         if (due.includes("briefs")) await briefs();
         if (due.includes("trends")) { const t = await getJson("/api/devtools?trends=1"); if (t && !stopped) offer(trendCards(t)); }
-        if (due.includes("viral")) { const v = await getJson("/api/devtools?viral=1"); if (v && !stopped) offer(viralCards(v)); }
+        if (due.includes("inbox")) { const h = await getJson("/api/herald"); if (h?.cards && !stopped) offer(inboxOffer(h.cards, Date.now())); }
       } finally { busy = false; }
     };
     const onVis = () => { pump(); void tick(); };

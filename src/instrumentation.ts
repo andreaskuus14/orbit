@@ -17,6 +17,9 @@ export async function register() {
     // Own timer, not startScheduler(): that one is off without SUPABASE_SECRET_KEY, and the scout only needs local files + YOUTUBE_API_KEY.
     const { startScout } = await import("./lib/clips/scout");
     startScout();
+    // Niche/trend alerts while no ORBIT tab is open: inbox for the Herald + Windows toasts. Own timer for the same reason as the scout.
+    const { startHeraldWatch } = await import("./lib/herald-watch");
+    startHeraldWatch();
     // Self-test once the server answers requests; /api/doctor shares the same run (and starts it itself if asked first).
     setTimeout(() => { void import("./lib/doctor-boot").then((m) => m.bootSelfTest()).catch(() => {}); }, 15_000);
   }

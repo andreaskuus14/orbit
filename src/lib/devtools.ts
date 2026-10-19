@@ -133,8 +133,8 @@ async function ytTrends(now: number): Promise<YtTrends> {
   }
 }
 
-/* "Blowing up in your niche": up to 3 search.list calls (100 units each) + 1 videos.list, same OAuth grant as above. Fetched only when the Rising
-   tab is opened, cached 3 h, charged to the scout's daily budget (scout.json quota) so both stay under the project's 10,000 units. Never throws. */
+/* "Blowing up in your niche": up to 3 search.list calls (100 units each) + 1 videos.list, same OAuth grant as above. Fetched when the Rising
+   tab is opened and by the 3-hourly herald watch (src/lib/herald-watch.ts), cached 3 h, charged to the scout's daily budget (scout.json quota) so both stay under the project's 10,000 units. Never throws. */
 export type NicheViral = { videos: Viral[]; queries: string[]; units: number; at: number; hint?: string; error?: string };
 async function ytGet(path: string, params: Record<string, string>, s: Stored): Promise<unknown> {
   const call = async () => fetch(`https://www.googleapis.com/youtube/v3/${path}?${new URLSearchParams(params)}`,
