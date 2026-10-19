@@ -58,7 +58,7 @@ export async function POST(req: Request) {
       sb.from("messages").select("role, content").eq("conversation_id", cid).order("created_at", { ascending: false }).limit(9),
       chatProjectContext(user.id, cid),
     ]);
-    const out = await runCore(sb, user.id, ((prior ?? []) as { role: "user" | "assistant"; content: string }[]).reverse(), onDelta, signal, onReset, voice, onNavigate, onStep, attach, project.text, project.tainted);
+    const out = await runCore(sb, user.id, ((prior ?? []) as { role: "user" | "assistant"; content: string }[]).reverse(), onDelta, signal, onReset, voice, onNavigate, onStep, attach, project.text, project.tainted, project.memoryProject);
     await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
     await emit(sb, user.id, "core.completed", "core", { conversationId: cid });

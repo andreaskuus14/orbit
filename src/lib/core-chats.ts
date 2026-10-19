@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { chatContext, emptyChats, parseChats, type ChatStore } from "./core-chats-pure";
+import { chatContext, emptyChats, parseChats, type ChatStore, type ChatContext } from "./core-chats-pure";
 
 // CORE projects, pinned notes and the chat → project map, stored locally in <ORBIT data dir>/core-chats.json like life.json,
 // one section per signed-in user. The chats themselves stay in Supabase (conversations/messages).
@@ -44,6 +44,6 @@ export function updateChats<T>(userId: string, fn: (s: ChatStore) => T): Promise
 }
 
 /** The project prompt block for a chat (empty when it isn't in a project or the file can't be read); see chatContext. */
-export async function chatProjectContext(userId: string, chatId: string): Promise<{ text: string; tainted: boolean }> {
+export async function chatProjectContext(userId: string, chatId: string): Promise<ChatContext> {
   try { return chatContext(await getChats(userId), chatId); } catch { return { text: "", tainted: false }; }
 }
