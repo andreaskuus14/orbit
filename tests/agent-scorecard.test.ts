@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { scoreAgentRuns } from "../src/lib/agent-scorecard-pure.ts";
 import { AGENT_CASES } from "../evals/agent-cases.ts";
 import { RETRIEVAL_CASES } from "../evals/memory-cases.ts";
-import { rerankMemories } from "../src/lib/memory-retrieval-pure.ts";
+import { selectCoreMemoryIds } from "../src/lib/memory-retrieval-pure.ts";
+import { rrfMerge } from "../src/lib/pure.ts";
+import { legacyMemoryIds } from "../evals/legacy-memory-pure.ts";
 
 const cases = [{ id: "a" }, { id: "b" }];
 const run = { caseId: "a", ratings: { correctness: 2, evidence: 2, completion: 2, toolUse: 2, approval: 2 }, latencyMs: 150, notes: "Checked the saved result and trace." };
@@ -37,7 +39,7 @@ test("rejects duplicate/unknown cases, fabricated rating ranges and missing evid
   }
 });
 
-test("scorecard suites have 24 unique cases and retrieval improves without fixture regressions", () => {
+test("scorecard retains council failures and known limitations against the frozen baseline", () => {
   for (const suite of [AGENT_CASES, RETRIEVAL_CASES]) {
     assert.equal(suite.length, 24);
     assert.equal(new Set(suite.map((c) => c.id)).size, 24);
@@ -49,13 +51,17 @@ test("scorecard suites have 24 unique cases and retrieval improves without fixtu
     return i < 0 ? 0 : 1 / (i + 1);
   };
   for (const c of RETRIEVAL_CASES) {
-    const before = rr([...new Set(c.primary.map((m) => m.id))].slice(0, 8), c.relevant);
-    const out = rerankMemories([...c.primary, ...(c.context ?? [])], c.query, c.primary.map((m) => m.id), 8, c.project, Date.parse("2026-10-19T12:00:00Z"));
-    const after = rr(out.map((m) => m.id), c.relevant);
+    const baseline = legacyMemoryIds(c.fts, c.semantic);
+    const before = rr(baseline, c.relevant);
+    const out = selectCoreMemoryIds(rrfMerge([c.fts, c.semantic]).map((r) => r.id), c.context ?? [], c.query, 8, c.project);
+    assert.ok(baseline.every((id) => out.includes(id)), `${c.id}: evicted an original selected hit`);
+    const after = rr(out, c.relevant);
     assert.ok(after >= before, `${c.id}: ${after} < ${before}`);
     if (after > before) improved++;
   }
   assert.ok(improved > 0);
+  const unresolved = RETRIEVAL_CASES.find((c) => c.id === "known-cutoff-limitation")!;
+  assert.equal(rr(legacyMemoryIds(unresolved.fts, unresolved.semantic), unresolved.relevant), 0, "don't hide an existing retrieval limitation to inflate scores");
 });
 
 test("CLI reports pending coverage and fails closed for incomplete runs or invalid arguments", () => {

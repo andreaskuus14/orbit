@@ -1,71 +1,59 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rerankMemories, matchesMemoryProject, memoryLimit, memoryProject, memoryProjectFilter, type MemoryCandidate } from "../src/lib/memory-retrieval-pure.ts";
+import { selectCoreMemoryIds, memoryLimit, memoryProject, memoryProjectFilter, type MemoryMetadata } from "../src/lib/memory-retrieval-pure.ts";
 import { retrieveMemories } from "../src/lib/memory-search.ts";
+import { rrfMerge } from "../src/lib/pure.ts";
+import { legacyMemoryIds } from "../evals/legacy-memory-pure.ts";
+import { RETRIEVAL_CASES } from "../evals/memory-cases.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const NOW = Date.parse("2026-10-19T12:00:00Z");
-const memory = (id: string, content: string, rest: Partial<MemoryCandidate> = {}): MemoryCandidate => ({ id, title: "Note", content, ...rest });
-
-test("reranks before trimming: a precise answer below the old top eight reaches CORE", () => {
-  const ms = Array.from({ length: 12 }, (_, i) => memory(`${i}`, "Deployment background"));
-  ms.push(memory("answer", "Deploy to Helsinki using the staging cluster.", { title: "Staging cluster location" }));
-  const ranked = rerankMemories(ms, "Where is the staging cluster?", ms.map((m) => m.id), 8, "", NOW);
-  assert.equal(ranked[0].id, "answer");
-  assert.equal(ranked.length, 8);
+const project = (id: string, title: string): MemoryMetadata => ({ id, title, folder: "Nebula" });
+test("council regression: ten project sprint notes cannot evict Roblox DataStore answers", () => {
+  const primary = ["datastore", "cache"];
+  const sprints = Array.from({ length: 10 }, (_, i) => project(`s${i}`, `Nebula sprint ${i}`));
+  assert.deepEqual(selectCoreMemoryIds(primary, sprints, "Roblox DataStore", 8, "Nebula"), primary);
+  assert.equal(selectCoreMemoryIds([], sprints, "What did we decide?", 8, "Nebula").length, 2);
 });
 
-test("project metadata disambiguates a vague question without excluding another project's explicit answer", () => {
-  const a = memory("a", "Launch on Friday", { title: "Budget", folder: "Nebula" });
-  const b = memory("b", "Launch on Monday", { title: "Budget", tags: ["Planet Forge"] });
-  assert.equal(rerankMemories([a, b], "What did we decide?", ["a"], 8, "Planet Forge", NOW)[0].id, "b");
-  a.content = "Roblox deployment uses the production universe.";
-  assert.equal(rerankMemories([a, b], "Roblox deployment production universe", ["a"], 8, "Planet Forge", NOW)[0].id, "a");
-  assert.equal(matchesMemoryProject(b, "Planet Forge"), true);
-  assert.equal(matchesMemoryProject(b, "Planet"), true);
-  assert.equal(matchesMemoryProject(memory("c", "Planet Forge in the body only"), "Planet Forge"), false);
+test("semantic leaders and the original selected set survive every contextual selection", () => {
+  const ids = Array.from({ length: 12 }, (_, i) => `hit${i}`);
+  const rows = ids.map((id) => project(id, "Nebula launch budget"));
+  for (let limit = 0; limit <= 10; limit++) {
+    const out = selectCoreMemoryIds(ids, rows, "launch budget", limit, "Nebula");
+    assert.deepEqual(out.slice(0, Math.min(2, limit)), ids.slice(0, Math.min(2, limit)));
+    assert.deepEqual(new Set(out), new Set(ids.slice(0, limit)), "no baseline hit is evicted");
+  }
+  assert.deepEqual(selectCoreMemoryIds(["sushi", "dog"], [project("dog", "Nebula buy dog food")], "Favourite food?", 8, "Nebula"), ["sushi", "dog"]);
 });
 
-test("project hints don't promote off-topic context-only candidates", () => {
-  const m = memory("body", "Nebula was mentioned in an unrelated transcript.");
-  assert.deepEqual(rerankMemories([m], "staging region", [], 8, "Nebula", NOW), []);
+test("only query-matching project metadata is promoted, with at most two promotions", () => {
+  const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  const rows = [project("f", "Nebula launch budget"), project("g", "Nebula launch budget"), project("h", "Nebula launch budget")];
+  assert.deepEqual(selectCoreMemoryIds(ids, rows, "launch budget", 8, "Nebula"), ["a", "b", "f", "g", "c", "d", "e", "h"]);
+  assert.deepEqual(selectCoreMemoryIds(ids, rows, "Roblox DataStore", 8, "Nebula"), ids);
+  for (const query of ["not launch", "no budget", "without budget", "don't launch", "never launch", "everything except budget"]) assert.deepEqual(selectCoreMemoryIds(ids, rows, query, 8, "Nebula"), ids);
 });
 
-test("small recency preference keeps old decisions available and never beats relevance", () => {
-  const old = memory("old", "Cadence: daily", { title: "Upload cadence", updated_at: "2024-01-01" });
-  const fresh = memory("new", "Cadence: weekly", { title: "Upload cadence", updated_at: "2026-10-19" });
-  const unrelated = memory("other", "Dinner ideas", { updated_at: "2026-10-19" });
-  const out = rerankMemories([old, fresh, unrelated], "upload cadence", ["old", "new", "other"], 8, "", NOW);
-  assert.deepEqual(out.map((m) => m.id), ["new", "old", "other"]);
-});
-
-test("bounded, stable, unicode-aware; repetitions don't inflate lexical relevance", () => {
-  const a = memory("a", "Eelarve on 4500 eurot.");
-  const b = memory("b", "Eelarve ".repeat(1000));
-  assert.equal(rerankMemories([b, a, a], "eelarve 4500", ["b", "a"], 8, "", NOW)[0].id, "a");
-  assert.equal(rerankMemories([a, b], "zzzz", ["a", "b"], 1, "", NOW).length, 1);
-  assert.deepEqual(rerankMemories([a], "", ["a"], 0), []);
+test("project-only additions fill at most two empty slots and never bypass metadata matching", () => {
+  const rows = Array.from({ length: 10 }, (_, i) => project(`p${i}`, "Nebula budget"));
+  assert.deepEqual(selectCoreMemoryIds(["first"], rows, "budget", 8, "Nebula"), ["first", "p0", "p1"]);
+  assert.deepEqual(selectCoreMemoryIds([], [{ id: "wrong", title: "Budget", folder: "Comet" }], "budget", 8, "Nebula"), []);
+  assert.deepEqual(selectCoreMemoryIds([], rows, "budget launch", 8, "Nebula"), []);
   assert.equal(memoryLimit(Infinity), 10);
   assert.equal(memoryLimit(-1), 0);
-  assert.equal(memoryLimit(1e6), 50);
   assert.equal(memoryProject("  Planet\n Forge  "), "Planet Forge");
-  assert.equal(memoryProject("x".repeat(1000)).length, 80);
-  const copy = structuredClone([a, b]);
-  rerankMemories(copy, "test", ["a", "b"]);
-  assert.deepEqual(copy, [a, b], "doesn't mutate memories");
 });
 
-test("metadata lookup escapes punctuation and wildcard characters in project names", () => {
+test("metadata filter quotes punctuation and escapes SQL wildcards", () => {
   assert.equal(memoryProjectFilter("Planet Forge"), 'title.ilike."%Planet Forge%",folder.ilike."Planet Forge",tags.cs.{"Planet Forge"},tags.cs.{"planet forge"}');
   const filter = memoryProjectFilter('A%,_"),user_id.neq.x');
-  const quoted = filter.slice("title.ilike.".length, filter.indexOf(",folder.ilike."));
-  assert.equal(JSON.parse(quoted), '%A\\%,\\_"),user\\_id.neq.x%');
+  assert.equal(JSON.parse(filter.slice("title.ilike.".length, filter.indexOf(",folder.ilike."))), '%A\\%,\\_"),user\\_id.neq.x%');
 });
 
-type Call = { columns: string; user?: string; query?: string; filter?: string; ids?: string[]; limit?: number };
-function fakeStore(opts: { primary: string[]; project?: string[]; rows: MemoryCandidate[]; vectors?: string[]; projectError?: boolean; hydrateError?: boolean }) {
+type Row = MemoryMetadata & { content: string };
+type Call = { columns: string; user?: string; query?: string; filter?: string; ids?: string[]; limit?: number; ordered?: boolean };
+function fakeStore(opts: { fts: string[]; semantic?: string[]; project?: MemoryMetadata[]; rows: Row[]; projectError?: boolean; hydrateError?: boolean }) {
   const calls: Call[] = [];
-  let lookups = 0;
   const client = {
     from() {
       const call: Call = { columns: "" }; calls.push(call);
@@ -74,48 +62,49 @@ function fakeStore(opts: { primary: string[]; project?: string[]; rows: MemoryCa
         eq(_key: string, value: string) { call.user = value; return builder; },
         textSearch(_key: string, query: string) { call.query = query; return builder; },
         or(filter: string) { call.filter = filter; return builder; },
-        order() { return builder; },
+        order() { call.ordered = true; return builder; },
         limit(n: number) { call.limit = n; return builder; },
         in(_key: string, ids: string[]) { call.ids = ids; return builder; },
         then(resolve: (x: unknown) => unknown) {
           if (call.ids) return Promise.resolve({ data: opts.rows.filter((m) => call.ids!.includes(m.id)), error: opts.hydrateError ? new Error("hydrate failed") : null }).then(resolve);
-          const project = lookups++ > 0;
-          return Promise.resolve({ data: (project ? opts.project ?? [] : opts.primary).map((id) => ({ id })), error: project && opts.projectError ? new Error("context failed") : null }).then(resolve);
+          return Promise.resolve({ data: call.filter ? opts.project ?? [] : opts.fts.map((id) => ({ id })), error: call.filter && opts.projectError ? new Error("context failed") : null }).then(resolve);
         },
-      };
-      return builder;
+      }; return builder;
     },
-    rpc() { return Promise.resolve({ data: (opts.vectors ?? []).map((id) => ({ id })), error: null }); },
+    rpc() { return Promise.resolve({ data: (opts.semantic ?? []).map((id) => ({ id })), error: null }); },
   };
   return { client: client as unknown as SupabaseClient, calls };
 }
 
-test("query flow adds project candidates, embeds once, and owner-filters every DB read", async () => {
-  const rows = [memory("general", "Unrelated"), memory("project", "Launch Monday", { folder: "Planet Forge" })];
-  const { client, calls } = fakeStore({ rows, primary: ["general"], project: ["project"] });
-  const embedded: string[] = [];
-  const out = await retrieveMemories(client, "What did we decide?", 8, "owner", async (q) => { embedded.push(q); return null; }, { projectName: "Planet Forge" });
-  assert.equal(out.results[0].id, "project");
-  assert.equal(out.mode, "fulltext");
-  assert.deepEqual(embedded, ["What did we decide?"]);
-  assert.ok(calls.every((c) => c.user === "owner"), "admin-client lookups and hydration must filter ownership");
-  assert.equal(calls.filter((c) => c.query).length, 1);
-  assert.equal(calls.filter((c) => c.filter).length, 1, "folder/tag-only notes can enter the project pool even though FTS doesn't index metadata");
-  assert.ok(calls.filter((c) => c.query || c.filter).every((c) => c.limit === 25));
+test("query flow loads no more than the final eight bodies; project lookup is metadata only", async () => {
+  const rows = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, title: "Note", content: "x".repeat(1000) }));
+  const ctx = Array.from({ length: 25 }, (_, i) => project(`ctx${i}`, "Nebula sprint"));
+  const { client, calls } = fakeStore({ rows, fts: rows.slice(0, 25).map((m) => m.id), semantic: rows.slice(25).map((m) => m.id), project: ctx });
+  let embeds = 0;
+  const out = await retrieveMemories(client, "Roblox DataStore", 8, "owner", async () => { embeds++; return [1]; }, { projectName: "Nebula" });
+  assert.equal(out.results.length, 8);
+  assert.equal(embeds, 1);
+  assert.ok(calls.every((c) => c.user === "owner"));
+  assert.equal(calls.find((c) => c.filter)?.columns, "id,title,tags,folder");
+  assert.equal(calls.find((c) => c.query)?.ordered, undefined, "no new recency sort on ordinary FTS candidates");
+  assert.equal(calls.find((c) => c.ids)?.ids?.length, 8);
 });
 
-test("semantic-only results survive; ids denied at hydration cannot reach the answer", async () => {
-  const { client, calls } = fakeStore({ primary: [], vectors: ["denied", "semantic"], rows: [memory("semantic", "A synonym, no lexical overlap")] });
-  const out = await retrieveMemories(client, "zzzz", 8, "owner", async () => [1]);
-  assert.deepEqual(out.results.map((m) => m.id), ["semantic"]);
-  assert.equal(out.mode, "hybrid");
-  assert.equal(calls.length, 2, "no project lookup for an unfiled chat");
+test("default Memories and agent searches exactly match the frozen original ranking on every fixture", async () => {
+  for (const c of RETRIEVAL_CASES) {
+    const ids = [...new Set([...c.fts, ...c.semantic])];
+    const rows = ids.map((id) => ({ id, title: id, content: "Fixture" }));
+    const { client, calls } = fakeStore({ rows, fts: c.fts, semantic: c.semantic });
+    const out = await retrieveMemories(client, c.query, 8, "owner", async () => c.semantic.length ? [1] : null);
+    assert.deepEqual(out.results.map((m) => m.id), legacyMemoryIds(c.fts, c.semantic), c.id);
+    assert.ok(!calls.some((call) => call.filter), "ordinary callers do not request project metadata");
+    assert.deepEqual(rrfMerge([c.fts, c.semantic]).slice(0, 8).map((r) => r.id), legacyMemoryIds(c.fts, c.semantic));
+  }
 });
 
-test("a failed optional project lookup degrades gracefully; hydration failures stay visible", async () => {
-  const opts = { primary: ["a"], rows: [memory("a", "budget")], projectError: true };
-  const a = fakeStore(opts);
-  assert.equal((await retrieveMemories(a.client, "budget", 8, "owner", async () => null, { projectName: "Nebula" })).results.length, 1);
-  const b = fakeStore({ ...opts, hydrateError: true });
-  await assert.rejects(retrieveMemories(b.client, "budget", 8, "owner", async () => null), /hydrate failed/);
+test("optional project errors fall back to baseline; hydration cannot return unauthorized missing ids", async () => {
+  const opts = { fts: ["denied", "allowed"], rows: [{ id: "allowed", title: "Note", content: "Text" }], projectError: true };
+  const { client } = fakeStore(opts);
+  assert.deepEqual((await retrieveMemories(client, "question", 8, "owner", async () => null, { projectName: "Nebula" })).results.map((m) => m.id), ["allowed"]);
+  await assert.rejects(retrieveMemories(fakeStore({ ...opts, hydrateError: true }).client, "question", 8, "owner", async () => null), /hydrate failed/);
 });

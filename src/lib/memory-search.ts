@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rrfMerge, toOrQuery } from "./pure.ts";
-import { CANDIDATE_LIMIT, memoryLimit, memoryProject, memoryProjectFilter, rerankMemories } from "./memory-retrieval-pure.ts";
+import { CANDIDATE_LIMIT, memoryLimit, memoryProject, memoryProjectFilter, selectCoreMemoryIds, type MemoryMetadata } from "./memory-retrieval-pure.ts";
 
 export const MEMORY_COLUMNS = "id, kind, title, content, source, url, storage_path, tags, folder, visibility, created_at, updated_at";
 export type MemorySearchOptions = { projectName?: string };
@@ -17,13 +17,13 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
     const base = sb.from("memories").select("id");
     return await (userId ? base.eq("user_id", userId) : base)
       .textSearch("fts", q, { type: "websearch", config: "english" })
-      .order("updated_at", { ascending: false }).order("id").limit(CANDIDATE_LIMIT);
+      .limit(CANDIDATE_LIMIT);
   };
   const [fts, vec, context] = await Promise.all([
     ftsIds(query),
     embed(query, "query").then((e) => e ? sb.rpc("match_memories", { query_embedding: JSON.stringify(e), match_count: CANDIDATE_LIMIT }) : null),
     project ? (async () => {
-      const base = sb.from("memories").select("id");
+      const base = sb.from("memories").select("id,title,tags,folder");
       return await (userId ? base.eq("user_id", userId) : base).or(memoryProjectFilter(project))
         .order("updated_at", { ascending: false }).order("id").limit(CANDIDATE_LIMIT);
     })().catch(() => null) : Promise.resolve(null),
@@ -31,12 +31,12 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
   if (fts.error) throw fts.error;
   if (vec?.error) throw vec.error;
   // A project hint is best-effort: a failed extra lookup must not break ordinary memory search.
-  const projectIds = context?.error ? [] : (context?.data ?? []).map((r) => r.id as string);
+  const projectRows = context?.error ? [] : (context?.data ?? []) as MemoryMetadata[];
   const ranked = rrfMerge([
     (fts.data ?? []).map((r) => r.id as string),
     ((vec?.data ?? []) as { id: string }[]).map((r) => r.id),
   ]);
-  const ids = [...new Set([...ranked.map((r) => r.id), ...projectIds])];
+  const ids = selectCoreMemoryIds(ranked.map((r) => r.id), projectRows, query, count, project);
   const mode = vec ? "hybrid" : "fulltext";
   if (!ids.length) return { results: [], mode };
   const base = sb.from("memories").select(MEMORY_COLUMNS).in("id", ids);
@@ -45,5 +45,5 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
   if (error) throw error;
   const byId = new Map((data ?? []).map((m) => [m.id as string, m]));
   const candidates = ids.map((id) => byId.get(id)).filter((m): m is NonNullable<typeof m> => !!m);
-  return { results: rerankMemories(candidates, query, ranked.map((r) => r.id), count, project), mode };
+  return { results: candidates, mode };
 }

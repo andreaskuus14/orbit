@@ -112,7 +112,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     results = data ?? [];
     mode = "recent";
   }
-  trace.push({ step: "search_memory", detail: `${results.length} found (${mode}${mode === "recent" ? "" : `, reranked${memoryProject ? ", project context" : ""}`})`, ms: Date.now() - t, ok: true });
+  trace.push({ step: "search_memory", detail: `${results.length} found (${mode}${mode !== "recent" && memoryProject ? ", project hints considered" : ""})`, ms: Date.now() - t, ok: true });
 
   const [{ data: profile }, playbook, { data: summaries }, known] = await Promise.all([
     sb.from("profiles").select("*").eq("id", userId).maybeSingle(),

@@ -1,35 +1,31 @@
-import type { MemoryCandidate } from "../src/lib/memory-retrieval-pure.ts";
-export type RetrievalCase = { id: string; query: string; project?: string; primary: MemoryCandidate[]; context?: MemoryCandidate[]; relevant: string[] };
-const m = (id: string, title: string, content: string, rest: Partial<MemoryCandidate> = {}): MemoryCandidate => ({ id, title, content, ...rest });
-const nebula = m("nebula", "Nebula launch", "Launch Monday.", { folder: "Nebula" });
-const comet = m("comet", "Comet launch", "Launch Friday.", { tags: ["Comet"] });
-const noise = m("noise", "General planning", "Discuss the project later.");
-const old = m("old", "Upload cadence", "Daily uploads.", { updated_at: "2024-01-01" });
-const fresh = m("fresh", "Upload cadence", "Weekly uploads.", { updated_at: "2026-10-19" });
-const precise = m("precise", "Staging cluster region", "The staging cluster is in Helsinki.");
+import type { MemoryMetadata } from "../src/lib/memory-retrieval-pure.ts";
+export type RetrievalCase = { id: string; query: string; project?: string; fts: string[]; semantic: string[]; context?: MemoryMetadata[]; relevant: string[] };
+const note = (id: string, title: string, folder = "Nebula"): MemoryMetadata => ({ id, title, folder });
+const sprints = Array.from({ length: 10 }, (_, i) => note(`sprint${i}`, `Nebula sprint ${i}`));
+const eight = Array.from({ length: 8 }, (_, i) => `hit${i}`);
 export const RETRIEVAL_CASES: RetrievalCase[] = [
-  { id: "project-vague", query: "What did we decide?", project: "Nebula", primary: [comet, noise], context: [nebula], relevant: ["nebula"] },
-  { id: "project-launch", query: "launch", project: "Nebula", primary: [comet, nebula], relevant: ["nebula"] },
-  { id: "project-tags", query: "launch", project: "Comet", primary: [nebula, comet], relevant: ["comet"] },
-  { id: "project-explicit-override", query: "Comet launch Friday", project: "Nebula", primary: [nebula, comet], relevant: ["comet"] },
-  { id: "project-context-only", query: "What did we decide?", project: "Nebula", primary: [], context: [nebula], relevant: ["nebula"] },
-  { id: "project-missing", query: "staging cluster", project: "Missing", primary: [noise, precise], relevant: ["precise"] },
-  { id: "exact-title", query: "staging cluster region", primary: [noise, precise], relevant: ["precise"] },
-  { id: "below-eight", query: "staging cluster region", primary: [...Array.from({ length: 9 }, (_, i) => m(`n${i}`, "Deployment", "General infrastructure.")), precise], relevant: ["precise"] },
-  { id: "partial-versus-full", query: "staging cluster Helsinki", primary: [m("partial", "Staging", "Deployment."), precise], relevant: ["precise"] },
-  { id: "body-match", query: "cobalt deployment", primary: [noise, m("body", "Technical note", "The cobalt deployment needs review.")], relevant: ["body"] },
-  { id: "tags-match", query: "cobalt", primary: [noise, m("tag", "Technical note", "Deployment.", { tags: ["cobalt"] })], relevant: ["tag"] },
-  { id: "folder-match", query: "cobalt", primary: [noise, m("folder", "Technical note", "Deployment.", { folder: "cobalt" })], relevant: ["folder"] },
-  { id: "recent-equivalent", query: "upload cadence", primary: [old, fresh], relevant: ["fresh"] },
-  { id: "relevance-before-recency", query: "staging cluster", primary: [m("new-noise", "Lunch", "Today's menu.", { updated_at: "2026-10-19" }), precise], relevant: ["precise"] },
-  { id: "old-specific-question", query: "daily uploads", primary: [fresh, old], relevant: ["old"] },
-  { id: "invalid-date", query: "staging cluster", primary: [m("bad-date", "Lunch", "Menu", { updated_at: "not-a-date" }), precise], relevant: ["precise"] },
-  { id: "unicode-estonian", query: "eelarve 4500", primary: [noise, m("ee", "Eelarve", "Eelarve on 4500 eurot.")], relevant: ["ee"] },
-  { id: "unicode-japanese", query: "予算", primary: [noise, m("jp", "予算", "4500 円")], relevant: ["jp"] },
-  { id: "number-disambiguation", query: "budget 4500", primary: [m("wrong", "Budget", "2000 euros"), m("right", "Budget", "4500 euros")], relevant: ["right"] },
-  { id: "repetition", query: "budget 4500", primary: [m("spam", "Budget", "budget ".repeat(100)), m("right", "Budget", "4500 euros")], relevant: ["right"] },
-  { id: "semantic-no-overlap", query: "zzzz", primary: [m("semantic", "Synonym", "No lexical overlap.")], relevant: ["semantic"] },
-  { id: "no-candidates", query: "unknown", primary: [], relevant: [] },
-  { id: "deduplicate", query: "staging cluster", primary: [precise, precise, noise], relevant: ["precise"] },
-  { id: "long-note-end", query: "staging cluster Helsinki", primary: [noise, m("long", "Operations", `${"General background. ".repeat(1100)}\n## Deployment\nThe staging cluster is in Helsinki.`)], relevant: ["long"] },
+  { id: "review-project-crowding", query: "Roblox DataStore", project: "Nebula", fts: ["datastore", "cache"], semantic: ["datastore", "cache"], context: sprints, relevant: ["datastore", "cache"] },
+  { id: "review-food-semantics", query: "Favourite food?", project: "Nebula", fts: ["dog", "sushi"], semantic: ["sushi", "meal", "dog"], context: [note("dog", "Nebula buy dog food")], relevant: ["sushi"] },
+  { id: "negation", query: "not Roblox", project: "Nebula", fts: ["other", "roblox"], semantic: ["other"], context: [note("roblox", "Nebula Roblox")], relevant: ["other"] },
+  { id: "no-negation", query: "no uploads", project: "Nebula", fts: ["paused"], semantic: [], context: [note("upload", "Nebula uploads")], relevant: ["paused"] },
+  { id: "vague-supplement", query: "What did we decide?", project: "Nebula", fts: ["general"], semantic: [], context: sprints, relevant: ["sprint0"] },
+  { id: "context-only", query: "What did we decide?", project: "Nebula", fts: [], semantic: [], context: sprints, relevant: ["sprint0"] },
+  { id: "specific-supplement", query: "launch budget", project: "Nebula", fts: [], semantic: [], context: [note("budget", "Nebula launch budget")], relevant: ["budget"] },
+  { id: "reject-partial-overlap", query: "Roblox DataStore", project: "Nebula", fts: [], semantic: [], context: [note("wrong", "Nebula Roblox sprint")], relevant: [] },
+  { id: "full-pool-no-eviction", query: "Roblox DataStore", project: "Nebula", fts: eight, semantic: eight, context: [note("project", "Nebula Roblox DataStore")], relevant: ["hit7"] },
+  { id: "bounded-tail-promotion", query: "launch budget", project: "Nebula", fts: eight, semantic: eight, context: [note("hit6", "Nebula launch budget")], relevant: ["hit6"] },
+  { id: "protect-first-two", query: "launch budget", project: "Nebula", fts: eight, semantic: eight, context: [note("hit6", "Nebula launch budget")], relevant: ["hit0", "hit1"] },
+  { id: "off-topic-tail", query: "Roblox DataStore", project: "Nebula", fts: eight, semantic: eight, context: [note("hit6", "Nebula sprint")], relevant: ["hit2"] },
+  { id: "explicit-other-project", query: "Comet launch", project: "Nebula", fts: ["comet"], semantic: ["comet"], context: [note("nebula", "Nebula launch")], relevant: ["comet"] },
+  { id: "unfiled-semantic", query: "favourite food", fts: ["dog", "sushi"], semantic: ["sushi", "meal", "dog"], relevant: ["sushi"] },
+  { id: "old-semantic-hit", query: "hosting", fts: ["new", "old"], semantic: ["old", "other", "new"], relevant: ["old"] },
+  { id: "semantic-only", query: "quiet getaway", fts: [], semantic: ["cabin"], relevant: ["cabin"] },
+  { id: "keyword-only", query: "4500", fts: ["budget"], semantic: [], relevant: ["budget"] },
+  { id: "no-candidates", query: "unknown", fts: [], semantic: [], relevant: [] },
+  { id: "tag-supplement", query: "budget", project: "Nebula", fts: [], semantic: [], context: [{ id: "tag", title: "Budget", tags: ["nebula"] }], relevant: ["tag"] },
+  { id: "folder-supplement", query: "budget", project: "Nebula", fts: [], semantic: [], context: [note("folder", "Budget")], relevant: ["folder"] },
+  { id: "unicode", query: "eelarve 4500", project: "Nebula", fts: [], semantic: [], context: [note("ee", "Eelarve 4500")], relevant: ["ee"] },
+  { id: "repetition-does-not-rerank", query: "budget 4500", fts: ["repeat", "precise"], semantic: ["precise", "other", "repeat"], relevant: ["precise"] },
+  { id: "known-cutoff-limitation", query: "staging cluster", fts: [...eight, "answer"], semantic: [], relevant: ["answer"] },
+  { id: "unknown-project-metadata", query: "budget", project: "Nebula", fts: ["real"], semantic: [], context: [note("wrong", "Budget", "Comet")], relevant: ["real"] },
 ];
