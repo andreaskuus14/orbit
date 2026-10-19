@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useGlRecovery } from "./useGlRecovery";
+import { FrameMark } from "./dev-timing";
 import { ZoomRig } from "./ZoomRig";
 import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
@@ -157,6 +158,19 @@ function baseTexture(tint: Map<string, number>, mode: "news" | "search", dim = f
   return tex;
 }
 
+// Painting the 4096×2048 map is the slow part of opening the globe: keep the last few, keyed by what is painted,
+// so reopening with the same news (and the empty first frame) repaints nothing. Only the newest is ever on screen.
+// Two, not more: each is a 32 MB canvas kept for the page's lifetime (a search paints a third and evicts the oldest).
+const baseCache = new Map<string, THREE.CanvasTexture>();
+function cachedBase(tint: Map<string, number>, mode: "news" | "search") {
+  const key = mode + JSON.stringify([...tint]);
+  let t = baseCache.get(key);
+  if (t) baseCache.delete(key); else t = baseTexture(tint, mode);
+  baseCache.set(key, t); // most recently used last
+  for (const [k, old] of baseCache) { if (baseCache.size <= 2) break; old.dispose(); baseCache.delete(k); }
+  return t;
+}
+
 let regionCache: { dim: THREE.CanvasTexture; a: THREE.CanvasTexture; b: THREE.CanvasTexture } | null = null;
 /** Painted once per page: the dimmed globe, plus two masks whose RGB channels hold region ids 1-3 and 4-6 (coverage 0..1). */
 function regionMaps() {
@@ -232,6 +246,14 @@ function overlayTexture(name: string, color: string) {
   }
   overlayCache.set(key, tex);
   return tex;
+}
+
+/** Paints the static maps in idle time before the globe is first opened, one per idle slot (each is a long task). */
+export function warmGlobe() {
+  const idle = (f: () => void) => (typeof requestIdleCallback === "function" ? requestIdleCallback(f, { timeout: 20000 }) : setTimeout(f, 3000));
+  const steps = [() => cachedBase(new Map(), "news"), pickMap, regionMaps];
+  const next = () => { const f = steps.shift(); if (f) idle(() => { f(); next(); }); };
+  next();
 }
 
 /* ---------- shaders ---------- */
@@ -521,8 +543,7 @@ function Globe({ tint, mode, region, reduced, lit, selected, hover, onPick, onHo
   followed: string[]; tint: Map<string, number>; mode: "news" | "search"; region: string | null; reduced: boolean; lit: string[]; selected: string | null; hover: string | null;
   onPick: (n: string | null) => void; onHover: (n: string | null, x: number, y: number) => void;
 }) {
-  const texture = useMemo(() => baseTexture(tint, mode), [tint, mode]); // region is NOT an input: switching regions repaints nothing
-  useEffect(() => () => texture.dispose(), [texture]);
+  const texture = useMemo(() => cachedBase(tint, mode), [tint, mode]); // region is NOT an input: switching regions repaints nothing
   const { m: material, u } = useMemo(globeMaterial, []);
   useEffect(() => () => material.dispose(), [material]);
   useEffect(() => { if (!region) fade.uW.value.fill(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- reopening with no region shouldn't fade in from last time
@@ -815,6 +836,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
           <Vignette offset={0.25} darkness={0.75} />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
         </EffectComposer>
+        {process.env.NODE_ENV === "development" && <FrameMark name="intelligence" />}
       </Canvas>
 
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">

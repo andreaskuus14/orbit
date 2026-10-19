@@ -1,5 +1,11 @@
 // Saves the Higgsfield-generated planet textures into public/textures so ORBIT doesn't depend on the CDN link.
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+
+// Restarts call this script every time: anything already saved (and not truncated) is kept as is.
+const have = (file, min = 1024) => stat(file).then((s) => s.size >= min, () => false);
+const newer = (a, b) => Promise.all([stat(a), stat(b)]).then(([x, y]) => x.mtimeMs <= y.mtimeMs, () => false); // b is at least as new as a
+// Web variants the app loads first (originals stay as fallback): WebP, at most 2048 px wide, 1024 for the small planets.
+const SMALL = new Set(["jungle", "glacier", "storm"]);
 
 const CDN = "https://d8j0ntlcm91z4.cloudfront.net/user_3K4zaF8Ip5JyEmwNLHr5iAw89pD/hf_";
 const FILES = {
@@ -39,6 +45,7 @@ await mkdir("public/textures", { recursive: true });
 let failed = 0;
 for (const [name, id] of Object.entries(FILES)) {
   try {
+    if (await have(`public/textures/${name}.png`, 100_000)) continue;
     const res = await fetch(`${CDN}${id}.png`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
@@ -53,8 +60,23 @@ for (const [name, id] of Object.entries(FILES)) {
 
 try {
   const { default: sharp } = await import("sharp"); // ships with Next.js
+  for (const name of Object.keys(FILES)) {
+    const src = `public/textures/${name}.png`, out = `public/textures/${name}.webp`;
+    if (!(await have(src)) || ((await have(out)) && (await newer(src, out)))) continue;
+    const buf = await sharp(src).resize({ width: SMALL.has(name) ? 1024 : 2048, withoutEnlargement: true }).webp({ quality: 85 }).toBuffer();
+    await writeFile(out, buf);
+    console.log(`saved ${name}.webp (${(buf.length / 1e6).toFixed(2)} MB)`);
+  }
+} catch (e) {
+  failed++;
+  console.error(`failed web variants: ${e.message}`);
+}
+
+try {
+  const { default: sharp } = await import("sharp"); // ships with Next.js
   await mkdir("public/devworld", { recursive: true }); // public/textures exists from above
   for (const [name, id] of Object.entries(COVERS)) {
+    if (await have(`public/${name}.webp`)) continue;
     const res = await fetch(`${CDN}${id}.png`);
     if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
     await writeFile(`public/${name}.webp`, await sharp(Buffer.from(await res.arrayBuffer())).resize(name.startsWith("textures/") ? 1920 : 1280).webp({ quality: 82 }).toBuffer());
@@ -66,7 +88,8 @@ try {
 }
 
 // Brand: the ORBIT emblem (Higgsfield Z Image), cropped to the mark and resized for every icon slot.
-try {
+const ICONS = ["public/brand/orbit-mark.png", "public/icon-512.png", "public/icon-192.png", "src/app/icon.png", "src/app/apple-icon.png", "public/orbit.ico"];
+if (!(await Promise.all(ICONS.map((f) => have(f, 1)))).every(Boolean)) try {
   const { default: sharp } = await import("sharp"); // ships with Next.js
   const res = await fetch(`${CDN}20261014_220607_96189f58-67c6-40bb-a667-7f323ab3d5c9.png`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

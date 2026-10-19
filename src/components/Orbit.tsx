@@ -28,6 +28,7 @@ import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
 import { runFollowCommand } from "./follow-command";
 import { runWatchCommand } from "./watch-store";
 import { runAgentCommand } from "./agent-command";
+import { markOpen } from "./dev-timing";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
@@ -90,10 +91,16 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, [panel, behind]);
   // Is a 3D scene on screen? The news globe is always 3D, even in "2D view"; the other worlds and the galaxy follow the toggle.
   const scene3d = !gameOpen && (shown === "intelligence" || view === "3d");
+  // A full-screen world (or a game) covers the galaxy: it stays mounted but paused, so coming back is instant.
+  const covered = gameOpen || isWorld(shown);
+  useEffect(() => { markOpen(gameOpen ? "game" : covered ? shown ?? "galaxy" : "galaxy"); }, [gameOpen, covered, shown]); // dev-only timing
 
   // Fetch the world chunks while idle, so entering a world never waits on a JS download (next/dynamic reuses them).
   useEffect(() => {
-    const load = () => { for (const p of [import("./NewsGlobe"), import("./StudioWorld"), import("./DevWorld"), import("./AgentsStation"), import("./TheaterWorld")]) p.catch(() => {}); }; // best-effort warm-up
+    const load = () => {
+      for (const p of [import("./StudioWorld"), import("./DevWorld"), import("./AgentsStation"), import("./TheaterWorld")]) p.catch(() => {}); // best-effort warm-up
+      import("./NewsGlobe").then((m) => m.warmGlobe()).catch(() => {}); // the most visited world: also paint its maps ahead of time
+    };
     if ("requestIdleCallback" in window) requestIdleCallback(load, { timeout: 5000 }); else setTimeout(load, 1500);
   }, []);
 
@@ -327,6 +334,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   return (
     <main className="relative h-dvh w-full overflow-hidden">
+      {view === "3d" && (
+        <div className="absolute inset-0" style={covered ? { visibility: "hidden" } : undefined} inert={covered || undefined}>
+          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
+        </div>
+      )}
       {shown === "intelligence" && !gameOpen ? (
         <NewsGlobe reduced={reduced} onClose={closeWorld} focus={newsFocus} />
       ) : shown === "studio" ? (
@@ -337,11 +349,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} />
       ) : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
-      ) : view === "3d" && gameOpen ? null : view === "3d" ? (
-        <div className="absolute inset-0">
-          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} />
-        </div>
-      ) : (
+      ) : view === "3d" ? null : (
         <nav aria-label="Planets" className="absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <ul className="mx-auto grid max-w-3xl gap-3 sm:grid-cols-2">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>

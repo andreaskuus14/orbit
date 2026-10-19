@@ -5,6 +5,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
+import { FrameMark } from "./dev-timing";
 import { QUALITY, type QualityMode } from "@/lib/quality-pure";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { ago, embedUrl, findMode, isNew, isVideoId, length, safeThumb } from "@/lib/watch-pure";
@@ -191,6 +192,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
             <Vignette offset={0.3} darkness={0.7} />
           </EffectComposer>
         )}
+        {process.env.NODE_ENV === "development" && <FrameMark name="theater" />}
       </Canvas>}
 
       {playing && (
