@@ -14,7 +14,8 @@ export type SnapKey = "24h" | "72h" | "7d";
 export const SNAPS: [SnapKey, number][] = [["24h", 24 * H], ["72h", 72 * H], ["7d", 168 * H]];
 export type Features = { hookStyle: string; hookLen: string; length: string; layout: string; captions: string; creator: string; kind: string };
 export type LearnRec = { videoId: string; jobId: string; clipId: string; title: string; hook: string; reason: string; layout: string; captions: string;
-  durationSec: number; publishedAt?: string; sourceChannel: string; kind: string; snaps: Partial<Record<SnapKey, Stats>>; latest?: Stats };
+  durationSec: number; publishedAt?: string; sourceChannel: string; kind: string; snaps: Partial<Record<SnapKey, Stats>>; latest?: Stats;
+  feat?: Record<string, number> }; // feat: the virality features stored on the clip when it was made (score-pure.ts learns from them)
 export type LearnState = { v: number; checkedAt?: string; warnings: string[]; clips: Record<string, LearnRec> };
 
 export const emptyLearn = (): LearnState => ({ v: LEARN_V, warnings: [], clips: {} });
@@ -32,6 +33,7 @@ export function learnProblem(x: unknown): string {
     if (!isVideoId(id) || r?.videoId !== id || typeof r.jobId !== "string" || typeof r.clipId !== "string" || typeof r.title !== "string" || !isNum(r.durationSec)
       || (["hook", "reason", "layout", "captions", "sourceChannel", "kind"] as const).some((k) => typeof r[k] !== "string")) return `bad clip ${id.slice(0, 20)}`;
     if (!r.snaps || typeof r.snaps !== "object" || Object.values(r.snaps).some((v) => !isStats(v)) || (r.latest && !isStats(r.latest))) return `bad stats ${id}`;
+    if (r.feat !== undefined && (!r.feat || typeof r.feat !== "object" || !Object.values(r.feat).every(isNum))) return `bad features ${id}`;
   }
   return "";
 }
@@ -91,6 +93,8 @@ export function syncRecords(jobs: ClipJob[], prev: Record<string, LearnRec>): Re
     out[id] = { videoId: id, jobId: job.id, clipId: c.id, title: clean(c.publish?.title ?? c.title, 100), hook: clean(c.hook, 60), reason: clean(c.reason, 160),
       layout: e.layout, captions: e.captions, durationSec: Math.round((c.end - c.start) * 10) / 10, sourceChannel: creatorOf(job.source),
       kind: kindOf(`${c.reason} ${c.title} ${c.hook}`), publishedAt: old?.publishedAt, snaps: old?.snaps ?? {}, latest: old?.latest };
+    const feat = c.virality?.x ?? old?.feat;
+    if (feat) out[id].feat = feat as Record<string, number>;
   }
   return out;
 }

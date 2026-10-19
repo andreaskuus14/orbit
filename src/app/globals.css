@@ -371,6 +371,31 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .studio-tip img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; }
 .studio-tip span { color: #ff8fab; font-size: 11px; }
 
+/* Hype timeline + virality score (HypeScore.tsx): heat runs plum (quiet) → cherry → ember gold (peak). */
+.hype-wave { padding: 0.5rem 0.6rem 0.45rem; border-radius: 12px; border: 1px solid rgba(255, 143, 171, 0.12); background: radial-gradient(120% 90% at 50% 120%, rgba(255, 46, 99, 0.14), transparent 60%), rgba(10, 1, 6, 0.55); }
+.hype-sweep { clip-path: inset(0 100% 0 0); animation: hype-sweep 1.6s cubic-bezier(0.3, 0.7, 0.2, 1) 0.1s forwards; }
+@keyframes hype-sweep { to { clip-path: inset(0 0 0 0); } }
+.hype-band { transition: fill 0.15s; }
+.hype-mark { position: absolute; width: 0.8rem; height: 0.8rem; margin: -0.4rem 0 0 -0.4rem; border-radius: 999px; background: radial-gradient(circle, #fff 0 22%, var(--c) 45%, transparent 72%);
+  box-shadow: 0 0 10px var(--c), 0 0 22px var(--c); transition: transform 0.15s; }
+.hype-mark:hover, .hype-mark:focus-visible { transform: scale(1.45); }
+.hype-tip { position: absolute; bottom: calc(100% + 0.25rem); transform: translateX(-50%); width: max-content; max-width: 14rem; padding: 0.3rem 0.55rem; border-radius: 10px; font-size: 11px; color: #ffe5ec;
+  background: rgba(18, 2, 9, 0.85); backdrop-filter: blur(10px); border: 1px solid rgba(255, 179, 71, 0.45); box-shadow: 0 0 18px rgba(255, 46, 99, 0.3); pointer-events: none; }
+.hype-tip span { color: #ffb347; }
+.hype-legend { display: inline-flex; align-items: center; gap: 0.3rem; }
+.hype-legend i { display: inline-block; width: 0.9rem; height: 2px; border-radius: 2px; margin-left: 0.4rem; }
+.hype-legend i.dash { background: repeating-linear-gradient(90deg, #ffd6e0 0 3px, transparent 3px 6px); }
+.score-ring { display: grid; justify-items: center; gap: 0.1rem; }
+.score-ring-num { font-family: var(--font-mono); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.score-conf { font-size: 9px; line-height: 1; padding: 0.1rem 0.35rem; border-radius: 999px; color: #ffe5ec; background: rgba(12, 2, 8, 0.75); border: 1px solid rgba(255, 143, 171, 0.3); }
+.score-conf.learning { color: #e9d5ff; border-color: rgba(192, 132, 252, 0.45); }
+.score-why summary { cursor: pointer; font-size: 11px; color: #ffb347; width: fit-content; }
+.score-why summary:hover { text-decoration: underline; text-decoration-color: rgba(255, 179, 71, 0.5); }
+.score-factor { display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 0.5rem; font-size: 11px; }
+.score-bar { grid-column: 1 / -1; height: 3px; border-radius: 3px; background: rgba(255, 214, 224, 0.07); overflow: hidden; }
+.score-bar i { display: block; height: 100%; border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) { .hype-sweep { animation: none; clip-path: none; } .hype-mark, .hype-band { transition: none; } }
+
 /* CORE over a world (STUDIO / GAME DEV) docks under the world's right-hand panel, in the free bottom-right corner,
    and that panel gets shorter so the two never overlap. Below 900px the panel sits at the bottom: keep the phone drawer. */
 @media (min-width: 900px) {

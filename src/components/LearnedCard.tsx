@@ -2,9 +2,46 @@
 import { useEffect, useState } from "react";
 import type { Insights } from "@/lib/clips/learn-pure";
 import type { Lesson, Playbook } from "@/lib/clips/study-pure";
+import type { ModelStatus } from "@/lib/clips/score";
 import StudyButton from "./StudyButton";
 
-type Data = Insights & { study?: { playbook: Playbook; recent: Lesson[]; busy: string | null; min: number } | null };
+type Data = Insights & { study?: { playbook: Playbook; recent: Lesson[]; busy: string | null; min: number } | null; model?: ModelStatus | null };
+
+const SIGNAL: Record<ModelStatus["top"][number]["key"], string> = { claude: "Editor's rating", hypePeak: "Hype spike", hypeSharp: "Sudden hype", chat: "Chat burst", audio: "Loud reaction",
+  hook: "First 2 seconds", length: "Length fit", creator: "Creator", kind: "Moment type", playbook: "Viral playbook", novelty: "Freshness" };
+
+/** Virality model status + how the score works. */
+function ScoreModel({ m }: { m: ModelStatus }) {
+  const top = m.top.slice(0, 5), max = Math.max(...top.map((t) => Math.abs(t.w)), 0.01);
+  return (
+    <div>
+      <h4 className="muted mb-1">🎯 Virality score · {m.learned ? `model learned from ${m.n} of your Shorts (${m.conf} confidence)` : `learning: ${m.n} of ${m.min} Shorts needed`}</h4>
+      {!m.learned && (
+        <div className="mb-1.5 h-1 overflow-hidden rounded-full" style={{ background: "rgba(255,214,224,0.08)" }} role="progressbar" aria-label="Shorts the score has learned from"
+          aria-valuemin={0} aria-valuemax={m.min} aria-valuenow={m.n}>
+          <div className="h-full rounded-full" style={{ width: `${(m.n / m.min) * 100}%`, background: "linear-gradient(90deg,#a855f7,#ff2e63,#ffb347)" }} />
+        </div>
+      )}
+      <ul className="space-y-1" aria-label={m.learned ? "What predicts views on your channel" : "Starting weights"}>
+        {top.map((t) => (
+          <li key={t.key} className="score-factor">
+            <span>{SIGNAL[t.key]}{t.w < 0 ? " (hurts)" : ""}</span>
+            <span className="num muted">{m.learned && Math.abs(t.w - t.prior) >= 0.1 ? (t.w > t.prior ? "↑ learned" : "↓ learned") : ""}</span>
+            <span className="score-bar" aria-hidden><i style={{ width: `${(Math.abs(t.w) / max) * 100}%`, background: t.w >= 0 ? "linear-gradient(90deg,#ff2e63,#ffb347)" : "linear-gradient(90deg,#a855f7,#c084fc)" }} /></span>
+          </li>
+        ))}
+      </ul>
+      <details className="score-why mt-1.5">
+        <summary>How scoring works</summary>
+        <div className="muted mt-1 space-y-1 leading-snug">
+          <p>Each clip gets a score from 0 to 100. 50 means a typical Short for your channel; 75 means about twice your usual views.</p>
+          <p>It looks at the stream around the clip (chat speed, emote spam, subs, how loud and sudden the reaction is), the first 2 seconds, the length, the creator and moment type, the viral playbook and whether you posted something similar lately.</p>
+          <p>Until {m.min} of your published Shorts have 72-hour stats, it uses starting weights and says “learning”. After that it re-learns the weights from your own views and like rate every time stats update. New clips use the latest model.</p>
+        </div>
+      </details>
+    </div>
+  );
+}
 
 // "What ORBIT learned" (Clip Factory): top clips by performance, patterns and the owner's reject reasons. Data: /api/studio/clips/learn.
 
@@ -61,6 +98,7 @@ export default function LearnedCard({ defaultOpen }: { defaultOpen?: boolean }) 
               {!!pb.lessons.length && row("Lessons", pb.lessons.slice(0, 3))}
             </ul> : <p className="muted">Nothing studied yet: press 📚 Study on a Short blowing up in your niche (Trend Radar → Rising) or on one of your winners.</p>}
           </div>
+          {d.model && <ScoreModel m={d.model} />}
           <div>
             <h4 className="muted mb-1">Channel patterns</h4>
             {d.over.length || d.under.length ? <ul>

@@ -1,19 +1,22 @@
 import { requireUser } from "@/lib/supabase/server";
 import { learnView } from "@/lib/clips/learn";
 import { studyShort, studyView } from "@/lib/clips/study";
+import { modelStatus } from "@/lib/clips/score";
 import { createMemory } from "@/lib/memory";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 600;
 
-// "What ORBIT learned": GET = the analysis (refreshes published clips' stats first when 6 h have passed) + the viral-study playbook.
+// "What ORBIT learned": GET = the analysis (refreshes published clips' stats first when 6 h have passed) + the viral-study playbook
+// + the virality score model's status (score.ts).
 // POST {id,title,channel,views?,source} = study one Short (takes 1-3 min; answers when done). Logic: src/lib/clips/learn.ts, study.ts.
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
   try {
     const [l, study] = await Promise.all([learnView(), studyView().catch(() => null)]);
-    return Response.json({ ...l, study });
+    const model = await modelStatus().catch(() => null); // after learnView: reads the freshly collected stats
+    return Response.json({ ...l, study, model });
   } catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Couldn't load what ORBIT learned" }, { status: 500 }); }
 }
 

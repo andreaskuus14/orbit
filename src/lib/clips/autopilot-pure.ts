@@ -1,6 +1,6 @@
 // YouTube autopilot (pure, tested in tests/autopilot.test.ts): settings + daily caps, learned preferences shrunk toward the channel's
 // usual for small samples, candidate ranking, title + slot proposals, and pipeline stages. The orchestration is autopilot.ts.
-import { hookStyle, kindOf, lengthBand, scoreClips, type LearnRec } from "./learn-pure.ts";
+import { creatorOf, hookStyle, kindOf, lengthBand, scoreClips, type LearnRec } from "./learn-pure.ts";
 import { isClipId, isJobId, validOptions } from "./pure.ts";
 import { MIN_LEAD_MS, nextSlots, wall, type PublishSettings } from "./schedule.ts";
 import { localDay, videoIdOf, type ScoutPick } from "./scout-pure.ts";
@@ -140,7 +140,7 @@ const hoursSince = (iso: string, now: number) => (now - Date.parse(iso)) / 3_600
 /** The scout's new picks re-ranked for the autopilot: its score (pace vs the creator's usual, engagement, length; or Claude's) × freshness ×
  *  the learned multipliers for the creator and the moment kind (topic) its title suggests, together clamped 0.6-1.6: winners' creators rise,
  *  repeated flops sink, but a weak signal can't bury a hot video and new creators (no data = 1×) still get tried. `done`: video ids already clipped. */
-export function rankCandidates(picks: ScoutPick[], p: Prefs | undefined, now: number, done: Set<string>): Ranked[] {
+export function rankCandidates(picks: ScoutPick[], p: Prefs | undefined, now: number, done: Set<string>, vir?: Map<string, { avg: number; n: number }>): Ranked[] {
   return picks.filter((x) => x.status === "new" && !done.has(x.videoId)).map((x) => {
     const age = hoursSince(x.publishedAt, now), fresh = age <= 24 ? 1 : age <= 72 ? 0.9 : 0.75; // clip while it's hot
     const kind = kindOf(`${x.title} ${x.reason}`), kp = kind === "other" ? undefined : prefOf(p, "kind", kind);
@@ -148,8 +148,22 @@ export function rankCandidates(picks: ScoutPick[], p: Prefs | undefined, now: nu
     const why = [x.reason, `${Math.round(Math.max(0, age))} h old${fresh < 1 ? ` (×${fresh} freshness)` : ""}`, `${Math.round(x.durationSec / 60)} min long`];
     if (cp) why.push(`your clips from ${x.channel}: ${cp.mult.toFixed(2)}× usual views (${cp.n} Shorts)`);
     if (kp) why.push(`your ${kind} clips: ${kp.mult.toFixed(2)}× usual views (${kp.n} Shorts)`);
-    return { ...x, apScore: Math.round(Math.min(100, x.score * fresh * cm)), why };
+    // Blend, not replace: the creator's average virality score of clips ORBIT already made nudges ±15%.
+    const v = vir?.get(norm(x.channel)), vm = v && v.n >= 2 ? 0.85 + 0.3 * Math.min(1, Math.max(0, v.avg / 100)) : 1;
+    if (v && vm !== 1) why.push(`clips made from ${x.channel} score ${Math.round(v.avg)}/100 on average (${v.n} clips)`);
+    return { ...x, apScore: Math.round(Math.min(100, x.score * fresh * cm * vm)), why };
   }).sort((a, b) => b.apScore - a.apScore);
+}
+
+/** Average virality score per creator (normalized name) over clips that have one. */
+export function creatorVirality(jobs: ClipJob[]): Map<string, { avg: number; n: number }> {
+  const m = new Map<string, { avg: number; n: number }>();
+  for (const j of jobs) for (const c of j.clips) {
+    if (!c.virality || c.variantOf) continue;
+    const k = norm(creatorOf(j.source)), e = m.get(k) ?? { avg: 0, n: 0 };
+    m.set(k, { avg: (e.avg * e.n + c.virality.score) / (e.n + 1), n: e.n + 1 });
+  }
+  return m;
 }
 
 // ---- packaging ----
