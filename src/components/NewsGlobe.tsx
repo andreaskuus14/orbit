@@ -160,13 +160,14 @@ function baseTexture(tint: Map<string, number>, mode: "news" | "search", dim = f
 
 // Painting the 4096×2048 map is the slow part of opening the globe: keep the last few, keyed by what is painted,
 // so reopening with the same news (and the empty first frame) repaints nothing. Only the newest is ever on screen.
+// Two, not more: each is a 32 MB canvas kept for the page's lifetime (a search paints a third and evicts the oldest).
 const baseCache = new Map<string, THREE.CanvasTexture>();
 function cachedBase(tint: Map<string, number>, mode: "news" | "search") {
   const key = mode + JSON.stringify([...tint]);
   let t = baseCache.get(key);
   if (t) baseCache.delete(key); else t = baseTexture(tint, mode);
   baseCache.set(key, t); // most recently used last
-  for (const [k, old] of baseCache) { if (baseCache.size <= 3) break; old.dispose(); baseCache.delete(k); }
+  for (const [k, old] of baseCache) { if (baseCache.size <= 2) break; old.dispose(); baseCache.delete(k); }
   return t;
 }
 
