@@ -1,4 +1,5 @@
 import { safeFetch } from "../memory";
+import { stopAllOn } from "../stop-all";
 
 // Reach's polite HTTP: an honest User-Agent, a minimum gap between requests per host and a per-day cap per host.
 // No cookies, no logins, no borrowed client ids, no proxies; a 403/429 is reported as a hint, never retried around.
@@ -20,6 +21,7 @@ export function polite<T>(url: string, fn: () => Promise<T>): Promise<T> {
     const day = new Date().toLocaleDateString("en-CA");
     if (h.day !== day) { h.day = day; h.n = 0; }
     if (h.n >= (DAY_CAP[host] ?? 100)) throw new Blocked(`daily request cap for ${host} reached`, 429);
+    if (stopAllOn()) throw new Blocked("Stop-all is on", 0); // a scan already under way stops at its next request
     const wait = h.next - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     h.n++;
