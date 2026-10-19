@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseHerald, pickDue, uploadNudge, trendCards, briefCard, morningCard, breakingCards, fromNotify, MAX_PER_HOUR, type HeraldCard } from "../src/lib/herald-pure.ts";
+import { parseHerald, pickDue, uploadNudge, trendCards, viralCards, briefCard, morningCard, breakingCards, fromNotify, MAX_PER_HOUR, type HeraldCard } from "../src/lib/herald-pure.ts";
 
 const H = 3_600_000;
 const at = (y: number, m: number, d: number, h: number) => new Date(y, m - 1, d, h).getTime(); // local time, like the app
@@ -61,8 +61,20 @@ test("trendCards: strong risers only; YouTube gets Clip it with a watch URL", ()
   });
   assert.deepEqual(cards.map((c) => c.key), ["trend:yt:dQw4w9WgXcQ", "trend:rbx:1"]);
   assert.equal(cards[0].actions[0].clip, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  assert.equal(cards[0].actions[1].href, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  assert.equal(cards[0].image, "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg");
   assert.deepEqual(cards[1].actions[0].nav, { panel: "creation" });
+  assert.equal(cards[1].actions[0].devTab, "trends");
   assert.deepEqual(trendCards({}), []);
+});
+
+test("viralCards: hot, valid ids only, at most 2, clippable", () => {
+  const v = (id: string, hot = true) => ({ id, title: "T " + id, channel: "C", viewsPerHour: 12345.6, hot });
+  const cards = viralCards({ videos: [v("aaaaaaaaaaa"), v("bbbbbbbbbbb", false), v("bad id!"), v("ccccccccccc"), v("ddddddddddd")] });
+  assert.deepEqual(cards.map((c) => c.key), ["viral:aaaaaaaaaaa", "viral:ccccccccccc"]);
+  assert.equal(cards[0].actions[0].clip, "https://www.youtube.com/watch?v=aaaaaaaaaaa");
+  assert.match(cards[0].body ?? "", /12,346 views\/hour/);
+  assert.deepEqual(viralCards({}), []);
 });
 
 test("briefCard and morningCard", () => {

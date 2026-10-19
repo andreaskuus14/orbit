@@ -13,6 +13,7 @@ import RefBoard from "./RefBoard";
 import SoundFinder from "./SoundFinder";
 import ThumbMaker from "./ThumbMaker";
 import TrendRadar from "./TrendRadar";
+import { DEV_TAB_EVENT, DEV_TAB_KEY } from "@/lib/herald-pure";
 import CodeHelper from "./CodeHelper";
 import ScenePlanner from "./ScenePlanner";
 import TextureStudio from "./TextureStudio";
@@ -159,6 +160,14 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "hive" | "grid">("games");
+  const [rising, setRising] = useState(0); // bumped by a Herald trend card: Trend Radar opens on Rising
+  useEffect(() => { if (tab !== "trends") setRising(0); }, [tab]); // leaving the radar ends the jump, so coming back opens it normally (runs before the mount check below, which may bump it)
+  useEffect(() => {
+    const go = () => { setTab("trends"); setRising((n) => n + 1); };
+    try { if (sessionStorage.getItem(DEV_TAB_KEY) === "trends") { sessionStorage.removeItem(DEV_TAB_KEY); go(); } } catch { /* no storage: the event still works */ }
+    addEventListener(DEV_TAB_EVENT, go);
+    return () => removeEventListener(DEV_TAB_EVENT, go);
+  }, []);
   const saved = useRef<World | null>(null); // last world the server accepted: the rollback target
   const queue = useRef(Promise.resolve());
   const seq = useRef(0);
@@ -256,7 +265,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <div hidden={tab !== "refs"}><RefBoard /></div>
         {tab === "sounds" && <SoundFinder />}
         <div hidden={tab !== "thumbs"}><ThumbMaker /></div>
-        {tab === "trends" && <TrendRadar />}
+        {tab === "trends" && <TrendRadar openRising={rising} />}
         {tab === "grid" && <GridCity />}
         <div hidden={tab !== "hive"}><HivePanel /></div>
         {tab === "scene" && <ScenePlanner />}

@@ -4,10 +4,10 @@
 // never while muted or with Stop-all on. Cards collapse to a pill after 12 s; at most 3 on screen and 4 per hour.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NAV_EVENT } from "@/lib/nav-pure";
-import { NOTIFY_EVENT, type NotifyDetail } from "@/lib/notify-pure";
+import { NOTIFY_EVENT, notify, type NotifyDetail } from "@/lib/notify-pure";
 import {
-  CLIP_PREFILL_EVENT, CLIP_PREFILL_KEY, HERALD_KEY, KIND_ICON, MAX_ON_SCREEN, breakingCards, briefCard, fromNotify, morningCard, parseHerald,
-  pickDue, trendCards, uploadNudge, type HeraldAction, type HeraldCard, type HeraldState,
+  DEV_TAB_EVENT, DEV_TAB_KEY, HERALD_KEY, KIND_ICON, MAX_ON_SCREEN, breakingCards, briefCard, fromNotify, morningCard, parseHerald,
+  pickDue, trendCards, viralCards, uploadNudge, type HeraldAction, type HeraldCard, type HeraldState,
 } from "@/lib/herald-pure";
 
 const MUTE_EVENT = "orbit:herald-mute";
@@ -16,8 +16,22 @@ const save = (s: HeraldState) => { try { localStorage.setItem(HERALD_KEY, JSON.s
 const getJson = (u: string) => fetch(u, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const morningDay = (): string | null => { try { return JSON.parse(localStorage.getItem("orbit.morning") || "{}")?.day ?? null; } catch { return null; } }; // MorningCard's saved day
 const MIN = 60_000, COLLAPSE_MS = 12_000;
-const EVERY = { clips: 10 * MIN, briefs: 15 * MIN, trends: 45 * MIN }; // trends: the server caches 30 min anyway
+const EVERY = { clips: 10 * MIN, briefs: 15 * MIN, trends: 45 * MIN, viral: 180 * MIN }; // trends: server caches 30 min; viral: 3 h (≤301 YouTube units, inside the scout budget)
 type Shown = HeraldCard & { at: number; open: boolean };
+
+/** "Clip it now": the same request as STUDIO's Add from link with "make clips when downloaded" on (defaults: 5 clips, ≤45 s). */
+async function startClip(url: string) {
+  const studio = { panel: "studio" as const, view: "clips" as const };
+  try {
+    const r = await fetch("/api/studio/clips/download", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, permission: "", autoClip: { preset: "viral" } }) });
+    const j = (await r.json().catch(() => ({}))) as { error?: string };
+    if (!r.ok) throw new Error(j.error || `Couldn't start (${r.status})`);
+    notify({ kind: "studio", title: "🎬 Cooking your clips", body: `Downloading ${url.slice(-11)}, then ORBIT finds the best moments. Watch it in STUDIO.`, nav: studio });
+  } catch (e) {
+    notify({ kind: "studio", title: "Couldn't start the clip", body: e instanceof Error ? e.message : "Something went wrong", nav: studio });
+  }
+}
 
 export function Herald({ home }: { home: boolean }) {
   const [cards, setCards] = useState<Shown[]>([]);
@@ -62,6 +76,7 @@ export function Herald({ home }: { home: boolean }) {
         if (due.includes("clips")) { const d = await getJson("/api/studio/clips"); if (d && !stopped) offer([uploadNudge(d, Date.now())]); }
         if (due.includes("briefs")) await briefs();
         if (due.includes("trends")) { const t = await getJson("/api/devtools?trends=1"); if (t && !stopped) offer(trendCards(t)); }
+        if (due.includes("viral")) { const v = await getJson("/api/devtools?viral=1"); if (v && !stopped) offer(viralCards(v)); }
       } finally { busy = false; }
     };
     const onVis = () => { pump(); void tick(); };
@@ -98,9 +113,11 @@ export function Herald({ home }: { home: boolean }) {
 
   const dismiss = (key: string) => setCards((cs) => cs.filter((c) => c.key !== key));
   const act = (c: Shown, a: HeraldAction) => {
-    if (a.clip) { // only prefills the clip factory's link box; the user still presses Add
-      try { sessionStorage.setItem(CLIP_PREFILL_KEY, a.clip); } catch { /* the event below still fills an open box */ }
-      dispatchEvent(new CustomEvent(CLIP_PREFILL_EVENT, { detail: a.clip }));
+    if (a.href) { window.open(a.href, "_blank", "noopener,noreferrer"); return; } // keep the card: Watch, then still Clip it
+    if (a.clip) void startClip(a.clip); // the user pressed "Clip it now": download + make clips, same as Add from link with auto-clip on
+    if (a.devTab) {
+      try { sessionStorage.setItem(DEV_TAB_KEY, a.devTab); } catch { /* the event below still reaches an open panel */ }
+      dispatchEvent(new CustomEvent(DEV_TAB_EVENT, { detail: a.devTab }));
     }
     dispatchEvent(new CustomEvent(NAV_EVENT, { detail: a.nav }));
     dismiss(c.key);
@@ -126,6 +143,7 @@ export function Herald({ home }: { home: boolean }) {
               <b className="herald-title flex-1">{c.title}</b>
               <button className="herald-x" onClick={() => dismiss(c.key)} aria-label={`Dismiss: ${c.title}`} title="Dismiss">✕</button>
             </div>
+            {c.image && <img src={c.image} alt="" className="mt-1.5 w-full rounded-md" loading="lazy" referrerPolicy="no-referrer" />}
             {c.body && <p className="muted mt-0.5 text-xs">{c.body}</p>}
             <div className="mt-2 flex flex-wrap gap-1.5">
               {c.actions.map((a) => <button key={a.label} className="chip herald-go" onClick={() => act(c, a)}>{a.label}</button>)}

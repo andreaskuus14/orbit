@@ -4,15 +4,16 @@ import type { NavTarget } from "./nav-pure.ts";
 import { localDay } from "./morning-pure.ts";
 
 export type HeraldKind = "upload" | "trend" | "brief" | "breaking" | "studio" | "agents";
-/** nav: fly there. clip: also prefill STUDIO's "Add from link" box with this URL (never starts a job). */
-export type HeraldAction = { label: string; nav: NavTarget; clip?: string };
-export type HeraldCard = { key: string; kind: HeraldKind; title: string; body?: string; actions: HeraldAction[] };
+/** nav: fly there. clip: the user pressed "Clip it now" → download this URL and make clips (STUDIO shows it cooking).
+ *  href: open this link in a new tab instead. devTab: GAME DEV opens on that tab (trends opens the Rising list). */
+export type HeraldAction = { label: string; nav: NavTarget; clip?: string; href?: string; devTab?: "trends" };
+export type HeraldCard = { key: string; kind: HeraldKind; title: string; body?: string; image?: string; actions: HeraldAction[] };
 /** seen: key → when shown (pruned after 7 days); shown: recent show times (rate limit); snooze: quiet until; mute: off until unmuted. */
 export type HeraldState = { seen: Record<string, number>; shown: number[]; snooze: number; mute: boolean };
 
 export const HERALD_KEY = "orbit.herald";
-export const CLIP_PREFILL_KEY = "orbit.clipPrefill"; // sessionStorage: URL for ClipFactory's link box, taken once
-export const CLIP_PREFILL_EVENT = "orbit:clip-prefill"; // detail: url; for a link box that is already on screen
+export const DEV_TAB_KEY = "orbit.devTab"; // sessionStorage: GAME DEV tab to open once ("trends" = Trend Radar on Rising)
+export const DEV_TAB_EVENT = "orbit:dev-tab"; // detail: tab; for a GAME DEV panel that is already open
 export const MAX_PER_HOUR = 4;
 export const MAX_ON_SCREEN = 3;
 const HOUR = 3_600_000, WEEK = 7 * 24 * HOUR, QUEUE_CAP = 12;
@@ -74,16 +75,30 @@ type TrendsLike = {
   risers?: { universeId: number; name: string; growthPct: number; window: string; strong: boolean }[];
   yt?: { risers?: { id: string; title: string; channel: string; strong: boolean }[] };
 };
+/** Niche scan (GET /api/devtools?viral=1): the 2 hottest Shorts blowing up in his niche, each clippable at once. */
+export function viralCards(v: { videos?: { id: string; title: string; channel: string; viewsPerHour: number; hot: boolean }[] }): HeraldCard[] {
+  return (v.videos ?? []).filter((x) => x.hot && /^[\w-]{11}$/.test(x.id)).slice(0, 2).map((x) => ({
+    key: `viral:${x.id}`, kind: "trend" as const, title: `🔥 Blowing up in your niche: ${x.title.slice(0, 70)}`,
+    body: `${x.channel} · ${Math.round(x.viewsPerHour).toLocaleString("en-US")} views/hour. Idea: clip the same moment with your own hook before it peaks.`,
+    image: `https://i.ytimg.com/vi/${x.id}/mqdefault.jpg`,
+    actions: [{ label: "🎬 Clip it now", nav: { panel: "studio", view: "clips" }, clip: `https://www.youtube.com/watch?v=${x.id}` },
+      { label: "▶ Watch", nav: { panel: "studio", view: "clips" }, href: `https://www.youtube.com/shorts/${x.id}` }],
+  }));
+}
+
 /** Strong risers only: YouTube ones can be clipped, Roblox ones open the radar. */
 export function trendCards(t: TrendsLike): HeraldCard[] {
   const out: HeraldCard[] = [];
   for (const r of t.yt?.risers ?? []) if (r.strong && /^[\w-]{6,20}$/.test(r.id)) out.push({
-    key: `trend:yt:${r.id}`, kind: "trend", title: `Going viral: ${r.title.slice(0, 80)}`, body: `${r.channel} · rising fast on YouTube`,
-    actions: [{ label: "Clip it", nav: { panel: "studio", view: "clips" }, clip: `https://www.youtube.com/watch?v=${r.id}` }],
+    key: `trend:yt:${r.id}`, kind: "trend", title: `Going viral: ${r.title.slice(0, 80)}`,
+    body: `${r.channel} · rising fast on YouTube. Idea: clip its best moment while it's hot.`, image: `https://i.ytimg.com/vi/${r.id}/mqdefault.jpg`,
+    actions: [{ label: "🎬 Clip it now", nav: { panel: "studio", view: "clips" }, clip: `https://www.youtube.com/watch?v=${r.id}` },
+      { label: "▶ Watch", nav: { panel: "studio", view: "clips" }, href: `https://www.youtube.com/watch?v=${r.id}` }],
   });
   for (const r of t.risers ?? []) if (r.strong) out.push({
-    key: `trend:rbx:${r.universeId}`, kind: "trend", title: `${r.name.slice(0, 60)} is rising`, body: `+${r.growthPct}% players in ~${r.window} on Roblox`,
-    actions: [{ label: "Open radar", nav: { panel: "creation" } }],
+    key: `trend:rbx:${r.universeId}`, kind: "trend", title: `${r.name.slice(0, 60)} is rising`,
+    body: `+${r.growthPct}% players in ~${r.window} on Roblox. Short idea: show why everyone is jumping into it right now.`,
+    actions: [{ label: "🔺 See it in Rising", nav: { panel: "creation" }, devTab: "trends" }],
   });
   return out;
 }

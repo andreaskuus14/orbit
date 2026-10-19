@@ -27,10 +27,11 @@ function alertRisers(risers: Riser[], yt: YtRiser[]) {
 const num = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
 const ytStat = (r: YtRiser) => [r.isNew ? `🆕 new on the list at #${r.rank}` : `#${r.rank}`, r.viewsPerHour !== null ? `+${num(r.viewsPerHour)} views/h` : "", r.rankJump ? `▲${r.rankJump} places` : ""].filter(Boolean).join(" · ");
 
-export default function TrendRadar() {
+export default function TrendRadar({ openRising = 0 }: { openRising?: number }) {
   const [data, setData] = useState<Trends | null>(null);
   const [err, setErr] = useState("");
   const [tab, setTab] = useState(0);
+  useEffect(() => { if (openRising && data) setTab(data.sorts.length); }, [openRising, data]); // a Herald trend card: jump to Rising
   const [why, setWhy] = useState<{ text: string; at: number } | null>(null);
   const [whyBusy, setWhyBusy] = useState(false);
   const [whyErr, setWhyErr] = useState("");
