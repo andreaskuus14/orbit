@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Rajdhani } from "next/font/google";
 import "./globals.css";
+import "./observatory.css";
 
 // Self-hosted at build time by Next.js: no request to Google from the browser.
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });

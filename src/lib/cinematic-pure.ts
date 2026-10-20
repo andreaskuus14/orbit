@@ -96,7 +96,7 @@ export function catmullRom(pts: Num, u: number, out: Num, o = 0) {
 }
 
 export const HOME_POS = [-8, 14, 44] as const; // the overview camera (looks at the CORE at the origin)
-export const INTRO_SECS = 4.5;
+export const INTRO_SECS = 2.4;
 // Low beside the CORE looking out across the disc, swinging wide and rising to the overview.
 const INTRO_CAM = [2.4, 1.1, 5.4, 9.5, 2.2, 11, 7, 7.5, 30, ...HOME_POS];
 const INTRO_LOOK = [-7, 0.8, -15, 0, 0, 0];

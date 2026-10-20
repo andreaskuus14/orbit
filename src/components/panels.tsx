@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import { numberCitations } from "@/lib/pure";
 import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
+import { appendActivity } from "@/lib/core-activity-pure";
+import { CoreActivity } from "./CoreActivity";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
 import type { Plan } from "@/lib/plans-pure";
 import { NAV_EVENT, navReply, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
@@ -50,7 +52,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const [live, setLive] = useState<string | null>(null); // the answer while it streams in
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => onSpeakingChange(setSpeaking), []);
-  const [stepText, setStepText] = useState<string | null>(null); // what CORE is doing right now ("Reading news…")
+  const [activity, setActivity] = useState<string[]>([]);
   const [copied, setCopied] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const att = useAttachments(); // files for the next message (📎 / drop / paste)
@@ -138,7 +140,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     const nav = files.length ? null : parseNavCommand(message, { current: "core" }); // plain "go to / open / show me X": no model call
     if (nav) { setMsgs((m) => [...m, { role: "assistant", content: navReply(nav) }]); say([navReply(nav)]); fly(nav); return; }
     setBusy(true);
-    setStepText(null);
+    setActivity([]);
     const ac = new AbortController();
     abort.current = ac;
     let partial = "";
@@ -167,7 +169,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           // One render per frame at most, and only the streaming bubble changes.
           if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLive(partial); });
         } else if (ev.type === "step" && ev.label) {
-          setStepText(ev.label);
+          setActivity((labels) => appendActivity(labels, ev.label!));
         } else if (ev.type === "navigate" && ev.to) {
           navTo = ev.to;
         } else if (ev.type === "reset") {
@@ -206,7 +208,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     } finally {
       flush();
       setLive(null);
-      setStepText(null);
+      setActivity([]);
       setBusy(false);
       if (abort.current === ac) abort.current = null;
       if (talk) dispatchEvent(new Event("orbit:core-done")); // voice conversation listens again only after this (bus.ts CORE_DONE)
@@ -319,16 +321,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       <div className="flex-1 space-y-4 overflow-y-auto pr-1" aria-live="polite" aria-busy={busy}>
         {!msgs.length && <p className="muted">Ask CORE anything. It answers from your memories, reads links you paste, checks the latest news, and hands bigger jobs to your agents. Sources are cited.</p>}
         {history}
-        {busy && (live
-          ? <div className="bubble core">
+        {busy && <CoreActivity labels={activity} streaming={!!live} />}
+        {busy && live && <div className="bubble core">
               {/* Citation numbers arrive with the final answer; hide raw [m:id] markers until then. */}
               <Markdown text={numberCitations(live, [])} openMemory={onOpenMemory} />
               <span aria-hidden className="inline-block h-4 w-1.5 translate-y-0.5 rounded-sm bg-current opacity-60" style={{ animation: "blink 1s steps(2) infinite" }} />
-            </div>
-          : <div className="bubble core muted" role="status">
-              <span aria-hidden className="mr-2 inline-block h-2 w-2 rounded-full bg-current" style={{ animation: "blink 1s steps(2) infinite" }} />
-              {stepText ?? "Thinking…"}{stepText && /Asking|Reading the page/.test(stepText) && <span className="opacity-70"> (this can take a minute)</span>}
-            </div>)}
+            </div>}
         <div ref={end} />
       </div>
       <AttachChips items={att.items} error={att.error} onRemove={att.remove} />
