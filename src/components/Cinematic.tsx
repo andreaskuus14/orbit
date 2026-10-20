@@ -229,7 +229,7 @@ export function StoryRig({ story, positions, sizes, selected, intro, onIntroEnd,
 }) {
   const controls = useThree((s) => s.controls) as unknown as StoryControls | null;
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
-  const st = useRef({ mode: (intro ? "intro" : "idle") as Mode, t: 0, stop: -1, home: selected === null,
+  const st = useRef({ alignAt: 0, alignY: 0, mode: (intro ? "intro" : "idle") as Mode, t: 0, stop: -1, home: selected === null,
     pose: new Float64Array(6), vel: new Float64Array(6), gate: wheelGate() });
   useEffect(() => { st.current.home = selected === null; }, [selected]);
 
@@ -270,7 +270,17 @@ export function StoryRig({ story, positions, sizes, selected, intro, onIntroEnd,
       if (d) go(stepStop(s.stop, d, PLANETS.length));
       return true;
     };
-    const skip = () => endIntro("settle"); // any key / pointer skips the intro (a drag then releases it via "start")
+    const skip = (e: Event) => { // any key / pointer skips the intro (a drag then releases it via "start")
+      const k = e as KeyboardEvent, el = e.target as HTMLElement | null;
+      // ← / → on the galaxy travel like the wheel (title card and all); preventDefault tells Orbit's handler not to open a panel.
+      if ((k.key === "ArrowRight" || k.key === "ArrowLeft") && st.current.home && !k.altKey && !k.ctrlKey && !k.metaKey
+        && !(el && (/^(INPUT|TEXTAREA|SELECT|VIDEO|AUDIO)$/.test(el.tagName) || el.isContentEditable)) && !document.querySelector("dialog[open], :popover-open")) {
+        k.preventDefault();
+        go(stepStop(st.current.stop, k.key === "ArrowRight" ? 1 : -1, PLANETS.length));
+        return;
+      }
+      endIntro("settle");
+    };
     const nav = (e: Event) => { if ((e as CustomEvent<NavTarget>).detail?.zoom) release(); };
     addEventListener("keydown", skip, true);
     addEventListener("pointerdown", skip, true);
@@ -286,7 +296,7 @@ export function StoryRig({ story, positions, sizes, selected, intro, onIntroEnd,
     };
   }, [story, controls, go, endIntro, release]);
 
-  useFrame((_, dt) => {
+  useFrame(({ gl }, dt) => {
     const s = st.current, S = story.current, P = s.pose, V = s.vel;
     S.owns = s.mode !== "idle" && s.home;
     // FOV: tele while travelling, narrower still on an opened planet (the dolly-in), back to 50 at home.
@@ -313,7 +323,14 @@ export function StoryRig({ story, positions, sizes, selected, intro, onIntroEnd,
     } else {
       if (s.mode === "journey") {
         const id = PLANETS[s.stop].id, p = positions[id];
-        framePose(p.x, p.z, sizes[id] ?? 1, camera.aspect, camera.fov, P);
+        // Line the planet up with its title (StoryReadout's .story-name); re-measured 4×/s, not every frame (layout read).
+        const now = performance.now();
+        if (now - s.alignAt > 250) {
+          s.alignAt = now;
+          const el = document.querySelector(".story-name"), c = gl.domElement.getBoundingClientRect();
+          if (el && c.height) { const r = el.getBoundingClientRect(); s.alignY = 1 - (2 * (r.top + r.height / 2 - c.top)) / c.height; }
+        }
+        framePose(p.x, p.z, sizes[id] ?? 1, camera.aspect, camera.fov, P, s.alignY);
         P[1] += Math.min(6, 0.22 * Math.hypot(cam.x - P[0], cam.z - P[2])); // lift on long hops: an arc over the system
       } else { P[0] = HOME_POS[0]; P[1] = HOME_POS[1]; P[2] = HOME_POS[2]; P[3] = 0; P[4] = 0; P[5] = 0; }
       cam.set(smoothDamp(cam.x, P[0], V, 0, GLIDE, dt), smoothDamp(cam.y, P[1], V, 1, GLIDE, dt), smoothDamp(cam.z, P[2], V, 2, GLIDE, dt));

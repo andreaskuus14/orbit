@@ -134,3 +134,16 @@ test("label culling keeps the higher-priority label of an overlapping pair", () 
   cullLabels(x, [100, 140, 100, 0], w, 20, prio, vis, order); // apart vertically: both shown
   assert.deepEqual(vis, [1, 1, 1, 0]);
 });
+
+test("framing lands the planet's centre at the asked screen height (level with the title)", async () => {
+  const THREE = await import("three");
+  for (const [aspect, yNdc] of [[16 / 9, 0.3], [2.8, 0.25], [1, -0.2], [2.8, 0]] as const) {
+    const o = [0, 0, 0, 0, 0, 0];
+    framePose(12, 5, 0.9, aspect, 44, o, yNdc);
+    const cam = new THREE.PerspectiveCamera(44, aspect, 0.1, 500);
+    cam.position.set(o[0], o[1], o[2]); cam.lookAt(o[3], o[4], o[5]); cam.updateMatrixWorld();
+    const p = new THREE.Vector3(12, 0, 5).project(cam);
+    assert.ok(Math.abs(p.y - yNdc) < 0.08, `aspect ${aspect}: planet at y ${p.y.toFixed(2)}, wanted ${yNdc}`);
+    assert.ok(p.x > 0.2 && p.x < 0.9, `aspect ${aspect}: planet at x ${p.x.toFixed(2)} should be on the right`);
+  }
+});
