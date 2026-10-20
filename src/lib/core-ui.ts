@@ -26,7 +26,7 @@ export function pickModel(question: string, prevAssistant = ""): "fast" | "smart
 export function stepLabel(tool: string, input: Record<string, unknown> = {}): string {
   const agent = typeof input.agent === "string" && input.agent ? input.agent[0].toUpperCase() + input.agent.slice(1) : "an agent";
   const labels: Record<string, string> = {
-    search_memory: "Searching memories…", think: "Thinking…", fetch_url: "Reading the page…", read_news: "Reading news…",
+    search_memory: "Searching memories…", think: "Thinking…", fetch_url: "Reading the page…", web_search: "Searching the web…", read_news: "Reading news…",
     ask_agent: `Asking ${agent}…`, save_memory: "Saving to memory…", navigate: "Flying there…",
     studio_status: "Checking the studio…", learned: "Checking what works…", run_scout: "Starting the scout…",
     run_niche: "Starting niche research…", schedule_approved: "Scheduling clips…",
@@ -46,6 +46,7 @@ export function followUps(question: string, tools: string[]): string[] {
   if (used("run_scout") || used("run_niche")) return ["Studio status", "Review clips"];
   if (used("schedule_approved")) return ["When do the next Shorts go live?", "Studio status"];
   if (used("read_news")) return ["More on this", "Open the globe", "Any other big news?"];
+  if (used("web_search")) return ["Search deeper", "Save this to memory"];
   if (used("fetch_url")) return ["Summarise it shorter", "Save this to memory"];
   if (used("ask_agent")) return ["Go deeper", "Save this to memory"];
   if (used("save_memory")) return ["What else do you know about me?", "Open memory"];
