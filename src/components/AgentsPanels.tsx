@@ -1,9 +1,12 @@
 "use client";
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ProposalsPanel } from "./ProposalsPanel";
 import { highlight } from "./Highlight";
 import { ActivityView } from "./ActivityView";
 import { ResultEvidence } from "./ResultEvidence";
+import { AutomationFields } from "./AutomationFields";
+import { automationDraft, automationSpec as toSpec, type AutomationAgent, type AutomationDraft as Draft } from "@/lib/automation-edit-pure";
+import type { AutomationSpec } from "@/lib/pure";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import { canRetryTask } from "@/lib/completion-pure";
 
@@ -425,11 +428,10 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
 /* ---------- Automation Studio ---------- */
 
 type Run = { id: string; status: Task["status"]; created_at: string; error: string | null };
-type Automation = {
-  id: string; name: string; enabled: boolean; trigger: "schedule" | "event"; when: string; agent: string; prompt: string;
+type Automation = AutomationSpec & {
+  id: string; enabled: boolean; when: string;
   run_count: number; last: Run | null; runs: Run[];
 };
-type Draft = { name: string; when: "day" | "week" | "hour" | "memory" | "briefing"; time: string; weekday: number; kind: string; agent: string; prompt: string };
 
 const TEMPLATES: (Partial<Draft> & { name: string; prompt: string })[] = [
   { name: "Weekly project review", when: "week", weekday: 0, time: "18:00", agent: "nova",
@@ -441,82 +443,61 @@ const TEMPLATES: (Partial<Draft> & { name: string; prompt: string })[] = [
   { name: "Daily YouTube ideas", when: "day", time: "17:00", agent: "forge",
     prompt: "Using today's news briefings in my memory, write 3 YouTube video ideas for a Roblox/gaming channel: title, hook, and why it's timely now. Cite the stories." },
 ];
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const EMPTY: Draft = { name: "", when: "day", time: "09:00", weekday: 1, kind: "", agent: "nova", prompt: "" };
 
-function toSpec(d: Draft) {
-  const [hour, minute] = d.time.split(":").map(Number);
-  if (d.when === "memory") return { name: d.name, trigger: "event", event: "memory.created", kind_filter: d.kind || null, agent: d.agent, prompt: d.prompt };
-  if (d.when === "briefing") return { name: d.name, trigger: "event", event: "briefing.ready", agent: d.agent, prompt: d.prompt };
-  return { name: d.name, trigger: "schedule", schedule: { every: d.when, hour, minute, weekday: d.weekday }, agent: d.agent, prompt: d.prompt };
-}
-
-export function AutomationsView({ agents, onOpenTask }: { agents: { slug: string; name: string }[]; onOpenTask: (id: string) => void }) {
+export function AutomationsView({ agents, onOpenTask }: { agents: AutomationAgent[]; onOpenTask: (id: string) => void }) {
   const [list, setList] = useState<Automation[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const locked = useRef(false); // immediate guard, including a second click before React re-renders
   const [err, setErr] = useState("");
+  const cancel = () => { setDraft(null); setEditing(null); setErr(""); };
   const load = useCallback(() => api<{ automations: Automation[] }>("/api/automations").then((r) => setList(r.automations)).catch((e) => setErr(e.message)), []);
   useEffect(() => { void load(); const h = setInterval(() => void load(), 5000); return () => clearInterval(h); }, [load]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (!draft) return;
-    setErr("");
-    try { await api("/api/automations", { method: "POST", body: JSON.stringify(toSpec(draft)) }); setDraft(null); void load(); }
-    catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not save"); }
+    if (!draft || locked.current) return;
+    locked.current = true; setBusy(true); setErr("");
+    try {
+      await api("/api/automations", { method: editing ? "PATCH" : "POST", body: JSON.stringify({ ...(editing && { id: editing }), ...toSpec(draft) }) });
+      setDraft(null); setEditing(null); await load();
+    } catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not save"); }
+    finally { locked.current = false; setBusy(false); }
   }
   async function act(a: Automation, what: "toggle" | "run" | "delete") {
-    setErr("");
+    if (locked.current || draft) return;
+    if (what === "delete" && !confirm(`Delete "${a.name}"? Past runs stay in your tasks.`)) return;
+    locked.current = true; setBusy(true); setErr("");
     try {
       if (what === "toggle") await api("/api/automations", { method: "PATCH", body: JSON.stringify({ id: a.id, enabled: !a.enabled }) });
-      if (what === "run") { const r = await api<{ task: string }>("/api/automations", { method: "POST", body: JSON.stringify({ run: a.id }) }); onOpenTask(r.task); return; }
-      if (what === "delete") { if (!confirm(`Delete "${a.name}"? Past runs stay in your tasks.`)) return; await api(`/api/automations?id=${a.id}`, { method: "DELETE" }); }
-      void load();
-    } catch (e) { setErr(e instanceof Error ? e.message : "Failed"); }
+      if (what === "run") {
+        const r = await api<{ task: string }>("/api/automations", { method: "POST", body: JSON.stringify({ run: a.id }) });
+        onOpenTask(r.task); return;
+      }
+      if (what === "delete") await api(`/api/automations?id=${a.id}`, { method: "DELETE" });
+      await load();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Could not update"); }
+    finally { locked.current = false; setBusy(false); }
   }
+  const canSave = !!draft?.name.trim() && (draft?.prompt.trim().length ?? 0) >= 5 && agents.some((a) => a.slug === draft?.agent && a.enabled !== false);
+  const form = draft && <form onSubmit={save} className="mt-3 space-y-2" aria-label={editing ? "Edit automation" : "New automation"}>
+    <AutomationFields draft={draft} agents={agents} disabled={busy} onChange={(p) => setDraft({ ...draft, ...p })} />
+    {editing && <p className="muted text-xs">Save first, then use Run now to test the saved instructions.</p>}
+    <div className="flex gap-2">
+      <button className="btn" disabled={busy || !canSave}>{busy ? "Saving…" : editing ? "Save changes" : "Save automation"}</button>
+      <button type="button" className="chip" disabled={busy} onClick={cancel}>Cancel</button>
+    </div>
+  </form>;
 
-  if (draft) {
-    const set = (p: Partial<Draft>) => setDraft({ ...draft, ...p });
-    return (
-      <form onSubmit={save} className="space-y-2">
-        <button type="button" className="link" onClick={() => setDraft(null)}>← Automations</button>
-        <input className="field w-full" value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="Name" aria-label="Name" maxLength={100} />
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <select className="field" value={draft.when} onChange={(e) => set({ when: e.target.value as Draft["when"] })} aria-label="When">
-            <option value="day">Every day</option><option value="week">Every week</option><option value="hour">Every hour</option>
-            <option value="memory">When I save a memory</option><option value="briefing">When a new briefing is ready</option>
-          </select>
-          {draft.when === "week" && (
-            <select className="field" value={draft.weekday} onChange={(e) => set({ weekday: Number(e.target.value) })} aria-label="Day">
-              {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
-            </select>
-          )}
-          {(draft.when === "day" || draft.when === "week") && <input type="time" className="field" value={draft.time} onChange={(e) => set({ time: e.target.value })} aria-label="Time" />}
-          {draft.when === "hour" && <label className="muted">at minute <input type="number" min={0} max={59} className="field w-16" value={Number(draft.time.split(":")[1])} onChange={(e) => set({ time: `00:${String(Math.min(59, Math.max(0, Number(e.target.value)))).padStart(2, "0")}` })} /></label>}
-          {draft.when === "memory" && (
-            <select className="field" value={draft.kind} onChange={(e) => set({ kind: e.target.value })} aria-label="Kind of memory">
-              <option value="">any kind</option><option value="document">documents</option><option value="link">links</option><option value="note">notes</option><option value="idea">ideas</option>
-            </select>
-          )}
-        </div>
-        <label className="block text-sm">Who does it
-          <select className="field ml-2" value={draft.agent} onChange={(e) => set({ agent: e.target.value })}>
-            {agents.map((a) => <option key={a.slug} value={a.slug}>{a.name}</option>)}
-          </select>
-        </label>
-        <textarea className="field h-28 w-full" value={draft.prompt} onChange={(e) => set({ prompt: e.target.value })} placeholder="What should happen each time?" aria-label="Instructions" maxLength={4000} />
-        <p className="muted text-xs">Runs while ORBIT's server is on (this PC's time). Each run is a normal task you can open; anything that changes your data still asks for approval.</p>
-        <button className="btn" disabled={!draft.name.trim() || draft.prompt.trim().length < 5}>Save automation</button>
-        {err && <p className="error">{err}</p>}
-      </form>
-    );
-  }
+  if (draft && !editing) return <div className="space-y-2">{form}{err && <p className="error" role="alert">{err}</p>}</div>;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1.5">
-        <button className="btn" onClick={() => setDraft(EMPTY)}>+ New automation</button>
-        {TEMPLATES.map((t) => <button key={t.name} className="chip" onClick={() => setDraft({ ...EMPTY, ...t })}>{t.name}</button>)}
+        <button className="btn" disabled={busy || !!editing} onClick={() => { setErr(""); setDraft(EMPTY); }}>+ New automation</button>
+        {TEMPLATES.map((t) => <button key={t.name} className="chip" disabled={busy || !!editing} onClick={() => { setErr(""); setDraft({ ...EMPTY, ...t }); }}>{t.name}</button>)}
       </div>
       <p className="muted text-xs">Tip: in Task mode you can just say “every Friday at 16:00, summarize my week” and Flow builds it for you.</p>
       <ul className="space-y-2">
@@ -525,11 +506,13 @@ export function AutomationsView({ agents, onOpenTask }: { agents: { slug: string
             <div className="flex items-center justify-between gap-2">
               <b className={a.enabled ? "" : "muted"}>{a.name}</b>
               <span className="flex gap-1.5">
-                <button className="chip" onClick={() => act(a, "run")}>Run now</button>
-                <button className="chip" onClick={() => act(a, "toggle")}>{a.enabled ? "Pause" : "Resume"}</button>
-                <button className="chip" onClick={() => act(a, "delete")} aria-label={`Delete ${a.name}`}>Delete</button>
+                <button className="chip" disabled={busy || !!draft} onClick={() => { setErr(""); setEditing(a.id); setDraft(automationDraft(a)); }} aria-label={`Edit ${a.name}`}>Edit</button>
+                <button className="chip" disabled={busy || !!draft} onClick={() => act(a, "run")}>Run now</button>
+                <button className="chip" disabled={busy || !!draft} onClick={() => act(a, "toggle")}>{a.enabled ? "Pause" : "Resume"}</button>
+                <button className="chip" disabled={busy || !!draft} onClick={() => act(a, "delete")} aria-label={`Delete ${a.name}`}>Delete</button>
               </span>
             </div>
+            {editing === a.id && form}
             <div className="muted text-xs">{a.when} → {a.agent} · {a.run_count} runs{a.enabled ? "" : " · paused"}</div>
             {a.last && (
               <div className="mt-1 text-xs">
@@ -542,7 +525,7 @@ export function AutomationsView({ agents, onOpenTask }: { agents: { slug: string
         ))}
         {!list.length && <li className="muted text-sm">No automations yet. Start from a template above.</li>}
       </ul>
-      {err && <p className="error">{err}</p>}
+      {err && <p className="error" role="alert">{err}</p>}
     </div>
   );
 }
