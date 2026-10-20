@@ -270,7 +270,17 @@ export function StoryRig({ story, positions, sizes, selected, intro, onIntroEnd,
       if (d) go(stepStop(s.stop, d, PLANETS.length));
       return true;
     };
-    const skip = () => endIntro("settle"); // any key / pointer skips the intro (a drag then releases it via "start")
+    const skip = (e: Event) => { // any key / pointer skips the intro (a drag then releases it via "start")
+      const k = e as KeyboardEvent, el = e.target as HTMLElement | null;
+      // ← / → on the galaxy travel like the wheel (title card and all); preventDefault tells Orbit's handler not to open a panel.
+      if ((k.key === "ArrowRight" || k.key === "ArrowLeft") && st.current.home && !k.altKey && !k.ctrlKey && !k.metaKey
+        && !(el && (/^(INPUT|TEXTAREA|SELECT|VIDEO|AUDIO)$/.test(el.tagName) || el.isContentEditable)) && !document.querySelector("dialog[open], :popover-open")) {
+        k.preventDefault();
+        go(stepStop(st.current.stop, k.key === "ArrowRight" ? 1 : -1, PLANETS.length));
+        return;
+      }
+      endIntro("settle");
+    };
     const nav = (e: Event) => { if ((e as CustomEvent<NavTarget>).detail?.zoom) release(); };
     addEventListener("keydown", skip, true);
     addEventListener("pointerdown", skip, true);
