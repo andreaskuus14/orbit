@@ -607,6 +607,13 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
   .globe-regions { top: calc(var(--hdr) + 2.9rem); left: var(--edge-l); max-width: var(--left-w); }
   /* CORE docked over a world takes the same right-hand spot: hide the world panel meanwhile instead of squeezing it. */
   :root:has(.drawer.drawer-dock:not(.drawer-out)) .world-panel { display: none; }
+  /* STUDIO: switch top-left (the video rail owns the right), title under it, Stats/Clips sheet full width between header and bar. */
+  .studio-modes { top: var(--hdr); left: var(--edge-l); translate: none; --mw: 4.75rem; }
+  .studio-modes > button { min-height: 2rem; padding-block: 0.2rem; }
+  .studio-head { top: calc(var(--hdr) + 2.9rem); left: var(--edge-l); max-width: var(--left-w); }
+  .studio-kicker { margin-top: 0; }
+  .studio-name { font-size: 1.4rem; }
+  .studio-sheet { top: calc(var(--hdr) + 2.9rem); bottom: var(--bar); left: var(--edge-l); right: var(--edge-r); }
 }
 
 /* CORE chat list: a sheet over the CORE panel (Claude-app style sidebar); full width on phones. */

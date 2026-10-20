@@ -254,7 +254,7 @@ function StudioCamera({ mode, reduced }: { mode: Mode; reduced: boolean }) {
   const wide = size.width >= 900;
   const goalX = !wide ? 0 : mode === "channel" ? size.width * 0.14 : -size.width * 0.3; // + shifts the planet left on screen
   const goalD = !wide || mode === "channel" ? HOME : HOME * 1.3;
-  const x = useRef<number | null>(null), dist = useRef<number | null>(reduced ? null : HOME * 2.1); // intro: start far out
+  const x = useRef<number | null>(null), dist = useRef<number | null>(reduced ? null : 19.5); // intro: start far out (inside OrbitControls' maxDistance 20)
   const want = useRef(goalD), off = useRef(new THREE.Vector3());
   useEffect(() => { want.current = goalD; if (dist.current === null) dist.current = -1; }, [goalD]); // -1 = ease from wherever we are
   useEffect(() => {
@@ -262,7 +262,8 @@ function StudioCamera({ mode, reduced }: { mode: Mode; reduced: boolean }) {
     controls?.addEventListener("start", stop);
     return () => controls?.removeEventListener("start", stop);
   }, [controls]);
-  useFrame((_, dt) => {
+  useFrame((_, rawDt) => {
+    const dt = Math.min(rawDt, 1 / 30); // a slow first frame (shader compile) must not skip most of the glide
     const cx = x.current === null || reduced ? goalX : THREE.MathUtils.damp(x.current, goalX, 4, dt);
     if (cx !== x.current) {
       x.current = Math.abs(cx - goalX) < 0.5 ? goalX : cx;
