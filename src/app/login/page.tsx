@@ -9,6 +9,8 @@ const ERRORS: Record<string, string> = {
 
 export default function Login() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [usePassword, setUsePassword] = useState(false);
   const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
   const [err, setErr] = useState("");
 
@@ -20,7 +22,14 @@ export default function Login() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setState("sending"); setErr("");
-    const { error } = await createClient().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: `${location.origin}/auth/callback` } });
+    if (usePassword) {
+      // No sign-up here: a password only works once it was set in Profile. The middleware still enforces the allowlist.
+      const { error } = await createClient().auth.signInWithPassword({ email: email.trim(), password });
+      if (error) { setErr(error.message === "Invalid login credentials" ? "Wrong email or password, or no password set yet (set one in Profile after an email sign-in)." : error.message); setState("idle"); }
+      else location.replace("/");
+      return;
+    }
+    const { error } = await createClient().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: `${location.origin}/auth/callback`, shouldCreateUser: false } // existing accounts only: no sign-ups from the login page });
     if (error) { setErr(error.message); setState("idle"); } else setState("sent");
   }
 
@@ -37,7 +46,10 @@ export default function Login() {
         ) : (
           <>
             <input className="field w-full" type="email" required autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email" />
-            <button className="btn w-full" disabled={state === "sending"}>{state === "sending" ? "Sending…" : "Email me a sign-in link"}</button>
+            {usePassword && <input className="field w-full" type="password" required autoComplete="current-password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} aria-label="Password" />}
+            <button className="btn w-full" disabled={state === "sending"}>{state === "sending" ? (usePassword ? "Signing in…" : "Sending…") : usePassword ? "Sign in" : "Email me a sign-in link"}</button>
+            <button type="button" className="link mx-auto block text-sm" onClick={() => { setUsePassword(!usePassword); setErr(""); }}>
+              {usePassword ? "Email me a link instead" : "Sign in with password"}</button>
           </>
         )}
         {err && <p className="error text-center" role="alert">{err}</p>}
