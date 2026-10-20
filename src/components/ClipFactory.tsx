@@ -1056,7 +1056,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
                 </>}
                 version={(c.status === "ready" || c.status === "approved") && !working &&
                   <VersionBox clip={c} base={{ ...base, ...c.edit }} busy={!!busy[`ver:${job.id}/${c.id}`]} onVersion={onVersion} note={<Note k={`ver:${job.id}/${c.id}`} />} />}
-                publish={c.status === "approved" && <PublishBox jobId={job.id} devlog={job.options.preset === "devlog"} clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish}
+                publish={c.status === "approved" && <PublishBox jobId={job.id} devlog={job.options.preset === "devlog"} clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish} onVersion={onVersion}
                   stale={c.publish?.status === "uploading" && publishing !== `${job.id}/${c.id}`}
                   onCheck={() => onCheck(c.id)} note={<Note k={`pub:${job.id}/${c.id}`} />} />} />
             </li>
@@ -1238,7 +1238,7 @@ const MIN_LEAD = 15 * 60_000; // mirrors MIN_LEAD_MS: YouTube needs publishAt in
 /** datetime-local value ("YYYY-MM-DDTHH:mm", local time) for a Date. */
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
-function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublish, onCheck, note }: { jobId: string; devlog: boolean; clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; stale: boolean; onPublish: PublishFn; onCheck: () => void; note: ReactNode }) {
+function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublish, onCheck, onVersion, note }: { jobId: string; devlog: boolean; clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; stale: boolean; onPublish: PublishFn; onCheck: () => void; onVersion?: VersionFn; note: ReactNode }) {
   const [form, setForm] = useState<PublishBody | null>(null);
   const [at, setAt] = useState("");
   const [mode, setMode] = useState<PubWhen>("now");
@@ -1320,6 +1320,12 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
             placeholder="Your commentary, reaction or analysis" onChange={(e) => set({ original: e.target.value })} />
           <span className="muted text-[11px]">Another creator&apos;s video needs your own layer: YouTube shows plain re-uploads to fewer people since 1 Oct 2026.</span>
         </label>
+      )}
+      {!devlog && onVersion && (
+        // Uses the existing "make another version" render: the note becomes the big opening text (first 6 words, both renderers).
+        <button type="button" className="chip self-start" disabled={(form.original ?? "").trim().length < 10}
+          onClick={() => void onVersion(c.id, { hook: (form.original ?? "").trim(), start: 0, end: 0, suggest: false })}>
+          🖊 Put my take on screen (new version, first 6 words)</button>
       )}
       <label className="flex items-center gap-1.5 text-[11px]">
         <input type="checkbox" checked={!!form.aiContent} onChange={(e) => set({ aiContent: e.target.checked })} />
