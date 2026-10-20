@@ -149,17 +149,22 @@ export function perfPatterns(scored: Scored[]): { over: Bucket[]; under: Bucket[
 
 // ---- review decisions ----
 
-export type Decisions = { decided: number; rejects: { reason: string; n: number }[]; liked: Bucket[]; disliked: Bucket[]; versions: { change: string; n: number }[] };
+// rejected: the owner's most recent rejected clips (title + reason), so clip picking can avoid similar moments.
+export type Decisions = { decided: number; rejects: { reason: string; n: number }[]; liked: Bucket[]; disliked: Bucket[]; versions: { change: string; n: number }[];
+  rejected?: { title: string; reason?: string }[] };
+export const REJECTED_SHOWN = 8;
 
 /** The owner's latest approve/reject per clip (publishing counts as approval), reject reasons, and what his re-renders change. */
 export function decisions(jobs: ClipJob[]): Decisions {
   const items: { f: Features; ok: boolean; reason?: string }[] = [], versions = new Map<string, number>();
+  const rejected: { title: string; reason?: string; at: string }[] = [];
   for (const job of jobs) {
-    const last = new Map<string, { ok: boolean; reason?: string }>();
-    for (const e of job.feedback ?? []) if (e.action !== "version") last.set(e.clipId, { ok: e.action !== "rejected", reason: e.reason });
+    const last = new Map<string, { ok: boolean; reason?: string; at: string }>();
+    for (const e of job.feedback ?? []) if (e.action !== "version") last.set(e.clipId, { ok: e.action !== "rejected", reason: e.reason, at: e.at });
     for (const c of job.clips) {
       const d = last.get(c.id);
-      if (d) items.push({ f: featuresOf(job, c), ...d });
+      if (d) items.push({ f: featuresOf(job, c), ok: d.ok, reason: d.reason });
+      if (d && !d.ok) rejected.push({ title: clean(c.title, 60), ...(d.reason ? { reason: d.reason } : {}), at: d.at });
       const root = c.variantOf && job.clips.find((x) => x.id === c.variantOf);
       if (root && c.edit) {
         const a = editOf(job, root);
@@ -175,7 +180,8 @@ export function decisions(jobs: ClipJob[]): Decisions {
   const top = (m: Map<string, number>) => [...m].filter(([, n]) => n >= MIN_SAMPLE).sort((a, b) => b[1] - a[1]);
   return { decided: items.length, rejects: top(reasons).map(([reason, n]) => ({ reason, n })),
     liked: bs.filter((b) => b.value - rate >= 0.2).sort((a, b) => b.value - a.value), disliked: bs.filter((b) => rate - b.value >= 0.2).sort((a, b) => a.value - b.value),
-    versions: top(versions).map(([change, n]) => ({ change, n })) };
+    versions: top(versions).map(([change, n]) => ({ change, n })),
+    rejected: rejected.sort((a, b) => b.at.localeCompare(a.at)).slice(0, REJECTED_SHOWN).map(({ title, reason }) => ({ title, ...(reason ? { reason } : {}) })) };
 }
 
 // ---- summary ----
@@ -221,6 +227,8 @@ export function formatTaste(i: Insights): string {
     const tips = [...new Set(i.rejects.map((r) => ADVICE[r.reason]).filter(Boolean))];
     lines.push(`Owner rejects: ${i.rejects.slice(0, 4).map((r) => `${r.reason} (${r.n})`).join(", ")}${tips.length ? ` → ${tips.join("; ")}` : ""}.`);
   }
+  // Titles are clip data the model wrote earlier, quoted as examples; never instructions.
+  if (i.rejected?.length) lines.push(`Moments he rejected recently (avoid similar ones; quoted data): ${i.rejected.map((r) => `"${r.title.replace(/["\n]/g, "'")}"${r.reason ? ` (${r.reason})` : ""}`).join("; ")}.`);
   if (i.editHints?.length) lines.push(`Editing hints from his channel stats: ${i.editHints.join("; ")}.`);
   if (i.liked.length) lines.push(`Owner approves more often: ${list(i.liked)}.`);
   if (i.disliked.length) lines.push(`Owner approves less often: ${list(i.disliked)}.`);
