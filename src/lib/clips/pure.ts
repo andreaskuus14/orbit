@@ -1,5 +1,6 @@
 import path from "node:path";
 import { CAPTION_STYLES, REJECT_REASONS, rootClipId } from "./format.ts";
+import { cleanOriginal } from "./publish-checks-pure.ts";
 import type { CaptionStyle, ClipJob, ClipOptions, Download, Feedback, FeedbackAction, VersionEdit } from "./types";
 import { validTitleOptions, type TitleOption } from "./titles.ts";
 import { pathExpr, remapPath, TRACK_FPS, TRACK_H, TRACK_W, type Key } from "./reframe.ts";
@@ -885,12 +886,12 @@ export function parseAnalysis(text: string): Analysis | null {
 
 // ---- "make another version" ----
 
-export type VersionReq = { edit: Partial<VersionEdit>; hook?: string; title?: string; dStart: number; dEnd: number; suggest: boolean };
+export type VersionReq = { edit: Partial<VersionEdit>; hook?: string; title?: string; original?: string; dStart: number; dEnd: number; suggest: boolean };
 export const MAX_NUDGE_SEC = 10;
 
 /** Version request body → request, or a message for a 400. start/end are nudges in seconds (clamped to ±10). */
 export function validVersion(b: Record<string, unknown>): VersionReq | string {
-  const { layout, camSide, camSize, captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd, hook, title, start = 0, end = 0, suggest = false } = b;
+  const { layout, camSide, camSize, captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd, hook, title, original, start = 0, end = 0, suggest = false } = b;
   if (layout !== undefined && !LAYOUTS.includes(layout as string)) return LAYOUT_ERR;
   if (camSide !== undefined && !SIDES.includes(camSide as string)) return CAM_SIDE_ERR;
   if (camSize !== undefined && !isCamSize(camSize)) return CAM_SIZE_ERR;
@@ -898,9 +899,11 @@ export function validVersion(b: Record<string, unknown>): VersionReq | string {
   for (const [k, v] of Object.entries({ jumpCuts, zooms, coldOpen, progressBar, loopEnd, suggest })) if (v !== undefined && typeof v !== "boolean") return `${k} must be a boolean`;
   if (hook !== undefined && (typeof hook !== "string" || hook.length > 200)) return "hook must be text";
   if (title !== undefined && (typeof title !== "string" || !title.trim() || title.length > 200)) return "title must be a non-empty string";
+  const note = original === undefined ? undefined : cleanOriginal(original); // "What I added", same rules as publishing
+  if (note === null) return "original must be text up to 200 characters";
   if (!isNum(start) || !isNum(end)) return "start and end must be numbers of seconds";
   const edit = Object.fromEntries(Object.entries({ layout, camSide, camSize, captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd }).filter(([, v]) => v !== undefined)) as Partial<VersionEdit>;
-  return { edit, hook: hook === undefined ? undefined : shortHook(hook), title: title === undefined ? undefined : str(title, 70),
+  return { edit, hook: hook === undefined ? undefined : shortHook(hook), title: title === undefined ? undefined : str(title, 70), ...(note ? { original: note } : {}),
     dStart: clamp(start, -MAX_NUDGE_SEC, MAX_NUDGE_SEC), dEnd: clamp(end, -MAX_NUDGE_SEC, MAX_NUDGE_SEC), suggest: suggest as boolean };
 }
 

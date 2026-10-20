@@ -751,7 +751,8 @@ export async function startVersion(job: ClipJob, base: Clip, req: VersionReq, a:
   if (!id) return "This clip has too many versions";
   const root = rootClipId(base.id);
   const clip: Clip = { id, ...span, title: req.title ?? base.title, hook: req.hook ?? base.hook, reason: base.reason, score: base.score, status: "rendering", titleOptions: base.titleOptions,
-    variantOf: root, edit: { ...baseEdit(job.options), ...base.edit, ...req.edit } }; // older edits lack newer fields
+    variantOf: root, edit: { ...baseEdit(job.options), ...base.edit, ...req.edit }, // older edits lack newer fields
+    ...((req.original ?? base.original) ? { original: req.original ?? base.original } : {}) }; // the owner's note carries over: no retyping at publish
   job.clips.splice(job.clips.findLastIndex((c) => rootClipId(c.id) === root) + 1, 0, clip);
   addFeedback(job, base.id, "version");
   job.updatedAt = new Date().toISOString();

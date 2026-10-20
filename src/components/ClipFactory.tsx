@@ -29,7 +29,7 @@ type Schedule = { settings: PubSettings; next: string[]; batch: Batch | null };
 type CaptionStyle = (typeof CAPTION_STYLES)[number];
 type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: CamSide; camSize?: number; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean;
   coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean };
-type VersionBody = Partial<VersionEdit> & { hook?: string; title?: string; start: number; end: number; suggest: boolean };
+type VersionBody = Partial<VersionEdit> & { hook?: string; title?: string; original?: string; start: number; end: number; suggest: boolean };
 type Quarantined = { file: string; reason: string; at: string };
 type YtStatus = { configured: boolean; connected: boolean; canUpload?: boolean };
 type PublishBody = { title: string; description: string; privacy: "private" | "unlisted" | "public"; publishAt?: string; force?: boolean;
@@ -1324,7 +1324,7 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
       {!devlog && onVersion && (
         // Uses the existing "make another version" render: the note becomes the big opening text (first 6 words, both renderers).
         <button type="button" className="chip self-start" disabled={(form.original ?? "").trim().length < 10}
-          onClick={() => void onVersion(c.id, { hook: (form.original ?? "").trim(), start: 0, end: 0, suggest: false })}>
+          onClick={() => void onVersion(c.id, { hook: (form.original ?? "").trim(), original: (form.original ?? "").trim(), start: 0, end: 0, suggest: false })}>
           🖊 Put my take on screen (new version, first 6 words)</button>
       )}
       <label className="flex items-center gap-1.5 text-[11px]">
