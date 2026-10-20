@@ -2,8 +2,9 @@
 // and a spoken version built from a template — no AI call, so it's instant and free. Gathering: morning.ts.
 import type { Clip } from "./clips/types";
 import type { Recall } from "./resurface-pure";
+import type { WorkItem, WorkSummary } from "./work-continuation-pure";
 
-export type MorningNav = "review" | "news" | "tasks" | "agents" | "life";
+export type MorningNav = "review" | "news" | "tasks" | "agents" | "life" | "goals";
 export type StudioIn = {
   clips: Pick<Clip, "title" | "status" | "publish">[]; views: Record<string, number>; // views: videoId → latest views (learn.json)
   pausedUntil: number; scout: { newPicks: number; topNiche?: string; summary?: string } | null; tz: string;
@@ -14,8 +15,8 @@ export type MorningAgents = { done: string[]; failed: number; proposals: string[
 export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
 export type MorningCalendar = { connected: boolean; today: { time: string; title: string }[] }; // titles: calendar data (invites), plain text only
 export type Morning = {
-  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince;
-  suggestion: { text: string; nav: MorningNav | null }; spoken: string;
+  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince; work?: WorkSummary;
+  suggestion: { text: string; nav: MorningNav | null; item?: WorkItem }; spoken: string;
 };
 
 export const MAX_WORDS = 110; // ≈ 45 s at a normal speaking pace
@@ -57,8 +58,11 @@ export function studioSection(x: StudioIn, now: number): MorningStudio {
   };
 }
 
-export function suggest(m: Pick<Morning, "studio" | "intel" | "agents" | "life">): Morning["suggestion"] {
+export function suggest(m: Pick<Morning, "studio" | "intel" | "agents" | "life" | "work">): Morning["suggestion"] {
   const s = m.studio, a = m.agents;
+  // Approvals, blockers and waiting plans need a decision; running/paused work doesn't.
+  const next = m.work?.items.find((x) => ["awaiting_approval", "draft", "waiting", "blocked", "failed"].includes(x.status));
+  if (next) return { text: `${next.action}: ${plain(next.title).split(/\s+/).slice(0, 12).join(" ")}.`, nav: next.kind === "goal" ? "goals" : "tasks", item: next };
   if (s?.ready) return { text: `Review your ${n(s.ready, "new clip")}.`, nav: "review" };
   if (a?.proposals.length) return { text: `Approve or dismiss ${n(a.proposals.length, "agent proposal")}.`, nav: "agents" };
   if (s?.approved && !s.today.length) return { text: `Schedule your ${n(s.approved, "approved clip")}, nothing goes live today.`, nav: "review" };
@@ -72,6 +76,8 @@ export function suggest(m: Pick<Morning, "studio" | "intel" | "agents" | "life">
 export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   const s = m.studio, a = m.agents, i = m.intel;
   const must = [`${m.greeting}.`], opt: string[] = [];
+  if (m.work?.items.length) opt.push(`Your work list shows ${n(m.work.items.length + m.work.more, "unfinished item")}.`);
+  if (m.work?.problems.length) opt.push("Some unfinished work could not be loaded.");
   if (s) {
     must.push(s.ready ? `You have ${n(s.ready, "clip")} ready to review.` : "No clips are waiting for review.");
     if (s.today.length) must.push(`${n(s.today.length, "Short")} ${s.today.length === 1 ? "goes" : "go"} live today at ${s.today.slice(0, 4).join(", ")}.`);
@@ -101,7 +107,7 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   return plain([...must, ...opt, tail].join(" ").replace(/\.\./g, "."));
 }
 
-export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall">, now: number, tz: string): Morning {
+export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall" | "work">, now: number, tz: string): Morning {
   const base = { ...parts, greeting: greeting(now, tz), suggestion: suggest(parts) };
   return { ...base, spoken: spokenBriefing(base) };
 }

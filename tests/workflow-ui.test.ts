@@ -18,6 +18,7 @@ function component(file: string, name: string) {
 }
 const Continue = component("ContinueWork", "ContinueWorkView");
 const Evidence = component("ResultEvidence", "ResultEvidence");
+const MorningWork = component("MorningWork", "MorningWork");
 const callbacks = { onOpenTask() {}, onOpenGoal() {}, onRefresh() {} };
 
 test("a failed refresh never presents a stale empty inbox as caught up", () => {
@@ -53,4 +54,15 @@ test("receipts separate read-back evidence from quality claims and safely encode
   assert.match(html, /Reference: &lt;untrusted&gt;/);
   assert.doesNotMatch(html, /undefined/);
   assert.equal(renderToStaticMarkup(createElement(Evidence, { items: [], openMemory() {} })), "");
+});
+
+test("morning work preview is bounded, escapes titles, and does not hide missing sources behind an empty state", () => {
+  const item = { kind: "goal", id: "g", title: "<Plan>", status: "blocked", detail: "Choose copy", action: "Open goal" };
+  const html = renderToStaticMarkup(createElement(MorningWork, { work: { items: Array.from({ length: 6 }, (_, i) => ({ ...item, id: String(i) })), more: 2, problems: [] }, onOpen() {} }));
+  assert.equal((html.match(/<button/g) ?? []).length, 3);
+  assert.match(html, /5 more in Continue my work/);
+  assert.match(html, /aria-label="Open goal: &lt;Plan&gt;"/);
+  const missing = renderToStaticMarkup(createElement(MorningWork, { work: { items: [], more: 0, problems: ["Goals could not be loaded."] }, onOpen() {} }));
+  assert.match(missing, /Goals could not be loaded/);
+  assert.doesNotMatch(missing, /No unfinished/);
 });

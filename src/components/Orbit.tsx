@@ -437,7 +437,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </aside>
       )}
 
-      <MorningCard home={!shown && !approach} />
+      <MorningCard home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       {!shown && !approach && view === "3d" && <ContinueWork floating onOpenTask={openTask} onOpenGoal={openGoal} />}
       <Herald home={!shown && !approach} />
       <WhatsNew home={!shown && !approach} />
