@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MAX_WORDS, RECAP_AWAY_MS, RECAP_MAX_MS, awaySince, buildMorning, countSince, parseSince, pulseHeadlines, shouldAutoShow, sinceEmpty, sinceSection, studioSection, suggest } from "../src/lib/morning-pure.ts";
+import { continueWork, type WorkItem } from "../src/lib/work-continuation-pure.ts";
 
 const TZ = "Europe/Tallinn";
 const NOW = Date.parse("2026-10-16T06:30:00Z"); // 09:30 in Tallinn
@@ -146,4 +147,39 @@ test("calendar: today's events are said, not-connected says nothing", () => {
   const m = buildMorning({ calendar: { connected: true, today: [{ time: "10:00", title: "Dentist 🦷" }, { time: "14:00", title: "Call" }] } }, now, "UTC");
   assert.match(m.spoken, /2 events on your calendar today, first at 10:00: Dentist\./);
   assert.doesNotMatch(buildMorning({ calendar: { connected: false, today: [] } }, now, "UTC").spoken, /calendar/);
+});
+
+test("morning prioritizes decisions over clips and links a goal's approval to the actual task", () => {
+  const work = continueWork([{ id: "approval", title: "Step", status: "awaiting_approval", created_at: "2026-10-20" }], [
+    { id: "goal", updated_at: "2026-10-20", doc: { title: "Launch my site", status: "waiting", steps: [{ status: "waiting", taskId: "approval" }] } },
+  ]);
+  const choice = suggest({ work, studio: { ready: 9, approved: 0, today: [], yesterday: [], scout: "", pausedUntil: "" } });
+  assert.equal(choice.nav, "tasks");
+  assert.equal(choice.item?.id, "approval");
+  assert.equal(choice.item?.kind, "task");
+  assert.equal(choice.text, "Review approval: Launch my site.");
+});
+
+test("morning opens a blocked goal, but running, queued and paused work don't demand action", () => {
+  const item: WorkItem = { kind: "goal", id: "g", title: "Ship", status: "blocked", detail: "Choose copy", action: "Open goal" };
+  assert.equal(suggest({ work: { items: [item], more: 0, problems: [] } }).nav, "goals");
+  for (const status of ["running", "queued", "paused"]) {
+    const choice = suggest({ work: { items: [{ ...item, status }], more: 0, problems: [] } });
+    assert.equal(choice.nav, null);
+    assert.equal(choice.item, undefined);
+  }
+});
+
+test("spoken work summary stays bounded and reports missing sources without claiming completion", () => {
+  const work = { items: [{ kind: "goal" as const, id: "g", title: "**Website** " + "word ".repeat(200), status: "draft", detail: "Plan", action: "Review plan" }], more: 8, problems: ["Tasks could not be loaded."] };
+  const m = buildMorning({ work }, NOW, TZ);
+  assert.match(m.spoken, /work list shows 9 unfinished items/);
+  assert.match(m.spoken, /Some unfinished work could not be loaded/);
+  assert.match(m.spoken, /My suggestion: Review plan: Website/);
+  assert.doesNotMatch(m.spoken, /\*|caught up|completed/);
+  assert.ok(m.spoken.split(/\s+/).length <= MAX_WORDS);
+  assert.equal(m.suggestion.item?.id, "g");
+  const missing = buildMorning({ work: { items: [], more: 0, problems: ["Tasks could not be loaded."] } }, NOW, TZ);
+  assert.match(missing.spoken, /Some unfinished work could not be loaded/);
+  assert.doesNotMatch(missing.spoken, /0 unfinished|caught up/);
 });

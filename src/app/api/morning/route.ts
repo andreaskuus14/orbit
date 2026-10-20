@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   const q = new URL(req.url).searchParams, now = Date.now(), from = parseSince(q.get("since"), now);
   try {
     if (q.get("recap") === "1") return from === null ? Response.json({ error: "since is required" }, { status: 400 }) : Response.json({ since: await getSince(sb, from, now) });
-    return Response.json(await getMorning(sb, now, from));
+    return Response.json(await getMorning(sb, user.id, now, from));
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Briefing failed" }, { status: 500 });
   }

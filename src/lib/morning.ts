@@ -5,6 +5,7 @@ import { readPublishSettings } from "./clips/publish-schedule";
 import { scoutView } from "./clips/scout";
 import { learnProblem, type LearnState } from "./clips/learn-pure";
 import { pickRecall, type Recall } from "./resurface-pure";
+import { getContinueWork } from "./work-continuation";
 import { buildMorning, lifeSection, pulseHeadlines, sinceSection, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningSince, type MorningStudio } from "./morning-pure";
 
 // Gathers the "Good morning" briefing: every section in parallel with a timeout, a failing source just drops its section.
@@ -66,10 +67,10 @@ export async function getSince(sb: SupabaseClient, from: number, now = Date.now(
   return sinceSection({ tasks: ok(t) ?? [], jobs: ok(j) ?? [], reminders: ok(l)?.reminders ?? [], alerts: ok(m) ?? [] }, from, now);
 }
 
-export async function getMorning(sb: SupabaseClient, now = Date.now(), from: number | null = null): Promise<Morning> {
+export async function getMorning(sb: SupabaseClient, userId: string, now = Date.now(), from: number | null = null): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
-  const [s, i, a, l, r, sn, c] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
+  const [s, i, a, l, r, sn, c, w] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
     within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
     from === null ? Promise.resolve(undefined) : getSince(sb, from, now),
     // Same cache entry as the LIFE card. No Google client configured → no calendar section at all.
@@ -77,7 +78,8 @@ export async function getMorning(sb: SupabaseClient, now = Date.now(), from: num
       if (!g.calEnv()) return undefined;
       const ev = await g.calendarEvents(7, now);
       return { connected: !!ev, today: ev ? p.todayEvents(ev, now) : [] };
-    }))]);
+    })), within(getContinueWork(sb, userId))]);
   const life = ok(l), rec = ok(r), since = ok(sn);
-  return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined }, now, tz), ...(since && { since }) };
+  return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
+    work: ok(w) ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] } }, now, tz), ...(since && { since }) };
 }

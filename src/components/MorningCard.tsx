@@ -7,6 +7,8 @@ import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { NOTIFY_KEY, parseItems } from "@/lib/notify-pure";
 import { awaySince, countSince, localDay, shouldAutoShow, sinceEmpty, type Morning, type MorningNav, type MorningSince } from "@/lib/morning-pure";
 import { speakChunk, speechSettings } from "./voice/speak";
+import { MorningWork } from "./MorningWork";
+import type { WorkItem } from "@/lib/work-continuation-pure";
 
 const KEY = "orbit.morning"; // { day: last auto-shown local day, speak: read it aloud when it auto-shows (speakMorning, default off) }
 type Saved = { day?: string; speak?: boolean };
@@ -20,10 +22,10 @@ type Req = { current: AbortController | null };
 const begin = (r: Req) => { r.current?.abort(); return (r.current = new AbortController()); };
 const end = (r: Req, c: AbortController) => { if (r.current === c) r.current = null; };
 const notesSince = (from: number) => { try { return countSince(parseItems(localStorage.getItem(NOTIFY_KEY)), from); } catch { return 0; } };
-const NAV: Record<MorningNav, NavTarget> = { review: { panel: "studio", view: "review" }, news: { panel: "intelligence" }, tasks: { panel: "operations" }, agents: { panel: "agents" }, life: { panel: "life" } };
+const NAV: Record<MorningNav, NavTarget> = { review: { panel: "studio", view: "review" }, news: { panel: "intelligence" }, tasks: { panel: "operations" }, agents: { panel: "agents" }, life: { panel: "life" }, goals: { panel: "agents" } };
 const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`;
 
-export function MorningCard({ home }: { home: boolean }) {
+export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void }) {
   const [data, setData] = useState<Morning | null>(null);
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState("");
@@ -100,6 +102,7 @@ export function MorningCard({ home }: { home: boolean }) {
   if (!open || !home) return null;
   const nav = (t: NavTarget) => { setOpen(false); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: t })); };
   const go = (k: MorningNav) => nav(NAV[k]);
+  const openWork = (item: WorkItem) => { setOpen(false); if (item.kind === "task") onOpenTask(item.id); else onOpenGoal(item.id); };
   const bell = () => { setOpen(false); try { document.getElementById("notify-menu")?.showPopover(); } catch { /* already open */ } };
   const toggleSpeak = (v: boolean) => { setSpeakMorning(v); save({ ...load(), speak: v }); };
   // Orbit's OPEN_MEMORY_EVENT handler also switches to the MEMORY panel.
@@ -133,6 +136,7 @@ export function MorningCard({ home }: { home: boolean }) {
       {data && (
         <div className="grid gap-3">
           {sinceBlock}
+          {data.work && <MorningWork work={data.work} onOpen={openWork} />}
           {s && (
             <div>
               <b>Studio</b>
@@ -174,7 +178,7 @@ export function MorningCard({ home }: { home: boolean }) {
               <ul className="muted grid gap-1">{rc.map((m) => <li key={m.id}><button className="text-left underline" onClick={() => openMem(m.id)}>{m.title}</button> <span className="text-xs">· {m.label}</span></li>)}</ul>
             </div>
           )}
-          <p><b>Next:</b> {data.suggestion.nav ? <button className="underline" onClick={() => go(data.suggestion.nav!)}>{data.suggestion.text}</button> : data.suggestion.text}</p>
+          <p><b>Next:</b> {data.suggestion.nav ? <button className="underline" onClick={() => data.suggestion.item ? openWork(data.suggestion.item) : go(data.suggestion.nav!)}>{data.suggestion.text}</button> : data.suggestion.text}</p>
           <div className="flex flex-wrap gap-2">
             {s && <button className="chip" onClick={() => go("review")}>Review clips</button>}
             {i && <button className="chip" onClick={() => go("news")}>Open news</button>}

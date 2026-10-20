@@ -138,3 +138,15 @@
 }
 @media (max-height: 650px) { .continue-work-float { display: none; } }
 @media (prefers-reduced-motion: reduce) { .continue-work li { animation: none; } }
+
+.morning-work h3 { font-weight: 600; color: #e5eff3; margin-bottom: .4rem; }
+.orbit-shell .morning-card { max-height: calc(100dvh - var(--hdr, 4rem) - var(--bar, 4rem) - 1rem); overflow-y: auto; overscroll-behavior: contain; }
+.morning-work ul { display: grid; gap: .4rem; }
+.morning-work button { width: 100%; text-align: left; padding: .5rem .6rem; border-left: 2px solid #accbd54d; border-radius: 0 6px 6px 0; transition: background .15s; }
+.morning-work button:hover { background: #c3e5ef0d; }
+.morning-work button:focus-visible { outline: 2px solid #c1e3eb; outline-offset: 2px; }
+.morning-work button > * { display: block; overflow-wrap: anywhere; }
+.morning-work button b { font-size: .8rem; font-weight: 500; }
+.morning-work button span { font-size: .72rem; line-height: 1.5; margin-top: .15rem; }
+.morning-work-action { color: #accbd5; }
+@media (prefers-reduced-motion: reduce) { .morning-work button { transition: none; } }
