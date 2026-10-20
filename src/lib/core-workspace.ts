@@ -1,5 +1,6 @@
 // CORE's WORKSPACE tools: real files CORE builds (a website, a script) instead of pasting code into chat. Writes only happen as the
 // user's own request in their latest message, and not once page/file/agent output is in context (injected text can't plant files).
+import type { WriteEvidence } from "./completion-pure.ts";
 export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create"] as const;
 export type WsTool = (typeof WS_TOOLS)[number];
 export const isWsTool = (t: string): t is WsTool => (WS_TOOLS as readonly string[]).includes(t);
@@ -45,7 +46,7 @@ async function siteCheck(userId: string, slug: string, priorWrites: number): Pro
   }
 }
 
-export async function runWsTool(userId: string, tool: WsTool, input: Record<string, unknown>, question: string, tainted: boolean, priorWrites = 0): Promise<string> {
+export async function runWsTool(userId: string, tool: WsTool, input: Record<string, unknown>, question: string, tainted: boolean, priorWrites = 0, onEvidence?: (e: WriteEvidence) => void): Promise<string> {
   if (tool === "ws_write" || tool === "ws_create") {
     const blocked = wsWriteBlocked(question, tainted);
     if (blocked) return `Error: ${blocked}`;
@@ -77,17 +78,21 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
       case "ws_write": {
         const files = Array.isArray(input.files) ? input.files : input.path !== undefined ? [{ path: input.path, content: input.content }] : [];
         if (!files.length || files.length > 50) return "Error: files must be a list of 1-50 {path, content}";
+        if (files.some((f) => !f || typeof f.path !== "string" || typeof f.content !== "string")) return "Error: every file needs a text path and text content";
         const c = await ws.createWorkspace(userId, str(input.workspace, 60) || "site");
         if ("error" in c) return `Error: ${c.error}`;
         const lines: string[] = [];
+        let failed = false;
         for (const f of files as { path?: unknown; content?: unknown }[]) {
           const p = typeof f?.path === "string" ? f.path.trim() : "";
           const r = await ws.writeWsFile(userId, c.slug, p, typeof f?.content === "string" ? f.content : "");
+          if ("error" in r) failed = true;
+          else onEvidence?.({ kind: "file", id: c.slug, path: r.path, bytes: r.bytes });
           lines.push("error" in r ? `- ${p || "(no path)"}: Error: ${r.error}` : `- ${r.path} ${r.created ? "created" : "updated"} (${kb(r.bytes)})`);
         }
         const hasIndex = (await ws.listFiles(userId, c.slug))?.some((f) => f.path === "index.html");
         const check = hasIndex ? await siteCheck(userId, c.slug, priorWrites) : "";
-        return `Workspace ${c.slug}:\n${lines.join("\n")}\n${hasIndex ? "" : "index.html isn't there yet; "}Preview link: ${await ws.previewUrl(userId, c.slug)}${check}`;
+        return `${failed ? "Error: workspace write is incomplete. Some files failed; report the partial result.\n" : ""}Workspace ${c.slug}:\n${lines.join("\n")}\n${hasIndex ? "" : "index.html isn't there yet; "}Preview link: ${await ws.previewUrl(userId, c.slug)}${check}`;
       }
     }
   } catch (e) {

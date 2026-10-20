@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { StatusPill, api, usePoll } from "./AgentMission";
 import { move } from "@/lib/mission-pure";
 import { linePath, toPoints } from "@/lib/chart-pure";
@@ -30,9 +30,10 @@ function Spark({ values }: { values: number[] }) {
   );
 }
 
-export default function GoalsPanel({ agents, visible, onOpenTask }: { agents: Roster; visible: boolean; onOpenTask?: (id: string) => void }) {
+export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { agents: Roster; visible: boolean; onOpenTask?: (id: string) => void; focusId?: string | null }) {
   const [goals, setGoals] = useState<GoalView[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => { if (focusId) setOpen(focusId); }, [focusId]);
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);

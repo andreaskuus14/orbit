@@ -30,6 +30,7 @@ import { runWatchCommand } from "./watch-store";
 import { runAgentCommand } from "./agent-command";
 import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
 import { markOpen } from "./dev-timing";
+import { ContinueWork } from "./ContinueWork";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: WorldLoading });
@@ -60,6 +61,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [pulseFailed, setPulseFailed] = useState(false);
   const [runningTasks, setRunningTasks] = useState<string[]>([]); // real: tasks agents are working on right now
   const [focusTask, setFocusTask] = useState<string | null>(null);
+  const [focusGoal, setFocusGoal] = useState<string | null>(null);
   const [automationFailing, setAutomationFailing] = useState(false); // real: an enabled automation's last run failed
   const [cmdMode, setCmdMode] = useState<"ask" | "task">("ask");
   const [cmdErr, setCmdErr] = useState("");
@@ -83,7 +85,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [behind, setBehind] = useState<PanelId | null>(null);
   // The world (or panel) actually on screen. Also while panel is briefly null after closing CORE, so the world isn't remounted.
   const shown = behind && (panel === "core" || panel === null) ? behind : panel;
-  const closeWorld = useCallback(() => { setBehind(null); setPanel(null); }, []); // "← Back to galaxy" really leaves, even with CORE open over it
+  const closeWorld = useCallback(() => { setBehind(null); setPanel(null); setFocusGoal(null); }, []); // "← Back to galaxy" really leaves, even with CORE open over it
   const isWorld = (p: PanelId | null) => p === "intelligence" || (p !== null && WORLDS.includes(p));
   // A second question keeps the world; a running game is full-screen above everything, so CORE replaces it as before.
   const openCore = useCallback(() => { if (panel !== "core") setBehind(isWorld(panel) && !gameOpen ? panel : null); setPanel("core"); }, [panel, gameOpen]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -238,7 +240,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         const taskId = (payload.new as { payload?: { taskId?: string } }).payload?.taskId;
         if (e.type === "goal.update") { const p = (payload.new as { payload?: { title?: string; text?: string } }).payload; notify({ title: `🎯 ${String(p?.title ?? "Goal")}`, body: String(p?.text ?? ""), kind: "agents", nav: { panel: "agents" } }); }
         if (e.type === "agent.started" && taskId) setRunningTasks((r) => (r.includes(taskId) ? r : [...r, taskId]));
-        if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) { setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations(); notify({ title: e.type === "agent.completed" ? "Agent task finished" : "Agent task failed", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations" } }); }
+        if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) {
+          setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations();
+          const status = (payload.new as { payload?: { status?: string } }).payload?.status;
+          notify({ title: e.type === "agent.failed" ? "Agent task failed" : status === "awaiting_approval" ? "Task needs your approval" : status === "cancelled" ? "Agent task cancelled" : "Agent task finished", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations" } });
+        }
       })
       .subscribe((s) => setLive(s === "SUBSCRIBED" ? "live" : s === "CLOSED" || s === "CHANNEL_ERROR" || s === "TIMED_OUT" ? "offline" : "connecting"));
     return () => { void sb.removeChannel(ch); };
@@ -267,8 +273,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     return () => removeEventListener("keydown", onKey);
   }, []);
 
-  const select = useCallback((id: PanelId) => { warmWorld(id); setPanel(id); if (id !== "memory") setFocusMemory(null); if (id !== "operations") setFocusTask(null); }, []);
-  const openTask = useCallback((id: string) => { setFocusTask(id); setPanel("operations"); }, []);
+  const select = useCallback((id: PanelId) => { warmWorld(id); setPanel(id); if (id !== "memory") setFocusMemory(null); if (id !== "operations") setFocusTask(null); if (id !== "agents") setFocusGoal(null); }, []);
+  const openTask = useCallback((id: string) => { setFocusTask(id); setFocusGoal(null); setPanel("operations"); }, []);
+  const openGoal = useCallback((id: string) => { setFocusGoal(id); setPanel("agents"); }, []);
   const openMemory = useCallback((id: string) => { setFocusMemory(id); setPanel("memory"); }, []);
   useEffect(() => { // search palette picked a memory: open it in MEMORY
     const f = (e: Event) => { const id = (e as CustomEvent<{ id?: string }>).detail?.id; if (typeof id === "string" && id) openMemory(id); };
@@ -350,12 +357,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       ) : shown === "creation" ? (
         <DevWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} />
       ) : shown === "agents" ? (
-        <AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} />
+        <AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} />
       ) : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : view === "3d" ? null : (
         <nav aria-label="Planets" className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>ORBIT / YOUR WORKSPACE</p><h1>A universe.<br />Yours to shape.</h1><span>Ask, create, remember. Pick a world to begin.</span></div>
+          {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}
           <ul className="overview-worlds">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
               <b>CORE</b><span className="muted text-sm">{busy ? "Thinking…" : warning ? "Last request failed" : "Your central AI. Ask anything."}</span></button></li>
@@ -430,6 +438,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       )}
 
       <MorningCard home={!shown && !approach} />
+      {!shown && !approach && view === "3d" && <ContinueWork floating onOpenTask={openTask} onOpenGoal={openGoal} />}
       <Herald home={!shown && !approach} />
       <WhatsNew home={!shown && !approach} />
       {!shown && !approach && <HalEye />}

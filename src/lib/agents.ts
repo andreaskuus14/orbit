@@ -9,6 +9,8 @@ import { verifyAnswer, type Source } from "./verify";
 import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
+import { completionState, type WriteEvidence } from "./completion-pure";
+import { verifyRow } from "./completion";
 import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 
 // ORBIT's agent workforce. Each agent is Claude (via Claude Code) with its own instructions and an allow-list of
@@ -19,12 +21,12 @@ export type AgentDef = {
   slug: string; name: string; role: string; instructions: string; tools: string[]; builtin: boolean; color: string;
 };
 export type TraceStep = { step: string; detail: string; ms: number; ok: boolean };
-export type PendingAction = { tool: string; input: Record<string, unknown>; status: "pending" | "approved" | "rejected" | "failed"; note?: string };
+export type PendingAction = { tool: string; input: Record<string, unknown>; status: "pending" | "approved" | "rejected" | "failed"; note?: string; evidence?: WriteEvidence[] };
 type Task = { id: string; agent: string; title: string; request: string; parent_id: string | null; project_id: string | null };
 // pages: full texts read during the task, reused by the verification stage.
 // budget/signal: shared by the whole task tree, so delegated sub-tasks spend the same budget and stop with their parent.
 type Ctx = { sb: SupabaseClient; userId: string; task: Task; depth: number; pending: PendingAction[]; trace: TraceStep[]; pages: Map<string, Source>; budget?: Budget; signal?: AbortSignal;
-  priv?: boolean; links?: Set<string> }; // priv: the user's private data is in this task's context; links: URLs news_search/read_news returned
+  priv?: boolean; links?: Set<string>; evidence?: WriteEvidence[] }; // receipts come only from successful read-back checks
 
 const MAX_STEPS = 7;
 const MAX_DEPTH = 2;
@@ -186,7 +188,7 @@ export const TOOLS: Record<string, Tool> = {
       if (error) throw error;
       const out = await runTask(ctx.sb, ctx.userId, child.id, ctx.depth + 1, ctx.budget, ctx.signal);
       return out.status === "done" || out.status === "awaiting_approval"
-        ? `${agent} finished (task ${child.id}):\n${(out.result ?? "").slice(0, 4000)}`
+        ? `${agent} ${out.status === "done" ? "finished" : "is waiting for approval"} (task ${child.id}):\n${(out.result ?? "").slice(0, 4000)}`
         : `Error: ${agent} could not finish: ${out.error ?? out.status}`;
     },
   },
@@ -194,35 +196,44 @@ export const TOOLS: Record<string, Tool> = {
     description: "Propose saving a result to the user's MEMORY. Needs the user's approval before anything is saved.",
     input: `{"title": string, "content": string, "kind": one of ${KINDS.join("|")}, "tags": string[]}`,
     approval: true,
-    run: async ({ sb, userId, task }, i) => {
+    run: async (ctx, i) => {
+      const { sb, userId, task } = ctx;
       const kind = (KINDS as readonly string[]).includes(String(i.kind)) ? (i.kind as Kind) : "research";
       const { memory } = await createMemory(sb, userId, {
         kind, title: s(i.title, 300) || task.title, content: s(i.content, 100_000), source: `agent:${task.agent}`, tags: cleanTags(i.tags),
       });
-      return `Saved as memory ${memory.id}`;
+      ctx.evidence?.push({ kind: "memory", id: memory.id });
+      return `Saved and read back memory ${memory.id}`;
     },
   },
   create_project: {
     description: "Propose a new project in OPERATIONS. Needs the user's approval.",
     input: '{"name": string, "description": string}',
     approval: true,
-    run: async ({ sb, userId }, i) => {
-      const { data, error } = await sb.from("projects").insert({ user_id: userId, name: s(i.name, 120) || "New project", description: s(i.description, 2000) }).select("id").single();
+    run: async (ctx, i) => {
+      const { sb, userId } = ctx;
+      const expected = { name: s(i.name, 120) || "New project", description: s(i.description, 2000) };
+      const { data, error } = await sb.from("projects").insert({ user_id: userId, ...expected }).select("id").single();
       if (error) throw error;
-      return `Created project ${data.id}`;
+      await verifyRow(sb, userId, "projects", data.id, expected);
+      ctx.evidence?.push({ kind: "project", id: data.id });
+      return `Created and read back project ${data.id}`;
     },
   },
   add_task: {
     description: "Propose a follow-up task for an agent. Needs the user's approval; once approved it runs.",
     input: '{"title": string, "request": string, "agent": string}',
     approval: true,
-    run: async ({ sb, userId, task }, i) => {
+    run: async (ctx, i) => {
+      const { sb, userId, task } = ctx;
       const agent = s(i.agent, 40).toLowerCase() || "nova";
       if (!(await getAgent(sb, agent, userId))) return `Error: unknown agent "${agent}".`;
       const { data, error } = await sb.from("tasks").insert({
         user_id: userId, project_id: task.project_id, agent, title: s(i.title, 200) || "Task", request: s(i.request, 8000) || s(i.title, 200),
       }).select("id").single();
       if (error) throw error;
+      await verifyRow(sb, userId, "tasks", data.id, { agent, request: s(i.request, 8000) || s(i.title, 200) });
+      ctx.evidence?.push({ kind: "task", id: data.id });
       return `Queued task ${data.id} for ${agent}.`;
     },
   },
@@ -239,12 +250,15 @@ export const TOOLS: Record<string, Tool> = {
     description: "Propose a recurring or event-triggered automation. Needs the user's approval. trigger 'schedule' with schedule {every: hour|day|week, hour 0-23, minute 0-59, weekday 0=Sunday..6}, or trigger 'event' with event 'memory.created' (optional kind_filter like document, link, note, idea) or 'briefing.ready'. agent = who does the work; prompt = exactly what they should do each time.",
     input: '{"name": string, "trigger": "schedule"|"event", "schedule"?: {...}, "event"?: string, "kind_filter"?: string, "agent": string, "prompt": string}',
     approval: true,
-    run: async ({ sb, userId }, i) => {
+    run: async (ctx, i) => {
+      const { sb, userId } = ctx;
       const v = validateAutomation(i);
       if ("error" in v) return `Error: ${v.error}`;
       if (!(await getAgent(sb, v.spec.agent, userId))) return `Error: unknown agent "${v.spec.agent}".`;
-      const { error } = await sb.from("automations").insert({ ...v.spec, user_id: userId });
+      const { data, error } = await sb.from("automations").insert({ ...v.spec, user_id: userId }).select("id").single();
       if (error) throw error;
+      await verifyRow(sb, userId, "automations", data.id, { name: v.spec.name, agent: v.spec.agent, prompt: v.spec.prompt });
+      ctx.evidence?.push({ kind: "automation", id: data.id });
       return `Created automation "${v.spec.name}" (${describeTrigger(v.spec)} → ${v.spec.agent}).`;
     },
   },
@@ -339,7 +353,10 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
   const trace: TraceStep[] = [];
   const pending: PendingAction[] = [];
   // Never overwrite a cancel (e.g. one marked by cancelTask's fallback) with a later save.
-  const save = (patch: Record<string, unknown>) => sb.from("tasks").update({ ...patch, trace, pending }).eq("id", taskId).neq("status", "cancelled");
+  const save = async (patch: Record<string, unknown>) => {
+    const { error } = await sb.from("tasks").update({ ...patch, trace, pending }).eq("user_id", userId).eq("id", taskId).neq("status", "cancelled");
+    if (error) throw error;
+  };
 
   const agent = await getAgent(sb, task.agent, userId);
   if (!agent) {
@@ -390,13 +407,16 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
           if (rv.reviewed) trace.push({ step: "review", detail: `${MODEL} · self-reviewed`, ms: Date.now() - t0, ok: true });
         }
         // A delegated agent may be waiting for approval too: surface that on this task so the user sees it.
-        const { data: waitingKids } = await sb.from("tasks").select("id").eq("parent_id", taskId).eq("status", "awaiting_approval").limit(1);
-        const status = pending.length || waitingKids?.length ? "awaiting_approval" : "done";
+        const { data: kids, error: kidsError } = await sb.from("tasks").select("status").eq("user_id", userId).eq("parent_id", taskId);
+        if (kidsError) throw kidsError;
+        const completion = completionState(pending, kids ?? []);
+        const { status } = completion;
         signal.throwIfAborted(); // stopped during verification or the check above: save as cancelled/budget, never as done
-        await save({ status, result, finished_at: new Date().toISOString() });
-        await emit(sb, userId, "agent.completed", "agents", { agent: agent.slug, taskId, status });
+        await save({ status, result, error: completion.error, finished_at: status === "awaiting_approval" ? null : new Date().toISOString() });
+        await emit(sb, userId, status === "failed" ? "agent.failed" : "agent.completed", "agents", { agent: agent.slug, taskId, status });
         if (!task.parent_id) await emit(sb, userId, "task.delivered", "core", { taskId, agent: agent.slug });
-        return { status, result, error: null };
+        await settleParents(sb, userId, task.parent_id);
+        return { status, result, error: completion.error };
       }
 
       const tool = TOOLS[reply.tool];
@@ -431,12 +451,14 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
       const status = kind === "budget" ? "failed" : "cancelled";
       await save({ status, result, error: kind === "budget" ? msg : null, finished_at: new Date().toISOString() });
       await emit(sb, userId, "agent.completed", "agents", { agent: agent.slug, taskId, status }); // the galaxy listens for completed/failed
+      await settleParents(sb, userId, task.parent_id);
       return { status, result, error: msg };
     }
     const msg = e instanceof Error ? e.message : String(e);
     trace.push({ step: "error", detail: msg.slice(0, 300), ms: 0, ok: false });
     await save({ status: "failed", error: msg.slice(0, 1000), finished_at: new Date().toISOString() });
     await emit(sb, userId, "agent.failed", "agents", { agent: agent.slug, taskId, error: msg.slice(0, 200) });
+    await settleParents(sb, userId, task.parent_id);
     return { status: "failed", result: null, error: msg };
   }
 }
@@ -446,40 +468,61 @@ export class ConflictError extends Error {}
 
 /** Apply or reject the actions an agent proposed. */
 export async function resolvePending(sb: SupabaseClient, userId: string, taskId: string, approve: boolean) {
-  const { data: task, error } = await sb.from("tasks").select("id, agent, title, request, parent_id, project_id, status, pending").eq("id", taskId).single();
+  const { data: task, error } = await sb.from("tasks").select("id, agent, title, request, parent_id, project_id, status, pending").eq("user_id", userId).eq("id", taskId).single();
   if (error) throw error;
+  if (!task) throw new ConflictError("Task not found");
   if (task.status !== "awaiting_approval") throw new ConflictError("Nothing is waiting for approval on this task");
   // Claim the approval atomically (compare-and-swap on status): only one request wins, so a double click or a
   // retried request can never run the same action twice. A crash mid-way leaves it "running", which the task list
   // turns into "failed" after 20 min — never re-run, never shown as a success.
   const { data: claimed, error: claimErr } = await sb.from("tasks").update({ status: "running", started_at: new Date().toISOString() })
-    .eq("id", taskId).eq("status", "awaiting_approval").select("id");
+    .eq("user_id", userId).eq("id", taskId).eq("status", "awaiting_approval").select("id");
   if (claimErr) throw claimErr;
   if (!claimed?.length) throw new ConflictError("This task's approval is already being handled");
   const ctx: Ctx = { sb, userId, task, depth: 0, pending: [], trace: [], pages: new Map() };
   const pending = task.pending as PendingAction[];
   for (const p of pending) {
     if (p.status !== "pending") continue;
-    if (!approve) { p.status = "rejected"; continue; }
-    try { p.note = await TOOLS[p.tool].run(ctx, p.input); p.status = "approved"; }
-    catch (e) { p.status = "failed"; p.note = e instanceof Error ? e.message : String(e); }
+    ctx.evidence = [];
+    if (!approve) p.status = "rejected";
+    else try {
+      p.note = await TOOLS[p.tool].run(ctx, p.input);
+      if (p.note.trimStart().startsWith("Error:")) throw new Error(p.note);
+      p.status = "approved";
+      p.evidence = ctx.evidence;
+    } catch (e) { p.status = "failed"; p.note = e instanceof Error ? e.message : String(e); }
+    const { error: persistErr } = await sb.from("tasks").update({ pending }).eq("user_id", userId).eq("id", taskId).eq("status", "running");
+    if (persistErr) throw new Error("An action was handled but its record could not be saved. Inspect the result before retrying.");
   }
-  const done = { pending, status: "done", finished_at: new Date().toISOString() };
-  let { error: saveErr } = await sb.from("tasks").update(done).eq("id", taskId).eq("status", "running");
-  if (saveErr) ({ error: saveErr } = await sb.from("tasks").update(done).eq("id", taskId).eq("status", "running")); // one retry
+  const { data: children, error: childErr } = await sb.from("tasks").select("status").eq("user_id", userId).eq("parent_id", taskId);
+  if (childErr) throw childErr;
+  const outcome = completionState(pending, children ?? []);
+  const done = { pending, ...outcome, finished_at: outcome.status === "awaiting_approval" ? null : new Date().toISOString() };
+  let { error: saveErr } = await sb.from("tasks").update(done).eq("user_id", userId).eq("id", taskId).eq("status", "running");
+  if (saveErr) ({ error: saveErr } = await sb.from("tasks").update(done).eq("user_id", userId).eq("id", taskId).eq("status", "running")); // retry the record, never the actions
   if (saveErr) throw new Error(`Actions ran but their results couldn't be saved: ${saveErr.message}`);
-  // When the last waiting sub-task is settled, the parent task is done too (unless it has its own approvals).
-  if (task.parent_id) {
-    const [{ data: parent }, { data: waiting }] = await Promise.all([
-      sb.from("tasks").select("status, pending").eq("id", task.parent_id).maybeSingle(),
-      sb.from("tasks").select("id").eq("parent_id", task.parent_id).eq("status", "awaiting_approval").limit(1),
-    ]);
-    const ownPending = ((parent?.pending ?? []) as PendingAction[]).some((p) => p.status === "pending");
-    if (parent?.status === "awaiting_approval" && !ownPending && !waiting?.length) {
-      await sb.from("tasks").update({ status: "done" }).eq("id", task.parent_id);
-    }
-  }
+  await emit(sb, userId, outcome.status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId, status: outcome.status });
+  await settleParents(sb, userId, task.parent_id);
   return pending;
+}
+
+/** Approval resolution can settle a delegated chain, but cannot override a running/cancelled parent. */
+async function settleParents(sb: SupabaseClient, userId: string, parentId: string | null) {
+  for (let depth = 0; parentId && depth <= MAX_DEPTH; depth++) {
+    const { data: parent, error } = await sb.from("tasks").select("id, status, pending, parent_id").eq("user_id", userId).eq("id", parentId).maybeSingle();
+    if (error) throw error;
+    if (!parent || parent.status !== "awaiting_approval") return;
+    const { data: kids, error: kidsError } = await sb.from("tasks").select("status").eq("user_id", userId).eq("parent_id", parentId);
+    if (kidsError) throw kidsError;
+    const outcome = completionState(parent.pending ?? [], kids ?? []);
+    if (outcome.status === "awaiting_approval") return;
+    const { data: changed, error: saveError } = await sb.from("tasks").update({ ...outcome, finished_at: new Date().toISOString() })
+      .eq("user_id", userId).eq("id", parentId).eq("status", "awaiting_approval").select("id");
+    if (saveError) throw saveError;
+    if (!changed?.length) return;
+    await emit(sb, userId, outcome.status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId: parentId, status: outcome.status });
+    parentId = parent.parent_id;
+  }
 }
 
 /* ---------------- queue ---------------- */

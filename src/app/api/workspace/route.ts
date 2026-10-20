@@ -31,6 +31,7 @@ export async function GET(req: Request) {
   }
   if (file) {
     const f = await readWsFile(user.id, ws, file);
+    if (f && q.get("open") === "1") return new Response(null, { status: 302, headers: { Location: await previewUrl(user.id, ws, file), "Cache-Control": "private, no-store" } });
     return f ? Response.json(f) : bad("No such file", 404);
   }
   const files = await listFiles(user.id, ws);

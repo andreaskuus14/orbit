@@ -27,11 +27,12 @@ import { stopAllOn } from "./stop-all";
 import { coreToolRefusal } from "./stop-all-pure";
 import { logActivity } from "./activity";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
+import type { WriteEvidence } from "./completion-pure";
 
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
 const LOGGED = ["save_memory", "life_check", "life_add_habit", "life_remind", "ws_write", "ws_create", "ask_agent", "plan_task", "create_goal", "run_scout", "run_niche", "schedule_approved"];
 
-export type TraceStep = { step: string; detail: string; ms: number; ok: boolean };
+export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[] };
 export type Citation = { id: string; title: string; kind: string };
 export type Turn = { role: "user" | "assistant"; content: string };
 
@@ -57,6 +58,7 @@ function systemPrompt(p: Profile | null, today: string) {
   return `You are CORE, the central intelligence of ORBIT, the user's personal AI universe and second brain. Today is ${today}.
 
 Rules:
+- Completion claims must follow actual tool results. If a write fails or its confirmation is missing, report it as incomplete and name what did succeed. Never claim that code was built or tested unless a tool actually ran those checks. The UI's checked-results receipts confirm saved artifacts only, not overall answer correctness.
 - Each turn you get MEMORIES from the user's own store (best matches, or the most recent ones). Ground answers about their ideas, projects and history in them and cite each memory you use as [m:<id>] with the exact id. Never invent ids.
 - Long memories show only their best passages, labelled like [M3 §2 "Deployment"]; when you use one, cite [m:<id>] and name its section (e.g. §2 "Deployment").
 - You can also use tools: search the web, read web pages (including any link the user gives you), read live news, or hand a job to one of ORBIT's agents and use their result. Use them when the memories don't cover the question or it needs fresh information; skip them for questions your memories already answer.
@@ -222,19 +224,20 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       let out: string;
       onReset?.(); // this step was a tool call: clear anything it streamed before the next step answers
       onStep?.(reply.tool, reply.input ?? {});
+      const evidence: WriteEvidence[] = [];
       try { out = coreToolRefusal(stopAllOn(), reply.tool) || (reply.tool === "navigate" ? navigateTool(reply.input ?? {}, !dataIn(), onNavigate)
         : isStudioTool(reply.tool) ? await runStudioTool(reply.tool, question, dataIn())
         : reply.tool === "plan_task" ? await runPlanTool(reply.input ?? {}, question, dataIn())
         : reply.tool === "goal_status" || reply.tool === "create_goal" ? await (await import("./goals")).runGoalTool(sb, userId, reply.tool, reply.input ?? {}, question, dataIn())
         : isLifeTool(reply.tool) ? await runLifeTool(reply.tool, reply.input ?? {}, question, dataIn())
         : isReaTool(reply.tool) ? await runReaTool(userId, reply.tool, reply.input ?? {}, question, dataIn())
-        : isWsTool(reply.tool) ? await runWsTool(userId, reply.tool, reply.input ?? {}, question, !!attach || pinsIn || wsTainted(steps), steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length)
+        : isWsTool(reply.tool) ? await runWsTool(userId, reply.tool, reply.input ?? {}, question, !!attach || pinsIn || wsTainted(steps), steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length, (e) => evidence.push(e))
         : attach && reply.tool === "web_search" ? "Error: with the user's attached files in context, web search is off for this answer (the search words could carry their text out)"
         : (pinsIn || privateIn()) && (reply.tool === "ask_agent" || reply.tool === "read_news" || reply.tool === "web_search") ? "Error: the user's private files, journal or pinned notes are in context; agents, news and web searches are off for the rest of this answer (they could carry that text out)"
         : (attach || pinsIn || privateIn()) && ["fetch_url", "read_news", "ask_agent", "reach_read"].includes(reply.tool) && foreignUrl(reply.input, question) ? "Error: with the user's files in context, only open links the user typed in their message"
-        : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question, signal, stopped, deepLeft() - 60_000)); }
+        : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e))); }
       catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
-      trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 140)} → ${out.slice(0, 140)}`, ms: Date.now() - t, ok: !out.startsWith("Error:") });
+      trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 140)} → ${out.slice(0, 140)}`, ms: Date.now() - t, ok: !out.startsWith("Error:"), ...(evidence.length ? { evidence } : {}) });
       if (LOGGED.includes(reply.tool) && !out.startsWith("Error:")) logActivity({ area: "core", title: `CORE ${reply.tool}: ${activityLine(reply.tool, out)}` }); // no inputs: memory / reminder / file text stays out of the log
       steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${out.slice(0, 8000)}`);
     }
@@ -282,7 +285,7 @@ function navigateTool(input: Record<string, unknown>, first: boolean, onNavigate
 
 /** CORE's tools: the agents' page and news readers, plus handing a whole job to an agent (a normal, visible task). */
 /** timeLeft: ms this turn can still spend on a slow tool (web_search) and leave room for the answer step. */
-async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, input: Record<string, unknown>, question: string, signal?: AbortSignal, stopped: string[] = [], timeLeft = 150_000): Promise<string> {
+async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, input: Record<string, unknown>, question: string, signal?: AbortSignal, stopped: string[] = [], timeLeft = 150_000, onEvidence?: (e: WriteEvidence) => void): Promise<string> {
   const ctx = { sb, userId, task: { id: "", agent: "core", title: "", request: "", parent_id: null, project_id: null }, depth: 1, pending: [], trace: [], pages: new Map() };
   if (tool === "fetch_url" || tool === "read_news") return TOOLS[tool].run(ctx, input);
   if (tool === "web_search") {
@@ -301,6 +304,7 @@ async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, inp
     const v = validateMemory(input);
     if ("error" in v) return `Error: ${v.error}`;
     const r = await saveCoreMemory(sb, userId, v.draft, "core");
+    onEvidence?.({ kind: "memory", id: r.id });
     return r.duplicate ? `Already in memory: "${r.title}"${r.id ? ` [m:${r.id}]` : ""}; nothing saved.` : `Saved memory "${r.title}" [m:${r.id}].`;
   }
   if (tool === "ask_agent") {

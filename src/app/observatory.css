@@ -99,3 +99,27 @@
   .orbit-shell *, .orbit-explore, .world-loading-ring, .activity-orbit { animation: none !important; transition: none !important; }
   .orbit-shell .overview-worlds .planet-card:hover { transform: none; }
 }
+
+/* Existing work is the home screen's first useful action; plain text, actual records. */
+.continue-work { max-width: 960px; margin: 0 auto 2rem; border-block: 1px solid #c3e5ef24; padding: 1rem 0; font-size: .8rem; }
+.continue-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .7rem; }
+.continue-heading h2 { font-size: .9rem; font-weight: 500; color: #e5eff3; }
+.continue-work ul { display: grid; gap: .7rem; }
+.continue-work li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.continue-work li > span { min-width: 0; }
+.continue-work b { display: block; font-weight: 500; overflow-wrap: anywhere; }
+.continue-work small { display: block; color: var(--muted); line-height: 1.5; margin-top: .2rem; }
+.continue-work li .chip { flex-shrink: 0; }
+.continue-work-float { position: absolute; z-index: 16; top: 5rem; left: .75rem; width: 21rem; max-height: calc(100dvh - 26rem); overflow-y: auto; padding: 1rem; background: #0c1219ed; border: 1px solid #c3e5ef24; border-radius: 16px; }
+.continue-work-float li { align-items: flex-start; flex-direction: column; gap: .4rem; }
+.orbit-shell:has(.whats-new) .continue-work-float, .orbit-shell:has(.story-readout.on) .continue-work-float { display: none; }
+.result-evidence { margin-top: .75rem; border-left: 2px solid #89b9ac; padding: .25rem .75rem; font-size: .75rem; }
+.result-evidence h3 { color: #b4d9cf; margin-bottom: .4rem; font-weight: 500; }
+.result-evidence ul { display: grid; gap: .5rem; max-height: 14rem; overflow-y: auto; }
+.result-evidence li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .75rem; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .continue-work li { align-items: flex-start; flex-direction: column; gap: .5rem; }
+  .continue-work-float { top: 4rem; width: min(21rem, calc(100vw - 1.5rem)); max-height: 38dvh; }
+  .orbit-shell:has(.morning-card) .continue-work-float { display: none; }
+}
+@media (max-height: 650px) { .continue-work-float { display: none; } }
