@@ -9,6 +9,7 @@ import { isSpeaking, onSpeakingChange, speakChunk, speakingOrJustEnded, speechSe
 import { convStep, IDLE, isAddressedToOrbit, isConversationEnd, startsConversation, type ConvEvent, type ConvPhase } from "./conversation";
 import { enrollment, loadVoicePrint, matchScore, matchThreshold, startVoiceSampler } from "./voiceprint";
 import { recordUtterance, transcribeAudio } from "./whisper";
+import { parseNavCommand } from "@/lib/nav-pure";
 
 const AWAY_MS = 60_000; // window unfocused this long → stop listening
 const ARMED_MS = 12_000; // after a bare "Hey Orbit", how long the next utterance counts as the question (kept open while you talk)
@@ -203,6 +204,7 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
                 // most likely ORBIT's own voice. Either way never ORBIT's echo.
                 const b = overOrbit && !barged && text ? shouldBargeIn(text, spokenText()) : null;
                 if (b && isSpeaking()) dispatchEvent(new Event(VOICE_INTERRUPT));
+                if (parseNavCommand(text, voiceContext)?.stopAll && (b === "stop" || (barged && !isEcho(text, spokenText())))) { ask(text); return; }
                 if (text && b !== "stop" && (!overOrbit || b || (barged && !isEcho(text, spokenText())))) parts.push(text);
               } catch (e) {
                 if (!signal.aborted && (e as { status?: number }).status !== 429) setError(e instanceof Error ? e.message : "Transcription failed."); // 429: server skipped a backlog
@@ -262,7 +264,11 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
           }
           lastInterim = "";
           if (ending) { interrupted = false; joiner.cancel(); setInterim(""); dispatchEvent(new Event(VOICE_INTERRUPT)); convApply({ type: "stop" }); continue; }
-          if (STOP_WORDS.test(text) && (barge || interrupted)) { interrupted = false; armedUntil = 0; clearTimeout(disarm); joiner.cancel(); setInterim(""); setState("listening"); continue; } // "stop" just silences ORBIT; it isn't a question
+          if ((STOP_WORDS.test(text) || parseNavCommand(text, voiceContext)?.stopAll) && (barge || interrupted)) {
+            interrupted = false; armedUntil = 0; clearTimeout(disarm); joiner.cancel(); setInterim(""); setState("listening");
+            if (parseNavCommand(text, voiceContext)?.stopAll) ask(text); // exact "stop" also pauses work; "stop talking" only silences speech
+            continue;
+          }
           interrupted = false;
           if (wake || free || joiner.pending || startsConversation(text, false)) { joiner.add(text); setInterim(text); } // "let's just talk" needs no "Orbit"
         }

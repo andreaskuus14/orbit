@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notify } from "@/lib/notify-pure";
+import { changeStopAll, STOP_ALL_CHANGED } from "./nav-command";
 
 type Status = { stop: { on: boolean; at: string }; hold: string; limit: { until: number; at: number } | null };
 const SEEN_KEY = "orbit.limitSeen";
@@ -28,17 +29,17 @@ export function StopAll() {
   useEffect(() => {
     void load();
     const h = setInterval(() => void load(), 30_000);
-    return () => clearInterval(h);
+    const refresh = () => void load();
+    addEventListener(STOP_ALL_CHANGED, refresh);
+    return () => { clearInterval(h); removeEventListener(STOP_ALL_CHANGED, refresh); };
   }, [load]);
 
   async function toggle(on: boolean) {
     if (on && !confirm("Stop everything?\n\nRunning agent tasks, agent teams and goal steps are cancelled, and no automation, scout, autopilot, briefing or suggestion starts until you press Resume. Clip renders already running finish. CORE chat keeps answering.")) return;
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/stop-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on }) });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
-      if (j.warning) setErr(j.warning);
+      const warning = await changeStopAll(on);
+      if (warning) setErr(warning);
       await load();
     } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't switch Stop-all"); }
     finally { setBusy(false); }
