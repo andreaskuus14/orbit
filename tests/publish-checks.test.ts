@@ -53,3 +53,12 @@ test("too few views to compare periods", () => {
   assert.equal(tooFewToCompare({ views: 100 }, { views: 1 }), false);
   assert.equal(tooFewToCompare({ views: NaN }, { views: NaN }), true);
 });
+
+test("a version request can carry the owner's What-I-added note (same rules as publishing)", async () => {
+  const { validVersion } = await import("../src/lib/clips/pure.ts");
+  const ok = validVersion({ hook: "my take on this", original: "  my take on this play " });
+  assert.ok(typeof ok === "object" && ok.original === "my take on this play");
+  assert.equal(validVersion({ original: "x".repeat(201) }), "original must be text up to 200 characters");
+  const none = validVersion({});
+  assert.ok(typeof none === "object" && !("original" in none));
+});
