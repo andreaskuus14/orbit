@@ -113,13 +113,32 @@ export function introPose(t: number, out: Num) {
 export const introLabelAlpha = (t: number, i: number, n: number) => clamp01((t - (0.7 + (0.2 * i) / Math.max(1, n))) / 0.08);
 
 /** One stop's framing: camera outside the planet (x, z) looking back toward the CORE, low, with the planet on the
- *  right third (aspect/fov aware) and the system behind it. out = [cx, cy, cz, tx, ty, tz]. */
-export function framePose(px: number, pz: number, size: number, aspect: number, fovDeg: number, out: Num) {
+ *  right third (aspect/fov aware) and the system behind it. yNdc: screen height (-1 bottom … 1 top) the planet's
+ *  centre should sit at, e.g. level with the title beside it. out = [cx, cy, cz, tx, ty, tz]. */
+export function framePose(px: number, pz: number, size: number, aspect: number, fovDeg: number, out: Num, yNdc = 0) {
   const r = Math.hypot(px, pz) || 1, ux = px / r, uz = pz / r;
-  const k = Math.max(1, size / 0.75), d = 4.2 * k;
-  const lat = 0.3 * Math.max(0.5, aspect) * Math.tan((fovDeg * Math.PI) / 360) * d; // screen-right = (uz, 0, -ux)
+  const k = Math.max(1, size / 0.75), d = 4.2 * k, tan = Math.tan((fovDeg * Math.PI) / 360);
+  const lat = 0.3 * Math.max(0.5, aspect) * tan * d; // screen-right = (uz, 0, -ux)
+  const y = Number.isFinite(yNdc) ? Math.max(-0.6, Math.min(0.6, yNdc)) : 0;
   out[0] = px + ux * d * 0.94; out[1] = d * 0.34; out[2] = pz + uz * d * 0.94;
   out[3] = px - uz * lat; out[4] = 0; out[5] = pz + ux * lat;
+  // Aiming below the planet lifts it on screen; the pitch makes that non-linear, so bisect the target height.
+  let lo = -2 * d, hi = 2 * d;
+  for (let i = 0; i < 30; i++) {
+    out[4] = (lo + hi) / 2;
+    if (screenY(out, px, 0, pz, tan) > y) lo = out[4]; else hi = out[4];
+  }
+}
+
+/** Vertical NDC of point (x, y, z) for a camera at out[0..2] looking at out[3..5] with world up +y. */
+function screenY(o: Num, x: number, y: number, z: number, tan: number) {
+  let fx = o[3] - o[0], fy = o[4] - o[1], fz = o[5] - o[2];
+  const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
+  let rx = -fz, rz = fx; // right = f × up (up = +y)
+  const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
+  const uX = -rz * fy, uY = rz * fx - rx * fz, uZ = rx * fy; // up = right × f
+  const vx = x - o[0], vy = y - o[1], vz = z - o[2];
+  return (vx * uX + vy * uY + vz * uZ) / ((vx * fx + vy * fy + vz * fz) * tan);
 }
 
 export type WheelGate = { acc: number; last: number; locked: boolean; lockStart: number };

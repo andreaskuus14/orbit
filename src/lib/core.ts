@@ -304,7 +304,7 @@ async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, inp
     const v = validateMemory(input);
     if ("error" in v) return `Error: ${v.error}`;
     const r = await saveCoreMemory(sb, userId, v.draft, "core");
-    onEvidence?.({ kind: "memory", id: r.id });
+    if (!r.duplicate) onEvidence?.({ kind: "memory", id: r.id }); // a receipt means something new was saved
     return r.duplicate ? `Already in memory: "${r.title}"${r.id ? ` [m:${r.id}]` : ""}; nothing saved.` : `Saved memory "${r.title}" [m:${r.id}].`;
   }
   if (tool === "ask_agent") {
