@@ -99,3 +99,18 @@ export function parseFinds(answer: string): Find[] {
   }
   return out;
 }
+
+/* Approve & send: ORBIT emails a drafted first message only when the owner clicks it for that one business. */
+/** The one email address in a contact field, or null (phones/addresses can't be emailed; two addresses = ambiguous). */
+export function emailIn(contact: string): string | null {
+  const all = contact.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) ?? [];
+  return all.length === 1 ? all[0] : null;
+}
+const SUBJECT: Record<Lang, (n: string) => string> = {
+  English: (n) => `A quick idea for ${n}`, Estonian: (n) => `Väike idee ${n} jaoks`, Russian: (n) => `Небольшая идея для ${n}`,
+};
+/** Subject line in the draft's language (guessed from its letters when unknown). */
+export function sendSubject(name: string, draft: string): string {
+  const lang: Lang = /[А-Яа-яЁё]/.test(draft) ? "Russian" : /[õäöüÕÄÖÜšžŠŽ]/.test(draft) ? "Estonian" : "English";
+  return SUBJECT[lang](name.replace(/[\r\n]+/g, " ").slice(0, 80));
+}

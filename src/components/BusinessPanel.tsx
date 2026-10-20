@@ -1,12 +1,12 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { LANGS, STAGES, STAGE_LABEL, type Find, type Lang, type Prospect, type Stage } from "@/lib/business-pure";
+import { LANGS, STAGES, STAGE_LABEL, emailIn, type Find, type Lang, type Prospect, type Stage } from "@/lib/business-pure";
 
 // BUSINESS drawer: the client pipeline for the Lead Follow-up Autopilot (services/lead-followup).
 // Add businesses, move them through stages, let CORE draft the first message. ORBIT never sends anything: you copy and send it.
 
 type Funnel = { counts: Record<Stage, number>; monthly: number; total: number };
-type State = { prospects: Prospect[]; funnel: Funnel };
+type State = { prospects: Prospect[]; funnel: Funnel; canSend?: boolean };
 
 async function call(method: "GET" | "POST", body?: object) {
   const res = await fetch("/api/business", { method, cache: "no-store", ...(body && { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
@@ -62,7 +62,7 @@ export default function BusinessPanel() {
       {st && !st.prospects.length && <p className="muted">No businesses yet. Add one you could walk into or call this week: a bakery that takes cake orders, a cleaning or renovation firm, a salon.</p>}
 
       <ul className="space-y-2">
-        {shown.map((p) => <Row key={p.id} p={p} busy={busy} act={act} />)}
+        {shown.map((p) => <Row key={p.id} p={p} busy={busy} act={act} canSend={!!st?.canSend} />)}
       </ul>
     </div>
   );
@@ -109,13 +109,15 @@ function AddForm({ busy, onAdd }: { busy: boolean; onAdd: (b: { name: string; ki
   );
 }
 
-function Row({ p, busy, act }: { p: Prospect; busy: string; act: (key: string, body: object) => Promise<boolean> }) {
+function Row({ p, busy, act, canSend }: { p: Prospect; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean }) {
   const [notes, setNotes] = useState(p.notes);
   const [fee, setFee] = useState(String(p.fee || ""));
   const [lang, setLang] = useState<Lang>("Estonian");
   const [copied, setCopied] = useState(false);
   const [sure, setSure] = useState(false);
+  const [sendSure, setSendSure] = useState(false);
   const any = !!busy;
+  const to = emailIn(p.contact);
   const update = (fields: object) => act(`upd:${p.id}`, { action: "update", id: p.id, ...fields });
   const copy = async () => {
     try { await navigator.clipboard.writeText(p.draft); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* clipboard refused: the text stays selectable */ }
@@ -145,8 +147,13 @@ function Row({ p, busy, act }: { p: Prospect; busy: string; act: (key: string, b
       {p.draft && (
         <div className="rounded-md border border-white/10 p-2">
           <p className="whitespace-pre-wrap select-all">{p.draft}</p>
-          <div className="mt-1 flex items-center gap-2"><button className="chip" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
-            <span className="muted text-[11px]">Check it, then send it yourself. Only say you tested their reply time if you really did.</span></div>
+          <div className="mt-1 flex flex-wrap items-center gap-2"><button className="chip" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
+            {canSend && to && p.stage === "lead" && (
+              <button className={`chip ${sendSure ? "ok" : ""}`} disabled={any}
+                onClick={() => (sendSure ? (setSendSure(false), void act(`send:${p.id}`, { action: "send", id: p.id, seen: p.updated_at })) : (setSendSure(true), setTimeout(() => setSendSure(false), 5000)))}>
+                {busy === `send:${p.id}` ? "Sending…" : sendSure ? `Click again to send to ${to}` : "✉ Approve & send"}</button>)}
+            {canSend && to && p.stage === "lead" && /https?:\/\/|www\./i.test(p.draft) && <span className="error text-[11px]">This draft contains a link: check it's one you meant to send.</span>}
+            <span className="muted text-[11px]">{canSend && to && p.stage === "lead" ? "Read it first: nothing is sent until you click twice." : canSend && p.stage === "lead" ? "To send from ORBIT, put one email address in Contact." : "Check it, then send it yourself."} Only say you tested their reply time if you really did.</span></div>
         </div>
       )}
     </li>

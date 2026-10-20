@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FIND_MAX, findPrompt, funnel, outreachPrompt, parseFinds, validatePatch, validateProspect } from "../src/lib/business-pure.ts";
+import { FIND_MAX, emailIn, findPrompt, funnel, outreachPrompt, parseFinds, sendSubject, validatePatch, validateProspect } from "../src/lib/business-pure.ts";
 
 test("validateProspect needs a name and trims every field", () => {
   assert.equal(validateProspect({}), "Give the business a name");
@@ -52,4 +52,14 @@ test("parseFinds keeps only named, cleaned, unique entries from the JSON array",
 test("findPrompt caps the owner's query", () => {
   assert.equal(findPrompt("cake shops Tallinn"), "Find businesses for: cake shops Tallinn");
   assert.equal(findPrompt("x".repeat(500)).length, "Find businesses for: ".length + 120);
+});
+
+test("approve & send: one clear email address only, subject in the draft's language", () => {
+  assert.equal(emailIn("info@pats.ee"), "info@pats.ee");
+  assert.equal(emailIn("Tel 5860 0648, tellimus@pats.ee"), "tellimus@pats.ee");
+  assert.equal(emailIn("+372 5860 0648"), null);
+  assert.equal(emailIn("a@x.ee, b@x.ee"), null);
+  assert.equal(sendSubject("Päts sahver", "Tere! Märkasin, et teete tellimustorte."), "Väike idee Päts sahver jaoks");
+  assert.equal(sendSubject("Pats", "Здравствуйте!"), "Небольшая идея для Pats");
+  assert.equal(sendSubject("Pats\r\nBcc: x@y.z", "Hi there"), "A quick idea for Pats Bcc: x@y.z");
 });
