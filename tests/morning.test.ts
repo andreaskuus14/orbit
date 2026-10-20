@@ -132,7 +132,7 @@ test("sinceSection counts only what happened in the window", () => {
     ],
     alerts: [{ text: "AAPL above 200", firedOn: day(NOW) }, { text: "TSLA below 100" }, { text: "MSFT moves", firedOn: "2020-01-01" }],
   }, from, NOW);
-  assert.deepEqual(s, { from, done: 2, failed: 1, clips: 2, reminders: ["Call mom", "Gym"], alerts: ["AAPL above 200"] });
+  assert.deepEqual(s, { from, done: 2, failed: 1, clips: 2, reminders: ["Call mom", "Gym"], alerts: ["AAPL above 200"], live: 0, approvals: 0 });
   assert.equal(sinceEmpty(s, 0), false);
   assert.equal(sinceEmpty({ from, done: 0, failed: 0, clips: 0, reminders: [], alerts: [] }, 0), true);
   assert.equal(sinceEmpty({ from, done: 0, failed: 0, clips: 0, reminders: [], alerts: [] }, 1), false);
@@ -182,4 +182,20 @@ test("spoken work summary stays bounded and reports missing sources without clai
   const missing = buildMorning({ work: { items: [], more: 0, problems: ["Tasks could not be loaded."] } }, NOW, TZ);
   assert.match(missing.spoken, /Some unfinished work could not be loaded/);
   assert.doesNotMatch(missing.spoken, /0 unfinished|caught up/);
+});
+
+test("since you left: Shorts that went live count, approvals are mentioned but never open a recap alone, spoken recap says only what changed", async () => {
+  const { sinceSpoken } = await import("../src/lib/morning-pure.ts");
+  const from = NOW - 5 * 3_600_000;
+  const jobs = [{ updatedAt: new Date(NOW - 7 * 3_600_000).toISOString(), clips: [
+    { status: "approved", publish: { status: "scheduled", scheduledFor: new Date(NOW - 3_600_000).toISOString() } }, // went live while away
+    { status: "approved", publish: { status: "scheduled", scheduledFor: new Date(NOW + 3_600_000).toISOString() } }, // later today: not yet
+    { status: "approved", publish: { status: "done", at: new Date(NOW - 9 * 3_600_000).toISOString() } }, // before leaving
+  ] }];
+  const s = sinceSection({ tasks: [{ status: "done" }], jobs, reminders: [], alerts: [], approvals: 2 }, from, NOW);
+  assert.equal(s.live, 1);
+  assert.equal(sinceSpoken(s, 0), "Welcome back. While you were away, 1 Short went live and 1 agent task finished. 2 approvals are waiting for you.");
+  const quiet = sinceSection({ tasks: [], jobs: [], reminders: [], alerts: [], approvals: 3 }, from, NOW);
+  assert.equal(sinceEmpty(quiet, 0), true);
+  assert.equal(sinceSpoken(quiet, 0), "");
 });
