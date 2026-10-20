@@ -1,4 +1,4 @@
-import { runDoctor } from "@/lib/doctor";
+import { disk, runDoctor } from "@/lib/doctor";
 import { bootSelfTest } from "@/lib/doctor-boot";
 import { requireUser } from "@/lib/supabase/server";
 
@@ -9,6 +9,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
+  // Background interruption watcher needs only local disk space, not the full CLI/network self-test.
+  if (new URL(req.url).searchParams.has("interruptions")) {
+    const check = await disk().catch(() => null);
+    return Response.json({ checks: check ? [check] : [] });
+  }
   const boot = bootSelfTest().catch(() => null);
   if (new URL(req.url).searchParams.get("boot")) return Response.json(await boot);
   const [report, b] = await Promise.all([runDoctor(sb), boot]);

@@ -117,7 +117,7 @@ async function toolChecks(): Promise<Check[]> {
   ];
 }
 
-async function disk(): Promise<Check> {
+export async function disk(): Promise<Check> {
   const dir = (await exists(studioRoot())) ? studioRoot() : root();
   const s = await statfs(dir);
   return diskCheck(s.bavail * s.bsize, WIN ? `drive ${path.parse(dir).root.replace(/\\$/, "")}` : dir);

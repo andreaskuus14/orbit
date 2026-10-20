@@ -25,6 +25,7 @@ import { UsageMeter } from "./UsageMeter";
 import { ChatSheet, chatsApi, useCoreChats } from "./CoreChats";
 import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, codeBlocks } from "@/lib/core-chats-pure";
 import { sentenceStream, speechChunks } from "./voice/speech-text";
+import { CORE_BUSY } from "@/lib/interruption-pure";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
@@ -53,6 +54,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   }, [greeting]); // eslint-disable-line react-hooks/exhaustive-deps
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => { dispatchEvent(new CustomEvent(CORE_BUSY, { detail: busy })); return () => { dispatchEvent(new CustomEvent(CORE_BUSY, { detail: false })); }; }, [busy]);
   const [live, setLive] = useState<string | null>(null); // the answer while it streams in
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => onSpeakingChange(setSpeaking), []);

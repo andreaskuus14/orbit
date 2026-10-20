@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { coach, type Finding } from "@/lib/studio-coach-pure";
+import { channelHealth, postedThisWeek, type Health, type Light } from "@/lib/studio-health-pure";
 import { FEW_VIEWS, areaPath, compact, delta, linePath, mmss, niceTicks, tooFewToCompare, toPoints, type Box } from "@/lib/chart-pure";
 
 // STUDIO stats: YouTube Analytics dashboard drawn over the left of the 3D world. Hand-written SVG charts.
@@ -181,6 +182,26 @@ function barD(x: number, w: number, base: number, end: number) {
 }
 
 /** Subscribers per day: gained as rose bars up, lost as dim bars down, around a centre baseline. */
+const LIGHT: Record<Light, { dot: string; word: string }> = {
+  green: { dot: "#4ade80", word: "good" }, yellow: { dot: "#facc15", word: "getting there" }, red: { dot: "#f87171", word: "needs work" }, grey: { dot: "#94a3b8", word: "not enough data" },
+};
+/** The three numbers that matter most, each with a light, and one plain next step. Details stay below. */
+function HealthCard({ h }: { h: Health }) {
+  return (
+    <section className="card space-y-2" aria-labelledby="health-title">
+      <h3 id="health-title" className="text-sm font-semibold">Channel health</h3>
+      <ul className="grid gap-2 sm:grid-cols-3">{h.items.map((i) => (
+        <li key={i.id} className="rounded-md border border-white/10 p-2">
+          <div className="flex items-center gap-1.5 text-xs"><span aria-hidden className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: LIGHT[i.light].dot }} />
+            {i.label}<span className="sr-only">: {LIGHT[i.light].word}</span></div>
+          <div className="num text-lg font-semibold">{i.value}</div>
+          <div className="muted text-[11px]">Goal: {i.goal}</div>
+        </li>))}</ul>
+      <p className="text-sm"><b>Do this next:</b> {h.next}</p>
+    </section>
+  );
+}
+
 function SubsChart({ daily }: { daily: Daily[] }) {
   const [ref, w] = useWidth();
   const H = 180, n = daily.length, box = boxFor(w, H);
@@ -387,6 +408,14 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
   const few = !!live && tooFewToCompare(live.totals, live.prevTotals);
   const [full, setFull] = useState(false); // simple view first: coach + 4 numbers + the trend; everything else one tap away
   const findings = useMemo(() => (live ? coach(live, titleOf) : []), [live, titleOf]);
+  const [posted, setPosted] = useState<number | null>(null); // Shorts live in the last 7 days, from ORBIT's own clip jobs
+  useEffect(() => {
+    fetch("/api/studio/clips", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((j: { jobs?: { clips: Parameters<typeof postedThisWeek>[0] }[] } | null) => setPosted(j?.jobs ? postedThisWeek(j.jobs.flatMap((x) => x.clips), Date.now()) : null))
+      .catch(() => setPosted(null)); // unknown stays grey, never a guessed number
+  }, [live]);
+  const health = useMemo(() => (live ? channelHealth({ posted, views: live.totals.views, shortsViews: live.traffic.find((t) => t.source === "SHORTS")?.views ?? 0,
+    engaged: live.engaged?.cur, avgViewSec: live.totals.avgViewSec }) : null), [live, posted]);
   const daily = useMemo(() => live?.daily ?? [], [live]);
   const m = METRICS.find((x) => x[0] === metric)!;
   const labels = useMemo(() => daily.map((d) => dayLabel(d.day)), [daily]);
@@ -454,6 +483,8 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
               YouTube first shows each Short to a small test audience; posting regularly with your own take on each clip matters more than these numbers right now.
             </p>
           )}
+
+          {health && <HealthCard h={health} />}
 
           <Coach findings={findings} />
 
