@@ -1,3 +1,4 @@
+import { languageVerdict } from "./lang-pure";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -52,7 +53,9 @@ const ASR_SEGMENT_SEC = 300;
 const ASR_OVERLAP_SEC = 5;
 const ACTIVE: JobStatus[] = ["probing", "transcribing", "finding", "rendering"];
 
-type Asr = (audio: Float32Array, o: Record<string, unknown>) => Promise<{ chunks?: { text: string; timestamp: [number | null, number | null] }[] }>;
+type Asr = (audio: Float32Array, o: Record<string, unknown>) => Promise<{ text?: string; chunks?: { text: string; timestamp: [number | null, number | null] }[] }>;
+/** An English-only job whose audio isn't English: the job stops instead of making clips with wrong captions. */
+class NotEnglishError extends Error {}
 type State = {
   started?: boolean; recovered?: boolean; busy?: boolean; again?: boolean;
   asrModels?: Map<string, Promise<Asr>>; wordTs?: Map<string, boolean>; // per model: loaded pipeline, supports word timestamps
@@ -390,9 +393,11 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
           await set(job, "transcribing", 0.08, "Loading Whisper");
           const phase = (p: AsrPhase) => signal.aborted ? undefined : void set(job, "transcribing", 0.08, p.phase === "loading" ? "Loading Whisper"
             : `Downloading Whisper (first run, ~300 MB)${p.f !== undefined ? ` ${Math.round(p.f * 100)}%` : ""}`).catch(() => {});
+          // Other creators' videos must be English (auto too: transformers.js assumes English anyway). Own devlog footage is never skipped.
+          if (o.preset !== "devlog") { await set(job, "transcribing", 0.08, "Checking the audio is English"); await checkEnglish(pcmFile, spans, signal, phase); }
           words = cleanWords(await transcribe(pcmFile, spans, o.language, signal, phase, (f) => set(job, "transcribing", 0.08 + 0.45 * f, `Transcribing${what} ${Math.round(f * 100)}%`))); // also feeds Claude a transcript without loops
         } catch (e) {
-          if (signal.aborted) throw e;
+          if (signal.aborted || e instanceof NotEnglishError) throw e; // wrong language: no clips at all, not clips without captions
           job.warnings.push(`Transcription failed, continuing without captions: ${e instanceof Error ? e.message : e}`);
           words = [];
         }
@@ -514,6 +519,25 @@ async function asrFor(language: ClipOptions["language"], onPhase?: (p: AsrPhase)
     catch (e) { console.error("[orbit] English Whisper model failed, using the main one:", e instanceof Error ? e.message : e); }
   }
   return { asr: await loadAsr(ASR_MODEL, onPhase), model: ASR_MODEL };
+}
+
+/** Clips of other creators' videos: Whisper's language guess (asr-worker detectLanguage) on up to 3 × 25 s of the
+ *  loudest speech. Throws NotEnglishError when most guesses aren't English; unknown (English-only model) passes. */
+async function checkEnglish(pcmFile: string, spans: Span[], signal: AbortSignal, onPhase: (p: AsrPhase) => void) {
+  if (/\.en(?![a-z])/i.test(ASR_MODEL)) return; // an English-only model can't tell
+  const asr = await loadAsr(ASR_MODEL, onPhase);
+  const fh = await open(pcmFile, "r");
+  try {
+    const codes: (string | null)[] = [];
+    for (const sp of [...spans].sort((a, b) => (b.end - b.start) - (a.end - a.start)).slice(0, 3)) {
+      signal.throwIfAborted();
+      const len = Math.min(25, sp.end - sp.start);
+      if (len < 3) continue;
+      const audio = await readPcm(fh, sp.start + (sp.end - sp.start - len) / 2, len);
+      codes.push(((await asr(audio, { detectLanguage: true })) as { language?: string | null }).language ?? null);
+    }
+    if (languageVerdict(codes) === "other") throw new NotEnglishError(`Skipped: the speech isn't English (Whisper heard ${[...new Set(codes.filter(Boolean))].join(", ")}). ORBIT only clips English videos from other creators.`);
+  } finally { await fh.close(); }
 }
 
 export async function transcribe(pcmFile: string, spans: Span[], language: ClipOptions["language"], signal: AbortSignal, onPhase: (p: AsrPhase) => void, progress: (f: number) => Promise<void>): Promise<Word[]> {
