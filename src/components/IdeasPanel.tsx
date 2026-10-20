@@ -32,7 +32,7 @@ export default function IdeasPanel({ initialUrl, onConsumed }: { initialUrl?: st
         <input className="field flex-1" aria-label="YouTube link" placeholder="Paste a YouTube link…" value={url} onChange={(e) => setUrl(e.target.value)} />
         <button className="btn" disabled={busy || !url.trim()}>{busy ? "Reading…" : "Find ideas"}</button>
       </form>
-      {busy && <p className="muted" role="status">Reading the captions and scoring every idea (about a minute)…</p>}
+      {busy && <p className="muted" role="status">Reading the captions and scoring every idea (about a minute). If YouTube refuses the captions, ORBIT listens to the first 30 minutes instead, which takes a few minutes…</p>}
       {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
       {b && !b.shown.length && <p className="muted">No strong ideas yet. Paste a video about side hustles, tools or channel growth.</p>}
       <ul className="space-y-2">{b?.shown.map((i) => (

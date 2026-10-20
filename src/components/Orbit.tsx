@@ -28,6 +28,7 @@ import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
 import { runFollowCommand } from "./follow-command";
 import { runWatchCommand } from "./watch-store";
 import { runAgentCommand } from "./agent-command";
+import { runRecipeCommand } from "./recipe-command";
 import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
 import { markOpen } from "./dev-timing";
 import { ContinueWork } from "./ContinueWork";
@@ -167,6 +168,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       }
       const fr = runFollowCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // done signal: a voice conversation listens again // "follow Estonia" / "unfollow AI": speaks the real outcome
       if (fr) { stopSpeech(); return; }
+      if (runRecipeCommand(text, (msg) => { setCmdReply(msg); if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) { stopSpeech(); return; } // "run recipe daily ideas"
       const ar = runAgentCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // "Atlas, research CS2 trends": a real task
       if (ar) { stopSpeech(); if (speechSettings().speak) speakChunk(ar); return; }
       if (runWatchCommand(text, shown, (msg) => { stopSpeech(); if (msg && speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) return; // "show me Jynxzi's latest videos", then "the second one"
@@ -353,6 +355,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       catch (e) { setCmdErr(e instanceof Error ? e.message : "Command failed. Try again."); }
       return;
     }
+    if (runRecipeCommand(text, (msg, ok) => { if (ok) setCmdReply(msg); else setCmdErr(msg); })) { setCmd(""); return; } // "run recipe daily ideas": no CORE call
     if (runFollowCommand(text, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // "follow Estonia" / "unfollow AI"
     if (runWatchCommand(text, shown, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // THEATER: find/choose/control videos
     if (cmdMode === "ask") { setCmd(""); setPending(text); openCore(); return; }
