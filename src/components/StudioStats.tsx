@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { areaPath, compact, delta, linePath, mmss, niceTicks, toPoints, type Box } from "@/lib/chart-pure";
+import { coach, type Finding } from "@/lib/studio-coach-pure";
+import { FEW_VIEWS, areaPath, compact, delta, linePath, mmss, niceTicks, tooFewToCompare, toPoints, type Box } from "@/lib/chart-pure";
 
 // STUDIO stats: YouTube Analytics dashboard drawn over the left of the 3D world. Hand-written SVG charts.
 // Data: GET /api/studio/analytics (OAuth, read-only). Mounted inside `.studio`, fills its container.
@@ -16,6 +17,7 @@ type Analytics =
       countries: { country: string; views: number }[];
       topVideos?: { id: string; views: number; watchMinutes: number; avgViewSec: number }[];
       retention?: { t: number; ratio: number; relative: number }[];
+      engaged?: { cur: number; prev: number };
       warnings: string[]; fetchedAt: string };
 type Live = Extract<Analytics, { connected: true }>;
 
@@ -267,17 +269,41 @@ function Spark({ values }: { values: number[] }) {
   );
 }
 
-function Kpi({ label, value, cur, prev, spark }: { label: string; value: string; cur: number; prev: number; spark?: number[] }) {
-  const d = delta(cur, prev);
+function Kpi({ label, value, cur, prev, spark, few }: { label: string; value: string; cur: number; prev: number; spark?: number[]; few?: boolean }) {
+  const d = few ? { dir: 0, text: "—" } : delta(cur, prev); // few views: a % change would be noise
   return (
     <div className="card !p-2.5">
       <dt className="muted text-[10px] uppercase tracking-widest">{label}</dt>
       <dd className="num text-xl font-semibold">{value}</dd>
       <dd className="num text-[11px] !text-shadow-none" style={{ color: d.dir > 0 ? C.rose : "var(--muted)" }}>
-        {d.text} <span className="sr-only">versus the previous period</span><span aria-hidden className="muted"> vs prev</span>
+        {d.text} <span className="sr-only">{few ? "too few views to compare with" : "versus"} the previous period</span><span aria-hidden className="muted"> vs prev</span>
         {spark && <Spark values={spark} />}
       </dd>
     </div>
+  );
+}
+
+const LEVEL = { fix: { icon: "⚠", label: "Fix" }, good: { icon: "▲", label: "Working" }, info: { icon: "ⓘ", label: "Note" } } as const;
+/** What the numbers mean and the one thing to do next (studio-coach-pure.ts). */
+function Coach({ findings }: { findings: Finding[] }) {
+  if (!findings.length) return <p className="card text-xs muted">Nothing stands out in this range. Keep your posting rhythm and check back next week.</p>;
+  return (
+    <section className="card" aria-label="Coach">
+      <h3 className="hud-title studio-title mb-2 !text-[0.7rem]">COACH · WHAT TO DO NEXT</h3>
+      <ol className="space-y-2.5">
+        {findings.map((f) => (
+          <li key={f.title} className="grid grid-cols-[auto_1fr] gap-x-2 text-sm">
+            <span aria-hidden style={{ color: f.level === "good" ? C.rose : f.level === "fix" ? C.cherry : "var(--muted)" }}>{LEVEL[f.level].icon}</span>
+            <div className="min-w-0">
+              <p className="font-semibold"><span className="sr-only">{LEVEL[f.level].label}: </span>{f.title}</p>
+              <p className="muted text-xs">{f.why}</p>
+              <p className="text-xs"><b>Do this:</b> {f.todo}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <p className="muted mt-2 text-[10px]">ORBIT&apos;s rules of thumb from your own numbers, not YouTube benchmarks.</p>
+    </section>
   );
 }
 
@@ -358,6 +384,9 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
   }
 
   const live: Live | null = data?.connected ? data : null;
+  const few = !!live && tooFewToCompare(live.totals, live.prevTotals);
+  const [full, setFull] = useState(false); // simple view first: coach + 4 numbers + the trend; everything else one tap away
+  const findings = useMemo(() => (live ? coach(live, titleOf) : []), [live, titleOf]);
   const daily = useMemo(() => live?.daily ?? [], [live]);
   const m = METRICS.find((x) => x[0] === metric)!;
   const labels = useMemo(() => daily.map((d) => dayLabel(d.day)), [daily]);
@@ -419,16 +448,26 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
             {dayLabel(live.range.start, true)} – {dayLabel(live.range.end, true)} · Data through {dayLabel(live.range.end, true)} (YouTube Analytics lags about 2 days)
           </p>
 
+          {few && (
+            <p className="card text-xs" role="note">
+              <b>Collecting data.</b> Only {live.totals.views} views in this range, so changes vs the previous period are hidden until a range has {FEW_VIEWS}+ views.
+              YouTube first shows each Short to a small test audience; posting regularly with your own take on each clip matters more than these numbers right now.
+            </p>
+          )}
+
+          <Coach findings={findings} />
+
           <dl className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
-            <Kpi label="Views" value={compact(live.totals.views)} cur={live.totals.views} prev={live.prevTotals.views} spark={daily.map((d) => d.views)} />
-            <Kpi label="Watch time" value={`${compact(live.totals.watchMinutes / 60)} h`} cur={live.totals.watchMinutes} prev={live.prevTotals.watchMinutes} spark={daily.map((d) => d.watchMinutes)} />
-            <Kpi label="Avg view" value={mmss(live.totals.avgViewSec)} cur={live.totals.avgViewSec} prev={live.prevTotals.avgViewSec}
+            <Kpi few={few} label="Views" value={compact(live.totals.views)} cur={live.totals.views} prev={live.prevTotals.views} spark={daily.map((d) => d.views)} />
+            {full && <Kpi few={few} label="Watch time" value={`${compact(live.totals.watchMinutes / 60)} h`} cur={live.totals.watchMinutes} prev={live.prevTotals.watchMinutes} spark={daily.map((d) => d.watchMinutes)} />}
+            <Kpi few={few} label="Avg view" value={mmss(live.totals.avgViewSec)} cur={live.totals.avgViewSec} prev={live.prevTotals.avgViewSec}
               spark={daily.map((d) => (d.views > 0 ? (d.watchMinutes * 60) / d.views : 0))} />
-            <Kpi label="Subscribers" value={`${live.totals.subsGained - live.totals.subsLost >= 0 ? "+" : "−"}${compact(Math.abs(live.totals.subsGained - live.totals.subsLost))}`}
+            <Kpi few={few} label="Subscribers" value={`${live.totals.subsGained - live.totals.subsLost >= 0 ? "+" : "−"}${compact(Math.abs(live.totals.subsGained - live.totals.subsLost))}`}
               cur={live.totals.subsGained - live.totals.subsLost} prev={live.prevTotals.subsGained - live.prevTotals.subsLost} spark={daily.map((d) => d.subsGained - d.subsLost)} />
-            <Kpi label="Likes" value={compact(live.totals.likes)} cur={live.totals.likes} prev={live.prevTotals.likes} />
-            <Kpi label="Comments" value={compact(live.totals.comments)} cur={live.totals.comments} prev={live.prevTotals.comments} />
-            <Kpi label="Shares" value={compact(live.totals.shares)} cur={live.totals.shares} prev={live.prevTotals.shares} />
+            {live.engaged && <Kpi few={few} label="Engaged views" value={compact(live.engaged.cur)} cur={live.engaged.cur} prev={live.engaged.prev} />}
+            {full && <Kpi few={few} label="Likes" value={compact(live.totals.likes)} cur={live.totals.likes} prev={live.prevTotals.likes} />}
+            {full && <Kpi few={few} label="Comments" value={compact(live.totals.comments)} cur={live.totals.comments} prev={live.prevTotals.comments} />}
+            {full && <Kpi few={few} label="Shares" value={compact(live.totals.shares)} cur={live.totals.shares} prev={live.prevTotals.shares} />}
           </dl>
 
           <section className="card" aria-label="Daily trend">
@@ -444,7 +483,9 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
             ) : <p className="muted text-xs">No daily data for this range yet.</p>}
           </section>
 
-          <div className="grid gap-3 @2xl:grid-cols-2">
+          <button className="chip" aria-expanded={full} onClick={() => setFull((f) => !f)}>{full ? "▴ Simple view" : "▾ Full dashboard: watch time, reactions, traffic, countries, top videos"}</button>
+
+          {full && <div className="grid gap-3 @2xl:grid-cols-2">
             <Section title="Subscribers gained vs lost">
               {daily.length ? <SubsChart daily={daily} /> : <p className="muted text-xs">No data for this range.</p>}
             </Section>
@@ -477,7 +518,7 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
             <Section title="Top countries">
               <HBars label="Top countries" rows={live.countries.map((c) => ({ label: country(c.country), value: c.views }))} />
             </Section>
-          </div>
+          </div>}
 
           {live.warnings.length > 0 && <p className="muted text-xs">{live.warnings.join(" · ")}</p>}
           <p className="text-right text-xs">

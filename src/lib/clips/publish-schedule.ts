@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { videoResource } from "../yt-analytics-pure";
+import { originalityIssue } from "./publish-checks-pure";
 import { clipFile, getJob, isPublishing, listJobs, publishDone, readState, saveState, startPublish, studioRoot, withJobLock } from "./factory";
 import { DEFAULT_PUBLISH, nextSlots, parseSettings, usedSlots, type PublishSettings } from "./schedule";
 import type { Clip } from "./types";
@@ -35,6 +36,7 @@ export async function scheduleAll(only?: string[], meta: Record<string, { publis
   const todo = await listJobs().then((jobs) => jobs.flatMap((j) => j.clips.filter((c) => eligible(c) && (!only || only.includes(`${j.id}/${c.id}`))).map((c) => [j.id, c.id] as const)), (e) => { batch.running = false; throw e; });
   if (!todo.length) { batch.running = false; return "No approved, unpublished clips to schedule"; }
   batch.total = todo.length;
+  const needNote: string[] = [];
   void (async () => {
     for (const [jobId, clipId] of todo) {
       if (stopAllOn()) { batch.error = PAUSED_MSG; break; } // Stop-all: the upload under way finished; no next one
@@ -47,6 +49,7 @@ export async function scheduleAll(only?: string[], meta: Record<string, { publis
           if (!job || !clip || !eligible(clip)) return "skip"; // changed meanwhile (published, rejected, deleted)
           const file = clipFile(clip);
           if (!file || !(await stat(file).catch(() => null))?.isFile()) return `${clip.title}: the video file is missing`;
+          if (originalityIssue(job, clip)) return "needs-note"; // skipped, not a stop: the other approved clips still go
           const want = meta[`${jobId}/${clipId}`];
           if (want?.publishAt && !(await freeSlots(60)).includes(want.publishAt)) return `${clip.title}: the chosen slot isn't free any more`; // never moved silently
           const [at] = want?.publishAt ? [want.publishAt] : await freeSlots();
@@ -58,6 +61,7 @@ export async function scheduleAll(only?: string[], meta: Record<string, { publis
         });
       } while (r === "busy");
       if (r === "skip") { batch.total--; continue; }
+      if (r === "needs-note") { batch.total--; needNote.push(clipId); continue; }
       if (r !== "started") { batch.error = r; break; }
       await publishDone();
       const c = (await getJob(jobId))?.clips.find((x) => x.id === clipId);
@@ -67,6 +71,7 @@ export async function scheduleAll(only?: string[], meta: Record<string, { publis
       }
       batch.scheduled++;
     }
+    if (needNote.length && !batch.error) batch.error = `${needNote.length} clip${needNote.length === 1 ? "" : "s"} from other creators skipped: open ${needNote.length === 1 ? "it" : "them"} in Clips and fill in “What I added” first`;
   })().catch((e) => { batch.error = e instanceof Error ? e.message : "Scheduling stopped"; }).finally(() => { batch.running = false; });
   return batch;
 }

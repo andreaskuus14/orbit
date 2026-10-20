@@ -13,6 +13,7 @@ export type Analytics =
       countries: { country: string; views: number }[];
       topVideos?: { id: string; views: number; watchMinutes: number; avgViewSec: number }[];
       retention?: { t: number; ratio: number; relative: number }[];
+      engaged?: { cur: number; prev: number }; // YouTube's engagedViews metric; missing if that query failed
       warnings: string[]; fetchedAt: string };
 
 export type RangeDays = 7 | 28 | 90 | 365;
@@ -127,27 +128,29 @@ export type Privacy = "private" | "unlisted" | "public";
 const PRIVACY: Privacy[] = ["private", "unlisted", "public"];
 export type VideoResource = {
   snippet: { title: string; description: string; categoryId: string };
-  status: { privacyStatus: Privacy; selfDeclaredMadeForKids: false; publishAt?: string };
+  status: { privacyStatus: Privacy; selfDeclaredMadeForKids: false; publishAt?: string; containsSyntheticMedia?: boolean };
 };
 
 /** Publish request body + clip → the video resource to upload, or a message for a 400. A schedule must be private until publishAt. */
 export function videoResource(b: Record<string, unknown>, clip: { title: string; hook: string }, now = Date.now()): VideoResource | string {
   const {
     title = clip.title.replace(/[<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 100),
-    description = `${clip.hook.replace(/[<>]/g, "")}\n\n#shorts`.trim(), privacy = "private", publishAt,
+    description = `${clip.hook.replace(/[<>]/g, "")}\n\n#shorts`.trim(), privacy = "private", publishAt, aiContent,
   } = b;
   const t = typeof title === "string" ? title.trim() : "";
   if (!t || t.length > 100 || /[<>]/.test(t)) return "title must be 1-100 characters without < or >";
   if (typeof description !== "string" || new TextEncoder().encode(description).length > 5000 || /[<>]/.test(description))
     return "description must be at most 5000 bytes without < or >";
   if (!PRIVACY.includes(privacy as Privacy)) return "privacy must be private, unlisted or public";
+  if (aiContent !== undefined && typeof aiContent !== "boolean") return "aiContent must be true or false";
   let at: string | undefined;
   if (publishAt != null && publishAt !== "") {
     const ms = typeof publishAt === "string" ? Date.parse(publishAt) : NaN;
     if (!(ms >= now + MIN_LEAD_MS) || ms > now + 183 * DAY) return "Pick a publish time at least 15 minutes from now and within 6 months";
     at = new Date(ms).toISOString();
   }
-  return { snippet: { title: t, description, categoryId: "24" }, status: { privacyStatus: at ? "private" : (privacy as Privacy), selfDeclaredMadeForKids: false, ...(at && { publishAt: at }) } };
+  return { snippet: { title: t, description, categoryId: "24" }, status: { privacyStatus: at ? "private" : (privacy as Privacy), selfDeclaredMadeForKids: false, ...(at && { publishAt: at }),
+    ...(aiContent === true && { containsSyntheticMedia: true }) } }; // YouTube's "altered or synthetic content" label (Data API, since Oct 2024)
 }
 
 /** A YouTube API error response → a message for the owner. Only reason codes are used, never Google's free text. */

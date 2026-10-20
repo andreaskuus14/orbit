@@ -7,6 +7,7 @@ import { getJob, listDownloads, listJobs, readState, saveJob, saveState, studioR
 import { critiqueClip, learnView } from "./learn";
 import { learnProblem, type LearnState } from "./learn-pure";
 import { batchStatus, freeSlots, readPublishSettings, scheduleAll } from "./publish-schedule";
+import { cleanOriginal, originalityIssue } from "./publish-checks-pure";
 import { usedSlots } from "./schedule";
 import { ScoutError, actOnPick, runScoutNow, scoutView } from "./scout";
 import { autoPicks } from "./scout-pure";
@@ -155,14 +156,16 @@ export async function reviewWaiting(key: unknown) {
 
 /** Approve = the clip's normal approved status with the proposed title, then scheduled into exactly the proposed slot (taken → error,
  *  a new proposal is made) through scheduleAll: same file / slot / upload checks, one upload at a time, no auto-retry. */
-export function approve(key: unknown) { // one approve at a time: two quick ones can't race for the batch or the same slot
-  const p = (A.approving ?? Promise.resolve()).then(() => approveOne(key));
+export function approve(key: unknown, original?: unknown) { // one approve at a time: two quick ones can't race for the batch or the same slot
+  const p = (A.approving ?? Promise.resolve()).then(() => approveOne(key, original));
   A.approving = p.catch(() => {});
   return p;
 }
 
-async function approveOne(key: unknown) {
+async function approveOne(key: unknown, rawOriginal?: unknown) {
   if (!isKey(key)) throw new ScoutError("key must be <job>/<clip>");
+  const original = cleanOriginal(rawOriginal);
+  if (original === null) throw new ScoutError("original must be text of at most 200 characters");
   if (batchStatus()?.running) throw new ScoutError("Clips are being scheduled right now; approve again when that finishes", 409);
   const s = await readStored();
   if (!s) throw new ScoutError("Connect YouTube first", 409);
@@ -181,6 +184,9 @@ async function approveOne(key: unknown) {
     if (!job || !clip) throw new ScoutError("Clip not found", 404);
     if (clip.status !== "ready" && clip.status !== "approved") throw new ScoutError(`Clip is ${clip.status}`, 409);
     if (clip.publish && clip.publish.status !== "failed") throw new ScoutError("This clip is already on its way to YouTube", 409);
+    if (original !== undefined && original !== clip.original) { clip.original = original || undefined; await saveJob(job); } // kept even if refused below
+    const notOriginal = originalityIssue(job, clip);
+    if (notOriginal) throw new ScoutError(notOriginal, 409);
     await updateClip(job, clip, { status: "approved", title });
   });
   const batch = await scheduleAll([key], { [key]: { publishAt: p.slot, description: p.description } });

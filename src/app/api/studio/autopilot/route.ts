@@ -7,7 +7,7 @@ import { logActivity } from "@/lib/activity";
 export const dynamic = "force-dynamic";
 
 // YouTube autopilot: GET state (candidates, pipeline, proposals, what's working); PATCH settings;
-// POST {action: "find"} | {action: "clip", videoIds} | {action: "package"} | {action: "approve", key} | {action: "edit", key, title?, slot?} | {action: "review", key}. Logic: src/lib/clips/autopilot.ts.
+// POST {action: "find"} | {action: "clip", videoIds} | {action: "package"} | {action: "approve", key, original?} | {action: "edit", key, title?, slot?} | {action: "review", key}. Logic: src/lib/clips/autopilot.ts.
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       case "clip": return Response.json(await clipNow(b.videoIds));
       case "package": await packageNow(); return Response.json(await autopilotView());
       case "approve": {
-        const batch = await approve(b.key);
+        const batch = await approve(b.key, b.original);
         logActivity({ area: "autopilot", title: `Autopilot: you approved ${String(b.key)} for upload`, link: { panel: "studio" } });
         return Response.json({ batch }, { status: 202 });
       }

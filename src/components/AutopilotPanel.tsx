@@ -71,7 +71,9 @@ export default function AutopilotPanel({ active, onChanged, onOpenClip, onOpenFi
 
   const waiting: Waiting[] = d ? d.items.flatMap((i) => i.clips.filter((c) => c.stage === "waiting" && d.proposals[c.key]).map((c) => ({ ...c, p: d.proposals[c.key] }))) : [];
   const cur = waiting.find((w) => w.key === atKey) ?? waiting[0];
-  const approve = useCallback((w: Waiting) => act(`ok:${w.key}`, () => call("POST", { action: "approve", key: w.key }), "✅ Approved: uploading as private, YouTube publishes it at the slot"), [act]);
+  const notes = useRef<Record<string, string>>({}); // "What I added" per waiting clip (sent with approve; the server requires it for other creators' clips)
+  const approve = useCallback((w: Waiting) => { const original = notes.current[w.key]?.trim();
+    return act(`ok:${w.key}`, () => call("POST", { action: "approve", key: w.key, ...(original ? { original } : {}) }), "✅ Approved: uploading as private, YouTube publishes it at the slot"); }, [act]);
   const skip = useCallback((w: Waiting) => {
     if (armed !== `skip:${w.key}`) { setArmed(`skip:${w.key}`); return; }
     const [job, clip] = w.key.split("/");
@@ -178,7 +180,7 @@ export default function AutopilotPanel({ active, onChanged, onOpenClip, onOpenFi
           {d.counts.packaging + d.counts.clipping ? `📦 ${d.counts.packaging + d.counts.clipping} on the way: clips land here packaged (title, thumbnail, description, slot).`
             : d.candidates.length ? "Nothing to approve yet. Clip a candidate below and it lands here, ready to approve."
             : "Nothing to approve. Find candidates first; the best clips will wait here for your OK."}</p>
-          : <WaitingCard key={cur.key} w={cur} slots={d.slots ?? []} busy={busy} armed={armed === `ok:${cur.key}` ? "ok" : armed === `skip:${cur.key}` ? "skip" : ""} onApprove={() => void approve(cur)} onSkip={() => skip(cur)}
+          : <WaitingCard key={cur.key} w={cur} note={notes.current[cur.key] ?? ""} onNote={(t) => { notes.current[cur.key] = t; }} slots={d.slots ?? []} busy={busy} armed={armed === `ok:${cur.key}` ? "ok" : armed === `skip:${cur.key}` ? "skip" : ""} onApprove={() => void approve(cur)} onSkip={() => skip(cur)}
             onEdit={onOpenClip ? () => { const [j, c] = cur.key.split("/"); onOpenClip(j, c); } : undefined}
             onTitle={(title) => void act(`t:${cur.key}`, () => call("POST", { action: "edit", key: cur.key, title }))}
             onSlot={(slot) => void act(`slot:${cur.key}`, () => call("POST", { action: "edit", key: cur.key, slot }), "Slot changed")}
@@ -287,11 +289,11 @@ export default function AutopilotPanel({ active, onChanged, onOpenClip, onOpenFi
   );
 }
 
-function WaitingCard({ w, slots, busy, armed, onApprove, onSkip, onEdit, onTitle, onSlot, onReview }: {
-  w: Waiting; slots: string[]; busy: string; armed: "" | "ok" | "skip"; onApprove: () => void; onSkip: () => void; onEdit?: () => void;
+function WaitingCard({ w, note, onNote, slots, busy, armed, onApprove, onSkip, onEdit, onTitle, onSlot, onReview }: {
+  w: Waiting; note: string; onNote: (t: string) => void; slots: string[]; busy: string; armed: "" | "ok" | "skip"; onApprove: () => void; onSkip: () => void; onEdit?: () => void;
   onTitle: (t: string) => void; onSlot: (s: string) => void; onReview: () => void;
 }) {
-  const p = w.p, vid = useRef<HTMLVideoElement>(null), [playing, setPlaying] = useState(false);
+  const p = w.p, vid = useRef<HTMLVideoElement>(null), [playing, setPlaying] = useState(false), [added, setAdded] = useState(note);
   const play = (on: boolean) => { const v = vid.current; if (!v) return; if (on) void v.play().then(() => setPlaying(true), () => {}); else { v.pause(); setPlaying(false); } };
   const any = !!busy;
   return (
@@ -325,6 +327,11 @@ function WaitingCard({ w, slots, busy, armed, onApprove, onSkip, onEdit, onTitle
           <span className="muted">{p.slotWhy}</span>
         </label>
         {p.description && <details><summary className="muted cursor-pointer">Description</summary><p className="mt-1 whitespace-pre-line">{p.description}</p></details>}
+        <label className="block"><span className="muted">What I added (your commentary, reaction or analysis)</span>
+          <input className="field mt-0.5 w-full !px-2 !py-1" value={added} maxLength={200} disabled={any} placeholder="e.g. my voiceover explaining why this play works"
+            onChange={(e) => { setAdded(e.target.value); onNote(e.target.value); }} />
+          <span className="muted text-[11px]">This is another creator&apos;s video. YouTube shows plain re-uploads to fewer people since 1 Oct 2026, so it needs your own layer.</span>
+        </label>
         <div className="flex flex-wrap gap-2 pt-1">
           <button className="btn !px-4 !py-2 !text-sm" disabled={any || !p.slot} onClick={onApprove} style={armed === "ok" ? { outline: "2px solid #ffe5ec", outlineOffset: 2, boxShadow: "0 0 30px rgba(255,46,99,0.8)" } : undefined}>{busy === `ok:${w.key}` ? "Approving…" : "✅ Approve & schedule"} <kbd className="ml-1 hidden sm:inline">A</kbd></button>
           <button className={`chip !px-4 !py-2 ${armed === "skip" ? "error" : ""}`} disabled={any} onClick={onSkip} style={armed === "skip" ? { borderColor: "#fb7185" } : undefined}>

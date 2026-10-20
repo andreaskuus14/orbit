@@ -11,6 +11,7 @@ import { devlogHashtags } from "@/lib/clips/devlog";
 import { HypeWave, ScoreRing, ScoreWhy } from "./HypeScore";
 import type { HypeView } from "@/lib/clips/hype-pure";
 import type { Virality } from "@/lib/clips/score-pure";
+import { uploadHealth } from "@/lib/clips/publish-checks-pure";
 
 // STUDIO clip factory: turn long videos from the inbox folder into 9:16 short clips, review and approve them.
 // Data: /api/studio/clips (server owned elsewhere). Mounted inside `.studio`, fills its container like StudioStats.
@@ -18,7 +19,7 @@ import type { Virality } from "@/lib/clips/score-pure";
 // Mirrors src/lib/clips/types.ts (declared here so this file stands alone).
 type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
-  status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; variantOf?: string; edit?: VersionEdit;
+  status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; variantOf?: string; edit?: VersionEdit; original?: string;
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality };
 type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string; scheduledFor?: string };
 // Mirrors src/lib/clips/schedule.ts + publish-schedule.ts (GET /api/studio/clips/schedule).
@@ -31,7 +32,8 @@ type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: CamSi
 type VersionBody = Partial<VersionEdit> & { hook?: string; title?: string; start: number; end: number; suggest: boolean };
 type Quarantined = { file: string; reason: string; at: string };
 type YtStatus = { configured: boolean; connected: boolean; canUpload?: boolean };
-type PublishBody = { title: string; description: string; privacy: "private" | "unlisted" | "public"; publishAt?: string; force?: boolean }; // publishAt: ISO, or "next" = next free slot
+type PublishBody = { title: string; description: string; privacy: "private" | "unlisted" | "public"; publishAt?: string; force?: boolean;
+  original?: string; aiContent?: boolean }; // original: "What I added" (required for other creators' clips); aiContent: YouTube's altered/synthetic label // publishAt: ISO, or "next" = next free slot
 type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering" | "done" | "failed";
 type ClipJob = { id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
@@ -273,6 +275,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   if (reviewing) return <ReviewQueue reduced={reduced} onClose={() => { setReviewing(false); setTab("clips"); void load(true); }} />;
 
   const avg = (xs: number[]) => Math.round((xs.reduce((s, x) => s + Math.min(1, Math.max(0, x || 0)), 0) / Math.max(1, xs.length)) * 100);
+  const health = data ? uploadHealth(data.jobs) : [];
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const workText = workingJobs.length ? `⏳ ${plural(workingJobs.length, "job")} working… ${avg(workingJobs.map((j) => j.progress))}%`
     : dls.length ? `⬇ ${plural(dls.length, "download")}… ${avg(dls.map((d) => d.progress))}%` : "";
@@ -328,6 +331,11 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
             <span className="sr-only" aria-live="polite">{active ? "Working… auto-updating" : ""}</span>{/* no % here: it would be re-announced every poll */}
           </section>
 
+          {health.length > 0 && (
+            <section className="card text-[11px]" aria-label="Upload health" role="status">
+              <ul className="space-y-1">{health.map((h) => <li key={h}><span aria-hidden>⚠ </span>{h}</li>)}</ul>
+            </section>
+          )}
           {(!data.tools.ffmpeg || !data.tools.transcriber) && <ToolsBanner tools={data.tools} />}
           {!!data.quarantined?.length && <QuarantineNotice root={data.root} files={data.quarantined} />}
 
@@ -1237,11 +1245,11 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
   const [sched, setSched] = useState<Schedule | null>(null);
   const p = c.publish;
   const unsure = p?.status === "unknown" || stale; // the last upload may be on YouTube: only an explicit "Upload again anyway" re-uploads
-  const open = () => { setAt(""); setMode("now"); void api<Schedule>(`${API}/schedule`).then(setSched, () => setSched(null)); setForm({ title: c.title.replace(/[<>]/g, "").slice(0, 100), description: `${c.hook.replace(/[<>]/g, "")}\n\n${devlog ? devlogHashtags() : "#shorts"}`.trim(), privacy: "private" }); };
+  const open = () => { setAt(""); setMode("now"); void api<Schedule>(`${API}/schedule`).then(setSched, () => setSched(null)); setForm({ title: c.title.replace(/[<>]/g, "").slice(0, 100), description: `${c.hook.replace(/[<>]/g, "")}\n\n${devlog ? devlogHashtags() : "#shorts"}`.trim(), privacy: "private", original: c.original ?? "", aiContent: false }); };
   const submit = async () => {
     if (!form) return;
     const publishAt = mode === "next" ? "next" : mode === "pick" && at ? new Date(at).toISOString() : undefined;
-    if (await onPublish(c.id, { ...form, ...(publishAt ? { publishAt } : {}), ...(unsure ? { force: true } : {}) })) setForm(null);
+    if (await onPublish(c.id, { ...form, original: devlog ? undefined : form.original, ...(publishAt ? { publishAt } : {}), ...(unsure ? { force: true } : {}) })) setForm(null);
   };
   const reconnect = (text: string) => <p className="rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX}>{text} <a className="underline" href="/api/studio/oauth/start">Connect YouTube</a></p>;
 
@@ -1306,6 +1314,17 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
         <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} value={form.description} maxLength={5000} onChange={(e) => set({ description: e.target.value })} />
       </label>
       <DescribeButton job={jobId} clip={c.id} onText={(description) => set({ description })} />
+      {!devlog && (
+        <label><span className={label}>What I added</span>
+          <input className="field w-full !px-2 !py-1 !text-xs" value={form.original ?? ""} maxLength={200} required minLength={10}
+            placeholder="Your commentary, reaction or analysis" onChange={(e) => set({ original: e.target.value })} />
+          <span className="muted text-[11px]">Another creator&apos;s video needs your own layer: YouTube shows plain re-uploads to fewer people since 1 Oct 2026.</span>
+        </label>
+      )}
+      <label className="flex items-center gap-1.5 text-[11px]">
+        <input type="checkbox" checked={!!form.aiContent} onChange={(e) => set({ aiContent: e.target.checked })} />
+        Has realistic AI-made people, places or events (YouTube adds an &quot;altered or synthetic&quot; label)
+      </label>
       <label><span className={label}>Visibility</span>
         <select className="field w-full !px-2 !py-1 !text-xs" value={mode === "now" ? form.privacy : "private"} disabled={mode !== "now"} onChange={(e) => set({ privacy: e.target.value as PublishBody["privacy"] })}>
           <option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>

@@ -1,4 +1,4 @@
-export type PlanetId = "memory" | "intelligence" | "creation" | "operations" | "agents" | "life" | "vault" | "analytics" | "studio" | "theater" | "markets";
+export type PlanetId = "memory" | "intelligence" | "creation" | "operations" | "agents" | "life" | "vault" | "analytics" | "studio" | "theater" | "markets" | "business";
 export type PanelId = PlanetId | "core" | "profile";
 
 export type PlanetDef = {
@@ -19,6 +19,7 @@ export const PLANETS: PlanetDef[] = [
   { id: "studio", name: "STUDIO", color: "#f43f5e", radius: 37, speed: 0.03, size: 0.6, phase: 4, live: true, blurb: "Your YouTube channel: videos as moons, comets when one takes off." },
   { id: "theater", name: "THEATER", color: "#f59e0b", radius: 40.5, speed: 0.027, size: 0.5, phase: 4, live: true, blurb: "Find a creator's newest videos by voice and watch them on the big screen." },
   { id: "markets", name: "MARKETS", color: "#10b981", radius: 44, speed: 0.024, size: 0.5, phase: 4, live: true, blurb: "Watchlist, portfolio tracking, alerts and paper trading. Simulation only, not advice." },
+  { id: "business", name: "BUSINESS", color: "#38bdf8", radius: 47.5, speed: 0.021, size: 0.5, phase: 4, live: true, blurb: "Your client pipeline: businesses to contact, pilots, paying clients, and CORE-drafted first messages." },
 ];
 
 export const planetById = (id: string) => PLANETS.find((p) => p.id === id);

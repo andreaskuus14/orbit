@@ -40,6 +40,7 @@ const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
 const VaultPanel = dynamic(() => import("./VaultPanel").then((m) => m.VaultPanel), { ssr: false });
 const LifeReminders = dynamic(() => import("./LifeReminders"), { ssr: false });
 const MarketsPanel = dynamic(() => import("./MarketsPanel"), { ssr: false });
+const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
 const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
 const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater"]; // full-screen worlds with their own side panel (no drawer)
@@ -416,6 +417,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
               : drawer === "life" ? <LifePanel open={lifeOpen} />
               : drawer === "vault" ? <VaultPanel />
               : drawer === "markets" ? <MarketsPanel />
+              : drawer === "business" ? <BusinessPanel />
               : <LaterPanel id={drawer as PlanetId} />}
           </div>
         </aside>

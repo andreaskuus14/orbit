@@ -49,6 +49,9 @@ export async function getAnalytics({ range, videoId, force = false }: { range: R
     daily: q({ dimensions: "day", metrics: METRICS, sort: "day" }),
     totals: q({ metrics: METRICS }),
     "previous totals": q({ metrics: METRICS }, true),
+    // Own queries: if YouTube ever rejects engagedViews, only this KPI is missing (a warning), not the whole dashboard.
+    "engaged views": q({ metrics: "engagedViews" }),
+    "previous engaged views": q({ metrics: "engagedViews" }, true),
     traffic: q({ dimensions: "insightTrafficSourceType", metrics: "views", sort: "-views" }),
     countries: q({ dimensions: "country", metrics: "views", sort: "-views", maxResults: 10 }),
     "top videos": videoId ? null : q({ dimensions: "video", metrics: "views,estimatedMinutesWatched,averageViewDuration", sort: "-views", maxResults: 10, filters: undefined }),
@@ -77,6 +80,8 @@ export async function getAnalytics({ range, videoId, force = false }: { range: R
     ...(videoId
       ? { retention: (out.retention ?? []).map((r) => ({ t: num(r.elapsedVideoTimeRatio), ratio: num(r.audienceWatchRatio), relative: num(r.relativeRetentionPerformance) })) }
       : { topVideos: (out["top videos"] ?? []).map((r) => ({ id: String(r.video), views: num(r.views), watchMinutes: num(r.estimatedMinutesWatched), avgViewSec: num(r.averageViewDuration) })) }),
+    ...(out["engaged views"] && out["previous engaged views"] && {
+      engaged: { cur: num(out["engaged views"][0]?.engagedViews), prev: num(out["previous engaged views"][0]?.engagedViews) } }),
     warnings, fetchedAt: new Date().toISOString(),
   };
   cache.set(key, { at: Date.now(), ttl: warnings.length ? 60_000 : 15 * 60_000, data });
