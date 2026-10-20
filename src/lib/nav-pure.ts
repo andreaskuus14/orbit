@@ -26,7 +26,8 @@ const norm = (s: string) => s.toLowerCase().replace(/['’.]/g, "").replace(/[^\
 // Whole utterances only. Keep actions separate from PLACES so a model's navigate tool cannot stop work or unmute.
 const INSTANT: Record<string, Omit<NavTarget, "panel">> = {};
 const command = (action: Omit<NavTarget, "panel">, names: string) => names.split(",").forEach((n) => { INSTANT[n.trim()] = action; });
-command({ stopAll: true }, "stop, stop everything, peata, peata kõik");
+// Plain "stop" / "peata" only silences ORBIT's voice (STOP_WORDS): Stop-all cancels running agent work, so it needs the explicit phrase.
+command({ stopAll: true }, "stop everything, stop all, peata kõik");
 command({ voice: false }, "mute, vaigista");
 command({ voice: true }, "unmute, lülita heli sisse");
 command({ morning: true }, "status report, olukord");

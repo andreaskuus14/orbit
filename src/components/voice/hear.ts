@@ -5,7 +5,7 @@ import type { PanelId } from "../../lib/planets.ts";
 import { extractWakeQuestion, isSleepCommand, normalizeTranscript } from "./wake.ts";
 
 // The whole utterance must be the command, optionally after "(hey) Orbit": "stop", "Orbit, stop", "be quiet".
-export const STOP_WORDS = /^\s*(?:(?:hey|ok|okay)?[\s,]*orbit[\s,.!]+)?(?:please[\s,]+)?(stop(?: it| talking| please)?|wait|hold on|enough|quiet|be quiet|shut up|pause|okay stop|ok stop|no)\W*$/i;
+export const STOP_WORDS = /^\s*(?:(?:hey|ok|okay)?[\s,]*orbit[\s,.!]+)?(?:please[\s,]+)?(stop(?: it| talking| please)?|wait|hold on|enough|quiet|be quiet|shut up|pause|okay stop|ok stop|no|peata|vait|oota|aitab)\W*$/iu; // + Estonian: stop, quiet, wait, enough
 
 // Never real English as heard, so safe anywhere in a sentence.
 const ANYWHERE: [RegExp, string][] = [
@@ -55,7 +55,7 @@ export function pickBestAlternative(alts: string[], ctx: HearCtx = {}): string {
     if (i > 0 && (nav?.stopAll || nav?.voice !== undefined)) return; // never invent a destructive command or unmute from a lower guess
     // A lower guess may not start the timer or jump to a LIFE tab ("journal" heard inside "journal entry for today").
     const cmd = (i === 0 || !question) && ((nav && (i === 0 || !nav.life)) || isSleepCommand(t));
-    const score = cmd ? 2 : (i === 0 && extractWakeQuestion(t)) || STOP_WORDS.test(t) ? 1 : 0;
+    const score = cmd ? 2 : (i === 0 && extractWakeQuestion(t)) || (STOP_WORDS.test(t) && (i === 0 || !question)) ? 1 : 0; // a lower guess "stop" never beats a real question
     if (score > top) { best = t; top = score; }
   });
   return best;

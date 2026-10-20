@@ -8,8 +8,8 @@ import { endpointDelay, ENDPOINT_MS, pickBestAlternative, shouldBargeIn, turnWai
 import { isAddressedToOrbit } from "../src/components/voice/conversation.ts";
 
 const commands: [string, nav.NavTarget][] = [
-  ["stop", { panel: null, stopAll: true }], ["stop everything", { panel: null, stopAll: true }],
-  ["peata", { panel: null, stopAll: true }], ["peata kõik", { panel: null, stopAll: true }],
+  ["stop all", { panel: null, stopAll: true }], ["stop everything", { panel: null, stopAll: true }],
+  ["peata kõik", { panel: null, stopAll: true }],
   ["mute", { panel: null, voice: false }], ["vaigista", { panel: null, voice: false }],
   ["unmute", { panel: null, voice: true }], ["lülita heli sisse", { panel: null, voice: true }],
   ["status report", { panel: null, morning: true }], ["olukord", { panel: null, morning: true }],
@@ -41,7 +41,7 @@ for (const text of [
 });
 
 test("speech alternatives cannot invent Stop-all or a voice setting", () => {
-  for (const text of ["stop", "peata", "mute", "unmute", "vaigista"])
+  for (const text of ["stop everything", "peata kõik", "mute", "unmute", "vaigista"])
     assert.equal(pickBestAlternative(["a transcription fragment", text]), "a transcription fragment");
   assert.equal(pickBestAlternative(["how do I stop procrastinating", "stop"]), "how do I stop procrastinating");
 });
@@ -80,7 +80,7 @@ function actions(response: { ok: boolean; status?: number; body: object } = { ok
 
 test("Stop-all posts on=true to the existing endpoint, refreshes the HUD and never navigates or calls CORE", async () => {
   const a = actions();
-  assert.equal(await a.runNavCommand(nav.parseNavCommand("stop")!), "Stop-all is on; background work is paused.");
+  assert.equal(await a.runNavCommand(nav.parseNavCommand("stop everything")!), "Stop-all is on; background work is paused.");
   assert.equal(a.requests.length, 1);
   assert.equal(a.requests[0].url, "/api/stop-all");
   assert.equal(a.requests[0].init.method, "POST");
@@ -91,7 +91,7 @@ test("Stop-all posts on=true to the existing endpoint, refreshes the HUD and nev
 test("Stop-all failures and an unconfirmed response never produce a success confirmation", async () => {
   for (const response of [{ ok: false, status: 401, body: { error: "Sign in first" } }, { ok: true, body: { stop: { on: false } } }]) {
     const a = actions(response);
-    await assert.rejects(a.runNavCommand(nav.parseNavCommand("peata")!));
+    await assert.rejects(a.runNavCommand(nav.parseNavCommand("peata kõik")!));
     assert.equal(a.events.length, 0);
   }
   assert.equal(await actions({ ok: true, body: { stop: { on: true }, warning: "Active now, but not saved to disk" } }).runNavCommand({ panel: null, stopAll: true }), "Active now, but not saved to disk");
@@ -122,4 +122,9 @@ test("status, unfinished work and back dispatch the correct app actions without 
     assert.equal(a.events[0].type, nav.NAV_EVENT);
     assert.deepEqual((a.events[0] as CustomEvent).detail, target);
   }
+});
+
+test("plain stop / peata only silence ORBIT: Stop-all needs the explicit phrase", () => {
+  for (const text of ["stop", "peata", "Orbit, stop"]) assert.equal(nav.parseNavCommand(text)?.stopAll, undefined, text);
+  for (const text of ["stop everything", "stop all", "peata kõik"]) assert.equal(nav.parseNavCommand(text)?.stopAll, true, text);
 });

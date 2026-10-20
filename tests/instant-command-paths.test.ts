@@ -72,7 +72,7 @@ function component(file: string, attachments = false) {
   return { render, state, effects, callbacks, calls, requests, events, listeners, attachmentsTaken: () => attachmentsTaken };
 }
 
-const commands = ["stop", "stop everything", "peata", "peata kõik", "mute", "unmute", "vaigista", "lülita heli sisse",
+const commands = ["stop everything", "stop all", "peata kõik", "mute", "unmute", "vaigista", "lülita heli sisse",
   "status report", "olukord", "show my work", "continue my work", "näita minu tööd", "jätka minu tööd", "back", "galaxy", "tagasi", "galaktika"];
 
 test("CORE typed commands return before the Claude request; a longer question still reaches CORE", async () => {
@@ -95,7 +95,7 @@ test("CORE still accepts an instant command while an earlier answer is in progre
   const send = () => h.callbacks.find((f) => f.toString().includes("const message = text.trim()"))!;
   const answering = send()("explain my project"); // first fetch is waiting on its response
   h.render();
-  await send()("peata");
+  await send()("peata kõik");
   await answering;
   assert.deepEqual(h.calls, [{ panel: "core", stopAll: true }]);
   assert.deepEqual(h.requests, ["/api/core?stream=1"]); // only the original question
@@ -167,7 +167,7 @@ test("Chrome hands-free forwards Stop-all while ORBIT speaks instead of swallowi
     try {
       rec.onresult({ resultIndex: 0, results: [{ isFinal: true, length: 1, 0: { transcript: text } }] });
       const asked = events.filter((e) => e.type === "orbit:voice-ask");
-      assert.equal(asked.length, text === "stop talking" ? 0 : 1, text);
+      assert.equal(asked.length, /everything|kõik/.test(text) ? 1 : 0, text); // plain "stop" only silences
       if (asked.length) assert.equal((asked[0] as CustomEvent).detail.text, text);
       assert.ok(events.some((e) => e.type === "orbit:voice-interrupt"), text);
     } finally { cleanup(); }
@@ -178,7 +178,7 @@ test("ORBIT mic forwards Stop-all with and without voice barge-in enabled", asyn
   const code = ts.transpileModule(readFileSync(new URL("../src/components/voice/useWakeWord.ts", import.meta.url), "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  for (const barged of [false, true]) for (const text of ["stop", "peata", "stop talking"]) {
+  for (const barged of [false, true]) for (const text of ["stop everything", "peata kõik", "stop talking"]) {
     const effects: Function[] = [], events: Event[] = [];
     let mic: any, speaking = true;
     const noop = () => {};
