@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LANGS, STAGES, STAGE_LABEL, emailIn, type Find, type Lang, type Prospect, type Stage } from "@/lib/business-pure";
 
 // BUSINESS drawer: the client pipeline for the Lead Follow-up Autopilot (services/lead-followup).
-// Add businesses, move them through stages, let CORE draft the first message. ORBIT never sends anything: you copy and send it.
+// Add businesses, move them through stages, let CORE draft the first message. Nothing is sent unless you click Approve & send twice (AGENTS.md rule 6).
 
 type Funnel = { counts: Record<Stage, number>; monthly: number; total: number };
 type State = { prospects: Prospect[]; funnel: Funnel; canSend?: boolean };
