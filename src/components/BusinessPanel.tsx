@@ -1,4 +1,5 @@
 "use client";
+import VisibilityPanel from "./VisibilityPanel";
 import { useCallback, useEffect, useState } from "react";
 import { LANGS, STAGES, STAGE_LABEL, emailIn, type Find, type Lang, type Prospect, type Stage } from "@/lib/business-pure";
 
@@ -57,6 +58,8 @@ export default function BusinessPanel() {
           {STAGES.map((s) => <button key={s} className="chip" aria-pressed={filter === s} onClick={() => setFilter(s)}>{STAGE_LABEL[s]} {st.funnel.counts[s]}</button>)}
         </div>
       )}
+
+      <VisibilityPanel />
 
       {!st && !err && <p className="muted">Loading…</p>}
       {st && !st.prospects.length && <p className="muted">No businesses yet. Add one you could walk into or call this week: a bakery that takes cake orders, a cleaning or renovation firm, a salon.</p>}
