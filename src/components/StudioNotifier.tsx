@@ -2,39 +2,29 @@
 // STUDIO desktop notifications: polls the clip factory (60 s visible, 5 min hidden), announces new ready clips, failed jobs,
 // YouTube-blocked downloads and scheduled Shorts going live. Logic: src/lib/studio-notify.ts. Renders only the permission chip.
 import { useEffect, useState } from "react";
-import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
-import { parseState, step, type Note, type NotifyState } from "@/lib/studio-notify";
+import { parseState, step, type NotifyState } from "@/lib/studio-notify";
 import { notify } from "@/lib/notify-pure";
-import { speakChunk, speakingOrJustEnded, speechSettings } from "./voice/speak";
+import { clipProblemNotices, RESOLVE_ALERT } from "@/lib/interruption-pure";
 
 const KEY = "orbit.studioNotify";
 const load = () => { try { return parseState(localStorage.getItem(KEY)); } catch { return parseState(null); } };
 const save = (s: NotifyState) => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage unavailable: may re-announce after a restart */ } };
 
-function show(n: Note) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  let note: Notification;
-  try { note = new Notification(n.title, { body: n.body, tag: `orbit-studio-${n.cat}`, icon: "/brand/orbit-mark.png" }); } catch { return; } // Android Chrome: "Illegal constructor"
-  const to: NavTarget = { panel: "studio", view: n.cat === "ready" ? "review" : "clips" }; // failures/live aren't in the review queue
-  note.onclick = () => { window.focus(); note.close(); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to })); };
-}
-
-// CORE's new high-priority suggestions (hot Short, downloads paused, repeated failures) as a desktop note; first poll is a baseline.
+// CORE suggestions join the shared bus even without desktop permission; first poll is a baseline.
 const SEEN = "orbit.insightsSeen";
+let insightsSeen: string[] | null = null;
 async function insightNotes() {
   const r = await fetch("/api/insights");
-  if (!r.ok || !("Notification" in window) || Notification.permission !== "granted") return;
-  const high = ((await r.json()).items ?? []).filter((i: { priority: string }) => i.priority === "high") as { key: string; title: string; detail: string }[];
-  let seen: string[] | null = null;
-  try { seen = JSON.parse(localStorage.getItem(SEEN) ?? "null"); } catch { /* start over */ }
-  try { localStorage.setItem(SEEN, JSON.stringify([...new Set([...(seen ?? []), ...high.map((i) => i.key)])].slice(-200))); } catch { /* may repeat */ }
+  if (!r.ok) return;
+  const high = ((await r.json()).items ?? []).filter((i: { priority: string }) => i.priority === "high") as { key: string; kind: string; title: string; detail: string }[];
+  let seen = insightsSeen;
+  try { const stored = JSON.parse(localStorage.getItem(SEEN) ?? "null"); if (Array.isArray(stored)) seen = stored; } catch { /* use session baseline */ }
+  insightsSeen = [...new Set([...(seen ?? []), ...high.map((i) => i.key)])].slice(-200);
+  try { localStorage.setItem(SEEN, JSON.stringify(insightsSeen)); } catch { /* session baseline still advances */ }
   if (!Array.isArray(seen)) return;
-  for (const i of high.filter((i) => !seen!.includes(i.key)).slice(0, 2)) {
-    notify({ title: `CORE suggests: ${i.title}`, body: i.detail, kind: "core", nav: { panel: "core" } });
-    try {
-      const n = new Notification(`CORE suggests: ${i.title}`, { body: i.detail, tag: `orbit-insight-${i.key}`, icon: "/brand/orbit-mark.png" });
-      n.onclick = () => { window.focus(); n.close(); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: { panel: "core" } satisfies NavTarget })); };
-    } catch { /* Android Chrome: "Illegal constructor" */ }
+  for (const i of high.filter((i) => !seen!.includes(i.key))) {
+    notify({ key: `insight:${i.key}`, title: `CORE suggests: ${i.title}`, body: i.detail, reason: `${i.title}. ${i.detail}`,
+      signal: i.kind === "hot" ? "short-hot" : "routine", kind: "core", nav: { panel: "core" } });
   }
 }
 
@@ -51,12 +41,14 @@ export function StudioNotifier() {
         const state = load(); // fresh each time, so another tab's announcements count as seen
         const r = await fetch("/api/studio/clips");
         if (r.ok && !stopped) {
-          const res = step(state, await r.json(), Date.now());
+          const snapshot = await r.json();
+          const failures = clipProblemNotices(snapshot);
+          failures.forEach(notify);
+          if (!failures.length) dispatchEvent(new CustomEvent(RESOLVE_ALERT, { detail: "upload-failed" }));
+          const res = step(state, snapshot, Date.now());
           save(res.state);
-          res.notes.forEach(show);
-          res.notes.forEach((n) => notify({ title: n.title, body: n.body, kind: "studio", nav: { panel: "studio", view: n.cat === "ready" ? "review" : "clips" } }));
-          // Spoken heads-up only when ORBIT is in front, voice answers are on, and nobody's mid-conversation.
-          if (res.notes.length && document.hasFocus() && speechSettings().speak && !speakingOrJustEnded(30_000)) res.notes.forEach((n) => speakChunk(n.spoken));
+          res.notes.filter((n) => n.cat !== "failed").forEach((n) => notify({ title: n.title, body: n.body, reason: `${n.title}. ${n.body}`, kind: "studio",
+            signal: "routine", nav: { panel: "studio", view: n.cat === "ready" ? "review" : "clips" } }));
         }
       } catch { /* offline / server restarting: next poll */ }
       await insightNotes().catch(() => {});

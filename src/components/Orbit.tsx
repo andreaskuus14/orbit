@@ -259,12 +259,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         if (e.type === "pulse.completed") { setPulseBusy(false); setPulseFailed(false); dispatchEvent(new Event("orbit:news")); }
         if (e.type === "pulse.failed") { setPulseBusy(false); setPulseFailed(true); }
         const taskId = (payload.new as { payload?: { taskId?: string } }).payload?.taskId;
-        if (e.type === "goal.update") { const p = (payload.new as { payload?: { title?: string; text?: string } }).payload; notify({ title: `🎯 ${String(p?.title ?? "Goal")}`, body: String(p?.text ?? ""), kind: "agents", nav: { panel: "agents" } }); }
+        if (e.type === "goal.update") { const p = (payload.new as { payload?: { title?: string; text?: string } }).payload; notify({ signal: "routine", title: `🎯 ${String(p?.title ?? "Goal")}`, body: String(p?.text ?? ""), kind: "agents", nav: { panel: "agents" } }); }
         if (e.type === "agent.started" && taskId) setRunningTasks((r) => (r.includes(taskId) ? r : [...r, taskId]));
         if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) {
           setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations();
           const status = (payload.new as { payload?: { status?: string } }).payload?.status;
-          notify({ title: e.type === "agent.failed" ? "Agent task failed" : status === "awaiting_approval" ? "Task needs your approval" : status === "cancelled" ? "Agent task cancelled" : "Agent task finished", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations" } });
+          notify({ signal: "agent-finished", key: `agent:${taskId}:${e.type}:${status}`, reason: e.type === "agent.failed" ? `Task ${taskId.slice(0, 8)} failed and needs review.` : status === "awaiting_approval" ? `Task ${taskId.slice(0, 8)} is waiting for your approval.` : status === "cancelled" ? `Task ${taskId.slice(0, 8)} was cancelled.` : `Task ${taskId.slice(0, 8)} finished and its result is ready.`, title: e.type === "agent.failed" ? "Agent task failed" : status === "awaiting_approval" ? "Task needs your approval" : status === "cancelled" ? "Agent task cancelled" : "Agent task finished", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations" } });
         }
       })
       .subscribe((s) => setLive(s === "SUBSCRIBED" ? "live" : s === "CLOSED" || s === "CHANNEL_ERROR" || s === "TIMED_OUT" ? "offline" : "connecting"));
@@ -416,7 +416,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title="Realtime link to the backend that animates the galaxy">{live === "live" ? "LIVE" : live === "offline" ? "OFFLINE" : "CONNECTING"}</span>
           {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start Orbital from the desktop shortcut for the production server.">DEV</span>}
           <StopAll />
-          <NotificationCenter />
+          <NotificationCenter home={!shown && !approach && !gameOpen} />
           <StudioNotifier />
           <OrbitExplore selected={shown} onSelect={select} />
           <button className="chip hud-search" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label="Search everything (Ctrl+P)" title="Search everything: planets, actions, memories, files (Ctrl+P)">⌕</button>
@@ -469,7 +469,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
       <MorningCard home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       {!shown && !approach && view === "3d" && <ContinueWork floating onOpenTask={openTask} onOpenGoal={openGoal} />}
-      <Herald home={!shown && !approach} />
+      <Herald home={!shown && !approach && !gameOpen} coreBusy={busy} />
       <WhatsNew home={!shown && !approach} />
       {!shown && !approach && <HalEye />}
       {!shown && view === "3d" && (

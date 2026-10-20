@@ -1,14 +1,16 @@
 "use client";
 // Herald: animated pop-up cards top-right (uploads, viral trends, briefings, breaking news, STUDIO/agent notices).
-// Rules: src/lib/herald-pure.ts. Never speaks, never plays sound, never moves focus. Polls only while the tab is visible,
-// never while muted or with Stop-all on. Cards collapse to a pill after 12 s; at most 3 on screen and 4 per hour.
+// Bell first; shared interruption judgment gates pop-ups, desktop alerts and speech.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NAV_EVENT } from "@/lib/nav-pure";
 import { NOTIFY_EVENT, notify, type NotifyDetail } from "@/lib/notify-pure";
 import {
-  DEV_TAB_EVENT, DEV_TAB_KEY, HERALD_KEY, KIND_ICON, MAX_ON_SCREEN, breakingCards, briefCard, fromNotify, morningCard, parseHerald,
-  pickDue, trendCards, uploadNudge, type HeraldAction, type HeraldCard, type HeraldState,
+  DEV_TAB_EVENT, DEV_TAB_KEY, HERALD_KEY, KIND_ICON, MAX_ON_SCREEN, breakingCards, briefCard, morningCard, parseHerald,
+  trendCards, uploadNudge, type HeraldAction, type HeraldCard, type HeraldState,
 } from "@/lib/herald-pure";
+import { CORE_BUSY, POPUP_SHOWN, RESOLVE_ALERT, classify, dismissKind, reasonLine, selectInterruptions, signalFor, type Signal } from "@/lib/interruption-pure";
+import { loadJudgment, saveJudgment } from "./interruption-store";
+import { speakChunk, speechSettings, speakingOrJustEnded } from "./voice/speak";
 import { inboxOffer } from "@/lib/herald-watch-pure";
 
 const MUTE_EVENT = "orbit:herald-mute";
@@ -18,7 +20,8 @@ const getJson = (u: string) => fetch(u, { cache: "no-store" }).then((r) => (r.ok
 const morningDay = (): string | null => { try { return JSON.parse(localStorage.getItem("orbit.morning") || "{}")?.day ?? null; } catch { return null; } }; // MorningCard's saved day
 const MIN = 60_000, COLLAPSE_MS = 12_000;
 const EVERY = { clips: 10 * MIN, briefs: 15 * MIN, trends: 45 * MIN, inbox: 10 * MIN }; // trends: server caches 30 min; inbox: the server's niche scan (src/lib/herald-watch.ts) does the YouTube calls
-type Shown = HeraldCard & { at: number; open: boolean };
+type Notice = NotifyDetail & { key: string };
+type Shown = HeraldCard & { at: number; open: boolean; notice: Notice };
 
 /** "Clip it now": the same request as STUDIO's Add from link with "make clips when downloaded" on (defaults: 5 clips, ≤45 s). */
 export async function startClip(url: string) {
@@ -34,27 +37,55 @@ export async function startClip(url: string) {
   }
 }
 
-export function Herald({ home }: { home: boolean }) {
+export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: boolean }) {
   const [cards, setCards] = useState<Shown[]>([]);
-  const queue = useRef<HeraldCard[]>([]);
+  const queue = useRef<Notice[]>([]);
   const count = useRef(0);
   count.current = cards.length;
   const homeRef = useRef(home);
   homeRef.current = home;
+  const attention = useRef({ lastTyped: Date.now(), localBusy: false, coreBusy });
+  attention.current.coreBusy = coreBusy;
   const hover = useRef(false);
   const [said, setSaid] = useState(""); // screen-reader line for new cards only (collapsing must not re-announce)
 
   const pump = useCallback(() => {
-    const r = pickDue(load(), queue.current, Date.now(), document.visibilityState === "visible", MAX_ON_SCREEN - count.current);
-    queue.current = r.queue;
+    const legacy = load(), a = attention.current;
+    const r = selectInterruptions(loadJudgment(), queue.current, Date.now(), {
+      visible: document.visibilityState === "visible", worldOpen: !homeRef.current,
+      coreBusy: a.coreBusy || a.localBusy || speakingOrJustEnded(2000), lastTyped: a.lastTyped,
+      popupsOff: legacy.mute || legacy.snooze > Date.now(),
+    }, MAX_ON_SCREEN - count.current);
+    queue.current = r.pending;
     if (!r.show.length) return;
-    save(r.state);
-    const at = Date.now();
-    count.current += r.show.length;
-    setCards((c) => [...r.show.map((x) => ({ ...x, at, open: true })), ...c].slice(0, MAX_ON_SCREEN));
-    setSaid(r.show.map((x) => x.title).join(". "));
+    saveJudgment(r.state);
+    const at = Date.now(), shown: Shown[] = [];
+    for (const n of r.show) {
+      const urgent = classify(n, r.state) === "URGENT";
+      if (document.visibilityState !== "visible") {
+        if (urgent && typeof Notification !== "undefined" && Notification.permission === "granted") {
+          try {
+            const desktop = new Notification(n.title, { body: reasonLine(n), tag: n.key, silent: true });
+            desktop.onclick = () => { window.focus(); desktop.close(); if (n.nav) dispatchEvent(new CustomEvent(NAV_EVENT, { detail: n.nav })); };
+          } catch { /* the bell and red chip retain the alert */ }
+        }
+        continue;
+      }
+      const c = n.herald ?? { key: n.key, kind: n.kind === "agents" ? "agents" as const : "studio" as const,
+        title: n.title, body: n.body, actions: n.nav ? [{ label: n.fixLabel ?? "Open", nav: n.nav }] : [] };
+      shown.push({ ...c, at, open: true, notice: n });
+      if (urgent && document.hasFocus() && speechSettings().speak && !a.coreBusy && !a.localBusy && !speakingOrJustEnded(2000)) speakChunk(reasonLine(n));
+    }
+    count.current += shown.length;
+    if (shown.length) dispatchEvent(new CustomEvent(POPUP_SHOWN, { detail: shown.map((c) => c.notice.key) }));
+    setCards((c) => [...shown, ...c]); // urgent bypass never evicts a card
+    setSaid(shown.map((x) => reasonLine(x.notice)).join(". "));
   }, []);
-  const offer = useCallback((xs: (HeraldCard | null)[]) => { queue.current.push(...xs.filter((x): x is HeraldCard => !!x)); pump(); }, [pump]);
+  const offer = useCallback((xs: (HeraldCard | null)[]) => {
+    for (const c of xs) if (c) notify({ key: c.key, kind: c.kind === "agents" ? "agents" : "studio", title: c.title, body: c.body,
+      reason: c.kind === "brief" ? "A new briefing is ready to read." : c.body || c.title,
+      signal: c.kind === "brief" ? "briefing" : c.kind === "trend" ? "scout" : "routine", nav: c.actions[0]?.nav, herald: c });
+  }, []);
 
   useEffect(() => {
     const last = { clips: 0, briefs: 0, trends: 0, inbox: 0 };
@@ -64,7 +95,7 @@ export function Herald({ home }: { home: boolean }) {
       if (b && !stopped) offer([briefCard(b.briefings, Date.now()), ...breakingCards(b.articles, Date.now())]);
     };
     const tick = async () => {
-      if (busy || stopped || document.visibilityState !== "visible" || load().mute) return;
+      if (busy || stopped || document.visibilityState !== "visible") return;
       const now = Date.now();
       if (!homeRef.current) offer([morningCard(morningDay(), now)]); // on the galaxy MorningCard shows itself
       const due = (Object.keys(EVERY) as (keyof typeof EVERY)[]).filter((k) => now - last[k] >= EVERY[k]);
@@ -81,15 +112,35 @@ export function Herald({ home }: { home: boolean }) {
       } finally { busy = false; }
     };
     const onVis = () => { pump(); void tick(); };
-    const onNews = () => { if (!load().mute) void briefs(); }; // a briefing just finished
-    const onNotify = (e: Event) => offer([fromNotify((e as CustomEvent<NotifyDetail>).detail ?? {})]);
+    const onNews = () => { void briefs(); }; // a briefing just finished
+    const onNotify = (e: Event) => {
+      const n = (e as CustomEvent<NotifyDetail>).detail;
+      if (!n?.title) return;
+      const key = n.key ?? `n:${n.kind}:${n.title}|${n.body ?? ""}`;
+      const s = loadJudgment();
+      if (Object.hasOwn(s.seen, key)) return;
+      saveJudgment({ ...s, seen: { ...s.seen, [key]: Date.now() } });
+      queue.current.push({ ...n, key }); pump();
+    };
+    const typed = (e: Event) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) attention.current.lastTyped = Date.now();
+    };
+    const onBusy = (e: Event) => { attention.current.localBusy = (e as CustomEvent<boolean>).detail === true; };
+    const resolve = (e: Event) => { const signal = (e as CustomEvent<Signal>).detail; queue.current = queue.current.filter((n) => signalFor(n) !== signal); setCards((cs) => cs.filter((c) => signalFor(c.notice) !== signal)); };
+    const scheduler = setInterval(pump, 1000);
+    document.addEventListener("input", typed, true); document.addEventListener("keydown", typed, true);
+    addEventListener(CORE_BUSY, onBusy); addEventListener(RESOLVE_ALERT, resolve);
     const first = setTimeout(() => void tick(), 8_000); // let ORBIT boot first
     const h = setInterval(() => void tick(), MIN);
     document.addEventListener("visibilitychange", onVis);
     addEventListener("orbit:news", onNews);
     addEventListener(NOTIFY_EVENT, onNotify);
     return () => {
-      stopped = true; clearTimeout(first); clearInterval(h);
+      stopped = true; clearInterval(scheduler);
+      document.removeEventListener("input", typed, true); document.removeEventListener("keydown", typed, true);
+      removeEventListener(CORE_BUSY, onBusy); removeEventListener(RESOLVE_ALERT, resolve);
+      clearTimeout(first); clearInterval(h);
       document.removeEventListener("visibilitychange", onVis); removeEventListener("orbit:news", onNews); removeEventListener(NOTIFY_EVENT, onNotify);
     };
   }, [offer, pump]);
@@ -112,8 +163,12 @@ export function Herald({ home }: { home: boolean }) {
     return () => removeEventListener(MUTE_EVENT, f);
   }, []);
 
-  const dismiss = (key: string) => setCards((cs) => cs.filter((c) => c.key !== key));
-  const act = (c: Shown, a: HeraldAction) => {
+  const dismiss = (key: string, rejected = false) => {
+    const c = cards.find((c) => c.key === key);
+    if (rejected && c) saveJudgment(dismissKind(loadJudgment(), signalFor(c.notice), Date.now()));
+    setCards((cs) => cs.filter((c) => c.key !== key));
+  };
+  const act = (c: HeraldCard, a: HeraldAction) => {
     if (a.href) { if (/^https:\/\//i.test(a.href)) window.open(a.href, "_blank", "noopener,noreferrer"); return; } // keep the card: Watch, then still Clip it
     if (a.clip) void startClip(a.clip); // the user pressed "Clip it now": download + make clips, same as Add from link with auto-clip on
     if (a.devTab) {
@@ -123,6 +178,11 @@ export function Herald({ home }: { home: boolean }) {
     dispatchEvent(new CustomEvent(NAV_EVENT, { detail: a.nav }));
     dismiss(c.key);
   };
+  useEffect(() => {
+    const action = (e: Event) => { const d = (e as CustomEvent<{ card: HeraldCard; action: HeraldAction }>).detail; if (d?.card && d.action) act(d.card, d.action); };
+    addEventListener("orbit:herald-action", action);
+    return () => removeEventListener("orbit:herald-action", action);
+  });
   const snooze = (c: Shown) => { save({ ...load(), snooze: Date.now() + 60 * MIN }); dismiss(c.key); };
   const mute = () => { save({ ...load(), mute: true }); setCards([]); dispatchEvent(new Event(MUTE_EVENT)); };
   const hold = (on: boolean) => {
@@ -141,12 +201,13 @@ export function Herald({ home }: { home: boolean }) {
           <span className="herald-icon" aria-hidden>{KIND_ICON[c.kind]}</span>
           <div className="min-w-0 flex-1">
             <div className="flex items-start gap-2">
-              <b className="herald-title flex-1">{c.title}</b>
-              <button className="herald-x" onClick={() => dismiss(c.key)} aria-label={`Dismiss: ${c.title}`} title="Dismiss">✕</button>
+              <b className="herald-title flex-1">{classify(c.notice, loadJudgment()) === "URGENT" ? "🔴 " : ""}{c.title}</b>
+              <button className="herald-x" onClick={() => dismiss(c.key, true)} aria-label={`Dismiss: ${c.title}`} title="Dismiss">✕</button>
             </div>
             {c.image && <img src={c.image} alt="" className="mt-1.5 w-full rounded-md" loading="lazy" referrerPolicy="no-referrer" />}
-            {c.body && <p className="muted mt-0.5 text-xs">{c.body}</p>}
+            <p className="mt-1 text-xs" aria-label="Why this appeared">{reasonLine(c.notice)}</p>
             <div className="mt-2 flex flex-wrap gap-1.5">
+              {c.notice.fixHref === "/api/studio/oauth/start" && <a className="chip" href={c.notice.fixHref}>{c.notice.fixLabel ?? "Fix"}</a>}
               {c.actions.map((a) => <button key={a.label} className="chip herald-go" onClick={() => act(c, a)}>{a.label}</button>)}
               <button className="chip" onClick={() => snooze(c)} title="No pop-ups for an hour">Snooze 1h</button>
               <button className="chip" onClick={mute} title="Turn pop-ups off (turn them back on in 🔔 Notifications)">Mute</button>
