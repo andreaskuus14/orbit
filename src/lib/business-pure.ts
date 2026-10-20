@@ -25,11 +25,14 @@ export function validateProspect(b: Record<string, unknown>): ProspectInput | st
 export function validatePatch(b: Record<string, unknown>): ProspectPatch | string {
   const p: ProspectPatch = {};
   if (b.name !== undefined) { const n = text(b.name, 120); if (!n) return "Name can't be empty"; p.name = n; }
-  if (b.kind !== undefined) p.kind = text(b.kind, 80);
-  if (b.contact !== undefined) p.contact = text(b.contact, 200);
-  if (b.notes !== undefined) p.notes = text(b.notes, 2000);
+  for (const [k, max] of [["kind", 80], ["contact", 200], ["notes", 2000]] as const) {
+    if (b[k] === undefined) continue;
+    if (typeof b[k] !== "string") return `${k} must be text`; // never clear a field by accident (e.g. null)
+    p[k] = text(b[k], max);
+  }
   if (b.stage !== undefined) { if (!STAGES.includes(b.stage as Stage)) return "Unknown stage"; p.stage = b.stage as Stage; }
-  if (b.fee !== undefined) { const f = Number(b.fee); if (!Number.isFinite(f) || f < 0 || f > 100_000) return "Fee must be 0–100000 € a month"; p.fee = Math.round(f * 100) / 100; }
+  if (b.fee !== undefined) { // "12,50" from an Estonian keyboard counts too
+    const f = Number(String(b.fee).trim().replace(",", ".")); if (!Number.isFinite(f) || f < 0 || f > 100_000) return "Fee must be 0–100000 € a month"; p.fee = Math.round(f * 100) / 100; }
   return Object.keys(p).length ? p : "Nothing to change";
 }
 

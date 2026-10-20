@@ -12,17 +12,17 @@ Why it sells: answering inside 5 minutes converted about 8× better than answeri
 |---|---|---|
 | Claude API key | console.anthropic.com | `ANTHROPIC_API_KEY` |
 | Telegram bot | message @BotFather → `/newbot` | `TELEGRAM_BOT_TOKEN` |
-| Owner's chat id | owner messages the bot, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` and copy `chat.id` | `TELEGRAM_CHAT_ID` |
+| Owner's chat id | owner messages the bot **in a private chat**, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` and copy `chat.id` (groups are refused) | `TELEGRAM_CHAT_ID` |
 | Webhook secret | any long random string you make up | `TELEGRAM_SECRET` |
 | Email sending | resend.com (verify the client's domain) | `RESEND_API_KEY`, `FROM_EMAIL` |
 | Business facts | prices, hours, services, area — plain text | `BUSINESS_NAME`, `BUSINESS_INFO` |
 
-Optional: `REPLY_TO` (owner's inbox), `MODEL` (default `claude-sonnet-5-5`), `PORT`, `DB_FILE`, `ALLOW_ORIGIN` (set to the client's site, e.g. `https://bakery.ee`).
+Copy `.env.example` to fill these in. Optional: `DAILY_LEAD_LIMIT` (default 100 leads a day), `REPLY_TO` (owner's inbox), `MODEL` (default `claude-sonnet-5-5`), `PORT`, `DB_FILE`, `ALLOW_ORIGIN` (set to the client's site, e.g. `https://bakery.ee`).
 
 ## Run
 
 ```bash
-npm test          # 5 safety checks, no keys needed
+npm test          # 8 safety checks, no keys needed
 npm start         # needs the env variables above
 ```
 
@@ -54,7 +54,10 @@ lead.onsubmit = async (e) => {
 ## Safety rules built in (don't remove)
 
 - No reply leaves without the owner's tap; a double tap sends once.
-- Only the owner's Telegram chat can approve; the webhook checks Telegram's secret header.
+- Only the owner can approve, in his private chat with the bot; the webhook checks Telegram's secret header.
+- The public form is capped at 5 messages per visitor per hour and `DAILY_LEAD_LIMIT` per day, so spam can't run up the Claude bill.
+- If a draft contains a link, email or phone number that isn't in `BUSINESS_INFO`, the owner gets a warning before approving.
+- Errors never log the Telegram URL, which contains the bot token.
 - Form input is length-limited and checked; the model only writes the body — the recipient is always the address the customer typed.
 - Every reply ends with a line saying it was drafted with an AI assistant (EU AI Act Art. 50).
 - A failed send is marked `failed` and you are told to reply by hand; it never retries on its own.

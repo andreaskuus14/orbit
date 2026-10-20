@@ -11,13 +11,33 @@ const DISCLOSURE = '\n\n— Drafted with an AI assistant and approved by our tea
 
 const load = () => (fs.existsSync(DB) ? JSON.parse(fs.readFileSync(DB, 'utf8')) : {});
 const save = (db) => { fs.writeFileSync(DB + '.tmp', JSON.stringify(db, null, 2)); fs.renameSync(DB + '.tmp', DB); };
+// Read-modify-write with no await in between, so a lead saved while an email was sending is never overwritten.
+const setLead = (id, patch) => { const db = load(); if (db[id]) { Object.assign(db[id], patch); save(db); } };
 
 async function api(url, body, headers = {}) {
   const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error(`${url} -> ${r.status} ${await r.text()}`);
+  if (!r.ok) throw new Error(`${new URL(url).host} -> ${r.status}`); // host only: the Telegram URL path holds the bot token
   return r.json();
 }
 const tg = (method, body) => api(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, body);
+
+// Public form = anyone can call it, and each lead costs a Claude call. Caps keep a spam loop from running up the bill.
+// shortcut: in-memory and per-process, and the per-IP part trusts x-forwarded-for; upgrade to a CAPTCHA (e.g. Turnstile) if spam gets past it.
+const DAILY_MAX = Number(env.DAILY_LEAD_LIMIT) || 100, PER_IP_HOUR = 5;
+const seen = { day: '', count: 0, ips: new Map() };
+export function allowLead(ip, now = Date.now()) {
+  const day = new Date(now).toISOString().slice(0, 10);
+  if (seen.day !== day) Object.assign(seen, { day, count: 0, ips: new Map() });
+  const hits = (seen.ips.get(ip) ?? []).filter((t) => now - t < 3_600_000);
+  if (seen.count >= DAILY_MAX || hits.length >= PER_IP_HOUR) return false;
+  seen.ips.set(ip, [...hits, now]); seen.count++;
+  return true;
+}
+
+/** Links, emails or phone numbers in the draft that aren't in the business facts: the customer may have smuggled them in. */
+export function foreignContacts(draft, facts = env.BUSINESS_INFO || '') {
+  return (draft.match(/https?:\/\/\S+|www\.\S+|[^\s@]+@[^\s@]+\.\w+|\+?\d[\d\s]{6,}\d/g) ?? []).filter((x) => !facts.includes(x.trim()));
+}
 
 // Trust boundary: everything in a lead comes from the public internet.
 export function validateLead(b) {
@@ -41,9 +61,10 @@ export async function draftReply(lead) {
   return res.content.filter((c) => c.type === 'text').map((c) => c.text).join('').trim();
 }
 
-export async function newLead(body) {
+export async function newLead(body, ip = '?') {
   const lead = validateLead(body);
   if (!lead) return { status: 400, body: { error: 'name, valid email and message are required' } };
+  if (!allowLead(ip)) return { status: 429, body: { error: 'Too many messages right now. Please email us directly.' } };
   const id = crypto.randomUUID().slice(0, 8);
   const draft = (await draftReply(lead)) + DISCLOSURE;
   const db = load();
@@ -51,36 +72,45 @@ export async function newLead(body) {
   save(db);
   await tg('sendMessage', { // plain text on purpose: lead text could otherwise inject Telegram markup
     chat_id: env.TELEGRAM_CHAT_ID,
-    text: `New lead ${id}\nFrom: ${lead.name} <${lead.email}>\n\n${lead.message}\n\n--- Draft reply ---\n${draft}`,
+    text: approvalText(id, lead, draft),
     reply_markup: { inline_keyboard: [[{ text: '✅ Send', callback_data: `a:${id}` }, { text: '❌ Reject', callback_data: `r:${id}` }]] },
   });
   return { status: 200, body: { ok: true } };
 }
 
+/** The owner's approval message, kept under Telegram's 4096-character limit. */
+export function approvalText(id, lead, draft) {
+  const warn = foreignContacts(draft).length ? '⚠ The draft has a link or contact detail that is not in your business facts. Check it before sending.\n\n' : '';
+  const head = `${warn}New lead ${id}\nFrom: ${lead.name} <${lead.email}>\n\n`, tail = `\n\n--- Draft reply ---\n${draft}`.slice(0, 2600);
+  return head + lead.message.slice(0, 4000 - head.length - tail.length) + tail;
+}
+
 export async function telegramUpdate(update) {
   const q = update?.callback_query;
-  if (!q || String(q.message?.chat?.id) !== String(env.TELEGRAM_CHAT_ID)) return; // only the owner's chat may approve
+  // Only the owner may approve: his private chat with the bot, tapped by him (in a private chat the chat id is his user id).
+  if (!q || String(q.message?.chat?.id) !== String(env.TELEGRAM_CHAT_ID) || String(q.from?.id) !== String(env.TELEGRAM_CHAT_ID)) return;
   const [action, id] = String(q.data).split(':');
-  const db = load();
-  const lead = db[id];
+  const lead = load()[id];
   let note = 'Already handled.';
   if (lead?.status === 'pending') {
     if (action === 'a') {
-      lead.status = 'sending'; save(db); // mark first so a double tap can't send twice
+      setLead(id, { status: 'sending' }); // marked first so a double tap can't send twice
       try {
         await api('https://api.resend.com/emails', {
           from: env.FROM_EMAIL, to: lead.email, reply_to: env.REPLY_TO || undefined,
           subject: `Re: your message to ${env.BUSINESS_NAME || 'us'}`, text: lead.draft,
         }, { authorization: `Bearer ${env.RESEND_API_KEY}` });
-        lead.status = 'sent'; note = `Sent to ${lead.email}.`;
+        setLead(id, { status: 'sent' }); note = `Sent to ${lead.email}.`;
       } catch (e) {
-        lead.status = 'failed'; lead.error = String(e.message).slice(0, 300); note = 'Sending failed — reply manually.';
+        setLead(id, { status: 'failed', error: String(e.message).slice(0, 300) }); note = 'Sending failed — reply manually.';
       }
-    } else if (action === 'r') { lead.status = 'rejected'; note = 'Rejected. Nothing sent.'; }
-    save(db);
+    } else if (action === 'r') { setLead(id, { status: 'rejected' }); note = 'Rejected. Nothing sent.'; }
   }
   await tg('answerCallbackQuery', { callback_query_id: q.id, text: note });
 }
+
+const sameSecret = (a, b) => typeof a === 'string' && !!b &&
+  crypto.timingSafeEqual(crypto.createHash('sha256').update(a).digest(), crypto.createHash('sha256').update(b).digest());
 
 async function readJson(req) {
   let s = '';
@@ -91,9 +121,12 @@ async function readJson(req) {
 export const server = http.createServer(async (req, res) => {
   const send = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': env.ALLOW_ORIGIN || '*' }); res.end(JSON.stringify(body)); };
   try {
-    if (req.method === 'POST' && req.url === '/lead') { const r = await newLead(await readJson(req)); return send(r.status, r.body); }
+    if (req.method === 'POST' && req.url === '/lead') {
+      const ip = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || req.socket.remoteAddress || '?';
+      const r = await newLead(await readJson(req), ip); return send(r.status, r.body);
+    }
     if (req.method === 'POST' && req.url === '/telegram') {
-      if (req.headers['x-telegram-bot-api-secret-token'] !== env.TELEGRAM_SECRET) return send(403, { error: 'forbidden' });
+      if (!sameSecret(req.headers['x-telegram-bot-api-secret-token'], env.TELEGRAM_SECRET)) return send(403, { error: 'forbidden' });
       await telegramUpdate(await readJson(req)); return send(200, { ok: true });
     }
     send(404, { error: 'not found' });

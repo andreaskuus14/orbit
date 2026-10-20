@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   if (res) return res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b || typeof b !== "object" || Array.isArray(b)) return fail("JSON body required");
-  if (b.action !== "add" && typeof b.id !== "string") return fail("id required");
+  if (b.action !== "add" && (typeof b.id !== "string" || !/^[0-9a-f-]{36}$/i.test(b.id))) return fail("id required");
   const one = (q: PromiseLike<{ data: unknown; error: { message: string } | null }>) =>
     Promise.resolve(q).then(({ data, error }) => (error ? fail(error.message, 500) : data ? Response.json(data) : fail("Not found", 404)));
 

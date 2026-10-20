@@ -24,18 +24,16 @@ export function originalityIssue(job: Pick<ClipJob, "options">, clip: Pick<Clip,
     "Add your own layer first (your commentary, reaction or analysis) and describe it in “What I added”.";
 }
 
-type PubInfo = { publish?: { status: string; privacy?: string; scheduledFor?: string; error?: string } };
+type PubInfo = { publish?: { status: string; privacy?: string; error?: string } }; // a past "scheduled" = published (as in calendar-pure)
 /** Upload problems ORBIT can see from its own records, as short lines for the owner. */
-export function uploadHealth(jobs: { clips: PubInfo[] }[], now = Date.now()): string[] {
+export function uploadHealth(jobs: { clips: PubInfo[] }[]): string[] {
   const clips = jobs.flatMap((j) => j.clips);
   const n = (f: (c: PubInfo) => boolean) => clips.filter(f).length;
   const priv = n((c) => c.publish?.status === "done" && c.publish.privacy === "private");
-  const overdue = n((c) => c.publish?.status === "scheduled" && !!c.publish.scheduledFor && Date.parse(c.publish.scheduledFor) < now);
   const signIn = n((c) => c.publish?.status === "failed" && /reconnect youtube/i.test(c.publish.error ?? ""));
   const s = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
   return [
     priv && `${s(priv, "upload is", "uploads are")} still private on YouTube, so nobody can see ${priv === 1 ? "it" : "them"}. Make ${priv === 1 ? "it" : "them"} public in YouTube Studio if you meant to.`,
-    overdue && `${s(overdue, "scheduled clip has", "scheduled clips have")} passed ${overdue === 1 ? "its" : "their"} publish time. ORBIT can't confirm YouTube made ${overdue === 1 ? "it" : "them"} public: check YouTube Studio.`,
     signIn && `${s(signIn, "upload", "uploads")} failed because the YouTube sign-in expired. Reconnect YouTube. If your Google app is in "Testing", sign-ins expire every 7 days; publish the consent screen to "In production" to stop that.`,
   ].filter((x): x is string => !!x);
 }

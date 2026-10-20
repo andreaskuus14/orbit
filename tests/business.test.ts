@@ -16,7 +16,11 @@ test("validatePatch takes only valid fields that were sent", () => {
   assert.equal(validatePatch({ fee: -1 }), "Fee must be 0–100000 € a month");
   assert.equal(validatePatch({ fee: "abc" }), "Fee must be 0–100000 € a month");
   assert.equal(validatePatch({ name: "" }), "Name can't be empty");
+  assert.equal(validatePatch({ notes: null }), "notes must be text");
+  assert.equal(validatePatch({ fee: 100001 }), "Fee must be 0–100000 € a month");
+  assert.deepEqual(validatePatch({ notes: "called\u0007 owner" }), { notes: "called owner" });
   assert.deepEqual(validatePatch({ stage: "paying", fee: "49.999" }), { stage: "paying", fee: 50 });
+  assert.deepEqual(validatePatch({ fee: "12,50" }), { fee: 12.5 });
 });
 
 test("funnel counts stages and sums only paying fees", () => {

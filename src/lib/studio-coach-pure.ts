@@ -18,21 +18,22 @@ const fin = (n: number) => (Number.isFinite(n) ? n : 0);
 
 export function coach(d: CoachInput, titleOf: (id: string) => string | undefined = () => undefined): Finding[] {
   const v = fin(d.totals.views), pv = fin(d.prevTotals.views);
-  if (v < FEW_VIEWS) return [{
+  if (v < FEW_VIEWS && pv < FEW_VIEWS) return [{
     level: "fix", title: `Only ${v} views in this range: too few to judge anything yet`,
     why: "YouTube shows each new Short to a small test audience first and widens it only if they watch. With few uploads there is nothing to learn from.",
     todo: "Post 1–2 Shorts a day for 30 days, each with your own hook or commentary. Your own game footage counts as original.",
   }];
 
   const out: Finding[] = [];
+  const enough = v >= FEW_VIEWS; // shares of this period's views mean something only with enough of them (and never divide by 0)
   const top = d.topVideos?.[0];
-  if (top && top.views / v >= 0.5) out.push({
+  if (enough && top && top.views / v >= 0.5) out.push({
     level: "good", title: `One video brought ${pct(top.views / v)} of your views`,
     why: `${titleOf(top.id) ? `“${titleOf(top.id)}”` : "Your top video"} is the format your audience wants right now.`,
     todo: "Make 3 more in the same format this week: same kind of moment, same length, a new twist each time.",
   });
 
-  if (d.engaged && pv >= FEW_VIEWS) {
+  if (enough && d.engaged && pv >= FEW_VIEWS) {
     const r = fin(d.engaged.cur) / v, pr = fin(d.engaged.prev) / pv;
     if (r <= pr - 0.1) out.push({
       level: "fix", title: `Fewer viewers stayed past the start: ${pct(r)} engaged, down from ${pct(pr)}`,
@@ -43,7 +44,7 @@ export function coach(d: CoachInput, titleOf: (id: string) => string | undefined
   }
 
   const shorts = d.traffic.find((t) => t.source === "SHORTS")?.views ?? 0;
-  if (shorts / v < 0.5) out.push({
+  if (enough && shorts / v < 0.5) out.push({
     level: "info", title: `Only ${pct(shorts / v)} of views came from the Shorts feed`,
     why: "The feed is where new viewers find a Shorts channel. A low share means YouTube isn't widening your Shorts beyond the test audience yet.",
     todo: "Focus on rewatch and completion: shorter cuts (15–30 s), a loop at the end, one clear moment per Short.",

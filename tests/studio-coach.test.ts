@@ -38,3 +38,10 @@ test("a healthy, growing range says so", () => {
   const f = coach(base({ totals: t(900, { subsGained: 9 }), prevTotals: t(500) }));
   assert.ok(f.some((x) => x.level === "good" && /Views up 80%/.test(x.title)));
 });
+
+test("engaged share going up and zero net subscribers get their own wording", () => {
+  assert.ok(coach(base({ engaged: { cur: 400, prev: 270 } })).some((x) => x.level === "good" && /up from 60%/.test(x.title)));
+  const f = coach({ totals: t(1500, { subsGained: 2, subsLost: 2 }), prevTotals: t(1400), traffic: [{ source: "SHORTS", views: 1200 }] });
+  assert.ok(f.some((x) => /1,500 views but no new subscribers/.test(x.title)));
+  assert.ok(!coach(base({ totals: t(900) })).some((x) => /subscribers/.test(x.title)), "under 1000 views: no subscriber finding");
+});

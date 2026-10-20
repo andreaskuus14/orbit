@@ -22,8 +22,7 @@ test("cleanOriginal: undefined = not sent, null = invalid, else trimmed text wit
   assert.equal(cleanOriginal(""), "");
 });
 
-test("uploadHealth flags private uploads, overdue schedules and expired sign-ins", () => {
-  const now = Date.parse("2026-10-20T12:00:00Z");
+test("uploadHealth flags private uploads and expired sign-ins, not schedules that went live", () => {
   const jobs = [{ clips: [
     { publish: { status: "done", privacy: "private" } },
     { publish: { status: "done", privacy: "public" } },
@@ -32,12 +31,11 @@ test("uploadHealth flags private uploads, overdue schedules and expired sign-ins
     { publish: { status: "failed", error: "Reconnect YouTube" } },
     {},
   ] }];
-  const h = uploadHealth(jobs, now);
-  assert.equal(h.length, 3);
+  const h = uploadHealth(jobs);
+  assert.equal(h.length, 2);
   assert.match(h[0], /^1 upload is still private/);
-  assert.match(h[1], /^1 scheduled clip has passed/);
-  assert.match(h[2], /Testing/);
-  assert.deepEqual(uploadHealth([{ clips: [{ publish: { status: "done", privacy: "public" } }] }], now), []);
+  assert.match(h[1], /Testing/);
+  assert.deepEqual(uploadHealth([{ clips: [{ publish: { status: "done", privacy: "public" } }] }]), []);
 });
 
 test("videoResource sets YouTube's synthetic-content flag only when asked", () => {
