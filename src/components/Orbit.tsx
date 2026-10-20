@@ -10,7 +10,7 @@ import { VOICE_ASK, voiceContext } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
-import { NAV_EVENT, navReply, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
+import { NAV_EVENT, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
 import { StudioNotifier } from "./StudioNotifier";
 import { NotificationCenter } from "./NotificationCenter";
 import { StopAll } from "./StopAll";
@@ -31,6 +31,7 @@ import { runAgentCommand } from "./agent-command";
 import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
 import { markOpen } from "./dev-timing";
 import { ContinueWork } from "./ContinueWork";
+import { runNavCommand } from "./nav-command";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: WorldLoading });
@@ -65,6 +66,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [automationFailing, setAutomationFailing] = useState(false); // real: an enabled automation's last run failed
   const [cmdMode, setCmdMode] = useState<"ask" | "task">("ask");
   const [cmdErr, setCmdErr] = useState("");
+  const [cmdReply, setCmdReply] = useState("");
+  const [workOpen, setWorkOpen] = useState(false);
   const [focusMemory, setFocusMemory] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [gameOpen, setGameOpen] = useState(false); // pause the 3D galaxy while a full-screen game runs
@@ -133,24 +136,28 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   // Voice questions (mic or "Hey Orbit") go to CORE whatever the bar's mode; navigation commands fly straight there.
   useEffect(() => {
-    const onAsk = (e: Event) => {
+    const onAsk = async (e: Event) => {
       const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
       if (!text) return;
       setCmdErr("");
+      setCmdReply("");
+      let nav = parseNavCommand(text, { current: shown });
+      if (nav?.zoom && !scene3d) nav = null;
+      if (nav) {
+        stopSpeech();
+        try {
+          const reply = await runNavCommand(nav);
+          setCmdReply(reply);
+          if (speechSettings().speak) speakChunk(reply);
+        } catch (e) { setCmdErr(e instanceof Error ? e.message : "Command failed. Try again."); }
+        finally { dispatchEvent(new Event("orbit:core-done")); }
+        return;
+      }
       const fr = runFollowCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // done signal: a voice conversation listens again // "follow Estonia" / "unfollow AI": speaks the real outcome
       if (fr) { stopSpeech(); return; }
       const ar = runAgentCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // "Atlas, research CS2 trends": a real task
       if (ar) { stopSpeech(); if (speechSettings().speak) speakChunk(ar); return; }
       if (runWatchCommand(text, shown, (msg) => { stopSpeech(); if (msg && speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) return; // "show me Jynxzi's latest videos", then "the second one"
-      let nav = parseNavCommand(text, { current: shown }); // "go to local news"
-      if (nav?.zoom && !scene3d) nav = null; // no 3D scene on screen: zooming would do nothing
-      if (nav) {
-        stopSpeech();
-        if (speechSettings().speak) speakChunk(navReply(nav));
-        dispatchEvent(new CustomEvent(NAV_EVENT, { detail: nav }));
-        dispatchEvent(new Event("orbit:core-done")); // handled here, no CORE stream: a voice conversation listens again
-        return;
-      }
       dispatchEvent(new CustomEvent(VOICE_ASKED));
       setPending(text); openCore();
     };
@@ -274,8 +281,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, []);
 
   const select = useCallback((id: PanelId) => { warmWorld(id); setPanel(id); if (id !== "memory") setFocusMemory(null); if (id !== "operations") setFocusTask(null); if (id !== "agents") setFocusGoal(null); }, []);
-  const openTask = useCallback((id: string) => { setFocusTask(id); setFocusGoal(null); setPanel("operations"); }, []);
-  const openGoal = useCallback((id: string) => { setFocusGoal(id); setPanel("agents"); }, []);
+  const openTask = useCallback((id: string) => { setWorkOpen(false); setFocusTask(id); setFocusGoal(null); setPanel("operations"); }, []);
+  const openGoal = useCallback((id: string) => { setWorkOpen(false); setFocusGoal(id); setPanel("agents"); }, []);
   const openMemory = useCallback((id: string) => { setFocusMemory(id); setPanel("memory"); }, []);
   useEffect(() => { // search palette picked a memory: open it in MEMORY
     const f = (e: Event) => { const id = (e as CustomEvent<{ id?: string }>).detail?.id; if (typeof id === "string" && id) openMemory(id); };
@@ -289,6 +296,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => {
     const onNav = (e: Event) => {
       const t = (e as CustomEvent<NavTarget>).detail;
+      if (t.continueWork) { setWorkOpen(true); return; }
+      setWorkOpen(false);
       if (t.zoom) return; // ZoomRig in the canvas on screen handles it
       if (t.doctor) { setDoctor("nav"); return; } // opens over whatever is on screen
       if (t.country || t.region || t.search !== undefined) setNewsFocus({ country: t.country, region: t.region, search: t.search });
@@ -323,11 +332,17 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     if (!text) return;
     voice.clearError();
     setCmdErr("");
+    setCmdReply("");
+    let nav = parseNavCommand(text, { current: shown }); // direct commands work in Ask and Task mode
+    if (nav?.zoom && !scene3d) nav = null;
+    if (nav) {
+      setCmd(""); stopSpeech();
+      try { setCmdReply(await runNavCommand(nav)); }
+      catch (e) { setCmdErr(e instanceof Error ? e.message : "Command failed. Try again."); }
+      return;
+    }
     if (runFollowCommand(text, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // "follow Estonia" / "unfollow AI"
     if (runWatchCommand(text, shown, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // THEATER: find/choose/control videos
-    let nav = parseNavCommand(text, { current: shown }); // in either mode
-    if (nav?.zoom && !scene3d) nav = null; // no 3D scene on screen: zooming would do nothing ("open game dev" is a place, not a question or a task)
-    if (nav) { setCmd(""); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: nav })); return; }
     if (cmdMode === "ask") { setCmd(""); setPending(text); openCore(); return; }
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
     try {
@@ -457,6 +472,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </aside>
       )}
       {doctor && <DoctorPanel key={doctor} speak={doctor === "nav"} onClose={() => setDoctor(null)} />}
+      {workOpen && <aside aria-label="Continue my work" className="glass fixed inset-x-4 top-24 bottom-28 z-50 mx-auto max-w-2xl overflow-y-auto p-4"
+        onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setWorkOpen(false); cmdRef.current?.focus(); } }}>
+        <button type="button" className="chip mb-2" autoFocus onClick={() => { setWorkOpen(false); cmdRef.current?.focus(); }}>Close work list</button>
+        <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />
+      </aside>}
 
       {tapToTalk && !voice.listening && (
         <button type="button" className="chip fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 px-10 py-6 text-xl"
@@ -478,6 +498,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <VoiceControls voice={voice} />
         </div>
         {(cmdErr || voice.error) && <p className="error mt-1 px-1" role="alert">{cmdErr || voice.error}</p>}
+        {cmdReply && <p className="muted mt-1 px-1" role="status">{cmdReply}</p>}
       </form>
     </main>
   );

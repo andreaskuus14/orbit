@@ -51,7 +51,8 @@ export function pickBestAlternative(alts: string[], ctx: HearCtx = {}): string {
     const t = correctTranscript(a);
     if (!t) return;
     // Lower alternatives may pick a command, never create a wake: room talk ending in "a bit" mustn't arm ORBIT.
-    const nav = (i === 0 || !question) ? parseNavCommand(t, ctx) : null;
+    const nav = parseNavCommand(t, ctx);
+    if (i > 0 && (nav?.stopAll || nav?.voice !== undefined)) return; // never invent a destructive command or unmute from a lower guess
     // A lower guess may not start the timer or jump to a LIFE tab ("journal" heard inside "journal entry for today").
     const cmd = (i === 0 || !question) && ((nav && (i === 0 || !nav.life)) || isSleepCommand(t));
     const score = cmd ? 2 : (i === 0 && extractWakeQuestion(t)) || STOP_WORDS.test(t) ? 1 : 0;
@@ -111,7 +112,7 @@ export function isEcho(heard: string, spoken: string): boolean {
  *  other speech, or ORBIT's own echo. */
 export function shouldBargeIn(heard: string, spoken: string): "stop" | "wake" | null {
   if (isEcho(heard, spoken)) return null;
-  return STOP_WORDS.test(heard) ? "stop" : extractWakeQuestion(heard) ? "wake" : null;
+  return STOP_WORDS.test(heard) || parseNavCommand(heard)?.stopAll ? "stop" : extractWakeQuestion(heard) ? "wake" : null;
 }
 const allWords = (t: string) => ` ${(t.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? []).join(" ")} `;
 const saidPhrase = (heard: string, spoken: string) => allWords(heard).trim() !== "" && allWords(spoken).includes(allWords(heard));

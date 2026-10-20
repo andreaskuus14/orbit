@@ -13,7 +13,8 @@ import { ResultEvidence } from "./ResultEvidence";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
 import type { Plan } from "@/lib/plans-pure";
-import { NAV_EVENT, navReply, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
+import { NAV_EVENT, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
+import { runNavCommand } from "./nav-command";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { planetById, type PlanetId } from "@/lib/planets";
 import { Markdown } from "./AgentsPanels";
@@ -125,7 +126,8 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
 
   const send = useCallback(async (text: string, fromVoice?: boolean) => {
     const message = text.trim();
-    if ((!message && !att.has()) || busy) return;
+    const nav = parseNavCommand(message, { current: "core" });
+    if ((!message && !att.has()) || (busy && !nav)) return; // direct commands still work while CORE answers
     stopSpeech();
     if (isSleepCommand(message)) { void goToSleep(); return; }
     opening.current++; // sending wins over a chat still loading
@@ -136,12 +138,18 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     const say = (parts: string[]) => { if (talk && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
     const voiceOut = sentenceStream();
     const fly = (to: NavTarget) => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to }));
-    const files = att.take();
+    const files = nav ? [] : att.take(); // pending attachments must not send a direct command to Claude
     setMsgs((m) => [...m, { role: "user", content: [message, files.length && `📎 ${files.map((f) => f.name).join(", ")}`].filter(Boolean).join("\n") }]);
     setInput("");
     lastQ.current = message;
-    const nav = files.length ? null : parseNavCommand(message, { current: "core" }); // plain "go to / open / show me X": no model call
-    if (nav) { setMsgs((m) => [...m, { role: "assistant", content: navReply(nav) }]); say([navReply(nav)]); fly(nav); return; }
+    if (nav) {
+      try {
+        const reply = await runNavCommand(nav);
+        setMsgs((m) => [...m, { role: "assistant", content: reply }]); say([reply]);
+      } catch (e) { setMsgs((m) => [...m, { role: "assistant", content: e instanceof Error ? e.message : "Command failed. Try again.", error: true }]); }
+      finally { if (talk) dispatchEvent(new Event("orbit:core-done")); }
+      return;
+    }
     setBusy(true);
     setActivity([]);
     const ac = new AbortController();

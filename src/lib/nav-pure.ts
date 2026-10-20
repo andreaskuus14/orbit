@@ -12,6 +12,8 @@ export type NavTarget = {
   search?: string; zoom?: "in" | "out" | "reset"; morning?: true; // morning: open the "Good morning" card on the galaxy and read it aloud
   doctor?: true; // doctor: open the ORBIT doctor (health checks) and read the result aloud; stays where you are
   beliefs?: true; // beliefs: MEMORY opens "What ORBIT believes"
+  stopAll?: true; voice?: boolean; // direct actions: stay in the current world; voice sets output on/off
+  continueWork?: true; // open the unfinished-work list, without starting or resuming a task
   life?: LifeView; start?: true; // life: LIFE opens on that tab; start (with life "focus"): start the focus timer
 };
 export type LifeView = "today" | "habits" | "focus" | "reminders" | "journal";
@@ -20,6 +22,16 @@ export const NAV_EVENT = "orbit:navigate"; // detail: NavTarget
 export const LOCAL_COUNTRY = "Estonia";
 
 const norm = (s: string) => s.toLowerCase().replace(/['’.]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+// Whole utterances only. Keep actions separate from PLACES so a model's navigate tool cannot stop work or unmute.
+const INSTANT: Record<string, Omit<NavTarget, "panel">> = {};
+const command = (action: Omit<NavTarget, "panel">, names: string) => names.split(",").forEach((n) => { INSTANT[n.trim()] = action; });
+command({ stopAll: true }, "stop, stop everything, peata, peata kõik");
+command({ voice: false }, "mute, vaigista");
+command({ voice: true }, "unmute, lülita heli sisse");
+command({ morning: true }, "status report, olukord");
+command({ continueWork: true }, "show my work, continue my work, näita minu tööd, jätka minu tööd");
+command({}, "back, galaxy, tagasi, galaktika");
 
 const PLACES: Record<string, NavTarget> = {};
 const put = (t: NavTarget, names: string) => names.split(",").forEach((n) => { PLACES[n.trim()] = t; });
@@ -131,6 +143,10 @@ export function parseNavCommand(text: string, ctx: { current?: PanelId | null } 
   for (let prev = ""; prev !== s;) { prev = s; s = s.replace(PREFIX, ""); }
   const said = SUFFIX.exec(s)?.[0] ?? "";
   s = s.replace(SUFFIX, "");
+  if (Object.hasOwn(INSTANT, s)) {
+    const action = INSTANT[s];
+    return { panel: action.stopAll || action.voice !== undefined ? ctx.current ?? null : null, ...action };
+  }
   // "check orbit": SUFFIX ate the "orbit" that this phrase needs
   const doc = PLACES[s]?.doctor ? PLACES[s] : / orbit\b/.test(said) && PLACES[`${s} orbit`]?.doctor ? PLACES[`${s} orbit`] : null;
   if (doc) return doc;
@@ -177,6 +193,9 @@ export function validateNav(input: Record<string, unknown>): NavTarget | null {
 
 /** "Intelligence → Estonia", "Studio → Stats", "the galaxy". */
 export function navLabel(t: NavTarget): string {
+  if (t.stopAll) return "Stop-all";
+  if (t.voice !== undefined) return "voice output";
+  if (t.continueWork) return "Continue my work";
   if (t.morning) return "your morning briefing";
   if (t.doctor) return "the ORBIT doctor";
   if (t.beliefs) return "what ORBIT believes";
@@ -186,7 +205,10 @@ export function navLabel(t: NavTarget): string {
   return sub ? `${name} → ${sub}` : name;
 }
 export const navReply = (t: NavTarget) =>
-  t.morning ? "Here's your morning briefing."
+  t.stopAll ? "Stop-all is on; background work is paused."
+    : t.voice !== undefined ? (t.voice ? "Voice output on." : "Voice output muted.")
+    : t.continueWork ? "Here's your unfinished work."
+    : t.morning ? "Here's your morning briefing."
     : t.doctor ? "Checking everything. One moment."
     : t.beliefs ? "Here's what I know about you."
     : t.zoom ? (t.zoom === "reset" ? "Resetting the view." : `Zooming ${t.zoom}.`)
