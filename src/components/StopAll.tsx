@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notify } from "@/lib/notify-pure";
 import { changeStopAll, STOP_ALL_CHANGED } from "./nav-command";
+import { RESOLVE_ALERT, type Signal } from "@/lib/interruption-pure";
 
 type Status = { stop: { on: boolean; at: string }; hold: string; limit: { until: number; at: number } | null };
 const SEEN_KEY = "orbit.limitSeen";
@@ -12,17 +13,22 @@ export function StopAll() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const seen = useRef<number | null>(null);
+  const wasOn = useRef(false);
 
   const load = useCallback(async () => {
     const r = await fetch("/api/stop-all").then((x) => (x.ok ? x.json() : null)).catch(() => null) as Status | null;
     if (!r) return;
     setS(r);
-    if (r.limit) {
+    if (r.stop.on && !wasOn.current) notify({ key: `stop-all:${r.stop.at}`, signal: "stop-all", kind: "system", title: "Stop-all switched on", reason: "Agents and automations are paused until you resume them.", fixLabel: "Open pause controls", nav: { panel: null } });
+    if (!r.stop.on) dispatchEvent(new CustomEvent<Signal>(RESOLVE_ALERT, { detail: "stop-all" }));
+    wasOn.current = r.stop.on;
+    if (!r.limit || r.limit.until <= Date.now()) dispatchEvent(new CustomEvent<Signal>(RESOLVE_ALERT, { detail: "usage-limit" }));
+    if (r.limit && r.limit.until > Date.now()) {
       if (seen.current === null) { try { seen.current = Number(localStorage.getItem(SEEN_KEY)) || 0; } catch { seen.current = 0; } }
       if (r.limit.at !== seen.current) {
         seen.current = r.limit.at;
         try { localStorage.setItem(SEEN_KEY, String(r.limit.at)); } catch { /* notify again next load: harmless */ }
-        notify({ kind: "system", title: "Claude usage limit reached", body: `Background work (autopilot, goals, suggestions, translations) is paused until ${new Date(r.limit.until).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}. CORE chat still works.` });
+        notify({ key: `usage-limit:${r.limit.at}`, signal: "usage-limit", nav: { panel: "analytics" }, fixLabel: "See reset time", kind: "system", title: "Claude usage limit reached", body: `Background work (autopilot, goals, suggestions, translations) is paused until ${new Date(r.limit.until).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}. CORE chat still works.` });
       }
     }
   }, []);

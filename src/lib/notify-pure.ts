@@ -1,11 +1,14 @@
 // Notification center bus + history rules. Pure (no React); tested in tests/notify.test.ts. UI: src/components/NotificationCenter.tsx.
 import type { NavTarget } from "./nav-pure.ts";
 import { ago } from "./watch-pure.ts";
+import { isProblem, signalFor, type Signal } from "./interruption-pure.ts";
+import type { HeraldCard } from "./herald-pure.ts";
 
 export const NOTIFY_EVENT = "orbit:notify"; // detail: NotifyDetail
 export type NotifyKind = "studio" | "agents" | "life" | "core" | "system";
-export type NotifyDetail = { title: string; body?: string; kind: NotifyKind; nav?: NavTarget };
-export type NotifyItem = NotifyDetail & { id: string; at: number; read: boolean };
+export type NotifyDetail = { title: string; body?: string; kind: NotifyKind; nav?: NavTarget; key?: string;
+  signal?: Signal; reason?: string; alreadyShown?: boolean; herald?: HeraldCard; fixHref?: string; fixLabel?: string };
+export type NotifyItem = NotifyDetail & { id: string; at: number; read: boolean; resolved?: boolean; interrupted?: boolean };
 
 export const NOTIFY_KEY = "orbit.notifications";
 export const NOTIFY_CAP = 50;
@@ -23,8 +26,15 @@ export function notify(detail: NotifyDetail): void {
 export function addItem(list: NotifyItem[], d: NotifyDetail, now: number, id = `${now}-${Math.random().toString(36).slice(2, 8)}`): NotifyItem[] {
   const title = String(d.title ?? "").slice(0, 200), body = d.body ? String(d.body).slice(0, 500) : undefined;
   if (!title || !KINDS.includes(d.kind)) return list;
-  if (list.some((x) => x.title === title && (x.body ?? "") === (body ?? "") && now - x.at < DEDUPE_MS)) return list;
-  return [{ id, at: now, read: false, title, body, kind: d.kind, nav: d.nav }, ...list].slice(0, NOTIFY_CAP);
+  if (d.key && list.some((x) => x.key === d.key)) return list;
+  if (!d.key && list.some((x) => x.title === title && (x.body ?? "") === (body ?? "") && now - x.at < DEDUPE_MS)) return list;
+  const all: NotifyItem[] = [{ ...d, id, at: now, read: false, title, body }, ...list];
+  // Keep the latest open problem per kind even when routine updates fill the normal 50-item history.
+  const problems = new Map<Signal, string>();
+  for (const x of all) if (!x.resolved && isProblem(x) && !problems.has(signalFor(x))) problems.set(signalFor(x), x.id);
+  const keep = new Set(problems.values());
+  for (const x of all) if (keep.size < NOTIFY_CAP) keep.add(x.id);
+  return all.filter((x) => keep.has(x.id));
 }
 
 /** localStorage text → items; anything malformed is dropped. */
