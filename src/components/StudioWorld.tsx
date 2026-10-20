@@ -9,6 +9,7 @@ import { useGlRecovery } from "./useGlRecovery";
 import { FrameMark } from "./dev-timing";
 import { loadImage } from "./texture-cache";
 import { ZoomRig } from "./ZoomRig";
+import { useScramble } from "./useScramble";
 import StudioStats from "./StudioStats";
 import ClipFactory from "./ClipFactory";
 import { isShort, medianViewsPerDay, moonRadius, takeoff, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
@@ -240,20 +241,48 @@ function Comet({ m, reduced, onPick }: { m: Moon; reduced: boolean; onPick: (id:
 }
 
 /** Shifts the scene left of the side panel on wide screens. */
-function ViewOffset() {
+type Mode = "channel" | "stats" | "clips";
+const HOME = Math.hypot(4.2, 11);
+
+/** Cinematic camera: flies in from far on open, then glides the planet aside for whatever panel is open
+ *  (Channel: video rail on the right → planet left of centre; Stats/Clips: big sheet on the left → planet right and further back).
+ *  Eased every frame, never snapped; stops easing the distance as soon as the owner grabs the camera. Reduced motion: jumps. */
+function StudioCamera({ mode, reduced }: { mode: Mode; reduced: boolean }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const size = useThree((s) => s.size);
+  const controls = useThree((s) => s.controls) as unknown as ({ target: THREE.Vector3 } & THREE.EventDispatcher<{ start: object }>) | null;
+  const wide = size.width >= 900;
+  const goalX = !wide ? 0 : mode === "channel" ? size.width * 0.14 : -size.width * 0.3; // + shifts the planet left on screen
+  const goalD = !wide || mode === "channel" ? HOME : HOME * 1.3;
+  const x = useRef<number | null>(null), dist = useRef<number | null>(reduced ? null : HOME * 2.1); // intro: start far out
+  const want = useRef(goalD), off = useRef(new THREE.Vector3());
+  useEffect(() => { want.current = goalD; if (dist.current === null) dist.current = -1; }, [goalD]); // -1 = ease from wherever we are
   useEffect(() => {
-    if (size.width >= 900) camera.setViewOffset(size.width, size.height, 240, 0, size.width, size.height);
-    else camera.clearViewOffset();
-    camera.updateProjectionMatrix();
-  }, [camera, size]);
+    const stop = () => { dist.current = null; };
+    controls?.addEventListener("start", stop);
+    return () => controls?.removeEventListener("start", stop);
+  }, [controls]);
+  useFrame((_, dt) => {
+    const cx = x.current === null || reduced ? goalX : THREE.MathUtils.damp(x.current, goalX, 4, dt);
+    if (cx !== x.current) {
+      x.current = Math.abs(cx - goalX) < 0.5 ? goalX : cx;
+      if (wide || x.current !== 0) camera.setViewOffset(size.width, size.height, x.current, 0, size.width, size.height); else camera.clearViewOffset();
+      camera.updateProjectionMatrix();
+    }
+    if (dist.current === null || !controls) return;
+    const o = off.current.copy(camera.position).sub(controls.target), d = o.length();
+    const from = dist.current < 0 ? d : dist.current;
+    const next = reduced ? want.current : THREE.MathUtils.damp(from, want.current, 2.2, dt);
+    camera.position.copy(controls.target).addScaledVector(o, next / d);
+    dist.current = Math.abs(next - want.current) < 0.01 ? null : next;
+  });
   return null;
 }
 
 /* ---------- data + UI ---------- */
 
 type Sort = "newest" | "views" | "takeoff";
+const MODES: [Mode, string][] = [["channel", "Channel"], ["stats", "Stats"], ["clips", "Clips"]];
 
 export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }: { onClose: () => void; reduced: boolean; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
   const glr = useGlRecovery();
@@ -263,20 +292,19 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
   const [selected, setSelected] = useState<string | null>(null);
   const [hover, setHover] = useState<Hover>({ id: null, x: 0, y: 0 });
   const [sort, setSort] = useState<Sort>("newest");
-  const [stats, setStats] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio"));
-  const [clips, setClips] = useState(false); // Stats and Clips share the left overlay: opening one closes the other
-  useEffect(() => { if (open) { setStats(open.view === "stats"); setClips(open.view === "clips" || open.view === "review"); } }, [open]);
-  useEffect(() => { // Esc closes the open overlay first; capture phase + preventDefault keeps Orbit from closing the world
-    if (!stats && !clips) return;
+  const [mode, setMode] = useState<Mode>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio") ? "stats" : "channel"));
+  useEffect(() => { if (open) setMode(open.view === "stats" ? "stats" : open.view === "clips" || open.view === "review" ? "clips" : "channel"); }, [open]);
+  useEffect(() => { // Esc goes back to the channel first; capture phase + preventDefault keeps Orbit from closing the world
+    if (mode === "channel") return;
     const h = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (e.key !== "Escape" || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       if (document.querySelector(".drawer:not(.drawer-out), .review-queue, dialog[open], [popover]:popover-open")) return; // CORE or the clip review is on top: Esc closes that first
-      e.preventDefault(); setStats(false); setClips(false);
+      e.preventDefault(); setMode("channel");
     };
     addEventListener("keydown", h, true);
     return () => removeEventListener("keydown", h, true);
-  }, [stats, clips]);
+  }, [mode]);
   const [idea, setIdea] = useState<{ busy: boolean; error?: string }>({ busy: false });
   const seq = useRef(0);
 
@@ -351,6 +379,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
   }
 
   const hoverVid = hover.id ? byId.get(hover.id) ?? null : null;
+  const name = useScramble(live ? live.channel.title : data && !data.configured ? "Not connected" : "Your channel", 700);
 
   return (
     <div className="studio absolute inset-0 globe-in" aria-label="Studio: your YouTube channel">
@@ -365,7 +394,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
         <Moons moons={moons} selected={selected} ghost={!live} reduced={reduced} onPick={pick} onHover={onHover} />
         {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
         <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
-        <ViewOffset />
+        <StudioCamera mode={mode} reduced={reduced} />
         <ZoomRig home={Math.hypot(4.2, 11)} reduced={reduced} />
         <EffectComposer multisampling={4}>
           <Bloom intensity={reduced ? 0.3 : 0.5} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
@@ -374,6 +403,9 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
         </EffectComposer>
         {process.env.NODE_ENV === "development" && <FrameMark name="studio" />}
       </Canvas>}
+
+      <div aria-hidden className="studio-tone pointer-events-none absolute inset-0 z-[1]" />
+      <div aria-hidden className="studio-vignette pointer-events-none absolute inset-0 z-[1]" />
 
       {hoverVid && (
         <div aria-hidden className="pointer-events-none absolute inset-0 z-[17] overflow-hidden">
@@ -387,112 +419,109 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
         </div>
       )}
 
-      {hot.length > 0 && (
-        <div className="absolute left-3 top-[4.5rem] z-[15] flex max-w-[calc(100vw-1.5rem)] flex-col items-start gap-1 min-[900px]:max-w-[calc(100vw-34rem)]" aria-live="polite">
-          {hot.slice(0, 3).map((h) => (
-            <button key={h.id} className={`chip text-left ${reduced ? "" : "animate-pulse"}`} style={{ borderColor: "#fb923c" }} onClick={() => setSelected(h.id)}>
-              🚀 {clip(byId.get(h.id)?.title ?? "")} is taking off — {h.ratio.toFixed(1)}× your usual pace
-            </button>
-          ))}
-        </div>
-      )}
-
-      <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]"
-        aria-label="Channel">
-        <div className="flex items-center justify-between gap-2">
-          <div className="hud-title studio-title">STUDIO{live ? ` · ${live.channel.title.toUpperCase()}` : ""}</div>
-          <div className="flex shrink-0 gap-1">
-            {<button className="chip" aria-pressed={stats} onClick={() => { setStats((s) => !s); setClips(false); }}>📈 Stats</button>}
-            <button className="chip" aria-pressed={clips} onClick={() => { setClips((c) => !c); setStats(false); }}>🎬 Clips</button>
-            {data?.configured !== false && <button className="chip" onClick={() => load(true)} disabled={loading} aria-label="Refresh channel data">{loading ? "Loading…" : "Refresh"}</button>}
-          </div>
-        </div>
-        {loading && !data && <p className="muted mt-2 text-sm">Loading your channel…</p>}
-        {err && <p className="error mt-2" role="alert">{err}</p>}
-
-        {data && !data.configured && (
-          <div className="card mt-3 text-sm">
-            <b>Connect your YouTube channel</b>
-            {data.error && <p className="error mt-1">{data.error}</p>}
-            <ol className="mt-2 list-decimal space-y-1 pl-5">
-              <li>Get a free API key: Google Cloud Console → enable <b>YouTube Data API v3</b> → Credentials → Create API key.</li>
-              <li>Add to <code>.env.local</code>:
-                <pre className="mt-1 overflow-x-auto rounded bg-black/40 p-2 text-xs">{"YOUTUBE_API_KEY=your-key\nYOUTUBE_CHANNEL=@yourhandle"}</pre>
-              </li>
-              <li>Run <code>npm run app:rebuild</code>, then come back here.</li>
-            </ol>
-          </div>
+      <header className="studio-head absolute left-4 top-[4.5rem] z-[15] max-w-[min(26rem,calc(100vw-2rem))]">
+        <button className="studio-back" onClick={onClose}>← Galaxy</button>
+        {mode === "channel" && <p className="studio-kicker">STUDIO{live ? ` · ${n(live.channel.subs)} subs · ${n(live.channel.views)} views · ${live.channel.videoCount} videos` : ""}</p>}
+        {mode === "channel" && <h2 className="studio-name">{name}</h2>}
+        {mode === "channel" && hot.length > 0 && (
+          <ul className="mt-2 space-y-1" aria-live="polite" aria-label="Taking off">
+            {hot.slice(0, 3).map((h) => (
+              <li key={h.id}><button className="studio-hot" onClick={() => { setSelected(h.id); setMode("channel"); }}>
+                <i aria-hidden /> {clip(byId.get(h.id)?.title ?? "", 40)} <span>{h.ratio.toFixed(1)}× usual pace</span></button></li>
+            ))}
+          </ul>
         )}
+      </header>
 
-        {live && (
-          <>
-            <dl className="mt-2 grid grid-cols-3 gap-2 text-center">
-              {[["Subscribers", live.channel.subs], ["Total views", live.channel.views], ["Videos", live.channel.videoCount]].map(([k, val]) => (
-                <div key={k} className="card !p-2"><dt className="muted text-[10px] uppercase tracking-widest">{k}</dt><dd className="text-lg font-semibold">{n(val as number)}</dd></div>
-              ))}
-            </dl>
+      <nav className="studio-modes absolute left-1/2 top-[4.5rem] z-[15] -translate-x-1/2" aria-label="Studio sections" style={{ ["--i" as string]: MODES.findIndex(([k]) => k === mode) }}>
+        <span aria-hidden className="studio-modes-pill" />
+        {MODES.map(([k, label]) => <button key={k} aria-pressed={mode === k} onClick={() => setMode(k)}>{label}</button>)}
+        {data?.configured !== false && <button className="studio-refresh" onClick={() => load(true)} disabled={loading} aria-label="Refresh channel data" title="Refresh">{loading ? "…" : "↻"}</button>}
+      </nav>
 
-            {sel && (
-              <div className="card mt-3 text-sm" aria-live="polite">
-                <div className="flex items-start justify-between gap-2">
-                  <b className="leading-snug">{sel.title}</b>
-                  <button className="chip shrink-0" onClick={() => setSelected(null)} aria-label="Close video details">×</button>
-                </div>
-                {sel.thumb && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={sel.thumb} alt="" className="mt-2 w-full rounded-lg" loading="lazy" referrerPolicy="no-referrer" />
-                )}
-                <dl className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1 text-xs">
-                  <div><dt className="muted">Views</dt><dd>{n(sel.views)}</dd></div>
-                  <div><dt className="muted">Likes</dt><dd>{n(sel.likes)}</dd></div>
-                  <div><dt className="muted">Comments</dt><dd>{n(sel.comments)}</dd></div>
-                  <div><dt className="muted">Views/day</dt><dd>{n(viewsPerDay(sel, now))}{ratio.has(sel.id) ? ` · ${ratio.get(sel.id)!.toFixed(1)}× 🚀` : ""}</dd></div>
-                  <div><dt className="muted">Published</dt><dd>{new Date(sel.publishedAt).toLocaleDateString()}</dd></div>
-                  <div><dt className="muted">Format</dt><dd>{isShort(sel) ? "Short" : "Video"}</dd></div>
-                </dl>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <button className="btn" onClick={() => ideas(sel)} disabled={idea.busy}>{idea.busy ? "Starting Forge…" : "Ideas: titles & thumbnails"}</button>
-                  <a className="chip" href={`https://www.youtube.com/watch?v=${encodeURIComponent(sel.id)}`} target="_blank" rel="noreferrer">Watch on YouTube ↗</a>
-                </div>
-                {idea.error && <p className="error mt-1">{idea.error}</p>}
-              </div>
-            )}
+      {mode === "channel" && (
+        <section key="rail" className="glass hud-panel world-panel studio-rail absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-4 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-4 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[24rem]"
+          aria-label="Videos">
+          {loading && !data && <p className="muted text-sm">Loading your channel…</p>}
+          {err && <p className="error" role="alert">{err}</p>}
 
-            <div className="mt-3 flex gap-1" role="group" aria-label="Sort videos">
-              {([["newest", "Newest"], ["views", "Most viewed"], ["takeoff", "Taking off"]] as const).map(([k, label]) => (
-                <button key={k} className="chip" aria-pressed={sort === k} onClick={() => setSort(k)}>{label}</button>
-              ))}
-            </div>
-            {!videos.length && <p className="muted mt-3 text-sm">No public videos yet.</p>}
-            <ol className="mt-2 space-y-1" aria-label="Videos">
-              {listed.map((v) => (
-                <li key={v.id}>
-                  <button className={`hud-row${v.id === selected ? " on" : ""}`} style={{ gridTemplateColumns: "1fr auto auto", ["--accent" as string]: "#fca5a5" }}
-                    aria-pressed={v.id === selected} onClick={() => pick(v.id)}>
-                    <span className="truncate">{ratio.has(v.id) ? "🚀 " : ""}{v.title}</span>
-                    <span className="muted text-[10px] uppercase tracking-widest">{isShort(v) ? "Short" : ""}</span>
-                    <span className="num">{n(v.views)}</span>
-                  </button>
+          {data && !data.configured && (
+            <div className="text-sm">
+              <b>Connect your YouTube channel</b>
+              {data.error && <p className="error mt-1">{data.error}</p>}
+              <ol className="mt-2 list-decimal space-y-1 pl-5">
+                <li>Get a free API key: Google Cloud Console → enable <b>YouTube Data API v3</b> → Credentials → Create API key.</li>
+                <li>Add to <code>.env.local</code>:
+                  <pre className="mt-1 overflow-x-auto rounded bg-black/40 p-2 text-xs">{"YOUTUBE_API_KEY=your-key\nYOUTUBE_CHANNEL=@yourhandle"}</pre>
                 </li>
-              ))}
-            </ol>
-            <p className="muted mt-2 text-xs">Updated {new Date(live.fetchedAt).toLocaleTimeString()} · moons = latest {moons.length} videos, newest closest in</p>
-          </>
-        )}
-      </section>
+                <li>Run <code>npm run app:rebuild</code>, then come back here.</li>
+              </ol>
+            </div>
+          )}
 
-      {stats && (
-        <div className="absolute inset-x-3 top-[4.5rem] bottom-36 z-[16] min-[900px]:right-[32rem]">
-          <StudioStats onClose={() => setStats(false)} videoId={selected} videoTitle={sel?.title} reduced={reduced} onPickVideo={setSelected} titleOf={(id) => byId.get(id)?.title} />
+          {live && (
+            <>
+              {sel && (
+                <div className="studio-selected mb-4 text-sm" aria-live="polite">
+                  <div className="flex items-start justify-between gap-2">
+                    <b className="leading-snug">{sel.title}</b>
+                    <button className="chip shrink-0" onClick={() => setSelected(null)} aria-label="Close video details">×</button>
+                  </div>
+                  {sel.thumb && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={sel.thumb} alt="" className="mt-2 w-full rounded-lg" loading="lazy" referrerPolicy="no-referrer" />
+                  )}
+                  <dl className="mt-3 grid grid-cols-3 gap-x-3 gap-y-2 text-xs">
+                    <div><dt className="muted">Views</dt><dd>{n(sel.views)}</dd></div>
+                    <div><dt className="muted">Likes</dt><dd>{n(sel.likes)}</dd></div>
+                    <div><dt className="muted">Comments</dt><dd>{n(sel.comments)}</dd></div>
+                    <div><dt className="muted">Views/day</dt><dd>{n(viewsPerDay(sel, now))}{ratio.has(sel.id) ? ` · ${ratio.get(sel.id)!.toFixed(1)}×` : ""}</dd></div>
+                    <div><dt className="muted">Published</dt><dd>{new Date(sel.publishedAt).toLocaleDateString()}</dd></div>
+                    <div><dt className="muted">Format</dt><dd>{isShort(sel) ? "Short" : "Video"}</dd></div>
+                  </dl>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button className="btn" onClick={() => ideas(sel)} disabled={idea.busy}>{idea.busy ? "Starting Forge…" : "Title & thumbnail ideas"}</button>
+                    <button className="chip" onClick={() => setMode("stats")}>Stats for this video</button>
+                    <a className="chip" href={`https://www.youtube.com/watch?v=${encodeURIComponent(sel.id)}`} target="_blank" rel="noreferrer">Watch ↗</a>
+                  </div>
+                  {idea.error && <p className="error mt-1">{idea.error}</p>}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="hud-title studio-title !text-[0.65rem]">VIDEOS</h3>
+                <div className="flex gap-1" role="group" aria-label="Sort videos">
+                  {([["newest", "Newest"], ["views", "Most viewed"], ["takeoff", "Taking off"]] as const).map(([k, label]) => (
+                    <button key={k} className="chip" aria-pressed={sort === k} onClick={() => setSort(k)}>{label}</button>
+                  ))}
+                </div>
+              </div>
+              {!videos.length && <p className="muted mt-3 text-sm">No public videos yet. Your first Short appears here as a moon.</p>}
+              <ol className="mt-2 space-y-0.5" aria-label="Videos">
+                {listed.map((v) => (
+                  <li key={v.id}>
+                    <button className={`hud-row${v.id === selected ? " on" : ""}`} style={{ gridTemplateColumns: "1fr auto auto" }}
+                      aria-pressed={v.id === selected} onClick={() => pick(v.id)}>
+                      <span className="truncate">{v.title}</span>
+                      <span className="muted text-[10px] uppercase tracking-widest">{ratio.has(v.id) ? "▲ hot" : isShort(v) ? "Short" : ""}</span>
+                      <span className="num">{n(v.views)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+              <p className="muted mt-3 text-[11px]">Updated {new Date(live.fetchedAt).toLocaleTimeString()} · each moon is a video, newest closest in</p>
+            </>
+          )}
+        </section>
+      )}
+
+      {mode !== "channel" && (
+        <div key={mode} className="studio-sheet absolute inset-x-3 top-[7.5rem] bottom-36 z-[16] min-[900px]:left-4 min-[900px]:right-[36vw]">
+          {mode === "stats"
+            ? <StudioStats onClose={() => setMode("channel")} videoId={selected} videoTitle={sel?.title} reduced={reduced} onPickVideo={setSelected} titleOf={(id) => byId.get(id)?.title} />
+            : <ClipFactory onClose={() => setMode("channel")} reduced={reduced} review={open?.view === "review" ? open : null} />}
         </div>
       )}
-      {clips && (
-        <div className="absolute inset-x-3 top-[4.5rem] bottom-36 z-[16] min-[900px]:right-[32rem]">
-          <ClipFactory onClose={() => setClips(false)} reduced={reduced} review={open?.view === "review" ? open : null} />
-        </div>
-      )}
-
-      <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
   );
 }

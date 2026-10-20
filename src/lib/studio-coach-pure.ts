@@ -27,7 +27,7 @@ export function coach(d: CoachInput, titleOf: (id: string) => string | undefined
   const out: Finding[] = [];
   const enough = v >= FEW_VIEWS; // shares of this period's views mean something only with enough of them (and never divide by 0)
   const top = d.topVideos?.[0];
-  if (enough && top && top.views / v >= 0.5) out.push({
+  if (enough && top && top.views <= v && top.views / v >= 0.5) out.push({
     level: "good", title: `One video brought ${pct(top.views / v)} of your views`,
     why: `${titleOf(top.id) ? `“${titleOf(top.id)}”` : "Your top video"} is the format your audience wants right now.`,
     todo: "Make 3 more in the same format this week: same kind of moment, same length, a new twist each time.",
