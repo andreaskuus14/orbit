@@ -14,7 +14,7 @@ import { GalaxyLoader } from "./GalaxyLoader";
 import { loadImage } from "./texture-cache";
 import { FrameMark } from "./dev-timing";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
-import { cullLabels, damp, fmtCoord, HOME_POS, introLabelAlpha } from "@/lib/cinematic-pure";
+import { cullLabels, damp, fmtCoord, HOME_POS, INTRO_SECS, introLabelAlpha } from "@/lib/cinematic-pure";
 import {
   CameraFeel, DevStats, Dust, GalaxyHud, MotionAberration, newStory, StoryFocus, StoryRail, StoryReadout, StoryRig, useRim,
   type HudEls, type Motion, type Story,
@@ -1028,7 +1028,15 @@ export default function Galaxy(props: GalaxyProps) {
   const onReady = useCallback(() => setReady(true), []);
   useEffect(() => { const t = setTimeout(onReady, 8000); return () => clearTimeout(t); }, [onReady]); // never hang on the loader if no frame draws
   const max: QualityLevel = props.reduced ? 1 : 3;
-  const [autoLevel, setAutoLevel] = useState<QualityLevel>(max);
+  // Start with a light first frame; the existing monitor adds detail when there is headroom.
+  const [autoLevel, setAutoLevel] = useState<QualityLevel>(1);
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const update = () => setVisible(!document.hidden);
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
   const mode = props.quality ?? "auto";
   const level: QualityLevel = mode === "high" ? 3 : mode === "low" ? 0 : (Math.min(autoLevel, max) as QualityLevel);
   const q = QUALITY[level];
@@ -1047,7 +1055,7 @@ export default function Galaxy(props: GalaxyProps) {
   const dof = q.dof && !props.reduced;
   // The camera story: intro flight on every fresh load, then wheel = travel planet to planet (not with reduced motion).
   const [intro, setIntro] = useState(!props.reduced);
-  const [introMs] = useState(intro ? 4500 : 900); // HUD title decrypts in step with the intro
+  const [introMs] = useState(intro ? INTRO_SECS * 1000 : 900); // HUD title decrypts in step with the intro
   const [stop, setStop] = useState(-1);
   const story = useRef<Story>(newStory(intro));
   const onIntroEnd = useCallback(() => setIntro(false), []);
@@ -1065,7 +1073,7 @@ export default function Galaxy(props: GalaxyProps) {
   }, [stop, selected, onSelect]);
   return (
     <div className="relative h-full w-full">
-      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={props.paused ? "never" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, dprMax]}
+      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={props.paused || !visible ? "never" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, dprMax]}
         gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping }}>
         <color attach="background" args={["#02040b"]} />
         {/* Depth haze: far orbits and belts sink into a cold blue-black (shader layers like stars/nebulae ignore it). */}

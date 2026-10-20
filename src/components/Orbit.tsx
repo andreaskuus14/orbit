@@ -28,14 +28,15 @@ import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
 import { runFollowCommand } from "./follow-command";
 import { runWatchCommand } from "./watch-store";
 import { runAgentCommand } from "./agent-command";
+import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
 import { markOpen } from "./dev-timing";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
-const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false });
-const StudioWorld = dynamic(() => import("./StudioWorld"), { ssr: false });
-const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false });
-const AgentsStation = dynamic(() => import("./AgentsStation"), { ssr: false });
-const TheaterWorld = dynamic(() => import("./TheaterWorld"), { ssr: false });
+const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: WorldLoading });
+const StudioWorld = dynamic(() => import("./StudioWorld"), { ssr: false, loading: WorldLoading });
+const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false, loading: WorldLoading });
+const AgentsStation = dynamic(() => import("./AgentsStation"), { ssr: false, loading: WorldLoading });
+const TheaterWorld = dynamic(() => import("./TheaterWorld"), { ssr: false, loading: WorldLoading });
 const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
 const VaultPanel = dynamic(() => import("./VaultPanel").then((m) => m.VaultPanel), { ssr: false });
 const LifeReminders = dynamic(() => import("./LifeReminders"), { ssr: false });
@@ -95,15 +96,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   // A full-screen world (or a game) covers the galaxy: it stays mounted but paused, so coming back is instant.
   const covered = gameOpen || isWorld(shown);
   useEffect(() => { markOpen(gameOpen ? "game" : covered ? shown ?? "galaxy" : "galaxy"); }, [gameOpen, covered, shown]); // dev-only timing
-
-  // Fetch the world chunks while idle, so entering a world never waits on a JS download (next/dynamic reuses them).
-  useEffect(() => {
-    const load = () => {
-      for (const p of [import("./StudioWorld"), import("./DevWorld"), import("./AgentsStation"), import("./TheaterWorld")]) p.catch(() => {}); // best-effort warm-up
-      import("./NewsGlobe").then((m) => m.warmGlobe()).catch(() => {}); // the most visited world: also paint its maps ahead of time
-    };
-    if ("requestIdleCallback" in window) requestIdleCallback(load, { timeout: 5000 }); else setTimeout(load, 1500);
-  }, []);
 
   // Back from Google's YouTube consent screen (?studio=…): reopen STUDIO; StudioStats reads and clears the query.
   useEffect(() => { if (new URLSearchParams(location.search).has("studio")) setPanel("studio"); }, []);
@@ -167,11 +159,22 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   // Default to the fast 2D view when WebGL is missing or the screen is small; the user can switch any time.
   useEffect(() => {
-    setReduced(matchMedia("(prefers-reduced-motion: reduce)").matches);
+    const motion = matchMedia("(prefers-reduced-motion: reduce)");
+    const updateMotion = () => setReduced(motion.matches);
+    updateMotion();
+    motion.addEventListener("change", updateMotion);
     let webgl = false;
     try { webgl = !!document.createElement("canvas").getContext("webgl2"); } catch { /* no webgl */ }
-    if (webgl && innerWidth >= 720) setView("3d");
+    let saved: string | null = null;
+    try { saved = localStorage.getItem("orbit.view"); } catch { /* private mode */ }
+    if (webgl && (saved === "3d" || (saved !== "2d" && innerWidth >= 720 && !motion.matches))) setView("3d");
+    return () => motion.removeEventListener("change", updateMotion);
   }, []);
+  const toggleView = () => {
+    const next = view === "3d" ? "2d" : "3d";
+    setView(next);
+    try { localStorage.setItem("orbit.view", next); } catch { /* private mode */ }
+  };
 
   useEffect(() => {
     try { if (localStorage.getItem("orbit.cmdMode") === "task") setCmdMode("task"); } catch { /* storage unavailable */ }
@@ -264,7 +267,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     return () => removeEventListener("keydown", onKey);
   }, []);
 
-  const select = useCallback((id: PanelId) => { setPanel(id); if (id !== "memory") setFocusMemory(null); if (id !== "operations") setFocusTask(null); }, []);
+  const select = useCallback((id: PanelId) => { warmWorld(id); setPanel(id); if (id !== "memory") setFocusMemory(null); if (id !== "operations") setFocusTask(null); }, []);
   const openTask = useCallback((id: string) => { setFocusTask(id); setPanel("operations"); }, []);
   const openMemory = useCallback((id: string) => { setFocusMemory(id); setPanel("memory"); }, []);
   useEffect(() => { // search palette picked a memory: open it in MEMORY
@@ -287,7 +290,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if (t.panel === (approach ?? shown)) { if (panel === "core") setPanel(shown); return; } // already there: close CORE over it, the world flies to the sub-target // already there (or on the way): the world flies to the sub-target itself
       const world = t.panel === "intelligence" || (t.panel !== null && WORLDS.includes(t.panel));
       const inWorld = isWorld(shown);
-      if (world && !inWorld && view === "3d" && !reduced) { setPanel(null); setApproach(t.panel); return; }
+      if (world && !inWorld && view === "3d" && !reduced) { warmWorld(t.panel!); setPanel(null); setApproach(t.panel); return; }
       setApproach(null);
       if (t.panel === "core") openCore(); else if (t.panel) select(t.panel); else closeWorld(); // "galaxy"/"home" really leaves the world
     };
@@ -334,7 +337,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? "Your profile" : drawer ? planetById(drawer)!.name : "";
 
   return (
-    <main className="relative h-dvh w-full overflow-hidden">
+    <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view}>
       {view === "3d" && (
         <div className="absolute inset-0" style={covered ? { visibility: "hidden" } : undefined} inert={covered || undefined}>
           <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
@@ -351,12 +354,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       ) : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : view === "3d" ? null : (
-        <nav aria-label="Planets" className="absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
-          <ul className="mx-auto grid max-w-3xl gap-3 sm:grid-cols-2">
+        <nav aria-label="Planets" className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
+          <div className="overview-heading"><p>ORBIT / YOUR WORKSPACE</p><h1>A universe.<br />Yours to shape.</h1><span>Ask, create, remember. Pick a world to begin.</span></div>
+          <ul className="overview-worlds">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
               <b>CORE</b><span className="muted text-sm">{busy ? "Thinking…" : warning ? "Last request failed" : "Your central AI. Ask anything."}</span></button></li>
             {PLANETS.map((p) => (
-              <li key={p.id}><button className="planet-card" onClick={() => select(p.id)} style={{ borderColor: p.color }}>
+              <li key={p.id}><button className="planet-card" onPointerEnter={() => warmWorld(p.id)} onFocus={() => warmWorld(p.id)} onClick={() => select(p.id)} style={{ borderColor: p.color }}>
                 <b style={{ color: p.color }}>{p.name}</b>
                 <span className="muted text-sm">{p.id === "memory" ? `${memoryCount} memories` : p.id === "intelligence" && pulseBusy ? "Pulse is writing a briefing…" : p.id === "intelligence" && pulseFailed ? "Last briefing failed" : p.id === "operations" && automationFailing ? "An automation's last run failed" : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? `${runningTasks.length} agent task${runningTasks.length > 1 ? "s" : ""} running…` : p.live ? p.blurb : `${p.blurb} · Phase ${p.phase}`}</span></button></li>
             ))}
@@ -376,13 +380,15 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <StopAll />
           <NotificationCenter />
           <StudioNotifier />
-          <button className="chip" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label="Search everything (Ctrl+P)" title="Search everything: planets, actions, memories, files (Ctrl+P)">⌕</button>
-          <button className="chip" onClick={() => setView(view === "3d" ? "2d" : "3d")} title="Switch between the 3D galaxy and the fast 2D list">{view === "3d" ? "2D view" : "3D view"}</button>
+          <OrbitExplore selected={shown} onSelect={select} />
+          <button className="chip hud-search" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label="Search everything (Ctrl+P)" title="Search everything: planets, actions, memories, files (Ctrl+P)">⌕</button>
+          <button className="chip" onClick={toggleView} title="Switch between the galaxy and the workspace index. Your choice is remembered.">{view === "3d" ? "Index" : "Galaxy"}</button>
           <button className="chip hud-more" popoverTarget="hud-menu" aria-label="More options" title="More: profile, 3D quality, shortcuts, sign out">⋯</button>
         </div>
       </header>
       {/* Native popover: light-dismiss and Esc for free, drawn in the top layer above every panel. */}
       <div id="hud-menu" popover="auto" className="glass hud-menu" aria-label="More options">
+        <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))}>Search everything <kbd>Ctrl+P</kbd></button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => select("profile")}>Profile</button>
         <div className="hud-menu-group" role="group" aria-label="3D quality">
           <span className="muted">Quality</span>
@@ -427,7 +433,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       <Herald home={!shown && !approach} />
       <WhatsNew home={!shown && !approach} />
       {!shown && !approach && <HalEye />}
-      {!shown && (
+      {!shown && view === "3d" && (
         <aside className="glass hud-panel status-hud" aria-label="System status">
           <div className="hud-title">SYSTEM</div>
           <dl>

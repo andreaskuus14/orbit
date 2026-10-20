@@ -1,0 +1,101 @@
+/* ORBIT's observatory: the worlds carry colour; the surrounding controls stay quiet.
+   Only opacity/transform animate. No new animation runtime or full-screen blur. */
+.orbit-shell {
+  --orbit-surface: rgba(12, 18, 25, .94);
+  --orbit-edge: rgba(206, 226, 236, .16);
+  --orbit-ease: cubic-bezier(.22, 1, .36, 1);
+  --muted: #9caebd;
+  background: #070c12;
+}
+.orbit-shell > header { z-index: 31; background: linear-gradient(#070c12e6, #070c1200); }
+.orbit-shell .brand { color: #ecf4f5; background: none; filter: none; letter-spacing: .22em; }
+.orbit-shell .logo img { box-shadow: none; }
+.orbit-shell .glass:not(.studio *) { background: var(--orbit-surface); border-color: var(--orbit-edge); box-shadow: 0 12px 40px #0004; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.orbit-shell .chip:not(.studio *) { background: #d8ecf208; border-color: var(--orbit-edge); box-shadow: none; transition: background .16s, border-color .16s; }
+.orbit-shell .chip:not(.studio *):hover { background: #d8ecf218; border-color: #b3d6e25c; box-shadow: none; }
+.orbit-shell .btn:not(.studio *) { background: #c1e3eb; color: #10222a; box-shadow: none; transition: background .16s, transform .16s; }
+.orbit-shell .btn:not(.studio *):hover:not(:disabled) { background: #e4f6f8; box-shadow: none; filter: none; }
+.orbit-shell .btn:not(.studio *):active:not(:disabled) { transform: scale(.97); }
+.orbit-shell .btn:not(.studio *).danger { background: #9f1239; color: white; }
+.orbit-shell .bubble.core { background: #c3e5ef08; border-color: #c3e5ef20; box-shadow: none; }
+.orbit-shell .bubble.user { background: #8fc6d614; border-color: #8fc6d630; }
+.orbit-shell .drawer { animation-duration: .24s; animation-delay: 0s; animation-timing-function: var(--orbit-ease); border-radius: 16px; }
+.orbit-shell .drawer.drawer-out { animation-duration: .2s; }
+.orbit-shell .cmdbar { background: #111b24f5; border-color: #c3e5ef30; padding: .5rem; box-shadow: 0 8px 28px #0005; }
+.orbit-shell .cmdbar .field { background: transparent; border-color: transparent; min-width: 0; }
+.orbit-shell .cmdbar .field:focus { border-color: #c3e5ef30; box-shadow: none; }
+.orbit-shell .hud-title { color: #c1e3eb; text-shadow: none; }
+.orbit-shell .status-hud { background: #0c1219b8; border-color: #c3e5ef16; box-shadow: none; }
+.orbit-shell .status-hud dl > div { border: 0; padding-bottom: .1rem; }
+.orbit-shell .story-anim { animation: observatory-enter .45s var(--orbit-ease) both; }
+.orbit-shell .story-name { letter-spacing: .08em; }
+.orbit-shell .story-readout { transition: opacity .3s, transform .45s var(--orbit-ease); }
+.orbit-shell .galaxy-loader { background: radial-gradient(ellipse, #102530, #070c12 70%); transition-duration: .3s; }
+.orbit-shell .galaxy-loader-orb::before { background: #e4f6f8; box-shadow: 0 0 28px #8fc6d680; }
+.orbit-shell .galaxy-loader-orb i { border-color: #a7d4e126; border-top-color: #c1e3eb; }
+
+/* An immediately usable, keyboard-accessible index over any world. */
+.orbit-explore { color: #edf4f6; background: #0c1219f7; border: 1px solid #c3e5ef30; border-radius: 18px; padding: 1.25rem; margin: auto; width: min(780px, calc(100vw - 2rem)); max-height: min(80dvh, 740px); overflow-y: auto; box-shadow: 0 24px 100px #0008; }
+.orbit-explore:popover-open { animation: observatory-enter .24s cubic-bezier(.22, 1, .36, 1); }
+.orbit-explore::backdrop { background: #02060cb3; }
+.explore-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; font-size: .8rem; color: #a4b5c0; }
+.explore-core { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 1rem; background: #b4d9e00d; border: 1px solid #c3e5ef30; border-radius: 10px; text-align: left; }
+.explore-core b { font-size: 1.5rem; font-weight: 500; letter-spacing: .14em; }
+.explore-core small { display: block; margin-top: .3rem; color: #a4b5c0; }
+.explore-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 1.5rem; margin-top: .75rem; }
+.explore-grid button { position: relative; padding: .85rem 1.6rem .85rem .4rem; text-align: left; border-bottom: 1px solid #c3e5ef14; transition: background .15s; }
+.explore-grid b { display: block; font-size: .75rem; font-weight: 500; letter-spacing: .12em; }
+.explore-grid small { display: block; color: #a4b5c0; font-size: .72rem; line-height: 1.5; margin-top: .3rem; }
+.explore-grid button > span { position: absolute; top: .8rem; right: .4rem; color: #b4d9e0; transition: transform .18s; }
+.explore-grid button:hover > span { transform: translate(2px, -2px); }
+.explore-grid button:hover, .explore-core:hover, .orbit-explore [aria-current="page"] { background: #b4d9e014; }
+.orbit-explore button:focus-visible { outline: 2px solid #c1e3eb; outline-offset: 3px; }
+.world-loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; color: #b4c6ce; background: #070c12; font-size: .85rem; }
+.world-loading-ring, .activity-orbit { display: block; width: 32px; height: 32px; border: 1px solid #c3e5ef30; border-top-color: #c1e3eb; border-radius: 50%; animation: orbit-spin 1.2s linear infinite; }
+
+/* The lightweight view has its own composition, rather than a fallback card wall. */
+.orbit-overview { background: radial-gradient(ellipse at 80% 20%, #19313b66, transparent 55%), #070c12; }
+.overview-heading, .overview-worlds { max-width: 960px; margin-inline: auto; }
+.overview-heading { padding: 1.5rem 0 2.5rem; }
+.overview-heading > p { font-family: var(--font-mono); font-size: .65rem; color: #a6c2cd; letter-spacing: .15em; }
+.overview-heading h1 { font-family: var(--font-inter), sans-serif; font-size: clamp(2.5rem, 6vw, 5rem); font-weight: 500; letter-spacing: -.065em; line-height: 1.02; margin: 1rem 0; }
+.overview-heading > span { color: #9caebd; font-size: .9rem; }
+.overview-worlds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 2rem; }
+.orbit-shell .overview-worlds .planet-card { height: 100%; min-height: 125px; border: 0; border-top: 1px solid #c3e5ef24 !important; border-radius: 0; background: none; padding: 1.2rem .2rem; transition: background .16s, transform .2s var(--orbit-ease); box-shadow: none; }
+.orbit-shell .overview-worlds .planet-card:hover { transform: translateY(-3px); background: #c3e5ef05; }
+.overview-worlds .planet-card b { color: #e5eff3 !important; font-family: var(--font-inter), sans-serif; font-size: .8rem; font-weight: 500; letter-spacing: .1em; }
+.overview-worlds .planet-card span { font-size: .8rem; line-height: 1.55; margin-top: .4rem; }
+.overview-worlds li:first-child b { color: #b4d9e0 !important; }
+.orbit-shell .overview-worlds .planet-card.warn { border-top-color: var(--rose) !important; }
+.core-activity { border-left: 1px solid #b4d9e040; padding: .6rem 0 .6rem 1rem; color: #b1c2cc; font-size: .8rem; }
+.core-activity summary { cursor: pointer; font-size: .7rem; color: #9caebd; margin-bottom: .6rem; }
+.core-activity ol { display: grid; gap: .4rem; margin-bottom: .8rem; padding-left: 1rem; list-style: decimal; }
+.core-activity-now { display: flex; align-items: center; gap: .75rem; }
+.core-activity-now small { display: block; font-family: var(--font-mono); letter-spacing: .15em; font-size: .55rem; color: #8da2af; margin-bottom: .2rem; }
+.activity-orbit { width: 20px; height: 20px; flex: 0 0 20px; }
+@keyframes observatory-enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (max-width: 760px) {
+  .overview-worlds { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1rem; }
+  .orbit-shell .logo .muted { display: none; }
+  .orbit-shell .logo img { width: 28px; height: 28px; }
+  .orbit-shell .logo .brand { font-size: .85rem; letter-spacing: .12em; }
+}
+@media (max-width: 640px) {
+  .orbit-shell .drawer { border-radius: 20px 20px 0 0; }
+  .orbit-shell .hud-bar-top { gap: .25rem; }
+  .orbit-shell .hud-bar-top > .chip { padding-inline: .5rem; }
+  .orbit-shell .logo img { display: none; }
+  .orbit-explore { padding: 1rem; max-height: 82dvh; }
+  .explore-grid { column-gap: .75rem; }
+  .overview-heading { padding-top: .5rem; }
+}
+@media (max-width: 380px) {
+  .explore-grid { grid-template-columns: 1fr; }
+  .orbit-shell .logo .brand { font-size: .75rem; }
+  .orbit-shell .hud-bar-top > .hud-search { display: none; }
+  .orbit-shell > header { padding-inline: .5rem; gap: .25rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbit-shell *, .orbit-explore, .world-loading-ring, .activity-orbit { animation: none !important; transition: none !important; }
+  .orbit-shell .overview-worlds .planet-card:hover { transform: none; }
+}
