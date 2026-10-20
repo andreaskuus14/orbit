@@ -14,7 +14,7 @@ import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
 import type { Plan } from "@/lib/plans-pure";
 import { NAV_EVENT, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
-import { runNavCommand } from "./nav-command";
+import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { planetById, type PlanetId } from "@/lib/planets";
 import { Markdown } from "./AgentsPanels";
@@ -145,6 +145,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     if (nav) {
       try {
         const reply = await runNavCommand(nav);
+        dispatchEvent(new CustomEvent(COMMAND_REPLY_EVENT, { detail: reply })); // visible even when navigation closes CORE
         setMsgs((m) => [...m, { role: "assistant", content: reply }]); say([reply]);
       } catch (e) { setMsgs((m) => [...m, { role: "assistant", content: e instanceof Error ? e.message : "Command failed. Try again.", error: true }]); }
       finally { if (talk) dispatchEvent(new Event("orbit:core-done")); }

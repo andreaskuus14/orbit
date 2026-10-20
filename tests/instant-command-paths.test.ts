@@ -25,7 +25,7 @@ function find(element: any, predicate: (e: Element) => boolean): Element | undef
 function component(file: string, attachments = false) {
   let cursor = 0;
   let attachmentsTaken = 0;
-  const state: any[] = [], effects: (() => void)[] = [], callbacks: Function[] = [], calls: nav.NavTarget[] = [], requests: string[] = [];
+  const state: any[] = [], effects: (() => void)[] = [], callbacks: Function[] = [], calls: nav.NavTarget[] = [], requests: string[] = [], events: Event[] = [];
   const listeners = new Map<string, Function>();
   const noop = () => {};
   const hooks = {
@@ -47,14 +47,14 @@ function component(file: string, attachments = false) {
   runInNewContext(sources.get(file)!, { module, exports: module.exports, Event, CustomEvent, AbortController, console,
     process: { env: { NODE_ENV: "test" } }, cancelAnimationFrame: noop,
     addEventListener: (name: string, fn: Function) => listeners.set(name, fn), removeEventListener: noop,
-    dispatchEvent: noop, localStorage: { setItem: noop },
+    dispatchEvent: (e: Event) => { events.push(e); listeners.get(e.type)?.(e); }, localStorage: { setItem: noop },
     fetch: async (url: string) => { requests.push(url); return { ok: false, status: 503, json: async () => ({ error: "Test response" }) }; },
     require: (name: string) => {
       if (name === "react") return hooks;
       if (name === "react/jsx-runtime") return require(name);
       if (name === "next/dynamic") return { default: () => noop };
       if (name.includes("nav-pure")) return nav;
-      if (name.includes("nav-command")) return { runNavCommand: async (t: nav.NavTarget) => { calls.push(t); return nav.navReply(t); } };
+      if (name.includes("nav-command")) return { COMMAND_REPLY_EVENT: "orbit:command-reply", runNavCommand: async (t: nav.NavTarget) => { calls.push(t); return nav.navReply(t); } };
       if (name.includes("/planets")) return planets;
       if (name.endsWith("/speak")) return speech;
       if (name.endsWith("/bus")) return bus;
@@ -69,7 +69,7 @@ function component(file: string, attachments = false) {
   const render = () => { cursor = 0; effects.length = 0; callbacks.length = 0; return file === "panels.tsx"
     ? module.exports.CorePanel({ initial: null, onConsumed: noop, onOpenMemory: noop })
     : module.exports.default({ userId: "test-user", email: "test@example.com" }); };
-  return { render, state, effects, callbacks, calls, requests, listeners, attachmentsTaken: () => attachmentsTaken };
+  return { render, state, effects, callbacks, calls, requests, events, listeners, attachmentsTaken: () => attachmentsTaken };
 }
 
 const commands = ["stop", "stop everything", "peata", "peata kõik", "mute", "unmute", "vaigista", "lülita heli sisse",
@@ -82,7 +82,11 @@ test("CORE typed commands return before the Claude request; a longer question st
     assert.ok(send);
     await send(text);
     if (text.startsWith("how")) { assert.deepEqual(h.requests, ["/api/core?stream=1"]); assert.equal(h.calls.length, 0); }
-    else { assert.equal(h.requests.length, 0, text); assert.deepEqual(h.calls, [nav.parseNavCommand(text, { current: "core" })]); }
+    else {
+      assert.equal(h.requests.length, 0, text); assert.deepEqual(h.calls, [nav.parseNavCommand(text, { current: "core" })]);
+      const reply = h.events.find((e) => e.type === "orbit:command-reply") as CustomEvent;
+      assert.equal(reply.detail, nav.navReply(h.calls[0]), "confirmation survives CORE closing");
+    }
   }
 });
 

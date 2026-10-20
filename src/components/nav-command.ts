@@ -2,6 +2,7 @@ import { NAV_EVENT, navReply, type NavTarget } from "../lib/nav-pure.ts";
 import { loadVoiceSettings, saveVoiceSettings } from "./voice/bus.ts";
 
 export const STOP_ALL_CHANGED = "orbit:stop-all-changed";
+export const COMMAND_REPLY_EVENT = "orbit:command-reply";
 
 /** Shared by the HUD button and instant commands. Confirm success before reporting it. */
 export async function changeStopAll(on: boolean): Promise<string | undefined> {

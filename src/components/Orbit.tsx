@@ -31,7 +31,7 @@ import { runAgentCommand } from "./agent-command";
 import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
 import { markOpen } from "./dev-timing";
 import { ContinueWork } from "./ContinueWork";
-import { runNavCommand } from "./nav-command";
+import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: WorldLoading });
@@ -68,6 +68,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [cmdErr, setCmdErr] = useState("");
   const [cmdReply, setCmdReply] = useState("");
   const [workOpen, setWorkOpen] = useState(false);
+  useEffect(() => {
+    const reply = (e: Event) => { setCmdErr(""); setCmdReply((e as CustomEvent<string>).detail); };
+    addEventListener(COMMAND_REPLY_EVENT, reply);
+    return () => removeEventListener(COMMAND_REPLY_EVENT, reply);
+  }, []);
   const [focusMemory, setFocusMemory] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [gameOpen, setGameOpen] = useState(false); // pause the 3D galaxy while a full-screen game runs
