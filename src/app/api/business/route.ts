@@ -3,14 +3,16 @@ import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
 import { usageHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
-import { FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, findPrompt, funnel, outreachPrompt, parseFinds, validatePatch, validateProspect, type Lang, type Prospect } from "@/lib/business-pure";
+import { FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, emailIn, findPrompt, funnel, outreachPrompt, parseFinds, sendSubject, validatePatch, validateProspect, type Lang, type Prospect } from "@/lib/business-pure";
 
 export const dynamic = "force-dynamic";
 
 // BUSINESS planet: client pipeline (Supabase public.prospects, RLS: own rows). Logic: src/lib/business-pure.ts.
 // POST {action:"find", query} | {action:"add", name, kind?, contact?, notes?} | {action:"update", id, ...fields} | {action:"draft", id, lang} | {action:"delete", id}.
 // "find" lets CORE search the web (read-only WebSearch/WebFetch only) and returns suggestions; nothing is saved until the owner adds one.
-// "draft" asks CORE (Claude Code on the owner's plan) for an outreach message; ORBIT never sends it.
+// "draft" asks CORE (Claude Code on the owner's plan) for an outreach message.
+// {action:"send", id} emails that saved draft, only from the owner's own two clicks (AGENTS.md rule 6). Needs RESEND_API_KEY +
+// ORBIT_MAIL_FROM. The stage lead → contacted is claimed first, so one business is emailed once even on a double click.
 const COLS = "id,name,kind,contact,stage,fee,notes,draft,created_at,updated_at";
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
@@ -20,7 +22,7 @@ export async function GET() {
   const { data, error } = await sb.from("prospects").select(COLS).order("updated_at", { ascending: false }).limit(300);
   if (error) return fail(error.code === "42P01" ? "Run supabase/migrations/0011_business.sql first" : error.message, 500);
   const prospects = (data ?? []).map((p) => ({ ...p, fee: Number(p.fee) })) as Prospect[];
-  return Response.json({ prospects, funnel: funnel(prospects) });
+  return Response.json({ prospects, funnel: funnel(prospects), canSend: !!(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM) });
 }
 
 export async function POST(req: Request) {
@@ -80,6 +82,47 @@ export async function POST(req: Request) {
         return fail(`Couldn't draft: ${e instanceof Error ? e.message : "unknown error"}`, 502);
       }
     }
-    default: return fail("action must be find, add, update, draft or delete");
+    case "send": {
+      const key = process.env.RESEND_API_KEY, from = process.env.ORBIT_MAIL_FROM;
+      if (!key || !from) return fail("Sending isn't set up: add RESEND_API_KEY and ORBIT_MAIL_FROM to .env.local", 503);
+      if (stopAllOn()) return fail("Not sending: Stop-all is on", 503);
+      const { data: p, error } = await sb.from("prospects").select("name, contact, draft, stage, notes").eq("id", b.id as string).maybeSingle();
+      if (error) return fail(error.message, 500);
+      if (!p) return fail("Not found", 404);
+      const to = emailIn(p.contact ?? "");
+      if (!to) return fail("No single email address in Contact: add one (phone numbers can't be emailed)");
+      if (!p.draft?.trim()) return fail("Draft a message first");
+      const stamp = new Date().toISOString();
+      // Claim before sending: only a business still "To contact" is emailed, once.
+      // seen: the updated_at of the draft the owner looked at; a redraft since then must be read again before it can go out.
+      if (typeof b.seen !== "string") return fail("Reload and read the draft before sending");
+      const { data: claimed, error: claimErr } = await sb.from("prospects").update({ stage: "contacted", updated_at: stamp }).eq("id", b.id as string).eq("stage", "lead").eq("updated_at", b.seen).select("id");
+      if (claimErr) return fail(claimErr.message, 500);
+      if (!claimed?.length) return fail("Not sent: it was already contacted, or the draft changed since you read it. Reload and check it again.", 409);
+      let r: Response;
+      try {
+        r = await fetch("https://api.resend.com/emails", {
+          method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "Idempotency-Key": `orbit-${b.id}-${b.seen}` }, // Resend sends one email per key
+          body: JSON.stringify({ from, to, subject: sendSubject(p.name, p.draft), text: p.draft, ...(process.env.ORBIT_MAIL_REPLY_TO ? { reply_to: process.env.ORBIT_MAIL_REPLY_TO } : {}) }),
+          signal: AbortSignal.timeout(20_000),
+        });
+      } catch {
+        // No answer: it may have gone out. Stays "Contacted" so a second click can't email them twice.
+        const notes = `${p.notes ? `${p.notes}\n` : ""}Email to ${to} on ${stamp.slice(0, 10)}: result unknown (no answer from Resend). Check your Resend log before sending again.`.slice(-2000);
+        await sb.from("prospects").update({ notes }).eq("id", b.id as string);
+        return fail("No answer from the email service: it may or may not have been sent. Check your Resend log; it stays marked Contacted.", 504);
+      }
+      if (r.status >= 500 || r.status === 429) { // server trouble: it may have gone out, same as no answer
+        await sb.from("prospects").update({ notes: `${p.notes ? `${p.notes}\n` : ""}Email to ${to} on ${stamp.slice(0, 10)}: result unknown (Resend ${r.status}). Check your Resend log.`.slice(-2000) }).eq("id", b.id as string);
+        return fail(`The email service had a problem (${r.status}): it may or may not have been sent. Check your Resend log; it stays marked Contacted.`, 502);
+      }
+      if (!r.ok) { // a clear refusal (4xx): nothing was sent, so it goes back to "To contact"
+        await sb.from("prospects").update({ stage: "lead" }).eq("id", b.id as string).eq("stage", "contacted");
+        return fail(`Not sent: Resend ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`, 502);
+      }
+      const notes = `${p.notes ? `${p.notes}\n` : ""}Emailed ${to} on ${stamp.slice(0, 10)} (approved in ORBIT).`.slice(-2000);
+      return one(sb.from("prospects").update({ notes }).eq("id", b.id as string).select(COLS).maybeSingle());
+    }
+    default: return fail("action must be find, send, add, update, draft or delete");
   }
 }

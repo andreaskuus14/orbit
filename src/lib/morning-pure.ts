@@ -3,6 +3,7 @@
 import type { Clip } from "./clips/types";
 import type { Recall } from "./resurface-pure";
 import type { WorkItem, WorkSummary } from "./work-continuation-pure";
+import { missionLine, type Mission } from "./daily-mission-pure.ts";
 
 export type MorningNav = "review" | "news" | "tasks" | "agents" | "life" | "goals";
 export type StudioIn = {
@@ -15,7 +16,7 @@ export type MorningAgents = { done: string[]; failed: number; proposals: string[
 export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
 export type MorningCalendar = { connected: boolean; today: { time: string; title: string }[] }; // titles: calendar data (invites), plain text only
 export type Morning = {
-  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince; work?: WorkSummary;
+  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince; work?: WorkSummary; mission?: Mission;
   suggestion: { text: string; nav: MorningNav | null; item?: WorkItem }; spoken: string;
 };
 
@@ -76,6 +77,7 @@ export function suggest(m: Pick<Morning, "studio" | "intel" | "agents" | "life" 
 export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   const s = m.studio, a = m.agents, i = m.intel;
   const must = [`${m.greeting}.`], opt: string[] = [];
+  if (m.mission) opt.unshift(missionLine(m.mission)); // first of the optional lines: dropped last, never past the word cap
   if (m.work?.items.length) opt.push(`Your work list shows ${n(m.work.items.length + m.work.more, "unfinished item")}.`);
   if (m.work?.problems.length) opt.push("Some unfinished work could not be loaded.");
   if (s) {
@@ -107,7 +109,7 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   return plain([...must, ...opt, tail].join(" ").replace(/\.\./g, "."));
 }
 
-export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall" | "work">, now: number, tz: string): Morning {
+export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall" | "work" | "mission">, now: number, tz: string): Morning {
   const base = { ...parts, greeting: greeting(now, tz), suggestion: suggest(parts) };
   return { ...base, spoken: spokenBriefing(base) };
 }
@@ -127,7 +129,8 @@ export function lifeSection(x: { habits: { scheduledToday: boolean; doneToday: b
 /* ---------- "Since you left" recap: shown on return after RECAP_AWAY_MS away, or merged into the morning card ---------- */
 export const RECAP_AWAY_MS = 3 * 3_600_000;
 export const RECAP_MAX_MS = 7 * DAY; // older last-seen values are clamped: a recap of "everything since March" isn't a recap
-export type MorningSince = { from: number; done: number; failed: number; clips: number; reminders: string[]; alerts: string[] };
+// live: Shorts that went live in the window. approvals: waiting now (state, not a change, so it never opens a recap alone).
+export type MorningSince = { from: number; done: number; failed: number; clips: number; reminders: string[]; alerts: string[]; live?: number; approvals?: number };
 
 /** The start of the away window, or null when the user wasn't away long enough (or lastSeen is missing/in the future). */
 export function awaySince(lastSeen: number | null, now: number): number | null {
@@ -144,9 +147,10 @@ export function parseSince(raw: string | null, now: number): number | null {
 /** What happened in [from, now]. Server-local days for alerts (markets' firedOn is a server-local "YYYY-MM-DD"). */
 export function sinceSection(x: {
   tasks: { status: string }[]; // root tasks already filtered to finished_at ≥ from
-  jobs: { updatedAt: string; clips: { status: string }[] }[];
+  jobs: { updatedAt: string; clips: { status: string; publish?: { status?: string; at?: string; scheduledFor?: string } }[] }[];
   reminders: { text: string; at: string; fired?: string }[];
   alerts: { text: string; firedOn?: string }[];
+  approvals?: number;
 }, from: number, now: number): MorningSince {
   const inWin = (t: number) => t >= from && t <= now;
   const fromDay = localDay(new Date(from));
@@ -159,9 +163,29 @@ export function sinceSection(x: {
     // A one-off came due while away whether or not a window showed it yet. shortcut: recurring ones move `at` forward and are missed.
     reminders: x.reminders.filter((r) => inWin(Date.parse(r.fired ?? r.at))).map((r) => plain(r.text)).slice(0, 3),
     alerts: x.alerts.filter((a) => a.firedOn && a.firedOn >= fromDay && a.firedOn <= localDay(new Date(now))).map((a) => a.text).slice(0, 3),
+    // Uploaded now, or scheduled for a time that has passed (YouTube made it public then).
+    live: x.jobs.flatMap((j) => j.clips).filter((c) => { const p = c.publish, t = Date.parse(p?.scheduledFor ?? (p?.status === "done" ? p.at ?? "" : ""));
+      return (p?.status === "done" || p?.status === "scheduled") && inWin(t); }).length,
+    approvals: x.approvals ?? 0,
   };
 }
 
 /** Client-side counts from the bell's history (localStorage). */
 export const countSince = (items: { at: number }[], from: number) => items.filter((i) => i.at >= from).length;
-export const sinceEmpty = (s: MorningSince, notes: number) => !s.done && !s.failed && !s.clips && !s.reminders.length && !s.alerts.length && !notes;
+export const sinceEmpty = (s: MorningSince, notes: number) => !s.done && !s.failed && !s.clips && !s.live && !s.reminders.length && !s.alerts.length && !notes;
+
+/** JARVIS-style spoken recap on return: only what changed, then what's waiting on you. "" when nothing happened. */
+export function sinceSpoken(s: MorningSince, notes: number): string {
+  if (sinceEmpty(s, notes)) return "";
+  const bits = [
+    s.live && `${n(s.live, "Short")} went live`,
+    s.clips && `${n(s.clips, "new clip")} ${s.clips === 1 ? "is" : "are"} ready to review`,
+    s.done && `${n(s.done, "agent task")} finished`,
+    s.failed && `${s.failed} failed`,
+    s.reminders.length && `${n(s.reminders.length, "reminder")} came due`,
+    s.alerts.length && `${n(s.alerts.length, "market alert")} fired`,
+  ].filter(Boolean) as string[];
+  const list = bits.length > 1 ? `${bits.slice(0, -1).join(", ")} and ${bits.at(-1)}` : bits[0] ?? `${n(notes, "new notification")}`;
+  const wait = s.approvals ? ` ${n(s.approvals, "approval")} ${s.approvals === 1 ? "is" : "are"} waiting for you.` : "";
+  return plain(`Welcome back. While you were away, ${list}.${wait}`);
+}

@@ -63,6 +63,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [runningTasks, setRunningTasks] = useState<string[]>([]); // real: tasks agents are working on right now
   const [focusTask, setFocusTask] = useState<string | null>(null);
   const [focusGoal, setFocusGoal] = useState<string | null>(null);
+  const [radarUrl, setRadarUrl] = useState<string | null>(null); // ?radar=<YouTube link>: shared from the phone (iOS Shortcut) → Idea Radar
   const [automationFailing, setAutomationFailing] = useState(false); // real: an enabled automation's last run failed
   const [cmdMode, setCmdMode] = useState<"ask" | "task">("ask");
   const [cmdErr, setCmdErr] = useState("");
@@ -109,6 +110,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   // Back from Google's YouTube consent screen (?studio=…): reopen STUDIO; StudioStats reads and clears the query.
   useEffect(() => { if (new URLSearchParams(location.search).has("studio")) setPanel("studio"); }, []);
+  useEffect(() => {
+    const q = new URLSearchParams(location.search), u = q.get("radar");
+    if (!u) return;
+    q.delete("radar"); history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}`); // a reload doesn't read it twice
+    setRadarUrl(u); setPanel("agents");
+  }, []);
 
   // Opened by scripts/wake ("orbital wake up") as /?wake=1: CORE greets you aloud, then listens for your question.
   // No cleanup on purpose: dev mode re-runs this effect, and the URL is already cleaned so the second run is a no-op.
@@ -377,7 +384,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       ) : shown === "creation" ? (
         <DevWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} />
       ) : shown === "agents" ? (
-        <AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} />
+        <AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} />
       ) : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : view === "3d" ? null : (
