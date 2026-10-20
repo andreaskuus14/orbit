@@ -13,7 +13,11 @@ import { orbitDataDir } from "./data-dir";
 import { findRisers, parseSnaps, pushSnap, toSnapshot, type Riser } from "./trend-rise-pure";
 import { findYtRisers, hotTopics, parsePopular, parseYtSnaps, type Topic, type YtRiser } from "./yt-trend-pure";
 import { OAuthError, getAccessToken, invalidateAccess, oauthEnv, readStored, type Stored } from "./yt-oauth";
-import { VIRAL_CACHE_MS, VIRAL_SEARCH_UNITS, VIRAL_WINDOW_MS, nicheQueries, parseViral, searchIds, type Viral } from "./yt-viral-pure";
+import { cachedYoutube, requestIdentity, videoReader, youtubeCacheMs } from "./youtube";
+import { meterYoutube, withYoutubeBudget } from "./youtube-quota";
+import { discoveryAfter, type QuotaGroup } from "./youtube-quota-pure";
+import { parseIsoDuration } from "./youtube-pure";
+import { VIRAL_CACHE_MS, VIRAL_WINDOW_MS, nicheQueries, parseViral, searchIds, type Viral } from "./yt-viral-pure";
 
 // DevWorld game-dev tools: Openverse sound search + local favourites, and the Roblox Trend Radar.
 // All outbound HTTP goes through safeFetch (SSRF guard, size cap); results are cached in memory with a size cap.
@@ -107,6 +111,7 @@ const YT_REGION = "US";
 const YT_HINT = "Connect YouTube in STUDIO to see YouTube trends";
 async function popular(token: string): Promise<Response> {
   const url = `https://www.googleapis.com/youtube/v3/videos?${new URLSearchParams({ part: "snippet,statistics", chart: "mostPopular", videoCategoryId: "20", regionCode: YT_REGION, maxResults: "50" })}`;
+  meterYoutube("videos");
   return fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000), cache: "no-store" });
 }
 async function ytTrends(now: number): Promise<YtTrends> {
@@ -133,54 +138,77 @@ async function ytTrends(now: number): Promise<YtTrends> {
   }
 }
 
-/* "Blowing up in your niche": up to 3 search.list calls (100 units each) + 1 videos.list, same OAuth grant as above. Fetched when the Rising
-   tab is opened and by the 3-hourly herald watch (src/lib/herald-watch.ts), cached 3 h, charged to the scout's daily budget (scout.json quota) so both stay under the project's 10,000 units. Never throws. */
+/* Niche discovery: broad searches cached 6 h, watched uploads refreshed cheaply every 3 h.
+   The shared weighted ledger assigns the actual cache miss to the originating feature. Never throws. */
 export type NicheViral = { videos: Viral[]; queries: string[]; units: number; at: number; hint?: string; error?: string };
-async function ytGet(path: string, params: Record<string, string>, s: Stored): Promise<unknown> {
-  const call = async () => fetch(`https://www.googleapis.com/youtube/v3/${path}?${new URLSearchParams(params)}`,
-    { headers: { authorization: `Bearer ${await getAccessToken(s)}` }, signal: AbortSignal.timeout(10_000), cache: "no-store" });
-  let res = await call();
-  if (res.status === 401) { invalidateAccess(); res = await call(); } // token revoked/rotated early
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`YouTube API ${res.status}: ${String(json?.error?.message ?? res.statusText).slice(0, 200)}`);
-  return json;
+async function ytGet(endpoint: string, params: Record<string, string>, s: Stored): Promise<unknown> {
+  return cachedYoutube(requestIdentity(endpoint, params, `oauth:${s.channelId}:${s.connectedAt}`), endpoint === "search" ? 6 * 3_600_000 : youtubeCacheMs(endpoint), async () => {
+    const call = async () => {
+      const token = await getAccessToken(s);
+      meterYoutube(endpoint); // each outbound attempt, including failures and a 401 retry
+      return fetch(`https://www.googleapis.com/youtube/v3/${endpoint}?${new URLSearchParams(params)}`,
+        { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000), cache: "no-store" });
+    };
+    let res = await call();
+    if (res.status === 401) { invalidateAccess(); res = await call(); }
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`YouTube API ${res.status}: ${String(json?.error?.message ?? res.statusText).slice(0, 200)}`);
+    return json;
+  });
 }
-async function scanNiche(now: number): Promise<NicheViral> {
+async function scanNiche(now: number, meter: { units: number }): Promise<NicheViral> {
   const out: NicheViral = { videos: [], queries: [], units: 0, at: now };
   const s = oauthEnv() ? await readStored() : null;
   if (!s) return { ...out, hint: YT_HINT };
   try {
-    const [{ scoutView, updateScout }, { readState, studioRoot }, { judgeShorts, learnProblem }, { allKeywords, charge }] = await Promise.all([
+    const [{ scoutView }, { readState, studioRoot }, { judgeShorts, learnProblem }, { allKeywords }] = await Promise.all([
       import("./clips/scout"), import("./clips/factory"), import("./clips/learn-pure"), import("./clips/scout-pure")]);
     const sv = await scoutView();
     const ls = await readState<import("./clips/learn-pure").LearnState>(studioRoot(), "learn", learnProblem);
     const winners = judgeShorts(Object.values(ls?.clips ?? {})).filter((j) => j.verdict === "winner").map((j) => j.f.creator);
     out.queries = nicheQueries(winners, sv.scout.watchlist.map((w) => w.title), allKeywords(sv.scout));
     if (!out.queries.length) return { ...out, hint: "Add creators or keywords in the Video Scout (or publish a few Shorts) to scan your niche" };
-    if (sv.usedToday + out.queries.length * VIRAL_SEARCH_UNITS + 1 > sv.budget) return { ...out, hint: "Today's YouTube quota budget is used up; try again tomorrow" };
-    const after = new Date(now - VIRAL_WINDOW_MS).toISOString(), found: unknown[] = [];
-    try {
-      for (const q of out.queries) {
-        found.push(await ytGet("search", { part: "id", type: "video", videoDuration: "short", order: "viewCount", publishedAfter: after, maxResults: "15", q }, s));
-        out.units += VIRAL_SEARCH_UNITS;
-      }
-      const ids = searchIds(...found).slice(0, 50);
-      if (ids.length) { out.videos = parseViral(await ytGet("videos", { part: "snippet,statistics", id: ids.join(",") }, s), now); out.units += 1; }
-    } finally {
-      if (out.units) await updateScout((x) => { x.quota = charge(x.quota, out.units, new Date(now)); }).catch(() => {});
+    const after = discoveryAfter(now, VIRAL_WINDOW_MS, 6 * 3_600_000), found: unknown[] = [];
+    const watched: string[] = [], warnings: string[] = [];
+    // Cheap channel refresh between six-hour discovery searches. Keep the broad searches too (including fan clips).
+    for (const w of sv.scout.watchlist) {
+      const p = await ytGet("playlistItems", { part: "contentDetails", playlistId: `UU${w.channelId.slice(2)}`, maxResults: "50" }, s)
+        .catch((e) => { if (!/YouTube API 404/.test(String(e))) warnings.push(e instanceof Error ? e.message : "Channel refresh failed"); return { items: [] }; }) as { items?: { contentDetails?: { videoId?: string } }[] };
+      watched.push(...(p.items ?? []).flatMap((i) => i.contentDetails?.videoId ? [i.contentDetails.videoId] : []));
     }
+    for (const q of out.queries) {
+      try { found.push(await ytGet("search", { part: "snippet", type: "video", videoDuration: "short", order: "viewCount", publishedAfter: after, maxResults: "15", q }, s)); }
+      catch (e) { warnings.push(e instanceof Error ? e.message : "Discovery search failed"); }
+    }
+    const ids = searchIds(...found), broad = new Set(ids);
+    const reader = videoReader((params) => ytGet("videos", params, s) as Promise<{ items?: unknown[] }>, "snippet,statistics,contentDetails");
+    const items = await reader([...ids, ...watched]);
+    out.videos = parseViral({ items: items.filter((v: any) => broad.has(v.id) || (parseIsoDuration(v.contentDetails?.duration) > 0 && parseIsoDuration(v.contentDetails?.duration) <= 180)) }, now);
+    out.units = meter.units;
+    if (warnings.length) out.hint = [...new Set(warnings)].join("; ");
     return out;
   } catch (e) {
+    out.units = meter.units;
     if (e instanceof OAuthError) return { ...out, hint: e.message === "invalid_grant" ? "YouTube sign-in expired. Reconnect in STUDIO" : YT_HINT };
     return { ...out, error: e instanceof Error ? (e.name === "TimeoutError" ? "YouTube API timed out" : e.message) : "YouTube request failed" }; // ytGet never puts the token in a message
   }
 }
-const vc = globalThis as unknown as { __orbitViral?: { at: number; p: Promise<NicheViral> } };
-export function nicheViral(now = Date.now()): Promise<NicheViral> {
-  if (vc.__orbitViral && now - vc.__orbitViral.at < VIRAL_CACHE_MS) return vc.__orbitViral.p;
-  const p = scanNiche(now);
-  vc.__orbitViral = { at: now, p };
-  void p.then((r) => { if ((r.error || r.hint) && vc.__orbitViral?.p === p) vc.__orbitViral = { at: now - VIRAL_CACHE_MS + 10 * 60_000, p }; }); // retry a failure after 10 min
+const vc = globalThis as unknown as { __orbitViral?: { at: number; group: QuotaGroup; p: Promise<NicheViral> }; __orbitViralGood?: NicheViral };
+export function nicheViral(now = Date.now(), group: QuotaGroup = "manual"): Promise<NicheViral> {
+  return withYoutubeBudget(group === "herald" ? "herald-niche" : "niche-viral.manual", group, (meter) => nicheViralWork(now, group, meter));
+}
+function nicheViralWork(now: number, group: QuotaGroup, meter: { units: number }): Promise<NicheViral> {
+  if (vc.__orbitViral && now - vc.__orbitViral.at < VIRAL_CACHE_MS) {
+    const hit = vc.__orbitViral;
+    return hit.p.then((r) => (r.error || r.hint) && hit.group !== group ? scanNiche(now, meter) : { ...r, units: 0 });
+  }
+  const p = scanNiche(now, meter).then((r) => {
+    if (r.videos.length) vc.__orbitViralGood = r;
+    else if ((r.error || r.hint) && vc.__orbitViralGood && now - vc.__orbitViralGood.at < VIRAL_WINDOW_MS) return { ...vc.__orbitViralGood, units: r.units, hint: r.hint || r.error };
+    return r;
+  });
+  vc.__orbitViral = { at: now, group, p };
+  void p.then((r) => { if ((r.error || r.hint) && vc.__orbitViral?.p === p) vc.__orbitViral = { at: now - VIRAL_CACHE_MS + 10 * 60_000, group, p }; }); // retry a failure after 10 min
   return p;
 }
 
@@ -213,7 +241,10 @@ async function addIcons(sorts: TrendSort[]) {
 
 const TREND_MS = 30 * 60_000;
 const tc = globalThis as unknown as { __orbitTrends?: { at: number; p: Promise<Trends> } };
-export function getTrends(now = Date.now()): Promise<Trends> {
+export function getTrends(now = Date.now(), group: QuotaGroup = "manual"): Promise<Trends> {
+  return withYoutubeBudget(group === "herald" ? "herald-trends" : "trend-radar", group, () => getTrendsWork(now));
+}
+function getTrendsWork(now: number): Promise<Trends> {
   if (tc.__orbitTrends && now - tc.__orbitTrends.at < TREND_MS) return tc.__orbitTrends.p;
   const p = (async (): Promise<Trends> => {
     const ytP = ytTrends(now); // in parallel with Roblox; same 30-min cache, fetched only when the radar is viewed

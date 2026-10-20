@@ -2,6 +2,7 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 import { askClaude } from "../claude";
 import { api } from "../youtube";
+import { withYoutubeBudget } from "../youtube-quota";
 import { getJob, listJobs, readState, saveState, studioRoot } from "./factory";
 import { tastePrompt } from "./learn";
 import { creatorFromSource } from "./titles";
@@ -15,6 +16,9 @@ const g = globalThis as unknown as { __orbitEngage?: Promise<EngageState> };
 const load = () => readState<EngageState>(studioRoot(), "engage", engageProblem);
 
 async function refresh(): Promise<EngageState> {
+  return withYoutubeBudget("comments", "manual", refreshWork);
+}
+async function refreshWork(): Promise<EngageState> {
   const key = process.env.YOUTUBE_API_KEY?.trim();
   if (!key) throw new Error("Set YOUTUBE_API_KEY to read comments");
   const shorts = await Promise.all(latestPublished(await listJobs(), Date.now()).map(async (s) => {

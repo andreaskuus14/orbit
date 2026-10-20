@@ -1,3 +1,5 @@
+import { withYoutubeBudget } from "./youtube-quota";
+import { quotaSummary } from "./youtube-quota-pure";
 import { exec } from "node:child_process";
 import { access, readFile, stat, statfs, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -72,15 +74,16 @@ async function youtubeKeyCheck(): Promise<Check> {
   const L = "YouTube API key";
   if (!key) return check("ytkey", L, "warn", "Not set: STUDIO stats and the Video Scout are off", "Add YOUTUBE_API_KEY to .env.local (Google Cloud → APIs & Services → Credentials), then restart ORBIT.");
   // 1 quota unit; api() already strips the key from its error text.
-  const err = await cached("ytkey", () => api("i18nLanguages", { part: "snippet", hl: "en" }, key).then(() => "", (e: Error) => e.message.slice(0, 160)), (e) => (e ? 5 * 60_000 : H));
+  const err = await cached("ytkey", () => withYoutubeBudget("doctor", "scout", () => api("i18nLanguages", { part: "snippet", hl: "en" }, key)).then(() => "", (e: Error) => e.message.slice(0, 160)), (e) => (e ? 5 * 60_000 : H));
   if (!err) return check("ytkey", L, "ok", "Works");
+  if (/(?:share|reserve) is used up/.test(err)) return check("ytkey", L, "warn", err, "ORBIT's local budget resets at midnight Pacific; this is not a rejected API key.");
   return /quota/i.test(err) ? check("ytkey", L, "warn", "Google's daily limit for this key is used up", "Nothing to fix: it resets at midnight Pacific time.")
     : check("ytkey", L, "fail", `Google refused it (${err})`, "Check YOUTUBE_API_KEY in .env.local and that \"YouTube Data API v3\" is enabled for it in Google Cloud, then restart ORBIT.");
 }
 
 async function scoutQuotaCheck(): Promise<Check> {
   const v = await scoutView();
-  return quotaCheck(v.budget, v.usedToday);
+  return quotaCheck(v.budget, v.usedToday, `${quotaSummary(v.quota)}. Shares left: ${Object.entries(v.quota.shares).map(([k, x]) => `${k} ${x.left}`).join(", ")}. ORBIT budget weights; Google search/upload buckets are separate.`);
 }
 
 async function oauthCheck(): Promise<Check> {

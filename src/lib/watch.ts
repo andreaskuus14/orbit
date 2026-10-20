@@ -3,8 +3,8 @@ import path from "node:path";
 import { api } from "./youtube";
 import { parseCreatorInput } from "./youtube-pure";
 import { saveState, studioRoot } from "./clips/factory";
-import { ScoutError, lookupChannel, updateScout, type Call } from "./clips/scout";
-import { DAILY_UNITS, charge, usedToday } from "./clips/scout-pure";
+import { ScoutError, lookupChannel, type Call } from "./clips/scout";
+import { withYoutubeBudget, youtubeRemaining } from "./youtube-quota";
 import { isPageToken, pickVideos, plan, planTopic, planWatch, pruneCache, sortVideos, topicQuery, unitCost, type Sort, type WatchVideo } from "./watch-pure";
 
 // THEATER feeds, counted in the scout's daily YouTube budget:
@@ -73,23 +73,14 @@ function needKey() {
   return apiKey;
 }
 
-/** Runs `work` inside the scout's daily YouTube budget: reserves plan(unitsLeft) up front (check + charge in one locked step,
- *  so parallel lookups can't overshoot), counts each call at Google's price, and refunds what wasn't used. */
+/** Plan against the manual reserve; the shared meter charges each outbound cache miss before sending it. */
 async function metered<T>(plan: (unitsLeft: number) => number | string, apiKey: string, work: (call: Call) => Promise<T>): Promise<T> {
-  let before = 0;
-  const reserved = await updateScout((x) => {
-    before = DAILY_UNITS - usedToday(x.quota, new Date());
-    const p = plan(before);
-    if (typeof p === "string") throw new ScoutError(p, 429);
-    x.quota = charge(x.quota, p, new Date());
-    return p;
+  const before = youtubeRemaining("manual"), p = plan(before);
+  if (typeof p === "string") throw new ScoutError(p, 429);
+  return withYoutubeBudget("theater", "manual", async () => {
+    try { return await work((endpoint, params) => api(endpoint, params, apiKey)); }
+    finally { left.units = youtubeRemaining("manual"); }
   });
-  let units = 0;
-  const call: Call = (p, params) => { units += unitCost(p); return api(p, params, apiKey); }; // Google bills failed calls too
-  try { return await work(call); } finally {
-    if (units < reserved) await updateScout((x) => { x.quota = charge(x.quota, units - reserved, new Date()); x.quota.used = Math.max(0, x.quota.used); }).catch(() => {});
-    left.units = Math.max(0, before - units);
-  }
 }
 
 /** "cs2" → videos about Counter-Strike 2: "viral" = most viewed of the last 7 days, "new" = newest. 101 units a page; cached 30 min. */

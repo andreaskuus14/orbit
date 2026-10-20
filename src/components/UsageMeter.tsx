@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 type Win = { calls: number; tokens: number; cost: number; byPurpose: Record<string, { calls: number; tokens: number }> };
-type View = { h5: Win; d7: Win; level: { pct: number; heavy: boolean }; settings: { calls5h: number; tokens5h: number; warnPct: number }; limit: { until: number } | null; hold: string };
+type Youtube = { day: string; budget: number; used: number; callers: Record<string, { units: number; searches: number; dataUnits: number; analytics: number }>; shares: Record<string, { left: number }>; note: string };
+type View = { youtube?: Youtube; h5: Win; d7: Win; level: { pct: number; heavy: boolean }; settings: { calls5h: number; tokens5h: number; warnPct: number }; limit: { until: number } | null; hold: string };
 
 /** ANALYTICS: Claude (Max plan) usage over the rolling 5-hour and 7-day windows, by purpose, with the owner's own budget. */
 export function UsageMeter() {
@@ -42,6 +43,12 @@ export function UsageMeter() {
         {v.hold && <p className="text-sm" style={{ color }} role="status">{v.hold}. Background work (autopilot, goals, suggestions, translations) waits; CORE chat is never blocked.</p>}
         {purposes.length > 0 && <ul className="text-xs">{purposes.map(([k, p]) => <li key={k} className="flex justify-between"><span>{k}</span><span className="muted">{p.calls} calls · {p.tokens.toLocaleString()} tok</span></li>)}</ul>}
       </div>
+      {v.youtube && <details className="card text-sm" aria-label="YouTube quota usage">
+        <summary className="cursor-pointer">YouTube · {Math.max(0, v.youtube.budget - v.youtube.used)} / {v.youtube.budget} budget units left · {v.youtube.day} (Pacific)</summary>
+        <p className="muted mt-1 text-xs">{v.youtube.note}</p>
+        <ul className="mt-1 text-xs">{Object.entries(v.youtube.callers).sort((a, b) => b[1].units - a[1].units).map(([name, c]) => <li key={name}>{name}: {c.units} weighted units · {c.searches} searches · {c.dataUnits} other Data API units · {c.analytics} Analytics reports</li>)}</ul>
+        <p className="muted mt-1 text-xs">Shares left: {Object.entries(v.youtube.shares).map(([name, s]) => `${name}: ${s.left}`).join(" · ")}. Manual reserve: 20%. Resets at midnight Pacific.</p>
+      </details>}
       <details className="text-sm">
         <summary className="muted cursor-pointer">Budget & warning</summary>
         <p className="muted text-xs mt-1">Anthropic doesn&apos;t publish exact Max limits (they&apos;re rolling 5-hour and weekly windows), so set your own 5-hour budget. The default of 150 calls is a cautious guess: raise it if you never hit limits, lower it if you do.</p>
