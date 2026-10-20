@@ -58,14 +58,16 @@ async function recall(sb: SupabaseClient, now: number, tz: string): Promise<Reca
 
 /** "Since you left": each source on its own timeout; a failing one just counts as nothing new. */
 export async function getSince(sb: SupabaseClient, from: number, now = Date.now()): Promise<MorningSince> {
-  const [t, j, l, m] = await Promise.allSettled([
+  const [t, j, l, m, ap] = await Promise.allSettled([
     within(Promise.resolve(sb.from("tasks").select("status").is("parent_id", null).in("status", ["done", "failed"]).gte("finished_at", new Date(from).toISOString()).limit(200))
       .then((r) => { if (r.error) throw new Error(r.error.message); return r.data ?? []; })),
     within(listJobs()),
     within(import("./life").then((x) => x.exportLife())), // raw store: getLife() hides reminders older than a day
     within(import("./markets").then((x) => x.listAlerts())),
+    within(Promise.resolve(sb.from("tasks").select("id", { count: "exact", head: true }).is("parent_id", null).eq("status", "awaiting_approval"))
+      .then((r) => { if (r.error) throw new Error(r.error.message); return r.count ?? 0; })),
   ]);
-  return sinceSection({ tasks: ok(t) ?? [], jobs: ok(j) ?? [], reminders: ok(l)?.reminders ?? [], alerts: ok(m) ?? [] }, from, now);
+  return sinceSection({ tasks: ok(t) ?? [], jobs: ok(j) ?? [], reminders: ok(l)?.reminders ?? [], alerts: ok(m) ?? [], approvals: ok(ap) }, from, now);
 }
 
 /** Businesses moved to "contacted" or later today (BUSINESS pipeline, RLS-scoped to the signed-in user). */

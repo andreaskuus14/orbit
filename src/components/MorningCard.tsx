@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { NOTIFY_KEY, parseItems } from "@/lib/notify-pure";
-import { awaySince, countSince, localDay, shouldAutoShow, sinceEmpty, type Morning, type MorningNav, type MorningSince } from "@/lib/morning-pure";
+import { awaySince, countSince, localDay, shouldAutoShow, sinceEmpty, sinceSpoken, type Morning, type MorningNav, type MorningSince } from "@/lib/morning-pure";
 import { speakChunk, speechSettings } from "./voice/speak";
 import { MorningWork } from "./MorningWork";
 import type { WorkItem } from "@/lib/work-continuation-pure";
@@ -68,6 +68,8 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
       const k = notesSince(from);
       if (sinceEmpty(since, k) || openRef.current) return; // never replace an open briefing
       setData({ since } as Morning); setNotes(k); setErr(""); setRecap(true); setOpen(true);
+      // Said aloud only with "read the briefing aloud" on, like the morning card.
+      if (load().speak && speechSettings().speak && !whatsNewUp()) for (const line of sinceSpoken(since, k).split(/(?<=[.!?])\s+/)) if (line) speakChunk(line);
     } catch { /* offline or aborted: no recap yet */ }
     finally { end(ctrl, c); }
   }, []);
@@ -114,7 +116,9 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
       <b>Since you left</b> <span className="muted text-xs">{away < 48 ? `${away} h ago` : `${Math.round(away / 24)} days ago`}</span>
       <ul className="since-list muted grid gap-1">
         {(sn.done > 0 || sn.failed > 0) && <li><button onClick={() => go("tasks")}>🤖 {n(sn.done, "agent task")} finished{sn.failed ? ` · ${sn.failed} failed` : ""}</button></li>}
+        {!!sn.live && <li><button onClick={() => nav({ panel: "studio" })}>📺 {n(sn.live, "Short")} went live</button></li>}
         {sn.clips > 0 && <li><button onClick={() => go("review")}>🎬 {n(sn.clips, "new clip")} in REVIEW</button></li>}
+        {!!sn.approvals && <li><button onClick={() => go("tasks")}>✋ {n(sn.approvals, "approval")} waiting for you</button></li>}
         {sn.reminders.map((t, k) => <li key={`r${k}`}><button onClick={() => nav({ panel: "life", life: "reminders" })}>⏰ {t}</button></li>)}
         {sn.alerts.map((t, k) => <li key={`a${k}`}><button onClick={() => nav({ panel: "markets" })}>📈 {t}</button></li>)}
         {notes > 0 && <li><button onClick={bell}>🔔 {n(notes, "new notification")}</button></li>}
