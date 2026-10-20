@@ -136,6 +136,13 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
       {data && (
         <div className="grid gap-3">
           {sinceBlock}
+          {data.mission && (
+            <div aria-label="Today's mission">
+              <b>Today&apos;s mission</b> <span className="muted text-xs">{data.mission.done}/{data.mission.total} done</span>
+              <ul className="mt-1 grid gap-0.5">{data.mission.items.map((m) => (
+                <li key={m.id} className={m.done ? "ok" : undefined}>{m.done ? "✓" : "○"} {m.label} <span className="muted text-xs">· {m.progress}</span></li>))}</ul>
+            </div>
+          )}
           {data.work && <MorningWork work={data.work} onOpen={openWork} />}
           {s && (
             <div>

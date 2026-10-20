@@ -3,6 +3,7 @@
 import type { Clip } from "./clips/types";
 import type { Recall } from "./resurface-pure";
 import type { WorkItem, WorkSummary } from "./work-continuation-pure";
+import { missionLine, type Mission } from "./daily-mission-pure.ts";
 
 export type MorningNav = "review" | "news" | "tasks" | "agents" | "life" | "goals";
 export type StudioIn = {
@@ -15,7 +16,7 @@ export type MorningAgents = { done: string[]; failed: number; proposals: string[
 export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
 export type MorningCalendar = { connected: boolean; today: { time: string; title: string }[] }; // titles: calendar data (invites), plain text only
 export type Morning = {
-  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince; work?: WorkSummary;
+  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince; work?: WorkSummary; mission?: Mission;
   suggestion: { text: string; nav: MorningNav | null; item?: WorkItem }; spoken: string;
 };
 
@@ -76,6 +77,7 @@ export function suggest(m: Pick<Morning, "studio" | "intel" | "agents" | "life" 
 export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   const s = m.studio, a = m.agents, i = m.intel;
   const must = [`${m.greeting}.`], opt: string[] = [];
+  if (m.mission) opt.unshift(missionLine(m.mission)); // first of the optional lines: dropped last, never past the word cap
   if (m.work?.items.length) opt.push(`Your work list shows ${n(m.work.items.length + m.work.more, "unfinished item")}.`);
   if (m.work?.problems.length) opt.push("Some unfinished work could not be loaded.");
   if (s) {
@@ -107,7 +109,7 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   return plain([...must, ...opt, tail].join(" ").replace(/\.\./g, "."));
 }
 
-export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall" | "work">, now: number, tz: string): Morning {
+export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall" | "work" | "mission">, now: number, tz: string): Morning {
   const base = { ...parts, greeting: greeting(now, tz), suggestion: suggest(parts) };
   return { ...base, spoken: spokenBriefing(base) };
 }
