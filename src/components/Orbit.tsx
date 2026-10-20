@@ -484,7 +484,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </aside>
       )}
       {doctor && <DoctorPanel key={doctor} speak={doctor === "nav"} onClose={() => setDoctor(null)} />}
-      {workOpen && <aside aria-label="Continue my work" className="glass fixed inset-x-4 top-24 bottom-28 z-50 mx-auto max-w-2xl overflow-y-auto p-4"
+      {workOpen && <aside aria-label="Continue my work" className="glass work-sheet fixed inset-x-4 top-24 bottom-28 z-50 mx-auto max-w-2xl overflow-y-auto p-4"
         onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setWorkOpen(false); cmdRef.current?.focus(); } }}>
         <button type="button" className="chip mb-2" autoFocus onClick={() => { setWorkOpen(false); cmdRef.current?.focus(); }}>Close work list</button>
         <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />
