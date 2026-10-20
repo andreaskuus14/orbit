@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { LANGS, STAGES, STAGE_LABEL, type Lang, type Prospect, type Stage } from "@/lib/business-pure";
+import { LANGS, STAGES, STAGE_LABEL, type Find, type Lang, type Prospect, type Stage } from "@/lib/business-pure";
 
 // BUSINESS drawer: the client pipeline for the Lead Follow-up Autopilot (services/lead-followup).
 // Add businesses, move them through stages, let CORE draft the first message. ORBIT never sends anything: you copy and send it.
@@ -44,6 +44,9 @@ export default function BusinessPanel() {
         </div>
       )}
 
+      <FindNearby busy={busy} setBusy={setBusy} setErr={setErr} names={new Set(st?.prospects.map((p) => p.name.toLowerCase()))}
+        onAdd={(f) => act(`add:${f.name}`, { action: "add", name: f.name, kind: f.kind, contact: f.contact, notes: f.why && `Found on the web (unchecked): ${f.why}` })} />
+
       <AddForm busy={busy === "add"} onAdd={(b) => act("add", { action: "add", ...b })} />
 
       {err && <p className="error" role="alert">{err}</p>}
@@ -61,6 +64,34 @@ export default function BusinessPanel() {
       <ul className="space-y-2">
         {shown.map((p) => <Row key={p.id} p={p} busy={busy} act={act} />)}
       </ul>
+    </div>
+  );
+}
+
+function FindNearby({ busy, setBusy, setErr, names, onAdd }: { busy: string; setBusy: (k: string) => void; setErr: (e: string) => void; names: Set<string>; onAdd: (f: Find) => Promise<boolean> }) {
+  const [q, setQ] = useState("");
+  const [finds, setFinds] = useState<Find[]>([]);
+  const search = async () => {
+    setBusy("find"); setErr("");
+    try { setFinds((await call("POST", { action: "find", query: q })).finds); } catch (e) { setErr((e as Error).message); } finally { setBusy(""); }
+  };
+  return (
+    <div className="card space-y-2">
+      <form className="flex gap-1.5" aria-label="Find businesses" onSubmit={(e) => { e.preventDefault(); void search(); }}>
+        <input className="field flex-1" aria-label="What to look for" placeholder="Find nearby: cake shops in Tallinn…" maxLength={120} value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn" disabled={!!busy || !q.trim()}>{busy === "find" ? "CORE is searching…" : "Find"}</button>
+      </form>
+      {finds.length > 0 && (
+        <ul className="space-y-1.5" aria-label="Suggestions">
+          {finds.map((f) => (
+            <li key={f.name} className="flex items-start justify-between gap-2">
+              <div className="min-w-0"><b>{f.name}</b>{f.kind && <span className="muted"> · {f.kind}</span>}
+                {f.contact && <div className="muted text-xs break-all">{f.contact}</div>}{f.why && <div className="text-xs">{f.why}</div>}</div>
+              <button className="chip shrink-0" disabled={!!busy || names.has(f.name.toLowerCase())} onClick={() => void onAdd(f)}>
+                {names.has(f.name.toLowerCase()) ? "Added" : busy === `add:${f.name}` ? "Adding…" : "+ Add"}</button>
+            </li>))}
+        </ul>)}
+      {finds.length > 0 && <p className="muted text-xs">Found on the web by CORE: check each one before you contact them.</p>}
     </div>
   );
 }
