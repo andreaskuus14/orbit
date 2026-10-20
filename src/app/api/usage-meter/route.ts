@@ -1,3 +1,4 @@
+import { youtubeQuotaView } from "@/lib/youtube-quota";
 import { requireUser } from "@/lib/supabase/server";
 import { setUsageSettings, usageView } from "@/lib/usage-meter";
 
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  return Response.json(usageView());
+  return Response.json({ ...usageView(), youtube: youtubeQuotaView() });
 }
 
 export async function POST(req: Request) {
@@ -16,5 +17,5 @@ export async function POST(req: Request) {
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b || typeof b !== "object" || Array.isArray(b)) return Response.json({ error: "JSON body required" }, { status: 400 });
   const err = setUsageSettings(b);
-  return err ? Response.json({ error: err }, { status: 400 }) : Response.json(usageView());
+  return err ? Response.json({ error: err }, { status: 400 }) : Response.json({ ...usageView(), youtube: youtubeQuotaView() });
 }

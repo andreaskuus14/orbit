@@ -3,14 +3,16 @@ import path from "node:path";
 import { SMART_MODEL, askClaude } from "../claude";
 import { stopAllOn } from "../stop-all";
 import { tastePrompt } from "./learn";
-import { api } from "../youtube";
+import { api, videoReader } from "../youtube";
+import { withYoutubeBudget, youtubeQuotaView, youtubeRemaining, requireYoutubeUnits } from "../youtube-quota";
+import { discoveryAfter, type QuotaGroup } from "../youtube-quota-pure";
 import { parseCreatorInput, type CreatorInput } from "../youtube-pure";
 import { listDownloads, readState, saveState, startDownload, studioRoot } from "./factory";
 import { cleanPermission, parseClipUrl, validOptions } from "./pure";
 import type { ClipOptions } from "./types";
 import {
-  DAILY_UNITS, SEARCH_UNITS, autoPicks, baselineVph, buildPicks, charge, emptyScout, localDay, parseRanking, parseScout, planRun, pureScore, rankPrompt,
-  looksLikeChannel, remember, NICHE_CHARTS, NICHE_LOOKUPS, autoApplyNiche, nicheContext, nicheDue, nichePrompt, parseNiches, planResearch, type NicheCreator, type NicheRun, scoutDue, watchUrl, skipReason, skipSummary, toCandidates, usedToday, validSettings, videoIdOf, type Candidate, type Scout, type ScoutPick, type ScoutRun,
+  DAILY_UNITS, SEARCH_UNITS, autoPicks, baselineVph, buildPicks, emptyScout, localDay, parseRanking, parseScout, planRun, pureScore, rankPrompt,
+  looksLikeChannel, remember, NICHE_CHARTS, NICHE_LOOKUPS, autoApplyNiche, nicheContext, nicheDue, nichePrompt, parseNiches, planResearch, type NicheCreator, type NicheRun, scoutDue, watchUrl, skipReason, skipSummary, toCandidates, validSettings, videoIdOf, type Candidate, type Scout, type ScoutPick, type ScoutRun,
 } from "./scout-pure";
 
 // Video Scout: finds fresh long videos from approved creators (watchlist) and niche keyword searches, ranks them for clip potential,
@@ -51,24 +53,23 @@ export function updateScout<T>(fn: (s: Scout) => T | Promise<T>): Promise<T> {
 
 export async function scoutView() {
   const s = await S.lock.then(load);
-  return { scout: { ...s, seen: undefined }, running: !!S.running, researching: !!S.running && S.kind === "niche", configured: !!apiKey(), budget: DAILY_UNITS, usedToday: usedToday(s.quota, new Date()) };
+  const quota = youtubeQuotaView();
+  return { quota, scout: { ...s, quota: { day: quota.day, used: quota.used }, seen: undefined }, running: !!S.running, researching: !!S.running && S.kind === "niche", configured: !!apiKey(), budget: DAILY_UNITS, usedToday: quota.used };
 }
 
 // ---- adding creators ----
 
 /** Adds a creator from a handle, bare name, channel link or one of their video links. Returns who was added so the owner can check it's the right channel. */
 export async function addCreator(input: unknown) {
+  return withYoutubeBudget("creator-add", "manual", () => addCreatorWork(input));
+}
+async function addCreatorWork(input: unknown) {
   const who = typeof input === "string" ? parseCreatorInput(input) : null;
   if (!who) throw new ScoutError("Use @handle, a channel name, or a channel or video link");
   const key = apiKey();
   if (!key) throw new ScoutError("Add YOUTUBE_API_KEY to .env.local first", 503);
-  const s = await load();
-  if (DAILY_UNITS - usedToday(s.quota, new Date()) < 2) throw new ScoutError("Today's YouTube budget is used up; try after midnight Pacific time", 429);
-  let units = 0;
-  const call = <T>(p: string, params: Record<string, string>) => { units++; return api<T>(p, params, key); };
-  let c: Channel | undefined;
-  try { c = await lookupChannel(who, call); }
-  finally { await updateScout((x) => { x.quota = charge(x.quota, units, new Date()); }).catch(() => {}); }
+  requireYoutubeUnits("manual", 2);
+  const c = await lookupChannel(who, (p, params) => api(p, params, key));
   if (!c?.id) throw new ScoutError("YouTube has no channel with that name; try the @handle from the channel page", 404);
   const id = c.id, title = c.snippet?.title ?? id, subscribers = Number(c.statistics?.subscriberCount) || null;
   let already = false;
@@ -148,29 +149,35 @@ Reply with ONLY a JSON array, no prose, no code fences, best first: [{"id":strin
 - reason: one sentence on why it likely has viral moments and what kind.`;
 
 type Items = { items?: unknown[] };
-const rfc3339 = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 
+function planningScout(s: Scout, group: QuotaGroup): Scout {
+  return { ...s, quota: { day: new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }), used: DAILY_UNITS - youtubeRemaining(group) } };
+}
+function planWithShare<T>(group: QuotaGroup, plan: () => T | string): T | string {
+  const r = plan();
+  if (typeof r === "string" && /budget/i.test(r)) {
+    try { requireYoutubeUnits(group, youtubeRemaining(group) + 1); } catch (e) { return msg(e); }
+  }
+  return r;
+}
 async function run(scheduled: boolean) {
+  return withYoutubeBudget(scheduled ? "scout" : "scout.manual", scheduled ? "scout" : "manual", (meter) => runWork(scheduled, meter));
+}
+async function runWork(scheduled: boolean, meter: { units: number }) {
   const now = new Date(), key = apiKey(), warnings: string[] = [];
-  let units = 0, found = 0;
-  const yt = <T>(p: string, params: Record<string, string>, cost: number) => { units += cost; return api<T>(p, params, key); }; // Google bills failed calls too
-  const videos = async (ids: string[], source: Candidate["source"]) => {
-    const out: Candidate[] = [];
-    for (let i = 0; i < ids.length; i += 50) {
-      const r = await yt<Items>("videos", { part: "snippet,contentDetails,statistics,liveStreamingDetails", id: ids.slice(i, i + 50).join(",") }, 1);
-      out.push(...toCandidates(r.items, source));
-    }
-    return out;
-  };
+  let found = 0;
+  const yt = <T>(p: string, params: Record<string, string>, _cost: number) => api<T>(p, params, key); // Google bills failed calls too
+  const readVideos = videoReader((params) => yt<Items>("videos", params, 1), "snippet,contentDetails,statistics,liveStreamingDetails");
+  const videos = async (ids: string[], source: Candidate["source"]) => toCandidates(await readVideos(ids), source);
   const finish = (s: Scout, r: Omit<ScoutRun, "at" | "units">) => {
-    s.quota = charge(s.quota, units, now);
+    const units = meter.units;
     s.lastRun = { at: now.toISOString(), units, ...r };
     if (scheduled) s.lastScheduled = localDay(now); // a failed run counts too: no retry loop burning quota
   };
   try {
     if (!key) throw new Error("Add YOUTUBE_API_KEY to .env.local so the scout can search YouTube");
     const s = await load();
-    const plan = planRun(s, now);
+    const plan = planWithShare(scheduled ? "scout" : "manual", () => planRun(planningScout(s, scheduled ? "scout" : "manual"), now));
     if (typeof plan === "string") throw new Error(plan);
     const seen = new Set(s.seen), made = new Set((await listDownloads()).map((d) => videoIdOf(d.url) ?? ""));
     const opts = { now: now.getTime(), maxAgeHours: s.maxAgeHours, creatorMaxAgeDays: s.creatorMaxAgeDays, minMinutes: s.minMinutes, seen, made };
@@ -195,7 +202,7 @@ async function run(scheduled: boolean) {
     for (const q of plan.keywords) {
       try {
         const r = await yt<{ items?: { id?: { videoId?: string } }[] }>("search", { part: "snippet", type: "video", order: "viewCount", q, maxResults: "25",
-          publishedAfter: rfc3339(opts.now - s.maxAgeHours * 3_600_000), videoDuration: s.minMinutes >= 20 ? "long" : "any" }, SEARCH_UNITS); // one bucket per call ("medium" is 4-20 min); skipReason enforces minMinutes
+          publishedAfter: discoveryAfter(opts.now, s.maxAgeHours * 3_600_000), videoDuration: s.minMinutes >= 20 ? "long" : "any" }, SEARCH_UNITS); // one bucket per call ("medium" is 4-20 min); skipReason enforces minMinutes
         const kid = (r.items ?? []).map((i) => i.id?.videoId ?? "").filter((id) => id && !all.some((c) => c.id === id));
         all.push(...(kid.length ? await videos(kid, "keyword") : []));
         found++;
@@ -254,20 +261,23 @@ function creatorWho(name: string): CreatorInput | null {
   return who && !("video" in who) ? who : null;
 }
 
-async function research() {
+async function research(manual = false) {
+  return withYoutubeBudget(manual ? "niche.manual" : "niche", manual ? "manual" : "niche", (meter) => researchWork(manual, meter));
+}
+async function researchWork(manual: boolean, meter: { units: number }) {
   const now = new Date(), key = apiKey(), warnings: string[] = [];
-  let units = 0;
-  const yt = <T>(p: string, params: Record<string, string>, cost: number) => { units += cost; return api<T>(p, params, key); };
+  const yt = <T>(p: string, params: Record<string, string>, _cost: number) => api<T>(p, params, key);
   const finish = (r: Omit<NicheRun, "at" | "units" | "warnings">, fn?: (s: Scout) => void) => updateScout((s) => {
     fn?.(s);
-    s.quota = charge(s.quota, units, now);
+    const units = meter.units;
     s.nicheRun = { at: now.toISOString(), units, warnings, ...r };
   });
   try {
     if (!key) throw new Error("Add YOUTUBE_API_KEY to .env.local so ORBIT can research YouTube");
     const s = await load();
-    const plan = planResearch(s, now);
+    const plan = planWithShare(manual ? "manual" : "niche", () => planResearch(planningScout(s, manual ? "manual" : "niche"), now));
     if (typeof plan === "string") throw new Error(plan);
+    const readVideos = videoReader((params) => yt<Items>("videos", params, 1), "snippet,contentDetails,statistics");
     const all: Candidate[] = [];
     const add = (items: unknown) => { for (const c of toCandidates(items, "keyword")) if (!all.some((x) => x.id === c.id)) all.push(c); };
     for (const cat of NICHE_CHARTS) {
@@ -277,9 +287,9 @@ async function research() {
     for (const q of plan.queries) {
       try {
         const r = await yt<{ items?: { id?: { videoId?: string } }[] }>("search", { part: "snippet", type: "video", videoDuration: "short", order: "viewCount", q, maxResults: "25",
-          publishedAfter: rfc3339(now.getTime() - 7 * 86_400_000) }, SEARCH_UNITS);
+          publishedAfter: discoveryAfter(now.getTime(), 7 * 86_400_000) }, SEARCH_UNITS);
         const ids = (r.items ?? []).map((i) => i.id?.videoId ?? "").filter((id) => id && !all.some((c) => c.id === id));
-        if (ids.length) add((await yt<Items>("videos", { part: "snippet,contentDetails,statistics", id: ids.slice(0, 50).join(",") }, 1)).items);
+        if (ids.length) add(await readVideos(ids));
       } catch (e) { warnings.push(`Search "${q}": ${msg(e)}`); }
     }
     if (!all.length) throw new Error(warnings[0] ?? "YouTube returned no videos to research");
@@ -316,9 +326,10 @@ async function research() {
 export async function runNicheNow() {
   if (S.running) throw new ScoutError("The scout is busy; try again when it's done", 409);
   if (!apiKey()) throw new ScoutError("Add YOUTUBE_API_KEY to .env.local so ORBIT can research YouTube", 503);
-  const plan = planResearch(await load(), new Date());
+  const s = await load();
+  const plan = planWithShare("manual", () => planResearch(planningScout(s, "manual"), new Date()));
   if (typeof plan === "string") throw new ScoutError(plan, 429);
-  if (!start("niche", research)) throw new ScoutError("The scout is busy; try again when it's done", 409);
+  if (!start("niche", () => research(true))) throw new ScoutError("The scout is busy; try again when it's done", 409);
 }
 
 /** "Use this niche": its keywords become the AI keywords (previous AI ones replaced, the owner's own kept). */
@@ -340,7 +351,8 @@ function start(kind: "scout" | "niche", job: () => Promise<void>) {
 export async function runScoutNow() {
   if (S.running) throw new ScoutError("The scout is already running", 409);
   if (!apiKey()) throw new ScoutError("Add YOUTUBE_API_KEY to .env.local so the scout can search YouTube", 503);
-  const plan = planRun(await load(), new Date());
+  const s = await load();
+  const plan = planWithShare("manual", () => planRun(planningScout(s, "manual"), new Date()));
   if (typeof plan === "string") throw new ScoutError(plan);
   if (!start("scout", () => run(false))) throw new ScoutError("The scout is already running", 409);
 }
@@ -354,8 +366,8 @@ async function tick() {
   if (S.running || !apiKey()) return;
   try { // start() re-checks S.running after the await
     const s = await load(), now = new Date();
-    if (scoutDue(s, now)) start("scout", () => run(true));
-    else if (nicheDue(s, now) && typeof planResearch(s, now) !== "string") start("niche", research); // weekly; waits for budget rather than failing
+    if (scoutDue(s, now) && typeof planWithShare("scout", () => planRun(planningScout(s, "scout"), now)) !== "string") start("scout", () => run(true));
+    else if (nicheDue(s, now) && typeof planWithShare("niche", () => planResearch(planningScout(s, "niche"), now)) !== "string") start("niche", () => research()); // weekly; waits for budget rather than failing
   }
   catch (e) { console.error("[orbit] scout check failed:", msg(e)); }
 }

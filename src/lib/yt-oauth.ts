@@ -1,3 +1,4 @@
+import { meterYoutube, withYoutubeBudget } from "./youtube-quota";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -88,6 +89,9 @@ export const invalidateAccess = () => { mem.access = undefined; };
 
 /** Code → tokens → which channel → saved. Throws OAuthError with a short reason code safe for a URL. */
 export async function connect(code: string, verifier: string, redirectUri: string) {
+  return withYoutubeBudget("youtube-connect", "manual", () => connectWork(code, verifier, redirectUri));
+}
+async function connectWork(code: string, verifier: string, redirectUri: string) {
   const cfg = oauthEnv();
   if (!cfg) throw new OAuthError("not_configured");
   const t = await post("https://oauth2.googleapis.com/token", {
@@ -98,6 +102,7 @@ export async function connect(code: string, verifier: string, redirectUri: strin
   const scope = t.scope ?? "";
   // Only the read scopes are required (analytics); upload is optional and checked when publishing.
   if (!hasScopes(scope, YT_SCOPES)) await fail("scope"); // user unticked a box on the consent screen
+  meterYoutube("channels");
   const res = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", {
     headers: { authorization: `Bearer ${t.access_token}` }, signal: AbortSignal.timeout(10_000), cache: "no-store",
   }).catch(() => null);

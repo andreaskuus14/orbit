@@ -25,7 +25,8 @@ export type Scout = ScoutSettings & {
 export type Candidate = { id: string; title: string; channel: string; channelId: string; publishedAt: string; durationSec: number; live: string;
   description: string; stats: ScoutStats; source: "watchlist" | "keyword"; baseline?: number }; // baseline: the channel's median views/hour
 
-// Our own cap under the default 10,000/day, leaving room for uploads (videos.insert can cost up to 1,600 each) and STUDIO stats.
+// ORBIT weighted cap (search=100), separate from Google's current granular search/upload buckets.
+// Runtime admission and attribution use youtube-quota.ts; these legacy planners receive the relevant share remaining.
 export const DAILY_UNITS = Math.max(200, Math.min(9000, Number(process.env.ORBIT_YT_DAILY_UNITS) || 4000));
 export const SEARCH_UNITS = 100, MAX_SEARCHES = 3;
 export { MAX_SOURCE_SEC };

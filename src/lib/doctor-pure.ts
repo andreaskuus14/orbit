@@ -88,8 +88,8 @@ export function nightCheck(lastWrite: number | null, now: number): Check {
     : check("night", L, "warn", `Not seen for ${Math.round(days)} days`, "Leave the PC asleep (not shut down) and signed in at night. To set it up again, run: npm run night:install");
 }
 
-export function quotaCheck(budget: number, used: number): Check {
-  const left = Math.max(0, budget - used), txt = `${left} of ${budget} scout units left today`;
+export function quotaCheck(budget: number, used: number, callers = ""): Check {
+  const left = Math.max(0, budget - used), txt = `${left} of ${budget} scout units left today${callers ? `. ${callers}` : ""}`;
   return left < 100 ? check("quota", "YouTube scout budget", "warn", txt, "Nothing to fix: the budget resets at midnight Pacific time.") : check("quota", "YouTube scout budget", "ok", txt);
 }
 

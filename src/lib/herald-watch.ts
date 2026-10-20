@@ -8,7 +8,7 @@ import { reachFresh } from "./reach";
 import { reachCards } from "./reach/pure";
 import { stopAllOn } from "./stop-all";
 
-// Herald watch: every 3 h (first ~2 min after start) the server scans the niche (nicheViral, ≤301 YouTube units, scout budget)
+// Herald watch: every 3 h (first ~2 min after start) the server scans the niche (nicheViral: six-hour cached searches, cheap watched uploads; its own shared-budget allocation)
 // and trends, runs the Reach scan (src/lib/reach), and appends quiet cards to <data dir>/herald-inbox.json for the bell via Herald.tsx (GET /api/herald).
 // Never starts a clip job: the owner presses "Clip it now" in ORBIT.
 
@@ -29,7 +29,7 @@ async function tick() {
   try {
     const now = Date.now();
     const fail = (e: unknown) => { console.error("[herald-watch]", msg(e)); return {}; }; // one source failing must not drop the others
-    const [v, t, r] = await Promise.all([nicheViral(now).catch(fail), getTrends(now).catch(fail), reachFresh(now)]);
+    const [v, t, r] = await Promise.all([nicheViral(now, "herald").catch(fail), getTrends(now, "herald").catch(fail), reachFresh(now)]);
     const cards = [...viralCards(v), ...trendCards(t), ...(r.stopped ? [] : reachCards(r.items))];
     if (!cards.length) return;
     const old = JSON.parse(await readFile(file(), "utf8").catch(() => "[]")); // shortcut: a corrupt inbox restarts empty (it's only a cache)

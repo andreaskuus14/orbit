@@ -1,3 +1,4 @@
+import { meterYoutube, withYoutubeBudget } from "./youtube-quota";
 import {
   OAUTH_ENV, fillDays, isVideoId, parseTable, periods, reportUrl, totalsFrom, trafficLabel,
   type Analytics, type RangeDays, type ReportQuery, type Row,
@@ -15,6 +16,7 @@ async function report(s: Stored, q: ReportQuery, retried = false): Promise<Row[]
   const token = await getAccessToken(s);
   let res: Response;
   try {
+    meterYoutube("analytics");
     res = await fetch(reportUrl(q), { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000), cache: "no-store" });
   } catch (e) {
     throw new Error(e instanceof Error && e.name === "TimeoutError" ? "timed out" : "request failed");
@@ -25,8 +27,11 @@ async function report(s: Stored, q: ReportQuery, retried = false): Promise<Row[]
   return parseTable(json);
 }
 
+export function getAnalytics(options: { range: RangeDays; videoId?: string; force?: boolean }): Promise<Analytics> {
+  return withYoutubeBudget("studio-analytics", "manual", () => analytics(options));
+}
 /** Cached 15 min per (connection, range, video); partial results only 1 min so a flaky query recovers soon. */
-export async function getAnalytics({ range, videoId, force = false }: { range: RangeDays; videoId?: string; force?: boolean }): Promise<Analytics> {
+async function analytics({ range, videoId, force = false }: { range: RangeDays; videoId?: string; force?: boolean }): Promise<Analytics> {
   if (!oauthEnv()) return { connected: false, reason: "not_configured", setupEnv: OAUTH_ENV };
   if (videoId && !isVideoId(videoId)) throw new Error("Invalid video id");
   const s = await readStored();
@@ -89,4 +94,4 @@ export async function getAnalytics({ range, videoId, force = false }: { range: R
 }
 
 /** One Analytics v2 report for the owner (retries once on 401). Used by the clip learning loop. */
-export const getAnalyticsReport = (s: Stored, q: ReportQuery) => report(s, q);
+export const getAnalyticsReport = (s: Stored, q: ReportQuery) => withYoutubeBudget("learning-analytics", "scout", () => report(s, q));
