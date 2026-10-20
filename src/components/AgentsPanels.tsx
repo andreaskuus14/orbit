@@ -96,6 +96,27 @@ function Approval({ pending, who, ready, onAct }: { pending: Pending[]; who: str
   );
 }
 
+/** A finished root task → a named recipe (same agent + request), re-runnable from Agents Station → Recipes. */
+function SaveRecipe({ task }: { task: Task }) {
+  const [name, setName] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const save = async () => {
+    try { await api("/api/recipes", { method: "POST", body: JSON.stringify({ action: "add", name, agent: task.agent, request: task.request }) }); setName(null); setMsg({ ok: true, text: "Saved. Run it from Agents → Recipes or say “run recipe " + name + "”." }); }
+    catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : "Couldn't save" }); }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+      {name === null ? <button type="button" className="chip" onClick={() => { setMsg(null); setName(task.title.replace(/^⚙\s*/, "").slice(0, 60)); }}>📋 Save as recipe</button> : (
+        <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+          <input className="field" aria-label="Recipe name" maxLength={60} required value={name} onChange={(e) => setName(e.target.value)} />
+          <button className="chip" disabled={!name.trim()}>Save</button>
+          <button type="button" className="chip" onClick={() => setName(null)}>Cancel</button>
+        </form>)}
+      {msg && <span className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</span>}
+    </div>
+  );
+}
+
 function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; openMemory: (id: string) => void }) {
   const [data, setData] = useState<{ task: Task; children: Task[] } | null>(null);
   const [err, setErr] = useState("");
@@ -142,6 +163,7 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
         ? <button className="chip" onClick={() => act("retry")}>Retry</button>
         : <p className="muted text-xs">This task has resolved actions. Keep their results and request only the unfinished work in a follow-up.</p>)}
       {(task.status === "queued" || task.status === "running") && <button className="chip" onClick={() => act("cancel")}>Cancel task</button>}
+      {task.status === "done" && !task.parent_id && !task.title.startsWith("Team: ") && <SaveRecipe task={task} />}
 
       {!!children.length && (
         <div>
