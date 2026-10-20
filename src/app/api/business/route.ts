@@ -3,12 +3,13 @@ import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
 import { usageHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
-import { LANGS, OUTREACH_SYSTEM, funnel, outreachPrompt, validatePatch, validateProspect, type Lang, type Prospect } from "@/lib/business-pure";
+import { FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, findPrompt, funnel, outreachPrompt, parseFinds, validatePatch, validateProspect, type Lang, type Prospect } from "@/lib/business-pure";
 
 export const dynamic = "force-dynamic";
 
 // BUSINESS planet: client pipeline (Supabase public.prospects, RLS: own rows). Logic: src/lib/business-pure.ts.
-// POST {action:"add", name, kind?, contact?, notes?} | {action:"update", id, ...fields} | {action:"draft", id, lang} | {action:"delete", id}.
+// POST {action:"find", query} | {action:"add", name, kind?, contact?, notes?} | {action:"update", id, ...fields} | {action:"draft", id, lang} | {action:"delete", id}.
+// "find" lets CORE search the web (read-only WebSearch/WebFetch only) and returns suggestions; nothing is saved until the owner adds one.
 // "draft" asks CORE (Claude Code on the owner's plan) for an outreach message; ORBIT never sends it.
 const COLS = "id,name,kind,contact,stage,fee,notes,draft,created_at,updated_at";
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
@@ -29,6 +30,20 @@ export async function POST(req: Request) {
   if (res) return res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b || typeof b !== "object" || Array.isArray(b)) return fail("JSON body required");
+  if (b.action === "find") {
+    const query = typeof b.query === "string" ? b.query.trim() : "";
+    if (!query) return fail("Say what to look for, e.g. cake shops in Tallinn");
+    const held = stopAllOn() ? "Stop-all is on" : usageHold();
+    if (held) return fail(`Not searching right now: ${held}`, 503);
+    try {
+      const r = await askClaude(findPrompt(query), FIND_SYSTEM, { lane: "foreground", purpose: "business.find", timeoutMs: 180_000, web: true, signal: req.signal });
+      const finds = parseFinds(r.text);
+      return finds.length ? Response.json({ finds }) : fail("CORE found nothing usable; try other words", 502);
+    } catch (e) {
+      if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
+      return fail(`Couldn't search: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+    }
+  }
   if (b.action !== "add" && (typeof b.id !== "string" || !/^[0-9a-f-]{36}$/i.test(b.id))) return fail("id required");
   const one = (q: PromiseLike<{ data: unknown; error: { message: string } | null }>) =>
     Promise.resolve(q).then(({ data, error }) => (error ? fail(error.message, 500) : data ? Response.json(data) : fail("Not found", 404)));
@@ -65,6 +80,6 @@ export async function POST(req: Request) {
         return fail(`Couldn't draft: ${e instanceof Error ? e.message : "unknown error"}`, 502);
       }
     }
-    default: return fail("action must be add, update, draft or delete");
+    default: return fail("action must be find, add, update, draft or delete");
   }
 }

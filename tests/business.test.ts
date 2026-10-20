@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { funnel, outreachPrompt, validatePatch, validateProspect } from "../src/lib/business-pure.ts";
+import { FIND_MAX, findPrompt, funnel, outreachPrompt, parseFinds, validatePatch, validateProspect } from "../src/lib/business-pure.ts";
 
 test("validateProspect needs a name and trims every field", () => {
   assert.equal(validateProspect({}), "Give the business a name");
@@ -35,4 +35,21 @@ test("outreach prompt names the language and keeps notes as data", () => {
   const p = outreachPrompt({ name: "Rullimeister", kind: "bakery", notes: "" }, "Estonian");
   assert.match(p, /^Write it in Estonian\./);
   assert.match(p, /notes: none/);
+});
+
+test("parseFinds keeps only named, cleaned, unique entries from the JSON array", () => {
+  const answer = 'Here you go:\n```json\n[{"name":"Koogipood","kind":"bakery","contact":"koogipood.ee","why":"takes cake orders"},{"name":"koogipood","kind":"dup"},{"kind":"no name"},5,{"name":"Salon\\u0007 X","contact":42}]\n```';
+  assert.deepEqual(parseFinds(answer), [
+    { name: "Koogipood", kind: "bakery", contact: "koogipood.ee", why: "takes cake orders" },
+    { name: "Salon X", kind: "", contact: "", why: "" },
+  ]);
+  assert.deepEqual(parseFinds('Results [from the web]: [{"name":"A"}]\nSources: [1] a.ee'), [{ name: "A", kind: "", contact: "", why: "" }]);
+  assert.deepEqual(parseFinds("no results"), []);
+  assert.deepEqual(parseFinds("[not json]"), []);
+  assert.equal(parseFinds(JSON.stringify(Array.from({ length: 20 }, (_, i) => ({ name: `B${i}` })))).length, FIND_MAX);
+});
+
+test("findPrompt caps the owner's query", () => {
+  assert.equal(findPrompt("cake shops Tallinn"), "Find businesses for: cake shops Tallinn");
+  assert.equal(findPrompt("x".repeat(500)).length, "Find businesses for: ".length + 120);
 });
