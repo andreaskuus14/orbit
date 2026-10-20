@@ -6,6 +6,7 @@ import { scoutView } from "./clips/scout";
 import { learnProblem, type LearnState } from "./clips/learn-pure";
 import { pickRecall, type Recall } from "./resurface-pure";
 import { getContinueWork } from "./work-continuation";
+import { dailyMission } from "./daily-mission-pure";
 import { buildMorning, lifeSection, pulseHeadlines, sinceSection, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningSince, type MorningStudio } from "./morning-pure";
 
 // Gathers the "Good morning" briefing: every section in parallel with a timeout, a failing source just drops its section.
@@ -67,10 +68,25 @@ export async function getSince(sb: SupabaseClient, from: number, now = Date.now(
   return sinceSection({ tasks: ok(t) ?? [], jobs: ok(j) ?? [], reminders: ok(l)?.reminders ?? [], alerts: ok(m) ?? [] }, from, now);
 }
 
+/** Businesses moved to "contacted" or later today (BUSINESS pipeline, RLS-scoped to the signed-in user). */
+// shortcut: uses updated_at, so editing an already-contacted business today also counts; add a contacted_at column if that matters.
+async function contactedToday(sb: SupabaseClient, now: number, tz: string): Promise<number> {
+  const day = (t: number) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(t);
+  const { data, error } = await sb.from("prospects").select("stage, updated_at").in("stage", ["contacted", "replied", "pilot", "paying"]).gte("updated_at", new Date(now - 36 * 3600_000).toISOString());
+  if (error) throw error;
+  return (data ?? []).filter((p) => day(Date.parse(p.updated_at)) === day(now)).length;
+}
+
+/** Approvals waiting: the list keeps 6 items with approvals first, so a full list of them may hide more. */
+const approvals = (w: { items: { status: string }[]; more: number }) => {
+  const k = w.items.filter((x) => x.status === "awaiting_approval").length;
+  return k === w.items.length ? k + w.more : k;
+};
+
 export async function getMorning(sb: SupabaseClient, userId: string, now = Date.now(), from: number | null = null): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
-  const [s, i, a, l, r, sn, c, w] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
+  const [s, i, a, l, r, sn, c, w, ct] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
     within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
     from === null ? Promise.resolve(undefined) : getSince(sb, from, now),
     // Same cache entry as the LIFE card. No Google client configured → no calendar section at all.
@@ -78,8 +94,10 @@ export async function getMorning(sb: SupabaseClient, userId: string, now = Date.
       if (!g.calEnv()) return undefined;
       const ev = await g.calendarEvents(7, now);
       return { connected: !!ev, today: ev ? p.todayEvents(ev, now) : [] };
-    })), within(getContinueWork(sb, userId))]);
-  const life = ok(l), rec = ok(r), since = ok(sn);
+    })), within(getContinueWork(sb, userId)), within(contactedToday(sb, now, tz))]);
+  const life = ok(l), rec = ok(r), since = ok(sn), work = ok(w), st = ok(s);
+  // Only counted when its sources loaded: a mission ticked from missing data would be a false claim.
+  const mission = st && work && ok(ct) !== undefined ? dailyMission({ shortsToday: st.today.length, contactedToday: ok(ct)!, approvalsWaiting: approvals(work) }) : undefined;
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
-    work: ok(w) ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] } }, now, tz), ...(since && { since }) };
+    work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), ...(since && { since }) };
 }
