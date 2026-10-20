@@ -29,7 +29,7 @@ export default function Login() {
       else location.replace("/");
       return;
     }
-    const { error } = await createClient().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: `${location.origin}/auth/callback`, shouldCreateUser: false } // existing accounts only: no sign-ups from the login page });
+    const { error } = await createClient().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: `${location.origin}/auth/callback`, shouldCreateUser: false /* existing accounts only: no sign-ups from the login page */ } });
     if (error) { setErr(error.message); setState("idle"); } else setState("sent");
   }
 
