@@ -21,7 +21,9 @@ test("run recipe commands: whole utterance only, English and Estonian", () => {
 test("matchRecipe: exact, unique partial, else closest names", () => {
   const list = [{ id: "1", name: "Daily YouTube ideas" }, { id: "2", name: "Weekly market scan" }, { id: "3", name: "Daily news brief" }];
   assert.deepEqual(matchRecipe("daily youtube ideas", list), { id: "1" });
-  assert.deepEqual(matchRecipe("market", list), { id: "2" });
+  assert.deepEqual(matchRecipe("weekly", list), { id: "2" }); // a unique prefix
+  assert.ok("closest" in matchRecipe("market", list), "a word from the middle never starts a recipe");
+  assert.ok("closest" in matchRecipe("pancake ideas", [{ id: "9", name: "Ideas" }]), "a voice slip containing a name never starts it");
   const r = matchRecipe("daily", list);
   assert.ok("closest" in r && r.closest.length === 3 && r.closest.slice(0, 2).every((n) => n.startsWith("Daily")));
 });

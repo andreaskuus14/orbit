@@ -21,12 +21,13 @@ export function parseRunRecipe(text: string): string | null {
   return name || null;
 }
 
-/** Exact (normalised) name, else the one recipe whose name contains it; otherwise up to 3 closest names. */
+/** Exact (normalised) name, else the one recipe whose name starts with what was said; otherwise up to 3 closest names.
+ *  Never "what was said contains a name": a voice slip ("…pancake ideas") must not start the recipe "ideas". */
 export function matchRecipe(name: string, list: Pick<Recipe, "id" | "name">[]): { id: string } | { closest: string[] } {
   const q = norm(name);
   const exact = list.find((r) => norm(r.name) === q);
   if (exact) return { id: exact.id };
-  const part = list.filter((r) => norm(r.name).includes(q) || q.includes(norm(r.name)));
+  const part = q.length >= 3 ? list.filter((r) => norm(r.name).startsWith(q)) : [];
   if (part.length === 1) return { id: part[0].id };
   const words = new Set(q.split(" "));
   const closest = [...list].map((r) => ({ r, k: norm(r.name).split(" ").filter((w) => words.has(w)).length }))
