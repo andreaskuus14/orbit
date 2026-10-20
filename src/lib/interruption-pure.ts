@@ -1,5 +1,6 @@
 // Shared judgment for Herald, desktop notifications, speech and bell batching. No I/O.
 import type { NotifyDetail } from "./notify-pure.ts";
+import type { NavTarget } from "./nav-pure.ts";
 
 export const INTERRUPTION_KEY = "orbit.interruptions.v1";
 export const INTERRUPTION_CHANGED = "orbit:interruptions-changed";
@@ -47,6 +48,15 @@ export function classify(d: NotifyDetail, state: JudgmentState): Level {
   return URGENT.includes(s) ? "URGENT" : ["short-hot", "agent-finished", "briefing", "reminder"].includes(s) ? "USEFUL" : "QUIET";
 }
 export const isProblem = (d: NotifyDetail) => URGENT.includes(signalFor(d));
+/** Old bell entries may predate navigation metadata; their red chip must still lead somewhere useful. */
+export function fixTarget(d: NotifyDetail): NavTarget {
+  if (d.nav) return d.nav;
+  const s = signalFor(d);
+  if (s === "usage-limit") return { panel: "analytics" };
+  if (s === "business-reply") return { panel: "business" };
+  if (s === "upload-failed" || s === "disk-full" || s === "youtube-expired") return { panel: "studio", view: "clips" };
+  return { panel: null };
+}
 export const reasonLine = (d: NotifyDetail) => (d.reason || d.body || d.title).replace(/\s+/g, " ").trim().slice(0, 180);
 export function dismissKind(state: JudgmentState, signal: Signal, now: number): JudgmentState {
   const times = [...(state.dismissals[signal] ?? []).filter((t) => dateOK(t, now)), now].slice(-2);

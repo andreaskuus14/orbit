@@ -5,7 +5,7 @@ import { NAV_EVENT } from "@/lib/nav-pure";
 import { NOTIFY_EVENT, NOTIFY_KEY, KIND_ICON, addItem, notify, parseItems, relTime, unreadCount, type NotifyDetail, type NotifyItem } from "@/lib/notify-pure";
 import type { BootResult } from "@/lib/doctor-boot-pure";
 import { HeraldToggle } from "./Herald";
-import { INTERRUPTION_CHANGED, INTERRUPTION_KEY, POPUP_SHOWN, RESOLVE_ALERT, LABELS, batchCount, classify, isProblem, reasonLine, signalFor, unmuteKind, type Signal } from "@/lib/interruption-pure";
+import { INTERRUPTION_CHANGED, INTERRUPTION_KEY, POPUP_SHOWN, RESOLVE_ALERT, LABELS, batchCount, classify, fixTarget, isProblem, reasonLine, signalFor, unmuteKind, type Signal } from "@/lib/interruption-pure";
 import { loadJudgment, saveJudgment } from "./interruption-store";
 import { AlertWatch } from "./AlertWatch";
 
@@ -46,7 +46,7 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
   const problems = items.filter((x) => !x.resolved && isProblem(x));
   const fix = (it: NotifyItem) => {
     if (it.fixHref === "/api/studio/oauth/start") { window.location.assign(it.fixHref); return; }
-    if (it.nav) dispatchEvent(new CustomEvent(NAV_EVENT, { detail: it.nav }));
+    dispatchEvent(new CustomEvent(NAV_EVENT, { detail: fixTarget(it) }));
   };
   const open = (it: NotifyItem) => {
     commit(load().map((x) => (x.id === it.id ? { ...x, read: true } : x))); // fresh from storage: keep what other windows added

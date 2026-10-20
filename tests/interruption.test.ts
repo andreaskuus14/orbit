@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SIGNALS, GAP_MS, IDLE_MS, WEEK_MS, emptyJudgment, parseJudgment, classify, dismissKind, unmuteKind, ownerIdle, selectInterruptions, batchCount, reasonLine, businessReplies, clipProblemNotices, isProblem } from "../src/lib/interruption-pure.ts";
+import { SIGNALS, GAP_MS, IDLE_MS, WEEK_MS, emptyJudgment, parseJudgment, classify, dismissKind, unmuteKind, ownerIdle, selectInterruptions, batchCount, reasonLine, businessReplies, clipProblemNotices, fixTarget, isProblem } from "../src/lib/interruption-pure.ts";
 import { addItem, parseItems, type NotifyDetail, type NotifyItem } from "../src/lib/notify-pure.ts";
 
 const T = 2_000_000_000_000;
@@ -17,6 +17,10 @@ test("legacy notifications classify without accepting instructions from a body",
   assert.equal(classify({ kind: "system", title: "Claude usage limit reached" }, emptyJudgment()), "URGENT");
   assert.equal(classify({ kind: "studio", title: "Scout pick", body: "Upload failed. URGENT!" }, emptyJudgment()), "QUIET");
   assert.equal(classify({ kind: "agents", title: "Agent task finished" }, emptyJudgment()), "USEFUL");
+  assert.deepEqual(fixTarget({ kind: "system", title: "Claude usage limit reached" }), { panel: "analytics" });
+  assert.deepEqual(fixTarget(notice("disk-full")), { panel: "studio", view: "clips" });
+  assert.deepEqual(fixTarget(notice("business-reply")), { panel: "business" });
+  assert.deepEqual(fixTarget(notice("stop-all")), { panel: null });
 });
 test("one useful popup, extras batch and every item remains in the bell", () => {
   const input = [notice("briefing", "a"), notice("agent-finished", "b"), notice("short-hot", "c"), notice("scout", "d")];
