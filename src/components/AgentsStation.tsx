@@ -12,6 +12,7 @@ import { ZoomRig } from "./ZoomRig";
 import { AgentsPanel, type Task } from "./AgentsPanels";
 import AgentMission, { STATUS_DOT, api, usePoll } from "./AgentMission";
 import TeamBuilder from "./TeamBuilder";
+import IdeasPanel from "./IdeasPanel";
 import GoalsPanel from "./GoalsPanel";
 import { CHAIN_TITLE, type ChainView } from "@/lib/chains-pure";
 import { beamPairs, chainActive } from "@/lib/mission-pure";
@@ -291,9 +292,9 @@ function Rig() {
 
 /* ---------- data + UI ---------- */
 
-type Props = { flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; focusGoal?: string | null };
+type Props = { flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; focusGoal?: string | null; radarUrl?: string | null; onRadarDone?: () => void };
 
-export default function AgentsStation({ flat, onClose, reduced, quality = "auto", onOpenTask, focusGoal }: Props) {
+export default function AgentsStation({ flat, onClose, reduced, quality = "auto", onOpenTask, focusGoal, radarUrl, onRadarDone }: Props) {
   const glr = useGlRecovery();
   const [visible, setVisible] = useState(true);
   const [agents, setAgents] = useState<Agent[] | null>(null);
@@ -301,8 +302,9 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
-  const [tab, setTab] = useState<"agents" | "teams" | "goals">("agents");
+  const [tab, setTab] = useState<"agents" | "teams" | "goals" | "ideas">("agents");
   useEffect(() => { if (focusGoal) setTab("goals"); }, [focusGoal]);
+  useEffect(() => { if (radarUrl) setTab("ideas"); }, [radarUrl]);
   const [chains, setChains] = useState<ChainView[] | null>(null);
   const [chainErr, setChainErr] = useState("");
   const rows = useRef(new Map<string, HTMLButtonElement>());
@@ -388,13 +390,17 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
             <div className="hud-title">AGENTS STATION</div>
             <p className="muted text-xs">{list.length} agents · {list.filter((a) => status[a.slug] === "working").length} working · {list.filter((a) => status[a.slug] === "waiting").length} need approval{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</p>
             <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Station views">
-              {(["agents", "teams", "goals"] as const).map((t) => (
+              {(["agents", "teams", "goals", "ideas"] as const).map((t) => (
                 <button key={t} id={`st-tab-${t}`} role="tab" aria-selected={tab === t} aria-controls={`st-panel-${t}`} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
-                  {t === "agents" ? "🛰 Agents" : t === "teams" ? "👥 Teams" : "🎯 Goals"}
+                  {t === "agents" ? "🛰 Agents" : t === "teams" ? "👥 Teams" : t === "goals" ? "🎯 Goals" : "💡 Ideas"}
                 </button>
               ))}
             </div>
-            {tab === "goals" ? (
+            {tab === "ideas" ? (
+              <div id="st-panel-ideas" role="tabpanel" aria-labelledby="st-tab-ideas" className="mt-3">
+                <IdeasPanel initialUrl={radarUrl} onConsumed={onRadarDone} />
+              </div>
+            ) : tab === "goals" ? (
               <div id="st-panel-goals" role="tabpanel" aria-labelledby="st-tab-goals" className="mt-3">
                 <GoalsPanel agents={list} visible={visible} onOpenTask={onOpenTask} focusId={focusGoal} />
               </div>
