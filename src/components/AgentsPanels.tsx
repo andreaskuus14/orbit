@@ -3,9 +3,12 @@ import { Fragment, useCallback, useEffect, useState, type ReactNode } from "reac
 import { ProposalsPanel } from "./ProposalsPanel";
 import { highlight } from "./Highlight";
 import { ActivityView } from "./ActivityView";
+import { ResultEvidence } from "./ResultEvidence";
+import type { WriteEvidence } from "@/lib/completion-pure";
+import { canRetryTask } from "@/lib/completion-pure";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
-type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string };
+type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string; evidence?: WriteEvidence[] };
 export type Task = {
   id: string; parent_id: string | null; project_id: string | null; agent: string; title: string; request: string;
   status: "queued" | "running" | "awaiting_approval" | "done" | "failed" | "cancelled";
@@ -133,8 +136,11 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
       )}
 
       {task.result && <div className="card"><Markdown text={task.result} openMemory={openMemory} /></div>}
+      <ResultEvidence items={[task, ...children].flatMap((t) => t.pending.flatMap((p) => p.evidence ?? []))} openMemory={openMemory} />
       {task.error && <p className="error">{task.error}</p>}
-      {(task.status === "failed" || task.status === "cancelled") && !task.parent_id && <button className="chip" onClick={() => act("retry")}>Retry</button>}
+      {(task.status === "failed" || task.status === "cancelled") && !task.parent_id && (canRetryTask([task, ...children].flatMap((t) => t.pending))
+        ? <button className="chip" onClick={() => act("retry")}>Retry</button>
+        : <p className="muted text-xs">This task has resolved actions. Keep their results and request only the unfinished work in a follow-up.</p>)}
       {(task.status === "queued" || task.status === "running") && <button className="chip" onClick={() => act("cancel")}>Cancel task</button>}
 
       {!!children.length && (

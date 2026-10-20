@@ -291,9 +291,9 @@ function Rig() {
 
 /* ---------- data + UI ---------- */
 
-type Props = { flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void };
+type Props = { flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; focusGoal?: string | null };
 
-export default function AgentsStation({ flat, onClose, reduced, quality = "auto", onOpenTask }: Props) {
+export default function AgentsStation({ flat, onClose, reduced, quality = "auto", onOpenTask, focusGoal }: Props) {
   const glr = useGlRecovery();
   const [visible, setVisible] = useState(true);
   const [agents, setAgents] = useState<Agent[] | null>(null);
@@ -302,6 +302,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const [selected, setSelected] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
   const [tab, setTab] = useState<"agents" | "teams" | "goals">("agents");
+  useEffect(() => { if (focusGoal) setTab("goals"); }, [focusGoal]);
   const [chains, setChains] = useState<ChainView[] | null>(null);
   const [chainErr, setChainErr] = useState("");
   const rows = useRef(new Map<string, HTMLButtonElement>());
@@ -395,7 +396,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
             </div>
             {tab === "goals" ? (
               <div id="st-panel-goals" role="tabpanel" aria-labelledby="st-tab-goals" className="mt-3">
-                <GoalsPanel agents={list} visible={visible} onOpenTask={onOpenTask} />
+                <GoalsPanel agents={list} visible={visible} onOpenTask={onOpenTask} focusId={focusGoal} />
               </div>
             ) : tab === "teams" ? (
               <div id="st-panel-teams" role="tabpanel" aria-labelledby="st-tab-teams" className="mt-3">

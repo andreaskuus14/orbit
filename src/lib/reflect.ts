@@ -5,6 +5,7 @@ import { embed } from "./embeddings";
 import { getPlaybook, applyPlaybookEdits } from "./playbook";
 import { parseReflection, allowedSaves, summaryDue, normTitle, shouldReflect, hasPreferenceSignal, type MemoryDraft } from "./reflect-pure";
 import { typedText } from "./attach-pure";
+import { verifyRow } from "./completion";
 
 const DUPLICATE_SIMILARITY = 0.92;
 
@@ -31,9 +32,16 @@ export async function coreSavesToday(sb: SupabaseClient, userId: string): Promis
 export async function saveCoreMemory(sb: SupabaseClient, userId: string, draft: MemoryDraft, source: "core" | "core-auto", titles?: string[]) {
   const key = normTitle(draft.title);
   const existing = (titles ?? (await recentTitles(sb, userId))).find((t) => normTitle(t) === key);
-  if (existing) return { duplicate: true as const, title: existing, id: null };
+  if (existing) {
+    const { data, error } = await sb.from("memories").select("id, title").eq("user_id", userId).eq("title", existing).limit(1).maybeSingle();
+    if (error || !data) throw new Error("The existing memory could not be read back. Nothing new was saved.");
+    return { duplicate: true as const, title: data.title as string, id: data.id as string };
+  }
   const similar = await findSimilar(sb, `${draft.title}\n\n${draft.content}`, DUPLICATE_SIMILARITY, 1).catch(() => []);
-  if (similar[0]) return { duplicate: true as const, title: similar[0].title, id: similar[0].id };
+  if (similar[0]) {
+    await verifyRow(sb, userId, "memories", similar[0].id, { title: similar[0].title });
+    return { duplicate: true as const, title: similar[0].title, id: similar[0].id };
+  }
   const { memory } = await createMemory(sb, userId, { ...draft, source }); // visibility defaults to private
   return { duplicate: false as const, title: memory.title as string, id: memory.id as string };
 }

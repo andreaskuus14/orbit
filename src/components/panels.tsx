@@ -8,6 +8,8 @@ import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
 import { appendActivity } from "@/lib/core-activity-pure";
 import { CoreActivity } from "./CoreActivity";
+import { ResultEvidence } from "./ResultEvidence";
+import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
 import type { Plan } from "@/lib/plans-pure";
 import { NAV_EVENT, navReply, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
@@ -25,7 +27,7 @@ import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechG
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
 type Cite = { id: string; title: string; kind: string };
-type Step = { step: string; detail: string; ms: number; ok: boolean };
+type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[] };
 type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[] };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -287,6 +289,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
         <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Suggested follow-ups">
           {m.chips.map((c) => <button key={c} type="button" className="chip" onClick={() => void send(c)}>{c}</button>)}
         </div>
+      )}
+      {!!m.trace?.length && (
+        <ResultEvidence items={m.trace.flatMap((s) => s.evidence ?? [])} openMemory={onOpenMemory} />
       )}
       {!!m.trace?.length && (
         <details className="mt-2 text-xs muted">

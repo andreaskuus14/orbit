@@ -180,6 +180,9 @@ export function writeWsFile(uid: string, slug: string, rel: string, content: str
     const tmp = path.join(path.dirname(full), `.${path.basename(full)}.${randomBytes(4).toString("hex")}.tmp`);
     await writeFile(tmp, content);
     await rename(tmp, full);
+    const stored = await readWsFile(uid, slug, c.path);
+    if (!stored || stored.text !== content || stored.size !== bytes)
+      return { error: `Write confirmation failed for ${c.path}. The file may exist; inspect it before retrying.` };
     return { path: c.path, bytes, created: !old };
   });
 }

@@ -6,6 +6,7 @@ import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { embed } from "./embeddings";
 import { emit } from "./claude";
+import { verifyRow } from "./completion";
 import { htmlToText, pickPublicAddress, assertHttpUrl, redirectTarget, readCapped } from "./pure";
 import { MEMORY_COLUMNS, retrieveMemories, type MemorySearchOptions } from "./memory-search";
 export { MEMORY_COLUMNS } from "./memory-search";
@@ -35,6 +36,8 @@ export async function createMemory(sb: SupabaseClient, userId: string, input: Me
     .select(MEMORY_COLUMNS)
     .single();
   if (error) throw error;
+
+  await verifyRow(sb, userId, "memories", data.id, { title: input.title, content: input.content });
 
   let suggested = 0;
   if (embedding) {
