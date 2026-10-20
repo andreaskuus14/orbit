@@ -100,16 +100,20 @@ export function stoppedReport(headline: string, steps: { step: string; detail: s
 
 export type ClaudeResult = { text: string; inputTokens: number; outputTokens: number; ms: number };
 
-/** Shared setup for every CLI call: system prompt in a temp dir, fixed flags, all tools disabled. */
-async function prepare(system: string, format: string[], model = MODEL, effort = "") {
+/** Read-only web tools a call may opt into (AskOpts.web), approved by the owner. Nothing that runs commands, edits files or posts. */
+export const WEB_TOOLS = "WebSearch,WebFetch";
+
+/** Shared setup for every CLI call: system prompt in a temp dir, fixed flags, all tools disabled unless `web`. */
+async function prepare(system: string, format: string[], model = MODEL, effort = "", web = false) {
   if (!/^[\w.:-]+(?:\[1m\])?$/.test(model)) throw new Error("ORBIT_MODEL / ORBIT_MODEL_SMART / ORBIT_MODEL_FAST / ORBIT_MODEL_DEEP contains invalid characters");
   // The system prompt goes in a file and the user prompt on stdin, so no user text is ever on the command line.
   const dir = await mkdtemp(join(tmpdir(), "orbit-"));
   const sysFile = join(dir, "system.txt");
   await writeFile(sysFile, system, "utf8");
   const q = (a: string) => (WIN ? `"${a}"` : a); // Windows needs a shell to run claude.cmd, so quote args there
-  const args = ["-p", ...format, "--tools", q(""), "--no-session-persistence",
-    // Ignore user-level plugins/hooks/skills and all MCP connectors (CORE must have no tools) but keep the login. Not --bare: it skips OAuth.
+  const tools = web ? ["--tools", q(WEB_TOOLS), "--allowedTools", q(WEB_TOOLS), "--permission-mode", "dontAsk"] : ["--tools", q("")];
+  const args = ["-p", ...format, ...tools, "--no-session-persistence",
+    // Ignore user-level plugins/hooks/skills and all MCP connectors (CORE gets no tools, or only the read-only web tools with `web`) but keep the login. Not --bare: it skips OAuth.
     "--setting-sources", "local", "--disable-slash-commands", "--strict-mcp-config", "--model", model, ...(effort ? ["--effort", effort] : []), "--system-prompt-file", q(sysFile)];
   const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: process.env, cwd: dir, windowsHide: true };
   // On Windows, claude may be claude.cmd, which needs a shell; pass one pre-quoted command string (args hold no user text).
@@ -130,11 +134,12 @@ function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean
 }
 
 /** purpose: what the call is for, for the usage meter (core, agent, goals, autopilot, clips, translate…); default by lane. */
-export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string };
+/** web: allow only WebSearch/WebFetch (read-only); web pages are untrusted, so that call's system prompt must say they are data. */
+export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean };
 
-/** One headless Claude Code call with all tools disabled (it can only read the prompt and answer). Aborting `signal` kills the CLI. */
-export function askClaude(prompt: string, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose }: AskOpts = {}): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane)), signal);
+/** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
+export function askClaude(prompt: string, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web }: AskOpts = {}): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane), web), signal);
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI. */
@@ -143,12 +148,12 @@ export function askClaudeStream(prompt: string, system: string, onDelta: (text: 
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
-async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background"): Promise<ClaudeResult> {
+async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false): Promise<ClaudeResult> {
   signal?.throwIfAborted();
   const t0 = Date.now();
   // With images, stdin carries one stream-json user message (image blocks + text); tools stay disabled.
   const input = images.length ? ["--input-format", "stream-json"] : [];
-  const { dir, start } = await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model, effort);
+  const { dir, start } = await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model, effort, web);
   try {
     return await new Promise<ClaudeResult>((resolve, reject) => {
       const child = start();
