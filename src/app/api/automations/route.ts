@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { getAgent } from "@/lib/agents";
 import { startAutomation } from "@/lib/automations";
 import { describeTrigger, validateAutomation } from "@/lib/pure";
+import { validateAutomationPatch } from "@/lib/automation-edit-pure";
 
 const COLS = "id, user_id, name, enabled, trigger, schedule, event, kind_filter, agent, prompt, last_run_at, run_count, created_at";
 
@@ -26,27 +27,36 @@ export async function GET() {
 export async function POST(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "JSON object required" }, { status: 400 });
   if (typeof body.run === "string") {
-    const { data: a } = await sb.from("automations").select(COLS).eq("id", body.run).maybeSingle();
+    const { data: a, error } = await sb.from("automations").select(COLS).eq("id", body.run).eq("user_id", user.id).maybeSingle();
+    if (error) return Response.json({ error: error.message }, { status: 500 });
     if (!a) return Response.json({ error: "Not found" }, { status: 404 });
+    if (!(await getAgent(sb, a.agent, user.id))) return Response.json({ error: `Unknown agent "${a.agent}"` }, { status: 400 });
     try { return Response.json({ task: await startAutomation(sb, a, "run manually") }); }
     catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Could not start" }, { status: 500 }); }
   }
   const v = validateAutomation(body);
   if ("error" in v) return Response.json({ error: v.error }, { status: 400 });
-  if (!(await getAgent(sb, v.spec.agent))) return Response.json({ error: `Unknown agent "${v.spec.agent}"` }, { status: 400 });
+  if (!(await getAgent(sb, v.spec.agent, user.id))) return Response.json({ error: `Unknown agent "${v.spec.agent}"` }, { status: 400 });
   const { data, error } = await sb.from("automations").insert({ ...v.spec, user_id: user.id }).select("id").single();
   if (error) return Response.json({ error: error.message }, { status: 400 });
   return Response.json({ id: data.id }, { status: 201 });
 }
 
 export async function PATCH(req: Request) {
-  const { sb, res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
-  const { id, enabled } = await req.json().catch(() => ({}));
-  if (typeof id !== "string" || typeof enabled !== "boolean") return Response.json({ error: "Bad request" }, { status: 400 });
-  const { data, error } = await sb.from("automations").update({ enabled }).eq("id", id).select("id");
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body) || typeof body.id !== "string" || !body.id.trim()) return Response.json({ error: "Automation id required" }, { status: 400 });
+  const { data: current, error: readError } = await sb.from("automations").select(COLS).eq("id", body.id).eq("user_id", user.id).maybeSingle();
+  if (readError) return Response.json({ error: readError.message }, { status: 500 });
+  if (!current) return Response.json({ error: "Not found" }, { status: 404 });
+  const v = validateAutomationPatch(body, current);
+  if ("error" in v) return Response.json({ error: v.error }, { status: 400 });
+  if (Object.keys(v.patch).some((k) => k !== "enabled") && !(await getAgent(sb, v.patch.agent ?? current.agent, user.id))) return Response.json({ error: `Unknown agent "${v.patch.agent ?? current.agent}"` }, { status: 400 });
+  const { data, error } = await sb.from("automations").update(v.patch).eq("id", body.id).eq("user_id", user.id).select("id");
   if (error) return Response.json({ error: error.message }, { status: 400 });
   if (!data?.length) return Response.json({ error: "Not found" }, { status: 404 });
   return Response.json({ ok: true });
