@@ -382,7 +382,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
   const name = useScramble(live ? live.channel.title : data && !data.configured ? "Not connected" : "Your channel", 700);
 
   return (
-    <div className="studio absolute inset-0 globe-in" aria-label="Studio: your YouTube channel">
+    <div className="studio absolute inset-0 globe-in" role="region" aria-label="Studio: your YouTube channel">
       {flat && <div aria-hidden className="studio-sky absolute inset-0" style={{ backgroundImage: `url(${SKY[0]})` }} />}
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, 2]} gl={{ antialias: true, powerPreference: "high-performance" }}>
         <Sky />
@@ -419,12 +419,12 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
         </div>
       )}
 
-      <header className="studio-head absolute left-4 top-[4.5rem] z-[15] max-w-[min(26rem,calc(100vw-2rem))]">
+      <header data-mode={mode} className="studio-head absolute left-4 top-[4.5rem] z-[15] max-w-[min(26rem,calc(100vw-2rem))]">
         <button className="studio-back" onClick={onClose}>← Galaxy</button>
         {mode === "channel" && <p className="studio-kicker">STUDIO{live ? ` · ${n(live.channel.subs)} subs · ${n(live.channel.views)} views · ${live.channel.videoCount} videos` : ""}</p>}
-        {mode === "channel" && <h2 className="studio-name">{name}</h2>}
+        {mode === "channel" && <h2 className="studio-name"><span className="sr-only">{live ? live.channel.title : "Your channel"}</span><span aria-hidden>{name}</span></h2>}
         {mode === "channel" && hot.length > 0 && (
-          <ul className="mt-2 space-y-1" aria-live="polite" aria-label="Taking off">
+          <ul className="mt-2 space-y-1" aria-label="Taking off">
             {hot.slice(0, 3).map((h) => (
               <li key={h.id}><button className="studio-hot" onClick={() => { setSelected(h.id); setMode("channel"); }}>
                 <i aria-hidden /> {clip(byId.get(h.id)?.title ?? "", 40)} <span>{h.ratio.toFixed(1)}× usual pace</span></button></li>
@@ -436,7 +436,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
       <nav className="studio-modes absolute left-1/2 top-[4.5rem] z-[15] -translate-x-1/2" aria-label="Studio sections" style={{ ["--i" as string]: MODES.findIndex(([k]) => k === mode) }}>
         <span aria-hidden className="studio-modes-pill" />
         {MODES.map(([k, label]) => <button key={k} aria-pressed={mode === k} onClick={() => setMode(k)}>{label}</button>)}
-        {data?.configured !== false && <button className="studio-refresh" onClick={() => load(true)} disabled={loading} aria-label="Refresh channel data" title="Refresh">{loading ? "…" : "↻"}</button>}
+        {data?.configured !== false && <button className="studio-refresh" onClick={() => { if (!loading) void load(true); }} aria-disabled={loading} aria-label={loading ? "Refreshing channel data" : "Refresh channel data"} title="Refresh">{loading ? "…" : "↻"}</button>}
       </nav>
 
       {mode === "channel" && (

@@ -392,11 +392,15 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 /* Section switch: one sliding pill under the labels. */
 .studio-modes { display: flex; align-items: center; gap: 0.15rem; padding: 0.25rem; border-radius: 999px; background: rgba(7, 9, 14, 0.55); border: 1px solid var(--hair);
   backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-.studio-modes > button { position: relative; z-index: 1; width: 6rem; padding: 0.4rem 0; border-radius: 999px; font-size: 0.78rem; letter-spacing: 0.04em; color: var(--ice-dim); transition: color 0.35s var(--ease-out); }
+.studio-modes { --mw: 6rem; }
+.studio-modes > button { position: relative; z-index: 1; width: var(--mw); padding: 0.4rem 0; border-radius: 999px; font-size: 0.78rem; letter-spacing: 0.04em; color: var(--ice-dim); transition: color 0.35s var(--ease-out); }
 .studio-modes > button[aria-pressed="true"] { color: #06080c; font-weight: 600; }
 .studio-modes > .studio-refresh { width: 2rem; color: var(--ice-dim); }
-.studio-modes-pill { position: absolute; z-index: 0; left: 0.25rem; top: 0.25rem; bottom: 0.25rem; width: 6rem; border-radius: 999px; background: var(--ice);
-  transform: translateX(calc(var(--i, 0) * (6rem + 0.15rem))); transition: transform 0.6s var(--ease-out); }
+.studio-modes-pill { position: absolute; z-index: 0; left: 0.25rem; top: 0.25rem; bottom: 0.25rem; width: var(--mw); border-radius: 999px; background: var(--ice);
+  transform: translateX(calc(var(--i, 0) * (var(--mw) + 0.15rem))); transition: transform 0.6s var(--ease-out); }
+/* Between phone and wide screens the centred switch would sit on the title and the video rail: both drop below it. */
+@media (min-width: 641px) and (max-width: 1199px) { .studio-head[data-mode="channel"] { top: 7.5rem; } }
+@media (min-width: 900px) and (max-width: 1199px) { .studio .studio-rail { top: 7.5rem; max-height: calc(100dvh - 14rem); } }
 
 /* Panels arrive with a soft blur-in, from the side they live on. */
 .studio-rail { animation: studio-in-right 0.8s var(--ease-out) both; }
@@ -573,7 +577,8 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
   .globe-search { left: 0.5rem; right: 0.5rem; width: auto; }
   .globe-regions { top: calc(var(--hdr) + 3.7rem); left: 0.5rem; right: 0.5rem; max-width: none; }
   /* STUDIO: section switch under the header, title under it, sheets below both. */
-  .studio-modes { top: var(--hdr); }
+  .studio-modes { top: var(--hdr); --mw: 5.25rem; }
+  .studio-modes > button { min-height: 2.75rem; }
   .studio-head { top: calc(var(--hdr) + 3rem); left: 0.75rem; }
   .studio-kicker { margin-top: 0; }
   .studio-sheet { top: calc(var(--hdr) + 3rem); bottom: var(--bar); }
