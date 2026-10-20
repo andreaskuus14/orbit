@@ -40,13 +40,28 @@ function load(id, model, opts, cacheDir) {
   return p;
 }
 
+// Whisper's own language guess: one decoder step after <|startoftranscript|>, the best-scoring <|xx|> token.
+// transformers.js has no detection of its own (with no language it silently assumes English).
+// Out: {language: "en" | "zh" | …} or {language: null} for an English-only model (nothing to detect).
+async function detectLanguage(asr, audio) {
+  const gc = asr.model.generation_config;
+  if (!gc?.is_multilingual || !gc.lang_to_id) return { language: null };
+  const tf = await import("@huggingface/transformers");
+  const { input_features } = await asr.processor(audio);
+  const start = new tf.Tensor("int64", BigInt64Array.from([BigInt(gc.decoder_start_token_id)]), [1, 1]);
+  const logits = (await asr.model({ input_features, decoder_input_ids: start })).logits.data;
+  let best = null, max = -Infinity;
+  for (const [tok, i] of Object.entries(gc.lang_to_id)) if (logits[i] > max) { max = logits[i]; best = tok; }
+  return { language: best ? best.replace(/^<\|(.*)\|>$/, "$1") : null };
+}
+
 process.on("message", async ({ id, model, opts, cacheDir, audio, options }) => {
   const msg = (e) => (e instanceof Error ? e.message : String(e));
   let asr;
   // A failed model download stays a plain error: the lane keeps its child and retries next time.
   try { asr = await load(id, model, opts, cacheDir); } catch (e) { return send({ id, error: msg(e), ...(e?.load ? { load: true } : {}) }); }
   try {
-    send({ id, result: audio ? await asr(audio, options) : null });
+    send({ id, result: !audio ? null : options?.detectLanguage ? await detectLanguage(asr, audio) : await asr(audio, options) });
   } catch (e) {
     send({ id, error: msg(e) });
   }

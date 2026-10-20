@@ -8,6 +8,7 @@ import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
 import { appendActivity } from "@/lib/core-activity-pure";
 import { CoreActivity } from "./CoreActivity";
+import { PasswordSection } from "./PasswordSection";
 import { ResultEvidence } from "./ResultEvidence";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
@@ -622,6 +623,7 @@ export function ProfilePanel() {
       <label className="block text-sm">How CORE should talk to you<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={1000} /></label>
       <button className="btn">Save profile</button> {msg && <span className="muted text-sm">{msg}</span>}
     </form>
+    <PasswordSection />
     <PlaybookSection />
     </div>
   );
