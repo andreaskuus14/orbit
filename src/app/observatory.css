@@ -11,6 +11,8 @@
 .orbit-shell .brand { color: #ecf4f5; background: none; filter: none; letter-spacing: .22em; }
 .orbit-shell .logo img { box-shadow: none; }
 .orbit-shell .glass:not(.studio *) { background: var(--orbit-surface); border-color: var(--orbit-edge); box-shadow: 0 12px 40px #0004; backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* Without the blur, 94% let bright text behind (the 2D index) show through drawers and the morning card. */
+.orbit-shell :is(.drawer, .morning-card).glass:not(.studio *) { background: rgb(12, 18, 25); }
 .orbit-shell .chip:not(.studio *) { background: #d8ecf208; border-color: var(--orbit-edge); box-shadow: none; transition: background .16s, border-color .16s; }
 .orbit-shell .chip:not(.studio *):hover { background: #d8ecf218; border-color: #b3d6e25c; box-shadow: none; }
 .orbit-shell .btn:not(.studio *) { background: #c1e3eb; color: #10222a; box-shadow: none; transition: background .16s, transform .16s; }
