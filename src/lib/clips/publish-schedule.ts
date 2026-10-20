@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { videoResource } from "../yt-analytics-pure";
+import { originalityIssue } from "./publish-checks-pure";
 import { clipFile, getJob, isPublishing, listJobs, publishDone, readState, saveState, startPublish, studioRoot, withJobLock } from "./factory";
 import { DEFAULT_PUBLISH, nextSlots, parseSettings, usedSlots, type PublishSettings } from "./schedule";
 import type { Clip } from "./types";
@@ -47,6 +48,8 @@ export async function scheduleAll(only?: string[], meta: Record<string, { publis
           if (!job || !clip || !eligible(clip)) return "skip"; // changed meanwhile (published, rejected, deleted)
           const file = clipFile(clip);
           if (!file || !(await stat(file).catch(() => null))?.isFile()) return `${clip.title}: the video file is missing`;
+          const notOriginal = originalityIssue(job, clip);
+          if (notOriginal) return `${clip.title}: ${notOriginal}`;
           const want = meta[`${jobId}/${clipId}`];
           if (want?.publishAt && !(await freeSlots(60)).includes(want.publishAt)) return `${clip.title}: the chosen slot isn't free any more`; // never moved silently
           const [at] = want?.publishAt ? [want.publishAt] : await freeSlots();

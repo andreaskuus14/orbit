@@ -82,6 +82,10 @@ export function delta(cur: number, prev: number): { dir: 1 | 0 | -1; text: strin
   return { dir: pct > 0 ? 1 : -1, text: `${pct > 0 ? "▲" : "▼"} ${abs >= 10 ? Math.round(abs) : abs.toFixed(1)}%` };
 }
 
+/** Below this many views in both periods a % change is noise ("1 → 3 views = ▲ 200%"), so STUDIO stats hide comparisons. */
+export const FEW_VIEWS = 100;
+export const tooFewToCompare = (cur: { views: number }, prev: { views: number }) => Math.max(fin(cur.views), fin(prev.views)) < FEW_VIEWS;
+
 /** Seconds → m:ss (h:mm:ss from an hour up). */
 export function mmss(sec: number): string {
   const s = Math.max(0, Math.round(fin(sec)));

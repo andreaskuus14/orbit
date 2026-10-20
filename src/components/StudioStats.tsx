@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { areaPath, compact, delta, linePath, mmss, niceTicks, toPoints, type Box } from "@/lib/chart-pure";
+import { FEW_VIEWS, areaPath, compact, delta, linePath, mmss, niceTicks, tooFewToCompare, toPoints, type Box } from "@/lib/chart-pure";
 
 // STUDIO stats: YouTube Analytics dashboard drawn over the left of the 3D world. Hand-written SVG charts.
 // Data: GET /api/studio/analytics (OAuth, read-only). Mounted inside `.studio`, fills its container.
@@ -16,6 +16,7 @@ type Analytics =
       countries: { country: string; views: number }[];
       topVideos?: { id: string; views: number; watchMinutes: number; avgViewSec: number }[];
       retention?: { t: number; ratio: number; relative: number }[];
+      engaged?: { cur: number; prev: number };
       warnings: string[]; fetchedAt: string };
 type Live = Extract<Analytics, { connected: true }>;
 
@@ -267,14 +268,14 @@ function Spark({ values }: { values: number[] }) {
   );
 }
 
-function Kpi({ label, value, cur, prev, spark }: { label: string; value: string; cur: number; prev: number; spark?: number[] }) {
-  const d = delta(cur, prev);
+function Kpi({ label, value, cur, prev, spark, few }: { label: string; value: string; cur: number; prev: number; spark?: number[]; few?: boolean }) {
+  const d = few ? { dir: 0, text: "—" } : delta(cur, prev); // few views: a % change would be noise
   return (
     <div className="card !p-2.5">
       <dt className="muted text-[10px] uppercase tracking-widest">{label}</dt>
       <dd className="num text-xl font-semibold">{value}</dd>
       <dd className="num text-[11px] !text-shadow-none" style={{ color: d.dir > 0 ? C.rose : "var(--muted)" }}>
-        {d.text} <span className="sr-only">versus the previous period</span><span aria-hidden className="muted"> vs prev</span>
+        {d.text} <span className="sr-only">{few ? "too few views to compare with" : "versus"} the previous period</span><span aria-hidden className="muted"> vs prev</span>
         {spark && <Spark values={spark} />}
       </dd>
     </div>
@@ -358,6 +359,7 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
   }
 
   const live: Live | null = data?.connected ? data : null;
+  const few = !!live && tooFewToCompare(live.totals, live.prevTotals);
   const daily = useMemo(() => live?.daily ?? [], [live]);
   const m = METRICS.find((x) => x[0] === metric)!;
   const labels = useMemo(() => daily.map((d) => dayLabel(d.day)), [daily]);
@@ -419,16 +421,24 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
             {dayLabel(live.range.start, true)} – {dayLabel(live.range.end, true)} · Data through {dayLabel(live.range.end, true)} (YouTube Analytics lags about 2 days)
           </p>
 
+          {few && (
+            <p className="card text-xs" role="note">
+              <b>Collecting data.</b> Only {live.totals.views} views in this range, so changes vs the previous period are hidden until a range has {FEW_VIEWS}+ views.
+              YouTube first shows each Short to a small test audience; posting regularly with your own take on each clip matters more than these numbers right now.
+            </p>
+          )}
+
           <dl className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
-            <Kpi label="Views" value={compact(live.totals.views)} cur={live.totals.views} prev={live.prevTotals.views} spark={daily.map((d) => d.views)} />
-            <Kpi label="Watch time" value={`${compact(live.totals.watchMinutes / 60)} h`} cur={live.totals.watchMinutes} prev={live.prevTotals.watchMinutes} spark={daily.map((d) => d.watchMinutes)} />
-            <Kpi label="Avg view" value={mmss(live.totals.avgViewSec)} cur={live.totals.avgViewSec} prev={live.prevTotals.avgViewSec}
+            <Kpi few={few} label="Views" value={compact(live.totals.views)} cur={live.totals.views} prev={live.prevTotals.views} spark={daily.map((d) => d.views)} />
+            <Kpi few={few} label="Watch time" value={`${compact(live.totals.watchMinutes / 60)} h`} cur={live.totals.watchMinutes} prev={live.prevTotals.watchMinutes} spark={daily.map((d) => d.watchMinutes)} />
+            <Kpi few={few} label="Avg view" value={mmss(live.totals.avgViewSec)} cur={live.totals.avgViewSec} prev={live.prevTotals.avgViewSec}
               spark={daily.map((d) => (d.views > 0 ? (d.watchMinutes * 60) / d.views : 0))} />
-            <Kpi label="Subscribers" value={`${live.totals.subsGained - live.totals.subsLost >= 0 ? "+" : "−"}${compact(Math.abs(live.totals.subsGained - live.totals.subsLost))}`}
+            <Kpi few={few} label="Subscribers" value={`${live.totals.subsGained - live.totals.subsLost >= 0 ? "+" : "−"}${compact(Math.abs(live.totals.subsGained - live.totals.subsLost))}`}
               cur={live.totals.subsGained - live.totals.subsLost} prev={live.prevTotals.subsGained - live.prevTotals.subsLost} spark={daily.map((d) => d.subsGained - d.subsLost)} />
-            <Kpi label="Likes" value={compact(live.totals.likes)} cur={live.totals.likes} prev={live.prevTotals.likes} />
-            <Kpi label="Comments" value={compact(live.totals.comments)} cur={live.totals.comments} prev={live.prevTotals.comments} />
-            <Kpi label="Shares" value={compact(live.totals.shares)} cur={live.totals.shares} prev={live.prevTotals.shares} />
+            {live.engaged && <Kpi few={few} label="Engaged views" value={compact(live.engaged.cur)} cur={live.engaged.cur} prev={live.engaged.prev} />}
+            <Kpi few={few} label="Likes" value={compact(live.totals.likes)} cur={live.totals.likes} prev={live.prevTotals.likes} />
+            <Kpi few={few} label="Comments" value={compact(live.totals.comments)} cur={live.totals.comments} prev={live.prevTotals.comments} />
+            <Kpi few={few} label="Shares" value={compact(live.totals.shares)} cur={live.totals.shares} prev={live.prevTotals.shares} />
           </dl>
 
           <section className="card" aria-label="Daily trend">
