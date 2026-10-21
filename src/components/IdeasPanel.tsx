@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import type { Idea } from "@/lib/ideas-pure";
+import { board, freshnessLabel, isStale, type Idea } from "@/lib/ideas-pure";
 
 // IDEA RADAR board (Agents Station → Ideas). Paste a YouTube link; CORE reads its captions and scores every idea.
 type Board = { shown: Idea[]; hidden: number; busy: string | null; found?: number };
@@ -17,6 +17,7 @@ export default function IdeasPanel({ initialUrl, onConsumed }: { initialUrl?: st
   const [b, setB] = useState<Board | null>(null);
   const [url, setUrl] = useState(initialUrl ?? "");
   const [busy, setBusy] = useState(false);
+  const [hideStale, setHideStale] = useState(true);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const load = useCallback(() => call().then(setB, (e: Error) => setMsg({ ok: false, text: e.message })), []);
   const read = useCallback(async (u: string) => {
@@ -26,19 +27,25 @@ export default function IdeasPanel({ initialUrl, onConsumed }: { initialUrl?: st
   }, []);
   // A shared link only fills the box: reading it is the owner's own click (a link from anyone else can't spend Claude usage).
   useEffect(() => { void load(); if (initialUrl) { setUrl(initialUrl); onConsumed?.(); } }, [load, initialUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  const now = Date.now();
+  const shown = board(b?.shown ?? [], now).shown.filter((i) => !hideStale || !isStale(i, now));
+  const stale = b?.shown.filter((i) => isStale(i, now)).length ?? 0;
   return (
     <div className="space-y-3 text-sm">
       <form className="flex gap-1.5" aria-label="Read a video for ideas" onSubmit={(e) => { e.preventDefault(); if (url.trim()) void read(url.trim()); }}>
         <input className="field flex-1" aria-label="YouTube link" placeholder="Paste a YouTube link…" value={url} onChange={(e) => setUrl(e.target.value)} />
         <button className="btn" disabled={busy || !url.trim()}>{busy ? "Reading…" : "Find ideas"}</button>
       </form>
-      {busy && <p className="muted" role="status">Reading the captions and scoring every idea (about a minute). If YouTube refuses the captions, ORBIT listens to the first 30 minutes instead, which takes a few minutes…</p>}
+      <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={hideStale} onChange={(e) => setHideStale(e.target.checked)} />Hide stale</label>
+      {busy && <p className="muted" role="status">Checking the source date, then reading the captions and scoring every idea (about a minute). If YouTube refuses the captions, ORBIT listens to the first 30 minutes instead, which takes a few minutes…</p>}
       {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
-      {b && !b.shown.length && <p className="muted">No strong ideas yet. Paste a video about side hustles, tools or channel growth.</p>}
-      <ul className="space-y-2">{b?.shown.map((i) => (
-        <li key={i.id} className="card space-y-1">
+      {b && !shown.length && <p className="muted">{hideStale && stale ? "No fresh strong ideas. Turn off Hide stale to see older ideas." : "No strong ideas yet. Paste a video about side hustles, tools or channel growth."}</p>}
+      {hideStale && stale > 0 && <p className="muted text-xs">{stale} stale ideas hidden.</p>}
+      <ul className="space-y-2">{shown.map((i) => (
+        <li key={i.id} className={`card space-y-1${isStale(i, now) ? " opacity-50 grayscale" : ""}`}>
           <div className="flex items-baseline justify-between gap-2"><b>{i.title}</b><span className="muted text-xs">{AREA[i.area] ?? i.area} · {i.score}</span></div>
           {i.summary && <p className="muted">{i.summary}</p>}
+          <p className="muted text-xs">{freshnessLabel(i, now)}{isStale(i, now) ? " · stale" : ""}</p>
           {i.next && <p><b>Next:</b> {i.next}</p>}
           <div className="flex items-center justify-between gap-2 text-xs">
             <a className="link" href={`https://www.youtube.com/watch?v=${i.video}`} target="_blank" rel="noopener noreferrer">From: {i.videoTitle} <span className="sr-only">(opens YouTube)</span></a>
