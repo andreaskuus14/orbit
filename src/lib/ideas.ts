@@ -8,7 +8,7 @@ import { PAUSED_MSG } from "./stop-all-pure";
 import { usageHold } from "./usage-meter";
 import { ffmpegPath, readState, runFfmpeg, runYtdlp, saveState, studioRoot, transcribe, ytdlpPath } from "./clips/factory";
 import { SAMPLE_RATE, audioArgs, ytdlpError } from "./clips/pure";
-import { RADAR_SYSTEM, board, parseIdeas, radarPrompt, videoIdFrom, vttText, type Idea } from "./ideas-pure";
+import { RADAR_SYSTEM, board, filterFresh, parseIdeas, radarPrompt, sourceDate, videoIdFrom, vttText, type Idea } from "./ideas-pure";
 
 // IDEA RADAR store: <studio>/ideas.json (local, like the other STUDIO state). Logic: ideas-pure.ts.
 type Store = { ideas: Idea[] };
@@ -18,7 +18,7 @@ const S = globalThis as unknown as { __orbitRadar?: string | null; __orbitRadarP
 
 export async function listIdeas() {
   const st = (await readState<Store>(studioRoot(), "ideas", problem)) ?? { ideas: [] };
-  return { ...board(st.ideas), busy: S.__orbitRadar ?? null, phase: S.__orbitRadar ? S.__orbitRadarPhase ?? "captions" : null };
+  return { ...board(st.ideas, Date.now()), busy: S.__orbitRadar ?? null, phase: S.__orbitRadar ? S.__orbitRadarPhase ?? "captions" : null };
 }
 
 const LISTEN_SEC = 30 * 60; // the audio fallback hears at most the first 30 minutes (Whisper on the PC, a few minutes)
@@ -56,16 +56,27 @@ async function listen(yt: string, id: string, dir: string, signal: AbortSignal):
 }
 
 /** The video's words: its captions, or (when YouTube refuses them with 429 or has none) its audio through Whisper. */
-async function transcriptOf(id: string, signal: AbortSignal, onPhase: (p: string) => void): Promise<{ title: string; text: string }> {
+async function transcriptOf(id: string, signal: AbortSignal, onPhase: (p: string) => void): Promise<{ title: string; text: string; sourceAt: string }> {
   const yt = await ytdlpPath();
   if (!yt) throw new Error("yt-dlp not found: run `winget install yt-dlp.yt-dlp`, then restart ORBIT");
   const dir = await mkdtemp(path.join(tmpdir(), "orbit-radar-"));
   try {
+    // Get the source's real date before spending time on captions/audio, and before any transcript can reach CORE.
+    let title = id, sourceAt: string | undefined;
+    await runYtdlp(yt, ["--simulate", "--no-playlist", "--print", "TITLE:%(title)s", "--print", "SOURCE:%(upload_date)s",
+      `https://www.youtube.com/watch?v=${id}`], signal, (line, stdout) => {
+      if (!stdout) return;
+      if (line.startsWith("TITLE:")) title = line.slice(6).trim() || id;
+      if (line.startsWith("SOURCE:")) sourceAt = sourceDate(line.slice(7).trim());
+    }, dir);
+    if (!sourceAt) throw new Error("Couldn't verify the source date; skipped before CORE. Choose a dated video.");
+    if (!filterFresh([{ sourceAt }], Date.now()).length) throw new Error("Source is outside the last 30 days; skipped before CORE. Choose a newer video.");
+    onPhase("captions");
     const c = await captions(yt, id, dir, signal);
-    if (c.text) return { title: c.title || id, text: c.text };
+    if (c.text) return { title: c.title || title, text: c.text, sourceAt };
     if (/Private video|Video unavailable|members-only|Sign in to confirm your age/i.test(c.out)) throw new Error(ytdlpError(c.out));
     onPhase("listening");
-    return { title: c.title || id, text: await listen(yt, id, dir, signal) };
+    return { title: c.title || title, text: await listen(yt, id, dir, signal), sourceAt };
   } finally { void rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
 
@@ -75,11 +86,13 @@ export async function radar(url: string, signal: AbortSignal): Promise<Idea[]> {
   const held = stopAllOn() ? PAUSED_MSG : usageHold();
   if (held) throw new Error(held);
   if (S.__orbitRadar) throw new Error("Already reading another video: wait for it to finish");
-  S.__orbitRadar = id; S.__orbitRadarPhase = "captions";
+  S.__orbitRadar = id; S.__orbitRadarPhase = "metadata";
   try {
-    const { title, text } = await transcriptOf(id, signal, (p) => { S.__orbitRadarPhase = p; });
+    const { title, text, sourceAt } = await transcriptOf(id, signal, (p) => { S.__orbitRadarPhase = p; });
+    // Recheck after a long audio transcription too: a candidate may cross the cutoff while we listen.
+    if (!filterFresh([{ sourceAt }], Date.now()).length) throw new Error("Source is over 30 days old; skipped before CORE. Choose a newer video.");
     const r = await askClaude(radarPrompt(title, text), RADAR_SYSTEM, { lane: "foreground", purpose: "ideas.radar", timeoutMs: 180_000, signal });
-    const found = parseIdeas(r.text, id, title, new Date().toISOString(), randomUUID);
+    const found = parseIdeas(r.text, id, title, new Date().toISOString(), randomUUID, sourceAt);
     if (!found.length) throw new Error("CORE found no usable ideas in this video");
     const st = (await readState<Store>(studioRoot(), "ideas", problem)) ?? { ideas: [] };
     await saveState("ideas", FILE(), { ideas: [...found, ...st.ideas.filter((i) => i.video !== id)].slice(0, 500) }); // re-reading a video replaces its ideas

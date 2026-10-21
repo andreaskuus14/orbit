@@ -1,9 +1,35 @@
 // IDEA RADAR: a YouTube link → its captions → every idea in it, scored against ORBIT's areas. Pure; tested in tests/ideas.test.ts.
 export const AREAS = ["studio", "business", "markets", "agents", "core", "gamedev", "other"] as const;
 export type Area = (typeof AREAS)[number];
-export type Idea = { id: string; video: string; videoTitle: string; title: string; summary: string; area: Area; score: number; next: string; at: string; dismissed?: boolean };
+export type Idea = { id: string; video: string; videoTitle: string; title: string; summary: string; area: Area; score: number; next: string; at?: string; sourceAt?: string; dismissed?: boolean };
 export const SHOW_AT = 60; // below this an idea is saved but hidden from the board
 export const TRANSCRIPT_MAX = 60_000;
+const DAY = 86_400_000;
+const date = (s: unknown) => typeof s === "string" && s.trim() ? Date.parse(s) : NaN;
+const age = (s: unknown, now: number) => { const n = now - date(s); return n >= 0 ? n : NaN; };
+
+/** yt-dlp's YYYYMMDD upload date, validated rather than guessing a date for old or unavailable sources. */
+export function sourceDate(raw: string): string | undefined {
+  if (!/^\d{8}$/.test(raw)) return undefined;
+  const iso = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}T00:00:00.000Z`;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) && new Date(ms).toISOString() === iso ? iso : undefined;
+}
+
+/** Legacy/malformed dates are stale too. The boundary itself (14 days) is still fresh. */
+export function isStale(idea: Pick<Idea, "at" | "sourceAt">, now: number): boolean {
+  return !Number.isFinite(age(idea.at, now)) || !Number.isFinite(age(idea.sourceAt, now)) || age(idea.sourceAt, now) > 14 * DAY;
+}
+
+export function freshnessLabel(idea: Pick<Idea, "at" | "sourceAt">, now: number): string {
+  const found = age(idea.at, now), source = age(idea.sourceAt, now);
+  return `found ${Number.isFinite(found) ? `${Math.floor(found / DAY)}d ago` : "unknown"} · source ${Number.isFinite(source) ? `${Math.floor(source / DAY)}d old` : "unknown"}`;
+}
+
+/** Gate source candidates before CORE. Unknown/future dates cannot establish freshness; exactly 30 days is allowed. */
+export function filterFresh<T extends { sourceAt?: string }>(candidates: T[], now: number): T[] {
+  return candidates.filter((c) => age(c.sourceAt, now) <= 30 * DAY);
+}
 
 /** The 11-character id from a watch, youtu.be, shorts, live or embed link (with or without m./www.), else null. */
 export function videoIdFrom(url: string): string | null {
@@ -41,7 +67,7 @@ export function radarPrompt(videoTitle: string, transcript: string): string {
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, max) : "");
 
 /** Ideas from CORE's answer (first JSON array of objects in it), cleaned and capped at 25; [] when unusable. */
-export function parseIdeas(answer: string, video: string, videoTitle: string, now: string, makeId: () => string): Idea[] {
+export function parseIdeas(answer: string, video: string, videoTitle: string, now: string, makeId: () => string, sourceAt?: string): Idea[] {
   for (let i = answer.indexOf("["); i >= 0; i = answer.indexOf("[", i + 1)) {
     for (let j = answer.lastIndexOf("]"); j > i; j = answer.lastIndexOf("]", j - 1)) {
       let raw: unknown;
@@ -53,15 +79,16 @@ export function parseIdeas(answer: string, video: string, videoTitle: string, no
         if (!title) return [];
         const area = (AREAS as readonly string[]).includes(o.area as string) ? (o.area as Area) : "other";
         const score = Math.max(0, Math.min(100, Math.round(Number(o.score) || 0)));
-        return [{ id: makeId(), video, videoTitle: text(videoTitle, 200), title, summary: text(o.summary, 300), area, score, next: text(o.next, 200), at: now }];
+        return [{ id: makeId(), video, videoTitle: text(videoTitle, 200), title, summary: text(o.summary, 300), area, score, next: text(o.next, 200), at: now, ...(sourceAt && { sourceAt }) }];
       }).slice(0, 25);
     }
   }
   return [];
 }
 
-/** The board: shown ideas best first; hidden = low score or dismissed. */
-export function board(ideas: Idea[]): { shown: Idea[]; hidden: number } {
-  const shown = ideas.filter((i) => !i.dismissed && i.score >= SHOW_AT).sort((a, b) => b.score - a.score || b.at.localeCompare(a.at));
+/** The board: fresh ideas first, then stale; each group best first. Hidden = low score or dismissed. */
+export function board(ideas: Idea[], now: number): { shown: Idea[]; hidden: number } {
+  const shown = ideas.filter((i) => !i.dismissed && i.score >= SHOW_AT).sort((a, b) => Number(isStale(a, now)) - Number(isStale(b, now))
+    || b.score - a.score || (date(b.at) || 0) - (date(a.at) || 0));
   return { shown, hidden: ideas.length - shown.length };
 }
