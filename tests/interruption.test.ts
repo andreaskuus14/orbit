@@ -123,6 +123,14 @@ test("failed uploads/jobs/downloads have separate stable bell keys and real fix 
   assert.equal(bell.length, 4); assert.deepEqual(clipProblemNotices({}), []);
 });
 
+test("many failed jobs/downloads collapse into one notice each; uploads stay separate", () => {
+  const notes = clipProblemNotices({ jobs: [1, 2, 3].map((i) => ({ id: `j${i}`, status: "failed", updatedAt: `t${i}` })), downloads: [{ id: "d1", status: "failed" }, { id: "d2", status: "failed" }] });
+  assert.deepEqual(notes.map((n) => n.title), ["3 clip jobs failed", "2 downloads failed"]);
+  const fewer = clipProblemNotices({ jobs: [{ id: "j1", status: "failed", updatedAt: "t1" }, { id: "j3", status: "failed", updatedAt: "t3" }] });
+  assert.equal(fewer[0].key, clipProblemNotices({ jobs: [{ id: "j3", status: "failed", updatedAt: "t3" }] })[0].key); // shrinking never re-alerts
+  assert.ok(/^\d+ clip jobs failed/.test(notes[0].title!) && notes.every((n) => classify(n, emptyJudgment()) === "URGENT"));
+});
+
 test("routine history retention never hides the latest unresolved red problem", () => {
   let bell = addItem([], notice("disk-full", "disk"), T, "disk");
   for (let i = 1; i <= 70; i++) bell = addItem(bell, notice("scout", `pick:${i}`), T + i, String(i));
