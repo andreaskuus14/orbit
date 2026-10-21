@@ -6,17 +6,19 @@ import { YT_SCOPES, hasScopes } from "../yt-analytics-pure";
 import { readStored } from "../yt-oauth";
 import { BusyError, FAST_MODEL, askClaude } from "../claude";
 import { usageHold } from "../usage-meter";
+import { stopAllOn } from "../stop-all";
 import { getJob, listJobs, loadAnalysis, readState, saveJob, saveState, studioRoot, withJobLock } from "./factory";
 import { learnPrefs, prefsHint } from "./autopilot-pure";
 import { devlogCritique } from "./devlog";
 import { avoidHint, countIssues, creatorFromSource, criticPrompt, parseCritique, CRITICS_SYSTEM, type Critique } from "./titles";
-import { NOTES_MAX, applyStats, emptyLearn, formatTaste, insights, learnDue, learnProblem, syncRecords, type Insights, type LearnState, type Stats } from "./learn-pure";
+import { NOTES_MAX, RESULTS_POLL_MS, analyticsStats, applyStats, emptyLearn, formatTaste, insights, learnDue, learnProblem, syncRecords, type Insights, type LearnState, type Stats } from "./learn-pure";
 
-// Learning loop: <studio>/learn.json holds published clips' stats (24h/72h/7d snapshots); review decisions come from the job files.
-// Refreshed lazily from GET /api/studio/clips/learn, at most once per 6 h. Analysis: learn-pure.ts.
+// Learning loop: <studio>/learn.json holds published clips' stats (24h/48h/72h/7d snapshots); review decisions come from the job files.
+// Shared by the background timer and GET /api/studio/clips/learn. Six-hour refresh, 15-min retry near the 48h milestone.
 
 const file = () => path.join(studioRoot(), "learn.json");
-const g = globalThis as unknown as { __orbitLearn?: { running?: Promise<void>; notes?: { at: number; text: string }; critics?: number; issues?: Promise<unknown> } };
+const g = globalThis as unknown as { __orbitLearn?: { running?: Promise<void>; notes?: { at: number; text: string }; critics?: number; issues?: Promise<unknown>;
+  timer?: NodeJS.Timeout; tickFn?: typeof resultsTick } };
 const L = (g.__orbitLearn ??= {});
 
 const load = async () => (await readState<LearnState>(studioRoot(), "learn", learnProblem)) ?? emptyLearn();
@@ -54,7 +56,7 @@ async function collect() {
             dimensions: "video", filters: `video==${seen.slice(i, i + 50).join(",")}`, sort: "-views", maxResults: 50 });
           for (const r of rows) {
             const x = stats.get(String(r.video));
-            if (x) Object.assign(x.st, { avgViewPct: Math.round(num(r.averageViewPercentage) * 10) / 10, avgViewSec: num(r.averageViewDuration), subs: num(r.subscribersGained) });
+            if (x) Object.assign(x.st, analyticsStats(r));
           }
         } catch (e) { warnings.push(`Retention (Analytics): ${e instanceof Error ? e.message : e}`); }
       }
@@ -66,15 +68,30 @@ async function collect() {
   L.notes = undefined;
 }
 
-/** Collects stats if 6 h have passed (one run at a time), then the analysis for the UI. */
+/** Collects due stats (one run at a time), then the analysis for the UI. */
 export async function learnView(): Promise<Insights> {
   let err = "";
-  if (learnDue(await load(), Date.now())) await (L.running ??= collect().finally(() => { L.running = undefined; })).catch((e) => { err = e instanceof Error ? e.message : String(e); });
+  if (!stopAllOn() && learnDue(await load(), Date.now())) await (L.running ??= collect().finally(() => { L.running = undefined; })).catch((e) => { err = e instanceof Error ? e.message : String(e); });
   const i = insights(await load(), await listJobs());
   return err ? { ...i, warnings: [err, ...i.warnings] } : i;
 }
 
-/** Plain-text brief of the owner's taste for clip-picking prompts (≤ 1200 chars, "" with no data). Cached 1 min: a job asks up to 3 times. */
+async function resultsTick() {
+  if (stopAllOn()) return;
+  await learnView().catch((e) => console.error("[studio-results]", e instanceof Error ? e.message : String(e)));
+}
+
+/** Read-only stats continue while STUDIO is closed. Reuse the collector's throttle, quota budget and single-flight lock. */
+export function startResultsLoop() {
+  if (L.timer && L.tickFn === resultsTick) return;
+  if (L.timer) clearInterval(L.timer);
+  L.tickFn = resultsTick;
+  L.timer = setInterval(() => void resultsTick(), RESULTS_POLL_MS);
+  L.timer.unref?.();
+  void resultsTick();
+}
+
+/** Plain-text brief of the owner's taste for clip-picking prompts (≤ NOTES_MAX chars, "" with no data). Cached 1 min: a job asks up to 3 times. */
 export async function tasteNotes(): Promise<string> {
   if (L.notes && Date.now() - L.notes.at < 60_000) return L.notes.text;
   const s = await load(); // prefsHint: UTC is fine, it leaves posting hours out
