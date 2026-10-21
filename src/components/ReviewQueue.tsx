@@ -12,6 +12,7 @@ import type { Virality } from "@/lib/clips/score-pure";
 type CaptionStyle = (typeof CAPTION_STYLES)[number];
 type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: "left" | "right" | "tl" | "tr" | "bl" | "br"; camSize?: number; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean };
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
+  retryOf?: { videoId: string; title: string };
   status: "rendering" | "ready" | "failed" | "approved" | "rejected"; video?: string; thumb?: string; edit?: VersionEdit;
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality };
 type Job = { id: string; source: string; createdAt: string; clips: Clip[];
@@ -67,12 +68,12 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
   }
   // Move on only if the owner hasn't already moved while the save was in flight.
   const next = (k: number) => { setI((cur) => (cur === k ? Math.min(n, k + 1) : cur)); setMode("idle"); };
-  const patch = (body: { status?: "approved" | "rejected"; title?: string; reason?: string; thumb?: string }, after: (t: string, k: number) => void) => run(async (it, k) => {
+  const patch = (body: { status?: "approved" | "rejected"; title?: string; reason?: string; thumb?: string; replaceOriginal?: string }, after: (t: string, k: number) => void) => run(async (it, k) => {
     const { clip } = await api<{ clip: Clip }>(url(it), "PATCH", body);
     setItems((xs) => xs && xs.map((x, j) => (j === k ? { ...x, clip } : x)));
     after(clip.title, k);
   });
-  const approve = () => c?.status === "ready" && patch({ status: "approved" }, (t, k) => { setSaid(`Approved ✓ ${t}`); next(k); });
+  const approve = () => c?.status === "ready" && patch({ status: "approved", ...(c.retryOf && { replaceOriginal: c.retryOf.videoId }) }, (t, k) => { setSaid(`Approved ✓ ${t}`); next(k); });
   const reject = (reason?: string) => patch({ status: "rejected", ...(reason ? { reason } : {}) }, (t, k) => { setSaid(`Rejected ✕ ${t}${reason ? ` (${reason})` : ""}`); next(k); });
   const saveTitle = () => { const t = title.trim(); if (!t || t === c?.title) setMode("idle"); else void patch({ title: t }, () => setMode("idle")); };
   const moreTitles = () => run(async (it, k) => {
@@ -162,6 +163,7 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
 
           <div className="flex min-w-0 flex-col gap-2 text-sm">
             <p className="muted truncate text-xs" title={cur.source}>From {cur.source}</p>
+            {c.retryOf && <p className="text-xs">Retry of {c.retryOf.title}. Approving allows the old Short to become private after this retry is published publicly. You can restore it from Last Shorts.</p>}
             {c.status !== "ready" && <p className={c.status === "approved" ? "ok" : "error"}>{c.status === "approved" ? "✓ Approved" : c.status === "rejected" ? "✕ Rejected" : c.status}</p>}
 
             {mode === "title" ? (
@@ -184,7 +186,7 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
             {c.reason && <p className="muted text-xs leading-snug">Why: {c.reason}</p>}
 
             <div className="mt-1 flex flex-wrap gap-1.5">
-              <button className="chip" onClick={() => void approve()} disabled={busy || c.status !== "ready"} aria-label={`Approve ${c.title} (A)`}>✓ Approve<Kbd k="A" /></button>
+              <button className="chip" onClick={() => void approve()} disabled={busy || c.status !== "ready"} aria-label={`Approve ${c.title}${c.retryOf ? " and replace original after publication" : ""} (A)`}>✓ {c.retryOf ? "Approve & replace after publication" : "Approve"}<Kbd k="A" /></button>
               <button className="chip" onClick={() => setMode((m) => (m === "reject" ? "idle" : "reject"))} disabled={busy || c.status === "rejected"} aria-expanded={mode === "reject"} aria-label={`Reject ${c.title} (R)`}>✕ Reject<Kbd k="R" /></button>
               <button className="chip" onClick={() => (mode === "version" ? setMode("idle") : open("version"))} disabled={busy || c.status === "rejected"} aria-expanded={mode === "version"} aria-label={`Another version of ${c.title} (V)`}>↻ Version<Kbd k="V" /></button>
               <button className="chip" onClick={() => go(i - 1)} disabled={i === 0} aria-label="Previous clip (←)">←</button>

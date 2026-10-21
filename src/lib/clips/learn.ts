@@ -79,9 +79,12 @@ export async function learnView(): Promise<Insights> {
 async function resultsTick() {
   if (stopAllOn()) return;
   await learnView().catch((e) => console.error("[studio-results]", e instanceof Error ? e.message : String(e)));
+  if (stopAllOn()) return;
+  await import("./flop-retry").then(async (m) => { await m.retryFlops(await load()); await m.reconcileReplacements(); })
+    .catch((e) => console.error("[studio-retry]", e instanceof Error ? e.message : String(e)));
 }
 
-/** Read-only stats continue while STUDIO is closed. Reuse the collector's throttle, quota budget and single-flight lock. */
+/** Stats and review-only retries continue while STUDIO is closed; replacement privacy requires persisted owner consent. */
 export function startResultsLoop() {
   if (L.timer && L.tickFn === resultsTick) return;
   if (L.timer) clearInterval(L.timer);

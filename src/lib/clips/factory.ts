@@ -8,6 +8,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { SMART_MODEL, askClaudeStream } from "../claude";
 import { stopAllOn } from "../stop-all";
+import { retryConsent, retryFingerprint } from "./flop-retry-pure";
 import { createLimiter } from "../pure";
 import { asrPipeline, asrWorkers, type AsrPhase } from "../asr-pool";
 import { CHANNEL_LINK_MSG, channelLink, mmss, rootClipId } from "./format";
@@ -235,7 +236,9 @@ export function withJobLock<T>(fn: () => Promise<T>): Promise<T> {
   return p;
 }
 
-export async function updateClip(job: ClipJob, clip: Clip, patch: { status?: "approved" | "rejected"; title?: string; reason?: string; thumb?: string }) {
+export async function updateClip(job: ClipJob, clip: Clip, patch: { status?: "approved" | "rejected"; title?: string; reason?: string; thumb?: string }, ownerRetryApproval = false) {
+  if (clip.retryOf && patch.status === "approved" && !ownerRetryApproval) throw new Error("Approve this retry and its replacement in the review queue");
+  const changedRetry = !!clip.retryOf && ((patch.title !== undefined && patch.title !== clip.title) || (patch.thumb !== undefined && patch.thumb !== clip.thumb));
   if (patch.title !== undefined) clip.title = patch.title;
   if (patch.thumb !== undefined) clip.thumb = patch.thumb; // the route checked it is one of clip.thumbOptions
   if (patch.status && patch.status !== clip.status) addFeedback(job, clip.id, patch.status, patch.reason);
@@ -249,6 +252,10 @@ export async function updateClip(job: ClipJob, clip: Clip, patch: { status?: "ap
     clip.video = clip.thumb = clip.thumbOptions = undefined;
   }
   if (patch.status) clip.status = patch.status;
+  if (clip.retryOf) {
+    if (changedRetry || patch.status === "rejected") { clip.retryApproved = undefined; if (clip.status === "approved") clip.status = "ready"; }
+    if (patch.status === "approved") { clip.status = "approved"; clip.retryApproved = ownerRetryApproval ? { at: new Date().toISOString(), fingerprint: retryFingerprint(clip) } : undefined; }
+  }
   job.updatedAt = new Date().toISOString();
   await saveJob(job);
 }
@@ -744,16 +751,18 @@ export const isJobBusy = (job: ClipJob) => job.status === "queued" || ACTIVE.inc
 
 /** Adds a "rendering" version after the clip's other versions and renders it in the background (one at a time).
  *  Call under withJobLock after checking the clip. Returns the new clip or a message for a 409/400. */
-export async function startVersion(job: ClipJob, base: Clip, req: VersionReq, a: Analysis): Promise<Clip | string> {
-  const span = versionSpan(base, req.dStart, req.dEnd, a.duration);
+export async function startVersion(job: ClipJob, base: Clip, req: VersionReq, a: Analysis, retry?: { span: Span; of: NonNullable<Clip["retryOf"]> }): Promise<Clip | string> {
+  const span = retry ? versionSpan(retry.span, 0, 0, a.duration) : versionSpan(base, req.dStart, req.dEnd, a.duration);
   if (typeof span === "string") return span;
   const id = nextVersionId(job.clips, base.id);
   if (!id) return "This clip has too many versions";
   const root = rootClipId(base.id);
   const clip: Clip = { id, ...span, title: req.title ?? base.title, hook: req.hook ?? base.hook, reason: base.reason, score: base.score, status: "rendering", titleOptions: base.titleOptions,
+    ...((retry?.of ?? base.retryOf) ? { retryOf: retry?.of ?? base.retryOf } : {}),
     variantOf: root, edit: { ...baseEdit(job.options), ...base.edit, ...req.edit }, // older edits lack newer fields
     ...((req.original ?? base.original) ? { original: req.original ?? base.original } : {}) }; // the owner's note carries over: no retyping at publish
   job.clips.splice(job.clips.findLastIndex((c) => rootClipId(c.id) === root) + 1, 0, clip);
+  if (retry && base.flopRetry) base.flopRetry.clipId = id; // link saved atomically with the rendering version, before the queue starts
   addFeedback(job, base.id, "version");
   job.updatedAt = new Date().toISOString();
   await saveJob(job);
@@ -1011,6 +1020,7 @@ export const publishDone = () => S.pub?.done;
 
 /** Marks the clip "uploading" and uploads it in the background (one at a time). Call under withJobLock after checking the clip. */
 export async function startPublish(job: ClipJob, clip: Clip, file: string, video: VideoResource) {
+  if (clip.retryOf && !retryConsent(clip)) throw new Error("Review and approve this exact retry before publishing");
   const ctrl = new AbortController();
   S.pub = { job: job.id, clip: clip.id, ctrl, done: Promise.resolve() };
   const at = new Date().toISOString();

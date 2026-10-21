@@ -26,6 +26,7 @@ function collector(options: { stopped?: boolean; analyticsFail?: boolean; dataFa
       if (name === "node:path") return require(name);
       if (name === "node:fs/promises") return { access: async () => { throw new Error("no file"); } };
       if (name.endsWith("/learn-pure")) return pure;
+      if (name.endsWith("/flop-retry")) return { retryFlops: async () => {}, reconcileReplacements: async () => {} };
       if (name.endsWith("/stop-all")) return { stopAllOn: () => !!options.stopped };
       if (name.endsWith("/factory")) return { readState: async () => saved, listJobs: async () => [], studioRoot: () => "/test-studio", saveState: async (...args: any[]) => {
         writes.push(structuredClone(args)); saved = structuredClone(args[2]);
