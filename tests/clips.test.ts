@@ -243,7 +243,7 @@ test("ytdlpArgs keeps the URL last, after --", () => {
 });
 
 test("validOptions and isDownloadId", () => {
-  assert.deepEqual(validOptions({}), { count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", camSize: 0.3, jumpCuts: true, zooms: true, language: "en",
+  assert.deepEqual(validOptions({}), { count: 5, maxSec: 45, captions: true, layout: "follow", camSide: "right", camSize: 0.3, jumpCuts: true, zooms: true, language: "en",
     coldOpen: true, progressBar: false, loopEnd: true, preset: "viral" });
   assert.match(validOptions({ coldOpen: "yes" }) as string, /coldOpen/);
   assert.equal((validOptions({ progressBar: true }) as { progressBar: boolean }).progressBar, true);

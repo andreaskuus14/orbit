@@ -136,7 +136,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [conflict, setConflict] = useState<Record<string, ClipOptions>>({}); // source → options that got a 409
   const [form, setForm] = useState<string | null>(null);
-  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "fit", camSide: "right", camSize: 0.3, jumpCuts: true, zooms: true, language: "en", coldOpen: true, progressBar: false, loopEnd: true, preset: "viral" });
+  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "follow", camSide: "right", camSize: 0.3, jumpCuts: true, zooms: true, language: "en", coldOpen: true, progressBar: false, loopEnd: true, preset: "viral" });
   const [showRejected, setShowRejected] = useState(false);
   const [visible, setVisible] = useState(true);
   const [yt, setYt] = useState<YtStatus | null>(null);

@@ -677,7 +677,7 @@ const isCamSize = (v: unknown) => typeof v === "number" && v >= 0.1 && v <= 0.6;
 /** Clip options from a request body (defaults: 5 clips, 45 s, captions, fit layout, jump cuts, zooms, English, cold open, loop end,
  *  no progress bar) or an error message. */
 export function validOptions(b: Record<string, unknown>): Required<ClipOptions> | string {
-  const { count = 5, maxSec = 45, captions = true, layout = "fit", camSide = "right", camSize = 0.3, jumpCuts = true, zooms = true, language = "en",
+  const { count = 5, maxSec = 45, captions = true, layout = "follow", camSide = "right", camSize = 0.3, jumpCuts = true, zooms = true, language = "en",
     coldOpen = true, progressBar = false, loopEnd = true, preset = "viral" } = b;
   if (!Number.isInteger(count) || (count as number) < 1 || (count as number) > 10) return "count must be 1-10";
   if (!Number.isInteger(maxSec) || (maxSec as number) < 15 || (maxSec as number) > 120) return "maxSec must be 15-120";

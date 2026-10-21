@@ -254,3 +254,12 @@ test("planResearch: ≤ ~600 units, fewer searches on a tight budget, weekly / d
   assert.equal(nicheDue(ran(6 * 24, true), now), false); assert.equal(nicheDue(ran(7 * 24, true), now), true);
   assert.equal(nicheDue(ran(12, false), now), false); assert.equal(nicheDue(ran(25, false), now), true);
 });
+
+test("keyword finds from clip/recap channels are skipped; watchlist creators are not", () => {
+  const base = { id: "abcdefghijk", title: "Speed reacts", channel: "TheXXRecaps", channelId: "c", publishedAt: new Date(Date.now() - 3_600_000).toISOString(),
+    durationSec: 3600, live: "none", description: "", stats: { views: 1, likes: 0, comments: 0 } };
+  const o = { now: Date.now(), maxAgeHours: 48, creatorMaxAgeDays: 7, minMinutes: 8, seen: new Set<string>(), made: new Set<string>() };
+  assert.equal(skipReason({ ...base, source: "keyword" }, o), "reupload");
+  assert.equal(skipReason({ ...base, source: "watchlist" }, o), "");
+  assert.equal(skipReason({ ...base, channel: "IShowSpeed", source: "keyword" }, o), "");
+});
