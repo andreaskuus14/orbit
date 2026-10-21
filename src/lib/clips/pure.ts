@@ -424,10 +424,14 @@ export function assText(s: string): string {
 const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
 /** Whisper hallucination guard: on music/noise it loops one phrase ("I'M GOING TO BE NINE HOURS." ×20). A run of 2-12 words
  *  repeated back-to-back more than twice keeps one copy; bad timestamps (NaN, end < start) are dropped. */
+const MAX_WORD_SEC = 1.5;
 export function cleanWords(words: Word[]): Word[] {
   const ws: Word[] = [];
   // transformers.js chunk overlaps (and our segment overlap) emit some words twice with near-equal times: keep the first copy.
-  for (const w of words.filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end >= w.start && norm(w.text)).sort((a, b) => a.start - b.start)) {
+  // Whisper sometimes stretches one word over music/silence ("YEAH," for the whole clip): no spoken word lasts > 1.5 s.
+  // Clamped before the overlap check, so a stretched word can't swallow every word after it.
+  const valid = words.filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end >= w.start && norm(w.text));
+  for (const w of valid.map((w) => (w.end - w.start > MAX_WORD_SEC ? { ...w, end: w.start + MAX_WORD_SEC } : w)).sort((a, b) => a.start - b.start)) {
     if (!ws.length || w.start >= ws[ws.length - 1].end - 0.15) ws.push(w);
   }
   const out: Word[] = [];
