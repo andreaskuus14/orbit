@@ -165,12 +165,15 @@ export function toCandidates(items: unknown, source: Candidate["source"]): Candi
   });
 }
 
+const REUPLOAD = /(?:clips?|recaps?|highlights?|moments|compilations?|best ?of|daily)\b/i;
 const hoursSince = (iso: string, now: number) => (now - Date.parse(iso)) / 3_600_000;
 
 /** Why a candidate is skipped, or "" to keep it. */
 export function skipReason(c: Candidate, o: { now: number; maxAgeHours: number; creatorMaxAgeDays: number; minMinutes: number; seen: Set<string>; made: Set<string> }): string {
   if (o.made.has(c.id)) return "made";
   if (o.seen.has(c.id)) return "seen";
+  // Keyword finds from clip/recap channels are someone else's re-upload: YouTube won't push a third copy. Watchlist = owner's choice.
+  if (c.source === "keyword" && REUPLOAD.test(c.channel)) return "reupload";
   if (c.live !== "none") return "live"; // live now or upcoming: no finished video to download yet
   if (!(c.durationSec >= o.minMinutes * 60)) return "short";
   if (c.durationSec > MAX_SOURCE_SEC) return "long";
@@ -182,7 +185,7 @@ export function skipReason(c: Candidate, o: { now: number; maxAgeHours: number; 
 /** "25 found · 0 picks — 14 too short (<15 min), 9 older than 48 h, 2 live": why the list is short. */
 export function skipSummary(found: number, picks: number, skipped: Record<string, number>, s: Pick<ScoutSettings, "minMinutes" | "maxAgeHours" | "creatorMaxAgeDays">): string {
   const label: Record<string, string> = { short: `too short (<${s.minMinutes} min)`, long: `too long (>${MAX_SOURCE_SEC / 3600} h)`, old: `older than ${s.maxAgeHours} h`,
-    oldCreator: `creator uploads older than ${s.creatorMaxAgeDays} d`, live: "live/upcoming", made: "already downloaded", seen: "dismissed or queued before" };
+    oldCreator: `creator uploads older than ${s.creatorMaxAgeDays} d`, live: "live/upcoming", made: "already downloaded", seen: "dismissed or queued before", reupload: "re-uploads from clip channels" };
   const why = Object.entries(skipped).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${label[k] ?? k}`);
   return `${found} found · ${picks} pick${picks === 1 ? "" : "s"}${why.length ? ` — ${why.join(", ")}` : ""}`;
 }
