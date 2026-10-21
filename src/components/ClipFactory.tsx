@@ -19,6 +19,7 @@ import { uploadHealth } from "@/lib/clips/publish-checks-pure";
 // Mirrors src/lib/clips/types.ts (declared here so this file stands alone).
 type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
+  retryOf?: { videoId: string; title: string }; notes?: string[];
   status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; variantOf?: string; edit?: VersionEdit; original?: string;
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality };
 type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string; scheduledFor?: string };
@@ -987,7 +988,7 @@ function LayoutChip({ o, onSave }: { o: LayoutOpts; onSave: (p: Partial<LayoutOp
 
 /* ---------- jobs & clips ---------- */
 
-type PatchBody = { status?: "approved" | "rejected"; title?: string; reason?: string; thumb?: string };
+type PatchBody = { status?: "approved" | "rejected"; title?: string; reason?: string; thumb?: string; replaceOriginal?: string };
 type PatchFn = (clip: string, body: PatchBody) => Promise<boolean>;
 type PublishFn = (clip: string, body: PublishBody) => Promise<boolean>;
 type VersionFn = (clip: string, body: VersionBody) => Promise<boolean>;
@@ -1122,6 +1123,8 @@ function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publi
       )}
       {c.status === "ready" && picks /* while reviewing, title/thumb picks stay in view */}
       {c.hook && <p className="leading-snug">“{c.hook}”</p>}
+      {c.retryOf && <p className="text-xs">Retry of {c.retryOf.title}. Approving will make the original private only after this retry is public. Restore is available in Last Shorts.</p>}
+      {c.notes?.map((n, i) => <p key={i} className="muted text-[11px]">{n}</p>)}
       {c.reason && <p className="muted line-clamp-2 text-[11px] leading-snug" title={c.reason}>{c.reason}</p>}
       <p className="muted num text-[11px]">{mmss(c.start)}–{mmss(c.end)} · {mmss(len)} · {c.virality ? "editor" : "score"} {score(c.score)}/100</p>
       {c.virality && <ScoreWhy v={c.virality} />}
@@ -1130,7 +1133,7 @@ function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publi
       <div className="mt-auto flex flex-wrap gap-1">
         {reviewable && (
           <>
-            {c.status !== "rejected" && <button className="chip" onClick={() => onPatch(c.id, { status: "approved" })} disabled={busy || c.status === "approved"} aria-pressed={c.status === "approved"} aria-label={`Approve ${c.title}`}>✓ Approve</button>}
+            {c.status !== "rejected" && <button className="chip" onClick={() => onPatch(c.id, { status: "approved", ...(c.retryOf && { replaceOriginal: c.retryOf.videoId }) })} disabled={busy || c.status === "approved"} aria-pressed={c.status === "approved"} aria-label={`Approve ${c.title}${c.retryOf ? " and replace original after publication" : ""}`}>✓ {c.retryOf ? "Approve & replace after publication" : "Approve"}</button>}
             {c.status !== "rejected" && <RejectButton title={c.title} onReject={(reason) => void onPatch(c.id, { status: "rejected", ...(reason ? { reason } : {}) })} disabled={busy || c.publish?.status === "uploading"} />}
           </>
         )}

@@ -23,6 +23,7 @@ export const isVideoId = (s: string) => /^[A-Za-z0-9_-]{11}$/.test(s);
 
 export const YT_SCOPES = ["https://www.googleapis.com/auth/yt-analytics.readonly", "https://www.googleapis.com/auth/youtube.readonly"];
 export const YT_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
+export const YT_MANAGE_SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl"; // videos.update: privacy changes after explicit retry approval
 /** Whether a grant's space-separated `scope` string includes every needed scope. */
 export const hasScopes = (granted: string | undefined, needed: string[]) => needed.every((s) => (granted ?? "").split(" ").includes(s));
 export const OAUTH_ENV = ["YOUTUBE_OAUTH_CLIENT_ID", "YOUTUBE_OAUTH_CLIENT_SECRET"];
@@ -117,7 +118,7 @@ export function sameSecret(a: string, b: string) {
 
 export function authUrl(o: { clientId: string; redirectUri: string; state: string; challenge: string }) {
   return `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
-    client_id: o.clientId, redirect_uri: o.redirectUri, response_type: "code", scope: [...YT_SCOPES, YT_UPLOAD_SCOPE].join(" "),
+    client_id: o.clientId, redirect_uri: o.redirectUri, response_type: "code", scope: [...YT_SCOPES, YT_UPLOAD_SCOPE, YT_MANAGE_SCOPE].join(" "),
     access_type: "offline", prompt: "consent", state: o.state, code_challenge: o.challenge, code_challenge_method: "S256",
   })}`;
 }
