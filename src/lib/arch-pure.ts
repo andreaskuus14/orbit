@@ -65,12 +65,19 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 export function applyOps(scene: Scene, ops: Op[], newId: () => string): { scene: Scene; moved: string[] } {
   let parts = scene.parts.map((p) => ({ ...p }));
   const plot = { ...scene.plot }, moved: string[] = [];
+  const clampSize = (v: number | undefined) => (v === undefined ? undefined : Math.min(MAX.size, Math.max(0.05, v)));
+  // Move everything stacked on `base` (at or above `fromY`, footprint overlapping base or anything already moved) by dy.
+  const shiftAbove = (base: Part, fromY: number, dy: number, skip: string) => {
+    const carriers = [base], done = new Set([skip]);
+    for (let i = 0; i < carriers.length; i++)
+      for (const q of parts) if (!done.has(q.id) && q.y >= fromY - 1e-6 && overlapsXZ(q, carriers[i])) { done.add(q.id); carriers.push({ ...q }); q.y = r2(q.y + dy); moved.push(q.id); }
+  };
   const resize = (p: Part, next: Partial<Part>) => {
+    if (p.kind === "foundation" && next.h !== undefined && next.y === undefined) next.y = -next.h; // foundations grow down, not up
     const oldTop = top(p), oldP = { ...p };
-    Object.assign(p, Object.fromEntries(Object.entries(next).filter(([, v]) => v !== undefined)));
+    Object.assign(p, Object.fromEntries(Object.entries({ ...next, w: clampSize(next.w), d: clampSize(next.d), h: clampSize(next.h) }).filter(([, v]) => v !== undefined)));
     const dy = top(p) - oldTop;
-    if (Math.abs(dy) < 1e-9) return;
-    for (const q of parts) if (q.id !== p.id && q.y >= oldTop - 1e-6 && overlapsXZ(q, oldP)) { q.y = r2(q.y + dy); moved.push(q.id); }
+    if (Math.abs(dy) > 1e-9) shiftAbove(oldP, oldTop, dy, p.id);
   };
   for (const o of ops) {
     if (o.op === "plot") Object.assign(plot, Object.fromEntries(Object.entries(o).filter(([k, v]) => k !== "op" && v !== undefined)));
@@ -78,8 +85,10 @@ export function applyOps(scene: Scene, ops: Op[], newId: () => string): { scene:
       if (parts.length >= MAX.parts) continue;
       // no y given: sit on top of whatever is under its footprint (ground = 0, a foundation goes below ground)
       const probe = { x: o.x ?? 0, z: o.z ?? 0, w: o.w, d: o.d } as Part;
-      const under = parts.filter((q) => overlapsXZ(q, probe)).reduce((m, q) => Math.max(m, top(q)), 0);
+      // a new floor goes under the roof and lifts it, instead of landing on the roof's peak
+      const under = parts.filter((q) => q.kind !== "roof" && overlapsXZ(q, probe)).reduce((m, q) => Math.max(m, top(q)), 0);
       const y = o.y ?? (o.kind === "foundation" ? -o.h : under);
+      if (o.y === undefined && o.kind !== "foundation" && o.kind !== "roof") shiftAbove({ ...probe, id: "", kind: o.kind, name: "", y, h: o.h }, y, o.h, "");
       parts.push({ id: newId(), kind: o.kind, name: o.name ?? o.kind, x: o.x ?? 0, z: o.z ?? 0, y, w: o.w, d: o.d, h: o.h });
     } else {
       const p = parts.find((q) => q.id === o.id);
@@ -96,17 +105,24 @@ export function applyOps(scene: Scene, ops: Op[], newId: () => string): { scene:
 export const RULES = {
   rebarKgPerM3: 100, // reinforced slab/foundation: ~80-120 kg/m³ is typical; 100 as a study default
   wallThick: 0.3, // 300 mm aerated concrete block wall, Class A-ish with insulation
+  stripWidth: 0.5, // strip foundation width under load-bearing walls
   blockFace: 0.6 * 0.2, // 600 × 200 mm block face, m²
   roofPitchFactor: 1.15, // pitched roof area vs footprint
 };
 export type Boq = { concreteM3: number; rebarT: number; blocks: number; wallM3: number; roofM2: number };
 
-/** Walls are the perimeter shell of the block (minus nothing for openings in v1); slab/foundation are solid. */
+/** Walls: a block is the outer shell (a thin one is one straight wall); foundations are strips; slabs are solid. No openings yet. */
 export function boq(parts: Part[]): Boq {
   let concreteM3 = 0, wallM3 = 0, wallFace = 0, roofM2 = 0;
   for (const p of parts) {
-    if (p.kind === "foundation" || p.kind === "slab") concreteM3 += p.w * p.d * p.h;
-    else if (p.kind === "wall") { const perim = 2 * (p.w + p.d) - 4 * RULES.wallThick; wallFace += perim * p.h; wallM3 += perim * p.h * RULES.wallThick; }
+    if (p.kind === "slab") concreteM3 += p.w * p.d * p.h;
+    else if (p.kind === "foundation") { // a strip under the outer walls; a narrow block is a single strip or pad
+      const t = RULES.stripWidth;
+      concreteM3 += Math.min(p.w, p.d) <= 2 * t ? p.w * p.d * p.h : (2 * (p.w + p.d) - 4 * t) * t * p.h;
+    } else if (p.kind === "wall") {
+      if (Math.min(p.w, p.d) <= 2 * RULES.wallThick) { wallFace += Math.max(p.w, p.d) * p.h; wallM3 += p.w * p.d * p.h; } // one straight wall
+      else { const perim = 2 * (p.w + p.d) - 4 * RULES.wallThick; wallFace += perim * p.h; wallM3 += perim * p.h * RULES.wallThick; } // outer shell
+    }
     else roofM2 += p.w * p.d * RULES.roofPitchFactor;
   }
   return { concreteM3: r2(concreteM3), rebarT: r2((concreteM3 * RULES.rebarKgPerM3) / 1000), blocks: Math.ceil(wallFace / RULES.blockFace), wallM3: r2(wallM3), roofM2: r2(roofM2) };

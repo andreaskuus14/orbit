@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
-import { applyOps, boq, bulkTips, costLines, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
+import { MAX, applyOps, boq, bulkTips, costLines, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
 
 const KEY = "orbit.arch.v1";
 const COLOR: Record<Part["kind"], string> = { foundation: "#64748b", slab: "#94a3b8", wall: "#e2e8f0", roof: "#b45309" };
@@ -20,6 +20,7 @@ const newId = () => `p${(seq++).toString(36)}`;
 function Block({ p, selected, onPick, reduced }: { p: Part; selected: boolean; onPick: () => void; reduced: boolean }) {
   const m = useRef<THREE.Mesh>(null);
   const target = useMemo(() => ({ pos: new THREE.Vector3(p.x, p.y + p.h / 2, p.z), scale: new THREE.Vector3(p.w, p.h, p.d) }), [p.x, p.y, p.z, p.w, p.d, p.h]);
+  const [start] = useState(() => ({ pos: target.pos.clone(), scale: target.scale.clone() })); // set once: later changes glide in useFrame
   useFrame((_, dt) => {
     if (!m.current) return;
     const k = reduced ? 1 : 1 - Math.exp(-dt * 10);
@@ -27,7 +28,7 @@ function Block({ p, selected, onPick, reduced }: { p: Part; selected: boolean; o
     m.current.scale.lerp(target.scale, k);
   });
   return (
-    <mesh ref={m} position={target.pos} scale={target.scale} castShadow receiveShadow onClick={(e) => { e.stopPropagation(); onPick(); }}>
+    <mesh ref={m} position={start.pos} scale={start.scale} castShadow receiveShadow onClick={(e) => { e.stopPropagation(); onPick(); }}>
       {p.kind === "roof" ? <coneGeometry args={[0.72, 1, 4, 1]} /> : <boxGeometry args={[1, 1, 1]} />}
       <meshStandardMaterial color={COLOR[p.kind]} emissive={selected ? "#38bdf8" : "#000"} emissiveIntensity={selected ? 0.35 : 0} transparent={p.kind === "wall"} opacity={p.kind === "wall" ? 0.92 : 1} />
     </mesh>
@@ -50,11 +51,20 @@ export default function ArchWorld({ onClose, reduced, flat }: { onClose: () => v
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const loaded = useRef(false);
-  useEffect(() => { const s = load(); if (s?.scene?.parts) { setScene(s.scene); if (Array.isArray(s.prices)) setPrices(s.prices); } loaded.current = true; }, []);
-  useEffect(() => { if (loaded.current) try { localStorage.setItem(KEY, JSON.stringify({ scene, prices })); } catch { /* private mode: the scene just isn't kept */ } }, [scene, prices]);
+  const [ready, setReady] = useState(false); // state, not a ref: the save effect must not run with the starter scene before the load lands
+  useEffect(() => {
+    const s = load();
+    if (s?.scene?.parts) {
+      setScene(s.scene);
+      if (Array.isArray(s.prices)) setPrices(STARTER_PRICES.map((d) => { const x = s.prices.find((p) => p.key === d.key); return x && Number.isFinite(x.eur) ? { ...d, ...x } : d; }));
+    }
+    setReady(true);
+  }, []);
+  useEffect(() => { if (ready) try { localStorage.setItem(KEY, JSON.stringify({ scene, prices })); } catch { /* private mode: the scene just isn't kept */ } }, [scene, prices, ready]);
 
-  const apply = (ops: Op[]) => { const r = applyOps(scene, ops, newId); setPast((p) => [...p.slice(-30), scene]); setScene(r.scene); return r.moved; };
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene; // an AI reply applies to the scene as it is when it lands, not when it was asked
+  const apply = (ops: Op[]) => { const cur = sceneRef.current, r = applyOps(cur, ops, newId); sceneRef.current = r.scene; setPast((p) => [...p.slice(-30), cur]); setScene(r.scene); return r.moved; };
   const undo = () => setPast((p) => { if (p.length) setScene(p[p.length - 1]); return p.slice(0, -1); });
   const q = boq(scene.parts), cost = costLines(q, prices), tips = bulkTips(q);
   const part = scene.parts.find((p) => p.id === sel);
@@ -72,12 +82,8 @@ export default function ArchWorld({ onClose, reduced, flat }: { onClose: () => v
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   }
 
-  const field = (k: "w" | "d" | "h" | "x" | "z", label: string) => part && (
-    <label className="flex items-center gap-1 text-xs"><span className="muted w-4">{label}</span>
-      <input className="field w-16" type="number" step={0.1} value={part[k]} aria-label={`${part.name} ${label}`}
-        onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v) && (k === "x" || k === "z" || v > 0)) apply([{ op: "set", id: part.id, [k]: v }]); }} />
-    </label>
-  );
+  const field = (k: "w" | "d" | "h" | "x" | "z", label: string) => part && <NumField key={`${part.id}-${k}-${part[k]}`} label={label} name={part.name} value={part[k]} pos={k === "x" || k === "z"}
+    onCommit={(v) => apply([{ op: "set", id: part.id, [k]: v }])} />;
 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: "#0a0f14" }}>
@@ -136,5 +142,22 @@ export default function ArchWorld({ onClose, reduced, flat }: { onClose: () => v
 
       <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
+  );
+}
+
+/** Type freely; applied on Enter or leaving the field, clamped to what the parser allows. One undo step per edit. */
+function NumField({ label, name, value, pos, onCommit }: { label: string; name: string; value: number; pos: boolean; onCommit: (v: number) => void }) {
+  const [txt, setTxt] = useState(String(value));
+  const commit = () => {
+    const v = Number(txt.replace(",", "."));
+    if (txt.trim() === "" || !Number.isFinite(v)) return setTxt(String(value));
+    const c = pos ? Math.max(-MAX.plot, Math.min(MAX.plot, v)) : Math.max(0.05, Math.min(MAX.size, v));
+    if (c !== value) onCommit(c); else setTxt(String(value));
+  };
+  return (
+    <label className="flex items-center gap-1 text-xs"><span className="muted w-4">{label}</span>
+      <input className="field w-16" inputMode="decimal" value={txt} aria-label={`${name} ${label} in metres`} onChange={(e) => setTxt(e.target.value)}
+        onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} />
+    </label>
   );
 }
