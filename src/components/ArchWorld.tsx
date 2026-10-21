@@ -4,33 +4,48 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { ContactShadows, Edges, Line, OrbitControls } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
 import { MAX, applyOps, boq, bulkTips, costLines, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
 
 const KEY = "orbit.arch.v1";
-const COLOR: Record<Part["kind"], string> = { foundation: "#64748b", slab: "#94a3b8", wall: "#e2e8f0", roof: "#b45309" };
-const GROUND: Record<Scene["plot"]["ground"], string> = { grass: "#2f5d34", gravel: "#6b6b6b", forest: "#1f3d24", sand: "#c2a46b" };
+// Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
+const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9" };
+const GROUND: Record<Scene["plot"]["ground"], string> = { grass: "#c9d3bf", gravel: "#d9d6cf", forest: "#b9c6b0", sand: "#e6dcc6" };
+const BG = "#ebe7e0", GOLD = "#c9a24a";
+const STEP_S = 0.45; // build animation: one part every 0.45 s, bottom to top
+
+/** Unit gable roof (1 × 1 × 1, ridge along x), so a roof part scales like a box but reads as a roof. A low roof (< 0.5 m) is flat. */
+const GABLE = (() => {
+  const sh = new THREE.Shape([new THREE.Vector2(-0.5, 0), new THREE.Vector2(0.5, 0), new THREE.Vector2(0, 1)]);
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 1, bevelEnabled: false });
+  g.translate(0, -0.5, -0.5); g.rotateY(Math.PI / 2); // centred like a unit box, ridge along x
+  return g;
+})();
 const load = (): { scene: Scene; prices: PriceItem[] } | null => { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
 const eur = (n: number) => n.toLocaleString("et-EE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 let seq = Date.now();
 const newId = () => `p${(seq++).toString(36)}`;
 
 /** One block that eases toward its target size/position each frame: edits glide instead of jumping. */
-function Block({ p, selected, onPick, reduced }: { p: Part; selected: boolean; onPick: () => void; reduced: boolean }) {
+function Block({ p, selected, onPick, reduced, appearAt, hidden }: { p: Part; selected: boolean; onPick: () => void; reduced: boolean; appearAt: number; hidden: boolean }) {
   const m = useRef<THREE.Mesh>(null);
   const target = useMemo(() => ({ pos: new THREE.Vector3(p.x, p.y + p.h / 2, p.z), scale: new THREE.Vector3(p.w, p.h, p.d) }), [p.x, p.y, p.z, p.w, p.d, p.h]);
   const [start] = useState(() => ({ pos: target.pos.clone(), scale: target.scale.clone() })); // set once: later changes glide in useFrame
-  useFrame((_, dt) => {
+  useFrame(({ clock }, dt) => {
     if (!m.current) return;
     const k = reduced ? 1 : 1 - Math.exp(-dt * 10);
-    m.current.position.lerp(target.pos, k);
-    m.current.scale.lerp(target.scale, k);
+    // before its turn in the build animation a part waits flat on its base; then it rises into place
+    const wait = !reduced && clock.elapsedTime < appearAt;
+    m.current.visible = !hidden && !wait;
+    m.current.position.lerp(wait ? new THREE.Vector3(p.x, p.y, p.z) : target.pos, k);
+    m.current.scale.lerp(wait ? new THREE.Vector3(p.w, 0.001, p.d) : target.scale, k);
   });
   return (
     <mesh ref={m} position={start.pos} scale={start.scale} castShadow receiveShadow onClick={(e) => { e.stopPropagation(); onPick(); }}>
-      {p.kind === "roof" ? <coneGeometry args={[0.72, 1, 4, 1]} /> : <boxGeometry args={[1, 1, 1]} />}
-      <meshStandardMaterial color={COLOR[p.kind]} emissive={selected ? "#38bdf8" : "#000"} emissiveIntensity={selected ? 0.35 : 0} transparent={p.kind === "wall"} opacity={p.kind === "wall" ? 0.92 : 1} />
+      {p.kind === "roof" && p.h >= 0.5 ? <primitive object={GABLE} attach="geometry" /> : <boxGeometry args={[1, 1, 1]} />}
+      <meshStandardMaterial color={COLOR[p.kind]} roughness={0.9} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.25 : 0} />
+      <Edges threshold={20} color={selected ? GOLD : "#57534e"} />
     </mesh>
   );
 }
@@ -39,7 +54,22 @@ function Trees({ n, w, d }: { n: number; w: number; d: number }) {
   // deterministic spots along the plot edge, so trees don't jump around on every render
   const spots = useMemo(() => Array.from({ length: n }, (_, i) => { const t = (i * 0.618) % 1, side = i % 4, e = 0.45;
     return side === 0 ? [(t - 0.5) * w, -d * e] : side === 1 ? [(t - 0.5) * w, d * e] : side === 2 ? [-w * e, (t - 0.5) * d] : [w * e, (t - 0.5) * d]; }), [n, w, d]);
-  return <>{spots.map(([x, z], i) => <mesh key={i} position={[x, 2, z]} castShadow><coneGeometry args={[1, 4, 7]} /><meshStandardMaterial color="#14532d" /></mesh>)}</>;
+  return <>{spots.map(([x, z], i) => <mesh key={i} position={[x, 2, z]} castShadow><coneGeometry args={[1, 4, 7]} /><meshStandardMaterial color="#a3b18a" roughness={1} /></mesh>)}</>;
+}
+
+/** Gold blueprint lines: the footprint of everything at ground level, drawn under the model. */
+function Blueprint({ parts }: { parts: Part[] }) {
+  return <>{parts.filter((p) => p.y <= 0.01).map((p) => {
+    const x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, z0 = p.z - p.d / 2, z1 = p.z + p.d / 2, y = 0.02;
+    return <Line key={p.id} points={[[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [x0, y, z0]]} color={GOLD} lineWidth={1.5} />;
+  })}</>;
+}
+
+/** Restart point for the build animation, in canvas clock seconds. */
+function BuildClock({ run, onStart }: { run: number; onStart: (t: number) => void }) {
+  const last = useRef(-1);
+  useFrame(({ clock }) => { if (last.current !== run) { last.current = run; onStart(clock.elapsedTime); } });
+  return null;
 }
 
 export default function ArchWorld({ onClose, reduced, flat }: { onClose: () => void; reduced: boolean; flat?: boolean }) {
@@ -48,6 +78,8 @@ export default function ArchWorld({ onClose, reduced, flat }: { onClose: () => v
   const [prices, setPrices] = useState<PriceItem[]>(STARTER_PRICES);
   const [past, setPast] = useState<Scene[]>([]);
   const [sel, setSel] = useState<string | null>(null);
+  const [run, setRun] = useState(0), [t0, setT0] = useState(0); // ▶ Build replays the assembly
+  const [noRoof, setNoRoof] = useState(false), [spin, setSpin] = useState(false);
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -86,17 +118,22 @@ export default function ArchWorld({ onClose, reduced, flat }: { onClose: () => v
     onCommit={(v) => apply([{ op: "set", id: part.id, [k]: v }])} />;
 
   return (
-    <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: "#0a0f14" }}>
+    <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: BG }}>
       {!flat && (
         <Canvas key={glr.key} onCreated={glr.onCreated} shadows camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
-          <color attach="background" args={["#0a0f14"]} />
-          <hemisphereLight args={["#cfe8ff", "#1b2a1b", 0.6]} />
-          <directionalLight position={[15, 25, 10]} intensity={1.4} castShadow shadow-mapSize={[2048, 2048]} shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} />
-          <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[scene.plot.w, scene.plot.d]} /><meshStandardMaterial color={GROUND[scene.plot.ground]} /></mesh>
-          <gridHelper args={[Math.max(scene.plot.w, scene.plot.d), Math.max(scene.plot.w, scene.plot.d), "#38bdf8", "#1e3a4a"]} position={[0, 0.01, 0]} />
+          <color attach="background" args={[BG]} />
+          <fog attach="fog" args={[BG, 60, 140]} />
+          <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
+          <directionalLight position={[-14, 22, 12]} intensity={1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} />
+          <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[scene.plot.w, scene.plot.d]} /><meshStandardMaterial color={GROUND[scene.plot.ground]} roughness={1} /></mesh>
+          <gridHelper args={[Math.max(scene.plot.w, scene.plot.d), Math.max(scene.plot.w, scene.plot.d), "#cbbf9f", "#ddd6c6"]} position={[0, 0.005, 0]} />
+          <ContactShadows position={[0, 0.01, 0]} scale={Math.max(scene.plot.w, scene.plot.d)} opacity={0.35} blur={2.5} far={12} />
+          <Blueprint parts={scene.parts} />
           <Trees n={scene.plot.trees} w={scene.plot.w} d={scene.plot.d} />
-          {scene.parts.map((p) => <Block key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)} />)}
-          <OrbitControls makeDefault enableDamping maxPolarAngle={Math.PI / 2.05} />
+          <BuildClock run={run} onStart={setT0} />
+          {[...scene.parts].sort((a, b) => a.y - b.y).map((p, i) => <Block key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
+            appearAt={t0 + 0.6 + i * STEP_S} hidden={noRoof && p.kind === "roof"} />)}
+          <OrbitControls makeDefault enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced} autoRotateSpeed={0.8} />
         </Canvas>
       )}
 
@@ -108,6 +145,9 @@ export default function ArchWorld({ onClose, reduced, flat }: { onClose: () => v
         </form>
         {msg && <p aria-live="polite">{msg}</p>}
         <div className="flex flex-wrap gap-1.5">
+          <button className="chip" onClick={() => setRun((n) => n + 1)} title="Replay the assembly, bottom to top">▶ Build</button>
+          <button className="chip" aria-pressed={noRoof} onClick={() => setNoRoof((v) => !v)}>Hide roof</button>
+          <button className="chip" aria-pressed={spin} onClick={() => setSpin((v) => !v)}>Turntable</button>
           <button className="chip" disabled={!past.length} onClick={undo}>↶ Undo</button>
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>Start over</button>
         </div>
