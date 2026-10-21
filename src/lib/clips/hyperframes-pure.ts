@@ -89,7 +89,7 @@ html,body{margin:0;background:transparent}
 .hook-in{display:block;background:#ff2e63;padding:18px 30px;border-radius:18px;font-size:84px;line-height:1.1;animation:hook-in 380ms cubic-bezier(.34,1.56,.64,1) both}
 .cap{bottom:640px;left:70px;right:150px}
 .line{display:block;line-height:1.15;paint-order:stroke fill;-webkit-text-stroke:18px #000;text-shadow:0 6px 0 rgba(0,0,0,.5)}
-.w{display:inline-block}
+.w{display:inline-block;margin:0 .2em} /* thick stroke + 1.15 pop eat a plain space: "SPEEDTHATIS" */
 .karaoke .on{color:#ffe500;animation:bounce 220ms cubic-bezier(.34,1.56,.64,1) both}
 .karaoke .loud{color:#ff2e63;animation-name:bounce-big}
 .classic .line{animation:rise 160ms ease-out both}
