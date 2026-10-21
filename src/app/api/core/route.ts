@@ -6,7 +6,8 @@ import { emit } from "@/lib/claude";
 import { stepLabel } from "@/lib/core-ui";
 import { str } from "@/lib/pure";
 import type { NavTarget } from "@/lib/nav-pure";
-import { parseAttachments, attachedSuffix } from "@/lib/attach-pure";
+import { parseAttachments, attachedSuffix, attachmentPrompt } from "@/lib/attach-pure";
+import { retainedAttachments, type ContextTurn } from "@/lib/core-context-pure";
 import { prepareAttachments } from "@/lib/core-attach";
 import { chatProjectContext, updateChats } from "@/lib/core-chats";
 import { MAX_MESSAGES, chatTitle, isId, moveChat } from "@/lib/core-chats-pure";
@@ -24,7 +25,6 @@ export async function POST(req: Request) {
   const voice = body.voice === true; // asked out loud: answer short enough to listen to
   if (!message) return Response.json({ error: "Message is required (max 8000 chars)" }, { status: 400 });
   const attach = await prepareAttachments(files.files);
-  // shortcut: only the names are saved, so later turns can't see the files again; store them in the vault if that's needed.
   const content = files.files.length ? message + attachedSuffix(files.files.map((f) => f.name)) : message;
 
   // Conversation: reuse if it belongs to the user (RLS enforces this), else start a new one.
@@ -45,7 +45,8 @@ export async function POST(req: Request) {
     if ((count ?? 0) >= MAX_MESSAGES - 1) return Response.json({ error: `This chat is full (${MAX_MESSAGES} messages). Start a new chat.` }, { status: 400 });
   }
 
-  const { data: userMsg, error: userMsgErr } = await sb.from("messages").insert({ user_id: user.id, conversation_id: conversationId, role: "user", content }).select("id").single();
+  // Migration 0013 caps the combined extracted text at 20k per chat, including concurrent uploads.
+  const { data: userMsg, error: userMsgErr } = await sb.from("messages").insert({ user_id: user.id, conversation_id: conversationId, role: "user", content, attachment_text: attach?.text ?? "" }).select("id").single();
   if (userMsgErr) return Response.json({ error: userMsgErr.message }, { status: 500 });
 
   await emit(sb, user.id, "core.started", "core", { conversationId });
@@ -53,12 +54,20 @@ export async function POST(req: Request) {
 
   // Shared by both response styles: answer, then save it once at the end.
   const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void) => {
-    // runCore only uses the last 9 turns (8 of transcript + the question), so long chats don't load all 400.
-    const [{ data: prior }, project] = await Promise.all([
-      sb.from("messages").select("role, content").eq("conversation_id", cid).order("created_at", { ascending: false }).limit(9),
+    // Older turns supply a compact recap and their saved attachments; only the latest nine stay in full.
+    const [{ data: prior, error: priorError }, project] = await Promise.all([
+      sb.from("messages").select("id, role, content, attachment_text").eq("conversation_id", cid).order("created_at", { ascending: false }).limit(MAX_MESSAGES),
       chatProjectContext(user.id, cid),
     ]);
-    const out = await runCore(sb, user.id, ((prior ?? []) as { role: "user" | "assistant"; content: string }[]).reverse(), onDelta, signal, onReset, voice, onNavigate, onStep, attach, project.text, project.tainted, project.memoryProject);
+    if (priorError) throw priorError;
+    const history = ((prior ?? []) as (ContextTurn & { id: string })[]).reverse();
+    // Current files already have their full prompt block (and images); do not repeat their stored copy.
+    const saved = retainedAttachments(history.filter((t) => t.id !== userMsg.id));
+    const contextAttach = saved ? {
+      block: attachmentPrompt([{ name: "Earlier attachments in this chat (retained text, up to 20k characters)", text: saved }], []) + (attach?.block ?? ""),
+      images: attach?.images ?? [],
+    } : attach;
+    const out = await runCore(sb, user.id, history, onDelta, signal, onReset, voice, onNavigate, onStep, contextAttach, project.text, project.tainted, project.memoryProject);
     await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
     await emit(sb, user.id, "core.completed", "core", { conversationId: cid });
