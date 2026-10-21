@@ -45,6 +45,7 @@ put({ panel: "operations" }, "operations, ops, tasks, my tasks, automations, my 
 put({ panel: "agents" }, "agents, my agents, ai agents, workforce, agents station, agent station, the agents station, station, the station");
 put({ panel: "analytics" }, "analytics, usage, ai usage, my usage, activity");
 put({ panel: "studio" }, "studio, youtube, youtube studio");
+put({ panel: "arch" }, "arch, architecture, building design, house design, my house, construction, ehitus, arhitektuur");
 put({ panel: "business" }, "business, my business, clients, my clients, pipeline, sales pipeline, prospects, leads");
 put({ panel: "markets" }, "markets, market, stocks, stock market, my stocks, watchlist, my watchlist, portfolio, my portfolio, paper trading, investing");
 put({ panel: "theater" }, "theater, theatre, cinema, movie theater, watch, watch videos, the big screen, big screen");

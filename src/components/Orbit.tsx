@@ -39,6 +39,7 @@ const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: Wo
 const StudioWorld = dynamic(() => import("./StudioWorld"), { ssr: false, loading: WorldLoading });
 const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false, loading: WorldLoading });
 const AgentsStation = dynamic(() => import("./AgentsStation"), { ssr: false, loading: WorldLoading });
+const ArchWorld = dynamic(() => import("./ArchWorld"), { ssr: false, loading: WorldLoading });
 const TheaterWorld = dynamic(() => import("./TheaterWorld"), { ssr: false, loading: WorldLoading });
 const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
 const VaultPanel = dynamic(() => import("./VaultPanel").then((m) => m.VaultPanel), { ssr: false });
@@ -47,7 +48,7 @@ const MarketsPanel = dynamic(() => import("./MarketsPanel"), { ssr: false });
 const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
 const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
-const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater"]; // full-screen worlds with their own side panel (no drawer)
+const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch"]; // full-screen worlds with their own side panel (no drawer)
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "Orbital is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
 
@@ -390,6 +391,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} />
       ) : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
+      ) : shown === "arch" ? (
+        <ArchWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} />
       ) : view === "3d" ? null : (
         <nav aria-label="Planets" className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>ORBIT / YOUR WORKSPACE</p><h1>A universe.<br />Yours to shape.</h1><span>Ask, create, remember. Pick a world to begin.</span></div>

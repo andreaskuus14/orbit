@@ -163,6 +163,7 @@ const PHOTOS: Record<PlanetId, { file: string; id: string; crop: [number, number
   theater: { file: "crystal", id: "20261014_232113_02a85430-cdfa-4d9e-ab99-403515937ee7", crop: [0.22, 0.16, 0.78, 0.84] }, // shares ANALYTICS' photo, tinted gold
   markets: { file: "glacier", id: "20261014_232114_c73e34e3-2e16-44e8-97af-a160226d854a", crop: [0, 0, 1, 1] }, // shares VAULT's photo, tinted emerald
   business: { file: "storm", id: "20261014_232114_9eba80cc-155f-458f-a27c-8e5a7dc8f3de", crop: [0.18, 0.04, 0.82, 0.96] }, // shares INTELLIGENCE's photo, tinted sky blue
+  arch: { file: "storm", id: "20261014_232114_9eba80cc-155f-458f-a27c-8e5a7dc8f3de", crop: [0.18, 0.04, 0.82, 0.96] }, // same photo, tinted concrete grey
 };
 
 const photoUrl = (file: string, id: string) => [`/textures/${file}.png`, `${CDN}${id}.png`] as const;
@@ -218,6 +219,7 @@ const SURFACE: Record<PlanetId, { rough: number; metal?: number; bump: number; g
   theater: { rough: 0.5, bump: 1.2, glow: "#f59e0b", tint: "#ffd28a" },
   markets: { rough: 0.45, bump: 1.4, glow: "#10b981", tint: "#8ff0c8" },
   business: { rough: 0.5, bump: 1, tint: "#a5dcf7", air: "#7dd3fc" },
+  arch: { rough: 0.7, bump: 1, tint: "#cbd5e1", air: "#e2e8f0" },
 };
 
 type Look = { kind: "band" | "rock"; colors: string[]; base?: string; ring?: string; scale: number };
@@ -236,6 +238,7 @@ const LOOKS: Record<PlanetId, Look> = {
   theater: { kind: "band", colors: ["#b45309", "#f59e0b", "#78350f", "#fcd34d"], ring: "#fbbf24", scale: 0.9 },
   markets: { kind: "band", colors: ["#065f46", "#10b981", "#064e3b", "#6ee7b7"], ring: "#34d399", scale: 0.85 },
   business: { kind: "rock", base: "#0c4a6e", colors: ["#0284c7", "#38bdf8", "#075985"], scale: 0.85 },
+  arch: { kind: "rock", base: "#334155", colors: ["#64748b", "#94a3b8", "#475569"], scale: 0.9 },
 };
 
 /* ---------- scene pieces ---------- */
@@ -411,6 +414,7 @@ const THEME: Record<PlanetId, { mode: number; count: number; size: [number, numb
   theater: { mode: 3, count: 25, size: [3, 6], color: "#fde68a" }, // projector-dust glints
   markets: { mode: 2, count: 30, size: [2.5, 5], color: "#a7f3d0" }, // ticker sparks
   business: { mode: 3, count: 20, size: [3, 6], color: "#bae6fd" }, // lit shop windows
+  arch: { mode: 3, count: 24, size: [3, 6], color: "#fde68a" }, // lit construction grid
 };
 
 // All motion runs on the GPU from a per-particle seed: no per-frame JS work, however many planets.
