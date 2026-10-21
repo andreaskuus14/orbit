@@ -674,7 +674,7 @@ export function isPlainName(name: unknown): name is string {
 const LAYOUTS = ["fit", "fill", "split", "follow"], SIDES = ["left", "right", "tl", "tr", "bl", "br"], LANGS = ["auto", "en"], PRESETS = ["viral", "devlog"];
 const LAYOUT_ERR = "layout must be fit, fill, split or follow", CAM_SIDE_ERR = "camSide must be left, right, tl, tr, bl or br", CAM_SIZE_ERR = "camSize must be 0.1-0.6";
 const isCamSize = (v: unknown) => typeof v === "number" && v >= 0.1 && v <= 0.6;
-/** Clip options from a request body (defaults: 5 clips, 45 s, captions, fit layout, jump cuts, zooms, English, cold open, loop end,
+/** Clip options from a request body (defaults: 5 clips, 45 s, captions, follow layout, jump cuts, zooms, English, cold open, loop end,
  *  no progress bar) or an error message. */
 export function validOptions(b: Record<string, unknown>): Required<ClipOptions> | string {
   const { count = 5, maxSec = 45, captions = true, layout = "follow", camSide = "right", camSize = 0.3, jumpCuts = true, zooms = true, language = "en",
