@@ -1,7 +1,7 @@
 "use client";
 import VisibilityPanel from "./VisibilityPanel";
 import { useCallback, useEffect, useState } from "react";
-import { LANGS, STAGES, STAGE_LABEL, emailIn, type Find, type Lang, type Prospect, type Stage } from "@/lib/business-pure";
+import { dueFollowups, LANGS, STAGES, STAGE_LABEL, emailIn, type Find, type Lang, type Prospect, type Stage } from "@/lib/business-pure";
 
 // BUSINESS drawer: the client pipeline for the Lead Follow-up Autopilot (services/lead-followup).
 // Add businesses, move them through stages, let CORE draft the first message. Nothing is sent unless you click Approve & send twice (AGENTS.md rule 6).
@@ -21,7 +21,7 @@ export default function BusinessPanel() {
   const [st, setSt] = useState<State | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
-  const [filter, setFilter] = useState<Stage | "all">("all");
+  const [filter, setFilter] = useState<Stage | "all" | "followup">("all");
 
   const load = useCallback(() => call("GET").then((j: State) => { setSt(j); setErr(""); }, (e: Error) => setErr(e.message)), []);
   useEffect(() => { void load(); }, [load]);
@@ -31,7 +31,8 @@ export default function BusinessPanel() {
     try { await call("POST", body); await load(); return true; } catch (e) { setErr((e as Error).message); return false; } finally { setBusy(""); }
   };
 
-  const shown = st?.prospects.filter((p) => filter === "all" || p.stage === filter) ?? [];
+  const due = new Set(dueFollowups(st?.prospects ?? [], Date.now()).map((p) => p.id));
+  const shown = st?.prospects.filter((p) => filter === "all" || (filter === "followup" ? due.has(p.id) : p.stage === filter)) ?? [];
   return (
     <div className="space-y-3 text-sm">
       <p className="muted">First product: <b>Lead Follow-up Autopilot</b>. Every website enquiry gets a drafted reply in under a minute; the business owner taps Send or Reject in Telegram.
@@ -55,6 +56,7 @@ export default function BusinessPanel() {
       {st && (
         <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by stage">
           <button className="chip" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All {st.funnel.total}</button>
+          <button className="chip" aria-pressed={filter === "followup"} onClick={() => setFilter("followup")}>Follow up due {due.size}</button>
           {STAGES.map((s) => <button key={s} className="chip" aria-pressed={filter === s} onClick={() => setFilter(s)}>{STAGE_LABEL[s]} {st.funnel.counts[s]}</button>)}
         </div>
       )}
@@ -65,7 +67,7 @@ export default function BusinessPanel() {
       {st && !st.prospects.length && <p className="muted">No businesses yet. Add one you could walk into or call this week: a bakery that takes cake orders, a cleaning or renovation firm, a salon.</p>}
 
       <ul className="space-y-2">
-        {shown.map((p) => <Row key={p.id} p={p} busy={busy} act={act} canSend={!!st?.canSend} />)}
+        {shown.map((p) => <Row key={p.id} p={p} due={due.has(p.id)} busy={busy} act={act} canSend={!!st?.canSend} />)}
       </ul>
     </div>
   );
@@ -112,7 +114,7 @@ function AddForm({ busy, onAdd }: { busy: boolean; onAdd: (b: { name: string; ki
   );
 }
 
-function Row({ p, busy, act, canSend }: { p: Prospect; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean }) {
+function Row({ p, due, busy, act, canSend }: { p: Prospect; due: boolean; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean }) {
   const [notes, setNotes] = useState(p.notes);
   const [fee, setFee] = useState(String(p.fee || ""));
   const [lang, setLang] = useState<Lang>("Estonian");
@@ -128,7 +130,7 @@ function Row({ p, busy, act, canSend }: { p: Prospect; busy: string; act: (key: 
   return (
     <li className="card space-y-1.5" aria-label={p.name}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="min-w-0"><b>{p.name}</b>{p.kind && <span className="muted"> · {p.kind}</span>}{p.contact && <span className="muted select-all"> · {p.contact}</span>}</div>
+        <div className="min-w-0"><b>{p.name}</b>{due && <span className="chip">Follow up due</span>}{p.kind && <span className="muted"> · {p.kind}</span>}{p.contact && <span className="muted select-all"> · {p.contact}</span>}</div>
         <select className="chip" aria-label={`Stage of ${p.name}`} value={p.stage} disabled={any} onChange={(e) => void update({ stage: e.target.value })}>
           {STAGES.map((s) => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
         </select>
@@ -144,6 +146,8 @@ function Row({ p, busy, act, canSend }: { p: Prospect; busy: string; act: (key: 
         <select className="chip" aria-label="Message language" value={lang} onChange={(e) => setLang(e.target.value as Lang)}>{LANGS.map((l) => <option key={l}>{l}</option>)}</select>
         <button className="chip" disabled={any} onClick={() => void act(`draft:${p.id}`, { action: "draft", id: p.id, lang })}>
           {busy === `draft:${p.id}` ? "CORE is writing…" : p.draft ? "✍ Redraft message" : "✍ Draft first message"}</button>
+        {p.stage === "contacted" && <button className="chip" disabled={any || !p.draft.trim()} onClick={() => void act(`followup:${p.id}`, { action: "followup", id: p.id, lang })}>
+          {busy === `followup:${p.id}` ? "CORE is writing…" : "✍ Draft follow-up"}</button>}
         <button className={`chip ${sure ? "error" : ""}`} disabled={any} onClick={() => (sure ? void act(`del:${p.id}`, { action: "delete", id: p.id }) : (setSure(true), setTimeout(() => setSure(false), 4000)))}>
           {sure ? "Really delete?" : "Delete"}</button>
       </div>

@@ -16,7 +16,7 @@ export type MorningAgents = { done: string[]; failed: number; proposals: string[
 export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
 export type MorningCalendar = { connected: boolean; today: { time: string; title: string }[] }; // titles: calendar data (invites), plain text only
 export type Morning = {
-  greeting: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince; work?: WorkSummary; mission?: Mission;
+  greeting: string; business?: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince; work?: WorkSummary; mission?: Mission;
   suggestion: { text: string; nav: MorningNav | null; item?: WorkItem }; spoken: string;
 };
 
@@ -77,6 +77,7 @@ export function suggest(m: Pick<Morning, "studio" | "intel" | "agents" | "life" 
 export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   const s = m.studio, a = m.agents, i = m.intel;
   const must = [`${m.greeting}.`], opt: string[] = [];
+  if (m.business) opt.push(`${m.business}.`);
   if (m.mission) opt.unshift(missionLine(m.mission)); // first of the optional lines: dropped last, never past the word cap
   if (m.work?.items.length) opt.push(`Your work list shows ${n(m.work.items.length + m.work.more, "unfinished item")}.`);
   if (m.work?.problems.length) opt.push("Some unfinished work could not be loaded.");
@@ -109,7 +110,7 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   return plain([...must, ...opt, tail].join(" ").replace(/\.\./g, "."));
 }
 
-export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall" | "work" | "mission">, now: number, tz: string): Morning {
+export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall" | "work" | "mission" | "business">, now: number, tz: string): Morning {
   const base = { ...parts, greeting: greeting(now, tz), suggestion: suggest(parts) };
   return { ...base, spoken: spokenBriefing(base) };
 }
@@ -189,3 +190,6 @@ export function sinceSpoken(s: MorningSince, notes: number): string {
   const wait = s.approvals ? ` ${n(s.approvals, "approval")} ${s.approvals === 1 ? "is" : "are"} waiting for you.` : "";
   return plain(`Welcome back. While you were away, ${list}.${wait}`);
 }
+
+/** Shared card and spoken line; zero is shown when the source loaded. */
+export const businessFollowupLine = (count: number) => `${count} businesses need a follow-up`;

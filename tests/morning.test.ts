@@ -199,3 +199,14 @@ test("since you left: Shorts that went live count, approvals are mentioned but n
   assert.equal(sinceEmpty(quiet, 0), true);
   assert.equal(sinceSpoken(quiet, 0), "");
 });
+
+test("business follow-up count is shared by the morning card and spoken briefing", async () => {
+  const { businessFollowupLine } = await import("../src/lib/morning-pure.ts");
+  for (const count of [0, 1, 3]) {
+    const business = businessFollowupLine(count);
+    const m = buildMorning({ business }, NOW, TZ);
+    assert.equal(m.business, `${count} businesses need a follow-up`);
+    assert.ok(m.spoken.includes(`${business}.`));
+  }
+  assert.equal(buildMorning({}, NOW, TZ).business, undefined);
+});

@@ -7,7 +7,8 @@ import { learnProblem, type LearnState } from "./clips/learn-pure";
 import { pickRecall, type Recall } from "./resurface-pure";
 import { getContinueWork } from "./work-continuation";
 import { dailyMission } from "./daily-mission-pure";
-import { buildMorning, lifeSection, pulseHeadlines, sinceSection, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningSince, type MorningStudio } from "./morning-pure";
+import { dueFollowups } from "./business-pure";
+import { buildMorning, businessFollowupLine, lifeSection, pulseHeadlines, sinceSection, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningSince, type MorningStudio } from "./morning-pure";
 
 // Gathers the "Good morning" briefing: every section in parallel with a timeout, a failing source just drops its section.
 // Reads stored data only (no Pulse run, no YouTube stats fetch, no AI call).
@@ -88,7 +89,7 @@ const approvals = (w: { items: { status: string }[]; more: number }) => {
 export async function getMorning(sb: SupabaseClient, userId: string, now = Date.now(), from: number | null = null): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
-  const [s, i, a, l, r, sn, c, w, ct] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
+  const [s, i, a, l, r, sn, c, w, ct, bf] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
     within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
     from === null ? Promise.resolve(undefined) : getSince(sb, from, now),
     // Same cache entry as the LIFE card. No Google client configured → no calendar section at all.
@@ -96,10 +97,14 @@ export async function getMorning(sb: SupabaseClient, userId: string, now = Date.
       if (!g.calEnv()) return undefined;
       const ev = await g.calendarEvents(7, now);
       return { connected: !!ev, today: ev ? p.todayEvents(ev, now) : [] };
-    })), within(getContinueWork(sb, userId)), within(contactedToday(sb, now, tz))]);
+    })), within(getContinueWork(sb, userId)), within(contactedToday(sb, now, tz)),
+    within(Promise.resolve(sb.from("prospects").select("stage,updated_at,notes").eq("stage", "contacted")).then(({ data, error }) => {
+      if (error) throw error;
+      return businessFollowupLine(dueFollowups(data ?? [], now).length);
+    }))]);
   const life = ok(l), rec = ok(r), since = ok(sn), work = ok(w), st = ok(s);
   // Only counted when its sources loaded: a mission ticked from missing data would be a false claim.
   const mission = st && work && ok(ct) !== undefined ? dailyMission({ shortsToday: st.today.length, contactedToday: ok(ct)!, approvalsWaiting: approvals(work) }) : undefined;
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
-    work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), ...(since && { since }) };
+    business: ok(bf), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), ...(since && { since }) };
 }
