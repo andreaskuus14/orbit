@@ -16,6 +16,7 @@ import { isVideoId } from "../yt-analytics-pure";
 import {
   PROPOSE_LEAD_MS, capLeft, confidence, creatorVirality, dailyCap, editProposal, emptyAutopilot, findings, isKey, learnPrefs, parseAutopilot, patchAutopilot, pickTitle, pipeline, proposeSlot, rankCandidates, scoutAutoToday,
   spendDownload, stageCounts, usedDownloads, type Autopilot, type Prefs,
+  BUFFER_TARGET, queuedShorts,
 } from "./autopilot-pure";
 
 // YouTube autopilot: an orchestrator over the scout (find), downloads + clip jobs (clip), the clip's own title/thumbnail options +
@@ -217,7 +218,9 @@ export async function autopilotTick() {
       const sc = (await scoutView()).scout, now = new Date();
       const allowed = autoPicks(sc.picks, sc.watchlist, sc.picks.length); // only watchlist creators the owner marked autoClip
       const top = rankCandidates(allowed, await prefsNow(), now.getTime(), new Set(x.tracked.map((t) => t.videoId)), creatorVirality(await listJobs()));
-      const r = await clipPicks(x, top.slice(0, capLeft(x, now, scoutAutoToday(sc.auto, now))).map((c) => c.videoId), true);
+      const jobs = await listJobs(), room = Math.max(0, BUFFER_TARGET - queuedShorts(jobs, now.getTime()));
+      if (!room) return; // a week of Shorts is already waiting: review/schedule those first
+      const r = await clipPicks(x, top.slice(0, Math.min(room, capLeft(x, now, scoutAutoToday(sc.auto, now)))).map((c) => c.videoId), true);
       if (r.errors.length) console.error("[orbit] autopilot auto-clip:", r.errors.join("; "));
     });
   }
