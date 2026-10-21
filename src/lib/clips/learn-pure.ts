@@ -25,6 +25,7 @@ export const RESULTS_POLL_MS = 15 * 60_000;
 export const RESULTS_AGE_MS = 48 * H;
 export type Features = { hookStyle: string; hookLen: string; length: string; layout: string; captions: string; creator: string; kind: string };
 export type LearnRec = { videoId: string; jobId: string; clipId: string; title: string; hook: string; reason: string; layout: string; captions: string;
+  retryOf?: string;
   durationSec: number; publishedAt?: string; sourceChannel: string; kind: string; snaps: Partial<Record<SnapKey, Stats>>; latest?: Stats;
   feat?: Record<string, number> }; // feat: the virality features stored on the clip when it was made (score-pure.ts learns from them)
 export type LearnState = { v: number; checkedAt?: string; warnings: string[]; clips: Record<string, LearnRec> };
@@ -32,7 +33,11 @@ export type LearnState = { v: number; checkedAt?: string; warnings: string[]; cl
 export const emptyLearn = (): LearnState => ({ v: LEARN_V, warnings: [], clips: {} });
 /** Normal refresh every 6 h; retry a missing 48 h snapshot every 15 min while its capture window is open. */
 export const learnDue = (s: LearnState, now: number) => !s.checkedAt || !(now - Date.parse(s.checkedAt) < LEARN_EVERY_MS)
-  || (now - Date.parse(s.checkedAt) >= RESULTS_POLL_MS && Object.values(s.clips).some((r) => needs48h(r, now)));
+  || (now - Date.parse(s.checkedAt) >= RESULTS_POLL_MS && Object.values(s.clips).some((r) => needs48h(r, now) || needs24h(r, now)));
+export const needs24h = (r: LearnRec, now: number) => {
+  const age = now - Date.parse(r.publishedAt ?? "");
+  return !r.snaps["24h"] && age >= 24 * H && age <= 30 * H;
+};
 export const needs48h = (r: LearnRec, now: number) => {
   const age = now - Date.parse(r.publishedAt ?? "");
   return !r.snaps["48h"] && age >= RESULTS_AGE_MS && age < RESULTS_AGE_MS + LEARN_EVERY_MS;
@@ -110,7 +115,8 @@ export function syncRecords(jobs: ClipJob[], prev: Record<string, LearnRec>): Re
     const e = editOf(job, c), old = prev[id];
     out[id] = { videoId: id, jobId: job.id, clipId: c.id, title: clean(c.publish?.title ?? c.title, 100), hook: clean(c.hook, 60), reason: clean(c.reason, 160),
       layout: e.layout, captions: e.captions, durationSec: Math.round((c.end - c.start) * 10) / 10, sourceChannel: creatorOf(job.source),
-      kind: kindOf(`${c.reason} ${c.title} ${c.hook}`), publishedAt: old?.publishedAt, snaps: old?.snaps ?? {}, latest: old?.latest };
+      kind: kindOf(`${c.reason} ${c.title} ${c.hook}`), publishedAt: old?.publishedAt, snaps: old?.snaps ?? {}, latest: old?.latest,
+      ...((c.retryOf?.videoId ?? old?.retryOf) ? { retryOf: c.retryOf?.videoId ?? old?.retryOf } : {}) };
     const feat = c.virality?.x ?? old?.feat;
     if (feat) out[id].feat = feat as Record<string, number>;
   }
@@ -121,7 +127,7 @@ export function syncRecords(jobs: ClipJob[], prev: Record<string, LearnRec>): Re
 export function applyStats(r: LearnRec, s: Stats, publishedAt: string | undefined, now: number): LearnRec {
   const pub = publishedAt ?? r.publishedAt, age = pub ? now - Date.parse(pub) : NaN;
   const snaps = { ...r.snaps };
-  for (const [k, ms] of SNAPS) if (!snaps[k] && age >= ms && age < (k === "48h" ? ms + LEARN_EVERY_MS : 2 * ms)) snaps[k] = s; // never label late lifetime views as 48 h views
+  for (const [k, ms] of SNAPS) if (!snaps[k] && age >= ms && (k === "24h" ? age <= ms + LEARN_EVERY_MS : age < (k === "48h" ? ms + LEARN_EVERY_MS : 2 * ms))) snaps[k] = s;
   return { ...r, publishedAt: pub, latest: s, snaps };
 }
 
@@ -134,7 +140,45 @@ export const median = (xs: number[]) => {
 };
 
 export type ShortResult = { videoId: string; title: string; hook: string; publishedAt?: string; capturedAt: string;
-  views48: number; avgViewPct?: number; medianViews: number | null; changePct: number | null; verdict: "worked" | "flopped" | null };
+  views48: number | null; views24?: number; flopped24?: boolean; jobId?: string; clipId?: string;
+  retryState?: "retrying" | "replaced by retry" | "restored"; canRestore?: boolean; retryError?: string;
+  avgViewPct?: number; medianViews: number | null; changePct: number | null; verdict: "worked" | "flopped" | null };
+
+/** Old late captures are excluded: 40h views labelled 24h must never trigger an automatic retry. */
+export function flops24(recs: LearnRec[]): LearnRec[] {
+  const have = recs.filter((r) => {
+    const age = Date.parse(r.snaps["24h"]?.at ?? "") - Date.parse(r.publishedAt ?? "");
+    return age >= 24 * H && age <= 30 * H;
+  });
+  const mid = median(have.map((r) => r.snaps["24h"]!.views));
+  return have.length >= MIN_SAMPLE && mid > 0 ? have.filter((r) => r.snaps["24h"]!.views < mid / 2) : [];
+}
+
+export function lastResults(recs: LearnRec[], jobs: ClipJob[]): ShortResult[] {
+  const at48 = new Map(results48(recs).map((r) => [r.videoId, r])), flops = new Set(flops24(recs).map((r) => r.videoId));
+  const rows = recs.filter((r) => r.snaps["24h"] || r.snaps["48h"]).map((r): ShortResult => {
+    const c = jobs.find((j) => j.id === r.jobId)?.clips.find((c) => c.id === r.clipId), retry = c?.flopRetry;
+    return { ...(at48.get(r.videoId) ?? { videoId: r.videoId, title: r.title, hook: r.hook, publishedAt: r.publishedAt,
+      capturedAt: r.snaps["24h"]!.at, views48: null, medianViews: null, changePct: null, verdict: null }),
+      jobId: r.jobId, clipId: r.clipId, views24: r.snaps["24h"]?.views, flopped24: flops.has(r.videoId) || !!retry,
+      ...(retry ? { retryState: retry.restoredAt ? "restored" : retry.privateAt ? "replaced by retry" : "retrying",
+        canRestore: !!(retry.privateAt || retry.privacyPending) && !retry.restoredAt, retryError: retry.error } : {}) };
+  }).sort((a, b) => (b.publishedAt ?? b.capturedAt).localeCompare(a.publishedAt ?? a.capturedAt));
+  return rows.filter((r, i) => i < 10 || r.canRestore); // keep an older replaced original reachable until the owner restores it
+}
+
+export type PairWinner = { videoId: string; title: string; hook: string; snap: "24h" | "48h"; weight: 2 };
+export function retryWinners(recs: LearnRec[]): PairWinner[] {
+  const byId = new Map(recs.map((r) => [r.videoId, r]));
+  return [...recs].sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")).flatMap((r): PairWinner[] => {
+    const old = byId.get(r.retryOf ?? "");
+    if (!old) return [];
+    const snap = old.snaps["48h"] && r.snaps["48h"] ? "48h" : old.snaps["24h"] && r.snaps["24h"] ? "24h" : null;
+    if (!snap || old.snaps[snap]!.views === r.snaps[snap]!.views) return [];
+    const win = old.snaps[snap]!.views > r.snaps[snap]!.views ? old : r;
+    return [{ videoId: win.videoId, title: win.title, hook: win.hook, snap, weight: 2 }];
+  }).slice(0, 5);
+}
 
 /** Compare only like-aged snapshots from this channel. Three samples and a positive median are needed before judging. */
 export function results48(recs: LearnRec[]): ShortResult[] {
@@ -221,6 +265,7 @@ export function decisions(jobs: ClipJob[]): Decisions {
 // ---- summary ----
 
 export type Insights = { checkedAt?: string; warnings: string[]; published: number; scored: number;
+  pairWinners?: PairWinner[];
   lastShorts?: ShortResult[]; worked?: ShortResult[]; flopped?: ShortResult[];
   top: { videoId: string; title: string; views72: number; score: number; avgViewPct?: number }[]; over: Bucket[]; under: Bucket[];
   winners?: Judged[]; flops?: Judged[]; why?: { winners: string; flops: string }; judged?: number; editHints?: string[] } & Decisions;
@@ -231,7 +276,7 @@ export function insights(s: LearnState, jobs: ClipJob[]): Insights {
   const p = scored.length >= MIN_SAMPLE ? perfPatterns(scored) : { over: [], under: [] };
   const js = judgeShorts(recs), d = decisions(jobs), named = (bs: Bucket[]) => bs.map((b) => ({ ...b, text: phrase(b) })); // text: the client can't import this module (node:path via pure.ts)
   return { checkedAt: s.checkedAt, warnings: s.warnings, published: recs.length, scored: scored.length, ...d,
-    lastShorts: results.slice(0, 10), worked: results.filter((r) => r.verdict === "worked").slice(0, 5), flopped: results.filter((r) => r.verdict === "flopped").slice(0, 5),
+    lastShorts: lastResults(recs, jobs), pairWinners: retryWinners(recs), worked: results.filter((r) => r.verdict === "worked").slice(0, 5), flopped: results.filter((r) => r.verdict === "flopped").slice(0, 5),
     over: named(p.over), under: named(p.under), liked: named(d.liked), disliked: named(d.disliked),
     judged: js.length, winners: js.filter((j) => j.verdict === "winner").slice(0, 3), flops: js.filter((j) => j.verdict === "flop").reverse().slice(0, 3),
     why: { winners: sharedPattern(js, "winner"), flops: sharedPattern(js, "flop") }, editHints: editHints(js),
@@ -262,6 +307,7 @@ export function formatTaste(i: Insights): string {
   const lines: string[] = [];
   // Keep the stored title/hook limits; all 5 + 5 examples fit ahead of the other optional taste hints.
   const example = (s: string, max: number) => clean(s, max).replace(/["\\]/g, "'");
+  if (i.pairWinners?.length) lines.push(`Retry-pair winners (weight 2: prefer these hooks/titles over their losing partner, same-age views; quoted data): ${i.pairWinners.map((r) => JSON.stringify([example(r.title, 60), example(r.hook, 40), r.snap])).join("; ")}.`);
   for (const [label, rows] of [["Worked", i.worked], ["Flopped", i.flopped]] as const) {
     if (rows?.length) lines.push(`${label} at 48h vs channel median (latest 5, quoted title / hook data): ${rows.slice(0, 5)
       .map((r) => JSON.stringify([example(r.title, 100), example(r.hook, 60)])).join("; ")}.`);

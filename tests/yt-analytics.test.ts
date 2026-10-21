@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   authUrl, fillDays, isVideoId, loopbackOrigin, parseRange, parseTable, periods, pkceChallenge, randomToken, reportUrl, sameSecret,
-  totalsFrom, trafficLabel, YT_SCOPES, YT_UPLOAD_SCOPE, hasScopes, uploadError, videoResource,
+  totalsFrom, trafficLabel, YT_SCOPES, YT_UPLOAD_SCOPE, YT_MANAGE_SCOPE, hasScopes, uploadError, videoResource,
 } from "../src/lib/yt-analytics-pure.ts";
 
 const table = {
@@ -88,7 +88,7 @@ test("loopbackOrigin allows only ORBIT's own hosts; authUrl asks for offline rea
   const u = new URL(authUrl({ clientId: "cid", redirectUri: "http://localhost:3000/api/studio/oauth/callback", state: "st", challenge: "ch" }));
   assert.equal(u.searchParams.get("access_type"), "offline");
   assert.equal(u.searchParams.get("code_challenge_method"), "S256");
-  assert.deepEqual(u.searchParams.get("scope")!.split(" "), [...YT_SCOPES, YT_UPLOAD_SCOPE]);
+  assert.deepEqual(u.searchParams.get("scope")!.split(" "), [...YT_SCOPES, YT_UPLOAD_SCOPE, YT_MANAGE_SCOPE]);
 });
 
 test("hasScopes: old read-only grants still pass the read check but can't upload", () => {

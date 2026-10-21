@@ -5,7 +5,7 @@ export type QuotaGroup = keyof typeof SHARES;
 export type QuotaDay = { day: string; callers: Record<string, { group: QuotaGroup | "legacy"; units: number; calls: number; searches: number; dataUnits: number; analytics: number }>; notified: QuotaGroup[] };
 export type QuotaLedger = { v: 1; days: QuotaDay[] };
 export const pacificDay = (now: number) => new Date(now).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
-export const weightedCost = (endpoint: string) => endpoint === "search" ? 100 : endpoint === "analytics" ? 0 : 1;
+export const weightedCost = (endpoint: string) => endpoint === "search" ? 100 : endpoint === "videos.update" ? 50 : endpoint === "analytics" ? 0 : 1;
 export function today(ledger: QuotaLedger, now: number): QuotaDay {
   const day = pacificDay(now); return ledger.days.find((d) => d.day === day) ?? { day, callers: {}, notified: [] };
 }

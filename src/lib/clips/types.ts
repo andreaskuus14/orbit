@@ -4,6 +4,10 @@ import type { HypeView } from "./hype-pure";
 import type { Virality } from "./score-pure";
 export type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 export type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
+  notes?: string[];
+  retryOf?: { clipId: string; videoId: string; title: string };
+  retryApproved?: { at: string; fingerprint: string };
+  flopRetry?: { at: string; clipId?: string; error?: string; privateAt?: string; restoredAt?: string; privacyPending?: boolean };
   status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; // video/thumb = paths relative to the studio root, "/" separators
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; // owner's picks: choosing one sets title / thumb (thumbOptions: same path form as thumb)
   critic?: Critique; // title critics' review of titleOptions (critiqueClip in learn.ts)
