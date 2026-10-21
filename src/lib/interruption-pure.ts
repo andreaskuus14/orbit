@@ -95,17 +95,19 @@ type ClipSnapshot = { jobs?: { id: string; status: string; source?: string; upda
 export function clipProblemNotices(data: ClipSnapshot): NotifyDetail[] {
   const out: NotifyDetail[] = [];
   const add = (key: string, title: string, reason: string, review: boolean) => out.push({ key, title, reason, kind: "studio", signal: "upload-failed", fixLabel: "Review failure", nav: { panel: "studio", view: review ? "review" : "clips" } });
-  // Many failed jobs/downloads at once (e.g. a broken yt-dlp) become one notice, not a wall of toasts.
-  const many = <T,>(items: T[], one: (x: T) => void, key: (xs: T[]) => string, title: string, reason: string) =>
-    items.length > 1 ? add(key(items), title, reason, false) : items.forEach(one);
-  const jobs = (data.jobs ?? []).filter((j) => j.status === "failed");
-  many(jobs, (j) => add(`failed-job:${j.id}:${j.updatedAt ?? ""}`, "A clip job failed", `Clip job ${(j.source || j.id).slice(0, 100)} failed and needs review.`, false),
-    (xs) => `failed-jobs:${xs.map((j) => `${j.id}:${j.updatedAt ?? ""}`).sort().join(",")}`, `${jobs.length} clip jobs failed`, "Open the clip factory to see why; they may share one cause.");
+  // Many failed jobs/downloads at once (e.g. a broken yt-dlp) become one notice. Keyed by the newest failure only:
+  // a retry or cleanup shrinking the set keeps the key (no re-alert); a new failure changes it.
+  const one = <T,>(items: T[], at: (x: T) => string, key: (x: T) => string, title: (x: T) => string, reason: (x: T) => string, many: string) => {
+    if (!items.length) return;
+    const newest = items.reduce((a, b) => (at(b) > at(a) ? b : a));
+    add(key(newest), items.length > 1 ? `${items.length} ${many}` : title(newest), items.length > 1 ? "Open STUDIO to see why; they may share one cause." : reason(newest), false);
+  };
+  one((data.jobs ?? []).filter((j) => j.status === "failed"), (j) => j.updatedAt ?? "", (j) => `failed-job:${j.id}:${j.updatedAt ?? ""}`,
+    () => "A clip job failed", (j) => `Clip job ${(j.source || j.id).slice(0, 100)} failed and needs review.`, "clip jobs failed");
   for (const j of data.jobs ?? []) {
     for (const c of j.clips ?? []) if (c.publish?.status === "failed") add(`failed-upload:${j.id}:${c.id}:${c.publish.at ?? ""}`, "Upload failed", `Your Short ${(c.title || c.id).slice(0, 100)} could not be uploaded.`, true);
   }
-  const dls = (data.downloads ?? []).filter((d) => d.status === "failed");
-  many(dls, (d) => add(`failed-download:${d.id}:${d.createdAt ?? ""}`, "A download failed", `Download ${d.id.slice(0, 50)} failed; STUDIO has the error and retry control.`, false),
-    (xs) => `failed-downloads:${xs.map((d) => `${d.id}:${d.createdAt ?? ""}`).sort().join(",")}`, `${dls.length} downloads failed`, "STUDIO has the errors and retry controls.");
+  one((data.downloads ?? []).filter((d) => d.status === "failed"), (d) => d.createdAt ?? "", (d) => `failed-download:${d.id}:${d.createdAt ?? ""}`,
+    () => "A download failed", (d) => `Download ${d.id.slice(0, 50)} failed; STUDIO has the error and retry control.`, "downloads failed");
   return out;
 }
