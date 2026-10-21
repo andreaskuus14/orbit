@@ -66,6 +66,14 @@ export const dailyCap = (a: Pick<Autopilot, "dailyDownloads">) => Math.max(0, Ma
 /** One shared cap: autopilot downloads + the scout's auto-clips today ≤ dailyDownloads (≤ MAX_DAILY). */
 export const capLeft = (a: Pick<Autopilot, "day" | "downloads" | "dailyDownloads">, now: Date, scoutAuto = 0) =>
   Math.min(MAX_DAILY, Math.max(0, dailyCap(a) - usedDownloads(a, now) - Math.max(0, scoutAuto)));
+/** A week of Shorts ready is enough: auto-clipping more only piles up review work and stale clips. */
+export const BUFFER_TARGET = 7;
+/** Shorts waiting to go out: scheduled for later, or made and not yet published (ready to review or approved). */
+export function queuedShorts(jobs: Pick<ClipJob, "clips">[], now: number): number {
+  return jobs.flatMap((j) => j.clips ?? []).filter((c) => c.publish
+    ? c.publish.status === "scheduled" && Date.parse(c.publish.scheduledFor ?? "") > now
+    : c.status === "ready" || c.status === "approved").length;
+}
 export function spendDownload(a: Autopilot, now: Date) { a.downloads = usedDownloads(a, now) + 1; a.day = localDay(now); }
 
 // ---- learned preferences ----

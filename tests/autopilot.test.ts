@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
+import { BUFFER_TARGET, queuedShorts,
   MAX_DAILY, capLeft, confidence, emptyAutopilot, findings, learnPrefs, multOf, parseAutopilot, patchAutopilot, pickTitle, pipeline, prefsHint, proposeSlot,
   rankCandidates, scoutAutoToday, shrunkMult, spendDownload, stageCounts, type Autopilot, type Prefs,
 } from "../src/lib/clips/autopilot-pure.ts";
@@ -152,4 +152,15 @@ test("council: prefsHint strips markup from creator names", () => {
   const h = prefsHint(p);
   assert.match(h, /Evil/);
   assert.ok(!/[<>\n]/.test(h));
+});
+
+test("queuedShorts counts future scheduled + made-but-unpublished clips only", () => {
+  const now = Date.parse("2026-10-21T12:00:00Z");
+  const c = (status: string, publish?: object) => ({ id: "c", status, publish }) as never;
+  const jobs = [{ clips: [c("ready"), c("approved"), c("rejected"), c("rendering"),
+    c("approved", { status: "scheduled", at: "x", scheduledFor: "2026-10-22T10:00:00Z" }),
+    c("approved", { status: "scheduled", at: "x", scheduledFor: "2026-10-20T10:00:00Z" }),
+    c("approved", { status: "done", at: "x" })] }];
+  assert.equal(queuedShorts(jobs, now), 3);
+  assert.ok(BUFFER_TARGET >= 7);
 });
