@@ -12,6 +12,7 @@ import { ZoomRig } from "./ZoomRig";
 import { useScramble } from "./useScramble";
 import StudioStats from "./StudioStats";
 import ClipFactory from "./ClipFactory";
+import LastShorts from "./LastShorts";
 import { isShort, medianViewsPerDay, moonRadius, takeoff, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
 
 // STUDIO: the owner's YouTube channel as a world. A crimson planet, one moon per video (newest closest in,
@@ -489,6 +490,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
                 </div>
               )}
 
+              <LastShorts />
               <div className="flex items-center justify-between gap-2">
                 <h3 className="hud-title studio-title !text-[0.65rem]">VIDEOS</h3>
                 <div className="flex gap-1" role="group" aria-label="Sort videos">

@@ -5,13 +5,24 @@ import type { Clip, ClipJob, VersionEdit } from "./types";
 
 export const LEARN_V = 1;
 export const MIN_SAMPLE = 3; // a bucket needs this many clips before it says anything
-export const NOTES_MAX = 1200;
+export const NOTES_MAX = 3000; // room for 5 worked + 5 flopped title/hook pairs before the other taste hints
 export const LEARN_EVERY_MS = 6 * 3_600_000;
 const H = 3_600_000;
 
 export type Stats = { at: string; views: number; likes: number; comments: number; avgViewPct?: number; avgViewSec?: number; subs?: number };
-export type SnapKey = "24h" | "72h" | "7d";
-export const SNAPS: [SnapKey, number][] = [["24h", 24 * H], ["72h", 72 * H], ["7d", 168 * H]];
+/** Missing/delayed Analytics metrics stay absent, never zero-filled into a snapshot. */
+export function analyticsStats(row: Record<string, string | number>): Pick<Stats, "avgViewPct" | "avgViewSec" | "subs"> {
+  const out: Pick<Stats, "avgViewPct" | "avgViewSec" | "subs"> = {};
+  for (const [metric, field] of [["averageViewPercentage", "avgViewPct"], ["averageViewDuration", "avgViewSec"], ["subscribersGained", "subs"]] as const) {
+    const value = row[metric];
+    if (value !== undefined && value !== "" && Number.isFinite(Number(value)) && Number(value) >= 0) out[field] = Math.round(Number(value) * 10) / 10;
+  }
+  return out;
+}
+export type SnapKey = "24h" | "48h" | "72h" | "7d";
+export const SNAPS: [SnapKey, number][] = [["24h", 24 * H], ["48h", 48 * H], ["72h", 72 * H], ["7d", 168 * H]];
+export const RESULTS_POLL_MS = 15 * 60_000;
+export const RESULTS_AGE_MS = 48 * H;
 export type Features = { hookStyle: string; hookLen: string; length: string; layout: string; captions: string; creator: string; kind: string };
 export type LearnRec = { videoId: string; jobId: string; clipId: string; title: string; hook: string; reason: string; layout: string; captions: string;
   durationSec: number; publishedAt?: string; sourceChannel: string; kind: string; snaps: Partial<Record<SnapKey, Stats>>; latest?: Stats;
@@ -19,10 +30,17 @@ export type LearnRec = { videoId: string; jobId: string; clipId: string; title: 
 export type LearnState = { v: number; checkedAt?: string; warnings: string[]; clips: Record<string, LearnRec> };
 
 export const emptyLearn = (): LearnState => ({ v: LEARN_V, warnings: [], clips: {} });
-export const learnDue = (s: LearnState, now: number) => !s.checkedAt || !(now - Date.parse(s.checkedAt) < LEARN_EVERY_MS);
+/** Normal refresh every 6 h; retry a missing 48 h snapshot every 15 min while its capture window is open. */
+export const learnDue = (s: LearnState, now: number) => !s.checkedAt || !(now - Date.parse(s.checkedAt) < LEARN_EVERY_MS)
+  || (now - Date.parse(s.checkedAt) >= RESULTS_POLL_MS && Object.values(s.clips).some((r) => needs48h(r, now)));
+export const needs48h = (r: LearnRec, now: number) => {
+  const age = now - Date.parse(r.publishedAt ?? "");
+  return !r.snaps["48h"] && age >= RESULTS_AGE_MS && age < RESULTS_AGE_MS + LEARN_EVERY_MS;
+};
 
 const isNum = (x: unknown) => typeof x === "number" && Number.isFinite(x) && x >= 0;
-const isStats = (x: unknown) => { const s = x as Stats; return !!s && typeof s.at === "string" && isNum(s.views) && isNum(s.likes) && isNum(s.comments); };
+const isStats = (x: unknown) => { const s = x as Stats; return !!s && typeof s.at === "string" && isNum(s.views) && isNum(s.likes) && isNum(s.comments)
+  && (["avgViewPct", "avgViewSec", "subs"] as const).every((k) => s[k] === undefined || isNum(s[k])); };
 
 /** "" when learn.json is usable, else why not (readState quarantines it). */
 export function learnProblem(x: unknown): string {
@@ -103,7 +121,7 @@ export function syncRecords(jobs: ClipJob[], prev: Record<string, LearnRec>): Re
 export function applyStats(r: LearnRec, s: Stats, publishedAt: string | undefined, now: number): LearnRec {
   const pub = publishedAt ?? r.publishedAt, age = pub ? now - Date.parse(pub) : NaN;
   const snaps = { ...r.snaps };
-  for (const [k, ms] of SNAPS) if (!snaps[k] && age >= ms && age < 2 * ms) snaps[k] = s; // a missed milestone stays empty: late numbers would be the wrong age
+  for (const [k, ms] of SNAPS) if (!snaps[k] && age >= ms && age < (k === "48h" ? ms + LEARN_EVERY_MS : 2 * ms)) snaps[k] = s; // never label late lifetime views as 48 h views
   return { ...r, publishedAt: pub, latest: s, snaps };
 }
 
@@ -114,6 +132,22 @@ export const median = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b), m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
+
+export type ShortResult = { videoId: string; title: string; hook: string; publishedAt?: string; capturedAt: string;
+  views48: number; avgViewPct?: number; medianViews: number | null; changePct: number | null; verdict: "worked" | "flopped" | null };
+
+/** Compare only like-aged snapshots from this channel. Three samples and a positive median are needed before judging. */
+export function results48(recs: LearnRec[]): ShortResult[] {
+  const have = recs.filter((r) => r.snaps["48h"]);
+  const mid = median(have.map((r) => r.snaps["48h"]!.views));
+  const baseline = have.length >= MIN_SAMPLE && mid > 0 ? mid : null;
+  return have.map((r): ShortResult => {
+    const s = r.snaps["48h"]!;
+    return { videoId: r.videoId, title: r.title, hook: r.hook, publishedAt: r.publishedAt, capturedAt: s.at, views48: s.views, avgViewPct: s.avgViewPct,
+      medianViews: baseline, changePct: baseline === null ? null : Math.round((s.views / baseline - 1) * 100),
+      verdict: baseline === null ? null : s.views >= baseline ? "worked" : "flopped" };
+  }).sort((a, b) => (b.publishedAt ?? b.capturedAt).localeCompare(a.publishedAt ?? a.capturedAt) || a.videoId.localeCompare(b.videoId));
+}
 
 export type Scored = { rec: LearnRec; views72: number; score: number };
 
@@ -187,14 +221,17 @@ export function decisions(jobs: ClipJob[]): Decisions {
 // ---- summary ----
 
 export type Insights = { checkedAt?: string; warnings: string[]; published: number; scored: number;
+  lastShorts?: ShortResult[]; worked?: ShortResult[]; flopped?: ShortResult[];
   top: { videoId: string; title: string; views72: number; score: number; avgViewPct?: number }[]; over: Bucket[]; under: Bucket[];
   winners?: Judged[]; flops?: Judged[]; why?: { winners: string; flops: string }; judged?: number; editHints?: string[] } & Decisions;
 
 export function insights(s: LearnState, jobs: ClipJob[]): Insights {
   const recs = Object.values(s.clips), scored = scoreClips(recs);
+  const results = results48(recs);
   const p = scored.length >= MIN_SAMPLE ? perfPatterns(scored) : { over: [], under: [] };
   const js = judgeShorts(recs), d = decisions(jobs), named = (bs: Bucket[]) => bs.map((b) => ({ ...b, text: phrase(b) })); // text: the client can't import this module (node:path via pure.ts)
   return { checkedAt: s.checkedAt, warnings: s.warnings, published: recs.length, scored: scored.length, ...d,
+    lastShorts: results.slice(0, 10), worked: results.filter((r) => r.verdict === "worked").slice(0, 5), flopped: results.filter((r) => r.verdict === "flopped").slice(0, 5),
     over: named(p.over), under: named(p.under), liked: named(d.liked), disliked: named(d.disliked),
     judged: js.length, winners: js.filter((j) => j.verdict === "winner").slice(0, 3), flops: js.filter((j) => j.verdict === "flop").reverse().slice(0, 3),
     why: { winners: sharedPattern(js, "winner"), flops: sharedPattern(js, "flop") }, editHints: editHints(js),
@@ -223,6 +260,12 @@ const ADVICE: Record<string, string> = {
 export function formatTaste(i: Insights): string {
   const list = (bs: Bucket[]) => bs.slice(0, 4).map(phrase).join(", ");
   const lines: string[] = [];
+  // Keep the stored title/hook limits; all 5 + 5 examples fit ahead of the other optional taste hints.
+  const example = (s: string, max: number) => clean(s, max).replace(/["\\]/g, "'");
+  for (const [label, rows] of [["Worked", i.worked], ["Flopped", i.flopped]] as const) {
+    if (rows?.length) lines.push(`${label} at 48h vs channel median (latest 5, quoted title / hook data): ${rows.slice(0, 5)
+      .map((r) => JSON.stringify([example(r.title, 100), example(r.hook, 60)])).join("; ")}.`);
+  }
   if (i.rejects.length) {
     const tips = [...new Set(i.rejects.map((r) => ADVICE[r.reason]).filter(Boolean))];
     lines.push(`Owner rejects: ${i.rejects.slice(0, 4).map((r) => `${r.reason} (${r.n})`).join(", ")}${tips.length ? ` → ${tips.join("; ")}` : ""}.`);

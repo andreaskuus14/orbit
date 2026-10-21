@@ -20,6 +20,8 @@ export async function register() {
     // Niche/trend alerts while no ORBIT tab is open: inbox for the Herald + Windows toasts. Own timer for the same reason as the scout.
     const { startHeraldWatch } = await import("./lib/herald-watch");
     startHeraldWatch();
+    const { startResultsLoop } = await import("./lib/clips/learn");
+    startResultsLoop(); // capture 48h outcomes even when the STUDIO drawer is closed
     // Self-test once the server answers requests; /api/doctor shares the same run (and starts it itself if asked first).
     setTimeout(() => { void import("./lib/doctor-boot").then((m) => m.bootSelfTest()).catch(() => {}); }, 15_000);
   }
