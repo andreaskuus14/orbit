@@ -1,7 +1,7 @@
 "use client";
 // ARCH planet: a study workspace for small buildings. Blocks in metres on a plot; edit by typing to CORE or directly with the numbers.
 // Quantities and euros are computed in arch-pure.ts from the geometry, never by the AI. Learning tool, not certification.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls } from "@react-three/drei";
@@ -13,6 +13,7 @@ const KEY = "orbit.arch.v1";
 const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9" };
 const GROUND: Record<Scene["plot"]["ground"], string> = { grass: "#c9d3bf", gravel: "#d9d6cf", forest: "#b9c6b0", sand: "#e6dcc6" };
 const BG = "#ebe7e0", GOLD = "#c9a24a";
+const TP = new THREE.Vector3(), TS = new THREE.Vector3(); // per-frame scratch
 const STEP_S = 0.45; // build animation: one part every 0.45 s, bottom to top
 
 /** Unit gable roof (1 × 1 × 1, ridge along x), so a roof part scales like a box but reads as a roof. A low roof (< 0.5 m) is flat. */
@@ -38,11 +39,11 @@ function Block({ p, selected, onPick, reduced, appearAt, hidden }: { p: Part; se
     // before its turn in the build animation a part waits flat on its base; then it rises into place
     const wait = !reduced && clock.elapsedTime < appearAt;
     m.current.visible = !hidden && !wait;
-    m.current.position.lerp(wait ? new THREE.Vector3(p.x, p.y, p.z) : target.pos, k);
-    m.current.scale.lerp(wait ? new THREE.Vector3(p.w, 0.001, p.d) : target.scale, k);
+    m.current.position.lerp(wait ? TP.set(p.x, p.y, p.z) : target.pos, k);
+    m.current.scale.lerp(wait ? TS.set(p.w, 0.001, p.d) : target.scale, k);
   });
   return (
-    <mesh ref={m} position={start.pos} scale={start.scale} castShadow receiveShadow onClick={(e) => { e.stopPropagation(); onPick(); }}>
+    <mesh ref={m} position={start.pos} scale={start.scale} castShadow receiveShadow onClick={(e) => { if (!e.object.visible) return; e.stopPropagation(); onPick(); }}>
       {p.kind === "roof" && p.h >= 0.5 ? <primitive object={GABLE} attach="geometry" /> : <boxGeometry args={[1, 1, 1]} />}
       <meshStandardMaterial color={COLOR[p.kind]} roughness={0.9} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.25 : 0} />
       <Edges threshold={20} color={selected ? GOLD : "#57534e"} />
@@ -58,12 +59,12 @@ function Trees({ n, w, d }: { n: number; w: number; d: number }) {
 }
 
 /** Gold blueprint lines: the footprint of everything at ground level, drawn under the model. */
-function Blueprint({ parts }: { parts: Part[] }) {
+const Blueprint = memo(function Blueprint({ parts }: { parts: Part[] }) {
   return <>{parts.filter((p) => p.y <= 0.01).map((p) => {
     const x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, z0 = p.z - p.d / 2, z1 = p.z + p.d / 2, y = 0.02;
     return <Line key={p.id} points={[[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [x0, y, z0]]} color={GOLD} lineWidth={1.5} />;
   })}</>;
-}
+});
 
 /** Restart point for the build animation, in canvas clock seconds. */
 function BuildClock({ run, onStart }: { run: number; onStart: (t: number) => void }) {
