@@ -147,6 +147,7 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
                 <li key={m.id} className={m.done ? "ok" : undefined}>{m.done ? "✓" : "○"} {m.label} <span className="muted text-xs">· {m.progress}</span></li>))}</ul>
             </div>
           )}
+          {data.business && <p>{data.business}</p>}
           {data.work && <MorningWork work={data.work} onOpen={openWork} />}
           {s && (
             <div>

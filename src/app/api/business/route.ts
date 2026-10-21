@@ -3,7 +3,7 @@ import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
 import { usageHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
-import { FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, emailIn, findPrompt, funnel, outreachPrompt, parseFinds, sendSubject, validatePatch, validateProspect, type Lang, type Prospect } from "@/lib/business-pure";
+import { FOLLOWUP_SYSTEM, followupPrompt, FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, emailIn, findPrompt, funnel, outreachPrompt, parseFinds, sendSubject, validatePatch, validateProspect, type Lang, type Prospect } from "@/lib/business-pure";
 
 export const dynamic = "force-dynamic";
 
@@ -65,16 +65,20 @@ export async function POST(req: Request) {
       const { error } = await sb.from("prospects").delete().eq("id", b.id as string);
       return error ? fail(error.message, 500) : Response.json({ ok: true });
     }
+    case "followup":
     case "draft": {
+      const followup = b.action === "followup";
       const lang = (LANGS as readonly string[]).includes(b.lang as string) ? (b.lang as Lang) : "English";
       const held = stopAllOn() ? "Stop-all is on" : usageHold();
       if (held) return fail(`Not drafting right now: ${held}`, 503);
-      const { data: p, error } = await sb.from("prospects").select("name,kind,notes").eq("id", b.id as string).maybeSingle();
+      const { data: p, error } = await sb.from("prospects").select("name,kind,notes,draft,stage,updated_at").eq("id", b.id as string).maybeSingle();
       if (error) return fail(error.message, 500);
       if (!p) return fail("Not found", 404);
+      if (followup && (p.stage !== "contacted" || !p.draft?.trim())) return fail("A contacted business with a first draft is required");
       try {
-        const r = await askClaude(outreachPrompt(p, lang), OUTREACH_SYSTEM, { lane: "foreground", purpose: "business.outreach", timeoutMs: 90_000 });
+        const r = await askClaude(followup ? followupPrompt(p, lang) : outreachPrompt(p, lang), followup ? FOLLOWUP_SYSTEM : OUTREACH_SYSTEM, { lane: "foreground", purpose: followup ? "business.followup" : "business.outreach", timeoutMs: 90_000 });
         const draft = r.text.trim().slice(0, 4000);
+        if (followup && draft === p.draft.trim()) return fail("CORE repeated the first draft; try again", 502);
         if (!draft) return fail("CORE returned an empty draft; try again", 502);
         return one(sb.from("prospects").update({ draft, updated_at: new Date().toISOString() }).eq("id", b.id as string).select(COLS).maybeSingle());
       } catch (e) {
@@ -123,6 +127,6 @@ export async function POST(req: Request) {
       const notes = `${p.notes ? `${p.notes}\n` : ""}Emailed ${to} on ${stamp.slice(0, 10)} (approved in ORBIT).`.slice(-2000);
       return one(sb.from("prospects").update({ notes }).eq("id", b.id as string).select(COLS).maybeSingle());
     }
-    default: return fail("action must be find, send, add, update, draft or delete");
+    default: return fail("action must be find, send, add, update, draft, followup or delete");
   }
 }
