@@ -51,15 +51,16 @@ test("metadata filter quotes punctuation and escapes SQL wildcards", () => {
 });
 
 type Row = MemoryMetadata & { content: string };
-type Call = { columns: string; user?: string; query?: string; filter?: string; ids?: string[]; limit?: number; ordered?: boolean };
+type Call = { columns: string; user?: string; query?: string; filter?: string; ids?: string[]; limit?: number; ordered?: boolean; equalities?: Record<string, string> };
 function fakeStore(opts: { fts: string[]; semantic?: string[]; project?: MemoryMetadata[]; rows: Row[]; projectError?: boolean; hydrateError?: boolean }) {
   const calls: Call[] = [];
+  const rpcs: string[] = [];
   const client = {
     from() {
       const call: Call = { columns: "" }; calls.push(call);
       const builder = {
         select(columns: string) { call.columns = columns; return builder; },
-        eq(_key: string, value: string) { call.user = value; return builder; },
+        eq(key: string, value: string) { if (key === "user_id") call.user = value; (call.equalities ??= {})[key] = value; return builder; },
         textSearch(_key: string, query: string) { call.query = query; return builder; },
         or(filter: string) { call.filter = filter; return builder; },
         order() { call.ordered = true; return builder; },
@@ -71,10 +72,29 @@ function fakeStore(opts: { fts: string[]; semantic?: string[]; project?: MemoryM
         },
       }; return builder;
     },
-    rpc() { return Promise.resolve({ data: (opts.semantic ?? []).map((id) => ({ id })), error: null }); },
+    rpc(name: string) { rpcs.push(name); return Promise.resolve({ data: (opts.semantic ?? []).map((id) => ({ id })), error: null }); },
   };
-  return { client: client as unknown as SupabaseClient, calls };
+  return { client: client as unknown as SupabaseClient, calls, rpcs };
 }
+
+test("chat-summary search filters full-text and hydration, and uses the dedicated semantic pool", async () => {
+  const rows = ["old-relevant", "semantic", "third", "fourth"].map((id) => ({ id, title: id, content: "Summary" }));
+  const { client, calls, rpcs } = fakeStore({ rows, fts: ["old-relevant", "third", "fourth"], semantic: ["old-relevant", "semantic"] });
+  const out = await retrieveMemories(client, "launch plans", 3, "owner", async () => [1], { coreSummariesOnly: true, projectName: "Ignored" });
+  assert.equal(out.results.length, 3);
+  assert.equal(out.results[0].id, "old-relevant");
+  assert.deepEqual(rpcs, ["match_core_summaries"]);
+  assert.equal(calls.length, 2, "only FTS and final hydration; no project additions");
+  for (const call of calls) assert.deepEqual(call.equalities, { kind: "conversation", source: "core-summary", user_id: "owner" });
+  assert.ok(calls[0].query?.includes("launch"));
+});
+
+test("summary search still works without embeddings and exposes empty results for recency fallback", async () => {
+  const { client, rpcs } = fakeStore({ rows: [], fts: [] });
+  const out = await retrieveMemories(client, "Nothing matching", 3, "owner", async () => null, { coreSummariesOnly: true });
+  assert.deepEqual(out.results, []);
+  assert.deepEqual(rpcs, []);
+});
 
 test("vague no-match retrieval preserves CORE's recent-memory fallback instead of hydrating two project notes", async () => {
   const { client, calls } = fakeStore({ fts: [], rows: [], project: [project("p1", "Nebula sprint"), project("p2", "Nebula planning")] });
