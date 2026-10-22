@@ -651,3 +651,17 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 @media (prefers-reduced-motion: reduce) { .story-readout, .story-rail, .story-rail button::before { transition: none; } .story-anim { animation: none; } }
 /* Opening a planet: the camera dollies in first, then the drawer slides in. */
 @media (prefers-reduced-motion: no-preference) and (min-width: 641px) { .drawer:not(.drawer-out):not(.drawer-dock) { animation-delay: 0.3s; animation-fill-mode: both; } }
+
+/* Boot sequence (BootSequence.tsx): brackets draw, title decrypts, all fades by 2.6 s. */
+.boot { position: fixed; inset: 0; z-index: 60; pointer-events: none; display: grid; place-items: center;
+  background: radial-gradient(ellipse at 50% 50%, rgba(10, 14, 22, 0.55), rgba(3, 4, 8, 0.92) 70%); animation: boot-out 2.6s ease forwards; }
+.boot-frame { position: absolute; inset: 4vmin; width: calc(100% - 8vmin); height: calc(100% - 8vmin); }
+.boot-frame path { fill: none; stroke: #7dd3fc; vector-effect: non-scaling-stroke; stroke-dasharray: 1; stroke-dashoffset: 1;
+  filter: drop-shadow(0 0 6px rgba(125, 211, 252, 0.8)); animation: boot-draw 0.9s cubic-bezier(.6, 0, .2, 1) forwards; }
+.boot-frame path { stroke-width: 1.5px; }
+.boot-text { display: grid; justify-items: center; gap: 0.7rem; font-family: var(--font-display); text-transform: uppercase; }
+.boot-title { font-size: clamp(1rem, 2.6vw, 1.7rem); letter-spacing: 0.42em; color: #e0f2fe; text-shadow: 0 0 18px rgba(125, 211, 252, 0.7); }
+.boot-sub { font-size: 0.72rem; letter-spacing: 0.5em; color: #7dd3fc; opacity: 0; animation: boot-in 0.5s 0.9s ease forwards; }
+@keyframes boot-draw { to { stroke-dashoffset: 0; } }
+@keyframes boot-in { to { opacity: 0.85; } }
+@keyframes boot-out { 0%, 72% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
