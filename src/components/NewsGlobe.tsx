@@ -666,7 +666,7 @@ const WINDOWS = [{ h: 24, label: "24h" }, { h: 72, label: "3d" }, { h: 168, labe
 
 /** focus: a country or region from CORE navigation; a new object flies there with the same camera moves as a click.
  *  focus.search runs that search as if typed; "" clears search and selection (the whole world). */
-export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto" }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode }) {
+export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode; paused?: boolean }) {
   const q = worldQuality(quality);
   const glr = useGlRecovery();
   // The globe felt laggy: it always rendered with 4× MSAA at up to 1.75× pixels. On "auto", step down once frames drop.
@@ -824,7 +824,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
 
   return (
     <div className="absolute inset-0 globe-in" aria-label="World news globe">
-      <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
+      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         {quality === "auto" && <PerformanceMonitor onDecline={() => setLean(true)} />}
         <WarmCompile />
         <color attach="background" args={["#01040b"]} />
@@ -837,7 +837,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         {(lit.length ? top : sceneHs.slice(0, 6)).map((h) => <Ring key={`${mode}-${h.name}`} h={h} k={Math.sqrt(h.count / (sceneHs[0]?.count || 1))} color={colorFor(h.name, mode)} reduced={reduced} />)}
         <OrbitControls makeDefault enablePan={false} minDistance={3.2} maxDistance={12} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} autoRotateSpeed={0.3} />
         <Rig focus={focus} reduced={reduced} offsetX={selected ? -40 : 110} />
-        <ZoomRig home={7.6} reduced={reduced} />
+        {!paused && <ZoomRig home={7.6} reduced={reduced} />}
         <Dial reduced={reduced} />
         <Labels items={top} refs={labels} />
         <EffectComposer multisampling={msaa}>

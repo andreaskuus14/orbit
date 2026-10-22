@@ -118,6 +118,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, [panel, behind]);
   // Is a 3D scene on screen? The news globe is always 3D, even in "2D view"; the other worlds and the galaxy follow the toggle.
   const scene3d = !gameOpen && (shown === "intelligence" || view === "3d");
+  const [globeKept, setGlobeKept] = useState(false);
+  useEffect(() => { if (shown === "intelligence") setGlobeKept(true); }, [shown]);
   // A full-screen world (or a game) covers the galaxy: it stays mounted but paused, so coming back is instant.
   const covered = gameOpen || isWorld(shown);
   useEffect(() => { markOpen(gameOpen ? "game" : covered ? shown ?? "galaxy" : "galaxy"); }, [gameOpen, covered, shown]); // dev-only timing
@@ -399,9 +401,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
         </div>
       )}
-      {shown === "intelligence" && !gameOpen ? (
-        <NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} />
-      ) : shown === "studio" ? (
+      {/* The globe stays mounted after its first visit (hidden + paused): re-entering skips the ~1-2 s rebuild and texture upload. */}
+      {globeKept && (
+        <div className="absolute inset-0" hidden={!(shown === "intelligence" && !gameOpen)}>
+          <NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} paused={!(shown === "intelligence" && !gameOpen)} />
+        </div>
+      )}
+      {shown === "intelligence" && !gameOpen ? null : shown === "studio" ? (
         <StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} />
       ) : shown === "creation" ? (
         <DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} />
