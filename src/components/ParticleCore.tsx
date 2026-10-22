@@ -111,7 +111,7 @@ function build(gl: THREE.WebGLRenderer, side: number): Sim | null {
   geo.setAttribute("aRef", new THREE.BufferAttribute(ref, 2));
   const mat = new THREE.ShaderMaterial({
     vertexShader: RENDER_VS, fragmentShader: RENDER_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-    uniforms: { uPos: { value: null }, uVel: { value: null }, uScale: { value: 50 }, uRed: { value: 0 }, uFlare: { value: 0 }, uGain: { value: 0.35 * Math.min(1, 16384 / n) } }, // more particles, dimmer each: same total light
+    uniforms: { uPos: { value: null }, uVel: { value: null }, uScale: { value: 50 }, uRed: { value: 0 }, uFlare: { value: 0 }, uGain: { value: 0.12 * Math.min(1, 16384 / n) } }, // more particles, dimmer each: same total light
   });
   return { gpu, pos, vel, geo, mat };
 }
