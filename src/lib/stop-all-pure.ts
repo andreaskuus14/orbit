@@ -3,6 +3,10 @@
 export const PAUSED_MSG = "ORBIT is paused (Stop-all is on)";
 export type StopState = { on: boolean; at: string };
 export const STOP_OFF: StopState = { on: false, at: "" };
+export const STOP_ALL_EVENT = "orbit:stop-all";
+export type StopAllDetail = { on: boolean };
+// A newly mounted listener asks the sole poller to replay its known state.
+export const STOP_ALL_REQUEST_EVENT = "orbit:stop-all-request";
 
 /** CORE tools that start agents, plans, goals, scout runs or uploads. Read-only tools and memory/LIFE/workspace writes still work. */
 export const STARTS_WORK = ["ask_agent", "plan_task", "create_goal", "run_scout", "run_niche", "schedule_approved"];

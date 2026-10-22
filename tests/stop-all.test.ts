@@ -3,7 +3,17 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PAUSED_MSG, STARTS_WORK, coreToolRefusal, parseStop } from "../src/lib/stop-all-pure.ts";
+import { PAUSED_MSG, STARTS_WORK, STOP_ALL_EVENT, STOP_ALL_REQUEST_EVENT, type StopAllDetail, coreToolRefusal, parseStop } from "../src/lib/stop-all-pure.ts";
+
+test("Stop-all event contract carries both on and off states", () => {
+  assert.equal(STOP_ALL_EVENT, "orbit:stop-all");
+  assert.equal(STOP_ALL_REQUEST_EVENT, "orbit:stop-all-request");
+  const bus = new EventTarget();
+  const received: StopAllDetail[] = [];
+  bus.addEventListener(STOP_ALL_EVENT, e => received.push((e as CustomEvent<StopAllDetail>).detail));
+  for (const on of [true, false]) bus.dispatchEvent(new CustomEvent<StopAllDetail>(STOP_ALL_EVENT, { detail: { on } }));
+  assert.deepEqual(received, [{ on: true }, { on: false }]);
+});
 
 test("coreToolRefusal: work-starting tools are refused only while Stop-all is on", () => {
   for (const t of STARTS_WORK) {
