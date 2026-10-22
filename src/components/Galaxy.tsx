@@ -752,6 +752,40 @@ const sparkMat = new THREE.ShaderMaterial({
       gl_FragColor = vec4(uColor * 1.3, a * (0.35 + 0.45 * vTw) * uBreath * 0.8); }`,
 });
 
+/** Visible thinking: when a planet gets a backend event, a light pulse runs from the CORE along an arc to it (plan #2).
+ *  One additive line per planet; 40 points recoloured on the CPU each frame only while its 3 s glow is alive. */
+const BEAM_N = 40;
+function Beams({ positions, pulses, reduced }: { positions: Positions; pulses: RefObject<Record<string, number>>; reduced: boolean }) {
+  const lines = useMemo(() => PLANETS.map((p) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(BEAM_N * 3), 3));
+    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(BEAM_N * 3), 3));
+    const m = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const l = new THREE.Line(g, m); l.frustumCulled = false; l.visible = false;
+    return { id: p.id, line: l, col: new THREE.Color(p.color) };
+  }), []);
+  useEffect(() => () => lines.forEach(({ line }) => { line.geometry.dispose(); (line.material as THREE.Material).dispose(); }), [lines]);
+  const mid = useMemo(() => new THREE.Vector3(), []);
+  useFrame(() => {
+    for (const { id, line, col } of lines) {
+      const g = glow(pulses, id);
+      line.visible = g > 0.01 && !!positions[id];
+      if (!line.visible) continue;
+      const to = positions[id], pos = line.geometry.attributes.position as THREE.BufferAttribute, c = line.geometry.attributes.color as THREE.BufferAttribute;
+      mid.copy(to).multiplyScalar(0.5); mid.y += 1.5 + to.length() * 0.12; // arc over the plane
+      const head = reduced ? 1 : Math.min(1, (1 - g) * 2.2); // the head reaches the planet in the first ~1.4 s, then the trail fades
+      for (let i = 0; i < BEAM_N; i++) {
+        const t = i / (BEAM_N - 1), b = 2 * (1 - t) * t, d = t * t; // quadratic Bézier from the CORE (origin) via mid to the planet
+        pos.setXYZ(i, b * mid.x + d * to.x, b * mid.y + d * to.y, b * mid.z + d * to.z);
+        const k = (t <= head ? 0.25 + 0.75 * Math.exp(-((head - t) ** 2) / 0.004) : 0) * g * 1.6; // bright head, faint trail behind it
+        c.setXYZ(i, col.r * k, col.g * k, col.b * k);
+      }
+      pos.needsUpdate = true; c.needsUpdate = true;
+    }
+  });
+  return <>{lines.map(({ id, line }) => <primitive key={id} object={line} />)}</>;
+}
+
 function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced">) {
   const group = useRef<THREE.Group>(null);
   const inner = useRef<THREE.Sprite>(null);
@@ -1089,6 +1123,7 @@ export default function Galaxy(props: GalaxyProps) {
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <Dust count={q.dust} reduced={props.reduced} />
         <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} />
+        <Beams positions={positions} pulses={props.pulses} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
         <AsteroidBelt inner={5.5} outer={6.0} count={Math.round(900 * q.belt)} seed={3} reduced={props.reduced} />
         <AsteroidBelt inner={32} outer={34} count={Math.round(2200 * q.belt)} seed={9} reduced={props.reduced} thickness={0.6} />

@@ -4,6 +4,7 @@ import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voi
 import { getSpeechRecognition, VOICE_PAUSE, VOICE_RESUME, type VoiceInput } from "./useVoiceInput";
 import { useWakeWord } from "./useWakeWord";
 import { enrollment, loadVoicePrint, saveVoicePrint, startVoiceSampler, type VoicePrint, type VoiceProfile } from "./voiceprint";
+import { warmNaturalVoice } from "./speak";
 
 const ENROLL = ["The quick brown fox jumps over the lazy dog.", "Seven bright stars are shining over the quiet sea.", "I like warm soup and long walks on rainy days."];
 const ENROLL_MS = 4500;
@@ -229,8 +230,15 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           <span className="voice-sub">Spoken answers</span>
           <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>
           <label className="voice-col">Voice
-            <select className="field" value={s.voiceURI ?? ""} onChange={(e) => update({ voiceURI: e.target.value || null })}>
+            <select className="field" value={s.voiceURI ?? ""} onChange={(e) => { update({ voiceURI: e.target.value || null }); if (e.target.value.startsWith("kokoro:")) warmNaturalVoice(); }}>
               <option value="">Default</option>
+              <optgroup label="Natural (runs on this PC, ~90 MB first download)">
+                <option value="kokoro:af_heart">Heart (US, warm)</option>
+                <option value="kokoro:af_bella">Bella (US)</option>
+                <option value="kokoro:bf_emma">Emma (UK)</option>
+                <option value="kokoro:bm_george">George (UK)</option>
+                <option value="kokoro:am_michael">Michael (US)</option>
+              </optgroup>
               {voices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>)}
             </select>
           </label>

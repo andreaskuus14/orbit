@@ -23,6 +23,9 @@ import { Herald } from "./Herald";
 import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
+import { HudFrame } from "./HudFrame";
+import { sfx } from "./sfx";
+import { BootSequence } from "./BootSequence";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
 import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
 import { runFollowCommand } from "./follow-command";
@@ -54,7 +57,7 @@ const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do fo
 
 export default function Orbit({ userId, email }: { userId: string; email: string }) {
   const sb = useMemo(() => createClient(), []);
-  const [view, setView] = useState<"3d" | "2d">("2d");
+  const [view, setView] = useState<"3d" | "2d" | null>(null); // null = still deciding: show the loader, never flash the 2D index
   const [reduced, setReduced] = useState(false);
   const [panel, setPanel] = useState<PanelId | null>(null);
   const [memoryCount, setMemoryCount] = useState(0);
@@ -92,6 +95,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "review" | "none" } | null>(null);
   const [lifeOpen, setLifeOpen] = useState<{ tab: LifeView; start?: true } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
+  const [sfxOn, setSfxOn] = useState(true);
+  useEffect(() => setSfxOn(sfx.enabled()), []);
+  useEffect(() => { if (approach) sfx.whoosh(); }, [approach]);
   // CORE opened from inside a world floats over it instead of leaving it; closing CORE returns to that world.
   const [behind, setBehind] = useState<PanelId | null>(null);
   // The world (or panel) actually on screen. Also while panel is briefly null after closing CORE, so the world isn't remounted.
@@ -191,7 +197,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     try { webgl = !!document.createElement("canvas").getContext("webgl2"); } catch { /* no webgl */ }
     let saved: string | null = null;
     try { saved = localStorage.getItem("orbit.view"); } catch { /* private mode */ }
-    if (webgl && (saved === "3d" || (saved !== "2d" && innerWidth >= 720 && !motion.matches))) setView("3d");
+    setView(webgl && (saved === "3d" || (saved !== "2d" && innerWidth >= 720 && !motion.matches)) ? "3d" : "2d");
     return () => motion.removeEventListener("change", updateMotion);
   }, []);
   const toggleView = () => {
@@ -212,6 +218,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => {
     const prev = prevPanel.current;
     prevPanel.current = panel;
+    if (panel && panel !== prev) sfx.open(); else if (!panel && prev) sfx.close();
     if (panel || !prev || WORLDS.includes(prev) || reduced) { setExiting(null); return; }
     setExiting(prev);
     const t = setTimeout(() => setExiting(null), 200);
@@ -376,6 +383,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   return (
     <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view}>
+      {view === "3d" && !shown && <HudFrame />}
+      {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
         <div className="absolute inset-0" style={covered ? { visibility: "hidden" } : undefined} inert={covered || undefined}>
           <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
@@ -393,7 +402,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : shown === "arch" ? (
         <ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
-      ) : view === "3d" ? null : (
+      ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label="Planets" className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>ORBIT / YOUR WORKSPACE</p><h1>A universe.<br />Yours to shape.</h1><span>Ask, create, remember. Pick a world to begin.</span></div>
           {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}
@@ -441,6 +450,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           ))}
         </div>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(SHORTCUTS_EVENT))}>Keyboard shortcuts <kbd>?</kbd></button>
+        <button className="hud-menu-item" aria-pressed={sfxOn} onClick={() => { sfx.set(!sfxOn); setSfxOn(!sfxOn); if (!sfxOn) sfx.tick(); }}>UI sounds: {sfxOn ? "on" : "off"}</button>
         <button className="hud-menu-item" onClick={signOut} title={email}>Sign out</button>
       </div>
       <ShortcutsOverlay />

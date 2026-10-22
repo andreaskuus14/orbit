@@ -2,6 +2,7 @@
 // The HUD bell: history of everything ORBIT announced (STUDIO, LIFE reminders, agents…). Emitters call notify() from notify-pure.ts.
 import { useEffect, useState } from "react";
 import { NAV_EVENT } from "@/lib/nav-pure";
+import { sfx } from "./sfx";
 import { NOTIFY_EVENT, NOTIFY_KEY, KIND_ICON, addItem, notify, parseItems, relTime, unreadCount, type NotifyDetail, type NotifyItem } from "@/lib/notify-pure";
 import type { BootResult } from "@/lib/doctor-boot-pure";
 import { HeraldToggle } from "./Herald";
@@ -22,7 +23,7 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
   useEffect(() => {
     setItems(load());
     // Re-read storage on every event so several ORBIT windows don't overwrite each other's history.
-    const onNotify = (e: Event) => { const l = addItem(load(), (e as CustomEvent<NotifyDetail>).detail, Date.now()); save(l); setItems(l); };
+    const onNotify = (e: Event) => { const before = load(), l = addItem(before, (e as CustomEvent<NotifyDetail>).detail, Date.now()); if (l.length !== before.length || l[0]?.key !== before[0]?.key) sfx.chime(); save(l); setItems(l); }; // chime only for a new item, not a repeat
     const onStorage = (e: StorageEvent) => { if (e.key === NOTIFY_KEY) setItems(load()); if (e.key === INTERRUPTION_KEY) setJudgment(loadJudgment()); };
     const onJudgment = () => setJudgment(loadJudgment());
     const onShown = (e: Event) => { const keys = (e as CustomEvent<string[]>).detail; const l = load().map((x) => keys.includes(x.key ?? `n:${x.kind}:${x.title}|${x.body ?? ""}`) ? { ...x, interrupted: true } : x); save(l); setItems(l); };
