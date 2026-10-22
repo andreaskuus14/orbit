@@ -23,6 +23,7 @@ import { Herald } from "./Herald";
 import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
+import { HudFrame } from "./HudFrame";
 import { sfx } from "./sfx";
 import { BootSequence } from "./BootSequence";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
@@ -382,6 +383,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   return (
     <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view}>
+      {view === "3d" && !shown && <HudFrame />}
       {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
         <div className="absolute inset-0" style={covered ? { visibility: "hidden" } : undefined} inert={covered || undefined}>
