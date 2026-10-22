@@ -24,6 +24,8 @@ import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
+import { StatusRail } from "./StatusRail";
+import { Ticker } from "./Ticker";
 import { sfx } from "./sfx";
 import { BootSequence } from "./BootSequence";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
@@ -384,6 +386,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   return (
     <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view}>
       {view === "3d" && !shown && <HudFrame />}
+      {view === "3d" && !shown && !approach && <Ticker />}
       {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
         <div className="absolute inset-0" style={covered ? { visibility: "hidden" } : undefined} inert={covered || undefined}>
@@ -488,13 +491,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {!shown && view === "3d" && (
         <aside className="glass hud-panel status-hud" aria-label="System status">
           <div className="hud-title">SYSTEM</div>
-          <dl>
-            <div><dt>Memories</dt><dd className="num">{memoryCount}</dd></div>
-            <div><dt>Agents working</dt><dd className="num">{runningTasks.length}</dd></div>
-            <div><dt>CORE</dt><dd className={warning ? "bad" : busy ? "warn" : "ok"}>{busy ? "Thinking" : warning ? "Last request failed" : "Ready"}</dd></div>
-            <div><dt>Pulse</dt><dd className={pulseFailed ? "bad" : pulseBusy ? "warn" : "ok"}>{pulseBusy ? "Writing" : pulseFailed ? "Last failed" : "Idle"}</dd></div>
-            <div><dt>Automations</dt><dd className={automationFailing ? "bad" : "ok"}>{automationFailing ? "Needs attention" : "OK"}</dd></div>
-          </dl>
+          <StatusRail items={[
+            { label: "CORE", value: busy ? "Thinking" : warning ? "Last request failed" : "Ready", tone: warning ? "bad" : "ok", busy },
+            { label: "Agents", value: runningTasks.length ? `${runningTasks.length} working` : "Idle", tone: "ok", busy: runningTasks.length > 0 },
+            { label: "Pulse", value: pulseBusy ? "Writing" : pulseFailed ? "Last failed" : "Idle", tone: pulseFailed ? "bad" : "ok", busy: pulseBusy },
+            { label: "Automations", value: automationFailing ? "Needs attention" : "OK", tone: automationFailing ? "bad" : "ok" },
+            { label: "Memories", value: String(memoryCount), tone: "ok" },
+          ]} />
           <button className="chip mt-2" onClick={() => setDoctor("click")}>🩺 Check Orbital</button>
           <p className="muted mt-2 text-[10px] tracking-wider">← → FLY BETWEEN PLANETS · ? SHORTCUTS</p>
         </aside>

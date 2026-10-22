@@ -172,3 +172,24 @@
 .hud-frame { position: fixed; inset: 0; z-index: 4; pointer-events: none; }
 .hud-frame path { fill: none; stroke: #7dd3fc; stroke-width: 1px; vector-effect: non-scaling-stroke; opacity: .35; }
 .hud-frame text { fill: #7dd3fc; opacity: .45; font: 9px var(--font-display, monospace); letter-spacing: .3em; }
+
+/* Cockpit part 2: radial status rail (StatusRail.tsx) and the activity ticker (Ticker.tsx). */
+.rail { display: flex; align-items: center; gap: .7rem; margin-top: .4rem; }
+.rail-rings { flex: none; overflow: visible; }
+.rail-core { fill: #7dd3fc; filter: drop-shadow(0 0 6px #7dd3fc); animation: rail-breath 3.6s ease-in-out infinite; }
+.rail-track { fill: none; stroke: #c3e5ef14; stroke-width: 2; }
+.rail-busy { animation: rail-spin 2.4s linear infinite; }
+.rail-list { display: grid; gap: .15rem; font-size: .68rem; flex: 1; min-width: 0; }
+.rail-list > div { display: flex; justify-content: space-between; gap: .4rem; }
+.rail-list dt { color: var(--muted); letter-spacing: .06em; } .rail-list dd { text-align: right; }
+.rail-list .ok { color: #c1e3eb; } .rail-list .warn { color: #fbbf24; } .rail-list .bad { color: #fb7185; }
+@keyframes rail-spin { to { transform: rotate(360deg); } }
+@keyframes rail-breath { 0%, 100% { opacity: .7; } 50% { opacity: 1; } }
+.ticker { position: fixed; top: 3.6rem; left: 50%; transform: translateX(-50%); z-index: 14; max-width: min(46rem, calc(100vw - 2rem)); display: flex; align-items: center; gap: .55rem;
+  padding: .3rem .8rem; font-size: .72rem; color: #c1e3eb; border-top: 1px solid #7dd3fc33; border-bottom: 1px solid #7dd3fc33;
+  background: linear-gradient(90deg, transparent, #070c12cc 15%, #070c12cc 85%, transparent); pointer-events: none; }
+.ticker-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: #7dd3fc; box-shadow: 0 0 8px #7dd3fc; animation: rail-breath 1.6s ease-in-out infinite; }
+.ticker-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: ticker-in .5s var(--orbit-ease, ease) both; }
+@keyframes ticker-in { from { opacity: 0; transform: translateY(6px); filter: blur(2px); } to { opacity: 1; transform: none; filter: none; } }
+@media (max-width: 760px) { .ticker { display: none; } }
+@media (prefers-reduced-motion: reduce) { .rail-busy, .rail-core, .ticker-dot { animation: none; } .ticker-line { animation: none; } }
