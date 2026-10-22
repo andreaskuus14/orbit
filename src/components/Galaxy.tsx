@@ -4,6 +4,8 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGlRecovery } from "./useGlRecovery";
 import { ZoomRig } from "./ZoomRig";
 import { voiceLevel } from "./voice/bus";
+import { ParticleCore, type CoreLive } from "./ParticleCore";
+import { coreParticleSide } from "@/lib/particle-core-pure";
 import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping, Noise } from "@react-three/postprocessing";
 import { BlendFunction, ToneMappingMode } from "postprocessing";
@@ -786,11 +788,15 @@ function Beams({ positions, pulses, reduced }: { positions: Positions; pulses: R
   return <>{lines.map(({ id, line }) => <primitive key={id} object={line} />)}</>;
 }
 
-function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced">) {
+function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0 }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced"> & { particles?: number }) {
   const group = useRef<THREE.Group>(null);
   const inner = useRef<THREE.Sprite>(null);
   const sat = useRef<THREE.Mesh>(null);
   const voice = useRef({ mic: 0, speak: 0 }); // smoothed copy of voiceLevel (read per frame, no React state)
+  const live = useRef<CoreLive>({ g: 0, mic: 0, spk: 0, breath: 0 }); // handed to the particle swarm each frame
+  const [pcFailed, setPcFailed] = useState(false); // no float render targets: keep the filaments
+  const onPcFail = useCallback(() => setPcFailed(true), []);
+  const swarm = particles > 0 && !pcFailed;
   const { strands, sparks } = useMemo(() => {
     const r = rng(77);
     const gauss = () => Math.sqrt(-2 * Math.log(r() + 1e-9)) * Math.cos(2 * Math.PI * r());
@@ -854,6 +860,7 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
     v.speak = lv(v.speak + (lv(voiceLevel.speak) - v.speak) * (1 - Math.exp(-step * 8)));
     const amp = reduced ? 0.3 : 1;
     const mic = v.mic * amp, spk = v.speak * amp;
+    const L = live.current; L.g = g; L.mic = mic; L.spk = spk; L.breath = breath;
     if (group.current) {
       group.current.scale.setScalar(0.72 * (1 + 0.05 * breath + g * 0.12 + spk * 0.07 + mic * 0.03));
       if (!reduced) group.current.rotation.y += dt * (busy ? 0.18 : 0.05);
@@ -878,9 +885,10 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced }: Pick<GalaxyPro
     <group>
       <pointLight intensity={3.2} decay={0} color="#fff1dc" /> {/* no falloff: inner worlds would blow out, outer ones go dark */}
       <group ref={group}>
-        <lineSegments geometry={strands} material={mats.fil} />
-        <points geometry={sparks} material={mats.spark} />
+        {!swarm && <lineSegments geometry={strands} material={mats.fil} />}
+        {!swarm && <points geometry={sparks} material={mats.spark} />}
       </group>
+      {swarm && <ParticleCore side={particles} busy={busy} warning={warning} live={live} onFail={onPcFail} />}
       <sprite ref={inner} scale={1.2}><spriteMaterial map={tex.inner} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
       <sprite scale={9}><spriteMaterial map={tex.mid} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
       <sprite scale={18}><spriteMaterial map={tex.haze} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} /></sprite>
@@ -1122,7 +1130,7 @@ export default function Galaxy(props: GalaxyProps) {
         <Stars radius={110} depth={60} count={props.reduced ? Math.min(2000, q.stars) : q.stars} factor={3.2} fade speed={props.reduced ? 0 : 0.5} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <Dust count={q.dust} reduced={props.reduced} />
-        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} />
+        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} />
         <Beams positions={positions} pulses={props.pulses} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
         <AsteroidBelt inner={5.5} outer={6.0} count={Math.round(900 * q.belt)} seed={3} reduced={props.reduced} />
