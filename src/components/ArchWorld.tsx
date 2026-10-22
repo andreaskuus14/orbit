@@ -3,6 +3,7 @@
 // Quantities and euros are computed in arch-pure.ts from the geometry, never by the AI. Learning tool, not certification.
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { worldQuality, type QualityMode } from "@/lib/quality-pure";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
@@ -73,7 +74,8 @@ function BuildClock({ run, onStart }: { run: number; onStart: (t: number) => voi
   return null;
 }
 
-export default function ArchWorld({ onClose, reduced, flat }: { onClose: () => void; reduced: boolean; flat?: boolean }) {
+export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode }) {
+  const qualityPreset = worldQuality(quality);
   const glr = useGlRecovery();
   const [scene, setScene] = useState<Scene>(starterScene);
   const [prices, setPrices] = useState<PriceItem[]>(STARTER_PRICES);
@@ -121,7 +123,7 @@ export default function ArchWorld({ onClose, reduced, flat }: { onClose: () => v
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: BG }}>
       {!flat && (
-        <Canvas key={glr.key} onCreated={glr.onCreated} shadows camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
+        <Canvas key={glr.key} onCreated={glr.onCreated} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
           <color attach="background" args={[BG]} />
           <fog attach="fog" args={[BG, 60, 140]} />
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />

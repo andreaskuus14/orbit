@@ -33,3 +33,6 @@ export const QUALITY = [
 ] as const;
 
 export const parseQualityMode = (v: string | null): QualityMode => (v === "high" || v === "low" ? v : "auto");
+
+/** Worlds use the selected preset; auto starts at medium, like TheaterWorld. */
+export const worldQuality = (mode: QualityMode = "auto") => QUALITY[mode === "low" ? 0 : mode === "high" ? 2 : 1];

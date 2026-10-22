@@ -2,8 +2,8 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { PLANETS, planetById, type PanelId, type PlanetId } from "@/lib/planets";
-import { AnalyticsPanel, CorePanel, LaterPanel, MemoryPanel, ProfilePanel } from "./panels";
+import { PLANETS, planetById, type PanelId } from "@/lib/planets";
+import { AnalyticsPanel, CorePanel, MemoryPanel, ProfilePanel } from "./panels";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
 import { VOICE_ASK, voiceContext } from "./voice/bus";
@@ -382,17 +382,17 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </div>
       )}
       {shown === "intelligence" && !gameOpen ? (
-        <NewsGlobe reduced={reduced} onClose={closeWorld} focus={newsFocus} />
+        <NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} />
       ) : shown === "studio" ? (
-        <StudioWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} />
+        <StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} />
       ) : shown === "creation" ? (
-        <DevWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} />
+        <DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} />
       ) : shown === "agents" ? (
         <AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} />
       ) : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : shown === "arch" ? (
-        <ArchWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} />
+        <ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : view === "3d" ? null : (
         <nav aria-label="Planets" className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>ORBIT / YOUR WORKSPACE</p><h1>A universe.<br />Yours to shape.</h1><span>Ask, create, remember. Pick a world to begin.</span></div>
@@ -403,7 +403,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
             {PLANETS.map((p) => (
               <li key={p.id}><button className="planet-card" onPointerEnter={() => warmWorld(p.id)} onFocus={() => warmWorld(p.id)} onClick={() => select(p.id)} style={{ borderColor: p.color }}>
                 <b style={{ color: p.color }}>{p.name}</b>
-                <span className="muted text-sm">{p.id === "memory" ? `${memoryCount} memories` : p.id === "intelligence" && pulseBusy ? "Pulse is writing a briefing…" : p.id === "intelligence" && pulseFailed ? "Last briefing failed" : p.id === "operations" && automationFailing ? "An automation's last run failed" : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? `${runningTasks.length} agent task${runningTasks.length > 1 ? "s" : ""} running…` : p.live ? p.blurb : `${p.blurb} · Phase ${p.phase}`}</span></button></li>
+                <span className="muted text-sm">{p.id === "memory" ? `${memoryCount} memories` : p.id === "intelligence" && pulseBusy ? "Pulse is writing a briefing…" : p.id === "intelligence" && pulseFailed ? "Last briefing failed" : p.id === "operations" && automationFailing ? "An automation's last run failed" : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? `${runningTasks.length} agent task${runningTasks.length > 1 ? "s" : ""} running…` : p.blurb}</span></button></li>
             ))}
           </ul>
         </nav>
@@ -465,7 +465,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
               : drawer === "vault" ? <VaultPanel />
               : drawer === "markets" ? <MarketsPanel />
               : drawer === "business" ? <BusinessPanel />
-              : <LaterPanel id={drawer as PlanetId} />}
+              : null}
           </div>
         </aside>
       )}

@@ -7,6 +7,7 @@ import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
+import { worldQuality, type QualityMode } from "@/lib/quality-pure";
 import { FrameMark } from "./dev-timing";
 import { ZoomRig } from "./ZoomRig";
 import { GAME_COMPONENTS } from "./GameLab";
@@ -148,9 +149,10 @@ function Rig() {
 
 /* ---------- data + UI ---------- */
 
-type Props = { flat?: boolean; onClose: () => void; reduced: boolean; onOpenTask?: (id: string) => void; onPlaying?: (p: boolean) => void };
+type Props = { flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; onPlaying?: (p: boolean) => void };
 
-export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat }: Props) {
+export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat, quality = "auto" }: Props) {
+  const q = worldQuality(quality);
   const glr = useGlRecovery();
   const [world, setWorld] = useState<World | null>(null);
   const [seeded, setSeeded] = useState(false);
@@ -228,7 +230,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   return (
     <div className="absolute inset-0 globe-in" aria-label="Game-dev world">
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={playing ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
-        dpr={[1, 2]} gl={{ antialias: true, powerPreference: "high-performance" }}>
+        dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }}>
         <color attach="background" args={["#02030a"]} />
         <Stars radius={70} depth={40} count={reduced ? 1500 : 4000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} />

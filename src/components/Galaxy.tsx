@@ -572,8 +572,8 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
     group.current?.position.set(x, 0, z);
     positions[p.id].set(x, 0, z);
     if (mesh.current) {
-      if (!reduced) mesh.current.rotation.y += 0.003;
-      if (clouds.current && !reduced) clouds.current.rotation.y += 0.0045; // clouds drift a little faster than the ground
+      if (!reduced) mesh.current.rotation.y += dt * 0.18;
+      if (clouds.current && !reduced) clouds.current.rotation.y += dt * 0.27; // clouds drift a little faster than the ground
       // Lava glows on its own; real backend events and lightning add a brief flare. Nothing glows at rest otherwise.
       (mesh.current.material as THREE.MeshStandardMaterial).emissiveIntensity = (surf.glow ? 0.55 : 0) + glow(pulses, p.id) * 0.8 + flash.current * 0.6;
     }
