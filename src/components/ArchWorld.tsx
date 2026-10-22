@@ -7,6 +7,7 @@ import { worldQuality, type QualityMode } from "@/lib/quality-pure";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
+import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
 import { MAX, applyOps, boq, bulkTips, costLines, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
 
 const KEY = "orbit.arch.v1";
@@ -14,6 +15,8 @@ const KEY = "orbit.arch.v1";
 const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9" };
 const GROUND: Record<Scene["plot"]["ground"], string> = { grass: "#c9d3bf", gravel: "#d9d6cf", forest: "#b9c6b0", sand: "#e6dcc6" };
 const BG = "#ebe7e0", GOLD = "#c9a24a";
+const BP = { bg: "#0b2545", ground: "#0e2f56", fill: "#123a66", edge: "#e0f2fe", grid: ["#5b8bc4", "#1d4a7c"] as const }; // blueprint mode
+const SITE = { lat: 59.437, lon: 24.754, name: "Tallinn" }; // sun study location; shortcut: fixed site, add a picker if he studies other places
 const TP = new THREE.Vector3(), TS = new THREE.Vector3(); // per-frame scratch
 const STEP_S = 0.45; // build animation: one part every 0.45 s, bottom to top
 
@@ -30,7 +33,7 @@ let seq = Date.now();
 const newId = () => `p${(seq++).toString(36)}`;
 
 /** One block that eases toward its target size/position each frame: edits glide instead of jumping. */
-function Block({ p, selected, onPick, reduced, appearAt, hidden }: { p: Part; selected: boolean; onPick: () => void; reduced: boolean; appearAt: number; hidden: boolean }) {
+function Block({ p, selected, onPick, reduced, appearAt, hidden, bp }: { p: Part; selected: boolean; onPick: () => void; reduced: boolean; appearAt: number; hidden: boolean; bp: boolean }) {
   const m = useRef<THREE.Mesh>(null);
   const target = useMemo(() => ({ pos: new THREE.Vector3(p.x, p.y + p.h / 2, p.z), scale: new THREE.Vector3(p.w, p.h, p.d) }), [p.x, p.y, p.z, p.w, p.d, p.h]);
   const [start] = useState(() => ({ pos: target.pos.clone(), scale: target.scale.clone() })); // set once: later changes glide in useFrame
@@ -46,8 +49,8 @@ function Block({ p, selected, onPick, reduced, appearAt, hidden }: { p: Part; se
   return (
     <mesh ref={m} position={start.pos} scale={start.scale} castShadow receiveShadow onClick={(e) => { if (!e.object.visible) return; e.stopPropagation(); onPick(); }}>
       {p.kind === "roof" && p.h >= 0.5 ? <primitive object={GABLE} attach="geometry" /> : <boxGeometry args={[1, 1, 1]} />}
-      <meshStandardMaterial color={COLOR[p.kind]} roughness={0.9} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.25 : 0} />
-      <Edges threshold={20} color={selected ? GOLD : "#57534e"} />
+      <meshStandardMaterial color={bp ? BP.fill : COLOR[p.kind]} roughness={0.9} transparent={bp} opacity={bp ? 0.35 : 1} depthWrite={!bp} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.25 : 0} />
+      <Edges threshold={20} color={selected ? GOLD : bp ? BP.edge : "#57534e"} />
     </mesh>
   );
 }
@@ -83,6 +86,18 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
   const [sel, setSel] = useState<string | null>(null);
   const [run, setRun] = useState(0), [t0, setT0] = useState(0); // ▶ Build replays the assembly
   const [noRoof, setNoRoof] = useState(false), [spin, setSpin] = useState(false);
+  const [bp, setBp] = useState(false);
+  const [sun, setSun] = useState<{ on: boolean; date: string; hour: number }>(() => ({ on: false, date: new Date().toISOString().slice(0, 10), hour: 12 }));
+  const sunAt = useMemo(() => { const d = new Date(`${sun.date}T00:00`); d.setMinutes(Math.round(sun.hour * 60)); return d; }, [sun.date, sun.hour]);
+  const sunInfo = useMemo(() => {
+    try {
+      const pos = sunPosition(SITE.lat, SITE.lon, sunAt), dir = sunDirection(SITE.lat, SITE.lon, sunAt), arc = dayArc(SITE.lat, SITE.lon, new Date(`${sun.date}T12:00Z`));
+      return { pos, dir, arc };
+    } catch { return null; }
+  }, [sunAt, sun.date]);
+  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * 40, Math.max(0.5, sunInfo.dir.y * 40), sunInfo.dir.z * 40] : [-14, 22, 12];
+  const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
+  const bg = bp ? BP.bg : night ? "#1c2230" : BG;
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -121,21 +136,21 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
     onCommit={(v) => apply([{ op: "set", id: part.id, [k]: v }])} />;
 
   return (
-    <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: BG }}>
+    <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: bg }}>
       {!flat && (
         <Canvas key={glr.key} onCreated={glr.onCreated} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
-          <color attach="background" args={[BG]} />
-          <fog attach="fog" args={[BG, 60, 140]} />
+          <color attach="background" args={[bg]} />
+          <fog attach="fog" args={[bg, 60, 140]} />
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
-          <directionalLight position={[-14, 22, 12]} intensity={1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} />
-          <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[scene.plot.w, scene.plot.d]} /><meshStandardMaterial color={GROUND[scene.plot.ground]} roughness={1} /></mesh>
-          <gridHelper args={[Math.max(scene.plot.w, scene.plot.d), Math.max(scene.plot.w, scene.plot.d), "#cbbf9f", "#ddd6c6"]} position={[0, 0.005, 0]} />
+          <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} />
+          <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[scene.plot.w, scene.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[scene.plot.ground]} roughness={1} /></mesh>
+          <gridHelper args={[Math.max(scene.plot.w, scene.plot.d), Math.max(scene.plot.w, scene.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
           <ContactShadows position={[0, 0.01, 0]} scale={Math.max(scene.plot.w, scene.plot.d)} opacity={0.35} blur={2.5} far={12} />
           <Blueprint parts={scene.parts} />
           <Trees n={scene.plot.trees} w={scene.plot.w} d={scene.plot.d} />
           <BuildClock run={run} onStart={setT0} />
           {[...scene.parts].sort((a, b) => a.y - b.y).map((p, i) => <Block key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
-            appearAt={t0 + 0.6 + i * STEP_S} hidden={noRoof && p.kind === "roof"} />)}
+            appearAt={t0 + 0.6 + i * STEP_S} hidden={noRoof && p.kind === "roof"} bp={bp} />)}
           <OrbitControls makeDefault enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced} autoRotateSpeed={0.8} />
         </Canvas>
       )}
@@ -147,10 +162,26 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
           <button className="btn" disabled={busy || !cmd.trim()}>{busy ? "Working…" : "Do it"}</button>
         </form>
         {msg && <p aria-live="polite">{msg}</p>}
+        {sun.on && (
+          <div className="card space-y-1.5" aria-label="Sun study">
+            <div className="muted text-[10px] uppercase tracking-widest">Sun study · {SITE.name}</div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <input className="field" type="date" value={sun.date} aria-label="Date" onChange={(e) => e.target.value && setSun((v) => ({ ...v, date: e.target.value }))} />
+              {[["Jun 21", "-06-21"], ["Dec 21", "-12-21"]].map(([l, md]) => <button key={l} className="chip" onClick={() => setSun((v) => ({ ...v, date: v.date.slice(0, 4) + md }))}>{l}</button>)}
+            </div>
+            <label className="flex items-center gap-2 text-xs"><span className="num w-12">{String(Math.floor(sun.hour)).padStart(2, "0")}:{String(Math.round((sun.hour % 1) * 60)).padStart(2, "0")}</span>
+              <input className="flex-1" type="range" min={0} max={24} step={0.25} value={sun.hour} aria-label="Time of day" onChange={(e) => setSun((v) => ({ ...v, hour: Number(e.target.value) }))} /></label>
+            {sunInfo && <p className="muted text-xs">
+              {sunInfo.pos.elevationDeg < 0 ? "Sun below the horizon" : `Sun ${Math.round(sunInfo.pos.elevationDeg)}° high, from ${Math.round(sunInfo.pos.azimuthDeg)}° (0° = north)`}
+              {" · "}sunrise {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, sunset {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. The plot's −Z side faces north.</p>}
+          </div>
+        )}
         <div className="flex flex-wrap gap-1.5">
           <button className="chip" onClick={() => setRun((n) => n + 1)} title="Replay the assembly, bottom to top">▶ Build</button>
           <button className="chip" aria-pressed={noRoof} onClick={() => setNoRoof((v) => !v)}>Hide roof</button>
           <button className="chip" aria-pressed={spin} onClick={() => setSpin((v) => !v)}>Turntable</button>
+          <button className="chip" aria-pressed={bp} onClick={() => setBp((v) => !v)}>Blueprint</button>
+          <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ Sun study</button>
           <button className="chip" disabled={!past.length} onClick={undo}>↶ Undo</button>
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>Start over</button>
         </div>
