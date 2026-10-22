@@ -4,11 +4,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
+import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
-import { worldQuality, type QualityMode } from "@/lib/quality-pure";
+import type { QualityMode } from "@/lib/quality-pure";
+import { useLeanQuality } from "./useLeanQuality";
 import { FrameMark } from "./dev-timing";
 import { ZoomRig } from "./ZoomRig";
 import { GAME_COMPONENTS } from "./GameLab";
@@ -153,7 +154,7 @@ function Rig() {
 type Props = { flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; onPlaying?: (p: boolean) => void };
 
 export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat, quality = "auto" }: Props) {
-  const q = worldQuality(quality);
+  const q = useLeanQuality(quality);
   const glr = useGlRecovery();
   const [world, setWorld] = useState<World | null>(null);
   const [seeded, setSeeded] = useState(false);
@@ -231,8 +232,9 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   return (
     <div className="absolute inset-0 globe-in" aria-label="Game-dev world">
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={playing ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
-        dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }}>
+        dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         <WarmCompile />
+        {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
         <color attach="background" args={["#02030a"]} />
         <Stars radius={70} depth={40} count={reduced ? 1500 : 4000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} />
@@ -243,8 +245,8 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <OrbitControls makeDefault enablePan={false} minDistance={3} maxDistance={far * 2} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Rig />
         <ZoomRig home={far * Math.hypot(1, 0.45)} reduced={reduced} />
-        <EffectComposer multisampling={4}>
-          <Bloom intensity={reduced ? 0.3 : 0.5} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
+        <EffectComposer multisampling={q.msaa}>
+          <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
           <Vignette offset={0.25} darkness={0.75} />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
         </EffectComposer>

@@ -36,3 +36,9 @@ export const parseQualityMode = (v: string | null): QualityMode => (v === "high"
 
 /** Worlds use the selected preset; auto starts at medium, like TheaterWorld. */
 export const worldQuality = (mode: QualityMode = "auto") => QUALITY[mode === "low" ? 0 : mode === "high" ? 2 : 1];
+
+/** Auto can step down for this world; explicit presets always win. */
+export function leanWorldQuality(mode: QualityMode, lean: boolean) {
+  const preset = worldQuality(mode === "auto" && lean ? "low" : mode);
+  return { dpr: preset.dpr, msaa: preset.msaa, bloomScale: preset.bloom };
+}

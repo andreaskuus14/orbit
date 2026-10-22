@@ -4,9 +4,10 @@
 import { WarmCompile } from "./WarmCompile";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { worldQuality, type QualityMode } from "@/lib/quality-pure";
+import type { QualityMode } from "@/lib/quality-pure";
+import { useLeanQuality } from "./useLeanQuality";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { ContactShadows, Edges, Line, OrbitControls } from "@react-three/drei";
+import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
 import { MAX, applyOps, boq, bulkTips, costLines, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
@@ -79,7 +80,7 @@ function BuildClock({ run, onStart }: { run: number; onStart: (t: number) => voi
 }
 
 export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode }) {
-  const qualityPreset = worldQuality(quality);
+  const qualityPreset = useLeanQuality(quality);
   const glr = useGlRecovery();
   const [scene, setScene] = useState<Scene>(starterScene);
   const [prices, setPrices] = useState<PriceItem[]>(STARTER_PRICES);
@@ -141,6 +142,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
       {!flat && (
         <Canvas key={glr.key} onCreated={glr.onCreated} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
         <WarmCompile />
+        {quality === "auto" && <PerformanceMonitor onDecline={qualityPreset.onDecline} />}
           <color attach="background" args={[bg]} />
           <fog attach="fog" args={[bg, 60, 140]} />
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />

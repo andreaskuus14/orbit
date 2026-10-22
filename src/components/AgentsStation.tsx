@@ -3,7 +3,7 @@ import { WarmCompile } from "./WarmCompile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
+import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
@@ -20,7 +20,8 @@ import RecipesPanel from "./RecipesPanel";
 import GoalsPanel from "./GoalsPanel";
 import { CHAIN_TITLE, type ChainView } from "@/lib/chains-pure";
 import { beamPairs, chainActive } from "@/lib/mission-pure";
-import { QUALITY, type QualityMode } from "@/lib/quality-pure";
+import type { QualityMode } from "@/lib/quality-pure";
+import { useLeanQuality } from "./useLeanQuality";
 import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clamp, currentTask, orbitPos, statusGlow, statusVisual, streamFrac, type AgentStatus } from "@/lib/station-pure";
 
 // AGENTS → a space station: each agent is a drone module orbiting the hub, glowing by status.
@@ -355,25 +356,25 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const feed = useMemo(() => activityFeed(tasks, 10), [tasks]);
   const agent = list.find((a) => a.slug === selected) ?? null;
   const hovered = list.find((a) => a.slug === hover.id);
-  // shortcut: "auto" uses the medium level (no FPS adaptation like Galaxy); add stepQuality if the station ever stutters.
-  const q = QUALITY[quality === "low" ? 0 : quality === "high" ? 2 : 1];
+  const q = useLeanQuality(quality);
 
   return (
     <div className="absolute inset-0 globe-in">
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={visible ? "always" : "never"} camera={{ position: [0, HOME * 0.45, HOME], fov: 42 }}
-        dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => setSelected(null)}>
+        dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }} onPointerMissed={() => setSelected(null)}>
         <WarmCompile />
+        {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
         <color attach="background" args={["#03020c"]} />
         <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} />
-        <Station list={list} status={status} selected={selected} reduced={reduced} lite={q.bloom === 0} dust={q.bloom === 0 ? 120 : q.bloom < 0.9 ? 350 : 700} handoffs={handoffs} running={running} onPick={setSelected} onHover={onHover} />
+        <Station list={list} status={status} selected={selected} reduced={reduced} lite={q.bloomScale === 0} dust={q.bloomScale === 0 ? 120 : q.bloomScale < 0.9 ? 350 : 700} handoffs={handoffs} running={running} onPick={setSelected} onHover={onHover} />
         <OrbitControls makeDefault enablePan={false} minDistance={2} maxDistance={HOME * 2.5} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Follow index={list.findIndex((a) => a.slug === selected)} n={list.length} reduced={reduced} />
         <Rig />
         <ZoomRig home={HOME * Math.hypot(1, 0.45)} reduced={reduced} />
-        {q.bloom > 0 && (
+        {q.bloomScale > 0 && (
           <EffectComposer multisampling={q.msaa}>
-            <Bloom intensity={reduced ? 0.3 : 0.55 * q.bloom} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
+            <Bloom intensity={(reduced ? 0.3 : 0.55) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
             <Vignette offset={0.25} darkness={0.75} />
             <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
           </EffectComposer>

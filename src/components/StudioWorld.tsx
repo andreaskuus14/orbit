@@ -3,11 +3,12 @@ import { WarmCompile } from "./WarmCompile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
+import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
-import { worldQuality, type QualityMode } from "@/lib/quality-pure";
+import type { QualityMode } from "@/lib/quality-pure";
+import { useLeanQuality } from "./useLeanQuality";
 import { FrameMark } from "./dev-timing";
 import { loadImage } from "./texture-cache";
 import { ZoomRig } from "./ZoomRig";
@@ -291,7 +292,7 @@ type Sort = "newest" | "views" | "takeoff";
 const MODES: [Mode, string][] = [["channel", "Channel"], ["stats", "Stats"], ["clips", "Clips"]];
 
 export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, quality = "auto" }: { onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
-  const q = worldQuality(quality);
+  const q = useLeanQuality(quality);
   const glr = useGlRecovery();
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
@@ -399,8 +400,9 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   return (
     <div className="studio absolute inset-0 globe-in" role="region" aria-label="Studio: your YouTube channel">
       {flat && <div aria-hidden className="studio-sky absolute inset-0" style={{ backgroundImage: `url(${SKY[0]})` }} />}
-      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }}>
+      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         <WarmCompile />
+        {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
         <Sky />
         <Stars radius={70} depth={40} count={reduced ? 800 : 2000} factor={2.2} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} color="#ffd6e0" />
@@ -414,8 +416,8 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
         <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <StudioCamera mode={mode} reduced={reduced} />
         <ZoomRig home={Math.hypot(4.2, 11)} reduced={reduced} />
-        <EffectComposer multisampling={4}>
-          <Bloom intensity={reduced ? 0.3 : 0.5} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
+        <EffectComposer multisampling={q.msaa}>
+          <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
           <Vignette offset={0.3} darkness={0.6} />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
         </EffectComposer>
