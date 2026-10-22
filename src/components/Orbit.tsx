@@ -23,6 +23,7 @@ import { Herald } from "./Herald";
 import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
+import { HudFrame } from "./HudFrame";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
 import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
 import { runFollowCommand } from "./follow-command";
@@ -376,6 +377,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   return (
     <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view}>
+      {view === "3d" && !shown && <HudFrame />}
       {view === "3d" && (
         <div className="absolute inset-0" style={covered ? { visibility: "hidden" } : undefined} inert={covered || undefined}>
           <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
