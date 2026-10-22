@@ -7,6 +7,7 @@ import { groupFacts, type Fact } from "@/lib/facts-pure";
 let requested = false;
 if (typeof window !== "undefined") addEventListener(NAV_EVENT, (e) => { if ((e as CustomEvent<NavTarget>).detail?.beliefs) requested = true; });
 export function takeBeliefsRequest(): boolean { const r = requested; requested = false; return r; }
+export const beliefsPending = () => requested;
 
 const SOURCE: Record<Fact["source"], string> = { user_said: "you said", inferred: "inferred", document: "from a document" };
 const day = (iso: string) => new Date(iso).toLocaleDateString([], { dateStyle: "medium" });

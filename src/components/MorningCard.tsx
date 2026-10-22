@@ -139,64 +139,51 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
       {!data && !err && <p className="muted">Gathering your briefing…</p>}
       {data && (
         <div className="grid gap-3">
+          {/* The hook: one bold next step first, then the numbers as tiles, then the best Short as a picture. */}
+          <button className="mc-next" onClick={() => data.suggestion.nav ? (data.suggestion.item ? openWork(data.suggestion.item) : go(data.suggestion.nav!)) : setOpen(false)}>
+            <span className="mc-next-k">NEXT</span><span className="mc-next-t">{data.suggestion.text}</span><span aria-hidden>→</span>
+          </button>
+          <div className="mc-tiles">
+            {s && <button className="mc-tile" onClick={() => go("review")}><b className="num">{s.ready}</b><span>clips to review</span></button>}
+            {s && <button className="mc-tile" onClick={() => nav({ panel: "studio" })}><b className="num">{s.today.length}</b><span>live today</span></button>}
+            {a && <button className="mc-tile" onClick={() => go("tasks")}><b className="num">{a.proposals.length}</b><span>proposals</span></button>}
+            {l && l.habits > 0 && <button className="mc-tile" onClick={() => go("life")}><b className="num">{l.done}/{l.habits}</b><span>habits</span></button>}
+          </div>
+          {best && (
+            <button className="mc-hero" onClick={() => nav({ panel: "studio" })} aria-label={`Yesterday's best Short: ${best.title}, ${best.views!.toLocaleString()} views`}>
+              {best.videoId && <img src={`https://i.ytimg.com/vi/${best.videoId}/mqdefault.jpg`} alt="" loading="lazy" />}
+              <span className="mc-hero-k">YESTERDAY&apos;S BEST</span>
+              <span className="mc-hero-v num">{best.views!.toLocaleString()}<small> views</small></span>
+              <span className="mc-hero-t">{best.title}</span>
+            </button>
+          )}
           {sinceBlock}
           {data.mission && (
             <div aria-label="Today's mission">
               <b>Today&apos;s mission</b> <span className="muted text-xs">{data.mission.done}/{data.mission.total} done</span>
+              <div className="mc-bar" aria-hidden><i style={{ width: `${(100 * data.mission.done) / Math.max(1, data.mission.total)}%` }} /></div>
               <ul className="mt-1 grid gap-0.5">{data.mission.items.map((m) => (
                 <li key={m.id} className={m.done ? "ok" : undefined}>{m.done ? "✓" : "○"} {m.label} <span className="muted text-xs">· {m.progress}</span></li>))}</ul>
             </div>
           )}
           {data.business && <p>{data.business}</p>}
           {data.work && <MorningWork work={data.work} onOpen={openWork} />}
-          {s && (
-            <div>
-              <b>Studio</b>
-              <p className="muted">{n(s.ready, "clip")} to review · {s.today.length ? `${s.today.length} live today (${s.today.join(", ")})` : "nothing live today"}</p>
-              {s.yesterday.length > 0 && <p className="muted">Yesterday: {s.yesterday.length} went live{best ? `, best “${best.title}” ${best.views!.toLocaleString()} views` : ""}</p>}
-              {s.pausedUntil && <p className="warn">YouTube downloads paused until {s.pausedUntil}</p>}
-              {s.scout && <p className="muted">{s.scout}</p>}
-            </div>
+          {i && i.headlines.length > 0 && (
+            <button className="mc-news" onClick={() => go("news")}>
+              <span className="mc-hero-k">{i.title.toUpperCase()}</span>
+              <ol>{i.headlines.map((h) => <li key={h}>{h}</li>)}</ol>
+            </button>
           )}
-          {i && (
-            <div>
-              <b>Intelligence</b> <span className="muted text-xs">{i.title}</span>
-              {i.headlines.length ? <ul className="muted list-disc pl-4">{i.headlines.map((h) => <li key={h}>{h}</li>)}</ul> : <p className="muted">No headlines in the last briefing.</p>}
-            </div>
-          )}
-          {a && (
-            <div>
-              <b>Agents</b>
-              <p className="muted">{n(a.done.length, "task")} finished overnight{a.failed ? ` · ${a.failed} failed` : ""} · {n(a.proposals.length, "proposal")} waiting</p>
-            </div>
-          )}
-          {l && (
-            <div>
-              <b>Life</b>
-              <p className="muted">{l.habits ? `${l.done}/${l.habits} habits done today` : "No habits scheduled today"}{l.next ? ` · reminder ${l.next.at}: ${l.next.text}` : ""}</p>
-            </div>
-          )}
-          {cal && (
-            <div>
-              <b>Today&apos;s events</b>
-              {!cal.connected ? <p className="muted"><a className="underline" href="/api/life/calendar/oauth">Connect Google Calendar</a></p>
-                : cal.today.length ? <ul className="muted grid gap-1">{cal.today.slice(0, 6).map((e, k) => <li key={k}><span className="num">{e.time}</span> · {e.title}</li>)}</ul>
-                : <p className="muted">Nothing on your calendar today.</p>}
-            </div>
-          )}
+          {s?.pausedUntil && <p className="warn">YouTube downloads paused until {s.pausedUntil}</p>}
+          {s?.scout && <p className="muted text-xs">🛰 {s.scout}</p>}
+          {a && a.failed > 0 && <p className="warn text-xs">{n(a.failed, "agent task")} failed overnight</p>}
+          {l?.next && <p className="muted text-xs">⏰ {l.next.at} · {l.next.text}</p>}
+          {cal && (cal.connected
+            ? cal.today.length > 0 && <ul className="muted grid gap-1 text-xs">{cal.today.slice(0, 4).map((e, k) => <li key={k}>📅 <span className="num">{e.time}</span> · {e.title}</li>)}</ul>
+            : <a className="muted text-xs underline" href="/api/life/calendar/oauth">Connect Google Calendar</a>)}
           {rc && rc.length > 0 && (
-            <div>
-              <b>From your memory</b>
-              <ul className="muted grid gap-1">{rc.map((m) => <li key={m.id}><button className="text-left underline" onClick={() => openMem(m.id)}>{m.title}</button> <span className="text-xs">· {m.label}</span></li>)}</ul>
-            </div>
+            <p className="muted text-xs">🧠 Remember: {rc.map((m, k) => <span key={m.id}>{k ? " · " : ""}<button className="underline" onClick={() => openMem(m.id)}>{m.title}</button></span>)}</p>
           )}
-          <p><b>Next:</b> {data.suggestion.nav ? <button className="underline" onClick={() => data.suggestion.item ? openWork(data.suggestion.item) : go(data.suggestion.nav!)}>{data.suggestion.text}</button> : data.suggestion.text}</p>
-          <div className="flex flex-wrap gap-2">
-            {s && <button className="chip" onClick={() => go("review")}>Review clips</button>}
-            {i && <button className="chip" onClick={() => go("news")}>Open news</button>}
-            {a && <button className="chip" onClick={() => go("tasks")}>Open tasks</button>}
-            {l && <button className="chip" onClick={() => go("life")}>Open life</button>}
-          </div>
           <label className="muted flex items-center gap-2 text-xs"><input type="checkbox" checked={speakMorning} onChange={(e) => toggleSpeak(e.target.checked)} /> Read it aloud each morning</label>
         </div>
       )}
