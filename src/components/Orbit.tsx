@@ -24,6 +24,7 @@ import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { sfx } from "./sfx";
+import { BootSequence } from "./BootSequence";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
 import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
 import { runFollowCommand } from "./follow-command";
@@ -55,7 +56,7 @@ const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do fo
 
 export default function Orbit({ userId, email }: { userId: string; email: string }) {
   const sb = useMemo(() => createClient(), []);
-  const [view, setView] = useState<"3d" | "2d">("2d");
+  const [view, setView] = useState<"3d" | "2d" | null>(null); // null = still deciding: show the loader, never flash the 2D index
   const [reduced, setReduced] = useState(false);
   const [panel, setPanel] = useState<PanelId | null>(null);
   const [memoryCount, setMemoryCount] = useState(0);
@@ -195,7 +196,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     try { webgl = !!document.createElement("canvas").getContext("webgl2"); } catch { /* no webgl */ }
     let saved: string | null = null;
     try { saved = localStorage.getItem("orbit.view"); } catch { /* private mode */ }
-    if (webgl && (saved === "3d" || (saved !== "2d" && innerWidth >= 720 && !motion.matches))) setView("3d");
+    setView(webgl && (saved === "3d" || (saved !== "2d" && innerWidth >= 720 && !motion.matches)) ? "3d" : "2d");
     return () => motion.removeEventListener("change", updateMotion);
   }, []);
   const toggleView = () => {
@@ -381,6 +382,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   return (
     <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view}>
+      {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
         <div className="absolute inset-0" style={covered ? { visibility: "hidden" } : undefined} inert={covered || undefined}>
           <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
@@ -398,7 +400,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : shown === "arch" ? (
         <ArchWorld flat={view !== "3d"} reduced={reduced} onClose={closeWorld} />
-      ) : view === "3d" ? null : (
+      ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label="Planets" className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>ORBIT / YOUR WORKSPACE</p><h1>A universe.<br />Yours to shape.</h1><span>Ask, create, remember. Pick a world to begin.</span></div>
           {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}

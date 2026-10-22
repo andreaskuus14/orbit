@@ -22,6 +22,9 @@ import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
+import { loadUsageTotals } from "@/lib/analytics-usage";
+import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
+import { eventLabel } from "@/lib/event-label-pure";
 import { ChatSheet, chatsApi, useCoreChats } from "./CoreChats";
 import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, codeBlocks } from "@/lib/core-chats-pure";
 import { sentenceStream, speechChunks } from "./voice/speech-text";
@@ -715,33 +718,41 @@ function PlaybookSection() {
 /* ---------------- ANALYTICS (real counts) ---------------- */
 export function AnalyticsPanel() {
   const sb = useMemo(() => createClient(), []);
-  const [s, setS] = useState<{ memories: number; messages: number; calls: number; tokens: number; events: { type: string; created_at: string }[] } | null>(null);
+  const [days, setDays] = useState<UsageDays>(7);
+  const [s, setS] = useState<{ memories: number; messages: number; calls: number; tokens: number; usage: UsageTotal[]; events: { type: string; created_at: string }[] } | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
+    let active = true;
+    setErr(""); setS(null);
     (async () => {
       const count = (t: string) => sb.from(t).select("id", { count: "exact", head: true });
       const [m, msg, usage, ev] = await Promise.all([
         count("memories"), count("messages"),
-        sb.from("usage").select("input_tokens, output_tokens"),
+        loadUsageTotals(sb, days),
         sb.from("events").select("type, created_at").order("created_at", { ascending: false }).limit(8),
       ]);
-      const bad = m.error || msg.error || usage.error || ev.error;
+      const bad = m.error || msg.error || ev.error;
       if (bad) throw bad;
-      const rows = usage.data ?? [];
-      setS({ memories: m.count ?? 0, messages: msg.count ?? 0, calls: rows.length, tokens: rows.reduce((a, r) => a + r.input_tokens + r.output_tokens, 0), events: ev.data ?? [] });
-    })().catch((e) => setErr(e.message ?? "Could not load analytics"));
-  }, [sb]);
-  if (err) return <p className="error">{err}</p>;
-  if (!s) return <p className="muted">Loading…</p>;
+      if (active) setS({ memories: m.count ?? 0, messages: msg.count ?? 0, ...usageSummary(usage), usage, events: ev.data ?? [] });
+    })().catch((e) => { if (active) setErr(e.message ?? "Could not load analytics"); });
+    return () => { active = false; };
+  }, [sb, days]);
   const stat = (n: number | string, l: string) => <div className="card"><div className="text-2xl">{n}</div><div className="muted text-xs">{l}</div></div>;
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2">{stat(s.memories, "memories")}{stat(s.messages, "chat messages")}{stat(s.calls, "CORE calls")}{stat(s.tokens.toLocaleString(), "tokens used")}</div>
+      <div className="flex gap-2" role="group" aria-label="Usage period">{([7, 30] as const).map((d) => <button key={d} className="chip" aria-pressed={days === d} onClick={() => setDays(d)}>Last {d} days</button>)}</div>
+      {err ? <p className="error" role="alert">{err}</p> : !s ? <p className="muted" role="status">Loading…</p> : <>
+      <div className="grid grid-cols-2 gap-2">{stat(s.memories, "memories")}{stat(s.messages, "chat messages")}{stat(s.calls, `AI calls · ${days} days`)}{stat(s.tokens.toLocaleString(), `tokens used · ${days} days`)}</div>
+      <table className="w-full text-xs" aria-label={`AI usage by model and purpose, last ${days} days`}>
+        <thead><tr><th className="text-left">Model / purpose</th><th className="text-right">Calls</th><th className="text-right">Tokens</th></tr></thead>
+        <tbody>{s.usage.map((g) => <tr key={JSON.stringify([g.model, g.purpose])}><td>{g.model} / {g.purpose}</td><td className="text-right num">{Number(g.calls).toLocaleString()}</td><td className="text-right num">{usageSummary([g]).tokens.toLocaleString()}</td></tr>)}{!s.usage.length && <tr><td colSpan={3} className="muted">No usage in this period.</td></tr>}</tbody>
+      </table>
       <p className="muted text-xs">CORE runs on your Claude subscription, so there is no per-token cost to track.</p>
       <UsageMeter />
       <LifeStats />
       <h3 className="h3">Recent activity</h3>
-      <ul className="space-y-1 text-sm">{s.events.map((e, i) => <li key={i}><b>{e.type}</b> <span className="muted">{when(e.created_at)}</span></li>)}{!s.events.length && <li className="muted">Nothing yet.</li>}</ul>
+      <ul className="space-y-1 text-sm">{s.events.map((e, i) => { const event = eventLabel(e.type); return <li key={i}><span aria-hidden="true">{event.icon}</span> <b>{event.label}</b> <span className="muted">{when(e.created_at)}</span></li>; })}{!s.events.length && <li className="muted">Nothing yet.</li>}</ul>
+      </>}
     </div>
   );
 }
