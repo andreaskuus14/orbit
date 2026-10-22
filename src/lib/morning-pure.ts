@@ -10,7 +10,7 @@ export type StudioIn = {
   clips: Pick<Clip, "title" | "status" | "publish">[]; views: Record<string, number>; // views: videoId → latest views (learn.json)
   pausedUntil: number; scout: { newPicks: number; topNiche?: string; summary?: string } | null; tz: string;
 };
-export type MorningStudio = { ready: number; approved: number; today: string[]; yesterday: { title: string; views: number | null }[]; scout: string; pausedUntil: string };
+export type MorningStudio = { ready: number; approved: number; today: string[]; yesterday: { title: string; views: number | null; videoId?: string }[]; scout: string; pausedUntil: string };
 export type MorningIntel = { title: string; at: string; headlines: string[] };
 export type MorningAgents = { done: string[]; failed: number; proposals: string[] };
 export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
@@ -53,7 +53,8 @@ export function studioSection(x: StudioIn, now: number): MorningStudio {
     approved: x.clips.filter((c) => c.status === "approved" && (!c.publish || c.publish.status === "failed")).length,
     today: timed.filter((e) => day(e.t, x.tz) === today).map((e) => hm(e.t, x.tz)),
     yesterday: timed.filter((e) => day(e.t, x.tz) === yday)
-      .map(({ c }) => ({ title: plain(c.title), views: c.publish?.videoId && c.publish.videoId in x.views ? x.views[c.publish.videoId] : null })),
+      .map(({ c }) => ({ title: plain(c.title), views: c.publish?.videoId && c.publish.videoId in x.views ? x.views[c.publish.videoId] : null,
+        ...(c.publish?.videoId && /^[\w-]{11}$/.test(c.publish.videoId) ? { videoId: c.publish.videoId } : {}) })),
     scout: [picks, niche].filter(Boolean).join(" "),
     pausedUntil: x.pausedUntil > now ? hm(x.pausedUntil, x.tz) : "",
   };
