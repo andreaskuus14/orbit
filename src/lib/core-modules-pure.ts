@@ -2,16 +2,18 @@
 // status line — and CORE builds its tool list, dispatch, taint rules and "LIVE STATUS" block from the list. No more hand-wiring.
 import { dueFollowups, funnel, type Prospect } from "./business-pure.ts";
 import { isStale, type Idea } from "./ideas-pure.ts";
+import { isLive, type GoalStatus } from "./goals-pure.ts";
+import { sayTime } from "./core-studio.ts";
 
 export type ModuleSpec = {
   name: string; prompt: string; tools: string[];
   writes?: string[]; // tools that change things: logged to the activity log
-  private?: boolean; // its results are private: agents, news and web search go off for the rest of the answer
+  private?: boolean | string[]; // its results (or just these tools') are private: agents, news and web search go off for the rest of the answer
 };
 
 export const toolModule = <T extends ModuleSpec>(mods: T[], tool: string) => mods.find((m) => m.tools.includes(tool));
 export const modulePrompt = (mods: ModuleSpec[]) => mods.map((m) => m.prompt).join("\n");
-export const privateTools = (mods: ModuleSpec[]) => mods.filter((m) => m.private).flatMap((m) => m.tools);
+export const privateTools = (mods: ModuleSpec[]) => mods.flatMap((m) => (m.private === true ? m.tools : m.private || []));
 export const writeTools = (mods: ModuleSpec[]) => mods.flatMap((m) => m.writes ?? []);
 
 /** One short line per module, only those with something to say. Data, not instructions. */
@@ -30,4 +32,23 @@ export function ideasLine(shown: Pick<Idea, "title" | "at" | "sourceAt">[], now:
   const fresh = shown.filter((i) => !isStale(i, now));
   // counts only: idea titles come from third-party videos and this block is in context before any taint check
   return fresh.length ? `${fresh.length} fresh idea${fresh.length === 1 ? "" : "s"} on the board (ideas_list for details)` : "";
+}
+
+const n = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
+
+/** Counts and a time only: clip names never go in (this block is in context before any taint check). */
+export function studioLine(ready: number, scheduled: string[], tz: string, now: number): string {
+  const next = scheduled.filter((x) => Date.parse(x) > now).sort()[0];
+  const parts = [ready ? `${n(ready, "clip")} to review` : "", next ? `next Short goes live ${sayTime(next, tz, now)}` : ""].filter(Boolean);
+  return parts.join(", ");
+}
+
+export function habitsLine(habits: { doneToday: boolean; scheduledToday: boolean }[]): string {
+  const today = habits.filter((h) => h.scheduledToday);
+  return today.length ? `${today.filter((h) => h.doneToday).length} of ${n(today.length, "habit")} done today` : "";
+}
+
+export function goalsLine(statuses: GoalStatus[]): string {
+  const live = statuses.filter((status) => isLive({ status })).length;
+  return live ? `${n(live, "active goal")} (goal_status for details)` : "";
 }
