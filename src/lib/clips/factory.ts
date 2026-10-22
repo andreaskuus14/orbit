@@ -336,13 +336,14 @@ async function set(job: ClipJob, status: JobStatus, progress: number, step: stri
 }
 
 /** ~6 tiny grey frames (parallel fast seeks, ~1 s total) → re-upload warning or null. */
-async function reuploadCheck(ff: string, src: string, dir: string, duration: number, signal: AbortSignal): Promise<string | null> {
+async function reuploadCheck(ff: string, src: string, dir: string, duration: number, signal: AbortSignal): Promise<{ warning: string | null; subtitles: boolean }> {
   const frames = await Promise.all(checkTimes(duration).map(async (t, i) => {
     const out = path.join(dir, `check-${i}.gray`);
     await runFfmpeg(ff, checkFrameArgs(src, t, out), { signal, timeoutMs: 10_000 });
     try { return new Uint8Array(await readFile(out)); } finally { await rm(out, { force: true }).catch(() => {}); }
   }));
-  return reuploadWarning(checkSource(frames, CHECK_W, CHECK_H));
+  const c = checkSource(frames, CHECK_W, CHECK_H);
+  return { warning: reuploadWarning(c), subtitles: c.subtitles };
 }
 
 async function runJob(job: ClipJob, signal: AbortSignal) {
@@ -373,8 +374,10 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
     job.durationSec = Math.round(duration * 100) / 100;
     if (o.preset !== "devlog" && /Stream #\d+:\d+.*: Video:/.test(probe)) { // own recordings are never re-uploads
       await set(job, "probing", 0.03, "Checking it's not a re-upload");
-      const w = await reuploadCheck(ff, src, dir, duration, signal).catch((e) => { if (signal.aborted) throw e; return null; }); // never fails the job
-      if (w && job.auto) throw new Error(`Skipped: ${w}. Auto-clips skip re-uploads; start a job by hand to clip it anyway.`);
+      const chk = await reuploadCheck(ff, src, dir, duration, signal).catch((e) => { if (signal.aborted) throw e; return null; }); // never fails the job
+      const w = chk?.warning ?? null;
+      // Auto-clips skip only on burned-in subtitles: a "watermark" alone is too often the streamer's own overlay or logo.
+      if (w && chk?.subtitles && job.auto) throw new Error(`Skipped: ${w}. Auto-clips skip re-uploads; start a job by hand to clip it anyway.`);
       if (w && !job.warnings.includes(w)) job.warnings.push(w);
     }
 
