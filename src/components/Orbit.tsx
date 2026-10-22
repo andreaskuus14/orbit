@@ -24,6 +24,7 @@ import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
+import { AmbientOverlay, useAmbient } from "./AmbientOverlay";
 import { sfx } from "./sfx";
 import { BootSequence } from "./BootSequence";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
@@ -70,6 +71,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [focusGoal, setFocusGoal] = useState<string | null>(null);
   const [radarUrl, setRadarUrl] = useState<string | null>(null); // ?radar=<YouTube link>: shared from the phone (iOS Shortcut) → Idea Radar
   const [automationFailing, setAutomationFailing] = useState(false); // real: an enabled automation's last run failed
+  const amb = useAmbient(automationFailing, pulseFailed); // focus / alert / night look over the galaxy
   const [cmdMode, setCmdMode] = useState<"ask" | "task">("ask");
   const [cmdErr, setCmdErr] = useState("");
   const [cmdReply, setCmdReply] = useState("");
@@ -384,10 +386,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   return (
     <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view}>
       {view === "3d" && !shown && <HudFrame />}
+      {view === "3d" && !shown && <AmbientOverlay a={amb} />}
       {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
         <div className="absolute inset-0" style={covered ? { visibility: "hidden" } : undefined} inert={covered || undefined}>
-          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
+          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
         </div>
       )}
       {shown === "intelligence" && !gameOpen ? (

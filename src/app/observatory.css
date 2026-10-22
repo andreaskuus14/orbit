@@ -172,3 +172,12 @@
 .hud-frame { position: fixed; inset: 0; z-index: 4; pointer-events: none; }
 .hud-frame path { fill: none; stroke: #7dd3fc; stroke-width: 1px; vector-effect: non-scaling-stroke; opacity: .35; }
 .hud-frame text { fill: #7dd3fc; opacity: .45; font: 9px var(--font-display, monospace); letter-spacing: .3em; }
+
+/* Ambient states (AmbientOverlay.tsx). Opacity only, eased: the mode changes are felt rather than noticed. */
+.ambient { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; transition: opacity 1.2s var(--orbit-ease, ease), background 1.2s ease; }
+.ambient-focus { opacity: 1; background: radial-gradient(ellipse at 50% 50%, transparent 25%, rgba(0, 0, 0, calc(var(--amb-dim) * .85)) 75%); }
+.ambient-alert { opacity: 1; background: radial-gradient(ellipse at 50% 50%, transparent 45%, color-mix(in srgb, var(--amb-tint) calc(var(--amb-vig) * 100%), transparent) 100%);
+  animation: ambient-pulse 3.2s ease-in-out infinite; }
+.ambient-night { opacity: 1; background: color-mix(in srgb, var(--amb-tint) 7%, transparent); mix-blend-mode: multiply; }
+@keyframes ambient-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ambient-alert { animation: none; } }
