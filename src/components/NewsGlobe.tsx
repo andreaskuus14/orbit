@@ -7,7 +7,7 @@ import { useGlRecovery } from "./useGlRecovery";
 import { worldQuality, type QualityMode } from "@/lib/quality-pure";
 import { FrameMark } from "./dev-timing";
 import { ZoomRig } from "./ZoomRig";
-import { OrbitControls, Stars } from "@react-three/drei";
+import { OrbitControls, PerformanceMonitor, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import world from "world-atlas/countries-110m.json";
@@ -642,17 +642,18 @@ function Labels({ items, refs }: { items: Hotspot[]; refs: React.RefObject<Recor
   const v = useMemo(() => new THREE.Vector3(), []);
   const n = useMemo(() => new THREE.Vector3(), []);
   const c = useMemo(() => new THREE.Vector3(), []);
+  const at = useMemo(() => items.map((h) => toVec(h.lat, h.lon, R * 1.02)), [items]); // not per frame
   useFrame(({ camera, size }) => {
     c.copy(camera.position).normalize();
-    for (const h of items) {
+    items.forEach((h, i) => {
       const el = refs.current?.[h.name];
-      if (!el) continue;
-      v.copy(toVec(h.lat, h.lon, R * 1.02));
+      if (!el) return;
+      v.copy(at[i]);
       const facing = n.copy(v).normalize().dot(c);
       v.project(camera);
       el.style.opacity = String(Math.max(0, Math.min(1, (facing - 0.2) * 4)));
       el.style.transform = `translate(${((v.x + 1) / 2) * size.width + 10}px, ${((1 - v.y) / 2) * size.height - 9}px)`;
-    }
+    });
   });
   return null;
 }
@@ -668,6 +669,9 @@ const WINDOWS = [{ h: 24, label: "24h" }, { h: 72, label: "3d" }, { h: 168, labe
 export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto" }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode }) {
   const q = worldQuality(quality);
   const glr = useGlRecovery();
+  // The globe felt laggy: it always rendered with 4× MSAA at up to 1.75× pixels. On "auto", step down once frames drop.
+  const [lean, setLean] = useState(false);
+  const dpr = lean ? 1 : q.dpr, msaa = lean ? 0 : q.msaa;
   const [hours, setHours] = useState(72);
   const [data, setData] = useState<Data | null>(null);
   const [err, setErr] = useState("");
@@ -820,7 +824,8 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
 
   return (
     <div className="absolute inset-0 globe-in" aria-label="World news globe">
-      <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }}>
+      <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
+        {quality === "auto" && <PerformanceMonitor onDecline={() => setLean(true)} />}
         <WarmCompile />
         <color attach="background" args={["#01040b"]} />
         <Stars radius={70} depth={40} count={reduced ? 1500 : 5000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
@@ -835,7 +840,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         <ZoomRig home={7.6} reduced={reduced} />
         <Dial reduced={reduced} />
         <Labels items={top} refs={labels} />
-        <EffectComposer multisampling={4}>
+        <EffectComposer multisampling={msaa}>
           <Bloom intensity={reduced ? 0.3 : 0.45} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
           <Vignette offset={0.25} darkness={0.75} />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
