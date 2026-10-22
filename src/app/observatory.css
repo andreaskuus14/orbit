@@ -172,3 +172,76 @@
 .hud-frame { position: fixed; inset: 0; z-index: 4; pointer-events: none; }
 .hud-frame path { fill: none; stroke: #7dd3fc; stroke-width: 1px; vector-effect: non-scaling-stroke; opacity: .35; }
 .hud-frame text { fill: #7dd3fc; opacity: .45; font: 9px var(--font-display, monospace); letter-spacing: .3em; }
+
+/* Cockpit part 2: radial status rail (StatusRail.tsx) and the activity ticker (Ticker.tsx). */
+.rail { display: flex; align-items: center; gap: .7rem; margin-top: .4rem; }
+.rail-rings { flex: none; overflow: visible; }
+.rail-core { fill: #7dd3fc; filter: drop-shadow(0 0 6px #7dd3fc); animation: rail-breath 3.6s ease-in-out infinite; }
+.rail-track { fill: none; stroke: #c3e5ef14; stroke-width: 2; }
+.rail-busy { animation: rail-spin 2.4s linear infinite; }
+.rail-list { display: grid; gap: .15rem; font-size: .68rem; flex: 1; min-width: 0; }
+.rail-list > div { display: flex; justify-content: space-between; gap: .4rem; }
+.rail-list dt { color: var(--muted); letter-spacing: .06em; } .rail-list dd { text-align: right; }
+.rail-list .ok { color: #c1e3eb; } .rail-list .warn { color: #fbbf24; } .rail-list .bad { color: #fb7185; }
+@keyframes rail-spin { to { transform: rotate(360deg); } }
+@keyframes rail-breath { 0%, 100% { opacity: .7; } 50% { opacity: 1; } }
+.ticker { position: fixed; top: 3.6rem; left: 50%; transform: translateX(-50%); z-index: 14; max-width: min(46rem, calc(100vw - 2rem)); display: flex; align-items: center; gap: .55rem;
+  padding: .3rem .8rem; font-size: .72rem; color: #c1e3eb; border-top: 1px solid #7dd3fc33; border-bottom: 1px solid #7dd3fc33;
+  background: linear-gradient(90deg, transparent, #070c12cc 15%, #070c12cc 85%, transparent); pointer-events: none; }
+.ticker-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: #7dd3fc; box-shadow: 0 0 8px #7dd3fc; animation: rail-breath 1.6s ease-in-out infinite; }
+.ticker-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: ticker-in .5s var(--orbit-ease, ease) both; }
+@keyframes ticker-in { from { opacity: 0; transform: translateY(6px); filter: blur(2px); } to { opacity: 1; transform: none; filter: none; } }
+@media (max-width: 760px) { .ticker { display: none; } }
+@media (prefers-reduced-motion: reduce) { .rail-busy, .rail-core, .ticker-dot { animation: none; } .ticker-line { animation: none; } }
+/* Warp jump (WarpOverlay.tsx). In: streaks build up and speed past over 1.2 s, ending in a flash of the planet colour.
+   Out: the flash clears over 0.45 s as the world appears. Transform/opacity only. */
+.warp { position: fixed; inset: -20%; z-index: 30; pointer-events: none; animation: warp-in 1.2s cubic-bezier(.55, 0, .9, .4) forwards; }
+.warp::before { content: ""; position: absolute; inset: 0;
+  background: repeating-conic-gradient(from 0deg, transparent 0 1.6deg, color-mix(in srgb, var(--warp) 70%, white) 1.6deg 1.9deg, transparent 1.9deg 4.3deg);
+  -webkit-mask: radial-gradient(circle, transparent 12%, #000 40%, transparent 72%); mask: radial-gradient(circle, transparent 12%, #000 40%, transparent 72%);
+  animation: warp-streak 1.2s cubic-bezier(.55, 0, .9, .4) forwards; }
+.warp::after { content: ""; position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(circle, #fff 0%, var(--warp) 35%, color-mix(in srgb, var(--warp) 40%, #000) 75%); animation: warp-flash 1.2s ease-in forwards; }
+.warp-out { animation: warp-clear .45s ease-out forwards; }
+.warp-out::before { animation: none; opacity: 0; }
+.warp-out::after { animation: none; opacity: 1; }
+@keyframes warp-in { from { opacity: 0; } 25% { opacity: 1; } to { opacity: 1; } }
+@keyframes warp-streak { from { transform: scale(.6) rotate(0deg); opacity: 0; } 30% { opacity: .5; } to { transform: scale(2.4) rotate(6deg); opacity: .9; } }
+@keyframes warp-flash { 0%, 70% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes warp-clear { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .warp { display: none; } }
+/* Morning briefing as a hook (MorningCard.tsx): next step first, big numbers, the best Short as a picture. */
+.mc-next { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left; padding: .65rem .8rem; color: #0b1a20;
+  background: linear-gradient(90deg, #7dd3fc, #c1e3eb); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  font-weight: 600; transition: transform .16s var(--orbit-ease, ease), filter .16s; }
+.mc-next:hover { transform: translateX(2px); filter: brightness(1.08); }
+.mc-next-k { font: 700 .62rem var(--font-display, monospace); letter-spacing: .3em; opacity: .7; }
+.mc-next-t { flex: 1; line-height: 1.25; }
+.mc-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(4.6rem, 1fr)); gap: .4rem; }
+.mc-tile { display: grid; gap: .1rem; padding: .5rem .55rem; text-align: left; border: 1px solid #7dd3fc2e; background: #7dd3fc0a; transition: background .16s, border-color .16s; }
+.mc-tile:hover { background: #7dd3fc1c; border-color: #7dd3fc66; }
+.mc-tile b { font-size: 1.45rem; line-height: 1; color: #e0f2fe; text-shadow: 0 0 14px #7dd3fc66; }
+.mc-tile span { font-size: .64rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.mc-hero { position: relative; display: grid; align-content: end; gap: .15rem; min-height: 7.5rem; padding: .7rem; text-align: left; overflow: hidden;
+  border: 1px solid #f43f5e44; background: linear-gradient(135deg, #2a0a14, #0b1218); }
+.mc-hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .55; transition: opacity .3s, transform .6s var(--orbit-ease, ease); }
+.mc-hero:hover img { opacity: .7; transform: scale(1.04); }
+.mc-hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 20%, #070c12e6); }
+.mc-hero > span { position: relative; z-index: 1; }
+.mc-hero-k { font: 700 .6rem var(--font-display, monospace); letter-spacing: .3em; color: #fda4af; }
+.mc-hero-v { font-size: 1.9rem; font-weight: 700; line-height: 1; color: #fff; text-shadow: 0 0 18px #f43f5e88; }
+.mc-hero-v small { font-size: .8rem; font-weight: 400; opacity: .7; }
+.mc-hero-t { font-size: .8rem; line-height: 1.3; color: #e2e8f0; }
+.mc-news { display: grid; gap: .35rem; padding: .6rem .7rem; text-align: left; border-left: 2px solid #22d3ee; background: #22d3ee0a; }
+.mc-news .mc-hero-k { color: #67e8f9; }
+.mc-news ol { display: grid; gap: .3rem; padding-left: 1.1rem; list-style: decimal; font-size: .82rem; line-height: 1.3; }
+.mc-news li::marker { color: #22d3ee; font-weight: 700; }
+.mc-bar { height: 3px; margin: .3rem 0; background: #ffffff14; } .mc-bar i { display: block; height: 100%; background: #7dd3fc; box-shadow: 0 0 8px #7dd3fc; }
+/* Ambient states (AmbientOverlay.tsx). Opacity only, eased: the mode changes are felt rather than noticed. */
+.ambient { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; transition: opacity 1.2s var(--orbit-ease, ease), background 1.2s ease; }
+.ambient-focus { opacity: 1; background: radial-gradient(ellipse at 50% 50%, transparent 25%, rgba(0, 0, 0, calc(var(--amb-dim) * .85)) 75%); }
+.ambient-alert { opacity: 1; background: radial-gradient(ellipse at 50% 50%, transparent 45%, color-mix(in srgb, var(--amb-tint) calc(var(--amb-vig) * 100%), transparent) 100%);
+  animation: ambient-pulse 3.2s ease-in-out infinite; }
+.ambient-night { opacity: 1; background: color-mix(in srgb, var(--amb-tint) 7%, transparent); mix-blend-mode: multiply; }
+@keyframes ambient-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ambient-alert { animation: none; } }

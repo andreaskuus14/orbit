@@ -1,6 +1,7 @@
 "use client";
 // ARCH planet: a study workspace for small buildings. Blocks in metres on a plot; edit by typing to CORE or directly with the numbers.
 // Quantities and euros are computed in arch-pure.ts from the geometry, never by the AI. Learning tool, not certification.
+import { WarmCompile } from "./WarmCompile";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { worldQuality, type QualityMode } from "@/lib/quality-pure";
@@ -139,6 +140,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
     <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: bg }}>
       {!flat && (
         <Canvas key={glr.key} onCreated={glr.onCreated} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
+        <WarmCompile />
           <color attach="background" args={[bg]} />
           <fog attach="fog" args={[bg, 60, 140]} />
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />

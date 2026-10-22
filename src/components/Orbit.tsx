@@ -3,7 +3,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
-import { AnalyticsPanel, CorePanel, MemoryPanel, ProfilePanel } from "./panels";
+import { AnalyticsPanel, CorePanel, ProfilePanel } from "./panels";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
 import { VOICE_ASK, voiceContext } from "./voice/bus";
@@ -24,6 +24,10 @@ import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
+import { StatusRail } from "./StatusRail";
+import { Ticker } from "./Ticker";
+import { WarpOverlay } from "./WarpOverlay";
+import { AmbientOverlay, useAmbient } from "./AmbientOverlay";
 import { sfx } from "./sfx";
 import { BootSequence } from "./BootSequence";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
@@ -44,6 +48,7 @@ const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false, loading: Worl
 const AgentsStation = dynamic(() => import("./AgentsStation"), { ssr: false, loading: WorldLoading });
 const ArchWorld = dynamic(() => import("./ArchWorld"), { ssr: false, loading: WorldLoading });
 const TheaterWorld = dynamic(() => import("./TheaterWorld"), { ssr: false, loading: WorldLoading });
+const MemoryWorld = dynamic(() => import("./MemoryWorld"), { ssr: false, loading: WorldLoading });
 const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
 const VaultPanel = dynamic(() => import("./VaultPanel").then((m) => m.VaultPanel), { ssr: false });
 const LifeReminders = dynamic(() => import("./LifeReminders"), { ssr: false });
@@ -51,7 +56,7 @@ const MarketsPanel = dynamic(() => import("./MarketsPanel"), { ssr: false });
 const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
 const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
-const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch"]; // full-screen worlds with their own side panel (no drawer)
+const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch", "memory"]; // full-screen worlds with their own side panel (no drawer)
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "Orbital is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
 
@@ -70,6 +75,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [focusGoal, setFocusGoal] = useState<string | null>(null);
   const [radarUrl, setRadarUrl] = useState<string | null>(null); // ?radar=<YouTube link>: shared from the phone (iOS Shortcut) → Idea Radar
   const [automationFailing, setAutomationFailing] = useState(false); // real: an enabled automation's last run failed
+  const amb = useAmbient(automationFailing, pulseFailed); // focus / alert / night look over the galaxy
   const [cmdMode, setCmdMode] = useState<"ask" | "task">("ask");
   const [cmdErr, setCmdErr] = useState("");
   const [cmdReply, setCmdReply] = useState("");
@@ -102,7 +108,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [behind, setBehind] = useState<PanelId | null>(null);
   // The world (or panel) actually on screen. Also while panel is briefly null after closing CORE, so the world isn't remounted.
   const shown = behind && (panel === "core" || panel === null) ? behind : panel;
-  const closeWorld = useCallback(() => { setBehind(null); setPanel(null); setFocusGoal(null); }, []); // "← Back to galaxy" really leaves, even with CORE open over it
+  const closeWorld = useCallback(() => { setBehind(null); setPanel(null); setFocusGoal(null); setFocusMemory(null); }, []); // "← Back to galaxy" really leaves, even with CORE open over it
   const isWorld = (p: PanelId | null) => p === "intelligence" || (p !== null && WORLDS.includes(p));
   // A second question keeps the world; a running game is full-screen above everything, so CORE replaces it as before.
   const openCore = useCallback(() => { if (panel !== "core") setBehind(isWorld(panel) && !gameOpen ? panel : null); setPanel("core"); }, [panel, gameOpen]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -384,10 +390,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   return (
     <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view}>
       {view === "3d" && !shown && <HudFrame />}
+      {view === "3d" && !shown && !approach && <Ticker />}
+      {view === "3d" && <WarpOverlay target={approach} landed={panel} reduced={reduced} />}
+      {view === "3d" && !shown && <AmbientOverlay a={amb} />}
       {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
         <div className="absolute inset-0" style={covered ? { visibility: "hidden" } : undefined} inert={covered || undefined}>
-          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
+          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
         </div>
       )}
       {shown === "intelligence" && !gameOpen ? (
@@ -402,6 +411,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : shown === "arch" ? (
         <ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
+      ) : shown === "memory" ? (
+        <MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} />
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label="Planets" className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>ORBIT / YOUR WORKSPACE</p><h1>A universe.<br />Yours to shape.</h1><span>Ask, create, remember. Pick a world to begin.</span></div>
@@ -465,7 +476,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <div className="mb-3 flex items-center justify-between"><h2 className="brand text-base">{title}</h2><button className="chip" onClick={() => setPanel(null)} aria-label="Close panel" title="Close (Esc)">Close</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {drawer === "core" ? <CorePanel initial={pending} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
-              : drawer === "memory" ? <MemoryPanel focusId={focusMemory} onChanged={refreshCount} />
               : drawer === "profile" ? <ProfilePanel />
               : drawer === "analytics" ? <AnalyticsPanel />
               : drawer === "intelligence" ? <IntelligencePanel />
@@ -488,13 +498,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {!shown && view === "3d" && (
         <aside className="glass hud-panel status-hud" aria-label="System status">
           <div className="hud-title">SYSTEM</div>
-          <dl>
-            <div><dt>Memories</dt><dd className="num">{memoryCount}</dd></div>
-            <div><dt>Agents working</dt><dd className="num">{runningTasks.length}</dd></div>
-            <div><dt>CORE</dt><dd className={warning ? "bad" : busy ? "warn" : "ok"}>{busy ? "Thinking" : warning ? "Last request failed" : "Ready"}</dd></div>
-            <div><dt>Pulse</dt><dd className={pulseFailed ? "bad" : pulseBusy ? "warn" : "ok"}>{pulseBusy ? "Writing" : pulseFailed ? "Last failed" : "Idle"}</dd></div>
-            <div><dt>Automations</dt><dd className={automationFailing ? "bad" : "ok"}>{automationFailing ? "Needs attention" : "OK"}</dd></div>
-          </dl>
+          <StatusRail items={[
+            { label: "CORE", value: busy ? "Thinking" : warning ? "Last request failed" : "Ready", tone: warning ? "bad" : "ok", busy },
+            { label: "Agents", value: runningTasks.length ? `${runningTasks.length} working` : "Idle", tone: "ok", busy: runningTasks.length > 0 },
+            { label: "Pulse", value: pulseBusy ? "Writing" : pulseFailed ? "Last failed" : "Idle", tone: pulseFailed ? "bad" : "ok", busy: pulseBusy },
+            { label: "Automations", value: automationFailing ? "Needs attention" : "OK", tone: automationFailing ? "bad" : "ok" },
+            { label: "Memories", value: String(memoryCount), tone: "ok" },
+          ]} />
           <button className="chip mt-2" onClick={() => setDoctor("click")}>🩺 Check Orbital</button>
           <p className="muted mt-2 text-[10px] tracking-wider">← → FLY BETWEEN PLANETS · ? SHORTCUTS</p>
         </aside>
