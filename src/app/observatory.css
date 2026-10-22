@@ -173,6 +173,23 @@
 .hud-frame path { fill: none; stroke: #7dd3fc; stroke-width: 1px; vector-effect: non-scaling-stroke; opacity: .35; }
 .hud-frame text { fill: #7dd3fc; opacity: .45; font: 9px var(--font-display, monospace); letter-spacing: .3em; }
 
+/* Warp jump (WarpOverlay.tsx). In: streaks build up and speed past over 1.2 s, ending in a flash of the planet colour.
+   Out: the flash clears over 0.45 s as the world appears. Transform/opacity only. */
+.warp { position: fixed; inset: -20%; z-index: 30; pointer-events: none; animation: warp-in 1.2s cubic-bezier(.55, 0, .9, .4) forwards; }
+.warp::before { content: ""; position: absolute; inset: 0;
+  background: repeating-conic-gradient(from 0deg, transparent 0 1.6deg, color-mix(in srgb, var(--warp) 70%, white) 1.6deg 1.9deg, transparent 1.9deg 4.3deg);
+  -webkit-mask: radial-gradient(circle, transparent 12%, #000 40%, transparent 72%); mask: radial-gradient(circle, transparent 12%, #000 40%, transparent 72%);
+  animation: warp-streak 1.2s cubic-bezier(.55, 0, .9, .4) forwards; }
+.warp::after { content: ""; position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(circle, #fff 0%, var(--warp) 35%, color-mix(in srgb, var(--warp) 40%, #000) 75%); animation: warp-flash 1.2s ease-in forwards; }
+.warp-out { animation: warp-clear .45s ease-out forwards; }
+.warp-out::before { animation: none; opacity: 0; }
+.warp-out::after { animation: none; opacity: 1; }
+@keyframes warp-in { from { opacity: 0; } 25% { opacity: 1; } to { opacity: 1; } }
+@keyframes warp-streak { from { transform: scale(.6) rotate(0deg); opacity: 0; } 30% { opacity: .5; } to { transform: scale(2.4) rotate(6deg); opacity: .9; } }
+@keyframes warp-flash { 0%, 70% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes warp-clear { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .warp { display: none; } }
 /* Morning briefing as a hook (MorningCard.tsx): next step first, big numbers, the best Short as a picture. */
 .mc-next { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left; padding: .65rem .8rem; color: #0b1a20;
   background: linear-gradient(90deg, #7dd3fc, #c1e3eb); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
