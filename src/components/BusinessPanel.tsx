@@ -1,7 +1,12 @@
 "use client";
 import VisibilityPanel from "./VisibilityPanel";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import { dueFollowups, LANGS, STAGES, STAGE_LABEL, emailIn, type Find, type Lang, type Prospect, type Stage } from "@/lib/business-pure";
+import { mapNodes, mapSummary } from "@/lib/business-map-pure";
+
+// Three.js loads after the drawer opens, so the list shows instantly.
+const BusinessMap = dynamic(() => import("./BusinessMap"), { ssr: false, loading: () => <div className="h-[260px] rounded-md border border-white/10" /> });
 
 // BUSINESS drawer: the client pipeline for the Lead Follow-up Autopilot (services/lead-followup).
 // Add businesses, move them through stages, let CORE draft the first message. Nothing is sent unless you click Approve & send twice (AGENTS.md rule 6).
@@ -22,6 +27,8 @@ export default function BusinessPanel() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const [filter, setFilter] = useState<Stage | "all" | "followup">("all");
+  const [showMap, setShowMap] = useState<boolean | null>(null); // null = default: map when there are businesses
+  const [lit, setLit] = useState("");
 
   const load = useCallback(() => call("GET").then((j: State) => { setSt(j); setErr(""); }, (e: Error) => setErr(e.message)), []);
   useEffect(() => { void load(); }, [load]);
@@ -32,6 +39,13 @@ export default function BusinessPanel() {
   };
 
   const due = new Set(dueFollowups(st?.prospects ?? [], Date.now()).map((p) => p.id));
+  const nodes = mapNodes(st?.prospects ?? [], due);
+  const mapOn = showMap ?? nodes.length > 0;
+  const pick = (id: string) => {
+    setFilter("all"); setLit(id);
+    setTimeout(() => document.getElementById(`biz-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    setTimeout(() => setLit((l) => (l === id ? "" : l)), 2500);
+  };
   const shown = st?.prospects.filter((p) => filter === "all" || (filter === "followup" ? due.has(p.id) : p.stage === filter)) ?? [];
   return (
     <div className="space-y-3 text-sm">
@@ -43,6 +57,16 @@ export default function BusinessPanel() {
           <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">In pipeline</div><div className="num text-xl font-semibold">{st.funnel.total - st.funnel.counts.lost}</div></div>
           <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">Pilots</div><div className="num text-xl font-semibold">{st.funnel.counts.pilot}</div></div>
           <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">Per month</div><div className="num text-xl font-semibold">{euro(st.funnel.monthly)}</div></div>
+        </div>
+      )}
+
+      {st && (
+        <div className="space-y-1.5">
+          <div className="flex gap-1" role="group" aria-label="Pipeline view">
+            <button className="chip" aria-pressed={mapOn} onClick={() => setShowMap(true)}>Map</button>
+            <button className="chip" aria-pressed={!mapOn} onClick={() => setShowMap(false)}>List</button>
+          </div>
+          {mapOn && <><div aria-hidden="true"><BusinessMap nodes={nodes} onPick={pick} /></div><p className="sr-only">{mapSummary(nodes)}</p></>}
         </div>
       )}
 
@@ -67,7 +91,7 @@ export default function BusinessPanel() {
       {st && !st.prospects.length && <p className="muted">No businesses yet. Add one you could walk into or call this week: a bakery that takes cake orders, a cleaning or renovation firm, a salon.</p>}
 
       <ul className="space-y-2">
-        {shown.map((p) => <Row key={p.id} p={p} due={due.has(p.id)} busy={busy} act={act} canSend={!!st?.canSend} />)}
+        {shown.map((p) => <Row key={p.id} p={p} lit={lit === p.id} due={due.has(p.id)} busy={busy} act={act} canSend={!!st?.canSend} />)}
       </ul>
     </div>
   );
@@ -114,7 +138,7 @@ function AddForm({ busy, onAdd }: { busy: boolean; onAdd: (b: { name: string; ki
   );
 }
 
-function Row({ p, due, busy, act, canSend }: { p: Prospect; due: boolean; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean }) {
+function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; due: boolean; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean }) {
   const [notes, setNotes] = useState(p.notes);
   const [fee, setFee] = useState(String(p.fee || ""));
   const [lang, setLang] = useState<Lang>("Estonian");
@@ -128,7 +152,7 @@ function Row({ p, due, busy, act, canSend }: { p: Prospect; due: boolean; busy: 
     try { await navigator.clipboard.writeText(p.draft); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* clipboard refused: the text stays selectable */ }
   };
   return (
-    <li className="card space-y-1.5" aria-label={p.name}>
+    <li id={`biz-${p.id}`} className={`card space-y-1.5 transition-shadow ${lit ? "ring-2 ring-amber-400" : ""}`} aria-label={p.name}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0"><b>{p.name}</b>{due && <span className="chip">Follow up due</span>}{p.kind && <span className="muted"> · {p.kind}</span>}{p.contact && <span className="muted select-all"> · {p.contact}</span>}</div>
         <select className="chip" aria-label={`Stage of ${p.name}`} value={p.stage} disabled={any} onChange={(e) => void update({ stage: e.target.value })}>
