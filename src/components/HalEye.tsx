@@ -3,6 +3,7 @@
 // the mouse, greys out when ORBIT is muted or Stop-all is on. Click = the 🔇 button in VoiceControls (flip `speak`).
 import { useEffect, useRef, useState } from "react";
 import { loadVoiceSettings, saveVoiceSettings, voiceLevel, type VoiceSettings } from "./voice/bus";
+import { STOP_ALL_EVENT, STOP_ALL_REQUEST_EVENT, type StopAllDetail } from "@/lib/stop-all-pure";
 
 export function HalEye() {
   const ref = useRef<HTMLButtonElement>(null);
@@ -16,12 +17,11 @@ export function HalEye() {
     return () => removeEventListener("orbit:voice-settings", on);
   }, []);
 
-  // shortcut: polls /api/stop-all like StopAll.tsx does (no shared store yet); move to an event if StopAll ever broadcasts its state.
   useEffect(() => {
-    const load = () => fetch("/api/stop-all").then((r) => (r.ok ? r.json() : null)).then((s) => { if (s) setStopped(!!s.stop?.on); }).catch(() => {});
-    load();
-    const h = setInterval(() => { if (!document.hidden) load(); }, 30_000);
-    return () => clearInterval(h);
+    const on = (e: Event) => setStopped((e as CustomEvent<StopAllDetail>).detail.on);
+    addEventListener(STOP_ALL_EVENT, on);
+    dispatchEvent(new Event(STOP_ALL_REQUEST_EVENT));
+    return () => removeEventListener(STOP_ALL_EVENT, on);
   }, []);
 
   useEffect(() => {
