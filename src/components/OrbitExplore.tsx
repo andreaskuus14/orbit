@@ -8,7 +8,8 @@ export function warmWorld(id: PanelId) {
     : id === "creation" ? () => import("./DevWorld")
     : id === "agents" ? () => import("./AgentsStation")
     : id === "theater" ? () => import("./TheaterWorld")
-    : id === "arch" ? () => import("./ArchWorld") : null;
+    : id === "arch" ? () => import("./ArchWorld")
+    : id === "memory" ? () => import("./MemoryWorld") : null;
   if (load) void load().catch(() => {}); // opening the world still owns loading/error handling
 }
 
