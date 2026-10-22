@@ -103,7 +103,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [behind, setBehind] = useState<PanelId | null>(null);
   // The world (or panel) actually on screen. Also while panel is briefly null after closing CORE, so the world isn't remounted.
   const shown = behind && (panel === "core" || panel === null) ? behind : panel;
-  const closeWorld = useCallback(() => { setBehind(null); setPanel(null); setFocusGoal(null); }, []); // "← Back to galaxy" really leaves, even with CORE open over it
+  const closeWorld = useCallback(() => { setBehind(null); setPanel(null); setFocusGoal(null); setFocusMemory(null); }, []); // "← Back to galaxy" really leaves, even with CORE open over it
   const isWorld = (p: PanelId | null) => p === "intelligence" || (p !== null && WORLDS.includes(p));
   // A second question keeps the world; a running game is full-screen above everything, so CORE replaces it as before.
   const openCore = useCallback(() => { if (panel !== "core") setBehind(isWorld(panel) && !gameOpen ? panel : null); setPanel("core"); }, [panel, gameOpen]); // eslint-disable-line react-hooks/exhaustive-deps

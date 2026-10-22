@@ -160,9 +160,10 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   }, [list]); // eslint-disable-line react-hooks/exhaustive-deps -- data is only the "already loaded" guard
 
   const index = useMemo(() => new Map(data?.items.map((m, i) => [m.id, i]) ?? []), [data]);
-  useEffect(() => { // OPEN_MEMORY_EVENT (palette, CORE, a star click) arrives as focusId: show its detail and its star
+  useEffect(() => { if (focusId) setList(true); }, [focusId]); // a newly opened memory shows its detail once; Constellation stays reachable
+  useEffect(() => { setSel(null); setHover(null); }, [data]); // positions are array indexes: a refetch reorders them
+  useEffect(() => { // OPEN_MEMORY_EVENT (palette, CORE, a star click) arrives as focusId: select and fly to its star
     if (!focusId) return;
-    setList(true);
     const i = index.get(focusId);
     if (i !== undefined && data) { setSel(i); const m = data.items[i]; fly([m.x, m.y, m.z], 9); }
   }, [focusId, index, data]);
