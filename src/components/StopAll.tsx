@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { notify } from "@/lib/notify-pure";
 import { changeStopAll, STOP_ALL_CHANGED } from "./nav-command";
 import { RESOLVE_ALERT, type Signal } from "@/lib/interruption-pure";
+import { STOP_ALL_EVENT, STOP_ALL_REQUEST_EVENT, type StopAllDetail } from "@/lib/stop-all-pure";
 
 type Status = { stop: { on: boolean; at: string }; hold: string; limit: { until: number; at: number } | null };
 const SEEN_KEY = "orbit.limitSeen";
@@ -14,11 +15,18 @@ export function StopAll() {
   const [err, setErr] = useState("");
   const seen = useRef<number | null>(null);
   const wasOn = useRef(false);
+  const known = useRef<StopAllDetail | null>(null);
+
+  const broadcast = useCallback((on: boolean) => {
+    known.current = { on };
+    dispatchEvent(new CustomEvent<StopAllDetail>(STOP_ALL_EVENT, { detail: known.current }));
+  }, []);
 
   const load = useCallback(async () => {
     const r = await fetch("/api/stop-all").then((x) => (x.ok ? x.json() : null)).catch(() => null) as Status | null;
     if (!r) return;
     setS(r);
+    broadcast(r.stop.on);
     if (r.stop.on && !wasOn.current) notify({ key: `stop-all:${r.stop.at}`, signal: "stop-all", kind: "system", title: "Stop-all switched on", reason: "Agents and automations are paused until you resume them.", fixLabel: "Open pause controls", nav: { panel: null } });
     if (!r.stop.on) dispatchEvent(new CustomEvent<Signal>(RESOLVE_ALERT, { detail: "stop-all" }));
     wasOn.current = r.stop.on;
@@ -31,20 +39,23 @@ export function StopAll() {
         notify({ key: `usage-limit:${r.limit.at}`, signal: "usage-limit", nav: { panel: "analytics" }, fixLabel: "See reset time", kind: "system", title: "Claude usage limit reached", body: `Background work (autopilot, goals, suggestions, translations) is paused until ${new Date(r.limit.until).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}. CORE chat still works.` });
       }
     }
-  }, []);
+  }, [broadcast]);
   useEffect(() => {
     void load();
     const h = setInterval(() => void load(), 30_000);
     const refresh = () => void load();
+    const replay = () => { if (known.current) broadcast(known.current.on); };
     addEventListener(STOP_ALL_CHANGED, refresh);
-    return () => { clearInterval(h); removeEventListener(STOP_ALL_CHANGED, refresh); };
-  }, [load]);
+    addEventListener(STOP_ALL_REQUEST_EVENT, replay);
+    return () => { clearInterval(h); removeEventListener(STOP_ALL_CHANGED, refresh); removeEventListener(STOP_ALL_REQUEST_EVENT, replay); };
+  }, [load, broadcast]);
 
   async function toggle(on: boolean) {
     if (on && !confirm("Stop everything?\n\nRunning agent tasks, agent teams and goal steps are cancelled, and no automation, scout, autopilot, briefing or suggestion starts until you press Resume. Clip renders already running finish. CORE chat keeps answering.")) return;
     setBusy(true); setErr("");
     try {
       const warning = await changeStopAll(on);
+      broadcast(on);
       if (warning) setErr(warning);
       await load();
     } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't switch Stop-all"); }

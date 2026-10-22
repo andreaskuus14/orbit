@@ -1,4 +1,5 @@
 "use client";
+import { WarmCompile } from "./WarmCompile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
@@ -12,13 +13,15 @@ import { loadImage } from "./texture-cache";
 import { ZoomRig } from "./ZoomRig";
 import { useScramble } from "./useScramble";
 import StudioStats from "./StudioStats";
+import Hologram from "./Hologram";
+import { compactNumber } from "@/lib/hologram-pure";
 import ClipFactory from "./ClipFactory";
 import LastShorts from "./LastShorts";
 import { isShort, medianViewsPerDay, moonRadius, takeoff, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
 
 // STUDIO: the owner's YouTube channel as a world. A crimson planet, one moon per video (newest closest in,
 // size by views, Shorts small and golden) and comets for videos taking off. Data: /api/studio.
-// No custom shaders here: only standard/basic materials, so nothing can feed NaN into Bloom.
+// Only standard/basic materials plus Hologram's clamped text shader, so nothing can feed NaN into Bloom.
 
 type Data =
   | { configured: false; error?: string; setup?: { env: string[] } }
@@ -324,6 +327,14 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
     finally { if (s === seq.current) setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  // Views over the last 28 days for the hologram: same server-cached endpoint StudioStats opens with; quiet if not connected.
+  const [views28, setViews28] = useState<number | null>(null);
+  useEffect(() => {
+    let dead = false;
+    fetch("/api/studio/analytics?range=28", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (!dead && j?.connected && Number.isFinite(j.totals?.views)) setViews28(j.totals.views); }).catch(() => {});
+    return () => { dead = true; };
+  }, []);
 
   const live = data?.configured ? data : null;
   const videos = useMemo(() => live?.videos ?? [], [live]);
@@ -389,12 +400,15 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
     <div className="studio absolute inset-0 globe-in" role="region" aria-label="Studio: your YouTube channel">
       {flat && <div aria-hidden className="studio-sky absolute inset-0" style={{ backgroundImage: `url(${SKY[0]})` }} />}
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }}>
+        <WarmCompile />
         <Sky />
         <Stars radius={70} depth={40} count={reduced ? 800 : 2000} factor={2.2} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} color="#ffd6e0" />
         <directionalLight position={[6, 5, 6]} intensity={2} color="#ffe5ec" />
         <pointLight position={[-5, -1, -4]} intensity={30} color="#ff2e63" distance={20} />
         <Planet reduced={reduced} />
+        {live && <Hologram text={`${compactNumber(live.channel.subs)} SUBSCRIBERS`} position={[0, PLANET_R + 1.05, 0]} size={0.3} color="#7df9ff" reduced={reduced} />}
+        {live && views28 !== null && <Hologram text={`${compactNumber(views28)} VIEWS · 28 DAYS`} position={[0, PLANET_R + 0.62, 0]} size={0.18} color="#ff8fab" reduced={reduced} />}
         <Moons moons={moons} selected={selected} ghost={!live} reduced={reduced} onPick={pick} onHover={onHover} />
         {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
         <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />

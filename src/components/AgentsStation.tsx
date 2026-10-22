@@ -1,4 +1,5 @@
 "use client";
+import { WarmCompile } from "./WarmCompile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -9,6 +10,8 @@ import { useGlRecovery } from "./useGlRecovery";
 import { FrameMark } from "./dev-timing";
 import { loadImage } from "./texture-cache";
 import { ZoomRig } from "./ZoomRig";
+import Hologram from "./Hologram";
+import { holoLine } from "@/lib/hologram-pure";
 import { AgentsPanel, type Task } from "./AgentsPanels";
 import AgentMission, { STATUS_DOT, api, usePoll } from "./AgentMission";
 import TeamBuilder from "./TeamBuilder";
@@ -179,8 +182,8 @@ function Beam({ target, source, color, glow, count, reduced, strength = 1 }: { t
   );
 }
 
-function Module({ agent, i, n, status, selected, reduced, lite, core, glow, groups, onPick, onHover }: {
-  agent: Agent; i: number; n: number; status: AgentStatus; selected: boolean; reduced: boolean; lite: boolean;
+function Module({ agent, i, n, status, selected, reduced, lite, core, glow, groups, task, onPick, onHover }: {
+  agent: Agent; task?: string; i: number; n: number; status: AgentStatus; selected: boolean; reduced: boolean; lite: boolean;
   core: THREE.Texture | null; glow: THREE.Texture; groups: Map<string, THREE.Group>;
   onPick: (slug: string) => void; onHover: (slug: string | null, x: number, y: number) => void;
 }) {
@@ -226,14 +229,15 @@ function Module({ agent, i, n, status, selected, reduced, lite, core, glow, grou
         <sprite scale={1.4}><spriteMaterial ref={halo} map={glow} transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} /></sprite>
         {status === "waiting" && <mesh position-y={0.5}><sphereGeometry args={[0.06, 12, 12]} /><meshBasicMaterial ref={beacon} color="#fbbf24" transparent toneMapped={false} /></mesh>}
         {selected && <mesh rotation-x={Math.PI / 2}><torusGeometry args={[0.62, 0.012, 8, 64]} /><meshBasicMaterial color="#e9d5ff" /></mesh>}
+        {task && <Hologram text={task} position={[0, 0.72, 0]} size={0.14} color={agent.color} reduced={reduced} />}
       </group>
     </>
   );
 }
 
 /** One place for the shared textures, so every drone reuses one upload. */
-function Station({ list, status, selected, reduced, lite, dust, handoffs, onPick, onHover }: {
-  list: Agent[]; status: Record<string, AgentStatus>; selected: string | null; reduced: boolean; lite: boolean; dust: number; handoffs: [string, string][];
+function Station({ list, status, selected, reduced, lite, dust, handoffs, running, onPick, onHover }: {
+  list: Agent[]; status: Record<string, AgentStatus>; running: Record<string, string>; selected: string | null; reduced: boolean; lite: boolean; dust: number; handoffs: [string, string][];
   onPick: (slug: string) => void; onHover: (slug: string | null, x: number, y: number) => void;
 }) {
   const hull = useTex(HULL, 2), core = useTex(CORE), glow = useGlowTexture();
@@ -244,7 +248,7 @@ function Station({ list, status, selected, reduced, lite, dust, handoffs, onPick
       <Sky />
       <Dust count={dust} glow={glow} reduced={reduced} />
       <Hub reduced={reduced} lite={lite} hull={hull} />
-      {list.map((a, i) => <Module key={a.slug} agent={a} i={i} n={list.length} status={status[a.slug]} selected={a.slug === selected} reduced={reduced} lite={lite} core={core} glow={glow} groups={groups} onPick={onPick} onHover={onHover} />)}
+      {list.map((a, i) => <Module key={a.slug} agent={a} i={i} n={list.length} status={status[a.slug]} selected={a.slug === selected} reduced={reduced} lite={lite} core={core} glow={glow} groups={groups} task={running[a.slug]} onPick={onPick} onHover={onHover} />)}
       {/* team hand-off: previous step's drone → current step's drone */}
       {handoffs.map(([from, to]) => <Beam key={`${from}>${to}`} source={() => groups.get(from)} target={() => groups.get(to)} color={color(to)} glow={glow} count={lite ? 5 : 10} reduced={reduced} strength={1.4} />)}
     </>
@@ -342,6 +346,12 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   // A team's parent row (agent nova, "running" for the whole chain) is bookkeeping, not Nova's own work.
   const status = useMemo(() => { const own = tasks.filter((t) => !t.title.startsWith(CHAIN_TITLE)); return Object.fromEntries(list.map((a) => [a.slug, agentStatus(own, a.slug, a.stats.running)])) as Record<string, AgentStatus>; }, [list, tasks]);
   const names = useMemo(() => Object.fromEntries(list.map((a) => [a.slug, a.name])), [list]);
+  // Hologram over each working drone: its running task's name (at most 4, so the station stays cheap and readable).
+  const running = useMemo(() => {
+    const own = tasks.filter((t) => !t.title.startsWith(CHAIN_TITLE));
+    return Object.fromEntries(list.filter((a) => status[a.slug] === "working").slice(0, 4)
+      .flatMap((a) => { const t = currentTask(own, a.slug); return t && (t.status === "running" || t.status === "queued") ? [[a.slug, holoLine(t.title, 36)]] : []; }));
+  }, [list, tasks, status]);
   const feed = useMemo(() => activityFeed(tasks, 10), [tasks]);
   const agent = list.find((a) => a.slug === selected) ?? null;
   const hovered = list.find((a) => a.slug === hover.id);
@@ -352,10 +362,11 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
     <div className="absolute inset-0 globe-in">
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={visible ? "always" : "never"} camera={{ position: [0, HOME * 0.45, HOME], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }} onPointerMissed={() => setSelected(null)}>
+        <WarmCompile />
         <color attach="background" args={["#03020c"]} />
         <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} />
-        <Station list={list} status={status} selected={selected} reduced={reduced} lite={q.bloom === 0} dust={q.bloom === 0 ? 120 : q.bloom < 0.9 ? 350 : 700} handoffs={handoffs} onPick={setSelected} onHover={onHover} />
+        <Station list={list} status={status} selected={selected} reduced={reduced} lite={q.bloom === 0} dust={q.bloom === 0 ? 120 : q.bloom < 0.9 ? 350 : 700} handoffs={handoffs} running={running} onPick={setSelected} onHover={onHover} />
         <OrbitControls makeDefault enablePan={false} minDistance={2} maxDistance={HOME * 2.5} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Follow index={list.findIndex((a) => a.slug === selected)} n={list.length} reduced={reduced} />
         <Rig />
