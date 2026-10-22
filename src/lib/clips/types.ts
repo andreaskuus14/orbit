@@ -30,6 +30,7 @@ export type ClipJob = { v?: number; id: string; source: string; createdAt: strin
   permission?: string; // source/permission note (inbox auto-clip: from <video>.source.txt / .source.json)
   timings?: { audio: number; transcribe: number; pick: number; render: number }; // seconds per stage
   feedback?: Feedback[]; // review decisions, kept for learning what makes a good clip
+  auto?: boolean; // started by scout/autopilot/inbox auto-clip, not the owner: a re-upload source is skipped instead of warned
   resumes?: number; // times re-queued automatically after ORBIT restarted mid-run (max 1)
   devlogDay?: number; // devlog preset: this recording's "Day N" (taken from the series counter once, on the first run)
   hype?: HypeView }; // hype timeline (chat + audio) for the HypeWave, downsampled (hype-pure.ts)
