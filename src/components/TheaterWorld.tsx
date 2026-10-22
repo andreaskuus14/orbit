@@ -3,11 +3,12 @@ import { WarmCompile } from "./WarmCompile";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Stars } from "@react-three/drei";
+import { Stars, PerformanceMonitor } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import { FrameMark } from "./dev-timing";
-import { QUALITY, type QualityMode } from "@/lib/quality-pure";
+import type { QualityMode } from "@/lib/quality-pure";
+import { useLeanQuality } from "./useLeanQuality";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { ago, embedUrl, findMode, isNew, isVideoId, length, safeThumb } from "@/lib/watch-pure";
 import { WATCH_CONTROL, canAutoLoad, closeWatch, findAll, findTrending, findVideos, loadMore, setSort, forgetCreator, forgetTopic, saveTopic, getSaved, getSavedServer, getWatch, pinCreator, play, replay, setWatch, subscribeSaved, subscribeWatch } from "./watch-store";
@@ -107,7 +108,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
   }, [w?.next, w?.more, w?.videos.length, playing]);
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(location.origin), []);
-  const q = QUALITY[quality === "low" ? 0 : quality === "high" ? 2 : 1];
+  const q = useLeanQuality(quality);
   const notice = (msg: string) => { const s = getWatch(); if (s) setWatch({ ...s, notice: msg }); };
 
   function fullscreen() {
@@ -176,8 +177,9 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="Theater: watch YouTube videos" style={{ background: "#030208" }}>
-      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={reduced || playing ? "demand" : "always"} camera={{ position: [0, 2.4, 9], fov: 50 }} dpr={[1, q.dpr]} gl={{ antialias: true }}>
+      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={reduced || playing ? "demand" : "always"} camera={{ position: [0, 2.4, 9], fov: 50 }} dpr={[1, q.dpr]} gl={{ antialias: false }}>
         <WarmCompile />
+        {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
         <color attach="background" args={["#030208"]} />
         <Stars radius={70} depth={40} count={reduced ? 600 : Math.min(2500, q.stars)} factor={2} fade speed={reduced ? 0 : 0.3} />
         <ambientLight intensity={0.25} color="#ffe7c2" />
@@ -188,9 +190,9 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
         {(playing || !w) && <Screen lit={!!playing} reduced={reduced} />} {/* hidden behind the feed: its empty gold frame looked broken */}
         <Seats />
         <Rig reduced={reduced} />
-        {q.bloom > 0 && (
+        {q.bloomScale > 0 && (
           <EffectComposer multisampling={q.msaa}>
-            <Bloom intensity={reduced ? 0.3 : 0.5 * q.bloom} luminanceThreshold={0.7} luminanceSmoothing={0.3} mipmapBlur />
+            <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.7} luminanceSmoothing={0.3} mipmapBlur />
             <Vignette offset={0.3} darkness={0.7} />
           </EffectComposer>
         )}

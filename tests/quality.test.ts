@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isCapped, stepQuality, parseQualityMode, worldQuality, QUALITY, type QualityState } from "../src/lib/quality-pure.ts";
+import { isCapped, stepQuality, parseQualityMode, worldQuality, leanWorldQuality, QUALITY, type QualityState } from "../src/lib/quality-pure.ts";
+
+test("world fallback lowers Auto DPR, MSAA and bloom, while manual presets always win", () => {
+  for (const mode of ["auto", "low", "high"] as const) {
+    const preset = worldQuality(mode);
+    assert.deepEqual(leanWorldQuality(mode, false), { dpr: preset.dpr, msaa: preset.msaa, bloomScale: preset.bloom });
+    const fallback = leanWorldQuality(mode, true);
+    if (mode === "auto") assert.deepEqual(fallback, { dpr: 1, msaa: 0, bloomScale: 0 });
+    else assert.deepEqual(fallback, leanWorldQuality(mode, false));
+  }
+});
 
 const run = (s: QualityState, fps: number, secs: number, max: 0 | 1 | 2 | 3 = 2, worst = 0) => {
   for (let t = 0; t < secs; t += 0.5) s = stepQuality(s, fps, 0.5, max, worst);

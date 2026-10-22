@@ -4,12 +4,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type RootState, type ThreeEvent } from "@react-three/fiber";
-import { Html, OrbitControls, Stars } from "@react-three/drei";
+import { Html, OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import { MemoryPanel } from "./panels";
 import { beliefsPending } from "./BeliefsPanel";
-import { worldQuality, type QualityMode } from "@/lib/quality-pure";
+import type { QualityMode } from "@/lib/quality-pure";
+import { useLeanQuality } from "./useLeanQuality";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { centroid, isLearned, searchStars } from "@/lib/memory-world-pure";
@@ -138,7 +139,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; focusId: string | null; onChanged: () => void;
 }) {
   const glr = useGlRecovery();
-  const q = worldQuality(quality);
+  const q = useLeanQuality(quality);
   const [data, setData] = useState<MapData | null>(null);
   const [err, setErr] = useState("");
   const [list, setList] = useState(() => !!focusId || beliefsPending());
@@ -205,8 +206,9 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="MEMORY: your memories as a constellation" style={{ background: BG }}>
       {!flat && (
-        <Canvas key={glr.key} onCreated={onCreated} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: true }}
+        <Canvas key={glr.key} onCreated={onCreated} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
           onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
+          {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
           <color attach="background" args={[BG]} />
           <Stars radius={120} depth={60} count={reduced ? 800 : Math.min(3000, q.stars)} factor={2.2} fade speed={reduced ? 0 : 0.2} />
           {data && <Constellation data={data} hi={hi} searching={!!query.trim()} reduced={reduced} onHover={setHover} onPick={open} />}
@@ -217,9 +219,9 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           )}
           <OrbitControls makeDefault enableDamping dampingFactor={0.08} minDistance={3} maxDistance={110} autoRotate={!reduced && hover === null} autoRotateSpeed={0.18} />
           <Fly goal={goal} reduced={reduced} />
-          {q.bloom > 0 && (
+          {q.bloomScale > 0 && (
             <EffectComposer multisampling={q.msaa}>
-              <Bloom intensity={reduced ? 0.4 : 0.75 * q.bloom} luminanceThreshold={0.35} luminanceSmoothing={0.4} mipmapBlur />
+              <Bloom intensity={(reduced ? 0.4 : 0.75) * q.bloomScale} luminanceThreshold={0.35} luminanceSmoothing={0.4} mipmapBlur />
               <Vignette offset={0.3} darkness={0.75} />
             </EffectComposer>
           )}
