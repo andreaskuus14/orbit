@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, REPEAT_LABEL, isRepeat, type HabitView, type LifeState } from "@/lib/life-pure";
 import type { LifeView } from "@/lib/nav-pure";
+import { FOCUS_TIMER_KEY, advanceFocusTimer, focusPhaseSeconds, restoreFocusTimer, type RestoredFocusTimer } from "@/lib/focus-timer-pure";
 import { VOICE_ASK } from "./voice/bus";
 import CalendarCard from "./CalendarCard";
 
@@ -142,14 +143,27 @@ function Habits({ st, act }: { st: LifeState; act: Act }) {
 }
 
 /* ---------------- Focus timer ---------------- */
-type Phase = "focus" | "break";
-// Module scope so closing and reopening the drawer keeps a running timer.
-const timer = { plan: 25 as 25 | 50, phase: "focus" as Phase, endAt: 0, left: 25 * 60 };
-const phaseLen = (p: Phase) => (p === "focus" ? timer.plan : timer.plan / 5) * 60;
+// Module scope keeps the tick alive when the drawer closes; localStorage also survives reloads.
+function readTimer() {
+  try { return typeof window === "undefined" ? null : localStorage.getItem(FOCUS_TIMER_KEY); } catch { return null; }
+}
+const restored = restoreFocusTimer(readTimer(), Date.now());
+const timer = restored.timer;
+const phaseLen = (p: typeof timer.phase) => focusPhaseSeconds(timer.plan, p);
+function saveTimer() {
+  try { localStorage.setItem(FOCUS_TIMER_KEY, JSON.stringify(timer)); } catch { /* storage unavailable: keep the in-memory timer */ }
+}
 const timerListeners = new Set<(logged?: boolean) => void>();
 let timerTick: ReturnType<typeof setInterval> | null = null;
 // The tick lives at module scope too, so a session finishes (beep + logged minutes) even with the drawer or Focus tab closed.
-// shortcut: a page reload still loses a running timer; persist endAt in localStorage if that matters.
+function applyTimer(result: RestoredFocusTimer) {
+  Object.assign(timer, result.timer);
+  saveTimer(); // Claim completion before posting: another reload must not log the same focus twice.
+  if (result.expired) {
+    beep();
+    if (result.completedMinutes) post({ action: "focus", minutes: result.completedMinutes }).then(() => timerListeners.forEach((f) => f(true)), () => {});
+  }
+}
 /** Tells the galaxy (ambient focus mode) whether a focus session is running; only on change. */
 let focusWas = false;
 function focusSignal() {
@@ -160,11 +174,7 @@ function ensureTick() {
   if (timerTick) return;
   timerTick = setInterval(() => {
     if (timer.endAt && Date.now() >= timer.endAt) {
-      beep();
-      if (timer.phase === "focus") post({ action: "focus", minutes: timer.plan }).then(() => timerListeners.forEach((f) => f(true)), () => {});
-      timer.phase = timer.phase === "focus" ? "break" : "focus";
-      timer.left = phaseLen(timer.phase);
-      timer.endAt = timer.phase === "break" ? Date.now() + timer.left * 1000 : 0; // break starts on its own; next focus waits for Start
+      applyTimer(advanceFocusTimer(timer, Date.now()));
     }
     focusSignal();
     if (!timer.endAt && timerTick) { clearInterval(timerTick); timerTick = null; }
@@ -176,6 +186,7 @@ function ensureTick() {
 function startTimer() {
   if (timer.endAt) return;
   timer.endAt = Date.now() + timer.left * 1000;
+  saveTimer();
   focusSignal();
   ensureTick();
 }
@@ -195,6 +206,11 @@ function beep() {
   } catch { /* no audio available */ }
 }
 
+if (typeof window !== "undefined") {
+  applyTimer(restored);
+  if (timer.endAt) ensureTick(); // resume even before the Focus tab is opened; the first tick emits focusSignal
+}
+
 function Focus({ st, reload }: { st: LifeState; reload: () => Promise<void> }) {
   const [, force] = useState(0);
   const rerender = () => force((n) => n + 1);
@@ -210,8 +226,8 @@ function Focus({ st, reload }: { st: LifeState; reload: () => Promise<void> }) {
     return () => { timerListeners.delete(f); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const start = () => { startTimer(); rerender(); };
-  const pause = () => { timer.left = left; timer.endAt = 0; rerender(); };
-  const reset = (plan = timer.plan) => { timer.plan = plan; timer.phase = "focus"; timer.endAt = 0; timer.left = len("focus"); rerender(); };
+  const pause = () => { timer.left = left; timer.endAt = 0; saveTimer(); focusSignal(); rerender(); };
+  const reset = (plan = timer.plan) => { timer.plan = plan; timer.phase = "focus"; timer.endAt = 0; timer.left = len("focus"); saveTimer(); focusSignal(); rerender(); };
   const mmss = `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`;
   return (
     <div className="space-y-3">
