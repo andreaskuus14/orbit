@@ -150,6 +150,12 @@ const timerListeners = new Set<(logged?: boolean) => void>();
 let timerTick: ReturnType<typeof setInterval> | null = null;
 // The tick lives at module scope too, so a session finishes (beep + logged minutes) even with the drawer or Focus tab closed.
 // shortcut: a page reload still loses a running timer; persist endAt in localStorage if that matters.
+/** Tells the galaxy (ambient focus mode) whether a focus session is running; only on change. */
+let focusWas = false;
+function focusSignal() {
+  const on = timer.endAt > 0 && timer.phase === "focus";
+  if (on !== focusWas) { focusWas = on; dispatchEvent(new CustomEvent("orbit:focus", { detail: { on } })); }
+}
 function ensureTick() {
   if (timerTick) return;
   timerTick = setInterval(() => {
@@ -160,6 +166,7 @@ function ensureTick() {
       timer.left = phaseLen(timer.phase);
       timer.endAt = timer.phase === "break" ? Date.now() + timer.left * 1000 : 0; // break starts on its own; next focus waits for Start
     }
+    focusSignal();
     if (!timer.endAt && timerTick) { clearInterval(timerTick); timerTick = null; }
     timerListeners.forEach((f) => f());
   }, 500);
@@ -169,6 +176,7 @@ function ensureTick() {
 function startTimer() {
   if (timer.endAt) return;
   timer.endAt = Date.now() + timer.left * 1000;
+  focusSignal();
   ensureTick();
 }
 

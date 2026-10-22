@@ -21,6 +21,7 @@ import {
 } from "./Cinematic";
 
 export type GalaxyProps = {
+  bloomScale?: number; // ambient night mode softens the glow
   selected: PanelId | null;
   onSelect: (id: PanelId) => void;
   memoryCount: number;       // real: one moon per stored memory (max 40 drawn)
@@ -1147,7 +1148,7 @@ export default function Galaxy(props: GalaxyProps) {
         {q.bloom > 0 && (
           <EffectComposer key={level} multisampling={q.msaa}>
             {dof ? <StoryFocus story={story} /> : <></>}
-            <Bloom intensity={props.reduced ? Math.min(0.6, q.bloom) : q.bloom} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />
+            <Bloom intensity={(props.reduced ? Math.min(0.6, q.bloom) : q.bloom) * (props.bloomScale ?? 1)} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />
             {film ? <MotionAberration motion={motion} /> : <></>}
             <Vignette offset={0.28} darkness={0.7} />
             <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
