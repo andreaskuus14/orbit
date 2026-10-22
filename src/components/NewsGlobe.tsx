@@ -1,4 +1,5 @@
 "use client";
+import { WarmCompile } from "./WarmCompile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
@@ -820,6 +821,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
   return (
     <div className="absolute inset-0 globe-in" aria-label="World news globe">
       <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }}>
+        <WarmCompile />
         <color attach="background" args={["#01040b"]} />
         <Stars radius={70} depth={40} count={reduced ? 1500 : 5000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <Globe tint={tint} mode={mode} region={activeRegion} reduced={reduced} lit={lit} selected={selected} followed={followed}

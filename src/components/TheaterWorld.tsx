@@ -1,4 +1,5 @@
 "use client";
+import { WarmCompile } from "./WarmCompile";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -176,6 +177,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="Theater: watch YouTube videos" style={{ background: "#030208" }}>
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={reduced || playing ? "demand" : "always"} camera={{ position: [0, 2.4, 9], fov: 50 }} dpr={[1, q.dpr]} gl={{ antialias: true }}>
+        <WarmCompile />
         <color attach="background" args={["#030208"]} />
         <Stars radius={70} depth={40} count={reduced ? 600 : Math.min(2500, q.stars)} factor={2} fade speed={reduced ? 0 : 0.3} />
         <ambientLight intensity={0.25} color="#ffe7c2" />
