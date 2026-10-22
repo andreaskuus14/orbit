@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { businessLine, ideasLine, modulePrompt, privateTools, statusBlock, toolModule, writeTools } from "../src/lib/core-modules-pure.ts";
+import { businessLine, goalsLine, habitsLine, ideasLine, studioLine, modulePrompt, privateTools, statusBlock, toolModule, writeTools } from "../src/lib/core-modules-pure.ts";
 
 test("registry: lookup, prompt, private and write tools come from the module list", () => {
   const mods = [{ name: "A", prompt: "- a", tools: ["a1", "a2"], private: true, writes: ["a2"] }, { name: "B", prompt: "- b", tools: ["b1"] }];
@@ -9,6 +9,18 @@ test("registry: lookup, prompt, private and write tools come from the module lis
   assert.equal(modulePrompt(mods), "- a\n- b");
   assert.deepEqual(privateTools(mods), ["a1", "a2"]);
   assert.deepEqual(writeTools(mods), ["a2"]);
+  assert.deepEqual(privateTools([...mods, { name: "C", prompt: "", tools: ["c1", "c2"], private: ["c2"] }]), ["a1", "a2", "c2"]);
+});
+
+test("studio, habits and goals lines are counts only", () => {
+  const now = Date.parse("2026-10-21T12:00:00Z");
+  assert.equal(studioLine(0, [], "UTC", now), "");
+  assert.equal(studioLine(3, ["2026-10-20T10:00:00Z", "2026-10-21T17:00:00Z", "2026-10-21T15:00:00Z"], "UTC", now), "3 clips to review, next Short goes live 15:00");
+  assert.equal(studioLine(1, [], "UTC", now), "1 clip to review");
+  assert.equal(habitsLine([{ doneToday: true, scheduledToday: true }, { doneToday: false, scheduledToday: true }, { doneToday: true, scheduledToday: false }]), "1 of 2 habits done today");
+  assert.equal(habitsLine([{ doneToday: false, scheduledToday: false }]), "");
+  assert.equal(goalsLine(["draft", "done"]), "");
+  assert.match(goalsLine(["running", "waiting", "stopped"]), /^2 active goals/);
 });
 
 test("status block skips empty lines and is empty when nothing to say", () => {
