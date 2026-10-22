@@ -3,7 +3,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
-import { AnalyticsPanel, CorePanel, MemoryPanel, ProfilePanel } from "./panels";
+import { AnalyticsPanel, CorePanel, ProfilePanel } from "./panels";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
 import { VOICE_ASK, voiceContext } from "./voice/bus";
@@ -44,6 +44,7 @@ const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false, loading: Worl
 const AgentsStation = dynamic(() => import("./AgentsStation"), { ssr: false, loading: WorldLoading });
 const ArchWorld = dynamic(() => import("./ArchWorld"), { ssr: false, loading: WorldLoading });
 const TheaterWorld = dynamic(() => import("./TheaterWorld"), { ssr: false, loading: WorldLoading });
+const MemoryWorld = dynamic(() => import("./MemoryWorld"), { ssr: false, loading: WorldLoading });
 const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
 const VaultPanel = dynamic(() => import("./VaultPanel").then((m) => m.VaultPanel), { ssr: false });
 const LifeReminders = dynamic(() => import("./LifeReminders"), { ssr: false });
@@ -51,7 +52,7 @@ const MarketsPanel = dynamic(() => import("./MarketsPanel"), { ssr: false });
 const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
 const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
-const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch"]; // full-screen worlds with their own side panel (no drawer)
+const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch", "memory"]; // full-screen worlds with their own side panel (no drawer)
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "Orbital is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
 
@@ -402,6 +403,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : shown === "arch" ? (
         <ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
+      ) : shown === "memory" ? (
+        <MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} />
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label="Planets" className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>ORBIT / YOUR WORKSPACE</p><h1>A universe.<br />Yours to shape.</h1><span>Ask, create, remember. Pick a world to begin.</span></div>
@@ -465,7 +468,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <div className="mb-3 flex items-center justify-between"><h2 className="brand text-base">{title}</h2><button className="chip" onClick={() => setPanel(null)} aria-label="Close panel" title="Close (Esc)">Close</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {drawer === "core" ? <CorePanel initial={pending} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
-              : drawer === "memory" ? <MemoryPanel focusId={focusMemory} onChanged={refreshCount} />
               : drawer === "profile" ? <ProfilePanel />
               : drawer === "analytics" ? <AnalyticsPanel />
               : drawer === "intelligence" ? <IntelligencePanel />
