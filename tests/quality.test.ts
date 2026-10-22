@@ -1,12 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isCapped, stepQuality, parseQualityMode, type QualityState } from "../src/lib/quality-pure.ts";
+import { isCapped, stepQuality, parseQualityMode, worldQuality, QUALITY, type QualityState } from "../src/lib/quality-pure.ts";
 
 const run = (s: QualityState, fps: number, secs: number, max: 0 | 1 | 2 | 3 = 2, worst = 0) => {
   for (let t = 0; t < secs; t += 0.5) s = stepQuality(s, fps, 0.5, max, worst);
   return s;
 };
 const start: QualityState = { level: 2, low: 0, high: 0 };
+
+test("world quality follows the shared presets, defaulting to medium for auto", () => {
+  assert.equal(worldQuality("low"), QUALITY[0]);
+  assert.equal(worldQuality("auto"), QUALITY[1]);
+  assert.equal(worldQuality("high"), QUALITY[2]);
+  assert.equal(worldQuality(), QUALITY[1]);
+  assert.ok(worldQuality("low").dpr < worldQuality("auto").dpr);
+  assert.ok(worldQuality("auto").dpr < worldQuality("high").dpr);
+});
 
 test("steps down only after 3 s below 40 fps", () => {
   assert.equal(run(start, 25, 2.5).level, 2);

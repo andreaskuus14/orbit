@@ -16,7 +16,6 @@ import type { Plan } from "@/lib/plans-pure";
 import { NAV_EVENT, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { KINDS, type Kind } from "@/lib/kinds";
-import { planetById, type PlanetId } from "@/lib/planets";
 import { Markdown } from "./AgentsPanels";
 import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
@@ -753,17 +752,6 @@ export function AnalyticsPanel() {
       <h3 className="h3">Recent activity</h3>
       <ul className="space-y-1 text-sm">{s.events.map((e, i) => { const event = eventLabel(e.type); return <li key={i}><span aria-hidden="true">{event.icon}</span> <b>{event.label}</b> <span className="muted">{when(e.created_at)}</span></li>; })}{!s.events.length && <li className="muted">Nothing yet.</li>}</ul>
       </>}
-    </div>
-  );
-}
-
-/* ---------------- planets that arrive in later phases ---------------- */
-export function LaterPanel({ id }: { id: PlanetId }) {
-  const p = planetById(id)!;
-  return (
-    <div className="space-y-3">
-      <p>{p.blurb}</p>
-      <p className="card text-sm">Not built yet. This workspace arrives in <b>Phase {p.phase}</b>. ORBIT shows only features that work, so nothing here is simulated.</p>
     </div>
   );
 }

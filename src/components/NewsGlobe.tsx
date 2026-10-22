@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useGlRecovery } from "./useGlRecovery";
+import { worldQuality, type QualityMode } from "@/lib/quality-pure";
 import { FrameMark } from "./dev-timing";
 import { ZoomRig } from "./ZoomRig";
 import { OrbitControls, Stars } from "@react-three/drei";
@@ -663,7 +664,8 @@ const WINDOWS = [{ h: 24, label: "24h" }, { h: 72, label: "3d" }, { h: 168, labe
 
 /** focus: a country or region from CORE navigation; a new object flies there with the same camera moves as a click.
  *  focus.search runs that search as if typed; "" clears search and selection (the whole world). */
-export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null }) {
+export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto" }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode }) {
+  const q = worldQuality(quality);
   const glr = useGlRecovery();
   const [hours, setHours] = useState(72);
   const [data, setData] = useState<Data | null>(null);
@@ -817,7 +819,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo }: { onClose: 
 
   return (
     <div className="absolute inset-0 globe-in" aria-label="World news globe">
-      <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, 2]} gl={{ antialias: true, powerPreference: "high-performance" }}>
+      <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }}>
         <color attach="background" args={["#01040b"]} />
         <Stars radius={70} depth={40} count={reduced ? 1500 : 5000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <Globe tint={tint} mode={mode} region={activeRegion} reduced={reduced} lit={lit} selected={selected} followed={followed}

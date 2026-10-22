@@ -6,6 +6,7 @@ import { OrbitControls, Stars } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
+import { worldQuality, type QualityMode } from "@/lib/quality-pure";
 import { FrameMark } from "./dev-timing";
 import { loadImage } from "./texture-cache";
 import { ZoomRig } from "./ZoomRig";
@@ -286,7 +287,8 @@ function StudioCamera({ mode, reduced }: { mode: Mode; reduced: boolean }) {
 type Sort = "newest" | "views" | "takeoff";
 const MODES: [Mode, string][] = [["channel", "Channel"], ["stats", "Stats"], ["clips", "Clips"]];
 
-export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }: { onClose: () => void; reduced: boolean; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
+export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, quality = "auto" }: { onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
+  const q = worldQuality(quality);
   const glr = useGlRecovery();
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
@@ -386,7 +388,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open }
   return (
     <div className="studio absolute inset-0 globe-in" role="region" aria-label="Studio: your YouTube channel">
       {flat && <div aria-hidden className="studio-sky absolute inset-0" style={{ backgroundImage: `url(${SKY[0]})` }} />}
-      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, 2]} gl={{ antialias: true, powerPreference: "high-performance" }}>
+      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: true, powerPreference: "high-performance" }}>
         <Sky />
         <Stars radius={70} depth={40} count={reduced ? 800 : 2000} factor={2.2} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} color="#ffd6e0" />
