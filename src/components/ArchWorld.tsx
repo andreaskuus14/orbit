@@ -9,11 +9,12 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
-import { MAX, applyOps, boq, bulkTips, costLines, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
+import { MAX, applyOps, boq, boqCsv, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
 
 const KEY = "orbit.arch.v1";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
-const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9" };
+const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9", window: "#33475b", door: "#6b4f3a" };
+const FACE_ROT = { n: Math.PI, s: 0, e: Math.PI / 2, w: -Math.PI / 2 }; // turns local +Z to face outward
 const GROUND: Record<Scene["plot"]["ground"], string> = { grass: "#c9d3bf", gravel: "#d9d6cf", forest: "#b9c6b0", sand: "#e6dcc6" };
 const BG = "#ebe7e0", GOLD = "#c9a24a";
 const BP = { bg: "#0b2545", ground: "#0e2f56", fill: "#123a66", edge: "#e0f2fe", grid: ["#5b8bc4", "#1d4a7c"] as const }; // blueprint mode
@@ -30,6 +31,12 @@ const GABLE = (() => {
 })();
 const load = (): { scene: Scene; prices: PriceItem[] } | null => { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
 const eur = (n: number) => n.toLocaleString("et-EE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+const download = (name: string, text: string, type: string) => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
 let seq = Date.now();
 const newId = () => `p${(seq++).toString(36)}`;
 
@@ -56,6 +63,21 @@ function Block({ p, selected, onPick, reduced, appearAt, hidden, bp }: { p: Part
   );
 }
 
+/** A window or door drawn on its wall face: a dark inset panel (glass or door leaf) with a frame. shortcut: no real hole (CSG); fine
+ *  for a massing model, upgrade if section views need it. Hidden until its wall has risen in the build animation. */
+function Opening({ p, selected, onPick, appearAt, reduced, bp }: { p: Part; selected: boolean; onPick: () => void; appearAt: number; reduced: boolean; bp: boolean }) {
+  const g = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => { if (g.current) g.current.visible = reduced || clock.elapsedTime >= appearAt; });
+  return (
+    <group ref={g} position={[p.x, p.y + p.h / 2, p.z]} rotation={[0, FACE_ROT[p.face ?? "s"], 0]} onClick={(e) => { e.stopPropagation(); onPick(); }}>
+      <mesh position={[0, 0, 0.01]}><boxGeometry args={[p.w, p.h, 0.02]} />
+        <meshStandardMaterial color={bp ? BP.bg : COLOR[p.kind]} roughness={p.kind === "window" ? 0.15 : 0.8} metalness={p.kind === "window" ? 0.3 : 0} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.3 : 0} /></mesh>
+      <mesh position={[0, 0, 0.03]}><boxGeometry args={[p.w, p.h, 0.04]} /><meshBasicMaterial visible={false} />
+        <Edges color={selected ? GOLD : bp ? BP.edge : "#3f3a35"} /></mesh>
+    </group>
+  );
+}
+
 function Trees({ n, w, d }: { n: number; w: number; d: number }) {
   // deterministic spots along the plot edge, so trees don't jump around on every render
   const spots = useMemo(() => Array.from({ length: n }, (_, i) => { const t = (i * 0.618) % 1, side = i % 4, e = 0.45;
@@ -65,7 +87,7 @@ function Trees({ n, w, d }: { n: number; w: number; d: number }) {
 
 /** Gold blueprint lines: the footprint of everything at ground level, drawn under the model. */
 const Blueprint = memo(function Blueprint({ parts }: { parts: Part[] }) {
-  return <>{parts.filter((p) => p.y <= 0.01).map((p) => {
+  return <>{parts.filter((p) => p.y <= 0.01 && !isOpening(p.kind)).map((p) => {
     const x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, z0 = p.z - p.d / 2, z1 = p.z + p.d / 2, y = 0.02;
     return <Line key={p.id} points={[[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [x0, y, z0]]} color={GOLD} lineWidth={1.5} />;
   })}</>;
@@ -119,6 +141,10 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
   const undo = () => setPast((p) => { if (p.length) setScene(p[p.length - 1]); return p.slice(0, -1); });
   const q = boq(scene.parts), cost = costLines(q, prices), tips = bulkTips(q);
   const part = scene.parts.find((p) => p.id === sel);
+  const shell = scene.parts.find((p) => p.kind === "wall" && !isStraightWall(p));
+  // one straight wall across the middle of the first floor's shell, standing on its floor
+  const addInterior = () => { if (shell) { apply([{ op: "add", kind: "wall", name: "Interior wall", x: shell.x, z: shell.z, w: Math.max(0.5, shell.w - 2 * RULES.wallThick), d: 0.2, h: shell.h, y: shell.y }]); } };
+  const host = part?.kind === "wall" ? part : undefined;
 
   async function send() {
     if (!cmd.trim() || busy) return;
@@ -133,7 +159,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   }
 
-  const field = (k: "w" | "d" | "h" | "x" | "z", label: string) => part && <NumField key={`${part.id}-${k}-${part[k]}`} label={label} name={part.name} value={part[k]} pos={k === "x" || k === "z"}
+  const field = (k: "w" | "d" | "h" | "x" | "z" | "off" | "sill", label: string) => part && <NumField key={`${part.id}-${k}-${part[k]}`} label={label} name={part.name} value={part[k] ?? 0} pos={k === "x" || k === "z" || k === "off"}
     onCommit={(v) => apply([{ op: "set", id: part.id, [k]: v }])} />;
 
   return (
@@ -151,8 +177,12 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
           <Blueprint parts={scene.parts} />
           <Trees n={scene.plot.trees} w={scene.plot.w} d={scene.plot.d} />
           <BuildClock run={run} onStart={setT0} />
-          {[...scene.parts].sort((a, b) => a.y - b.y).map((p, i) => <Block key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
-            appearAt={t0 + 0.6 + i * STEP_S} hidden={noRoof && p.kind === "roof"} bp={bp} />)}
+          {(() => { const solid = [...scene.parts].filter((p) => !isOpening(p.kind)).sort((a, b) => a.y - b.y), at = (i: number) => t0 + 0.6 + i * STEP_S;
+            return <>
+              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={noRoof && p.kind === "roof"} bp={bp} />)}
+              {scene.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
+                appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} />)}
+            </>; })()}
           <OrbitControls makeDefault enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced} autoRotateSpeed={0.8} />
         </Canvas>
       )}
@@ -186,6 +216,9 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
           <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ Sun study</button>
           <button className="chip" disabled={!past.length} onClick={undo}>↶ Undo</button>
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>Start over</button>
+          <button className="chip" disabled={!shell} onClick={addInterior} title="A straight wall across the first floor; move or resize it with the numbers">+ Interior wall</button>
+          <button className="chip" onClick={() => download("arch-bill-of-quantities.csv", boqCsv(cost), "text/csv")}>⬇ BOQ CSV</button>
+          <button className="chip" onClick={() => download("arch-scene.json", JSON.stringify(scene, null, 2), "application/json")}>⬇ Scene JSON</button>
         </div>
 
         <div className="card space-y-1.5">
@@ -193,8 +226,16 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
           <ul className="space-y-0.5">{scene.parts.map((p) => (
             <li key={p.id}><button className="chip w-full justify-between text-left" aria-pressed={p.id === sel} onClick={() => setSel(p.id)}>
               <span>{p.name}</span><span className="muted num">{p.w}×{p.d}×{p.h} m</span></button></li>))}</ul>
-          {part && <div className="flex flex-wrap items-center gap-2 pt-1">{field("w", "W")}{field("d", "D")}{field("h", "H")}{field("x", "X")}{field("z", "Z")}
-            <button className="chip error" onClick={() => { apply([{ op: "remove", id: part.id }]); setSel(null); }}>Remove</button></div>}
+          {part && <div className="flex flex-wrap items-center gap-2 pt-1">
+            {isOpening(part.kind) ? <>{field("w", "W")}{field("h", "H")}{field("off", "Off")}{part.kind === "window" && field("sill", "Sill")}
+              <select className="field" value={part.face} aria-label={`${part.name} wall face`} onChange={(e) => apply([{ op: "set", id: part.id, face: e.target.value as "n" | "e" | "s" | "w" }])}>
+                {(["n", "e", "s", "w"] as const).map((f) => <option key={f} value={f}>{{ n: "North", e: "East", s: "South", w: "West" }[f]} face</option>)}</select></>
+              : <>{field("w", "W")}{field("d", "D")}{field("h", "H")}{field("x", "X")}{field("z", "Z")}</>}
+            {host && <>
+              <button className="chip" onClick={() => apply([{ op: "add", kind: "window", host: host.id, face: "s", w: 1.2 }])}>+ Window</button>
+              <button className="chip" onClick={() => apply([{ op: "add", kind: "door", host: host.id, face: "s", w: 0.9 }])}>+ Door</button></>}
+            <button className="chip error" onClick={() => { apply([{ op: "remove", id: part.id }]); setSel(null); }}>Remove</button>
+            {host && <span className="muted text-[11px]">Windows and doors added here go on the south face; pick one to change face or offset.</span>}</div>}
         </div>
 
         <div className="card space-y-1">
@@ -209,7 +250,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
               </tr>))}
             <tr className="font-semibold"><td colSpan={3}>Total (materials, VAT excl.)</td><td className="num text-right">{eur(cost.total)}</td></tr>
           </tbody></table>
-          <p className="muted text-[11px]">{prices.some((p) => !p.date) ? "Some prices are unverified starter estimates. " : ""}Hover a row for its price source. Labour, transport and openings aren&apos;t counted yet.</p>
+          <p className="muted text-[11px]">{prices.some((p) => !p.date) ? "Some prices are unverified starter estimates. " : ""}Hover a row for its price source. Window and door areas are taken off the walls. Labour and transport aren&apos;t counted yet.</p>
         </div>
 
         {tips.length > 0 && <div className="card space-y-1"><div className="muted text-[10px] uppercase tracking-widest">Bulk buying</div>{tips.map((t) => <p key={t} className="text-xs">• {t}</p>)}</div>}
