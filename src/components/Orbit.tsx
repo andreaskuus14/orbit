@@ -24,6 +24,7 @@ import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
+import { sfx } from "./sfx";
 import { BootSequence } from "./BootSequence";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
 import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
@@ -94,6 +95,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "review" | "none" } | null>(null);
   const [lifeOpen, setLifeOpen] = useState<{ tab: LifeView; start?: true } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
+  const [sfxOn, setSfxOn] = useState(true);
+  useEffect(() => setSfxOn(sfx.enabled()), []);
+  useEffect(() => { if (approach) sfx.whoosh(); }, [approach]);
   // CORE opened from inside a world floats over it instead of leaving it; closing CORE returns to that world.
   const [behind, setBehind] = useState<PanelId | null>(null);
   // The world (or panel) actually on screen. Also while panel is briefly null after closing CORE, so the world isn't remounted.
@@ -214,6 +218,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => {
     const prev = prevPanel.current;
     prevPanel.current = panel;
+    if (panel && panel !== prev) sfx.open(); else if (!panel && prev) sfx.close();
     if (panel || !prev || WORLDS.includes(prev) || reduced) { setExiting(null); return; }
     setExiting(prev);
     const t = setTimeout(() => setExiting(null), 200);
@@ -445,6 +450,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           ))}
         </div>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(SHORTCUTS_EVENT))}>Keyboard shortcuts <kbd>?</kbd></button>
+        <button className="hud-menu-item" aria-pressed={sfxOn} onClick={() => { sfx.set(!sfxOn); setSfxOn(!sfxOn); if (!sfxOn) sfx.tick(); }}>UI sounds: {sfxOn ? "on" : "off"}</button>
         <button className="hud-menu-item" onClick={signOut} title={email}>Sign out</button>
       </div>
       <ShortcutsOverlay />
