@@ -224,7 +224,7 @@ async function poll() {
       await updateInboxAuto((s) => { s.started = rememberStarted(s.started, file); }); // before the job: a failed save must not lead to repeats
       const [txt, json] = await Promise.all([`${name}.source.txt`, `${name}.source.json`].map((n) => readFile(path.join(dir, n), "utf8").catch(() => null)));
       const note = sourceNote(txt, json);
-      await f.createJob(name, { ...cfg.options, preset: "viral", captions: cfg.options.captions && tools.transcriber }, note || undefined); // never a devlog: that's the devlog folder's job
+      await f.createJob(name, { ...cfg.options, preset: "viral", captions: cfg.options.captions && tools.transcriber }, note || undefined, true); // never a devlog: that's the devlog folder's job
       console.log(`[orbit] inbox: auto-clipping ${name}`);
     }
   } catch (e) {

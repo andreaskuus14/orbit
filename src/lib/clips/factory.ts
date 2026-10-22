@@ -28,6 +28,7 @@ import {
   type Analysis, type Candidate, type Moment, type Span, type VersionReq, type Word,
 } from "./pure";
 import { TRACK_FAIL, pathAt, trackAction } from "./reframe";
+import { CHECK_H, CHECK_W, checkFrameArgs, checkSource, checkTimes, reuploadWarning } from "./source-check-pure";
 import { thumbPick, thumbText, type EditTune } from "./study-pure";
 import { alignToPeak, buildHype, hypeLines, hypeRegions, packHype, peakInside, voiceWindows, type Hype, type HypePeak } from "./hype-pure";
 import type { ChatLoad } from "./hype";
@@ -218,11 +219,11 @@ export async function listInbox(jobs: ClipJob[], downloads: Download[] = []): Pr
   return files.filter((f): f is NonNullable<typeof f> => !!f).sort((a, b) => b.mtime.localeCompare(a.mtime));
 }
 
-export async function createJob(source: string, options: ClipJob["options"], permission?: string): Promise<ClipJob> {
+export async function createJob(source: string, options: ClipJob["options"], permission?: string, auto = false): Promise<ClipJob> {
   const now = new Date().toISOString();
   const job: ClipJob = {
     v: STATE_V, id: `${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`, source, createdAt: now, updatedAt: now,
-    status: "queued", progress: 0, step: "Waiting to start", warnings: [], clips: [], options, ...(permission ? { permission } : {}),
+    status: "queued", progress: 0, step: "Waiting to start", warnings: [], clips: [], options, ...(permission ? { permission } : {}), ...(auto ? { auto } : {}),
   };
   await saveJob(job);
   kick();
@@ -334,6 +335,17 @@ async function set(job: ClipJob, status: JobStatus, progress: number, step: stri
   await saveJob(job);
 }
 
+/** ~6 tiny grey frames (parallel fast seeks, ~1 s total) → re-upload warning or null. */
+async function reuploadCheck(ff: string, src: string, dir: string, duration: number, signal: AbortSignal): Promise<{ warning: string | null; subtitles: boolean }> {
+  const frames = await Promise.all(checkTimes(duration).map(async (t, i) => {
+    const out = path.join(dir, `check-${i}.gray`);
+    await runFfmpeg(ff, checkFrameArgs(src, t, out), { signal, timeoutMs: 10_000 });
+    try { return new Uint8Array(await readFile(out)); } finally { await rm(out, { force: true }).catch(() => {}); }
+  }));
+  const c = checkSource(frames, CHECK_W, CHECK_H);
+  return { warning: reuploadWarning(c), subtitles: c.subtitles };
+}
+
 async function runJob(job: ClipJob, signal: AbortSignal) {
   const dir = path.join(clipsDir(), job.id);
   const pcmName = "audio.f32";
@@ -360,6 +372,14 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
     if (!duration) throw new Error("Couldn't read the video length");
     if (duration > MAX_SOURCE_SEC) throw new Error(`Video is longer than ${MAX_SOURCE_SEC / 3600} hours`);
     job.durationSec = Math.round(duration * 100) / 100;
+    if (o.preset !== "devlog" && /Stream #\d+:\d+.*: Video:/.test(probe)) { // own recordings are never re-uploads
+      await set(job, "probing", 0.03, "Checking it's not a re-upload");
+      const chk = await reuploadCheck(ff, src, dir, duration, signal).catch((e) => { if (signal.aborted) throw e; return null; }); // never fails the job
+      const w = chk?.warning ?? null;
+      // Auto-clips skip only on burned-in subtitles: a "watermark" alone is too often the streamer's own overlay or logo.
+      if (w && chk?.subtitles && job.auto) throw new Error(`Skipped: ${w}. Auto-clips skip re-uploads; start a job by hand to clip it anyway.`);
+      if (w && !job.warnings.includes(w)) job.warnings.push(w);
+    }
 
     const pcmFile = path.join(dir, pcmName);
     let rms: number[], voice: number[] = [], words: Word[] = [], spans: Span[] = [];
@@ -963,7 +983,7 @@ async function runDownload(d: Download, signal: AbortSignal) {
     await writeFile(path.join(inboxDir(), `${file}.source.json`), JSON.stringify({ url: d.url, permission: d.permission, downloadedAt: new Date().toISOString() }, null, 2));
     Object.assign(d, { file, parts: undefined });
     const dup = d.autoClip && (await listJobs()).some((j) => j.source === file && j.status !== "failed"); // same video linked twice
-    if (d.autoClip && !dup) await createJob(file, { ...d.autoClip, preset: "viral" }, cleanPermission(d.permission) || undefined);
+    if (d.autoClip && !dup) await createJob(file, { ...d.autoClip, preset: "viral" }, cleanPermission(d.permission) || undefined, true);
     Object.assign(d, { status: "done", progress: 1, step: d.autoClip ? "Downloaded — making clips" : "Downloaded" });
     await saveDownload(d);
   } catch (e) {

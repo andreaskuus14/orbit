@@ -1035,7 +1035,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
           onPick={(id) => { const el = document.getElementById(`cf-clip-${job.id}/${id}`); el?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" }); el?.focus({ preventScroll: true }); }} />
       )}
 
-      {job.warnings.length > 0 && <ul className="mt-2 space-y-0.5 text-xs" aria-label="Warnings">{job.warnings.map((w, k) => <li key={k}>⚠ {w}</li>)}</ul>}
+      {job.warnings.length > 0 && <ul className="mt-2 space-y-0.5 text-xs" aria-label="Warnings">{job.warnings.map((w, k) => <li key={k} className={w.startsWith("Looks like a re-upload") ? "error font-medium" : undefined}>⚠ {w}</li>)}</ul>}
 
       {job.status === "failed" && (
         <div className="mt-2 text-sm" role="alert">
