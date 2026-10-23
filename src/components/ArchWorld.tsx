@@ -11,6 +11,8 @@ import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "
 import { useGlRecovery } from "./useGlRecovery";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
 import { MAX, applyOps, boq, boqCsv, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
+import { lessonNote, lessonScene, quizScore, type Lesson } from "@/lib/arch-lesson-pure";
+import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { buildFront, lidarDots, moveWalker, NO_FRONT, WALK, wallRects, walkStart, type Rect } from "@/lib/arch-walk-pure";
 
 const KEY = "orbit.arch.v1";
@@ -226,6 +228,10 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  // 📚 Teach me: a precedent lesson; ch === chapters.length is the quiz. The user's own scene is kept aside and comes back at the end.
+  const [lesson, setLesson] = useState<Lesson | null>(null), [ch, setCh] = useState(0), [answers, setAnswers] = useState<(number | null)[]>([]);
+  const [topic, setTopic] = useState(""), [lessonBusy, setLessonBusy] = useState(false), [lessonMsg, setLessonMsg] = useState("");
+  const ownScene = useRef<Scene | null>(null);
   const [ready, setReady] = useState(false); // state, not a ref: the save effect must not run with the starter scene before the load lands
   useEffect(() => {
     const s = load();
@@ -235,7 +241,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
     }
     setReady(true);
   }, []);
-  useEffect(() => { if (ready) try { localStorage.setItem(KEY, JSON.stringify({ scene, prices })); } catch { /* private mode: the scene just isn't kept */ } }, [scene, prices, ready]);
+  useEffect(() => { if (ready && !lesson) try { localStorage.setItem(KEY, JSON.stringify({ scene, prices })); } catch { /* private mode: the scene just isn't kept */ } }, [scene, prices, ready, lesson]);
 
   const sceneRef = useRef(scene);
   sceneRef.current = scene; // an AI reply applies to the scene as it is when it lands, not when it was asked
@@ -264,6 +270,38 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   }
 
+  const goTo = (l: Lesson, i: number) => {
+    setCh(i); setSel(null); stopSpeech();
+    if (i >= l.chapters.length) return;
+    const s = lessonScene(l, i);
+    sceneRef.current = s; setScene(s); setRun((n) => n + 1);
+    if (speechSettings().speak) for (const line of `${l.chapters[i].title}. ${l.chapters[i].text}`.split(/(?<=[.!?])\s+/)) if (line) speakChunk(line);
+  };
+  async function teach() {
+    if (!topic.trim() || lessonBusy) return;
+    setLessonBusy(true); setLessonMsg("");
+    try {
+      const r = await fetch("/api/arch/lesson", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Failed (${r.status})`);
+      const l = j.lesson as Lesson;
+      if (!lesson) ownScene.current = sceneRef.current;
+      setLesson(l); setAnswers(l.quiz.map(() => null)); setMode("holo"); setTopic("");
+      goTo(l, 0);
+    } catch (e) { setLessonMsg((e as Error).message); } finally { setLessonBusy(false); }
+  }
+  const endLesson = () => {
+    stopSpeech(); setLesson(null); setLessonMsg(""); setSel(null);
+    if (ownScene.current) { sceneRef.current = ownScene.current; setScene(ownScene.current); ownScene.current = null; }
+  };
+  async function saveLesson() {
+    if (!lesson) return;
+    const n = lessonNote(lesson, answers);
+    const r = await fetch("/api/memories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "note", ...n, tags: ["arch", "lesson"] }) }).catch(() => null);
+    setLessonMsg(r?.ok ? "Saved to MEMORY." : "Couldn't save the lesson.");
+  }
+  const focus = new Set(lesson && ch < lesson.chapters.length ? lesson.chapters[ch].focus : []);
+
   const field = (k: "w" | "d" | "h" | "x" | "z" | "off" | "sill", label: string) => part && <NumField key={`${part.id}-${k}-${part[k]}`} label={label} name={part.name} value={part[k] ?? 0} pos={k === "x" || k === "z" || k === "off"}
     onCommit={(v) => apply([{ op: "set", id: part.id, [k]: v }])} />;
 
@@ -287,7 +325,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
           <BuildClock run={run} onStart={setT0} />
           {(() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
             return <>
-              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={noRoof && p.kind === "roof"} bp={bp} holo={holo} inside={walk} />)}
+              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={noRoof && p.kind === "roof"} bp={bp} holo={holo} inside={walk} />)}
               {scene.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
                 appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} holo={holo} />)}
             </>; })()}
@@ -303,6 +341,36 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
           <button className="btn" disabled={busy || !cmd.trim()}>{busy ? "Working…" : "Do it"}</button>
         </form>
         {msg && <p aria-live="polite">{msg}</p>}
+        <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void teach(); }}>
+          <input className="field flex-1" placeholder="Villa Savoye · Farnsworth House · Fallingwater · Kumu" value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} aria-label="A building to learn about" />
+          <button className="btn" disabled={lessonBusy || !topic.trim()}>{lessonBusy ? "Writing…" : "📚 Teach me"}</button>
+        </form>
+        {lessonMsg && <p aria-live="polite">{lessonMsg}</p>}
+        {lesson && (
+          <div className="card space-y-2" aria-label={`Lesson: ${lesson.building}`}>
+            <div className="muted text-[10px] uppercase tracking-widest">{lesson.building}{[lesson.architect, lesson.year, lesson.place].filter(Boolean).map((x) => ` · ${x}`).join("")}</div>
+            {ch < lesson.chapters.length ? <div aria-live="polite">
+              <div className="font-semibold">{ch + 1}/{lesson.chapters.length} · {lesson.chapters[ch].title}</div>
+              <p className="text-xs">{lesson.chapters[ch].text}</p>
+            </div> : <div className="space-y-2">
+              <div className="font-semibold">Quiz · {quizScore(lesson.quiz, answers)}/{lesson.quiz.length}</div>
+              {!lesson.quiz.length && <p className="muted text-xs">No quiz this time.</p>}
+              {lesson.quiz.map((q, i) => <div key={i} className="space-y-1">
+                <p className="text-xs">{q.q}</p>
+                <div className="flex flex-wrap gap-1">{q.options.map((o, k) => <button key={k} className={`chip${answers[i] !== null && k === q.answer ? " ok" : answers[i] === k ? " error" : ""}`} aria-pressed={answers[i] === k} disabled={answers[i] !== null}
+                  onClick={() => setAnswers((a) => a.map((x, j) => (j === i ? k : x)))}>{o}</button>)}</div>
+                {answers[i] !== null && <p className="muted text-[11px]" aria-live="polite">{answers[i] === q.answer ? "Right. " : `No: ${q.options[q.answer]}. `}{q.why}</p>}
+              </div>)}
+            </div>}
+            <div className="flex flex-wrap gap-1.5">
+              <button className="chip" disabled={ch === 0} onClick={() => goTo(lesson, ch - 1)}>← Back</button>
+              <button className="chip" disabled={ch >= lesson.chapters.length} onClick={() => goTo(lesson, ch + 1)}>{ch === lesson.chapters.length - 1 ? "Quiz →" : "Next →"}</button>
+              <button className="chip" onClick={() => void saveLesson()}>Save lesson</button>
+              <button className="chip" onClick={endLesson} title="Back to your own model">End lesson</button>
+            </div>
+            <p className="muted text-[11px]">Simplified massing, dimensions approximate. Check facts against a book before you cite them.</p>
+          </div>
+        )}
         {walk && <p className="muted text-xs" aria-live="polite">Walking at 1.6 m: WASD or arrow keys move, drag to look around, Esc or 🚶 Walk to go back. Walls stop you; doors let you through.</p>}
         {sun.on && (
           <div className="card space-y-1.5" aria-label="Sun study">
