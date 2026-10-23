@@ -15,6 +15,7 @@ const commands: [string, nav.NavTarget][] = [
   ["status report", { panel: null, morning: true }], ["olukord", { panel: null, morning: true }],
   ["show my work", { panel: null, continueWork: true }], ["continue my work", { panel: null, continueWork: true }],
   ["näita minu tööd", { panel: null, continueWork: true }], ["jätka minu tööd", { panel: null, continueWork: true }],
+  ["mission control", { panel: null, mission: true }], ["bridge", { panel: null, mission: true }], ["missioonijuhtimine", { panel: null, mission: true }],
   ["back", { panel: null }], ["galaxy", { panel: null }], ["tagasi", { panel: null }], ["galaktika", { panel: null }],
 ];
 for (const [text, want] of commands) test(`instant command: ${text}`, () => {
