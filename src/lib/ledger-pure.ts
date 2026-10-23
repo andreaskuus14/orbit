@@ -75,7 +75,9 @@ export type Snapshot = {
   businessStages: Record<Stage, number>; // prospects by their latest stage
   activeGoals: string[]; // goals with steps and no goalDone yet, sorted
   focusMinutes: number;
+  recent: Record<string, number>; // events per ledger planet in the 7 days up to t
 };
+export const RECENT_MS = 7 * 86_400_000;
 
 /** Total order on events: time, then id, then content; any input order gives the same result. */
 const cmp = (a: LedgerEvent, b: LedgerEvent) => isoMs(a.at) - isoMs(b.at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) || JSON.stringify(a).localeCompare(JSON.stringify(b));
@@ -98,10 +100,12 @@ export function stateAt(events: LedgerEvent[], t: string | number): Snapshot {
   const s: Snapshot = {
     counts: Object.fromEntries(EVENT_TYPES.map((k) => [k, 0])) as Record<EventType, number>,
     lastClipOutcomes: [], businessStages: Object.fromEntries(STAGES.map((k) => [k, 0])) as Record<Stage, number>, activeGoals: [], focusMinutes: 0,
+    recent: Object.fromEntries(LEDGER_PLANETS.map((k) => [k, 0])),
   };
   const stage = new Map<string, Stage>(), goals = new Map<string, boolean>();
   for (const e of live) { // sorted oldest first, so later events win
     s.counts[e.type]++;
+    if (isoMs(e.at) > tm - RECENT_MS) s.recent[e.planet]++;
     if (e.type === "clip.outcome48h") s.lastClipOutcomes.unshift({ ...e.data, at: e.at });
     else if (e.type === "business.stage") stage.set(e.data.prospect, e.data.to);
     else if (e.type === "goal.step") goals.set(e.data.goalId, !!e.data.goalDone || !!goals.get(e.data.goalId));

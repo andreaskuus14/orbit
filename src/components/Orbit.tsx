@@ -42,6 +42,7 @@ import { markOpen } from "./dev-timing";
 import { useStageActive } from "./Stage";
 import { ContinueWork } from "./ContinueWork";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
+import { TimeTravel, useLivingUniverse } from "./TimeTravel";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: WorldLoading });
@@ -104,6 +105,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [lifeOpen, setLifeOpen] = useState<{ tab: LifeView; start?: true } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
   const [sfxOn, setSfxOn] = useState(true);
+  const living = useLivingUniverse();
   useEffect(() => setSfxOn(sfx.enabled()), []);
   useEffect(() => { if (approach) sfx.whoosh(); }, [approach]);
   // CORE opened from inside a world floats over it instead of leaving it; closing CORE returns to that world.
@@ -398,10 +400,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view === "3d" && !shown && !approach && <Ticker />}
       {view === "3d" && <WarpOverlay target={approach} landed={panel} reduced={reduced} />}
       {view === "3d" && !shown && <AmbientOverlay a={amb} />}
+      {view === "3d" && !shown && living.open && <TimeTravel days={living.days} setDays={living.setDays} onClose={() => { living.setOpen(false); living.setDays(0); }} />}
       {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
         <div className="absolute inset-0" style={covered && !staged ? { visibility: "hidden" } : undefined} inert={(covered && !staged) || undefined}>
-          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
+          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} universe={living.universe} />
         </div>
       )}
       {/* The globe stays mounted after its first visit (hidden + paused): re-entering skips the ~1-2 s rebuild and texture upload. */}
@@ -469,6 +472,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
             </button>
           ))}
         </div>
+        <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => living.setOpen(true)}>Time travel</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(SHORTCUTS_EVENT))}>Keyboard shortcuts <kbd>?</kbd></button>
         <button className="hud-menu-item" aria-pressed={sfxOn} onClick={() => { sfx.set(!sfxOn); setSfxOn(!sfxOn); if (!sfxOn) sfx.tick(); }}>UI sounds: {sfxOn ? "on" : "off"}</button>
         <button className="hud-menu-item" onClick={signOut} title={email}>Sign out</button>

@@ -13,6 +13,8 @@ import * as THREE from "three";
 import { PLANETS, type PanelId, type PlanetDef, type PlanetId } from "@/lib/planets";
 import { QUALITY, stepQuality, type QualityLevel, type QualityMode, type QualityState } from "@/lib/quality-pure";
 import { GalaxyLoader } from "./GalaxyLoader";
+import { Universe } from "./Universe";
+import type { Light, Universe as UniverseData } from "@/lib/universe-pure";
 import { loadImage } from "./texture-cache";
 import { FrameMark } from "./dev-timing";
 import { StageOut, useStageActive } from "./Stage";
@@ -41,6 +43,7 @@ export type GalaxyProps = {
   paused?: boolean;          // a full-screen world covers the galaxy: stay mounted (no reload, no intro replay) but draw nothing
   quality?: QualityMode;     // "auto" adapts to the measured frame rate
   lifeProgress?: { done: number; total: number } | null; // real: today's scheduled LIFE habits done / total
+  universe?: UniverseData | null; // real: the ledger as light (live, or the day picked in Time travel)
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -543,12 +546,13 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128 }: {
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, light }: {
   p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
   agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
   life?: { done: number; total: number } | null; still?: boolean; // still = reduced motion or low quality: no animation
   segs?: number; // sphere segments: fewer on lower quality levels
+  light?: Light; // living universe: busy worlds glow a touch, idle ones dim a touch
 }) {
   const group = useRef<THREE.Group>(null);
   const mesh = useRef<THREE.Mesh>(null);
@@ -569,6 +573,8 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   const flash = useRef(0); // lightning flash, briefly lights the storm world from inside
   const tapT = useRef<ReturnType<typeof setTimeout>>(undefined); // touch has no hover-out: clear the hover (leader label) after a beat
   const rim = useRim(); // cold fresnel rim: brighter on hover / focus so the world pops off the dark
+  const base = useMemo(() => new THREE.Color(surf.tint ?? "#ffffff"), [surf.tint]);
+  const lit = useRef(light); lit.current = light;
 
   useFrame(({ clock }, dt) => {
     const a = phase + (reduced ? 0 : clock.elapsedTime * p.speed);
@@ -579,7 +585,9 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
       if (!reduced) mesh.current.rotation.y += dt * 0.18;
       if (clouds.current && !reduced) clouds.current.rotation.y += dt * 0.27; // clouds drift a little faster than the ground
       // Lava glows on its own; real backend events and lightning add a brief flare. Nothing glows at rest otherwise.
-      (mesh.current.material as THREE.MeshStandardMaterial).emissiveIntensity = (surf.glow ? 0.55 : 0) + glow(pulses, p.id) * 0.8 + flash.current * 0.6;
+      const m = mesh.current.material as THREE.MeshStandardMaterial, l = lit.current;
+      m.emissiveIntensity = (surf.glow ? 0.55 : 0) + glow(pulses, p.id) * 0.8 + flash.current * 0.6 + (l?.glow ?? 0) * 0.18;
+      m.color.copy(base).multiplyScalar(1 - (l?.dim ?? 0)); // dim is clamped to [0, 0.15] in universe-pure
     }
     // Hover lifts the planet a little; eases, never snaps.
     const k = 1 - Math.exp(-dt * 8);
@@ -1143,8 +1151,9 @@ export default function Galaxy(props: GalaxyProps) {
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
-            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} />
+            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} light={props.universe?.light[p.id]} />
         ))}
+        {props.universe && <Universe u={props.universe} positions={positions} still={props.reduced || level === 0} level={level} />}
         <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={4} maxDistance={80} enableDamping />
         {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} />
