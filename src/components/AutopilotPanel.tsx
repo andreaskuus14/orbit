@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useWorldPaused } from "./world-paused";
 import { avatar, multBars, nextAction, type Pref } from "@/lib/clips/autopilot-ui";
 
 // "🤖 Autopilot" tab of the Clip Factory: a status hero (switch, daily cap ring, next action, clickable pipeline), the clips waiting for
@@ -39,9 +40,10 @@ async function call<T>(method: string, body?: unknown, url = URL_): Promise<T> {
   return j as T;
 }
 
-export default function AutopilotPanel({ active, onChanged, onOpenClip, onOpenFind }: {
+export default function AutopilotPanel({ active: tabOn, onChanged, onOpenClip, onOpenFind }: {
   active: boolean; onChanged?: () => void; onOpenClip?: (job: string, clip: string) => void; onOpenFind?: () => void;
 }) {
+  const paused = useWorldPaused(), active = tabOn && !paused; // STUDIO kept but hidden: no polling, no keys
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");

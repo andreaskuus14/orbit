@@ -135,8 +135,8 @@ function Fly({ goal, reduced }: { goal: { at: [number, number, number]; dist: nu
   return null;
 }
 
-export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", focusId, onChanged }: {
-  onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; focusId: string | null; onChanged: () => void;
+export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", focusId, onChanged, paused = false }: {
+  onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; focusId: string | null; onChanged: () => void; paused?: boolean /* kept mounted but hidden */;
 }) {
   const glr = useGlRecovery();
   const q = useLeanQuality(quality);
@@ -149,8 +149,8 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const [goal, setGoal] = useState<{ at: [number, number, number]; dist: number; n: number } | null>(null);
   const fly = (at: [number, number, number], dist: number) => setGoal((g) => ({ at, dist, n: (g?.n ?? 0) + 1 }));
 
-  useEffect(() => { // refetch when returning from List view: memories may have been added or deleted there
-    if (list && data) return;
+  useEffect(() => { // refetch when returning from List view or to the world: memories may have been added or deleted meanwhile
+    if (paused || (list && data)) return;
     let live = true;
     fetch("/api/memories/map").then(async (r) => {
       const j = await r.json().catch(() => ({}));
@@ -158,7 +158,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
       if (live) { setData(j as MapData); setErr(""); }
     }).catch((e: Error) => { if (live) setErr(e.message); });
     return () => { live = false; };
-  }, [list]); // eslint-disable-line react-hooks/exhaustive-deps -- data is only the "already loaded" guard
+  }, [list, paused]); // eslint-disable-line react-hooks/exhaustive-deps -- data is only the "already loaded" guard
 
   const index = useMemo(() => new Map(data?.items.map((m, i) => [m.id, i]) ?? []), [data]);
   useEffect(() => { if (focusId) setList(true); }, [focusId]); // a newly opened memory shows its detail once; Constellation stays reachable
@@ -168,7 +168,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
     const i = index.get(focusId);
     if (i !== undefined && data) { setSel(i); const m = data.items[i]; fly([m.x, m.y, m.z], 9); }
   }, [focusId, index, data]);
-  useEffect(() => {
+  useEffect(() => { // not gated on paused: this nav also opens MEMORY, and arrives before the world un-pauses
     const h = (e: Event) => { if ((e as CustomEvent<NavTarget>).detail?.beliefs) setList(true); };
     addEventListener(NAV_EVENT, h);
     return () => removeEventListener(NAV_EVENT, h);
@@ -206,7 +206,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="MEMORY: your memories as a constellation" style={{ background: BG }}>
       {!flat && (
-        <Canvas key={glr.key} onCreated={onCreated} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
+        <Canvas key={glr.key} onCreated={onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
           onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
           <color attach="background" args={[BG]} />

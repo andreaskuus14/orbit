@@ -201,7 +201,7 @@ test("approval and restore handlers require authentication and same-origin write
 test("Last Shorts shows 24h flop/retry/restore controls without inventing 48h views", async () => {
   const { createElement } = await import("react"); const { renderToStaticMarkup } = await import("react-dom/server");
   const m = { exports: {} as any };
-  runInNewContext(compile("components/LastShorts.tsx"), { module: m, exports: m.exports, require });
+  runInNewContext(compile("components/LastShorts.tsx"), { module: m, exports: m.exports, require: (n: string) => (n === "./world-paused" ? { useWorldPaused: () => false } : require(n)) });
   const html = renderToStaticMarkup(createElement(m.exports.ShortsStrip, { shorts: [{ videoId: "abcdefghijk", title: "Old", hook: "", capturedAt: "", views24: 1, views48: null, medianViews: null, changePct: null, verdict: null, flopped24: true, retryState: "replaced by retry", canRestore: true }], onRestore() {} }));
   assert.match(html, /flopped \(24h\)/); assert.match(html, /replaced by retry/); assert.match(html, />Restore</);
   assert.match(html, /48h results pending/); assert.doesNotMatch(html, /0 views at 48h/);
@@ -218,6 +218,7 @@ test("review queue names the original and sends its exact video id only with the
       if (n.endsWith("clips/format")) return { CAPTION_STYLES: ["karaoke"], CAM_NAME: { left: "Left" }, LAYOUT_NAME: { fit: "Fit" }, REJECT_REASONS: [], mmss: () => "00:20" };
       if (n.endsWith("ClipPicks")) return { __esModule: true, default: () => null };
       if (n.endsWith("HypeScore")) return {};
+      if (n.endsWith("world-paused")) return { useWorldPaused: () => false };
       return require(n);
     },
   });

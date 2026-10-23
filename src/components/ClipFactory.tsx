@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CAM_NAME, CAPTION_STYLES, CHANNEL_LINK_MSG, LAYOUT_NAME, REJECT_REASONS, bytes, channelLink, isJobActive, layoutText, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
 import ReviewQueue from "./ReviewQueue";
+import { useWorldPaused } from "./world-paused";
 import ClipPicks from "./ClipPicks";
 import LearnedCard from "./LearnedCard";
 import AutopilotPanel from "./AutopilotPanel";
@@ -141,7 +142,8 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const [form, setForm] = useState<string | null>(null);
   const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "follow", camSide: "right", camSize: 0.3, jumpCuts: true, zooms: true, language: "en", coldOpen: true, progressBar: false, loopEnd: true, preset: "viral" });
   const [showRejected, setShowRejected] = useState(false);
-  const [visible, setVisible] = useState(true);
+  const [docVisible, setVisible] = useState(true);
+  const paused = useWorldPaused(), visible = docVisible && !paused; // STUDIO kept but hidden: no polling
   const [yt, setYt] = useState<YtStatus | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [tab, setTab] = useState<Tab | null>(null); // null until the first load picks one
@@ -161,7 +163,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
     } catch (e) { if (s === seq.current) setErr(e instanceof Error ? e.message : "Couldn't load the clip factory"); }
     finally { setLoading(false); } // unconditional: an edit bumps seq, which must not strand the spinner
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!paused) void load(); }, [load, paused]); // each STUDIO visit refreshes, as a remount did
   const loadYt = useCallback(() => api<YtStatus>("/api/studio/oauth/status").then(setYt, () => setYt(null)), []);
   useEffect(() => { void loadYt(); }, [loadYt]);
 
@@ -1435,16 +1437,17 @@ function SlotSettings({ sched, onSaved }: { sched: Schedule; onSaved: (s: Schedu
 
 /** "Schedule all approved": the server uploads every approved, unpublished clip into the next free slots, one at a time. */
 function ScheduleAll({ count, canUpload, onChange }: { count: number; canUpload: boolean; onChange: (quiet?: boolean) => void }) {
+  const paused = useWorldPaused();
   const [batch, setBatch] = useState<Batch | null>(null);
   const [mine, setMine] = useState(false); // only show a result for a run seen in this panel
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => { void api<Schedule>(`${API}/schedule`).then((s) => { setBatch(s.batch); if (s.batch?.running) setMine(true); }, () => {}); }, []);
   useEffect(() => {
-    if (!batch?.running) return;
+    if (!batch?.running || paused) return;
     const t = setInterval(() => void api<Schedule>(`${API}/schedule`).then((s) => { setBatch(s.batch); onChange(true); }, () => {}), 2000);
     return () => clearInterval(t);
-  }, [batch?.running, onChange]);
+  }, [batch?.running, paused, onChange]);
   const start = async () => {
     setBusy(true); setErr("");
     try { setBatch((await api<{ batch: Batch }>(`${API}/schedule`, { method: "POST" })).batch); setMine(true); onChange(true); }

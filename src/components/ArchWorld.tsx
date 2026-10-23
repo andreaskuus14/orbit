@@ -204,7 +204,7 @@ function Walker({ rects, plot, onExit }: { rects: Rect[]; plot: { w: number; d: 
   return null;
 }
 
-export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode }) {
+export default function ArchWorld({ onClose, reduced, flat, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */ }) {
   const qualityPreset = useLeanQuality(quality);
   const glr = useGlRecovery();
   const [scene, setScene] = useState<Scene>(starterScene);
@@ -309,7 +309,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: bg }}>
       {!flat && (
-        <Canvas key={glr.key} onCreated={glr.onCreated} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
+        <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
         <WarmCompile />
         {quality === "auto" && <PerformanceMonitor onDecline={qualityPreset.onDecline} />}
           <color attach="background" args={[bg]} />
@@ -330,7 +330,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
               {scene.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
                 appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} holo={holo} />)}
             </>; })()}
-          {walk && <Walker rects={rects} plot={plotWD} onExit={() => setWalk(false)} />}
+          {walk && !paused && <Walker rects={rects} plot={plotWD} onExit={() => setWalk(false)} />}
           <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
         </Canvas>
       )}

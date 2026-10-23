@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CAM_NAME, CAPTION_STYLES, LAYOUT_NAME, REJECT_REASONS, mmss } from "@/lib/clips/format";
 import ClipPicks from "./ClipPicks";
+import { useWorldPaused } from "./world-paused";
 import { ScoreRing, ScoreWhy } from "./HypeScore";
 import type { Virality } from "@/lib/clips/score-pure";
 
@@ -118,11 +119,13 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
       : null;
     if (act) { e.preventDefault(); act(); }
   };
+  const paused = useWorldPaused();
   useEffect(() => {
+    if (paused) return; // STUDIO kept but hidden: its keys (A, R, arrows…) must not fire elsewhere
     const h = (e: KeyboardEvent) => onKey.current(e);
     addEventListener("keydown", h, true);
     return () => removeEventListener("keydown", h, true);
-  }, []);
+  }, [paused]);
 
   const count = (s: Clip["status"]) => items?.filter((x) => x.clip.status === s).length ?? 0;
   const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";

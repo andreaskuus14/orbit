@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ProposalsPanel } from "./ProposalsPanel";
+import { useWorldPaused } from "./world-paused";
 import { highlight } from "./Highlight";
 import { ActivityView } from "./ActivityView";
 import { ResultEvidence } from "./ResultEvidence";
@@ -127,11 +128,12 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
   useEffect(() => { void load(); }, [load]);
   // Live progress: poll while the task (or any sub-task) is still working.
   const active = !!data && [data.task, ...data.children].some((t) => t.status === "running" || t.status === "queued");
+  const paused = useWorldPaused(); // inside a kept-but-hidden world: no polling
   useEffect(() => {
-    if (!active) return;
+    if (!active || paused) return;
     const h = setInterval(() => void load(), 2500);
     return () => clearInterval(h);
-  }, [active, load]);
+  }, [active, paused, load]);
 
   async function act(action: string, target = id) {
     setErr("");
@@ -219,11 +221,12 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (focusTask) setOpen(focusTask); }, [focusTask]);
   const active = tasks.some((t) => t.status === "running" || t.status === "queued");
+  const paused = useWorldPaused();
   useEffect(() => {
-    if (!active || open) return;
+    if (!active || open || paused) return;
     const h = setInterval(() => void load(), 3000);
     return () => clearInterval(h);
-  }, [active, open, load]);
+  }, [active, open, paused, load]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -330,7 +333,8 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
     try { const r = await api<{ agents: Agent[]; tools: ToolInfo[] }>("/api/agents"); setAgents(r.agents); setTools(r.tools); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not load"); }
   }, []);
-  useEffect(() => { void load(); const h = setInterval(() => void load(), 5000); return () => clearInterval(h); }, [load]);
+  const paused = useWorldPaused();
+  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => void load(), 5000); return () => clearInterval(h); }, [load, paused]);
   useEffect(() => {
     if (!sel) return;
     api<{ tasks: Task[] }>(`/api/tasks?agent=${sel}`).then((r) => setTasks(r.tasks)).catch((e) => setErr(e.message));
@@ -454,7 +458,8 @@ export function AutomationsView({ agents, onOpenTask }: { agents: AutomationAgen
   const [err, setErr] = useState("");
   const cancel = () => { setDraft(null); setEditing(null); setErr(""); };
   const load = useCallback(() => api<{ automations: Automation[] }>("/api/automations").then((r) => setList(r.automations)).catch((e) => setErr(e.message)), []);
-  useEffect(() => { void load(); const h = setInterval(() => void load(), 5000); return () => clearInterval(h); }, [load]);
+  const paused = useWorldPaused();
+  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => void load(), 5000); return () => clearInterval(h); }, [load, paused]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

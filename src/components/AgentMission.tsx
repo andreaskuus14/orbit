@@ -1,4 +1,5 @@
 "use client";
+import { useWorldPaused } from "./world-paused";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Task } from "./AgentsPanels";
 import { AgentStatsCard } from "./AgentStatsCard";
@@ -24,12 +25,13 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
 /** Visible-tab polling: runs fn now and every ms while enabled. */
 export function usePoll(fn: () => void, ms: number, enabled: boolean) {
+  const paused = useWorldPaused(); // a kept-but-hidden world stops polling; it polls (and refreshes) again on return
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || paused) return;
     fn();
     const h = setInterval(fn, ms);
     return () => clearInterval(h);
-  }, [fn, ms, enabled]);
+  }, [fn, ms, enabled, paused]);
 }
 
 export function StatusPill({ status }: { status: string }) {

@@ -1,10 +1,11 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
 import { AnalyticsPanel, CorePanel, ProfilePanel } from "./panels";
 import { IntelligencePanel } from "./IntelligencePanel";
+import { WorldPaused } from "./world-paused";
 import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
 import { VOICE_ASK, voiceContext } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
@@ -62,8 +63,14 @@ const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
 const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
 const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch", "memory"]; // full-screen worlds with their own side panel (no drawer)
+const KEEP: PanelId[] = ["intelligence", "studio", "creation", "agents", "arch", "memory"]; // kept mounted (hidden + paused) after the first visit; not THEATER: leaving must stop its video
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "Orbital is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
+
+/** A visited world stays mounted while away: hidden, its canvas paused and its polls/global keys off (WorldPaused), so re-entry skips the remount hitch. */
+function Kept({ on, children }: { on: boolean; children: ReactNode }) {
+  return <div className="absolute inset-0" hidden={!on}><WorldPaused.Provider value={!on}>{children}</WorldPaused.Provider></div>;
+}
 
 export default function Orbit({ userId, email }: { userId: string; email: string }) {
   const sb = useMemo(() => createClient(), []);
@@ -124,8 +131,10 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, [panel, behind]);
   // Is a 3D scene on screen? The news globe is always 3D, even in "2D view"; the other worlds and the galaxy follow the toggle.
   const scene3d = !gameOpen && (shown === "intelligence" || view === "3d");
-  const [globeKept, setGlobeKept] = useState(false);
-  useEffect(() => { if (shown === "intelligence") setGlobeKept(true); }, [shown]);
+  const [kept, setKept] = useState<PanelId[]>([]);
+  useEffect(() => { if (shown && KEEP.includes(shown)) setKept((k) => (k.includes(shown) ? k : [...k, shown])); }, [shown]);
+  const at = (id: PanelId) => shown === id && (id !== "intelligence" || !gameOpen); // on screen (a game covers the globe, not its own DevWorld)
+  const has = (id: PanelId) => at(id) || kept.includes(id);
   // A full-screen world (or a game) covers the galaxy: it stays mounted but paused, so coming back is instant.
   const covered = gameOpen || isWorld(shown);
   const living = useLivingUniverse(view === "3d" && !covered);
@@ -429,24 +438,15 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} universe={living.universe} ships={ships} />
         </div>
       )}
-      {/* The globe stays mounted after its first visit (hidden + paused): re-entering skips the ~1-2 s rebuild and texture upload. */}
-      {globeKept && (
-        <div className="absolute inset-0" hidden={!(shown === "intelligence" && !gameOpen)}>
-          <NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} paused={!(shown === "intelligence" && !gameOpen)} />
-        </div>
-      )}
-      {shown === "intelligence" && !gameOpen ? null : shown === "studio" ? (
-        <StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} />
-      ) : shown === "creation" ? (
-        <DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} />
-      ) : shown === "agents" ? (
-        <AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} />
-      ) : shown === "theater" ? (
+      {/* Worlds stay mounted after their first visit (hidden + paused): re-entering skips the rebuild, shader compile and texture upload. */}
+      {has("intelligence") && <Kept on={at("intelligence")}><NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} paused={!at("intelligence")} /></Kept>}
+      {has("studio") && <Kept on={at("studio")}><StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} paused={!at("studio")} /></Kept>}
+      {has("creation") && <Kept on={at("creation")}><DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} paused={!at("creation")} /></Kept>}
+      {has("agents") && <Kept on={at("agents")}><AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} paused={!at("agents")} /></Kept>}
+      {has("arch") && <Kept on={at("arch")}><ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} paused={!at("arch")} /></Kept>}
+      {has("memory") && <Kept on={at("memory")}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} /></Kept>}
+      {shown && KEEP.includes(shown) && at(shown) ? null : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
-      ) : shown === "arch" ? (
-        <ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
-      ) : shown === "memory" ? (
-        <MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} />
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label="Planets" className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>ORBIT / YOUR WORKSPACE</p><h1>A universe.<br />Yours to shape.</h1><span>Ask, create, remember. Pick a world to begin.</span></div>
