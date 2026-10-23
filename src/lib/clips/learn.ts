@@ -4,7 +4,7 @@ import { api } from "../youtube";
 import { getAnalyticsReport } from "../yt-analytics";
 import { YT_SCOPES, hasScopes } from "../yt-analytics-pure";
 import { readStored } from "../yt-oauth";
-import { BusyError, FAST_MODEL, askClaude } from "../claude";
+import { BusyError, FAST_MODEL, askClaude, emitAsOwner } from "../claude";
 import { usageHold } from "../usage-meter";
 import { stopAllOn } from "../stop-all";
 import { getJob, listJobs, loadAnalysis, readState, saveJob, saveState, studioRoot, withJobLock } from "./factory";
@@ -62,9 +62,16 @@ async function collect() {
       }
     } else if (stats.size) warnings.push("Connect YouTube (Analytics) to learn from retention too");
   }
-  for (const [id, x] of stats) s.clips[id] = applyStats(s.clips[id], x.st, x.pub, now);
+  const new48 = [];
+  for (const [id, x] of stats) {
+    const had = !!s.clips[id].snaps["48h"];
+    s.clips[id] = applyStats(s.clips[id], x.st, x.pub, now);
+    const r = s.clips[id], s48 = r.snaps["48h"];
+    if (!had && s48) new48.push({ clipId: `${r.jobId}/${r.clipId}`, views: s48.views, likes: s48.likes });
+  }
   Object.assign(s, { checkedAt: at, warnings }); // stamped even on failure: at most one try per 6 h protects the quota
   await saveState("learn", file(), s);
+  for (const d of new48) void emitAsOwner("clip.outcome48h", "studio", d); // after the save, so a failed save can't log it twice
   L.notes = undefined;
 }
 

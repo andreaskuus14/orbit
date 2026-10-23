@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EVENT_TYPES, isoMs, stateAt, validate, type LedgerEvent } from "../src/lib/ledger-pure.ts";
+import { EVENT_TYPES, fromRows, isoMs, ledgerIssue, stateAt, validate, type LedgerEvent } from "../src/lib/ledger-pure.ts";
 
 const DATA: Record<string, object> = {
   "core.turn": { model: "sonnet", tools: 2, ms: 900 },
@@ -152,4 +152,25 @@ test("stateAt: caused_by cycles are ignored, plain chains and missing causes are
   const early = ev("focus.session", t, { minutes: 3 }, { id: "early", caused_by: "late" });
   assert.equal(stateAt([late, early], at).focusMinutes, 3);
   assert.equal(stateAt([late, early], "2026-10-06T00:00:00Z").focusMinutes, 0);
+});
+
+test("ledgerIssue: plain events pass, ledger types are checked", () => {
+  assert.equal(ledgerIssue("core.started", "core", { conversationId: "x" }), null);
+  assert.equal(ledgerIssue("focus.session", "life", { minutes: 25 }), null);
+  assert.equal(ledgerIssue("clip.published", "studio", { clipId: "j1/c1" }), null); // title is optional
+  assert.match(ledgerIssue("focus.session", "life", { minutes: 0 })!, /minutes/);
+  assert.match(ledgerIssue("focus.session", "nowhere", { minutes: 5 })!, /planet/);
+  assert.match(ledgerIssue("focus.session", "life", { minutes: 5 }, "")!, /caused_by/);
+});
+
+test("fromRows: Postgres rows → ledger events; legacy and bad rows skipped", () => {
+  const evs = fromRows([
+    { id: 7, created_at: "2026-10-20T10:00:00.123456+00:00", type: "focus.session", planet: "life", payload: { minutes: 25 }, caused_by: null },
+    { id: 8, created_at: "2026-10-20T11:00:00+00:00", type: "clip.outcome48h", planet: "studio", payload: { clipId: "j/c", views: 10, likes: 1 }, caused_by: 7 },
+    { id: 9, created_at: "2026-10-20T12:00:00Z", type: "core.started", planet: "core", payload: {} },
+    { id: 10, created_at: "nope", type: "focus.session", planet: "life", payload: { minutes: 5 } },
+    { id: 11, created_at: "2026-10-20T12:00:00Z", type: "focus.session", planet: "life", payload: { minutes: -1 } },
+  ]);
+  assert.deepEqual(evs.map((e) => [e.id, e.at, e.caused_by]), [["7", "2026-10-20T10:00:00.123Z", undefined], ["8", "2026-10-20T11:00:00.000Z", "7"]]);
+  assert.equal(stateAt(evs, "2026-10-21T00:00:00Z").focusMinutes, 25);
 });

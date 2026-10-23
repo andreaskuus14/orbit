@@ -7,6 +7,8 @@ import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.
 import { streamJsonInput } from "./attach-pure.ts";
 import { recordCall } from "./usage-meter.ts";
 import { isLimitAnswer } from "./usage-meter-pure.ts";
+import { ledgerIssue } from "./ledger-pure.ts";
+import { adminClient } from "./supabase/admin.ts";
 
 /** An image sent to the model with the prompt (validated by attach-pure). */
 export type PromptImage = { type: string; data: Uint8Array };
@@ -242,8 +244,26 @@ export async function recordUsage(sb: SupabaseClient, userId: string, purpose: s
   if (error) console.error("[orbit] failed to record usage", error);
 }
 
-/** Append a universe event. The galaxy animates from these via Supabase Realtime. */
-export async function emit(sb: SupabaseClient, userId: string, type: string, planet: string, payload: Record<string, unknown> = {}) {
-  const { error } = await sb.from("events").insert({ user_id: userId, type, planet, payload });
+/** Append a universe event: the one write path into public.events (the galaxy's realtime pulses and the ledger, ledger-pure.ts).
+ *  Ledger types are checked first; a misfit is still saved as a plain event, with a warning. Never throws. */
+export async function emit(sb: SupabaseClient, userId: string, type: string, planet: string, payload: Record<string, unknown> = {}, causedBy?: string | number) {
+  const issue = ledgerIssue(type, planet, payload, causedBy === undefined ? undefined : String(causedBy));
+  if (issue) console.warn("[orbit] event doesn't fit the ledger, saved as a plain event", type, issue);
+  const row: Record<string, unknown> = { user_id: userId, type, planet, payload };
+  let { error } = await sb.from("events").insert(causedBy === undefined ? row : { ...row, caused_by: causedBy });
+  // caused_by arrives with 0016_ledger.sql: before it has run, save the event without the link
+  if (error && causedBy !== undefined && (error.code === "42703" || error.code === "PGRST204")) ({ error } = await sb.from("events").insert(row));
   if (error) console.error("[orbit] failed to emit event", type, error);
+}
+
+/** emit() for background work with no session (STUDIO loops): acts for the single profile via the service key; skipped without one. */
+export async function emitAsOwner(type: string, planet: string, payload: Record<string, unknown> = {}) {
+  try {
+    const sb = adminClient();
+    if (!sb) return;
+    const { data, error } = await sb.from("profiles").select("id").limit(2);
+    if (error) throw error;
+    if (data?.length !== 1) return; // no owner, or more than one: whose event it is would be a guess
+    await emit(sb, data[0].id, type, planet, payload);
+  } catch (e) { console.error("[orbit] failed to emit owner event", type, e instanceof Error ? e.message : e); }
 }

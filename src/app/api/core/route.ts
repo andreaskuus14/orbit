@@ -67,10 +67,14 @@ export async function POST(req: Request) {
       block: attachmentPrompt([{ name: "Earlier attachments in this chat (retained text, up to 20k characters)", text: saved }], []) + (attach?.block ?? ""),
       images: attach?.images ?? [],
     } : attach;
+    const t0 = Date.now();
     const out = await runCore(sb, user.id, history, onDelta, signal, onReset, voice, onNavigate, onStep, contextAttach, project.text, project.tainted, project.memoryProject);
     await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
     await emit(sb, user.id, "core.completed", "core", { conversationId: cid });
+    // counts only, never message text: tools = steps that ran a tool (not CORE's own memory search, thinking, review or fallbacks)
+    const tools = out.trace.filter((s) => !["search_memory", "think", "review", "fallback"].includes(s.step)).length;
+    await emit(sb, user.id, "core.turn", "core", { model: out.model, tools, ms: Date.now() - t0 });
     void reflectOnTurn(sb, user.id, cid); // learn in the background; never delays the answer, never throws
     void learnFacts(sb, user.id, message, userMsg?.id ?? null, files.files.length > 0); // beliefs from the user's own words only (none on attachment turns); never throws
     return out;

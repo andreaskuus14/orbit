@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
-import { BusyError, askClaude } from "@/lib/claude";
+import { BusyError, askClaude, emit } from "@/lib/claude";
 import { usageHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { FOLLOWUP_SYSTEM, followupPrompt, FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, RESEARCH_SYSTEM, emailIn, findPrompt, funnel, isTemplate, outreachPrompt, parseDraft, parseFinds, researchPrompt, sendSubject, trimDossier, validatePatch, validateProspect, withDossier, type Lang, type Prospect } from "@/lib/business-pure";
@@ -31,7 +31,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const h = req.headers;
   if (crossSiteBlocked("POST", "/api/business", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return fail("Cross-site request refused", 403);
-  const { sb, res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b || typeof b !== "object" || Array.isArray(b)) return fail("JSON body required");
@@ -57,12 +57,17 @@ export async function POST(req: Request) {
     case "add": {
       const p = validateProspect(b);
       if (typeof p === "string") return fail(p);
-      return one(sb.from("prospects").insert(p).select(COLS).single());
+      const r = await sb.from("prospects").insert(p).select(COLS).single();
+      if (r.data) await emit(sb, user.id, "business.stage", "business", { prospect: r.data.id, to: r.data.stage }); // a new prospect enters the pipeline
+      return one(Promise.resolve(r));
     }
     case "update": {
       const p = validatePatch(b);
       if (typeof p === "string") return fail(p);
-      return one(sb.from("prospects").update({ ...p, updated_at: new Date().toISOString() }).eq("id", b.id as string).select(COLS).maybeSingle());
+      const before = p.stage ? (await sb.from("prospects").select("stage").eq("id", b.id as string).maybeSingle()).data : null;
+      const r = await sb.from("prospects").update({ ...p, updated_at: new Date().toISOString() }).eq("id", b.id as string).select(COLS).maybeSingle();
+      if (!r.error && r.data && p.stage && before?.stage !== p.stage) await emit(sb, user.id, "business.stage", "business", { prospect: b.id, to: p.stage }); // the id, never the name
+      return one(Promise.resolve(r));
     }
     case "delete": {
       const { error } = await sb.from("prospects").delete().eq("id", b.id as string);
@@ -130,6 +135,7 @@ export async function POST(req: Request) {
       const { data: claimed, error: claimErr } = await sb.from("prospects").update({ stage: "contacted", updated_at: stamp }).eq("id", b.id as string).eq("stage", "lead").eq("updated_at", b.seen).select("id");
       if (claimErr) return fail(claimErr.message, 500);
       if (!claimed?.length) return fail("Not sent: it was already contacted, or the draft changed since you read it. Reload and check it again.", 409);
+      await emit(sb, user.id, "business.stage", "business", { prospect: b.id, to: "contacted" });
       let r: Response;
       try {
         r = await fetch("https://api.resend.com/emails", {
@@ -148,7 +154,8 @@ export async function POST(req: Request) {
         return fail(`The email service had a problem (${r.status}): it may or may not have been sent. Check your Resend log; it stays marked Contacted.`, 502);
       }
       if (!r.ok) { // a clear refusal (4xx): nothing was sent, so it goes back to "To contact"
-        await sb.from("prospects").update({ stage: "lead" }).eq("id", b.id as string).eq("stage", "contacted");
+        const { data: back } = await sb.from("prospects").update({ stage: "lead" }).eq("id", b.id as string).eq("stage", "contacted").select("id");
+        if (back?.length) await emit(sb, user.id, "business.stage", "business", { prospect: b.id, to: "lead" });
         return fail(`Not sent: Resend ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`, 502);
       }
       const notes = `${p.notes ? `${p.notes}\n` : ""}Emailed ${to} on ${stamp.slice(0, 10)} (approved in ORBIT).`.slice(-2000);

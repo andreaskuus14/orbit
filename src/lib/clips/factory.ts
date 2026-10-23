@@ -6,7 +6,7 @@ import { access, mkdir, open, readdir, readFile, rename, rm, stat, statfs, write
 import { availableParallelism } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { SMART_MODEL, askClaudeStream } from "../claude";
+import { SMART_MODEL, askClaudeStream, emitAsOwner } from "../claude";
 import { stopAllOn } from "../stop-all";
 import { retryConsent, retryFingerprint } from "./flop-retry-pure";
 import { createLimiter } from "../pure";
@@ -1056,10 +1056,12 @@ const setPublish = (jobId: string, clipId: string, patch: Partial<ClipPublish>, 
   if (!job || !clip?.publish) return null;
   if (only && clip.publish.status !== only) return clip;
   const live = (st?: ClipPublish["status"]) => st === "done" || st === "scheduled";
-  if (live(patch.status) && !live(clip.publish.status)) addFeedback(job, clipId, "published");
+  const went = live(patch.status) && !live(clip.publish.status);
+  if (went) addFeedback(job, clipId, "published");
   clip.publish = { ...clip.publish, ...patch, at: new Date().toISOString() };
   job.updatedAt = clip.publish.at;
   await saveJob(job);
+  if (went) void emitAsOwner("clip.published", "studio", { clipId: `${jobId}/${clipId}` }); // ids only: titles can carry source text
   return clip;
 });
 

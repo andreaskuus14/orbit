@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { adminClient } from "./supabase/admin";
 import { runPulse } from "./pulse";
 import { handleEvents, runDueAutomations } from "./automations";
 import { kickQueue } from "./agents";
@@ -15,13 +16,6 @@ import { usageHold, usageLimited } from "./usage-meter";
 
 const TICK_MS = 60_000;
 const g = globalThis as unknown as { __orbitScheduler?: NodeJS.Timeout; __orbitTick?: unknown; __orbitBusy?: boolean; __orbitWarned?: boolean };
-
-function adminClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SECRET_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-}
 
 async function tick(sb: SupabaseClient) {
   if (g.__orbitBusy) return;
