@@ -3,7 +3,7 @@
 // that exists only while something is moving; all particle state lives in preallocated typed arrays (decode-pure).
 import { newPool, primeAssemble, primeDisperse, samplePoints, stepAssemble, stepDisperse, type Pool } from "@/lib/decode-pure";
 
-const MAX = 3200, STEP = 2, CROSSFADE = 0.3, GIVE_UP = 1.4; // s: hand over to the DOM by then even if stragglers remain
+const MAX = 3200, STEP = 2, CROSSFADE = 0.2, GIVE_UP = 0.42; // s: hand over to the (already decoding) DOM name by then
 const PEARL = "#e8eefb";
 
 type Origin = () => { x: number; y: number } | null;
@@ -29,10 +29,10 @@ export class ParticleType {
 
   constructor(private origin: Origin) {}
 
-  /** Starts assembling `el`'s text (one line). False when it can't (no canvas, empty): show the text another way. */
-  arrive(el: HTMLElement | null, onSettle: () => void): boolean {
+  /** Starts assembling `text` (one line, laid out in `el`). False when it can't (no canvas, empty): show the text another way. */
+  arrive(el: HTMLElement | null, text: string, onSettle: () => void): boolean {
     if (!el || matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
-    const text = el.textContent ?? "", cs = getComputedStyle(el), box = layoutBox(el);
+    const cs = getComputedStyle(el), box = layoutBox(el);
     const mask = (this.mask ??= document.createElement("canvas")), m = mask.getContext("2d", { willReadFrequently: true });
     if (!m || !text.trim() || !(box.w > 0) || !(box.h > 0)) return false;
     const w = Math.ceil(box.w) + 8, h = Math.ceil(box.h) + 8;

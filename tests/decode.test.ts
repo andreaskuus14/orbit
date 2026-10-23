@@ -58,7 +58,7 @@ test("assembly streams out of the origin, settles on the letterforms; dispersal 
   let t = 0;
   for (; t < 2 && far > 0; t += 1 / 60) far = stepAssemble(p, t, 1 / 60, 800, 100);
   assert.equal(far, 0);
-  assert.ok(t < 1.5, `settles in time (${t.toFixed(2)} s)`);
+  assert.ok(t < 0.6, `settles in time (${t.toFixed(2)} s)`);
   assert.ok(p.a[0] > 0.99);
   // left letters leave first, on average
   const avg = (a: number, b: number) => { let s = 0; for (let i = a; i < b; i++) s += p.delay[i]; return s / (b - a); };

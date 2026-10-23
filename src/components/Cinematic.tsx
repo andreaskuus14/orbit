@@ -440,8 +440,8 @@ export function StoryFocus({ story }: { story: RefObject<Story> }) {
 }
 
 /** igloo-style section readout, bottom left: "03 / 11", the planet's name large, one line on what it does.
- *  The name assembles from pearl particles streaming out of the planet (ParticleType) and crossfades into the real
- *  text; then telemetry decodes in under it. Leaving disperses the name. If particles can't run, the name mask-decodes. */
+ *  Pearl particles stream out of the planet into the name's letterforms (~0.4 s, ParticleType), then crossfade into
+ *  the real text mid-decode (done ~0.95 s); telemetry decodes in right after. Leaving disperses the name. */
 export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boolean; onOpen: (id: PanelId) => void }) {
   const live = stop >= 0 ? stop : intro ? -2 : null; // -2 = the intro card
   const [shown, setShown] = useState<number>(intro ? -2 : -1);
@@ -451,7 +451,6 @@ export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boo
   const nameRef = useRef<HTMLSpanElement>(null), fx = useRef<ParticleType | null>(null), at = useRef(shown);
   // Per card: where the planet was when its name settled (telemetry) and whether the DOM name shows yet.
   const [settled, setSettled] = useState<{ id: PlanetId; x: number; z: number; name: boolean } | null>(null);
-  const [plain, setPlain] = useState<PlanetId | null>(null); // particles couldn't run: decode the name instead
   const active = live !== null;
   useEffect(() => () => fx.current?.dispose(), []);
   useEffect(() => {
@@ -460,7 +459,7 @@ export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boo
     if (!active || !p) { e.leave(); setSettled((s) => s && { ...s, name: false }); return; }
     const id = p.id, mark = () => storyMark.stop === at.current;
     const settle = () => setSettled({ id, x: mark() ? storyMark.wx : NaN, z: mark() ? storyMark.wz : NaN, name: true });
-    if (!e.arrive(nameRef.current, settle)) { setPlain(id); settle(); }
+    if (!e.arrive(nameRef.current, p.name, settle)) settle(); // no particles: the decoding name shows at once
   }, [shown, active]); // p follows shown
   if (shown === -1) return <div className="story-readout" />;
   const mine = p && settled?.id === p.id ? settled : null;
@@ -469,12 +468,13 @@ export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boo
       <div key={p?.id ?? "intro"} className="story-anim">
         <div className="story-idx" aria-hidden><b>{pad(p ? shown + 1 : 0)}</b> / {pad(PLANETS.length)}</div>
         {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={active ? 0 : -1}>
-          {plain === p.id ? <MaskText text={p.name} decode /> : <span ref={nameRef} className={`story-name-text${mine?.name ? " on" : ""}`}>{p.name}</span>}
+          {/* decoding from the card's mount, unseen until the particles hand over: it shows mid-decode, done ~950 ms */}
+          <span ref={nameRef} className={`story-name-text${mine?.name ? " on" : ""}`}><MaskText key={String(active)} text={p.name} decode={{ ms: 950 }} /></span>
         </button>
           : <div className="story-name" aria-hidden>{introName}</div>}
         {p && (
           <div className="story-tele">{/* fixed height: lines arriving never move the card */}
-            {mine && teleLines(p, mine.x, mine.z).map((l, i) => <div key={i}><MaskText text={l} decode={{ ms: 620, delay: 80 + i * 120 }} /></div>)}
+            {mine && teleLines(p, mine.x, mine.z).map((l, i) => <div key={i}><MaskText text={l} decode={{ ms: 500, delay: 150 + i * 90 }} /></div>)}
           </div>
         )}
         <p className="story-line">{p ? p.blurb : "Your mind has a universe."}</p>

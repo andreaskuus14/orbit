@@ -74,12 +74,12 @@ export function newPool(max: number): Pool {
 
 /** Arms an assembly onto the targets already in tx/ty: each particle leaves the origin (plus its own jitter) after its
  *  delay, left letters first like the decode, then glides home. Different x/y glide times bend the paths into a stream. */
-export function primeAssemble(p: Pool, left: number, width: number, ox: number, oy: number, emit = 0.34, seed = 3) {
+export function primeAssemble(p: Pool, left: number, width: number, ox: number, oy: number, emit = 0.1, seed = 3) {
   const r = rng(seed);
   for (let i = 0; i < p.n; i++) {
     const u = width > 0 ? Math.min(1, Math.max(0, (p.tx[i] - left) / width)) : 0, ang = r() * Math.PI * 2, rad = 3 + 20 * Math.sqrt(r());
     p.delay[i] = emit * (0.6 * u + 0.4 * r());
-    p.tau[i] = 0.07 + 0.07 * r(); p.tauY[i] = p.tau[i] * (0.55 + 0.9 * r());
+    p.tau[i] = 0.04 + 0.03 * r(); p.tauY[i] = p.tau[i] * (0.7 + 0.5 * r());
     p.jx[i] = Math.cos(ang) * rad; p.jy[i] = Math.sin(ang) * rad;
     p.x[i] = ox + p.jx[i]; p.y[i] = oy + p.jy[i]; p.a[i] = 0;
   }

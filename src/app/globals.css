@@ -670,7 +670,7 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .story-name:focus-visible { outline: 1px solid #8fd3ff; outline-offset: 6px; }
 /* Particle type (ParticleType): the real name waits laid out but unseen, then crossfades in as the particles hand over. */
 .story-name-text { opacity: 0; }
-.story-name-text.on { opacity: 1; transition: opacity 0.3s var(--ease-glide); }
+.story-name-text.on { opacity: 1; transition: opacity 0.2s var(--ease-glide); }
 .particle-type { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 17; pointer-events: none; }
 .story-tele { min-height: 4.8em; margin: -0.2rem 0 0.6rem; font-family: var(--font-mono); font-size: 10px; line-height: 1.6; letter-spacing: 0.2em; color: rgba(186, 214, 255, 0.6); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .story-name-text { opacity: 1; transition: none; } }
