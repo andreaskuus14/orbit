@@ -141,17 +141,19 @@
 @media (max-height: 650px) { .continue-work-float { display: none; } }
 @media (prefers-reduced-motion: reduce) { .continue-work li { animation: none; } }
 
-.morning-work h3 { font-weight: 600; color: #e5eff3; margin-bottom: .4rem; }
 .orbit-shell .morning-card { max-height: calc(100dvh - var(--hdr, 4rem) - var(--bar, 4rem) - 1rem); overflow-y: auto; overscroll-behavior: contain; }
-.morning-work ul { display: grid; gap: .4rem; }
-.morning-work button { width: 100%; text-align: left; padding: .5rem .6rem; border-left: 2px solid #accbd54d; border-radius: 0 6px 6px 0; transition: background .15s; }
-.morning-work button:hover { background: #c3e5ef0d; }
-.morning-work button:focus-visible { outline: 2px solid #c1e3eb; outline-offset: 2px; }
-.morning-work button > * { display: block; overflow-wrap: anywhere; }
-.morning-work button b { font-size: .8rem; font-weight: 500; }
-.morning-work button span { font-size: .72rem; line-height: 1.5; margin-top: .15rem; }
-.morning-work-action { color: #accbd5; }
-@media (prefers-reduced-motion: reduce) { .morning-work button { transition: none; } }
+/* Morning cards (MorningCards.tsx): one card on top, the next two peeking below as a stack. */
+.mcards:focus-visible { outline: 2px solid #c1e3eb; outline-offset: 4px; }
+.mcards-stack { position: relative; padding-bottom: .9rem; touch-action: pan-y; }
+.mcards-under { position: absolute; inset: 0 calc(var(--d) * .6rem) .9rem; transform: translateY(calc(var(--d) * .45rem)); border: 1px solid #7dd3fc22; background: #0b1a20cc; z-index: 0; }
+.mcards-card { position: relative; z-index: 1; display: grid; gap: .45rem; min-height: 8.5rem; padding: .8rem .9rem; border: 1px solid #7dd3fc44; border-left: 2px solid var(--c, #7dd3fc); background: #0b1a20f2; }
+.mcards-goal { --c: #a78bfa; } .mcards-news { --c: #22d3ee; } .mcards-business { --c: #38bdf8; } .mcards-idea { --c: #8b5cf6; } .mcards-task { --c: #f43f5e; }
+.mcards-k { font: 700 .6rem var(--font-display, monospace); letter-spacing: .3em; color: var(--c, #7dd3fc); }
+.mcards-t { text-align: left; font-size: .95rem; line-height: 1.3; overflow-wrap: anywhere; }
+.mcards-t:hover, .mcards-t:focus-visible { text-decoration: underline; }
+.mcards-row { display: flex; align-items: center; gap: .35rem; margin-top: auto; }
+.mcards-nav { margin-left: auto; display: flex; align-items: center; gap: .35rem; }
+.mcards button:disabled { opacity: .45; }
 
 /* Cockpit frame (plan #6): panels are notched line frames, not soft cards. Notches via clip-path; bright corner ticks via
    gradients (no extra DOM, no blur). Fill stays high enough to read over bright planets. */

@@ -1,6 +1,7 @@
 // ORBIT's append-only event ledger: typed events, validation, and an order-independent snapshot at any moment. Pure (IO lives elsewhere).
 import { PLANETS } from "./planets.ts";
 import { STAGES, type Stage } from "./business-pure.ts";
+import { CARD_KINDS, type CardKind } from "./morning-rank-pure.ts";
 
 type Data = {
   "core.turn": { model: string; tools: number; ms: number };
@@ -13,6 +14,7 @@ type Data = {
   "life.habit": { habit: string; done: boolean };
   "focus.session": { minutes: number };
   "notify.shown": { kind: string; title: string };
+  "morning.thumb": { kind: CardKind; key: string; up: boolean };
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -36,6 +38,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "life.habit": { habit: name, done: bool },
   "focus.session": { minutes: (v) => typeof v === "number" && v > 0 && v <= 1440 },
   "notify.shown": { kind: id, title: name },
+  "morning.thumb": { kind: oneOf(CARD_KINDS), key: id, up: bool },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];
