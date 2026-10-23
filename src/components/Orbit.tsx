@@ -29,7 +29,7 @@ import { WeeklyCard } from "./WeeklyCard";
 import { MissionControl } from "./MissionControl";
 import { StatusRail } from "./StatusRail";
 import { Ticker } from "./Ticker";
-import { WarpOverlay } from "./WarpOverlay";
+import { WarpBurst, WarpOverlay } from "./WarpOverlay";
 import { AmbientOverlay, useAmbient } from "./AmbientOverlay";
 import { sfx } from "./sfx";
 import { BootSequence } from "./BootSequence";
@@ -430,6 +430,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view === "3d" && !shown && <HudFrame />}
       {view === "3d" && !shown && !approach && <Ticker />}
       {view === "3d" && <WarpOverlay target={approach} landed={panel} reduced={reduced} />}
+      {view === "3d" && <WarpBurst id={isWorld(shown) ? shown : null} reduced={reduced} />}
       {view === "3d" && !shown && <AmbientOverlay a={amb} />}
       {view === "3d" && !shown && living.open && <TimeTravel days={living.days} setDays={living.setDays} onClose={() => { living.setOpen(false); living.setDays(0); }} />}
       {view === "3d" && <BootSequence reduced={reduced} />}
