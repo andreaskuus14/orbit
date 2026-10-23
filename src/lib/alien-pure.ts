@@ -49,3 +49,10 @@ export function overviewBoost(size: number, dist: number, fovDeg: number, minFra
   const frac = size / (Math.max(dist, 1e-3) * Math.tan((fovDeg * Math.PI) / 360));
   return fin(minFrac / Math.max(frac, 1e-6), 1, 2.6);
 }
+
+/** How calm the singularity reads, 0 (close-up: full lensing drama) .. 1 (the home overview, ~47 away): the lens,
+ *  Einstein ring, disk and inner arms ease down and the shadow disk goes black, so the centre is a crisp dark object. */
+export const coreCalm = (dist: number) => {
+  const t = fin((dist - 14) / 22, 0, 1);
+  return t * t * (3 - 2 * t);
+};

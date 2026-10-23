@@ -10,7 +10,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { HOLO, useAlienEnv } from "./env";
 import { Fractal } from "./Fractal";
-import { tesseractAngle } from "@/lib/alien-pure";
+import { coreCalm, tesseractAngle } from "@/lib/alien-pure";
 import type { CoreLive } from "../ParticleCore";
 
 const finite = (x: number, lo = 0, hi = 1) => (Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : lo);
@@ -134,14 +134,14 @@ export function Singularity({ live, reduced, level }: { live: RefObject<CoreLive
 
   const rings = useRef<(THREE.Group | null)[]>([]);
   const spin = useRef<(THREE.Group | null)[]>([]);
-  useFrame(({ clock }, dt) => {
-    const t = reduced ? 12 : clock.elapsedTime, L = live.current;
+  useFrame(({ clock, camera }, dt) => {
+    const t = reduced ? 12 : clock.elapsedTime, L = live.current, calm = coreCalm(camera.position.length());
     const g = finite(L?.g ?? 0), br = finite(L?.breath ?? 0.5), v = finite((L?.mic ?? 0) + (L?.spk ?? 0));
     halo.uniforms.uTime.value = t;
-    halo.uniforms.uGain.value = 0.85 + 0.25 * br + 0.9 * g + 0.6 * v;
-    halo.uniforms.uRays.value = level === 0 ? 0.5 : 1;
+    halo.uniforms.uGain.value = (0.85 + 0.25 * br + 0.9 * g + 0.6 * v) * (1 - 0.6 * calm); // overview: the lens would gather it into a blob
+    halo.uniforms.uRays.value = (level === 0 ? 0.5 : 1) * (1 - 0.7 * calm);
     disk.uniforms.uTime.value = t;
-    disk.uniforms.uGain.value = 0.9 + 0.2 * br + 0.8 * g + 0.5 * v;
+    disk.uniforms.uGain.value = (0.9 + 0.2 * br + 0.8 * g + 0.5 * v) * (1 - 0.65 * calm);
     glyph.uTime.value = t;
     glyph.uGlyph.value = 0.8 + 1.5 * g + 0.8 * v;
     glyph.uXW.value = tesseractAngle(t, 0, reduced);

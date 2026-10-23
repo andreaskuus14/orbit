@@ -189,3 +189,35 @@ export function cullLabels(x: Num, y: Num, w: Num, h: number, prio: Num, vis: Nu
     vis[i] = free ? 1 : 0;
   }
 }
+
+/** Screen-space label de-collision, in place: labels (centre x/y, width w, height h) are pushed out of the CORE's
+ *  glare disk (cx, cy, radius cr; 0 = off) and apart from each other along the cheaper axis, each at most `max` px from
+ *  its anchor (ax/ay scratch). Index `skip` (the CORE's own label) ignores the glare. prio < 0 = hidden, left alone.
+ *  What still overlaps afterwards is for cullLabels. */
+export function spreadLabels(x: Num, y: Num, w: Num, h: number, prio: Num, skip: number, cx: number, cy: number, cr: number, max: number, ax: Num, ay: Num) {
+  const n = x.length;
+  for (let i = 0; i < n; i++) { ax[i] = x[i]; ay[i] = y[i]; }
+  for (let it = 0; it < 4; it++) {
+    for (let i = 0; i < n; i++) {
+      if (prio[i] < 0 || i === skip || !(cr > 0)) continue;
+      const dx = x[i] - cx, dy = y[i] - cy;
+      const d = Math.hypot(Math.max(Math.abs(dx) - w[i] / 2, 0), Math.max(Math.abs(dy) - h / 2, 0));
+      if (d >= cr) continue;
+      const l = Math.hypot(dx, dy);
+      const ux = l > 1e-6 ? dx / l : 0, uy = l > 1e-6 ? dy / l : 1; // dead centre: push down
+      x[i] += ux * (cr - d); y[i] += uy * (cr - d);
+    }
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      if (prio[i] < 0 || prio[j] < 0) continue;
+      const dx = x[j] - x[i], dy = y[j] - y[i];
+      const ox = (w[i] + w[j]) / 2 - Math.abs(dx), oy = h - Math.abs(dy);
+      if (ox <= 0 || oy <= 0) continue;
+      if (oy <= ox) { const s = (dy < 0 ? -oy : oy) / 2; y[i] -= s; y[j] += s; }
+      else { const s = (dx < 0 ? -ox : ox) / 2; x[i] -= s; x[j] += s; }
+    }
+    for (let i = 0; i < n; i++) { // stay near the world the label names
+      const dx = x[i] - ax[i], dy = y[i] - ay[i], l = Math.hypot(dx, dy);
+      if (l > max) { x[i] = ax[i] + (dx * max) / l; y[i] = ay[i] + (dy * max) / l; }
+    }
+  }
+}

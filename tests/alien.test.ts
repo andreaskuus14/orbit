@@ -53,3 +53,11 @@ test("alien: far worlds get a size floor, near ones keep true size", () => {
   assert.equal(overviewBoost(0.6, 1e9, 50), 2.6);
   for (const x of [NaN, 0, -4]) { const b = overviewBoost(0.6, x, 50); assert.ok(b >= 1 && b <= 2.6); }
 });
+
+import { coreCalm } from "../src/lib/alien-pure.ts";
+test("alien: the core calms from close-up to the overview", () => {
+  assert.equal(coreCalm(9.5), 0);
+  assert.equal(coreCalm(47), 1);
+  assert.ok(coreCalm(25) > 0 && coreCalm(25) < 1 && coreCalm(20) < coreCalm(30));
+  for (const x of [NaN, -1, Infinity]) assert.ok(Number.isFinite(coreCalm(x)));
+});
