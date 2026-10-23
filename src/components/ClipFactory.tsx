@@ -21,7 +21,9 @@ type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   retryOf?: { videoId: string; title: string }; notes?: string[];
   status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; variantOf?: string; edit?: VersionEdit; original?: string;
-  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality };
+  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality; hookLab?: { of: string; label: string; pattern: string } };
+// Mirrors GET …/[job]/[clip]/hooklab (src/lib/clips/hooklab.ts).
+type HookLabRank = { ranked: { id: string; label: string; pattern: string; hook: string; score: number; why: string[] }[]; winner?: string; why: string; pending: number; total: number };
 type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string; scheduledFor?: string };
 // Mirrors src/lib/clips/schedule.ts + publish-schedule.ts (GET /api/studio/clips/schedule).
 type PubSettings = { timezone: string; slots: string[]; perDay: number };
@@ -472,7 +474,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
                 <JobCard key={j.id} job={j} reduced={reduced} showRejected={showRejected} busy={busy} Note={Note} yt={yt} publishing={data.publishing}
                   onRetry={() => make(j.source, j.options, true)} onDelete={() => del(j.id)}
                   onPatch={(clip, body) => patchClip(j.id, clip, body)} onPublish={(clip, body) => publish(j.id, clip, body)}
-                  onCheck={(clip) => checkYouTube(j.id, clip)} onVersion={(clip, body) => version(j.id, clip, body)} onTitles={(clip, review) => moreTitles(j.id, clip, review)} />
+                  onCheck={(clip) => checkYouTube(j.id, clip)} onVersion={(clip, body) => version(j.id, clip, body)} onTitles={(clip, review) => moreTitles(j.id, clip, review)} onReload={() => void load(true)} />
               ))}
             </div>
           </Section>
@@ -993,9 +995,9 @@ type PatchFn = (clip: string, body: PatchBody) => Promise<boolean>;
 type PublishFn = (clip: string, body: PublishBody) => Promise<boolean>;
 type VersionFn = (clip: string, body: VersionBody) => Promise<boolean>;
 
-function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRetry, onDelete, onPatch, onPublish, onCheck, onVersion, onTitles }: {
+function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRetry, onDelete, onPatch, onPublish, onCheck, onVersion, onTitles, onReload }: {
   job: ClipJob; publishing?: string | null; reduced: boolean; showRejected: boolean; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode; yt: YtStatus | null;
-  onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn; onCheck: (clip: string) => Promise<boolean>; onVersion: VersionFn; onTitles: (clip: string, review?: boolean) => Promise<boolean>;
+  onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn; onCheck: (clip: string) => Promise<boolean>; onVersion: VersionFn; onTitles: (clip: string, review?: boolean) => Promise<boolean>; onReload: () => void;
 }) {
   const o = job.options; // what the original clips were rendered with (mirrors baseEdit in pure.ts)
   const base: VersionEdit = { layout: o.layout ?? "fit", camSide: o.camSide ?? "right", camSize: o.camSize, captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true,
@@ -1055,8 +1057,10 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
                     onMore={() => void onTitles(c.id)} onReview={() => void onTitles(c.id, true)} moreBusy={!!busy[`titles:${job.id}/${c.id}`]} />
                   <Note k={`titles:${job.id}/${c.id}`} />
                 </>}
-                version={(c.status === "ready" || c.status === "approved") && !working &&
-                  <VersionBox clip={c} base={{ ...base, ...c.edit }} busy={!!busy[`ver:${job.id}/${c.id}`]} onVersion={onVersion} note={<Note k={`ver:${job.id}/${c.id}`} />} />}
+                version={(c.status === "ready" || c.status === "approved") && !working && <>
+                  <VersionBox clip={c} base={{ ...base, ...c.edit }} busy={!!busy[`ver:${job.id}/${c.id}`]} onVersion={onVersion} note={<Note k={`ver:${job.id}/${c.id}`} />} />
+                  {!c.hookLab && <HookLabBox jobId={job.id} clip={c} started={job.clips.some((x) => x.hookLab?.of === c.id)} onReload={onReload} />}
+                </>}
                 publish={c.status === "approved" && <PublishBox jobId={job.id} devlog={job.options.preset === "devlog"} clip={c} yt={yt} reduced={reduced} busy={!!busy[`pub:${job.id}/${c.id}`]} onPublish={onPublish} onVersion={onVersion}
                   stale={c.publish?.status === "uploading" && publishing !== `${job.id}/${c.id}`}
                   onCheck={() => onCheck(c.id)} note={<Note k={`pub:${job.id}/${c.id}`} />} />} />
@@ -1103,6 +1107,7 @@ function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publi
       <div className="flex flex-wrap gap-1">
         <Status text={CLIP_LABEL[c.status] ?? c.status} tone={toneOf(c.status)} />
         {c.variantOf && <Status text={`↳ v${c.id.match(/-v(\d+)$/)?.[1] ?? "?"} of ${rootClipId(c.id).replace("clip-", "clip ")}`} />}
+        {c.hookLab && <Status text={`🧪 ${c.hookLab.label}`} />}
       </div>
 
       {edit != null ? (
@@ -1174,6 +1179,37 @@ function RejectButton({ title, disabled, onReject }: { title: string; disabled?:
 
 const CAPTION_LABEL: Record<CaptionStyle, string> = { karaoke: "Karaoke", classic: "Classic", none: "None" };
 const signed = (n: number) => `${n > 0 ? "+" : ""}${n} s`;
+
+/** "🧪 Hook lab": three alternative openings rendered as versions, ranked from channel data. The owner picks; publishing stays his click. */
+function HookLabBox({ jobId, clip: c, started, onReload }: { jobId: string; clip: Clip; started: boolean; onReload: () => void }) {
+  const [busy, setBusy] = useState(false), [err, setErr] = useState(""), [rank, setRank] = useState<HookLabRank | null>(null);
+  const url = `${API}/${encodeURIComponent(jobId)}/${encodeURIComponent(c.id)}/hooklab`;
+  const run = async (fn: () => Promise<void>) => { setBusy(true); setErr(""); try { await fn(); } catch (e) { setErr(e instanceof Error ? e.message : "Something went wrong"); } finally { setBusy(false); } };
+  return (
+    <div className="flex flex-col gap-1">
+      {started
+        ? <button className="chip self-start" disabled={busy} onClick={() => void run(async () => setRank(await api<HookLabRank>(url)))}>🧪 {busy ? "Ranking…" : "Compare A/B/C"}</button>
+        : <button className="chip self-start" disabled={busy} onClick={() => void run(async () => { await api(url, { method: "POST" }); onReload(); })}
+            aria-label={`Hook lab: three alternative openings of ${c.title}`}>{busy ? "Starting…" : "🧪 Hook lab"}</button>}
+      {err && <p className="error text-xs" role="alert">{err}</p>}
+      {rank && (
+        <div className="rounded-md border border-white/10 p-1.5 text-[11px]" aria-live="polite">
+          {rank.pending > 0 && <p className="muted">{rank.pending} of {rank.total} still rendering.</p>}
+          {rank.why && <p><b>Predicted winner:</b> {rank.why}</p>}
+          <ol className="mt-1 space-y-1">
+            {rank.ranked.map((r) => (
+              <li key={r.id}>
+                <b>{r.id === rank.winner ? "★ " : ""}{r.label}</b> · {Math.round(r.score * 100)}/100 · {r.pattern}{r.hook && <> · “{r.hook}”</>}
+                <ul className="muted list-disc pl-4">{r.why.map((w) => <li key={w}>{w}</li>)}</ul>
+              </li>
+            ))}
+          </ol>
+          <p className="muted mt-1">A prediction only: approve and publish the one you like.</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 type VersionForm = VersionEdit & { title: string; hook: string; start: number; end: number; suggest: boolean };
 /** "Another version": same moment re-rendered with other settings, from the saved analysis (fast, no transcription). */
