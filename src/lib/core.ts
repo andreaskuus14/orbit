@@ -27,11 +27,13 @@ import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { MODULE_PRIVATE, MODULE_PROMPT, MODULE_WRITES, isModuleTool, moduleStatus, runModuleTool } from "./core-modules";
 import { classifyReflex, clockReply, type Reflex } from "./reflex-pure";
+import { coreAnswerEval, type CoreEvalTool } from "./core-answer-eval-pure";
+import type { AnswerEval } from "./answer-eval-pure";
 
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
 const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
 
-export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[] };
+export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: AnswerEval & { ms: number } };
 export type Citation = { id: string; title: string; kind: string };
 export type Turn = { role: "user" | "assistant"; content: string };
 
@@ -110,7 +112,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       onReset?.();
       return null;
     });
-    if (out) { logTiming(`reflex:${reflex}`); return out; }
+    if (out) { ms.answer_eval = Date.now() - t0; logTiming(`reflex:${reflex}`); return out; }
   }
 
   let t = Date.now();
@@ -119,6 +121,8 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
   const system = systemPrompt(await at("profile", cachedProfile(sb, userId)), localNow());
   onStep?.("search_memory", {});
   let byId = new Map<string, { id: string; title: string; kind: string }>(); // memories in context, for citations
+  let playbookRules: string[] = [];
+  const evalTools: CoreEvalTool[] = [];
   // Every lookup runs in parallel while step 0's CLI is already booting: the finished prompt becomes its stdin.
   const prep = (async () => {
     const [found, playbook, { data: summaries }, relevantChats, known, live, world] = await Promise.all([
@@ -130,6 +134,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       at("modules", moduleStatus(sb, userId)), // one live line per module (core-modules.ts); never throws
       at("world", import("./world").then((m) => m.worldContext(sb, userId))), // goals, this week, commitments; "" on failure
     ]);
+    playbookRules = playbook?.rules ?? [];
     let { results, mode } = found;
     if (!results.length) {
       // Broad questions ("what did I save?") match nothing specific: show CORE the latest memories instead.
@@ -139,6 +144,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       mode = "recent";
     }
     trace.push({ step: "search_memory", detail: `${results.length} found (${mode}${mode !== "recent" && memoryProject ? ", project hints considered" : ""})`, ms: Date.now() - t, ok: true });
+    evalTools.push({ tool: "search_memory", input: {}, output: "", evidence: [] });
     const recentChats = selectChatSummaries(relevantChats.results, summaries ?? []).filter((s) => !results.some((m) => m.id === s.id));
     byId = new Map([...results, ...recentChats].map((m) => [m.id as string, m]));
     const memories = results.length
@@ -248,6 +254,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
         : isModuleTool(reply.tool) ? await runModuleTool(reply.tool, reply.input ?? {}, { sb, userId, question, tainted: dataIn(), pinned: !!attach || pinsIn, steps, onEvidence: (e) => evidence.push(e) })
         : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e))); }
       catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
+      evalTools.push({ tool: reply.tool, input: reply.input ?? {}, output: out.slice(0, 8000), evidence });
       trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 140)} → ${out.slice(0, 140)}`, ms: Date.now() - t, ok: !out.startsWith("Error:"), ...(evidence.length ? { evidence } : {}) });
       if (LOGGED.includes(reply.tool) && !out.startsWith("Error:")) logActivity({ area: "core", title: `CORE ${reply.tool}: ${activityLine(reply.tool, out)}` }); // no inputs: memory / reminder / file text stays out of the log
       steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${out.slice(0, 8000)}`);
@@ -257,12 +264,27 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     throw e;
   }
 
+  inspectAnswer(question, answer, trace, playbookRules, evalTools);
+  ms.answer_eval = Date.now() - t0;
   logTiming(tier);
   const citations: Citation[] = parseCitations(answer)
     .map((id) => byId.get(id))
     .filter((m): m is NonNullable<typeof m> => !!m)
     .map((m) => ({ id: m.id, title: m.title, kind: m.kind }));
   return { text: answer || "(no answer)", citations, trace, model: tier };
+}
+
+/** Local advisory check after the final review, never an answer gate or another model call.
+ * Reuse the final step so telemetry doesn't count an evaluation as a tool. Console I/O is deferred. */
+function inspectAnswer(question: string, answer: string, trace: TraceStep[], playbookRules: string[], tools: CoreEvalTool[] = []) {
+  const started = Date.now();
+  const { evaluation, log } = coreAnswerEval({ question, answer, tools, playbookRules });
+  const last = trace.at(-1);
+  if (last) {
+    last.answerEval = { ...evaluation, ms: Date.now() - started };
+    if (log) last.detail += ` · ${log.slice("[core] ".length)}`;
+  }
+  if (log) setImmediate(() => { try { console.info(log); } catch { /* Advisory logging must not affect delivery. */ } });
 }
 
 /** The owner's playbook style rules, as every CORE prompt carries them (the reflex one too). */
@@ -288,13 +310,19 @@ export const forgetProfile = (userId: string) => { PG.__orbitProfile?.delete(use
  *  Clock questions: answered from the local clock with no model call. Throws on failure; runCore then takes the full path. */
 async function reflexTurn(sb: SupabaseClient, userId: string, kind: Reflex, question: string, ongoing: boolean, onDelta?: (text: string) => void, signal?: AbortSignal) {
   const t = Date.now();
-  const done = (text: string, detail: string) => ({ text, citations: [] as Citation[], trace: [{ step: "reflex", detail, ms: Date.now() - t, ok: true }] as TraceStep[], model: "fast" as const });
+  let rules: string[] = [];
+  const done = (text: string, detail: string) => {
+    const trace: TraceStep[] = [{ step: "reflex", detail, ms: Date.now() - t, ok: true }];
+    inspectAnswer(question, text, trace, rules);
+    return { text, citations: [] as Citation[], trace, model: "fast" as const };
+  };
   if (kind === "time" || kind === "date") {
     const text = clockReply(kind, new Date());
     onDelta?.(text);
     return done(text, `${kind} · answered from the local clock`);
   }
   const playbook = await getPlaybook(sb, userId);
+  rules = playbook?.rules ?? [];
   const system = `You are CORE, the assistant inside ORBIT, the user's personal AI universe. Today is ${localNow()}.
 The user just ${kind === "greet" ? "greeted you" : "thanked you"}. Reply in plain text, in their language, in one short sentence: no JSON, lists or headings. Never claim you did, saved or checked anything.${ongoing ? " This is an ongoing chat: no greeting, and don't use their name." : ""}${playbook?.rules.length ? `\n\n${styleBlock(playbook.rules)}` : ""}`;
   let raw = "", sent = 0;
