@@ -46,6 +46,9 @@ import { ContinueWork } from "./ContinueWork";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { TimeTravel, useLivingUniverse } from "./TimeTravel";
 import type { ShipTask } from "@/lib/ships-pure";
+import { CursorRing } from "./CursorRing";
+import { MaskText } from "./MaskText";
+import { useDragPanel } from "./useDragPanel";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: WorldLoading });
@@ -423,6 +426,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   async function signOut() { await sb.auth.signOut(); location.href = "/login"; }
 
+  const docked = !!behind && WORLDS.includes(behind);
+  const drawerDrag = useDragPanel<HTMLElement>(drawer && !docked ? `drawer:${drawer}` : null);
+  const statusDrag = useDragPanel<HTMLElement>(!shown && view === "3d" ? "status" : null);
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? "Your profile" : drawer ? planetById(drawer)?.name ?? "" : "";
 
   return (
@@ -502,6 +508,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <button className="hud-menu-item" onClick={signOut} title={email}>Sign out</button>
       </div>
       <ShortcutsOverlay />
+      <CursorRing />
       <Terminal />
       <MissionControl />
       <CommandPalette />
@@ -509,9 +516,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       <MarketWatcher />
 
       {drawer && !WORLDS.includes(drawer) && (
-        <aside className={`glass drawer${behind && WORLDS.includes(behind) ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
+        <aside ref={drawerDrag.ref} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
           aria-hidden={!panel || undefined} inert={!panel || undefined}>
-          <div className="mb-3 flex items-center justify-between"><h2 className="brand text-base">{title}</h2><button className="chip" onClick={() => setPanel(null)} aria-label="Close panel" title="Close (Esc)">Close</button></div>
+          <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand text-base"><MaskText key={title} text={title} /></h2><button className="chip" onClick={() => setPanel(null)} aria-label="Close panel" title="Close (Esc)">Close</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {drawer === "core" ? <CorePanel initial={pending} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
               : drawer === "profile" ? <ProfilePanel />
@@ -535,8 +542,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       <WhatsNew home={!shown && !approach} />
       {!shown && !approach && <HalEye />}
       {!shown && view === "3d" && (
-        <aside className="glass hud-panel status-hud" aria-label="System status">
-          <div className="hud-title">SYSTEM</div>
+        <aside ref={statusDrag.ref} className="glass hud-panel status-hud" aria-label="System status">
+          <div className="hud-title drag-handle" {...statusDrag.handle}>SYSTEM</div>
           <StatusRail items={[
             { label: "CORE", value: busy ? "Thinking" : warning ? "Last request failed" : "Ready", tone: warning ? "bad" : "ok", busy },
             { label: "Agents", value: runningTasks.length ? `${runningTasks.length} working` : "Idle", tone: "ok", busy: runningTasks.length > 0 },

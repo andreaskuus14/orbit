@@ -25,6 +25,7 @@ import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { smoothDamp } from "@/lib/smooth-damp-pure";
 import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clamp, currentTask, orbitPos, statusGlow, statusVisual, streamFrac, type AgentStatus } from "@/lib/station-pure";
+import { MaskText } from "./MaskText";
 
 // AGENTS → a floating obsidian ring station (alien megastructure theme): each agent is a ship circling its docking lane,
 // glowing by status, plotted live on a holographic tactical map behind the station.
@@ -550,7 +551,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
           <><button className="chip mb-3" onClick={() => { setManage(false); loadAgents(); }}>← Station</button><AgentsPanel onOpenTask={(id) => onOpenTask?.(id)} /></>
         ) : (
           <>
-            <div className="hud-title">AGENTS STATION</div>
+            <div className="hud-title"><MaskText text="AGENTS STATION" /></div>
             <p className="muted text-xs">{list.length} agents · {list.filter((a) => status[a.slug] === "working").length} working · {list.filter((a) => status[a.slug] === "waiting").length} need approval{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</p>
             <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Station views">
               {(["agents", "teams", "goals", "ideas", "recipes"] as const).map((t) => (

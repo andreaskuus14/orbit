@@ -3,6 +3,15 @@
 
 type V3 = { x: number; y: number; z: number };
 
+/** The house glide (unseen.co-style): closes 1 - exp(-dt/tau) of the gap each frame, so it keeps exp(-dt/tau) of the
+ *  remaining distance (tau 0.135 s keeps ~0.884 per 60 fps frame). Same curve at any frame rate; never overshoots. */
+export function expDamp(cur: number, target: number, tau: number, dt: number): number {
+  if (!Number.isFinite(target)) return Number.isFinite(cur) ? cur : 0;
+  if (!Number.isFinite(cur) || !(tau > 0)) return target;
+  if (!(dt > 0)) return cur;
+  return target + (cur - target) * Math.exp(-dt / tau);
+}
+
 /** One step toward `goal`. `vel` holds the velocity between frames (`vel.v`); `time` is roughly the time to arrive (s). */
 export function smoothDamp(cur: number, goal: number, vel: { v: number }, time: number, dt: number): number {
   if (!Number.isFinite(cur) || !Number.isFinite(goal)) { vel.v = 0; return Number.isFinite(goal) ? goal : cur; }
