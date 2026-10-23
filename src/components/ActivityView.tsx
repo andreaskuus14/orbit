@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useWorldPaused } from "./world-paused";
 import { ACT_AREAS, type ActItem } from "@/lib/activity-pure";
 import { NAV_EVENT } from "@/lib/nav-pure";
 import type { PanelId } from "@/lib/planets";
@@ -19,7 +20,8 @@ export function ActivityView({ onOpenTask }: { onOpenTask: (id: string) => void 
       setItems(j.items); setErr("");
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not load"); }
   }, [area]);
-  useEffect(() => { void load(); const h = setInterval(() => void load(), 45_000); return () => clearInterval(h); }, [load]);
+  const paused = useWorldPaused();
+  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => void load(), 45_000); return () => clearInterval(h); }, [load, paused]);
 
   const open = (x: ActItem) => {
     if (x.link?.task) onOpenTask(x.link.task);

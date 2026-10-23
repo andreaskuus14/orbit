@@ -45,7 +45,7 @@ function ui(options: { failSave?: boolean; failRun?: boolean } = {}) {
   };
   const m = { exports: {} as any };
   runInNewContext(compile("AgentsPanels"), { module: m, exports: m.exports, Error, confirm: () => true, setInterval: () => 1, clearInterval() {},
-    require: (name: string) => name === "react" ? react : name.endsWith("automation-edit-pure") ? edit : name.endsWith("AutomationFields") ? fieldsModule.exports : name === "react/jsx-runtime" ? require(name) : {},
+    require: (name: string) => name === "react" ? react : name.endsWith("automation-edit-pure") ? edit : name.endsWith("AutomationFields") ? fieldsModule.exports : name.endsWith("world-paused") ? { useWorldPaused: () => false } : name === "react/jsx-runtime" ? require(name) : {},
     fetch: async (_url: string, init: any = {}) => {
       const method = init.method ?? "GET", body = init.body ? JSON.parse(init.body) : null;
       if (method === "GET") return { ok: true, json: async () => ({ automations: clone(rows) }) };

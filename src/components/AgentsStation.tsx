@@ -298,9 +298,9 @@ function Rig() {
 
 /* ---------- data + UI ---------- */
 
-type Props = { flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; focusGoal?: string | null; radarUrl?: string | null; onRadarDone?: () => void };
+type Props = { paused?: boolean /* kept mounted but hidden: polls stop via WorldPaused in usePoll */; flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; focusGoal?: string | null; radarUrl?: string | null; onRadarDone?: () => void };
 
-export default function AgentsStation({ flat, onClose, reduced, quality = "auto", onOpenTask, focusGoal, radarUrl, onRadarDone }: Props) {
+export default function AgentsStation({ flat, onClose, reduced, quality = "auto", onOpenTask, focusGoal, radarUrl, onRadarDone, paused = false }: Props) {
   const glr = useGlRecovery();
   const [visible, setVisible] = useState(true);
   const [agents, setAgents] = useState<Agent[] | null>(null);
@@ -341,7 +341,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
     setHover((h) => (h.id === id && Math.abs(h.x - x) < 2 && Math.abs(h.y - y) < 2 ? h : { id, x, y }));
     document.body.style.cursor = id ? "pointer" : "";
   }, []);
-  useEffect(() => () => { document.body.style.cursor = ""; }, []);
+  useEffect(() => () => { document.body.style.cursor = ""; }, [paused]); // leaving mid-hover must not keep the hand cursor
 
   const list = useMemo(() => agents ?? [], [agents]);
   // A team's parent row (agent nova, "running" for the whole chain) is bookkeeping, not Nova's own work.
@@ -360,7 +360,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
 
   return (
     <div className="absolute inset-0 globe-in">
-      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={visible ? "always" : "never"} camera={{ position: [0, HOME * 0.45, HOME], fov: 42 }}
+      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={visible && !paused ? "always" : "never"} camera={{ position: [0, HOME * 0.45, HOME], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }} onPointerMissed={() => setSelected(null)}>
         <WarmCompile />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -371,7 +371,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         <OrbitControls makeDefault enablePan={false} minDistance={2} maxDistance={HOME * 2.5} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Follow index={list.findIndex((a) => a.slug === selected)} n={list.length} reduced={reduced} />
         <Rig />
-        <ZoomRig home={HOME * Math.hypot(1, 0.45)} reduced={reduced} />
+        {!paused && <ZoomRig home={HOME * Math.hypot(1, 0.45)} reduced={reduced} />}
         {q.bloomScale > 0 && (
           <EffectComposer multisampling={q.msaa}>
             <Bloom intensity={(reduced ? 0.3 : 0.55) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />

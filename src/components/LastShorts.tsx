@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useWorldPaused } from "./world-paused";
 import type { ShortResult } from "@/lib/clips/learn-pure";
 
 export function ShortsStrip({ shorts, onRestore, restoring }: { shorts: ShortResult[]; onRestore?: (s: ShortResult) => void; restoring?: string }) {
@@ -42,7 +43,9 @@ export default function LastShorts() {
     } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't restore the original"); }
     finally { setRestoring(""); }
   };
+  const paused = useWorldPaused();
   useEffect(() => {
+    if (paused) return; // STUDIO kept but hidden: no 15-min poll; returning refreshes
     let active = true;
     const load = async () => {
       try {
@@ -55,7 +58,7 @@ export default function LastShorts() {
     void load();
     const timer = setInterval(() => void load(), 15 * 60_000);
     return () => { active = false; clearInterval(timer); };
-  }, [refresh]);
+  }, [refresh, paused]);
   return <>
     {shorts && <ShortsStrip shorts={shorts} onRestore={(s) => void restore(s)} restoring={restoring} />}
     {!shorts && !err && <p className="muted text-xs" role="status">Loading Last Shorts…</p>}

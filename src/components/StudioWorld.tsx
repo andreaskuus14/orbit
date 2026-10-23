@@ -292,7 +292,7 @@ function StudioCamera({ mode, reduced }: { mode: Mode; reduced: boolean }) {
 type Sort = "newest" | "views" | "takeoff";
 const MODES: [Mode, string][] = [["channel", "Channel"], ["stats", "Stats"], ["clips", "Clips"]];
 
-export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, quality = "auto" }: { onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
+export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
   const q = useLeanQuality(quality);
   const glr = useGlRecovery();
   const [staged] = useState(oneCanvasOn); // spike flag, read once
@@ -305,7 +305,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const [mode, setMode] = useState<Mode>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio") ? "stats" : "channel"));
   useEffect(() => { if (open) setMode(open.view === "stats" ? "stats" : open.view === "clips" || open.view === "review" ? "clips" : "channel"); }, [open]);
   useEffect(() => { // Esc goes back to the channel first; capture phase + preventDefault keeps Orbit from closing the world
-    if (mode === "channel") return;
+    if (mode === "channel" || paused) return;
     const h = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (e.key !== "Escape" || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
@@ -314,7 +314,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
     };
     addEventListener("keydown", h, true);
     return () => removeEventListener("keydown", h, true);
-  }, [mode]);
+  }, [mode, paused]);
   const [idea, setIdea] = useState<{ busy: boolean; error?: string }>({ busy: false });
   const seq = useRef(0);
 
@@ -329,7 +329,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
     } catch (e) { if (s === seq.current) setErr(e instanceof Error ? e.message : "Couldn't load the channel"); }
     finally { if (s === seq.current) setLoading(false); }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!paused) void load(); }, [load, paused]); // each visit refreshes, as a remount did
   // Views over the last 28 days for the hologram: same server-cached endpoint StudioStats opens with; quiet if not connected.
   const [views28, setViews28] = useState<number | null>(null);
   useEffect(() => {
@@ -361,7 +361,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
     setHover((p) => (p.id === h.id && Math.abs(p.x - h.x) < 2 && Math.abs(p.y - h.y) < 2 ? p : h));
     document.body.style.cursor = h.id ? "pointer" : "";
   }, []);
-  useEffect(() => () => { document.body.style.cursor = ""; }, []);
+  useEffect(() => () => { document.body.style.cursor = ""; }, [paused]); // leaving mid-hover must not keep the hand cursor
   useEffect(() => { setIdea({ busy: false }); }, [selected]);
   const pick = useCallback((id: string) => setSelected((cur) => (cur === id ? null : id)), []);
 
@@ -415,7 +415,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
       <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
       <StudioCamera mode={mode} reduced={reduced} />
-      <ZoomRig home={Math.hypot(4.2, 11)} reduced={reduced} />
+      {!paused && <ZoomRig home={Math.hypot(4.2, 11)} reduced={reduced} />}
       <EffectComposer multisampling={q.msaa}>
         <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
         <Vignette offset={0.3} darkness={0.6} />
@@ -430,8 +430,8 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       {flat && <div aria-hidden className="studio-sky absolute inset-0" style={{ backgroundImage: `url(${SKY[0]})` }} />}
       {/* Flag on: the scene renders inside the galaxy's canvas (see Stage.tsx); dpr/antialias then follow the galaxy canvas. */}
       {!flat && (staged
-        ? <StageIn><WorldScene fov={45} position={[0, 4.2, 11]}>{scene}</WorldScene></StageIn>
-        : <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>)}
+        ? (paused ? null : <StageIn><WorldScene fov={45} position={[0, 4.2, 11]}>{scene}</WorldScene></StageIn>)
+        : <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>)}
 
       <div aria-hidden className="studio-tone pointer-events-none absolute inset-0 z-[1]" />
       <div aria-hidden className="studio-vignette pointer-events-none absolute inset-0 z-[1]" />

@@ -91,7 +91,7 @@ test("results timer starts once, runs without a UI, and respects Stop-all", asyn
 
 test("Last Shorts renders escaped titles, 48h views, both directions, baseline waiting and optional retention", () => {
   const m = { exports: {} as any };
-  runInNewContext(compile("components/LastShorts.tsx"), { module: m, exports: m.exports, require });
+  runInNewContext(compile("components/LastShorts.tsx"), { module: m, exports: m.exports, require: (n: string) => (n === "./world-paused" ? { useWorldPaused: () => false } : require(n)) });
   const rows: pure.ShortResult[] = [
     { videoId: "abcdefghijk", title: "<script>My title</script>", hook: "", capturedAt: "", views48: 400, medianViews: 200, changePct: 100, verdict: "worked", avgViewPct: 0 },
     { videoId: "lmnopqrstuv", title: "Slow start", hook: "", capturedAt: "", views48: 100, medianViews: 200, changePct: -50, verdict: "flopped" },

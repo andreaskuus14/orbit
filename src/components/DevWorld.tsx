@@ -151,9 +151,9 @@ function Rig() {
 
 /* ---------- data + UI ---------- */
 
-type Props = { flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; onPlaying?: (p: boolean) => void };
+type Props = { paused?: boolean /* kept mounted but hidden */; flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; onPlaying?: (p: boolean) => void };
 
-export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat, quality = "auto" }: Props) {
+export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat, quality = "auto", paused = false }: Props) {
   const q = useLeanQuality(quality);
   const glr = useGlRecovery();
   const [world, setWorld] = useState<World | null>(null);
@@ -188,7 +188,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
       saved.current = json.world; base.current = json.updatedAt ?? null; setWorld(json.world); setSeeded(!!json.seeded);
     } catch (e) { setLoadErr(e instanceof Error ? e.message : "Couldn't load"); }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!paused) queue.current = queue.current.then(load); }, [load, paused]); // each visit refreshes, after any queued save
 
   /** Optimistic: show `next` now; PUTs run in order so the server never applies an older world after a newer one. */
   const commit = useCallback((next: World) => {
@@ -216,11 +216,12 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
 
   useEffect(() => { onPlaying?.(!!playing); }, [playing, onPlaying]);
   useEffect(() => () => onPlaying?.(false), [onPlaying]);
+  useEffect(() => { if (paused) setPlaying(null); }, [paused]); // leaving (CORE replaces a running game) ends it, as unmounting did
   const onHover = useCallback((id: string | null, x: number, y: number) => {
     setHover((h) => (h.id === id && Math.abs(h.x - x) < 2 && Math.abs(h.y - y) < 2 ? h : { id, x, y }));
     document.body.style.cursor = id ? "pointer" : "";
   }, []);
-  useEffect(() => () => { document.body.style.cursor = ""; }, []);
+  useEffect(() => () => { document.body.style.cursor = ""; }, [paused]); // leaving mid-hover must not keep the hand cursor
 
   const games = useMemo(() => world?.games ?? [], [world]);
   const bugs = useMemo(() => world?.bugs ?? [], [world]);
@@ -231,7 +232,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
 
   return (
     <div className="absolute inset-0 globe-in" aria-label="Game-dev world">
-      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={playing ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
+      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={playing || paused ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         <WarmCompile />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -244,7 +245,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <BugSwarm games={games} bugs={bugs} reduced={reduced} />
         <OrbitControls makeDefault enablePan={false} minDistance={3} maxDistance={far * 2} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Rig />
-        <ZoomRig home={far * Math.hypot(1, 0.45)} reduced={reduced} />
+        {!paused && <ZoomRig home={far * Math.hypot(1, 0.45)} reduced={reduced} />}
         <EffectComposer multisampling={q.msaa}>
           <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
           <Vignette offset={0.25} darkness={0.75} />
