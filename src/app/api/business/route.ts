@@ -3,7 +3,7 @@ import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
 import { usageHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
-import { FOLLOWUP_SYSTEM, followupPrompt, FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, emailIn, findPrompt, funnel, outreachPrompt, parseFinds, sendSubject, validatePatch, validateProspect, type Lang, type Prospect } from "@/lib/business-pure";
+import { FOLLOWUP_SYSTEM, followupPrompt, FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, RESEARCH_SYSTEM, emailIn, findPrompt, funnel, isTemplate, outreachPrompt, parseDraft, parseFinds, researchPrompt, sendSubject, trimDossier, validatePatch, validateProspect, withDossier, type Lang, type Prospect } from "@/lib/business-pure";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,10 @@ export const dynamic = "force-dynamic";
 // "draft" asks CORE (Claude Code on the owner's plan) for an outreach message.
 // {action:"send", id} emails that saved draft, only from the owner's own two clicks (AGENTS.md rule 6). Needs RESEND_API_KEY +
 // ORBIT_MAIL_FROM. The stage lead → contacted is claimed first, so one business is emailed once even on a double click.
-const COLS = "id,name,kind,contact,stage,fee,notes,draft,created_at,updated_at";
+// {action:"research", id} lets CORE read the business's public pages (read-only web tools) and saves a short dossier in its notes.
+// "draft" takes angle (speed | missed-leads | free-pilot | auto) and tags the prospect's `template` (0015_prospect_template.sql).
+// "*" so `template` comes back when 0015 has run and reads still work before it.
+const COLS = "*";
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
 export async function GET() {
@@ -65,6 +68,24 @@ export async function POST(req: Request) {
       const { error } = await sb.from("prospects").delete().eq("id", b.id as string);
       return error ? fail(error.message, 500) : Response.json({ ok: true });
     }
+    case "research": {
+      const held = stopAllOn() ? "Stop-all is on" : usageHold();
+      if (held) return fail(`Not researching right now: ${held}`, 503);
+      const { data: p, error } = await sb.from("prospects").select("name,kind,contact,notes").eq("id", b.id as string).maybeSingle();
+      if (error) return fail(error.message, 500);
+      if (!p) return fail("Not found", 404);
+      try {
+        const r = await askClaude(researchPrompt(p), RESEARCH_SYSTEM, { lane: "foreground", purpose: "business.research", timeoutMs: 180_000, web: true, signal: req.signal });
+        const dossier = trimDossier(r.text);
+        if (!dossier) return fail("CORE found nothing usable about them", 502);
+        const notes = withDossier(p.notes ?? "", dossier);
+        if (notes === null) return fail("Notes are full: shorten them to make room for the research");
+        return one(sb.from("prospects").update({ notes, updated_at: new Date().toISOString() }).eq("id", b.id as string).select(COLS).maybeSingle());
+      } catch (e) {
+        if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
+        return fail(`Couldn't research: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+      }
+    }
     case "followup":
     case "draft": {
       const followup = b.action === "followup";
@@ -76,11 +97,17 @@ export async function POST(req: Request) {
       if (!p) return fail("Not found", 404);
       if (followup && (p.stage !== "contacted" || !p.draft?.trim())) return fail("A contacted business with a first draft is required");
       try {
-        const r = await askClaude(followup ? followupPrompt(p, lang) : outreachPrompt(p, lang), followup ? FOLLOWUP_SYSTEM : OUTREACH_SYSTEM, { lane: "foreground", purpose: followup ? "business.followup" : "business.outreach", timeoutMs: 90_000 });
-        const draft = r.text.trim().slice(0, 4000);
+        const angle = isTemplate(b.angle) ? b.angle : "auto";
+        const r = await askClaude(followup ? followupPrompt(p, lang) : outreachPrompt(p, lang, angle), followup ? FOLLOWUP_SYSTEM : OUTREACH_SYSTEM, { lane: "foreground", purpose: followup ? "business.followup" : "business.outreach", timeoutMs: 90_000 });
+        const { draft, template } = followup ? { draft: r.text.trim().slice(0, 4000), template: null } : parseDraft(r.text, angle);
         if (followup && draft === p.draft.trim()) return fail("CORE repeated the first draft; try again", 502);
         if (!draft) return fail("CORE returned an empty draft; try again", 502);
-        return one(sb.from("prospects").update({ draft, updated_at: new Date().toISOString() }).eq("id", b.id as string).select(COLS).maybeSingle());
+        const save = (patch: object) => sb.from("prospects").update(patch).eq("id", b.id as string).select(COLS).maybeSingle();
+        const patch = { draft, updated_at: new Date().toISOString() };
+        // Tag only drafts that haven't gone out yet, so a sent message keeps the angle it was sent with.
+        if (!template || p.stage !== "lead") return one(save(patch));
+        const tagged = await save({ ...patch, template });
+        return one(Promise.resolve(tagged.error?.code === "42703" ? save(patch) : tagged)); // no column before 0015: save untagged
       } catch (e) {
         if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
         return fail(`Couldn't draft: ${e instanceof Error ? e.message : "unknown error"}`, 502);
@@ -127,6 +154,6 @@ export async function POST(req: Request) {
       const notes = `${p.notes ? `${p.notes}\n` : ""}Emailed ${to} on ${stamp.slice(0, 10)} (approved in ORBIT).`.slice(-2000);
       return one(sb.from("prospects").update({ notes }).eq("id", b.id as string).select(COLS).maybeSingle());
     }
-    default: return fail("action must be find, send, add, update, draft, followup or delete");
+    default: return fail("action must be find, research, send, add, update, draft, followup or delete");
   }
 }

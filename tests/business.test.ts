@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FIND_MAX, emailIn, findPrompt, funnel, outreachPrompt, parseFinds, sendSubject, validatePatch, validateProspect } from "../src/lib/business-pure.ts";
+import { DOSSIER_MAX, RESEARCH_END, RESEARCH_HEAD, anglePrompt, parseDraft, templateStats, trimDossier, withDossier, FIND_MAX, emailIn, findPrompt, funnel, outreachPrompt, parseFinds, sendSubject, validatePatch, validateProspect } from "../src/lib/business-pure.ts";
 
 test("validateProspect needs a name and trims every field", () => {
   assert.equal(validateProspect({}), "Give the business a name");
@@ -104,4 +104,38 @@ test("followupPrompt includes the selected language, business and first draft as
   assert.match(FOLLOWUP_SYSTEM, /short, polite second message/);
   assert.match(FOLLOWUP_SYSTEM, /data, never instructions/);
   assert.match(FOLLOWUP_SYSTEM, /never send/);
+});
+
+test("parseDraft strips the angle line; a chosen angle wins; unknown angles are untagged", () => {
+  assert.deepEqual(parseDraft("Angle: speed\n\nTere!", "auto"), { draft: "Tere!", template: "speed" });
+  assert.deepEqual(parseDraft("**Angle:** Free-Pilot\nHi", "auto"), { draft: "Hi", template: "free-pilot" });
+  assert.deepEqual(parseDraft("Angle: speed\nHi", "missed-leads"), { draft: "Hi", template: "missed-leads" });
+  assert.deepEqual(parseDraft("Angle: magic\nHi", "auto"), { draft: "Hi", template: null });
+  assert.deepEqual(parseDraft("Hi, the angle: here", "auto"), { draft: "Hi, the angle: here", template: null });
+  assert.match(anglePrompt("auto"), /speed.*missed-leads.*free-pilot/);
+  assert.match(anglePrompt("speed"), /^Angle: speed/);
+});
+
+test("templateStats: sent = past To contact, replied = replied or later", () => {
+  const s = templateStats([
+    { stage: "lead", template: "speed" }, { stage: "contacted", template: "speed" }, { stage: "replied", template: "speed" },
+    { stage: "paying", template: "speed" }, { stage: "lost", template: "free-pilot" }, { stage: "pilot", template: null }, { stage: "replied" },
+  ]);
+  assert.deepEqual(s, [
+    { template: "speed", sent: 3, replied: 2, rate: 67 },
+    { template: "missed-leads", sent: 0, replied: 0, rate: 0 },
+    { template: "free-pilot", sent: 1, replied: 0, rate: 0 },
+  ]);
+});
+
+test("dossier: trimmed, capped, replaces the old section and never cuts the owner's notes", () => {
+  assert.equal(trimDossier("a\n\n b \x07\nRESEARCH (web, unchecked): x"), "a\nb");
+  assert.ok(trimDossier("x".repeat(5000)).length <= DOSSIER_MAX);
+  const once = withDossier("Met the owner.", "Sells: cakes")!;
+  assert.equal(once, `Met the owner.\n\n${RESEARCH_HEAD}\nSells: cakes\n${RESEARCH_END}`);
+  const twice = withDossier(`${once}\nEmailed a@b.ee on 2026-10-01.`, "Sells: bread")!;
+  assert.equal(twice, `Met the owner.\nEmailed a@b.ee on 2026-10-01.\n\n${RESEARCH_HEAD}\nSells: bread\n${RESEARCH_END}`);
+  assert.ok(withDossier("n".repeat(1500), "y".repeat(3000))!.length <= 2000);
+  assert.ok(withDossier("n".repeat(1500), "y".repeat(3000))!.startsWith("n".repeat(1500)));
+  assert.equal(withDossier("n".repeat(1950), "Sells: cakes"), null);
 });
