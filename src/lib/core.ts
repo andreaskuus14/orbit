@@ -26,7 +26,7 @@ import { logActivity } from "./activity";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { MODULE_PRIVATE, MODULE_PROMPT, MODULE_WRITES, isModuleTool, moduleStatus, runModuleTool } from "./core-modules";
-import { classifyReflex, clockReply, type Reflex } from "./reflex-pure";
+import { classifyReflex, clockReply, smallTalkReply, type Reflex } from "./reflex-pure";
 import { coreAnswerEval, type CoreEvalTool } from "./core-answer-eval-pure";
 import type { AnswerEval } from "./answer-eval-pure";
 
@@ -306,8 +306,7 @@ function cachedProfile(sb: SupabaseClient, userId: string): Promise<Profile | nu
 }
 export const forgetProfile = (userId: string) => { PG.__orbitProfile?.delete(userId); };
 
-/** Greetings and thanks: the fast model with a tiny prompt (no memories, world or tools), keeping the owner's style rules.
- *  Clock questions: answered from the local clock with no model call. Throws on failure; runCore then takes the full path. */
+/** Reflexes: clock questions from the local clock, greetings and thanks from a local line; no model call. */
 async function reflexTurn(sb: SupabaseClient, userId: string, kind: Reflex, question: string, ongoing: boolean, onDelta?: (text: string) => void, signal?: AbortSignal) {
   const t = Date.now();
   let rules: string[] = [];
@@ -321,20 +320,9 @@ async function reflexTurn(sb: SupabaseClient, userId: string, kind: Reflex, ques
     onDelta?.(text);
     return done(text, `${kind} · answered from the local clock`);
   }
-  const playbook = await getPlaybook(sb, userId);
-  rules = playbook?.rules ?? [];
-  const system = `You are CORE, the assistant inside ORBIT, the user's personal AI universe. Today is ${localNow()}.
-The user just ${kind === "greet" ? "greeted you" : "thanked you"}. Reply in plain text, in their language, in one short sentence: no JSON, lists or headings. Never claim you did, saved or checked anything.${ongoing ? " This is an ongoing chat: no greeting, and don't use their name." : ""}${playbook?.rules.length ? `\n\n${styleBlock(playbook.rules)}` : ""}`;
-  let raw = "", sent = 0;
-  const r = await askClaudeStream(`USER: ${question}`, system, (d) => {
-    raw += d;
-    const shown = partialAnswer(raw);
-    if (shown && shown.length > sent) { onDelta?.(shown.slice(sent)); sent = shown.length; }
-  }, signal, "foreground", FAST_MODEL);
-  await recordUsage(sb, userId, "core.chat", r, FAST_MODEL);
-  const text = parseAgentReply(r.text).final?.trim();
-  if (!text) throw new Error("the reflex reply was empty or a tool call");
-  return done(text, `${FAST_MODEL} · ${kind}`);
+  const text = smallTalkReply(kind, question, ongoing);
+  onDelta?.(text);
+  return done(text, `${kind} · answered locally`);
 }
 
 /** What the activity log keeps of a CORE write: no memory or reminder text. */
