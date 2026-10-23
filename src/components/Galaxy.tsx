@@ -24,6 +24,8 @@ import { GalaxyVeil, NeuralArms } from "./alien/NeuralArms";
 import { Filaments } from "./alien/Filaments";
 import { Lensing } from "./alien/Lensing";
 import { HoloRing, ThoughtShell, useLiquidMetal, type SurfaceLook } from "./alien/LiquidPlanet";
+import { MicroWorld, Ringworld } from "./alien/MicroWorld";
+import { lensRadius } from "./alien/micro-pure";
 import { armCount, boostCap, coreScale, overviewBoost, planetDetail, shellCount } from "@/lib/alien-pure";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
 import { cullLabels, damp, spreadLabels, fmtCoord, HOME_POS, INTRO_SECS, introLabelAlpha } from "@/lib/cinematic-pure";
@@ -94,20 +96,21 @@ const planetSize = (p: PlanetDef) => p.size * LOOKS[p.id].scale * 1.25;
 // Every world has its own surface identity (c8): a pattern family (0 banded, 1 marbled, 2 cratered, 3 oceanic) and a
 // restrained palette; two stay alien liquid chrome (no surf). scale = size, ring = a banded ring, obsidian = dark mirror chrome.
 const SL = (fam: SurfaceLook["fam"], seed: number, a: string, b: string, c: string): SurfaceLook => ({ fam, seed, pal: [a, b, c] });
-const LOOKS: Record<PlanetId, { scale: number; ring?: string; obsidian?: boolean; surf?: SurfaceLook }> = {
+// orbital = an equatorial ring with space elevators, climbers and ships (micro-world); halo = the ringworld showpiece.
+const LOOKS: Record<PlanetId, { scale: number; ring?: string; obsidian?: boolean; surf?: SurfaceLook; orbital?: boolean; halo?: boolean }> = {
   memory: { scale: 0.75, surf: SL(1, 1, "#e6e2f0", "#9d93c4", "#4b3f8a") },
   intelligence: { scale: 0.85, obsidian: true, surf: SL(0, 2, "#cfd8dc", "#6f8c99", "#2f4552") },
-  creation: { scale: 1.55, surf: SL(1, 3, "#efe2d6", "#c08aa0", "#6b3a55") },
+  creation: { scale: 1.55, orbital: true, surf: SL(1, 3, "#efe2d6", "#c08aa0", "#6b3a55") },
   operations: { scale: 1.9, ring: "#d9c39a", obsidian: true, surf: SL(0, 4, "#e8dcc4", "#b8946a", "#6c7d92") }, // orbits are spaced so its ring (size × 2.3) clears its neighbours
   agents: { scale: 1.9, ring: "#c4b5fd", surf: SL(0, 5, "#ede3cf", "#c49a6c", "#8f88b0") }, // the biggest world
-  life: { scale: 0.63, obsidian: true, surf: SL(3, 6, "#8a9a78", "#1d4e6b", "#eef3f5") },
+  life: { scale: 0.63, obsidian: true, orbital: true, surf: SL(3, 6, "#8a9a78", "#1d4e6b", "#eef3f5") },
   vault: { scale: 0.79, ring: "#e2e8ee", surf: SL(2, 7, "#b9a27a", "#7a6a52", "#3c342a") },
   analytics: { scale: 1.0, ring: "#b3abea", obsidian: true },
-  studio: { scale: 1.1, surf: SL(0, 9, "#ecd9cc", "#b8725e", "#5a3a40") },
+  studio: { scale: 1.1, orbital: true, surf: SL(0, 9, "#ecd9cc", "#b8725e", "#5a3a40") },
   theater: { scale: 0.9, ring: "#fbbf24", obsidian: true, surf: SL(1, 10, "#f0e3c8", "#c9984a", "#5e4632") },
   markets: { scale: 0.85, ring: "#34d399", surf: SL(3, 11, "#a7b39a", "#0f5a55", "#e9f1ef") },
   business: { scale: 0.85, obsidian: true },
-  arch: { scale: 0.9, surf: SL(2, 13, "#c3c7cf", "#8a909b", "#474c56") },
+  arch: { scale: 0.9, halo: true, surf: SL(2, 13, "#c3c7cf", "#8a909b", "#474c56") },
 };
 const CORE_RING = 3.7 * 0.62; // the CORE's outer ring at the overview (coreScale): worlds keep clear of it
 
@@ -335,12 +338,26 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   // ticks, and a denser sphere once the world is big on screen (level 2+ only; swapped in place, no re-render).
   const detail = useRef(0);
   const near = useCallback(() => detail.current, []);
+  // the x-ray lens: the pointer's hit minus the world's centre (world units: it stays under a still cursor while the surface
+  // turns), and that point on the planet's unit sphere
+  const lensHit = useRef({ p: new THREE.Vector3(), local: new THREE.Vector3(0, 0, 1), on: false });
+  useEffect(() => { // with this frame's final matrices and camera (parallax included): the rays inside the lens line up
+    const m = mesh.current;
+    if (!m) return;
+    m.onBeforeRender = (_r, _s, cam) => {
+      const U = liquid.u, lh = lensHit.current, g = group.current;
+      if (lh.on && g) m.worldToLocal(lh.local.copy(g.position).add(lh.p)).normalize();
+      if (U.uLensK.value > 0) m.worldToLocal(U.uCamL.value.copy(cam.position)).multiplyScalar(1 / size);
+    };
+    return () => { m.onBeforeRender = () => {}; };
+  }, [liquid, size]);
+  const [micro, setMicro] = useState(false); // the micro-world mounts on the first approach (never for a world only seen from afar)
   const lo = useMemo(() => new THREE.SphereGeometry(size, segs, segs), [size, segs]);
   const hi = useMemo(() => (level >= 2 ? new THREE.SphereGeometry(size, 320, 320) : null), [size, level]);
   useEffect(() => () => { lo.dispose(); hi?.dispose(); }, [lo, hi]);
   const tilt = useMemo<[number, number, number]>(() => [Math.PI / 2 - 0.3 + Math.sin(index * 2.1) * 0.35, 0, Math.cos(index * 1.3) * 0.4], [index]);
 
-  useFrame(({ clock, camera }, dt) => {
+  useFrame(({ clock, camera, size: vp }, dt) => {
     const a = phase + (reduced ? 0 : clock.elapsedTime * p.speed);
     const x = Math.cos(a) * p.radius, z = Math.sin(a) * p.radius;
     // Levitation: a slow vertical bob, so worlds float instead of sitting on rails.
@@ -371,11 +388,26 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
     if (group.current) {
       const d = planetDetail(size, camera.position.distanceTo(group.current.position), level); // true size: the boost adds presence, not detail
       detail.current = d;
+      if (!micro && d > 0.02 && level > 0) setMicro(true);
       liquid.u.uDetail.value = d;
       liquid.u.uOct.value = 3 + 5 * d;
       liquid.u.uFar.value = 1 - d;
       const m = mesh.current, want = hi && d > 0.35 ? hi : lo;
       if (m && m.geometry !== want) m.geometry = want;
+    }
+    // Cursor x-ray: the lens eases across the unit sphere toward the pointer's hit (its local point is refreshed just
+    // before the planet draws, see onBeforeRender), and fades in and out.
+    const gp = group.current, U = liquid.u, lh = lensHit.current, lensOn = hovered.current && lh.on ? 1 : 0;
+    if (lensOn) {
+      const L = U.uLens.value, T = lh.local;
+      if (U.uLensK.value < 0.02 || reduced) L.copy(T);
+      else L.set(expDamp(L.x, T.x, 0.07, dt), expDamp(L.y, T.y, 0.07, dt), expDamp(L.z, T.z, 0.07, dt)).normalize();
+    }
+    U.uLensK.value = reduced ? lensOn : expDamp(U.uLensK.value, lensOn, lensOn ? 0.2 : 0.28, dt);
+    if (U.uLensK.value < 1e-3 && !lensOn) U.uLensK.value = 0;
+    if (U.uLensK.value > 0 && gp) {
+      const dist = Math.max(0.1, camera.position.distanceTo(gp.position));
+      U.uLensR.value = lensRadius(((size * gp.scale.x) / (dist * Math.tan(THREE.MathUtils.degToRad(((camera as THREE.PerspectiveCamera).fov ?? 50) / 2)))) * (vp.height / 2), 115);
     }
   });
 
@@ -394,8 +426,18 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
             clearTimeout(tapT.current);
             if (e.pointerType === "touch") tapT.current = setTimeout(() => { hovered.current = false; onHover(p.id, false); }, 2500);
           }}
-          onPointerOut={() => { clearTimeout(tapT.current); hovered.current = false; onHover(p.id, false); document.body.style.cursor = ""; }}
-        />
+          onPointerMove={(e) => {
+            const g = group.current, lh = lensHit.current;
+            if (!g) return;
+            lh.p.copy(e.point).sub(g.position);
+            if (!lh.on) e.object.worldToLocal(lh.local.copy(e.point)).normalize(); // first touch: start where the pointer is
+            lh.on = true;
+          }}
+          onPointerOut={() => { clearTimeout(tapT.current); hovered.current = false; lensHit.current.on = false; onHover(p.id, false); document.body.style.cursor = ""; }}
+        >
+          {level > 0 && micro && <MicroWorld size={size} u={liquid.u} level={level} orbital={!!look.orbital} body={look.surf?.pal[0] ?? p.color} seed={index + 1} />}
+        </mesh>
+        {look.halo && <Ringworld size={size} u={liquid.u} detail={near} reduced={reduced} />}
         <ThoughtShell size={size} color={p.color} count={shell} reduced={reduced} glow={pulse} near={near} />
         <HoloRing size={size} color={p.color} tilt={tilt} reduced={reduced} detail={near} />
         {p.id === "intelligence" && <Lightning size={size} reduced={reduced} flash={flash} />}

@@ -12,10 +12,8 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { HOLO, useAlienEnv } from "./env";
 
-/** Shared GLSL: hash, gradient noise and the surface hierarchy. `surf` returns the height and fills the layer masks. */
-const SURF = /* glsl */ `
-uniform float uTime; uniform float uOct; uniform float uDetail; varying vec3 vLq;
-float gPool, gSeam, gCirc, gGlyph, gSpark, gFlowA, gH, gShore;
+/** Shared GLSL noise (no uniforms, no derivatives: safe in vertex shaders too). */
+export const NOISE = /* glsl */ `
 vec3 h33(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
 float h13(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
 float h12(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
@@ -37,6 +35,45 @@ float fbm(vec3 p, float fw, float oct) {
   }
   return s;
 }
+`;
+/** Where a world's micro-world lives (0..1), from its pattern family: band edges, marble veins, crater rims, land.
+ *  Shared by the surface shader (night-side cities) and the instanced structures (vertex shader), so both agree. */
+export const SITE = /* glsl */ `
+uniform float uFam; uniform vec3 uSeed;
+float famSite(vec3 n) {
+  vec3 q = n + uSeed;
+  if (uFam < -0.5) return smoothstep(-0.05, 0.2, fbm(n * 2.2 + vec3(3.1, 0.7, -1.9), 0.0, 3.0)); // chrome: the raised continents
+  if (uFam < 0.5) { // banded: settlements ride the band edges, clear of the poles
+    float wv = fbm(q * 2.4, 0.0, 3.0), y = n.y + wv * 0.13;
+    float b = 0.5 + 0.5 * sin(y * 15.0 + sin(y * 5.0 + uSeed.x) * 1.8);
+    return exp(-pow((b - 0.5) * 4.0, 2.0)) * (1.0 - smoothstep(0.7, 0.92, abs(n.y)));
+  }
+  if (uFam < 1.5) { // marbled: along the veins
+    vec3 w2 = vec3(fbm(q * 1.7, 0.0, 3.0), fbm(q * 1.7 + 5.2, 0.0, 3.0), 0.0);
+    float m = fbm(q * 2.1 + w2 * 2.4, 0.0, 4.0);
+    return 1.0 - smoothstep(0.03, 0.16, abs(m - 0.08));
+  }
+  if (uFam < 2.5) { // cratered: rings of structures on the big crater rims, sparse on the plains
+    vec3 cp = q * 4.0, ci = floor(cp), cf = fract(cp); float d1 = 8.0; vec3 id = vec3(0.0);
+    for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+      vec3 o3 = vec3(x, y, z), r = o3 + h33(ci + o3) * 0.8 + 0.1 - cf;
+      float d = dot(r, r); if (d < d1) { d1 = d; id = ci + o3; }
+    }
+    float rad = 0.18 + 0.22 * h13(id * 1.7), d = sqrt(d1) / rad;
+    return exp(-pow((d - 1.08) * 5.0, 2.0)) * step(0.45, h13(id + 3.1)) + 0.12;
+  }
+  float land = fbm(q * 1.9, 0.0, 5.0); // oceanic: on land, off the ice
+  return smoothstep(0.05, 0.14, land) * (1.0 - smoothstep(0.66, 0.78, abs(n.y) + land * 0.15));
+}
+// cities: famSite broken into distinct clusters with dark country between (fw = pixel footprint; 0 = full detail)
+float cityDens(vec3 n, float fw) { return smoothstep(0.25, 0.7, famSite(n) * (0.2 + 1.3 * smoothstep(-0.05, 0.3, fbm(n * 6.0 + uSeed * 3.0, fw * 6.0, 3.0)))); }
+`;
+/** Shared GLSL: hash, gradient noise and the surface hierarchy. `surf` returns the height and fills the layer masks. */
+const SURF = /* glsl */ `
+uniform float uTime; uniform float uOct; uniform float uDetail; varying vec3 vLq;
+float gPool, gSeam, gCirc, gGlyph, gSpark, gFlowA, gH, gShore;
+${NOISE}
+${SITE}
 // 3x5 dot glyph at cell c, sub-cell f in [0,1)
 float glyph(vec2 c, vec2 f) {
   vec2 s = floor(f * vec2(4.0, 6.0));
@@ -104,7 +141,7 @@ float surf(vec3 p, float fw) {
 // Surface identity (c8): each world gets a pattern family and a 3-colour palette. -1 = the legacy liquid chrome.
 // 0 banded gas giant, 1 marbled, 2 cratered, 3 oceanic. Far: palette + silhouette; mid: the pattern; close: the
 // circuitry above takes over. Every high-frequency term fades by its pixel footprint (fw), so nothing shimmers.
-uniform float uFam; uniform vec3 uSeed; uniform vec3 uPA; uniform vec3 uPB; uniform vec3 uPC;
+uniform vec3 uPA; uniform vec3 uPB; uniform vec3 uPC;
 float gOcean;
 vec3 famColor(vec3 p, float fw) {
   vec3 n = normalize(p), q = n + uSeed;
@@ -166,6 +203,90 @@ vec3 famColor(vec3 p, float fw) {
 }
 `;
 
+/** Night-side cities and the cursor x-ray (fragment only). Cities: arterial and street grids on a cube projection where
+ *  famSite says people live, lit only away from the CORE; far they melt into a soft glow (their mean), close they resolve
+ *  into lines, lit blocks and moving traffic. X-ray: inside a soft lens under the cursor the crust turns to a survey grid
+ *  and the view ray is intersected analytically with a mantle shell and a core, so the internals have real depth. */
+const CITY = /* glsl */ `
+uniform float uCity; uniform vec3 uLens; uniform float uLensK; uniform float uLensR; uniform vec3 uCamL;
+vec3 cityLights(vec2 uv, float face, float fwu, float dens, float t) {
+  vec3 c = vec3(1.0, 0.86, 0.66) * dens * dens * 0.05; // the sky glow over a city
+  for (int o = 0; o < 2; o++) { // arterials, then streets; every block edge is its own segment, so the network is irregular
+    float S = o == 0 ? 40.0 : 160.0, px = fwu * S;
+    vec2 g = uv * S;
+    float vis = 1.0 - smoothstep(0.25, 0.6, px);
+    float thr = o == 0 ? 0.62 - 0.3 * dens : 1.0 - dens * 0.7;
+    float rI = floor(g.y + 0.5), cI = floor(g.x + 0.5);
+    float rH = h12(vec2(rI, floor(g.x)) + face * 13.0 + S), cH = h12(vec2(cI + 71.0, floor(g.y)) + face * 7.0 + S);
+    float dy = abs(fract(g.y + 0.5) - 0.5), dx = abs(fract(g.x + 0.5) - 0.5), lw = 0.03 + 0.5 * px;
+    float rl = (1.0 - smoothstep(lw - px * 0.5, lw + px * 0.5, dy)) * step(thr, rH);
+    float cl = (1.0 - smoothstep(lw - px * 0.5, lw + px * 0.5, dx)) * step(thr, cH);
+    vec3 tint = o == 0 ? vec3(1.0, 0.86, 0.66) : vec3(0.8, 0.86, 1.0);
+    float dist = 0.35 + 0.65 * h12(floor(g / 5.0) + face * 5.0 + S); // districts: some bright, some asleep
+    c += tint * (max(rl, cl) * vis + (1.0 - vis) * 0.3) * dens * dist * (o == 0 ? 0.3 : 0.1); // far: the lines' mean, a soft glow
+    if (o == 0) {
+      float tv = 1.0 - smoothstep(0.1, 0.25, px); // traffic: close only, both ways on the arterials
+      if (tv > 0.0) {
+        float ur = g.x * 3.0 + t * (rH > 0.81 ? 0.35 : -0.35) + rH * 17.0, uc = g.y * 3.0 + t * (cH > 0.81 ? 0.35 : -0.35) + cH * 17.0;
+        float cw = 0.06 + px * 3.0;
+        float car = rl * (1.0 - smoothstep(cw * 0.5, cw, abs(fract(ur) - 0.5))) * step(0.4, h12(vec2(floor(ur), rI)))
+                  + cl * (1.0 - smoothstep(cw * 0.5, cw, abs(fract(uc) - 0.5))) * step(0.4, h12(vec2(floor(uc), cI)));
+        c += vec3(1.0, 0.97, 0.92) * car * tv * dens * 0.9;
+      }
+      vec2 bg = uv * S * 4.0; float bpx = px * 4.0; vec2 bf = abs(fract(bg) - 0.5); // lit blocks between the streets
+      float blk = step(1.0 - dens * 0.3, h12(floor(bg) + face * 3.0)) * (1.0 - smoothstep(0.16, 0.16 + bpx, max(bf.x, bf.y)));
+      c += vec3(1.0, 0.9, 0.74) * blk * (1.0 - smoothstep(0.3, 0.7, bpx)) * dens * 0.3;
+    }
+  }
+  return c;
+}
+vec2 sph(vec3 ro, vec3 rd, float r) { float b = dot(ro, rd), c = dot(ro, ro) - r * r, h = b * b - c; if (h < 0.0) return vec2(-1.0); h = sqrt(h); return vec2(-b - h, -b + h); }
+// latitude / longitude survey lines through h (w = half-width in unit space)
+float gridL(vec3 h, float n, float m, float w) {
+  float r = max(length(h), 1e-4), rho = length(h.xz);
+  float la = abs(fract(h.y / r * n * 0.5 + 0.5) - 0.5) * 2.0 / n * r;
+  float lo = abs(fract(atan(h.z, h.x) / 6.2831853 * m + 0.5) - 0.5) * 6.2831853 / m * rho;
+  return max(1.0 - smoothstep(w * 0.5, w, la), 1.0 - smoothstep(w * 0.5, w, lo));
+}
+vec3 xray(vec3 p, vec3 rd, float w, float t, float cw) {
+  vec3 c = vec3(0.004, 0.01, 0.03) + vec3(0.45, 0.62, 1.0) * gridL(p, 18.0, 36.0, w) * 0.12; // the crust: a survey grid
+  c += vec3(0.5, 0.66, 1.0) * (1.0 - smoothstep(0.0, cw, abs(fract(gH * 14.0 + 0.5) - 0.5))) * 0.14; // height contours, ~1 px
+  vec2 k = sph(p, rd, 0.34), m = sph(p, rd, 0.7);
+  float tc = k.x > 0.0 ? k.x : 1e3;
+  if (m.x > 0.0) for (int i = 0; i < 2; i++) { // mantle shell, front and back: a denser grid and three glowing conduits
+    float ti = i == 0 ? m.x : m.y;
+    if (ti > tc) continue;
+    vec3 h = p + rd * ti; float fade = i == 0 ? 1.0 : 0.4;
+    c += vec3(0.42, 0.52, 1.0) * gridL(h, 30.0, 60.0, w) * 0.16 * fade;
+    for (int j = 0; j < 3; j++) {
+      float fj = float(j);
+      vec3 ax = normalize(vec3(sin(fj * 2.1 + 0.3), cos(fj * 1.7), sin(fj * 3.7 + 1.0)));
+      vec3 e1 = normalize(cross(ax, vec3(0.3, 1.0, 0.2))), e2 = cross(ax, e1);
+      float band = 1.0 - smoothstep(w, w * 3.0 + 0.006, abs(dot(h, ax)));
+      float pulse = pow(0.5 + 0.5 * sin(atan(dot(h, e2), dot(h, e1)) * 5.0 - t * 1.4 + fj * 2.0), 10.0);
+      c += mix(vec3(0.55, 0.5, 1.0), vec3(0.9, 0.95, 1.0), pulse) * band * (0.3 + 0.9 * pulse) * fade;
+    }
+  }
+  if (k.x > 0.0) { // the core: a pearl sphere, its own fine grid turning slowly
+    vec3 h = p + rd * k.x; float fr = 1.0 - abs(dot(normalize(h), rd));
+    float ca = cos(t * 0.2), sa = sin(t * 0.2); vec3 hr = vec3(h.x * ca - h.z * sa, h.y, h.x * sa + h.z * ca);
+    c += mix(vec3(0.5, 0.6, 1.0), vec3(0.9, 0.94, 1.0), fr) * (0.14 + 0.45 * fr * fr) + vec3(0.8, 0.88, 1.0) * gridL(hr, 12.0, 24.0, w) * 0.22;
+  }
+  for (int j = 0; j < 6; j++) { // spokes: radial conduits from the core to the crust, energy climbing them
+    float fj = float(j);
+    vec3 ax = normalize(vec3(sin(fj * 1.9 + 0.4), cos(fj * 2.6 + 0.2) * 0.8, cos(fj * 1.3 + 2.0)));
+    float b = dot(rd, ax), e = dot(p, ax), d0 = dot(p, rd);
+    float tt = (b * e - d0) / max(1.0 - b * b, 1e-4);
+    float ss = clamp(e + b * tt, 0.34, 1.0);
+    tt = max(dot(ax * ss - p, rd), 0.0);
+    float dist = length(p + rd * tt - ax * ss);
+    float on = (1.0 - smoothstep(w * 0.7, w * 2.5 + 0.005, dist)) * step(tt, tc);
+    c += vec3(0.55, 0.66, 1.0) * on * (0.2 + 0.7 * pow(0.5 + 0.5 * sin(ss * 16.0 - t * 2.2 + fj), 12.0));
+  }
+  return c;
+}
+`;
+
 /** The planet's surface material. `extra` is chained (the HUD's rim light). Returns the material; animate `uTime`,
  *  set `uDetail` (0 overview .. 1 close-up, see planetDetail) every frame. */
 /** A world's surface identity: pattern family (see famColor) and palette. Omit for the legacy liquid chrome. */
@@ -187,7 +308,9 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
       uFam: { value: look ? look.fam : -1 }, uSeed: { value: new THREE.Vector3((sd * 1.37) % 7, (sd * 2.71) % 5, (sd * 0.61) % 3) },
       uPA: { value: new THREE.Color(look?.pal[0] ?? color) }, uPB: { value: new THREE.Color(look?.pal[1] ?? color) }, uPC: { value: new THREE.Color(look?.pal[2] ?? color) },
       uIdent: { value: 1 }, // 1 legacy strong identity rim; the galaxy sets 0 (thin atmosphere)
-      uBump: { value: f?.bump ?? 1 }, uChrome: { value: f ? 0 : 1 } };
+      uBump: { value: f?.bump ?? 1 }, uChrome: { value: f ? 0 : 1 },
+      // micro-world: night-side cities (0 off .. 1), and the cursor x-ray lens (unit-sphere centre, strength, radius, camera)
+      uCity: { value: 0 }, uLens: { value: new THREE.Vector3(0, 0, 1) }, uLensK: { value: 0 }, uLensR: { value: 0.4 }, uCamL: { value: new THREE.Vector3(0, 0, 4) } };
     const tint = new THREE.Color(color);
     const mat = new THREE.MeshPhysicalMaterial(f ? {
       color: "#ffffff", metalness: f.metal, roughness: f.rough, clearcoat: f.coat, clearcoatRoughness: 0.45, // soft: the env slits must not print hard lines on a world
@@ -209,7 +332,7 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
           vLq = position / max(uLq, 1e-3);
           transformed += objectNormal * uLq * 0.018 * uChrome * (sin(vLq.x * 5.0 + uTime * 0.9) * sin(vLq.y * 4.0 - uTime * 0.7) + sin(vLq.z * 6.0 + uTime * 1.1) * 0.6);`);
       s.fragmentShader = s.fragmentShader
-        .replace("void main() {", `uniform float uLq; uniform vec3 uTint; uniform vec3 uPoolTint; uniform float uFar; uniform float uIdent; uniform float uBump; uniform float uChrome;\n${SURF}\n${HOLO}\nvoid main() {`)
+        .replace("void main() {", `uniform float uLq; uniform vec3 uTint; uniform vec3 uPoolTint; uniform float uFar; uniform float uIdent; uniform float uBump; uniform float uChrome;\n${SURF}\n${CITY}\n${HOLO}\nvoid main() {`)
         .replace("#include <color_fragment>", `#include <color_fragment>
           float fwq = length(fwidth(vLq));
           surf(vLq, fwq);
@@ -244,7 +367,35 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
             totalEmissiveRadiance += hc * pow(f, 2.5) * 0.55 * mix(0.15, 1.0, uChrome);
             // identity colour from the overview: uIdent 1 = the legacy strong rim (worlds), 0 = a thin atmosphere rim (galaxy)
             totalEmissiveRadiance += mix(mix(uTint, vec3(0.75, 0.82, 1.0), 0.35) * (pow(f, 2.6) * 1.1 + 0.04), uTint * (pow(f, 1.8) * 1.4 + 0.12), uIdent) * uFar;
-            totalEmissiveRadiance += holo(gFlowA * 0.08 + gH * 2.0) * (1.0 - gPool) * 0.1 * uChrome; }`); // thin-film edge sheen
+            totalEmissiveRadiance += holo(gFlowA * 0.08 + gH * 2.0) * (1.0 - gPool) * 0.1 * uChrome; // thin-film edge sheen
+            vec3 nq = normalize(vLq);
+            if (uCity > 0.001) { // night side (away from the CORE at the world origin): the cities come on
+              vec3 Lv = normalize(viewMatrix[3].xyz + vViewPosition);
+              float night = smoothstep(0.05, -0.25, dot(nonPerturbedNormal, Lv));
+              vec3 a3 = abs(nq);
+              vec2 cuv = a3.x > a3.y && a3.x > a3.z ? nq.yz / a3.x : a3.y > a3.z ? nq.xz / a3.y : nq.xy / a3.z;
+              float cface = a3.x > a3.y && a3.x > a3.z ? 1.0 + step(nq.x, 0.0) : a3.y > a3.z ? 3.0 + step(nq.y, 0.0) : 5.0 + step(nq.z, 0.0);
+              float cfw = fwidth(cuv.x) + fwidth(cuv.y);
+              float dens = cityDens(nq, fwq);
+              if (dens > 0.0) { // no derivatives inside: safe in this non-uniform branch
+                vec3 cl = cityLights(cuv, cface, cfw, dens, uTime);
+                totalEmissiveRadiance += cl * night * uCity;
+                // by day the same city is built ground: a darker, cooler footprint whose streets read as asphalt lines
+                diffuseColor.rgb *= 1.0 - uCity * (1.0 - night) * clamp(dens * 0.2 + dot(cl, vec3(0.3, 0.5, 0.2)) * 1.4, 0.0, 0.5);
+              }
+            }
+            if (uLensK > 0.001) { // cursor x-ray: a soft lens that reveals the world's blueprint
+              float cw = min(fwidth(gH * 14.0) * 1.2, 0.5);
+              float ld = length(nq - uLens) / max(uLensR, 1e-3);
+              float lens = uLensK * (1.0 - smoothstep(0.7, 1.0, ld));
+              if (lens > 0.0) {
+                totalEmissiveRadiance *= 1.0 - 0.85 * lens;
+                totalEmissiveRadiance += xray(vLq, normalize(vLq - uCamL), fwq * 0.9 + 0.0006, uTime, cw) * lens;
+                diffuseColor.rgb *= 1.0 - 0.94 * lens;
+                roughnessFactor = mix(roughnessFactor, 1.0, lens); metalnessFactor = mix(metalnessFactor, 0.0, lens);
+              }
+              totalEmissiveRadiance += vec3(0.7, 0.8, 1.0) * uLensK * exp(-pow((ld - 1.0) * 26.0, 2.0)) * 0.35; // the lens bezel
+            } }`); // thin-film edge sheen
     };
     return { mat, u };
   }, [color, obsidian, size, extra, look]); // look: a module constant per world
