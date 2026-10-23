@@ -20,14 +20,17 @@ export async function loadPlaybookRow(sb: SupabaseClient, userId: string): Promi
   return { rules: data?.rules ?? [], version: data?.version ?? 0, history: Array.isArray(data?.history) ? data.history : [] };
 }
 
+// Read on every CORE turn, written only by mutatePlaybook (which drops the entry); the TTL covers edits made outside ORBIT.
+const TTL = 60_000;
+const G = globalThis as unknown as { __orbitPlaybook?: Map<string, { at: number; v: Promise<{ rules: string[]; version: number } | null> }> };
+
 /** null = table missing or unavailable (CORE then just runs without learned rules). */
-export async function getPlaybook(sb: SupabaseClient, userId: string): Promise<{ rules: string[]; version: number } | null> {
-  try {
-    const { rules, version } = await loadPlaybookRow(sb, userId);
-    return { rules, version };
-  } catch {
-    return null;
-  }
+export function getPlaybook(sb: SupabaseClient, userId: string): Promise<{ rules: string[]; version: number } | null> {
+  const cache = (G.__orbitPlaybook ??= new Map()), hit = cache.get(userId);
+  if (hit && Date.now() - hit.at < TTL) return hit.v;
+  const v = loadPlaybookRow(sb, userId).then(({ rules, version }) => ({ rules, version }), () => null);
+  cache.set(userId, { at: Date.now(), v });
+  return v;
 }
 
 /**
@@ -47,7 +50,7 @@ export async function mutatePlaybook(sb: SupabaseClient, userId: string, change:
       ? await sb.from("core_playbook").insert({ user_id: userId, ...next }).select("version")
       : await sb.from("core_playbook").update(next).eq("user_id", userId).eq("version", cur.version).select("version");
     if (error && error.code !== "23505") throw isMissingTable(error) ? new PlaybookError(PLAYBOOK_MISSING_MSG, 503) : error;
-    if (!error && data?.length) return { rules, version, history, changed: true };
+    if (!error && data?.length) { G.__orbitPlaybook?.delete(userId); return { rules, version, history, changed: true }; }
     // Someone else saved in between (unique violation on insert, or 0 rows updated): re-read and retry.
   }
   throw new PlaybookError("The playbook changed while saving; try again.", 409);

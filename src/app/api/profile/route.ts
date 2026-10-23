@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { cleanTags, str } from "@/lib/pure";
+import { forgetProfile } from "@/lib/core";
 
 const LISTS = ["interests", "projects", "goals", "news_topics", "research_priorities"] as const;
 
@@ -21,6 +22,7 @@ export async function PUT(req: Request) {
   if ("display_name" in body) row.display_name = str(body.display_name, 100) || null;
   if ("communication" in body) { const c = str(body.communication, 1000); if (c === null) return Response.json({ error: "Bad communication" }, { status: 400 }); row.communication = c; }
   const { data, error } = await sb.from("profiles").upsert(row).select("*").single();
+  forgetProfile(user.id); // CORE's next turn reads the new profile
   if (error) return Response.json({ error: error.message }, { status: 400 });
   return Response.json({ profile: data });
 }
