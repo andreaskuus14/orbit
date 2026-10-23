@@ -38,7 +38,7 @@ function layout(total: number) {
     for (let j = 0; j < rows; j++) {
       const lat = -Math.PI / 2 + (j + 0.5) * dl, circ = 2 * Math.PI * R * Math.cos(lat);
       const n = Math.max(3, Math.round(circ / sp)), dth = (2 * Math.PI) / n;
-      const size = 0.6 * Math.min(R * dl, circ / n); // flat-top: rows touch; corners overlap neighbours that sit at other heights: a closed skin
+      const size = 0.66 * Math.min(R * dl, circ / n); // flat-top, ~14 % overlap on every side (neighbours sit at other heights): at rest the skin is closed
       const ls = ((j * 0.618034 + si * 0.37) % 1);
       const w = sh.lane * (0.55 + 0.45 * Math.cos(2 * lat)) * (1 + 0.25 * Math.sin(j * 1.7)); // differential: lanes shear past each other
       for (let k = 0; k < n; k++) {
@@ -97,7 +97,7 @@ void main() {
   float glow = 0.0, delay = aLane.z * 0.16; // the wave dives inward, shell by shell
   float f = wave(uWaveA, d, delay, glow) + wave(uWaveB, d, delay, glow);
   float th = aLane.y + aLane.w * uPhase;
-  float roll = 0.045 * sin(uTime * 0.6 + aRnd.x * 40.0) + open * 1.4 + f * 6.2831853; // glitter jitter, louver, flip
+  float roll = 0.06 * sin(uTime * 0.6 + aRnd.x * 40.0) + open * 1.4 + f * 6.2831853; // glitter jitter, louver, flip
   float pitch = 0.08 * sin(th * 2.0 + aRnd.x * 6.2831853); // tilts as it travels its lane (heliostat)
   vec3 N = rotA(d, T, roll), Bp = rotA(B, T, roll);
   N = rotA(N, Bp, pitch); vec3 Tp = rotA(T, Bp, pitch);
@@ -115,12 +115,15 @@ const PANEL_FS = /* glsl */ `
 uniform float uGlyph;
 varying vec3 vN; varying vec3 vT; varying vec3 vB; varying vec3 vW; varying vec2 vL; varying float vS; varying float vGlow; varying float vSides; varying float vId; varying float vOpen;
 float hsh(vec2 p) { return fract(sin(dot(p, vec2(41.7, 289.3))) * 43758.5453); }
-const vec3 KEY = vec3(-0.37, 0.79, 0.49);
+const vec3 KEY = vec3(-0.37, 0.79, 0.49), KEY2 = vec3(0.62, 0.2, 0.76);
 // what an obsidian mirror out here reflects: near-black space, the pearl band of the galaxy plane, one long softbox
 vec3 env(vec3 r) {
   vec3 c = vec3(0.006, 0.007, 0.01) + vec3(0.05, 0.055, 0.07) * pow(max(r.y, 0.0), 1.5);
-  c += vec3(0.55, 0.57, 0.62) * exp(-pow(r.y * 7.0, 2.0)) * 0.12;
-  c += vec3(0.5) * exp(-pow((r.y - 0.55) * 18.0, 2.0)) * smoothstep(0.3, 0.95, cos(atan(r.z, r.x) - 0.6));
+  float az = atan(r.z, r.x);
+  c += vec3(0.55, 0.57, 0.62) * exp(-pow(r.y * 6.0, 2.0)) * (0.35 + 0.25 * sin(az * 3.0)); // the galaxy plane
+  c += vec3(1.0) * exp(-pow((r.y - 0.55) * 16.0, 2.0)) * smoothstep(0.3, 0.95, cos(az - 0.6)); // long top softbox
+  c += vec3(0.75, 0.82, 0.95) * 0.6 * exp(-pow((az + 2.2) * 5.0, 2.0)) * smoothstep(0.7, 0.0, abs(r.y + 0.1)); // cool vertical strip
+  c += vec3(1.0, 0.86, 0.7) * 0.35 * exp(-pow((r.y + 0.45) * 10.0, 2.0)) * smoothstep(0.0, 0.9, cos(az + 0.9)); // warm low bounce
   return c;
 }
 void main() {
@@ -138,12 +141,15 @@ void main() {
   vec3 R = reflect(-V, Nb);
   float fr = 0.04 + 0.96 * pow(1.0 - clamp(dot(Nb, V), 0.0, 1.0), 5.0);
   float heat = pow(vS / 3.0, 1.5); // 0 outer .. 1 inner
-  float seam = (1.0 - smoothstep(0.0, max(0.035, px * 1.5), de)) * fine + 0.07 * (1.0 - fine);
+  float seam = (1.0 - smoothstep(0.0, max(0.035, px * 1.5), de)) * fine + 0.02 * (1.0 - fine); // far: seams average out, no dotted grid
   vec3 warm = vec3(1.0, 0.58, 0.24), col;
   if (side > 0.0) {
-    col = vec3(0.008, 0.009, 0.012) + env(R) * (0.05 + 0.95 * fr) * (1.0 - 0.8 * vOpen); // louvers turned edge-on: no grazing smear
-    col += vec3(1.0, 0.97, 0.92) * (pow(max(dot(R, KEY), 0.0), 320.0) * 2.0 + pow(max(dot(R, KEY), 0.0), 24.0) * 0.03); // glints: the glitter
-    col += warm * (heat * 0.3 + seam * heat * 1.3) + vec3(0.62, 0.66, 0.72) * seam * 0.3 * (1.0 - heat);
+    float pv = hsh(vec2(vId * 913.0, 3.7)); // per-panel variance: each mirror is cut and aimed a little differently
+    vec3 tint = mix(vec3(0.92, 0.95, 1.0), vec3(1.0, 0.97, 0.92), hsh(vec2(vId * 517.0, 1.3)));
+    col = vec3(0.008, 0.009, 0.012) * (0.6 + 0.8 * pv) + env(R) * tint * (0.28 + 0.72 * fr) * (0.6 + 0.8 * pv) * (1.0 - 0.8 * vOpen); // louvers edge-on: no grazing smear
+    float kd = max(dot(R, KEY), 0.0), kd2 = max(dot(R, KEY2), 0.0);
+    col += vec3(1.0, 0.97, 0.92) * (pow(kd, 400.0) * 3.0 + pow(kd, 40.0) * 0.06) + vec3(0.85, 0.9, 1.0) * pow(kd2, 500.0) * 2.0; // glints: the glitter
+    col += warm * (heat * 0.3 + seam * heat * 1.3) + vec3(0.62, 0.66, 0.72) * seam * 0.18 * (1.0 - heat);
     vec2 g = (vL - vec2(-0.45, -0.42)) / 0.06; // serial: four 3x5-dot glyphs
     vec2 cell = floor(g); float cx = mod(cell.x, 4.0);
     float lit = step(0.0, cell.x) * step(cell.x, 14.5) * step(0.0, cell.y) * step(cell.y, 4.5) * step(cx, 2.5);
