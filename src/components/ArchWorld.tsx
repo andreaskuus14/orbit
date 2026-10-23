@@ -6,11 +6,12 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
 import { MAX, applyOps, boq, boqCsv, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
+import { buildFront, lidarDots, moveWalker, NO_FRONT, WALK, wallRects, walkStart, type Rect } from "@/lib/arch-walk-pure";
 
 const KEY = "orbit.arch.v1";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
@@ -18,6 +19,7 @@ const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d
 const FACE_ROT = { n: Math.PI, s: 0, e: Math.PI / 2, w: -Math.PI / 2 }; // turns local +Z to face outward
 const GROUND: Record<Scene["plot"]["ground"], string> = { grass: "#c9d3bf", gravel: "#d9d6cf", forest: "#b9c6b0", sand: "#e6dcc6" };
 const BG = "#ebe7e0", GOLD = "#c9a24a";
+const HOLO_C = { bg: "#020a10", table: "#04141c", rim: "#67e8f9", dot: "#22d3ee", edge: "#a5f3fc" }; // holotable mode
 const BP = { bg: "#0b2545", ground: "#0e2f56", fill: "#123a66", edge: "#e0f2fe", grid: ["#5b8bc4", "#1d4a7c"] as const }; // blueprint mode
 const SITE = { lat: 59.437, lon: 24.754, name: "Tallinn" }; // sun study location; shortcut: fixed site, add a picker if he studies other places
 const TP = new THREE.Vector3(), TS = new THREE.Vector3(); // per-frame scratch
@@ -30,6 +32,26 @@ const GABLE = (() => {
   g.translate(0, -0.5, -0.5); g.rotateY(Math.PI / 2); // centred like a unit box, ridge along x
   return g;
 })();
+/** Hologram look, one material shared by every block: translucent cyan, fresnel edges, fixed slices, a sweep band rising, a faint
+ *  flicker, and nothing drawn above uFront (the ▶ Build "print" height). Uniforms are set in place each frame by HoloClock. */
+const HOLO = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uFront: { value: NO_FRONT }, uMotion: { value: 1 }, uColor: { value: new THREE.Color("#22d3ee") } },
+  vertexShader: `varying vec3 vN; varying vec3 vV; varying float vY;
+void main() { vec4 w = modelMatrix * vec4(position, 1.0); vY = w.y; vec4 mv = viewMatrix * w; vV = -mv.xyz; vN = normalMatrix * normal; gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `uniform float uTime; uniform float uFront; uniform float uMotion; uniform vec3 uColor;
+varying vec3 vN; varying vec3 vV; varying float vY;
+void main() {
+  if (vY > uFront) discard;
+  float fres = pow(1.0 - clamp(abs(dot(normalize(vN + 1e-6), normalize(vV + 1e-6))), 0.0, 1.0), 2.0);
+  float slices = 0.25 * smoothstep(0.9, 1.0, fract(vY * 3.0));
+  float sweep = uMotion * smoothstep(0.95, 1.0, fract(vY * 0.15 - uTime * 0.25));
+  float front = uFront < 9999.0 ? 1.0 - smoothstep(0.0, 0.12, uFront - vY) : 0.0;
+  float flick = 1.0 - uMotion * 0.08 * (0.5 + 0.5 * sin(uTime * 41.0) * sin(uTime * 17.3));
+  float a = clamp((0.08 + 0.55 * fres + slices + 0.6 * sweep + 0.9 * front) * flick, 0.0, 1.0);
+  gl_FragColor = vec4(max(uColor * (0.5 + fres + 1.2 * sweep + 2.0 * front), vec3(0.0)), a);
+}`,
+  transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+});
 const load = (): { scene: Scene; prices: PriceItem[] } | null => { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
 const eur = (n: number) => n.toLocaleString("et-EE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const download = (name: string, text: string, type: string) => {
@@ -42,7 +64,7 @@ let seq = Date.now();
 const newId = () => `p${(seq++).toString(36)}`;
 
 /** One block that eases toward its target size/position each frame: edits glide instead of jumping. */
-function Block({ p, selected, onPick, reduced, appearAt, hidden, bp }: { p: Part; selected: boolean; onPick: () => void; reduced: boolean; appearAt: number; hidden: boolean; bp: boolean }) {
+function Block({ p, selected, onPick, reduced, appearAt, hidden, bp, holo, inside }: { p: Part; selected: boolean; onPick: () => void; reduced: boolean; appearAt: number; hidden: boolean; bp: boolean; holo: boolean; inside: boolean }) {
   const m = useRef<THREE.Mesh>(null);
   const target = useMemo(() => ({ pos: new THREE.Vector3(p.x, p.y + p.h / 2, p.z), scale: new THREE.Vector3(p.w, p.h, p.d) }), [p.x, p.y, p.z, p.w, p.d, p.h]);
   const [start] = useState(() => ({ pos: target.pos.clone(), scale: target.scale.clone() })); // set once: later changes glide in useFrame
@@ -58,23 +80,25 @@ function Block({ p, selected, onPick, reduced, appearAt, hidden, bp }: { p: Part
   return (
     <mesh ref={m} position={start.pos} scale={start.scale} castShadow receiveShadow onClick={(e) => { if (!e.object.visible) return; e.stopPropagation(); onPick(); }}>
       {p.kind === "roof" && p.h >= 0.5 ? <primitive object={GABLE} attach="geometry" /> : <boxGeometry args={[1, 1, 1]} />}
-      <meshStandardMaterial color={bp ? BP.fill : COLOR[p.kind]} roughness={0.9} transparent={bp} opacity={bp ? 0.35 : 1} depthWrite={!bp} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.25 : 0} />
-      <Edges threshold={20} color={selected ? GOLD : bp ? BP.edge : "#57534e"} />
+      {holo ? <primitive object={HOLO} attach="material" />
+        // inside: walking, so the walls' inner faces show (a block is solid; its faces point outward)
+        : <meshStandardMaterial color={bp ? BP.fill : COLOR[p.kind]} roughness={0.9} transparent={bp} opacity={bp ? 0.35 : 1} depthWrite={!bp} side={inside ? THREE.DoubleSide : THREE.FrontSide} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.25 : 0} />}
+      <Edges threshold={20} color={selected ? GOLD : holo ? HOLO_C.edge : bp ? BP.edge : "#57534e"} />
     </mesh>
   );
 }
 
 /** A window or door drawn on its wall face: a dark inset panel (glass or door leaf) with a frame. shortcut: no real hole (CSG); fine
  *  for a massing model, upgrade if section views need it. Hidden until its wall has risen in the build animation. */
-function Opening({ p, selected, onPick, appearAt, reduced, bp }: { p: Part; selected: boolean; onPick: () => void; appearAt: number; reduced: boolean; bp: boolean }) {
+function Opening({ p, selected, onPick, appearAt, reduced, bp, holo }: { p: Part; selected: boolean; onPick: () => void; appearAt: number; reduced: boolean; bp: boolean; holo: boolean }) {
   const g = useRef<THREE.Group>(null);
   useFrame(({ clock }) => { if (g.current) g.current.visible = reduced || clock.elapsedTime >= appearAt; });
   return (
     <group ref={g} position={[p.x, p.y + p.h / 2, p.z]} rotation={[0, FACE_ROT[p.face ?? "s"], 0]} onClick={(e) => { e.stopPropagation(); onPick(); }}>
       <mesh position={[0, 0, 0.01]}><boxGeometry args={[p.w, p.h, 0.02]} />
-        <meshStandardMaterial color={bp ? BP.bg : COLOR[p.kind]} roughness={p.kind === "window" ? 0.15 : 0.8} metalness={p.kind === "window" ? 0.3 : 0} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.3 : 0} /></mesh>
+        {holo ? <primitive object={HOLO} attach="material" /> : <meshStandardMaterial color={bp ? BP.bg : COLOR[p.kind]} roughness={p.kind === "window" ? 0.15 : 0.8} metalness={p.kind === "window" ? 0.3 : 0} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.3 : 0} />}</mesh>
       <mesh position={[0, 0, 0.03]}><boxGeometry args={[p.w, p.h, 0.04]} /><meshBasicMaterial visible={false} />
-        <Edges color={selected ? GOLD : bp ? BP.edge : "#3f3a35"} /></mesh>
+        <Edges color={selected ? GOLD : holo ? HOLO_C.edge : bp ? BP.edge : "#3f3a35"} /></mesh>
     </group>
   );
 }
@@ -101,6 +125,82 @@ function BuildClock({ run, onStart }: { run: number; onStart: (t: number) => voi
   return null;
 }
 
+/** Drives the shared hologram material: time, the build "print" height, motion off for reduced motion. No allocations. */
+function HoloClock({ solid, t0, reduced }: { solid: Part[]; t0: number; reduced: boolean }) {
+  useFrame(({ clock }) => {
+    const u = HOLO.uniforms;
+    u.uTime.value = clock.elapsedTime;
+    u.uMotion.value = reduced ? 0 : 1;
+    u.uFront.value = reduced ? NO_FRONT : buildFront(solid, clock.elapsedTime, t0);
+  });
+  return null;
+}
+
+/** The plot as a holotable: a dark disc, a glowing rim and a LIDAR dot grid. */
+function HoloTable({ w, d }: { w: number; d: number }) {
+  const r = Math.hypot(w, d) / 2;
+  const dots = useMemo(() => new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(lidarDots(r), 3)), [r]);
+  useEffect(() => () => dots.dispose(), [dots]);
+  return <>
+    <mesh rotation-x={-Math.PI / 2} receiveShadow><circleGeometry args={[r, 96]} /><meshBasicMaterial color={HOLO_C.table} /></mesh>
+    <mesh rotation-x={-Math.PI / 2} position-y={0.02}><ringGeometry args={[r - 0.12, r, 128]} /><meshBasicMaterial color={HOLO_C.rim} toneMapped={false} /></mesh>
+    <mesh rotation-x={-Math.PI / 2} position-y={0.015}><ringGeometry args={[r - 0.9, r, 128]} /><meshBasicMaterial color={HOLO_C.rim} transparent opacity={0.12} blending={THREE.AdditiveBlending} depthWrite={false} /></mesh>
+    <points geometry={dots}><pointsMaterial color={HOLO_C.dot} size={0.07} transparent opacity={0.7} depthWrite={false} /></points>
+  </>;
+}
+
+/** First-person walk at eye height: WASD / arrows move, drag looks, Esc exits. Walls block (arch-walk-pure), doors are gaps.
+ *  shortcut: drag-look only, no PointerLock; add it if drag feels clumsy. Restores the orbit camera on exit. */
+function Walker({ rects, plot, onExit }: { rects: Rect[]; plot: { w: number; d: number }; onExit: () => void }) {
+  const { camera, gl } = useThree();
+  const st = useRef({ x: 0, z: 0, yaw: 0, pitch: 0, keys: new Set<string>() });
+  const rectsRef = useRef(rects), plotRef = useRef(plot); // refs: an edit mid-walk must not reset the walk or the saved camera
+  rectsRef.current = rects; plotRef.current = plot;
+  const exit = useRef(onExit);
+  exit.current = onExit;
+  useEffect(() => {
+    const saved = camera.position.clone(), savedQ = camera.quaternion.clone(), s = st.current, el = gl.domElement;
+    Object.assign(s, walkStart(plotRef.current, rectsRef.current), { pitch: 0 });
+    const MOVE = /^(w|a|s|d|arrowup|arrowdown|arrowleft|arrowright)$/;
+    const down = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+      const k = e.key.toLowerCase();
+      // preventDefault: Orbit's own keys (Esc closes the world, ←/→ change planet) skip handled events
+      if (k === "escape") { e.preventDefault(); exit.current(); } else if (MOVE.test(k)) { e.preventDefault(); s.keys.add(k); }
+    };
+    const up = (e: KeyboardEvent) => s.keys.delete(e.key.toLowerCase());
+    let drag = -1, lx = 0, ly = 0;
+    const pd = (e: PointerEvent) => { drag = e.pointerId; lx = e.clientX; ly = e.clientY; };
+    const pm = (e: PointerEvent) => {
+      if (e.pointerId !== drag) return;
+      s.yaw -= (e.clientX - lx) * 0.004; s.pitch = Math.max(-1.2, Math.min(1.2, s.pitch - (e.clientY - ly) * 0.004));
+      lx = e.clientX; ly = e.clientY;
+    };
+    const pu = () => { drag = -1; };
+    const blur = () => s.keys.clear();
+    addEventListener("keydown", down, true); addEventListener("keyup", up); addEventListener("blur", blur);
+    el.addEventListener("pointerdown", pd); addEventListener("pointermove", pm); addEventListener("pointerup", pu);
+    return () => {
+      removeEventListener("keydown", down, true); removeEventListener("keyup", up); removeEventListener("blur", blur);
+      el.removeEventListener("pointerdown", pd); removeEventListener("pointermove", pm); removeEventListener("pointerup", pu);
+      s.keys.clear(); camera.position.copy(saved); camera.quaternion.copy(savedQ);
+    };
+  }, [camera, gl]);
+  useFrame((_, dt) => {
+    const s = st.current, k = s.keys, d = Math.min(dt, 0.1) * WALK.speed;
+    const f = +(k.has("w") || k.has("arrowup")) - +(k.has("s") || k.has("arrowdown")), r = +(k.has("d") || k.has("arrowright")) - +(k.has("a") || k.has("arrowleft"));
+    if (f || r) {
+      const sin = Math.sin(s.yaw), cos = Math.cos(s.yaw); // forward = (−sin, −cos), right = (cos, −sin)
+      const n = moveWalker(s.x, s.z, (-sin * f + cos * r) * d, (-cos * f - sin * r) * d, rectsRef.current, plotRef.current);
+      s.x = n.x; s.z = n.z;
+    }
+    camera.position.set(s.x, WALK.eye, s.z);
+    camera.rotation.set(s.pitch, s.yaw, 0, "YXZ");
+  });
+  return null;
+}
+
 export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode }) {
   const qualityPreset = useLeanQuality(quality);
   const glr = useGlRecovery();
@@ -110,7 +210,8 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
   const [sel, setSel] = useState<string | null>(null);
   const [run, setRun] = useState(0), [t0, setT0] = useState(0); // ▶ Build replays the assembly
   const [noRoof, setNoRoof] = useState(false), [spin, setSpin] = useState(false);
-  const [bp, setBp] = useState(false);
+  const [mode, setMode] = useState<"model" | "bp" | "holo">("model"), bp = mode === "bp", holo = mode === "holo";
+  const [walk, setWalk] = useState(false);
   const [sun, setSun] = useState<{ on: boolean; date: string; hour: number }>(() => ({ on: false, date: new Date().toISOString().slice(0, 10), hour: 12 }));
   const sunAt = useMemo(() => { const d = new Date(`${sun.date}T00:00`); d.setMinutes(Math.round(sun.hour * 60)); return d; }, [sun.date, sun.hour]);
   const sunInfo = useMemo(() => {
@@ -121,7 +222,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
   }, [sunAt, sun.date]);
   const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * 40, Math.max(0.5, sunInfo.dir.y * 40), sunInfo.dir.z * 40] : [-14, 22, 12];
   const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
-  const bg = bp ? BP.bg : night ? "#1c2230" : BG;
+  const bg = holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : BG;
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -146,6 +247,9 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
   // one straight wall across the middle of the first floor's shell, standing on its floor
   const addInterior = () => { if (shell) { apply([{ op: "add", kind: "wall", name: "Interior wall", x: shell.x, z: shell.z, w: Math.max(0.5, shell.w - 2 * RULES.wallThick), d: 0.2, h: shell.h, y: shell.y }]); } };
   const host = part?.kind === "wall" ? part : undefined;
+  const solid = useMemo(() => [...scene.parts].filter((p) => !isOpening(p.kind)).sort((a, b) => a.y - b.y), [scene.parts]);
+  const rects = useMemo(() => wallRects(scene.parts), [scene.parts]);
+  const plotWD = useMemo(() => ({ w: scene.plot.w, d: scene.plot.d }), [scene.plot.w, scene.plot.d]);
 
   async function send() {
     if (!cmd.trim() || busy) return;
@@ -173,19 +277,22 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
           <fog attach="fog" args={[bg, 60, 140]} />
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
           <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} />
-          <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[scene.plot.w, scene.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[scene.plot.ground]} roughness={1} /></mesh>
-          <gridHelper args={[Math.max(scene.plot.w, scene.plot.d), Math.max(scene.plot.w, scene.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
-          <ContactShadows position={[0, 0.01, 0]} scale={Math.max(scene.plot.w, scene.plot.d)} opacity={0.35} blur={2.5} far={12} />
-          <Blueprint parts={scene.parts} />
-          <Trees n={scene.plot.trees} w={scene.plot.w} d={scene.plot.d} />
+          {holo ? <><HoloTable w={scene.plot.w} d={scene.plot.d} /><HoloClock solid={solid} t0={t0} reduced={reduced} /></> : <>
+            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[scene.plot.w, scene.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[scene.plot.ground]} roughness={1} /></mesh>
+            <gridHelper args={[Math.max(scene.plot.w, scene.plot.d), Math.max(scene.plot.w, scene.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
+            <ContactShadows position={[0, 0.01, 0]} scale={Math.max(scene.plot.w, scene.plot.d)} opacity={0.35} blur={2.5} far={12} />
+            <Blueprint parts={scene.parts} />
+            <Trees n={scene.plot.trees} w={scene.plot.w} d={scene.plot.d} />
+          </>}
           <BuildClock run={run} onStart={setT0} />
-          {(() => { const solid = [...scene.parts].filter((p) => !isOpening(p.kind)).sort((a, b) => a.y - b.y), at = (i: number) => t0 + 0.6 + i * STEP_S;
+          {(() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
             return <>
-              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={noRoof && p.kind === "roof"} bp={bp} />)}
+              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={noRoof && p.kind === "roof"} bp={bp} holo={holo} inside={walk} />)}
               {scene.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
-                appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} />)}
+                appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} holo={holo} />)}
             </>; })()}
-          <OrbitControls makeDefault enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced} autoRotateSpeed={0.8} />
+          {walk && <Walker rects={rects} plot={plotWD} onExit={() => setWalk(false)} />}
+          <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
         </Canvas>
       )}
 
@@ -196,6 +303,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
           <button className="btn" disabled={busy || !cmd.trim()}>{busy ? "Working…" : "Do it"}</button>
         </form>
         {msg && <p aria-live="polite">{msg}</p>}
+        {walk && <p className="muted text-xs" aria-live="polite">Walking at 1.6 m: WASD or arrow keys move, drag to look around, Esc or 🚶 Walk to go back. Walls stop you; doors let you through.</p>}
         {sun.on && (
           <div className="card space-y-1.5" aria-label="Sun study">
             <div className="muted text-[10px] uppercase tracking-widest">Sun study · {SITE.name}</div>
@@ -214,7 +322,9 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto" }: 
           <button className="chip" onClick={() => setRun((n) => n + 1)} title="Replay the assembly, bottom to top">▶ Build</button>
           <button className="chip" aria-pressed={noRoof} onClick={() => setNoRoof((v) => !v)}>Hide roof</button>
           <button className="chip" aria-pressed={spin} onClick={() => setSpin((v) => !v)}>Turntable</button>
-          <button className="chip" aria-pressed={bp} onClick={() => setBp((v) => !v)}>Blueprint</button>
+          <button className="chip" aria-pressed={bp} onClick={() => setMode((m) => (m === "bp" ? "model" : "bp"))}>Blueprint</button>
+          <button className="chip" aria-pressed={holo} onClick={() => setMode((m) => (m === "holo" ? "model" : "holo"))} title="The building as a hologram on a holotable">Holo</button>
+          <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title="Walk through at eye height: WASD or arrows, drag to look, Esc to exit">🚶 Walk</button>
           <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ Sun study</button>
           <button className="chip" disabled={!past.length} onClick={undo}>↶ Undo</button>
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>Start over</button>
