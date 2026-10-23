@@ -49,7 +49,7 @@ export async function POST(req: Request) {
   const { data: userMsg, error: userMsgErr } = await sb.from("messages").insert({ user_id: user.id, conversation_id: conversationId, role: "user", content, attachment_text: attach?.text ?? "" }).select("id").single();
   if (userMsgErr) return Response.json({ error: userMsgErr.message }, { status: 500 });
 
-  await emit(sb, user.id, "core.started", "core", { conversationId });
+  void emit(sb, user.id, "core.started", "core", { conversationId }); // never throws; the answer needn't wait for the event row
   const cid = conversationId as string;
 
   // Shared by both response styles: answer, then save it once at the end.
@@ -72,8 +72,8 @@ export async function POST(req: Request) {
     await sb.from("messages").insert({ user_id: user.id, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
     await emit(sb, user.id, "core.completed", "core", { conversationId: cid });
-    // counts only, never message text: tools = steps that ran a tool (not CORE's own memory search, thinking, review or fallbacks)
-    const tools = out.trace.filter((s) => !["search_memory", "think", "review", "fallback"].includes(s.step)).length;
+    // counts only, never message text: tools = steps that ran a tool (not CORE's own memory search, thinking, review, fallbacks or reflexes)
+    const tools = out.trace.filter((s) => !["search_memory", "think", "review", "fallback", "reflex"].includes(s.step)).length;
     await emit(sb, user.id, "core.turn", "core", { model: out.model, tools, ms: Date.now() - t0 });
     void reflectOnTurn(sb, user.id, cid); // learn in the background; never delays the answer, never throws
     void learnFacts(sb, user.id, message, userMsg?.id ?? null, files.files.length > 0); // beliefs from the user's own words only (none on attachment turns); never throws

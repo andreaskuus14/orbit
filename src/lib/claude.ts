@@ -140,17 +140,19 @@ function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean
 export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean };
 
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
-export function askClaude(prompt: string, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web }: AskOpts = {}): Promise<ClaudeResult> {
+export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web }: AskOpts = {}): Promise<ClaudeResult> {
   return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane), web), signal);
 }
 
-/** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI. */
-export function askClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string): Promise<ClaudeResult> {
+/** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI.
+ *  A pending prompt starts the CLI now and writes stdin when it resolves: its ~1 s boot overlaps the caller's prep. */
+export function askClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string): Promise<ClaudeResult> {
   return cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane)), signal);
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
-async function runClaudeStream(prompt: string, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false): Promise<ClaudeResult> {
+async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false): Promise<ClaudeResult> {
+  if (typeof prompt !== "string") prompt.catch(() => {}); // observed now; its error is reported once the CLI is up
   signal?.throwIfAborted();
   const t0 = Date.now();
   // With images, stdin carries one stream-json user message (image blocks + text); tools stay disabled.
@@ -197,7 +199,8 @@ async function runClaudeStream(prompt: string, system: string, onDelta: (text: s
         resolve({ text: (r.text || streamed).trim(), inputTokens: r.inputTokens, outputTokens: r.outputTokens, ms: Date.now() - t0 });
       });
       child.stdin.on("error", () => { /* EPIPE when the CLI is killed mid-write; the close handler reports it */ });
-      child.stdin.end(images.length ? streamJsonInput(prompt, images) : prompt);
+      // A prompt that fails to build kills the CLI before it gets any input.
+      Promise.resolve(prompt).then((p) => child.stdin.end(images.length ? streamJsonInput(p, images) : p), (e) => { done(); killTree(child); reject(e); });
     });
   } finally {
     removeTempDir(dir);
