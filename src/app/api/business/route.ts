@@ -83,7 +83,9 @@ export async function POST(req: Request) {
         const r = await askClaude(researchPrompt(p), RESEARCH_SYSTEM, { lane: "foreground", purpose: "business.research", timeoutMs: 180_000, web: true, signal: req.signal });
         const dossier = trimDossier(r.text);
         if (!dossier) return fail("CORE found nothing usable about them", 502);
-        const notes = withDossier(p.notes ?? "", dossier);
+        // Research takes up to 3 min: build on the notes as they are NOW, so an edit made meanwhile isn't overwritten.
+        const { data: fresh } = await sb.from("prospects").select("notes").eq("id", b.id as string).maybeSingle();
+        const notes = withDossier(fresh?.notes ?? p.notes ?? "", dossier);
         if (notes === null) return fail("Notes are full: shorten them to make room for the research");
         return one(sb.from("prospects").update({ notes, updated_at: new Date().toISOString() }).eq("id", b.id as string).select(COLS).maybeSingle());
       } catch (e) {

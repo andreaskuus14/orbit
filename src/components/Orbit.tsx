@@ -108,7 +108,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [lifeOpen, setLifeOpen] = useState<{ tab: LifeView; start?: true } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
   const [sfxOn, setSfxOn] = useState(true);
-  const living = useLivingUniverse();
   useEffect(() => setSfxOn(sfx.enabled()), []);
   useEffect(() => { if (approach) sfx.whoosh(); }, [approach]);
   // CORE opened from inside a world floats over it instead of leaving it; closing CORE returns to that world.
@@ -129,6 +128,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => { if (shown === "intelligence") setGlobeKept(true); }, [shown]);
   // A full-screen world (or a game) covers the galaxy: it stays mounted but paused, so coming back is instant.
   const covered = gameOpen || isWorld(shown);
+  const living = useLivingUniverse(view === "3d" && !covered);
   const staged = useStageActive(); // one-canvas spike: STUDIO draws in the galaxy canvas, so keep it on screen
   useEffect(() => { markOpen(gameOpen ? "game" : covered ? shown ?? "galaxy" : "galaxy"); }, [gameOpen, covered, shown]); // dev-only timing
 
@@ -326,9 +326,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     let off = false;
     const load = () => {
       const since = new Date(Date.now() - 60_000).toISOString();
-      void sb.from("tasks").select("id,title,agent,status,request").or(`status.in.(running,awaiting_approval),finished_at.gte.${since}`)
-        .order("created_at", { ascending: false }).limit(12)
-        .then(({ data }) => { if (!off && data) setShipTasks(data as ShipTask[]); });
+      // Live tasks and recent finishes in separate queries: newer finished tasks must never push a running one out of the
+      // snapshot (a missing task reads as "done", so its ship would fly home and relaunch).
+      const cols = "id,title,agent,status,request";
+      void Promise.all([
+        sb.from("tasks").select(cols).is("parent_id", null).in("status", ["running", "awaiting_approval"]).order("created_at", { ascending: false }).limit(12),
+        sb.from("tasks").select(cols).is("parent_id", null).gte("finished_at", since).order("finished_at", { ascending: false }).limit(6),
+      ]).then(([live, fin]) => { if (!off && live.data) setShipTasks([...live.data, ...(fin.data ?? [])].slice(0, 12) as ShipTask[]); });
     };
     load();
     const t = setInterval(load, 20_000);

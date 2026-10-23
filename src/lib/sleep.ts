@@ -74,6 +74,7 @@ async function consolidate(sb: SupabaseClient, userId: string, ask: Ask): Promis
     sb.from("memories").select("tags").eq("user_id", userId).eq("source", "core-sleep").limit(1000),
   ]);
   if (error) throw error;
+  if (prev.error) throw prev.error; // else already-merged groups would be merged again
   const done = new Set((prev.data ?? []).flatMap((m) => m.tags as string[]));
   const mems: Mem[] = (data ?? []).map((m) => ({ id: m.id, title: m.title, content: String(m.content).slice(0, 600), embedding: parseVec(m.embedding) }));
   const groups = dupGroups(mems, done);
