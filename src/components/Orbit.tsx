@@ -44,6 +44,7 @@ import { useStageActive } from "./Stage";
 import { ContinueWork } from "./ContinueWork";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { TimeTravel, useLivingUniverse } from "./TimeTravel";
+import type { ShipTask } from "@/lib/ships-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: WorldLoading });
@@ -75,6 +76,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [pulseBusy, setPulseBusy] = useState(false);
   const [pulseFailed, setPulseFailed] = useState(false);
   const [runningTasks, setRunningTasks] = useState<string[]>([]); // real: tasks agents are working on right now
+  const [shipTasks, setShipTasks] = useState<ShipTask[]>([]); // running + just-finished tasks, drawn as ships in the galaxy
   const [focusTask, setFocusTask] = useState<string | null>(null);
   const [focusGoal, setFocusGoal] = useState<string | null>(null);
   const [radarUrl, setRadarUrl] = useState<string | null>(null); // ?radar=<YouTube link>: shared from the phone (iOS Shortcut) → Idea Radar
@@ -318,6 +320,20 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   const select = useCallback((id: PanelId) => { warmWorld(id); setPanel(id); if (id !== "memory") setFocusMemory(null); if (id !== "operations") setFocusTask(null); if (id !== "agents") setFocusGoal(null); }, []);
   const openTask = useCallback((id: string) => { setWorkOpen(false); setFocusTask(id); setFocusGoal(null); setPanel("operations"); }, []);
+  const ships = useMemo(() => ({ tasks: shipTasks, onOpen: openTask }), [shipTasks, openTask]);
+  useEffect(() => { // agent events change runningTasks → refresh the fleet; a slow poll catches approvals and finishes without events
+    if (view !== "3d" || covered) return;
+    let off = false;
+    const load = () => {
+      const since = new Date(Date.now() - 60_000).toISOString();
+      void sb.from("tasks").select("id,title,agent,status,request").or(`status.in.(running,awaiting_approval),finished_at.gte.${since}`)
+        .order("created_at", { ascending: false }).limit(12)
+        .then(({ data }) => { if (!off && data) setShipTasks(data as ShipTask[]); });
+    };
+    load();
+    const t = setInterval(load, 20_000);
+    return () => { off = true; clearInterval(t); };
+  }, [sb, runningTasks, view, covered]);
   const openGoal = useCallback((id: string) => { setWorkOpen(false); setFocusGoal(id); setPanel("agents"); }, []);
   const openMemory = useCallback((id: string) => { setFocusMemory(id); setPanel("memory"); }, []);
   useEffect(() => { // search palette picked a memory: open it in MEMORY
@@ -406,7 +422,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
         <div className="absolute inset-0" style={covered && !staged ? { visibility: "hidden" } : undefined} inert={(covered && !staged) || undefined}>
-          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} universe={living.universe} />
+          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} universe={living.universe} ships={ships} />
         </div>
       )}
       {/* The globe stays mounted after its first visit (hidden + paused): re-entering skips the ~1-2 s rebuild and texture upload. */}

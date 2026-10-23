@@ -14,6 +14,8 @@ import { PLANETS, type PanelId, type PlanetDef, type PlanetId } from "@/lib/plan
 import { QUALITY, stepQuality, type QualityLevel, type QualityMode, type QualityState } from "@/lib/quality-pure";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { Universe } from "./Universe";
+import { Ships } from "./Ships";
+import type { ShipTask } from "@/lib/ships-pure";
 import type { Light, Universe as UniverseData } from "@/lib/universe-pure";
 import { loadImage } from "./texture-cache";
 import { FrameMark } from "./dev-timing";
@@ -44,6 +46,7 @@ export type GalaxyProps = {
   quality?: QualityMode;     // "auto" adapts to the measured frame rate
   lifeProgress?: { done: number; total: number } | null; // real: today's scheduled LIFE habits done / total
   universe?: UniverseData | null; // real: the ledger as light (live, or the day picked in Time travel)
+  ships?: { tasks: ShipTask[]; onOpen: (id: string) => void }; // real: agent tasks flying as ships; click opens the task
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -1154,6 +1157,7 @@ export default function Galaxy(props: GalaxyProps) {
             life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} light={props.universe?.light[p.id]} />
         ))}
         {props.universe && <Universe u={props.universe} positions={positions} still={props.reduced || level === 0} level={level} />}
+        {props.ships && <Ships tasks={props.ships.tasks} onOpen={props.ships.onOpen} positions={positions} reduced={props.reduced} />}
         <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={4} maxDistance={80} enableDamping />
         {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} />
