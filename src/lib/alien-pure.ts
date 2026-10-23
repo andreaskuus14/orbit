@@ -56,3 +56,19 @@ export const coreCalm = (dist: number) => {
   const t = fin((dist - 14) / 22, 0, 1);
   return t * t * (3 - 2 * t);
 };
+
+/** The CORE artifact's display scale: 1 up close, ~0.62 at the overview so the dark core and its one ring sit well
+ *  inside the innermost orbit (c8). The lens, label glare and hit area use the same factor. */
+export const coreScale = (dist: number) => 1 - 0.38 * coreCalm(dist);
+
+/** Largest overview boost that keeps a world clear of the CORE: its boosted radius may use at most half the gap
+ *  between its orbit and the core's outer ring (`coreR`). Never below 1 (true size always shows). */
+export const boostCap = (size: number, orbitR: number, coreR: number) =>
+  fin(((orbitR - coreR) * 0.5) / Math.max(size, 1e-3), 1, 2.6);
+
+/** Point sprites below `min` px flicker as they cross pixel centres: draw them at `min` and fade by coverage instead.
+ *  Returns [size, alpha factor]; mirrored in the particle shaders (kept here so it is tested). */
+export function spriteCoverage(px: number, min = 1.5): [number, number] {
+  const s = fin(px, 0, 64);
+  return s >= min ? [s, 1] : [min, (s / min) ** 2];
+}

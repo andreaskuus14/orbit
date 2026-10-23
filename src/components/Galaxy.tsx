@@ -7,7 +7,7 @@ import { voiceLevel } from "./voice/bus";
 import { ParticleCore, type CoreLive } from "./ParticleCore";
 import { coreParticleSide } from "@/lib/particle-core-pure";
 import { OrbitControls, Stars } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette, ToneMapping, Noise } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, Vignette, ToneMapping, Noise, SMAA } from "@react-three/postprocessing";
 import { BlendFunction, ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import { PLANETS, type PanelId, type PlanetDef, type PlanetId } from "@/lib/planets";
@@ -20,11 +20,11 @@ import type { Light, Universe as UniverseData } from "@/lib/universe-pure";
 import { FrameMark } from "./dev-timing";
 import { StageOut, useStageActive } from "./Stage";
 import { Singularity } from "./alien/Singularity";
-import { NeuralArms } from "./alien/NeuralArms";
+import { GalaxyVeil, NeuralArms } from "./alien/NeuralArms";
 import { Filaments } from "./alien/Filaments";
 import { Lensing } from "./alien/Lensing";
-import { HoloRing, ThoughtShell, useLiquidMetal } from "./alien/LiquidPlanet";
-import { armCount, overviewBoost, planetDetail, shellCount } from "@/lib/alien-pure";
+import { HoloRing, ThoughtShell, useLiquidMetal, type SurfaceLook } from "./alien/LiquidPlanet";
+import { armCount, boostCap, coreScale, overviewBoost, planetDetail, shellCount } from "@/lib/alien-pure";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
 import { cullLabels, damp, spreadLabels, fmtCoord, HOME_POS, INTRO_SECS, introLabelAlpha } from "@/lib/cinematic-pure";
 import {
@@ -88,22 +88,25 @@ function glowTexture(stops: [number, string][]) {
 
 const planetSize = (p: PlanetDef) => p.size * LOOKS[p.id].scale * 1.25;
 
-// Alien theme: every world is liquid metal. scale = size, ring = a banded ring, obsidian = dark mirror instead of chrome.
-const LOOKS: Record<PlanetId, { scale: number; ring?: string; obsidian?: boolean }> = {
-  memory: { scale: 1 },
-  intelligence: { scale: 0.85, obsidian: true },
-  creation: { scale: 1.55 },
-  operations: { scale: 1.9, ring: "#d9c39a", obsidian: true }, // orbits are spaced so its ring (size × 2.3) clears its neighbours
-  agents: { scale: 1.9, ring: "#c4b5fd" }, // the biggest world
-  life: { scale: 0.63, obsidian: true },
-  vault: { scale: 0.79, ring: "#e2e8ee" },
+// Every world has its own surface identity (c8): a pattern family (0 banded, 1 marbled, 2 cratered, 3 oceanic) and a
+// restrained palette; two stay alien liquid chrome (no surf). scale = size, ring = a banded ring, obsidian = dark mirror chrome.
+const SL = (fam: SurfaceLook["fam"], seed: number, a: string, b: string, c: string): SurfaceLook => ({ fam, seed, pal: [a, b, c] });
+const LOOKS: Record<PlanetId, { scale: number; ring?: string; obsidian?: boolean; surf?: SurfaceLook }> = {
+  memory: { scale: 0.75, surf: SL(1, 1, "#e6e2f0", "#9d93c4", "#4b3f8a") },
+  intelligence: { scale: 0.85, obsidian: true, surf: SL(0, 2, "#cfd8dc", "#6f8c99", "#2f4552") },
+  creation: { scale: 1.55, surf: SL(1, 3, "#efe2d6", "#c08aa0", "#6b3a55") },
+  operations: { scale: 1.9, ring: "#d9c39a", obsidian: true, surf: SL(0, 4, "#e8dcc4", "#b8946a", "#6c7d92") }, // orbits are spaced so its ring (size × 2.3) clears its neighbours
+  agents: { scale: 1.9, ring: "#c4b5fd", surf: SL(0, 5, "#ede3cf", "#c49a6c", "#8f88b0") }, // the biggest world
+  life: { scale: 0.63, obsidian: true, surf: SL(3, 6, "#8a9a78", "#1d4e6b", "#eef3f5") },
+  vault: { scale: 0.79, ring: "#e2e8ee", surf: SL(2, 7, "#b9a27a", "#7a6a52", "#3c342a") },
   analytics: { scale: 1.0, ring: "#b3abea", obsidian: true },
-  studio: { scale: 1.1 },
-  theater: { scale: 0.9, ring: "#fbbf24", obsidian: true },
-  markets: { scale: 0.85, ring: "#34d399" },
+  studio: { scale: 1.1, surf: SL(0, 9, "#ecd9cc", "#b8725e", "#5a3a40") },
+  theater: { scale: 0.9, ring: "#fbbf24", obsidian: true, surf: SL(1, 10, "#f0e3c8", "#c9984a", "#5e4632") },
+  markets: { scale: 0.85, ring: "#34d399", surf: SL(3, 11, "#a7b39a", "#0f5a55", "#e9f1ef") },
   business: { scale: 0.85, obsidian: true },
-  arch: { scale: 0.9 },
+  arch: { scale: 0.9, surf: SL(2, 13, "#c3c7cf", "#8a909b", "#474c56") },
 };
+const CORE_RING = 3.7 * 0.62; // the CORE's outer ring at the overview (coreScale): worlds keep clear of it
 
 /* ---------- scene pieces ---------- */
 
@@ -121,7 +124,7 @@ function Moons({ count, reduced }: { count: number; reduced: boolean }) {
   const items = useMemo(
     () => Array.from({ length: Math.min(count, 40) }, (_, i) => {
       const a = i * 2.399963; // golden angle spreads moons evenly
-      const r = 1.0 + (i % 5) * 0.14;
+      const r = 0.72 + (i % 5) * 0.1; // a tight swarm: the inner moons stay clear of the CORE's rings
       return { x: Math.cos(a) * r, y: Math.sin(i * 1.7) * 0.3, z: Math.sin(a) * r };
     }),
     [count],
@@ -285,7 +288,7 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
       s.next = now + (s.r() < 0.3 ? 0.18 : 0.6 + s.r() * 2.4); // sometimes a quick double strike
     }
     const age = now - s.t0;
-    const on = age >= 0 && age < 0.25 ? (0.55 + 0.45 * Math.sin(age * 90)) * (1 - age / 0.25) : 0;
+    const on = age >= 0 && age < 0.3 ? Math.sin((age / 0.3) * Math.PI) ** 2 * 0.7 : 0; // one soft flash: no strobe
     mat.opacity = on;
     if (spr.current) (spr.current.material as THREE.SpriteMaterial).opacity = on * 0.9;
     flash.current = on;
@@ -319,7 +322,8 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   const flash = useRef(0); // lightning flash, briefly lights the storm world from inside
   const tapT = useRef<ReturnType<typeof setTimeout>>(undefined); // touch has no hover-out: clear the hover (leader label) after a beat
   const rim = useRim(); // cold fresnel rim: brighter on hover / focus so the world pops off the dark
-  const liquid = useLiquidMetal(p.color, !!look.obsidian, size, rim.onBeforeCompile);
+  const liquid = useLiquidMetal(p.color, !!look.obsidian, size, rim.onBeforeCompile, look.surf);
+  useEffect(() => { liquid.u.uIdent.value = 0; }, [liquid]); // the galaxy: a thin atmosphere rim, not a glowing blob
   const base = useMemo(() => liquid.mat.color.clone(), [liquid]);
   const lit = useRef(light); lit.current = light;
   const pulse = useCallback(() => glow(pulses, p.id), [pulses, p.id]);
@@ -350,12 +354,12 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
     // Hover lifts the planet a little; eases, never snaps.
     // Overview: far worlds are enlarged to a minimum on-screen size so each reads as a world, not a dot.
     const k = 1 - Math.exp(-dt * 8);
-    const boost = selected ? 1 : overviewBoost(size, camera.position.distanceTo(positions[p.id]), (camera as THREE.PerspectiveCamera).fov ?? 50);
+    const boost = selected ? 1 : Math.min(boostCap(size, p.radius, CORE_RING), overviewBoost(size, camera.position.distanceTo(positions[p.id]), (camera as THREE.PerspectiveCamera).fov ?? 50, 0.042));
     if (group.current) {
       group.current.scale.setScalar(THREE.MathUtils.lerp(group.current.scale.x, (hovered.current || selected ? 1.08 : 1) * boost, k));
       if (scales) scales[p.id] = group.current.scale.x;
     }
-    rim.u.uRim.value = THREE.MathUtils.lerp(rim.u.uRim.value, hovered.current ? 1.1 : selected ? 0.6 : 0.22, k);
+    rim.u.uRim.value = THREE.MathUtils.lerp(rim.u.uRim.value, hovered.current ? 0.7 : selected ? 0.35 : 0.1, k);
     if (group.current) {
       const d = planetDetail(size, camera.position.distanceTo(group.current.position), level); // true size: the boost adds presence, not detail
       detail.current = d;
@@ -470,9 +474,11 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, l
   const [pcFailed, setPcFailed] = useState(false); // no float render targets: the singularity alone carries the CORE
   const onPcFail = useCallback(() => setPcFailed(true), []);
   const swarm = particles > 0 && !pcFailed;
+  const hit = useRef<THREE.Mesh>(null);
 
-  useFrame(({ clock }, dt) => {
+  useFrame(({ clock, camera }, dt) => {
     const t = clock.elapsedTime;
+    hit.current?.scale.setScalar(coreScale(camera.position.length()));
     const g = glow(pulses, "core");
     // Breathing: slow when idle, quicker while CORE is answering; events make it flare.
     const breath = reduced ? 0.5 : 0.5 + 0.5 * Math.sin(t * (busy ? 2.6 : 1.05));
@@ -494,11 +500,11 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, l
 
   return (
     <group>
-      <pointLight intensity={3.2} decay={0} color="#fff1dc" /> {/* no falloff: inner worlds would blow out, outer ones go dark */}
+      <pointLight intensity={2.7} decay={0} color="#fff1dc" /> {/* no falloff: inner worlds would blow out, outer ones go dark */}
       <Singularity live={live} reduced={reduced} level={level} />
       {swarm && <group scale={0.62}><ParticleCore side={particles} busy={busy} warning={warning} live={live} onFail={onPcFail} /></group>}
       {/* Invisible hit area. */}
-      <mesh onClick={(e) => { e.stopPropagation(); onSelect("core"); }}
+      <mesh ref={hit} onClick={(e) => { e.stopPropagation(); onSelect("core"); }}
         onPointerOver={() => (document.body.style.cursor = "pointer")} onPointerOut={() => (document.body.style.cursor = "")}>
         <sphereGeometry args={[1.9, 24, 24]} />
         <meshBasicMaterial visible={false} /> {/* not drawn (one draw call saved); raycasting ignores material visibility */}
@@ -519,13 +525,13 @@ const LABEL_W = BODIES.map((id) => (id === "core" ? 4 : PLANETS.find((p) => p.id
 
 /** Projects each body's position to screen space every frame and moves plain DOM labels there (no extra React roots).
  *  Also places the HUD's leader label beside the hovered planet and writes the focus coordinates (no allocations). */
-function LabelProjector({ positions, scales, labels, hover, selected, hud, story, reduced }: {
-  positions: Positions; scales: Scales; labels: RefObject<Record<string, HTMLSpanElement | null>>;
+function LabelProjector({ positions, scales, labels, leaders, hover, selected, hud, story, reduced }: {
+  positions: Positions; scales: Scales; labels: RefObject<Record<string, HTMLSpanElement | null>>; leaders: RefObject<Record<string, HTMLSpanElement | null>>;
   hover: RefObject<PlanetId | null>; selected: PanelId | null; hud: RefObject<HudEls>; story: RefObject<Story>; reduced: boolean;
 }) {
   const v = useMemo(() => new THREE.Vector3(), []);
   const st = useRef({ t: 0, text: "" });
-  const sc = useMemo(() => { const n = BODIES.length; const f = () => new Float64Array(n); return { x: f(), y: f(), prio: f(), vis: f(), alpha: f(), order: f(), ax: f(), ay: f() }; }, []);
+  const sc = useMemo(() => { const n = BODIES.length; const f = () => new Float64Array(n); return { x: f(), y: f(), prio: f(), vis: f(), alpha: f(), order: f(), ax: f(), ay: f(), ox: f(), oy: f(), la: f() }; }, []);
   useFrame(({ camera, size, controls }, dt) => {
     const els = labels.current;
     if (!els) return;
@@ -544,21 +550,30 @@ function LabelProjector({ positions, scales, labels, hover, selected, hud, story
     // Nudge labels off the CORE's glare and apart from each other; only what still overlaps is culled.
     const cam = camera as THREE.PerspectiveCamera, cd = Math.max(0.1, camera.position.length());
     v.set(0, 0, 0).project(camera);
-    const cr = (4.4 / (cd * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)))) * (size.height / 2); // the lens's Einstein radius in px
+    const cr = ((4.4 * coreScale(cd)) / (cd * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)))) * (size.height / 2); // the lens's Einstein radius in px
     spreadLabels(sc.x, sc.y, LABEL_W, 22, sc.prio, 0, ((v.x + 1) / 2) * size.width, ((1 - v.y) / 2) * size.height,
       v.z < 1 && cr < size.height * 0.2 ? cr : 0, 56, sc.ax, sc.ay); // close to the CORE the glare is the scene: no push
+    cullLabels(sc.x, sc.y, LABEL_W, 22, sc.prio, sc.vis, sc.order); // culled on the settled layout, so it never flickers
+    const lines = leaders.current;
     for (let i = 0; i < BODIES.length; i++) {
-      const el = els[BODIES[i]];
-      if (el) el.style.transform = `translate(-50%, -50%) translate(${sc.x[i]}px, ${sc.y[i]}px)`;
-    }
-    cullLabels(sc.x, sc.y, LABEL_W, 22, sc.prio, sc.vis, sc.order);
-    for (let i = 0; i < BODIES.length; i++) {
-      const el = els[BODIES[i]];
+      const id = BODIES[i], el = els[id];
       if (!el) continue;
+      // The de-collision nudge eases over time (no per-frame jumps when two labels trade places); the anchor tracks the world exactly.
+      const tx = sc.x[i] - sc.ax[i], ty = sc.y[i] - sc.ay[i];
+      sc.ox[i] = reduced ? tx : damp(sc.ox[i], tx, 6, dt); sc.oy[i] = reduced ? ty : damp(sc.oy[i], ty, 6, dt);
+      const lx = sc.ax[i] + sc.ox[i], ly = sc.ay[i] + sc.oy[i];
+      el.style.transform = `translate(-50%, -50%) translate(${lx}px, ${ly}px)`;
       const goal = sc.vis[i] * introLabelAlpha(S.intro, i, BODIES.length);
       let a = reduced ? goal : damp(sc.alpha[i], goal, 8, dt);
       if (Math.abs(a - goal) < 0.01) a = goal; // snap: damp never lands, and a frozen 0.03-0.07 leaves ghost labels
       if (a !== sc.alpha[i]) { sc.alpha[i] = a; el.style.opacity = a === 0 ? "0" : a.toFixed(3); }
+      // c11 hairline leader: from the world's anchor to a label that had to move away from it
+      const ln = lines?.[id];
+      if (!ln) continue;
+      const dx = lx - sc.ax[i], dy = ly - 9 - (sc.ay[i] - 12), len = Math.hypot(dx, dy); // label top edge to just under the world
+      const la = a * Math.min(1, Math.max(0, (len - 12) / 14)) * 0.55;
+      if (la > 0.005) ln.style.transform = `translate(${sc.ax[i]}px, ${sc.ay[i] - 12}px) rotate(${Math.atan2(dy, dx)}rad) scaleX(${len})`;
+      if (Math.abs(la - sc.la[i]) > 0.004 || (la === 0 && sc.la[i] !== 0)) { sc.la[i] = la; ln.style.opacity = la <= 0.005 ? "0" : la.toFixed(3); }
     }
     const h = hover.current, leader = hud.current.leader;
     const hp = h ? PLANETS.find((x) => x.id === h) : undefined;
@@ -638,7 +653,7 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story }: { selecte
     if (f) {
       goals();
       f.t = Math.min(1, f.t + dt / f.dur);
-      const e = f.t < 0.5 ? 4 * f.t ** 3 : 1 - (-2 * f.t + 2) ** 3 / 2; // ease in-out cubic
+      const e = f.t * f.t * f.t * (f.t * (f.t * 6 - 15) + 10); // smootherstep: zero velocity AND acceleration at both ends, no jerk, no overshoot
       camera.position.lerpVectors(f.from, goal, e);
       camera.position.y += Math.sin(Math.PI * e) * f.arc;
       controls.target.lerpVectors(f.fromT, tgt, e);
@@ -683,6 +698,7 @@ export default function Galaxy(props: GalaxyProps) {
   const positions = useMemo<Positions>(() => Object.fromEntries(PLANETS.map((p) => [p.id, new THREE.Vector3()])), []);
   const scales = useMemo<Scales>(() => Object.fromEntries(PLANETS.map((p) => [p.id, 1])), []);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
+  const leaders = useRef<Record<string, HTMLSpanElement | null>>({});
   const glr = useGlRecovery();
   const staged = useStageActive(); // one-canvas spike: a world renders in this canvas, the galaxy scene sits idle
   const [ready, setReady] = useState(false);
@@ -740,8 +756,9 @@ export default function Galaxy(props: GalaxyProps) {
         {/* Depth haze: far orbits and belts sink into the void (shader layers ignore it). */}
         <fogExp2 attach="fog" args={["#010208", 0.0055]} />
         <ambientLight intensity={0.06} color="#9aa8c0" /> {/* low fill: the CORE is the sun, worlds get a real day and night side */}
+        {level > 0 && <GalaxyVeil reduced={props.reduced} />}
         <NeuralArms count={armCount(level)} reduced={props.reduced} />
-        <Stars radius={110} depth={60} count={props.reduced ? Math.min(2000, q.stars) : q.stars} factor={3.2} fade speed={props.reduced ? 0 : 0.5} />
+        <Stars radius={110} depth={60} count={level === 0 || props.reduced ? Math.min(2000, q.stars) : 4500} factor={2.6} fade speed={props.reduced ? 0 : 0.15} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <Dust count={q.dust} reduced={props.reduced} />
         <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} />
@@ -765,20 +782,23 @@ export default function Galaxy(props: GalaxyProps) {
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} />
         {!props.paused && <ZoomRig home={HOME.length()} reduced={props.reduced} />} {/* zoom commands are for the world on screen */}
         <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} story={story} />
-        <LabelProjector positions={positions} scales={scales} labels={labels} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
+        <LabelProjector positions={positions} scales={scales} labels={labels} leaders={leaders} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
         <FirstFrames onReady={onReady} />
         {mode === "auto" && !staged && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
         {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}
         {q.bloom > 0 && (
           <EffectComposer key={level} enabled={!staged} multisampling={q.msaa}>
-            <Lensing disp={level >= 2} reduced={props.reduced} />
+            {/* Lensing also sets the exposure and a soft highlight knee; SMAA (a convolution) starts a new pass, so the
+                bloom below reads the knee'd frame: stacked additive layers can never bloom into a white plate. */}
+            <Lensing disp={level >= 2} reduced={props.reduced} exposure={1} />
+            <SMAA />
             {dof ? <StoryFocus story={story} /> : <></>}
-            <Bloom intensity={(props.reduced ? Math.min(0.6, q.bloom) : q.bloom) * (props.bloomScale ?? 1)} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />
+            <Bloom intensity={0.55 * (props.reduced ? 0.8 : 1) * (props.bloomScale ?? 1)} luminanceThreshold={0.82} luminanceSmoothing={0.22} mipmapBlur radius={0.7} />
             {film ? <MotionAberration motion={motion} /> : <></>}
-            <Vignette offset={0.28} darkness={0.7} />
+            <Vignette offset={0.3} darkness={0.62} />
             <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-            {film ? <Noise blendFunction={BlendFunction.OVERLAY} opacity={0.16} /> : <></>}
+            {film ? <Noise blendFunction={BlendFunction.OVERLAY} opacity={0.045} /> : <></>}
           </EffectComposer>
         )}
         <StageOut />
@@ -789,11 +809,12 @@ export default function Galaxy(props: GalaxyProps) {
       {!props.reduced && <StoryReadout stop={stop} intro={intro} onOpen={onSelect} />}
       {!props.reduced && <StoryRail stop={stop} on={!intro && selected === null} onGo={(n) => story.current.goTo(n)} />}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning ? "#fb7185" : "#ffe2b0" }}>
+        {BODIES.map((id) => <span key={`l-${id}`} ref={(el) => { leaders.current[id] = el; }} className="planet-leader" />)}
+        <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning ? "#fb7185" : "#efe6d6" }}>
           CORE{props.warning ? " · last request failed" : ""}
         </span>
-        {PLANETS.map((p) => (
-          <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: p.color }}>{p.name}</span>
+        {PLANETS.map((p) => ( // calm labels (c11): pearl, with a breath of the world's identity colour
+          <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>{p.name}</span>
         ))}
       </div>
       </div>

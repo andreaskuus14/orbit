@@ -20,7 +20,7 @@ export function WarpOverlay({ target, landed, reduced }: { target: PanelId | nul
   return <div aria-hidden className={`warp${shown.out ? " warp-out" : ""}`} style={{ ["--warp" as string]: color }} />;
 }
 
-/** Clicking into a world: a 420 ms iridescent burst of light streaks over the world as it mounts. CSS only, and
+/** Clicking into a world: a 450 ms burst of fine light streaks (c10) over the world as it mounts. CSS only, and
  *  pointer-events: none, so it never blocks input; re-keyed per world so each entry replays it. */
 export function WarpBurst({ id, reduced }: { id: PanelId | null; reduced: boolean }) {
   if (!id || reduced) return null;

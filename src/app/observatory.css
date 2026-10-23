@@ -257,11 +257,11 @@
    Out: the flash clears over 0.45 s as the world appears. Transform/opacity only. */
 .warp { position: fixed; inset: -20%; z-index: 30; pointer-events: none; animation: warp-in 1.2s cubic-bezier(.55, 0, .9, .4) forwards; }
 .warp::before { content: ""; position: absolute; inset: 0;
-  background: repeating-conic-gradient(from 0deg, transparent 0 1.6deg, color-mix(in srgb, var(--warp) 70%, white) 1.6deg 1.9deg, transparent 1.9deg 4.3deg);
+  background: repeating-conic-gradient(from 0deg, transparent 0 1.6deg, color-mix(in srgb, var(--warp) 22%, #e8eef8) 1.6deg 1.75deg, transparent 1.75deg 4.3deg);
   -webkit-mask: radial-gradient(circle, transparent 12%, #000 40%, transparent 72%); mask: radial-gradient(circle, transparent 12%, #000 40%, transparent 72%);
   animation: warp-streak 1.2s cubic-bezier(.55, 0, .9, .4) forwards; }
 .warp::after { content: ""; position: absolute; inset: 0; opacity: 0;
-  background: radial-gradient(circle, #fff 0%, var(--warp) 35%, color-mix(in srgb, var(--warp) 40%, #000) 75%); animation: warp-flash 1.2s ease-in forwards; }
+  background: radial-gradient(circle, color-mix(in srgb, var(--warp) 30%, #0b0f18) 0%, #05070c 72%); animation: warp-flash 1.2s ease-in forwards; } /* a dark tunnel, never a white flash */
 .warp-out { animation: warp-clear .45s ease-out forwards; }
 .warp-out::before { animation: none; opacity: 0; }
 .warp-out::after { animation: none; opacity: 1; }
@@ -269,12 +269,18 @@
 @keyframes warp-streak { from { transform: scale(.6) rotate(0deg); opacity: 0; } 30% { opacity: .5; } to { transform: scale(2.4) rotate(6deg); opacity: .9; } }
 @keyframes warp-flash { 0%, 70% { opacity: 0; } 100% { opacity: 1; } }
 @keyframes warp-clear { from { opacity: 1; } to { opacity: 0; } }
-/* Click into a world (WarpBurst): iridescent streaks rush outward and clear in 420 ms; never blocks input. */
-.warp-burst { position: fixed; inset: -20%; z-index: 30; pointer-events: none; opacity: 0; animation: warp-burst .42s cubic-bezier(.2, .7, .2, 1) forwards;
-  background: radial-gradient(circle, #fff 0 3%, color-mix(in srgb, var(--warp) 55%, transparent) 12%, transparent 42%),
-    repeating-conic-gradient(from 0deg, transparent 0 2.2deg, #a5f3fc99 2.2deg 2.5deg, transparent 2.5deg 5deg, #f0abfc77 5deg 5.3deg, transparent 5.3deg 7.4deg);
-  -webkit-mask: radial-gradient(circle, #0008 0%, #000 22%, transparent 68%); mask: radial-gradient(circle, #0008 0%, #000 22%, transparent 68%); }
-@keyframes warp-burst { from { opacity: 1; transform: scale(.45); } to { opacity: 0; transform: scale(2.2); } }
+/* Click into a world (WarpBurst, c10): fine pearl light streaks rush past a clear tunnel mouth (the world shows through
+   the centre) and clear in 450 ms; chromatic aberration only at the edges (a red and a cyan copy, a hair apart).
+   Transform + opacity only (compositor), pointer-events: none: it never blocks input. */
+.warp-burst { position: fixed; inset: -20%; z-index: 30; pointer-events: none; opacity: 0; animation: warp-burst .45s cubic-bezier(.2, .7, .2, 1) forwards;
+  background: repeating-conic-gradient(from 0deg, transparent 0 1.3deg, #eef2fab0 1.3deg 1.42deg, transparent 1.42deg 3.1deg, color-mix(in srgb, var(--warp) 25%, #dfe7f6) 3.1deg 3.18deg, transparent 3.18deg 4.9deg),
+    repeating-conic-gradient(from 0.7deg, transparent 0 2.6deg, #f4f7fd66 2.6deg 2.68deg, transparent 2.68deg 3.7deg); /* two periods: irregular streaks */
+  -webkit-mask: radial-gradient(circle, transparent 15%, #000 34%, #000 58%, transparent 74%); mask: radial-gradient(circle, transparent 15%, #000 34%, #000 58%, transparent 74%); }
+.warp-burst::before, .warp-burst::after { content: ""; position: absolute; inset: 0; mix-blend-mode: screen;
+  -webkit-mask: radial-gradient(circle, transparent 44%, #000 62%, transparent 76%); mask: radial-gradient(circle, transparent 44%, #000 62%, transparent 76%); }
+.warp-burst::before { transform: scale(1.014); background: repeating-conic-gradient(from 0deg, transparent 0 1.3deg, #ff7d9466 1.3deg 1.42deg, transparent 1.42deg 3.1deg, #ff7d9440 3.1deg 3.18deg, transparent 3.18deg 4.9deg); }
+.warp-burst::after { transform: scale(.986); background: repeating-conic-gradient(from 0deg, transparent 0 1.3deg, #7ddcff66 1.3deg 1.42deg, transparent 1.42deg 3.1deg, #7ddcff40 3.1deg 3.18deg, transparent 3.18deg 4.9deg); }
+@keyframes warp-burst { from { opacity: .85; transform: scale(.5) rotate(0deg); } 35% { opacity: .75; } to { opacity: 0; transform: scale(2.1) rotate(2deg); } }
 @media (prefers-reduced-motion: reduce) { .warp, .warp-burst { display: none; } }
 /* Morning briefing as a hook (MorningCard.tsx): next step first, big numbers, the best Short as a picture. */
 .mc-next { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left; padding: .65rem .8rem; color: #f2fbff;
