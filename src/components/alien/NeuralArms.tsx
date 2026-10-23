@@ -6,9 +6,10 @@ import { useEffect, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { HOLO } from "./env";
+import { coreCalm } from "@/lib/alien-pure";
 
 const VS = /* glsl */ `
-attribute vec4 aS; uniform float uTime; uniform float uScale; varying vec3 vC; varying float vA;
+attribute vec4 aS; uniform float uTime; uniform float uScale; uniform float uCalm; varying vec3 vC; varying float vA;
 ${HOLO}
 float gauss(float a, float b) { return sqrt(-2.0 * log(max(a, 1e-4))) * cos(6.2831853 * b); }
 void main() {
@@ -31,6 +32,7 @@ void main() {
   float gap = 0.25 + 0.75 * smoothstep(0.05, 0.45, abs(sin(r * 0.62 + 0.4)));
   float knot = pow(max(sin(u * 70.0 + arm * 2.1 + sin(u * 23.0) * 1.5), 0.0), 18.0) * step(abs(gs), 0.8) * (1.0 - disc);
   edge *= lane * gap * (0.25 + 0.75 * smoothstep(R0, R0 + 8.0, r)); // the inner arms thin out: no white disc around the CORE
+  edge *= 1.0 - uCalm * 0.85 * (1.0 - smoothstep(R0, R0 + 12.0, r)); // more so at the overview, where the lens gathers them
   // far points are sub-pixel (clamped to 1 px): raise their alpha so the arms still read from the overview
   vA = edge * (0.16 + 0.55 * smoothstep(12.0, 50.0, z) + 1.4 * fire + 1.6 * knot) * (1.0 - disc * 0.7) * smoothstep(3.0, 14.0, z);
   vC = mix(vec3(0.85, 0.9, 1.0), holo(0.5 + r * 0.018 + aS.x * 0.12 + arm * 0.33 + uTime * 0.006), smoothstep(R0, R0 + 3.0, r));
@@ -61,11 +63,12 @@ export function NeuralArms({ count, reduced }: { count: number; reduced: boolean
   }, [count]);
   const mat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: VS, fragmentShader: FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-    uniforms: { uTime: { value: 0 }, uScale: { value: 30 } },
+    uniforms: { uTime: { value: 0 }, uScale: { value: 30 }, uCalm: { value: 0 } },
   }), []);
   useEffect(() => () => geo.dispose(), [geo]);
   useEffect(() => () => mat.dispose(), [mat]);
-  useFrame(({ clock, gl }) => {
+  useFrame(({ clock, gl, camera }) => {
+    mat.uniforms.uCalm.value = coreCalm(camera.position.length());
     mat.uniforms.uTime.value = reduced ? 40 : clock.elapsedTime;
     mat.uniforms.uScale.value = gl.getPixelRatio() * 30;
   });

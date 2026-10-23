@@ -147,3 +147,17 @@ test("framing lands the planet's centre at the asked screen height (level with t
     assert.ok(p.x > 0.2 && p.x < 0.9, `aspect ${aspect}: planet at x ${p.x.toFixed(2)} should be on the right`);
   }
 });
+
+import { spreadLabels } from "../src/lib/cinematic-pure.ts";
+test("labels are nudged apart and out of the core glare, within reach of their anchors", () => {
+  const x = [500, 480, 520, 900, 0], y = [300, 310, 315, 100, 0], w = [60, 140, 100, 80, 80], prio = [100, 6.8, 9, 29, -1];
+  const ax = [0, 0, 0, 0, 0], ay = [0, 0, 0, 0, 0];
+  spreadLabels(x, y, w, 22, prio, 0, 500, 290, 40, 60, ax, ay);
+  assert.equal(x[0], 500); // the CORE's own label ignores the glare
+  assert.ok(Math.abs(y[1] - y[2]) >= 21.9 || Math.abs(x[1] - x[2]) >= 119.9, "no longer overlapping");
+  for (const i of [1, 2]) {
+    assert.ok(Math.hypot(x[i] - 500, y[i] - 290) > 30, "pushed off the glare");
+    assert.ok(Math.hypot(x[i] - ax[i], y[i] - ay[i]) <= 60 + 1e-9);
+  }
+  assert.deepEqual([x[3], y[3], x[4], y[4]], [900, 100, 0, 0]); // clear and hidden labels stay put
+});

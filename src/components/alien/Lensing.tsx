@@ -10,15 +10,15 @@ import { useEffect, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import { BlendFunction, Effect, EffectAttribute } from "postprocessing";
 import * as THREE from "three";
-import { einsteinRadius } from "@/lib/alien-pure";
+import { coreCalm, einsteinRadius } from "@/lib/alien-pure";
 
 const FS = /* glsl */ `
-uniform vec2 uC; uniform float uRe; uniform float uKeep; uniform float uOn; uniform float uZ; uniform float uDisp; uniform float uTime;
+uniform vec2 uC; uniform float uRe; uniform float uKeep; uniform float uOn; uniform float uZ; uniform float uDisp; uniform float uTime; uniform float uCalm;
 vec2 bend(vec2 uv, float k, out float r) {
   vec2 d = (uv - uC) * vec2(aspect, 1.0);
   r = max(length(d), 1e-4);
   float re = uRe * k;
-  float w = (1.0 - smoothstep(1.6 * uRe, 4.5 * uRe, r)) * smoothstep(max(0.18 * uRe, uKeep), max(0.62 * uRe, uKeep * 1.8), r) * uOn;
+  float w = (1.0 - smoothstep(1.6 * uRe, 4.5 * uRe, r)) * smoothstep(max(0.18 * uRe, uKeep), max(0.62 * uRe, uKeep * 1.8), r) * uOn * (1.0 - 0.6 * uCalm);
   vec2 s = d - d * (re * re / (r * r)) * w;
   return uC + s / vec2(aspect, 1.0);
 }
@@ -46,9 +46,13 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   }
   // the Einstein ring itself: a hairline of focused light, slightly prismatic, shimmering along its length
   float a = atan(uv.y - uC.y, (uv.x - uC.x) * aspect);
-  float ring = exp(-pow(x * 22.0, 2.0)) * (0.55 + 0.45 * sin(a * 7.0 + uTime * 0.6) * sin(a * 3.0 - uTime * 0.25));
+  // overview (uCalm 1): exposure-clamp the gathered light, a hairline ring, a black shadow disk inside it
+  float zone = (1.0 - smoothstep(1.6 * uRe, 4.5 * uRe, r)) * uCalm * uOn;
+  c *= min(1.0, mix(1e3, 0.55, zone) / max(dot(c, vec3(0.3, 0.59, 0.11)), 1e-4));
+  float ring = exp(-pow(x * mix(22.0, 75.0, uCalm), 2.0)) * (0.55 + 0.45 * sin(a * 7.0 + uTime * 0.6) * sin(a * 3.0 - uTime * 0.25));
   vec3 prism = vec3(exp(-pow((x - 0.03) * 30.0, 2.0)), exp(-pow(x * 30.0, 2.0)), exp(-pow((x + 0.03) * 30.0, 2.0)));
-  c += (vec3(0.18) * ring + prism * 0.16 * uDisp) * uOn;
+  c += (vec3(0.18 + 0.3 * uCalm) * ring + prism * 0.16 * uDisp * (1.0 - 0.8 * uCalm)) * uOn;
+  c *= 1.0 - 0.97 * (1.0 - smoothstep(0.74 * uRe, 0.8 * uRe, r)) * uCalm * uOn;
   outputColor = vec4(mix(inputColor.rgb, max(c, vec3(0.0)), behind), inputColor.a);
 }`;
 
@@ -59,7 +63,7 @@ class LensEffect extends Effect {
       attributes: EffectAttribute.CONVOLUTION | EffectAttribute.DEPTH,
       uniforms: new Map<string, THREE.Uniform>([
         ["uC", new THREE.Uniform(new THREE.Vector2(0.5, 0.5))], ["uRe", new THREE.Uniform(0.1)], ["uKeep", new THREE.Uniform(0.02)], ["uOn", new THREE.Uniform(0)], ["uZ", new THREE.Uniform(40)],
-        ["uDisp", new THREE.Uniform(0)], ["uTime", new THREE.Uniform(0)],
+        ["uDisp", new THREE.Uniform(0)], ["uTime", new THREE.Uniform(0)], ["uCalm", new THREE.Uniform(0)],
       ]),
     });
   }
@@ -84,6 +88,7 @@ export function Lensing({ disp, reduced }: { disp: boolean; reduced: boolean }) 
     u.get("uOn")!.value = Number.isFinite(on) ? Math.min(1, Math.max(0, on)) : 0;
     u.get("uDisp")!.value = disp ? 1 : 0;
     u.get("uTime")!.value = reduced ? 0 : clock.elapsedTime;
+    u.get("uCalm")!.value = coreCalm(dist); // overview: subtle lens, thin ring, black shadow; close-up: full drama
   });
   return <primitive object={fx} dispose={null} />;
 }

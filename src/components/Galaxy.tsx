@@ -26,7 +26,7 @@ import { Lensing } from "./alien/Lensing";
 import { HoloRing, ThoughtShell, useLiquidMetal } from "./alien/LiquidPlanet";
 import { armCount, overviewBoost, planetDetail, shellCount } from "@/lib/alien-pure";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
-import { cullLabels, damp, fmtCoord, HOME_POS, INTRO_SECS, introLabelAlpha } from "@/lib/cinematic-pure";
+import { cullLabels, damp, spreadLabels, fmtCoord, HOME_POS, INTRO_SECS, introLabelAlpha } from "@/lib/cinematic-pure";
 import {
   CameraFeel, DevStats, Dust, GalaxyHud, MotionAberration, newStory, StoryFocus, StoryRail, StoryReadout, StoryRig, useRim,
   type HudEls, type Motion, type Story,
@@ -525,7 +525,7 @@ function LabelProjector({ positions, scales, labels, hover, selected, hud, story
 }) {
   const v = useMemo(() => new THREE.Vector3(), []);
   const st = useRef({ t: 0, text: "" });
-  const sc = useMemo(() => { const n = BODIES.length; const f = () => new Float64Array(n); return { x: f(), y: f(), prio: f(), vis: f(), alpha: f(), order: f() }; }, []);
+  const sc = useMemo(() => { const n = BODIES.length; const f = () => new Float64Array(n); return { x: f(), y: f(), prio: f(), vis: f(), alpha: f(), order: f(), ax: f(), ay: f() }; }, []);
   useFrame(({ camera, size, controls }, dt) => {
     const els = labels.current;
     if (!els) return;
@@ -540,6 +540,15 @@ function LabelProjector({ positions, scales, labels, hover, selected, hud, story
       sc.x[i] = ((v.x + 1) / 2) * size.width; sc.y[i] = ((1 - v.y) / 2) * size.height;
       // Journey: only the current stop. Overview: hovered > opened > CORE > outer worlds; overlapping ones give way.
       sc.prio[i] = !visible ? -1 : stopId ? (id === stopId ? 1 : -1) : id === h0 ? 1000 : id === selected ? 900 : !p ? 100 : p.radius;
+    }
+    // Nudge labels off the CORE's glare and apart from each other; only what still overlaps is culled.
+    const cam = camera as THREE.PerspectiveCamera, cd = Math.max(0.1, camera.position.length());
+    v.set(0, 0, 0).project(camera);
+    const cr = (4.4 / (cd * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)))) * (size.height / 2); // the lens's Einstein radius in px
+    spreadLabels(sc.x, sc.y, LABEL_W, 22, sc.prio, 0, ((v.x + 1) / 2) * size.width, ((1 - v.y) / 2) * size.height,
+      v.z < 1 && cr < size.height * 0.2 ? cr : 0, 56, sc.ax, sc.ay); // close to the CORE the glare is the scene: no push
+    for (let i = 0; i < BODIES.length; i++) {
+      const el = els[BODIES[i]];
       if (el) el.style.transform = `translate(-50%, -50%) translate(${sc.x[i]}px, ${sc.y[i]}px)`;
     }
     cullLabels(sc.x, sc.y, LABEL_W, 22, sc.prio, sc.vis, sc.order);
@@ -554,7 +563,6 @@ function LabelProjector({ positions, scales, labels, hover, selected, hud, story
     const h = hover.current, leader = hud.current.leader;
     const hp = h ? PLANETS.find((x) => x.id === h) : undefined;
     if (leader && hp) { // start the leader line on the planet's upper-right limb
-      const cam = camera as THREE.PerspectiveCamera;
       const dist = Math.max(0.1, camera.position.distanceTo(positions[hp.id]));
       const rPx = ((planetSize(hp) * 1.08) / (dist * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)))) * (size.height / 2) * 0.72;
       v.copy(positions[hp.id]).project(camera);
