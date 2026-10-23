@@ -111,7 +111,8 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
   // Orbit's OPEN_MEMORY_EVENT handler also switches to the MEMORY panel.
   const openMem = (id: string) => { setOpen(false); dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id } })); };
   const openCard = ({ open: o }: Card) => "work" in o ? openWork(o.work) : "memory" in o ? openMem(o.memory) : nav({ panel: o.panel, ...(o.view && { view: o.view }) });
-  const sn = data?.since;
+  const s = data?.studio, a = data?.agents, l = data?.life, cal = data?.calendar, sn = data?.since;
+  const best = s?.yesterday.filter((y) => y.views !== null).sort((x, y) => y.views! - x.views!)[0];
   const away = sn ? Math.round((Date.now() - sn.from) / 3_600_000) : 0;
   const sinceBlock = sn && !sinceEmpty(sn, notes) && (
     <div>
@@ -140,8 +141,43 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
       {!data && !err && <p className="muted">Gathering your briefing…</p>}
       {data && (
         <div className="grid gap-3">
+          {s?.pausedUntil && <p className="warn">YouTube downloads paused until {s.pausedUntil}</p>}
           <MorningCards cards={data.cards ?? []} problems={data.work?.problems} onOpen={openCard} />
           {sinceBlock}
+          <details className="mc-more">
+            <summary className="muted text-xs">More</summary>
+            <div className="mt-2 grid gap-3">
+              {data.overnight && <p className="muted text-xs">🌙 {data.overnight}</p>}
+              <div className="mc-tiles">
+                {s && <button className="mc-tile" onClick={() => go("review")}><b className="num">{s.ready}</b><span>clips to review</span></button>}
+                {s && <button className="mc-tile" onClick={() => nav({ panel: "studio" })}><b className="num">{s.today.length}</b><span>live today</span></button>}
+                {a && <button className="mc-tile" onClick={() => go("tasks")}><b className="num">{a.proposals.length}</b><span>proposals</span></button>}
+                {l && l.habits > 0 && <button className="mc-tile" onClick={() => go("life")}><b className="num">{l.done}/{l.habits}</b><span>habits</span></button>}
+              </div>
+              {best && (
+                <button className="mc-hero" onClick={() => nav({ panel: "studio" })} aria-label={`Yesterday's best Short: ${best.title}, ${best.views!.toLocaleString()} views`}>
+                  {best.videoId && <img src={`https://i.ytimg.com/vi/${best.videoId}/mqdefault.jpg`} alt="" loading="lazy" />}
+                  <span className="mc-hero-k">YESTERDAY&apos;S BEST</span>
+                  <span className="mc-hero-v num">{best.views!.toLocaleString()}<small> views</small></span>
+                  <span className="mc-hero-t">{best.title}</span>
+                </button>
+              )}
+              {data.mission && (
+                <div aria-label="Today's mission">
+                  <b>Today&apos;s mission</b> <span className="muted text-xs">{data.mission.done}/{data.mission.total} done</span>
+                  <div className="mc-bar" aria-hidden><i style={{ width: `${(100 * data.mission.done) / Math.max(1, data.mission.total)}%` }} /></div>
+                  <ul className="mt-1 grid gap-0.5">{data.mission.items.map((m) => (
+                    <li key={m.id} className={m.done ? "ok" : undefined}>{m.done ? "✓" : "○"} {m.label} <span className="muted text-xs">· {m.progress}</span></li>))}</ul>
+                </div>
+              )}
+              {s?.scout && <p className="muted text-xs">🛰 {s.scout}</p>}
+              {a && a.failed > 0 && <p className="warn text-xs">{n(a.failed, "agent task")} failed overnight</p>}
+              {l?.next && <p className="muted text-xs">⏰ {l.next.at} · {l.next.text}</p>}
+              {cal && (cal.connected
+                ? cal.today.length > 0 && <ul className="muted grid gap-1 text-xs">{cal.today.slice(0, 4).map((e, k) => <li key={k}>📅 <span className="num">{e.time}</span> · {e.title}</li>)}</ul>
+                : <a className="muted text-xs underline" href="/api/life/calendar/oauth">Connect Google Calendar</a>)}
+            </div>
+          </details>
           <label className="muted flex items-center gap-2 text-xs"><input type="checkbox" checked={speakMorning} onChange={(e) => toggleSpeak(e.target.checked)} /> Read it aloud each morning</label>
         </div>
       )}
