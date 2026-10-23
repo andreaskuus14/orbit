@@ -2,7 +2,7 @@
 import VisibilityPanel from "./VisibilityPanel";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
-import { dueFollowups, LANGS, STAGES, STAGE_LABEL, emailIn, type Find, type Lang, type Prospect, type Stage } from "@/lib/business-pure";
+import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, templateStats, type Find, type Lang, type Prospect, type Stage, type Template } from "@/lib/business-pure";
 import { mapNodes, mapSummary } from "@/lib/business-map-pure";
 
 // Three.js loads after the drawer opens, so the list shows instantly.
@@ -85,6 +85,8 @@ export default function BusinessPanel() {
         </div>
       )}
 
+      {st && <TemplateTable ps={st.prospects} />}
+
       <VisibilityPanel />
 
       {!st && !err && <p className="muted">Loading…</p>}
@@ -94,6 +96,17 @@ export default function BusinessPanel() {
         {shown.map((p) => <Row key={p.id} p={p} lit={lit === p.id} due={due.has(p.id)} busy={busy} act={act} canSend={!!st?.canSend} />)}
       </ul>
     </div>
+  );
+}
+
+function TemplateTable({ ps }: { ps: Prospect[] }) {
+  const rows = templateStats(ps);
+  if (!rows.some((r) => r.sent)) return null;
+  return (
+    <table className="w-full text-xs" aria-label="Reply rate per message angle">
+      <thead className="muted text-left"><tr><th>Angle</th><th className="text-right">Sent</th><th className="text-right">Replied</th><th className="text-right">Reply rate</th></tr></thead>
+      <tbody>{rows.map((r) => <tr key={r.template}><td>{r.template}</td><td className="num text-right">{r.sent}</td><td className="num text-right">{r.replied}</td><td className="num text-right">{r.sent ? `${r.rate}%` : "–"}</td></tr>)}</tbody>
+    </table>
   );
 }
 
@@ -140,8 +153,10 @@ function AddForm({ busy, onAdd }: { busy: boolean; onAdd: (b: { name: string; ki
 
 function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; due: boolean; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean }) {
   const [notes, setNotes] = useState(p.notes);
+  useEffect(() => setNotes(p.notes), [p.notes]); // research rewrites the notes on the server
   const [fee, setFee] = useState(String(p.fee || ""));
   const [lang, setLang] = useState<Lang>("Estonian");
+  const [angle, setAngle] = useState<Template | "auto">("auto");
   const [copied, setCopied] = useState(false);
   const [sure, setSure] = useState(false);
   const [sendSure, setSendSure] = useState(false);
@@ -168,7 +183,11 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
         value={notes} disabled={any} onChange={(e) => setNotes(e.target.value)} onBlur={() => { if (notes !== p.notes) void update({ notes }); }} />
       <div className="flex flex-wrap items-center gap-1.5">
         <select className="chip" aria-label="Message language" value={lang} onChange={(e) => setLang(e.target.value as Lang)}>{LANGS.map((l) => <option key={l}>{l}</option>)}</select>
-        <button className="chip" disabled={any} onClick={() => void act(`draft:${p.id}`, { action: "draft", id: p.id, lang })}>
+        <button className="chip" disabled={any} onClick={() => void act(`research:${p.id}`, { action: "research", id: p.id })}>
+          {busy === `research:${p.id}` ? "CORE is reading their site…" : "🔎 Research"}</button>
+        {p.stage === "lead" && <select className="chip" aria-label="Message angle" value={angle} onChange={(e) => setAngle(e.target.value as Template | "auto")}>
+          <option value="auto">Angle: CORE picks</option>{TEMPLATES.map((t) => <option key={t} value={t}>Angle: {t}</option>)}</select>}
+        <button className="chip" disabled={any} onClick={() => void act(`draft:${p.id}`, { action: "draft", id: p.id, lang, angle })}>
           {busy === `draft:${p.id}` ? "CORE is writing…" : p.draft ? "✍ Redraft message" : "✍ Draft first message"}</button>
         {p.stage === "contacted" && <button className="chip" disabled={any || !p.draft.trim()} onClick={() => void act(`followup:${p.id}`, { action: "followup", id: p.id, lang })}>
           {busy === `followup:${p.id}` ? "CORE is writing…" : "✍ Draft follow-up"}</button>}
@@ -178,6 +197,7 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
       {p.draft && (
         <div className="rounded-md border border-white/10 p-2">
           <p className="whitespace-pre-wrap select-all">{p.draft}</p>
+          {p.template && <p className="muted text-[11px]">Angle: {p.template}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-2"><button className="chip" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
             {canSend && to && p.stage === "lead" && (
               <button className={`chip ${sendSure ? "ok" : ""}`} disabled={any}
