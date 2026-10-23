@@ -6,14 +6,15 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { ChromaticAberration, DepthOfField } from "@react-three/postprocessing";
 import type { ChromaticAberrationEffect, DepthOfFieldEffect } from "postprocessing";
 import * as THREE from "three";
-import { PLANETS, type PanelId, type PlanetId } from "@/lib/planets";
+import { PLANETS, type PanelId, type PlanetDef, type PlanetId } from "@/lib/planets";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import {
-  aberrationFor, damp, framePose, HOME_POS, idleDrift, INTRO_SECS, introPose, smoothDamp, stepStop, stepZoom, wheelGate, wheelKick, wheelStep,
+  aberrationFor, damp, fmtCoord, framePose, HOME_POS, idleDrift, INTRO_SECS, introPose, smoothDamp, stepStop, stepZoom, wheelGate, wheelKick, wheelStep,
 } from "@/lib/cinematic-pure";
 import { expDamp } from "@/lib/smooth-damp-pure";
 import { useScramble } from "./useScramble";
 import { MaskText } from "./MaskText";
+import { ParticleType } from "./ParticleType";
 import { preloading } from "./GalaxyLoader";
 
 export type Motion = { speed: number }; // camera speed, fraction of the orbit distance per second (smoothed)
@@ -290,6 +291,10 @@ export const newStory = (intro: boolean): Story => ({
   owns: intro, intro: intro ? 0 : 1, stop: -1, dof: 0, focus: new THREE.Vector3(), focusSize: 1, wheel: null, goTo: () => {},
 });
 
+/** The current journey stop's planet, written by StoryRig every journey frame: client px (x, y) and world x / z.
+ *  Module state (like GalaxyLoader's preloading) so the readout's particles can leave from the planet. */
+export const storyMark = { stop: -1, ok: false, x: 0, y: 0, wx: 0, wz: 0 };
+
 type Mode = "intro" | "journey" | "settle" | "idle";
 type StoryControls = Controls & { update: () => void };
 const GLIDE = 0.32; // smoothDamp time: ~1.1 s between stops, frame-rate independent
@@ -301,7 +306,7 @@ export function StoryRig({ story, positions, sizes, selected, intro, onIntroEnd,
 }) {
   const controls = useThree((s) => s.controls) as unknown as StoryControls | null;
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
-  const st = useRef({ alignAt: 0, alignY: 0, mode: (intro ? "intro" : "idle") as Mode, t: 0, stop: -1, home: selected === null,
+  const st = useRef({ alignAt: 0, alignY: 0, rect: { l: 0, t: 0, w: 0, h: 0 }, proj: new THREE.Vector3(), mode: (intro ? "intro" : "idle") as Mode, t: 0, stop: -1, home: selected === null,
     pose: new Float64Array(6), vel: new Float64Array(6), gate: wheelGate() });
   useEffect(() => { st.current.home = selected === null; }, [selected]);
 
@@ -401,7 +406,11 @@ export function StoryRig({ story, positions, sizes, selected, intro, onIntroEnd,
           s.alignAt = now;
           const el = document.querySelector(".story-name"), c = gl.domElement.getBoundingClientRect();
           if (el && c.height) { const r = el.getBoundingClientRect(); s.alignY = 1 - (2 * (r.top + r.height / 2 - c.top)) / c.height; }
+          s.rect.l = c.left; s.rect.t = c.top; s.rect.w = c.width; s.rect.h = c.height;
         }
+        const v = s.proj.copy(p).project(camera);
+        storyMark.stop = s.stop; storyMark.wx = p.x; storyMark.wz = p.z; storyMark.ok = v.z < 1 && s.rect.w > 0; // ok: in front of the camera
+        if (storyMark.ok) { storyMark.x = s.rect.l + ((v.x + 1) / 2) * s.rect.w; storyMark.y = s.rect.t + ((1 - v.y) / 2) * s.rect.h; }
         framePose(p.x, p.z, sizes[id] ?? 1, camera.aspect, camera.fov, P, s.alignY);
         P[1] += Math.min(6, 0.22 * Math.hypot(cam.x - P[0], cam.z - P[2])); // lift on long hops: an arc over the system
       } else { P[0] = HOME_POS[0]; P[1] = HOME_POS[1]; P[2] = HOME_POS[2]; P[3] = 0; P[4] = 0; P[5] = 0; }
@@ -430,26 +439,57 @@ export function StoryFocus({ story }: { story: RefObject<Story> }) {
   return <DepthOfField ref={ref} target={ORIGIN} focusRange={6} bokehScale={0} />;
 }
 
-/** igloo-style section readout, bottom left: "03 / 11", the planet's name large, one line on what it does. */
+/** igloo-style section readout, bottom left: "03 / 11", the planet's name large, one line on what it does.
+ *  The name assembles from pearl particles streaming out of the planet (ParticleType) and crossfades into the real
+ *  text; then telemetry decodes in under it. Leaving disperses the name. If particles can't run, the name mask-decodes. */
 export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boolean; onOpen: (id: PanelId) => void }) {
   const live = stop >= 0 ? stop : intro ? -2 : null; // -2 = the intro card
   const [shown, setShown] = useState<number>(intro ? -2 : -1);
   useEffect(() => { if (live !== null) setShown(live); }, [live]); // keep the last card while it fades out
   const p = shown >= 0 ? PLANETS[shown] : null;
   const introName = useScramble(shown === -2 ? "ORBITAL" : "", 2600);
+  const nameRef = useRef<HTMLSpanElement>(null), fx = useRef<ParticleType | null>(null), at = useRef(shown);
+  // Per card: where the planet was when its name settled (telemetry) and whether the DOM name shows yet.
+  const [settled, setSettled] = useState<{ id: PlanetId; x: number; z: number; name: boolean } | null>(null);
+  const [plain, setPlain] = useState<PlanetId | null>(null); // particles couldn't run: decode the name instead
+  const active = live !== null;
+  useEffect(() => () => fx.current?.dispose(), []);
+  useEffect(() => {
+    at.current = shown;
+    const e = (fx.current ??= new ParticleType(() => (storyMark.ok && storyMark.stop === at.current ? storyMark : null)));
+    if (!active || !p) { e.leave(); setSettled((s) => s && { ...s, name: false }); return; }
+    const id = p.id, mark = () => storyMark.stop === at.current;
+    const settle = () => setSettled({ id, x: mark() ? storyMark.wx : NaN, z: mark() ? storyMark.wz : NaN, name: true });
+    if (!e.arrive(nameRef.current, settle)) { setPlain(id); settle(); }
+  }, [shown, active]); // p follows shown
   if (shown === -1) return <div className="story-readout" />;
+  const mine = p && settled?.id === p.id ? settled : null;
   return (
-    <div className={`story-readout${live !== null ? " on" : ""}`} aria-hidden={live === null || undefined}>
+    <div className={`story-readout${active ? " on" : ""}`} aria-hidden={!active || undefined} aria-live="polite">
       <div key={p?.id ?? "intro"} className="story-anim">
         <div className="story-idx" aria-hidden><b>{pad(p ? shown + 1 : 0)}</b> / {pad(PLANETS.length)}</div>
-        {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={live !== null ? 0 : -1}><MaskText text={p.name} /></button>
+        {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={active ? 0 : -1}>
+          {plain === p.id ? <MaskText text={p.name} decode /> : <span ref={nameRef} className={`story-name-text${mine?.name ? " on" : ""}`}>{p.name}</span>}
+        </button>
           : <div className="story-name" aria-hidden>{introName}</div>}
+        {p && (
+          <div className="story-tele">{/* fixed height: lines arriving never move the card */}
+            {mine && teleLines(p, mine.x, mine.z).map((l, i) => <div key={i}><MaskText text={l} decode={{ ms: 620, delay: 80 + i * 120 }} /></div>)}
+          </div>
+        )}
         <p className="story-line">{p ? p.blurb : "Your mind has a universe."}</p>
         <p className="story-hint" aria-hidden>{p ? "CLICK OR ENTER TO OPEN · SCROLL TO TRAVEL" : "SCROLL TO EXPLORE"}</p>
       </div>
     </div>
   );
 }
+
+/** The readout's telemetry: where the planet was when its name settled, its orbit, its status. */
+const teleLines = (p: PlanetDef, x: number, z: number) => [
+  `POS X ${fmtCoord(x)} · Z ${fmtCoord(z)}`,
+  `ORBIT R ${p.radius.toFixed(2)} · ω ${p.speed.toFixed(3)}`,
+  `STATUS ${p.live ? "ONLINE" : "STANDBY"} · SOL-01`,
+];
 
 /** Slim progress rail on the right edge: one dot per stop (plus the overview); click glides there. */
 export function StoryRail({ stop, on, onGo }: { stop: number; on: boolean; onGo: (n: number) => void }) {
