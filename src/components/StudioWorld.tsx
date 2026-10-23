@@ -11,7 +11,8 @@ import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { FrameMark } from "./dev-timing";
 import { oneCanvasOn, StageIn, WorldScene } from "./Stage";
-import { loadImage } from "./texture-cache";
+import { HOLO, useAlienEnv } from "./alien/env";
+import { useLiquidMetal } from "./alien/LiquidPlanet";
 import { ZoomRig } from "./ZoomRig";
 import { useScramble } from "./useScramble";
 import StudioStats from "./StudioStats";
@@ -21,14 +22,14 @@ import ClipFactory from "./ClipFactory";
 import LastShorts from "./LastShorts";
 import { isShort, medianViewsPerDay, moonRadius, takeoff, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
 
-// STUDIO: the owner's YouTube channel as a world. A crimson planet, one moon per video (newest closest in,
+// STUDIO: the owner's YouTube channel as a world. A liquid-chrome sphere over an obsidian stage, one holo frame per video (newest closest in,
 // size by views, Shorts small and golden) and comets for videos taking off. Data: /api/studio.
-// Only standard/basic materials plus Hologram's clamped text shader, so nothing can feed NaN into Bloom.
+// Standard/basic materials, the shared alien chrome, and small procedural shaders that clamp every output, so nothing can feed NaN into Bloom.
 
 type Data =
   | { configured: false; error?: string; setup?: { env: string[] } }
   | { configured: true; channel: Channel; videos: Video[]; fetchedAt: string };
-type Moon = { v: Video; r: number; tilt: number; phase: number; size: number; short: boolean; hot: boolean };
+type Moon = { v: Video; r: number; tilt: number; phase: number; lift: number; size: number; short: boolean; hot: boolean };
 type Hover = { id: string | null; x: number; y: number };
 
 const PLANET_R = 1.3;
@@ -47,68 +48,130 @@ function layout(videos: Video[], hot: Set<string>): Moon[] {
   const step = list.length > 1 ? Math.min(0.3, 6.5 / (list.length - 1)) : 0;
   return list.map((v, i) => {
     const short = isShort(v);
-    return { v, r: 2.2 + i * step, tilt: Math.sin(i * 1.7) * 0.18, phase: i * 2.39996, size: moonRadius(v.views, max) * (short ? 0.7 : 1), short, hot: hot.has(v.id) };
+    // lift: the frames climb in a loose spiral, newest lowest (just above the stage), oldest highest
+    return { v, r: 2.2 + i * step, tilt: Math.sin(i * 1.7) * 0.12, phase: i * 2.39996, lift: -0.55 + (list.length > 1 ? (i / (list.length - 1)) * 1.6 : 0), size: moonRadius(v.views, max) * (short ? 0.85 : 1), short, hot: hot.has(v.id) };
   });
 }
 
-function orbitPos(out: THREE.Vector3, r: number, tilt: number, a: number) {
+function orbitPos(out: THREE.Vector3, r: number, tilt: number, a: number, lift = 0) {
   const z = Math.sin(a) * r;
-  return out.set(Math.cos(a) * r, z * Math.sin(tilt), z * Math.cos(tilt));
+  return out.set(Math.cos(a) * r, z * Math.sin(tilt) + lift, z * Math.cos(tilt));
 }
 const speed = (r: number) => 0.9 / r ** 1.5; // inner moons orbit faster
 
 /* ---------- scene ---------- */
 
 const CDN = "https://d8j0ntlcm91z4.cloudfront.net/user_3K4zaF8Ip5JyEmwNLHr5iAw89pD/hf_";
-const CHERRY = ["/textures/cherry.png", `${CDN}20261015_155232_f7d28aa7-ece5-442e-b1ba-3266b201f65c.png`] as const;
 const SKY = ["/textures/studio-sky.webp", `${CDN}20261015_155233_8e54e375-f89b-40d9-bd6e-5aa9ce4a7de4.png`] as const;
 
-/** Local copy first (`npm run textures`), then the CDN; null keeps the plain look. */
-function useTex([local, cdn]: readonly [string, string]) {
-  const [tex, setTex] = useState<THREE.Texture | null>(null);
-  useEffect(() => {
-    let dead = false, made: THREE.Texture | null = null;
-    loadImage(local, cdn).then((img) => { // shared decoded image: reopening the world doesn't download or decode it again
-      const t = new THREE.Texture(img); t.needsUpdate = true;
-      t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; made = t;
-      if (dead) t.dispose(); else setTex(t);
-    }).catch(() => { /* offline */ });
-    return () => { dead = true; made?.dispose(); };
-  }, [local, cdn]);
-  return tex;
+/* Concept c5: a floating obsidian stage, a curved screen of light behind it, light rays fanning up, the channel as a liquid-chrome
+   sphere, and every video a translucent holographic frame orbiting it in a rising spiral. Shaders clamp every output. */
+const STAGE_Y = -PLANET_R - 0.95, STAGE_R = 4.6;
+const QUAD_VS = /* glsl */ `varying vec2 vUv; varying vec3 vW;
+void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`;
+
+/** Shared shader material helper: one material per role, `uTime` advanced here; disposed on unmount. */
+function useShader(fs: string, extra: Record<string, THREE.IUniform> = {}, opts: Partial<THREE.ShaderMaterialParameters> = {}) {
+  const mat = useMemo(() => new THREE.ShaderMaterial({ vertexShader: QUAD_VS, fragmentShader: fs, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
+    uniforms: { uTime: { value: 0 }, ...extra }, ...opts }), []); // eslint-disable-line react-hooks/exhaustive-deps -- built once; uniforms are mutated
+  useEffect(() => () => mat.dispose(), [mat]);
+  return mat;
+}
+function useTick(mat: THREE.ShaderMaterial, reduced: boolean) {
+  useFrame(({ clock }) => { mat.uniforms.uTime.value = reduced ? 3 : clock.elapsedTime; });
 }
 
-/** The painted cherry nebula behind everything (screen-fitted, so it never shows a seam). */
-function Sky() {
-  const tex = useTex(SKY);
-  const { width, height } = useThree((s) => s.size);
-  useEffect(() => { // "cover" fit: crop instead of stretching on tall/narrow screens
-    const img = tex?.image as { width?: number; height?: number } | undefined;
-    if (!tex || !img?.width || !img.height || !width || !height) return;
-    const k = (img.width / img.height) / (width / height);
-    tex.repeat.set(k > 1 ? 1 / k : 1, k > 1 ? 1 : k);
-    tex.offset.set((1 - tex.repeat.x) / 2, (1 - tex.repeat.y) / 2);
-  }, [tex, width, height]);
-  return tex ? <primitive attach="background" object={tex} /> : <color attach="background" args={["#0a0206"]} />;
+/** The floating stage: faceted obsidian disc with glowing inlay rings, a crystalline keel beneath it. */
+function StageDeck({ reduced }: { reduced: boolean }) {
+  const env = useAlienEnv();
+  const mat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#05060a", metalness: 0.92, roughness: 0.18, flatShading: true, envMapIntensity: 1.3 }), []);
+  useEffect(() => { mat.envMap = env; mat.needsUpdate = true; }, [mat, env]);
+  useEffect(() => () => mat.dispose(), [mat]);
+  const spin = useRef<THREE.Group>(null);
+  useFrame((_, dt) => { if (spin.current && !reduced) spin.current.rotation.y += dt * 0.08; });
+  const ring = (r: number, w: number, c: [number, number, number], o = 0.9, len = Math.PI * 2, start = 0) => (
+    <mesh key={`${r}-${start}`} rotation-x={-Math.PI / 2}><ringGeometry args={[r - w, r + w, 160, 1, start, len]} />
+      <meshBasicMaterial color={c} transparent opacity={o} toneMapped={false} side={THREE.DoubleSide} blending={THREE.AdditiveBlending} depthWrite={false} /></mesh>);
+  return (
+    <group position-y={STAGE_Y}>
+      <mesh material={mat}><cylinderGeometry args={[STAGE_R, STAGE_R - 0.3, 0.26, 64, 1]} /></mesh>
+      <mesh position-y={-1.15} rotation-x={Math.PI} material={mat}><coneGeometry args={[STAGE_R - 0.35, 2.05, 7, 1]} /></mesh>
+      <mesh position-y={-2.5} rotation-x={Math.PI} rotation-y={0.4} material={mat}><coneGeometry args={[0.9, 1.6, 5, 1]} /></mesh>
+      <group position-y={0.135}>
+        {ring(STAGE_R - 0.1, 0.01, [0.4, 1.3, 1.7])}
+        {ring(2.6, 0.012, [1, 0.6, 1.9], 0.8)}
+        {ring(1.75, 0.03, [0.35, 1.2, 1.6], 0.5)}
+        {ring(1.0, 0.012, [1.4, 1.7, 1.9], 0.9)}
+        <group ref={spin}>{[0, 1, 2, 3, 4, 5].map((k) => ring(3.4, 0.03, [0.4, 1.1, 1.6], 0.45, 0.62, (k / 6) * Math.PI * 2))}</group>
+      </group>
+    </group>
+  );
 }
 
-/** Thin tilted ring with a few glowing beads running along it: the "data network" around the world. */
-function DataRing({ r, tilt, spin, beads, reduced }: { r: number; tilt: [number, number]; spin: number; beads: number; reduced: boolean }) {
+const SCREEN_FS = /* glsl */ `uniform float uTime; varying vec2 vUv; varying vec3 vW;
+${HOLO}
+void main() {
+  vec2 uv = vUv; float t = uTime;
+  // flowing aurora: two warped sine fields through the holo palette, with fine vertical light threads
+  float w1 = sin(uv.x * 9.0 + sin(uv.y * 3.1 + t * 0.35) * 2.2 + t * 0.25);
+  float w2 = sin(uv.x * 23.0 - uv.y * 5.0 + sin(uv.x * 4.0 - t * 0.3) * 1.5 - t * 0.4);
+  float glow = pow(0.5 + 0.5 * w1, 3.0) * 0.8 + pow(0.5 + 0.5 * w2, 6.0) * 0.5;
+  float threads = pow(0.5 + 0.5 * sin(uv.x * 260.0 + sin(uv.y * 6.0 + t) * 3.0), 18.0) * 0.35;
+  vec3 c = holo(uv.x * 0.9 + w1 * 0.08 + t * 0.015) * (0.18 + glow * 0.75) + vec3(0.7, 0.9, 1.0) * threads;
+  float a = 0.28 + glow * 0.35;
+  // film-strip borders: a bright band with sprocket holes, top and bottom
+  float band = step(uv.y, 0.075) + step(0.925, uv.y);
+  float by = uv.y < 0.5 ? uv.y / 0.075 : (1.0 - uv.y) / 0.075;
+  float hole = step(0.28, fract(uv.x * 110.0)) * step(fract(uv.x * 110.0), 0.72) * step(0.3, by) * step(by, 0.7);
+  c = mix(c, vec3(0.75, 0.92, 1.0) * 0.85 * (1.0 - hole), band); a = mix(a, 0.8 * (1.0 - hole), band);
+  float edge = smoothstep(0.004, 0.0, min(uv.x, 1.0 - uv.x)) + smoothstep(0.006, 0.0, abs(uv.y - 0.075)) + smoothstep(0.006, 0.0, abs(uv.y - 0.925));
+  c += vec3(1.0, 1.1, 1.2) * edge; a += edge;
+  c *= smoothstep(0.0, 0.06, uv.x) * smoothstep(1.0, 0.94, uv.x) * 0.6 + 0.4;   // ends fade a little
+  c *= 0.9 + 0.1 * sin(vUv.y * 700.0);                                        // scanlines
+  gl_FragColor = vec4(clamp(c, 0.0, 2.5), clamp(a, 0.0, 1.0));
+}`;
+/** The curved holographic screen of light behind the stage (an open cylinder segment). */
+function LightScreen({ reduced }: { reduced: boolean }) {
+  const mat = useShader(SCREEN_FS);
+  useTick(mat, reduced);
+  return <mesh position-y={0.15} material={mat}><cylinderGeometry args={[6.4, 6.4, 4.1, 96, 1, true, Math.PI - 1.2, 2.4]} /></mesh>;
+}
+
+const RAYS_FS = /* glsl */ `uniform float uTime; varying vec2 vUv; varying vec3 vW;
+void main() {
+  vec2 p = (vUv - vec2(0.5, 0.2)) * vec2(1.5, 1.0); float t = uTime;
+  float a = atan(p.x, max(p.y, 1e-3)), r = length(p);
+  float rays = pow(0.5 + 0.5 * sin(a * 26.0 + sin(a * 7.0 + t * 0.25) * 2.0), 3.0) * (0.55 + 0.45 * sin(a * 9.0 - t * 0.18));
+  float f = step(0.0, p.y) * smoothstep(0.0, 0.12, p.y) * exp(-r * 1.6) * smoothstep(1.25, 0.25, abs(a));
+  vec3 c = mix(vec3(0.3, 0.95, 1.0), vec3(0.62, 0.38, 1.0), smoothstep(-0.5, 0.7, a));
+  gl_FragColor = vec4(clamp(c * rays * f * 0.9, 0.0, 2.0), 1.0);
+}`;
+/** Light fanning up from behind the sphere; billboarded so it always reads as volumetric rays. */
+function Rays({ reduced }: { reduced: boolean }) {
+  const mat = useShader(RAYS_FS, {}, { blending: THREE.AdditiveBlending });
+  const ref = useRef<THREE.Mesh>(null);
+  useTick(mat, reduced);
+  useFrame(({ camera }) => { ref.current?.quaternion.copy(camera.quaternion); });
+  return <mesh ref={ref} position={[0, 0.6, -1.8]} material={mat}><planeGeometry args={[18, 12]} /></mesh>;
+}
+
+/** Thin tilted holo ring with a few glowing beads running along it. */
+function DataRing({ r, tilt, spin, beads, reduced, color }: { r: number; tilt: [number, number]; spin: number; beads: number; reduced: boolean; color: string }) {
   const g = useRef<THREE.Group>(null);
   useFrame((_, dt) => { if (g.current && !reduced) g.current.rotation.z += dt * spin; });
   return (
     <group rotation={[tilt[0], tilt[1], 0]}>
       <group ref={g}>
         <mesh>
-          <torusGeometry args={[r, 0.004, 6, 160]} />
-          <meshBasicMaterial color="#ff8fab" transparent opacity={0.35} blending={THREE.AdditiveBlending} depthWrite={false} />
+          <torusGeometry args={[r, 0.005, 6, 192]} />
+          <meshBasicMaterial color={color} transparent opacity={0.55} blending={THREE.AdditiveBlending} depthWrite={false} />
         </mesh>
         {Array.from({ length: beads }, (_, k) => {
           const a = (k / beads) * Math.PI * 2 + r;
           return (
             <mesh key={k} position={[Math.cos(a) * r, Math.sin(a) * r, 0]}>
-              <sphereGeometry args={[0.022, 8, 8]} />
-              <meshBasicMaterial color="#ffd6e0" toneMapped={false} />
+              <sphereGeometry args={[0.024, 8, 8]} />
+              <meshBasicMaterial color={[1.4, 1.8, 2]} toneMapped={false} />
             </mesh>
           );
         })}
@@ -117,40 +180,38 @@ function DataRing({ r, tilt, spin, beads, reduced }: { r: number; tilt: [number,
   );
 }
 
+/** The channel: a liquid-chrome sphere (shared alien material) with a faint iridescent halo and holo rings. */
 function Planet({ reduced }: { reduced: boolean }) {
-  const ref = useRef<THREE.Group>(null);
-  const shell = useRef<THREE.Mesh>(null);
-  const map = useTex(CHERRY);
-  useFrame((_, dt) => {
-    if (reduced) return;
-    if (ref.current) ref.current.rotation.y += dt * 0.05;
-    if (shell.current) shell.current.rotation.y -= dt * 0.08; // holo grid drifts against the surface
-  });
+  const { mat, u } = useLiquidMetal("#cfe6ff", false, PLANET_R);
+  useFrame(({ clock }) => { u.uTime.value = reduced ? 0 : clock.elapsedTime; });
   return (
     <group>
-      <group ref={ref}>
-        <mesh>
-          <sphereGeometry args={[PLANET_R, 96, 96]} />
-          <meshStandardMaterial key={map ? "map" : "plain"} map={map} color={map ? "#ffffff" : "#8a0f2a"} emissive={map ? "#ff4d6d" : "#3a0010"} emissiveMap={map} emissiveIntensity={map ? 0.35 : 0.4} roughness={0.6} metalness={0.15} />
-        </mesh>
-      </group>
-      <mesh ref={shell} scale={1.045}>
-        <icosahedronGeometry args={[PLANET_R, 3]} />
-        <meshBasicMaterial color="#ff4d6d" wireframe transparent opacity={0.07} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </mesh>
-      {/* layered haze: a soft cherry atmosphere without a custom shader */}
-      {[[1.08, 0.16, "#ff2e63"], [1.2, 0.08, "#c9184a"], [1.42, 0.035, "#800f2f"]].map(([s, o, c]) => (
+      <mesh material={mat}><sphereGeometry args={[PLANET_R, 96, 64]} /></mesh>
+      {[[1.1, 0.1, "#38d6ff"], [1.3, 0.05, "#7c4dff"]].map(([s, o, c]) => (
         <mesh key={s as number} scale={s as number}>
-          <sphereGeometry args={[PLANET_R, 48, 48]} />
+          <sphereGeometry args={[PLANET_R, 48, 32]} />
           <meshBasicMaterial color={c as string} transparent opacity={o as number} side={THREE.BackSide} blending={THREE.AdditiveBlending} depthWrite={false} />
         </mesh>
       ))}
-      <DataRing r={PLANET_R * 1.55} tilt={[Math.PI / 2 - 0.3, 0.1]} spin={0.12} beads={5} reduced={reduced} />
-      <DataRing r={PLANET_R * 1.8} tilt={[Math.PI / 2 + 0.55, -0.4]} spin={-0.08} beads={4} reduced={reduced} />
-      <DataRing r={PLANET_R * 1.32} tilt={[0.35, 0.9]} spin={0.16} beads={3} reduced={reduced} />
+      <DataRing r={PLANET_R * 1.55} tilt={[Math.PI / 2 - 0.12, 0.05]} spin={0.12} beads={5} reduced={reduced} color="#7ae3ff" />
+      <DataRing r={PLANET_R * 1.85} tilt={[Math.PI / 2 + 0.18, -0.2]} spin={-0.08} beads={4} reduced={reduced} color="#a78bfa" />
+      <DataRing r={PLANET_R * 2.3} tilt={[Math.PI / 2 - 0.05, 0.3]} spin={0.05} beads={3} reduced={reduced} color="#c9f6ff" />
     </group>
   );
 }
+
+const TILE_FS = /* glsl */ `uniform float uTime; uniform vec3 uColor; uniform float uDim; varying vec2 vUv; varying vec3 vW;
+${HOLO}
+void main() {
+  vec2 e2 = min(vUv, 1.0 - vUv); float e = min(e2.x, e2.y);
+  float frame = smoothstep(0.03, 0.0, e);
+  float corner = step(max(e2.x, e2.y), 0.16) * smoothstep(0.07, 0.0, e);
+  vec3 film = holo(dot(vW, vec3(0.11, 0.17, 0.07)) + vUv.x * 0.3 + uTime * 0.04);
+  float scan = 0.6 + 0.4 * sin(vUv.y * 70.0 - uTime * 2.0);
+  vec3 c = film * 0.42 * scan + uColor * frame * 1.4 + vec3(1.2) * corner;
+  float a = (0.26 + 0.12 * scan + frame * 0.7 + corner) * uDim;
+  gl_FragColor = vec4(clamp(c * uDim, 0.0, 2.5), clamp(a, 0.0, 1.0));
+}`;
 
 function Moons({ moons, selected, ghost, reduced, onPick, onHover }: {
   moons: Moon[]; selected: string | null; ghost: boolean; reduced: boolean;
@@ -164,28 +225,35 @@ function Moons({ moons, selected, ghost, reduced, onPick, onHover }: {
     return g;
   }, [moons]);
   useEffect(() => () => links.dispose(), [links]);
-  const sphere = useMemo(() => new THREE.SphereGeometry(1, 20, 20), []);
+  // Each video is a translucent frame: 16:9 for long-form, 9:16 for Shorts. Three materials (video / Short / taking off).
+  const tiles = useMemo(() => ({ wide: new THREE.PlaneGeometry(1.6, 0.9), tall: new THREE.PlaneGeometry(0.62, 1.1) }), []);
+  useEffect(() => () => { tiles.wide.dispose(); tiles.tall.dispose(); }, [tiles]);
+  const shared = useMemo(() => ({ uTime: { value: 0 }, uDim: { value: 1 } }), []); // one uniform object behind all three materials
+  const wideMat = useShader(TILE_FS, { ...shared, uColor: { value: new THREE.Color(0.45, 0.9, 1.1) } });
+  const tallMat = useShader(TILE_FS, { ...shared, uColor: { value: new THREE.Color(0.85, 0.6, 1.3) } });
+  const hotMat = useShader(TILE_FS, { ...shared, uColor: { value: new THREE.Color(1.6, 1.0, 0.45) } });
   const orbits = useMemo(() => {
     const pos: number[] = [], a = new THREE.Vector3(), b = new THREE.Vector3(), SEG = 96;
     for (const m of moons) for (let s = 0; s < SEG; s++) {
-      orbitPos(a, m.r, m.tilt, (s / SEG) * Math.PI * 2); orbitPos(b, m.r, m.tilt, ((s + 1) / SEG) * Math.PI * 2);
+      orbitPos(a, m.r, m.tilt, (s / SEG) * Math.PI * 2, m.lift); orbitPos(b, m.r, m.tilt, ((s + 1) / SEG) * Math.PI * 2, m.lift);
       pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     return g;
   }, [moons]);
-  useEffect(() => () => sphere.dispose(), [sphere]);
   useEffect(() => () => orbits.dispose(), [orbits]);
 
   useFrame(({ clock, camera }) => {
     const t = reduced ? 0 : clock.elapsedTime;
+    shared.uTime.value = reduced ? 3 : clock.elapsedTime; shared.uDim.value = ghost ? 0.35 : 1;
     const lp = links.attributes.position as THREE.BufferAttribute;
     moons.forEach((m, i) => {
       const el = refs.current[i];
       if (!el) return;
-      orbitPos(el.position, m.r, m.tilt, m.phase + t * speed(m.r));
-      const k = el.position.length() || 1, s = (PLANET_R * 1.1) / k; // line from the haze edge to the moon
+      orbitPos(el.position, m.r, m.tilt, m.phase + t * speed(m.r), m.lift);
+      el.quaternion.copy(camera.quaternion); el.rotateY(Math.sin(m.phase) * 0.5); // face the viewer, each at its own slight angle
+      const k = el.position.length() || 1, s = (PLANET_R * 1.1) / k; // line from the sphere's halo to the frame
       lp.setXYZ(i * 2, el.position.x * s, el.position.y * s, el.position.z * s);
       lp.setXYZ(i * 2 + 1, el.position.x, el.position.y, el.position.z);
     });
@@ -193,28 +261,24 @@ function Moons({ moons, selected, ghost, reduced, onPick, onHover }: {
     const i = moons.findIndex((m) => m.v.id === selected), el = refs.current[i];
     if (ring.current) {
       ring.current.visible = !!el;
-      if (el) { ring.current.position.copy(el.position); ring.current.quaternion.copy(camera.quaternion); ring.current.scale.setScalar(moons[i].size * 1.7); }
+      if (el) { ring.current.position.copy(el.position); ring.current.quaternion.copy(el.quaternion); ring.current.scale.setScalar(moons[i].size * (moons[i].short ? 1.3 : 1.8)); }
     }
   });
 
   const over = (id: string) => (e: ThreeEvent<PointerEvent>) => { e.stopPropagation(); onHover({ id, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }); };
   return (
     <group>
-      <lineSegments geometry={orbits}><lineBasicMaterial color="#ff8fab" transparent opacity={ghost ? 0.04 : 0.08} depthWrite={false} /></lineSegments>
-      <lineSegments geometry={links} frustumCulled={false /* positions change every frame; bounds would go stale */}><lineBasicMaterial color="#ff4d6d" transparent opacity={ghost ? 0.05 : 0.22} blending={THREE.AdditiveBlending} depthWrite={false} /></lineSegments>
+      <lineSegments geometry={orbits}><lineBasicMaterial color="#7ae3ff" transparent opacity={ghost ? 0.025 : 0.045} depthWrite={false} /></lineSegments>
+      <lineSegments geometry={links} frustumCulled={false /* positions change every frame; bounds would go stale */}><lineBasicMaterial color="#a78bfa" transparent opacity={ghost ? 0.05 : 0.2} blending={THREE.AdditiveBlending} depthWrite={false} /></lineSegments>
       {moons.map((m, i) => (
-        <mesh key={m.v.id} ref={(el) => { refs.current[i] = el; }} geometry={sphere} scale={m.size}
+        <mesh key={m.v.id} ref={(el) => { refs.current[i] = el; }} geometry={m.short ? tiles.tall : tiles.wide} material={m.hot ? hotMat : m.short ? tallMat : wideMat} scale={m.size * 1.45}
           onClick={ghost ? undefined : (e) => { e.stopPropagation(); if (e.delta <= 5) onPick(m.v.id); }}
           onPointerOver={ghost ? undefined : over(m.v.id)} onPointerMove={ghost ? undefined : over(m.v.id)}
-          onPointerOut={ghost ? undefined : (e) => onHover({ id: null, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY })}>
-          <meshStandardMaterial
-            color={m.short ? "#ffc2d1" : "#ffe5ec"} roughness={0.35} metalness={0.3} transparent={ghost} opacity={ghost ? 0.18 : 1}
-            emissive={m.hot ? "#ff7a00" : m.short ? "#ff2e63" : "#a4133c"} emissiveIntensity={m.hot ? 1.4 : m.short ? 0.8 : 0.45} />
-        </mesh>
+          onPointerOut={ghost ? undefined : (e) => onHover({ id: null, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY })} />
       ))}
       <mesh ref={ring} visible={false}>
-        <ringGeometry args={[1, 1.12, 48]} />
-        <meshBasicMaterial color="#ffd6e0" transparent opacity={0.9} side={THREE.DoubleSide} depthWrite={false} />
+        <ringGeometry args={[1, 1.04, 4, 1, Math.PI / 4]} />
+        <meshBasicMaterial color={[1.5, 1.9, 2.1]} toneMapped={false} transparent opacity={0.95} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
     </group>
   );
@@ -228,19 +292,19 @@ function Comet({ m, reduced, onPick }: { m: Moon; reduced: boolean; onPick: (id:
   const r = m.r + 0.45, tilt = m.tilt + 0.5;
   useFrame(({ clock }) => {
     const a = m.phase + 1.3 + (reduced ? 0 : clock.elapsedTime * 0.9);
-    if (head.current) orbitPos(head.current.position, r, tilt, a);
-    tail.current.forEach((el, k) => { if (el) orbitPos(el.position, r, tilt, a - (k + 1) * 0.05); });
+    if (head.current) orbitPos(head.current.position, r, tilt, a, m.lift);
+    tail.current.forEach((el, k) => { if (el) orbitPos(el.position, r, tilt, a - (k + 1) * 0.05, m.lift); });
   });
   return (
     <group>
       <mesh ref={head} onClick={(e) => { e.stopPropagation(); onPick(m.v.id); }}>
         <sphereGeometry args={[0.09, 16, 16]} />
-        <meshBasicMaterial color="#fff7ed" />
+        <meshBasicMaterial color={[1.6, 1.9, 2]} toneMapped={false} />
       </mesh>
       {Array.from({ length: TAIL }, (_, k) => (
         <mesh key={k} ref={(el) => { tail.current[k] = el; }} scale={0.08 * (1 - k / TAIL)}>
           <sphereGeometry args={[1, 8, 8]} />
-          <meshBasicMaterial color="#fb923c" transparent opacity={0.85 * (1 - k / TAIL)} blending={THREE.AdditiveBlending} depthWrite={false} />
+          <meshBasicMaterial color="#7ae3ff" transparent opacity={0.85 * (1 - k / TAIL)} blending={THREE.AdditiveBlending} depthWrite={false} />
         </mesh>
       ))}
     </group>
@@ -403,14 +467,17 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
     <>
       <WarmCompile />
       {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
-      <Sky />
+      <color attach="background" args={["#03050b"]} />
+      <StageDeck reduced={reduced} />
+      <LightScreen reduced={reduced} />
+      {q.bloomScale > 0 && <Rays reduced={reduced} />}
       <Stars radius={70} depth={40} count={reduced ? 800 : 2000} factor={2.2} fade speed={reduced ? 0 : 0.35} />
-      <ambientLight intensity={0.35} color="#ffd6e0" />
-      <directionalLight position={[6, 5, 6]} intensity={2} color="#ffe5ec" />
-      <pointLight position={[-5, -1, -4]} intensity={30} color="#ff2e63" distance={20} />
+      <ambientLight intensity={0.3} color="#cfe6ff" />
+      <directionalLight position={[6, 5, 6]} intensity={1.6} color="#e0f2ff" />
+      <pointLight position={[-5, -1, -4]} intensity={30} color="#8b5cf6" distance={20} />
       <Planet reduced={reduced} />
-      {live && <Hologram text={`${compactNumber(live.channel.subs)} SUBSCRIBERS`} position={[0, PLANET_R + 1.05, 0]} size={0.3} color="#7df9ff" reduced={reduced} />}
-      {live && views28 !== null && <Hologram text={`${compactNumber(views28)} VIEWS · 28 DAYS`} position={[0, PLANET_R + 0.62, 0]} size={0.18} color="#ff8fab" reduced={reduced} />}
+      {live && <Hologram text={`${compactNumber(live.channel.subs)} SUBSCRIBERS`} position={[0, PLANET_R + 2.6, 0]} size={0.3} color="#7df9ff" reduced={reduced} />}
+      {live && views28 !== null && <Hologram text={`${compactNumber(views28)} VIEWS · 28 DAYS`} position={[0, PLANET_R + 2.2, 0]} size={0.18} color="#c4b5fd" reduced={reduced} />}
       <Moons moons={moons} selected={selected} ghost={!live} reduced={reduced} onPick={pick} onHover={onHover} />
       {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
       <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
@@ -433,7 +500,6 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
         ? (paused ? null : <StageIn><WorldScene fov={45} position={[0, 4.2, 11]}>{scene}</WorldScene></StageIn>)
         : <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>)}
 
-      <div aria-hidden className="studio-tone pointer-events-none absolute inset-0 z-[1]" />
       <div aria-hidden className="studio-vignette pointer-events-none absolute inset-0 z-[1]" />
 
       {hoverVid && (
