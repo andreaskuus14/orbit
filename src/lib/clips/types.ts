@@ -2,6 +2,7 @@
 import type { Critique } from "./titles";
 import type { HypeView } from "./hype-pure";
 import type { Virality } from "./score-pure";
+import type { HookLab } from "./hooklab-pure";
 export type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 export type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   notes?: string[];
@@ -12,6 +13,7 @@ export type Clip = { id: string; start: number; end: number; title: string; hook
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; // owner's picks: choosing one sets title / thumb (thumbOptions: same path form as thumb)
   critic?: Critique; // title critics' review of titleOptions (critiqueClip in learn.ts)
   variantOf?: string; edit?: VersionEdit; // a "make another version" render: the original clip's id and the settings it was rendered with
+  hookLab?: HookLab; // a "🧪 Hook lab" variant (hooklab-pure.ts): which opening pattern it tests
   virality?: Virality; // personal virality score + the features it was computed from (score-pure.ts); learned from once published
   original?: string }; // owner's note of their own layer (commentary, reaction, analysis); required to publish another creator's clip (publish-checks-pure.ts)
 // unknown: the upload may or may not have reached YouTube; checked against the channel's uploads before a retry is offered.

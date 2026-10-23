@@ -82,6 +82,7 @@ async function resultsTick() {
   if (stopAllOn()) return;
   await import("./flop-retry").then(async (m) => { await m.retryFlops(await load()); await m.reconcileReplacements(); })
     .catch((e) => console.error("[studio-retry]", e instanceof Error ? e.message : String(e)));
+  await import("./hooklab").then((m) => m.recordHookLabs()).catch((e) => console.error("[studio-hooklab]", e instanceof Error ? e.message : String(e)));
 }
 
 /** Stats and review-only retries continue while STUDIO is closed; replacement privacy requires persisted owner consent. */

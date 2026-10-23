@@ -82,7 +82,7 @@ export function hookStyle(hook: string): string {
   return "statement";
 }
 
-const hookLen = (hook: string) => { const n = hook.trim().split(/\s+/).filter(Boolean).length; return n <= 3 ? "1-3" : n <= 6 ? "4-6" : "7+"; };
+export const hookLen = (hook: string) => { const n = hook.trim().split(/\s+/).filter(Boolean).length; return n <= 3 ? "1-3" : n <= 6 ? "4-6" : "7+"; };
 export const lengthBand = (sec: number) => (sec < 20 ? "<20" : sec < 30 ? "20-30" : sec < 40 ? "30-40" : "40+");
 
 const KINDS: [string, RegExp][] = [
