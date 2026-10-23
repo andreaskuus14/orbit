@@ -8,7 +8,7 @@
 // Only the light field is bent (pixels with no depth written: stars, arms, glow): worlds and rings stay sharp and legible
 // where they are, and never leave ghost copies in the light field (owner feedback: ghosts read as glitches).
 import { useEffect, useMemo } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useThree } from "@react-three/fiber";
 import { BlendFunction, Effect, EffectAttribute } from "postprocessing";
 import * as THREE from "three";
 import { coreCalm, coreScale, einsteinRadius } from "@/lib/alien-pure";
@@ -74,6 +74,11 @@ class LensEffect extends Effect {
       ]),
     });
   }
+  /** Set by <Lensing>: fills the uniforms. Runs from update(), i.e. at render time inside the composer, after every
+   *  useFrame (camera rigs included) and after the scene pass refreshed the camera matrices: the lens centre is
+   *  projected with this frame's camera, never last frame's (a one-frame lag put the ring off-centre while moving). */
+  sync: (() => void) | null = null;
+  update() { this.sync?.(); }
 }
 
 /** The lens is a ~4.4 unit point mass at the origin. `disp` turns on the dispersion (3 texture reads instead of 1). */
@@ -82,7 +87,9 @@ export function Lensing({ disp, reduced, exposure = 1 }: { disp: boolean; reduce
   const fx = useMemo(() => new LensEffect(), []);
   useEffect(() => () => fx.dispose(), [fx]);
   const v = useMemo(() => new THREE.Vector3(), []);
-  useFrame(({ camera, clock }) => {
+  const get = useThree((s) => s.get);
+  useEffect(() => { fx.sync = () => {
+    const { camera, clock } = get();
     const u = fx.uniforms, cam = camera as THREE.PerspectiveCamera;
     const dist = camera.position.length();
     v.set(0, 0, 0).project(camera);
@@ -97,6 +104,6 @@ export function Lensing({ disp, reduced, exposure = 1 }: { disp: boolean; reduce
     u.get("uDisp")!.value = disp ? 1 : 0;
     u.get("uTime")!.value = reduced ? 0 : clock.elapsedTime;
     u.get("uCalm")!.value = coreCalm(dist); // overview: subtle lens, thin ring, black shadow; close-up: full drama
-  });
+  }; return () => { fx.sync = null; }; }, [fx, v, get, disp, reduced, exposure]);
   return <primitive object={fx} dispose={null} />;
 }
