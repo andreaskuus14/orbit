@@ -11,7 +11,10 @@ import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import {
   aberrationFor, damp, framePose, HOME_POS, idleDrift, INTRO_SECS, introPose, smoothDamp, stepStop, stepZoom, wheelGate, wheelKick, wheelStep,
 } from "@/lib/cinematic-pure";
+import { expDamp } from "@/lib/smooth-damp-pure";
 import { useScramble } from "./useScramble";
+import { MaskText } from "./MaskText";
+import { preloading } from "./GalaxyLoader";
 
 export type Motion = { speed: number }; // camera speed, fraction of the orbit distance per second (smoothed)
 export const RIM_COLOR = "#8fd3ff"; // the one cold accent
@@ -88,7 +91,7 @@ export function MotionAberration({ motion }: { motion: RefObject<Motion> }) {
 }
 
 /** Fine dust drifting through the system: one draw call, all motion on the GPU, alpha clamped >= 0 (bloom-safe). */
-export function Dust({ count, reduced }: { count: number; reduced: boolean }) {
+export function Dust({ count, reduced, feel }: { count: number; reduced: boolean; feel?: RefObject<Feel> }) {
   const geo = useMemo(() => {
     let seed = 1337;
     const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -109,10 +112,16 @@ export function Dust({ count, reduced }: { count: number; reduced: boolean }) {
   }, [count]);
   const mat = useMemo(() => new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-    uniforms: { uTime: { value: 0 }, uScale: { value: 9 }, uColor: { value: new THREE.Color("#c9d4ee") } }, // pearl, a breath of blue
-    vertexShader: `attribute float aSize; attribute float aPh; uniform float uTime; uniform float uScale; varying float vA;
+    uniforms: { uTime: { value: 0 }, uScale: { value: 9 }, uColor: { value: new THREE.Color("#c9d4ee") }, // pearl, a breath of blue
+      uRayO: { value: new THREE.Vector3() }, uRayD: { value: new THREE.Vector3(0, 0, -1) }, uPush: { value: 0 } },
+    // The pointer parts the dust: motes near the (smoothed) pointer ray slide out sideways, inside a cone that is the
+    // same size on screen at any depth. Points have no model transform, so position is world space.
+    vertexShader: `attribute float aSize; attribute float aPh; uniform float uTime; uniform float uScale; uniform vec3 uRayO; uniform vec3 uRayD; uniform float uPush; varying float vA;
       void main(){ vec3 p = position;
         p += vec3(sin(uTime * 0.03 + aPh * 40.0), sin(uTime * 0.04 + aPh * 23.0) * 0.4, cos(uTime * 0.025 + aPh * 31.0)) * 1.2;
+        vec3 q = p - uRayO; float t = max(dot(q, uRayD), 0.0); vec3 side = q - t * uRayD; float l = length(side);
+        float R = max(0.075 * t, 0.01), f = 1.0 - smoothstep(0.0, R, l);
+        p += side / max(l, 1e-3) * (uPush * f * f * R * 0.6);
         vec4 mv = modelViewMatrix * vec4(p, 1.0); float z = -mv.z;
         vA = smoothstep(2.0, 9.0, z) * (1.0 - smoothstep(45.0, 90.0, z)) * (0.8 + 0.2 * sin(uTime * 0.2 + aPh * 60.0));
         float px = aSize * uScale / max(z, 0.1);
@@ -124,10 +133,70 @@ export function Dust({ count, reduced }: { count: number; reduced: boolean }) {
   }), []);
   useEffect(() => () => { geo.dispose(); mat.dispose(); }, [geo, mat]);
   useFrame(({ clock, gl }) => {
-    mat.uniforms.uTime.value = reduced ? 0 : clock.elapsedTime;
-    mat.uniforms.uScale.value = gl.getPixelRatio() * 9;
+    const u = mat.uniforms, f = feel?.current;
+    u.uTime.value = reduced ? 0 : clock.elapsedTime;
+    u.uScale.value = gl.getPixelRatio() * 9;
+    u.uPush.value = f && !reduced ? f.on : 0;
+    if (f && f.on > 0) { u.uRayO.value.copy(f.origin); u.uRayD.value.copy(f.dir); }
   });
   return count > 0 ? <points geometry={geo} material={mat} /> : null;
+}
+
+/** The pointer as the galaxy feels it: NDC eased with inertia (x, y), presence 0..1 (on) and the world ray through the
+ *  eased point (origin, dir). Mouse/pen only: touch never drives it. Written once per frame; dust, worlds and camera read it. */
+export type Feel = { x: number; y: number; on: number; origin: THREE.Vector3; dir: THREE.Vector3 };
+export const newFeel = (): Feel => ({ x: 0, y: 0, on: 0, origin: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, -1) });
+
+export function PointerFeel({ feel, enabled }: { feel: RefObject<Feel>; enabled: boolean }) {
+  const camera = useThree((s) => s.camera);
+  const st = useRef({ x: 0, y: 0, inside: false });
+  useEffect(() => {
+    if (!enabled) return;
+    const s = st.current;
+    const move = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      s.x = (e.clientX / innerWidth) * 2 - 1; s.y = 1 - (e.clientY / innerHeight) * 2; s.inside = true;
+    };
+    const leave = (e: PointerEvent) => { if (!e.relatedTarget) s.inside = false; };
+    const blur = () => { s.inside = false; };
+    addEventListener("pointermove", move, { passive: true });
+    document.addEventListener("pointerout", leave);
+    addEventListener("blur", blur);
+    return () => { removeEventListener("pointermove", move); document.removeEventListener("pointerout", leave); removeEventListener("blur", blur); s.inside = false; };
+  }, [enabled]);
+  useFrame((_, dt) => {
+    const f = feel.current, s = st.current, live = enabled && s.inside;
+    f.x = expDamp(f.x, live ? s.x : 0, 0.3, dt);
+    f.y = expDamp(f.y, live ? s.y : 0, 0.3, dt);
+    f.on = expDamp(f.on, live ? 1 : 0, 0.45, dt);
+    if (f.on < 1e-3) { f.on = 0; return; }
+    f.origin.copy(camera.position);
+    f.dir.set(f.x, f.y, 0.5).unproject(camera).sub(camera.position);
+    const l = f.dir.length();
+    if (Number.isFinite(l) && l > 1e-6) f.dir.multiplyScalar(1 / l); else f.dir.set(0, 0, -1);
+  });
+  return null;
+}
+
+/** A small camera parallax toward the pointer. The offset is a pure translation in the camera's own plane, added after
+ *  every rig has placed the camera and taken off again before OrbitControls runs (priority -2), so no rig ever sees it
+ *  and it can't accumulate. Mount it after the rigs: the same priority runs in mount order. */
+export function Parallax({ feel, on }: { feel: RefObject<Feel>; on: boolean }) {
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3 } | null;
+  const applied = useMemo(() => new THREE.Vector3(), []);
+  const axis = useMemo(() => new THREE.Vector3(), []);
+  useFrame(() => { camera.position.sub(applied); applied.set(0, 0, 0); }, -2);
+  useFrame(() => {
+    const f = feel.current;
+    if (!on || f.on <= 0) return;
+    const k = 0.012 * f.on * (controls ? camera.position.distanceTo(controls.target) : camera.position.length());
+    applied.copy(axis.setFromMatrixColumn(camera.matrixWorld, 0)).multiplyScalar(f.x * k);
+    applied.addScaledVector(axis.setFromMatrixColumn(camera.matrixWorld, 1), f.y * k);
+    if (Number.isFinite(applied.x + applied.y + applied.z)) camera.position.add(applied); else applied.set(0, 0, 0);
+  });
+  useEffect(() => () => { camera.position.sub(applied); applied.set(0, 0, 0); }, [camera, applied]);
+  return null;
 }
 
 /** Fresnel rim light injected into a MeshStandardMaterial (textures, bump and lighting untouched).
@@ -313,7 +382,7 @@ export function StoryRig({ story, positions, sizes, selected, intro, onIntroEnd,
     if (!controls || !S.owns) return;
     const cam = camera.position, tgt = controls.target;
     if (s.mode === "intro") {
-      const step = Math.min(Math.max(0, dt), 0.05); // a shader-compile hitch must not eat the flight
+      const step = preloading() ? 0 : Math.min(Math.max(0, dt), 0.05); // a compile hitch must not eat the flight; the first-load counter holds it at the start
       s.t = Math.min(1, s.t + step / INTRO_SECS);
       S.intro = s.t;
       introPose(s.t, P);
@@ -367,14 +436,14 @@ export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boo
   const [shown, setShown] = useState<number>(intro ? -2 : -1);
   useEffect(() => { if (live !== null) setShown(live); }, [live]); // keep the last card while it fades out
   const p = shown >= 0 ? PLANETS[shown] : null;
-  const name = useScramble(p ? p.name : shown === -2 ? "ORBITAL" : "", shown === -2 ? 2600 : 650);
+  const introName = useScramble(shown === -2 ? "ORBITAL" : "", 2600);
   if (shown === -1) return <div className="story-readout" />;
   return (
     <div className={`story-readout${live !== null ? " on" : ""}`} aria-hidden={live === null || undefined}>
       <div key={p?.id ?? "intro"} className="story-anim">
         <div className="story-idx" aria-hidden><b>{pad(p ? shown + 1 : 0)}</b> / {pad(PLANETS.length)}</div>
-        {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={live !== null ? 0 : -1}>{name}</button>
-          : <div className="story-name" aria-hidden>{name}</div>}
+        {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={live !== null ? 0 : -1}><MaskText text={p.name} /></button>
+          : <div className="story-name" aria-hidden>{introName}</div>}
         <p className="story-line">{p ? p.blurb : "Your mind has a universe."}</p>
         <p className="story-hint" aria-hidden>{p ? "CLICK OR ENTER TO OPEN · SCROLL TO TRAVEL" : "SCROLL TO EXPLORE"}</p>
       </div>

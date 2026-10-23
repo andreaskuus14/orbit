@@ -3,6 +3,7 @@
 // Once per browser session; skipped with reduced motion. Pure CSS + useScramble: nothing here waits on three.js.
 import { useEffect, useState } from "react";
 import { useScramble } from "./useScramble";
+import { afterPreload } from "./GalaxyLoader";
 
 const KEY = "orbit.booted", MS = 2600;
 
@@ -12,9 +13,9 @@ export function BootSequence({ reduced }: { reduced: boolean }) {
     let seen = true;
     try { seen = sessionStorage.getItem(KEY) === "1"; sessionStorage.setItem(KEY, "1"); } catch { /* storage off: play it */ seen = false; }
     if (seen || reduced) return;
-    setOn(true);
-    const t = setTimeout(() => setOn(false), MS);
-    return () => clearTimeout(t);
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const off = afterPreload(() => { setOn(true); t = setTimeout(() => setOn(false), MS); }); // after the first-load counter's reveal
+    return () => { off(); clearTimeout(t); };
   }, [reduced]);
   const title = useScramble("ORBITAL // CORE ONLINE", 1100, on ? 1 : 0);
   const sub = useScramble(new Date().getHours() < 12 ? "GOOD MORNING" : new Date().getHours() < 18 ? "GOOD AFTERNOON" : "GOOD EVENING", 900, on ? 1 : 0);

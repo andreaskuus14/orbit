@@ -1,9 +1,9 @@
 // Pure maths behind the galaxy's cinematic feel: damped zoom inertia, idle drift, motion → chromatic aberration,
 // and the HUD's text-scramble reveal. No three.js / DOM, so it runs under node --test.
+import { expDamp } from "./smooth-damp-pure.ts";
 
-/** Frame-rate independent exponential approach (same curve as THREE.MathUtils.damp). */
-export const damp = (cur: number, target: number, lambda: number, dt: number) =>
-  target + (cur - target) * Math.exp(-lambda * Math.max(0, dt));
+/** Frame-rate independent exponential approach, rate form (lambda = 1 / tau) of the house glide. */
+export const damp = (cur: number, target: number, lambda: number, dt: number) => expDamp(cur, target, 1 / lambda, dt);
 
 /** One wheel event → a velocity kick on log(distance) per second. Normalises pixel/line/page deltas and caps
  *  big trackpad flings so one swipe can't teleport the camera. Positive = zoom out (wheel down). */

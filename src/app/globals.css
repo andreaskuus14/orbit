@@ -16,6 +16,8 @@
   --mint: #6ee7b7;
   --font-display: var(--font-rajdhani), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", Consolas, monospace;
+  /* The house glide (expDamp in lib/smooth-damp-pure) sampled for CSS: 1 - e^(-5t), normalised. No overshoot. */
+  --ease-glide: linear(0, 0.27, 0.468, 0.613, 0.718, 0.796, 0.852, 0.894, 0.924, 0.946, 0.963, 0.974, 0.983, 0.989, 0.994, 0.998, 1);
 }
 
 html, body { background: var(--bg); color: var(--ink); }
@@ -55,7 +57,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.13); border-radius: 20px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(125, 211, 252, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.25), 0 18px 48px rgba(0, 0, 0, 0.5);
 }
-.drawer { position: absolute; z-index: 20; top: 4.5rem; right: 0.75rem; bottom: 5.5rem; width: min(30rem, calc(100vw - 1.5rem)); padding: 1rem; display: flex; flex-direction: column; animation: slide-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.drawer { position: absolute; z-index: 20; top: 4.5rem; right: 0.75rem; bottom: 5.5rem; width: min(30rem, calc(100vw - 1.5rem)); padding: 1rem; display: flex; flex-direction: column; animation: slide-in 0.45s var(--ease-glide); }
 .drawer h2.brand { font-size: 1rem; }
 .drawer > .overflow-y-auto { overflow-x: hidden; }
 .cmdbar { position: absolute; z-index: 30; left: 50%; bottom: 1rem; transform: translateX(-50%); width: min(42rem, calc(100vw - 1.5rem)); padding: 0.45rem; border-radius: 999px; }
@@ -493,8 +495,8 @@ kbd { font-family: var(--font-mono); font-size: 0.68rem; padding: 0.05rem 0.4rem
 .keys-list dd { color: #cbd5e1; }
 
 /* Panels: drawer slides out the way it came in; HUD cards fade up. */
-.drawer.drawer-out { animation: slide-out 0.2s ease-in forwards; pointer-events: none; }
-.status-hud { animation: panel-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.drawer.drawer-out { animation: slide-out 0.2s var(--ease-glide) forwards; pointer-events: none; }
+.status-hud { animation: panel-in 0.4s var(--ease-glide); }
 @keyframes slide-out { to { opacity: 0; transform: translateX(16px); } }
 @keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
 
@@ -508,6 +510,26 @@ kbd { font-family: var(--font-mono); font-size: 0.68rem; padding: 0.05rem 0.4rem
 .galaxy-loader-orb i:nth-child(2) { inset: 14%; animation-duration: 1.7s; animation-direction: reverse; border-top-color: #c084fc; }
 .galaxy-loader-orb i:nth-child(3) { inset: -16%; animation-duration: 3.6s; border-color: rgba(216, 180, 254, 0.12); border-top-color: rgba(255, 107, 154, 0.6); }
 @keyframes orbit-spin { to { transform: rotate(360deg); } }
+/* First-load preloader (GalaxyLoader Counter): glyph, word and a 000-100 count; at 100 each slides up out of its mask. */
+.preloader { background: var(--bg); transition: opacity 0.6s var(--ease-glide) 0.3s, visibility 0s 0.9s; }
+.preloader-row { display: flex; align-items: center; gap: 0.9rem; font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.32em; color: #dfe6f5; }
+.preloader-mask { display: inline-block; overflow: hidden; line-height: 1; padding: 0.1em 0; }
+.preloader-mask > * { display: inline-block; transition: transform 0.4s var(--ease-glide); }
+.preloader-mask:nth-child(2) > * { transition-delay: 0.04s; } .preloader-mask:nth-child(3) > * { transition-delay: 0.08s; }
+.preloader.done .preloader-mask > * { transform: translateY(-110%); }
+.preloader-glyph { width: 18px; height: 18px; fill: none; stroke: #dfe6f5; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.preloader-glyph circle:nth-child(n+2) { fill: #dfe6f5; stroke: none; }
+.preloader-word { color: rgba(223, 230, 245, 0.55); }
+.preloader-num { min-width: 3ch; font-variant-numeric: tabular-nums; }
+/* Masked text reveal (MaskText): each word rises through its own clip, 45 ms apart. */
+.mask-word { display: inline-block; overflow: hidden; vertical-align: top; padding-bottom: 0.1em; margin-bottom: -0.1em; }
+.mask-word > span { display: inline-block; animation: mask-up 0.38s var(--ease-glide) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes mask-up { from { transform: translateY(105%); } }
+/* Decorative cursor ring (CursorRing): fine pointers only; the native cursor stays. */
+.cursor-ring { position: fixed; left: 0; top: 0; z-index: 90; width: 22px; height: 22px; border: 1px solid rgba(226, 234, 246, 0.55); border-radius: 50%; pointer-events: none; opacity: 0; will-change: transform; }
+.cursor-ring-label { position: absolute; left: 100%; top: 50%; margin-left: 8px; transform: translateY(-50%); font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.24em; color: rgba(226, 234, 246, 0.8); white-space: nowrap; text-shadow: 0 0 6px #000; }
+@media (pointer: coarse) { .cursor-ring { display: none; } }
+@media (pointer: fine) { .drag-handle { cursor: grab; user-select: none; } .drag-handle:active { cursor: grabbing; } }
 .galaxy-loader-code { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.3em; color: #b9dcff; min-height: 1em; }
 @media (prefers-reduced-motion: reduce) {
   .galaxy-loader.done { transition: none; }
@@ -631,7 +653,7 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
 .story-readout { position: absolute; left: clamp(1rem, 3vw, 2.5rem); bottom: 7rem; z-index: 16; pointer-events: none; max-width: min(36rem, calc(100vw - 2rem));
   opacity: 0; transform: translateY(14px); transition: opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .story-readout.on { opacity: 1; transform: none; }
-.story-anim { animation: story-up 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.story-anim { animation: story-up 0.9s var(--ease-glide) both; }
 .story-idx { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.32em; color: rgba(186, 214, 255, 0.55); }
 .story-idx b { color: #8fd3ff; font-weight: 500; }
 .story-name { display: block; margin: 0.4rem 0 0.7rem; padding: 0; border: 0; background: none; color: #eef5ff; text-align: left; cursor: pointer; pointer-events: auto;
