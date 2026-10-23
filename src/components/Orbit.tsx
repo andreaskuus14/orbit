@@ -25,6 +25,7 @@ import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
 import { WeeklyCard } from "./WeeklyCard";
+import { MissionControl } from "./MissionControl";
 import { StatusRail } from "./StatusRail";
 import { Ticker } from "./Ticker";
 import { WarpOverlay } from "./WarpOverlay";
@@ -334,6 +335,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if (t.continueWork) { setWorkOpen(true); return; }
       setWorkOpen(false);
       if (t.zoom) return; // ZoomRig in the canvas on screen handles it
+      if (t.mission) return; // MissionControl opens itself over whatever is on screen
       if (t.doctor) { setDoctor("nav"); return; } // opens over whatever is on screen
       if (t.country || t.region || t.search !== undefined) setNewsFocus({ country: t.country, region: t.region, search: t.search });
       if (t.view) setStudioOpen({ view: t.view });
@@ -473,12 +475,14 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           ))}
         </div>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => living.setOpen(true)}>Time travel</button>
+        <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, mission: true } }))}>Mission control</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(SHORTCUTS_EVENT))}>Keyboard shortcuts <kbd>?</kbd></button>
         <button className="hud-menu-item" aria-pressed={sfxOn} onClick={() => { sfx.set(!sfxOn); setSfxOn(!sfxOn); if (!sfxOn) sfx.tick(); }}>UI sounds: {sfxOn ? "on" : "off"}</button>
         <button className="hud-menu-item" onClick={signOut} title={email}>Sign out</button>
       </div>
       <ShortcutsOverlay />
       <Terminal />
+      <MissionControl />
       <CommandPalette />
       <LifeReminders />
       <MarketWatcher />

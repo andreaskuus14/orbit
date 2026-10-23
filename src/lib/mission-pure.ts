@@ -64,3 +64,62 @@ export function move<T>(list: T[], i: number, dir: -1 | 1): T[] {
   [next[i], next[j]] = [next[j], next[i]];
   return next;
 }
+
+// ── Bridge overlay (components/MissionControl.tsx): API bodies are untrusted JSON, so every reader tolerates junk. ──
+const o = (x: unknown): Record<string, unknown> => (x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {});
+const arr = (x: unknown) => (Array.isArray(x) ? x.map(o) : []);
+const s = (x: unknown) => (typeof x === "string" ? x : "");
+const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+const p2 = (v: number) => String(v).padStart(2, "0");
+
+/** ms → "04:05" / "1:02:03" / "2d 03:04"; negative or bad → "00:00". */
+export function clockDur(ms: number): string {
+  const t = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0, d = Math.floor(t / 86400), h = Math.floor(t / 3600) % 24, m = Math.floor(t / 60) % 60;
+  return d ? `${d}d ${p2(h)}:${p2(m)}` : h ? `${h}:${p2(m)}:${p2(t % 60)}` : `${p2(m)}:${p2(t % 60)}`;
+}
+
+/** Time until an ISO date: "T−01:02:03"; "T−0" once due; "" for a bad date. */
+export function countdown(iso: string | null | undefined, now: number): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? (t <= now ? "T−0" : `T−${clockDur(t - now)}`) : "";
+}
+
+/** used / limit as a whole 0-100 percentage; 0 when there is no limit. */
+export const usagePct = (used: number, limit: number) => (limit > 0 && Number.isFinite(used) ? Math.min(100, Math.max(0, Math.round((used / limit) * 100))) : 0);
+
+export type BridgeTask = { id: string; agent: string; title: string; step: string; steps: number; elapsed: string };
+/** /api/tasks → running tasks with their latest trace step and time since start. */
+export function bridgeTasks(body: unknown, now: number): BridgeTask[] {
+  return arr(o(body).tasks).filter((t) => t.status === "running").map((t) => {
+    const trace = arr(t.trace), last = trace[trace.length - 1];
+    const started = Date.parse(s(t.started_at) || s(t.created_at));
+    return { id: s(t.id), agent: s(t.agent), title: s(t.title), steps: trace.length, step: last ? s(last.step).replace(/_/g, " ") : "starting",
+      elapsed: Number.isFinite(started) ? clockDur(now - started) : "--:--" };
+  });
+}
+
+export type Waiting = { id: string; title: string; where: "operations" | "agents" };
+/** Tasks awaiting approval (approved in OPERATIONS) + pending proposals (approved in AGENTS). Read-only: never approves. */
+export function bridgeApprovals(tasks: unknown, proposals: unknown): Waiting[] {
+  return [...arr(o(tasks).tasks).filter((t) => t.status === "awaiting_approval").map((t) => ({ id: s(t.id), title: s(t.title) || "Task", where: "operations" as const })),
+    ...arr(o(proposals).proposals).filter((p) => p.status === "pending").map((p) => ({ id: s(p.id), title: s(p.title) || "Proposal", where: "agents" as const }))];
+}
+
+export type BridgeStudio = { jobs: { id: string; name: string; step: string; pct: number }[]; next: { title: string; at: string } | null; scheduled: number };
+/** /api/studio/clips → unfinished jobs (and done jobs re-rendering a clip) + the soonest scheduled Short. */
+export function bridgeStudio(body: unknown, now: number): BridgeStudio {
+  const jobs = arr(o(body).jobs), live: BridgeStudio["jobs"] = [];
+  let next: BridgeStudio["next"] = null, scheduled = 0;
+  for (const j of jobs) {
+    const clips = arr(j.clips);
+    if (!["done", "failed"].includes(s(j.status)) || clips.some((c) => c.status === "rendering"))
+      live.push({ id: s(j.id), name: s(j.source), step: s(j.step) || s(j.status), pct: usagePct(n(j.progress), 1) }); // progress is a 0-1 fraction
+    for (const c of clips) {
+      const pub = o(c.publish), at = Date.parse(s(pub.scheduledFor));
+      if (pub.status !== "scheduled" || !(at > now)) continue;
+      scheduled++;
+      if (!next || at < Date.parse(next.at)) next = { title: s(pub.title) || s(c.title), at: s(pub.scheduledFor) };
+    }
+  }
+  return { jobs: live, next, scheduled };
+}

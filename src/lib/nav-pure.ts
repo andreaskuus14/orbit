@@ -10,6 +10,7 @@ import { planetById, type PanelId } from "./planets.ts";
 export type NavTarget = {
   panel: PanelId | null; country?: string; region?: string; view?: "stats" | "clips" | "review" | "none";
   search?: string; zoom?: "in" | "out" | "reset"; morning?: true; weekly?: true; // weekly: the Sunday review card, read aloud. morning: open the "Good morning" card on the galaxy and read it aloud
+  mission?: true; // mission: the full-screen "bridge" overlay (MissionControl.tsx) over whatever is on screen
   doctor?: true; // doctor: open the ORBIT doctor (health checks) and read the result aloud; stays where you are
   beliefs?: true; // beliefs: MEMORY opens "What ORBIT believes"
   stopAll?: true; voice?: boolean; // direct actions: stay in the current world; voice sets output on/off
@@ -32,6 +33,7 @@ command({ voice: false }, "mute, vaigista");
 command({ voice: true }, "unmute, lülita heli sisse");
 command({ morning: true }, "status report, olukord");
 command({ weekly: true }, "weekly review, my week, how was my week, nädala ülevaade");
+command({ mission: true }, "mission control, bridge, the bridge, open mission control, open the bridge, missioonijuhtimine");
 command({ continueWork: true }, "show my work, continue my work, näita minu tööd, jätka minu tööd");
 command({}, "back, galaxy, tagasi, galaktika");
 
@@ -199,6 +201,7 @@ export function navLabel(t: NavTarget): string {
   if (t.stopAll) return "Stop-all";
   if (t.voice !== undefined) return "voice output";
   if (t.continueWork) return "Continue my work";
+  if (t.mission) return "Mission control";
   if (t.morning) return "your morning briefing";
   if (t.doctor) return "the ORBIT doctor";
   if (t.beliefs) return "what ORBIT believes";
@@ -211,6 +214,7 @@ export const navReply = (t: NavTarget) =>
   t.stopAll ? "Stop-all is on; background work is paused."
     : t.voice !== undefined ? (t.voice ? "Voice output on." : "Voice output muted.")
     : t.continueWork ? "Here's your unfinished work."
+    : t.mission ? "Mission control is up."
     : t.morning ? "Here's your morning briefing."
     : t.doctor ? "Checking everything. One moment."
     : t.beliefs ? "Here's what I know about you."

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { beamPairs, chainActive, checkTeam, excerpt, move, timeAgo, traceLines } from "../src/lib/mission-pure.ts";
+import { beamPairs, bridgeApprovals, bridgeStudio, bridgeTasks, chainActive, checkTeam, clockDur, countdown, excerpt, move, timeAgo, traceLines, usagePct } from "../src/lib/mission-pure.ts";
 
 const NOW = Date.parse("2026-10-16T12:00:00Z");
 const at = (sec: number) => new Date(NOW - sec * 1000).toISOString();
@@ -58,4 +58,50 @@ test("move reorders within bounds only", () => {
   const a = [1, 2];
   assert.equal(move(a, 0, -1), a);
   assert.equal(move(a, 1, 1), a);
+});
+
+test("bridge formatting: clockDur, countdown, usagePct", () => {
+  assert.equal(clockDur(65_000), "01:05");
+  assert.equal(clockDur(3_723_000), "1:02:03");
+  assert.equal(clockDur(2 * 86_400_000 + 3 * 3_600_000 + 4 * 60_000), "2d 03:04");
+  assert.equal(clockDur(-5), "00:00");
+  assert.equal(clockDur(NaN), "00:00");
+  assert.equal(countdown(new Date(NOW + 90_000).toISOString(), NOW), "T−01:30");
+  assert.equal(countdown(at(5), NOW), "T−0");
+  assert.equal(countdown("nope", NOW), "");
+  assert.equal(countdown(null, NOW), "");
+  assert.equal(usagePct(30, 150), 20);
+  assert.equal(usagePct(400, 150), 100);
+  assert.equal(usagePct(5, 0), 0);
+  assert.equal(usagePct(NaN, 10), 0);
+});
+
+test("bridgeTasks / bridgeApprovals read untrusted bodies", () => {
+  const tasks = { tasks: [
+    { id: "a", agent: "nova", title: "Research", status: "running", started_at: at(125), trace: [{ step: "web_search" }, { step: "read_page" }] },
+    { id: "b", agent: "forge", title: "Fix", status: "awaiting_approval" },
+    { id: "c", status: "running", trace: "junk" }, { id: "d", status: "done" }, null,
+  ] };
+  assert.deepEqual(bridgeTasks(tasks, NOW), [
+    { id: "a", agent: "nova", title: "Research", steps: 2, step: "read page", elapsed: "02:05" },
+    { id: "c", agent: "", title: "", steps: 0, step: "starting", elapsed: "--:--" },
+  ]);
+  assert.deepEqual(bridgeTasks(null, NOW), []);
+  assert.deepEqual(bridgeApprovals(tasks, { proposals: [{ id: "p", title: "Post", status: "pending" }, { id: "q", status: "approved" }] }),
+    [{ id: "b", title: "Fix", where: "operations" }, { id: "p", title: "Post", where: "agents" }]);
+  assert.deepEqual(bridgeApprovals({ error: "x" }, "junk"), []);
+});
+
+test("bridgeStudio: live jobs and the soonest future scheduled Short", () => {
+  const sched = (title: string, sec: number) => ({ title, status: "approved", publish: { status: "scheduled", scheduledFor: new Date(NOW + sec * 1000).toISOString() } });
+  const body = { jobs: [
+    { id: "j1", source: "vod.mp4", status: "rendering", progress: 0.42, step: "Rendering 2/5", clips: [] },
+    { id: "j2", source: "old.mp4", status: "done", progress: 1, clips: [sched("Later", 7200), sched("Soon", 600), sched("Past", -60), { status: "rendering" }] },
+    { id: "j3", status: "failed", clips: [] },
+  ] };
+  const r = bridgeStudio(body, NOW);
+  assert.deepEqual(r.jobs, [{ id: "j1", name: "vod.mp4", step: "Rendering 2/5", pct: 42 }, { id: "j2", name: "old.mp4", step: "done", pct: 100 }]);
+  assert.equal(r.next?.title, "Soon");
+  assert.equal(r.scheduled, 2);
+  assert.deepEqual(bridgeStudio(undefined, NOW), { jobs: [], next: null, scheduled: 0 });
 });
