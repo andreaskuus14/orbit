@@ -29,17 +29,17 @@ void place(out float pulse, out float glow, out vec4 mv) {
   float d = aPair.z > 0.5 ? t - hd : hd - t; // distance behind the head
   pulse = d >= 0.0 ? exp(-d * 30.0) : exp(-d * d * 9000.0);
   mv = modelViewMatrix * vec4(p, 1.0);
-  vC = mix(holo(t * 0.6 + aPair.z + uTime * 0.03), vec3(1.0), pulse * 0.7);
+  vC = mix(mix(vec3(0.42, 0.48, 0.95), vec3(0.8, 0.86, 1.0), t), vec3(1.0), pulse * 0.6) + holo(t * 0.6 + aPair.z) * glow * 0.4; // calm indigo-pearl; an event tints it
 }`;
 
 const LINE_VS = head + /* glsl */ `void main(){ float pulse, glow; vec4 mv; place(pulse, glow, mv);
-  vA = 0.05 + 0.12 * glow + pulse * (1.0 + glow); gl_Position = projectionMatrix * mv; }`;
+  vA = (0.014 + 0.1 * glow + pulse * (0.35 + 0.6 * glow)) * (0.3 + 0.7 * smoothstep(4.0, 30.0, -mv.z)); /* near the camera a hairline crosses the whole frame: fainter */ gl_Position = projectionMatrix * mv; }`;
 const DOT_VS = head + /* glsl */ `void main(){ float pulse, glow; vec4 mv; place(pulse, glow, mv);
-  vA = pulse; gl_PointSize = pulse > 0.05 ? clamp(uScale * 1.6 * pulse / max(-mv.z, 0.1), 2.0, 18.0) : 0.0; /* data packets: never sub-pixel */ gl_Position = projectionMatrix * mv; }`;
-const LINE_FS = /* glsl */ `varying vec3 vC; varying float vA; void main(){ gl_FragColor = vec4(clamp(vC, 0.0, 1.0) * 1.6, clamp(vA, 0.0, 1.0)); }`;
+  vA = pulse * (0.5 + 0.5 * glow); gl_PointSize = pulse > 0.05 ? clamp(uScale * 1.2 * pulse / max(-mv.z, 0.1), 2.0, 10.0) : 0.0; /* data packets: never sub-pixel */ gl_Position = projectionMatrix * mv; }`;
+const LINE_FS = /* glsl */ `varying vec3 vC; varying float vA; void main(){ gl_FragColor = vec4(clamp(vC, 0.0, 1.0), clamp(vA, 0.0, 1.0)); }`;
 const DOT_FS = /* glsl */ `varying vec3 vC; varying float vA;
   void main(){ vec2 d = gl_PointCoord - 0.5; float a = max(1.0 - dot(d, d) * 4.0, 0.0);
-    gl_FragColor = vec4(clamp(vC, 0.0, 1.0) * 3.2, clamp(a * a * vA, 0.0, 1.0)); }`;
+    gl_FragColor = vec4(clamp(vC, 0.0, 1.0) * 1.4, clamp(a * a * vA, 0.0, 1.0)); }`;
 
 export function Filaments({ positions, pulses, reduced }: { positions: Record<string, THREE.Vector3>; pulses: RefObject<Record<string, number>>; reduced: boolean }) {
   const { line, dots } = useMemo(() => {

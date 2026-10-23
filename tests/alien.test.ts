@@ -61,3 +61,18 @@ test("alien: the core calms from close-up to the overview", () => {
   assert.ok(coreCalm(25) > 0 && coreCalm(25) < 1 && coreCalm(20) < coreCalm(30));
   for (const x of [NaN, -1, Infinity]) assert.ok(Number.isFinite(coreCalm(x)));
 });
+
+import { boostCap, coreScale, spriteCoverage } from "../src/lib/alien-pure.ts";
+test("alien: the CORE shrinks at the overview, worlds stay clear of it, sprites never go sub-pixel", () => {
+  assert.equal(coreScale(5), 1);
+  assert.ok(Math.abs(coreScale(47) - 0.62) < 1e-9);
+  for (const x of [NaN, -1, Infinity]) assert.ok(Number.isFinite(coreScale(x)));
+  assert.ok(0.75 * boostCap(0.75, 4.6, 2.6) <= (4.6 - 2.6) / 2 + 1e-9 || boostCap(0.75, 4.6, 2.6) === 1);
+  assert.equal(boostCap(0.75, 3, 4), 1); // inside the core: never shrinks below true size
+  assert.equal(boostCap(0.5, 51, 2.6), 2.6);
+  assert.ok(Number.isFinite(boostCap(NaN, NaN, NaN)));
+  assert.deepEqual(spriteCoverage(3), [3, 1]);
+  const [s, a] = spriteCoverage(0.75);
+  assert.equal(s, 1.5); assert.ok(Math.abs(a - 0.25) < 1e-9);
+  assert.deepEqual(spriteCoverage(NaN), [1.5, 0]);
+});

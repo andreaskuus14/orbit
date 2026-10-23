@@ -10,7 +10,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { HOLO, useAlienEnv } from "./env";
 import { Fractal } from "./Fractal";
-import { coreCalm, tesseractAngle } from "@/lib/alien-pure";
+import { coreCalm, coreScale, tesseractAngle } from "@/lib/alien-pure";
 import type { CoreLive } from "../ParticleCore";
 
 const finite = (x: number, lo = 0, hi = 1) => (Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : lo);
@@ -35,7 +35,7 @@ void main() {
              + 0.6 * pow(0.5 + 0.5 * sin(a * 23.0 - t * 0.09 + sin(a * 3.0 + t * 0.13) * 2.4), 18.0);
   rays *= exp(-r * 9.0) * (1.0 - smoothstep(0.3, 0.8, r)) * uRays * 0.1;
   vec3 c = vec3(1.0, 0.98, 0.95) * (core + ring) + mix(vec3(0.85, 0.92, 1.0), holo(a * 0.159 + r + t * 0.02), 0.2) * rays;
-  gl_FragColor = vec4(clamp(c * uGain, 0.0, 12.0), 1.0);
+  gl_FragColor = vec4(clamp(c * uGain, 0.0, 4.0), 1.0);
 }`;
 
 /* ---------- accretion disk: polar light trails, faster near the centre (Kepler-ish) ---------- */
@@ -53,28 +53,31 @@ void main() {
   float fall = smoothstep(0.0, 0.08, x) * pow(max(1.0 - x, 0.0), 1.6);
   vec3 hot = vec3(1.0, 0.96, 0.9) * 1.25, cool = holo(x * 0.9 + a * 0.08 + 0.45) * 1.0; // the lens wraps this disk into the ring: keep it from blowing out
   vec3 c = mix(hot, cool, smoothstep(0.0, 0.4, x)) * (0.05 + s1 * 0.9 + s2 * 0.6 + s3 * 0.8) * fall;
-  gl_FragColor = vec4(clamp(c * uGain, 0.0, 8.0), 1.0);
+  gl_FragColor = vec4(clamp(c * uGain, 0.0, 2.0), 1.0);
 }`;
 
 /* ---------- obsidian rings: physical material + glyph emission injected ---------- */
 const RINGS = [ // radius, blade height, tilt, spin axis speed, precession speed, w (4th coordinate)
-  { r: 2.15, h: 0.07, tilt: [1.1, 0.2, 0], spin: 0.21, pre: 0.05, w: 2.2 },
-  { r: 2.7, h: 0.11, tilt: [-0.5, 0.9, 0.3], spin: -0.13, pre: -0.035, w: -2.2 },
-  { r: 3.25, h: 0.09, tilt: [0.25, -0.4, 1.2], spin: 0.09, pre: 0.025, w: 1.3 },
-  { r: 3.8, h: 0.15, tilt: [1.57, 0, 0.15], spin: -0.05, pre: 0.018, w: -1.3 },
+  { r: 2.1, h: 0.07, tilt: [1.1, 0.2, 0], spin: 0.21, pre: 0.05, w: 2.2 },
+  { r: 2.6, h: 0.11, tilt: [-0.5, 0.9, 0.3], spin: -0.13, pre: -0.035, w: -2.2 },
+  { r: 3.1, h: 0.09, tilt: [0.25, -0.4, 1.2], spin: 0.09, pre: 0.025, w: 1.3 },
+  { r: 3.55, h: 0.15, tilt: [1.57, 0, 0.15], spin: -0.05, pre: 0.018, w: -1.3 }, // outermost: x 1.05 swell + blade < 3.9, inside MEMORY's orbit
 ] as const;
 
 /** 4D: lift a world-space point to (p, w), rotate in the xw and yw planes, perspective-project back from D = 9. */
 const T4 = /* glsl */ `
-uniform float uXW; uniform float uYW; uniform float uW0;
+uniform float uXW; uniform float uYW; uniform float uW0; uniform float uFlat;
 vec3 t4(vec3 p, float w) {
+  vec3 p0 = p;
   vec4 q = vec4(p, w);
   float c = cos(uXW), s = sin(uXW); q = vec4(c * q.x - s * q.w, q.y, q.z, s * q.x + c * q.w);
   c = cos(uYW); s = sin(uYW); q = vec4(q.x, c * q.y - s * q.w, q.z, s * q.y + c * q.w);
-  return q.xyz * (9.0 / max(9.0 - q.w, 2.0));
+  float k = 9.0 / max(9.0 - q.w, 2.0) - 1.0;
+  k = k > 0.0 ? k / (1.0 + 20.0 * k) : k; // rings shrink freely but swell at most ~5 %: they never sweep through the inner orbits
+  return mix(q.xyz * (1.0 + k), p0, uFlat);
 }`;
 
-type GlyphU = { uTime: { value: number }; uGlyph: { value: number }; uXW: { value: number }; uYW: { value: number } };
+type GlyphU = { uTime: { value: number }; uGlyph: { value: number }; uXW: { value: number }; uYW: { value: number }; uFlat: { value: number } };
 function glyphHook(u: GlyphU, w0: number) {
   return (s: THREE.WebGLProgramParametersWithUniforms) => {
     Object.assign(s.uniforms, u, { uW0: { value: w0 } });
@@ -93,6 +96,7 @@ function glyphHook(u: GlyphU, w0: number) {
           float inBand = step(0.38, g.y) * step(g.y, 0.62) * step(sub.x, 2.0) * step(0.0, sub.y) * step(sub.y, 4.0);
           float word = floor(cell.x / 7.0), face = floor(vG.y * 4.0);
           float lit = step(0.5, gh(cell * 7.1 + sub + face * 13.0)) * inBand * step(mod(cell.x, 7.0), 5.5) * step(0.5, gh(vec2(word, face)));
+          lit *= 1.0 - smoothstep(0.05, 0.12, fwidth(g.x)); // a glyph's dot columns under ~2 px: fade, never shimmer
           float wave = pow(0.5 + 0.5 * sin(vG.x * 6.2831853 * 3.0 - uTime * 0.7 + gh(cell) * 0.6), 14.0);
           totalEmissiveRadiance += vec3(0.55, 0.85, 1.0) * lit * (0.04 + 1.6 * wave) * max(uGlyph, 0.0);
         }`);
@@ -127,7 +131,8 @@ export function Singularity({ live, reduced, level }: { live: RefObject<CoreLive
   }), []);
   const diskGeo = useMemo(() => new THREE.RingGeometry(0.45, 2.9, 160, 6), []);
   const quad = useMemo(() => new THREE.PlaneGeometry(1, 1), []);
-  const glyph = useMemo<GlyphU>(() => ({ uTime: { value: 0 }, uGlyph: { value: 1 }, uXW: { value: 0 }, uYW: { value: 0 } }), []);
+  const glyph = useMemo<GlyphU>(() => ({ uTime: { value: 0 }, uGlyph: { value: 1 }, uXW: { value: 0 }, uYW: { value: 0 }, uFlat: { value: 0 } }), []);
+  const root = useRef<THREE.Group>(null);
   const gain = useRef(1);
   const fractalGain = useMemo(() => () => gain.current, []);
   useEffect(() => () => { halo.dispose(); disk.dispose(); diskGeo.dispose(); quad.dispose(); }, [halo, disk, diskGeo, quad]);
@@ -138,12 +143,14 @@ export function Singularity({ live, reduced, level }: { live: RefObject<CoreLive
     const t = reduced ? 12 : clock.elapsedTime, L = live.current, calm = coreCalm(camera.position.length());
     const g = finite(L?.g ?? 0), br = finite(L?.breath ?? 0.5), v = finite((L?.mic ?? 0) + (L?.spk ?? 0));
     halo.uniforms.uTime.value = t;
-    halo.uniforms.uGain.value = (0.85 + 0.25 * br + 0.9 * g + 0.6 * v) * (1 - 0.6 * calm); // overview: the lens would gather it into a blob
-    halo.uniforms.uRays.value = (level === 0 ? 0.5 : 1) * (1 - 0.7 * calm);
+    halo.uniforms.uGain.value = (0.7 + 0.2 * br + 0.9 * g + 0.6 * v) * (1 - 0.7 * calm); // overview: the lens would gather it into a blob
+    halo.uniforms.uRays.value = (level === 0 ? 0.5 : 1) * (1 - 0.97 * calm) * 0.7; // god rays are a close-up drama: none on the overview
     disk.uniforms.uTime.value = t;
-    disk.uniforms.uGain.value = (0.9 + 0.2 * br + 0.8 * g + 0.5 * v) * (1 - 0.65 * calm);
+    disk.uniforms.uGain.value = (0.75 + 0.2 * br + 0.8 * g + 0.5 * v) * (1 - 0.75 * calm);
+    glyph.uFlat.value = 0.85 * calm;
+    root.current?.scale.setScalar(coreScale(camera.position.length()));
     glyph.uTime.value = t;
-    glyph.uGlyph.value = 0.8 + 1.5 * g + 0.8 * v;
+    glyph.uGlyph.value = (0.8 + 1.5 * g + 0.8 * v) * (1 - 0.6 * calm);
     glyph.uXW.value = tesseractAngle(t, 0, reduced);
     glyph.uYW.value = tesseractAngle(t, 1, reduced);
     gain.current = halo.uniforms.uGain.value;
@@ -157,7 +164,7 @@ export function Singularity({ live, reduced, level }: { live: RefObject<CoreLive
   });
 
   return (
-    <group>
+    <group ref={root}>
       <mesh geometry={quad} material={halo} frustumCulled={false} renderOrder={2} />
       <mesh geometry={diskGeo} material={disk} rotation={[-Math.PI / 2 + 0.32, 0, 0.12]} />
       {RINGS.map((k, i) => (
@@ -179,11 +186,11 @@ export function Singularity({ live, reduced, level }: { live: RefObject<CoreLive
 const CUBE_VS = /* glsl */ `attribute float aW; attribute float aT; varying float vT; varying float vD;
 ${T4}
 void main() { vT = aT; vec3 p = t4(position, aW); vD = length(p); gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0); }`;
-const CUBE_FS = /* glsl */ `uniform float uTime; varying float vT; varying float vD;
+const CUBE_FS = /* glsl */ `uniform float uTime; uniform float uGlyph; varying float vT; varying float vD;
 ${HOLO}
 void main() {
   float run = pow(0.5 + 0.5 * sin(vT * 6.2831853 - uTime * 1.3), 12.0); // light runs along every edge
-  gl_FragColor = vec4(clamp(holo(vD * 0.12 + uTime * 0.02) * (0.07 + 1.3 * run), 0.0, 4.0), 1.0);
+  gl_FragColor = vec4(clamp(mix(vec3(0.75, 0.82, 1.0), holo(vD * 0.12 + uTime * 0.02), 0.5) * (0.05 + 0.9 * run) * min(uGlyph, 1.5), 0.0, 1.5), 1.0);
 }`;
 
 function Hypercube({ u }: { u: GlyphU }) {
@@ -208,7 +215,7 @@ function Hypercube({ u }: { u: GlyphU }) {
     geo.setIndex(idx);
     const mat = new THREE.ShaderMaterial({
       vertexShader: CUBE_VS, fragmentShader: CUBE_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-      uniforms: { uTime: u.uTime, uXW: u.uXW, uYW: u.uYW, uW0: { value: 0 } },
+      uniforms: { uTime: u.uTime, uXW: u.uXW, uYW: u.uYW, uW0: { value: 0 }, uFlat: u.uFlat, uGlyph: u.uGlyph },
     });
     return { geo, mat };
   }, [u]);

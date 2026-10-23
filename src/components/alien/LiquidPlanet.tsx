@@ -64,7 +64,7 @@ float surf(vec3 p, float fw) {
   float sw = max(fw * 3.2 * 1.5, 0.014);
   gSeam = (1.0 - smoothstep(sw * 0.5, sw, seamW)) * smoothstep(-0.05, 0.15, gnoise(n * 2.3 + vec3(7.1, 3.3, -2.0))); // only some seams are cut: fragments, not a football
   // relief: the fine octaves ride on the plates
-  float h = c * 0.7 + fbm(n * 9.0 + w, fw * 9.0, uOct) * 0.3 * (0.4 + 0.6 * gPool) - gSeam * 0.12;
+  float h = c * 0.7 + fbm(n * 9.0 + w, fw * 18.0, uOct) * 0.3 * (0.4 + 0.6 * gPool) - gSeam * 0.12; // bump = derivative: fade an octave early, no crawl
   float shore = exp(-pow((c - 0.08) * 9.0, 2.0)); gFlowA += shore * 2.0; gSpark = shore; // pool shores: where the oil film is thickest
   gCirc = 0.0; gGlyph = 0.0; float shoreK = gSpark; gSpark = 0.0;
   if (uDetail > 0.01) {
@@ -96,21 +96,104 @@ float surf(vec3 p, float fw) {
     vec3 sg = n * 420.0, sc = floor(sg);
     float spx = fwidth(sg.x) + fwidth(sg.y);
     float r = h13(sc);
-    gSpark = pow(r, 70.0) * (0.5 + 0.5 * sin(uTime * 3.0 + r * 80.0)) * (1.0 - smoothstep(0.5, 1.2, spx)) * (1.0 - smoothstep(0.32, 0.5, length(fract(sg) - 0.5)));
+    gSpark = pow(r, 70.0) * (0.6 + 0.4 * sin(uTime * 0.5 + r * 80.0)) * (1.0 - smoothstep(0.25, 0.6, spx)) * (1.0 - smoothstep(0.32, 0.5, length(fract(sg) - 0.5)));
   }
   gH = h; gShore = shoreK;
   return h;
+}
+// Surface identity (c8): each world gets a pattern family and a 3-colour palette. -1 = the legacy liquid chrome.
+// 0 banded gas giant, 1 marbled, 2 cratered, 3 oceanic. Far: palette + silhouette; mid: the pattern; close: the
+// circuitry above takes over. Every high-frequency term fades by its pixel footprint (fw), so nothing shimmers.
+uniform float uFam; uniform vec3 uSeed; uniform vec3 uPA; uniform vec3 uPB; uniform vec3 uPC;
+float gOcean;
+vec3 famColor(vec3 p, float fw) {
+  vec3 n = normalize(p), q = n + uSeed;
+  gOcean = 0.0;
+  if (uFam < 0.5) { // banded: latitude bands bent by a slow warp, finer belts fading out with distance, one storm oval
+    float wv = fbm(q * 2.4, fw * 2.4, 3.0);
+    float y = n.y + wv * 0.13;
+    float b = 0.5 + 0.5 * sin(y * 15.0 + sin(y * 5.0 + uSeed.x) * 1.8);
+    float fine = (0.5 + 0.5 * sin(y * 47.0 + wv * 9.0)) * (1.0 - smoothstep(0.35, 0.9, 47.0 * fw));
+    vec3 col = mix(uPA, uPB, smoothstep(0.2, 0.8, b));
+    col = mix(col, uPC, fine * 0.28 + smoothstep(0.85, 1.0, b) * 0.3);
+    vec3 D = normalize(vec3(cos(uSeed.x * 3.0), -0.32, sin(uSeed.x * 3.0)));
+    vec3 e = n - D; float sp = length(vec3(e.x, e.y * 2.3, e.z));
+    float storm = 1.0 - smoothstep(0.09, 0.16, sp);
+    col = mix(col, mix(uPC, uPB, 0.5 + 0.5 * sin(sp * 60.0 + wv * 4.0)), storm * 0.85);
+    gH = wv * 0.12 + b * 0.05;
+    return col;
+  }
+  if (uFam < 1.5) { // marbled: domain-warped swirls, veins of the third colour
+    vec3 w2 = vec3(fbm(q * 1.7, fw * 1.7, 3.0), fbm(q * 1.7 + 5.2, fw * 1.7, 3.0), 0.0);
+    float m = fbm(q * 2.1 + vec3(w2.xy, 0.0) * 2.4, fw * 2.1, 4.0);
+    vec3 col = mix(uPA, uPB, smoothstep(-0.28, 0.28, m));
+    col = mix(col, uPC, (1.0 - smoothstep(0.0, 0.07, abs(m - 0.08))) * 0.7);
+    gH = m * 0.35;
+    return col;
+  }
+  if (uFam < 2.5) { // cratered: mottled rock, two sizes of craters (dark floor, bright rim)
+    float base = fbm(q * 3.0, fw * 3.0, 4.0);
+    vec3 col = mix(uPA, uPB, smoothstep(-0.3, 0.35, base));
+    float hh = base * 0.25;
+    for (int o = 0; o < 2; o++) {
+      float S = o == 0 ? 4.0 : 11.0;
+      vec3 cp = q * S, ci = floor(cp), cf = fract(cp);
+      float d1 = 8.0; vec3 id = vec3(0.0);
+      for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+        vec3 o3 = vec3(x, y, z), r = o3 + h33(ci + o3) * 0.8 + 0.1 - cf;
+        float d = dot(r, r); if (d < d1) { d1 = d; id = ci + o3; }
+      }
+      float rad = 0.18 + 0.22 * h13(id * 1.7), d = sqrt(d1) / rad, k = step(0.45, h13(id + 3.1));
+      float fade = (1.0 - smoothstep(0.25, 0.6, fw * S / rad)) * k;
+      float fl = 1.0 - smoothstep(0.75, 0.95, d), rim = exp(-pow((d - 1.0) * 5.0, 2.0));
+      col = mix(col, uPC, fl * 0.65 * fade);
+      col += uPA * rim * 0.22 * fade;
+      hh += (rim * 0.08 - fl * 0.12) * fade * (o == 0 ? 1.0 : 0.5);
+    }
+    gH = hh;
+    return col;
+  }
+  // oceanic: deep water, continents, ice caps and thin cloud wisps
+  float land = fbm(q * 1.9, fw * 1.9, 5.0);
+  float coast = smoothstep(0.02, 0.06, land);
+  gOcean = 1.0 - coast;
+  vec3 col = mix(uPB * (0.6 + 0.4 * smoothstep(-0.4, 0.02, land)), uPA * (0.8 + 0.4 * land), coast);
+  col = mix(col, uPC, smoothstep(0.78, 0.86, abs(n.y) + land * 0.15));
+  float cl = fbm(q * 3.3 + vec3(uTime * 0.004, 0.0, 0.0), fw * 3.3, 4.0);
+  col = mix(col, vec3(0.92, 0.94, 0.97), smoothstep(0.08, 0.35, cl) * 0.55);
+  gH = max(land, 0.0) * 0.5;
+  return col;
 }
 `;
 
 /** The planet's surface material. `extra` is chained (the HUD's rim light). Returns the material; animate `uTime`,
  *  set `uDetail` (0 overview .. 1 close-up, see planetDetail) every frame. */
-export function useLiquidMetal(color: string, obsidian: boolean, size: number, extra?: (s: THREE.WebGLProgramParametersWithUniforms) => void) {
+/** A world's surface identity: pattern family (see famColor) and palette. Omit for the legacy liquid chrome. */
+export type SurfaceLook = { fam: 0 | 1 | 2 | 3; pal: readonly [string, string, string]; seed: number };
+// per family: metalness, roughness, clearcoat, env reflection, iridescence, bump scale
+const FAM = [
+  { metal: 0.0, rough: 0.6, coat: 0.25, env: 0.18, iri: 0.12, bump: 0.25 }, // banded gas giant: soft, matte
+  { metal: 0.25, rough: 0.38, coat: 0.5, env: 0.35, iri: 0.25, bump: 0.5 },  // marbled: polished stone
+  { metal: 0.05, rough: 0.85, coat: 0.0, env: 0.12, iri: 0.0, bump: 1.4 },   // cratered rock
+  { metal: 0.0, rough: 0.55, coat: 0.4, env: 0.25, iri: 0.1, bump: 0.6 },   // oceanic (water is glossier, below)
+] as const;
+
+export function useLiquidMetal(color: string, obsidian: boolean, size: number, extra?: (s: THREE.WebGLProgramParametersWithUniforms) => void, look?: SurfaceLook) {
   const env = useAlienEnv();
   const { mat, u } = useMemo(() => {
-    const u = { uTime: { value: 0 }, uLq: { value: size }, uDetail: { value: 0 }, uOct: { value: 3 }, uFar: { value: 1 }, uTint: { value: new THREE.Color(color) }, uPoolTint: { value: new THREE.Color(color).multiplyScalar(obsidian ? 0.4 : 0.025) } };
+    const f = look ? FAM[look.fam] : null;
+    const sd = look?.seed ?? 0;
+    const u = { uTime: { value: 0 }, uLq: { value: size }, uDetail: { value: 0 }, uOct: { value: 3 }, uFar: { value: 1 }, uTint: { value: new THREE.Color(color) }, uPoolTint: { value: new THREE.Color(color).multiplyScalar(obsidian ? 0.4 : 0.025) },
+      uFam: { value: look ? look.fam : -1 }, uSeed: { value: new THREE.Vector3((sd * 1.37) % 7, (sd * 2.71) % 5, (sd * 0.61) % 3) },
+      uPA: { value: new THREE.Color(look?.pal[0] ?? color) }, uPB: { value: new THREE.Color(look?.pal[1] ?? color) }, uPC: { value: new THREE.Color(look?.pal[2] ?? color) },
+      uIdent: { value: 1 }, // 1 legacy strong identity rim; the galaxy sets 0 (thin atmosphere)
+      uBump: { value: f?.bump ?? 1 }, uChrome: { value: f ? 0 : 1 } };
     const tint = new THREE.Color(color);
-    const mat = new THREE.MeshPhysicalMaterial({
+    const mat = new THREE.MeshPhysicalMaterial(f ? {
+      color: "#ffffff", metalness: f.metal, roughness: f.rough, clearcoat: f.coat, clearcoatRoughness: 0.45, // soft: the env slits must not print hard lines on a world
+      iridescence: f.iri, iridescenceIOR: 1.4, iridescenceThicknessRange: [200, 600],
+      emissive: color, emissiveIntensity: 0, envMapIntensity: f.env,
+    } : {
       color: obsidian ? tint.clone().multiplyScalar(0.07) : tint.clone().lerp(new THREE.Color("#ffffff"), 0.55),
       metalness: 1, roughness: obsidian ? 0.14 : 0.06, clearcoat: obsidian ? 1 : 0.5, clearcoatRoughness: 0.04,
       iridescence: 1, iridescenceIOR: 1.6, iridescenceThicknessRange: [120, 900],
@@ -121,46 +204,50 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
       extra?.(s);
       Object.assign(s.uniforms, u);
       s.vertexShader = s.vertexShader
-        .replace("void main() {", "uniform float uTime; uniform float uLq; varying vec3 vLq;\nvoid main() {")
+        .replace("void main() {", "uniform float uTime; uniform float uLq; uniform float uChrome; varying vec3 vLq;\nvoid main() {")
         .replace("#include <begin_vertex>", `#include <begin_vertex>
           vLq = position / max(uLq, 1e-3);
-          transformed += objectNormal * uLq * 0.018 * (sin(vLq.x * 5.0 + uTime * 0.9) * sin(vLq.y * 4.0 - uTime * 0.7) + sin(vLq.z * 6.0 + uTime * 1.1) * 0.6);`);
+          transformed += objectNormal * uLq * 0.018 * uChrome * (sin(vLq.x * 5.0 + uTime * 0.9) * sin(vLq.y * 4.0 - uTime * 0.7) + sin(vLq.z * 6.0 + uTime * 1.1) * 0.6);`);
       s.fragmentShader = s.fragmentShader
-        .replace("void main() {", `uniform float uLq; uniform vec3 uTint; uniform vec3 uPoolTint; uniform float uFar;\n${SURF}\n${HOLO}\nvoid main() {`)
+        .replace("void main() {", `uniform float uLq; uniform vec3 uTint; uniform vec3 uPoolTint; uniform float uFar; uniform float uIdent; uniform float uBump; uniform float uChrome;\n${SURF}\n${HOLO}\nvoid main() {`)
         .replace("#include <color_fragment>", `#include <color_fragment>
-          surf(vLq, length(fwidth(vLq)));
-          diffuseColor.rgb *= mix(uPoolTint, vec3(1.0), gPool); // continents: dark mirror pools in the chrome`)
+          float fwq = length(fwidth(vLq));
+          surf(vLq, fwq);
+          if (uFam < -0.5) diffuseColor.rgb *= mix(uPoolTint, vec3(1.0), gPool); // continents: dark mirror pools in the chrome
+          else { float hs = gH; diffuseColor.rgb *= famColor(vLq, fwq); gH += (hs - gH) * 0.25 * uDetail; } // identity at every range; the alien relief joins up close`)
         .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
           { // bump from the procedural height: screen derivatives of h (world units), Mikkelsen's surface gradient
-            float h = gH * uLq * 0.06;
+            float h = gH * uLq * 0.06 * uBump;
             vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition);
             vec3 r1 = cross(sy, normal), r2 = cross(normal, sx);
             float det = dot(sx, r1);
             vec3 gr = sign(det) * (dFdx(h) * r1 + dFdy(h) * r2);
             vec3 nb = abs(det) * normal - gr;
             normal = dot(nb, nb) > 1e-20 ? normalize(nb) : normal;
-            roughnessFactor = clamp(roughnessFactor * (0.6 + 0.8 * (1.0 - gPool)) + gSeam * 0.25 + gCirc * 0.12, 0.03, 1.0);
+            roughnessFactor = clamp(roughnessFactor * mix(1.0, 0.6 + 0.8 * (1.0 - gPool), uChrome) * (1.0 - 0.7 * gOcean) + gSeam * 0.25 + gCirc * 0.12, 0.03, 1.0);
           }`)
         .replace("vec2 anisotropyV = anisotropyVector;", "float ca = cos(gFlowA), sa = sin(gFlowA); vec2 anisotropyV = mat2(ca, sa, -sa, ca) * anisotropyVector * (0.5 + 0.5 * gPool);")
         .replace("#include <lights_physical_fragment>", `#include <lights_physical_fragment>
           #ifdef USE_IRIDESCENCE
-          material.iridescence = clamp(0.25 + 0.75 * gShore + 0.3 * (1.0 - gPool), 0.0, 1.0);
+          material.iridescence = clamp(0.25 + 0.75 * gShore + 0.3 * (1.0 - gPool), 0.0, 1.0) * mix(0.3, 1.0, uChrome);
           material.iridescenceThickness = mix(iridescenceThicknessMinimum, iridescenceThicknessMaximum, clamp(0.5 + 0.5 * sin(gH * 9.0 + gFlowA * 0.5), 0.0, 1.0));
           #endif`)
         .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
           { float f = 1.0 - clamp(abs(dot(normalize(normal), normalize(vViewPosition))), 0.0, 1.0);
             vec3 hc = holo(vLq.y * 0.3 + gFlowA * 0.04 + uTime * 0.02);
             float wave = 0.5 + 0.5 * sin(dot(vLq, vec3(3.0, 5.0, 2.0)) * 2.0 - uTime * 1.2);
-            totalEmissiveRadiance += mix(hc, uTint, 0.3) * gSeam * (0.03 + 0.9 * pow(wave, 6.0));       // glyph seams: read from the overview
+            float seamK = mix(0.06 + 0.35 * uDetail, 1.0, uChrome); // identity worlds: the glyph cuts are a mid/close detail
+            totalEmissiveRadiance += mix(hc, uTint, 0.3) * gSeam * (0.03 + 0.9 * pow(wave, 6.0)) * seamK;       // glyph seams
             totalEmissiveRadiance += hc * gCirc * (0.02 + 0.5 * pow(wave, 8.0)) * uDetail;          // circuitry: a pulse runs through it
             totalEmissiveRadiance += vec3(0.75, 0.95, 1.0) * gGlyph * 0.9 * uDetail;
             totalEmissiveRadiance += mix(vec3(1.0), hc, 0.5) * gSpark * 2.0;
-            totalEmissiveRadiance += hc * pow(f, 2.5) * 0.55;
-            totalEmissiveRadiance += uTint * (pow(f, 1.8) * 1.4 + 0.12) * uFar; // identity colour: a strong rim from the overview
-            totalEmissiveRadiance += holo(gFlowA * 0.08 + gH * 2.0) * (1.0 - gPool) * 0.1; }`); // thin-film edge sheen: a strong silhouette at any size
+            totalEmissiveRadiance += hc * pow(f, 2.5) * 0.55 * mix(0.15, 1.0, uChrome);
+            // identity colour from the overview: uIdent 1 = the legacy strong rim (worlds), 0 = a thin atmosphere rim (galaxy)
+            totalEmissiveRadiance += mix(mix(uTint, vec3(0.75, 0.82, 1.0), 0.35) * (pow(f, 2.6) * 1.1 + 0.04), uTint * (pow(f, 1.8) * 1.4 + 0.12), uIdent) * uFar;
+            totalEmissiveRadiance += holo(gFlowA * 0.08 + gH * 2.0) * (1.0 - gPool) * 0.1 * uChrome; }`); // thin-film edge sheen
     };
     return { mat, u };
-  }, [color, obsidian, size, extra]);
+  }, [color, obsidian, size, extra, look]); // look: a module constant per world
   useEffect(() => { mat.envMap = env; mat.needsUpdate = true; }, [mat, env]);
   useEffect(() => () => mat.dispose(), [mat]);
   return { mat, u };
@@ -169,7 +256,7 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
 /* ---------- thought cluster: a shell of synapse points, dense at the surface, thinning outward ----------
    A share of the points are surface crawlers: tiny, skimming the liquid metal, visible only up close (uNear). */
 const VS = /* glsl */ `
-attribute float aSeed; uniform float uTime; uniform float uScale; uniform float uR; uniform float uGlow; uniform float uNear; uniform vec3 uColor;
+attribute float aSeed; uniform float uTime; uniform float uScale; uniform float uR; uniform float uGlow; uniform float uNear; uniform float uNorm; uniform vec3 uColor;
 varying vec3 vC; varying float vA;
 ${HOLO}
 vec3 rot(vec3 p, vec3 k, float a) { float c = cos(a), s = sin(a); return p * c + cross(k, p) * s + k * dot(k, p) * (1.0 - c); }
@@ -181,20 +268,24 @@ void main() {
   float r = uR * mix(1.12 + 0.85 * s * s * s + 0.04 * sin(uTime * 2.0 + aSeed * 40.0), 1.035 + 0.03 * s, crawl);
   vec4 mv = modelViewMatrix * vec4(d * r, 1.0);
   float z = max(-mv.z, 0.1);
-  float fire = pow(max(sin(uTime * (0.8 + aSeed) + aSeed * 61.0), 0.0), 16.0);
-  vA = (0.7 + 1.6 * fire + 0.8 * uGlow) * (1.0 - s * 0.5) * smoothstep(1.0, 4.0, z) * mix(1.0 - 0.75 * uNear, uNear * 0.7, crawl);
-  vC = mix(uColor, holo(aSeed + uTime * 0.03), 0.45);
-  vC = mix(vC, vec3(1.0), fire * 0.5);
-  gl_PointSize = clamp(uScale * mix(0.75 + 1.6 * fire, 0.35, crawl) / z, 1.0, 9.0);
+  float fire = pow(max(sin(uTime * (0.3 + aSeed * 0.4) + aSeed * 61.0), 0.0), 16.0); // a slow, rare glint
+  // a faint pearl veil at the overview (the shell is many motes on a few pixels), the thought cluster up close
+  vA = (0.35 + 0.6 * fire + 0.8 * uGlow) * (1.0 - s * 0.6) * smoothstep(1.0, 4.0, z) * mix(0.25 + 0.5 * uNear, uNear * 0.6, crawl) * uNorm;
+  vC = mix(vec3(0.86, 0.9, 1.0), uColor, 0.22);
+  vC = mix(vC, vec3(1.0), fire * 0.4);
+  float px = uScale * mix(0.6 + 0.6 * fire, 0.35, crawl) / z;
+  vA *= px < 1.5 ? (px / 1.5) * (px / 1.5) : 1.0; // never sub-pixel: fade by coverage
+  gl_PointSize = clamp(px, 1.5, 6.0);
   gl_Position = projectionMatrix * mv;
 }`;
 const FS = /* glsl */ `varying vec3 vC; varying float vA;
 void main(){ vec2 d = gl_PointCoord - 0.5; float a = max(1.0 - dot(d, d) * 4.0, 0.0);
-  gl_FragColor = vec4(clamp(vC, 0.0, 1.0) * 2.2, clamp(a * a * vA, 0.0, 1.0)); }`;
+  gl_FragColor = vec4(clamp(vC, 0.0, 1.0) * 1.3, clamp(a * a * vA, 0.0, 0.8)); }`;
 
 export function ThoughtShell({ size, color, count, reduced, glow, near }: { size: number; color: string; count: number; reduced: boolean; glow: () => number; near: () => number }) {
   const geo = useMemo(() => {
-    const r = Math.random;
+    let sd = Math.round(size * 7919) + 1; // seeded: a quality switch keeps the first motes where they were (no pop)
+    const r = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
     const p = new Float32Array(count * 3), a = new Float32Array(count), v = new THREE.Vector3();
     for (let i = 0; i < count; i++) { v.set(r() * 2 - 1, r() * 2 - 1, r() * 2 - 1).normalize(); p.set([v.x, v.y, v.z], i * 3); a[i] = r(); }
     const g = new THREE.BufferGeometry();
@@ -205,8 +296,8 @@ export function ThoughtShell({ size, color, count, reduced, glow, near }: { size
   }, [size, count]);
   const mat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: VS, fragmentShader: FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-    uniforms: { uTime: { value: 0 }, uScale: { value: 9 }, uR: { value: size }, uGlow: { value: 0 }, uNear: { value: 0 }, uColor: { value: new THREE.Color(color) } },
-  }), [size, color]);
+    uniforms: { uTime: { value: 0 }, uScale: { value: 9 }, uR: { value: size }, uGlow: { value: 0 }, uNear: { value: 0 }, uNorm: { value: Math.min(2, 360 / Math.max(1, count)) }, uColor: { value: new THREE.Color(color) } },
+  }), [size, color, count]);
   useEffect(() => () => geo.dispose(), [geo]);
   useEffect(() => () => mat.dispose(), [mat]);
   useFrame(({ clock, gl }) => {
@@ -235,7 +326,7 @@ void main() {
   // ticks: 180 majors across the band, 720 minors on the inner half, fading in with detail and pixel size
   float A = a * 180.0, apx = fwidth(A);
   float maj = 1.0 - smoothstep(0.08 - apx, 0.08 + apx, abs(fract(A) - 0.5) - 0.42);
-  maj *= step(0.0, x) * step(x, 0.42 + 0.3 * step(0.8, fract(a * 18.0)));
+  maj *= step(0.0, x) * step(x, 0.42 + 0.3 * step(0.8, fract(a * 18.0))) * (1.0 - smoothstep(0.25, 0.5, apx)); // under ~3 px apart: fade, no moire
   float B = a * 720.0, bpx = fwidth(B);
   float mnr = (1.0 - smoothstep(0.1 - bpx, 0.1 + bpx, abs(fract(B) - 0.5) - 0.4)) * step(0.0, x) * step(x, 0.22) * (1.0 - smoothstep(0.3, 0.6, bpx)) * uDetail;
   // glyph text on the outer half, close up only
@@ -245,9 +336,9 @@ void main() {
   gl *= (1.0 - smoothstep(0.25, 0.6, fwidth(g.x))) * uDetail;
   float beads = 0.0;
   for (int i = 0; i < 3; i++) { float b = fract(a - uTime * (0.03 + 0.017 * float(i)) + float(i) * 0.37); beads += exp(-pow(min(b, 1.0 - b) * 260.0, 2.0)); }
-  vec3 c = mix(uColor, holo(a * 2.0 + uTime * 0.02), 0.55);
-  float v = line * 0.9 + maj * 0.55 + mnr * 0.35 + gl * 0.7 + beads * line * 4.0;
-  gl_FragColor = vec4(clamp(c * v * band * 1.4, 0.0, 6.0), 1.0);
+  vec3 c = mix(mix(vec3(0.82, 0.88, 1.0), uColor, 0.3), holo(a * 2.0 + uTime * 0.02), 0.15 * uDetail);
+  float v = line * 0.5 + maj * 0.4 + mnr * 0.3 + gl * 0.6 + beads * line * 1.6;
+  gl_FragColor = vec4(clamp(c * v * band * (0.45 + 0.55 * uDetail), 0.0, 1.5), 1.0);
 }`;
 
 export function HoloRing({ size, color, tilt, reduced, detail }: { size: number; color: string; tilt: [number, number, number]; reduced: boolean; detail: () => number }) {

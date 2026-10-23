@@ -94,9 +94,11 @@ export function Dust({ count, reduced }: { count: number; reduced: boolean }) {
     const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const pos = new Float32Array(count * 3), size = new Float32Array(count), ph = new Float32Array(count);
     for (let i = 0; i < count; i++) {
-      const a = r() * Math.PI * 2, d = 4 + Math.sqrt(r()) * 56; // a disc around the system, denser inside
+      // in three loose spiral streams (the arms drift on, so they only rhyme): dust gathers in lanes, not as confetti
+      const d = 4 + Math.sqrt(r()) * 56, arm = Math.floor(r() * 3), g = (r() + r() + r() - 1.5) * 0.5;
+      const a = (arm * Math.PI * 2) / 3 + 1.75 * Math.log(d / 3) + g;
       pos.set([Math.cos(a) * d, (r() - 0.5) * 14 * (0.4 + d / 60), Math.sin(a) * d], i * 3);
-      size[i] = 1.2 + r() * 2.6; ph[i] = r();
+      size[i] = 0.8 + r() * r() * 1.6; ph[i] = r(); // mostly fine motes, a few larger
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
@@ -107,17 +109,18 @@ export function Dust({ count, reduced }: { count: number; reduced: boolean }) {
   }, [count]);
   const mat = useMemo(() => new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-    uniforms: { uTime: { value: 0 }, uScale: { value: 9 }, uColor: { value: new THREE.Color(RIM_COLOR) } },
+    uniforms: { uTime: { value: 0 }, uScale: { value: 9 }, uColor: { value: new THREE.Color("#c9d4ee") } }, // pearl, a breath of blue
     vertexShader: `attribute float aSize; attribute float aPh; uniform float uTime; uniform float uScale; varying float vA;
       void main(){ vec3 p = position;
-        p += vec3(sin(uTime * 0.05 + aPh * 40.0), sin(uTime * 0.07 + aPh * 23.0) * 0.4, cos(uTime * 0.045 + aPh * 31.0)) * 1.6;
+        p += vec3(sin(uTime * 0.03 + aPh * 40.0), sin(uTime * 0.04 + aPh * 23.0) * 0.4, cos(uTime * 0.025 + aPh * 31.0)) * 1.2;
         vec4 mv = modelViewMatrix * vec4(p, 1.0); float z = -mv.z;
-        vA = smoothstep(1.5, 7.0, z) * (1.0 - smoothstep(55.0, 110.0, z)) * (0.55 + 0.45 * sin(uTime * 0.6 + aPh * 60.0));
-        vA = max(vA, 0.0);
-        gl_PointSize = aSize * uScale / max(z, 0.1); gl_Position = projectionMatrix * mv; }`,
+        vA = smoothstep(2.0, 9.0, z) * (1.0 - smoothstep(45.0, 90.0, z)) * (0.8 + 0.2 * sin(uTime * 0.2 + aPh * 60.0));
+        float px = aSize * uScale / max(z, 0.1);
+        vA = max(vA, 0.0) * (px < 1.5 ? (px / 1.5) * (px / 1.5) : 1.0); // never sub-pixel: fade by coverage instead
+        gl_PointSize = clamp(px, 1.5, 6.0); gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `uniform vec3 uColor; varying float vA;
       void main(){ float d = length(gl_PointCoord - 0.5); float a = 1.0 - smoothstep(0.0, 0.5, d);
-        gl_FragColor = vec4(uColor, max(a * a * vA * 0.35, 0.0)); }`,
+        gl_FragColor = vec4(uColor, clamp(a * a * vA * 0.22, 0.0, 1.0)); }`,
   }), []);
   useEffect(() => () => { geo.dispose(); mat.dispose(); }, [geo, mat]);
   useFrame(({ clock, gl }) => {
