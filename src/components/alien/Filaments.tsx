@@ -33,13 +33,13 @@ void place(out float pulse, out float glow, out vec4 mv) {
 }`;
 
 const LINE_VS = head + /* glsl */ `void main(){ float pulse, glow; vec4 mv; place(pulse, glow, mv);
-  vA = 0.05 + 0.12 * glow + pulse * (0.8 + glow); gl_Position = projectionMatrix * mv; }`;
+  vA = 0.05 + 0.12 * glow + pulse * (1.0 + glow); gl_Position = projectionMatrix * mv; }`;
 const DOT_VS = head + /* glsl */ `void main(){ float pulse, glow; vec4 mv; place(pulse, glow, mv);
-  vA = pulse; gl_PointSize = pulse > 0.05 ? clamp(uScale * pulse / max(-mv.z, 0.1), 0.0, 14.0) : 0.0; gl_Position = projectionMatrix * mv; }`;
-const LINE_FS = /* glsl */ `varying vec3 vC; varying float vA; void main(){ gl_FragColor = vec4(clamp(vC, 0.0, 1.0) * 1.3, clamp(vA, 0.0, 1.0)); }`;
+  vA = pulse; gl_PointSize = pulse > 0.05 ? clamp(uScale * 1.6 * pulse / max(-mv.z, 0.1), 2.0, 18.0) : 0.0; /* data packets: never sub-pixel */ gl_Position = projectionMatrix * mv; }`;
+const LINE_FS = /* glsl */ `varying vec3 vC; varying float vA; void main(){ gl_FragColor = vec4(clamp(vC, 0.0, 1.0) * 1.6, clamp(vA, 0.0, 1.0)); }`;
 const DOT_FS = /* glsl */ `varying vec3 vC; varying float vA;
   void main(){ vec2 d = gl_PointCoord - 0.5; float a = max(1.0 - dot(d, d) * 4.0, 0.0);
-    gl_FragColor = vec4(clamp(vC, 0.0, 1.0) * 2.2, clamp(a * a * a * vA, 0.0, 1.0)); }`;
+    gl_FragColor = vec4(clamp(vC, 0.0, 1.0) * 3.2, clamp(a * a * vA, 0.0, 1.0)); }`;
 
 export function Filaments({ positions, pulses, reduced }: { positions: Record<string, THREE.Vector3>; pulses: RefObject<Record<string, number>>; reduced: boolean }) {
   const { line, dots } = useMemo(() => {
