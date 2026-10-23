@@ -83,7 +83,7 @@ test("playbook curation: counters accumulate, harmful > helpful + 2 retires, nea
 test("reportLine and the morning card's Overnight line", () => {
   assert.equal(reportLine({ consolidated: 0, retired: 0, merged: 0 }), "");
   assert.equal(reportLine({ consolidated: 1, retired: 2, merged: 0, shorts: { worked: 1, flopped: 2 } }),
-    "merged 1 group of similar memories; retired 2 style rules; Shorts at 48 h: 1 above your median, 2 below");
+    "merged 1 group of similar memories; 2 style rules looked unhelpful (worth a look in your playbook); Shorts at 48 h: 1 above your median, 2 below");
   assert.equal(overnightLine({ day: "2026-10-23", line: "retired 1 style rule" }, "2026-10-23"), "Overnight: retired 1 style rule.");
   assert.equal(overnightLine({ day: "2026-10-22", line: "retired 1 style rule" }, "2026-10-23"), undefined);
   assert.equal(overnightLine({ day: "2026-10-23", line: "" }, "2026-10-23"), undefined);

@@ -105,10 +105,13 @@ async function curate(sb: SupabaseClient, userId: string, u: SleepState["users"]
     "Your JSON reply:",
   ].join("\n\n"), EVIDENCE, userId, "core.sleep.curate") : null;
   u.counters = tallyEvidence(u.counters, pb.rules, text ? parseEvidence(text, pb.rules) : []);
-  const { edits, retired, merged } = curateEdits(pb.rules, u.counters);
-  if (!edits.length) return { retired: 0, merged: 0 };
+  const { retired, merged } = curateEdits(pb.rules, u.counters);
+  // Style rules are the owner's stated preferences: duplicates are merged automatically, but rules that look unhelpful are
+  // only reported ("worth a look"), never removed without him.
+  const edits = merged.map((rule) => ({ op: "remove" as const, rule }));
+  if (!edits.length) return { retired: retired.length, merged: 0, flaggedOnly: true };
   const { applied } = await applyPlaybookEdits(sb, userId, edits, "core-sleep");
-  return applied ? { retired: retired.length, merged: merged.length } : { retired: 0, merged: 0 };
+  return applied ? { retired: retired.length, merged: merged.length, flaggedOnly: true } : { retired: retired.length, merged: 0, flaggedOnly: true };
 }
 
 /** (3) Shorts whose 48 h snapshot was captured in the last day, against the channel's 48 h median. */

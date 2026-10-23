@@ -104,7 +104,7 @@ const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : 
 export function reportLine(r: { consolidated: number; retired: number; merged: number; shorts?: { worked: number; flopped: number } }): string {
   const bits = [
     r.consolidated && `merged ${n(r.consolidated, "group")} of similar memories`,
-    r.retired && `retired ${n(r.retired, "style rule")}`,
+    r.retired && `${n(r.retired, "style rule")} looked unhelpful (worth a look in your playbook)`,
     r.merged && `removed ${n(r.merged, "duplicate rule")}`,
     r.shorts && r.shorts.worked + r.shorts.flopped && `Shorts at 48 h: ${r.shorts.worked} above your median, ${r.shorts.flopped} below`,
   ].filter(Boolean) as string[];
