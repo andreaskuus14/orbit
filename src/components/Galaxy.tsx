@@ -475,7 +475,7 @@ function Beams({ positions, pulses, reduced }: { positions: Positions; pulses: R
   return <>{lines.map(({ id, line }) => <primitive key={id} object={line} />)}</>;
 }
 
-function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, level }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced"> & { particles?: number; level: number }) {
+function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, level, positions }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced"> & { particles?: number; level: number; positions: Positions }) {
   const sat = useRef<THREE.Mesh>(null);
   const voice = useRef({ mic: 0, speak: 0 }); // smoothed copy of voiceLevel (read per frame, no React state)
   const live = useRef<CoreLive>({ g: 0, mic: 0, spk: 0, breath: 0 }); // handed to the singularity and the particle swarm each frame
@@ -509,12 +509,12 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, l
   return (
     <group>
       <pointLight intensity={2.7} decay={0} color="#fff1dc" /> {/* no falloff: inner worlds would blow out, outer ones go dark */}
-      <Singularity live={live} reduced={reduced} level={level} />
+      <Singularity live={live} reduced={reduced} level={level} busy={busy} positions={positions} pulses={pulses} />
       {swarm && <group scale={0.62}><ParticleCore side={particles} busy={busy} warning={warning} live={live} onFail={onPcFail} /></group>}
       {/* Invisible hit area. */}
       <mesh ref={hit} onClick={(e) => { e.stopPropagation(); onSelect("core"); }}
         onPointerOver={() => (document.body.style.cursor = "pointer")} onPointerOut={() => (document.body.style.cursor = "")}>
-        <sphereGeometry args={[1.9, 24, 24]} />
+        <sphereGeometry args={[3.1, 24, 24]} /> {/* the swarm's outer shell */}
         <meshBasicMaterial visible={false} /> {/* not drawn (one draw call saved); raycasting ignores material visibility */}
       </mesh>
       <mesh ref={sat} visible={false}><sphereGeometry args={[0.14, 16, 16]} /><meshBasicMaterial color="#67e8f9" toneMapped={false} /></mesh>
@@ -796,7 +796,7 @@ export default function Galaxy(props: GalaxyProps) {
         <Stars radius={110} depth={60} count={level === 0 || props.reduced ? Math.min(2000, q.stars) : 4500} factor={2.6} fade speed={props.reduced ? 0 : 0.15} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <Dust count={q.dust} reduced={props.reduced} feel={feel} />
-        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} />
+        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} positions={positions} />
         <Filaments positions={positions} pulses={props.pulses} reduced={props.reduced} />
         <Beams positions={positions} pulses={props.pulses} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
