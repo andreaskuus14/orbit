@@ -9,7 +9,7 @@ import { planetById, type PanelId } from "./planets.ts";
  *  zoom acts on whatever world is on screen and never navigates (panel is ignored). */
 export type NavTarget = {
   panel: PanelId | null; country?: string; region?: string; view?: "stats" | "clips" | "review" | "none";
-  search?: string; zoom?: "in" | "out" | "reset"; morning?: true; // morning: open the "Good morning" card on the galaxy and read it aloud
+  search?: string; zoom?: "in" | "out" | "reset"; morning?: true; weekly?: true; // weekly: the Sunday review card, read aloud. morning: open the "Good morning" card on the galaxy and read it aloud
   doctor?: true; // doctor: open the ORBIT doctor (health checks) and read the result aloud; stays where you are
   beliefs?: true; // beliefs: MEMORY opens "What ORBIT believes"
   stopAll?: true; voice?: boolean; // direct actions: stay in the current world; voice sets output on/off
@@ -31,6 +31,7 @@ command({ stopAll: true }, "stop everything, stop all, peata kõik");
 command({ voice: false }, "mute, vaigista");
 command({ voice: true }, "unmute, lülita heli sisse");
 command({ morning: true }, "status report, olukord");
+command({ weekly: true }, "weekly review, my week, how was my week, nädala ülevaade");
 command({ continueWork: true }, "show my work, continue my work, näita minu tööd, jätka minu tööd");
 command({}, "back, galaxy, tagasi, galaktika");
 

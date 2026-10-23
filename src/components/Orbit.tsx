@@ -24,6 +24,7 @@ import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
+import { WeeklyCard } from "./WeeklyCard";
 import { StatusRail } from "./StatusRail";
 import { Ticker } from "./Ticker";
 import { WarpOverlay } from "./WarpOverlay";
@@ -499,6 +500,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       )}
 
       <MorningCard home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
+      <WeeklyCard home={!shown && !approach} />
       {!shown && !approach && view === "3d" && <ContinueWork floating onOpenTask={openTask} onOpenGoal={openGoal} />}
       <Herald home={!shown && !approach && !gameOpen} coreBusy={busy} />
       <WhatsNew home={!shown && !approach} />
