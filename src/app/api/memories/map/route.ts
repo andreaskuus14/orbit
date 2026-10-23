@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { layout } from "@/lib/memory-map-pure";
 import { parseEmbedding } from "@/lib/memory-world-pure";
+import { similarEdges } from "@/lib/memory-edges-pure";
 
 // MEMORY world: star positions are computed here so 1024-dim embeddings never reach the browser.
 const CAP = 2000, PAGE = 500, TTL = 5 * 60_000; // PAGE stays under PostgREST's default 1000-row cap
@@ -29,11 +30,13 @@ export async function GET() {
     const { data: linkRows, error: le } = await sb.from("memory_links").select("from_id, to_id").neq("status", "rejected").limit(10_000);
     if (le) throw le;
     const links = (linkRows ?? []).filter((l) => ids.has(l.from_id) && ids.has(l.to_id)).map((l) => ({ from: l.from_id as string, to: l.to_id as string }));
-    const pts = layout(rows.map((r) => ({ id: r.id, kind: r.kind, tags: r.tags ?? [], embedding: parseEmbedding(r.embedding) })), links);
+    const vecs = rows.map((r) => parseEmbedding(r.embedding));
+    const pts = layout(rows.map((r, i) => ({ id: r.id, kind: r.kind, tags: r.tags ?? [], embedding: vecs[i] })), links);
+    const edges = similarEdges(vecs); // [a, b, sim] as item indexes: the similarity web, aged client-side
     const r2 = (n: number) => (Number.isFinite(n) ? Math.round(n * 100) / 100 : 0);
     const items = rows.map((r, i) => ({ id: r.id, title: r.title, kind: r.kind, tags: r.tags ?? [], created_at: r.created_at, source: r.source,
       x: r2(pts[i].x), y: r2(pts[i].y), z: r2(pts[i].z) }));
-    const body = { items, links, total: count ?? 0 };
+    const body = { items, links, edges, total: count ?? 0 };
     for (const [k] of cache) if (k.startsWith(`${user.id}:`)) cache.delete(k);
     cache.set(key, { at: Date.now(), body });
     return Response.json(body);
