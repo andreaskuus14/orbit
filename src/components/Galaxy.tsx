@@ -15,6 +15,7 @@ import { QUALITY, stepQuality, type QualityLevel, type QualityMode, type Quality
 import { GalaxyLoader } from "./GalaxyLoader";
 import { loadImage } from "./texture-cache";
 import { FrameMark } from "./dev-timing";
+import { StageOut, useStageActive } from "./Stage";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
 import { cullLabels, damp, fmtCoord, HOME_POS, INTRO_SECS, introLabelAlpha } from "@/lib/cinematic-pure";
 import {
@@ -1071,6 +1072,7 @@ export default function Galaxy(props: GalaxyProps) {
   const positions = useMemo<Positions>(() => Object.fromEntries(PLANETS.map((p) => [p.id, new THREE.Vector3()])), []);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
   const glr = useGlRecovery();
+  const staged = useStageActive(); // one-canvas spike: a world renders in this canvas, the galaxy scene sits idle
   const [ready, setReady] = useState(false);
   const onReady = useCallback(() => setReady(true), []);
   useEffect(() => { const t = setTimeout(onReady, 8000); return () => clearTimeout(t); }, [onReady]); // never hang on the loader if no frame draws
@@ -1120,7 +1122,7 @@ export default function Galaxy(props: GalaxyProps) {
   }, [stop, selected, onSelect]);
   return (
     <div className="relative h-full w-full">
-      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={props.paused || !visible ? "never" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, dprMax]}
+      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={(props.paused && !staged) || !visible ? "never" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, dprMax]}
         gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping }}>
         <color attach="background" args={["#02040b"]} />
         {/* Depth haze: far orbits and belts sink into a cold blue-black (shader layers like stars/nebulae ignore it). */}
@@ -1143,7 +1145,7 @@ export default function Galaxy(props: GalaxyProps) {
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
             life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} />
         ))}
-        <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={80} enableDamping />
+        <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={4} maxDistance={80} enableDamping />
         {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} />
         {!props.paused && <ZoomRig home={HOME.length()} reduced={props.reduced} />} {/* zoom commands are for the world on screen */}
@@ -1151,10 +1153,10 @@ export default function Galaxy(props: GalaxyProps) {
         <LabelProjector positions={positions} labels={labels} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
         <FirstFrames onReady={onReady} />
-        {mode === "auto" && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
+        {mode === "auto" && !staged && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
         {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}
         {q.bloom > 0 && (
-          <EffectComposer key={level} multisampling={q.msaa}>
+          <EffectComposer key={level} enabled={!staged} multisampling={q.msaa}>
             {dof ? <StoryFocus story={story} /> : <></>}
             <Bloom intensity={(props.reduced ? Math.min(0.6, q.bloom) : q.bloom) * (props.bloomScale ?? 1)} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />
             {film ? <MotionAberration motion={motion} /> : <></>}
@@ -1163,7 +1165,9 @@ export default function Galaxy(props: GalaxyProps) {
             {film ? <Noise blendFunction={BlendFunction.OVERLAY} opacity={0.16} /> : <></>}
           </EffectComposer>
         )}
+        <StageOut />
       </Canvas>
+      <div style={{ display: staged ? "none" : "contents" }}>
       <GalaxyLoader done={ready} />
       <GalaxyHud selected={props.selected} hoverSet={hoverSet} els={hud} introMs={introMs} />
       {!props.reduced && <StoryReadout stop={stop} intro={intro} onOpen={onSelect} />}
@@ -1175,6 +1179,7 @@ export default function Galaxy(props: GalaxyProps) {
         {PLANETS.map((p) => (
           <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: p.color }}>{p.name}</span>
         ))}
+      </div>
       </div>
     </div>
   );
