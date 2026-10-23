@@ -25,3 +25,11 @@ export function clockReply(kind: "time" | "date", d: Date): string {
     ? `It's ${pad(d.getHours())}:${pad(d.getMinutes())}.`
     : `Today is ${d.toLocaleDateString("en-GB", { weekday: "long" })}, ${d.getDate()} ${d.toLocaleDateString("en-GB", { month: "long" })} ${d.getFullYear()}.`;
 }
+
+/** Greetings and thanks answered locally: a model call costs ~5 s on Windows for one sentence. Estonian in, Estonian out. */
+export function smallTalkReply(kind: "greet" | "thanks", text: string, ongoing: boolean): string {
+  const et = /\b(?:tere|aitäh|tänan|tänud|kuidas läheb)\b/iu.test(text);
+  if (kind === "thanks") return et ? "Pole tänu!" : "Anytime.";
+  if (ongoing) return et ? "Jah? Mis edasi?" : "Yes? What next?";
+  return et ? "Tere! Mis teeme?" : "Hey. What are we working on?";
+}

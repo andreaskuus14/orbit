@@ -23,3 +23,11 @@ test("clock replies use the given local time", () => {
   assert.equal(clockReply("time", d), "It's 09:05.");
   assert.equal(clockReply("date", d), "Today is Friday, 23 October 2026.");
 });
+
+test("small talk is answered locally, in the user's language", async () => {
+  const { smallTalkReply } = await import("../src/lib/reflex-pure.ts");
+  assert.equal(smallTalkReply("thanks", "thanks!", false), "Anytime.");
+  assert.equal(smallTalkReply("thanks", "aitäh", false), "Pole tänu!");
+  assert.equal(smallTalkReply("greet", "tere", false), "Tere! Mis teeme?");
+  assert.equal(smallTalkReply("greet", "hey", true), "Yes? What next?");
+});
