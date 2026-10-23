@@ -29,16 +29,24 @@ export function ContinueWork({ floating = false, onOpenTask, onOpenGoal }: { flo
     document.addEventListener("visibilitychange", refresh);
     return () => { c.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
   }, [load]);
+  // The floating card over the galaxy can be tucked away into a small chip (remembered), and reopened from it.
+  const [tucked, setTucked] = useState(false);
+  useEffect(() => { try { setTucked(localStorage.getItem("orbit.continue.tucked") === "1"); } catch { /* private mode */ } }, []);
+  const tuck = (v: boolean) => { setTucked(v); try { localStorage.setItem("orbit.continue.tucked", v ? "1" : "0"); } catch { /* private mode */ } };
+  if (floating && tucked) {
+    const n = data ? data.items.length + data.more : 0;
+    return <button type="button" className="chip continue-work-chip" onClick={() => tuck(false)} aria-label="Open Continue my work">▸ Continue my work{n ? ` · ${n}` : ""}</button>;
+  }
   return <ContinueWorkView data={data} error={error} loading={loading} updatedAt={updatedAt} floating={floating} onOpenTask={onOpenTask} onOpenGoal={onOpenGoal}
-    onRefresh={() => { if (controller.current) void load(controller.current.signal); }} />;
+    onRefresh={() => { if (controller.current) void load(controller.current.signal); }} onClose={floating ? () => tuck(true) : undefined} />;
 }
 
-export function ContinueWorkView({ data, error = "", loading = false, updatedAt = null, floating = false, onOpenTask, onOpenGoal, onRefresh }: {
-  data: WorkSummary | null; error?: string; loading?: boolean; updatedAt?: Date | null; floating?: boolean; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void; onRefresh: () => void;
+export function ContinueWorkView({ data, error = "", loading = false, updatedAt = null, floating = false, onOpenTask, onOpenGoal, onRefresh, onClose }: {
+  data: WorkSummary | null; error?: string; loading?: boolean; updatedAt?: Date | null; floating?: boolean; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void; onRefresh: () => void; onClose?: () => void;
 }) {
   const titleId = useId();
   return <section className={`continue-work${floating ? " continue-work-float" : ""}`} aria-labelledby={titleId}>
-    <div className="continue-heading"><h2 id={titleId}>Continue my work</h2><button type="button" className="link" onClick={onRefresh} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button></div>
+    <div className="continue-heading"><h2 id={titleId}>Continue my work</h2><span className="flex items-center gap-2"><button type="button" className="link" onClick={onRefresh} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>{onClose && <button type="button" className="chip" onClick={onClose} aria-label="Hide Continue my work">✕</button>}</span></div>
     {!data && !error && <p className="muted" role="status">Loading your work…</p>}
     {error && <p className="error" role="alert">{error}{data ? " Showing the last loaded results." : ""}</p>}
     {data?.problems.map((p) => <p key={p} className="error">{p}</p>)}
