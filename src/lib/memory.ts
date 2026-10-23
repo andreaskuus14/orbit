@@ -56,6 +56,7 @@ export async function createMemory(sb: SupabaseClient, userId: string, input: Me
   }
 
   await emit(sb, userId, "memory.created", "memory", { id: data.id, title: data.title, kind: data.kind, source: data.source, suggested });
+  await emit(sb, userId, "memory.saved", "memory", { memoryId: data.id, kind: data.kind });
   return { memory: data, embedded: !!embedding, suggested };
 }
 

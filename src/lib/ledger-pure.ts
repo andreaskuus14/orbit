@@ -6,7 +6,7 @@ type Data = {
   "core.turn": { model: string; tools: number; ms: number };
   "tool.call": { tool: string; ok: boolean; ms: number };
   "memory.saved": { memoryId: string; kind: string };
-  "clip.published": { clipId: string; title: string };
+  "clip.published": { clipId: string; title?: string };
   "clip.outcome48h": { clipId: string; views: number; likes: number };
   "business.stage": { prospect: string; to: Stage };
   "goal.step": { goalId: string; step: string; status: "started" | "done" | "failed"; goalDone?: boolean };
@@ -29,7 +29,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "core.turn": { model: id, tools: count, ms: count },
   "tool.call": { tool: id, ok: bool, ms: count },
   "memory.saved": { memoryId: id, kind: id },
-  "clip.published": { clipId: id, title: name },
+  "clip.published": { clipId: id, title: opt(name) },
   "clip.outcome48h": { clipId: id, views: count, likes: count },
   "business.stage": { prospect: name, to: oneOf(STAGES) },
   "goal.step": { goalId: id, step: name, status: oneOf(["started", "done", "failed"]), goalDone: opt(bool) },
@@ -111,4 +111,22 @@ export function stateAt(events: LedgerEvent[], t: string | number): Snapshot {
   for (const v of stage.values()) s.businessStages[v]++;
   s.activeGoals = [...goals].filter(([, done]) => !done).map(([g]) => g).sort();
   return s;
+}
+
+/** emit()'s check: null for a non-ledger type or a valid payload, else why it doesn't fit the ledger shape. */
+export function ledgerIssue(type: string, planet: string, data: unknown, causedBy?: string): string | null {
+  if (!EVENT_TYPES.includes(type as EventType)) return null;
+  const r = validate({ id: "new", at: "2000-01-01T00:00:00Z", type, planet, data, ...(causedBy !== undefined ? { caused_by: causedBy } : {}) });
+  return "error" in r ? r.error : null;
+}
+
+export type EventRow = { id: number | string; created_at: string; type: string; planet: string; payload: unknown; caused_by?: number | string | null };
+/** public.events rows → valid ledger events (legacy and malformed rows are skipped). Postgres timestamps carry microseconds, so they're normalised. */
+export function fromRows(rows: EventRow[]): LedgerEvent[] {
+  return rows.flatMap((r) => {
+    const ms = Date.parse(r.created_at);
+    if (Number.isNaN(ms)) return [];
+    const v = validate({ id: String(r.id), at: new Date(ms).toISOString(), type: r.type, planet: r.planet, data: r.payload, ...(r.caused_by != null ? { caused_by: String(r.caused_by) } : {}) });
+    return "ok" in v ? [v.ok] : [];
+  });
 }

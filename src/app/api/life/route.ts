@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
+import { emit } from "@/lib/claude";
 import { addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal } from "@/lib/life";
 import { MAX_FOCUS_MIN, isRepeat } from "@/lib/life-pure";
 
@@ -20,7 +21,7 @@ const bad = (error: string) => Response.json({ error }, { status: 400 });
 const out = (r: object) => ("error" in r ? Response.json(r, { status: 400 }) : Response.json(r));
 
 export async function POST(req: Request) {
-  const { res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = await req.json().catch(() => null);
   if (!b || typeof b !== "object") return bad("Invalid JSON body");
@@ -54,7 +55,9 @@ export async function POST(req: Request) {
     case "focus": {
       const m = b.minutes;
       if (!Number.isInteger(m) || m < 1 || m > MAX_FOCUS_MIN) return bad(`Minutes must be 1–${MAX_FOCUS_MIN}`);
-      return Response.json({ today: await logFocus(m) });
+      const today = await logFocus(m);
+      await emit(sb, user.id, "focus.session", "life", { minutes: m });
+      return Response.json({ today });
     }
     case "journal": {
       const text = str(b.text, 2000);
