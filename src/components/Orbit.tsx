@@ -423,7 +423,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   async function signOut() { await sb.auth.signOut(); location.href = "/login"; }
 
-  const title = drawer === "core" ? "CORE" : drawer === "profile" ? "Your profile" : drawer ? planetById(drawer)!.name : "";
+  const title = drawer === "core" ? "CORE" : drawer === "profile" ? "Your profile" : drawer ? planetById(drawer)?.name ?? "" : "";
 
   return (
     <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view}>
