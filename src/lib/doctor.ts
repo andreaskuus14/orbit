@@ -172,7 +172,7 @@ async function facts(sb: SupabaseClient): Promise<Check> {
 const ENV_REQUIRED = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"];
 const ENV_OPTIONAL = {
   YOUTUBE_API_KEY: "STUDIO stats and scout", YOUTUBE_CHANNEL: "your channel in STUDIO", YOUTUBE_OAUTH_CLIENT_ID: "channel connection",
-  YOUTUBE_OAUTH_CLIENT_SECRET: "channel connection", SUPABASE_SECRET_KEY: "briefings while the browser is closed", VOYAGE_API_KEY: "smarter memory search",
+  YOUTUBE_OAUTH_CLIENT_SECRET: "channel connection", SUPABASE_SECRET_KEY: "briefings while the browser is closed",
 };
 
 /** All checks in parallel; worst case ~8 s (each guard's timeout). */
