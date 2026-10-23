@@ -283,3 +283,5 @@
 @media (max-width: 1000px) { .mc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .mc-grid { grid-template-columns: 1fr; } .mc-panel { max-height: none; min-height: 0; } .mc-top .mc-code { display: none; } .mc-top button { margin-left: auto; } }
 @media (prefers-reduced-motion: reduce) { .mc[open] { animation: none; } }
+.continue-work-chip { position: absolute; z-index: 16; top: 5rem; left: .75rem; }
+.orbit-shell:has(.whats-new) .continue-work-chip { display: none; }
