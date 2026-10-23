@@ -8,7 +8,8 @@ import { pickRecall, type Recall } from "./resurface-pure";
 import { getContinueWork } from "./work-continuation";
 import { dailyMission } from "./daily-mission-pure";
 import { dueFollowups } from "./business-pure";
-import { buildMorning, businessFollowupLine, lifeSection, pulseHeadlines, sinceSection, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningSince, type MorningStudio } from "./morning-pure";
+import { readSleepReport } from "./sleep";
+import { buildMorning, businessFollowupLine, localDay, overnightLine, lifeSection, pulseHeadlines, sinceSection, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningSince, type MorningStudio } from "./morning-pure";
 
 // Gathers the "Good morning" briefing: every section in parallel with a timeout, a failing source just drops its section.
 // Reads stored data only (no Pulse run, no YouTube stats fetch, no AI call).
@@ -106,5 +107,5 @@ export async function getMorning(sb: SupabaseClient, userId: string, now = Date.
   // Only counted when its sources loaded: a mission ticked from missing data would be a false claim.
   const mission = st && work && ok(ct) !== undefined ? dailyMission({ shortsToday: st.today.length, contactedToday: ok(ct)!, approvalsWaiting: approvals(work) }) : undefined;
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
-    business: ok(bf), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), ...(since && { since }) };
+    business: ok(bf), overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), ...(since && { since }) };
 }
