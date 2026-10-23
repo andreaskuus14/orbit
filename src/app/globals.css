@@ -90,7 +90,7 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .planet-card.warn { border-color: #f43f5e !important; }
 .planet-card:hover { transform: translateY(-2px); box-shadow: 0 0 24px rgba(34, 211, 238, 0.18); background: linear-gradient(135deg, rgba(20, 44, 90, 0.8), rgba(6, 14, 34, 0.8)); }
 
-.planet-label { opacity: 0; font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: 0.3em; white-space: nowrap; text-shadow: 0 0 10px rgba(0, 0, 0, 0.95), 0 0 14px currentColor; }
+.planet-label { opacity: 0; font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: 0.3em; white-space: nowrap; text-shadow: 0 0 2px #000, 0 0 5px #000, 0 0 10px rgba(0, 0, 0, 0.95), 0 0 16px currentColor; } /* dark halo first: legible over the CORE glare */
 
 /* Header logo + status pills */
 .logo { display: flex; align-items: center; gap: 0.6rem; text-align: left; border-radius: 6px; }

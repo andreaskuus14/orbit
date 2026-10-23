@@ -17,7 +17,8 @@ void main() {
   float u = fract(position.y + uTime * 0.0035 * (0.6 + aS.z)); // flowing outward along the arm, forever
   float r = R0 + (R1 - R0) * pow(u, 1.55);
   float disc = step(aS.w, 0.3); // a share of the synapses fill the disc between the arms
-  float spread = gauss(position.z, aS.x) * (0.09 + 0.003 * r) * (1.0 - disc) + disc * (aS.x * 6.2831853);
+  float gs = gauss(position.z, aS.x);
+  float spread = gs * (0.09 + 0.003 * r) * (1.0 - disc) + disc * (aS.x * 6.2831853);
   float th = arm * 6.2831853 / arms + 1.75 * log(r / R0) + spread - uTime * 0.9 / sqrt(r);
   float h = gauss(aS.y, aS.z) * (0.12 + 0.015 * r) * (1.0 + disc);
   vec3 p = vec3(cos(th) * r, h, sin(th) * r);
@@ -25,9 +26,16 @@ void main() {
   float z = max(-mv.z, 0.1);
   float fire = pow(max(sin(uTime * (0.6 + aS.x * 1.7) + aS.y * 80.0), 0.0), 24.0);
   float edge = smoothstep(0.0, 0.06, u) * (1.0 - smoothstep(0.82, 1.0, u));
+  // structure: a dark dust lane hugging each arm's inner edge, gaps cleared by the orbits, bright knots strung along the arm
+  float lane = disc > 0.5 ? 1.0 : 0.12 + 0.88 * smoothstep(0.15, 0.7, abs(gs + 0.75));
+  float gap = 0.25 + 0.75 * smoothstep(0.05, 0.45, abs(sin(r * 0.62 + 0.4)));
+  float knot = pow(max(sin(u * 70.0 + arm * 2.1 + sin(u * 23.0) * 1.5), 0.0), 18.0) * step(abs(gs), 0.8) * (1.0 - disc);
+  edge *= lane * gap * (0.25 + 0.75 * smoothstep(R0, R0 + 8.0, r)); // the inner arms thin out: no white disc around the CORE
   // far points are sub-pixel (clamped to 1 px): raise their alpha so the arms still read from the overview
-  vA = edge * (0.16 + 0.55 * smoothstep(12.0, 50.0, z) + 1.4 * fire) * (1.0 - disc * 0.55) * smoothstep(3.0, 14.0, z);
-  vC = mix(vec3(0.95, 0.97, 1.0), holo(0.5 + r * 0.011 + aS.x * 0.18 + arm * 0.07 + uTime * 0.006), smoothstep(R0, R0 + 9.0, r));
+  vA = edge * (0.16 + 0.55 * smoothstep(12.0, 50.0, z) + 1.4 * fire + 1.6 * knot) * (1.0 - disc * 0.7) * smoothstep(3.0, 14.0, z);
+  vC = mix(vec3(0.85, 0.9, 1.0), holo(0.5 + r * 0.018 + aS.x * 0.12 + arm * 0.33 + uTime * 0.006), smoothstep(R0, R0 + 3.0, r));
+  vC = mix(vC, vec3(0.35, 0.5, 1.0), (1.0 - lane) * 0.6);          // lane edges go cold blue
+  vC = mix(vC, vec3(1.0, 0.75, 0.9), knot * 0.7);                  // knots burn pink-white
   vC = mix(vC, vec3(1.0), fire * 0.5);
   gl_PointSize = clamp(uScale * (0.35 + 0.9 * aS.w * aS.w + 1.2 * fire) / z, 1.0, 4.0);
   gl_Position = projectionMatrix * mv;

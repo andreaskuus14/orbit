@@ -22,8 +22,9 @@ import { StageOut, useStageActive } from "./Stage";
 import { Singularity } from "./alien/Singularity";
 import { NeuralArms } from "./alien/NeuralArms";
 import { Filaments } from "./alien/Filaments";
-import { ThoughtShell, useLiquidMetal } from "./alien/LiquidPlanet";
-import { armCount, shellCount } from "@/lib/alien-pure";
+import { Lensing } from "./alien/Lensing";
+import { HoloRing, ThoughtShell, useLiquidMetal } from "./alien/LiquidPlanet";
+import { armCount, overviewBoost, planetDetail, shellCount } from "@/lib/alien-pure";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
 import { cullLabels, damp, fmtCoord, HOME_POS, INTRO_SECS, introLabelAlpha } from "@/lib/cinematic-pure";
 import {
@@ -54,6 +55,7 @@ export type GalaxyProps = {
 };
 
 type Positions = Record<string, THREE.Vector3>;
+type Scales = Record<string, number>; // per-world display scale (overview boost x hover lift), written per frame
 const glow = (pulses: RefObject<Record<string, number>>, id: string) =>
   Math.max(0, 1 - (Date.now() - (pulses.current?.[id] ?? 0)) / 3000);
 
@@ -297,7 +299,7 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, light, shell = 0 }: {
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, light, shell = 0, level = 1, scales }: {
   p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
   agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
@@ -305,6 +307,8 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   segs?: number; // sphere segments: fewer on lower quality levels
   light?: Light; // living universe: busy worlds glow a touch, idle ones dim a touch
   shell?: number; // thought-cluster particles around the world
+  level?: number; // quality level: caps the close-up detail octaves and the LOD mesh
+  scales?: Scales;
 }) {
   const group = useRef<THREE.Group>(null);
   const mesh = useRef<THREE.Mesh>(null);
@@ -319,8 +323,16 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   const base = useMemo(() => liquid.mat.color.clone(), [liquid]);
   const lit = useRef(light); lit.current = light;
   const pulse = useCallback(() => glow(pulses, p.id), [pulses, p.id]);
+  // Procedural LOD: detail (0 overview .. 1 close-up) drives the shader octaves, the surface swarm, the ring's fine
+  // ticks, and a denser sphere once the world is big on screen (level 2+ only; swapped in place, no re-render).
+  const detail = useRef(0);
+  const near = useCallback(() => detail.current, []);
+  const lo = useMemo(() => new THREE.SphereGeometry(size, segs, segs), [size, segs]);
+  const hi = useMemo(() => (level >= 2 ? new THREE.SphereGeometry(size, 320, 320) : null), [size, level]);
+  useEffect(() => () => { lo.dispose(); hi?.dispose(); }, [lo, hi]);
+  const tilt = useMemo<[number, number, number]>(() => [Math.PI / 2 - 0.3 + Math.sin(index * 2.1) * 0.35, 0, Math.cos(index * 1.3) * 0.4], [index]);
 
-  useFrame(({ clock }, dt) => {
+  useFrame(({ clock, camera }, dt) => {
     const a = phase + (reduced ? 0 : clock.elapsedTime * p.speed);
     const x = Math.cos(a) * p.radius, z = Math.sin(a) * p.radius;
     // Levitation: a slow vertical bob, so worlds float instead of sitting on rails.
@@ -336,9 +348,23 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
       m.color.copy(base).multiplyScalar(1 - (l?.dim ?? 0)); // dim is clamped to [0, 0.15] in universe-pure
     }
     // Hover lifts the planet a little; eases, never snaps.
+    // Overview: far worlds are enlarged to a minimum on-screen size so each reads as a world, not a dot.
     const k = 1 - Math.exp(-dt * 8);
-    if (group.current) group.current.scale.setScalar(THREE.MathUtils.lerp(group.current.scale.x, hovered.current || selected ? 1.08 : 1, k));
+    const boost = selected ? 1 : overviewBoost(size, camera.position.distanceTo(positions[p.id]), (camera as THREE.PerspectiveCamera).fov ?? 50);
+    if (group.current) {
+      group.current.scale.setScalar(THREE.MathUtils.lerp(group.current.scale.x, (hovered.current || selected ? 1.08 : 1) * boost, k));
+      if (scales) scales[p.id] = group.current.scale.x;
+    }
     rim.u.uRim.value = THREE.MathUtils.lerp(rim.u.uRim.value, hovered.current ? 1.1 : selected ? 0.6 : 0.22, k);
+    if (group.current) {
+      const d = planetDetail(size, camera.position.distanceTo(group.current.position), level); // true size: the boost adds presence, not detail
+      detail.current = d;
+      liquid.u.uDetail.value = d;
+      liquid.u.uOct.value = 3 + 5 * d;
+      liquid.u.uFar.value = 1 - d;
+      const m = mesh.current, want = hi && d > 0.35 ? hi : lo;
+      if (m && m.geometry !== want) m.geometry = want;
+    }
   });
 
   return (
@@ -348,6 +374,7 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
         <mesh
           ref={mesh}
           material={liquid.mat}
+          geometry={lo}
           rotation-z={0.2}
           onClick={(e) => { e.stopPropagation(); onSelect(p.id); }}
           onPointerOver={(e) => {
@@ -356,10 +383,9 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
             if (e.pointerType === "touch") tapT.current = setTimeout(() => { hovered.current = false; onHover(p.id, false); }, 2500);
           }}
           onPointerOut={() => { clearTimeout(tapT.current); hovered.current = false; onHover(p.id, false); document.body.style.cursor = ""; }}
-        >
-          <sphereGeometry args={[size, segs, segs]} />
-        </mesh>
-        <ThoughtShell size={size} color={p.color} count={shell} reduced={reduced} glow={pulse} />
+        />
+        <ThoughtShell size={size} color={p.color} count={shell} reduced={reduced} glow={pulse} near={near} />
+        <HoloRing size={size} color={p.color} tilt={tilt} reduced={reduced} detail={near} />
         {p.id === "intelligence" && <Lightning size={size} reduced={reduced} flash={flash} />}
         {look.ring && <PlanetRing size={size} color={look.ring} />}
         {p.id === "memory" && <Moons count={memoryCount} reduced={reduced} />}
@@ -493,8 +519,8 @@ const LABEL_W = BODIES.map((id) => (id === "core" ? 4 : PLANETS.find((p) => p.id
 
 /** Projects each body's position to screen space every frame and moves plain DOM labels there (no extra React roots).
  *  Also places the HUD's leader label beside the hovered planet and writes the focus coordinates (no allocations). */
-function LabelProjector({ positions, labels, hover, selected, hud, story, reduced }: {
-  positions: Positions; labels: RefObject<Record<string, HTMLSpanElement | null>>;
+function LabelProjector({ positions, scales, labels, hover, selected, hud, story, reduced }: {
+  positions: Positions; scales: Scales; labels: RefObject<Record<string, HTMLSpanElement | null>>;
   hover: RefObject<PlanetId | null>; selected: PanelId | null; hud: RefObject<HudEls>; story: RefObject<Story>; reduced: boolean;
 }) {
   const v = useMemo(() => new THREE.Vector3(), []);
@@ -508,7 +534,7 @@ function LabelProjector({ positions, labels, hover, selected, hud, story, reduce
       const id = BODIES[i], el = els[id];
       const p = i > 0 ? PLANETS[i - 1] : undefined;
       if (!p) v.set(0, -2.4, 0);
-      else { v.copy(positions[id]); v.y -= planetSize(p) + 0.5; }
+      else { const s = scales[id] ?? 1; v.copy(positions[id]); v.y -= (planetSize(p) + 0.5) * s; }
       v.project(camera);
       const visible = !!el && v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
       sc.x[i] = ((v.x + 1) / 2) * size.width; sc.y[i] = ((1 - v.y) / 2) * size.height;
@@ -647,6 +673,7 @@ function FirstFrames({ onReady }: { onReady: () => void }) {
 
 export default function Galaxy(props: GalaxyProps) {
   const positions = useMemo<Positions>(() => Object.fromEntries(PLANETS.map((p) => [p.id, new THREE.Vector3()])), []);
+  const scales = useMemo<Scales>(() => Object.fromEntries(PLANETS.map((p) => [p.id, 1])), []);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
   const glr = useGlRecovery();
   const staged = useStageActive(); // one-canvas spike: a world renders in this canvas, the galaxy scene sits idle
@@ -720,22 +747,24 @@ export default function Galaxy(props: GalaxyProps) {
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
-            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} light={props.universe?.light[p.id]} shell={shellCount(level)} />
+            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} light={props.universe?.light[p.id]} shell={shellCount(level)} level={level} scales={scales} />
         ))}
         {props.universe && <Universe u={props.universe} positions={positions} still={props.reduced || level === 0} level={level} />}
         {props.ships && <Ships tasks={props.ships.tasks} onOpen={props.ships.onOpen} positions={positions} reduced={props.reduced} />}
-        <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={4} maxDistance={80} enableDamping />
+        {/* a focused world may be approached until it nearly fills the view: its surface keeps resolving finer detail */}
+        <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={props.selected && props.selected in sizes ? sizes[props.selected] * 1.35 : 4} maxDistance={80} enableDamping />
         {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} />
         {!props.paused && <ZoomRig home={HOME.length()} reduced={props.reduced} />} {/* zoom commands are for the world on screen */}
         <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} story={story} />
-        <LabelProjector positions={positions} labels={labels} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
+        <LabelProjector positions={positions} scales={scales} labels={labels} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
         <FirstFrames onReady={onReady} />
         {mode === "auto" && !staged && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
         {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}
         {q.bloom > 0 && (
           <EffectComposer key={level} enabled={!staged} multisampling={q.msaa}>
+            <Lensing disp={level >= 2} reduced={props.reduced} />
             {dof ? <StoryFocus story={story} /> : <></>}
             <Bloom intensity={(props.reduced ? Math.min(0.6, q.bloom) : q.bloom) * (props.bloomScale ?? 1)} luminanceThreshold={0.55} luminanceSmoothing={0.3} mipmapBlur />
             {film ? <MotionAberration motion={motion} /> : <></>}
