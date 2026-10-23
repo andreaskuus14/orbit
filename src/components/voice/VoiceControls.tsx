@@ -77,6 +77,9 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   // Where the microphone audio goes right now: push-to-talk while it records, otherwise hands-free.
   const route = voice.listening ? pttEngine : recognizerFor(s, "handsFree");
   const [heard, setHeard] = useState(""); // the final text, shown briefly so you see what ORBIT understood
+  const [errSeen, setErrSeen] = useState(""); // a hands-free error is shown for 8 s, then stays only in the status chip
+  useEffect(() => { if (!wake.error) return; const t = setTimeout(() => setErrSeen(wake.error ?? ""), 8000); return () => clearTimeout(t); }, [wake.error]);
+  const showErr = !!wake.error && wake.error !== errSeen;
 
   useEffect(() => {
     setS(loadVoiceSettings());
@@ -247,7 +250,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           </label>
         </div>
       )}
-      {(wake.interim || heard || wake.error || wake.note) && (
+      {(wake.interim || heard || showErr || wake.note) && (
         <span className="voice-heard" role="status" aria-live="polite">
           {wake.interim ? <i>{wake.interim}…</i> : heard ? <>Heard: <b>{heard}</b></> : wake.note ? <i>{wake.note}</i> : <>Hands-free paused: {wake.error}</>}
         </span>

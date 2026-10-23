@@ -569,7 +569,8 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
       // The de-collision nudge eases over time (no per-frame jumps when two labels trade places); the anchor tracks the world exactly.
       const tx = sc.x[i] - sc.ax[i], ty = sc.y[i] - sc.ay[i];
       sc.ox[i] = reduced ? tx : damp(sc.ox[i], tx, 6, dt); sc.oy[i] = reduced ? ty : damp(sc.oy[i], ty, 6, dt);
-      const lx = sc.ax[i] + sc.ox[i], ly = sc.ay[i] + sc.oy[i];
+      const hw = LABEL_W[i] / 2 + 6; // keep the whole label on screen (worlds at the edge used to push theirs off it)
+      const lx = Math.min(size.width - hw, Math.max(hw, sc.ax[i] + sc.ox[i])), ly = Math.min(size.height - 14, Math.max(14, sc.ay[i] + sc.oy[i]));
       el.style.transform = `translate(-50%, -50%) translate(${lx}px, ${ly}px)`;
       const goal = sc.vis[i] * introLabelAlpha(S.intro, i, BODIES.length);
       let a = reduced ? goal : damp(sc.alpha[i], goal, 8, dt);
