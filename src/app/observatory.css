@@ -209,7 +209,13 @@
 @keyframes warp-streak { from { transform: scale(.6) rotate(0deg); opacity: 0; } 30% { opacity: .5; } to { transform: scale(2.4) rotate(6deg); opacity: .9; } }
 @keyframes warp-flash { 0%, 70% { opacity: 0; } 100% { opacity: 1; } }
 @keyframes warp-clear { from { opacity: 1; } to { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .warp { display: none; } }
+/* Click into a world (WarpBurst): iridescent streaks rush outward and clear in 420 ms; never blocks input. */
+.warp-burst { position: fixed; inset: -20%; z-index: 30; pointer-events: none; opacity: 0; animation: warp-burst .42s cubic-bezier(.2, .7, .2, 1) forwards;
+  background: radial-gradient(circle, #fff 0 3%, color-mix(in srgb, var(--warp) 55%, transparent) 12%, transparent 42%),
+    repeating-conic-gradient(from 0deg, transparent 0 2.2deg, #a5f3fc99 2.2deg 2.5deg, transparent 2.5deg 5deg, #f0abfc77 5deg 5.3deg, transparent 5.3deg 7.4deg);
+  -webkit-mask: radial-gradient(circle, #0008 0%, #000 22%, transparent 68%); mask: radial-gradient(circle, #0008 0%, #000 22%, transparent 68%); }
+@keyframes warp-burst { from { opacity: 1; transform: scale(.45); } to { opacity: 0; transform: scale(2.2); } }
+@media (prefers-reduced-motion: reduce) { .warp, .warp-burst { display: none; } }
 /* Morning briefing as a hook (MorningCard.tsx): next step first, big numbers, the best Short as a picture. */
 .mc-next { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left; padding: .65rem .8rem; color: #0b1a20;
   background: linear-gradient(90deg, #7dd3fc, #c1e3eb); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
