@@ -6,7 +6,7 @@ import { scrubAt, SCRUB_DAYS, universeFrom } from "@/lib/universe-pure";
 
 type Got = { at: string; snapshot: Snapshot };
 
-export function useLivingUniverse() {
+export function useLivingUniverse(active = true) {
   const [open, setOpen] = useState(false);
   const [days, setDays] = useState(0); // 0 = live
   const [got, setGot] = useState<Got | null>(null);
@@ -23,10 +23,11 @@ export function useLivingUniverse() {
         setGot(j);
       })
       .catch(() => {}); // no ledger yet / offline: the galaxy just stays as it is
+    if (!active) return; // galaxy hidden (2D index / a world covers it): no ledger polling
     const t = setTimeout(load, at ? 250 : 0); // debounce dragging
     const live = at ? undefined : setInterval(load, 5 * 60_000);
     return () => { dead = true; clearTimeout(t); clearInterval(live); };
-  }, [days]);
+  }, [days, active]);
   const universe = useMemo(() => (got ? universeFrom(got.snapshot, Date.parse(got.at)) : null), [got]);
   return { open, setOpen, days, setDays, universe };
 }

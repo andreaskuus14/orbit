@@ -165,6 +165,7 @@ function Walker({ rects, plot, onExit }: { rects: Rect[]; plot: { w: number; d: 
     const down = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+      if (document.querySelector("dialog[open], :popover-open")) return; // a modal/popover owns the keys (and its own Esc)
       const k = e.key.toLowerCase();
       // preventDefault: Orbit's own keys (Esc closes the world, ←/→ change planet) skip handled events
       if (k === "escape") { e.preventDefault(); exit.current(); } else if (MOVE.test(k)) { e.preventDefault(); s.keys.add(k); }

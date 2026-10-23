@@ -33,7 +33,7 @@ export function Ships({ tasks, onOpen, positions, reduced }: { tasks: ShipTask[]
   useEffect(() => () => { hullGeo.dispose(); trail.geometry.dispose(); (trail.material as THREE.Material).dispose(); }, [hullGeo, trail]);
 
   const s = useMemo(() => ({ o: new THREE.Object3D(), a: new THREE.Vector3(), b: new THREE.Vector3(), m: new THREE.Vector3(), p: new THREE.Vector3(), q: new THREE.Vector3(), c: new THREE.Color(), v: new THREE.Vector3() }), []);
-  const hover = useRef(-1), ids = useRef<string[]>([]);
+  const hover = useRef(""), ids = useRef<string[]>([]);
   const { gl, camera, size } = useThree();
   const label = useMemo(() => {
     const el = document.createElement("span");
@@ -103,7 +103,7 @@ export function Ships({ tasks, onOpen, positions, reduced }: { tasks: ShipTask[]
     trail.geometry.setDrawRange(0, n * (TRAIL - 1) * 2);
     pos.needsUpdate = col.needsUpdate = true;
     // Hover label: the task title next to the ship.
-    const h = hover.current;
+    const h = hover.current ? ids.current.indexOf(hover.current) : -1; // by id: instance indexes shift when the fleet changes
     if (h >= 0 && h < n) {
       H.getMatrixAt(h, s.o.matrix); s.v.setFromMatrixPosition(s.o.matrix).project(camera);
       label.style.opacity = s.v.z < 1 ? "1" : "0";
@@ -115,11 +115,11 @@ export function Ships({ tasks, onOpen, positions, reduced }: { tasks: ShipTask[]
   const over = (e: ThreeEvent<PointerEvent>) => {
     if (e.instanceId === undefined) return;
     e.stopPropagation();
-    hover.current = e.instanceId;
-    label.textContent = titleOf(ids.current[e.instanceId] ?? "");
+    hover.current = ids.current[e.instanceId] ?? "";
+    label.textContent = titleOf(hover.current);
     document.body.style.cursor = "pointer";
   };
-  const out = () => { hover.current = -1; document.body.style.cursor = ""; };
+  const out = () => { hover.current = ""; document.body.style.cursor = ""; };
   useEffect(() => () => { document.body.style.cursor = ""; }, []);
   const click = (e: ThreeEvent<MouseEvent>) => {
     const id = e.instanceId === undefined ? undefined : ids.current[e.instanceId];
