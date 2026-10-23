@@ -143,6 +143,7 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
           <button className="mc-next" onClick={() => data.suggestion.nav ? (data.suggestion.item ? openWork(data.suggestion.item) : go(data.suggestion.nav!)) : setOpen(false)}>
             <span className="mc-next-k">NEXT</span><span className="mc-next-t">{data.suggestion.text}</span><span aria-hidden>→</span>
           </button>
+          {data.overnight && <p className="muted text-xs">🌙 {data.overnight}</p>}
           <div className="mc-tiles">
             {s && <button className="mc-tile" onClick={() => go("review")}><b className="num">{s.ready}</b><span>clips to review</span></button>}
             {s && <button className="mc-tile" onClick={() => nav({ panel: "studio" })}><b className="num">{s.today.length}</b><span>live today</span></button>}

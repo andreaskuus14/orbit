@@ -102,3 +102,35 @@ export function playbookPrompt(rules: string[]): string {
     ...list.map((r) => `- ${r.replace(/\s+/g, " ").trim()}`),
   ].join("\n");
 }
+
+/* ---------- Overnight curation (ACE-style): per-rule helpful/harmful counters → remove-only deltas ---------- */
+export type RuleCounters = Record<string, { helpful: number; harmful: number }>; // key: normalizeRule(rule)
+export const RETIRE_MARGIN = 2;
+export const NEAR_DUP = 0.75; // one extra word in a 4-word rule; "Answer in English" vs "Answer in Estonian" is 0.5
+
+const ruleWords = (r: string) => new Set(normalizeRule(r).split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+/** Jaccard overlap of two rules' words (1 = same words). */
+export function ruleSimilarity(a: string, b: string): number {
+  const x = ruleWords(a), y = ruleWords(b);
+  const inter = [...x].filter((w) => y.has(w)).length;
+  return x.size + y.size ? inter / (x.size + y.size - inter) : 0;
+}
+
+/** Adds the night's verdicts to the counters; only rules still in the playbook are kept. */
+export function tallyEvidence(prev: RuleCounters, rules: string[], evidence: { rule: string; verdict: "helpful" | "harmful" }[]): RuleCounters {
+  const next: RuleCounters = {};
+  for (const r of rules) { const k = normalizeRule(r); next[k] = { ...(prev[k] ?? { helpful: 0, harmful: 0 }) }; }
+  for (const e of evidence) { const c = next[normalizeRule(e.rule)]; if (c) c[e.verdict]++; }
+  return next;
+}
+
+/**
+ * The night's delta: remove rules with harmful > helpful + RETIRE_MARGIN, and the later copy of near-identical
+ * pairs (the earlier one has had longer to prove itself). Only "remove" ops, applied through applyEdits.
+ */
+export function curateEdits(rules: string[], counters: RuleCounters): { edits: PlaybookEdit[]; retired: string[]; merged: string[] } {
+  const retired = rules.filter((r) => { const c = counters[normalizeRule(r)]; return !!c && c.harmful > c.helpful + RETIRE_MARGIN; });
+  const kept = rules.filter((r) => !retired.includes(r));
+  const merged = kept.filter((r, i) => kept.slice(0, i).some((p) => ruleSimilarity(p, r) >= NEAR_DUP));
+  return { edits: [...retired, ...merged].map((rule) => ({ op: "remove" as const, rule })), retired, merged };
+}

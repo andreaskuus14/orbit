@@ -17,6 +17,7 @@ export type MorningLife = { habits: number; done: number; next: { text: string; 
 export type MorningCalendar = { connected: boolean; today: { time: string; title: string }[] }; // titles: calendar data (invites), plain text only
 export type Morning = {
   greeting: string; business?: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince; work?: WorkSummary; mission?: Mission;
+  overnight?: string; // the sleep loop's report for today (sleep.ts), shown as one line
   suggestion: { text: string; nav: MorningNav | null; item?: WorkItem }; spoken: string;
 };
 
@@ -111,7 +112,11 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   return plain([...must, ...opt, tail].join(" ").replace(/\.\./g, "."));
 }
 
-export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall" | "work" | "mission" | "business">, now: number, tz: string): Morning {
+/** "Overnight: …" when the sleep loop left a non-empty report for this local day. */
+export const overnightLine = (r: { day: string; line: string } | undefined, today: string) =>
+  r && r.day === today && r.line.trim() ? `Overnight: ${plain(r.line)}.` : undefined;
+
+export function buildMorning(parts: Pick<Morning, "studio" | "intel" | "agents" | "life" | "calendar" | "recall" | "work" | "mission" | "business" | "overnight">, now: number, tz: string): Morning {
   const base = { ...parts, greeting: greeting(now, tz), suggestion: suggest(parts) };
   return { ...base, spoken: spokenBriefing(base) };
 }
