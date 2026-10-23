@@ -15,6 +15,7 @@ import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { centroid, isLearned, searchStars } from "@/lib/memory-world-pure";
 import { DAY, edgeBorn, edgeGlow } from "@/lib/memory-edges-pure";
+import { useAlienEnv } from "./alien/env";
 
 type Star = { id: string; title: string; kind: string; tags: string[]; created_at: string; source: string | null; x: number; y: number; z: number };
 type MapData = { items: Star[]; links: { from: string; to: string }[]; edges?: [number, number, number][]; total: number };
@@ -28,35 +29,114 @@ const kindColor = (k: string) => KIND_COLOR[k] ?? "#a9b4c8";
 const WEB = new THREE.Color("#a5b4fc"); // similarity web
 const REPLAY_TICKS = 120, REPLAY_MS = 80, REPLAY_TICKS_REDUCED = 8, REPLAY_MS_REDUCED = 700; // ~10 s replay; reduced motion jumps in a few steps
 
+// Depth of field without a post pass: points away from the focus distance (camera -> orbit target) grow and soften
+// like bokeh, keeping roughly the same light. Shared by stars and dust; vBlur is 0 in focus, 1 fully out.
+const DOF = /* glsl */ `uniform float uFocus;
+  float blurAt(float d) { return clamp(abs(d - uFocus) / max(uFocus * 0.9, 1.0) - 0.15, 0.0, 1.0); }`;
 const vert = /* glsl */ `
   attribute vec3 aColor; attribute float aGlow; attribute float aHi; attribute float aBorn;
   uniform float uTime; uniform float uScale; uniform float uMotion; uniform float uAt;
-  varying vec3 vColor; varying float vGlow; varying float vHi;
+  varying vec3 vColor; varying float vGlow; varying float vHi; varying float vBlur;
+  ${DOF}
   void main() {
     if (aBorn > uAt) { gl_PointSize = 0.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; } // not yet saved at the replayed moment
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     float d = max(-mv.z, 0.5);
-    float tw = 1.0 + uMotion * 0.12 * sin(uTime * 1.3 + position.x * 3.1 + position.y * 1.7);
-    gl_PointSize = clamp(0.32 * (1.0 + aGlow * 0.25 + aHi * 1.1) * tw * uScale / d, 1.5, 72.0);
+    float tw = 1.0 + uMotion * 0.14 * sin(uTime * 1.3 + position.x * 3.1 + position.y * 1.7);
+    vBlur = blurAt(d) * (1.0 - aHi);
+    gl_PointSize = clamp(0.8 * (1.0 + aGlow * 0.25 + aHi * 1.1) * (1.0 + vBlur * 1.6) * tw * uScale / d, 2.0, 96.0);
     gl_Position = projectionMatrix * mv;
     vColor = aColor; vGlow = aGlow; vHi = aHi;
   }`;
 const frag = /* glsl */ `
   uniform float uSearch;
-  varying vec3 vColor; varying float vGlow; varying float vHi;
+  varying vec3 vColor; varying float vGlow; varying float vHi; varying float vBlur;
   void main() {
     vec2 p = gl_PointCoord * 2.0 - 1.0;
     float r2 = dot(p, p);
     if (r2 > 1.0) discard;
-    float core = exp(-r2 * 14.0), halo = exp(-r2 * 3.5) * 0.3;
-    float ring = vGlow * smoothstep(0.1, 0.0, abs(sqrt(r2) - 0.7)) * 0.55; // CORE-learned: a thin orbit ring
-    float dim = mix(1.0, 0.18, uSearch * (1.0 - vHi));
-    vec3 c = vColor * (core * 1.3 + halo + ring) + vec3(core * (0.5 + vHi * 0.6));
+    float core = exp(-r2 * mix(16.0, 3.0, vBlur)), halo = exp(-r2 * 4.0) * 0.55 * (1.0 - vBlur);
+    float flare = (exp(-abs(p.x) * 40.0) + exp(-abs(p.y) * 40.0)) * exp(-r2 * 6.0) * 0.25 * (1.0 - vBlur); // a faint four-point glint
+    float ring = vGlow * smoothstep(0.1, 0.0, abs(sqrt(r2) - 0.7)) * 0.55 * (1.0 - vBlur); // CORE-learned: a thin orbit ring
+    float dim = mix(1.0, 0.18, uSearch * (1.0 - vHi)) / (1.0 + vBlur * 2.2);
+    vec3 c = vColor * (core * 1.6 + halo + ring + flare) + vec3(core * (0.7 + vHi * 0.6));
     gl_FragColor = vec4(clamp(c, 0.0, 4.0) * dim, 1.0);
   }`;
+// Neural dust around every star: overlapping clouds make dense clusters glow. Born with its star in a replay.
+const dustVert = /* glsl */ `
+  attribute vec3 aColor; attribute float aBorn; attribute float aSeed;
+  uniform float uTime; uniform float uScale; uniform float uMotion; uniform float uAt; uniform float uSearch;
+  varying vec3 vColor; varying float vBlur;
+  ${DOF}
+  void main() {
+    if (aBorn > uAt) { gl_PointSize = 0.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+    vec3 p = position + uMotion * 0.18 * vec3(sin(uTime * 0.31 + aSeed * 40.0), sin(uTime * 0.27 + aSeed * 71.0), sin(uTime * 0.23 + aSeed * 97.0));
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    float d = max(-mv.z, 0.5);
+    vBlur = blurAt(d);
+    gl_PointSize = clamp((0.07 + 0.08 * fract(aSeed * 13.0)) * (1.0 + vBlur * 2.0) * uScale / d, 1.0, 28.0);
+    gl_Position = projectionMatrix * mv;
+    vColor = aColor * (0.5 + 0.5 * fract(aSeed * 7.0)) * mix(1.0, 0.25, uSearch);
+  }`;
+const dustFrag = /* glsl */ `
+  varying vec3 vColor; varying float vBlur;
+  void main() {
+    vec2 p = gl_PointCoord * 2.0 - 1.0;
+    float a = max(1.0 - dot(p, p), 0.0);
+    gl_FragColor = vec4(clamp(vColor * a * a * 0.55 / (1.0 + vBlur * 2.5), 0.0, 2.0), 1.0);
+  }`;
+// The similarity web as luminous filaments: each edge fades between its two kinds' colours, a light pulse runs along it.
+const webVert = /* glsl */ `
+  attribute float aT; attribute float aSeed; varying vec3 vC; varying float vT; varying float vS;
+  void main() { vC = color; vT = aT; vS = aSeed; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const PULSE = /* glsl */ `
+  uniform float uTime;
+  float headAt(float s) { float h = fract(uTime * (0.07 + 0.1 * s) + s * 7.0); return s > 0.5 ? 1.0 - h : h; } // half run each way
+  float carries(float s) { return step(0.45, fract(s * 13.7)); } // about half the threads carry a pulse`;
+const webFrag = /* glsl */ `
+  varying vec3 vC; varying float vT; varying float vS;
+  ${PULSE}
+  void main() {
+    float d = (vT - headAt(vS)) * (vS > 0.5 ? 1.0 : -1.0); // > 0 behind the head
+    float pulse = carries(vS) * (d >= 0.0 ? exp(-d * 14.0) : exp(-d * d * 3000.0));
+    gl_FragColor = vec4(clamp(vC * (0.22 + pulse * 3.5) + vec3(pulse * dot(vC, vec3(0.6))), 0.0, 4.0), 1.0);
+  }`;
+const sparkVert = /* glsl */ `
+  attribute vec3 aB; attribute vec3 aColor; attribute float aSeed; uniform float uScale; varying vec3 vC;
+  ${PULSE}
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(mix(position, aB, headAt(aSeed)), 1.0);
+    vC = aColor;
+    float on = carries(aSeed) * step(0.001, dot(aColor, vec3(1.0))); // unborn (black) edges carry nothing
+    gl_PointSize = on * clamp(0.28 * uScale / max(-mv.z, 0.5), 1.5, 22.0);
+    gl_Position = projectionMatrix * mv;
+  }`;
+const sparkFrag = /* glsl */ `
+  varying vec3 vC;
+  void main() { vec2 p = gl_PointCoord * 2.0 - 1.0; float a = max(1.0 - dot(p, p), 0.0);
+    gl_FragColor = vec4(clamp((vC * 2.5 + vec3(0.8)) * a * a * a, 0.0, 4.0), 1.0); }`;
 
-function Constellation({ data, at, hi, searching, reduced, onHover, onPick }: {
-  data: MapData; at: number | null; hi: Set<number>; searching: boolean; reduced: boolean; onHover: (i: number | null) => void; onPick: (i: number) => void;
+/** Faint obsidian rings far behind the constellation, turning very slowly: the megastructure the memories live in. */
+const FAR_RINGS = [{ r: 16, spin: 0.02 }, { r: 26, spin: -0.014 }, { r: 38, spin: 0.01 }, { r: 52, spin: -0.007 }, { r: 68, spin: 0.005 }] as const;
+function FarRings({ reduced }: { reduced: boolean }) {
+  const env = useAlienEnv();
+  const geos = useMemo(() => FAR_RINGS.map((k) => new THREE.TorusGeometry(k.r, 0.35 + k.r * 0.006, 4, 192)), []);
+  const mat = useMemo(() => new THREE.MeshPhysicalMaterial({ color: "#030305", metalness: 0.9, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.05,
+    iridescence: 0.4, iridescenceThicknessRange: [200, 600], flatShading: true, emissive: "#1a2a55", emissiveIntensity: 0.05, envMapIntensity: 0.25 }), []);
+  useEffect(() => { mat.envMap = env; mat.needsUpdate = true; }, [mat, env]);
+  useEffect(() => () => { geos.forEach((g) => g.dispose()); mat.dispose(); }, [geos, mat]);
+  const spin = useRef<(THREE.Mesh | null)[]>([]);
+  useFrame((_, dt) => {
+    if (reduced) return;
+    const step = Math.min(Math.max(dt, 0), 0.1);
+    for (let i = 0; i < FAR_RINGS.length; i++) { const m = spin.current[i]; if (m) m.rotation.z += step * FAR_RINGS[i].spin; }
+  });
+  return <group position={[30, 45, -230]} rotation={[0.15, 0.2, 0]}>{FAR_RINGS.map((k, i) => ( // concentric, off to one side, far behind
+    <mesh key={i} ref={(el) => { spin.current[i] = el; }} geometry={geos[i]} material={mat} rotation={[0.08 * i, -0.06 * i, 0]} scale={[1, 1, 4]} raycast={() => null} />))}</group>;
+}
+
+function Constellation({ data, at, hi, searching, reduced, lite, onHover, onPick }: {
+  data: MapData; at: number | null; hi: Set<number>; searching: boolean; reduced: boolean; lite: boolean; onHover: (i: number | null) => void; onPick: (i: number) => void;
 }) {
   const { size, camera, gl } = useThree();
   const times = useMemo(() => created(data.items), [data]);
@@ -87,29 +167,66 @@ function Constellation({ data, at, hi, searching, reduced, onHover, onPick }: {
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     return g;
   }, [data]);
-  const web = useMemo(() => { // the similarity web: one LineSegments, colours repainted only when the moment changes
-    const e = data.edges ?? [], pos = new Float32Array(e.length * 6), born = new Float64Array(e.length);
+  const web = useMemo(() => { // the similarity web: one LineSegments + one spark per edge, colours repainted only when the moment changes
+    const e = data.edges ?? [], n = e.length, pos = new Float32Array(n * 6), born = new Float64Array(n), c = new THREE.Color();
+    const t = new Float32Array(n * 2), seed = new Float32Array(n * 2), kc = new Float32Array(n * 6), a3 = new Float32Array(n * 3), b3 = new Float32Array(n * 3), s1 = new Float32Array(n);
     e.forEach(([a, b], k) => {
+      const s = Math.abs(Math.sin(k * 12.9898 + 4.1) * 43758.5453) % 1;
+      t[k * 2 + 1] = 1; seed[k * 2] = seed[k * 2 + 1] = s1[k] = s;
       const p = data.items[a], q = data.items[b];
       if (!p || !q) { born[k] = Infinity; return; }
       pos.set([p.x, p.y, p.z, q.x, q.y, q.z], k * 6);
+      a3.set([p.x, p.y, p.z], k * 3); b3.set([q.x, q.y, q.z], k * 3);
+      c.set(kindColor(p.kind)).lerp(WEB, 0.3); kc.set([c.r, c.g, c.b], k * 6);
+      c.set(kindColor(q.kind)).lerp(WEB, 0.3); kc.set([c.r, c.g, c.b], k * 6 + 3);
       born[k] = edgeBorn(times.at[a], times.at[b]);
     });
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(e.length * 6), 3));
-    return { g, born, sim: e.map((x) => x[2]) };
+    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(n * 6), 3));
+    g.setAttribute("aT", new THREE.BufferAttribute(t, 1));
+    g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
+    const sparks = new THREE.BufferGeometry();
+    sparks.setAttribute("position", new THREE.BufferAttribute(a3, 3));
+    sparks.setAttribute("aB", new THREE.BufferAttribute(b3, 3));
+    sparks.setAttribute("aColor", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    sparks.setAttribute("aSeed", new THREE.BufferAttribute(s1, 1));
+    return { g, sparks, born, kc, sim: e.map((x) => x[2]) };
   }, [data, times]);
+  const dust = useMemo(() => { // a few motes per star, gaussian around it (deterministic)
+    const per = lite ? 2 : 6, n = data.items.length * per, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), born = new Float32Array(n), seed = new Float32Array(n), c = new THREE.Color();
+    let s = 11;
+    const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(2 * Math.PI * rnd());
+    data.items.forEach((m, i) => {
+      c.set(kindColor(m.kind));
+      for (let j = 0; j < per; j++) {
+        const k = i * per + j, r = 0.5 + rnd() * 1.4;
+        pos.set([m.x + gauss() * r, m.y + gauss() * r, m.z + gauss() * r], k * 3);
+        col.set([c.r, c.g, c.b], k * 3); born[k] = (times.at[i] - times.t0) / DAY; seed[k] = rnd();
+      }
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("aColor", new THREE.BufferAttribute(col, 3));
+    g.setAttribute("aBorn", new THREE.BufferAttribute(born, 1));
+    g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
+    g.computeBoundingSphere();
+    return g;
+  }, [data, times, lite]);
   const now = at ?? times.now;
   useEffect(() => {
     const a = web.g.getAttribute("color") as THREE.BufferAttribute, arr = a.array as Float32Array;
+    const sa = web.sparks.getAttribute("aColor") as THREE.BufferAttribute, sp = sa.array as Float32Array, kc = web.kc;
     for (let k = 0; k < web.born.length; k++) {
       const v = edgeGlow(web.born[k], now, web.sim[k]);
-      for (let j = 0; j < 6; j += 3) { arr[k * 6 + j] = WEB.r * v; arr[k * 6 + j + 1] = WEB.g * v; arr[k * 6 + j + 2] = WEB.b * v; }
+      for (let j = 0; j < 6; j++) arr[k * 6 + j] = kc[k * 6 + j] * v;
+      for (let j = 0; j < 3; j++) sp[k * 3 + j] = (kc[k * 6 + j] + kc[k * 6 + 3 + j]) * 0.5 * v;
     }
-    a.needsUpdate = true;
+    a.needsUpdate = true; sa.needsUpdate = true;
   }, [web, now]);
-  useEffect(() => () => { geo.dispose(); lines.dispose(); web.g.dispose(); }, [geo, lines, web]);
+  useEffect(() => () => { geo.dispose(); lines.dispose(); web.g.dispose(); web.sparks.dispose(); }, [geo, lines, web]);
+  useEffect(() => () => dust.dispose(), [dust]);
   const shown = (i: number) => times.at[i] <= now;
   useEffect(() => {
     const a = geo.getAttribute("aHi") as THREE.BufferAttribute;
@@ -117,19 +234,31 @@ function Constellation({ data, at, hi, searching, reduced, onHover, onPick }: {
     hi.forEach((i) => { a.array[i] = 1; });
     a.needsUpdate = true;
   }, [geo, hi]);
-  const uniforms = useMemo(() => ({ uTime: { value: 0 }, uScale: { value: 400 }, uMotion: { value: 0 }, uSearch: { value: 0 }, uAt: { value: 1e9 } }), []);
+  const uniforms = useMemo(() => ({ uTime: { value: 0 }, uScale: { value: 400 }, uMotion: { value: 0 }, uSearch: { value: 0 }, uAt: { value: 1e9 }, uFocus: { value: 46 } }), []);
+  const mats = useMemo(() => {
+    const add = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms };
+    return {
+      web: new THREE.ShaderMaterial({ ...add, vertexShader: webVert, fragmentShader: webFrag, vertexColors: true }),
+      sparks: new THREE.ShaderMaterial({ ...add, vertexShader: sparkVert, fragmentShader: sparkFrag }),
+      dust: new THREE.ShaderMaterial({ ...add, vertexShader: dustVert, fragmentShader: dustFrag }),
+    };
+  }, [uniforms]);
+  useEffect(() => () => { mats.web.dispose(); mats.sparks.dispose(); mats.dust.dispose(); }, [mats]);
+  const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3 } | null;
   useFrame(({ clock }) => {
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 50;
-    uniforms.uTime.value = clock.elapsedTime % 1000; // bounded: keeps sin() precise
+    uniforms.uTime.value = reduced ? 3 : clock.elapsedTime % 1000; // bounded: keeps sin() precise; reduced holds pulses still
     uniforms.uScale.value = (size.height * gl.getPixelRatio()) / (2 * Math.tan((fov * Math.PI) / 360));
     uniforms.uMotion.value = reduced ? 0 : 1;
     uniforms.uSearch.value = searching ? 1 : 0;
     uniforms.uAt.value = at === null ? 1e9 : (at - times.t0) / DAY;
+    const f = controls ? camera.position.distanceTo(controls.target) : camera.position.length();
+    uniforms.uFocus.value = Number.isFinite(f) ? Math.max(f, 1) : 46;
   });
   return <>
-    <lineSegments geometry={web.g} raycast={() => null}>
-      <lineBasicMaterial vertexColors transparent opacity={0.45} blending={THREE.AdditiveBlending} depthWrite={false} />
-    </lineSegments>
+    <lineSegments geometry={web.g} material={mats.web} raycast={() => null} />
+    {!reduced && <points geometry={web.sparks} material={mats.sparks} raycast={() => null} frustumCulled={false} />}
+    <points geometry={dust} material={mats.dust} raycast={() => null} />
     <lineSegments geometry={lines} raycast={() => null} visible={at === null}>
       <lineBasicMaterial color="#7dd3fc" transparent opacity={0.1} blending={THREE.AdditiveBlending} depthWrite={false} />
     </lineSegments>
@@ -269,7 +398,8 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
           <color attach="background" args={[BG]} />
           <Stars radius={120} depth={60} count={reduced ? 800 : Math.min(3000, q.stars)} factor={2.2} fade speed={reduced ? 0 : 0.2} />
-          {data && <Constellation data={data} at={when} hi={hi} searching={!!query.trim()} reduced={reduced} onHover={setHover} onPick={open} />}
+          <FarRings reduced={reduced} />
+          {data && <Constellation data={data} at={when} hi={hi} searching={!!query.trim()} reduced={reduced} lite={q.bloomScale === 0} onHover={setHover} onPick={open} />}
           {label && (
             <Html position={[label.x, label.y, label.z]} style={{ pointerEvents: "none", transform: "translate(14px, -50%)" }} zIndexRange={[12, 0]}>
               <div className="memory-star-label"><b>{label.title}</b><span>{label.kind}{isLearned(label.source) ? " · learned by CORE" : ""}</span></div>
