@@ -13,6 +13,7 @@ const DATA: Record<string, object> = {
   "life.habit": { habit: "Run", done: true },
   "focus.session": { minutes: 25 },
   "notify.shown": { kind: "reminder", title: "Call mom" },
+  "morning.thumb": { kind: "news", key: "news:Markets dip", up: false },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {

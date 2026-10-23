@@ -9,6 +9,8 @@ import { getContinueWork } from "./work-continuation";
 import { dailyMission } from "./daily-mission-pure";
 import { dueFollowups } from "./business-pure";
 import { readSleepReport } from "./sleep";
+import { alertText } from "./markets-pure";
+import { morningCandidates, rankCards, type Thumb } from "./morning-rank-pure";
 import { buildMorning, businessFollowupLine, localDay, overnightLine, lifeSection, pulseHeadlines, sinceSection, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningSince, type MorningStudio } from "./morning-pure";
 
 // Gathers the "Good morning" briefing: every section in parallel with a timeout, a failing source just drops its section.
@@ -81,6 +83,17 @@ async function contactedToday(sb: SupabaseClient, now: number, tz: string): Prom
   return (data ?? []).filter((p) => day(Date.parse(p.updated_at)) === day(now)).length;
 }
 
+/** 👍/👎 from the last 60 days of the ledger (newest 500). */
+async function thumbs(sb: SupabaseClient, now: number): Promise<Thumb[]> {
+  const { data, error } = await sb.from("events").select("created_at, payload").eq("type", "morning.thumb")
+    .gte("created_at", new Date(now - 60 * 86_400_000).toISOString()).order("created_at", { ascending: false }).limit(500);
+  if (error) throw new Error(error.message);
+  return (data ?? []).flatMap((r) => {
+    const p = r.payload as Partial<Thumb> | null;
+    return p && typeof p.kind === "string" && typeof p.key === "string" && typeof p.up === "boolean" ? [{ kind: p.kind, key: p.key, up: p.up, at: r.created_at }] : [];
+  });
+}
+
 /** Approvals waiting: the list keeps 6 items with approvals first, so a full list of them may hide more. */
 const approvals = (w: { items: { status: string }[]; more: number }) => {
   const k = w.items.filter((x) => x.status === "awaiting_approval").length;
@@ -90,6 +103,7 @@ const approvals = (w: { items: { status: string }[]; more: number }) => {
 export async function getMorning(sb: SupabaseClient, userId: string, now = Date.now(), from: number | null = null): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
+  const cardSources = Promise.allSettled([within(thumbs(sb, now)), within(import("./markets").then((x) => x.listAlerts())), within(import("./ideas").then((x) => x.listIdeas()))]);
   const [s, i, a, l, r, sn, c, w, ct, bf] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
     within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
     from === null ? Promise.resolve(undefined) : getSince(sb, from, now),
@@ -99,13 +113,17 @@ export async function getMorning(sb: SupabaseClient, userId: string, now = Date.
       const ev = await g.calendarEvents(7, now);
       return { connected: !!ev, today: ev ? p.todayEvents(ev, now) : [] };
     })), within(getContinueWork(sb, userId)), within(contactedToday(sb, now, tz)),
-    within(Promise.resolve(sb.from("prospects").select("stage,updated_at,notes").eq("stage", "contacted")).then(({ data, error }) => {
+    within(Promise.resolve(sb.from("prospects").select("id,name,stage,updated_at,notes").eq("stage", "contacted")).then(({ data, error }) => {
       if (error) throw error;
-      return businessFollowupLine(dueFollowups(data ?? [], now).length);
+      return dueFollowups(data ?? [], now);
     }))]);
-  const life = ok(l), rec = ok(r), since = ok(sn), work = ok(w), st = ok(s);
+  const [th, al, ids] = await cardSources;
+  const life = ok(l), rec = ok(r), since = ok(sn), work = ok(w), st = ok(s), due = ok(bf);
+  const today = localDay(new Date(now)); // markets' firedOn is a server-local day
+  const cards = rankCards(morningCandidates({ work, studioReady: st?.ready, proposals: ok(a)?.proposals, headlines: ok(i)?.headlines,
+    alerts: ok(al)?.filter((x) => x.firedOn === today).map(alertText), followups: due, recall: rec, ideas: ok(ids)?.shown }), ok(th) ?? [], now);
   // Only counted when its sources loaded: a mission ticked from missing data would be a false claim.
   const mission = st && work && ok(ct) !== undefined ? dailyMission({ shortsToday: st.today.length, contactedToday: ok(ct)!, approvalsWaiting: approvals(work) }) : undefined;
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
-    business: ok(bf), overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), ...(since && { since }) };
+    business: due && businessFollowupLine(due.length), overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(since && { since }) };
 }

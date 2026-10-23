@@ -18,7 +18,7 @@ function component(file: string, name: string) {
 }
 const Continue = component("ContinueWork", "ContinueWorkView");
 const Evidence = component("ResultEvidence", "ResultEvidence");
-const MorningWork = component("MorningWork", "MorningWork");
+const MorningCards = component("MorningCards", "MorningCards");
 const callbacks = { onOpenTask() {}, onOpenGoal() {}, onRefresh() {} };
 
 test("a failed refresh never presents a stale empty inbox as caught up", () => {
@@ -56,13 +56,16 @@ test("receipts separate read-back evidence from quality claims and safely encode
   assert.equal(renderToStaticMarkup(createElement(Evidence, { items: [], openMemory() {} })), "");
 });
 
-test("morning work preview is bounded, escapes titles, and does not hide missing sources behind an empty state", () => {
-  const item = { kind: "goal", id: "g", title: "<Plan>", status: "blocked", detail: "Choose copy", action: "Open goal" };
-  const html = renderToStaticMarkup(createElement(MorningWork, { work: { items: Array.from({ length: 6 }, (_, i) => ({ ...item, id: String(i) })), more: 2, problems: [] }, onOpen() {} }));
-  assert.equal((html.match(/<button/g) ?? []).length, 3);
-  assert.match(html, /5 more in Continue my work/);
-  assert.match(html, /aria-label="Open goal: &lt;Plan&gt;"/);
-  const missing = renderToStaticMarkup(createElement(MorningWork, { work: { items: [], more: 0, problems: ["Goals could not be loaded."] }, onOpen() {} }));
+test("morning cards show one card at a time, escape titles, are keyboard reachable, and do not hide missing sources behind an empty state", () => {
+  const card = (k: number) => ({ kind: "goal", key: `goal:${k}`, title: "<Plan>", detail: "Open goal", base: 0.5, score: 0.5, open: { panel: "agents" } });
+  const html = renderToStaticMarkup(createElement(MorningCards, { cards: [0, 1, 2, 3, 4].map(card), onOpen() {} }));
+  assert.equal((html.match(/<article/g) ?? []).length, 1);
+  assert.match(html, /1\/5/);
+  assert.match(html, /&lt;Plan&gt;/);
+  assert.match(html, /tabindex="0"/);
+  assert.match(html, /aria-label="Thumbs up: more like this"/);
+  assert.match(html, /aria-label="Previous card" disabled=""/);
+  const missing = renderToStaticMarkup(createElement(MorningCards, { cards: [], problems: ["Goals could not be loaded."], onOpen() {} }));
   assert.match(missing, /Goals could not be loaded/);
-  assert.doesNotMatch(missing, /No unfinished/);
+  assert.doesNotMatch(missing, /Nothing needs you/);
 });
