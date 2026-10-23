@@ -10,6 +10,7 @@ import { useGlRecovery } from "./useGlRecovery";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { FrameMark } from "./dev-timing";
+import { oneCanvasOn, StageIn, WorldScene } from "./Stage";
 import { loadImage } from "./texture-cache";
 import { ZoomRig } from "./ZoomRig";
 import { useScramble } from "./useScramble";
@@ -294,6 +295,7 @@ const MODES: [Mode, string][] = [["channel", "Channel"], ["stats", "Stats"], ["c
 export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, quality = "auto" }: { onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
   const q = useLeanQuality(quality);
   const glr = useGlRecovery();
+  const [staged] = useState(oneCanvasOn); // spike flag, read once
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -397,32 +399,39 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const hoverVid = hover.id ? byId.get(hover.id) ?? null : null;
   const name = useScramble(live ? live.channel.title : data && !data.configured ? "Not connected" : "Your channel", 700);
 
+  const scene = (
+    <>
+      <WarmCompile />
+      {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
+      <Sky />
+      <Stars radius={70} depth={40} count={reduced ? 800 : 2000} factor={2.2} fade speed={reduced ? 0 : 0.35} />
+      <ambientLight intensity={0.35} color="#ffd6e0" />
+      <directionalLight position={[6, 5, 6]} intensity={2} color="#ffe5ec" />
+      <pointLight position={[-5, -1, -4]} intensity={30} color="#ff2e63" distance={20} />
+      <Planet reduced={reduced} />
+      {live && <Hologram text={`${compactNumber(live.channel.subs)} SUBSCRIBERS`} position={[0, PLANET_R + 1.05, 0]} size={0.3} color="#7df9ff" reduced={reduced} />}
+      {live && views28 !== null && <Hologram text={`${compactNumber(views28)} VIEWS · 28 DAYS`} position={[0, PLANET_R + 0.62, 0]} size={0.18} color="#ff8fab" reduced={reduced} />}
+      <Moons moons={moons} selected={selected} ghost={!live} reduced={reduced} onPick={pick} onHover={onHover} />
+      {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
+      <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
+      <StudioCamera mode={mode} reduced={reduced} />
+      <ZoomRig home={Math.hypot(4.2, 11)} reduced={reduced} />
+      <EffectComposer multisampling={q.msaa}>
+        <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
+        <Vignette offset={0.3} darkness={0.6} />
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      </EffectComposer>
+      {process.env.NODE_ENV === "development" && <FrameMark name="studio" note={staged ? "one canvas" : undefined} />}
+    </>
+  );
+
   return (
-    <div className="studio absolute inset-0 globe-in" role="region" aria-label="Studio: your YouTube channel">
+    <div className="studio absolute inset-0 globe-in" data-stage={staged || undefined} role="region" aria-label="Studio: your YouTube channel">
       {flat && <div aria-hidden className="studio-sky absolute inset-0" style={{ backgroundImage: `url(${SKY[0]})` }} />}
-      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
-        <WarmCompile />
-        {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
-        <Sky />
-        <Stars radius={70} depth={40} count={reduced ? 800 : 2000} factor={2.2} fade speed={reduced ? 0 : 0.35} />
-        <ambientLight intensity={0.35} color="#ffd6e0" />
-        <directionalLight position={[6, 5, 6]} intensity={2} color="#ffe5ec" />
-        <pointLight position={[-5, -1, -4]} intensity={30} color="#ff2e63" distance={20} />
-        <Planet reduced={reduced} />
-        {live && <Hologram text={`${compactNumber(live.channel.subs)} SUBSCRIBERS`} position={[0, PLANET_R + 1.05, 0]} size={0.3} color="#7df9ff" reduced={reduced} />}
-        {live && views28 !== null && <Hologram text={`${compactNumber(views28)} VIEWS · 28 DAYS`} position={[0, PLANET_R + 0.62, 0]} size={0.18} color="#ff8fab" reduced={reduced} />}
-        <Moons moons={moons} selected={selected} ghost={!live} reduced={reduced} onPick={pick} onHover={onHover} />
-        {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
-        <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
-        <StudioCamera mode={mode} reduced={reduced} />
-        <ZoomRig home={Math.hypot(4.2, 11)} reduced={reduced} />
-        <EffectComposer multisampling={q.msaa}>
-          <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
-          <Vignette offset={0.3} darkness={0.6} />
-          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        </EffectComposer>
-        {process.env.NODE_ENV === "development" && <FrameMark name="studio" />}
-      </Canvas>}
+      {/* Flag on: the scene renders inside the galaxy's canvas (see Stage.tsx); dpr/antialias then follow the galaxy canvas. */}
+      {!flat && (staged
+        ? <StageIn><WorldScene fov={45} position={[0, 4.2, 11]}>{scene}</WorldScene></StageIn>
+        : <Canvas key={glr.key} onCreated={glr.onCreated} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>)}
 
       <div aria-hidden className="studio-tone pointer-events-none absolute inset-0 z-[1]" />
       <div aria-hidden className="studio-vignette pointer-events-none absolute inset-0 z-[1]" />

@@ -38,6 +38,7 @@ import { runAgentCommand } from "./agent-command";
 import { runRecipeCommand } from "./recipe-command";
 import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
 import { markOpen } from "./dev-timing";
+import { useStageActive } from "./Stage";
 import { ContinueWork } from "./ContinueWork";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 
@@ -122,6 +123,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => { if (shown === "intelligence") setGlobeKept(true); }, [shown]);
   // A full-screen world (or a game) covers the galaxy: it stays mounted but paused, so coming back is instant.
   const covered = gameOpen || isWorld(shown);
+  const staged = useStageActive(); // one-canvas spike: STUDIO draws in the galaxy canvas, so keep it on screen
   useEffect(() => { markOpen(gameOpen ? "game" : covered ? shown ?? "galaxy" : "galaxy"); }, [gameOpen, covered, shown]); // dev-only timing
 
   // Back from Google's YouTube consent screen (?studio=…): reopen STUDIO; StudioStats reads and clears the query.
@@ -397,7 +399,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view === "3d" && !shown && <AmbientOverlay a={amb} />}
       {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
-        <div className="absolute inset-0" style={covered ? { visibility: "hidden" } : undefined} inert={covered || undefined}>
+        <div className="absolute inset-0" style={covered && !staged ? { visibility: "hidden" } : undefined} inert={(covered && !staged) || undefined}>
           <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} />
         </div>
       )}
