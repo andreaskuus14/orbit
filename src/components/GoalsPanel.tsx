@@ -4,6 +4,7 @@ import { StatusPill, api, usePoll } from "./AgentMission";
 import { move } from "@/lib/mission-pure";
 import { linePath, toPoints } from "@/lib/chart-pure";
 import type { Goal, MetricKind, StepDraft } from "@/lib/goals-pure";
+import { daily, forecast, type Forecast } from "@/lib/forecast-pure";
 
 // 🎯 GOALS in the Agents Station: list, new-goal form, goal detail (plan editor, step timeline, metric sparkline, learned, log).
 // Polling GET /api/goals is itself one of the events that advances a goal (there is no schedule). Goal text and results are untrusted:
@@ -26,6 +27,23 @@ function Spark({ values }: { values: number[] }) {
   return (
     <svg viewBox="0 0 200 40" className="h-10 w-full" role="img" aria-label={`Metric from ${values[0]} to ${values[values.length - 1]} over ${values.length} samples`}>
       <path d={linePath(toPoints(values, box, hi, lo), box)} fill="none" stroke="var(--cyan)" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+/** History line + shaded p10–p90 cone from the last reading to the deadline + dashed target line. */
+function Fan({ g, f }: { g: GoalView; f: Forecast }) {
+  const pts = daily(g.metric.samples), p = f.projected, target = g.metric.target;
+  if (!p || !g.deadline || target === undefined || pts.length < 2) return null;
+  const t0 = pts[0].t, t1 = Date.parse(`${g.deadline}T00:00:00Z`) + 86_400_000, last = pts[pts.length - 1];
+  const ys = [...pts.map((q) => q.v), p.p10, p.p90, target], lo = Math.min(...ys), hi = Math.max(...ys), span = hi - lo || 1;
+  const X = (t: number) => +(2 + (196 * (t - t0)) / (t1 - t0 || 1)).toFixed(1), Y = (v: number) => +(56 - (52 * (v - lo)) / span).toFixed(1);
+  return (
+    <svg viewBox="0 0 200 60" className="h-16 w-full" role="img" aria-label={`Forecast: ${Math.round(p.p10)} to ${Math.round(p.p90)} by ${g.deadline}, target ${target}`}>
+      <polygon points={`${X(last.t)},${Y(last.v)} ${X(t1)},${Y(p.p90)} ${X(t1)},${Y(p.p10)}`} fill="var(--cyan)" opacity={0.18} />
+      <line x1={X(last.t)} y1={Y(last.v)} x2={X(t1)} y2={Y(p.p50)} stroke="var(--cyan)" strokeWidth={1} strokeDasharray="3 2" />
+      <line x1={2} x2={198} y1={Y(target)} y2={Y(target)} stroke={f.onTrack ? "#4ade80" : "#fbbf24"} strokeWidth={1} strokeDasharray="2 3" />
+      <polyline points={pts.map((q) => `${X(q.t)},${Y(q.v)}`).join(" ")} fill="none" stroke="var(--cyan)" strokeWidth={1.5} />
     </svg>
   );
 }
@@ -160,7 +178,10 @@ function Detail({ g, busy, err, act, name, color, agents, onBack, onOpenTask }: 
         <section className="card space-y-1" aria-label="Metric">
           <div className="flex justify-between"><span className="hud-title text-[0.7rem]">METRIC</span><span>{g.progress.now ?? "–"}{g.progress.target !== null ? ` / ${g.progress.target}` : ""}{g.progress.pct !== null ? ` (${g.progress.pct}%)` : ""}</span></div>
           {g.metric.how && <p className="muted break-words">{g.metric.how}</p>}
-          {g.metric.kind !== "steps" && <Spark values={g.metric.samples.map((s) => s.value)} />}
+          {g.metric.kind !== "steps" && (() => {
+            const f = forecast(g.metric.samples, g.metric.target, g.deadline);
+            return <>{f.projected && g.deadline ? <Fan g={g} f={f} /> : <Spark values={g.metric.samples.map((s) => s.value)} />}<p className="muted text-xs">{f.summary}</p></>;
+          })()}
           {g.metric.kind === "manual" && <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); void act({ action: "metric", id, value: Number(val) }).then((ok) => ok && setVal("")); }}>
             <input className="field min-w-0 flex-1 !py-1" type="number" value={val} onChange={(e) => setVal(e.target.value)} aria-label="New metric value" /><button className="chip" disabled={busy || val === ""}>Record</button></form>}
         </section>
