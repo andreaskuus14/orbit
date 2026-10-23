@@ -523,7 +523,14 @@ kbd { font-family: var(--font-mono); font-size: 0.68rem; padding: 0.05rem 0.4rem
 .preloader-num { min-width: 3ch; font-variant-numeric: tabular-nums; }
 /* Masked text reveal (MaskText): each word rises through its own clip, 45 ms apart. */
 .mask-word { display: inline-block; overflow: hidden; vertical-align: top; padding-bottom: 0.1em; margin-bottom: -0.1em; }
-.mask-word > span { display: inline-block; animation: mask-up 0.38s var(--ease-glide) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.mask-word > span { display: inline-block; animation: mask-up 0.38s var(--ease-glide) both; animation-delay: calc(var(--d, 0ms) + var(--i, 0) * 45ms); }
+/* Decode (MaskText decode): the cycling glyph is drawn over its transparent real letter (no width change); flash on lock. */
+.dc { position: relative; }
+.dc[data-g] { color: transparent; }
+.dc[data-g]::after { content: attr(data-g); position: absolute; left: 0; top: 0; width: 100%; text-align: center; color: #8fd3ff; opacity: 0.85; }
+.dc.lk { animation: dc-flash 0.2s ease-out; }
+@keyframes dc-flash { from { color: #fff; text-shadow: 0 0 10px rgba(143, 211, 255, 0.95), 0 0 2px #fff; } }
+@media (prefers-reduced-motion: reduce) { .mask-word > span, .dc.lk { animation: none; } }
 @keyframes mask-up { from { transform: translateY(105%); } }
 /* Decorative cursor ring (CursorRing): fine pointers only; the native cursor stays. */
 .cursor-ring { position: fixed; left: 0; top: 0; z-index: 90; width: 22px; height: 22px; border: 1px solid rgba(226, 234, 246, 0.55); border-radius: 50%; pointer-events: none; opacity: 0; will-change: transform; }
@@ -661,6 +668,12 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
   text-shadow: 0 0 40px rgba(0, 0, 0, 0.75); }
 div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-events: none; } /* faded-out card: no invisible click target */
 .story-name:focus-visible { outline: 1px solid #8fd3ff; outline-offset: 6px; }
+/* Particle type (ParticleType): the real name waits laid out but unseen, then crossfades in as the particles hand over. */
+.story-name-text { opacity: 0; }
+.story-name-text.on { opacity: 1; transition: opacity 0.2s var(--ease-glide); }
+.particle-type { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 17; pointer-events: none; }
+.story-tele { min-height: 4.8em; margin: -0.2rem 0 0.6rem; font-family: var(--font-mono); font-size: 10px; line-height: 1.6; letter-spacing: 0.2em; color: rgba(186, 214, 255, 0.6); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .story-name-text { opacity: 1; transition: none; } }
 .story-line { max-width: 30rem; font-size: 0.95rem; line-height: 1.5; color: rgba(214, 228, 255, 0.74); text-shadow: 0 0 12px rgba(0, 0, 0, 0.9); }
 .story-hint { margin-top: 0.9rem; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.22em; color: rgba(186, 214, 255, 0.38); }
 @keyframes story-up { from { opacity: 0; transform: translateY(18px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
