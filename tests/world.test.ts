@@ -125,3 +125,12 @@ test("render: stays within 6000 chars; done goals go first, urgent goals stay", 
   // a small world keeps its done goals
   assert.match(render(world(), TODAY), /\[done\] Old goal/);
 });
+
+test("render: an open goal's forecast sentence is shown inert; done goals drop it", () => {
+  const w = world();
+  w.goals[0].forecast = "At your current pace you reach ~640 of 1,000 by Dec 31;\nyou'd need +12/day, you're doing +7/day.";
+  w.goals[2].forecast = "Target reached: 5 of 5.";
+  const s = render(w, TODAY);
+  assert.match(s, /1000 subscribers.* · forecast: At your current pace you reach ~640 of 1,000 by Dec 31; you'd need \+12\/day, you're doing \+7\/day\./);
+  assert.equal(s.includes("Target reached"), false);
+});

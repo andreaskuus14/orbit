@@ -3,6 +3,7 @@
 // No new storage: it is rebuilt each time (cached 2 min). Never throws; a failing source just leaves its part out.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { render, type World, type WorldGoal } from "./world-pure";
+import { forecast } from "./forecast-pure";
 
 const TTL = 120_000;
 const G = globalThis as unknown as { __orbitWorld?: Map<string, { at: number; text: string }> };
@@ -18,7 +19,9 @@ export async function worldContext(sb: SupabaseClient, userId: string, now = Dat
     ]);
     const wg: WorldGoal[] = goals.map((r) => {
       const d = r.doc, last = d.metric.samples.at(-1);
+      const live = d.status !== "done" && d.status !== "stopped" && d.metric.target !== undefined && (d.metric.kind === "manual" || d.metric.kind === "youtube_subscribers");
       return {
+        ...(live ? { forecast: forecast(d.metric.samples, d.metric.target, d.deadline, now).summary } : {}),
         id: r.id, title: d.title, why: d.why, ...(d.deadline ? { deadline: d.deadline } : {}),
         ...(d.metric.target !== undefined ? { metric: { name: d.metric.how || d.metric.kind, target: d.metric.target, current: last?.value ?? 0 } } : {}),
         status: d.status === "done" || d.status === "stopped" ? "done" : d.status === "paused" ? "paused" : "active",

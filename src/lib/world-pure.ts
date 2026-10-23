@@ -2,7 +2,7 @@
 // Everything here is the user's own text, rendered as data: tags, markdown and line breaks are flattened so it can't pose as rules.
 
 export type GoalStatus = "active" | "paused" | "done";
-export type WorldGoal = { id: string; title: string; why: string; deadline?: string; metric?: { name: string; target: number; current: number }; status: GoalStatus };
+export type WorldGoal = { id: string; title: string; why: string; deadline?: string; metric?: { name: string; target: number; current: number }; status: GoalStatus; forecast?: string }; // forecast: forecast-pure summary (built in world.ts, not user input)
 export type Weekly = { shortsViews: number; shortsPublished: number; leadsContacted: number; studyHours: number };
 export type Commitment = { text: string; due?: string };
 export type World = { goals: WorldGoal[]; weekly: Weekly; constraints: string[]; commitments: Commitment[] };
@@ -109,7 +109,7 @@ export function render(w: World, today: string): string {
   const rank = (g: WorldGoal) => (g.status === "done" ? 3 : soon(g.deadline) ? 0 : g.status === "active" ? 1 : 2);
   const goals = [...w.goals].sort((a, b) => rank(a) - rank(b) || (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999"));
   const goalLine = (g: WorldGoal) =>
-    `- [${g.status}] ${inert(g.title, 200)}${g.deadline ? ` (deadline ${when(g.deadline, today)})` : ""}${g.metric ? ` · ${inert(g.metric.name, 80)} ${g.metric.current}/${g.metric.target}` : ""}${g.why ? ` · why: ${inert(g.why, 200)}` : ""}`;
+    `- [${g.status}] ${inert(g.title, 200)}${g.deadline ? ` (deadline ${when(g.deadline, today)})` : ""}${g.metric ? ` · ${inert(g.metric.name, 80)} ${g.metric.current}/${g.metric.target}` : ""}${g.why ? ` · why: ${inert(g.why, 200)}` : ""}${g.forecast && g.status !== "done" ? ` · forecast: ${inert(g.forecast, 240)}` : ""}`;
   const commits = [...w.commitments].sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999"))
     .map((c) => `- ${inert(c.text)}${c.due ? ` (due ${when(c.due, today)})` : ""}`);
   const wk = w.weekly;
