@@ -122,7 +122,8 @@ test("disk: create, write, caps, symlink escape, trash", async () => {
   assert.equal((await ws.readWsFile(uid, "my-site", "index.html"))?.text, "<h1>hi</h1>");
   assert.deepEqual((await ws.listFiles(uid, "my-site"))!.map((f) => f.path), ["css/s.css", "index.html"]);
   // a symlink planted inside the workspace can't be followed out
-  await symlink(os.tmpdir(), path.join(dir, "workspaces", uid, "my-site", "out"));
+  // Windows directory junctions exercise the same escape guard without requiring symlink privileges.
+  await symlink(os.tmpdir(), path.join(dir, "workspaces", uid, "my-site", "out"), process.platform === "win32" ? "junction" : "dir");
   assert.ok("error" in (await ws.writeWsFile(uid, "my-site", "out/evil.html", "x")));
   assert.equal(await ws.readWsFile(uid, "my-site", "out/evil.html"), null);
   assert.ok("trashed" in (await ws.trashWsFile(uid, "my-site", "css/s.css")));
@@ -141,7 +142,7 @@ test("disk: create, write, caps, symlink escape, trash", async () => {
   assert.equal(await ws.resolvePreview(seg), null);
   assert.notEqual(await ws.previewUrl(uid, "my-site"), info.preview);
   // a workspace folder that is a symlink is not a workspace
-  await symlink(os.tmpdir(), path.join(dir, "workspaces", uid, "linked"));
+  await symlink(os.tmpdir(), path.join(dir, "workspaces", uid, "linked"), process.platform === "win32" ? "junction" : "dir");
   assert.equal(await ws.listFiles(uid, "linked"), null);
   assert.ok("error" in (await ws.writeWsFile(uid, "linked", "a.html", "x")));
   // trash keeps the newest 50, unique names
