@@ -8,7 +8,7 @@ import { worldQuality, type QualityMode } from "@/lib/quality-pure";
 import { FrameMark } from "./dev-timing";
 import { ZoomRig } from "./ZoomRig";
 import { OrbitControls, PerformanceMonitor, Stars } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, Vignette, ToneMapping, SMAA } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import world from "world-atlas/countries-110m.json";
 import { decodeCountries, unwrapRing, type CountryShape } from "@/lib/topo";
@@ -300,11 +300,13 @@ const dotMaterial = new THREE.ShaderMaterial({
     uniform float uW[7]; varying vec3 vColor; varying float vTw; varying float vVis;
     void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vColor = aColor;
       vVis = clamp(uW[int(clamp(aRegion, 0.0, 6.0) + 0.5)], 0.0, 1.0);
-      vTw = 0.55 + 0.45 * sin(uTime * 2.2 + aPhase);
-      gl_PointSize = aSize * uScale * (0.85 + 0.3 * vTw) / -mv.z; gl_Position = projectionMatrix * mv; }`,
+      vTw = 0.7 + 0.3 * sin(uTime * 0.9 + aPhase);
+      float px = aSize * uScale * (0.92 + 0.16 * vTw) / max(-mv.z, 0.1), k = clamp(px / 2.0, 0.0, 1.0);
+      vVis *= k * k; // coverage fade instead of sub-pixel flicker
+      gl_PointSize = max(px, 2.0); gl_Position = projectionMatrix * mv; }`,
   fragmentShader: `uniform float uFade; varying vec3 vColor; varying float vTw; varying float vVis;
     void main(){ float d = length(gl_PointCoord - 0.5); float a = 1.0 - smoothstep(0.0, 0.5, d); a = a * a;
-      gl_FragColor = vec4(vColor * (0.8 + 0.4 * (1.0 - smoothstep(0.0, 0.18, d))), a * (0.4 + 0.3 * vTw) * uFade * vVis); }`,
+      gl_FragColor = vec4(vColor * (0.75 + 0.25 * (1.0 - smoothstep(0.0, 0.18, d))), clamp(a * (0.35 + 0.2 * vTw) * uFade * vVis, 0.0, 1.0)); }`,
 });
 
 // Data arcs: cyan at the source warming to amber at the far end, a bright head with a comet tail; sparks ride the heads.
@@ -315,16 +317,17 @@ const arcMaterial = new THREE.ShaderMaterial({
   vertexShader: "attribute float aU; attribute float aOff; varying float vU; varying float vOff; void main(){ vU = aU; vOff = aOff; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
   fragmentShader: `uniform float uTime; uniform float uFade; uniform vec3 uColor; uniform vec3 uColor2; varying float vU; varying float vOff; ${ARC_HEAD}
     void main(){ float pulse = arcPulse(vU, vOff); float base = 0.16 * sin(3.14159 * vU) + 0.04;
-      gl_FragColor = vec4(mix(mix(uColor, uColor2, vU), vec3(1.0), pulse * 0.35), clamp((base + pulse * 0.8) * uFade, 0.0, 1.0)); }`,
+      gl_FragColor = vec4(mix(mix(uColor, uColor2, vU), vec3(0.9, 0.94, 1.0), pulse * 0.35), clamp((base + pulse * 0.55) * uFade, 0.0, 0.8)); }`,
 });
 const arcSparkMaterial = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: arcMaterial.uniforms,
   vertexShader: `attribute float aU; attribute float aOff; uniform float uTime; uniform float uScale; varying float vP; varying float vU; ${ARC_HEAD}
     void main(){ vU = aU; vP = arcPulse(aU, aOff); vec4 mv = modelViewMatrix * vec4(position,1.0);
-      gl_PointSize = vP > 0.2 ? clamp(uScale * vP / max(-mv.z, 0.1), 0.0, 18.0) : 0.0; gl_Position = projectionMatrix * mv; }`,
+      float px = min(uScale * vP / max(-mv.z, 0.1), 14.0), k = clamp(px / 2.0, 0.0, 1.0); // grows and fades with the head: no pop at a threshold
+      vP *= k * k; gl_PointSize = max(px, 2.0); gl_Position = projectionMatrix * mv; }`,
   fragmentShader: `uniform float uFade; uniform vec3 uColor; uniform vec3 uColor2; varying float vP; varying float vU;
     void main(){ vec2 d = gl_PointCoord - 0.5; float a = max(1.0 - dot(d, d) * 4.0, 0.0);
-      gl_FragColor = vec4(min(mix(mix(uColor, uColor2, vU), vec3(1.0), 0.5) * 1.6, vec3(2.0)), clamp(a * a * vP * uFade, 0.0, 1.0)); }`,
+      gl_FragColor = vec4(min(mix(mix(uColor, uColor2, vU), vec3(0.9, 0.94, 1.0), 0.6) * 1.1, vec3(1.2)), clamp(a * a * vP * uFade, 0.0, 1.0)); }`,
 });
 
 /** Holographic land: cyan particles with amber city flecks, a slow scan band sweeping pole to pole; out-of-region land dims. */
@@ -334,11 +337,12 @@ const landMaterial = new THREE.ShaderMaterial({
   vertexShader: `attribute float aRegion; attribute float aSeed; uniform float uTime; uniform float uScale; uniform float uW[7]; varying vec3 vC; varying float vA;
     void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0);
       float vis = clamp(uW[int(clamp(aRegion, 0.0, 6.0) + 0.5)], 0.0, 1.0);
-      float scan = exp(-pow((fract(position.y * 0.25 + 0.5 - uTime * 0.04) - 0.5) * 26.0, 2.0));
-      float city = step(0.955, aSeed), tw = 0.7 + 0.3 * sin(uTime * (0.8 + aSeed * 2.4) + aSeed * 60.0);
-      vC = mix(vec3(0.12, 0.78, 1.0), vec3(1.0, 0.7, 0.32), city);
-      vA = (0.22 + 0.3 * fract(aSeed * 31.0) + 0.8 * city * tw + 0.55 * scan) * (0.18 + 0.82 * vis);
-      gl_PointSize = clamp((1.0 + city * 0.9) * uScale / max(-mv.z, 0.1), 1.0, 7.0); gl_Position = projectionMatrix * mv; }`,
+      float scan = exp(-pow((fract(position.y * 0.25 + 0.5 - uTime * 0.04) - 0.5) * 18.0, 2.0));
+      float city = step(0.955, aSeed), tw = 0.8 + 0.2 * sin(uTime * (0.4 + aSeed * 0.8) + aSeed * 60.0);
+      vC = mix(vec3(0.32, 0.7, 1.0), vec3(1.0, 0.84, 0.62), city); // blue-white land, warm pearl city flecks
+      float px = min((1.0 + city * 0.7) * uScale / max(-mv.z, 0.1), 6.0), k = clamp(px / 1.6, 0.0, 1.0); // coverage fade, no sub-pixel flicker
+      vA = (0.2 + 0.22 * fract(aSeed * 31.0) + 0.5 * city * tw + 0.3 * scan) * (0.18 + 0.82 * vis) * k * k;
+      gl_PointSize = max(px, 1.6); gl_Position = projectionMatrix * mv; }`,
   fragmentShader: `varying vec3 vC; varying float vA;
     void main(){ float d = length(gl_PointCoord - 0.5); float a = 1.0 - smoothstep(0.1, 0.5, d);
       gl_FragColor = vec4(vC, clamp(a * vA, 0.0, 1.0)); }`,
@@ -353,9 +357,10 @@ const columnMaterial = new THREE.ShaderMaterial({
       gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`,
   fragmentShader: `uniform float uTime; uniform float uFade; varying vec3 vC; varying float vY; varying float vPh; varying float vVis;
     void main(){ float y = clamp(vY, 0.0, 1.0), fall = pow(1.0 - y, 1.8);
-      float band = exp(-pow((y - fract(uTime * 0.45 + vPh)) * 10.0, 2.0)) * (1.0 - y);
-      float a = clamp((0.7 * fall + 1.0 * band) * uFade * vVis, 0.0, 1.0);
-      gl_FragColor = vec4(mix(vC, vec3(1.0), band * 0.5 + fall * 0.2), a); }`,
+      float band = exp(-pow((y - fract(uTime * 0.3 + vPh)) * 7.0, 2.0)) * (1.0 - y);
+      // both faces of the open tube add up, and columns overlap: keep each one well under white
+      float a = clamp((0.32 * fall + 0.38 * band) * uFade * vVis, 0.0, 0.45);
+      gl_FragColor = vec4(mix(vC, vec3(0.88, 0.93, 1.0), band * 0.35 + fall * 0.15), a); }`,
 });
 
 /* ---------- scene pieces ---------- */
@@ -478,12 +483,12 @@ function Columns({ hotspots, mode, reduced }: { hotspots: Hotspot[]; mode: "news
     const top = hotspots.slice(0, 40), n = Math.max(top.length, 1), max = Math.max(1, ...top.map((h) => h.count));
     const geo = columnBase.clone(), col = new Float32Array(n * 3), ph = new Float32Array(n), reg = new Float32Array(n);
     const mat = columnMaterial.clone(); mat.uniforms.uW = fade.uW; // clone() copies uniforms; re-share the fade
-    const m = new THREE.InstancedMesh(geo, mat, n), o = new THREE.Object3D(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color(), tint = new THREE.Color("#7fe9ff");
+    const m = new THREE.InstancedMesh(geo, mat, n), o = new THREE.Object3D(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color(), tint = new THREE.Color("#cfe3ff");
     top.forEach((h, i) => {
       const k = Math.sqrt(h.count / max), p = toVec(h.lat, h.lon, R * 1.003), w = 0.012 + 0.018 * k;
       o.position.copy(p); o.quaternion.setFromUnitVectors(up, p.clone().normalize()); o.scale.set(w, 0.25 + 0.8 * k, w);
       o.updateMatrix(); m.setMatrixAt(i, o.matrix);
-      c.set(colorFor(h.name, mode)).lerp(tint, 0.35); col.set([c.r, c.g, c.b], i * 3);
+      c.set(colorFor(h.name, mode)).lerp(tint, 0.6); col.set([c.r, c.g, c.b], i * 3);
       ph[i] = Math.abs(h.lat * 7 + h.lon) % 1; reg[i] = regionId(h.name);
     });
     m.count = top.length;
@@ -571,7 +576,7 @@ function Ring({ h, k, color, reduced }: { h: Hotspot; k: number; color: string; 
     if (!ref.current) return;
     const t = reduced ? 0.45 : (clock.elapsedTime * 0.45 + phase) % 1;
     ref.current.scale.setScalar(0.04 + (0.14 + 0.18 * k) * ease(t));
-    (ref.current.material as THREE.MeshBasicMaterial).opacity = 0.4 * (1 - t);
+    (ref.current.material as THREE.MeshBasicMaterial).opacity = 0.32 * (1 - t) * Math.min(1, t * 8); // fades in at the start of each wave: no pop
   });
   return (
     <mesh ref={ref} position={pos} quaternion={q}>
@@ -624,6 +629,7 @@ function Rig({ focus, reduced, offsetX }: { focus: { key: string; lat: number; l
   const flight = useRef<{ from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number } | null>(null);
   const idle = useRef(0);
   const started = useRef(false);
+  const scratch = useMemo(() => ({ a: new THREE.Vector3(), b: new THREE.Vector3() }), []);
 
   useEffect(() => {
     if (size.width >= 900) camera.setViewOffset(size.width, size.height, offsetX, 0, size.width, size.height);
@@ -658,7 +664,7 @@ function Rig({ focus, reduced, offsetX }: { focus: { key: string; lat: number; l
       f.t = Math.min(1, f.t + dt / f.dur);
       const e = ease(f.t);
       // Swing around the globe (direction slerp + distance lerp) instead of cutting through it.
-      const dir = f.from.clone().normalize().lerp(f.to.clone().normalize(), e).normalize();
+      const dir = scratch.a.copy(f.from).normalize().lerp(scratch.b.copy(f.to).normalize(), e).normalize(); // scratch: no per-frame allocation
       camera.position.copy(dir.multiplyScalar(THREE.MathUtils.lerp(f.from.length(), f.to.length(), e)));
       camera.lookAt(0, 0, 0);
       if (f.t >= 1) flight.current = null;
@@ -831,6 +837,12 @@ function Labels({ items, refs }: { items: Hotspot[]; refs: React.RefObject<Recor
 
 /* ---------- data + UI ---------- */
 
+/** The same list while what the globe draws from it is unchanged, so a 5-minute refresh with the same news rebuilds (and re-fades) nothing. */
+function useSameShape(list: Hotspot[]) {
+  const key = list.map((h) => `${h.name}:${h.count}:${h.lat}:${h.lon}`).join("|");
+  return useMemo(() => list, [key]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed by content on purpose
+}
+
 type Data = { hours: number; total: number; untagged: number; hotspots: Hotspot[] };
 type Search = { q: string; results: Result[]; hotspots: Hotspot[] };
 const WINDOWS = [{ h: 24, label: "24h" }, { h: 72, label: "3d" }, { h: 168, label: "7d" }];
@@ -977,6 +989,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
     return null;
   }, [selected, hs, activeRegion, camTo, tab]);
   const sceneHs = search ? hs : listed; // in region mode only that region's dots, arcs, rings and labels
+  const drawHs = useSameShape(hs), drawScene = useSameShape(sceneHs);
   const top = lit.length ? hs.filter((h) => lit.includes(h.name)) : sceneHs.slice(0, 8);
   const regionTotals = useMemo(() => Object.keys(REGIONS).map((r) => ({ r, n: hs.filter((h) => regionOf(h.name) === r).reduce((a, h) => a + h.count, 0) })), [hs]);
   const onHover = useCallback((name: string | null, x: number, y: number) => {
@@ -1003,9 +1016,9 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         <Globe tint={tint} mode={mode} region={activeRegion} reduced={reduced} lit={lit} selected={selected} followed={followed}
           hover={hover.name} onPick={(n) => setSelected((cur) => (n && n !== cur ? n : n ? null : cur))} onHover={onHover} />
         {/* all dots; out-of-region ones fade out in the shader, so a region switch rebuilds nothing */}
-        <NewsDots hotspots={hs} mode={mode} reduced={reduced} />
-        <Arcs hotspots={sceneHs} mode={mode} reduced={reduced} />
-        <Columns hotspots={hs} mode={mode} reduced={reduced} />
+        <NewsDots hotspots={drawHs} mode={mode} reduced={reduced} />
+        <Arcs hotspots={drawScene} mode={mode} reduced={reduced} />
+        <Columns hotspots={drawHs} mode={mode} reduced={reduced} />
         <ObsidianRings reduced={reduced} />
         {(lit.length ? top : sceneHs.slice(0, 6)).map((h) => <Ring key={`${mode}-${h.name}`} h={h} k={Math.sqrt(h.count / (sceneHs[0]?.count || 1))} color={colorFor(h.name, mode)} reduced={reduced} />)}
         <OrbitControls makeDefault enablePan={false} minDistance={3.2} maxDistance={12} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} autoRotateSpeed={0.3} />
@@ -1014,9 +1027,10 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         <Dial reduced={reduced} />
         <Labels items={top} refs={labels} />
         <EffectComposer multisampling={msaa}>
-          <Bloom intensity={reduced ? 0.3 : 0.45} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
+          <Bloom intensity={reduced ? 0.25 : 0.35} luminanceThreshold={0.9} luminanceSmoothing={0.3} mipmapBlur />
           <Vignette offset={0.25} darkness={0.75} />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+          {msaa ? <></> : <SMAA />}
         </EffectComposer>
         {process.env.NODE_ENV === "development" && <FrameMark name="intelligence" />}
       </Canvas>

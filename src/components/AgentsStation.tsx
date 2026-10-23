@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, Vignette, ToneMapping, SMAA } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import { FrameMark } from "./dev-timing";
@@ -23,6 +23,7 @@ import { CHAIN_TITLE, type ChainView } from "@/lib/chains-pure";
 import { beamPairs, chainActive } from "@/lib/mission-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
+import { smoothDamp } from "@/lib/smooth-damp-pure";
 import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clamp, currentTask, orbitPos, statusGlow, statusVisual, streamFrac, type AgentStatus } from "@/lib/station-pure";
 
 // AGENTS → a floating obsidian ring station (alien megastructure theme): each agent is a ship circling its docking lane,
@@ -95,8 +96,8 @@ function Dust({ count, glow, reduced }: { count: number; glow: THREE.Texture; re
     return g;
   }, [count]);
   useEffect(() => () => geo.dispose(), [geo]);
-  useFrame((_, dt) => { if (ref.current && !reduced) ref.current.rotation.y += dt * 0.012; });
-  return <points ref={ref} geometry={geo}><pointsMaterial map={glow} size={0.06} color="#c4b5fd" transparent opacity={0.45} blending={THREE.AdditiveBlending} depthWrite={false} /></points>;
+  useFrame((_, dt) => { if (ref.current && !reduced) ref.current.rotation.y += Math.min(dt, 0.1) * 0.008; });
+  return <points ref={ref} geometry={geo}><pointsMaterial map={glow} size={0.05} color="#d6e2ff" transparent opacity={0.22} blending={THREE.AdditiveBlending} depthWrite={false} /></points>;
 }
 
 /** Dark mirror for every hard surface (deck, keel, blade ring, hulls): standard material + the shared alien reflection map. */
@@ -108,7 +109,7 @@ function useObsidian(color = "#05060a", roughness = 0.2) {
   return mat;
 }
 
-const CYAN: [number, number, number] = [0.35, 1.25, 1.6], VIOLET: [number, number, number] = [0.95, 0.55, 1.8];
+const CYAN: [number, number, number] = [0.45, 1.05, 1.4], VIOLET: [number, number, number] = [0.8, 0.7, 1.5]; // restrained: pearl-leaning, under the bloom knee
 /** Glowing line on the deck: a full ring, or `arcs` dashed segments (ringGeometry thetaLength). */
 function DeckLine({ r, w = 0.012, color, arcs = 0, opacity = 0.9 }: { r: number; w?: number; color: [number, number, number]; arcs?: number; opacity?: number }) {
   const segs = arcs ? Array.from({ length: arcs }, (_, k) => (k / arcs) * Math.PI * 2) : [0];
@@ -181,7 +182,8 @@ uniform float uTime; uniform float uN; uniform vec4 uAg[${MAP_N}]; uniform vec3 
 varying vec2 vUv;
 ${HOLO}
 float h1(float x) { return fract(sin(x * 91.17) * 43758.5453); }
-float line(float d, float w) { return smoothstep(w, 0.0, abs(d)); }
+// AA line: never thinner than ~1 px on screen; a widened line dims by the same factor, so far-off lines fade rather than shimmer
+float line(float d, float w) { float W = max(w, fwidth(d) * 1.2); return smoothstep(W, 0.0, abs(d)) * (w / W); }
 void main() {
   const float AR = ${(MAP_W / MAP_H).toFixed(4)};
   vec2 q = vec2(vUv.x * AR, vUv.y);
@@ -189,20 +191,21 @@ void main() {
   vec3 cy = vec3(0.35, 0.9, 1.0);
   vec3 c = cy * 0.05; float a = 0.16;                                       // glass tint
   float frame = line(ed - 0.004, 0.0035) + 0.5 * line(ed - 0.02, 0.0015);
-  c += mix(cy, holo(vUv.x * 0.6 + uTime * 0.02), 0.5) * frame * 1.6; a += frame;
+  c += mix(cy, holo(vUv.x * 0.6 + uTime * 0.02), 0.3) * frame * 1.1; a += frame;
   // radar
   vec2 p = q - vec2(AR * 0.5, 0.5); float R = 0.43, d = length(p), ang = atan(p.y, p.x);
   float rings = 0.0;
   for (int k = 1; k <= 4; k++) rings += line(d - R * float(k) * 0.25, 0.0018);
   rings += line(p.x, 0.0012) * step(d, R) + line(p.y, 0.0012) * step(d, R);
-  float ticks = step(0.92, fract(ang / 6.2831853 * 72.0)) * step(R, d) * step(d, R + 0.025);
+  float tk = ang / 6.2831853 * 72.0;
+  float ticks = mix(step(0.92, fract(tk)), 0.08, smoothstep(0.25, 0.6, fwidth(tk))) * step(R, d) * step(d, R + 0.025); // 72 ticks merge to a soft band far off
   float sweepA = mod(uTime * 0.6, 6.2831853);
   float da = mod(sweepA - ang + 6.2831853, 6.2831853);
   float sweep = exp(-da * 2.2) * step(d, R);
-  c += cy * (rings * 0.9 + ticks * 0.8 + sweep * 0.35); a += rings * 0.7 + ticks * 0.6 + sweep * 0.25;
+  c += cy * (rings * 0.8 + ticks * 0.6 + sweep * 0.22); a += rings * 0.6 + ticks * 0.45 + sweep * 0.16;
   // lanes (the station's real orbits) as brighter arcs
   float lane = line(d - R * ${(ORBIT_R[0] / MAP_SPAN).toFixed(4)}, 0.003) + line(d - R * ${(ORBIT_R[1] / MAP_SPAN).toFixed(4)}, 0.003);
-  c += holo(ang * 0.16 + uTime * 0.03) * lane * 1.4; a += lane;
+  c += mix(cy, holo(ang * 0.16 + uTime * 0.03), 0.4) * lane * 1.1; a += lane;
   // agents
   for (int i = 0; i < ${MAP_N}; i++) {
     if (float(i) >= uN) break;
@@ -211,9 +214,9 @@ void main() {
     float dd = length(p - at);
     float dot_ = smoothstep(0.012, 0.004, dd), halo = smoothstep(0.035, 0.0, dd) * 0.5;
     float pulse = g.z > 0.5 ? line(dd - 0.018 - 0.02 * fract(uTime * 0.9 + float(i) * 0.13), 0.002) : 0.0;
-    c += uCol[i] * (dot_ * 2.2 + halo + pulse * 1.5); a += dot_ + halo + pulse;
+    c += uCol[i] * (dot_ * 1.6 + halo * 0.8 + pulse * 1.1); a += dot_ + halo + pulse;
   }
-  float core = smoothstep(0.03, 0.0, d); c += vec3(1.2, 1.6, 1.8) * core; a += core;
+  float core = smoothstep(0.03, 0.0, d); c += vec3(0.9, 1.15, 1.3) * core; a += core;
   // side readouts: rows of flickering glyph bars
   float side = step(0.07, q.x) * step(q.x, 0.62) + step(AR - 0.62, q.x) * step(q.x, AR - 0.07);
   float row = floor(q.y * 46.0), fy = fract(q.y * 46.0);
@@ -221,11 +224,14 @@ void main() {
   float len = 0.2 + 0.8 * h1(row + floor(q.x / (AR * 0.5)) * 17.0);
   float xin = (q.x < AR * 0.5 ? (q.x - 0.07) / 0.55 : (q.x - AR + 0.62) / 0.55);
   float bar = step(0.3, fy) * step(fy, 0.7) * step(xin, len) * step(0.25, h1(col * 3.1 + row)) * step(0.06, q.y) * step(q.y, 0.94);
-  bar *= 0.55 + 0.45 * step(0.5, h1(row + floor(uTime * 1.5)));
-  vec3 barC = mix(cy, vec3(1.0, 0.45, 0.8), step(0.86, h1(row * 3.7)));
-  c += barC * bar * side * 0.75; a += bar * side * 0.5;
-  c *= 0.85 + 0.15 * sin(vUv.y * 900.0);                                     // scanlines
-  gl_FragColor = vec4(clamp(c, 0.0, 3.0), clamp(a, 0.0, 1.0));
+  bar = mix(bar, 0.12 * step(0.06, q.y) * step(q.y, 0.94), smoothstep(0.3, 0.7, fwidth(q.y * 46.0))); // glyph rows merge to a faint wash far off
+  float tb = uTime * 0.5, fb = smoothstep(0.0, 1.0, fract(tb));                            // readouts cross-fade (no hard flicker)
+  bar *= 0.6 + 0.4 * mix(step(0.5, h1(row + floor(tb))), step(0.5, h1(row + floor(tb) + 1.0)), fb);
+  vec3 barC = mix(cy, vec3(0.78, 0.72, 1.0), step(0.86, h1(row * 3.7)));
+  c += barC * bar * side * 0.55; a += bar * side * 0.4;
+  float sl = vUv.y * 900.0;
+  c *= 1.0 - 0.12 * (0.5 - 0.5 * sin(sl)) * (1.0 - smoothstep(0.08, 0.25, fwidth(sl)));       // scanlines only where they resolve
+  gl_FragColor = vec4(clamp(c * 0.8, 0.0, 1.6), clamp(a, 0.0, 1.0));
 }`;
 const STATUS_CODE: Record<AgentStatus, number> = { idle: 0, working: 1, waiting: 2, failed: 3 };
 
@@ -258,14 +264,18 @@ function Beam({ target, source, color, glow, count, reduced, strength = 1 }: { t
   const line = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
-    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: clamp(0.22 * strength, 0, 0.6), blending: THREE.AdditiveBlending, depthWrite: false }));
+    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
     l.frustumCulled = false;
     return l;
   }, [color, strength]);
   const pts = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3)); return g; }, [count]);
   useEffect(() => () => { line.geometry.dispose(); (line.material as THREE.Material).dispose(); }, [line]);
   useEffect(() => () => pts.dispose(), [pts]);
-  useFrame(({ clock }) => {
+  const ptsMat = useRef<THREE.PointsMaterial>(null), born = useRef(0); // a new beam (status poll) fades in instead of popping
+  useFrame(({ clock }, dt) => {
+    born.current = reduced ? 1 : Math.min(1, born.current + Math.min(dt, 0.1) * 1.5);
+    (line.material as THREE.LineBasicMaterial).opacity = clamp(0.2 * strength, 0, 0.5) * born.current;
+    if (ptsMat.current) ptsMat.current.opacity = clamp(0.6 * strength, 0, 0.8) * born.current;
     const p = target()?.position;
     if (!p) return;
     const q = source ? source()?.position : null;
@@ -285,7 +295,7 @@ function Beam({ target, source, color, glow, count, reduced, strength = 1 }: { t
   return (
     <>
       <primitive object={line} />
-      <points geometry={pts} frustumCulled={false}><pointsMaterial map={glow} size={0.14 * clamp(strength, 0.5, 1.6)} color={color} transparent opacity={clamp(0.85 * strength, 0, 1)} blending={THREE.AdditiveBlending} depthWrite={false} /></points>
+      <points geometry={pts} frustumCulled={false}><pointsMaterial ref={ptsMat} map={glow} size={0.11 * clamp(strength, 0.5, 1.6)} color={color} transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} /></points>
     </>
   );
 }
@@ -320,7 +330,12 @@ function Module({ agent, i, n, status, selected, reduced, lite, parts, metal, gl
   const halo = useRef<THREE.SpriteMaterial>(null);
   const beacon = useRef<THREE.MeshBasicMaterial>(null);
   const shown = useRef<{ c: string; m: unknown }>({ c: "", m: null }); // Color.set() parses strings: only call it on change (or a new material)
-  useFrame(({ clock }) => {
+  const sel = useRef<THREE.Group>(null), selA = useRef<THREE.MeshBasicMaterial>(null), selB = useRef<THREE.MeshBasicMaterial>(null), pick = useRef(0);
+  useFrame(({ clock }, dt) => {
+    pick.current = reduced ? (selected ? 1 : 0) : THREE.MathUtils.damp(pick.current, selected ? 1 : 0, 10, Math.min(dt, 0.1));
+    if (sel.current) { sel.current.visible = pick.current > 0.005; sel.current.scale.setScalar(0.9 + 0.1 * pick.current); }
+    if (selA.current) selA.current.opacity = pick.current;
+    if (selB.current) selB.current.opacity = pick.current * 0.8;
     const t = reduced ? 0 : clock.elapsedTime;
     const p = ref.current?.position;
     if (p) {
@@ -359,8 +374,10 @@ function Module({ agent, i, n, status, selected, reduced, lite, parts, metal, gl
           <sprite position-z={-0.5} scale={[1, 0.55, 1]}><spriteMaterial ref={halo} map={glow} transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} /></sprite>
         </group>
         {status === "waiting" && <mesh position-y={0.42}><octahedronGeometry args={[0.06, 0]} /><meshBasicMaterial ref={beacon} color="#fbbf24" transparent toneMapped={false} /></mesh>}
-        {selected && <mesh rotation-x={Math.PI / 2}><torusGeometry args={[0.75, 0.008, 4, 4]} /><meshBasicMaterial color={[1.4, 1.8, 2]} toneMapped={false} /></mesh>}
-        {selected && <mesh rotation-x={Math.PI / 2} rotation-z={Math.PI / 4}><torusGeometry args={[0.88, 0.004, 4, 64]} /><meshBasicMaterial color={VIOLET} toneMapped={false} /></mesh>}
+        <group ref={sel} visible={false}>{/* selection: fades in/out with the eased `pick` below */}
+          <mesh rotation-x={Math.PI / 2}><torusGeometry args={[0.75, 0.008, 4, 4]} /><meshBasicMaterial ref={selA} color={[1.1, 1.35, 1.5]} transparent opacity={0} toneMapped={false} depthWrite={false} /></mesh>
+          <mesh rotation-x={Math.PI / 2} rotation-z={Math.PI / 4}><torusGeometry args={[0.88, 0.004, 4, 64]} /><meshBasicMaterial ref={selB} color={VIOLET} transparent opacity={0} toneMapped={false} depthWrite={false} /></mesh>
+        </group>
         {task && <Hologram text={task} position={[0, 0.6, 0]} size={0.14} color={agent.color} reduced={reduced} />}
       </group>
     </>
@@ -392,14 +409,14 @@ function Station({ list, status, selected, reduced, lite, dust, handoffs, runnin
 function Follow({ index, n, reduced }: { index: number; n: number; reduced: boolean }) {
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls) as unknown as ({ target: THREE.Vector3; minDistance: number; maxDistance: number } & THREE.EventDispatcher<{ start: object }>) | null;
-  const goal = useRef<number | null>(null);
+  const goal = useRef<number | null>(null), vel = useMemo(() => ({ v: 0 }), []);
   const tmp = useMemo(() => ({ p: new THREE.Vector3(), d: new THREE.Vector3() }), []);
   useEffect(() => {
     goal.current = index >= 0 ? 5 : HOME;
-    const stop = () => { goal.current = null; };
+    const stop = () => { goal.current = null; vel.v = 0; };
     controls?.addEventListener("start", stop);
     return () => controls?.removeEventListener("start", stop);
-  }, [index, controls]);
+  }, [index, controls, vel]);
   useFrame(({ clock }, dt) => {
     if (!controls) return;
     const p = index >= 0 ? orbitPos(index, n, reduced ? 0 : clock.elapsedTime, tmp.p) : tmp.p.set(0, 0, 0);
@@ -409,9 +426,9 @@ function Follow({ index, n, reduced }: { index: number; n: number; reduced: bool
     if (goal.current === null) return;
     const off = tmp.d.copy(camera.position).sub(controls.target), d = off.length();
     if (!(d > 0)) return;
-    const next = reduced ? goal.current : THREE.MathUtils.damp(d, goal.current, 4, dt);
+    const next = reduced ? goal.current : smoothDamp(d, goal.current, vel, 0.45, Math.min(dt, 0.1)); // spring: eases in and out, no jerk
     camera.position.copy(controls.target).addScaledVector(off, next / d);
-    if (Math.abs(next - goal.current) < 0.01 * goal.current) goal.current = null;
+    if (Math.abs(next - goal.current) < 0.01 * goal.current) { goal.current = null; vel.v = 0; }
   });
   return null;
 }
@@ -499,16 +516,17 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         <color attach="background" args={["#020308"]} />
         <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} />
-        <Station list={list} status={status} selected={selected} reduced={reduced} lite={q.bloomScale === 0} dust={q.bloomScale === 0 ? 120 : q.bloomScale < 0.9 ? 350 : 700} handoffs={handoffs} running={running} onPick={setSelected} onHover={onHover} />
+        <Station list={list} status={status} selected={selected} reduced={reduced} lite={q.bloomScale === 0} dust={q.bloomScale === 0 ? 80 : q.bloomScale < 0.9 ? 180 : 320} handoffs={handoffs} running={running} onPick={setSelected} onHover={onHover} />
         <OrbitControls makeDefault enablePan={false} minDistance={2} maxDistance={HOME * 2.5} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Follow index={list.findIndex((a) => a.slug === selected)} n={list.length} reduced={reduced} />
         <Rig />
         {!paused && <ZoomRig home={HOME * Math.hypot(1, 0.45)} reduced={reduced} />}
         {q.bloomScale > 0 && (
           <EffectComposer multisampling={q.msaa}>
-            <Bloom intensity={(reduced ? 0.3 : 0.55) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
+            <Bloom intensity={(reduced ? 0.25 : 0.42) * q.bloomScale} luminanceThreshold={0.9} luminanceSmoothing={0.3} mipmapBlur />
             <Vignette offset={0.25} darkness={0.75} />
             <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+            {q.msaa ? <></> : <SMAA />}
           </EffectComposer>
         )}
         {process.env.NODE_ENV === "development" && <FrameMark name="agents" />}

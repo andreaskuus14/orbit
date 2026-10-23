@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type RootState, type ThreeEvent } from "@react-three/fiber";
 import { Html, OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, Vignette, ToneMapping, SMAA } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import { MemoryPanel } from "./panels";
 import { beliefsPending } from "./BeliefsPanel";
@@ -16,6 +17,7 @@ import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { centroid, isLearned, searchStars } from "@/lib/memory-world-pure";
 import { DAY, edgeBorn, edgeGlow } from "@/lib/memory-edges-pure";
 import { useAlienEnv } from "./alien/env";
+import { smoothDampVec } from "@/lib/smooth-damp-pure";
 
 type Star = { id: string; title: string; kind: string; tags: string[]; created_at: string; source: string | null; x: number; y: number; z: number };
 type MapData = { items: Star[]; links: { from: string; to: string }[]; edges?: [number, number, number][]; total: number };
@@ -27,40 +29,47 @@ const KIND_COLOR: Record<string, string> = {
 };
 const kindColor = (k: string) => KIND_COLOR[k] ?? "#a9b4c8";
 const WEB = new THREE.Color("#a5b4fc"); // similarity web
+const PEARL = new THREE.Color("#dfe8ff"), PEARL_RGB = [PEARL.r, PEARL.g, PEARL.b]; // dust and sparks: pearl / blue-white, only a hint of the kind colour
 const REPLAY_TICKS = 120, REPLAY_MS = 80, REPLAY_TICKS_REDUCED = 8, REPLAY_MS_REDUCED = 700; // ~10 s replay; reduced motion jumps in a few steps
 
 // Depth of field without a post pass: points away from the focus distance (camera -> orbit target) grow and soften
 // like bokeh, keeping roughly the same light. Shared by stars and dust; vBlur is 0 in focus, 1 fully out.
 const DOF = /* glsl */ `uniform float uFocus;
-  float blurAt(float d) { return clamp(abs(d - uFocus) / max(uFocus * 0.9, 1.0) - 0.15, 0.0, 1.0); }`;
+  float blurAt(float d) { return clamp(abs(d - uFocus) / max(uFocus * 0.9, 1.0) - 0.15, 0.0, 1.0); }
+  // Sub-pixel points shimmer as they cross pixel centres: hold a minimum size and fade light by the lost area instead.
+  float coverage(inout float px, float lo) { float k = clamp(px / lo, 0.0, 1.0); px = max(px, lo); return k * k; }`;
 const vert = /* glsl */ `
   attribute vec3 aColor; attribute float aGlow; attribute float aHi; attribute float aBorn;
   uniform float uTime; uniform float uScale; uniform float uMotion; uniform float uAt;
-  varying vec3 vColor; varying float vGlow; varying float vHi; varying float vBlur;
+  varying vec3 vColor; varying float vGlow; varying float vHi; varying float vBlur; varying float vPx; varying float vCov;
   ${DOF}
   void main() {
     if (aBorn > uAt) { gl_PointSize = 0.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; } // not yet saved at the replayed moment
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     float d = max(-mv.z, 0.5);
-    float tw = 1.0 + uMotion * 0.14 * sin(uTime * 1.3 + position.x * 3.1 + position.y * 1.7);
+    float tw = 1.0 + uMotion * 0.05 * sin(uTime * 0.7 + position.x * 3.1 + position.y * 1.7); // a slow breath, not a twinkle
     vBlur = blurAt(d) * (1.0 - aHi);
-    gl_PointSize = clamp(0.8 * (1.0 + aGlow * 0.25 + aHi * 1.1) * (1.0 + vBlur * 1.6) * tw * uScale / d, 2.0, 96.0);
+    float px = min(0.8 * (1.0 + aGlow * 0.25 + aHi * 1.1) * (1.0 + vBlur * 1.6) * tw * uScale / d, 96.0);
+    vCov = coverage(px, 3.0);
+    gl_PointSize = px; vPx = px;
     gl_Position = projectionMatrix * mv;
     vColor = aColor; vGlow = aGlow; vHi = aHi;
   }`;
 const frag = /* glsl */ `
   uniform float uSearch;
-  varying vec3 vColor; varying float vGlow; varying float vHi; varying float vBlur;
+  varying vec3 vColor; varying float vGlow; varying float vHi; varying float vBlur; varying float vPx; varying float vCov;
   void main() {
     vec2 p = gl_PointCoord * 2.0 - 1.0;
     float r2 = dot(p, p);
     if (r2 > 1.0) discard;
-    float core = exp(-r2 * mix(16.0, 3.0, vBlur)), halo = exp(-r2 * 4.0) * 0.55 * (1.0 - vBlur);
-    float flare = (exp(-abs(p.x) * 40.0) + exp(-abs(p.y) * 40.0)) * exp(-r2 * 6.0) * 0.25 * (1.0 - vBlur); // a faint four-point glint
-    float ring = vGlow * smoothstep(0.1, 0.0, abs(sqrt(r2) - 0.7)) * 0.55 * (1.0 - vBlur); // CORE-learned: a thin orbit ring
+    // the core never gets thinner than ~0.7 px (no shimmer); glint and ring only once the star is big enough to carry them
+    float core = exp(-r2 * min(mix(16.0, 3.0, vBlur), vPx * vPx * 0.25)), halo = exp(-r2 * 4.0) * 0.4 * (1.0 - vBlur);
+    float near = smoothstep(10.0, 22.0, vPx);
+    float flare = (exp(-abs(p.x) * 40.0) + exp(-abs(p.y) * 40.0)) * exp(-r2 * 6.0) * 0.18 * (1.0 - vBlur) * near; // a faint four-point glint
+    float ring = vGlow * smoothstep(0.1, 0.0, abs(sqrt(r2) - 0.7)) * 0.5 * (1.0 - vBlur) * smoothstep(6.0, 12.0, vPx); // CORE-learned: a thin orbit ring
     float dim = mix(1.0, 0.18, uSearch * (1.0 - vHi)) / (1.0 + vBlur * 2.2);
-    vec3 c = vColor * (core * 1.6 + halo + ring + flare) + vec3(core * (0.7 + vHi * 0.6));
-    gl_FragColor = vec4(clamp(c, 0.0, 4.0) * dim, 1.0);
+    vec3 c = vColor * (core * 1.2 + halo + ring + flare) + vec3(core * (0.3 + vHi * 0.55));
+    gl_FragColor = vec4(clamp(c * dim * vCov, 0.0, 2.0), 1.0);
   }`;
 // Neural dust around every star: overlapping clouds make dense clusters glow. Born with its star in a replay.
 const dustVert = /* glsl */ `
@@ -70,20 +79,22 @@ const dustVert = /* glsl */ `
   ${DOF}
   void main() {
     if (aBorn > uAt) { gl_PointSize = 0.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
-    vec3 p = position + uMotion * 0.18 * vec3(sin(uTime * 0.31 + aSeed * 40.0), sin(uTime * 0.27 + aSeed * 71.0), sin(uTime * 0.23 + aSeed * 97.0));
+    vec3 p = position + uMotion * 0.16 * vec3(sin(uTime * 0.13 + aSeed * 40.0), sin(uTime * 0.11 + aSeed * 71.0), sin(uTime * 0.09 + aSeed * 97.0));
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     float d = max(-mv.z, 0.5);
     vBlur = blurAt(d);
-    gl_PointSize = clamp((0.07 + 0.08 * fract(aSeed * 13.0)) * (1.0 + vBlur * 2.0) * uScale / d, 1.0, 28.0);
+    float px = min((0.045 + 0.045 * fract(aSeed * 13.0)) * (1.0 + vBlur * 1.5) * uScale / d, 20.0);
+    float cov = coverage(px, 2.0);
+    gl_PointSize = px;
     gl_Position = projectionMatrix * mv;
-    vColor = aColor * (0.5 + 0.5 * fract(aSeed * 7.0)) * mix(1.0, 0.25, uSearch);
+    vColor = aColor * (0.45 + 0.55 * fract(aSeed * 7.0)) * mix(1.0, 0.25, uSearch) * cov;
   }`;
 const dustFrag = /* glsl */ `
   varying vec3 vColor; varying float vBlur;
   void main() {
     vec2 p = gl_PointCoord * 2.0 - 1.0;
     float a = max(1.0 - dot(p, p), 0.0);
-    gl_FragColor = vec4(clamp(vColor * a * a * 0.55 / (1.0 + vBlur * 2.5), 0.0, 2.0), 1.0);
+    gl_FragColor = vec4(clamp(vColor * a * a * 0.3 / (1.0 + vBlur * 2.5), 0.0, 0.6), 1.0);
   }`;
 // The similarity web as luminous filaments: each edge fades between its two kinds' colours, a light pulse runs along it.
 const webVert = /* glsl */ `
@@ -99,22 +110,24 @@ const webFrag = /* glsl */ `
   void main() {
     float d = (vT - headAt(vS)) * (vS > 0.5 ? 1.0 : -1.0); // > 0 behind the head
     float pulse = carries(vS) * (d >= 0.0 ? exp(-d * 14.0) : exp(-d * d * 3000.0));
-    gl_FragColor = vec4(clamp(vC * (0.22 + pulse * 3.5) + vec3(pulse * dot(vC, vec3(0.6))), 0.0, 4.0), 1.0);
+    gl_FragColor = vec4(clamp(vC * (0.2 + pulse * 1.4) + vec3(pulse * dot(vC, vec3(0.3))), 0.0, 1.2), 1.0);
   }`;
 const sparkVert = /* glsl */ `
   attribute vec3 aB; attribute vec3 aColor; attribute float aSeed; uniform float uScale; varying vec3 vC;
   ${PULSE}
   void main() {
     vec4 mv = modelViewMatrix * vec4(mix(position, aB, headAt(aSeed)), 1.0);
-    vC = aColor;
     float on = carries(aSeed) * step(0.001, dot(aColor, vec3(1.0))); // unborn (black) edges carry nothing
-    gl_PointSize = on * clamp(0.28 * uScale / max(-mv.z, 0.5), 1.5, 22.0);
+    float px = min(0.2 * uScale / max(-mv.z, 0.5), 14.0);
+    float k = clamp(px / 2.0, 0.0, 1.0); px = max(px, 2.0); // coverage fade instead of sub-pixel flicker
+    vC = aColor * k * k;
+    gl_PointSize = on * px;
     gl_Position = projectionMatrix * mv;
   }`;
 const sparkFrag = /* glsl */ `
   varying vec3 vC;
   void main() { vec2 p = gl_PointCoord * 2.0 - 1.0; float a = max(1.0 - dot(p, p), 0.0);
-    gl_FragColor = vec4(clamp((vC * 2.5 + vec3(0.8)) * a * a * a, 0.0, 4.0), 1.0); }`;
+    gl_FragColor = vec4(clamp(vC * 1.3 * a * a * a, 0.0, 1.2), 1.0); }`;
 
 /** Faint obsidian rings far behind the constellation, turning very slowly: the megastructure the memories live in. */
 const FAR_RINGS = [{ r: 16, spin: 0.02 }, { r: 26, spin: -0.014 }, { r: 38, spin: 0.01 }, { r: 52, spin: -0.007 }, { r: 68, spin: 0.005 }] as const;
@@ -194,12 +207,12 @@ function Constellation({ data, at, hi, searching, reduced, lite, onHover, onPick
     return { g, sparks, born, kc, sim: e.map((x) => x[2]) };
   }, [data, times]);
   const dust = useMemo(() => { // a few motes per star, gaussian around it (deterministic)
-    const per = lite ? 2 : 6, n = data.items.length * per, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), born = new Float32Array(n), seed = new Float32Array(n), c = new THREE.Color();
+    const per = lite ? 1 : 3, n = data.items.length * per, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), born = new Float32Array(n), seed = new Float32Array(n), c = new THREE.Color();
     let s = 11;
     const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
     const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(2 * Math.PI * rnd());
     data.items.forEach((m, i) => {
-      c.set(kindColor(m.kind));
+      c.set(kindColor(m.kind)).lerp(PEARL, 0.8);
       for (let j = 0; j < per; j++) {
         const k = i * per + j, r = 0.5 + rnd() * 1.4;
         pos.set([m.x + gauss() * r, m.y + gauss() * r, m.z + gauss() * r], k * 3);
@@ -221,19 +234,16 @@ function Constellation({ data, at, hi, searching, reduced, lite, onHover, onPick
     for (let k = 0; k < web.born.length; k++) {
       const v = edgeGlow(web.born[k], now, web.sim[k]);
       for (let j = 0; j < 6; j++) arr[k * 6 + j] = kc[k * 6 + j] * v;
-      for (let j = 0; j < 3; j++) sp[k * 3 + j] = (kc[k * 6 + j] + kc[k * 6 + 3 + j]) * 0.5 * v;
+      for (let j = 0; j < 3; j++) sp[k * 3 + j] = ((kc[k * 6 + j] + kc[k * 6 + 3 + j]) * 0.5 * 0.35 + PEARL_RGB[j] * 0.65) * v;
     }
     a.needsUpdate = true; sa.needsUpdate = true;
   }, [web, now]);
   useEffect(() => () => { geo.dispose(); lines.dispose(); web.g.dispose(); web.sparks.dispose(); }, [geo, lines, web]);
   useEffect(() => () => dust.dispose(), [dust]);
   const shown = (i: number) => times.at[i] <= now;
-  useEffect(() => {
-    const a = geo.getAttribute("aHi") as THREE.BufferAttribute;
-    (a.array as Float32Array).fill(0);
-    hi.forEach((i) => { a.array[i] = 1; });
-    a.needsUpdate = true;
-  }, [geo, hi]);
+  // Highlights (hover, selection, matches) fade in and out over ~0.2 s instead of popping: aHi eases toward hiGoal.
+  const hiGoal = useMemo(() => new Float32Array(data.items.length), [data]), hiMoving = useRef(false);
+  useEffect(() => { hiGoal.fill(0); hi.forEach((i) => { hiGoal[i] = 1; }); hiMoving.current = true; }, [hiGoal, hi]);
   const uniforms = useMemo(() => ({ uTime: { value: 0 }, uScale: { value: 400 }, uMotion: { value: 0 }, uSearch: { value: 0 }, uAt: { value: 1e9 }, uFocus: { value: 46 } }), []);
   const mats = useMemo(() => {
     const add = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms };
@@ -245,15 +255,27 @@ function Constellation({ data, at, hi, searching, reduced, lite, onHover, onPick
   }, [uniforms]);
   useEffect(() => () => { mats.web.dispose(); mats.sparks.dispose(); mats.dust.dispose(); }, [mats]);
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3 } | null;
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, rawDt) => {
+    const dt = Math.min(Math.max(rawDt, 0), 0.1), k = reduced ? 1 : 1 - Math.exp(-dt * 14);
+    if (hiMoving.current) {
+      const a = geo.getAttribute("aHi") as THREE.BufferAttribute, arr = a.array as Float32Array;
+      let moving = false;
+      for (let i = 0; i < arr.length; i++) {
+        const g = hiGoal[i], d = g - arr[i];
+        if (d === 0) continue;
+        arr[i] = Math.abs(d) < 0.01 ? g : arr[i] + d * k;
+        moving ||= arr[i] !== g;
+      }
+      a.needsUpdate = true; hiMoving.current = moving;
+    }
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 50;
     uniforms.uTime.value = reduced ? 3 : clock.elapsedTime % 1000; // bounded: keeps sin() precise; reduced holds pulses still
     uniforms.uScale.value = (size.height * gl.getPixelRatio()) / (2 * Math.tan((fov * Math.PI) / 360));
     uniforms.uMotion.value = reduced ? 0 : 1;
-    uniforms.uSearch.value = searching ? 1 : 0;
+    uniforms.uSearch.value += ((searching ? 1 : 0) - uniforms.uSearch.value) * k; // the search dim fades too
     uniforms.uAt.value = at === null ? 1e9 : (at - times.t0) / DAY;
     const f = controls ? camera.position.distanceTo(controls.target) : camera.position.length();
-    uniforms.uFocus.value = Number.isFinite(f) ? Math.max(f, 1) : 46;
+    if (Number.isFinite(f)) uniforms.uFocus.value += (Math.max(f, 1) - uniforms.uFocus.value) * (reduced ? 1 : 1 - Math.exp(-dt * 6)); // focus pulls, never steps
   });
   return <>
     <lineSegments geometry={web.g} material={mats.web} raycast={() => null} />
@@ -290,15 +312,16 @@ function Fly({ goal, reduced }: { goal: { at: [number, number, number]; dist: nu
     camera.updateProjectionMatrix();
   }, [camera, size]);
   const to = useMemo(() => new THREE.Vector3(), []), dir = useMemo(() => new THREE.Vector3(), []), want = useMemo(() => new THREE.Vector3(), []);
+  const vT = useMemo(() => new THREE.Vector3(), []), vP = useMemo(() => new THREE.Vector3(), []); // spring velocities: a re-target curves, never jerks
+  useEffect(() => { if (!goal) { vT.set(0, 0, 0); vP.set(0, 0, 0); } }, [goal, vT, vP]);
   useFrame((_, dt) => {
-    if (!goal || !controls || !active.current) return;
+    if (!goal || !controls || !active.current) { vT.set(0, 0, 0); vP.set(0, 0, 0); return; }
     to.set(...goal.at);
     dir.copy(camera.position).sub(controls.target);
     if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
     want.copy(to).add(dir.normalize().multiplyScalar(goal.dist));
-    const k = reduced ? 1 : 1 - Math.exp(-Math.min(dt, 0.1) * 3);
-    controls.target.lerp(to, k);
-    camera.position.lerp(want, k);
+    if (reduced) { controls.target.copy(to); camera.position.copy(want); }
+    else { const step = Math.min(dt, 0.1); smoothDampVec(controls.target, to, vT, 0.55, step); smoothDampVec(camera.position, want, vP, 0.55, step); }
     controls.update();
     if (controls.target.distanceTo(to) < 0.01 && camera.position.distanceTo(want) < 0.02) active.current = false; // let the user orbit again
   });
@@ -409,8 +432,10 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           <Fly goal={goal} reduced={reduced} />
           {q.bloomScale > 0 && (
             <EffectComposer multisampling={q.msaa}>
-              <Bloom intensity={(reduced ? 0.4 : 0.75) * q.bloomScale} luminanceThreshold={0.35} luminanceSmoothing={0.4} mipmapBlur />
+              <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.6} luminanceSmoothing={0.35} mipmapBlur />
               <Vignette offset={0.3} darkness={0.75} />
+              <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+              {q.msaa ? <></> : <SMAA />}
             </EffectComposer>
           )}
         </Canvas>

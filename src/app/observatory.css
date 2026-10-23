@@ -34,22 +34,22 @@
 .orbit-shell .pill::before { width: 4px; height: 4px; }
 
 .orbit-shell :is(.glass, .continue-work-float) {
-  --edge-fx: conic-gradient(from var(--edge), #7ae3ffa6, #ffffff14 12%, #9b7bffa0 30%, #ffffff10 46%, #ff6fb590 62%, #ffffff12 78%, #7ae3ffa6);
+  --edge-fx: conic-gradient(from var(--edge), #9fdcff70, #ffffff12 14%, #b4b8ff5c 32%, #ffffff0e 48%, #dcd2ff4a 64%, #ffffff10 80%, #9fdcff70); /* pearl/blue hairline, no rainbow */
   border: 1px solid transparent; border-image: var(--edge-fx) 1; border-radius: 0;
   background-color: var(--hud-fill);
-  background-image: linear-gradient(180deg, transparent calc(var(--scan) - 7%), #c9f6ff14 var(--scan), transparent calc(var(--scan) + 7%)),
-    var(--hud-ticks), repeating-linear-gradient(0deg, #c9f6ff05 0 1px, transparent 1px 3px), linear-gradient(180deg, #bfe9ff0a, transparent 40%);
+  background-image: linear-gradient(180deg, transparent calc(var(--scan) - 10%), #d6ecff0a var(--scan), transparent calc(var(--scan) + 10%)),
+    var(--hud-ticks), repeating-linear-gradient(0deg, #c9f6ff03 0 1px, transparent 1px 4px), linear-gradient(180deg, #bfe9ff08, transparent 40%);
   background-size: auto, 10px 1px, 1px 10px, 10px 1px, 1px 10px, 10px 1px, 1px 10px, 10px 1px, 1px 10px, auto, auto;
   background-position: 0 0, 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%, 0 0, 0 0;
   background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, repeat, no-repeat;
   background-origin: border-box;
   backdrop-filter: var(--hud-blur); -webkit-backdrop-filter: var(--hud-blur);
   box-shadow: 0 30px 70px -30px #000e, inset 0 0 30px #7ae3ff08;
-  transition: --edge 1.6s cubic-bezier(.3, .7, .2, 1), --scan 0s, box-shadow .25s;
+  transition: --edge 2.4s cubic-bezier(.3, .7, .2, 1), --scan 0s, box-shadow .4s;
 }
-.orbit-shell :is(.glass, .continue-work-float):is(:hover, :focus-within) { --edge: 560deg; --scan: 120%;
-  box-shadow: 0 30px 70px -30px #000e, inset 0 0 30px #7ae3ff10, 0 0 22px -10px #7ae3ff99;
-  transition: --edge 1.6s cubic-bezier(.3, .7, .2, 1), --scan 1.1s cubic-bezier(.4, 0, .2, 1), box-shadow .25s; }
+.orbit-shell :is(.glass, .continue-work-float):is(:hover, :focus-within) { --edge: 380deg; --scan: 120%;
+  box-shadow: 0 30px 70px -30px #000e, inset 0 0 30px #7ae3ff0a, 0 0 22px -12px #9fdcff59;
+  transition: --edge 2.4s cubic-bezier(.3, .7, .2, 1), --scan 1.8s cubic-bezier(.4, 0, .2, 1), box-shadow .4s; }
 /* Reading surfaces: denser fill so long text stays AA over a bright planet. */
 .orbit-shell :is(.drawer, .morning-card, .work-sheet, .world-panel, .hud-menu, .keys-overlay).glass, .orbit-shell .continue-work-float { background-color: var(--hud-fill-solid); }
 /* Glyph serials on fixed (non-scrolling) frames; the `/ ""` alt text keeps them out of the accessibility tree. */
@@ -60,12 +60,12 @@
 .orbit-shell .chip { border-radius: 1px; border-color: var(--hud-hair); background: linear-gradient(180deg, #bfe9ff0f, #bfe9ff03); box-shadow: none;
   font-family: var(--font-mono); font-size: .66rem; letter-spacing: .12em; text-transform: uppercase; color: #def1ff;
   transition: background .16s, border-color .16s, box-shadow .16s; }
-.orbit-shell .chip:hover { background: #7ae3ff14; border-color: #9fe8ff8c; box-shadow: 0 0 14px -5px #7ae3ffb0; }
+.orbit-shell .chip:hover { background: #7ae3ff10; border-color: #b4e4ff66; box-shadow: 0 0 14px -6px #9fdcff70; }
 .orbit-shell .chip:is([aria-pressed="true"], [aria-selected="true"]) { border-color: var(--hud-cyan); background: #7ae3ff1c; box-shadow: inset 0 -1px 0 var(--hud-cyan); color: #fff; }
 .orbit-shell .btn { border-radius: 1px; border: 1px solid transparent; border-image: linear-gradient(100deg, var(--hud-cyan), var(--hud-violet) 55%, var(--hud-rose)) 1;
   background: linear-gradient(100deg, #7ae3ff2e, #9b7bff26 55%, #ff6fb51f); color: #f4fbff; font-family: var(--font-mono); font-size: .7rem; font-weight: 500;
   letter-spacing: .14em; text-transform: uppercase; box-shadow: 0 0 20px -8px #7ae3ffaa; transition: background .16s, box-shadow .16s, transform .16s; }
-.orbit-shell .btn:hover:not(:disabled) { background: linear-gradient(100deg, #7ae3ff4d, #9b7bff40 55%, #ff6fb533); box-shadow: 0 0 26px -6px #7ae3ffcc; filter: none; transform: none; }
+.orbit-shell .btn:hover:not(:disabled) { background: linear-gradient(100deg, #7ae3ff3a, #9b7bff30 55%, #ff6fb524); box-shadow: 0 0 22px -8px #9fdcff99; filter: none; transform: none; }
 .orbit-shell .btn:active:not(:disabled) { transform: scale(.97); }
 .orbit-shell .btn.danger { border-image: linear-gradient(100deg, #ff6b8a, #ff2e63) 1; background: #ff2e6329; color: #ffe8ee; box-shadow: 0 0 20px -8px #ff2e63; }
 .orbit-shell .field { border-radius: 1px; background: #02050c8c; border-color: var(--hud-hair); }
@@ -309,9 +309,9 @@
 .ambient { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; transition: opacity 1.2s var(--orbit-ease, ease), background 1.2s ease; }
 .ambient-focus { opacity: 1; background: radial-gradient(ellipse at 50% 50%, transparent 25%, rgba(0, 0, 0, calc(var(--amb-dim) * .85)) 75%); }
 .ambient-alert { opacity: 1; background: radial-gradient(ellipse at 50% 50%, transparent 45%, color-mix(in srgb, var(--amb-tint) calc(var(--amb-vig) * 100%), transparent) 100%);
-  animation: ambient-pulse 3.2s ease-in-out infinite; }
+  animation: ambient-pulse 5s ease-in-out infinite; }
 .ambient-night { opacity: 1; background: color-mix(in srgb, var(--amb-tint) 7%, transparent); mix-blend-mode: multiply; }
-@keyframes ambient-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@keyframes ambient-pulse { 0%, 100% { opacity: .7; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ambient-alert { animation: none; } }
 
 /* Mission control (MissionControl.tsx): one cyan palette, terminal type, notched frames like the cockpit panels above. */

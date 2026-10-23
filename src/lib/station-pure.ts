@@ -29,7 +29,7 @@ export function statusGlow(status: AgentStatus, agentColor: string, t: number, r
   const s = Number.isFinite(t) && !reduced ? t : 0;
   let color = agentColor, intensity = 0.2; // idle: dim
   if (status === "working") intensity = 0.9 + 0.6 * Math.sin(s * 3); // pulse 0.3–1.5
-  else if (status === "waiting") { color = STATUS_COLOR.waiting; intensity = reduced || Math.floor(s * 2) % 2 === 0 ? 1.6 : 0.2; } // 1 Hz blink
+  else if (status === "waiting") { color = STATUS_COLOR.waiting; intensity = 0.9 + 0.7 * Math.cos(s * Math.PI * 2); } // 1 Hz breath (a hard blink read as a glitch)
   else if (status === "failed") { color = STATUS_COLOR.failed; intensity = 1.1; }
   return { color, intensity: clamp(intensity, 0, 2) };
 }
@@ -52,7 +52,7 @@ export function statusVisual(status: AgentStatus, t: number, reduced = false): S
   const s = Number.isFinite(t) && !reduced ? t : 0;
   let scale = 1, halo = 0.3, beam = 0, beamSpeed = 0, beacon = 0;
   if (status === "working") { const w = 0.5 + 0.5 * Math.sin(s * 3); scale = 1 + 0.12 * w; halo = 0.35 + 0.35 * w; beam = 0.8; beamSpeed = reduced ? 0 : 0.6; }
-  else if (status === "waiting") beacon = reduced || Math.floor(s * 2) % 2 === 0 ? 1 : 0.15; // same 1 Hz blink as statusGlow
+  else if (status === "waiting") beacon = 0.575 + 0.425 * Math.cos(s * Math.PI * 2); // same 1 Hz breath as statusGlow
   else if (status === "idle") { scale = 0.92; halo = 0.12; }
   return { scale: clamp(scale, 0.5, 1.5), halo: clamp(halo, 0, 0.8), beam: clamp(beam, 0, 1), beamSpeed: clamp(beamSpeed, 0, 2), beacon: clamp(beacon, 0, 1) };
 }
