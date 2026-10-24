@@ -10,7 +10,8 @@ import { dailyMission } from "./daily-mission-pure";
 import { dueFollowups } from "./business-pure";
 import { readSleepReport } from "./sleep";
 import { alertText } from "./markets-pure";
-import { morningCandidates, rankCards, type Thumb } from "./morning-rank-pure";
+import { QUIET_MS, devBacklog, dropDone, goalDeadlines, morningCandidates, pickHero, rankCards, type Click, type Thumb } from "./morning-rank-pure";
+import { validateDevWorld } from "./devworld-pure";
 import { buildMorning, businessFollowupLine, localDay, overnightLine, lifeSection, pulseHeadlines, sinceSection, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningSince, type MorningStudio } from "./morning-pure";
 
 // Gathers the "Good morning" briefing: every section in parallel with a timeout, a failing source just drops its section.
@@ -54,7 +55,7 @@ async function agents(sb: SupabaseClient, now: number): Promise<MorningAgents> {
 
 // shortcut: only the 500 newest memories older than 6 days are candidates, so older anniversaries are missed; add a date-filtered query if that matters.
 async function recall(sb: SupabaseClient, now: number, tz: string): Promise<Recall[]> {
-  const { data, error } = await sb.from("memories").select("id, title, kind, created_at").neq("kind", "conversation")
+  const { data, error } = await sb.from("memories").select("id, title, kind, created_at").not("kind", "in", "(conversation,journal)") // journal entries are LIFE: never resurfaced
     .lt("created_at", new Date(now - 6 * 86_400_000).toISOString()).order("created_at", { ascending: false }).limit(500);
   if (error) throw new Error(error.message);
   return pickRecall(data ?? [], now, tz);
@@ -94,6 +95,40 @@ async function thumbs(sb: SupabaseClient, now: number): Promise<Thumb[]> {
   });
 }
 
+/** Hero/card clicks and "done" marks from the last 14 days of the ledger (newest 500). */
+async function clicks(sb: SupabaseClient, now: number): Promise<Click[]> {
+  const { data, error } = await sb.from("events").select("created_at, type, payload").in("type", ["morning.click", "morning.done"])
+    .gte("created_at", new Date(now - QUIET_MS).toISOString()).order("created_at", { ascending: false }).limit(500);
+  if (error) throw new Error(error.message);
+  return (data ?? []).flatMap((r) => {
+    const p = r.payload as { source?: unknown; key?: unknown } | null;
+    return p && typeof p.source === "string" && typeof p.key === "string" ? [{ source: p.source, key: p.key, at: r.created_at, done: r.type === "morning.done" }] : [];
+  });
+}
+
+/** GAME DEV: worst open bugs; "recent" when the dev world was saved in the last 2 days (the latest session). */
+async function devworld(sb: SupabaseClient, now: number) {
+  const { data, error } = await sb.from("game_saves").select("save, updated_at").eq("game", "devworld").maybeSingle();
+  if (error) throw new Error(error.message);
+  const v = data?.save ? validateDevWorld(data.save) : null;
+  return v?.ok ? { bugs: devBacklog(v.world), recent: now - Date.parse(data!.updated_at) < 2 * 86_400_000 } : undefined;
+}
+
+/** Goals with a deadline this week (read-only: GET /api/goals would advance them). */
+async function deadlines(sb: SupabaseClient, userId: string, today: string) {
+  const { data, error } = await sb.from("goals").select("id, doc").eq("user_id", userId).in("status", ["draft", "approved", "running", "waiting", "paused", "blocked"]).limit(30);
+  if (error) throw new Error(error.message);
+  return goalDeadlines(data ?? [], today);
+}
+
+/** The newest ARCH lesson saved in the last 14 days (ArchWorld saves them as notes tagged arch + lesson). */
+async function archLesson(sb: SupabaseClient, now: number) {
+  const { data, error } = await sb.from("memories").select("id, title").contains("tags", ["arch", "lesson"])
+    .gte("created_at", new Date(now - 14 * 86_400_000).toISOString()).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ?? undefined;
+}
+
 /** Approvals waiting: the list keeps 6 items with approvals first, so a full list of them may hide more. */
 const approvals = (w: { items: { status: string }[]; more: number }) => {
   const k = w.items.filter((x) => x.status === "awaiting_approval").length;
@@ -103,7 +138,9 @@ const approvals = (w: { items: { status: string }[]; more: number }) => {
 export async function getMorning(sb: SupabaseClient, userId: string, now = Date.now(), from: number | null = null): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
-  const cardSources = Promise.allSettled([within(thumbs(sb, now)), within(import("./markets").then((x) => x.listAlerts())), within(import("./ideas").then((x) => x.listIdeas()))]);
+  const today = localDay(new Date(now)); // markets' firedOn is a server-local day; goal deadlines are local days too
+  const cardSources = Promise.allSettled([within(thumbs(sb, now)), within(import("./markets").then((x) => x.listAlerts())), within(import("./ideas").then((x) => x.listIdeas())),
+    within(clicks(sb, now)), within(devworld(sb, now)), within(deadlines(sb, userId, today)), within(archLesson(sb, now))]);
   const [s, i, a, l, r, sn, c, w, ct, bf] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
     within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
     from === null ? Promise.resolve(undefined) : getSince(sb, from, now),
@@ -117,13 +154,15 @@ export async function getMorning(sb: SupabaseClient, userId: string, now = Date.
       if (error) throw error;
       return dueFollowups(data ?? [], now);
     }))]);
-  const [th, al, ids] = await cardSources;
+  const [th, al, ids, cl, dw, dl, ar] = await cardSources;
   const life = ok(l), rec = ok(r), since = ok(sn), work = ok(w), st = ok(s), due = ok(bf);
-  const today = localDay(new Date(now)); // markets' firedOn is a server-local day
-  const cards = rankCards(morningCandidates({ work, studioReady: st?.ready, proposals: ok(a)?.proposals, headlines: ok(i)?.headlines,
-    alerts: ok(al)?.filter((x) => x.firedOn === today).map(alertText), followups: due, recall: rec, ideas: ok(ids)?.shown }), ok(th) ?? [], now);
+  const cands = dropDone(morningCandidates({ work, studioReady: st?.ready, proposals: ok(a)?.proposals, headlines: ok(i)?.headlines,
+    alerts: ok(al)?.filter((x) => x.firedOn === today).map(alertText), followups: due, recall: rec, ideas: ok(ids)?.shown,
+    deadlines: ok(dl), dev: ok(dw), archLesson: ok(ar) }), ok(cl) ?? [], now);
+  const hero = pickHero(cands, ok(th) ?? [], ok(cl) ?? [], now) ?? undefined;
+  const cards = rankCards(cands.filter((x) => x.key !== hero?.key), ok(th) ?? [], now);
   // Only counted when its sources loaded: a mission ticked from missing data would be a false claim.
   const mission = st && work && ok(ct) !== undefined ? dailyMission({ shortsToday: st.today.length, contactedToday: ok(ct)!, approvalsWaiting: approvals(work) }) : undefined;
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
-    business: due && businessFollowupLine(due.length), overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(since && { since }) };
+    business: due && businessFollowupLine(due.length), overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(hero && { hero }), ...(since && { since }) };
 }
