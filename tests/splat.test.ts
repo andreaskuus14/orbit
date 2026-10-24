@@ -157,3 +157,64 @@ test("readSplats respects subarray byteOffset", () => {
   big.set(inner, 8);
   close(readSplats(big.subarray(8)).positions, [1, 2, 3]);
 });
+
+// ---- 5.1/5.2: viewer helpers ----
+import { packSplats, scanBounds, sortByDepth, splatBudget, TEX_ROW, texSize, writeSplat } from "../src/lib/splat-pure.ts";
+
+test("writeSplat round-trips through readSplats (.splat), within 8-bit colour/rotation precision", () => {
+  const src = splat([
+    { pos: [1, 2, 3], scale: [0.1, 0.2, 0.3], rgba: [255, 128, 0, 200], rot: [255, 128, 128, 128] },
+    { pos: [-4, 5, -6], scale: [1, 1, 1], rgba: [10, 20, 30, 40], rot: [128, 255, 128, 128] },
+  ]);
+  const a = readSplats(src), b = readSplats(writeSplat(a));
+  assert.equal(b.count, 2);
+  close(b.positions, [...a.positions]);
+  close(b.scales, [...a.scales]);
+  close(b.colors, [...a.colors], 1 / 255);
+  close(b.opacities, [...a.opacities], 1 / 255);
+  close(b.rotations, [...a.rotations], 0.02);
+});
+
+test("packSplats: identity rotation gives diagonal covariance = scale², colour packed into 24 bits", () => {
+  const s = readSplats(splat([{ pos: [1, 2, 3], scale: [0.5, 2, 3], rgba: [255, 1, 2, 128], rot: [255, 128, 128, 128] }]));
+  const t = packSplats(s);
+  assert.equal(t.length, texSize(1).width * texSize(1).height * 4);
+  assert.equal(texSize(1).width, TEX_ROW * 3);
+  close(t.subarray(0, 3), [1, 2, 3]);
+  close([t[3], t[6], t[8]], [0.25, 4, 9], 2e-3); // xx yy zz (rotation byte 255 ≈ w 0.992, renormalised)
+  close([t[4], t[5], t[7]], [0, 0, 0], 1e-6);
+  assert.equal(t[9], 255 * 65536 + 1 * 256 + 2);
+  close([t[10]], [128 / 255]);
+});
+
+test("packSplats: a 90° turn about z swaps the x and y variances", () => {
+  const h = Math.SQRT1_2, s = { format: "splat" as const, total: 1, count: 1, skipped: 0, positions: new Float32Array(3), scales: new Float32Array([1, 3, 1]),
+    rotations: new Float32Array([h, 0, 0, h]), colors: new Float32Array(3), opacities: new Float32Array([1]) };
+  const t = packSplats(s);
+  close([t[3], t[6], t[8], t[4]], [9, 1, 1, 0], 1e-5);
+});
+
+test("sortByDepth: farthest along the view direction first, subset capped evenly", () => {
+  const pos = new Float32Array([0, 0, 1, 0, 0, 5, 0, 0, 3, 0, 0, -2]); // z = 1, 5, 3, -2
+  assert.deepEqual([...sortByDepth(pos, [0, 0, 1], 10)], [1, 2, 0, 3]);
+  assert.deepEqual([...sortByDepth(pos, [0, 0, -1], 10)], [3, 0, 2, 1]);
+  assert.deepEqual([...sortByDepth(pos, [0, 0, 1], 2)].sort(), [0, 2]); // every 2nd splat
+  assert.equal(sortByDepth(new Float32Array(0), [0, 0, 1], 5).length, 0);
+  assert.deepEqual([...sortByDepth(new Float32Array([1, 1, 1, 1, 1, 1]), [1, 0, 0], 5)].sort(), [0, 1]); // all equal depth
+});
+
+test("scanBounds ignores stray floaters (2nd–98th percentile)", () => {
+  const n = 1000, p = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { p[i * 3] = i / n * 10; p[i * 3 + 1] = 1; p[i * 3 + 2] = 0; }
+  p[0] = -500; p[3] = 900; // floaters
+  const b = scanBounds(p);
+  assert.ok(b.lo[0] > -1 && b.lo[0] < 0.5, `lo ${b.lo[0]}`);
+  assert.ok(b.hi[0] < 10 && b.hi[0] > 9.5, `hi ${b.hi[0]}`);
+  assert.deepEqual([b.lo[1], b.hi[1]], [1, 1]);
+});
+
+test("splatBudget follows the world quality preset", () => {
+  assert.deepEqual(splatBudget(1), { cap: 80_000, maxPx: 200 });
+  assert.equal(splatBudget(1.25).cap, 160_000);
+  assert.equal(splatBudget(1.75).cap, 300_000);
+});

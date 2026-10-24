@@ -14,6 +14,10 @@ import { MAX, applyOps, boq, boqCsv, bulkTips, costLines, isOpening, isStraightW
 import { lessonNote, lessonScene, quizScore, type Lesson } from "@/lib/arch-lesson-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { buildFront, lidarDots, moveWalker, NO_FRONT, WALK, wallRects, walkStart, type Rect } from "@/lib/arch-walk-pure";
+import { splatBudget } from "@/lib/splat-pure";
+import { lessonTag } from "@/lib/arch-studio-pure";
+import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
+import { ArchStudio } from "./ArchStudio";
 
 const KEY = "orbit.arch.v1";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
@@ -22,6 +26,7 @@ const FACE_ROT = { n: Math.PI, s: 0, e: Math.PI / 2, w: -Math.PI / 2 }; // turns
 const GROUND: Record<Scene["plot"]["ground"], string> = { grass: "#c9d3bf", gravel: "#d9d6cf", forest: "#b9c6b0", sand: "#e6dcc6" };
 const BG = "#ebe7e0", GOLD = "#c9a24a";
 const HOLO_C = { bg: "#020a10", table: "#04141c", rim: "#67e8f9", dot: "#22d3ee", edge: "#a5f3fc" }; // holotable mode
+const SCAN_BG = "#05080c"; // scans read best on near-black, like a dark studio
 const BP = { bg: "#0b2545", ground: "#0e2f56", fill: "#123a66", edge: "#e0f2fe", grid: ["#5b8bc4", "#1d4a7c"] as const }; // blueprint mode
 const SITE = { lat: 59.437, lon: 24.754, name: "Tallinn" }; // sun study location; shortcut: fixed site, add a picker if he studies other places
 const TP = new THREE.Vector3(), TS = new THREE.Vector3(); // per-frame scratch
@@ -225,7 +230,12 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   }, [sunAt, sun.date]);
   const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * 40, Math.max(0.5, sunInfo.dir.y * 40), sunInfo.dir.z * 40] : [-14, 22, 12];
   const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
-  const bg = holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : BG;
+  // ARCH studio (5.1–5.4): an open splat scan replaces the model in the canvas; the worker parses and depth-sorts it.
+  const [scan, setScan] = useState<ScanData | null>(null), [flip, setFlip] = useState(false), [bump, setBump] = useState(0);
+  const [worker] = useState(makeSplatWorker);
+  useEffect(() => () => worker.stop(), [worker]);
+  const budget = splatBudget(qualityPreset.dpr);
+  const bg = scan ? SCAN_BG : holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : BG;
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -257,6 +267,9 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const solid = useMemo(() => [...scene.parts].filter((p) => !isOpening(p.kind)).sort((a, b) => a.y - b.y), [scene.parts]);
   const rects = useMemo(() => wallRects(scene.parts), [scene.parts]);
   const plotWD = useMemo(() => ({ w: scene.plot.w, d: scene.plot.d }), [scene.plot.w, scene.plot.d]);
+  // walking a scan: no walls, kept inside the scan's extent (+2 m)
+  const noRects = useMemo<Rect[]>(() => [], []);
+  const scanPlot = useMemo(() => scan && { w: scan.bounds.hi[0] - scan.bounds.lo[0] + 4, d: scan.bounds.hi[2] - scan.bounds.lo[2] + 4 }, [scan]);
 
   async function send() {
     if (!cmd.trim() || busy) return;
@@ -278,16 +291,16 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     sceneRef.current = s; setScene(s); setRun((n) => n + 1);
     if (speechSettings().speak) for (const line of `${l.chapters[i].title}. ${l.chapters[i].text}`.split(/(?<=[.!?])\s+/)) if (line) speakChunk(line);
   };
-  async function teach() {
-    if (!topic.trim() || lessonBusy) return;
+  async function teach(t = topic) {
+    if (!t.trim() || lessonBusy) return;
     setLessonBusy(true); setLessonMsg("");
     try {
-      const r = await fetch("/api/arch/lesson", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic }) });
+      const r = await fetch("/api/arch/lesson", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic: t }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `Failed (${r.status})`);
       const l = j.lesson as Lesson;
       if (!lesson) ownScene.current = sceneRef.current;
-      setLesson(l); setAnswers(l.quiz.map(() => null)); setMode("holo"); setTopic("");
+      setLesson(l); setAnswers(l.quiz.map(() => null)); setMode("holo"); setTopic(""); setScan(null);
       goTo(l, 0);
     } catch (e) { setLessonMsg((e as Error).message); } finally { setLessonBusy(false); }
   }
@@ -298,8 +311,9 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   async function saveLesson() {
     if (!lesson) return;
     const n = lessonNote(lesson, answers);
-    const r = await fetch("/api/memories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "note", ...n, tags: ["arch", "lesson"] }) }).catch(() => null);
+    const r = await fetch("/api/memories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "note", ...n, tags: ["arch", "lesson", lessonTag(lesson.building)].filter(Boolean) }) }).catch(() => null);
     setLessonMsg(r?.ok ? "Saved to MEMORY." : "Couldn't save the lesson.");
+    if (r?.ok) setBump((b) => b + 1);
   }
   const focus = new Set(lesson && ch < lesson.chapters.length ? lesson.chapters[ch].focus : []);
 
@@ -316,6 +330,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <fog attach="fog" args={[bg, 60, 140]} />
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
           <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} />
+          {scan ? <SplatCloud scan={scan} worker={worker} cap={budget.cap} maxPx={budget.maxPx} flip={flip} /> : <>
           {holo ? <><HoloTable w={scene.plot.w} d={scene.plot.d} /><HoloClock solid={solid} t0={t0} reduced={reduced} /></> : <>
             <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[scene.plot.w, scene.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[scene.plot.ground]} roughness={1} /></mesh>
             <gridHelper args={[Math.max(scene.plot.w, scene.plot.d), Math.max(scene.plot.w, scene.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
@@ -330,7 +345,8 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
               {scene.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
                 appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} holo={holo} />)}
             </>; })()}
-          {walk && !paused && <Walker rects={rects} plot={plotWD} onExit={() => setWalk(false)} />}
+          </>}
+          {walk && !paused && <Walker key={scan?.name ?? "model"} rects={scan ? noRects : rects} plot={scanPlot ?? plotWD} onExit={() => setWalk(false)} />}
           <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
         </Canvas>
       )}
@@ -372,6 +388,16 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
             <p className="muted text-[11px]">Simplified massing, dimensions approximate. Check facts against a book before you cite them.</p>
           </div>
         )}
+        {scan && (
+          <div className="card space-y-1.5" aria-label="Open scan">
+            <div className="muted text-[10px] uppercase tracking-widest">Scan · {scan.name}</div>
+            <p className="text-xs">{Math.min(scan.count, budget.cap).toLocaleString("en")} of {scan.count.toLocaleString("en")} splats drawn at this quality{scan.count < scan.total ? ` (file had ${scan.total.toLocaleString("en")})` : ""}. Drag to orbit, scroll or pinch to zoom; 🚶 Walk to go inside.</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button className="chip" aria-pressed={flip} onClick={() => setFlip((v) => !v)} title="Some exports are upside down (y-down): turn the scan upright">↕ Flip upright</button>
+              <button className="chip" onClick={() => { setScan(null); setWalk(false); }}>Close scan</button>
+            </div>
+          </div>
+        )}
         {walk && <p className="muted text-xs" aria-live="polite">Walking at 1.6 m: WASD or arrow keys move, drag to look around, Esc or 🚶 Walk to go back. Walls stop you; doors let you through.</p>}
         {sun.on && (
           <div className="card space-y-1.5" aria-label="Sun study">
@@ -401,6 +427,9 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <button className="chip" onClick={() => download("arch-bill-of-quantities.csv", boqCsv(cost), "text/csv")}>⬇ BOQ CSV</button>
           <button className="chip" onClick={() => download("arch-scene.json", JSON.stringify(scene, null, 2), "application/json")}>⬇ Scene JSON</button>
         </div>
+
+        <ArchStudio worker={worker} bump={bump} onScan={(s) => { setScan(s); setWalk(false); }} onTeach={(t) => void teach(t)}
+          lesson={lesson ? { building: lesson.building, text: lesson.chapters.map((c) => `${c.title}: ${c.text}`).join("\n") } : null} lessonKey={lesson ? lessonTag(lesson.building) : ""} />
 
         <div className="card space-y-1.5">
           <div className="muted text-[10px] uppercase tracking-widest">Parts · click one in 3D or here</div>
@@ -438,7 +467,23 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
         <p className="muted text-[11px]">A study tool: rules of thumb (rebar ~100 kg/m³, 300 mm block walls). Anything you build for real needs an engineer&apos;s sign-off.</p>
       </section>
 
+      {walk && !flat && <WalkPad />}
       <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+    </div>
+  );
+}
+
+/** Touch walking: hold an arrow to move (it presses the same keys Walker listens to); drag the view to look. */
+function WalkPad() {
+  const key = (k: string, type: "keydown" | "keyup") => dispatchEvent(new KeyboardEvent(type, { key: k }));
+  const pad = (k: string, label: string, cls: string) => (
+    <button className={`chip ${cls}`} aria-label={`Walk ${k.replace("Arrow", "").toLowerCase()}`} style={{ touchAction: "none" }}
+      onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); key(k, "keydown"); }} onPointerUp={() => key(k, "keyup")} onPointerCancel={() => key(k, "keyup")}
+      onContextMenu={(e) => e.preventDefault()}>{label}</button>
+  );
+  return (
+    <div className="absolute bottom-40 left-4 z-[15] grid grid-cols-3 gap-1 select-none" aria-label="Walk controls">
+      {pad("ArrowUp", "▲", "col-start-2")}{pad("ArrowLeft", "◀", "col-start-1")}{pad("ArrowDown", "▼", "")}{pad("ArrowRight", "▶", "")}
     </div>
   );
 }
