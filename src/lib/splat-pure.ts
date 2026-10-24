@@ -197,3 +197,89 @@ export function readSplats(bytes: Uint8Array, max: number = DEFAULT_MAX_SPLATS):
     opacities: opacities.subarray(0, count),
   };
 }
+
+// ---- ARCH studio viewer (roadmap 5.1/5.2): import packing, GPU texture layout, depth sort, budget ----
+
+/** Write splats as antimatter15 `.splat` (32 bytes each): what an import stores in VAULT, already downsampled. */
+export function writeSplat(s: Splats): Uint8Array {
+  const out = new Uint8Array(s.count * SPLAT_STRIDE), dv = new DataView(out.buffer);
+  const b8 = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  for (let i = 0; i < s.count; i++) {
+    const at = i * SPLAT_STRIDE;
+    for (let k = 0; k < 3; k++) { dv.setFloat32(at + k * 4, s.positions[i * 3 + k], true); dv.setFloat32(at + 12 + k * 4, s.scales[i * 3 + k], true); }
+    for (let k = 0; k < 3; k++) out[at + 24 + k] = b8(s.colors[i * 3 + k] * 255);
+    out[at + 27] = b8(s.opacities[i] * 255);
+    for (let k = 0; k < 4; k++) out[at + 28 + k] = b8(s.rotations[i * 4 + k] * 128 + 128);
+  }
+  return out;
+}
+
+/** Splats per texture row; each splat takes 3 RGBA32F texels: (x y z Σxx) (Σxy Σxz Σyy Σyz) (Σzz rgb24 opacity 0). */
+export const TEX_ROW = 1024;
+export const texSize = (count: number) => ({ width: TEX_ROW * 3, height: Math.max(1, Math.ceil(count / TEX_ROW)) });
+
+/** The GPU layout above. Σ = R S Sᵀ Rᵀ (3D covariance from scale + rotation); rgb packed exactly into one float (24 bits). */
+export function packSplats(s: Splats): Float32Array {
+  const { width, height } = texSize(s.count), out = new Float32Array(width * height * 4);
+  const p = s.positions, sc = s.scales, q = s.rotations;
+  for (let i = 0; i < s.count; i++) {
+    const w = q[i * 4], x = q[i * 4 + 1], y = q[i * 4 + 2], z = q[i * 4 + 3];
+    const sx = sc[i * 3], sy = sc[i * 3 + 1], sz = sc[i * 3 + 2];
+    // M = R·S (rows of R scaled per column)
+    const m00 = (1 - 2 * (y * y + z * z)) * sx, m01 = 2 * (x * y - w * z) * sy, m02 = 2 * (x * z + w * y) * sz;
+    const m10 = 2 * (x * y + w * z) * sx, m11 = (1 - 2 * (x * x + z * z)) * sy, m12 = 2 * (y * z - w * x) * sz;
+    const m20 = 2 * (x * z - w * y) * sx, m21 = 2 * (y * z + w * x) * sy, m22 = (1 - 2 * (x * x + y * y)) * sz;
+    const o = i * 12;
+    out[o] = p[i * 3]; out[o + 1] = p[i * 3 + 1]; out[o + 2] = p[i * 3 + 2];
+    out[o + 3] = m00 * m00 + m01 * m01 + m02 * m02; // xx
+    out[o + 4] = m00 * m10 + m01 * m11 + m02 * m12; // xy
+    out[o + 5] = m00 * m20 + m01 * m21 + m02 * m22; // xz
+    out[o + 6] = m10 * m10 + m11 * m11 + m12 * m12; // yy
+    out[o + 7] = m10 * m20 + m11 * m21 + m12 * m22; // yz
+    out[o + 8] = m20 * m20 + m21 * m21 + m22 * m22; // zz
+    const c = (k: number) => Math.round(Math.max(0, Math.min(1, s.colors[i * 3 + k])) * 255);
+    out[o + 9] = c(0) * 65536 + c(1) * 256 + c(2);
+    out[o + 10] = s.opacities[i];
+  }
+  return out;
+}
+
+/** Back-to-front draw order for view direction `fwd` (model space): indices of an even subset of at most `cap` splats,
+ *  farthest first. Depth along a direction doesn't depend on where the camera stands, so only turning needs a re-sort.
+ *  16-bit counting sort: O(n), ~10 ms for 300k in a worker. */
+export function sortByDepth(positions: Float32Array, fwd: [number, number, number], cap: number): Float32Array {
+  const count = Math.floor(positions.length / 3), n = Math.max(0, Math.min(count, Math.floor(cap)));
+  const out = new Float32Array(n);
+  if (!n) return out;
+  const step = count / n, depth = new Float32Array(n);
+  let lo = Infinity, hi = -Infinity;
+  for (let k = 0; k < n; k++) {
+    const i = Math.floor(k * step) * 3;
+    const d = positions[i] * fwd[0] + positions[i + 1] * fwd[1] + positions[i + 2] * fwd[2];
+    depth[k] = d; if (d < lo) lo = d; if (d > hi) hi = d;
+  }
+  const B = 65536, scale = hi > lo ? (B - 1) / (hi - lo) : 0, counts = new Uint32Array(B), key = new Uint16Array(n);
+  for (let k = 0; k < n; k++) { key[k] = (B - 1) - Math.floor((depth[k] - lo) * scale); counts[key[k]]++; } // far = small key
+  for (let b = 1; b < B; b++) counts[b] += counts[b - 1];
+  for (let k = n - 1; k >= 0; k--) out[--counts[key[k]]] = Math.floor(k * step);
+  return out;
+}
+
+/** Robust extent of a scan (2nd–98th percentile per axis: stray floaters don't count). */
+export function scanBounds(positions: Float32Array): { lo: [number, number, number]; hi: [number, number, number] } {
+  const n = Math.floor(positions.length / 3), lo: [number, number, number] = [0, 0, 0], hi: [number, number, number] = [0, 0, 0];
+  if (!n) return { lo, hi };
+  const stride = Math.max(1, Math.floor(n / 50_000)), a = new Float32Array(Math.ceil(n / stride));
+  for (let k = 0; k < 3; k++) {
+    let m = 0;
+    for (let i = 0; i < n; i += stride) a[m++] = positions[i * 3 + k];
+    const s = a.subarray(0, m).sort();
+    lo[k] = s[Math.floor((m - 1) * 0.02)]; hi[k] = s[Math.ceil((m - 1) * 0.98)];
+  }
+  return { lo, hi };
+}
+
+/** Splats drawn and the largest on-screen splat radius (px) per world quality preset (its dpr): fill rate is the limit. */
+export function splatBudget(dpr: number): { cap: number; maxPx: number } {
+  return dpr <= 1 ? { cap: 80_000, maxPx: 200 } : dpr < 1.5 ? { cap: 160_000, maxPx: 400 } : { cap: DEFAULT_MAX_SPLATS, maxPx: 600 };
+}
