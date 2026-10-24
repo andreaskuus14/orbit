@@ -456,7 +456,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? "Your profile" : drawer ? planetById(drawer)?.name ?? "" : "";
 
   return (
-    <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view} data-dive-in={quiet ?? undefined}>
+    <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view} data-dive-in={quiet ?? undefined} data-diving={dive ? "" : undefined}>
       {view === "3d" && !shown && <HudFrame />}
       {view === "3d" && !shown && !approach && <Ticker />}
       {view === "3d" && <WarpOverlay target={approach} landed={panel} reduced={reduced} />}
