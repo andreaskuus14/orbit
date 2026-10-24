@@ -8,6 +8,7 @@ import { LIFE_TOOLS, lifeWriteBlocked, type LifeTool } from "./core-life.ts";
 import { WS_TOOLS, wsTainted, wsWriteBlocked } from "./core-workspace.ts";
 import { createGoalBlocked } from "./goals-pure.ts";
 import { asksToRemember } from "./reflect-pure.ts";
+import { draftBlocked } from "./higgsfield-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
 export type Decision = { allow: boolean; tier: Tier; reason: string };
@@ -24,16 +25,18 @@ export const TIERS: Record<string, Tier> = {
   save_memory: "T2", ask_agent: "T2", create_goal: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
   life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", rea_analyze: "T2", rea_cancel: "T2",
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
+  higgsfield_draft: "T3", // proposes a Higgsfield spend (price check only); the spend itself is the owner's story.approve click
 };
 
 // T3 runs only behind an owner-click approval (AGENTS.md rule 6): the token each path checks before anything leaves ORBIT.
 export const APPROVAL_PATHS: Record<string, string> = {
   schedule_approved: 'clip.status "approved" from the owner\'s Approve click in STUDIO review; scheduleAll uploads only those clips',
+  higgsfield_draft: "never spends: it saves a draft and asks Higgsfield the price (hf-guard quote mode, get_cost only); credits are spent only by the owner's Approve click on that quote in Clip Factory → AI Story (story.approve)",
 };
 // The UI's own T3 actions. Not CORE tools (decide() refuses them as unknown): they run only from the owner's click, with these tokens.
 export const UI_APPROVALS: Record<string, string> = {
   "business.send": 'POST /api/business {action:"send", id, seen}: the draft stamp the owner read; Resend Idempotency-Key orbit-<id>-<seen>',
-  "story.approve": 'POST /api/studio/clips/story {action:"approve", id, credits}: the credits quote the owner accepted',
+  "story.approve": 'POST /api/studio/clips/story {action:"approve", id, credits}: the credits quote the owner accepted; refused under Stop-all or past ORBIT_HIGGSFIELD_WEEKLY_CAP (also for CORE\'s higgsfield_draft jobs)',
   "studio.schedule": 'POST /api/studio/clips/schedule: only clips with the owner\'s Approve click (status "approved")',
   "studio.publish": 'POST /api/studio/clips/<job>/<clip>/publish: only a clip with status "approved"',
 };
@@ -70,6 +73,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if ((LIFE_TOOLS as readonly string[]).includes(tool)) blocked = err(lifeWriteBlocked(tool as LifeTool, question, dataIn));
   else if (tool === "ws_write" || tool === "ws_create") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps))); // core-modules.ts:50
   else if (tool === "create_goal") blocked = createGoalBlocked(question, dataIn);
+  else if (tool === "higgsfield_draft") blocked = draftBlocked(question, dataIn);
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
   if (blocked) return no(blocked);
   // shortcut: rea_analyze/rea_cancel keep their explicit-ask check inside REA code (not ported: REA files stay untouched).

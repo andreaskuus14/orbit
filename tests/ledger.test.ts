@@ -19,6 +19,8 @@ const DATA: Record<string, object> = {
   "morning.done": { source: "devworld", key: "bug:b1" },
   "journal.saved": { memoryId: "m2" },
   "remote.command": { command: "approve", ok: true, device: "d1" },
+  "higgsfield.spend": { jobId: "mf1-abc123", credits: 4.5, kind: "draft" },
+  "memory.hygiene": { action: "merge", decision: "accepted", key: "merge:a:b" },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {

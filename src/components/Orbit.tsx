@@ -108,6 +108,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [focusGoal, setFocusGoal] = useState<string | null>(null);
   const [radarUrl, setRadarUrl] = useState<string | null>(null); // ?radar=<YouTube link>: shared from the phone (iOS Shortcut) → Idea Radar
   const [automationFailing, setAutomationFailing] = useState(false); // real: an enabled automation's last run failed
+  const [hfWeek, setHfWeek] = useState<{ used: number; cap: number } | null>(null); // Higgsfield credits approved this week / weekly cap
   const amb = useAmbient(automationFailing, pulseFailed); // focus / alert / night look over the galaxy
   const [cmdMode, setCmdMode] = useState<"ask" | "task">("ask");
   const [cmdErr, setCmdErr] = useState("");
@@ -390,6 +391,14 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     const t = setInterval(load, 20_000);
     return () => { off = true; clearInterval(t); };
   }, [sb, runningTasks, view, covered]);
+  useEffect(() => { // SYSTEM rail's Higgsfield readout, only while the rail is on screen
+    if (shown || view !== "3d") return;
+    let off = false;
+    const load = () => void fetch("/api/higgsfield", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (!off && j && typeof j.used === "number") setHfWeek(j); }, () => {});
+    load();
+    const t = setInterval(load, 60_000);
+    return () => { off = true; clearInterval(t); };
+  }, [shown, view]);
   const openGoal = useCallback((id: string) => { setWorkOpen(false); setFocusGoal(id); setPanel("agents"); }, []);
   const openMemory = useCallback((id: string) => { setFocusMemory(id); setPanel("memory"); }, []);
   useEffect(() => { // search palette picked a memory: open it in MEMORY
@@ -592,6 +601,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
             { label: "Pulse", value: pulseBusy ? "Writing" : pulseFailed ? "Last failed" : "Idle", tone: pulseFailed ? "bad" : "ok", busy: pulseBusy },
             { label: "Automations", value: automationFailing ? "Needs attention" : "OK", tone: automationFailing ? "bad" : "ok" },
             { label: "Memories", value: String(memoryCount), tone: "ok" },
+            ...(hfWeek ? [{ label: "Higgsfield", value: `${hfWeek.used} / ${hfWeek.cap} cr this week`, tone: hfWeek.used >= hfWeek.cap ? "bad" as const : hfWeek.used >= hfWeek.cap * 0.8 ? "warn" as const : "ok" as const }] : []),
           ]} />
           <button className="chip mt-2" onClick={() => setDoctor("click")}>🩺 Check Orbital</button>
           <p className="muted mt-2 text-[10px] tracking-wider">← → FLY BETWEEN PLANETS · ? SHORTCUTS</p>

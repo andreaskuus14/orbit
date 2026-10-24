@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
-type Item = { id: string; kind: "clip" | "spend" | "send"; title: string; detail: string; credits?: number; seen?: string; to?: string; message?: string };
+type Item = { id: string; kind: "clip" | "spend" | "send"; title: string; detail: string; seen: string; credits?: number; thumb?: boolean; to?: string; message?: string };
 type Status = { stop: { on: boolean; at: string }; queue: { active: { id: string; source: string; status: string; step: string; progress: number }[]; ready: number; approved: number; publishing: string | null; story: string | null } };
 
 const nonce = () => crypto.randomUUID();
@@ -22,6 +22,7 @@ export function RemoteApp() {
   const [items, setItems] = useState<Item[]>([]);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState("");
+  const [noThumb, setNoThumb] = useState<Record<string, boolean>>({}); // thumbnails that failed to load
 
   const load = useCallback(async () => {
     const r = await send("status").catch(() => null);
@@ -54,14 +55,12 @@ export function RemoteApp() {
   const decide = (it: Item, approve: boolean) => {
     const what = it.kind === "spend" ? `Spend ${it.credits} Higgsfield credits on “${it.title}”?` : it.kind === "send" ? `Email this exact message to ${it.to}?` : `${approve ? "Approve" : "Reject"} “${it.title}”?${approve ? "" : " Its files are deleted."}`;
     if (!confirm(what)) return;
-    void act(it.id, () => send(approve ? "approve" : "reject", { id: it.id }, { kind: it.kind, ...(it.credits !== undefined ? { credits: it.credits } : {}), ...(it.seen ? { seen: it.seen } : {}) }), (j) => j.message ?? "Done");
+    void act(it.id, () => send(approve ? "approve" : "reject", { id: it.id }, { kind: it.kind, seen: it.seen, ...(it.credits !== undefined ? { credits: it.credits } : {}) }), (j) => j.message ?? "Done");
   };
 
-  const toggleStop = () => {
-    if (!status) return;
-    const on = status.stop.on;
-    if (!confirm(on ? "Resume ORBIT (turn Stop-all off)?" : "Stop all: pause agents, automations and goals now?")) return;
-    void act("stop", () => send("stopAll", {}, { on }), () => (on ? "ORBIT resumed" : "Stop-all is on: ORBIT paused"));
+  const stopAll = () => { // ON only: resuming is done on the PC
+    if (!status || status.stop.on || !confirm("Stop all: pause agents, automations and goals now? Resuming is done on the PC.")) return;
+    void act("stop", () => send("stopAll", {}, { on: false }), () => "Stop-all is on: ORBIT paused");
   };
 
   if (paired === null) return <Shell><p className="muted text-sm">Connecting…</p></Shell>;
@@ -73,32 +72,35 @@ export function RemoteApp() {
 
       <section className="card space-y-2" aria-labelledby="r-stop">
         <h2 id="r-stop" className="text-sm font-semibold">Stop-all</h2>
-        <p className="muted text-sm">{status?.stop.on ? "ON: ORBIT is paused." : "Off: ORBIT is running."}</p>
-        <button className={status?.stop.on ? "btn w-full" : "btn danger w-full"} disabled={!!busy} onClick={toggleStop} style={{ minHeight: 48 }}>
-          {status?.stop.on ? "Resume ORBIT" : "Stop all"}
-        </button>
+        <p className="muted text-sm">{status?.stop.on ? "ON: ORBIT is paused. Resume it from the PC." : "Off: ORBIT is running."}</p>
+        {!status?.stop.on && <button className="btn danger w-full" disabled={!!busy} onClick={stopAll} style={{ minHeight: 48 }}>Stop all</button>}
       </section>
 
       <section className="space-y-2" aria-labelledby="r-appr">
         <h2 id="r-appr" className="text-sm font-semibold">Waiting for you ({items.length})</h2>
         {!items.length && <p className="muted text-sm">Nothing to approve.</p>}
-        {items.map((it) => (
+        {items.map((it) => {
+          const blind = it.kind === "clip" && (!it.thumb || noThumb[it.id]); // he can't see it here: review on the PC
+          return (
           <article key={it.id} className="card space-y-2">
             <div className="text-sm font-semibold">{it.title}</div>
             <div className="muted text-xs">{it.detail}</div>
+            {it.kind === "clip" && (blind ? <p className="muted text-sm">No preview: open on PC to review.</p>
+              : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={`Thumbnail of ${it.title}`} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} />)}
             {it.kind === "spend" && <div className="text-sm">Quote: <b>{it.credits} credits</b></div>}
             {it.kind === "send" && <>
               <div className="text-sm">To: <b>{it.to}</b></div>
               <pre className="field w-full whitespace-pre-wrap text-xs" style={{ fontFamily: "inherit", maxHeight: 260, overflow: "auto" }}>{it.message}</pre>
             </>}
             <div className="flex gap-2">
-              <button className="btn flex-1" style={{ minHeight: 44 }} disabled={!!busy} onClick={() => decide(it, true)}>
+              <button className="btn flex-1" style={{ minHeight: 44 }} disabled={!!busy || blind} onClick={() => decide(it, true)}>
                 {busy === it.id ? "…" : it.kind === "spend" ? `Approve ${it.credits} credits` : it.kind === "send" ? "Approve & send" : "Approve"}
               </button>
               {it.kind === "clip" && <button className="chip" style={{ minHeight: 44 }} disabled={!!busy} onClick={() => decide(it, false)}>Reject</button>}
             </div>
           </article>
-        ))}
+          );
+        })}
       </section>
 
       <section className="card space-y-1" aria-labelledby="r-queue">

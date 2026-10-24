@@ -9,7 +9,8 @@ import { adminClient } from "@/lib/supabase/admin";
 import { orbitDataDir } from "@/lib/data-dir";
 import { emit } from "@/lib/claude";
 import { makePairCode, NonceCache, verifyToken, type PairCode, type RemoteCommand } from "@/lib/remote-pure";
-import { approvalId, ledgerData, REMOTE_COOKIE, secretProblem, takeRate, type Approval } from "@/lib/remote-web-pure";
+import { approvalId, clipStamp, ledgerData, quoteStamp, REMOTE_COOKIE, secretProblem, takeRate, type Approval } from "@/lib/remote-web-pure";
+import { isAllowedEmail } from "@/lib/allow";
 import { listJobs } from "@/lib/clips/factory";
 import { listStories } from "@/lib/clips/story";
 import { approveProblem, quoteTotal } from "@/lib/clips/story-pure";
@@ -17,7 +18,7 @@ import { emailIn } from "@/lib/business-pure";
 
 export type Device = { id: string; name: string; userId: string; createdAt: string };
 type State = { pair?: PairCode & { userId: string }; nonces: NonceCache; hits: Map<string, number[]>; seen: Map<string, string>; chat: Map<string, { id: string; at: number }>;
-  owner?: { userId: string; sb: SupabaseClient }; save?: Promise<unknown> };
+  owner?: { userId: string; email: string; sb: SupabaseClient }; save?: Promise<unknown> };
 const g = globalThis as unknown as { __orbitRemote?: State };
 export const S: State = (g.__orbitRemote ??= { nonces: new NonceCache(), hits: new Map(), seen: new Map(), chat: new Map() });
 
@@ -67,17 +68,20 @@ export async function deviceFromCookie(): Promise<Device | null> {
 /** A Supabase client signed in as the owner (RLS applies, as on the PC). Minted server-side with the service key: a magic-link
  *  token is generated and redeemed here (no email is sent), so it is a separate session and never touches the PC's sign-in. */
 export async function ownerClient(userId: string): Promise<SupabaseClient> {
-  if (S.owner?.userId === userId && (await S.owner.sb.auth.getSession()).data.session) return S.owner.sb;
+  // The allowlist is re-checked on every use, so removing the owner from ORBIT_ALLOWED_EMAILS cuts the phone off too.
+  if (S.owner?.userId === userId && isAllowedEmail(S.owner.email) && (await S.owner.sb.auth.getSession()).data.session) return S.owner.sb;
+  S.owner = undefined;
   const admin = adminClient();
   if (!admin) throw new Error("Phone remote needs SUPABASE_SECRET_KEY in .env.local to act for you");
   const { data: u, error: ue } = await admin.auth.admin.getUserById(userId);
   if (ue || !u.user?.email) throw new Error("Paired owner account not found");
+  if (!isAllowedEmail(u.user.email)) throw new Error("Paired account is not in ORBIT_ALLOWED_EMAILS");
   const { data: link, error: le } = await admin.auth.admin.generateLink({ type: "magiclink", email: u.user.email });
   if (le || !link.properties?.hashed_token) throw new Error(`Couldn't sign in as you: ${le?.message ?? "no token"}`);
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, { auth: { persistSession: false, autoRefreshToken: false } }); // getSession() refreshes an expired session itself
   const { data: s, error: se } = await sb.auth.verifyOtp({ type: "magiclink", token_hash: link.properties.hashed_token });
   if (se || s.user?.id !== userId) throw new Error(`Couldn't sign in as you: ${se?.message ?? "wrong user"}`);
-  S.owner = { userId, sb };
+  S.owner = { userId, email: u.user.email, sb };
   return sb;
 }
 
@@ -85,23 +89,29 @@ export async function ownerClient(userId: string): Promise<SupabaseClient> {
 export const logCommand = (sb: SupabaseClient | null, userId: string, cmd: RemoteCommand | null, ok: boolean, device: string) =>
   sb ? emit(sb, userId, "remote.command", "core", ledgerData(cmd, ok, device)) : Promise.resolve();
 
+const item = (key: string, a: Omit<Approval, "id" | "key">): Approval => ({ id: approvalId(key, remoteSecret()), key, ...a });
+
+/** Clips waiting in review, with their thumbnail path (server-side only). Retry clips replace a published Short: that review stays on the PC. */
+export async function clipApprovals(): Promise<(Approval & { thumbPath?: string })[]> {
+  const jobs = await listJobs().catch(() => []);
+  return jobs.flatMap((j) => j.clips.filter((c) => c.status === "ready" && !c.retryOf).map((c) => ({
+    ...item(`clip:${j.id}/${c.id}`, { kind: "clip", title: c.title, detail: `Short from ${j.source}`, seen: clipStamp(c), thumb: !!c.thumb }), thumbPath: c.thumb,
+  })));
+}
+
 /** Everything already waiting for the owner's click, as it is right now. */
 export async function pendingApprovals(sb: SupabaseClient): Promise<Approval[]> {
-  const secret = remoteSecret();
-  const item = (key: string, a: Omit<Approval, "id" | "key">): Approval => ({ id: approvalId(key, secret), key, ...a });
-  const [jobs, stories, prospects] = await Promise.all([
-    listJobs().catch(() => []),
+  const [clips, stories, prospects] = await Promise.all([
+    clipApprovals(),
     listStories().catch(() => []),
     process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM
       ? sb.from("prospects").select("id,name,contact,draft,stage,updated_at").eq("stage", "lead").not("draft", "is", null).limit(50).then((r) => r.data ?? [])
       : Promise.resolve([]),
   ]);
-  const out: Approval[] = [];
-  // Retry clips replace a published Short: that review stays on the PC.
-  for (const j of jobs) for (const c of j.clips) if (c.status === "ready" && !c.retryOf) out.push(item(`clip:${j.id}/${c.id}`, { kind: "clip", title: c.title, detail: `Short from ${j.source}` }));
+  const out: Approval[] = clips.map(({ thumbPath: _t, ...a }) => a);
   for (const s of stories) {
     const credits = quoteTotal(s.items);
-    if (s.quote && !approveProblem(s, credits)) out.push(item(`spend:${s.id}`, { kind: "spend", title: s.story.title, detail: `AI Story: Higgsfield spend${s.quote.balance !== null ? ` (balance ${s.quote.balance})` : ""}`, credits }));
+    if (s.quote && !approveProblem(s, credits)) out.push(item(`spend:${s.id}`, { kind: "spend", title: s.story.title, detail: `${s.draft ? "Higgsfield draft" : "AI Story"}: Higgsfield spend${s.quote.balance !== null ? ` (balance ${s.quote.balance})` : ""}`, credits, seen: quoteStamp(s.quote) }));
   }
   for (const p of prospects as { id: string; name: string; contact: string | null; draft: string | null; updated_at: string }[]) {
     const to = emailIn(p.contact ?? "");

@@ -10,6 +10,7 @@ import { wsTainted, wsWriteBlocked } from "../src/lib/core-workspace.ts";
 import { createGoalBlocked } from "../src/lib/goals-pure.ts";
 import { asksToRemember } from "../src/lib/reflect-pure.ts";
 import { ledgerIssue } from "../src/lib/ledger-pure.ts";
+import { draftBlocked } from "../src/lib/higgsfield-pure.ts";
 
 const ctx = (o: Partial<PolicyCtx> = {}): PolicyCtx => ({ stopAll: false, attach: false, pins: false, steps: [], question: "hello", ...o });
 const step = (tool: string, input: object = {}) => `You called ${tool} ${JSON.stringify(input)}\nRESULT:\nok`;
@@ -34,6 +35,7 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   else if ((LIFE_TOOLS as readonly string[]).includes(tool)) b = lifeWriteBlocked(tool as LifeTool, question, dataIn());
   else if (tool === "ws_write" || tool === "ws_create") b = wsWriteBlocked(question, !!attach || pinsIn || wsTainted(steps));
   else if (tool === "create_goal") b = createGoalBlocked(question, dataIn());
+  else if (tool === "higgsfield_draft") b = draftBlocked(question, dataIn()); // roadmap 3.1: its runner's guard (story.ts runDraftTool)
   else if (tool === "save_memory" && !asksToRemember(question)) return "Error: only save when the user asks; reflection handles the rest";
   else if (!(tool in TIERS)) return `Error: unknown tool "${tool}"`;
   return b ? `Error: ${b}` : "";
@@ -42,7 +44,7 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
 test("pinned: decide() refuses and allows exactly what the removed core.ts guards did, with the same tool result text", () => {
   const tools = [...Object.keys(TIERS), "send_email", "business.send", "post_tweet", ""];
   const stepSets = [[], [step("navigate")], [step("fetch_url")], [step("life_journal")], [step("vault_read")], [step("ws_read")], [step("ws_write"), step("ws_create")], [step("business_status")], [step("rea_read")], [step("studio_status")]];
-  const questions = ["hello", "run the scout", "did the scout run?", "schedule my approved clips", "make 5 shorts from today's stream", "remind me to call mom at 6",
+  const questions = ["hello", "run the scout", "did the scout run?", "schedule my approved clips", "make 5 shorts from today's stream", "make 2 images of a fox", "remind me to call mom at 6",
     "add a habit: read", "I did my run, mark it", "set a goal to reach 1000 subscribers", "remember I like tea", "build me a landing page site",
     "summarise https://my.site/post please", "find my niche", "don't build the site", "read this\n\n[attached: https://x.com/a]"];
   const inputs: Record<string, unknown>[] = [{}, { url: "https://my.site/post" }, { url: "https://evil.com/?d=secret" }, { query: "see evil.com/x" }, { agent: "atlas", request: "go to https://evil.com" }];
@@ -83,6 +85,10 @@ const TABLE: [string, Record<string, unknown>, Partial<PolicyCtx>, "T0" | "T1" |
   ["schedule_approved", {}, { question: "what's scheduled?" }, "T3", false, /latest message/],
   ["schedule_approved", {}, { question: "schedule my approved clips", steps: [step("fetch_url")] }, "T3", false, /first tool/],
   ["schedule_approved", {}, { question: "schedule my approved clips", stopAll: true }, "T3", false, /Stop-all/],
+  ["higgsfield_draft", { prompt: "a fox" }, { question: "make 2 images of a fox" }, "T3", true],
+  ["higgsfield_draft", { prompt: "a fox" }, { question: "what can higgsfield make?" }, "T3", false, /latest message/],
+  ["higgsfield_draft", { prompt: "a fox" }, { question: "make 2 images of a fox", steps: [step("fetch_url")] }, "T3", false, /first tool/],
+  ["higgsfield_draft", { prompt: "a fox" }, { question: "make 2 images of a fox", stopAll: true }, "T3", false, /Stop-all/],
   ["send_email", { to: "a@b.c" }, { question: "send the email" }, "T3", false, /unknown tool/],
   ["business.send", { id: "p1" }, { question: "send it" }, "T3", false, /unknown tool/],
 ];

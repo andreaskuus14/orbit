@@ -1,12 +1,14 @@
 // iPhone remote (roadmap 6.2): the decisions around remote-pure.ts's protocol. Pure, tested in tests/remote-web.test.ts.
 // Server glue: remote.ts; routes: /api/remote/*; page: /remote.
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import type { RemoteCommand } from "./remote-pure.ts";
 
 export const REMOTE_COOKIE = "orbit_remote";
 export const REMOTE_TOKEN_DAYS = 30;
 export const MAX_REMOTE_BODY = 9 * 1024; // the 8 KB command string plus its JSON envelope and echo
-export const RATE = { cmd: { limit: 30, windowMs: 60_000 }, ask: { limit: 6, windowMs: 60_000 }, pair: { limit: 10, windowMs: 60_000 } } as const;
+export const RATE = { cmd: { limit: 30, windowMs: 60_000 }, ask: { limit: 6, windowMs: 60_000 }, pair: { limit: 10, windowMs: 60_000 }, thumb: { limit: 120, windowMs: 60_000 } } as const;
+/** What the phone sees when something fails on the PC; the detail goes to the server log only. */
+export const GENERIC_ERROR = "Something went wrong on the PC: check ORBIT there";
 
 /** "" when REMOTE_SECRET can sign tokens, else the message the PC and phone show. */
 export function secretProblem(secret: string | undefined): string {
@@ -47,8 +49,10 @@ export type ApprovalKind = "clip" | "spend" | "send";
 /** One item already waiting for the owner. key is internal ("clip:<job>/<clip>", "spend:<story>", "send:<prospect uuid>"). */
 export type Approval = {
   id: string; key: string; kind: ApprovalKind; title: string; detail: string;
+  seen: string; // the version the owner is shown: clip stamp, quote time + script fingerprint, or the draft's updated_at
   credits?: number; // spend: the exact quoted total
-  seen?: string; to?: string; message?: string; // send: the draft's updated_at, recipient and full text
+  thumb?: boolean; // clip: has a thumbnail the phone can show (no thumbnail = review on the PC)
+  to?: string; message?: string; // send: recipient and full text
 };
 export type Echo = { kind: ApprovalKind; credits?: number; seen?: string } | { on: boolean };
 
@@ -72,17 +76,33 @@ export function parseEcho(cmd: RemoteCommand, raw: unknown): { ok: true; echo: E
   }
   if (!keysAre(o, ["kind", "credits", "seen"]) || !["clip", "spend", "send"].includes(o.kind as string)) return { ok: false, error: "echo.kind required" };
   if (o.credits !== undefined && (typeof o.credits !== "number" || !Number.isFinite(o.credits) || o.credits < 0)) return { ok: false, error: "echo.credits must be a number" };
-  if (o.seen !== undefined && (typeof o.seen !== "string" || o.seen.length > 64)) return { ok: false, error: "echo.seen must be a string" };
+  if (o.seen !== undefined && (typeof o.seen !== "string" || o.seen.length > 128)) return { ok: false, error: "echo.seen must be a string" };
   return { ok: true, echo: { kind: o.kind as ApprovalKind, credits: o.credits as number | undefined, seen: o.seen as string | undefined } };
 }
 
-/** "" when the echo matches the item as it is NOW (exact kind, exact credits for a spend, exact draft version for a send). */
+/** "" when the echo matches the item as it is NOW: exact kind and version (seen) always, exact credits for a spend. */
 export function echoProblem(item: Approval | undefined, echo: Echo | null, action: "approve" | "reject"): string {
   if (!item) return "That item is no longer waiting for approval: reload";
   if (!echo || !("kind" in echo) || echo.kind !== item.kind) return "That item changed: reload";
   if (action === "reject" && item.kind !== "clip") return "Only clips can be rejected from the phone";
+  if (!item.seen || echo.seen !== item.seen) return item.kind === "send" ? "The draft changed since you read it: reload" : "That item changed since you saw it: reload";
   if (action === "approve" && item.kind === "spend" && (typeof item.credits !== "number" || echo.credits !== item.credits)) return `The quote is now ${item.credits} credits: reload and check it`;
-  if (action === "approve" && item.kind === "send" && (!item.seen || echo.seen !== item.seen)) return "The draft changed since you read it: reload";
+  if (action === "approve" && item.kind === "clip" && !item.thumb) return "Open it on the PC to review: no preview for the phone";
+  return "";
+}
+
+/** A clip's version as the phone shows it: changes when its title, files, timing or status change. */
+export const clipStamp = (c: { title: string; thumb?: string; video?: string; start: number; end: number; status: string }) =>
+  createHash("sha256").update(JSON.stringify([c.title, c.thumb ?? "", c.video ?? "", c.start, c.end, c.status])).digest("hex").slice(0, 16);
+
+/** A spend quote's version: when it was quoted and the script it priced. */
+export const quoteStamp = (q: { at: string; fingerprint: string }) => `${q.at}|${q.fingerprint}`;
+
+/** The phone may only switch Stop-all ON; resuming stays on the PC. "" = go ahead. */
+export function stopProblem(nowOn: boolean, echo: Echo | null): string {
+  if (!echo || !("on" in echo)) return "echo must be {on}";
+  if (nowOn) return "Stop-all is already on. Resume ORBIT from the PC.";
+  if (echo.on) return "Stop-all changed on another screen: reload";
   return "";
 }
 

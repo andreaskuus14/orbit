@@ -11,7 +11,8 @@ type Item = { key: string; kind: "image" | "video" | "audio"; scene: number; cre
 type ErrKind = "not_connected" | "credits" | "paid_plan" | "other";
 type StoryJob = { id: string; createdAt: string; status: "draft" | "quoted" | "generating" | "assembling" | "done" | "failed"; step: string;
   opts: { idea: string; style: string; length: number; voice: string; motion: "stills" | "video" }; story: Story; items: Item[];
-  quote?: { total: number; balance: number | null; plan: string | null; fingerprint: string }; clipJob?: string; error?: { kind: ErrKind; message: string }; warnings: string[] };
+  quote?: { total: number; balance: number | null; plan: string | null; fingerprint: string }; clipJob?: string; error?: { kind: ErrKind; message: string }; warnings: string[];
+  draft?: { kind: "image" | "video"; prompt: string; model: string; count: number; aspect: string } }; // CORE's higgsfield_draft
 type Data = { stories: StoryJob[]; running: string | null; dryRun: boolean };
 
 const API = "/api/studio/clips/story";
@@ -35,7 +36,7 @@ async function api<T>(body?: unknown): Promise<T> {
   return json as T;
 }
 
-export default function StoryPanel({ active, onOpenClip, onChanged }: { active: boolean; onOpenClip: (job: string, clip: string) => void; onChanged: () => void }) {
+export default function StoryPanel({ active, seed, onOpenClip, onChanged }: { active: boolean; seed?: { idea?: string; story?: string } | null /* Pipeline board: prefill an idea or select a story */; onOpenClip: (job: string, clip: string) => void; onChanged: () => void }) {
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
@@ -43,6 +44,11 @@ export default function StoryPanel({ active, onOpenClip, onChanged }: { active: 
   const [draft, setDraft] = useState<Story | null>(null); // the owner's unsaved edits of the selected story
   const [f, setF] = useState({ idea: "", style: "", length: 45, voice: "kokoro:af_heart", hfVoice: "", motion: "stills" as "stills" | "video" });
 
+  useEffect(() => {
+    if (seed?.story) { setSel(seed.story); setDraft(null); }
+    const idea = seed?.idea;
+    if (idea) setF((x) => ({ ...x, idea }));
+  }, [seed]);
   const load = useCallback(async () => {
     try { setD(await api<Data>()); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   }, []);
@@ -89,7 +95,7 @@ export default function StoryPanel({ active, onOpenClip, onChanged }: { active: 
         <h3 className="hud-title studio-title mb-2 !text-[0.7rem]">AI STORY</h3>
         <p className="muted mb-2 text-xs">Claude writes a short story, Higgsfield makes the pictures, ORBIT narrates and edits it into a Short. You see the price first; nothing is generated until you approve.{d?.dryRun && " (Dry run: fake Higgsfield, no credits.)"}</p>
         <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void write(); }}>
-          <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} maxLength={1000} placeholder="Your idea, e.g. a lighthouse keeper finds a letter from himself, dated tomorrow" value={f.idea} onChange={(e) => setF({ ...f, idea: e.target.value })} aria-label="Story idea" />
+          <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} maxLength={1000} placeholder="Your idea, e.g. a lighthouse keeper finds a letter from himself, dated tomorrow" value={f.idea} onChange={(e) => setF({ ...f, idea: e.target.value })} aria-label="Story idea" id="story-idea" />
           <input className="field w-full !px-2 !py-1 !text-xs" maxLength={200} placeholder="Style (optional), e.g. moody watercolor, Pixar-like 3D" value={f.style} onChange={(e) => setF({ ...f, style: e.target.value })} aria-label="Visual style" />
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="muted">Length</span>
@@ -120,7 +126,11 @@ export default function StoryPanel({ active, onOpenClip, onChanged }: { active: 
               </select>
             )}
           </div>
-          <fieldset disabled={!editable || !!busy} className="space-y-2">
+          {job.draft ? (
+            <p className="text-xs">Drafted by CORE: {job.draft.count} × {job.draft.kind} · {job.draft.model} · {job.draft.aspect}
+              {job.items.map((it) => <span key={it.key} className="muted num ml-2 whitespace-nowrap" title={it.error}>{it.status ? ICON[it.status] : ""}{typeof it.credits === "number" && !it.jobId ? ` ${it.credits} cr` : ""}</span>)}
+              <span className="muted mt-1 block">{job.draft.prompt}</span></p>
+          ) : <fieldset disabled={!editable || !!busy} className="space-y-2">
             <input className="field w-full !px-2 !py-1 !text-sm" value={story.title} maxLength={100} onChange={(e) => setDraft({ ...story, title: e.target.value })} aria-label="Title" />
             <input className="field w-full !px-2 !py-1 !text-xs" value={story.hook} maxLength={80} onChange={(e) => setDraft({ ...story, hook: e.target.value })} aria-label="Hook text" />
             <ol className="space-y-2">
@@ -145,7 +155,7 @@ export default function StoryPanel({ active, onOpenClip, onChanged }: { active: 
                 );
               })}
             </ol>
-          </fieldset>
+          </fieldset>}
 
           <div className="mt-2 space-y-2 text-xs" role="status">
             <p className="muted">{job.step}{job.quote && !draft ? ` · plan: ${job.quote.plan ?? "?"} · balance: ${job.quote.balance ?? "?"} credits` : ""}</p>

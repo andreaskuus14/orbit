@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NonceCache, parseCommand } from "../src/lib/remote-pure.ts";
-import { actionFor, approvalId, cookieOptions, deviceName, echoProblem, ledgerData, parseEcho, secretProblem, takeRate, type Approval } from "../src/lib/remote-web-pure.ts";
+import { actionFor, approvalId, clipStamp, cookieOptions, deviceName, echoProblem, ledgerData, parseEcho, quoteStamp, secretProblem, stopProblem, takeRate, type Approval } from "../src/lib/remote-web-pure.ts";
 
 const SECRET = "k".repeat(32);
 const cmd = (o: object) => {
@@ -55,7 +55,7 @@ test("approvalId: a stable uuid per key and secret that parseCommand accepts", (
 test("parseEcho: approve/reject need an item echo, stopAll needs {on}, others take none", () => {
   const ap = cmd({ type: "approve", id: ID });
   assert.deepEqual(parseEcho(ap, { kind: "spend", credits: 12.5 }), { ok: true, echo: { kind: "spend", credits: 12.5, seen: undefined } });
-  for (const bad of [undefined, null, [], {}, { kind: "money" }, { kind: "spend", credits: "12" }, { kind: "spend", credits: -1 }, { kind: "spend", credits: Infinity }, { kind: "clip", extra: 1 }, { kind: "send", seen: "x".repeat(65) }])
+  for (const bad of [undefined, null, [], {}, { kind: "money" }, { kind: "spend", credits: "12" }, { kind: "spend", credits: -1 }, { kind: "spend", credits: Infinity }, { kind: "clip", extra: 1 }, { kind: "send", seen: "x".repeat(129) }])
     assert.equal(parseEcho(ap, bad).ok, false, JSON.stringify(bad));
   const stop = cmd({ type: "stopAll" });
   assert.deepEqual(parseEcho(stop, { on: false }), { ok: true, echo: { on: false } });
@@ -64,29 +64,61 @@ test("parseEcho: approve/reject need an item echo, stopAll needs {on}, others ta
   assert.equal(parseEcho(cmd({ type: "core.ask", text: "x" }), { on: true }).ok, false);
 });
 
-const spend: Approval = { id: ID, key: "spend:s1", kind: "spend", title: "T", detail: "", credits: 40 };
+const Q = quoteStamp({ at: "2026-10-24T10:00:00.000Z", fingerprint: "abc123" });
+const spend: Approval = { id: ID, key: "spend:s1", kind: "spend", title: "T", detail: "", credits: 40, seen: Q };
 const sendItem: Approval = { id: ID, key: "send:p", kind: "send", title: "Cafe", detail: "", to: "a@b.co", message: "Hi", seen: "2026-10-24T10:00:00.123+00:00" };
-const clip: Approval = { id: ID, key: "clip:j/clip-1", kind: "clip", title: "Play", detail: "" };
+const C = { title: "Play", thumb: "clips/j/t.jpg", video: "clips/j/v.mp4", start: 1, end: 30, status: "ready" };
+const clip: Approval = { id: ID, key: "clip:j/clip-1", kind: "clip", title: "Play", detail: "", seen: clipStamp(C), thumb: true };
 
-test("echoProblem: only items waiting now, with the exact kind, credits and draft version", () => {
-  assert.match(echoProblem(undefined, { kind: "clip" }, "approve"), /no longer waiting/);
-  assert.equal(echoProblem(clip, { kind: "clip" }, "approve"), "");
-  assert.equal(echoProblem(clip, { kind: "clip" }, "reject"), "");
-  assert.match(echoProblem(clip, { kind: "spend", credits: 40 }, "approve"), /changed/);
+test("echoProblem: only items waiting now, with the exact kind and version", () => {
+  assert.match(echoProblem(undefined, { kind: "clip", seen: clip.seen }, "approve"), /no longer waiting/);
+  assert.match(echoProblem(clip, { kind: "spend", credits: 40, seen: clip.seen }, "approve"), /changed/);
   assert.match(echoProblem(clip, { on: true }, "approve"), /changed/);
   assert.match(echoProblem(clip, null, "approve"), /changed/);
+});
 
-  assert.equal(echoProblem(spend, { kind: "spend", credits: 40 }, "approve"), "");
-  assert.match(echoProblem(spend, { kind: "spend", credits: 39.99 }, "approve"), /now 40 credits/);
-  assert.match(echoProblem(spend, { kind: "spend" }, "approve"), /now 40 credits/);
-  assert.match(echoProblem({ ...spend, credits: undefined }, { kind: "spend" }, "approve"), /credits/); // no quote, never approvable
-  assert.match(echoProblem(spend, { kind: "spend", credits: 40 }, "reject"), /Only clips/);
+test("echoProblem: clips need the current stamp, and a thumbnail to approve", () => {
+  assert.equal(echoProblem(clip, { kind: "clip", seen: clip.seen }, "approve"), "");
+  assert.equal(echoProblem(clip, { kind: "clip", seen: clip.seen }, "reject"), "");
+  assert.match(echoProblem(clip, { kind: "clip" }, "approve"), /changed since you saw it/);
+  assert.match(echoProblem(clip, { kind: "clip", seen: clipStamp({ ...C, title: "Renamed" }) }, "approve"), /changed since you saw it/);
+  assert.match(echoProblem({ ...clip, thumb: false }, { kind: "clip", seen: clip.seen }, "approve"), /Open it on the PC/);
+  assert.equal(echoProblem({ ...clip, thumb: false }, { kind: "clip", seen: clip.seen }, "reject"), "");
+});
 
+test("clipStamp: changes with what the owner sees", () => {
+  const base = clipStamp(C);
+  assert.match(base, /^[0-9a-f]{16}$/);
+  assert.equal(clipStamp({ ...C }), base);
+  for (const ch of [{ title: "x" }, { thumb: "clips/j/t2.jpg" }, { video: "clips/j/v2.mp4" }, { start: 2 }, { end: 31 }, { status: "approved" }])
+    assert.notEqual(clipStamp({ ...C, ...ch }), base, JSON.stringify(ch));
+});
+
+test("echoProblem: spends need the exact credits and the same quote (time + script fingerprint)", () => {
+  assert.equal(echoProblem(spend, { kind: "spend", credits: 40, seen: Q }, "approve"), "");
+  assert.match(echoProblem(spend, { kind: "spend", credits: 39.99, seen: Q }, "approve"), /now 40 credits/);
+  assert.match(echoProblem(spend, { kind: "spend", seen: Q }, "approve"), /now 40 credits/);
+  assert.match(echoProblem(spend, { kind: "spend", credits: 40 }, "approve"), /changed since you saw it/);
+  assert.match(echoProblem(spend, { kind: "spend", credits: 40, seen: quoteStamp({ at: "2026-10-24T10:00:00.000Z", fingerprint: "zzz" }) }, "approve"), /changed since you saw it/);
+  assert.match(echoProblem({ ...spend, credits: undefined }, { kind: "spend", seen: Q }, "approve"), /credits/); // no quote, never approvable
+  assert.match(echoProblem(spend, { kind: "spend", credits: 40, seen: Q }, "reject"), /Only clips/);
+});
+
+test("echoProblem: sends need the exact draft version", () => {
   assert.equal(echoProblem(sendItem, { kind: "send", seen: sendItem.seen }, "approve"), "");
   assert.match(echoProblem(sendItem, { kind: "send", seen: "2026-10-24T09:00:00Z" }, "approve"), /draft changed/);
   assert.match(echoProblem(sendItem, { kind: "send" }, "approve"), /draft changed/);
-  assert.match(echoProblem({ ...sendItem, seen: undefined }, { kind: "send" }, "approve"), /draft changed/);
+  assert.match(echoProblem({ ...sendItem, seen: "" }, { kind: "send", seen: "" }, "approve"), /draft changed/);
   assert.match(echoProblem(sendItem, { kind: "send", seen: sendItem.seen }, "reject"), /Only clips/);
+});
+
+test("stopProblem: the phone can only switch Stop-all on", () => {
+  assert.equal(stopProblem(false, { on: false }), "");
+  assert.match(stopProblem(true, { on: true }), /Resume ORBIT from the PC/);
+  assert.match(stopProblem(true, { on: false }), /Resume ORBIT from the PC/);
+  assert.match(stopProblem(false, { on: true }), /changed on another screen/);
+  assert.match(stopProblem(false, null), /echo/);
+  assert.match(stopProblem(false, { kind: "clip" }), /echo/);
 });
 
 test("ledgerData: type, outcome and device only", () => {
