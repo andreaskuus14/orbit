@@ -783,8 +783,15 @@ export default function Galaxy(props: GalaxyProps) {
   const onReady = useCallback(() => setReady(true), []);
   useEffect(() => { const t = setTimeout(onReady, 8000); return () => clearTimeout(t); }, [onReady]); // never hang on the loader if no frame draws
   const max: QualityLevel = props.reduced ? 1 : 3;
-  // Start with a light first frame; the existing monitor adds detail when there is headroom.
-  const [autoLevel, setAutoLevel] = useState<QualityLevel>(1);
+  // Start at the level this PC settled on last time: every level change rebuilds the scene and recompiles shaders
+  // (~1 s freeze measured on the owner's PC), so climbing 1 → 2 → 3 on each load felt like lag.
+  const [autoLevel, setAutoLevelRaw] = useState<QualityLevel>(() => { try { const raw = localStorage.getItem("orbit.quality.level"), v = raw === null ? NaN : Number(raw); return (v >= 0 && v <= 3 ? v : 1) as QualityLevel; } catch { return 1; } });
+  const born = useRef(typeof performance !== "undefined" ? performance.now() : 0);
+  const setAutoLevel = useCallback((l: QualityLevel) => setAutoLevelRaw((cur) => {
+    if (l > cur && performance.now() - born.current > 15_000) return cur; // no upgrades mid-session: they hitch; next load starts there
+    try { localStorage.setItem("orbit.quality.level", String(l)); } catch { /* storage off */ }
+    return l;
+  }), []);
   const [visible, setVisible] = useState(true);
   useEffect(() => {
     const update = () => setVisible(!document.hidden);
