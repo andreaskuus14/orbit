@@ -25,6 +25,7 @@ import { Filaments } from "./alien/Filaments";
 import { Lensing } from "./alien/Lensing";
 import { HoloRing, ThoughtShell, useLiquidMetal, type SurfaceLook } from "./alien/LiquidPlanet";
 import { MicroWorld, Ringworld } from "./alien/MicroWorld";
+import { WindowDive, WindowPlanets } from "./alien/WindowPlanet";
 import { lensRadius } from "./alien/micro-pure";
 import { armCount, boostCap, coreScale, overviewBoost, planetDetail, shellCount } from "@/lib/alien-pure";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
@@ -61,6 +62,9 @@ export type GalaxyProps = {
   lifeProgress?: { done: number; total: number } | null; // real: today's scheduled LIFE habits done / total
   universe?: UniverseData | null; // real: the ledger as light (live, or the day picked in Time travel)
   ships?: { tasks: ShipTask[]; onOpen: (id: string) => void }; // real: agent tasks flying as ships; click opens the task
+  dive?: PanelId | null;     // entering this world through its planet's surface (window planets: level > 0, no reduced motion)
+  onDiveCross?: () => void;  // the camera crossed the surface: mount the world now, it crossfades in
+  onDiveCancel?: () => void; // the user grabbed the view mid-dive
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -858,6 +862,7 @@ export default function Galaxy(props: GalaxyProps) {
   // Phones (Tailscale) get at most 1.5x: past that the fill rate costs more than the sharpness is worth.
   const [coarse] = useState(() => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
   const dprMax = coarse ? Math.min(1.5, q.dpr) : Math.min(2, q.dpr);
+  const windows = level > 0 && !props.reduced; // window planets + the dive: off on level 0 and under reduced motion
   const film = q.film && !props.reduced; // grain is motion, aberration is motion: both off for reduced motion
   const dof = q.dof && !props.reduced;
   // The camera story: intro flight on every fresh load, then wheel = travel planet to planet (not with reduced motion).
@@ -911,11 +916,13 @@ export default function Galaxy(props: GalaxyProps) {
         <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={props.selected && props.selected in sizes ? sizes[props.selected] * 1.35 : 4} maxDistance={80} enableDamping />
         {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
         <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} arrive={arrive} />
+        {windows && <WindowDive dive={props.dive ?? null} positions={positions} sizes={sizes} scales={scales} onCross={props.onDiveCross} onCancel={props.onDiveCancel} />}
         {!props.paused && <ZoomRig home={HOME.length()} reduced={props.reduced} />} {/* zoom commands are for the world on screen */}
         <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} story={story} />
         <PointerFeel feel={feel} enabled={!props.reduced && !coarse && !staged} />
         <Parallax feel={feel} on={!props.reduced && !staged} /> {/* after every rig: it offsets the camera they placed */}
         <LabelProjector positions={positions} scales={scales} labels={labels} leaders={leaders} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
+        {windows && <WindowPlanets hover={hover} dive={props.dive ?? null} positions={positions} sizes={sizes} scales={scales} />}
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
         <WarmCompile /> {/* shaders compile in parallel before the first frame: the first render no longer freezes the page */}
         <FirstFrames onReady={onReady} />
