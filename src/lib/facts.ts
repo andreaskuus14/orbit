@@ -77,16 +77,13 @@ export async function factsContext(sb: SupabaseClient, userId: string, question:
   } catch (e) { if (!(e instanceof FactsMissing)) console.warn("[facts] context skipped:", e instanceof Error ? e.message : e); return ""; }
 }
 
-/** Only the persisted owner's own message, never an answer, memory, web page, agent result or attachment.
- *  from "journal": messageId is the owner's typed evening entry (memories kind journal, source evening; migration 0017 lets the database accept it). */
-export async function learnFacts(sb: SupabaseClient, userId: string, userText: string, messageId: string | null, attachments = false, from: "message" | "journal" = "message"): Promise<number> {
+/** Only the persisted owner's own message, never an answer, memory, web page, agent result or attachment. */
+export async function learnFacts(sb: SupabaseClient, userId: string, userText: string, messageId: string | null, attachments = false): Promise<number> {
   if (unavailable() || attachments || !messageId) return 0;
   const found = extractFacts(userText, { attachments, origin: "user" });
   if (!found.length) return 0;
   try {
-    const { data: source, error } = await (from === "journal"
-      ? sb.from("memories").select("id, content").eq("user_id", userId).eq("id", messageId).eq("kind", "journal").eq("source", "evening").maybeSingle()
-      : sb.from("messages").select("id, content").eq("user_id", userId).eq("id", messageId).eq("role", "user").maybeSingle());
+    const { data: source, error } = await sb.from("messages").select("id, content").eq("user_id", userId).eq("id", messageId).eq("role", "user").maybeSingle();
     check(error);
     if (!source || source.content !== userText) return 0;
     let cur = await current(sb, userId, found.map((c) => c.subject)), saved = 0;

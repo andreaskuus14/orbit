@@ -68,7 +68,7 @@ export function EveningCapture() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "Couldn't save it");
       setText("");
-      setMsg({ ok: true, text: j.facts ? `Saved. Learned ${j.facts} thing${j.facts === 1 ? "" : "s"} about you.` : "Saved. Sleep well." });
+      setMsg({ ok: true, text: "Saved. Sleep well." });
       setTimeout(() => ref.current?.close(), 1500);
     } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : "Couldn't save it" }); } // the text stays, so nothing is lost
     finally { setBusy(false); }

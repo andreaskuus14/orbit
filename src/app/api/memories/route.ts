@@ -7,7 +7,7 @@ export async function GET(req: Request) {
   if (res) return res;
   const q = new URL(req.url).searchParams.get("q")?.trim();
   try {
-    if (q) return Response.json(await searchMemories(sb, q.slice(0, 500), 30));
+    if (q) return Response.json(await searchMemories(sb, q.slice(0, 500), 30, undefined, { includeJournal: true }));
     const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).order("created_at", { ascending: false }).limit(200);
     if (error) throw error;
     return Response.json({ results: data, mode: "list" });

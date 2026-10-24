@@ -50,8 +50,8 @@ test("metadata filter quotes punctuation and escapes SQL wildcards", () => {
   assert.equal(JSON.parse(filter.slice("title.ilike.".length, filter.indexOf(",folder.ilike."))), '%A\\%,\\_"),user\\_id.neq.x%');
 });
 
-type Row = MemoryMetadata & { content: string };
-type Call = { columns: string; user?: string; query?: string; filter?: string; ids?: string[]; limit?: number; ordered?: boolean; equalities?: Record<string, string> };
+type Row = MemoryMetadata & { content: string; kind?: string };
+type Call = { columns: string; user?: string; query?: string; filter?: string; ids?: string[]; limit?: number; ordered?: boolean; equalities?: Record<string, string>; notKind?: string };
 function fakeStore(opts: { fts: string[]; semantic?: string[]; project?: MemoryMetadata[]; rows: Row[]; projectError?: boolean; hydrateError?: boolean }) {
   const calls: Call[] = [];
   const rpcs: string[] = [];
@@ -61,14 +61,16 @@ function fakeStore(opts: { fts: string[]; semantic?: string[]; project?: MemoryM
       const builder = {
         select(columns: string) { call.columns = columns; return builder; },
         eq(key: string, value: string) { if (key === "user_id") call.user = value; (call.equalities ??= {})[key] = value; return builder; },
+        neq(key: string, value: string) { if (key === "kind") call.notKind = value; return builder; },
         textSearch(_key: string, query: string) { call.query = query; return builder; },
         or(filter: string) { call.filter = filter; return builder; },
         order() { call.ordered = true; return builder; },
         limit(n: number) { call.limit = n; return builder; },
         in(_key: string, ids: string[]) { call.ids = ids; return builder; },
         then(resolve: (x: unknown) => unknown) {
-          if (call.ids) return Promise.resolve({ data: opts.rows.filter((m) => call.ids!.includes(m.id)), error: opts.hydrateError ? new Error("hydrate failed") : null }).then(resolve);
-          return Promise.resolve({ data: call.filter ? opts.project ?? [] : opts.fts.map((id) => ({ id })), error: call.filter && opts.projectError ? new Error("context failed") : null }).then(resolve);
+          const kept = (id: string) => !call.notKind || opts.rows.find((m) => m.id === id)?.kind !== call.notKind;
+          if (call.ids) return Promise.resolve({ data: opts.rows.filter((m) => call.ids!.includes(m.id) && kept(m.id)), error: opts.hydrateError ? new Error("hydrate failed") : null }).then(resolve);
+          return Promise.resolve({ data: call.filter ? opts.project ?? [] : opts.fts.filter(kept).map((id) => ({ id })), error: call.filter && opts.projectError ? new Error("context failed") : null }).then(resolve);
         },
       }; return builder;
     },
@@ -76,6 +78,16 @@ function fakeStore(opts: { fts: string[]; semantic?: string[]; project?: MemoryM
   };
   return { client: client as unknown as SupabaseClient, calls, rpcs };
 }
+
+test("journal entries never reach CORE/agent search (full-text or semantic); only the owner's MEMORY search opts in", async () => {
+  const rows = [{ id: "diary", title: "Today in a minute", content: "Pet sim day", kind: "journal" }, { id: "note", title: "Pet sim plan", content: "Plan", kind: "note" }];
+  const store = () => fakeStore({ rows, fts: ["diary", "note"], semantic: ["diary"] });
+  const def = store();
+  assert.deepEqual((await retrieveMemories(def.client, "pet sim", 8, "owner", async () => [1])).results.map((m) => m.id), ["note"]);
+  assert.ok(def.calls.filter((c) => c.query || c.ids).every((c) => c.notKind === "journal"), "full-text and hydration both exclude journal");
+  assert.deepEqual((await retrieveMemories(store().client, "pet sim", 8, "owner", async () => [1], { projectName: "Pet" })).results.map((m) => m.id), ["note"]);
+  assert.deepEqual((await retrieveMemories(store().client, "pet sim", 8, undefined, async () => [1], { includeJournal: true })).results.map((m) => m.id).sort(), ["diary", "note"]);
+});
 
 test("chat-summary search filters full-text and hydration, and uses the dedicated semantic pool", async () => {
   const rows = ["old-relevant", "semantic", "third", "fourth"].map((id) => ({ id, title: id, content: "Summary" }));

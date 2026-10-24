@@ -2,7 +2,7 @@
 // The entry is LIFE data: a private journal memory, never part of CORE's always-in-context blocks.
 import { SLOTS } from "./pure.ts";
 
-/** learnFacts' extractor treats longer text as pasted, and a minute of typing fits easily. */
+/** A minute of typing fits easily. */
 export const ENTRY_MAX = 1000;
 const EVENING = SLOTS.find((s) => s.kind === "evening")!;
 const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

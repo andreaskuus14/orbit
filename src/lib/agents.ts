@@ -51,7 +51,7 @@ export const TOOLS: Record<string, Tool> = {
     description: "List the user's most recently saved memories.",
     input: "{}",
     run: async ({ sb, userId }) => {
-      const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).order("created_at", { ascending: false }).limit(12);
+      const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).neq("kind", "journal").order("created_at", { ascending: false }).limit(12);
       if (error) throw error;
       return (data ?? []).map((m) => `[m:${m.id}] (${m.kind}, ${m.created_at.slice(0, 10)}) ${m.title}: ${String(m.content).slice(0, 200)}`).join("\n") || "No memories yet.";
     },
