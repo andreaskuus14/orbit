@@ -20,13 +20,11 @@ export const arrivalSecs = (dist: number, fast = false) => {
 /** Reversed explosion: a world's moons start scattered (this factor x their orbit) and converge, accelerating, into place. */
 export const arrivalSpread = (k: number) => 1 + 1.6 * (1 - easeInStop(k));
 
-/** "Being watched": 1 = the viewer is looking at the CORE, 0 = not. The camera turning fast, the pointer far from it on
- *  screen (NDC units, 2 = a screen width) or the CORE off screen all count as not watching. */
-export function watched(angSpeed: number, pointerDist: number, onScreen: boolean): number {
+/** "Being watched": 1 = the viewer can see the CORE, 0 = not. Only a fast camera turn or the CORE off screen count as
+ *  not watching; the pointer does not (a pointer resting on a planet while reading it must not trigger changes). */
+export function watched(angSpeed: number, onScreen: boolean): number {
   if (!onScreen) return 0;
-  const turn = 1 - clamp01((Number.isFinite(angSpeed) ? angSpeed : 0) / 0.6); // 0.6 rad/s: a quick pan
-  const far = clamp01(((Number.isFinite(pointerDist) ? pointerDist : 0) - 0.75) / 0.45); // eyes follow the pointer
-  return turn * (1 - far);
+  return 1 - clamp01((Number.isFinite(angSpeed) ? angSpeed : 0) / 0.6); // 0.6 rad/s: a quick pan
 }
 
 export type Unseen = { since: number; away: number; n: number };
@@ -43,8 +41,10 @@ export function unseenStep(s: Unseen, dt: number, w: number, gap = 5): boolean {
 }
 
 const TAU = Math.PI * 2;
-/** The n-th 4D configuration (xw, yw angles): golden-angle steps, so consecutive ones are always clearly different. */
-export const unseenAngle = (n: number, plane: 0 | 1) => (((Number.isFinite(n) ? n : 0) * (plane ? 1.3416 : 2.39996) + (plane ? 0.35 : 0.9)) % TAU + TAU) % TAU;
+/** The 4D jump (xw or yw) of an unseen snap, added on top of the slow drift: golden-angle sized, always clearly different. */
+export const unseenJump = (plane: 0 | 1) => (plane ? 1.3416 : 2.39996);
+/** Wraps an angle to (-pi, pi]: the shortest way back to 0. */
+export const wrapAngle = (x: number) => (Number.isFinite(x) ? x - TAU * Math.round(x / TAU) : 0);
 
 /** Off-screen re-seed: true once each time the body leaves the screen. Mutates `s`. */
 export function offscreenEdge(s: { off: boolean }, off: boolean): boolean {

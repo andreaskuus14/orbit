@@ -11,7 +11,7 @@ import * as THREE from "three";
 import { HOLO, useAlienEnv } from "./env";
 import { Fractal } from "./Fractal";
 import { coreCalm, coreScale, tesseractAngle } from "@/lib/alien-pure";
-import { easeInStop, newUnseen, unseenAngle, unseenStep, watched } from "@/lib/alien-behaviour-pure";
+import { easeInStop, newUnseen, unseenJump, unseenStep, watched, wrapAngle } from "@/lib/alien-behaviour-pure";
 import type { CoreLive } from "../ParticleCore";
 
 const finite = (x: number, lo = 0, hi = 1) => (Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : lo);
@@ -148,14 +148,14 @@ export function Singularity({ live, reduced, level, aligned = false }: { live: R
 
   const rings = useRef<(THREE.Group | null)[]>([]);
   const spin = useRef<(THREE.Group | null)[]>([]);
-  // Unseen change (Blindsight): the 4D configuration holds still while watched and snaps to the next one behind a fast
-  // camera turn or a far pointer. Opening the CORE re-aligns the rings: ease-in into stillness, then a dead stop.
-  const un = useRef({ ...newUnseen(), xw: unseenAngle(0, 0), yw: unseenAngle(0, 1), last: new THREE.Vector3(), primed: false, a: -1, ax: 0, ay: 0 });
+  // The 4D angles drift slowly (as tesseractAngle did); unseen change (Blindsight) adds a jump on top, only behind a fast
+  // camera turn or with the CORE off screen. Opening the CORE re-aligns the rings: ease-in into stillness, then a dead stop.
+  const un = useRef({ ...newUnseen(), xw: 0, yw: 0, last: new THREE.Vector3(), primed: false, a: -1, ax: 0, ay: 0 });
   useEffect(() => { // the shortest way to (0, 0): the angles wrap at 2 pi
-    const U = un.current, w = (x: number) => x - Math.PI * 2 * Math.round(x / (Math.PI * 2));
-    U.a = aligned ? 0 : -1; U.ax = w(U.xw); U.ay = w(U.yw);
+    const U = un.current;
+    U.a = aligned ? 0 : -1; U.ax = wrapAngle(U.xw); U.ay = wrapAngle(U.yw);
   }, [aligned]);
-  useFrame(({ clock, camera, pointer }, dt) => {
+  useFrame(({ clock, camera }, dt) => {
     const t = reduced ? 12 : clock.elapsedTime, L = live.current, calm = coreCalm(camera.position.length());
     const g = finite(L?.g ?? 0), br = finite(L?.breath ?? 0.5), v = finite((L?.mic ?? 0) + (L?.spk ?? 0));
     halo.uniforms.uTime.value = t;
@@ -180,14 +180,18 @@ export function Singularity({ live, reduced, level, aligned = false }: { live: R
       U.a = Math.min(1, U.a + step / 0.8);
       const e = 1 - easeInStop(U.a);
       U.xw = U.ax * e; U.yw = U.ay * e;
-    } else if (unseenStep(U, step, watched(ang, Math.hypot(pointer.x - _ndc.x, pointer.y - _ndc.y), onScreen))) {
-      U.xw = unseenAngle(U.n, 0); U.yw = unseenAngle(U.n, 1);
-      for (let i = 0; i < RINGS.length; i++) { const o = rings.current[i]; if (o) o.rotation.y += (1.9 + i * 0.7) * Math.sign(RINGS[i].pre); } // precession jumps too
+    } else {
+      U.xw = wrapAngle(U.xw + step * 0.23); U.yw = wrapAngle(U.yw + step * 0.137); // the slow drift (same rates as before); after an alignment it resumes from there
+      if (unseenStep(U, step, watched(ang, onScreen))) {
+        U.xw = wrapAngle(U.xw + unseenJump(0)); U.yw = wrapAngle(U.yw + unseenJump(1));
+        for (let i = 0; i < RINGS.length; i++) { const o = rings.current[i]; if (o) o.rotation.y += (1.9 + i * 0.7) * Math.sign(RINGS[i].pre); } // precession jumps too
+      }
     }
     glyph.uXW.value = U.xw; glyph.uYW.value = U.yw;
-    for (let i = 0; i < RINGS.length; i++) { // spin about the blade's own axis (the shape holds); precession only jumps, unseen (above)
-      const s = spin.current[i];
+    for (let i = 0; i < RINGS.length; i++) { // spin about the blade's own axis, precess the whole ring around y
+      const s = spin.current[i], o = rings.current[i];
       if (s) s.rotation.z += step * RINGS[i].spin * (1 + 2 * g);
+      if (o) o.rotation.y += step * RINGS[i].pre;
     }
   });
 

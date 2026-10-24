@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { arrivalSecs, arrivalSpread, detuneRatios, easeInStop, newUnseen, offscreenEdge, unseenAngle, unseenStep, watched } from "../src/lib/alien-behaviour-pure.ts";
+import { arrivalSecs, arrivalSpread, detuneRatios, easeInStop, newUnseen, offscreenEdge, unseenStep, watched, wrapAngle } from "../src/lib/alien-behaviour-pure.ts";
 
 test("alien-behaviour: ease-in arrival never overshoots, speeds up to the end and stops dead", () => {
   for (const k of [0, 0.25]) {
@@ -27,12 +27,11 @@ test("alien-behaviour: arrival timing and moon convergence are bounded", () => {
 });
 
 test("alien-behaviour: watched estimate", () => {
-  assert.equal(watched(0, 0, true), 1);
-  assert.equal(watched(0, 0, false), 0);
-  assert.equal(watched(1, 0, true), 0); // turning fast
-  assert.equal(watched(0, 1.5, true), 0); // pointer far away
-  assert.ok(watched(0.3, 0.9, true) > 0 && watched(0.3, 0.9, true) < 1);
-  assert.equal(watched(NaN, NaN, true), 1);
+  assert.equal(watched(0, true), 1); // includes a pointer resting on a planet: the pointer does not count
+  assert.equal(watched(0, false), 0);
+  assert.equal(watched(1, true), 0); // turning fast
+  assert.ok(watched(0.3, true) > 0 && watched(0.3, true) < 1);
+  assert.equal(watched(NaN, true), 1);
 });
 
 test("alien-behaviour: unseen change only while unwatched, debounced and spaced out", () => {
@@ -45,8 +44,8 @@ test("alien-behaviour: unseen change only while unwatched, debounced and spaced 
   assert.equal(s.n, 1);
   for (let i = 0; i < 120; i++) if (unseenStep(s, 1 / 60, 0)) snaps++; // 2 s: inside the gap
   assert.equal(snaps, 0);
-  assert.ok(Math.abs(unseenAngle(1, 0) - unseenAngle(2, 0)) > 0.3);
-  assert.ok(unseenAngle(-3, 1) >= 0 && unseenAngle(1e9, 1) < Math.PI * 2);
+  assert.ok(Math.abs(wrapAngle(7) - (7 - Math.PI * 2)) < 1e-12);
+  assert.ok(Math.abs(wrapAngle(-4)) <= Math.PI && wrapAngle(NaN) === 0);
 });
 
 test("alien-behaviour: off-screen edge fires once per exit", () => {
