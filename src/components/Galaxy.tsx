@@ -37,7 +37,7 @@ import {
 import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
-import { WarmCompile } from "./WarmCompile";
+import { compileAs, WarmCompile } from "./WarmCompile";
 import { perfCtx } from "./PerfBeacon";
 import { InkGlyph } from "./InkGlyph";
 import { AlienScript } from "./AlienScript";
@@ -807,13 +807,13 @@ function QualityMonitor({ level, max, onLevel }: { level: QualityLevel; max: Qua
 /** Tells the page the scene has drawn a couple of frames, so the loader can fade out. */
 function FirstFrames({ onReady }: { onReady: () => void }) {
   const n = useRef(0);
-  const { gl, scene, camera } = useThree();
+  const { gl, scene, camera, get } = useThree();
   useEffect(() => { // the preloader's real milestones: context up, every shader compiled (parallel, off the main thread), first frames
     markPreload(60);
     let alive = true;
-    gl.compileAsync(scene, camera).then(() => { if (alive) markPreload(90); }).catch(() => {});
+    compileAs(gl, scene, camera, get().internal.priority > 0).then(() => { if (alive) markPreload(90); }).catch(() => {});
     return () => { alive = false; };
-  }, [gl, scene, camera]);
+  }, [gl, scene, camera, get]);
   useFrame(() => { if (++n.current === 3) onReady(); });
   return null;
 }

@@ -10,6 +10,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { NOISE } from "./LiquidPlanet";
+import { compileAs } from "../WarmCompile";
 import { cityDensity, microStage, newStage, rankCount, structureBudget } from "./micro-pure";
 
 type N1 = { value: number };
@@ -322,7 +323,7 @@ export function MicroWorld({ size, u, level, orbital, body, seed }: {
   }, [job, placed, size, u, uni]);
   useEffect(() => () => kinds?.forEach((k) => { k.g.dispose(); k.mat.dispose(); }), [kinds]);
   // New materials would compile synchronously on their first draw (a freeze mid-flight): compile them in parallel first.
-  const { gl, camera: cam } = useThree();
+  const { gl, camera: cam, get } = useThree();
   const ready = useRef<unknown>(null);
   useEffect(() => {
     if (!kinds || !root.current) return;
@@ -331,11 +332,11 @@ export function MicroWorld({ size, u, level, orbital, body, seed }: {
     g.traverse((o) => { if (!o.visible) { hid.push(o); o.visible = true; } });
     const counts = kinds.map((k) => k.g.instanceCount);
     kinds.forEach((k) => { k.g.instanceCount = 0; });
-    const p = gl.compileAsync(g, cam); // programs are collected synchronously: restore visibility at once (see WarmCompile)
+    const p = compileAs(gl, g, cam, get().internal.priority > 0); // collected synchronously: restore visibility at once (see WarmCompile)
     hid.forEach((o) => { o.visible = false; });
     p.catch(() => {}).finally(() => { kinds.forEach((k, i) => { k.g.instanceCount = counts[i]; }); if (alive) ready.current = kinds; });
     return () => { alive = false; };
-  }, [kinds, gl, cam]);
+  }, [kinds, gl, cam, get]);
   useEffect(() => () => { u.uCity.value = 0; }, [u]); // unmounted (quality 0): the cities go dark with it
   const meshes = useRef<(THREE.Mesh | null)[]>([]);
   const [stage] = useState(newStage);

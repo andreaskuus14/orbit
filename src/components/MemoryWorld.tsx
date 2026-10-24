@@ -17,6 +17,7 @@ import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { centroid, isLearned, searchStars } from "@/lib/memory-world-pure";
 import { DAY, edgeBorn, edgeGlow } from "@/lib/memory-edges-pure";
 import { useAlienEnv } from "./alien/env";
+import { useMountLater, WarmCompile } from "./WarmCompile";
 import { smoothDampVec } from "@/lib/smooth-damp-pure";
 
 type Star = { id: string; title: string; kind: string; tags: string[]; created_at: string; source: string | null; x: number; y: number; z: number };
@@ -278,6 +279,7 @@ function Constellation({ data, at, hi, searching, reduced, lite, onHover, onPick
     if (Number.isFinite(f)) uniforms.uFocus.value += (Math.max(f, 1) - uniforms.uFocus.value) * (reduced ? 1 : 1 - Math.exp(-dt * 6)); // focus pulls, never steps
   });
   return <>
+    <WarmCompile /> {/* arrives with the data, after the canvas's own warm-up: its shaders compile in parallel too */}
     <lineSegments geometry={web.g} material={mats.web} raycast={() => null} />
     {!reduced && <points geometry={web.sparks} material={mats.sparks} raycast={() => null} frustumCulled={false} />}
     <points geometry={dust} material={mats.dust} raycast={() => null} />
@@ -332,6 +334,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; focusId: string | null; onChanged: () => void; paused?: boolean /* kept mounted but hidden */;
 }) {
   const glr = useGlRecovery();
+  const later = useMountLater(); // the panel paints first; the WebGL context and scene come in the next task
   const q = useLeanQuality(quality);
   const [data, setData] = useState<MapData | null>(null);
   const [err, setErr] = useState("");
@@ -415,10 +418,11 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="MEMORY: your memories as a constellation" style={{ background: BG }}>
-      {!flat && (
+      {!flat && later && (
         <Canvas key={glr.key} onCreated={onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
           onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
+          <WarmCompile />
           <color attach="background" args={[BG]} />
           <Stars radius={120} depth={60} count={reduced ? 800 : Math.min(3000, q.stars)} factor={2.2} fade speed={reduced ? 0 : 0.2} />
           <FarRings reduced={reduced} />

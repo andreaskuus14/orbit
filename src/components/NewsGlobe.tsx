@@ -1,5 +1,5 @@
 "use client";
-import { WarmCompile } from "./WarmCompile";
+import { useMountLater, WarmCompile } from "./WarmCompile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
@@ -126,6 +126,19 @@ const REGION_COLOR: Record<string, string> = {
 };
 const colorFor = (name: string, mode: "news" | "search") => (mode === "search" ? "#c084fc" : REGION_COLOR[regionOf(name) ?? ""] ?? "#fb923c");
 
+/** An opaque canvas as a texture whose pixels reach the GPU as an ImageBitmap, made off the main thread. Uploading the
+ *  4096×2048 canvas itself (raster flush + readback + flip inside texImage2D) stalled the first globe frames ~800 ms.
+ *  Until the bitmap is ready the texture samples black (the ocean is near-black anyway); the canvas is then dropped. */
+function bitmapTexture(c: HTMLCanvasElement) {
+  const t = new THREE.Texture();
+  t.flipY = false; // WebGL ignores UNPACK_FLIP_Y for ImageBitmaps: the bitmap is flipped instead
+  createImageBitmap(c, { imageOrientation: "flipY" }).then(
+    (b) => { t.image = b; t.needsUpdate = true; },
+    () => { t.image = c; t.flipY = true; t.needsUpdate = true; }); // no ImageBitmap: upload the canvas as before
+  return t;
+}
+const closeBitmap = (t: THREE.Texture) => (t.image as Partial<ImageBitmap> | null)?.close?.();
+
 /** Calm night map: navy ocean, slate land barely lighter, thin cyan borders; only news countries get a soft tint.
  *  `dim` paints the "outside the region" look (darker, untinted, almost borderless) at half size; the shader blends the two. */
 function baseTexture(tint: Map<string, number>, mode: "news" | "search", dim = false) {
@@ -155,7 +168,7 @@ function baseTexture(tint: Map<string, number>, mode: "news" | "search", dim = f
     g.strokeStyle = "rgba(94,200,255,0.06)"; g.lineWidth = 5; g.stroke(); // faint glow under the line
     g.strokeStyle = "rgba(94,200,255,0.22)"; g.lineWidth = 1.2; g.stroke();
   }
-  const tex = new THREE.CanvasTexture(c);
+  const tex = bitmapTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
   return tex;
@@ -164,17 +177,17 @@ function baseTexture(tint: Map<string, number>, mode: "news" | "search", dim = f
 // Painting the 4096×2048 map is the slow part of opening the globe: keep the last few, keyed by what is painted,
 // so reopening with the same news (and the empty first frame) repaints nothing. Only the newest is ever on screen.
 // Two, not more: each is a 32 MB canvas kept for the page's lifetime (a search paints a third and evicts the oldest).
-const baseCache = new Map<string, THREE.CanvasTexture>();
+const baseCache = new Map<string, THREE.Texture>();
 function cachedBase(tint: Map<string, number>, mode: "news" | "search") {
   const key = mode + JSON.stringify([...tint]);
   let t = baseCache.get(key);
   if (t) baseCache.delete(key); else t = baseTexture(tint, mode);
   baseCache.set(key, t); // most recently used last
-  for (const [k, old] of baseCache) { if (baseCache.size <= 2) break; old.dispose(); baseCache.delete(k); }
+  for (const [k, old] of baseCache) { if (baseCache.size <= 2) break; old.dispose(); closeBitmap(old); baseCache.delete(k); }
   return t;
 }
 
-let regionCache: { dim: THREE.CanvasTexture; a: THREE.CanvasTexture; b: THREE.CanvasTexture } | null = null;
+let regionCache: { dim: THREE.Texture; a: THREE.Texture; b: THREE.Texture } | null = null;
 /** Painted once per page: the dimmed globe, plus two masks whose RGB channels hold region ids 1-3 and 4-6 (coverage 0..1). */
 function regionMaps() {
   if (regionCache) return regionCache;
@@ -194,7 +207,7 @@ function regionMaps() {
     g.fill("evenodd");
   });
   const mask = (c: HTMLCanvasElement) => {
-    const t = new THREE.CanvasTexture(c); // raw data: no colour space, no mipmaps
+    const t = bitmapTexture(c); // raw data: no colour space, no mipmaps
     t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
     return t;
   };
@@ -276,6 +289,14 @@ export function warmGlobe() {
   const idle = (f: () => void) => (typeof requestIdleCallback === "function" ? requestIdleCallback(f, { timeout: 20000 }) : setTimeout(f, 3000));
   const steps = [() => cachedBase(new Map(), "news"), pickMap, landGeometry, regionMaps];
   const next = () => { const f = steps.shift(); if (f) idle(() => { f(); next(); }); };
+  next();
+}
+const prepped = () => !!pickCache && !!landCache;
+/** What the globe's first render needs (pick map, land points, the empty base map), one task each, as soon as possible:
+ *  done inside the render they were one ~300 ms React task when the globe opened without a warm-up. */
+function prepGlobe(done: () => void) {
+  const steps = [pickMap, landGeometry, () => cachedBase(new Map(), "news")];
+  const next = () => { const f = steps.shift(); if (!f) done(); else setTimeout(() => { f(); next(); }, 0); };
   next();
 }
 
@@ -852,6 +873,9 @@ const WINDOWS = [{ h: 24, label: "24h" }, { h: 72, label: "3d" }, { h: 168, labe
 export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode; paused?: boolean }) {
   const q = worldQuality(quality);
   const glr = useGlRecovery();
+  const later = useMountLater();
+  const [ready, setReady] = useState(prepped);
+  useEffect(() => { if (ready) return; let on = true; prepGlobe(() => { if (on) setReady(true); }); return () => { on = false; }; }, [ready]);
   // The globe felt laggy: it always rendered with 4× MSAA at up to 1.75× pixels. On "auto", step down once frames drop.
   const [lean, setLean] = useState(false);
   const dpr = lean ? 1 : q.dpr, msaa = lean ? 0 : q.msaa;
@@ -1008,7 +1032,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
 
   return (
     <div className="absolute inset-0 globe-in" aria-label="World news globe">
-      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
+      {ready && later && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         {quality === "auto" && <PerformanceMonitor onDecline={() => setLean(true)} />}
         <WarmCompile />
         <color attach="background" args={["#01040b"]} />
@@ -1033,7 +1057,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
           {msaa ? <></> : <SMAA />}
         </EffectComposer>
         {process.env.NODE_ENV === "development" && <FrameMark name="intelligence" />}
-      </Canvas>
+      </Canvas>}
 
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {top.map((h) => (
