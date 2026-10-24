@@ -6,6 +6,7 @@ import { useWorldPaused } from "./world-paused";
 import ClipPicks from "./ClipPicks";
 import LearnedCard from "./LearnedCard";
 import AutopilotPanel from "./AutopilotPanel";
+import StoryPanel from "./StoryPanel";
 import EngageCard, { DescribeButton } from "./EngageCard";
 import StudioCalendar from "./StudioCalendar";
 import { devlogHashtags } from "@/lib/clips/devlog";
@@ -87,10 +88,10 @@ function Section({ title, children, right }: { title: string; children: ReactNod
 }
 const Skeleton = ({ h, reduced }: { h: number; reduced: boolean }) => <div aria-hidden className={`card ${reduced ? "" : "animate-pulse"}`} style={{ height: h, opacity: 0.6 }} />;
 
-type Tab = "find" | "clips" | "calendar" | "insights" | "autopilot";
+type Tab = "find" | "clips" | "story" | "calendar" | "insights" | "autopilot";
 const TAB_KEY = "orbit.clipFactory.tab";
 const readTab = (): Tab | null => {
-  try { const t = localStorage.getItem(TAB_KEY); return t === "find" || t === "clips" || t === "calendar" || t === "insights" || t === "autopilot" ? t : null; }
+  try { const t = localStorage.getItem(TAB_KEY); return t === "find" || t === "clips" || t === "story" || t === "calendar" || t === "insights" || t === "autopilot" ? t : null; }
   catch { return null; } // storage unavailable (or server render)
 };
 
@@ -294,7 +295,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
     : unpublished && yt?.configured ? <a className="btn" href="/api/studio/oauth/start">🔗 Connect YouTube to publish {unpublished} approved</a>
     : workText ? workNext
     : <button className="btn" onClick={() => { selectTab("find"); setScoutRun((n) => n + 1); }} aria-label="Find videos: run the video scout">🔭 Find videos</button>;
-  const tabs: [Tab, string][] = [["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["calendar", "📅 Calendar"], ["insights", "🧠 Insights"], ["autopilot", "🤖 Autopilot"]];
+  const tabs: [Tab, string][] = [["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["story", "✨ AI Story"], ["calendar", "📅 Calendar"], ["insights", "🧠 Insights"], ["autopilot", "🤖 Autopilot"]];
   const onTabKey = (e: KeyboardEvent) => {
     const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (!d) return;
@@ -353,6 +354,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
 
           {/* Panels stay mounted (hidden) so forms, polling and scroll state survive switching tabs. */}
           <div id="cf-panel-autopilot" role="tabpanel" aria-labelledby="cf-tab-autopilot" hidden={shown !== "autopilot"}><AutopilotPanel active={shown === "autopilot"} onChanged={() => void load(true)} onOpenClip={openClip} onOpenFind={() => selectTab("find")} /></div>
+          <div id="cf-panel-story" role="tabpanel" aria-labelledby="cf-tab-story" hidden={shown !== "story"}><StoryPanel active={shown === "story"} onOpenClip={openClip} onChanged={() => void load(true)} /></div>
           <div id="cf-panel-insights" role="tabpanel" aria-labelledby="cf-tab-insights" hidden={shown !== "insights"} className="space-y-3">
             <LearnedCard defaultOpen />
             <EngageCard />
