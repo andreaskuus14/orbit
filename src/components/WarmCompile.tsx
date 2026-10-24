@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { useThree, type RootState } from "@react-three/fiber";
 import { EffectComposer, type Pass } from "postprocessing";
 import { envReady } from "./alien/env";
+import { perfMark } from "./PerfBeacon";
 import { passesChanged, skipFrame, type WarmState } from "@/lib/warm-pure";
 
 type Frameloop = RootState["frameloop"];
@@ -17,11 +18,49 @@ const holds = new WeakMap<THREE.WebGLRenderer, { n: number; prev: Frameloop }>()
 let scratch: THREE.WebGLRenderTarget | null = null;
 /** Collects the programs `scene` needs and compiles them in parallel. Under a composer the scene is drawn into a render
  *  target, and three keys programs by output colour space: compiled for the screen, every program was compiled AGAIN,
- *  synchronously, in the first real frame (why worlds with a warm-up still froze). */
-export function compileAs(gl: THREE.WebGLRenderer, scene: THREE.Object3D, camera: THREE.Camera, intoTarget: boolean) {
+ *  synchronously, in the first real frame (why worlds with a warm-up still froze). `target`: the scene `scene` is part
+ *  of (its lights, fog and environment), when `scene` is only a subtree. */
+export function compileAs(gl: THREE.WebGLRenderer, scene: THREE.Object3D, camera: THREE.Camera, intoTarget: boolean, target?: THREE.Scene) {
   const prev = gl.getRenderTarget();
   if (intoTarget) gl.setRenderTarget(scratch ??= new THREE.WebGLRenderTarget(1, 1));
-  try { return gl.compileAsync(scene, camera); } finally { gl.setRenderTarget(prev); } // programs are collected synchronously
+  try { return gl.compileAsync(scene, camera, target); } finally { gl.setRenderTarget(prev); } // programs are collected synchronously
+}
+
+/* Background warm-ups: what is not on screen at start (hidden parts, close-up shader variants, the window planets) compiles
+   after the start-up set has drawn, one job per task, so it never competes with the start-up compile. */
+type Later = { open: boolean; busy: boolean; q: (() => Promise<unknown>)[] };
+const later = new WeakMap<THREE.WebGLRenderer, Later>();
+const laterOf = (gl: THREE.WebGLRenderer) => { let l = later.get(gl); if (!l) later.set(gl, (l = { open: false, busy: false, q: [] })); return l; };
+async function pump(l: Later) {
+  if (l.busy || !l.open) return;
+  l.busy = true;
+  for (let job; (job = l.q.shift()); ) { await tick(); await job().catch(() => {}); }
+  l.busy = false;
+}
+/** Runs `job` once this canvas's start-up set has drawn (a deferring <WarmCompile> opens the queue; 20 s at the latest). */
+export function warmLater(gl: THREE.WebGLRenderer, job: () => Promise<unknown>) {
+  const l = laterOf(gl);
+  l.q.push(job);
+  if (!l.open) setTimeout(() => { l.open = true; void pump(l); }, 20_000);
+  void pump(l);
+}
+
+/** Hidden subtrees (their roots) and the materials only they use. three's compile() walks hidden objects too. */
+function splitHidden(scene: THREE.Object3D) {
+  const roots: THREE.Object3D[] = [], shown = new Set<THREE.Material>();
+  const mats = (o: THREE.Object3D) => [(o as THREE.Mesh).material ?? []].flat();
+  const walk = (o: THREE.Object3D) => { mats(o).forEach((m) => shown.add(m)); for (const c of o.children) if (c.visible) walk(c); else roots.push(c); };
+  walk(scene);
+  return roots.map((root) => {
+    const only = new Set<THREE.Material>();
+    root.traverse((o) => mats(o).forEach((m) => { if (!shown.has(m) && m.visible) only.add(m); }));
+    return { root, only };
+  });
+}
+/** Takes the subtrees out of their parents for one synchronous call (the programs are collected), then puts them back. */
+function without<T>(roots: THREE.Object3D[], f: () => T): T {
+  const out = roots.map((o) => { const p = o.parent!, i = p.children.indexOf(o); p.children.splice(i, 1); return [p, i, o] as const; });
+  try { return f(); } finally { for (let k = out.length - 1; k >= 0; k--) { const [p, i, o] = out[k]; p.children.splice(i, 0, o); } }
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -44,7 +83,9 @@ async function uploadTextures(gl: THREE.WebGLRenderer, scene: THREE.Object3D, al
   }
 }
 
-export function WarmCompile() {
+/** Props: `cap` ms before drawing anyway (anything unfinished then compiles synchronously in that frame); `defer`:
+ *  compile only what is visible now, warm hidden subtrees after the first frames (see warmLater); `onDone` when compiled. */
+export function WarmCompile({ cap = 4000, defer = false, onDone }: { cap?: number; defer?: boolean; onDone?: () => void } = {}) {
   const { gl, scene, camera, setFrameloop, frameloop, get } = useThree();
   useLayoutEffect(() => {
     let alive = true, released = false;
@@ -60,18 +101,31 @@ export function WarmCompile() {
       const env = envReady(gl);
       if (env) { await env; await tick(); await tick(); }
       if (!alive) return;
-      // Hidden parts (LOD layers, micro-worlds, orbitals) would otherwise compile synchronously the moment they first
-      // show, freezing a planet switch: make them visible for the compile only (nothing draws: the loop is held).
-      const hidden: { visible: boolean }[] = [];
-      scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
-      // compileAsync collects programs synchronously on call, so the hidden parts are restored at once. Restoring them
-      // later re-hid anything the app had made visible meanwhile (the INTELLIGENCE globe stayed invisible).
+      const t0 = performance.now();
       // internal.priority > 0: a useFrame with priority took over drawing; here that is always the EffectComposer.
-      const p = compileAs(gl, scene, camera, get().internal.priority > 0);
-      hidden.forEach((o) => { o.visible = false; });
-      p.then(() => uploadTextures(gl, scene, () => alive)).catch(() => {}).finally(() => { if (alive) release(); });
-      // A slow driver must not hold the canvas blank: after 4 s draw anyway (anything unfinished compiles in that frame).
-      setTimeout(() => { if (alive) release(); }, 4000);
+      const into = get().internal.priority > 0;
+      // Deferred: hidden subtrees stay out of the start-up compile; their own materials can't draw (material.visible)
+      // until their group is warmed, so a part shown early never compiles synchronously, it appears a moment later.
+      const groups = defer ? splitHidden(scene) : [];
+      groups.forEach((g) => g.only.forEach((m) => { m.visible = false; }));
+      const p = without(groups.map((g) => g.root), () => compileAs(gl, scene, camera, into));
+      // The composer's own shaders compile alongside, not in its first frames (it skipped up to 2 s, then compiled the rest
+      // synchronously).
+      Promise.all([p, ...[...(composers.get(gl) ?? [])].map(warmNow)])
+        .then(() => uploadTextures(gl, scene, () => alive)).catch(() => {})
+        .finally(() => {
+          if (!alive) return;
+          perfMark("warm-compiled", { programs: gl.info.programs?.length ?? -1, ms: Math.round(performance.now() - t0) });
+          onDone?.(); release();
+          if (!defer) return;
+          const l = laterOf(gl);
+          for (const g of groups) l.q.push(() => compileAs(gl, g.root, camera, into, scene).finally(() => g.only.forEach((m) => { m.visible = true; })));
+          l.q.push(async () => perfMark("warm-later", { programs: gl.info.programs?.length ?? -1, ms: Math.round(performance.now() - t0) }));
+          // after the first frames have drawn
+          requestAnimationFrame(() => requestAnimationFrame(() => { l.open = true; void pump(l); }));
+        });
+      // A slow driver must not hold the canvas blank forever: after `cap` draw anyway.
+      setTimeout(() => { if (alive) release(); }, cap);
     }, 0);
     return () => { alive = false; clearTimeout(t); release(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount
@@ -110,19 +164,33 @@ function warmComposer(c: EffectComposer) {
   return Promise.all(jobs);
 }
 
+/** Starts (or joins) the warm-up for the composer's current passes; settles when they are compiled. */
+function warmNow(c: EffectComposer) {
+  let w = warm.get(c);
+  if (passesChanged(w, c.passes)) {
+    const next: WarmState<Pass> = { passes: [...c.passes], ready: false, until: performance.now() + 2000, done: null };
+    next.done = Promise.resolve(c).then(warmComposer).catch(() => {}).finally(() => { next.ready = true; }); // a throw must not break the frame loop
+    warm.set(c, (w = next));
+  }
+  return w!.done;
+}
+// Composers per renderer, so a canvas's WarmCompile can compile their shaders before its first frame.
+const composers = new WeakMap<THREE.WebGLRenderer, Set<EffectComposer>>();
+
 const proto = EffectComposer.prototype as EffectComposer & { __warm?: boolean };
 if (!proto.__warm) {
   proto.__warm = true;
-  const render = proto.render;
+  const render = proto.render, addPass = proto.addPass;
+  proto.addPass = function (this: EffectComposer, ...a: Parameters<EffectComposer["addPass"]>) {
+    const gl = this.getRenderer();
+    if (gl) { let s = composers.get(gl); if (!s) composers.set(gl, (s = new Set())); s.add(this); }
+    return addPass.apply(this, a);
+  };
+  const dispose = proto.dispose;
+  proto.dispose = function (this: EffectComposer) { const gl = this.getRenderer(); if (gl) composers.get(gl)?.delete(this); return dispose.call(this); };
   proto.render = function (this: EffectComposer, dt?: number) {
-    const passes = this.passes;
-    let w = warm.get(this);
-    if (passesChanged(w, passes)) {
-      const next: WarmState<Pass> = { passes: [...passes], ready: false, until: performance.now() + 2000 };
-      warm.set(this, (w = next));
-      Promise.resolve(this).then(warmComposer).catch(() => {}).finally(() => { next.ready = true; }); // a throw must not break the frame loop
-    }
-    if (skipFrame(w!, performance.now())) return; // still compiling: skip, rather than compile synchronously
+    void warmNow(this);
+    if (skipFrame(warm.get(this)!, performance.now())) return; // still compiling: skip, rather than compile synchronously
     render.call(this, dt);
   };
 }

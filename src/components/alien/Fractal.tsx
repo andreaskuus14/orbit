@@ -44,7 +44,7 @@ void main() {
   vec3 tn = min(t0, t1); float t = max(max(max(tn.x, tn.y), tn.z), 0.0);
   vec3 tf = max(t0, t1); float tEnd = min(min(tf.x, tf.y), tf.z);
   float hit = 0.0, it = 0.0;
-  for (int i = 0; i < 96; i++) {
+  for (int i = 0; i < 80; i++) { // = the most uSteps ever asks for (was 96): D3D's compiler may unroll it, dead copies cost compile time
     if (float(i) >= uSteps || t > tEnd) break;
     float d = map(ro + rd * t);
     if (d < 0.0015 * (1.0 + t)) { hit = 1.0; break; }

@@ -1,5 +1,5 @@
 // Post-processing warm-up (see WarmCompile): per composer, the passes it was warmed for and how long frames may be skipped.
-export type WarmState<P> = { passes: readonly P[]; ready: boolean; until: number };
+export type WarmState<P> = { passes: readonly P[]; ready: boolean; until: number; done?: Promise<unknown> | null };
 
 /** A warm-up is due on the first frame and whenever the composer's passes change (added, removed, rebuilt). */
 export function passesChanged<P>(w: WarmState<P> | undefined, passes: readonly P[]): boolean {
