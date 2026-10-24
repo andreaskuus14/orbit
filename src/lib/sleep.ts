@@ -69,7 +69,7 @@ type Ask = (prompt: string, system: string, userId: string, purpose: string) => 
 /** (1) Near-duplicate memories → one new "consolidated" note linked to its members. Nothing is edited or deleted. */
 async function consolidate(sb: SupabaseClient, userId: string, ask: Ask): Promise<number> {
   const [{ data, error }, prev] = await Promise.all([
-    sb.from("memories").select("id, title, content, embedding").eq("user_id", userId).neq("kind", "conversation").neq("source", "core-sleep")
+    sb.from("memories").select("id, title, content, embedding").eq("user_id", userId).not("kind", "in", "(conversation,journal)").neq("source", "core-sleep") // journals never go to a model
       .order("created_at", { ascending: false }).limit(300), // shortcut: only the newest 300 are compared; page through if older dupes matter
     sb.from("memories").select("tags").eq("user_id", userId).eq("source", "core-sleep").limit(1000),
   ]);
