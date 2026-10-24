@@ -246,7 +246,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => {
     const prev = prevPanel.current;
     prevPanel.current = panel;
-    if (panel && panel !== prev) sfx.open(); else if (!panel && prev) sfx.close();
+    if (panel && panel !== prev) { if (planetById(panel)) sfx.converge(); else sfx.open(); } else if (!panel && prev) sfx.close();
     if (panel || !prev || WORLDS.includes(prev) || reduced) { setExiting(null); return; }
     setExiting(prev);
     const t = setTimeout(() => setExiting(null), 200);

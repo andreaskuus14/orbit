@@ -1,5 +1,7 @@
 // UI sound layer (plan #3): tiny WebAudio synth, no audio files. Off with the HUD menu's "UI sounds" toggle (orbit.sfx = "0").
 // The AudioContext starts on the first sound after a user gesture; browsers block it before that, so early calls are silent no-ops.
+import { detuneRatios } from "@/lib/alien-behaviour-pure";
+
 let ctx: AudioContext | null = null;
 const on = () => { try { return localStorage.getItem("orbit.sfx") !== "0"; } catch { return true; } };
 const ac = () => {
@@ -30,7 +32,27 @@ function tone({ f0, f1 = f0, dur, gain = 0.05, type = "sine", noise = false, q =
   }
 }
 
+/** 2001 / Ligeti: a cluster of detuned sines that glides into unison (planet selected). Very quiet. */
+function converge() {
+  const a = ac();
+  if (!a) return;
+  const t = a.currentTime, base = 196, g = a.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.022, t + 0.25);
+  g.gain.setValueAtTime(0.022, t + 1.0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
+  g.connect(a.destination);
+  for (const r of detuneRatios(5, 45)) {
+    const o = a.createOscillator(), v = a.createGain();
+    v.gain.value = 0.2;
+    o.frequency.setValueAtTime(base * r, t);
+    o.frequency.exponentialRampToValueAtTime(base, t + 1.1); // the beating slows and stops: unison
+    o.connect(v).connect(g); o.start(t); o.stop(t + 1.95);
+  }
+}
+
 export const sfx = {
+  converge,
   tick: () => tone({ f0: 2400, f1: 1800, dur: 0.03, gain: 0.02, type: "triangle" }),
   open: () => { tone({ f0: 520, f1: 780, dur: 0.18, gain: 0.035 }); setTimeout(() => tone({ f0: 1040, dur: 0.22, gain: 0.02 }), 70); },
   close: () => tone({ f0: 700, f1: 420, dur: 0.16, gain: 0.03 }),
