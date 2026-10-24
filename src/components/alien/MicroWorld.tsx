@@ -303,6 +303,7 @@ export function MicroWorld({ size, u, level, orbital, body, seed }: {
   const job = useMemo(() => (budget > 0 ? placer(budget, seed, u.uFam.value, u.uSeed.value) : null), [budget, seed, u]);
   const [placed, setPlaced] = useState<{ job: unknown; pl: Placed } | null>(null);
   const sent = useRef<unknown>(null);
+  const dwell = useRef(0); // seconds the camera has stayed within this world's orbit stage
   const kinds = useMemo(() => {
     if (!job || placed?.job !== job) return null;
     const geos = kindGeos();
@@ -344,7 +345,9 @@ export function MicroWorld({ size, u, level, orbital, body, seed }: {
     const st = microStage(g ? size / Math.max(1e-3, camera.position.distanceTo(g.getWorldPosition(MW_P))) : 0, level, stage);
     // Placement only once this world is being approached (its orbit stage begins), never for all 13 at start-up:
     // that cost >= 26 ms a frame for the first seconds on the owner's PC. 2 ms a frame until done.
-    if (job && sent.current !== job && st.orbit > 0) { const pl = job(performance.now() + 2); if (pl) { sent.current = job; setPlaced({ job, pl }); } }
+    // ...and only after the camera has stayed near it ~1 s: hopping planet to planet builds nothing (measured 0.4–1 s stalls).
+    dwell.current = st.orbit > 0 ? dwell.current + dt : 0;
+    if (job && sent.current !== job && dwell.current > 1) { const pl = job(performance.now() + 2); if (pl) { sent.current = job; setPlaced({ job, pl }); } }
     uni.show.value = st.show;
     uni.px.value = (vp.height * viewport.dpr) / 2 / Math.tan(((camera as THREE.PerspectiveCamera).fov ?? 50) * Math.PI / 360);
     uni.orbit.value = st.orbit;
