@@ -1,5 +1,5 @@
 "use client";
-import { PerfBeacon } from "./PerfBeacon";
+import { PerfBeacon, perfCtx } from "./PerfBeacon";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -73,7 +73,7 @@ const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do fo
 
 /** A visited world stays mounted while away: hidden, its canvas paused and its polls/global keys off (WorldPaused), so re-entry skips the remount hitch. */
 function Kept({ on, children }: { on: boolean; children: ReactNode }) {
-  return <div className="absolute inset-0" hidden={!on}><WorldPaused.Provider value={!on}>{children}</WorldPaused.Provider></div>;
+  return <div className="kept absolute inset-0" hidden={!on}><WorldPaused.Provider value={!on}>{children}</WorldPaused.Provider></div>;
 }
 
 export default function Orbit({ userId, email }: { userId: string; email: string }) {
@@ -121,6 +121,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [sfxOn, setSfxOn] = useState(true);
   useEffect(() => setSfxOn(sfx.enabled()), []);
   useEffect(() => { if (approach) sfx.whoosh(); }, [approach]);
+  // Bigger on the inside: from the galaxy a world is entered through its planet's surface (window planets on), the world
+  // crossfading in as the camera crosses it. `quiet`: that world came in through the surface, so no warp burst on top.
+  const [dive, setDive] = useState<PanelId | null>(null);
+  const [quiet, setQuiet] = useState<PanelId | null>(null);
+  useEffect(() => { if (dive) sfx.whoosh(); }, [dive]);
   // CORE opened from inside a world floats over it instead of leaving it; closing CORE returns to that world.
   const [behind, setBehind] = useState<PanelId | null>(null);
   // The world (or panel) actually on screen. Also while panel is briefly null after closing CORE, so the world isn't remounted.
@@ -141,6 +146,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const has = (id: PanelId) => at(id) || kept.includes(id);
   // A full-screen world (or a game) covers the galaxy: it stays mounted but paused, so coming back is instant.
   const covered = gameOpen || isWorld(shown);
+  const galaxyGone = covered && !dive; // through the surface: the galaxy keeps drawing under the world's crossfade
   const living = useLivingUniverse(view === "3d" && !covered);
   const staged = useStageActive(); // one-canvas spike: STUDIO draws in the galaxy canvas, so keep it on screen
   useEffect(() => { markOpen(gameOpen ? "game" : covered ? shown ?? "galaxy" : "galaxy"); }, [gameOpen, covered, shown]); // dev-only timing
@@ -318,7 +324,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       // VIDEO/AUDIO: Chrome seeks a focused player with ←/→ after this handler sees the key.
       const typing = !!el && (/^(INPUT|TEXTAREA|SELECT|VIDEO|AUDIO)$/.test(el.tagName) || el.isContentEditable);
       const inWorld = !!el?.closest?.(".studio, [role=region]"); // arrows inside a world's panels are for its controls
-      if (e.key === "Escape" && !typing) { setPanel(null); setApproach(null); }
+      if (e.key === "Escape" && !typing) { setPanel(null); setApproach(null); setDive(null); }
       if (!typing && !inWorld && !e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
         setPanel((cur) => {
           const i = cur ? ORDER.indexOf(cur) : -1;
@@ -332,6 +338,22 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, []);
 
   const select = useCallback((id: PanelId) => { warmWorld(id); setPanel(id); if (id !== "memory") setFocusMemory(null); if (id !== "operations") setFocusTask(null); if (id !== "agents") setFocusGoal(null); }, []);
+  // A dive needs the galaxy's window planets: 3D view, no reduced motion (that keeps today's direct entry), quality > 0.
+  const canDive = (id: PanelId | null) => isWorld(id) && view === "3d" && !reduced && !covered && Number(perfCtx.level) > 0;
+  const enterWorld = useCallback((id: PanelId) => { warmWorld(id); setPanel(null); setApproach(null); setDive(id); }, []);
+  const galaxySelect = useCallback((id: PanelId) => { if (canDive(id)) enterWorld(id); else select(id); }, [view, reduced, covered, enterWorld, select]); // eslint-disable-line react-hooks/exhaustive-deps
+  const diveRef = useRef(dive);
+  diveRef.current = dive;
+  const onDiveCross = useCallback(() => { const d = diveRef.current; if (d) { setQuiet(d); select(d); } }, [select]);
+  const onDiveCancel = useCallback(() => setDive(null), []);
+  useEffect(() => {
+    if (!dive) return;
+    if (panel === dive) { const t = setTimeout(() => setDive(null), 420); return () => clearTimeout(t); } // crossfade done: the galaxy may pause
+    if (panel) { setDive(null); return; } // a click or key during the dive wins
+    const t = setTimeout(onDiveCross, 1200); // the galaxy never drew the crossing (hidden tab, lost context): land anyway
+    return () => clearTimeout(t);
+  }, [dive, panel, onDiveCross]);
+  useEffect(() => { if (quiet && shown !== quiet) setQuiet(null); }, [shown, quiet]);
   const openTask = useCallback((id: string) => { setWorkOpen(false); setFocusTask(id); setFocusGoal(null); setPanel("operations"); }, []);
   const ships = useMemo(() => ({ tasks: shipTasks, onOpen: openTask }), [shipTasks, openTask]);
   useEffect(() => { // agent events change runningTasks → refresh the fleet; a slow poll catches approvals and finishes without events
@@ -373,16 +395,17 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if (t.country || t.region || t.search !== undefined) setNewsFocus({ country: t.country, region: t.region, search: t.search });
       if (t.view) setStudioOpen({ view: t.view });
       if (t.life) setLifeOpen({ tab: t.life, start: t.start });
-      if (t.panel === (approach ?? shown)) { if (panel === "core") setPanel(shown); return; } // already there: close CORE over it, the world flies to the sub-target // already there (or on the way): the world flies to the sub-target itself
+      if (t.panel === (dive ?? approach ?? shown)) { if (panel === "core") setPanel(shown); return; } // already there: close CORE over it, the world flies to the sub-target // already there (or on the way): the world flies to the sub-target itself
       const world = t.panel === "intelligence" || (t.panel !== null && WORLDS.includes(t.panel));
       const inWorld = isWorld(shown);
+      if (world && canDive(t.panel)) { enterWorld(t.panel!); return; }
       if (world && !inWorld && view === "3d" && !reduced) { warmWorld(t.panel!); setPanel(null); setApproach(t.panel); return; }
-      setApproach(null);
+      setApproach(null); setDive(null);
       if (t.panel === "core") openCore(); else if (t.panel) select(t.panel); else closeWorld(); // "galaxy"/"home" really leaves the world
     };
     addEventListener(NAV_EVENT, onNav);
     return () => removeEventListener(NAV_EVENT, onNav);
-  }, [panel, shown, approach, view, reduced, select, openCore, closeWorld]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [panel, shown, approach, dive, view, reduced, select, openCore, closeWorld, enterWorld]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!approach) return;
     const t = setTimeout(() => { setPanel(approach); setApproach(null); }, 1200); // the galaxy's longest fast flight
@@ -433,17 +456,18 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? "Your profile" : drawer ? planetById(drawer)?.name ?? "" : "";
 
   return (
-    <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view}>
+    <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view} data-dive-in={quiet ?? undefined}>
       {view === "3d" && !shown && <HudFrame />}
       {view === "3d" && !shown && !approach && <Ticker />}
       {view === "3d" && <WarpOverlay target={approach} landed={panel} reduced={reduced} />}
-      {view === "3d" && <WarpBurst id={isWorld(shown) ? shown : null} reduced={reduced} />}
+      {view === "3d" && <WarpBurst id={isWorld(shown) && shown !== quiet ? shown : null} reduced={reduced} />}
       {view === "3d" && !shown && <AmbientOverlay a={amb} />}
       {view === "3d" && !shown && living.open && <TimeTravel days={living.days} setDays={living.setDays} onClose={() => { living.setOpen(false); living.setDays(0); }} />}
       {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
-        <div className="absolute inset-0" style={covered && !staged ? { visibility: "hidden" } : undefined} inert={(covered && !staged) || undefined}>
-          <Galaxy selected={approach ?? panel} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={covered} universe={living.universe} ships={ships} />
+        <div className="absolute inset-0" style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
+          <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships}
+            dive={dive} onDiveCross={onDiveCross} onDiveCancel={onDiveCancel} />
         </div>
       )}
       {/* Worlds stay mounted after their first visit (hidden + paused): re-entering skips the rebuild, shader compile and texture upload. */}
