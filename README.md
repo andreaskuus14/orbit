@@ -79,7 +79,7 @@ CORE runs on **Claude Code under your own Claude login**, so there is no API key
 - **Herald**: animated pop-up cards (uploads, trends, briefings, breaking news), at most 3 on screen and 4 an hour; never speaks or takes focus. A server-side watch every 3 hours scans Reach and, once YouTube is connected in STUDIO, your niche and trends; and new clippable finds also get a **Windows toast**. "Clip it now" is always your click.
 - **Reach** (GAME DEV → Trend Radar → Rising): anonymous, read-only "what's exploding" from Reddit, Kick and Bluesky, polite rate limits and no logins. Twitch clips are optional via your own free app key (`TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`, app token only).
 - **MARKETS** (planet): watchlist, tracked holdings, price alerts, an AI explainer and **paper** trading with a rule-based paper bot. Prices from Stooq's free CSV (US stocks/ETFs), stored in `<ORBIT data folder>\markets.json`. No broker, no real money.
-- ORBIT is installable as an app (manifest + icons) and the layout works on phone-sized screens; it still only listens on 127.0.0.1. **Phone access:** see [docs/PHONE.md](docs/PHONE.md) (private HTTPS through Tailscale Serve, no ports opened).
+- ORBIT is installable as an app (manifest + icons) and the layout works on phone-sized screens; it still only listens on 127.0.0.1. **Phone access:** see [docs/PHONE.md](docs/PHONE.md) (private HTTPS through Tailscale Serve, no ports opened). The light phone remote (`/remote`: approvals, Stop-all, Studio queue, ask CORE) pairs with a 2-minute code; setup is in the same doc.
 
 ## Needs configuration
 | Feature | What to set |

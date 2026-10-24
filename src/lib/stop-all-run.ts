@@ -1,0 +1,22 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { setStopAll, stopAllState } from "@/lib/stop-all";
+import { logActivity } from "@/lib/activity";
+import { cancelTask, kickQueue, liveTaskIds } from "@/lib/agents";
+import { resumeChains } from "@/lib/chains";
+import { abortGoalDrivers, resumeGoals } from "@/lib/goals";
+import { resumeClipQueue } from "@/lib/clips/factory";
+
+/** Turn Stop-all on (cancelling running tasks/teams/goal drivers) or off (resuming queues). Used by /api/stop-all and the phone remote. */
+export async function switchStopAll(sb: SupabaseClient, userId: string, on: boolean, via = "") {
+  let saveError = "";
+  const stop = await setStopAll(on).catch((e) => { saveError = e instanceof Error ? e.message : String(e); return stopAllState(); });
+  let cancelled = 0, goals = 0;
+  if (on) {
+    for (const id of liveTaskIds()) if (await cancelTask(sb, id).catch(() => false)) cancelled++; // tasks and team chains (their drivers are in the same map)
+    goals = abortGoalDrivers();
+  } else {
+    resumeClipQueue(); void kickQueue(sb, userId); void resumeChains(sb, userId).catch(() => {}); void resumeGoals(sb, userId).catch(() => {}); // don't wait for the next tick
+  }
+  logActivity({ area: "system", title: (on ? "Stop-all turned ON: ORBIT paused" : "Stop-all turned off: ORBIT resumed") + via, detail: on ? `${cancelled} running task(s)/team(s) cancelled, ${goals} goal driver(s) stopped` : undefined });
+  return { stop, cancelled, goals, ...(saveError ? { warning: `Active now, but not saved to disk (${saveError}): it resets on restart` } : {}) };
+}

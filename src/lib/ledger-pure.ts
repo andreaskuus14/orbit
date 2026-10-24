@@ -20,6 +20,7 @@ type Data = {
   "morning.click": { source: Source; key: string };
   "morning.done": { source: Source; key: string };
   "journal.saved": { memoryId: string };
+  "remote.command": { command: string; ok: boolean; device: string }; // phone remote: the command type only, never its text
   "higgsfield.spend": { jobId: string; credits: number; kind: "story" | "draft" }; // credits the owner's Approve click allowed
   "memory.hygiene": { action: "merge" | "retract"; decision: "accepted" | "dismissed"; key: string }; // ids only, never memory text
 };
@@ -51,6 +52,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "morning.click": { source: oneOf(SOURCES), key: id },
   "morning.done": { source: oneOf(SOURCES), key: id },
   "journal.saved": { memoryId: id },
+  "remote.command": { command: oneOf(["navigate", "core.ask", "approval.list", "approve", "reject", "stopAll", "status", "invalid"]), ok: bool, device: id },
   "higgsfield.spend": { jobId: id, credits: (v) => typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 100_000, kind: oneOf(["story", "draft"]) },
   "memory.hygiene": { action: oneOf(["merge", "retract"]), decision: oneOf(["accepted", "dismissed"]), key: id },
 };
