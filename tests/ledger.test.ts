@@ -18,6 +18,7 @@ const DATA: Record<string, object> = {
   "morning.click": { source: "studio", key: "studio:review" },
   "morning.done": { source: "devworld", key: "bug:b1" },
   "journal.saved": { memoryId: "m2" },
+  "memory.hygiene": { action: "merge", decision: "accepted", key: "merge:a:b" },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {

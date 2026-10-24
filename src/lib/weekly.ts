@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listJobs, readState, studioRoot } from "./clips/factory";
 import { learnProblem, type LearnState } from "./clips/learn-pure";
-import { weeklyReview, type Weekly, type WeeklyIn } from "./weekly-pure";
+import { experimentStatus, weeklyReview, type Weekly, type WeeklyIn } from "./weekly-pure";
 
 // Gathers the week (stored data only, RLS-scoped). A failing source counts as nothing rather than failing the review.
 const WEEK = 7 * 86_400_000;
@@ -11,12 +11,13 @@ export const getWeekly = async (sb: SupabaseClient, now = Date.now()): Promise<W
 /** The week as numbers (also feeds CORE's world model). */
 export async function gatherWeek(sb: SupabaseClient, now = Date.now()): Promise<WeeklyIn> {
   const since = new Date(now - WEEK).toISOString();
-  const [jobs, learn, prospects, tasks, mems] = await Promise.all([
+  const [jobs, learn, prospects, tasks, mems, goals] = await Promise.all([
     listJobs().catch(() => []),
     readState<LearnState>(studioRoot(), "learn", learnProblem).catch(() => null),
     Promise.resolve(sb.from("prospects").select("stage").gte("updated_at", since).limit(500)).then((r) => r.data ?? [], () => []),
     Promise.resolve(sb.from("tasks").select("status").is("parent_id", null).in("status", ["done", "failed"]).gte("finished_at", since).limit(500)).then((r) => r.data ?? [], () => []),
     Promise.resolve(sb.from("memories").select("id", { count: "exact", head: true }).gte("created_at", since)).then((r) => r.count ?? 0, () => 0),
+    Promise.resolve(sb.from("goals").select("doc").order("created_at", { ascending: false }).limit(30)).then((r) => (r.data ?? []).map((g) => g.doc).filter((d) => d?.metric), () => []),
   ]);
   const views = (vid?: string) => (vid && learn?.clips[vid]?.latest ? learn.clips[vid].latest!.views : null);
   const published = jobs.flatMap((j) => j.clips).filter((c) => c.publish?.status === "done" && c.publish.videoId);
@@ -29,5 +30,6 @@ export async function gatherWeek(sb: SupabaseClient, now = Date.now()): Promise<
     business: { contacted: count(["contacted", "replied", "pilot", "paying"]), replied: count(["replied", "pilot", "paying"]), pilots: count(["pilot"]), paying: count(["paying"]) },
     agents: { done: tasks.filter((t) => t.status === "done").length, failed: tasks.filter((t) => t.status === "failed").length },
     memories: mems,
+    experiments: experimentStatus(goals, new Date(now)),
   };
 }
