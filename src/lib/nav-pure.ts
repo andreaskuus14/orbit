@@ -15,6 +15,7 @@ export type NavTarget = {
   beliefs?: true; // beliefs: MEMORY opens "What ORBIT believes"
   stopAll?: true; voice?: boolean; // direct actions: stay in the current world; voice sets output on/off
   continueWork?: true; // open the unfinished-work list, without starting or resuming a task
+  evening?: true; // open "Today in a minute" (EveningCapture.tsx) over whatever is on screen
   life?: LifeView; start?: true; // life: LIFE opens on that tab; start (with life "focus"): start the focus timer
 };
 export type LifeView = "today" | "habits" | "focus" | "reminders" | "journal";
@@ -34,6 +35,7 @@ command({ voice: true }, "unmute, lülita heli sisse");
 command({ morning: true }, "status report, olukord");
 command({ weekly: true }, "weekly review, my week, how was my week, nädala ülevaade");
 command({ mission: true }, "mission control, bridge, the bridge, open mission control, open the bridge, missioonijuhtimine");
+command({ evening: true }, "today in a minute, evening capture, log my day, log today, päev minutiga");
 command({ continueWork: true }, "show my work, continue my work, näita minu tööd, jätka minu tööd");
 command({}, "back, galaxy, tagasi, galaktika");
 
@@ -150,7 +152,7 @@ export function parseNavCommand(text: string, ctx: { current?: PanelId | null } 
   s = s.replace(SUFFIX, "");
   if (Object.hasOwn(INSTANT, s)) {
     const action = INSTANT[s];
-    return { panel: action.stopAll || action.voice !== undefined ? ctx.current ?? null : null, ...action };
+    return { panel: action.stopAll || action.evening || action.voice !== undefined ? ctx.current ?? null : null, ...action };
   }
   // "check orbit": SUFFIX ate the "orbit" that this phrase needs
   const doc = PLACES[s]?.doctor ? PLACES[s] : / orbit\b/.test(said) && PLACES[`${s} orbit`]?.doctor ? PLACES[`${s} orbit`] : null;
@@ -201,6 +203,7 @@ export function navLabel(t: NavTarget): string {
   if (t.stopAll) return "Stop-all";
   if (t.voice !== undefined) return "voice output";
   if (t.continueWork) return "Continue my work";
+  if (t.evening) return "Today in a minute";
   if (t.mission) return "Mission control";
   if (t.morning) return "your morning briefing";
   if (t.doctor) return "the ORBIT doctor";
@@ -214,6 +217,7 @@ export const navReply = (t: NavTarget) =>
   t.stopAll ? "Stop-all is on; background work is paused."
     : t.voice !== undefined ? (t.voice ? "Voice output on." : "Voice output muted.")
     : t.continueWork ? "Here's your unfinished work."
+    : t.evening ? "How was today? A minute is enough."
     : t.mission ? "Mission control is up."
     : t.morning ? "Here's your morning briefing."
     : t.doctor ? "Checking everything. One moment."

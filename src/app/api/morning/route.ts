@@ -19,14 +19,16 @@ export async function GET(req: Request) {
   }
 }
 
-/** 👍/👎 on a morning card: { kind, key, up } → a ledger "morning.thumb" event, which the next briefing's ranking reads. */
+/** 👍/👎 on a morning card: { kind, key, up } → ledger "morning.thumb". A hero/card open or "done": { event: "click" | "done", source, key }
+ *  → "morning.click" / "morning.done". The next briefing's ranking reads all three. */
 export async function POST(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
-  const b = (await req.json().catch(() => null)) as { kind?: unknown; key?: unknown; up?: unknown } | null;
-  const data = { kind: b?.kind, key: b?.key, up: b?.up };
-  const issue = ledgerIssue("morning.thumb", "core", data);
+  const b = (await req.json().catch(() => null)) as { kind?: unknown; key?: unknown; up?: unknown; event?: unknown; source?: unknown } | null;
+  const type = b?.event === "click" ? "morning.click" : b?.event === "done" ? "morning.done" : "morning.thumb";
+  const data = type === "morning.thumb" ? { kind: b?.kind, key: b?.key, up: b?.up } : { source: b?.source, key: b?.key };
+  const issue = ledgerIssue(type, "core", data);
   if (issue) return Response.json({ error: issue }, { status: 400 });
-  await emit(sb, user.id, "morning.thumb", "core", data);
+  await emit(sb, user.id, type, "core", data);
   return Response.json({ ok: true });
 }

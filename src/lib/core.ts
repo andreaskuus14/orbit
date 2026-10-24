@@ -139,7 +139,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     let { results, mode } = found;
     if (!results.length) {
       // Broad questions ("what did I save?") match nothing specific: show CORE the latest memories instead.
-      const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).order("created_at", { ascending: false }).limit(8);
+      const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).neq("kind", "journal").order("created_at", { ascending: false }).limit(8);
       if (error) throw error;
       results = data ?? [];
       mode = "recent";

@@ -1,14 +1,21 @@
 // Morning cards (pure, tested in tests/morning-rank.test.ts): the briefing's 5 highest-value items, one per kind when it can,
 // ranked by a base value and what 👍/👎 taught (ledger "morning.thumb" events). Gathering: morning.ts. No LIFE data goes in here.
 import type { WorkItem } from "./work-continuation-pure";
+import { SEVERITIES, isActive, type DevWorld, type Severity } from "./devworld-pure.ts";
 
 export const CARD_KINDS = ["task", "goal", "news", "business", "idea"] as const;
 export type CardKind = (typeof CARD_KINDS)[number];
-export type CardPanel = "intelligence" | "markets" | "business" | "studio" | "agents" | "operations";
+/** Where a candidate came from: clicks per source are counted (ledger "morning.click"/"morning.done") and quiet sources sink. */
+export const SOURCES = ["work", "goals", "studio", "agents", "markets", "news", "business", "recall", "ideas", "devworld", "arch"] as const;
+export type Source = (typeof SOURCES)[number];
+export type CardPanel = "intelligence" | "markets" | "business" | "studio" | "agents" | "operations" | "creation" | "arch";
 export type CardOpen = { work: WorkItem } | { panel: CardPanel; view?: "review" } | { memory: string };
-export type Candidate = { kind: CardKind; key: string; title: string; detail?: string; base: number; open: CardOpen }; // base: 0..1
+// base: 0..1. why: one line on why it matters; action: the primary button's label.
+export type Candidate = { kind: CardKind; key: string; title: string; detail?: string; base: number; open: CardOpen; source?: Source; why?: string; action?: string };
 export type Card = Candidate & { score: number };
 export type Thumb = { kind: string; key: string; up: boolean; at: string };
+export type Click = { source: string; key: string; at: string; done: boolean };
+export type Hero = Card & { why: string };
 
 export const MAX_CARDS = 5;
 const DAY = 86_400_000;
@@ -51,26 +58,102 @@ export function rankCards(cands: Candidate[], thumbs: Thumb[], now: number, max 
   return picked.sort((a, b) => b.score - a.score);
 }
 
+export const QUIET_MS = 14 * DAY; // a source with no click in this long is down-weighted
+export const QUIET_WEIGHT = 0.6;
+export const DONE_MS = 20 * 3_600_000; // "done" hides that exact item until tomorrow's briefing
+
+/** Candidates not marked done in the last DONE_MS. */
+export const dropDone = (cands: Candidate[], clicks: Click[], now: number) => {
+  const done = new Set(clicks.filter((c) => c.done && now - Date.parse(c.at) < DONE_MS && Date.parse(c.at) <= now).map((c) => c.key));
+  return cands.filter((c) => !done.has(c.key));
+};
+
+/** Sources clicked (or marked done) in the last QUIET_MS. */
+export function activeSources(clicks: Click[], now: number): Set<string> {
+  return new Set(clicks.filter((c) => { const at = Date.parse(c.at); return at <= now && now - at < QUIET_MS; }).map((c) => c.source));
+}
+
+const WHY: Record<CardKind, string> = { task: "It's waiting on you", goal: "It moves a goal forward", news: "Worth knowing today", business: "A lead is waiting", idea: "Worth a second look" };
+
+/** "Do this first": the single best candidate after thumbs (rankCards) and clicks: a source nobody clicked in 14 days counts QUIET_WEIGHT.
+ *  Before any click at all every source is equally quiet, so the order is just rankCards'. */
+export function pickHero(cands: Candidate[], thumbs: Thumb[], clicks: Click[], now: number): Hero | null {
+  const live = activeSources(clicks, now), anyClicks = live.size > 0;
+  const w = kindWeights(thumbs, now);
+  let best: Hero | null = null;
+  for (const c of rankCards(cands, thumbs, now, cands.length)) {
+    const score = c.score * (!anyClicks || !c.source || live.has(c.source) ? 1 : QUIET_WEIGHT);
+    if (best && score <= best.score) continue;
+    const why = (c.why ?? WHY[c.kind]) + (w[c.kind] >= 1.15 ? " · you rate these highly" : "");
+    best = { ...c, score, why };
+  }
+  return best;
+}
+
 /** Which statuses need a decision from you (same set as the briefing's suggestion). */
 const DECIDE = ["awaiting_approval", "draft", "waiting", "blocked", "failed"];
 
-/** Candidates from already-gathered morning data; every source is optional. */
+export type Deadline = { id: string; title: string; next?: string; days: number; arch: boolean };
+export type DevBug = { id: string; title: string; game: string; severity: Severity };
+const ARCH_WORDS = /\b(?:arch\w*|building|construction|ehitus|portfolio|crit)\b/i;
+const str = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 200) : "");
+
+/** Open goals due within 7 days (or already overdue), soonest first. today: YYYY-MM-DD. ARCH = the goal's title or why mentions architecture. */
+export function goalDeadlines(goals: { id: string; doc: { title?: unknown; why?: unknown; status?: unknown; deadline?: unknown; steps?: unknown } | null }[], today: string): Deadline[] {
+  const t0 = Date.parse(`${today}T00:00:00Z`);
+  return goals.flatMap(({ id, doc: d }) => {
+    const due = Date.parse(`${str(d?.deadline)}T00:00:00Z`);
+    if (!d || !Number.isFinite(due) || ["done", "stopped"].includes(String(d.status))) return [];
+    const days = Math.round((due - t0) / DAY);
+    if (days > 7) return [];
+    const steps = Array.isArray(d.steps) ? (d.steps as { status?: unknown; what?: unknown }[]) : [];
+    const next = str(steps.find((s) => s && s.status !== "done")?.what);
+    return [{ id, title: str(d.title) || "Untitled goal", ...(next ? { next } : {}), days, arch: ARCH_WORDS.test(`${str(d.title)} ${str(d.why)}`) }];
+  }).sort((a, b) => a.days - b.days || a.id.localeCompare(b.id));
+}
+
+/** GAME DEV backlog: the two worst open bugs (crash first, then oldest). */
+export function devBacklog(world: DevWorld): DevBug[] {
+  const name = new Map(world.games.map((g) => [g.id, g.name]));
+  return world.bugs.filter(isActive).sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity) || a.created.localeCompare(b.created))
+    .slice(0, 2).map((b) => ({ id: b.id, title: b.title, game: name.get(b.game) ?? b.game, severity: b.severity }));
+}
+
+const dueIn = (d: number) => d < 0 ? `Deadline passed ${-d} day${d === -1 ? "" : "s"} ago` : d === 0 ? "Due today" : d === 1 ? "Due tomorrow" : `Due in ${d} days`;
+const BUG_BASE: Record<Severity, number> = { crash: 0.85, major: 0.7, minor: 0.5, polish: 0.35 };
+
+/** Candidates from already-gathered morning data; every source is optional. No LIFE data.
+ *  dev.recent: the dev world was saved in the last 2 days, so its bugs continue the latest session. */
 export function morningCandidates(x: {
   work?: { items: WorkItem[] }; studioReady?: number; proposals?: string[];
   headlines?: string[]; alerts?: string[]; followups?: { id: string; name: string }[];
   recall?: { id: string; title: string; label: string }[]; ideas?: { id: string; title: string; next: string; score: number }[];
+  deadlines?: Deadline[]; dev?: { bugs: DevBug[]; recent: boolean }; archLesson?: { id: string; title: string };
 }): Candidate[] {
   const out: Candidate[] = [];
+  // Before work items: same key as that goal's work item, and the first copy wins.
+  (x.deadlines ?? []).forEach((d) => out.push({
+    kind: "goal", key: cardKey("goal", d.id), title: d.next ?? d.title, detail: d.next ? d.title : undefined,
+    base: d.days <= 0 ? 0.97 : d.days <= 2 ? 0.93 : 0.8, source: d.arch ? "arch" : "goals", why: `${dueIn(d.days)}${d.arch ? " (ARCH)" : ""}`, action: "Open goal",
+    open: { work: { kind: "goal", id: d.id, title: d.title, status: "running", detail: dueIn(d.days), action: "Open goal" } },
+  }));
   (x.work?.items ?? []).forEach((it, i) => out.push({
     kind: it.kind, key: cardKey(it.kind, it.id), title: it.title, detail: `${it.action} · ${it.detail}`,
-    base: (DECIDE.includes(it.status) ? 0.9 : 0.6) - i * 0.03, open: { work: it },
+    base: (DECIDE.includes(it.status) ? 0.9 : 0.6) - i * 0.03, open: { work: it }, source: it.kind === "goal" ? "goals" : "work",
+    why: DECIDE.includes(it.status) ? "It's waiting on your decision" : "Unfinished from before", action: it.action,
   }));
-  if (x.studioReady) out.push({ kind: "task", key: "studio:review", title: `Review ${x.studioReady} new clip${x.studioReady === 1 ? "" : "s"}`, base: 0.7, open: { panel: "studio", view: "review" } });
-  if (x.proposals?.length) out.push({ kind: "task", key: "agents:proposals", title: `Approve or dismiss ${x.proposals.length} agent proposal${x.proposals.length === 1 ? "" : "s"}`, detail: x.proposals[0], base: 0.65, open: { panel: "agents" } });
-  (x.alerts ?? []).forEach((a, i) => out.push({ kind: "news", key: cardKey("alert", a), title: a, detail: "Market alert fired today", base: 0.75 - i * 0.05, open: { panel: "markets" } }));
-  (x.headlines ?? []).forEach((h, i) => out.push({ kind: "news", key: cardKey("news", h), title: h, detail: "From today's briefing", base: 0.6 - i * 0.1, open: { panel: "intelligence" } }));
-  (x.followups ?? []).forEach((p, i) => out.push({ kind: "business", key: cardKey("prospect", p.id), title: `Follow up with ${p.name}`, detail: "No reply after 4+ days", base: 0.8 - i * 0.05, open: { panel: "business" } }));
-  (x.recall ?? []).forEach((m, i) => out.push({ kind: "idea", key: cardKey("memory", m.id), title: m.title, detail: `From your memory, ${m.label}`, base: 0.5 - i * 0.05, open: { memory: m.id } }));
-  (x.ideas ?? []).forEach((d) => out.push({ kind: "idea", key: cardKey("idea", d.id), title: d.title, detail: d.next, base: Math.min(1, d.score / 100) * 0.6, open: { panel: "agents" } }));
+  if (x.studioReady) out.push({ kind: "task", key: "studio:review", title: `Review ${x.studioReady} new clip${x.studioReady === 1 ? "" : "s"}`, base: 0.7, open: { panel: "studio", view: "review" }, source: "studio", why: "New clips are waiting in the review queue", action: "Review clips" });
+  if (x.proposals?.length) out.push({ kind: "task", key: "agents:proposals", title: `Approve or dismiss ${x.proposals.length} agent proposal${x.proposals.length === 1 ? "" : "s"}`, detail: x.proposals[0], base: 0.65, open: { panel: "agents" }, source: "agents", why: "Agents are waiting for your yes or no", action: "Open proposals" });
+  (x.alerts ?? []).forEach((a, i) => out.push({ kind: "news", key: cardKey("alert", a), title: a, detail: "Market alert fired today", base: 0.75 - i * 0.05, open: { panel: "markets" }, source: "markets", why: "A price alert fired today", action: "Open MARKETS" }));
+  (x.headlines ?? []).forEach((h, i) => out.push({ kind: "news", key: cardKey("news", h), title: h, detail: "From today's briefing", base: 0.6 - i * 0.1, open: { panel: "intelligence" }, source: "news", why: "Top story in today's briefing", action: "Read it" }));
+  (x.followups ?? []).forEach((p, i) => out.push({ kind: "business", key: cardKey("prospect", p.id), title: `Follow up with ${p.name}`, detail: "No reply after 4+ days", base: 0.8 - i * 0.05, open: { panel: "business" }, source: "business", why: "No reply after 4+ days", action: "Open pipeline" }));
+  (x.recall ?? []).forEach((m, i) => out.push({ kind: "idea", key: cardKey("memory", m.id), title: m.title, detail: `From your memory, ${m.label}`, base: 0.5 - i * 0.05, open: { memory: m.id }, source: "recall", why: "Resurfaced from your memory", action: "Open note" }));
+  const dev = x.dev;
+  (dev?.bugs ?? []).forEach((b, i) => out.push({ kind: "task", key: cardKey("bug", b.id), title: `Fix: ${b.title}`, detail: b.game,
+    base: Math.min(1, BUG_BASE[b.severity] + (dev!.recent ? 0.08 : 0)) - i * 0.05, open: { panel: "creation" }, source: "devworld",
+    why: `${b.severity === "crash" ? "Crash bug" : `Top of the backlog (${b.severity})`} in ${b.game}${dev!.recent ? ", where your last dev session left off" : ""}`, action: "Open GAME DEV" }));
+  if (x.archLesson) out.push({ kind: "idea", key: cardKey("memory", x.archLesson.id), title: `Revisit: ${x.archLesson.title}`, base: 0.45, open: { memory: x.archLesson.id },
+    source: "arch", why: "Your latest ARCH lesson; a second pass makes it stick", action: "Open lesson" });
+  (x.ideas ?? []).forEach((d) => out.push({ kind: "idea", key: cardKey("idea", d.id), title: d.title, detail: d.next, base: Math.min(1, d.score / 100) * 0.6, open: { panel: "agents" }, source: "ideas", why: "Your best-scored idea", action: "Open idea" }));
   return out;
 }
