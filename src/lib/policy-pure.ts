@@ -1,5 +1,5 @@
-// CORE tool permission policy: today's runCore guards (src/lib/core.ts lines 139-146 and 218-224) as one pure decide().
-// Not wired in yet: core.ts still runs its own checks; tests/policy.test.ts pins this file to that behaviour.
+// CORE tool permission policy: every CORE tool call passes decide() before it runs (core.ts tool dispatch); T2/T3 verdicts go to the ledger.
+// "core.ts:NNN" refs point at the inline guards this replaced (core.ts at fb313a4); tests/policy.test.ts pins decide() to them.
 // Tiers: T0 read own data, T1 read the public web, T2 change own data, T3 act on the outside world (owner-approved only, AGENTS.md rule 6).
 import { coreToolRefusal } from "./stop-all-pure.ts";
 import { foreignUrl, typedText } from "./attach-pure.ts";
@@ -13,7 +13,7 @@ export type Tier = "T0" | "T1" | "T2" | "T3";
 export type Decision = { allow: boolean; tier: Tier; reason: string };
 /** stopAll: Stop-all switch; attach: files attached this turn; pins: pinned project notes in context;
  *  steps: this answer's tool results so far, in core.ts's "You called <tool> <json>\nRESULT:\n..." form; question: latest user message. */
-export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string };
+export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[] };
 
 export const TIERS: Record<string, Tier> = {
   navigate: "T0", goal_status: "T0", business_status: "T0", ideas_list: "T0",
@@ -24,6 +24,18 @@ export const TIERS: Record<string, Tier> = {
   save_memory: "T2", ask_agent: "T2", create_goal: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
   life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", rea_analyze: "T2", rea_cancel: "T2",
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
+};
+
+// T3 runs only behind an owner-click approval (AGENTS.md rule 6): the token each path checks before anything leaves ORBIT.
+export const APPROVAL_PATHS: Record<string, string> = {
+  schedule_approved: 'clip.status "approved" from the owner\'s Approve click in STUDIO review; scheduleAll uploads only those clips',
+};
+// The UI's own T3 actions. Not CORE tools (decide() refuses them as unknown): they run only from the owner's click, with these tokens.
+export const UI_APPROVALS: Record<string, string> = {
+  "business.send": 'POST /api/business {action:"send", id, seen}: the draft stamp the owner read; Resend Idempotency-Key orbit-<id>-<seen>',
+  "story.approve": 'POST /api/studio/clips/story {action:"approve", id, credits}: the credits quote the owner accepted',
+  "studio.schedule": 'POST /api/studio/clips/schedule: only clips with the owner\'s Approve click (status "approved")',
+  "studio.publish": 'POST /api/studio/clips/<job>/<clip>/publish: only a clip with status "approved"',
 };
 
 // Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true).
@@ -41,14 +53,16 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   if (!(tool in TIERS)) return no(`unknown tool "${tool}"`);
   const question = typedText(ctx.question); // core.ts:95 attached file names never count as the user's words
   const dataIn = ctx.attach || ctx.pins || ctx.steps.some((s) => !s.startsWith("You called navigate")); // core.ts:139
-  const privateIn = called(ctx.steps, PRIVATE_TOOLS); // core.ts:146
+  const privateIn = called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]); // core.ts:146; CORE passes its live MODULE_PRIVATE
 
   const stop = err(coreToolRefusal(ctx.stopAll, tool)); // core.ts:218
   if (stop) return no(stop);
   if (tool === "navigate") return dataIn ? no("navigate only as your first tool call, for the user's own request") : { allow: true, tier, reason: "first tool call" }; // core.ts:218 + 265
-  if (ctx.attach && tool === "web_search") return no("attached files in context: web search could carry their text out"); // core.ts:219
-  if ((ctx.pins || privateIn) && LEAK_TOOLS.includes(tool)) return no("private files, journal or pinned notes in context: agents, news and web search are off"); // core.ts:220
-  if ((ctx.attach || ctx.pins || privateIn) && LINK_TOOLS.includes(tool) && foreignUrl(input ?? {}, question)) return no("files in context: only links the user typed"); // core.ts:221
+  if (ctx.attach && tool === "web_search") return no("with the user's attached files in context, web search is off for this answer (the search words could carry their text out)"); // core.ts:219
+  if ((ctx.pins || privateIn) && LEAK_TOOLS.includes(tool)) return no("the user's private files, journal or pinned notes are in context; agents, news and web searches are off for the rest of this answer (they could carry that text out)"); // core.ts:220
+  if ((ctx.attach || ctx.pins || privateIn) && LINK_TOOLS.includes(tool) && foreignUrl(input ?? {}, question)) return no("with the user's files in context, only open links the user typed in their message"); // core.ts:221
+
+  if (tier === "T3" && !APPROVAL_PATHS[tool]) return no("acts outside ORBIT with no owner approval path; the owner does this from its panel");
 
   // Explicit-ask writes: each module's own guard, fed the taint core.ts/core-modules.ts gives it (core.ts:223, core-modules.ts:26-77).
   let blocked = "";
@@ -61,3 +75,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   // shortcut: rea_analyze/rea_cancel keep their explicit-ask check inside REA code (not ported: REA files stay untouched).
   return { allow: true, tier, reason: tool.startsWith("rea_") && tier === "T2" ? "allowed here; REA's own guard still applies" : "allowed" };
 }
+
+/** The ledger's policy.decision payload, T2/T3 only: tool, tier, verdict and the guard's fixed reason; never inputs or message text. */
+export const policyEvent = (tool: string, d: Decision) =>
+  d.tier === "T2" || d.tier === "T3" ? { tool: tool.slice(0, 128), tier: d.tier, verdict: d.allow ? "allow" : "refuse", reason: d.reason.slice(0, 300) } : null;

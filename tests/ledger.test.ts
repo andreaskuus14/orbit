@@ -14,6 +14,7 @@ const DATA: Record<string, object> = {
   "focus.session": { minutes: 25 },
   "notify.shown": { kind: "reminder", title: "Call mom" },
   "morning.thumb": { kind: "news", key: "news:Markets dip", up: false },
+  "policy.decision": { tool: "save_memory", tier: "T2", verdict: "allow", reason: "allowed" },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {

