@@ -353,8 +353,11 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   }, [liquid, size]);
   const [micro, setMicro] = useState(false); // the micro-world mounts on the first approach (never for a world only seen from afar)
   const lo = useMemo(() => new THREE.SphereGeometry(size, segs, segs), [size, segs]);
-  const hi = useMemo(() => (level >= 2 ? new THREE.SphereGeometry(size, 320, 320) : null), [size, level]);
-  useEffect(() => () => { lo.dispose(); hi?.dispose(); }, [lo, hi]);
+  // The close-up sphere (~100k vertices) is built the first time this world is approached, not at mount:
+  // 13 of them up front froze the first render for seconds on the owner's PC.
+  const hi = useRef<THREE.SphereGeometry | null>(null);
+  useEffect(() => { hi.current?.dispose(); hi.current = null; }, [size, level]);
+  useEffect(() => () => { lo.dispose(); hi.current?.dispose(); }, [lo]);
   const tilt = useMemo<[number, number, number]>(() => [Math.PI / 2 - 0.3 + Math.sin(index * 2.1) * 0.35, 0, Math.cos(index * 1.3) * 0.4], [index]);
 
   useFrame(({ clock, camera, size: vp }, dt) => {
@@ -392,7 +395,8 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
       liquid.u.uDetail.value = d;
       liquid.u.uOct.value = 3 + 5 * d;
       liquid.u.uFar.value = 1 - d;
-      const m = mesh.current, want = hi && d > 0.35 ? hi : lo;
+      if (level >= 2 && d > 0.35 && !hi.current) hi.current = new THREE.SphereGeometry(size, 320, 320);
+      const m = mesh.current, want = hi.current && d > 0.35 ? hi.current : lo;
       if (m && m.geometry !== want) m.geometry = want;
     }
     // Cursor x-ray: the lens eases across the unit sphere toward the pointer's hit (its local point is refreshed just
@@ -551,12 +555,12 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, l
   return (
     <group>
       <pointLight intensity={2.7} decay={0} color="#fff1dc" /> {/* no falloff: inner worlds would blow out, outer ones go dark */}
-      <Singularity live={live} reduced={reduced} level={level} busy={busy} positions={positions} pulses={pulses} />
+      <Singularity live={live} reduced={reduced} level={level} />
       {swarm && <group scale={0.62}><ParticleCore side={particles} busy={busy} warning={warning} live={live} onFail={onPcFail} /></group>}
       {/* Invisible hit area. */}
       <mesh ref={hit} onClick={(e) => { e.stopPropagation(); onSelect("core"); }}
         onPointerOver={() => (document.body.style.cursor = "pointer")} onPointerOut={() => (document.body.style.cursor = "")}>
-        <sphereGeometry args={[3.1, 24, 24]} /> {/* the swarm's outer shell */}
+        <sphereGeometry args={[1.9, 24, 24]} />
         <meshBasicMaterial visible={false} /> {/* not drawn (one draw call saved); raycasting ignores material visibility */}
       </mesh>
       <mesh ref={sat} visible={false}><sphereGeometry args={[0.14, 16, 16]} /><meshBasicMaterial color="#67e8f9" toneMapped={false} /></mesh>

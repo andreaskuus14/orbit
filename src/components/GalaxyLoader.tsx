@@ -19,11 +19,11 @@ export function markPreload(v: number) {
 const finish = () => { pre.shown = 100; pre.done.splice(0).forEach((f) => f()); };
 /** True while the cold-load counter is still on screen (the intro flight waits for the reveal). */
 export const preloading = () => !!pre.cold && pre.shown < 100;
-/** Runs `f` once the counter has revealed the galaxy (at once on a warm load). 10 s cap: never blocks for good. */
+/** Runs `f` once the counter has revealed the galaxy (at once on a warm load). 3 s cap: never blocks for long. */
 export function afterPreload(f: () => void) {
   if (!coldLoad() || pre.shown >= 100) { f(); return () => {}; }
   pre.done.push(f);
-  const t = setTimeout(finish, 10_000);
+  const t = setTimeout(finish, 3000);
   return () => { clearTimeout(t); const i = pre.done.indexOf(f); if (i >= 0) pre.done.splice(i, 1); };
 }
 function coldLoad() {
@@ -61,6 +61,7 @@ function Counter({ done }: { done: boolean }) {
   const num = useRef<HTMLSpanElement>(null);
   const [out, setOut] = useState(pre.shown >= 100);
   useEffect(() => { markPreload(done ? 100 : 10); }, [done]);
+  useEffect(() => { const t = setTimeout(() => markPreload(100), 2500); return () => clearTimeout(t); }, []); // the owner's rule: smooth and showing within ~2 s, never a long wait
   useEffect(() => {
     let raf = 0, last = 0, txt = "";
     const tick = (now: number) => {

@@ -14,7 +14,6 @@ import {
 import { expDamp } from "@/lib/smooth-damp-pure";
 import { useScramble } from "./useScramble";
 import { MaskText } from "./MaskText";
-import { ParticleType } from "./ParticleType";
 import { preloading } from "./GalaxyLoader";
 
 export type Motion = { speed: number }; // camera speed, fraction of the orbit distance per second (smoothed)
@@ -439,57 +438,26 @@ export function StoryFocus({ story }: { story: RefObject<Story> }) {
   return <DepthOfField ref={ref} target={ORIGIN} focusRange={6} bokehScale={0} />;
 }
 
-/** igloo-style section readout, bottom left: "03 / 11", the planet's name large, one line on what it does.
- *  Pearl particles stream out of the planet into the name's letterforms (~0.4 s, ParticleType), then crossfade into
- *  the real text mid-decode (done ~0.95 s); telemetry decodes in right after. Leaving disperses the name. */
+/** igloo-style section readout, bottom left: "03 / 11", the planet's name large, one line on what it does. */
 export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boolean; onOpen: (id: PanelId) => void }) {
   const live = stop >= 0 ? stop : intro ? -2 : null; // -2 = the intro card
   const [shown, setShown] = useState<number>(intro ? -2 : -1);
   useEffect(() => { if (live !== null) setShown(live); }, [live]); // keep the last card while it fades out
   const p = shown >= 0 ? PLANETS[shown] : null;
-  const introName = useScramble(shown === -2 ? "ORBITAL" : "", 2600);
-  const nameRef = useRef<HTMLSpanElement>(null), fx = useRef<ParticleType | null>(null), at = useRef(shown);
-  // Per card: where the planet was when its name settled (telemetry) and whether the DOM name shows yet.
-  const [settled, setSettled] = useState<{ id: PlanetId; x: number; z: number; name: boolean } | null>(null);
-  const active = live !== null;
-  useEffect(() => () => fx.current?.dispose(), []);
-  useEffect(() => {
-    at.current = shown;
-    const e = (fx.current ??= new ParticleType(() => (storyMark.ok && storyMark.stop === at.current ? storyMark : null)));
-    if (!active || !p) { e.leave(); setSettled((s) => s && { ...s, name: false }); return; }
-    const id = p.id, mark = () => storyMark.stop === at.current;
-    const settle = () => setSettled({ id, x: mark() ? storyMark.wx : NaN, z: mark() ? storyMark.wz : NaN, name: true });
-    if (!e.arrive(nameRef.current, p.name, settle)) settle(); // no particles: the decoding name shows at once
-  }, [shown, active]); // p follows shown
+  const name = useScramble(p ? p.name : shown === -2 ? "ORBITAL" : "", shown === -2 ? 2600 : 650);
   if (shown === -1) return <div className="story-readout" />;
-  const mine = p && settled?.id === p.id ? settled : null;
   return (
-    <div className={`story-readout${active ? " on" : ""}`} aria-hidden={!active || undefined} aria-live="polite">
+    <div className={`story-readout${live !== null ? " on" : ""}`} aria-hidden={live === null || undefined}>
       <div key={p?.id ?? "intro"} className="story-anim">
         <div className="story-idx" aria-hidden><b>{pad(p ? shown + 1 : 0)}</b> / {pad(PLANETS.length)}</div>
-        {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={active ? 0 : -1}>
-          {/* decoding from the card's mount, unseen until the particles hand over: it shows mid-decode, done ~950 ms */}
-          <span ref={nameRef} className={`story-name-text${mine?.name ? " on" : ""}`}><MaskText key={String(active)} text={p.name} decode={{ ms: 950 }} /></span>
-        </button>
-          : <div className="story-name" aria-hidden>{introName}</div>}
-        {p && (
-          <div className="story-tele">{/* fixed height: lines arriving never move the card */}
-            {mine && teleLines(p, mine.x, mine.z).map((l, i) => <div key={i}><MaskText text={l} decode={{ ms: 500, delay: 150 + i * 90 }} /></div>)}
-          </div>
-        )}
+        {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={live !== null ? 0 : -1}>{name}</button>
+          : <div className="story-name" aria-hidden>{name}</div>}
         <p className="story-line">{p ? p.blurb : "Your mind has a universe."}</p>
         <p className="story-hint" aria-hidden>{p ? "CLICK OR ENTER TO OPEN · SCROLL TO TRAVEL" : "SCROLL TO EXPLORE"}</p>
       </div>
     </div>
   );
 }
-
-/** The readout's telemetry: where the planet was when its name settled, its orbit, its status. */
-const teleLines = (p: PlanetDef, x: number, z: number) => [
-  `POS X ${fmtCoord(x)} · Z ${fmtCoord(z)}`,
-  `ORBIT R ${p.radius.toFixed(2)} · ω ${p.speed.toFixed(3)}`,
-  `STATUS ${p.live ? "ONLINE" : "STANDBY"} · SOL-01`,
-];
 
 /** Slim progress rail on the right edge: one dot per stop (plus the overview); click glides there. */
 export function StoryRail({ stop, on, onGo }: { stop: number; on: boolean; onGo: (n: number) => void }) {
