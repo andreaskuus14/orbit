@@ -35,7 +35,7 @@ async function api<T>(body?: unknown): Promise<T> {
   return json as T;
 }
 
-export default function StoryPanel({ active, onOpenClip, onChanged }: { active: boolean; onOpenClip: (job: string, clip: string) => void; onChanged: () => void }) {
+export default function StoryPanel({ active, seed, onOpenClip, onChanged }: { active: boolean; seed?: { idea?: string; story?: string } | null /* Pipeline board: prefill an idea or select a story */; onOpenClip: (job: string, clip: string) => void; onChanged: () => void }) {
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
@@ -43,6 +43,11 @@ export default function StoryPanel({ active, onOpenClip, onChanged }: { active: 
   const [draft, setDraft] = useState<Story | null>(null); // the owner's unsaved edits of the selected story
   const [f, setF] = useState({ idea: "", style: "", length: 45, voice: "kokoro:af_heart", hfVoice: "", motion: "stills" as "stills" | "video" });
 
+  useEffect(() => {
+    if (seed?.story) { setSel(seed.story); setDraft(null); }
+    const idea = seed?.idea;
+    if (idea) setF((x) => ({ ...x, idea }));
+  }, [seed]);
   const load = useCallback(async () => {
     try { setD(await api<Data>()); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   }, []);
@@ -89,7 +94,7 @@ export default function StoryPanel({ active, onOpenClip, onChanged }: { active: 
         <h3 className="hud-title studio-title mb-2 !text-[0.7rem]">AI STORY</h3>
         <p className="muted mb-2 text-xs">Claude writes a short story, Higgsfield makes the pictures, ORBIT narrates and edits it into a Short. You see the price first; nothing is generated until you approve.{d?.dryRun && " (Dry run: fake Higgsfield, no credits.)"}</p>
         <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void write(); }}>
-          <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} maxLength={1000} placeholder="Your idea, e.g. a lighthouse keeper finds a letter from himself, dated tomorrow" value={f.idea} onChange={(e) => setF({ ...f, idea: e.target.value })} aria-label="Story idea" />
+          <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} maxLength={1000} placeholder="Your idea, e.g. a lighthouse keeper finds a letter from himself, dated tomorrow" value={f.idea} onChange={(e) => setF({ ...f, idea: e.target.value })} aria-label="Story idea" id="story-idea" />
           <input className="field w-full !px-2 !py-1 !text-xs" maxLength={200} placeholder="Style (optional), e.g. moody watercolor, Pixar-like 3D" value={f.style} onChange={(e) => setF({ ...f, style: e.target.value })} aria-label="Visual style" />
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="muted">Length</span>
