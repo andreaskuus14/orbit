@@ -9,6 +9,7 @@ type Data = {
   "memory.saved": { memoryId: string; kind: string };
   "clip.published": { clipId: string; title?: string };
   "clip.outcome48h": { clipId: string; views: number; likes: number };
+  "clip.postmortem": { clipId: string; drops: number; hold3s?: number }; // hold3s: watch ratio at 3 s (above 1 = rewatched)
   "business.stage": { prospect: string; to: Stage };
   "goal.step": { goalId: string; step: string; status: "started" | "done" | "failed"; goalDone?: boolean };
   "life.habit": { habit: string; done: boolean };
@@ -37,6 +38,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "memory.saved": { memoryId: id, kind: id },
   "clip.published": { clipId: id, title: opt(name) },
   "clip.outcome48h": { clipId: id, views: count, likes: count },
+  "clip.postmortem": { clipId: id, drops: count, hold3s: opt((v) => typeof v === "number" && v >= 0 && v <= 10) },
   "business.stage": { prospect: name, to: oneOf(STAGES) },
   "goal.step": { goalId: id, step: name, status: oneOf(["started", "done", "failed"]), goalDone: opt(bool) },
   "life.habit": { habit: name, done: bool },
