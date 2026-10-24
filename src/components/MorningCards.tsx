@@ -1,9 +1,36 @@
 "use client";
 // The morning's 5 ranked cards as a stack: swipe or ←/→ to move, 👍/👎 teach the ranking (POST /api/morning → ledger "morning.thumb").
 import { useRef, useState } from "react";
-import type { Card } from "@/lib/morning-rank-pure";
+import type { Card, Hero } from "@/lib/morning-rank-pure";
 
 const LABEL: Record<Card["kind"], string> = { task: "TOP TASK", goal: "GOAL", news: "WORTH KNOWING", business: "BUSINESS", idea: "RESURFACED" };
+
+/** Ledger "morning.click" / "morning.done" for a hero or card (POST /api/morning). Resolves false on failure. */
+export const trackCard = (event: "click" | "done", c: Card) => !c.source ? Promise.resolve(true)
+  : fetch("/api/morning", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event, source: c.source, key: c.key }) })
+    .then((r) => r.ok, () => false);
+
+/** "Do this first": one action, at most four lines (label, title, why, buttons). Done records completion and hides it until tomorrow. */
+export function MorningHero({ hero, onOpen }: { hero: Hero; onOpen: (c: Card) => void }) {
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState("");
+  const markDone = async () => {
+    setDone(true); setErr("");
+    if (!(await trackCard("done", hero))) { setDone(false); setErr("Couldn't save that, try again."); }
+  };
+  return (
+    <section className={`mhero mcards-${hero.kind}`} aria-labelledby="mhero-t">
+      <span className="mcards-k">DO THIS FIRST</span>
+      <h3 id="mhero-t" className={`mhero-t${done ? " mhero-done" : ""}`} title={hero.title}>{hero.title}</h3>
+      <p className="mhero-why muted text-xs">{done ? "Done. The next pick waits in the cards below." : hero.why}</p>
+      <div className="mcards-row">
+        <button type="button" className="btn" disabled={done} onClick={() => onOpen(hero)}>{hero.action ?? "Open"} <span aria-hidden>→</span></button>
+        <button type="button" className="chip" aria-pressed={done} disabled={done} onClick={markDone}>{done ? "✓ Done" : "Done"}</button>
+        {err && <span className="error text-xs" role="alert">{err}</span>}
+      </div>
+    </section>
+  );
+}
 
 /** problems: sources that failed to load, shown so a failure never reads as "nothing to do". */
 export function MorningCards({ cards, problems = [], onOpen }: { cards: Card[]; problems?: string[]; onOpen: (c: Card) => void }) {

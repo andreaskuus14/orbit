@@ -27,6 +27,7 @@ import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
 import { WeeklyCard } from "./WeeklyCard";
+import { EveningCapture } from "./EveningCapture";
 import { MissionControl } from "./MissionControl";
 import { StatusRail } from "./StatusRail";
 import { Ticker } from "./Ticker";
@@ -391,6 +392,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       setWorkOpen(false);
       if (t.zoom) return; // ZoomRig in the canvas on screen handles it
       if (t.mission) return; // MissionControl opens itself over whatever is on screen
+      if (t.evening) return; // EveningCapture opens itself over whatever is on screen
       if (t.doctor) { setDoctor("nav"); return; } // opens over whatever is on screen
       if (t.country || t.region || t.search !== undefined) setNewsFocus({ country: t.country, region: t.region, search: t.search });
       if (t.view) setStudioOpen({ view: t.view });
@@ -563,6 +565,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
       <MorningCard home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       <WeeklyCard home={!shown && !approach} />
+      <EveningCapture />
       {!shown && !approach && view === "3d" && <ContinueWork floating onOpenTask={openTask} onOpenGoal={openGoal} />}
       <Herald home={!shown && !approach && !gameOpen} coreBusy={busy} />
       <WhatsNew home={!shown && !approach} />

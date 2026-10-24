@@ -7,7 +7,7 @@ import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { NOTIFY_KEY, parseItems } from "@/lib/notify-pure";
 import { awaySince, countSince, localDay, shouldAutoShow, sinceEmpty, sinceSpoken, type Morning, type MorningNav, type MorningSince } from "@/lib/morning-pure";
 import { speakChunk, speechSettings } from "./voice/speak";
-import { MorningCards } from "./MorningCards";
+import { MorningCards, MorningHero, trackCard } from "./MorningCards";
 import type { WorkItem } from "@/lib/work-continuation-pure";
 import type { Card } from "@/lib/morning-rank-pure";
 
@@ -110,7 +110,11 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
   const toggleSpeak = (v: boolean) => { setSpeakMorning(v); save({ ...load(), speak: v }); };
   // Orbit's OPEN_MEMORY_EVENT handler also switches to the MEMORY panel.
   const openMem = (id: string) => { setOpen(false); dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id } })); };
-  const openCard = ({ open: o }: Card) => "work" in o ? openWork(o.work) : "memory" in o ? openMem(o.memory) : nav({ panel: o.panel, ...(o.view && { view: o.view }) });
+  const openCard = (c: Card) => {
+    void trackCard("click", c); // clicks per source: a source nobody opens for 14 days sinks (morning-rank-pure pickHero)
+    const o = c.open;
+    if ("work" in o) openWork(o.work); else if ("memory" in o) openMem(o.memory); else nav({ panel: o.panel, ...(o.view && { view: o.view }) });
+  };
   const s = data?.studio, a = data?.agents, l = data?.life, cal = data?.calendar, sn = data?.since;
   const best = s?.yesterday.filter((y) => y.views !== null).sort((x, y) => y.views! - x.views!)[0];
   const away = sn ? Math.round((Date.now() - sn.from) / 3_600_000) : 0;
@@ -142,6 +146,7 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
       {data && (
         <div className="grid gap-3">
           {s?.pausedUntil && <p className="warn">YouTube downloads paused until {s.pausedUntil}</p>}
+          {data.hero && <MorningHero hero={data.hero} onOpen={openCard} />}
           <MorningCards cards={data.cards ?? []} problems={data.work?.problems} onOpen={openCard} />
           {sinceBlock}
           <details className="mc-more">

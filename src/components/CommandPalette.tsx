@@ -37,6 +37,7 @@ const ACTIONS: Item[] = [
   { id: "act:clips", label: "STUDIO clips", hint: "Clip factory", keywords: "shorts youtube", run: () => nav({ panel: "studio", view: "clips" }) },
   { id: "act:review", label: "STUDIO review queue", hint: "Review new clips", keywords: "youtube", run: () => nav({ panel: "studio", view: "review" }) },
   { id: "act:focus", label: "Start focus timer", hint: "LIFE", keywords: "pomodoro focus mode", run: () => nav({ panel: "life", life: "focus", start: true }) },
+  { id: "act:evening", label: "Today in a minute", hint: "Evening note (Ctrl/⌘ Shift E)", keywords: "evening capture journal log my day diary", run: () => nav({ panel: null, evening: true }) },
   { id: "act:journal", label: "Open journal", hint: "LIFE", keywords: "diary write", run: () => nav({ panel: "life", life: "journal" }) },
   { id: "act:reminder", label: "New reminder", hint: "LIFE", keywords: "remind me add", run: () => nav({ panel: "life", life: "reminders" }) },
 ];

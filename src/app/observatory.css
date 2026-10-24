@@ -238,6 +238,15 @@
 .mcards-row { display: flex; align-items: center; gap: .35rem; margin-top: auto; }
 .mcards-nav { margin-left: auto; display: flex; align-items: center; gap: .35rem; }
 .mcards button:disabled { opacity: .45; }
+/* "Do this first" (MorningHero): one action, four lines max: label, title (one line), why (one line), buttons. */
+.mhero { display: grid; gap: .35rem; padding: .75rem .9rem; border: 1px solid color-mix(in srgb, var(--c, #7dd3fc) 45%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c, #7dd3fc) 16%, transparent), transparent 60%), #03070df2; box-shadow: inset 2px 0 0 var(--c, #7dd3fc); }
+.mhero-t { font-size: 1.02rem; line-height: 1.3; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mhero-why { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mhero-done { text-decoration: line-through; opacity: .6; }
+.mhero .mcards-row { margin-top: .15rem; }
+/* Evening capture (EveningCapture.tsx) */
+.evening-text { width: 100%; min-height: 6.5rem; resize: vertical; }
 
 /* Always-on HUD corners over the galaxy (HudFrame.tsx). */
 .hud-frame { position: fixed; inset: 0; z-index: 4; pointer-events: none; }
