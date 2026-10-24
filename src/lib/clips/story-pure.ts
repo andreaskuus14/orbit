@@ -1,6 +1,7 @@
 // AI Story (Clip Factory): pure logic for the story package, the Higgsfield cost/approval gate, the MCP tool guard and the
 // ffmpeg assembly graph. Server glue: story.ts; engine: story-render.ts; Higgsfield: higgsfield.ts.
 import type { Word } from "./pure.ts";
+import type { Draft } from "../higgsfield-pure.ts";
 
 export type StoryScene = { visual: string; narration: string; sec: number; camera: string };
 export type Story = { title: string; hook: string; scenes: StoryScene[] };
@@ -14,7 +15,8 @@ export type StoryStatus = "draft" | "quoted" | "generating" | "assembling" | "do
 export type StoryJob = { v: 1; id: string; createdAt: string; updatedAt: string; status: StoryStatus; step: string; opts: StoryOpts; story: Story; items: HfItem[];
   quote?: { total: number; balance: number | null; plan: string | null; fingerprint: string; at: string };
   approved?: { at: string; credits: number }[]; // every owner click that allowed spending (resumes add one)
-  clipJob?: string; error?: { kind: HfErrorKind; message: string }; warnings: string[] };
+  clipJob?: string; error?: { kind: HfErrorKind; message: string }; warnings: string[];
+  draft?: Draft }; // CORE's higgsfield_draft: plain generations (no script, no assembly), same quote → Approve gate
 export type Models = { image: string; video: string; audio: string };
 
 export const STORY_SCENES = { min: 5, max: 9 };

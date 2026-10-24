@@ -1,10 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { MODEL, askClaude } from "../claude";
+import { MODEL, askClaude, emitAsOwner } from "../claude";
 import { clipsDir, ffmpegPath, readState, runFfmpeg, saveJob, saveState, studioRoot, transcribe } from "./factory";
 import { higgsfield } from "./higgsfield";
-import { makeStory, StoryError, type RenderDeps } from "./story-render";
+import { generate, makeStory, StoryError, type RenderDeps } from "./story-render";
+import { capProblem, draftBlocked, draftItems, validDraft, weeklyCap, weekSpent } from "../higgsfield-pure";
+import { stopAllOn } from "../stop-all";
+import { PAUSED_MSG } from "../stop-all-pure";
+import { errText } from "../core-studio";
 import { STATE_V, audioArgs, parseDuration, probeArgs, type Word } from "./pure";
 import {
   STORY_SCENES, approveProblem, fingerprint, hfErrorKind, parseStory, quoteTotal, storyItems, storyProblem, unpaid, validStory,
@@ -72,8 +76,34 @@ export async function writeStory(o: StoryOpts, signal?: AbortSignal): Promise<St
   return job;
 }
 
+/** CORE's higgsfield_draft (roadmap 3.1): a priced proposal in this queue. Only the owner's Approve click here spends credits. */
+export async function runDraftTool(input: Record<string, unknown>, question: string, tainted: boolean): Promise<string> {
+  const blocked = draftBlocked(question, tainted); // decide() checked this too; the runner keeps its own guard like STUDIO's
+  if (blocked) return `Error: ${blocked}`;
+  const d = validDraft(input, models());
+  if (typeof d === "string") return `Error: ${d}`;
+  try {
+    const now = new Date().toISOString();
+    const job: StoryJob = { v: 1, id: newId(), createdAt: now, updatedAt: now, status: "draft", step: "Drafted by CORE: asking Higgsfield the price",
+      opts: { idea: d.prompt, style: "", length: 0, voice: "none", motion: d.kind === "video" ? "video" : "stills" },
+      story: { title: `CORE: ${d.count}× ${d.kind}, ${d.prompt}`.slice(0, 100), hook: "", scenes: [] }, items: draftItems(d), warnings: [], draft: d };
+    await save(job);
+    void quoteStory(job).catch(() => {}); // get_cost only (hf-guard quote mode); can take minutes, so not inside CORE's turn
+    const w = await weekUsage();
+    return `Done: drafted ${d.count} ${d.kind}${d.count > 1 ? "s" : ""} (${d.model}, ${d.aspect}). Nothing is generated and no credits are spent: ORBIT is only asking Higgsfield the price. It waits in STUDIO → Clip Factory → AI Story for the user's Approve click (${w.used} of ${w.cap} weekly credits used); tell them.`;
+  } catch (e) {
+    return `Error: ${errText(e)}`;
+  }
+}
+
+/** This week's approved Higgsfield credits (every Approve click on a story or draft) and the cap. */
+export async function weekUsage(): Promise<{ used: number; cap: number }> {
+  return { used: weekSpent((await listStories()).flatMap((j) => j.approved ?? []), Date.now()), cap: weeklyCap(process.env.ORBIT_HIGGSFIELD_WEEKLY_CAP) };
+}
+
 /** The owner's edits. Only before anything was submitted; drops the old quote. */
 export async function editStory(job: StoryJob, input: unknown): Promise<StoryJob | string> {
+  if (job.draft) return "A CORE draft can't be edited: ask CORE for a new one";
   if (job.items.some((i) => i.jobId) || ["generating", "assembling", "done"].includes(job.status)) return "This story is already being made; write a new one to change it";
   const story = validStory(input, job.opts.length, false);
   if (typeof story === "string") return story;
@@ -101,20 +131,31 @@ export async function quoteStory(job: StoryJob, signal?: AbortSignal): Promise<S
 export async function approveStory(job: StoryJob, credits: unknown): Promise<StoryJob | string> {
   const why = approveProblem(job, credits);
   if (why) return why;
-  if (S.running) return "Another story is being made; wait for it to finish";
+  if (stopAllOn()) return PAUSED_MSG;
+  const w = await weekUsage(), total = quoteTotal(job.items);
+  const over = capProblem(w.used, total, w.cap);
+  if (over) return over;
+  if (S.running) return "Another story is being made; wait for it to finish"; // no await from here to S.running: one spend at a time
   const ctrl = new AbortController();
   S.running = { id: job.id, ctrl }; // before saving "generating": listStories would mark an unclaimed one as interrupted
-  (job.approved ??= []).push({ at: new Date().toISOString(), credits: quoteTotal(job.items) });
-  job.clipJob ??= newId();
+  (job.approved ??= []).push({ at: new Date().toISOString(), credits: total });
+  if (!job.draft) job.clipJob ??= newId();
   Object.assign(job, { status: "generating", step: "Starting", error: undefined });
   await save(job).catch((e) => { S.running = undefined; throw e; });
+  if (total > 0) void emitAsOwner("higgsfield.spend", "studio", { jobId: job.id, credits: total, kind: job.draft ? "draft" : "story" });
   void run(job, ctrl.signal).finally(() => { if (S.running?.id === job.id) S.running = undefined; });
   return job;
 }
 
 async function run(job: StoryJob, signal: AbortSignal) {
-  const dir = path.join(clipsDir(), job.clipJob!);
+  const dir = job.draft ? path.join(studioRoot(), "higgsfield", job.id) : path.join(clipsDir(), job.clipJob!);
   try {
+    if (job.draft) { // plain generations: no script, no assembly; files stay in <studio>/higgsfield/<id>
+      await mkdir(dir, { recursive: true });
+      await generate(job, dir, { hf: higgsfield(), save: async (step) => { job.step = step; await save(job); } }, signal);
+      Object.assign(job, { status: "done", step: `Done: ${job.items.length} file${job.items.length > 1 ? "s" : ""} in ${dir}` });
+      return;
+    }
     const ff = await ffmpegPath();
     if (!ff) throw new StoryError("other", "ffmpeg not found: run npm install (ffmpeg-static) or set ORBIT_FFMPEG");
     await mkdir(dir, { recursive: true });
