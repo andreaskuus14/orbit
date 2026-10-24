@@ -70,6 +70,8 @@ export function WarmCompile() {
       const p = compileAs(gl, scene, camera, get().internal.priority > 0);
       hidden.forEach((o) => { o.visible = false; });
       p.then(() => uploadTextures(gl, scene, () => alive)).catch(() => {}).finally(() => { if (alive) release(); });
+      // A slow driver must not hold the canvas blank: after 4 s draw anyway (anything unfinished compiles in that frame).
+      setTimeout(() => { if (alive) release(); }, 4000);
     }, 0);
     return () => { alive = false; clearTimeout(t); release(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount
