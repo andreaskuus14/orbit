@@ -517,9 +517,11 @@ const sec = (s: number) => (Math.round(s * 1000) / 1000).toString();
 
 // ffmpeg sniffs formats by content: a playlist disguised as .mp4 could pull in other local files. Only real video containers, only plain files.
 export const IN = ["-format_whitelist", "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm", "-protocol_whitelist", "file", "-i"];
-export const probeArgs = (input: string) => ["-hide_banner", "-nostdin", ...IN, input];
-export const audioArgs = (input: string, out: string) =>
-  ["-hide_banner", "-nostdin", "-y", ...IN, input, "-t", String(MAX_SOURCE_SEC), "-vn", "-ac", "1", "-ar", String(SAMPLE_RATE),
+// ORBIT's own generated audio (AI Story narration: Kokoro wav, Higgsfield mp3) also needs these demuxers; downloads never do.
+export const OWN_IN = ["-format_whitelist", "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,wav,mp3", "-protocol_whitelist", "file", "-i"];
+export const probeArgs = (input: string, own = false) => ["-hide_banner", "-nostdin", ...(own ? OWN_IN : IN), input];
+export const audioArgs = (input: string, out: string, own = false) =>
+  ["-hide_banner", "-nostdin", "-y", ...(own ? OWN_IN : IN), input, "-t", String(MAX_SOURCE_SEC), "-vn", "-ac", "1", "-ar", String(SAMPLE_RATE),
     "-af", "aresample=async=1:first_pts=0", "-f", "f32le", out]; // fill audio gaps/late starts with silence so PCM time = video time
 
 export type Layout = NonNullable<ClipOptions["layout"]>;

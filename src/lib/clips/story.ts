@@ -183,15 +183,15 @@ async function deps(ff: string, job: StoryJob, dir: string): Promise<RenderDeps>
     hf: higgsfield(),
     ffmpeg: exec,
     music: music.length ? path.join(musicDir(), music[Math.floor(Math.random() * music.length)]) : null,
-    duration: async (f, signal) => parseDuration(await runFfmpeg(ff, probeArgs(f), { signal, timeoutMs: 60_000, okCodes: [1] })) ?? 0,
+    duration: async (f, signal) => parseDuration(await runFfmpeg(ff, probeArgs(f, true), { signal, timeoutMs: 60_000, okCodes: [1] })) ?? 0,
     async tts(text, voice, file) {
       const tts = (S.tts ??= import("kokoro-js").then((m) => m.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" })) as NonNullable<S["tts"]>);
       tts.catch(() => { S.tts = undefined; }); // let a later story retry the load
       await (await (await tts).generate(text, { voice })).save(file);
     },
     async words(file, signal): Promise<Word[]> {
-      await runFfmpeg(ff, audioArgs(path.basename(file), "audio.f32"), { cwd: dir, signal, timeoutMs: 5 * 60_000 });
-      const sec = parseDuration(await runFfmpeg(ff, probeArgs(file), { signal, timeoutMs: 60_000, okCodes: [1] })) ?? 0;
+      await runFfmpeg(ff, audioArgs(path.basename(file), "audio.f32", true), { cwd: dir, signal, timeoutMs: 5 * 60_000 });
+      const sec = parseDuration(await runFfmpeg(ff, probeArgs(file, true), { signal, timeoutMs: 60_000, okCodes: [1] })) ?? 0;
       return transcribe(path.join(dir, "audio.f32"), [{ start: 0, end: sec }], "auto", signal, () => {}, async () => {});
     },
     async effects(input, signal) {

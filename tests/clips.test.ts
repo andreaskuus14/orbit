@@ -143,6 +143,11 @@ test("ffmpeg arg builders", () => {
   assert.ok(r.includes("libx264") && r.includes("+faststart") && r.at(-1) === "clip-1.mp4");
   assert.equal(r[r.indexOf("-ac") + 1], "2", "5.1 sources are downmixed to stereo");
   const a = audioArgs("x.mp4", "a.f32");
+  // downloads can't use wav/mp3 demuxers; ORBIT's own story narration (Kokoro wav, Higgsfield mp3) can
+  const wl = (args: string[]) => args[args.indexOf("-format_whitelist") + 1].split(",");
+  assert.ok(!wl(probeArgs("x.wav")).includes("wav") && !wl(audioArgs("x.wav", "a.f32")).includes("mp3"));
+  assert.ok(wl(probeArgs("n.wav", true)).includes("wav") && wl(audioArgs("n.mp3", "a.f32", true)).includes("mp3"));
+  assert.equal(probeArgs("n.wav", true)[probeArgs("n.wav", true).indexOf("-i") - 1], "file");
   assert.deepEqual(a.slice(a.indexOf("-af"), a.indexOf("-af") + 4), ["-af", "aresample=async=1:first_pts=0", "-f", "f32le"]);
   assert.ok(r[r.indexOf("-filter_complex") + 1].endsWith(",ass=clip-1.ass[v]"));
   assert.throws(() => renderFilter({ duration: 5, ass: "C:\\x\\y.ass" }));
