@@ -289,6 +289,7 @@ vec3 xray(vec3 p, vec3 rd, float w, float t, float cw) {
 
 /** The planet's surface material. `extra` is chained (the HUD's rim light). Returns the material; animate `uTime`,
  *  set `uDetail` (0 overview .. 1 close-up, see planetDetail) every frame. */
+const LAG = 0.45; // s: the hover's delayed time at the lens centre
 /** A world's surface identity: pattern family (see famColor) and palette. Omit for the legacy liquid chrome. */
 export type SurfaceLook = { fam: 0 | 1 | 2 | 3; pal: readonly [string, string, string]; seed: number };
 // per family: metalness, roughness, clearcoat, env reflection, iridescence, bump scale
@@ -325,14 +326,17 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
     });
     mat.onBeforeCompile = (s) => {
       extra?.(s);
-      Object.assign(s.uniforms, u);
+      Object.assign(s.uniforms, u, { uTimeU: u.uTime });
       s.vertexShader = s.vertexShader
         .replace("void main() {", "uniform float uTime; uniform float uLq; uniform float uChrome; varying vec3 vLq;\nvoid main() {")
         .replace("#include <begin_vertex>", `#include <begin_vertex>
           vLq = position / max(uLq, 1e-3);
           transformed += objectNormal * uLq * 0.018 * uChrome * (sin(vLq.x * 5.0 + uTime * 0.9) * sin(vLq.y * 4.0 - uTime * 0.7) + sin(vLq.z * 6.0 + uTime * 1.1) * 0.6);`);
       s.fragmentShader = s.fragmentShader
-        .replace("void main() {", `uniform float uLq; uniform vec3 uTint; uniform vec3 uPoolTint; uniform float uFar; uniform float uIdent; uniform float uBump; uniform float uChrome;\n${SURF}\n${CITY}\n${HOLO}\nvoid main() {`)
+        // Time-lag hover (Dune shield): uTime is a per-fragment clock here, running up to LAG s behind near the x-ray lens
+        // (uLens, eased with uLensK): a soft circle of delayed time. Growing in, it visibly slows; leaving, it catches up.
+        .replace("void main() {", `uniform float uLq; uniform vec3 uTint; uniform vec3 uPoolTint; uniform float uFar; uniform float uIdent; uniform float uBump; uniform float uChrome;\n${SURF.replace("uniform float uTime;", "uniform float uTimeU; float uTime;")}\n${CITY}\n${HOLO}\nvoid main() {
+          uTime = uTimeU - ${LAG.toFixed(2)} * clamp(uLensK, 0.0, 1.0) * (1.0 - smoothstep(0.0, 1.0, length(normalize(vLq) - uLens) / max(uLensR * 1.9, 1e-3))) * step(1e-4, uTimeU);`) // reduced motion holds uTime at 0: no lag
         .replace("#include <color_fragment>", `#include <color_fragment>
           float fwq = length(fwidth(vLq));
           surf(vLq, fwq);

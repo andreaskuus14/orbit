@@ -92,11 +92,22 @@
 .orbit-shell .cmdbar::before { content: "" / ""; position: absolute; left: 12%; right: 12%; top: -1px; height: 1px; pointer-events: none;
   background: linear-gradient(90deg, transparent, #e8fbff, transparent); opacity: .7; }
 
-/* Open: unfold from a hairline (width first, then height) in 220 ms; close folds back. Ends at inset(-60px) so glows aren't clipped. */
-@keyframes hud-unfold { 0% { clip-path: inset(calc(50% - 1px) 50%); opacity: .3; } 45% { clip-path: inset(calc(50% - 1px) 0); opacity: 1; } 100% { clip-path: inset(-60px); opacity: 1; } }
+/* Open: hard-light assembly (Halo Forerunner), 220 ms. First only the edge scaffold shows (a 1px outline with 6px corner
+   nodes: the panel minus a notched evenodd hole), then the faces fill top to bottom in four hard steps: no easing, no
+   inertia, a dead stop. Ends with no hole and the outline at -60px so glows aren't clipped. Close still folds back. */
+@keyframes hud-unfold {
+  0%, 30% { animation-timing-function: steps(4, end); clip-path: polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0,
+    6px 1px, calc(100% - 6px) 1px, calc(100% - 6px) 6px, calc(100% - 1px) 6px, calc(100% - 1px) calc(100% - 6px), calc(100% - 6px) calc(100% - 6px),
+    calc(100% - 6px) calc(100% - 1px), 6px calc(100% - 1px), 6px calc(100% - 6px), 1px calc(100% - 6px), 1px 6px, 6px 6px, 6px 1px, 0 0); }
+  99% { clip-path: polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0,
+    6px calc(100% - 6px), calc(100% - 6px) calc(100% - 6px), calc(100% - 6px) calc(100% - 6px), calc(100% - 1px) calc(100% - 6px), calc(100% - 1px) calc(100% - 6px), calc(100% - 6px) calc(100% - 6px),
+    calc(100% - 6px) calc(100% - 1px), 6px calc(100% - 1px), 6px calc(100% - 6px), 1px calc(100% - 6px), 1px calc(100% - 6px), 6px calc(100% - 6px), 6px calc(100% - 6px), 0 0); }
+  100% { clip-path: polygon(evenodd, -60px -60px, calc(100% + 60px) -60px, calc(100% + 60px) calc(100% + 60px), -60px calc(100% + 60px), -60px -60px,
+    50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, -60px -60px); }
+}
 @keyframes hud-fold { 0% { clip-path: inset(-60px); opacity: 1; } 55% { clip-path: inset(calc(50% - 1px) 0); opacity: 1; } 100% { clip-path: inset(calc(50% - 1px) 50%); opacity: 0; } }
 .orbit-shell .drawer.glass:not(.drawer-out), .orbit-shell :is(.panel-in, .morning-card, .status-hud, .studio-rail, .continue-work-float, .work-sheet, .keys-overlay[open], .hud-menu:popover-open) {
-  animation-name: hud-unfold; animation-duration: .22s; animation-timing-function: cubic-bezier(.3, .7, .2, 1); animation-fill-mode: both; }
+  animation-name: hud-unfold; animation-duration: .22s; animation-timing-function: linear; animation-fill-mode: both; }
 .orbit-shell .drawer.glass.drawer-out { animation: hud-fold .18s cubic-bezier(.6, 0, .8, .3) forwards; }
 .orbit-shell .status-hud dl > div { border: 0; padding-bottom: .1rem; }
 .orbit-shell .story-anim { animation: observatory-enter .45s var(--orbit-ease) both; }

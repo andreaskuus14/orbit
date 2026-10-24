@@ -11,6 +11,7 @@ import * as THREE from "three";
 import { HOLO, useAlienEnv } from "./env";
 import { Fractal } from "./Fractal";
 import { coreCalm, coreScale, tesseractAngle } from "@/lib/alien-pure";
+import { easeInStop, newUnseen, unseenAngle, unseenStep, watched } from "@/lib/alien-behaviour-pure";
 import type { CoreLive } from "../ParticleCore";
 
 const finite = (x: number, lo = 0, hi = 1) => (Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : lo);
@@ -99,6 +100,12 @@ function glyphHook(u: GlyphU, w0: number) {
           lit *= 1.0 - smoothstep(0.05, 0.12, fwidth(g.x)); // a glyph's dot columns under ~2 px: fade, never shimmer
           float wave = pow(0.5 + 0.5 * sin(vG.x * 6.2831853 * 3.0 - uTime * 0.7 + gh(cell) * 0.6), 14.0);
           totalEmissiveRadiance += vec3(0.55, 0.85, 1.0) * lit * (0.04 + 1.6 * wave) * max(uGlyph, 0.0);
+        }
+        { // oil sheen (Annihilation): a thin-film band only where the blade turns edge-on, no glow
+          float gz = 1.0 - abs(dot(normal, normalize(vViewPosition)));
+          float band = smoothstep(0.7, 0.88, gz) * (1.0 - smoothstep(0.94, 1.0, gz));
+          vec3 film = 0.5 + 0.5 * cos(6.2831853 * (gz * 2.6 + vG.x * 5.0 + uTime * 0.02 + vec3(0.0, 0.33, 0.67)));
+          totalEmissiveRadiance += film * band * 0.07;
         }`);
   };
 }
@@ -119,7 +126,9 @@ function ObsidianRing({ r, h, w, env, u }: { r: number; h: number; w: number; en
   return <mesh geometry={geo} material={mat} scale={[1, 1, 3.2]} frustumCulled={false} />; // stretched along the tube's z: tall thin blade; the 4D warp leaves its bounds
 }
 
-export function Singularity({ live, reduced, level }: { live: RefObject<CoreLive>; reduced: boolean; level: number }) {
+const _dir = new THREE.Vector3(), _ndc = new THREE.Vector3();
+
+export function Singularity({ live, reduced, level, aligned = false }: { live: RefObject<CoreLive>; reduced: boolean; level: number; aligned?: boolean }) {
   const env = useAlienEnv();
   const halo = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: HALO_VS, fragmentShader: HALO_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
@@ -139,7 +148,14 @@ export function Singularity({ live, reduced, level }: { live: RefObject<CoreLive
 
   const rings = useRef<(THREE.Group | null)[]>([]);
   const spin = useRef<(THREE.Group | null)[]>([]);
-  useFrame(({ clock, camera }, dt) => {
+  // Unseen change (Blindsight): the 4D configuration holds still while watched and snaps to the next one behind a fast
+  // camera turn or a far pointer. Opening the CORE re-aligns the rings: ease-in into stillness, then a dead stop.
+  const un = useRef({ ...newUnseen(), xw: unseenAngle(0, 0), yw: unseenAngle(0, 1), last: new THREE.Vector3(), primed: false, a: -1, ax: 0, ay: 0 });
+  useEffect(() => { // the shortest way to (0, 0): the angles wrap at 2 pi
+    const U = un.current, w = (x: number) => x - Math.PI * 2 * Math.round(x / (Math.PI * 2));
+    U.a = aligned ? 0 : -1; U.ax = w(U.xw); U.ay = w(U.yw);
+  }, [aligned]);
+  useFrame(({ clock, camera, pointer }, dt) => {
     const t = reduced ? 12 : clock.elapsedTime, L = live.current, calm = coreCalm(camera.position.length());
     const g = finite(L?.g ?? 0), br = finite(L?.breath ?? 0.5), v = finite((L?.mic ?? 0) + (L?.spk ?? 0));
     halo.uniforms.uTime.value = t;
@@ -151,15 +167,27 @@ export function Singularity({ live, reduced, level }: { live: RefObject<CoreLive
     root.current?.scale.setScalar(coreScale(camera.position.length()));
     glyph.uTime.value = t;
     glyph.uGlyph.value = (0.8 + 1.5 * g + 0.8 * v) * (1 - 0.6 * calm);
-    glyph.uXW.value = tesseractAngle(t, 0, reduced);
-    glyph.uYW.value = tesseractAngle(t, 1, reduced);
     gain.current = halo.uniforms.uGain.value;
-    if (reduced) return;
+    if (reduced) { glyph.uXW.value = tesseractAngle(t, 0, true); glyph.uYW.value = tesseractAngle(t, 1, true); return; }
     const step = Number.isFinite(dt) ? Math.min(0.1, Math.max(0, dt)) : 0;
-    for (let i = 0; i < RINGS.length; i++) { // spin about the blade's own axis, precess the whole ring around y
-      const s = spin.current[i], o = rings.current[i];
+    const U = un.current;
+    camera.getWorldDirection(_dir);
+    const ang = U.primed && step > 0 ? U.last.angleTo(_dir) / step : 0;
+    U.last.copy(_dir); U.primed = true;
+    _ndc.set(0, 0, 0).project(camera);
+    const onScreen = _ndc.z < 1 && Math.abs(_ndc.x) < 1.05 && Math.abs(_ndc.y) < 1.05;
+    if (U.a >= 0) { // aligning: from the held configuration to (0, 0), accelerating, then still
+      U.a = Math.min(1, U.a + step / 0.8);
+      const e = 1 - easeInStop(U.a);
+      U.xw = U.ax * e; U.yw = U.ay * e;
+    } else if (unseenStep(U, step, watched(ang, Math.hypot(pointer.x - _ndc.x, pointer.y - _ndc.y), onScreen))) {
+      U.xw = unseenAngle(U.n, 0); U.yw = unseenAngle(U.n, 1);
+      for (let i = 0; i < RINGS.length; i++) { const o = rings.current[i]; if (o) o.rotation.y += (1.9 + i * 0.7) * Math.sign(RINGS[i].pre); } // precession jumps too
+    }
+    glyph.uXW.value = U.xw; glyph.uYW.value = U.yw;
+    for (let i = 0; i < RINGS.length; i++) { // spin about the blade's own axis (the shape holds); precession only jumps, unseen (above)
+      const s = spin.current[i];
       if (s) s.rotation.z += step * RINGS[i].spin * (1 + 2 * g);
-      if (o) o.rotation.y += step * RINGS[i].pre;
     }
   });
 

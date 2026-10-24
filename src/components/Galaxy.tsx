@@ -37,6 +37,8 @@ import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
 import { WarmCompile } from "./WarmCompile";
+import { InkGlyph } from "./InkGlyph";
+import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
 
 export type GalaxyProps = {
   bloomScale?: number; // ambient night mode softens the glow
@@ -62,6 +64,8 @@ export type GalaxyProps = {
 
 type Positions = Record<string, THREE.Vector3>;
 type Scales = Record<string, number>; // per-world display scale (overview boost x hover lift), written per frame
+type Arrive = { id: PanelId | null; k: number }; // the planet fly-to's progress (0..1): its moons converge with it
+const _v = new THREE.Vector3();
 const glow = (pulses: RefObject<Record<string, number>>, id: string) =>
   Math.max(0, 1 - (Date.now() - (pulses.current?.[id] ?? 0)) / 3000);
 
@@ -126,7 +130,7 @@ function OrbitPath({ r, warn = false }: { r: number; warn?: boolean }) {
   );
 }
 
-function Moons({ count, reduced }: { count: number; reduced: boolean }) {
+function Moons({ count, reduced, spread }: { count: number; reduced: boolean; spread: () => number }) {
   const g = useRef<THREE.Group>(null);
   const items = useMemo(
     () => Array.from({ length: Math.min(count, 40) }, (_, i) => {
@@ -146,7 +150,7 @@ function Moons({ count, reduced }: { count: number; reduced: boolean }) {
     m.instanceMatrix.needsUpdate = true;
     m.computeBoundingSphere(); // three caches the instanced bounds: recompute or moons get culled against stale ones
   }, [items]);
-  useFrame((_, dt) => { if (g.current && !reduced) g.current.rotation.y += dt * 0.4; });
+  useFrame((_, dt) => { if (g.current) { if (!reduced) g.current.rotation.y += dt * 0.4; g.current.scale.setScalar(spread()); } });
   return (
     <group ref={g}>
       <instancedMesh ref={inst} args={[undefined, undefined, 40]} count={items.length}>
@@ -158,13 +162,13 @@ function Moons({ count, reduced }: { count: number; reduced: boolean }) {
 }
 
 /** An agent's satellite: glows and circles its planet only while the agent is really working. */
-function AgentSatellite({ size, active, reduced, offset = 0 }: { size: number; active: boolean; reduced: boolean; offset?: number }) {
+function AgentSatellite({ size, active, reduced, offset = 0, spread }: { size: number; active: boolean; reduced: boolean; offset?: number; spread: () => number }) {
   const ref = useRef<THREE.Group>(null);
   useFrame(({ clock }) => {
     if (!ref.current) return;
     ref.current.visible = active;
     const a = (reduced ? 0.8 : clock.elapsedTime * 2) + offset;
-    ref.current.position.set(Math.cos(a) * size * 2.2, Math.sin(a * 0.7) * size * 0.4, Math.sin(a) * size * 2.2);
+    ref.current.position.set(Math.cos(a) * size * 2.2, Math.sin(a * 0.7) * size * 0.4, Math.sin(a) * size * 2.2).multiplyScalar(spread());
   });
   return (
     <group ref={ref} visible={false}>
@@ -309,7 +313,7 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, light, shell = 0, level = 1, scales, feel }: {
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, light, shell = 0, level = 1, scales, feel, arrive }: {
   p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
   agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
@@ -320,6 +324,7 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   level?: number; // quality level: caps the close-up detail octaves and the LOD mesh
   scales?: Scales;
   feel?: RefObject<Feel>; // the eased pointer: worlds lean toward it a touch
+  arrive?: RefObject<Arrive>;
 }) {
   const group = useRef<THREE.Group>(null);
   const mesh = useRef<THREE.Mesh>(null);
@@ -339,6 +344,10 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   // ticks, and a denser sphere once the world is big on screen (level 2+ only; swapped in place, no re-render).
   const detail = useRef(0);
   const near = useCallback(() => detail.current, []);
+  const spread = useCallback(() => { const a = arrive?.current; return a && a.id === p.id ? arrivalSpread(a.k) : 1; }, [arrive, p.id]);
+  // Unseen change: the surface pattern re-seeds a little each time the world leaves the screen
+  const seed0 = useMemo(() => liquid.u.uSeed.value.clone(), [liquid]);
+  const off = useRef({ off: false });
   // the x-ray lens: the pointer's hit minus the world's centre (world units: it stays under a still cursor while the surface
   // turns), and that point on the planet's unit sphere
   const lensHit = useRef({ p: new THREE.Vector3(), local: new THREE.Vector3(0, 0, 1), on: false });
@@ -369,6 +378,13 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
     group.current?.position.set(x, y, z);
     positions[p.id].set(x, y, z);
     liquid.u.uTime.value = reduced ? 0 : clock.elapsedTime;
+    if (look.surf && !reduced && !selected) {
+      _v.set(x, y, z).project(camera);
+      if (offscreenEdge(off.current, _v.z > 1 || Math.abs(_v.x) > 1.3 || Math.abs(_v.y) > 1.3)) {
+        const r = Math.random;
+        liquid.u.uSeed.value.set(seed0.x + (r() - 0.5) * 0.16, seed0.y + (r() - 0.5) * 0.16, seed0.z + (r() - 0.5) * 0.16);
+      }
+    }
     if (mesh.current) {
       if (!reduced) mesh.current.rotation.y += dt * 0.18;
       // Real backend events and lightning add a brief flare. Nothing glows at rest otherwise.
@@ -447,10 +463,10 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
         <HoloRing size={size} color={p.color} tilt={tilt} reduced={reduced} detail={near} />
         {p.id === "intelligence" && <Lightning size={size} reduced={reduced} flash={flash} />}
         {look.ring && <PlanetRing size={size} color={look.ring} />}
-        {p.id === "memory" && <Moons count={memoryCount} reduced={reduced} />}
+        {p.id === "memory" && <Moons count={memoryCount} reduced={reduced} spread={spread} />}
         {p.id === "life" && life && <LifeRing size={size} done={life.done} total={life.total} still={still} />}
         {Array.from({ length: Math.min(agentBusy, 5) }, (_, k) => (
-          <AgentSatellite key={k} size={size} active reduced={reduced} offset={(k * Math.PI * 2) / Math.min(agentBusy, 5)} />
+          <AgentSatellite key={k} size={size} active reduced={reduced} offset={(k * Math.PI * 2) / Math.min(agentBusy, 5)} spread={spread} />
         ))}
       </group>
     </>
@@ -522,7 +538,7 @@ function Beams({ positions, pulses, reduced }: { positions: Positions; pulses: R
   return <>{lines.map(({ id, line }) => <primitive key={id} object={line} />)}</>;
 }
 
-function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, level, positions }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced"> & { particles?: number; level: number; positions: Positions }) {
+function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, level, aligned }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced"> & { particles?: number; level: number; aligned: boolean }) {
   const sat = useRef<THREE.Mesh>(null);
   const voice = useRef({ mic: 0, speak: 0 }); // smoothed copy of voiceLevel (read per frame, no React state)
   const live = useRef<CoreLive>({ g: 0, mic: 0, spk: 0, breath: 0 }); // handed to the singularity and the particle swarm each frame
@@ -556,7 +572,7 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, l
   return (
     <group>
       <pointLight intensity={2.7} decay={0} color="#fff1dc" /> {/* no falloff: inner worlds would blow out, outer ones go dark */}
-      <Singularity live={live} reduced={reduced} level={level} />
+      <Singularity live={live} reduced={reduced} level={level} aligned={aligned} />
       {swarm && <group scale={0.62}><ParticleCore side={particles} busy={busy} warning={warning} live={live} onFail={onPcFail} /></group>}
       {/* Invisible hit area. */}
       <mesh ref={hit} onClick={(e) => { e.stopPropagation(); onSelect("core"); }}
@@ -664,14 +680,16 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
 // Low, oblique view like the reference illustration.
 const HOME = new THREE.Vector3(...HOME_POS); // pulled back to fit the wider outer orbits
 
-function Rig({ selected, positions, reduced, panelOpen, fast, story }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean; story: RefObject<Story> }) {
+function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean; story: RefObject<Story>; arrive: RefObject<Arrive> }) {
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; addEventListener: (t: string, f: () => void) => void; removeEventListener: (t: string, f: () => void) => void } | null;
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const size = useThree((s) => s.size);
   // A flight: eased from where the camera is now to a goal that keeps updating (planets orbit while we fly),
   // lifted on an arc so it swoops over the system instead of cutting through it.
   // Critically damped (smoothDamp) toward the goal, in the focused planet's moving frame so its orbit adds no lag.
-  const flight = useRef<{ base: THREE.Vector3; prev: THREE.Vector3 | null; vel: THREE.Vector3; velT: THREE.Vector3; d0: number; time: number; arc: number } | null>(null);
+  // A planet fly-to is instead an inertia-less arrival (`arr`): a fixed-length ease-in that ends in a dead stop.
+  const flight = useRef<{ base: THREE.Vector3; prev: THREE.Vector3 | null; vel: THREE.Vector3; velT: THREE.Vector3; d0: number; time: number; arc: number;
+    arr?: { from: THREE.Vector3; fromT: THREE.Vector3; t: number; T: number } } | null>(null);
   const goal = useMemo(() => new THREE.Vector3(), []);
   const tgt = useMemo(() => new THREE.Vector3(), []);
   const delta = useMemo(() => new THREE.Vector3(), []);
@@ -695,19 +713,22 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story }: { selecte
     if (!controls) return;
     goals();
     const dist = camera.position.distanceTo(goal);
+    arrive.current.id = selected; arrive.current.k = 1;
     if (reduced) { camera.position.copy(goal); controls.target.copy(tgt); controls.update(); flight.current = null; return; }
     const focus = focusOf();
     // smoothTime: the glide visually lands in ~3x this (the old timed flight took <= 1.2 s fast, <= 2.4 s otherwise)
     flight.current = { base: camera.position.clone(), prev: focus ? focus.clone() : null, vel: new THREE.Vector3(), velT: new THREE.Vector3(), d0: Math.max(1e-3, dist),
-      time: fastRef.current ? Math.min(0.36, 0.2 + dist / 130) : Math.min(0.75, 0.33 + dist / 66), arc: Math.min(6, dist * 0.22) };
-  }, [selected, controls, camera, reduced, goals, goal, tgt, focusOf]);
+      time: fastRef.current ? Math.min(0.36, 0.2 + dist / 130) : Math.min(0.75, 0.33 + dist / 66), arc: Math.min(6, dist * 0.22),
+      arr: focus ? { from: camera.position.clone(), fromT: controls.target.clone(), t: 0, T: arrivalSecs(dist, !!fastRef.current) } : undefined };
+    if (focus) arrive.current.k = 0;
+  }, [selected, controls, camera, reduced, goals, goal, tgt, focusOf, arrive]);
 
   useEffect(() => {
     if (!controls) return;
-    const stop = () => { flight.current = null; }; // the user grabbed the view: hand control back
+    const stop = () => { flight.current = null; arrive.current.k = 1; }; // the user grabbed the view: hand control back
     controls.addEventListener("start", stop);
     return () => controls.removeEventListener("start", stop);
-  }, [controls]);
+  }, [controls, arrive]);
 
   // Keep the focused object left of the side panel on wide screens.
   useEffect(() => {
@@ -720,7 +741,18 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story }: { selecte
     if (!controls) return;
     if (story.current.owns) { flight.current = null; return; } // the intro / scroll journey is driving the camera
     const f = flight.current;
-    if (f) {
+    if (f?.arr) {
+      goals();
+      const focus = focusOf(), A = f.arr;
+      if (focus && f.prev) { delta.copy(focus).sub(f.prev); A.from.add(delta); A.fromT.add(delta); f.prev.copy(focus); }
+      A.t += Number.isFinite(dt) ? Math.max(0, dt) : 0;
+      const e = easeInStop(A.t / A.T, 0.25); // speed only grows; at e = 1 the camera is simply there
+      camera.position.lerpVectors(A.from, goal, e);
+      camera.position.y += Math.sin(Math.PI * e) * f.arc;
+      controls.target.lerpVectors(A.fromT, tgt, e);
+      arrive.current.k = e;
+      if (e >= 1) flight.current = null;
+    } else if (f) {
       goals();
       const focus = focusOf();
       if (focus && f.prev) { delta.copy(focus).sub(f.prev); f.base.add(delta); controls.target.add(delta); f.prev.copy(focus); }
@@ -804,6 +836,7 @@ export default function Galaxy(props: GalaxyProps) {
   const level: QualityLevel = mode === "high" ? 3 : mode === "low" ? 0 : (Math.min(autoLevel, max) as QualityLevel);
   const q = QUALITY[level];
   const motion = useRef<Motion>({ speed: 0 });
+  const arrive = useRef<Arrive>({ id: null, k: 1 });
   const [feelInit] = useState(newFeel);
   const feel = useRef<Feel>(feelInit);
   useEffect(() => { markPreload(35); }, []); // the 3D chunk has loaded and mounted
@@ -850,7 +883,7 @@ export default function Galaxy(props: GalaxyProps) {
         <Stars radius={110} depth={60} count={level === 0 || props.reduced ? Math.min(2000, q.stars) : 4500} factor={2.6} fade speed={props.reduced ? 0 : 0.15} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <Dust count={q.dust} reduced={props.reduced} feel={feel} />
-        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} positions={positions} />
+        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} aligned={props.selected === "core"} />
         <Filaments positions={positions} pulses={props.pulses} reduced={props.reduced} />
         <Beams positions={positions} pulses={props.pulses} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
@@ -861,14 +894,14 @@ export default function Galaxy(props: GalaxyProps) {
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
-            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} light={props.universe?.light[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} />
+            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} light={props.universe?.light[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
         ))}
         {props.universe && <Universe u={props.universe} positions={positions} still={props.reduced || level === 0} level={level} />}
         {props.ships && <Ships tasks={props.ships.tasks} onOpen={props.ships.onOpen} positions={positions} reduced={props.reduced} />}
         {/* a focused world may be approached until it nearly fills the view: its surface keeps resolving finer detail */}
         <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={props.selected && props.selected in sizes ? sizes[props.selected] * 1.35 : 4} maxDistance={80} enableDamping />
         {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
-        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} />
+        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} arrive={arrive} />
         {!props.paused && <ZoomRig home={HOME.length()} reduced={props.reduced} />} {/* zoom commands are for the world on screen */}
         <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} story={story} />
         <PointerFeel feel={feel} enabled={!props.reduced && !coarse && !staged} />
@@ -904,6 +937,7 @@ export default function Galaxy(props: GalaxyProps) {
         {BODIES.map((id) => <span key={`l-${id}`} ref={(el) => { leaders.current[id] = el; }} className="planet-leader" />)}
         <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning ? "#fb7185" : "#efe6d6" }}>
           CORE{props.warning ? " · last request failed" : ""}
+          {props.busy && <InkGlyph reduced={props.reduced} />}
         </span>
         {PLANETS.map((p) => ( // calm labels (c11): pearl, with a breath of the world's identity colour
           <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>{p.name}</span>
