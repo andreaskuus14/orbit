@@ -15,6 +15,7 @@ type Data = {
   "focus.session": { minutes: number };
   "notify.shown": { kind: string; title: string };
   "morning.thumb": { kind: CardKind; key: string; up: boolean };
+  "policy.decision": { tool: string; tier: "T0" | "T1" | "T2" | "T3"; verdict: "allow" | "refuse"; reason: string }; // no message text or LIFE data
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -39,6 +40,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "focus.session": { minutes: (v) => typeof v === "number" && v > 0 && v <= 1440 },
   "notify.shown": { kind: id, title: name },
   "morning.thumb": { kind: oneOf(CARD_KINDS), key: id, up: bool },
+  "policy.decision": { tool: id, tier: oneOf(["T0", "T1", "T2", "T3"]), verdict: oneOf(["allow", "refuse"]), reason: str(300) },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];
