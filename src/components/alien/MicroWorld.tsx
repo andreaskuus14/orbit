@@ -6,7 +6,7 @@
 // and draw counts per frame. Placement asks the same famSite() the surface shader uses for its night-side cities, so
 // structures stand on band edges, marble veins, crater rims and land. Children of the planet mesh: they turn with it.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { NOISE } from "./LiquidPlanet";
@@ -320,6 +320,19 @@ export function MicroWorld({ size, u, level, orbital, body, seed }: {
     });
   }, [job, placed, size, u, uni]);
   useEffect(() => () => kinds?.forEach((k) => { k.g.dispose(); k.mat.dispose(); }), [kinds]);
+  // New materials would compile synchronously on their first draw (a freeze mid-flight): compile them in parallel first.
+  const { gl, camera: cam } = useThree();
+  const ready = useRef<unknown>(null);
+  useEffect(() => {
+    if (!kinds || !root.current) return;
+    let alive = true;
+    const g = root.current, hid: THREE.Object3D[] = [];
+    g.traverse((o) => { if (!o.visible) { hid.push(o); o.visible = true; } });
+    const counts = kinds.map((k) => k.g.instanceCount);
+    kinds.forEach((k) => { k.g.instanceCount = 0; });
+    gl.compileAsync(g, cam).catch(() => {}).finally(() => { hid.forEach((o) => { o.visible = false; }); kinds.forEach((k, i) => { k.g.instanceCount = counts[i]; }); if (alive) ready.current = kinds; });
+    return () => { alive = false; };
+  }, [kinds, gl, cam]);
   useEffect(() => () => { u.uCity.value = 0; }, [u]); // unmounted (quality 0): the cities go dark with it
   const meshes = useRef<(THREE.Mesh | null)[]>([]);
   const [stage] = useState(newStage);
@@ -337,7 +350,7 @@ export function MicroWorld({ size, u, level, orbital, body, seed }: {
     uni.orbit.value = st.orbit;
     uni.ship.value = st.traffic;
     u.uCity.value = st.city;
-    if (kinds) for (let i = 0; i < kinds.length; i++) {
+    if (kinds && ready.current === kinds) for (let i = 0; i < kinds.length; i++) {
       const n = rankCount(kinds[i].ranks, st.show);
       kinds[i].g.instanceCount = n;
       const m = meshes.current[i]; if (m) m.visible = n > 0;

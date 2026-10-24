@@ -13,7 +13,14 @@ export function WarmCompile() {
     setFrameloop("never");
     // one tick later: the world's children have mounted into the scene
     const t = setTimeout(() => {
-      gl.compileAsync(scene, camera).catch(() => {}).finally(() => { if (alive) setFrameloop(prev); });
+      // Hidden parts (LOD layers, micro-worlds, orbitals) would otherwise compile synchronously the moment they first
+      // show, freezing a planet switch: make them visible for the compile only (nothing draws: the loop is held).
+      const hidden: { visible: boolean }[] = [];
+      scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+      gl.compileAsync(scene, camera).catch(() => {}).finally(() => {
+        hidden.forEach((o) => { o.visible = false; });
+        if (alive) setFrameloop(prev);
+      });
     }, 0);
     return () => { alive = false; clearTimeout(t); setFrameloop(prev); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per canvas
