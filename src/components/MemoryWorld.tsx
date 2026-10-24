@@ -9,6 +9,7 @@ import { EffectComposer, Bloom, Vignette, ToneMapping, SMAA } from "@react-three
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import { MemoryPanel } from "./panels";
+import { MemoryHygiene } from "./MemoryHygiene";
 import { beliefsPending } from "./BeliefsPanel";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
@@ -454,6 +455,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           </div>}
         </div>
 
+        <MemoryHygiene onChanged={onChanged} />
         {list || flat ? <MemoryPanel focusId={focusId} onChanged={onChanged} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}
             onChange={(e) => setQuery(e.target.value)} aria-label="Search memories in the constellation" />
