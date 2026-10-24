@@ -1,7 +1,9 @@
 // IDEA RADAR: a YouTube link → its captions → every idea in it, scored against ORBIT's areas. Pure; tested in tests/ideas.test.ts.
 export const AREAS = ["studio", "business", "markets", "agents", "core", "gamedev", "other"] as const;
 export type Area = (typeof AREAS)[number];
-export type Idea = { id: string; video: string; videoTitle: string; title: string; summary: string; area: Area; score: number; next: string; at?: string; sourceAt?: string; dismissed?: boolean };
+export type Idea = { id: string; video: string; videoTitle: string; title: string; summary: string; area: Area; score: number; next: string; at?: string; sourceAt?: string; dismissed?: boolean;
+  // Comment-to-idea (comment-ideas-pure.ts): recurring viewer questions, linked to the source comments.
+  origin?: "comments"; commentKey?: string; askers?: number; comments?: { id: string; videoId: string; text: string }[] };
 export const SHOW_AT = 60; // below this an idea is saved but hidden from the board
 export const TRANSCRIPT_MAX = 60_000;
 const DAY = 86_400_000;

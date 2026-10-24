@@ -12,6 +12,8 @@ import {
   PLAYBOOK_MIN, STUDY_MAX_SEC, STUDY_SYSTEM, STUDY_V, addStudy, buildPlaybook, framePlan, parseLesson, playbookEdit, playbookText, sceneArgs, sceneTimes, studyFacts, studyFrameArgs,
   studyProblem, studyPrompt, studyTranscript, studyYtdlpArgs, type EditTune, type Lesson, type Playbook, type StudyState,
 } from "./study-pure";
+import { postmortemView } from "./postmortem";
+import { rulesText } from "./postmortem-pure";
 
 // Viral study: one Short → downloaded to a temp dir, transcribed, scene-cut counted, 6-8 frames → Claude (SMART_MODEL, with images)
 // says why it works → a text lesson in <studio>/viral-lessons.json. The video and frames are deleted right after. Pure: study-pure.ts.
@@ -27,10 +29,14 @@ export async function playbook(): Promise<Playbook> { return (S.pb ??= buildPlay
 /** Edit tuning for renderClip ({} until PLAYBOOK_MIN studies). */
 export const editTune = (): Promise<EditTune> => playbook().then(playbookEdit, () => ({}));
 /** Prompt line for clip picking ("" without studies). */
-export const playbookNotes = (): Promise<string> => playbook().then(playbookText, () => "");
+export const playbookNotes = (): Promise<string> => Promise.all([playbook().then(playbookText, () => ""), postmortemView().then(rulesText, () => "")])
+  .then((xs) => xs.filter(Boolean).join(" ")); // + rules he accepted from retention post-mortems (postmortem.ts)
 export const studyBusy = () => S.busy ?? null;
 
-export async function studyView() { const studies = await load(); return { playbook: S.pb = buildPlaybook(studies), recent: studies.slice(0, 5), busy: S.busy ?? null, min: PLAYBOOK_MIN }; }
+export async function studyView() {
+  const [studies, pm] = await Promise.all([load(), postmortemView().catch(() => null)]);
+  return { playbook: S.pb = buildPlaybook(studies), recent: studies.slice(0, 5), busy: S.busy ?? null, min: PLAYBOOK_MIN, rules: pm?.rules.map((r) => r.text) ?? [] };
+}
 
 /** Studies one Short end to end; throws a user-facing message on failure. One at a time. */
 export async function studyShort(meta: { id: string; title: string; channel: string; views?: number; source: "niche" | "own" }): Promise<Lesson> {

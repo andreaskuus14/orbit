@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { askClaude } from "./claude";
@@ -107,4 +107,11 @@ export async function dismissIdea(ideaId: string) {
   hit.dismissed = true;
   await saveState("ideas", FILE(), st);
   return true;
+}
+
+/** Read-modify-write for background writers (comment-ideas.ts); a locked/unreadable ideas.json is never reset to empty. */
+export async function updateIdeas(fn: (ideas: Idea[]) => Idea[]) {
+  const st = await readState<Store>(studioRoot(), "ideas", problem);
+  if (!st && await access(FILE()).then(() => true, () => false)) throw new Error("ideas.json is unreadable (locked?), try later");
+  await saveState("ideas", FILE(), { ideas: fn(st?.ideas ?? []).slice(0, 500) });
 }

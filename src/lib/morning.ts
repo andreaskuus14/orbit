@@ -4,6 +4,7 @@ import { youtubePauseUntil } from "./clips/pure";
 import { readPublishSettings } from "./clips/publish-schedule";
 import { scoutView } from "./clips/scout";
 import { learnProblem, type LearnState } from "./clips/learn-pure";
+import { pmMorning, postmortemProblem, type PostMortemState } from "./clips/postmortem-pure";
 import { pickRecall, type Recall } from "./resurface-pure";
 import { getContinueWork } from "./work-continuation";
 import { dailyMission } from "./daily-mission-pure";
@@ -23,17 +24,19 @@ const within = <T>(p: Promise<T>) => Promise.race([p, new Promise<never>((_, rej
 const ok = <T>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : undefined);
 
 async function studio(now: number, tz: string): Promise<MorningStudio> {
-  const [jobs, downloads, learn, sv] = await Promise.all([
+  const [jobs, downloads, learn, sv, pm] = await Promise.all([
     listJobs(), listDownloads().catch(() => []),
     readState<LearnState>(studioRoot(), "learn", learnProblem).catch(() => null), scoutView().catch(() => null),
+    readState<PostMortemState>(studioRoot(), "postmortem", postmortemProblem).catch(() => null),
   ]);
   const views = Object.fromEntries(Object.entries(learn?.clips ?? {}).flatMap(([id, r]) => (r.latest ? [[id, r.latest.views]] : [])));
   const s = sv?.scout;
-  return studioSection({
+  const sec = studioSection({
     clips: jobs.flatMap((j) => j.clips), views, tz,
     pausedUntil: youtubePauseUntil(downloads, "https://www.youtube.com/", now),
     scout: s ? { newPicks: s.picks.filter((p) => p.status === "new").length, topNiche: [...(s.niche?.niches ?? [])].sort((a, b) => b.score - a.score)[0]?.name } : null,
   }, now);
+  return { ...sec, scout: [sec.scout, pmMorning(pm)].filter(Boolean).join(" ") }; // + "N post-mortem rules to review."
 }
 
 async function intel(sb: SupabaseClient): Promise<MorningIntel> {

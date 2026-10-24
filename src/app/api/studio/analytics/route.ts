@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { getAnalytics } from "@/lib/yt-analytics";
 import { isVideoId, parseRange } from "@/lib/yt-analytics-pure";
 import { learnView } from "@/lib/clips/learn";
+import { postmortemView } from "@/lib/clips/postmortem";
 
 // STUDIO analytics: ?range=7|28|90|365 (default 28) &video=<11-char id> for one video. Contract: Analytics in yt-analytics-pure.
 export async function GET(req: Request) {
@@ -10,8 +11,8 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   if (sp.get("results") === "1") {
     try {
-      const i = await learnView();
-      return Response.json({ shorts: i.lastShorts ?? [], checkedAt: i.checkedAt, warnings: i.warnings });
+      const [i, postmortem] = await Promise.all([learnView(), postmortemView().catch(() => null)]);
+      return Response.json({ shorts: i.lastShorts ?? [], checkedAt: i.checkedAt, warnings: i.warnings, postmortem });
     } catch (e) {
       return Response.json({ error: e instanceof Error ? e.message : "Couldn't load Short results" }, { status: 502 });
     }

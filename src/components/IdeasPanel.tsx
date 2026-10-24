@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { board, freshnessLabel, isStale, type Idea } from "@/lib/ideas-pure";
+import { commentUrl } from "@/lib/comment-ideas-pure";
 
 // IDEA RADAR board (Agents Station → Ideas). Paste a YouTube link; CORE reads its captions and scores every idea.
 type Board = { shown: Idea[]; hidden: number; busy: string | null; found?: number };
@@ -47,6 +48,9 @@ export default function IdeasPanel({ initialUrl, onConsumed }: { initialUrl?: st
           {i.summary && <p className="muted">{i.summary}</p>}
           <p className="muted text-xs">{freshnessLabel(i, now)}{isStale(i, now) ? " · stale" : ""}</p>
           {i.next && <p><b>Next:</b> {i.next}</p>}
+          {!!i.comments?.length && <details className="text-xs"><summary className="cursor-pointer">{i.askers ?? i.comments.length} viewers asked: see the comments</summary>
+            <ul className="mt-1 space-y-0.5">{i.comments.map((c) => <li key={c.id}><a className="link" href={commentUrl(c)} target="_blank" rel="noopener noreferrer">“{c.text}”<span className="sr-only"> (opens YouTube)</span></a></li>)}</ul>
+          </details>}
           <div className="flex items-center justify-between gap-2 text-xs">
             <a className="link" href={`https://www.youtube.com/watch?v=${i.video}`} target="_blank" rel="noopener noreferrer">From: {i.videoTitle} <span className="sr-only">(opens YouTube)</span></a>
             <button type="button" className="chip" onClick={() => call({ action: "dismiss", id: i.id }).then(setB, (e: Error) => setMsg({ ok: false, text: e.message }))}>Hide</button>
