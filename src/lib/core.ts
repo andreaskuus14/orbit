@@ -29,6 +29,7 @@ import { MODULE_PRIVATE, MODULE_PROMPT, MODULE_WRITES, isModuleTool, moduleStatu
 import { classifyReflex, clockReply, smallTalkReply, type Reflex } from "./reflex-pure";
 import { coreAnswerEval, type CoreEvalTool } from "./core-answer-eval-pure";
 import type { AnswerEval } from "./answer-eval-pure";
+import { recordCoreTurn } from "./perf-log";
 
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
 const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
@@ -101,7 +102,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
   const t0 = Date.now(), ms: Record<string, number> = {};
   const at = <T>(k: string, p: PromiseLike<T>) => Promise.resolve(p).finally(() => { ms[k] = Date.now() - t0; });
   const sendDelta = onDelta && ((d: string) => { ms.first_token ??= Date.now() - t0; onDelta(d); });
-  const logTiming = (tier: string) => console.info(`[core] ${tier} ${Object.entries({ ...ms, total: Date.now() - t0 }).map(([k, v]) => `${k}=${v}ms`).join(" ")}`);
+  const logTiming = (tier: string) => { console.info(`[core] ${tier} ${Object.entries({ ...ms, total: Date.now() - t0 }).map(([k, v]) => `${k}=${v}ms`).join(" ")}`); recordCoreTurn(tier, ms, Date.now() - t0, trace); };
 
   // Project chats carry their own instructions, so only plain chats take a reflex.
   const reflex = attach || project ? null : classifyReflex(question);

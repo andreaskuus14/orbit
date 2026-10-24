@@ -124,6 +124,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   // Bigger on the inside: from the galaxy a world is entered through its planet's surface (window planets on), the world
   // crossfading in as the camera crosses it. `quiet`: that world came in through the surface, so no warp burst on top.
   const [dive, setDive] = useState<PanelId | null>(null);
+  perfCtx.dive = dive; // the fps meter buckets dive frames on their own
   const [quiet, setQuiet] = useState<PanelId | null>(null);
   useEffect(() => { if (dive) sfx.whoosh(); }, [dive]);
   // CORE opened from inside a world floats over it instead of leaving it; closing CORE returns to that world.
