@@ -25,9 +25,8 @@ export type RenderDeps = {
 
 const exists = (f: string) => stat(f).then(() => true, () => false);
 
-/** Runs the paid part (submit once, poll, download) then assembles. Resumable: submitted jobs and downloaded files are reused. */
-export async function makeStory(job: StoryJob, dir: string, d: RenderDeps, signal: AbortSignal): Promise<{ video: string; thumb?: string; duration: number }> {
-  const scenes = job.story.scenes;
+/** The paid part (also CORE's Higgsfield drafts): submit once, poll, download into dir. Resumable like makeStory. */
+export async function generate(job: StoryJob, dir: string, d: Pick<RenderDeps, "hf" | "save" | "pollMs">, signal: AbortSignal): Promise<void> {
   // 1. Submit what isn't paid for yet (the owner approved exactly these). Job ids are saved before anything else can fail.
   const todo = unpaid(job.items);
   if (todo.length) {
@@ -72,6 +71,12 @@ export async function makeStory(job: StoryJob, dir: string, d: RenderDeps, signa
     await d.save(`Downloading ${it.key}`);
     it.file = await d.hf.download(it, path.join(dir, it.key), signal);
   }
+}
+
+/** Runs the paid part (submit once, poll, download) then assembles. Resumable: submitted jobs and downloaded files are reused. */
+export async function makeStory(job: StoryJob, dir: string, d: RenderDeps, signal: AbortSignal): Promise<{ video: string; thumb?: string; duration: number }> {
+  const scenes = job.story.scenes;
+  await generate(job, dir, d, signal);
   // 4. Narration: Higgsfield audio, local Kokoro, or none (then the captions still tell the story).
   const voice = job.opts.voice, narr: (string | undefined)[] = [];
   for (const [i, s] of scenes.entries()) {
