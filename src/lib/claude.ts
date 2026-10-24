@@ -106,17 +106,23 @@ export type ClaudeResult = { text: string; inputTokens: number; outputTokens: nu
 export const WEB_TOOLS = "WebSearch,WebFetch";
 
 /** Shared setup for every CLI call: system prompt in a temp dir, fixed flags, all tools disabled unless `web`. */
-async function prepare(system: string, format: string[], model = MODEL, effort = "", web = false) {
+/** mcp: the call may use only these MCP tools (from the owner's own `claude mcp add` config), every call checked by the
+ *  PreToolUse hook in `settings` (a settings JSON file). Built-in tools stay off. Used by the Higgsfield adapter (clips/higgsfield.ts). */
+export type McpAccess = { allow: string[]; settings: string };
+
+async function prepare(system: string, format: string[], model = MODEL, effort = "", web = false, mcp?: McpAccess) {
   if (!/^[\w.:-]+(?:\[1m\])?$/.test(model)) throw new Error("ORBIT_MODEL / ORBIT_MODEL_SMART / ORBIT_MODEL_FAST / ORBIT_MODEL_DEEP contains invalid characters");
   // The system prompt goes in a file and the user prompt on stdin, so no user text is ever on the command line.
   const dir = await mkdtemp(join(tmpdir(), "orbit-"));
   const sysFile = join(dir, "system.txt");
   await writeFile(sysFile, system, "utf8");
   const q = (a: string) => (WIN ? `"${a}"` : a); // Windows needs a shell to run claude.cmd, so quote args there
-  const tools = web ? ["--tools", q(WEB_TOOLS), "--allowedTools", q(WEB_TOOLS), "--permission-mode", "dontAsk"] : ["--tools", q("")];
+  const tools = mcp ? ["--tools", q(""), "--allowedTools", q(mcp.allow.join(",")), "--permission-mode", "dontAsk", "--settings", q(mcp.settings)]
+    : web ? ["--tools", q(WEB_TOOLS), "--allowedTools", q(WEB_TOOLS), "--permission-mode", "dontAsk"] : ["--tools", q("")];
   const args = ["-p", ...format, ...tools, "--no-session-persistence",
     // Ignore user-level plugins/hooks/skills and all MCP connectors (CORE gets no tools, or only the read-only web tools with `web`) but keep the login. Not --bare: it skips OAuth.
-    "--setting-sources", "local", "--disable-slash-commands", "--strict-mcp-config", "--model", model, ...(effort ? ["--effort", effort] : []), "--system-prompt-file", q(sysFile)];
+    // mcp: user settings are where `claude mcp add -s user` servers come from ("local" alone hides them, tested); the hook still gates every call.
+    "--setting-sources", mcp ? "user" : "local", "--disable-slash-commands", ...(mcp ? [] : ["--strict-mcp-config"]), "--model", model, ...(effort ? ["--effort", effort] : []), "--system-prompt-file", q(sysFile)];
   const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: process.env, cwd: dir, windowsHide: true };
   // On Windows, claude may be claude.cmd, which needs a shell; pass one pre-quoted command string (args hold no user text).
   const start = () => (WIN ? spawn(`${q(CLAUDE_BIN)} ${args.join(" ")}`, { ...opts, shell: true }) : spawn(CLAUDE_BIN, args, opts));
@@ -137,11 +143,11 @@ function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean
 
 /** purpose: what the call is for, for the usage meter (core, agent, goals, autopilot, clips, translate…); default by lane. */
 /** web: allow only WebSearch/WebFetch (read-only); web pages are untrusted, so that call's system prompt must say they are data. */
-export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean };
+export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean; mcp?: McpAccess };
 
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
-export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web }: AskOpts = {}): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane), web), signal);
+export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp }: AskOpts = {}): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane), web, mcp), signal);
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI.
@@ -151,13 +157,13 @@ export function askClaudeStream(prompt: string | Promise<string>, system: string
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
-async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false): Promise<ClaudeResult> {
+async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false, mcp?: McpAccess): Promise<ClaudeResult> {
   if (typeof prompt !== "string") prompt.catch(() => {}); // observed now; its error is reported once the CLI is up
   signal?.throwIfAborted();
   const t0 = Date.now();
   // With images, stdin carries one stream-json user message (image blocks + text); tools stay disabled.
   const input = images.length ? ["--input-format", "stream-json"] : [];
-  const { dir, start } = await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model, effort, web);
+  const { dir, start } = await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model, effort, web, mcp);
   try {
     return await new Promise<ClaudeResult>((resolve, reject) => {
       const child = start();
