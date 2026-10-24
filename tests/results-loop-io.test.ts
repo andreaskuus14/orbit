@@ -7,6 +7,7 @@ import ts from "typescript";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as pure from "../src/lib/clips/learn-pure.ts";
+import * as pmPure from "../src/lib/clips/postmortem-pure.ts";
 
 const require = createRequire(import.meta.url);
 const compile = (file: string) => ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), {
@@ -103,6 +104,12 @@ test("Last Shorts renders escaped titles, 48h views, both directions, baseline w
   assert.match(html, /Waiting for a channel baseline/); assert.match(html, /0% average viewed/);
   assert.doesNotMatch(html, /<script>/); assert.match(html, /&lt;script&gt;/);
   assert.match(renderToStaticMarkup(createElement(m.exports.ShortsStrip, { shorts: [] })), /Results appear after/);
+  const pm = { ...pmPure.emptyPostmortem(), status: "1 post-mortem waiting: connect YouTube (Analytics) in STUDIO",
+    items: [{ videoId: "abcdefghijk", title: "", at: "", durationSec: 20, hold3s: 0.8, hold30s: null, drops: [{ start: 5, end: 8, lostPct: 20, label: "" }], rule: "Test cutting.", ruleStatus: "proposed" as const }] };
+  const view = { ...pm, items: pm.items.map((p) => ({ ...p, line: pmPure.pmLine(p) })) };
+  const withPm = renderToStaticMarkup(createElement(m.exports.ShortsStrip, { shorts: rows, pm: view, onRule: () => {} }));
+  assert.match(withPm, /hook held 80% at 3 s · biggest drop 5 s–8 s \(−20%\)/); assert.match(withPm, /Rule idea: Test cutting\./); assert.match(withPm, /Add to playbook/);
+  assert.match(withPm, /connect YouTube \(Analytics\)/);
 });
 
 
@@ -113,6 +120,7 @@ test("results endpoint remains authenticated and leaves the regular Analytics pa
   runInNewContext(code, { module: m, exports: m.exports, Response, URL, require: (name: string) => {
     if (name.endsWith("supabase/server")) return { requireUser: async () => authorized ? {} : { res: new Response("Unauthorized", { status: 401 }) } };
     if (name.endsWith("clips/learn")) return { learnView: async () => { resultCalls++; return { lastShorts: [], checkedAt: "now", warnings: [] }; } };
+    if (name.endsWith("clips/postmortem")) return { postmortemView: async () => null };
     if (name.endsWith("yt-analytics")) return { getAnalytics: async () => { analyticsCalls++; return { connected: false, reason: "not_connected" }; } };
     if (name.endsWith("yt-analytics-pure")) return { parseRange: () => 28, isVideoId: () => true };
     throw new Error(name);
@@ -120,7 +128,7 @@ test("results endpoint remains authenticated and leaves the regular Analytics pa
   const results = () => m.exports.GET(new Request("http://localhost/api/studio/analytics?results=1"));
   assert.equal((await results()).status, 401); assert.equal(resultCalls, 0);
   authorized = true;
-  assert.deepEqual(await (await results()).json(), { shorts: [], checkedAt: "now", warnings: [] });
+  assert.deepEqual(await (await results()).json(), { shorts: [], checkedAt: "now", warnings: [], postmortem: null });
   assert.equal(resultCalls, 1); assert.equal(analyticsCalls, 0);
   assert.equal((await m.exports.GET(new Request("http://localhost/api/studio/analytics?range=28"))).status, 200);
   assert.equal(analyticsCalls, 1);
