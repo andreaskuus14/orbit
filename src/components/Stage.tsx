@@ -8,36 +8,16 @@
 // its own EffectComposer all resolve to the world's scene/camera through useThree. Galaxy disables its composer and
 // controls while a world is staged, so exactly one post-processing chain renders per frame.
 import { useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { getSlot, subscribe } from "./stage-slot";
 import * as THREE from "three";
 import { createPortal, useThree } from "@react-three/fiber";
 
-let flag: boolean | null = null;
-/** Read once per page load; storage can throw (private mode, blocked site data). */
-export function oneCanvasOn(): boolean {
-  if (flag === null) { try { flag = localStorage.getItem("orbit.oneCanvas") === "1"; } catch { flag = false; } }
-  return flag;
-}
-
-// A one-slot tunnel (same idea as tunnel-rat behind drei <View>): a world's DOM component renders 3D into another React root.
-let slot: ReactNode = null;
-const subs = new Set<() => void>();
-const subscribe = (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; };
-const put = (n: ReactNode) => { slot = n; subs.forEach((f) => f()); };
-
-/** In a world's DOM tree: send children (R3F elements) to the shared canvas. Only one world at a time. */
-export function StageIn({ children }: { children: ReactNode }) {
-  useLayoutEffect(() => put(children));
-  useLayoutEffect(() => () => put(null), []);
-  return null;
-}
-
-/** True while a world is staged in the shared canvas (re-renders only when that flips, not on every world render). */
-export function useStageActive() { return useSyncExternalStore(subscribe, () => slot !== null, () => false); }
+export { oneCanvasOn, StageIn, useStageActive } from "./stage-slot";
 
 /** Inside the galaxy's <Canvas>: renders the staged world. Galaxy objects stop taking pointer hits meanwhile
  *  (three's raycaster skips objects whose layers don't match), so a click on a moon can't open a hidden planet. */
 export function StageOut() {
-  const node = useSyncExternalStore(subscribe, () => slot, () => null);
+  const node = useSyncExternalStore(subscribe, getSlot, () => null);
   const raycaster = useThree((s) => s.raycaster);
   const on = node !== null;
   useLayoutEffect(() => {

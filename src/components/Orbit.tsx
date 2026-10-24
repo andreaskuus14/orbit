@@ -42,8 +42,8 @@ import { runWatchCommand } from "./watch-store";
 import { runAgentCommand } from "./agent-command";
 import { runRecipeCommand } from "./recipe-command";
 import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
-import { markOpen } from "./dev-timing";
-import { useStageActive } from "./Stage";
+import { markOpen } from "./dev-mark";
+import { useStageActive } from "./stage-slot";
 import { ContinueWork } from "./ContinueWork";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { TimeTravel, useLivingUniverse } from "./TimeTravel";
@@ -72,6 +72,20 @@ const KEEP: PanelId[] = ["intelligence", "studio", "creation", "agents", "arch",
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "Orbital is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
 
+/** Boot: the HUD's secondary parts mount in idle-time batches after the first paint (1, 2, 3…), each its own short task,
+ *  instead of all inside hydration and the galaxy's start-up. Server and first client render agree (0: none of them). */
+function useBootBatch(max: number) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (n >= max) return;
+    const next = () => setN(n + 1);
+    if (typeof requestIdleCallback !== "function") { const t = setTimeout(next, 300); return () => clearTimeout(t); }
+    const id = requestIdleCallback(next, { timeout: 2000 });
+    return () => cancelIdleCallback(id);
+  }, [n, max]);
+  return n;
+}
+
 /** A visited world stays mounted while away: hidden, its canvas paused and its polls/global keys off (WorldPaused), so re-entry skips the remount hitch. */
 function Kept({ on, children }: { on: boolean; children: ReactNode }) {
   return <div className="kept absolute inset-0" hidden={!on}><WorldPaused.Provider value={!on}>{children}</WorldPaused.Provider></div>;
@@ -79,6 +93,7 @@ function Kept({ on, children }: { on: boolean; children: ReactNode }) {
 
 export default function Orbit({ userId, email }: { userId: string; email: string }) {
   const sb = useMemo(() => createClient(), []);
+  const boot = useBootBatch(3);
   const [view, setView] = useState<"3d" | "2d" | null>(null); // null = still deciding: show the loader, never flash the 2D index
   const [reduced, setReduced] = useState(false);
   const [panel, setPanel] = useState<PanelId | null>(null);
@@ -461,7 +476,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   return (
     <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view} data-dive-in={quiet ?? undefined} data-diving={dive ? "" : undefined}>
       {view === "3d" && !shown && <HudFrame />}
-      {view === "3d" && !shown && !approach && <Ticker />}
+      {boot >= 2 && view === "3d" && !shown && !approach && <Ticker />}
       {view === "3d" && <WarpOverlay target={approach} landed={panel} reduced={reduced} />}
       {view === "3d" && <WarpBurst id={isWorld(shown) && shown !== quiet ? shown : null} reduced={reduced} />}
       {view === "3d" && !shown && <AmbientOverlay a={amb} />}
@@ -535,14 +550,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <button className="hud-menu-item" aria-pressed={sfxOn} onClick={() => { sfx.set(!sfxOn); setSfxOn(!sfxOn); if (!sfxOn) sfx.tick(); }}>UI sounds: {sfxOn ? "on" : "off"}</button>
         <button className="hud-menu-item" onClick={signOut} title={email}>Sign out</button>
       </div>
-      <ShortcutsOverlay />
-      <CursorRing />
+      {boot >= 2 && <CursorRing />}
       <PerfBeacon />
-      <Terminal />
-      <MissionControl />
-      <CommandPalette />
-      <LifeReminders />
-      <MarketWatcher />
+      {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><MarketWatcher /></>}
 
       {drawer && !WORLDS.includes(drawer) && (
         <aside ref={drawerDrag.ref} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
@@ -564,13 +574,15 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </aside>
       )}
 
-      <MorningCard home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
-      <WeeklyCard home={!shown && !approach} />
-      <EveningCapture />
-      {!shown && !approach && view === "3d" && <ContinueWork floating onOpenTask={openTask} onOpenGoal={openGoal} />}
-      <Herald home={!shown && !approach && !gameOpen} coreBusy={busy} />
-      <WhatsNew home={!shown && !approach} />
-      {!shown && !approach && <HalEye />}
+      {boot >= 1 && <>
+        <MorningCard home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
+        <WeeklyCard home={!shown && !approach} />
+        <EveningCapture />
+        <Herald home={!shown && !approach && !gameOpen} coreBusy={busy} />
+        <WhatsNew home={!shown && !approach} />
+      </>}
+      {boot >= 2 && !shown && !approach && view === "3d" && <ContinueWork floating onOpenTask={openTask} onOpenGoal={openGoal} />}
+      {boot >= 2 && !shown && !approach && <HalEye />}
       {!shown && view === "3d" && (
         <aside ref={statusDrag.ref} className="glass hud-panel status-hud" aria-label="System status">
           <div className="hud-title drag-handle" {...statusDrag.handle}>SYSTEM</div>

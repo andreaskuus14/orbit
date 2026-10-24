@@ -1,9 +1,10 @@
 "use client";
 // Alien theme, shared bits: the holographic palette, and a procedural reflection map for the liquid-metal and obsidian
 // surfaces (black void + thin iridescent light slits, baked once through PMREM). No image assets.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
+import { compileAs } from "../WarmCompile";
 
 /** Holographic palette: cyan -> violet -> rose, like a soap film on deep black. Output is always in [0, 1]. */
 export const HOLO = /* glsl */ `
@@ -28,7 +29,11 @@ void main() {
   gl_FragColor = vec4(max(c, vec3(0.0)), 1.0);
 }`;
 
-function bake(gl: THREE.WebGLRenderer) {
+type PmremInternals = { _setSize?: (n: number) => void; _allocateTargets?: () => THREE.WebGLRenderTarget; _blurMaterial?: THREE.Material | null; _lodPlanes?: THREE.BufferGeometry[] };
+
+/** Bakes the reflection map. Its three shaders (this sky, PMREM's blur, PMREM's background box) used to compile
+ *  synchronously inside the bake: they now compile in parallel first, so the bake itself is only a few draws. */
+async function bake(gl: THREE.WebGLRenderer) {
   const pm = new THREE.PMREMGenerator(gl);
   const scene = new THREE.Scene();
   const geo = new THREE.SphereGeometry(10, 64, 32);
@@ -37,23 +42,51 @@ function bake(gl: THREE.WebGLRenderer) {
     vertexShader: "varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
   });
   scene.add(new THREE.Mesh(geo, mat));
-  const rt = pm.fromScene(scene, 0.015);
-  geo.dispose(); mat.dispose(); pm.dispose();
-  return rt;
+  const box = new THREE.MeshBasicMaterial({ side: THREE.BackSide, depthWrite: false, depthTest: false }); // = PMREM's background box
+  const warm = new THREE.Scene().add(new THREE.Mesh(geo, mat), new THREE.Mesh(geo, box));
+  // shortcut: reaches into three r180's PMREMGenerator to create its blur material early (same size as fromScene's
+  // default 256); if a three upgrade renames these, the blur shader just compiles synchronously again.
+  const p = pm as unknown as PmremInternals;
+  if (p._setSize && p._allocateTargets) {
+    p._setSize(256); p._allocateTargets().dispose();
+    if (p._blurMaterial && p._lodPlanes?.[0]) warm.add(new THREE.Mesh(p._lodPlanes[0], p._blurMaterial));
+  }
+  try {
+    await compileAs(gl, warm, new THREE.PerspectiveCamera(), true); // PMREM draws into render targets
+    return pm.fromScene(scene, 0.015);
+  } finally { geo.dispose(); mat.dispose(); box.dispose(); pm.dispose(); }
 }
 
 // One bake per renderer, shared by every surface that reflects it; disposed when the last user unmounts.
-const cache = new WeakMap<THREE.WebGLRenderer, { rt: THREE.WebGLRenderTarget; n: number }>();
+type Entry = { tex: THREE.Texture | null; rt: THREE.WebGLRenderTarget | null; n: number; dead: boolean; ready: Promise<void>; subs: Set<() => void> };
+const cache = new WeakMap<THREE.WebGLRenderer, Entry>();
+function entry(gl: THREE.WebGLRenderer) {
+  let e = cache.get(gl);
+  if (e) return e;
+  const made: Entry = { tex: null, rt: null, n: 0, dead: false, ready: Promise.resolve(), subs: new Set() };
+  made.ready = bake(gl).then((rt) => {
+    if (made.dead) { rt.dispose(); return; }
+    made.rt = rt; made.tex = rt.texture;
+    made.subs.forEach((f) => f()); // a store update: users re-render (and apply it) synchronously, before WarmCompile resumes
+  }, () => {});
+  cache.set(gl, made);
+  return made;
+}
+/** Settles when this canvas's reflection map is baked (null: nothing on it uses one). WarmCompile waits for it, so the
+ *  env-mapped programs are compiled before the first frame instead of synchronously when the map arrives. */
+export function envReady(gl: THREE.WebGLRenderer) { return cache.get(gl)?.ready ?? null; }
+
 export function useAlienEnv() {
   const gl = useThree((s) => s.gl);
-  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  const e = useMemo(() => entry(gl), [gl]);
+  const sub = useCallback((f: () => void) => { e.subs.add(f); return () => { e.subs.delete(f); }; }, [e]);
+  const tex = useSyncExternalStore(sub, () => e.tex, () => null);
   useEffect(() => {
-    let e = cache.get(gl);
-    if (!e) { e = { rt: bake(gl), n: 0 }; cache.set(gl, e); }
-    const entry = e;
-    entry.n++;
-    setTex(entry.rt.texture);
-    return () => { if (--entry.n === 0) { entry.rt.dispose(); cache.delete(gl); } };
-  }, [gl]);
+    e.n++;
+    return () => { // a beat later: a remount (dev StrictMode, a quick re-entry) keeps the bake
+      e.n--;
+      setTimeout(() => { if (e.n === 0 && !e.dead) { e.dead = true; e.rt?.dispose(); if (cache.get(gl) === e) cache.delete(gl); } }, 0);
+    };
+  }, [gl, e]);
   return tex;
 }
