@@ -37,6 +37,7 @@ import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
 import { WarmCompile } from "./WarmCompile";
+import { perfCtx } from "./PerfBeacon";
 import { InkGlyph } from "./InkGlyph";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
 
@@ -840,6 +841,7 @@ export default function Galaxy(props: GalaxyProps) {
   }, []);
   const mode = props.quality ?? "auto";
   const level: QualityLevel = mode === "high" ? 3 : mode === "low" ? 0 : (Math.min(autoLevel, max) as QualityLevel);
+  perfCtx.level = level; perfCtx.selected = props.selected ?? null; perfCtx.paused = !!props.paused; // read by the freeze log
   const q = QUALITY[level];
   const motion = useRef<Motion>({ speed: 0 });
   const arrive = useRef<Arrive>({ id: null, k: 1 });
@@ -862,6 +864,7 @@ export default function Galaxy(props: GalaxyProps) {
   const [intro, setIntro] = useState(!props.reduced);
   const [introMs] = useState(intro ? INTRO_SECS * 1000 : 900); // HUD title decrypts in step with the intro
   const [stop, setStop] = useState(-1);
+  perfCtx.stop = stop;
   const story = useRef<Story>(newStory(intro));
   const onIntroEnd = useCallback(() => setIntro(false), []);
   const sizes = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, planetSize(p)])), []);
