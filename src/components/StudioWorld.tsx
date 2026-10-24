@@ -1,5 +1,5 @@
 "use client";
-import { WarmCompile } from "./WarmCompile";
+import { useMountLater, WarmCompile, WarmIn } from "./WarmCompile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
@@ -194,7 +194,7 @@ function DataRing({ r, tilt, spin, beads, reduced, color }: { r: number; tilt: [
 
 /** The channel: a liquid-chrome sphere (shared alien material) with a faint iridescent halo and holo rings. */
 function Planet({ reduced }: { reduced: boolean }) {
-  const { mat, u } = useLiquidMetal("#cfe6ff", false, PLANET_R);
+  const { mat, u } = useLiquidMetal("#cfe6ff", false, PLANET_R, undefined, undefined, "bare"); // chrome only, no close-ups: see "bare"
   useFrame(({ clock }) => { u.uTime.value = reduced ? 0 : clock.elapsedTime; });
   return (
     <group>
@@ -382,6 +382,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const q = useLeanQuality(quality);
   const glr = useGlRecovery();
   const [staged] = useState(oneCanvasOn); // spike flag, read once
+  const later = useMountLater(); // the canvas (context, scene) mounts in its own task, after the panels have painted
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -487,7 +488,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
 
   const scene = (
     <>
-      <WarmCompile />
+      <WarmCompile world="studio" />
       {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
       <color attach="background" args={["#03050b"]} />
       <StageDeck reduced={reduced} />
@@ -498,10 +499,12 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       <directionalLight position={[6, 5, 6]} intensity={1.6} color="#e0f2ff" />
       <pointLight position={[-5, -1, -4]} intensity={30} color="#8b5cf6" distance={20} />
       <Planet reduced={reduced} />
-      {live && <Hologram text={`${compactNumber(live.channel.subs)} SUBSCRIBERS`} position={[0, PLANET_R + 2.6, 0]} size={0.3} color="#7df9ff" reduced={reduced} />}
-      {live && views28 !== null && <Hologram text={`${compactNumber(views28)} VIEWS · 28 DAYS`} position={[0, PLANET_R + 2.2, 0]} size={0.18} color="#c4b5fd" reduced={reduced} />}
+      <WarmIn> {/* these arrive with the channel data, after the warm-up */}
+        {live && <Hologram text={`${compactNumber(live.channel.subs)} SUBSCRIBERS`} position={[0, PLANET_R + 2.6, 0]} size={0.3} color="#7df9ff" reduced={reduced} />}
+        {live && views28 !== null && <Hologram text={`${compactNumber(views28)} VIEWS · 28 DAYS`} position={[0, PLANET_R + 2.2, 0]} size={0.18} color="#c4b5fd" reduced={reduced} />}
+        {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
+      </WarmIn>
       <Moons moons={moons} selected={selected} ghost={!live} reduced={reduced} onPick={pick} onHover={onHover} />
-      {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
       <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
       <StudioCamera mode={mode} reduced={reduced} />
       {!paused && <ZoomRig home={Math.hypot(4.2, 11)} reduced={reduced} />}
@@ -519,7 +522,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
     <div className="studio absolute inset-0 globe-in" data-stage={staged || undefined} role="region" aria-label="Studio: your YouTube channel">
       {flat && <div aria-hidden className="studio-sky absolute inset-0" style={{ backgroundImage: `url(${SKY[0]})` }} />}
       {/* Flag on: the scene renders inside the galaxy's canvas (see Stage.tsx); dpr/antialias then follow the galaxy canvas. */}
-      {!flat && (staged
+      {!flat && later && (staged
         ? (paused ? null : <StageIn><WorldScene fov={45} position={[0, 4.2, 11]}>{scene}</WorldScene></StageIn>)
         : <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>)}
 

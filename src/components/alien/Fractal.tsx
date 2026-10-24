@@ -93,5 +93,7 @@ export function Fractal({ size, on, reduced, gain }: { size: number; on: boolean
     u.uGain.value = Number.isFinite(g) ? Math.min(3, Math.max(0, g)) : 1;
     u.uSteps.value = dist < 14 ? 80 : 48; // fewer steps when it is small on screen
   });
-  return <mesh ref={ref} geometry={geo} material={mat} scale={size} frustumCulled={false} />;
+  // Hidden at mount (useFrame shows it once near): the galaxy's start-up compile skips it, it warms in the background.
+  // Its 80-step raymarch is a big shader for D3D's compiler, and nothing of it is on screen in the first seconds.
+  return <mesh ref={ref} geometry={geo} material={mat} scale={size} frustumCulled={false} visible={false} />;
 }

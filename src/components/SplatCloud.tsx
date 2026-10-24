@@ -131,7 +131,7 @@ export function SplatCloud({ scan, worker, cap, maxPx, flip }: { scan: ScanData;
       <group rotation-x={flip ? Math.PI : 0}>
         <mesh ref={mesh} geometry={parts.geo} material={parts.mat} frustumCulled={false} />
       </group>
-      <WarmCompile key={scan.name + scan.count} />
+      <WarmCompile key={scan.name + scan.count} world="arch-scan" />
     </group>
   );
 }

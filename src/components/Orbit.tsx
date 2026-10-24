@@ -51,6 +51,7 @@ import type { ShipTask } from "@/lib/ships-pure";
 import { CursorRing } from "./CursorRing";
 import { MaskText } from "./MaskText";
 import { useDragPanel } from "./useDragPanel";
+import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: WorldLoading });
@@ -68,6 +69,7 @@ const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
 const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
 const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch", "memory"]; // full-screen worlds with their own side panel (no drawer)
+const VISITS = "orbit.world.visits";
 const KEEP: PanelId[] = ["intelligence", "studio", "creation", "agents", "arch", "memory"]; // kept mounted (hidden + paused) after the first visit; not THEATER: leaving must stop its video
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "Orbital is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
@@ -160,6 +162,19 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const scene3d = !gameOpen && (shown === "intelligence" || view === "3d");
   const [kept, setKept] = useState<PanelId[]>([]);
   useEffect(() => { if (shown && KEEP.includes(shown)) setKept((k) => (k.includes(shown) ? k : [...k, shown])); }, [shown]);
+  useEffect(() => { // visits per world: what the idle galaxy prefetches first
+    if (!shown || !isWorld(shown)) return;
+    try { const v = parseVisits(localStorage.getItem(VISITS)); v[shown] = (v[shown] ?? 0) + 1; localStorage.setItem(VISITS, JSON.stringify(v)); } catch { /* storage off */ }
+  }, [shown]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The galaxy's shaders are all compiled: fetch the likely next worlds' code, one per idle moment (no GL work).
+  const onGalaxyIdle = useCallback(() => {
+    let v: Record<string, number> = {};
+    try { v = parseVisits(localStorage.getItem(VISITS)); } catch { /* storage off */ }
+    const next = prefetchOrder(v, ["studio", "intelligence", ...WORLDS.filter((w) => w !== "studio")]);
+    const idle = (f: () => void) => (typeof requestIdleCallback === "function" ? requestIdleCallback(f, { timeout: 10_000 }) : setTimeout(f, 1000));
+    const step = () => { const id = next.shift(); if (id) idle(() => { warmWorld(id as PanelId); step(); }); };
+    step();
+  }, []);
   const at = (id: PanelId) => shown === id && (id !== "intelligence" || !gameOpen); // on screen (a game covers the globe, not its own DevWorld)
   const has = (id: PanelId) => at(id) || kept.includes(id);
   // A full-screen world (or a game) covers the galaxy: it stays mounted but paused, so coming back is instant.
@@ -494,7 +509,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view === "3d" && (
         <div className="absolute inset-0" style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
           <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships}
-            dive={dive} onDiveCross={onDiveCross} onDiveCancel={onDiveCancel} />
+            dive={dive} onDiveCross={onDiveCross} onDiveCancel={onDiveCancel} onIdle={onGalaxyIdle} />
         </div>
       )}
       {/* Worlds stay mounted after their first visit (hidden + paused): re-entering skips the rebuild, shader compile and texture upload. */}

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { GPUComputationRenderer } from "three/examples/jsm/misc/GPUComputationRenderer.js";
+import { compileAs } from "./WarmCompile";
 import { newCoreState, stepCore, waveAmp, type CoreInput } from "@/lib/particle-core-pure";
 
 /** Written by NeuralCore every frame: pulse glow, smoothed mic/speak levels, breath (all 0..1). */
@@ -125,12 +126,18 @@ export function ParticleCore({ side, busy, warning, live, onFail }: {
   const st = useRef(newCoreState());
   const inp = useRef<CoreInput>({ busy: false, mic: 0, speak: 0, warning: false });
   // Built in an effect (not useMemo) so StrictMode's double mount and the GL-recovery remount both dispose cleanly.
+  const get = useThree((s) => s.get);
   useEffect(() => {
     const s = build(gl, side);
     if (!s) { onFail(); return; }
-    setSim(s);
-    return () => { s.gpu.dispose(); s.geo.dispose(); s.mat.dispose(); setSim(null); };
-  }, [gl, side, onFail]);
+    // The sim's two shaders and the swarm's compile in parallel first: on the first compute and draw they compiled
+    // synchronously inside a frame. The swarm appears once they are ready.
+    let on = true;
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), [s.pos.material, s.vel.material]), cam = new THREE.Camera();
+    const jobs = [compileAs(gl, quad, cam, true), compileAs(gl, new THREE.Points(s.geo, s.mat), cam, get().internal.priority > 0)];
+    void Promise.all(jobs).catch(() => {}).finally(() => { quad.geometry.dispose(); if (on) setSim(s); });
+    return () => { on = false; s.gpu.dispose(); s.geo.dispose(); s.mat.dispose(); setSim(null); };
+  }, [gl, side, onFail, get]);
 
   useFrame(({ clock, camera }, dt) => {
     if (!sim) return;

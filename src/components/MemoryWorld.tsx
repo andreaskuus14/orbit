@@ -280,7 +280,7 @@ function Constellation({ data, at, hi, searching, reduced, lite, onHover, onPick
     if (Number.isFinite(f)) uniforms.uFocus.value += (Math.max(f, 1) - uniforms.uFocus.value) * (reduced ? 1 : 1 - Math.exp(-dt * 6)); // focus pulls, never steps
   });
   return <>
-    <WarmCompile /> {/* arrives with the data, after the canvas's own warm-up: its shaders compile in parallel too */}
+    <WarmCompile world="memory-data" /> {/* arrives with the data, after the canvas's own warm-up: its shaders compile in parallel too */}
     <lineSegments geometry={web.g} material={mats.web} raycast={() => null} />
     {!reduced && <points geometry={web.sparks} material={mats.sparks} raycast={() => null} frustumCulled={false} />}
     <points geometry={dust} material={mats.dust} raycast={() => null} />
@@ -423,7 +423,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
         <Canvas key={glr.key} onCreated={onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
           onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
-          <WarmCompile />
+          <WarmCompile world="memory" />
           <color attach="background" args={[BG]} />
           <Stars radius={120} depth={60} count={reduced ? 800 : Math.min(3000, q.stars)} factor={2.2} fade speed={reduced ? 0 : 0.2} />
           <FarRings reduced={reduced} />

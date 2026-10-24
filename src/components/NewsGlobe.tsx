@@ -1034,7 +1034,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
     <div className="absolute inset-0 globe-in" aria-label="World news globe">
       {ready && later && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         {quality === "auto" && <PerformanceMonitor onDecline={() => setLean(true)} />}
-        <WarmCompile />
+        <WarmCompile world="intelligence" />
         <color attach="background" args={["#01040b"]} />
         <Stars radius={70} depth={40} count={reduced ? 1500 : 5000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <Globe tint={tint} mode={mode} region={activeRegion} reduced={reduced} lit={lit} selected={selected} followed={followed}

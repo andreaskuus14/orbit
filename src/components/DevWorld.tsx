@@ -235,7 +235,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
     <div className="absolute inset-0 globe-in" aria-label="Game-dev world">
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={playing || paused ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
-        <WarmCompile />
+        <WarmCompile world="creation" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
         <color attach="background" args={["#02030a"]} />
         <Stars radius={70} depth={40} count={reduced ? 1500 : 4000} factor={2.4} fade speed={reduced ? 0 : 0.35} />

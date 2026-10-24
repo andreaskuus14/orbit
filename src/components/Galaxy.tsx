@@ -37,7 +37,7 @@ import {
 import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
-import { WarmCompile } from "./WarmCompile";
+import { WarmCompile, WarmIn } from "./WarmCompile";
 import { newScale, renderDpr, scaleFloor, stepScale, type ScaleState } from "@/lib/render-scale-pure";
 import { perfMark } from "./PerfBeacon";
 import { perfCtx } from "./PerfBeacon";
@@ -68,6 +68,7 @@ export type GalaxyProps = {
   dive?: PanelId | null;     // entering this world through its planet's surface (window planets: level > 0, no reduced motion)
   onDiveCross?: () => void;  // the camera crossed the surface: mount the world now, it crossfades in
   onDiveCancel?: () => void; // the user grabbed the view mid-dive
+  onIdle?: () => void;       // start-up and background shaders are compiled: a good moment for other idle work
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -936,8 +937,10 @@ export default function Galaxy(props: GalaxyProps) {
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
             life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} light={props.universe?.light[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
         ))}
-        {props.universe && <Universe u={props.universe} positions={positions} still={props.reduced || level === 0} level={level} />}
-        {props.ships && <Ships tasks={props.ships.tasks} onOpen={props.ships.onOpen} positions={positions} reduced={props.reduced} />}
+        <WarmIn> {/* both arrive with data after the start-up compile */}
+          {props.universe && <Universe u={props.universe} positions={positions} still={props.reduced || level === 0} level={level} />}
+          {props.ships && <Ships tasks={props.ships.tasks} onOpen={props.ships.onOpen} positions={positions} reduced={props.reduced} />}
+        </WarmIn>
         {/* a focused world may be approached until it nearly fills the view: its surface keeps resolving finer detail */}
         <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={props.selected && props.selected in sizes ? sizes[props.selected] * 1.35 : 4} maxDistance={80} enableDamping />
         {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
@@ -952,7 +955,7 @@ export default function Galaxy(props: GalaxyProps) {
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
         {/* Shaders compile in parallel before the first frame. No 4 s release here: releasing mid-compile compiled the rest
             synchronously in one 14 s frame (owner's PC); the loader stays up instead. Hidden parts warm after the first frames. */}
-        <WarmCompile cap={20_000} defer onDone={compiled} />
+        <WarmCompile cap={20_000} defer onDone={compiled} onLater={props.onIdle} />
         <RenderScale max={dprMax} onDpr={setDpr} />
         <FirstFrames onReady={onReady} />
         {mode === "auto" && !staged && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}

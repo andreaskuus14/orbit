@@ -512,7 +512,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
     <div className="absolute inset-0 globe-in">
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={visible && !paused ? "always" : "never"} camera={{ position: [0, HOME * 0.45, HOME], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }} onPointerMissed={() => setSelected(null)}>
-        <WarmCompile />
+        <WarmCompile world="agents" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
         <color attach="background" args={["#020308"]} />
         <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />

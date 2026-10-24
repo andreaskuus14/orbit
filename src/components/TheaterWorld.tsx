@@ -178,7 +178,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="Theater: watch YouTube videos" style={{ background: "#030208" }}>
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={reduced || playing ? "demand" : "always"} camera={{ position: [0, 2.4, 9], fov: 50 }} dpr={[1, q.dpr]} gl={{ antialias: false }}>
-        <WarmCompile />
+        <WarmCompile world="theater" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
         <color attach="background" args={["#030208"]} />
         <Stars radius={70} depth={40} count={reduced ? 600 : Math.min(2500, q.stars)} factor={2} fade speed={reduced ? 0 : 0.3} />

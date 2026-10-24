@@ -745,3 +745,11 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 @media (prefers-reduced-motion: reduce) { .dash-tile.skeleton, .glass .skeleton { animation: none; } }
 /* Diving through a planet: the galaxy's labels and leader lines would pile up at the screen edge; they step aside. */
 .orbit-shell[data-diving] .planet-label, .orbit-shell[data-diving] .planet-leader, .orbit-shell[data-diving] .hud-leader { opacity: 0 !important; transition: opacity 0.15s; }
+
+/* A world's canvas while its shaders compile in parallel (WarmCompile sets data-warming until the first frame): a calm
+   pearl ring and "materialising" in the empty space; the world's panels are already usable. Fades in late, so a quick
+   compile shows nothing. */
+[data-warming]::before, [data-warming]::after { position: absolute; left: 50%; top: 50%; pointer-events: none; opacity: 0; animation: fade-in 0.8s ease-out 0.5s forwards; }
+[data-warming]::before { content: ""; width: 3.2rem; height: 3.2rem; margin: -2.4rem 0 0 -1.6rem; border-radius: 50%; border: 1px solid rgba(207, 230, 255, 0.14); border-top-color: rgba(207, 230, 255, 0.6); animation: fade-in 0.8s ease-out 0.5s forwards, orbit-spin 2.8s linear infinite; }
+[data-warming]::after { content: "materialising"; transform: translate(-50%, 1.6rem); font-size: 0.62rem; letter-spacing: 0.32em; text-transform: uppercase; color: rgba(207, 230, 255, 0.55); }
+@media (prefers-reduced-motion: reduce) { [data-warming]::before { animation: fade-in 0.8s ease-out 0.5s forwards; } }
