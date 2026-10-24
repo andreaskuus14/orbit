@@ -331,7 +331,9 @@ export function MicroWorld({ size, u, level, orbital, body, seed }: {
     g.traverse((o) => { if (!o.visible) { hid.push(o); o.visible = true; } });
     const counts = kinds.map((k) => k.g.instanceCount);
     kinds.forEach((k) => { k.g.instanceCount = 0; });
-    gl.compileAsync(g, cam).catch(() => {}).finally(() => { hid.forEach((o) => { o.visible = false; }); kinds.forEach((k, i) => { k.g.instanceCount = counts[i]; }); if (alive) ready.current = kinds; });
+    const p = gl.compileAsync(g, cam); // programs are collected synchronously: restore visibility at once (see WarmCompile)
+    hid.forEach((o) => { o.visible = false; });
+    p.catch(() => {}).finally(() => { kinds.forEach((k, i) => { k.g.instanceCount = counts[i]; }); if (alive) ready.current = kinds; });
     return () => { alive = false; };
   }, [kinds, gl, cam]);
   useEffect(() => () => { u.uCity.value = 0; }, [u]); // unmounted (quality 0): the cities go dark with it

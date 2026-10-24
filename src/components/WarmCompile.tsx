@@ -17,10 +17,11 @@ export function WarmCompile() {
       // show, freezing a planet switch: make them visible for the compile only (nothing draws: the loop is held).
       const hidden: { visible: boolean }[] = [];
       scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
-      gl.compileAsync(scene, camera).catch(() => {}).finally(() => {
-        hidden.forEach((o) => { o.visible = false; });
-        if (alive) setFrameloop(prev);
-      });
+      // compileAsync collects programs synchronously on call, so the hidden parts are restored at once. Restoring them
+      // later re-hid anything the app had made visible meanwhile (the INTELLIGENCE globe stayed invisible).
+      const p = gl.compileAsync(scene, camera);
+      hidden.forEach((o) => { o.visible = false; });
+      p.catch(() => {}).finally(() => { if (alive) setFrameloop(prev); });
     }, 0);
     return () => { alive = false; clearTimeout(t); setFrameloop(prev); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per canvas
