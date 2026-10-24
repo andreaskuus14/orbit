@@ -9,6 +9,8 @@ import AutopilotPanel from "./AutopilotPanel";
 import StoryPanel from "./StoryPanel";
 import EngageCard, { DescribeButton } from "./EngageCard";
 import StudioCalendar from "./StudioCalendar";
+import ShortsBoard from "./ShortsBoard";
+import type { Open } from "@/lib/clips/pipeline-pure";
 import { devlogHashtags } from "@/lib/clips/devlog";
 import { HypeWave, ScoreRing, ScoreWhy } from "./HypeScore";
 import type { HypeView } from "@/lib/clips/hype-pure";
@@ -88,10 +90,10 @@ function Section({ title, children, right }: { title: string; children: ReactNod
 }
 const Skeleton = ({ h, reduced }: { h: number; reduced: boolean }) => <div aria-hidden className={`card ${reduced ? "" : "animate-pulse"}`} style={{ height: h, opacity: 0.6 }} />;
 
-type Tab = "find" | "clips" | "story" | "calendar" | "insights" | "autopilot";
+type Tab = "pipeline" | "find" | "clips" | "story" | "calendar" | "insights" | "autopilot";
 const TAB_KEY = "orbit.clipFactory.tab";
 const readTab = (): Tab | null => {
-  try { const t = localStorage.getItem(TAB_KEY); return t === "find" || t === "clips" || t === "story" || t === "calendar" || t === "insights" || t === "autopilot" ? t : null; }
+  try { const t = localStorage.getItem(TAB_KEY); return t === "pipeline" || t === "find" || t === "clips" || t === "story" || t === "calendar" || t === "insights" || t === "autopilot" ? t : null; }
   catch { return null; } // storage unavailable (or server render)
 };
 
@@ -150,6 +152,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const [tab, setTab] = useState<Tab | null>(null); // null until the first load picks one
   const [autoInbox, setAutoInbox] = useState<boolean | null>(null); // null: not loaded (or the settings file is locked)
   const [autoOpts, setAutoOpts] = useState<Opts | null>(null); // what auto-clip uses (saved when it was turned on)
+  const [storySeed, setStorySeed] = useState<{ idea?: string; story?: string } | null>(null); // Pipeline card → AI Story (a new object each time)
   const [scoutRun, setScoutRun] = useState(0); // bumped by the "Find videos" next step: ScoutSection runs the scout
   // Each review request opens once; the same object lingers in Orbit's state until STUDIO is left.
   useEffect(() => { if (review && !seenReview.has(review)) { seenReview.add(review); setReviewing(true); } }, [review]);
@@ -288,6 +291,14 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const workNext = <button className="chip num" onClick={() => selectTab(workingJobs.length ? "clips" : "find")} aria-label={`${workText}. Show progress`}>{workText}</button>;
   // Calendar card → the clip's card in the Clips tab (ids set in JobCard).
   const openClip = (job: string, clip: string) => { selectTab("clips"); requestAnimationFrame(() => { const el = document.getElementById(`cf-clip-${job}/${clip}`); el?.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" }); el?.focus({ preventScroll: true }); }); };
+  // Pipeline card → the existing tool for its stage.
+  const openStage = (o: Open) => {
+    if (o.tool === "review") return setReviewing(true);
+    if (o.tool === "calendar") return selectTab("calendar");
+    if (o.tool === "clip") return o.clip ? openClip(o.job, o.clip) : selectTab("clips");
+    setStorySeed("idea" in o ? { idea: o.idea } : { story: o.story }); selectTab("story");
+    requestAnimationFrame(() => document.getElementById("idea" in o ? "story-idea" : "cf-tab-story")?.focus());
+  };
   const goSchedule = () => { selectTab("clips"); requestAnimationFrame(() => document.getElementById("schedule-all")?.focus()); };
   // One obvious next step, in priority order: review > schedule > connect YouTube > wait for work > find videos.
   const next = fresh ? <button className="btn" onClick={() => setReviewing(true)} aria-label={`Review ${fresh} new clips`}>☀ {plural(fresh, "clip")} ready to review</button>
@@ -295,7 +306,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
     : unpublished && yt?.configured ? <a className="btn" href="/api/studio/oauth/start">🔗 Connect YouTube to publish {unpublished} approved</a>
     : workText ? workNext
     : <button className="btn" onClick={() => { selectTab("find"); setScoutRun((n) => n + 1); }} aria-label="Find videos: run the video scout">🔭 Find videos</button>;
-  const tabs: [Tab, string][] = [["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["story", "✨ AI Story"], ["calendar", "📅 Calendar"], ["insights", "🧠 Insights"], ["autopilot", "🤖 Autopilot"]];
+  const tabs: [Tab, string][] = [["pipeline", "▦ Pipeline"], ["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["story", "✨ AI Story"], ["calendar", "📅 Calendar"], ["insights", "🧠 Insights"], ["autopilot", "🤖 Autopilot"]];
   const onTabKey = (e: KeyboardEvent) => {
     const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (!d) return;
@@ -353,8 +364,12 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
           </div>
 
           {/* Panels stay mounted (hidden) so forms, polling and scroll state survive switching tabs. */}
+          <div id="cf-panel-pipeline" role="tabpanel" aria-labelledby="cf-tab-pipeline" hidden={shown !== "pipeline"}>
+            {shown === "pipeline" && <ShortsBoard jobs={data.jobs} active reduced={reduced} onOpen={openStage}
+              onPickTitle={(job, clip, title) => patchClip(job, clip, { title })} onMoreTitles={(job, clip) => moreTitles(job, clip)} />}
+          </div>
           <div id="cf-panel-autopilot" role="tabpanel" aria-labelledby="cf-tab-autopilot" hidden={shown !== "autopilot"}><AutopilotPanel active={shown === "autopilot"} onChanged={() => void load(true)} onOpenClip={openClip} onOpenFind={() => selectTab("find")} /></div>
-          <div id="cf-panel-story" role="tabpanel" aria-labelledby="cf-tab-story" hidden={shown !== "story"}><StoryPanel active={shown === "story"} onOpenClip={openClip} onChanged={() => void load(true)} /></div>
+          <div id="cf-panel-story" role="tabpanel" aria-labelledby="cf-tab-story" hidden={shown !== "story"}><StoryPanel active={shown === "story"} seed={storySeed} onOpenClip={openClip} onChanged={() => void load(true)} /></div>
           <div id="cf-panel-insights" role="tabpanel" aria-labelledby="cf-tab-insights" hidden={shown !== "insights"} className="space-y-3">
             <LearnedCard defaultOpen />
             <EngageCard />
