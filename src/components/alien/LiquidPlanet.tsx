@@ -8,9 +8,10 @@
 // from the procedural height's screen derivatives (bump mapping), the chrome's highlights are anisotropic and follow the
 // flow. Every shader term is bounded (bloom NaN rule).
 import { useEffect, useMemo } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { HOLO, useAlienEnv } from "./env";
+import { compileAs, warmLater } from "../WarmCompile";
 
 /** Shared GLSL noise (no uniforms, no derivatives: safe in vertex shaders too). */
 export const NOISE = /* glsl */ `
@@ -207,8 +208,8 @@ vec3 famColor(vec3 p, float fw) {
  *  famSite says people live, lit only away from the CORE; far they melt into a soft glow (their mean), close they resolve
  *  into lines, lit blocks and moving traffic. X-ray: inside a soft lens under the cursor the crust turns to a survey grid
  *  and the view ray is intersected analytically with a mantle shell and a core, so the internals have real depth. */
+const CITY_U = "uniform float uCity; uniform vec3 uLens; uniform float uLensK; uniform float uLensR; uniform vec3 uCamL;"; // the lite variant uses the lens too (time lag)
 const CITY = /* glsl */ `
-uniform float uCity; uniform vec3 uLens; uniform float uLensK; uniform float uLensR; uniform vec3 uCamL;
 vec3 cityLights(vec2 uv, float face, float fwu, float dens, float t) {
   vec3 c = vec3(1.0, 0.86, 0.66) * dens * dens * 0.05; // the sky glow over a city
   for (int o = 0; o < 2; o++) { // arterials, then streets; every block edge is its own segment, so the network is irregular
@@ -300,8 +301,24 @@ const FAM = [
   { metal: 0.0, rough: 0.55, coat: 0.4, env: 0.25, iri: 0.1, bump: 0.6 },   // oceanic (water is glossier, below)
 ] as const;
 
-export function useLiquidMetal(color: string, obsidian: boolean, size: number, extra?: (s: THREE.WebGLProgramParametersWithUniforms) => void, look?: SurfaceLook) {
+// `lite` (the galaxy): start on a variant without the night-side cities and the x-ray lens (they are off at start: no
+// micro-world, no hover) and switch to the full one once it has compiled in the background (see warmLater). The full
+// planet program is the biggest in the galaxy: on the owner's PC (D3D) its compile was most of a 15–20 s boot.
+const LITE = "ORBIT_LITE";
+type Lite = THREE.MeshPhysicalMaterial & { defines: Record<string, string> }; // three has defines; its types do not
+const liteMats = new Set<Lite>();
+let liteQueued: THREE.WebGLRenderer | null = null; // the renderer the full warm-up is queued on (a GL recovery gets a new one)
+function warmFull(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, into: boolean) {
+  const set = (lite: boolean) => liteMats.forEach((m) => { if (lite) m.defines[LITE] = ""; else delete m.defines[LITE]; m.needsUpdate = true; });
+  set(false);
+  let p: Promise<unknown>;
+  try { p = compileAs(gl, scene, camera, into); } finally { set(true); } // collected synchronously: nothing drew the full variant yet
+  return p.then(() => { set(false); liteMats.clear(); }); // now cached: the switch costs nothing
+}
+
+export function useLiquidMetal(color: string, obsidian: boolean, size: number, extra?: (s: THREE.WebGLProgramParametersWithUniforms) => void, look?: SurfaceLook, lite = false) {
   const env = useAlienEnv();
+  const gl = useThree((s) => s.gl), get = useThree((s) => s.get);
   const { mat, u } = useMemo(() => {
     const f = look ? FAM[look.fam] : null;
     const sd = look?.seed ?? 0;
@@ -309,13 +326,15 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
       uFam: { value: look ? look.fam : -1 }, uSeed: { value: new THREE.Vector3((sd * 1.37) % 7, (sd * 2.71) % 5, (sd * 0.61) % 3) },
       uPA: { value: new THREE.Color(look?.pal[0] ?? color) }, uPB: { value: new THREE.Color(look?.pal[1] ?? color) }, uPC: { value: new THREE.Color(look?.pal[2] ?? color) },
       uIdent: { value: 1 }, // 1 legacy strong identity rim; the galaxy sets 0 (thin atmosphere)
-      uBump: { value: f?.bump ?? 1 }, uChrome: { value: f ? 0 : 1 },
+      uBump: { value: f?.bump ?? 1 }, uChrome: { value: f ? 0 : 1 }, uIri: { value: !f || f.iri > 0 ? 1 : 0 }, uCoat: { value: !f || f.coat > 0 ? 1 : 0 },
       // micro-world: night-side cities (0 off .. 1), and the cursor x-ray lens (unit-sphere centre, strength, radius, camera)
       uCity: { value: 0 }, uLens: { value: new THREE.Vector3(0, 0, 1) }, uLensK: { value: 0 }, uLensR: { value: 0.4 }, uCamL: { value: new THREE.Vector3(0, 0, 4) } };
     const tint = new THREE.Color(color);
+    // One program for every world: clearcoat, iridescence and anisotropy are always compiled in (each is a define), and a
+    // world without one gets it zeroed by a uniform (uCoat, uIri, uChrome below): exactly the same shading, 1 program not 3.
     const mat = new THREE.MeshPhysicalMaterial(f ? {
-      color: "#ffffff", metalness: f.metal, roughness: f.rough, clearcoat: f.coat, clearcoatRoughness: 0.45, // soft: the env slits must not print hard lines on a world
-      iridescence: f.iri, iridescenceIOR: 1.4, iridescenceThicknessRange: [200, 600],
+      color: "#ffffff", metalness: f.metal, roughness: f.rough, clearcoat: f.coat || 1, clearcoatRoughness: 0.45, // soft: the env slits must not print hard lines on a world
+      iridescence: f.iri || 1, iridescenceIOR: 1.4, iridescenceThicknessRange: [200, 600], anisotropy: 0.4,
       emissive: color, emissiveIntensity: 0, envMapIntensity: f.env,
     } : {
       color: obsidian ? tint.clone().multiplyScalar(0.07) : tint.clone().lerp(new THREE.Color("#ffffff"), 0.55),
@@ -324,6 +343,7 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
       anisotropy: 0.4, // brushed-chrome streaks; the direction follows the flow (injected below)
       emissive: color, emissiveIntensity: 0, envMapIntensity: obsidian ? 2.4 : 1.15,
     });
+    if (lite) { (mat as Lite).defines[LITE] = ""; liteMats.add(mat as Lite); }
     mat.onBeforeCompile = (s) => {
       extra?.(s);
       Object.assign(s.uniforms, u, { uTimeU: u.uTime });
@@ -335,7 +355,7 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
       s.fragmentShader = s.fragmentShader
         // Time-lag hover (Dune shield): uTime is a per-fragment clock here, running up to LAG s behind near the x-ray lens
         // (uLens, eased with uLensK): a soft circle of delayed time. Growing in, it visibly slows; leaving, it catches up.
-        .replace("void main() {", `uniform float uLq; uniform vec3 uTint; uniform vec3 uPoolTint; uniform float uFar; uniform float uIdent; uniform float uBump; uniform float uChrome;\n${SURF.replace("uniform float uTime;", "uniform float uTimeU; float uTime;")}\n${CITY}\n${HOLO}\nvoid main() {
+        .replace("void main() {", `uniform float uLq; uniform vec3 uTint; uniform vec3 uPoolTint; uniform float uFar; uniform float uIdent; uniform float uBump; uniform float uChrome; uniform float uIri; uniform float uCoat;\n${SURF.replace("uniform float uTime;", "uniform float uTimeU; float uTime;")}\n${CITY_U}\n#ifndef ${LITE}\n${CITY}\n#endif\n${HOLO}\nvoid main() {
           uTime = uTimeU - ${LAG.toFixed(2)} * clamp(uLensK, 0.0, 1.0) * (1.0 - smoothstep(0.0, 1.0, length(normalize(vLq) - uLens) / max(uLensR * 1.9, 1e-3))) * step(1e-4, uTimeU);`) // reduced motion holds uTime at 0: no lag
         .replace("#include <color_fragment>", `#include <color_fragment>
           float fwq = length(fwidth(vLq));
@@ -353,10 +373,13 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
             normal = dot(nb, nb) > 1e-20 ? normalize(nb) : normal;
             roughnessFactor = clamp(roughnessFactor * mix(1.0, 0.6 + 0.8 * (1.0 - gPool), uChrome) * (1.0 - 0.7 * gOcean) + gSeam * 0.25 + gCirc * 0.12, 0.03, 1.0);
           }`)
-        .replace("vec2 anisotropyV = anisotropyVector;", "float ca = cos(gFlowA), sa = sin(gFlowA); vec2 anisotropyV = mat2(ca, sa, -sa, ca) * anisotropyVector * (0.5 + 0.5 * gPool);")
+        .replace("vec2 anisotropyV = anisotropyVector;", "float ca = cos(gFlowA), sa = sin(gFlowA); vec2 anisotropyV = mat2(ca, sa, -sa, ca) * anisotropyVector * (0.5 + 0.5 * gPool) * uChrome;") // 0: three's isotropic case
         .replace("#include <lights_physical_fragment>", `#include <lights_physical_fragment>
+          #ifdef USE_CLEARCOAT
+          material.clearcoat *= uCoat;
+          #endif
           #ifdef USE_IRIDESCENCE
-          material.iridescence = clamp(0.25 + 0.75 * gShore + 0.3 * (1.0 - gPool), 0.0, 1.0) * mix(0.3, 1.0, uChrome);
+          material.iridescence = clamp(0.25 + 0.75 * gShore + 0.3 * (1.0 - gPool), 0.0, 1.0) * mix(0.3, 1.0, uChrome) * uIri;
           material.iridescenceThickness = mix(iridescenceThicknessMinimum, iridescenceThicknessMaximum, clamp(0.5 + 0.5 * sin(gH * 9.0 + gFlowA * 0.5), 0.0, 1.0));
           #endif`)
         .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
@@ -373,6 +396,7 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
             totalEmissiveRadiance += mix(mix(uTint, vec3(0.75, 0.82, 1.0), 0.35) * (pow(f, 2.6) * 1.1 + 0.04), uTint * (pow(f, 1.8) * 1.4 + 0.12), uIdent) * uFar;
             totalEmissiveRadiance += holo(gFlowA * 0.08 + gH * 2.0) * (1.0 - gPool) * 0.1 * uChrome; // thin-film edge sheen
             vec3 nq = normalize(vLq);
+            #ifndef ${LITE}
             if (uCity > 0.001) { // night side (away from the CORE at the world origin): the cities come on
               vec3 Lv = normalize(viewMatrix[3].xyz + vViewPosition);
               float night = smoothstep(0.05, -0.25, dot(nonPerturbedNormal, Lv));
@@ -399,10 +423,18 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
                 roughnessFactor = mix(roughnessFactor, 1.0, lens); metalnessFactor = mix(metalnessFactor, 0.0, lens);
               }
               totalEmissiveRadiance += vec3(0.7, 0.8, 1.0) * uLensK * exp(-pow((ld - 1.0) * 26.0, 2.0)) * 0.35; // the lens bezel
-            } }`); // thin-film edge sheen
+            }
+            #endif
+          }`);
     };
     return { mat, u };
-  }, [color, obsidian, size, extra, look]); // look: a module constant per world
+  }, [color, obsidian, size, extra, look, lite]); // look: a module constant per world
+  useEffect(() => {
+    if (!lite || liteQueued === gl) return;
+    liteQueued = gl; // one job for every lite world: one full program
+    warmLater(gl, () => { const { scene, camera, internal } = get(); return warmFull(gl, scene, camera, internal.priority > 0).finally(() => { if (liteQueued === gl) liteQueued = null; }); });
+  }, [lite, gl, get]);
+  useEffect(() => () => { liteMats.delete(mat as Lite); }, [mat]);
   useEffect(() => { mat.envMap = env; mat.needsUpdate = true; }, [mat, env]);
   useEffect(() => () => mat.dispose(), [mat]);
   return { mat, u };

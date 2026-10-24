@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { warmLater } from "../WarmCompile";
 import { PLANETS, type PanelId, type PlanetId } from "@/lib/planets";
 import { DIVE_CROSS, diveFov, diveRadii, stepWindow, windowCrop, windowTarget, type Crop, type WindowState } from "@/lib/window-pure";
 
@@ -256,12 +257,18 @@ export function WindowPlanets({ hover, dive, positions, sizes, scales }: {
   const W = useMemo(buildWindow, []);
   const shell = useRef<THREE.Mesh>(null);
   useEffect(() => () => W.dispose(), [W]);
-  useEffect(() => { // compile for the render target's state now (linear, no tone mapping), so the first hover never compiles
-    const prev = gl.getRenderTarget();
-    gl.setRenderTarget(W.rt);
-    gl.compileAsync(W.mini, W.cam).catch(() => {});
-    if (shell.current) gl.compileAsync(shell.current, camera, scene).catch(() => {});
-    gl.setRenderTarget(prev);
+  const ready = useRef(false); // until its shaders are compiled the window stays shut: opening it would compile them synchronously
+  useEffect(() => { // compile for the render target's state (linear, no tone mapping), so the first hover never compiles;
+    // in the background after the galaxy has drawn, not alongside its start-up compile
+    let alive = true;
+    warmLater(gl, () => {
+      if (!alive) return Promise.resolve();
+      const prev = gl.getRenderTarget();
+      gl.setRenderTarget(W.rt);
+      try { return Promise.all([gl.compileAsync(W.mini, W.cam), shell.current && gl.compileAsync(shell.current, camera, scene)]).then(() => { ready.current = alive; }); }
+      finally { gl.setRenderTarget(prev); }
+    });
+    return () => { alive = false; };
   }, [gl, W, camera, scene]);
   const st = useMemo(() => ({ w: { id: null, k: 0 } as WindowState<PlanetId>, tinted: null as PlanetId | null,
     crop: { x: 0, y: 0, w: 1, h: 1, ok: false } as Crop, v: new THREE.Vector3(), m: new THREE.Matrix4() }), []);
@@ -277,7 +284,7 @@ export function WindowPlanets({ hover, dive, positions, sizes, scales }: {
     const dv = dive && dive in positions ? (dive as PlanetId) : null;
     const w = stepWindow(st.w, windowTarget(dv, hover.current, near, nr), dt, 0.1, !!dv);
     sh.visible = false;
-    if (!w.id || w.k <= 0) return;
+    if (!w.id || w.k <= 0 || !ready.current) return;
     const C = positions[w.id], R = Math.max(1e-3, sizes[w.id] * (scales[w.id] ?? 1)), Rs = R * 1.012;
     camera.updateMatrixWorld();
     const v = st.v.copy(C).applyMatrix4(camera.matrixWorldInverse), dz = -v.z;

@@ -37,7 +37,8 @@ import {
 import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
-import { compileAs, WarmCompile } from "./WarmCompile";
+import { WarmCompile } from "./WarmCompile";
+import { newScale, renderDpr, scaleFloor, stepScale, type ScaleState } from "@/lib/render-scale-pure";
 import { perfMark } from "./PerfBeacon";
 import { perfCtx } from "./PerfBeacon";
 import { InkGlyph } from "./InkGlyph";
@@ -342,7 +343,7 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   const flash = useRef(0); // lightning flash, briefly lights the storm world from inside
   const tapT = useRef<ReturnType<typeof setTimeout>>(undefined); // touch has no hover-out: clear the hover (leader label) after a beat
   const rim = useRim(); // cold fresnel rim: brighter on hover / focus so the world pops off the dark
-  const liquid = useLiquidMetal(p.color, !!look.obsidian, size, rim.onBeforeCompile, look.surf);
+  const liquid = useLiquidMetal(p.color, !!look.obsidian, size, rim.onBeforeCompile, look.surf, true); // lite at start: see useLiquidMetal
   useEffect(() => { liquid.u.uIdent.value = 0; }, [liquid]); // the galaxy: a thin atmosphere rim, not a glowing blob
   const base = useMemo(() => liquid.mat.color.clone(), [liquid]);
   const lit = useRef(light); lit.current = light;
@@ -805,19 +806,42 @@ function QualityMonitor({ level, max, onLevel }: { level: QualityLevel; max: Qua
   return null;
 }
 
-/** Tells the page the scene has drawn a couple of frames, so the loader can fade out. */
+/** Tells the page the scene has drawn a couple of frames, so the loader can fade out. The preloader's real milestones:
+ *  context up (60), start-up shaders compiled (90, from WarmCompile), first frames (100). It used to compile the scene
+ *  itself, before the reflection map was baked: every env-mapped program (the planets, the CORE's rings) compiled twice. */
 function FirstFrames({ onReady }: { onReady: () => void }) {
   const n = useRef(0);
-  const { gl, scene, camera, get } = useThree();
-  useEffect(() => { // the preloader's real milestones: context up, every shader compiled (parallel, off the main thread), first frames
-    markPreload(60);
-    let alive = true;
-    compileAs(gl, scene, camera, get().internal.priority > 0).then(() => { if (alive) markPreload(90); }).catch(() => {});
-    return () => { alive = false; };
-  }, [gl, scene, camera, get]);
+  useEffect(() => { markPreload(60); }, []);
   useFrame(() => { if (++n.current === 3) { perfMark("galaxy-drawn"); onReady(); } });
   return null;
 }
+const compiled = () => markPreload(90);
+
+/** Render resolution for the frame rate: a pixel cap, and a scale that steps down while frames run long and back up when
+ *  there is headroom (lib/render-scale-pure). Remembered per PC. The DOM UI is not affected; it stays crisp. */
+function RenderScale({ max, onDpr }: { max: number; onDpr: (dpr: number) => void }) {
+  const size = useThree((s) => s.size);
+  const st = useRef({ s: loadScale(), warm: 0, frames: 0, t: 0, worst: 0, low: 0, high: 0 });
+  useEffect(() => { onDpr(renderDpr(size.width, size.height, devicePixelRatio, max, st.current.s.scale)); st.current.warm = 0; }, [size.width, size.height, max, onDpr]);
+  useFrame((_, dt) => {
+    const r = st.current;
+    if ((r.warm += dt) < 2) return; // start-up and every resize hitch: no evidence
+    r.frames++; r.t += dt; r.worst = Math.max(r.worst, dt * 1000);
+    if (r.t < 0.5) return;
+    const next = stepScale(r.s, r.frames / r.t, r.t, r.worst, scaleFloor(devicePixelRatio, max));
+    r.frames = 0; r.t = 0; r.worst = 0;
+    if (next.scale !== r.s.scale) {
+      saveScale(next);
+      onDpr(renderDpr(size.width, size.height, devicePixelRatio, max, next.scale));
+      r.warm = 0;
+    }
+    r.s = next;
+  });
+  return null;
+}
+const SCALE_KEY = "orbit.render.scale";
+function loadScale(): ScaleState { try { const v = Number(localStorage.getItem(SCALE_KEY)); return newScale(v); } catch { return newScale(1); } }
+function saveScale(s: ScaleState) { try { localStorage.setItem(SCALE_KEY, String(s.scale)); } catch { /* storage off */ } }
 
 export default function Galaxy(props: GalaxyProps) {
   const positions = useMemo<Positions>(() => Object.fromEntries(PLANETS.map((p) => [p.id, new THREE.Vector3()])), []);
@@ -863,6 +887,7 @@ export default function Galaxy(props: GalaxyProps) {
   // Phones (Tailscale) get at most 1.5x: past that the fill rate costs more than the sharpness is worth.
   const [coarse] = useState(() => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
   const dprMax = coarse ? Math.min(1.5, q.dpr) : Math.min(2, q.dpr);
+  const [dpr, setDpr] = useState<number | null>(null); // RenderScale's choice; until then the plain range
   const windows = level > 0 && !props.reduced; // window planets + the dive: off on level 0 and under reduced motion
   const film = q.film && !props.reduced; // grain is motion, aberration is motion: both off for reduced motion
   const dof = q.dof && !props.reduced;
@@ -887,7 +912,7 @@ export default function Galaxy(props: GalaxyProps) {
   }, [stop, selected, onSelect]);
   return (
     <div className="relative h-full w-full">
-      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={(props.paused && !staged) || !visible ? "never" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={[1, dprMax]}
+      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={(props.paused && !staged) || !visible ? "never" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={dpr ?? [1, dprMax]}
         gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping }}>
         <color attach="background" args={["#000003"]} />
         {/* Depth haze: far orbits and belts sink into the void (shader layers ignore it). */}
@@ -925,7 +950,10 @@ export default function Galaxy(props: GalaxyProps) {
         <LabelProjector positions={positions} scales={scales} labels={labels} leaders={leaders} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
         {windows && <WindowPlanets hover={hover} dive={props.dive ?? null} positions={positions} sizes={sizes} scales={scales} />}
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
-        <WarmCompile /> {/* shaders compile in parallel before the first frame: the first render no longer freezes the page */}
+        {/* Shaders compile in parallel before the first frame. No 4 s release here: releasing mid-compile compiled the rest
+            synchronously in one 14 s frame (owner's PC); the loader stays up instead. Hidden parts warm after the first frames. */}
+        <WarmCompile cap={20_000} defer onDone={compiled} />
+        <RenderScale max={dprMax} onDpr={setDpr} />
         <FirstFrames onReady={onReady} />
         {mode === "auto" && !staged && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
         {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}
