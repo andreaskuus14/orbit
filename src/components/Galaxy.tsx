@@ -366,7 +366,14 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   // The close-up sphere (~100k vertices) is built the first time this world is approached, not at mount:
   // 13 of them up front froze the first render for seconds on the owner's PC.
   const hi = useRef<THREE.SphereGeometry | null>(null);
-  useEffect(() => { hi.current?.dispose(); hi.current = null; }, [size, level]);
+  useEffect(() => { // built in an idle moment after start-up, not mid-flight (an 800 ms frame was measured when built on approach)
+    hi.current?.dispose(); hi.current = null;
+    if (level < 2) return;
+    const ric: (cb: () => void) => number = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback ?? ((cb) => window.setTimeout(cb, 200));
+    let alive = true;
+    const t = window.setTimeout(() => ric(() => { if (alive && !hi.current) hi.current = new THREE.SphereGeometry(size, 192, 192); }), 3000 + index * 400); // staggered: one world per idle slot
+    return () => { alive = false; clearTimeout(t); };
+  }, [size, level, index]);
   useEffect(() => () => { lo.dispose(); hi.current?.dispose(); }, [lo]);
   const tilt = useMemo<[number, number, number]>(() => [Math.PI / 2 - 0.3 + Math.sin(index * 2.1) * 0.35, 0, Math.cos(index * 1.3) * 0.4], [index]);
 
@@ -412,7 +419,6 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
       liquid.u.uDetail.value = d;
       liquid.u.uOct.value = 3 + 5 * d;
       liquid.u.uFar.value = 1 - d;
-      if (level >= 2 && d > 0.35 && !hi.current) hi.current = new THREE.SphereGeometry(size, 320, 320);
       const m = mesh.current, want = hi.current && d > 0.35 ? hi.current : lo;
       if (m && m.geometry !== want) m.geometry = want;
     }
