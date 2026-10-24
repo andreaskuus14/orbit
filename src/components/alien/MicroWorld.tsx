@@ -327,10 +327,11 @@ export function MicroWorld({ size, u, level, orbital, body, seed }: {
   const orb = useRef<THREE.Group>(null);
 
   useFrame(({ camera, size: vp, viewport }, dt) => {
-    // a quarter of the frame time (>= 2 ms) goes to placement until it is done: at 144 fps that is 2 ms a frame
-    if (job && sent.current !== job) { const pl = job(performance.now() + Math.max(2, Math.min(dt, 1) * 250)); if (pl) { sent.current = job; setPlaced({ job, pl }); } }
     const g = root.current;
     const st = microStage(g ? size / Math.max(1e-3, camera.position.distanceTo(g.getWorldPosition(MW_P))) : 0, level, stage);
+    // Placement only once this world is being approached (its orbit stage begins), never for all 13 at start-up:
+    // that cost >= 26 ms a frame for the first seconds on the owner's PC. 2 ms a frame until done.
+    if (job && sent.current !== job && st.orbit > 0) { const pl = job(performance.now() + 2); if (pl) { sent.current = job; setPlaced({ job, pl }); } }
     uni.show.value = st.show;
     uni.px.value = (vp.height * viewport.dpr) / 2 / Math.tan(((camera as THREE.PerspectiveCamera).fov ?? 50) * Math.PI / 360);
     uni.orbit.value = st.orbit;
