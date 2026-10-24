@@ -1,4 +1,5 @@
 "use client";
+import { PerfBeacon } from "./PerfBeacon";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -509,6 +510,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       </div>
       <ShortcutsOverlay />
       <CursorRing />
+      <PerfBeacon />
       <Terminal />
       <MissionControl />
       <CommandPalette />
