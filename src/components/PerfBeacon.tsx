@@ -11,6 +11,9 @@ export const perfCtx: Ctx = {}; // the galaxy writes its state here (level, stop
 
 const RING = 4096; // 10 s at up to ~400 Hz; it wraps (keeps the newest) past that
 const ring = new FrameRing(RING), scratch = new Float32Array(RING);
+const marks: unknown[] = [];
+/** Records a boot milestone (ms since navigation) for /api/perf, e.g. when the galaxy first drew. */
+export function perfMark(name: string) { marks.push({ at: Math.round(performance.now()), ms: 0, mark: name, scripts: [], ctx: { ...perfCtx, w: innerWidth, h: innerHeight, dpr: devicePixelRatio, vis: document.visibilityState } }); }
 
 export function PerfBeacon() {
   const [hud, setHud] = useState<string | null>(null);
@@ -57,6 +60,7 @@ export function PerfBeacon() {
 
     const t = setInterval(() => {
       if (!document.hidden) flush();
+      q.push(...marks.splice(0));
       if (!q.length && !frames.length) return;
       void fetch("/api/perf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: q.splice(0), frames: frames.splice(0) }) }).catch(() => {});
     }, 10_000);

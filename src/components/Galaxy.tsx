@@ -38,6 +38,7 @@ import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
 import { compileAs, WarmCompile } from "./WarmCompile";
+import { perfMark } from "./PerfBeacon";
 import { perfCtx } from "./PerfBeacon";
 import { InkGlyph } from "./InkGlyph";
 import { AlienScript } from "./AlienScript";
@@ -814,7 +815,7 @@ function FirstFrames({ onReady }: { onReady: () => void }) {
     compileAs(gl, scene, camera, get().internal.priority > 0).then(() => { if (alive) markPreload(90); }).catch(() => {});
     return () => { alive = false; };
   }, [gl, scene, camera, get]);
-  useFrame(() => { if (++n.current === 3) onReady(); });
+  useFrame(() => { if (++n.current === 3) { perfMark("galaxy-drawn"); onReady(); } });
   return null;
 }
 
@@ -827,7 +828,7 @@ export default function Galaxy(props: GalaxyProps) {
   const staged = useStageActive(); // one-canvas spike: a world renders in this canvas, the galaxy scene sits idle
   const [ready, setReady] = useState(false);
   const onReady = useCallback(() => setReady(true), []);
-  useEffect(() => { const t = setTimeout(onReady, 8000); return () => clearTimeout(t); }, [onReady]); // never hang on the loader if no frame draws
+  useEffect(() => { const t = setTimeout(onReady, 20_000); return () => clearTimeout(t); }, [onReady]); // safety cap only: the loader stays until frames draw
   const max: QualityLevel = props.reduced ? 1 : 3;
   // Start at the level this PC settled on last time: every level change rebuilds the scene and recompiles shaders
   // (~1 s freeze measured on the owner's PC), so climbing 1 → 2 → 3 on each load felt like lag.
