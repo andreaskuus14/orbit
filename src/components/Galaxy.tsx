@@ -36,6 +36,7 @@ import {
 import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
+import { WarmCompile } from "./WarmCompile";
 
 export type GalaxyProps = {
   bloomScale?: number; // ambient night mode softens the glow
@@ -874,6 +875,7 @@ export default function Galaxy(props: GalaxyProps) {
         <Parallax feel={feel} on={!props.reduced && !staged} /> {/* after every rig: it offsets the camera they placed */}
         <LabelProjector positions={positions} scales={scales} labels={labels} leaders={leaders} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
+        <WarmCompile /> {/* shaders compile in parallel before the first frame: the first render no longer freezes the page */}
         <FirstFrames onReady={onReady} />
         {mode === "auto" && !staged && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
         {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}
