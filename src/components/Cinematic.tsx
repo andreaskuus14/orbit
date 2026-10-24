@@ -13,6 +13,8 @@ import {
 } from "@/lib/cinematic-pure";
 import { expDamp } from "@/lib/smooth-damp-pure";
 import { useScramble } from "./useScramble";
+import { AlienScript } from "./AlienScript";
+import { codeOf } from "@/lib/alien-script-pure";
 import { MaskText } from "./MaskText";
 import { preloading } from "./GalaxyLoader";
 
@@ -438,7 +440,15 @@ export function StoryFocus({ story }: { story: RefObject<Story> }) {
   return <DepthOfField ref={ref} target={ORIGIN} focusRange={6} bokehScale={0} />;
 }
 
-/** igloo-style section readout, bottom left: "03 / 11", the planet's name large, one line on what it does. */
+/** The decode's unlocked letters, drawn as alien-script logograms over their (transparent) real letters: the same
+ *  scramble and timing (useScramble), only its random glyphs come from the script. The line never changes width. */
+function ScriptDecode({ text, out }: { text: string; out: string }) {
+  if (out === text) return <>{text}</>;
+  return <>{Array.from(text, (c, i) => (out[i] === c ? c : <span key={i} className="script-dc">{c}<AlienScript codes={[codeOf(out[i] ?? c)]} r={4} stroke={1.3} /></span>))}</>;
+}
+
+/** igloo-style section readout, bottom left: "03 / 11", the planet's name large, one line on what it does. Above the
+ *  name, its alien-script line draws in first; then the name decodes out of the script. */
 export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boolean; onOpen: (id: PanelId) => void }) {
   const live = stop >= 0 ? stop : intro ? -2 : null; // -2 = the intro card
   const [shown, setShown] = useState<number>(intro ? -2 : -1);
@@ -450,8 +460,9 @@ export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boo
     <div className={`story-readout${live !== null ? " on" : ""}`} aria-hidden={live === null || undefined}>
       <div key={p?.id ?? "intro"} className="story-anim">
         <div className="story-idx" aria-hidden><b>{pad(p ? shown + 1 : 0)}</b> / {pad(PLANETS.length)}</div>
-        {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={live !== null ? 0 : -1}>{name}</button>
-          : <div className="story-name" aria-hidden>{name}</div>}
+        <AlienScript text={p ? p.name : "ORBITAL"} r={4} stroke={1.1} className="story-script" />
+        {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={live !== null ? 0 : -1}><ScriptDecode text={p.name} out={name} /></button>
+          : <div className="story-name" aria-hidden><ScriptDecode text="ORBITAL" out={name} /></div>}
         <p className="story-line">{p ? p.blurb : "Your mind has a universe."}</p>
         <p className="story-hint" aria-hidden>{p ? "CLICK OR ENTER TO OPEN · SCROLL TO TRAVEL" : "SCROLL TO EXPLORE"}</p>
       </div>

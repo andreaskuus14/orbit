@@ -39,6 +39,7 @@ import { markPreload } from "./GalaxyLoader";
 import { WarmCompile } from "./WarmCompile";
 import { perfCtx } from "./PerfBeacon";
 import { InkGlyph } from "./InkGlyph";
+import { AlienScript } from "./AlienScript";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
 
 export type GalaxyProps = {
@@ -668,6 +669,7 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
       if (v.z < 1) {
         const T = cursorTarget, dist = Math.max(0.1, camera.position.distanceTo(positions[hp.id]));
         T.at = performance.now(); T.label = hp.name;
+        T.script = sc.alpha[BODIES.indexOf(hp.id)] > 0.3; // its own label already names it: the ring shows the script instead
         T.r = ((planetSize(hp) * (scales[hp.id] ?? 1)) / (dist * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)))) * (size.height / 2);
         T.x = ((v.x + 1) / 2) * size.width; T.y = ((1 - v.y) / 2) * size.height;
       }
@@ -946,10 +948,11 @@ export default function Galaxy(props: GalaxyProps) {
         {BODIES.map((id) => <span key={`l-${id}`} ref={(el) => { leaders.current[id] = el; }} className="planet-leader" />)}
         <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning ? "#fb7185" : "#efe6d6" }}>
           CORE{props.warning ? " · last request failed" : ""}
+          <AlienScript text="CORE" className="planet-script" />
           {props.busy && <InkGlyph reduced={props.reduced} />}
         </span>
         {PLANETS.map((p) => ( // calm labels (c11): pearl, with a breath of the world's identity colour
-          <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>{p.name}</span>
+          <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>{p.name}<AlienScript text={p.name} className="planet-script" /></span>
         ))}
       </div>
       </div>

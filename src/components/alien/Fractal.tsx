@@ -64,6 +64,8 @@ void main() {
   c *= 0.35 + 0.65 * ao;
   vec4 clip = uMVP * vec4(p, 1.0);
   gl_FragDepth = clamp((clip.z / clip.w) * 0.5 + 0.5, 0.0, 1.0);
+  float lum = max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-5); // white-hot, but rolled off: no flat clipped faces up close
+  if (lum > 0.8) c *= (0.8 + (lum - 0.8) / (1.0 + (lum - 0.8) / 1.0)) / lum;
   gl_FragColor = vec4(clamp(c, 0.0, 8.0), 1.0);
 }`;
 
