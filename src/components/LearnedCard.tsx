@@ -5,7 +5,7 @@ import type { Lesson, Playbook } from "@/lib/clips/study-pure";
 import type { ModelStatus } from "@/lib/clips/score";
 import StudyButton from "./StudyButton";
 
-type Data = Insights & { study?: { playbook: Playbook; recent: Lesson[]; busy: string | null; min: number } | null; model?: ModelStatus | null };
+type Data = Insights & { study?: { playbook: Playbook; recent: Lesson[]; busy: string | null; min: number; rules?: string[] } | null; model?: ModelStatus | null };
 
 const SIGNAL: Record<ModelStatus["top"][number]["key"], string> = { claude: "Editor's rating", hypePeak: "Hype spike", hypeSharp: "Sudden hype", chat: "Chat burst", audio: "Loud reaction",
   hook: "First 2 seconds", length: "Length fit", creator: "Creator", kind: "Moment type", playbook: "Viral playbook", novelty: "Freshness" };
@@ -97,6 +97,7 @@ export default function LearnedCard({ defaultOpen }: { defaultOpen?: boolean }) 
               {!!pb.titlePatterns.length && row("Title formulas", pb.titlePatterns.map((c) => `${c.label} (${c.n})`))}
               {!!pb.lessons.length && row("Lessons", pb.lessons.slice(0, 3))}
             </ul> : <p className="muted">Nothing studied yet: press 📚 Study on a Short blowing up in your niche (Trend Radar → Rising) or on one of your winners.</p>}
+            {!!d.study?.rules?.length && <ul>{row("Your rules (from post-mortems)", d.study.rules)}</ul>}
           </div>
           {d.model && <ScoreModel m={d.model} />}
           <div>

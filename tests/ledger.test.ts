@@ -8,6 +8,7 @@ const DATA: Record<string, object> = {
   "memory.saved": { memoryId: "m1", kind: "note" },
   "clip.published": { clipId: "c1", title: "Big play" },
   "clip.outcome48h": { clipId: "c1", views: 5000, likes: 300 },
+  "clip.postmortem": { clipId: "j/c1", drops: 2, hold3s: 0.82 },
   "business.stage": { prospect: "Cafe Roma", to: "contacted" },
   "goal.step": { goalId: "g1", step: "Draft titles", status: "done" },
   "life.habit": { habit: "Run", done: true },
