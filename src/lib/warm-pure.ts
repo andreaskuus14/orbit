@@ -10,3 +10,19 @@ export function passesChanged<P>(w: WarmState<P> | undefined, passes: readonly P
 export function skipFrame(w: WarmState<unknown>, now: number): boolean {
   return !w.ready && now < w.until;
 }
+
+/** The `n` slowest entries, slowest first. */
+export function slowest<T extends { ms: number }>(list: readonly T[], n: number): T[] {
+  return [...list].sort((a, b) => b.ms - a.ms).slice(0, n);
+}
+
+/** A short name for a compiled program in the perf log: three's shader (or the material's name), ORBIT's variant defines,
+ *  and the first custom uniforms, which identify a ShaderMaterial (e.g. "physical+ORBIT_LITE(uRim,uRimColor,uLq)"). */
+export function programLabel(name: string, cacheKey: string, fragment: string): string {
+  const id = /^[a-z]+(?=,)/.exec(cacheKey)?.[0];
+  const base = name || (id === "physical" && !cacheKey.includes(",PHYSICAL,") ? "standard" : id) || "shader"; // three's id for both
+  const flags = [...new Set(cacheKey.match(/ORBIT_[A-Z]+/g) ?? [])];
+  const us: string[] = [];
+  for (const m of fragment.matchAll(/uniform\s+\w+\s+(u[A-Z]\w*)/g)) if (!us.includes(m[1]) && us.push(m[1]) >= 3) break;
+  return ([base, ...flags].join("+") + (us.length ? `(${us.join(",")})` : "")).slice(0, 80);
+}

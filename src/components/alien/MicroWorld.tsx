@@ -10,7 +10,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { NOISE } from "./LiquidPlanet";
-import { compileAs } from "../WarmCompile";
+import { compileAs, WarmIn } from "../WarmCompile";
 import { cityDensity, microStage, newStage, rankCount, structureBudget } from "./micro-pure";
 
 type N1 = { value: number };
@@ -367,7 +367,7 @@ export function MicroWorld({ size, u, level, orbital, body, seed }: {
   return (
     <group ref={root}>
       {kinds?.map((k, i) => <mesh key={i} ref={(m) => { meshes.current[i] = m; }} geometry={k.g} material={k.mat} raycast={noRay} frustumCulled={false} visible={false} />)}
-      {orbital && <group ref={orb} visible={false}><Orbitals size={size} u={u} k={uni.orbit} ship={uni.ship} px={uni.px} body={uni.body} /></group>}
+      {orbital && <group ref={orb} visible={false}><WarmIn><Orbitals size={size} u={u} k={uni.orbit} ship={uni.ship} px={uni.px} body={uni.body} /></WarmIn></group>}
     </group>
   );
 }

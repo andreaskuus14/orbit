@@ -324,7 +324,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: bg }}>
       {!flat && (
         <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
-        <WarmCompile />
+        <WarmCompile world="arch" />
         {quality === "auto" && <PerformanceMonitor onDecline={qualityPreset.onDecline} />}
           <color attach="background" args={[bg]} />
           <fog attach="fog" args={[bg, 60, 140]} />

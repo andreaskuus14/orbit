@@ -2,13 +2,13 @@
 // Entering a world froze the page for 130–800 ms (measured on the owner's PC): every world mounts a fresh WebGL context, so
 // three compiles all its shaders inside the first render. This holds the render loop while compileAsync compiles them in
 // parallel (KHR_parallel_shader_compile), so the main thread stays free; the world then starts drawing with shaders ready.
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { useThree, type RootState } from "@react-three/fiber";
 import { EffectComposer, type Pass } from "postprocessing";
 import { envReady } from "./alien/env";
 import { perfMark } from "./PerfBeacon";
-import { passesChanged, skipFrame, type WarmState } from "@/lib/warm-pure";
+import { passesChanged, programLabel, skipFrame, slowest, type WarmState } from "@/lib/warm-pure";
 
 type Frameloop = RootState["frameloop"];
 // Several warm-ups can overlap on one canvas (a part mounting late warms again): the loop resumes when the last one ends.
@@ -83,9 +83,37 @@ async function uploadTextures(gl: THREE.WebGLRenderer, scene: THREE.Object3D, al
   }
 }
 
-/** Props: `cap` ms before drawing anyway (anything unfinished then compiles synchronously in that frame); `defer`:
- *  compile only what is visible now, warm hidden subtrees after the first frames (see warmLater); `onDone` when compiled. */
-export function WarmCompile({ cap = 4000, defer = false, onDone }: { cap?: number; defer?: boolean; onDone?: () => void } = {}) {
+type Prog = { name: string; cacheKey: string; fragmentShader: WebGLShader; program?: WebGLProgram; isReady: () => boolean };
+const programsOf = (gl: THREE.WebGLRenderer) => (gl.info.programs ?? []) as unknown as Prog[];
+/** How long each program `since` did not have took to compile (KHR_parallel_shader_compile completion), slowest first:
+ *  the perf log then names what to cut. Polls without blocking; gives up after a minute. */
+function timePrograms(gl: THREE.WebGLRenderer, since: Set<Prog>, t0: number) {
+  let left: Set<Prog> | null = null;
+  const done: { p: Prog; ms: number }[] = [];
+  return new Promise<{ p: string; ms: number }[]>((resolve) => {
+    const poll = () => {
+      const now = performance.now();
+      left ??= new Set(programsOf(gl).filter((p) => !since.has(p))); // a task later: the composer's programs are in too
+      for (const p of left) {
+        let ok = true;
+        try { ok = !p.program || p.isReady(); } catch { /* lost context */ } // no program: released meanwhile
+        if (ok) { left.delete(p); done.push({ p, ms: Math.round(now - t0) }); }
+      }
+      if (left.size && now - t0 < 60_000) { setTimeout(poll, 50); return; }
+      resolve(slowest(done, 6).map(({ p, ms }) => ({ p: programLabel(p.name, p.cacheKey, gl.getContext().getShaderSource(p.fragmentShader) ?? ""), ms })));
+    };
+    setTimeout(poll, 0);
+  });
+}
+
+// Canvases that have drawn: only a canvas's first hold shows the veil (a later hold keeps its last image instead).
+const drawn = new WeakSet<THREE.WebGLRenderer>();
+
+/** Props: `cap` ms before drawing anyway (anything unfinished then compiles synchronously in that frame, the freeze this
+ *  exists to avoid, so it is only a safety net); `defer`: compile only what is visible now, warm hidden subtrees after the
+ *  first frames (see warmLater); `onDone` when compiled; `onLater` when the hidden subtrees are warm too; `world`: its name
+ *  in the perf log ('world-compiled'). Until the first frame the canvas's parent carries data-warming (a calm veil, CSS). */
+export function WarmCompile({ cap = 20_000, defer = false, onDone, onLater, world }: { cap?: number; defer?: boolean; onDone?: () => void; onLater?: () => void; world?: string } = {}) {
   const { gl, scene, camera, setFrameloop, frameloop, get } = useThree();
   useLayoutEffect(() => {
     let alive = true, released = false;
@@ -93,7 +121,16 @@ export function WarmCompile({ cap = 4000, defer = false, onDone }: { cap?: numbe
     if (h.n++ === 0) h.prev = frameloop;
     holds.set(gl, h);
     setFrameloop("never");
-    const release = () => { if (released) return; released = true; if (--h.n === 0) setFrameloop(h.prev); };
+    const veil = drawn.has(gl) ? null : gl.domElement.parentElement;
+    veil?.setAttribute("data-warming", "");
+    const release = () => {
+      if (released) return;
+      released = true; drawn.add(gl);
+      if (--h.n > 0) return;
+      setFrameloop(h.prev); veil?.removeAttribute("data-warming");
+      const l = laterOf(gl); // background warm-ups start after the first frames have drawn
+      requestAnimationFrame(() => requestAnimationFrame(() => { l.open = true; void pump(l); }));
+    };
     // one tick later: the world's children have mounted into the scene (and a composer, if any, has taken over drawing)
     const t = setTimeout(async () => {
       // The reflection map bakes asynchronously; surfaces that use it switch programs when it lands. Wait for it, then for
@@ -101,7 +138,7 @@ export function WarmCompile({ cap = 4000, defer = false, onDone }: { cap?: numbe
       const env = envReady(gl);
       if (env) { await env; await tick(); await tick(); }
       if (!alive) return;
-      const t0 = performance.now();
+      const t0 = performance.now(), had = new Set(programsOf(gl));
       // internal.priority > 0: a useFrame with priority took over drawing; here that is always the EffectComposer.
       const into = get().internal.priority > 0;
       // Deferred: hidden subtrees stay out of the start-up compile; their own materials can't draw (material.visible)
@@ -111,18 +148,19 @@ export function WarmCompile({ cap = 4000, defer = false, onDone }: { cap?: numbe
       const p = without(groups.map((g) => g.root), () => compileAs(gl, scene, camera, into));
       // The composer's own shaders compile alongside, not in its first frames (it skipped up to 2 s, then compiled the rest
       // synchronously).
+      const timed = timePrograms(gl, had, t0);
       Promise.all([p, ...[...(composers.get(gl) ?? [])].map(warmNow)])
         .then(() => uploadTextures(gl, scene, () => alive)).catch(() => {})
         .finally(() => {
           if (!alive) return;
-          perfMark("warm-compiled", { programs: gl.info.programs?.length ?? -1, ms: Math.round(performance.now() - t0) });
+          const ms = Math.round(performance.now() - t0), programs = gl.info.programs?.length ?? -1;
+          void timed.then((slow) => perfMark(world ? "world-compiled" : "warm-compiled", { world, programs, ms, slow }));
           onDone?.(); release();
           if (!defer) return;
           const l = laterOf(gl);
           for (const g of groups) l.q.push(() => compileAs(gl, g.root, camera, into, scene).finally(() => g.only.forEach((m) => { m.visible = true; })));
-          l.q.push(async () => perfMark("warm-later", { programs: gl.info.programs?.length ?? -1, ms: Math.round(performance.now() - t0) }));
-          // after the first frames have drawn
-          requestAnimationFrame(() => requestAnimationFrame(() => { l.open = true; void pump(l); }));
+          l.q.push(async () => { perfMark("warm-later", { programs: gl.info.programs?.length ?? -1, ms: Math.round(performance.now() - t0) }); onLater?.(); });
+          void pump(l);
         });
       // A slow driver must not hold the canvas blank forever: after `cap` draw anyway.
       setTimeout(() => { if (alive) release(); }, cap);
@@ -131,6 +169,28 @@ export function WarmCompile({ cap = 4000, defer = false, onDone }: { cap?: numbe
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount
   }, []);
   return null;
+}
+
+/** Content that mounts after the canvas's warm-up (it arrives with data), or is hidden at first and shown by a useFrame:
+ *  its new materials stay undrawn until their programs have compiled in parallel, instead of compiling synchronously
+ *  inside a frame (a 200–700 ms frame each on the owner's PC). Checked after every render, so children that appear later
+ *  are covered too. */
+export function WarmIn({ children }: { children: ReactNode }) {
+  const ref = useRef<THREE.Group>(null);
+  const busy = useRef(new Set<THREE.Material>());
+  const { gl, camera, scene, get } = useThree();
+  useLayoutEffect(() => { // the children are attached by now, and no frame has drawn them yet (a useFrame may show them)
+    const root = ref.current;
+    if (!root) return;
+    const fresh: THREE.Material[] = [];
+    root.traverse((o) => { for (const m of [(o as THREE.Mesh).material ?? []].flat()) if (m.visible && !busy.current.has(m) && !(gl.properties.get(m) as { currentProgram?: unknown }).currentProgram) fresh.push(m); });
+    if (!fresh.length) return;
+    fresh.forEach((m) => { busy.current.add(m); m.visible = false; });
+    const show = () => fresh.forEach((m) => { m.visible = true; busy.current.delete(m); });
+    const job = () => { try { return compileAs(gl, root, camera, get().internal.priority > 0, scene).then(show, show); } catch { show(); return Promise.resolve(); } };
+    if (holds.get(gl)?.n) warmLater(gl, job); else void job(); // during the start-up compile: after it, not competing with it
+  });
+  return <group ref={ref}>{children}</group>;
 }
 
 /* Post-processing compiles its own fullscreen shaders (bloom, SMAA, tone mapping…) in the first composer.render, outside

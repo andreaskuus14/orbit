@@ -105,6 +105,7 @@ float surf(vec3 p, float fw) {
   float h = c * 0.7 + fbm(n * 9.0 + w, fw * 18.0, uOct) * 0.3 * (0.4 + 0.6 * gPool) - gSeam * 0.12; // bump = derivative: fade an octave early, no crawl
   float shore = exp(-pow((c - 0.08) * 9.0, 2.0)); gFlowA += shore * 2.0; gSpark = shore; // pool shores: where the oil film is thickest
   gCirc = 0.0; gGlyph = 0.0; float shoreK = gSpark; gSpark = 0.0;
+  #ifndef ORBIT_BARE
   if (uDetail > 0.01) {
     // etched circuitry on a cube projection: one trace per cell (straight, turn or via), two octaves
     vec3 a = abs(n);
@@ -136,6 +137,7 @@ float surf(vec3 p, float fw) {
     float r = h13(sc);
     gSpark = pow(r, 70.0) * (0.6 + 0.4 * sin(uTime * 0.5 + r * 80.0)) * (1.0 - smoothstep(0.25, 0.6, spx)) * (1.0 - smoothstep(0.32, 0.5, length(fract(sg) - 0.5)));
   }
+  #endif
   gH = h; gShore = shoreK;
   return h;
 }
@@ -144,6 +146,7 @@ float surf(vec3 p, float fw) {
 // circuitry above takes over. Every high-frequency term fades by its pixel footprint (fw), so nothing shimmers.
 uniform vec3 uPA; uniform vec3 uPB; uniform vec3 uPC;
 float gOcean;
+#ifndef ORBIT_BARE
 vec3 famColor(vec3 p, float fw) {
   vec3 n = normalize(p), q = n + uSeed;
   gOcean = 0.0;
@@ -202,6 +205,7 @@ vec3 famColor(vec3 p, float fw) {
   gH = max(land, 0.0) * 0.5;
   return col;
 }
+#endif
 `;
 
 /** Night-side cities and the cursor x-ray (fragment only). Cities: arterial and street grids on a cube projection where
@@ -305,6 +309,9 @@ const FAM = [
 // micro-world, no hover) and switch to the full one once it has compiled in the background (see warmLater). The full
 // planet program is the biggest in the galaxy: on the owner's PC (D3D) its compile was most of a 15–20 s boot.
 const LITE = "ORBIT_LITE";
+// "bare" (STUDIO's chrome sphere): the lite variant without the pattern families and the close-up circuitry (uDetail stays
+// 0 there), for good. Its full program was the ~7 s compile when STUDIO opened on the owner's PC; this one is ~40% of it.
+const BARE = "ORBIT_BARE";
 type Lite = THREE.MeshPhysicalMaterial & { defines: Record<string, string> }; // three has defines; its types do not
 const liteMats = new Set<Lite>();
 let liteQueued: THREE.WebGLRenderer | null = null; // the renderer the full warm-up is queued on (a GL recovery gets a new one)
@@ -316,7 +323,7 @@ function warmFull(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Cam
   return p.then(() => { set(false); liteMats.clear(); }); // now cached: the switch costs nothing
 }
 
-export function useLiquidMetal(color: string, obsidian: boolean, size: number, extra?: (s: THREE.WebGLProgramParametersWithUniforms) => void, look?: SurfaceLook, lite = false) {
+export function useLiquidMetal(color: string, obsidian: boolean, size: number, extra?: (s: THREE.WebGLProgramParametersWithUniforms) => void, look?: SurfaceLook, lite: boolean | "bare" = false) {
   const env = useAlienEnv();
   const gl = useThree((s) => s.gl), get = useThree((s) => s.get);
   const { mat, u } = useMemo(() => {
@@ -343,7 +350,8 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
       anisotropy: 0.4, // brushed-chrome streaks; the direction follows the flow (injected below)
       emissive: color, emissiveIntensity: 0, envMapIntensity: obsidian ? 2.4 : 1.15,
     });
-    if (lite) { (mat as Lite).defines[LITE] = ""; liteMats.add(mat as Lite); }
+    if (lite === "bare") Object.assign((mat as Lite).defines, { [LITE]: "", [BARE]: "" }); // never upgraded
+    else if (lite) { (mat as Lite).defines[LITE] = ""; liteMats.add(mat as Lite); }
     mat.onBeforeCompile = (s) => {
       extra?.(s);
       Object.assign(s.uniforms, u, { uTimeU: u.uTime });
@@ -360,8 +368,11 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
         .replace("#include <color_fragment>", `#include <color_fragment>
           float fwq = length(fwidth(vLq));
           surf(vLq, fwq);
+          gOcean = 0.0;
           if (uFam < -0.5) diffuseColor.rgb *= mix(uPoolTint, vec3(1.0), gPool); // continents: dark mirror pools in the chrome
-          else { float hs = gH; diffuseColor.rgb *= famColor(vLq, fwq); gH += (hs - gH) * 0.25 * uDetail; } // identity at every range; the alien relief joins up close`)
+          #ifndef ${BARE}
+          else { float hs = gH; diffuseColor.rgb *= famColor(vLq, fwq); gH += (hs - gH) * 0.25 * uDetail; } // identity at every range; the alien relief joins up close
+          #endif`)
         .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
           { // bump from the procedural height: screen derivatives of h (world units), Mikkelsen's surface gradient
             float h = gH * uLq * 0.06 * uBump;
@@ -430,7 +441,7 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
     return { mat, u };
   }, [color, obsidian, size, extra, look, lite]); // look: a module constant per world
   useEffect(() => {
-    if (!lite || liteQueued === gl) return;
+    if (lite !== true || liteQueued === gl) return;
     liteQueued = gl; // one job for every lite world: one full program
     warmLater(gl, () => { const { scene, camera, internal } = get(); return warmFull(gl, scene, camera, internal.priority > 0).finally(() => { if (liteQueued === gl) liteQueued = null; }); });
   }, [lite, gl, get]);
