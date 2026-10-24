@@ -743,3 +743,5 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 /* Loading tiles: the HUD panel restyle painted over the shimmer, so loading looked like empty, broken boxes. */
 .dash-tile.skeleton, .glass .skeleton { background: linear-gradient(90deg, rgba(186, 214, 255, 0.04), rgba(186, 214, 255, 0.13), rgba(186, 214, 255, 0.04)) !important; background-size: 200% 100% !important; animation: shimmer 1.3s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .dash-tile.skeleton, .glass .skeleton { animation: none; } }
+/* Diving through a planet: the galaxy's labels and leader lines would pile up at the screen edge; they step aside. */
+.orbit-shell[data-diving] .planet-label, .orbit-shell[data-diving] .planet-leader, .orbit-shell[data-diving] .hud-leader { opacity: 0 !important; transition: opacity 0.15s; }
