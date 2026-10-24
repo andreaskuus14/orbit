@@ -832,11 +832,9 @@ export default function Galaxy(props: GalaxyProps) {
   // Start at the level this PC settled on last time: every level change rebuilds the scene and recompiles shaders
   // (~1 s freeze measured on the owner's PC), so climbing 1 → 2 → 3 on each load felt like lag.
   const [autoLevel, setAutoLevelRaw] = useState<QualityLevel>(() => { try { const raw = localStorage.getItem("orbit.quality.level"), v = raw === null ? NaN : Number(raw); return (v >= 0 && v <= 3 ? v : 1) as QualityLevel; } catch { return 1; } });
-  const born = useRef(typeof performance !== "undefined" ? performance.now() : 0);
   const setAutoLevel = useCallback((l: QualityLevel) => setAutoLevelRaw((cur) => {
-    if (l > cur && performance.now() - born.current > 15_000) return cur; // no upgrades mid-session: they hitch; next load starts there
     try { localStorage.setItem("orbit.quality.level", String(l)); } catch { /* storage off */ }
-    return l;
+    return l > cur ? cur : l; // upgrades only take effect on the next load: each live rebuild froze ~1.3 s (freeze log, owner PC)
   }), []);
   const [visible, setVisible] = useState(true);
   useEffect(() => {
