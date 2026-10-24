@@ -60,6 +60,10 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   vec3 prism = vec3(exp(-pow((x - 0.03) * 30.0, 2.0)), exp(-pow(x * 30.0, 2.0)), exp(-pow((x + 0.03) * 30.0, 2.0)));
   c += (vec3(1.0, 0.97, 0.93) * ring * (0.22 + 0.5 * uCalm) + prism * 0.05 * uDisp * (1.0 - 0.9 * uCalm)) * uOn;
   c *= 1.0 - 0.97 * (1.0 - smoothstep(0.74 * uRe, 0.8 * uRe, r)) * uCalm * uOn;
+  // close range: halo, disk and ring stack into the lens zone; roll their highlights off (soft, keeps the gradation and
+  // the hairline) so the CORE never clips to a flat white disc
+  float lc = max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-5), kz = (1.0 - smoothstep(2.0 * uRe, 4.5 * uRe, r)) * (1.0 - uCalm) * uOn;
+  if (lc > 0.5 && kz > 0.0) c *= mix(1.0, (0.5 + (lc - 0.5) / (1.0 + (lc - 0.5) / 0.5)) / lc, kz);
   outputColor = vec4(knee(mix(inputColor.rgb, max(c, vec3(0.0)), behind)), inputColor.a);
 }`;
 

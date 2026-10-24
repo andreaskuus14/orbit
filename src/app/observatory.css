@@ -242,6 +242,11 @@
 /* Always-on HUD corners over the galaxy (HudFrame.tsx). */
 .hud-frame { position: fixed; inset: 0; z-index: 4; pointer-events: none; }
 .hud-frame path { fill: none; stroke: #7dd3fc; stroke-width: 1px; vector-effect: non-scaling-stroke; opacity: .35; }
+.hud-serial { position: fixed; z-index: 4; pointer-events: none; color: #7dd3fc; opacity: .4; }
+.hud-serial-nw { left: calc(1.5vw + 14px); top: calc(1.5vh + 9px); }
+.hud-serial-ne { right: calc(1.5vw + 14px); top: calc(1.5vh + 9px); }
+.hud-serial-se { right: calc(1.5vw + 14px); bottom: calc(1.5vh + 9px); }
+.hud-serial-sw { left: calc(1.5vw + 14px); bottom: calc(1.5vh + 9px); }
 .hud-frame text { fill: #7dd3fc; opacity: .45; font: 9px var(--font-display, monospace); letter-spacing: .3em; }
 
 /* Cockpit part 2: radial status rail (StatusRail.tsx) and the activity ticker (Ticker.tsx). */

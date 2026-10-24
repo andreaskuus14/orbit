@@ -92,6 +92,15 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .planet-card.warn { border-color: #f43f5e !important; }
 .planet-card:hover { transform: translateY(-2px); box-shadow: 0 0 24px rgba(34, 211, 238, 0.18); background: linear-gradient(135deg, rgba(20, 44, 90, 0.8), rgba(6, 14, 34, 0.8)); }
 
+/* alien-script caption under each label (AlienScript, aria-hidden): absolute, so the label's centring never moves */
+.planet-script { position: absolute; left: 50%; top: 100%; margin-top: 3px; transform: translateX(-50%); opacity: .45; overflow: visible; }
+.cursor-ring-label svg { display: block; overflow: visible; opacity: .85; }
+.story-script { display: block; margin-top: 0.7rem; color: #8fd3ff; opacity: .7; overflow: visible; }
+.story-script path { stroke-dasharray: 1; animation: script-draw 0.45s cubic-bezier(.2, .6, .3, 1) both; }
+@keyframes script-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.script-dc { position: relative; color: transparent; }
+.script-dc svg { position: absolute; left: 50%; top: 50%; width: 0.62em; height: 0.62em; transform: translate(-50%, -50%); color: #8fd3ff; opacity: .85; overflow: visible; }
+@media (prefers-reduced-motion: reduce) { .story-script path { animation: none; } }
 .planet-label { opacity: 0; font-family: var(--font-display); font-weight: 500; font-size: 11px; letter-spacing: 0.26em; white-space: nowrap; text-shadow: 0 0 2px #000, 0 0 6px #000, 0 0 12px rgba(0, 0, 0, 0.9); } /* calm (c11): a dark halo for legibility, no coloured glow */
 /* CORE thinking (InkGlyph): an Arrival logogram around the label. Every arc grows out of its own seed point at once
    (a dash centred on --c), the ink sharpens as it forms, then blooms out and fades. No glow, no flicker. */

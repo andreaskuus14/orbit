@@ -1,6 +1,7 @@
 "use client";
 // The CORE as an alien artifact: a white singularity with god rays and a photon ring, an accretion disk of light trails,
-// and monolithic obsidian rings etched with glyphs that light in sweeping waves. The rings are slices of a tesseract:
+// and monolithic obsidian rings machined like alien hardware (panels, chamfers, rivets, a luminous inner groove, a band of
+// engraved alien script whose glow travels along the text like reading; see alien-script-pure). The rings are slices of a tesseract:
 // every frame their vertices are lifted into 4D (each ring at its own w), rotated in the xw and yw planes and projected
 // back to 3D in the vertex shader, so rings swell, shrink and pass through each other, turning inside out (c6).
 // A hypercube wireframe turns with them, and a raymarched recursive lattice (Fractal) hangs in the middle (c7).
@@ -13,8 +14,18 @@ import { Fractal } from "./Fractal";
 import { coreCalm, coreScale, tesseractAngle } from "@/lib/alien-pure";
 import { easeInStop, newUnseen, unseenJump, unseenStep, watched, wrapAngle } from "@/lib/alien-behaviour-pure";
 import type { CoreLive } from "../ParticleCore";
+import { encode, SCRIPT_GLSL } from "@/lib/alien-script-pure";
+import { PLANETS } from "@/lib/planets";
 
 const finite = (x: number, lo = 0, hi = 1) => (Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : lo);
+
+/** Soft highlight roll-off: identity up to luminance k, then eases toward m. Close up the halo and disk fill a big part
+ *  of the frame; a hard clamp there printed a flat white disc. This keeps their gradation (and the ripples) instead. */
+const ROLLOFF = /* glsl */ `
+vec3 rolloff(vec3 c, float k, float m) {
+  float l = max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-5);
+  return l <= k ? c : c * ((k + (l - k) / (1.0 + (l - k) / max(m - k, 1e-3))) / l);
+}`;
 
 /* ---------- halo: a camera-facing quad (white core, photon ring, slowly turning god rays) ---------- */
 const HALO_VS = /* glsl */ `
@@ -26,8 +37,9 @@ void main() {
   gl_Position = projectionMatrix * mv;
 }`;
 const HALO_FS = /* glsl */ `
-uniform float uTime; uniform float uGain; uniform float uRays; varying vec2 vP;
+uniform float uTime; uniform float uGain; uniform float uRays; uniform float uCap; varying vec2 vP;
 ${HOLO}
+${ROLLOFF}
 void main() {
   float r = length(vP), a = atan(vP.y, vP.x), t = uTime;
   float core = exp(-r * r * 2600.0) * 6.0 + exp(-r * 48.0) * 1.2 + exp(-r * 9.0) * 0.1; // precise, not a blown-out flare
@@ -36,14 +48,15 @@ void main() {
              + 0.6 * pow(0.5 + 0.5 * sin(a * 23.0 - t * 0.09 + sin(a * 3.0 + t * 0.13) * 2.4), 18.0);
   rays *= exp(-r * 9.0) * (1.0 - smoothstep(0.3, 0.8, r)) * uRays * 0.1;
   vec3 c = vec3(1.0, 0.98, 0.95) * (core + ring) + mix(vec3(0.85, 0.92, 1.0), holo(a * 0.159 + r + t * 0.02), 0.2) * rays;
-  gl_FragColor = vec4(clamp(c * uGain, 0.0, 4.0), 1.0);
+  gl_FragColor = vec4(clamp(rolloff(max(c * uGain, vec3(0.0)), 0.6, uCap), 0.0, 4.0), 1.0);
 }`;
 
 /* ---------- accretion disk: polar light trails, faster near the centre (Kepler-ish) ---------- */
 const DISK_VS = /* glsl */ `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const DISK_FS = /* glsl */ `
-uniform float uTime; uniform float uGain; uniform float uIn; uniform float uOut; varying vec2 vP;
+uniform float uTime; uniform float uGain; uniform float uIn; uniform float uOut; uniform float uCap; varying vec2 vP;
 ${HOLO}
+${ROLLOFF}
 void main() {
   float r = max(length(vP), 1e-3), a = atan(vP.y, vP.x), t = uTime, lr = log(r);
   float w = t * 1.6 / (r * sqrt(r));
@@ -54,11 +67,11 @@ void main() {
   float fall = smoothstep(0.0, 0.08, x) * pow(max(1.0 - x, 0.0), 1.6);
   vec3 hot = vec3(1.0, 0.96, 0.9) * 1.25, cool = holo(x * 0.9 + a * 0.08 + 0.45) * 1.0; // the lens wraps this disk into the ring: keep it from blowing out
   vec3 c = mix(hot, cool, smoothstep(0.0, 0.4, x)) * (0.05 + s1 * 0.9 + s2 * 0.6 + s3 * 0.8) * fall;
-  gl_FragColor = vec4(clamp(c * uGain, 0.0, 2.0), 1.0);
+  gl_FragColor = vec4(clamp(rolloff(max(c * uGain, vec3(0.0)), 0.5, uCap), 0.0, 2.0), 1.0);
 }`;
 
-/* ---------- obsidian rings: physical material + glyph emission injected ---------- */
-const RINGS = [ // radius, blade height, tilt, spin axis speed, precession speed, w (4th coordinate)
+/* ---------- obsidian rings: machined blades, physical material + procedural detail injected ---------- */
+const RINGS = [ // radius, blade size, tilt, spin axis speed, precession speed, w (4th coordinate)
   { r: 2.1, h: 0.07, tilt: [1.1, 0.2, 0], spin: 0.21, pre: 0.05, w: 2.2 },
   { r: 2.6, h: 0.11, tilt: [-0.5, 0.9, 0.3], spin: -0.13, pre: -0.035, w: -2.2 },
   { r: 3.1, h: 0.09, tilt: [0.25, -0.4, 1.2], spin: 0.09, pre: 0.025, w: 1.3 },
@@ -78,52 +91,177 @@ vec3 t4(vec3 p, float w) {
   return mix(q.xyz * (1.0 + k), p0, uFlat);
 }`;
 
+/** What the rings say, in the alien script: the system's names, round and round. Packed 4 codes per vec4 (-1 = space). */
+const RING_TEXT = (() => {
+  const codes = encode(["ORBIT CORE", ...PLANETS.map((p) => p.name)].join(" ") + " ").slice(0, 96), out = new Float32Array(96).fill(-1);
+  out.set(codes);
+  return { v: Array.from({ length: 24 }, (_, i) => new THREE.Vector4(out[i * 4], out[i * 4 + 1], out[i * 4 + 2], out[i * 4 + 3])), n: codes.length };
+})();
+
+const PANEL = 12; // cells (glyph pitches) per panel
+// The blade's cross-section (x radial, y along the ring axis), counter-clockwise, and what each facet carries:
+// 0 inner face (ports), 1 chamfer (notches), 2 top/bottom face (rivets), 4 outer facet (engraved script band),
+// 5/6 the two walls of the inner groove (a luminous seam where they meet).
+function bladeProfile(T: number, H: number): [number, number, number][] {
+  const c = T * 0.32, o = T * 0.72, g = H * 0.09, gd = T * 0.38;
+  return [[-T, -H + c, 1], [-T + c, -H, 2], [o - c, -H, 1], [o, -H + c, 4], [T, 0, 4], [o, H - c, 1], [o - c, H, 2], [-T + c, H, 1],
+    [-T, H - c, 0], [-T, g, 5], [-T + gd, 0, 6], [-T, -g, 0]]; // [x, y, type of the facet from this point to the next]
+}
+
+/** A machined ring blade: each facet is its own strip (flat shading, crisp chamfers), with uv = (cells along the ring,
+ *  cells across the facet) and aFacet = (type, facet length in cells). A cell is the script's glyph pitch; the ring holds
+ *  a whole number of panels, so seams and text never break at the uv wrap. */
+function bladeGeometry(r: number, T: number, H: number, seg = 240) {
+  const prof = bladeProfile(T, H), circ = Math.PI * 2 * r;
+  const panels = Math.max(1, Math.round(circ / (H * 0.36 * PANEL))), cell = circ / (panels * PANEL), N = panels * PANEL;
+  const pos: number[] = [], uv: number[] = [], fa: number[] = [], idx: number[] = [];
+  for (let k = 0; k < prof.length; k++) {
+    const [x0, y0, type] = prof[k], [x1, y1] = prof[(k + 1) % prof.length], len = Math.hypot(x1 - x0, y1 - y0) / cell, base = pos.length / 3;
+    for (let j = 0; j <= seg; j++) {
+      const a = (j / seg) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a), u = (j / seg) * N;
+      pos.push((r + x0) * ca, (r + x0) * sa, y0, (r + x1) * ca, (r + x1) * sa, y1);
+      uv.push(u, 0, u, len); fa.push(type, len, type, len);
+      if (j) { const b = base + (j - 1) * 2; idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3); }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute("aFacet", new THREE.Float32BufferAttribute(fa, 2));
+  geo.setIndex(idx);
+  return { geo, cell };
+}
+
+// Procedural machining, all ALU in the ring's own pass: a height field h (in cells) drives a derivative bump on both the
+// base and clearcoat normals; engraved strokes go frosted and carry a faint glow that travels along the text like reading.
+// Every term fades by its pixel footprint (fw = cells per pixel): far off the blade is clean obsidian, up close the
+// detail resolves, and nothing is ever finer than ~1.5 px (no shimmer).
+const RING_FS = /* glsl */ `
+varying vec2 vG; varying vec2 vF; uniform float uTime; uniform float uGlyph; uniform float uCell; uniform float uW0; uniform vec4 uText[24]; uniform float uTextN;
+${SCRIPT_GLSL}
+float rCode(float i) { int k = int(mod(i, uTextN)); return uText[k >> 2][k & 3]; }
+vec3 bumpN(vec3 pos, vec3 n, float h) {
+  vec3 sx = dFdx(pos), sy = dFdy(pos), r1 = cross(sy, n), r2 = cross(n, sx);
+  float det = dot(sx, r1);
+  vec3 grad = sign(det) * (dFdx(h) * r1 + dFdy(h) * r2);
+  vec3 v = abs(det) * n - grad;
+  return dot(v, v) > 1e-24 ? normalize(v) : n; // degenerate derivatives (edge-on): keep the facet normal, never NaN
+}
+float aaStep(float e, float x, float fw) { return 1.0 - smoothstep(e - fw * 0.75, e + fw * 0.75, x); } // 1 inside (x < e)
+`;
+const RING_MAIN = /* glsl */ `
+float gInk = 0.0, gGroove = 0.0, gRead = 0.0, gRule = 0.0, gGold = 0.0, gCast = 0.0;
+{
+  vec2 q = vG; float type = vF.x + 0.5, len = vF.y;
+  float fw = max(max(fwidth(q.x), fwidth(q.y)), 1e-4);
+  float kBig = 1.0 - smoothstep(0.1, 0.4, fw), kFine = 1.0 - smoothstep(0.03, 0.075, fw), kScript = 1.0 - smoothstep(0.014, 0.035, fw);
+  float panel = floor(q.x / ${PANEL}.0), px = q.x - panel * ${PANEL}.0, seam = min(px, ${PANEL}.0 - px), ci = floor(px);
+  float sw = max(0.02, fw * 1.2), castM = 1.0;
+  float h = -aaStep(0.06, seam, fw) * 0.6 * kBig;                                       // bevelled panel seam
+  gGold = exp(-seam * seam / (sw * sw)) * 0.012 / sw;                                    // with a thread of amber light in it
+  if (type < 1.0) {                                                                      // inner face: a long port and a row of round ones per panel
+    float y = q.y - len * 0.5;
+    vec2 d = abs(vec2(px - 6.5, y)) - vec2(2.2, min(0.2, len * 0.16));
+    float box = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - 0.08;
+    h -= aaStep(0.0, box, fw) * 0.5 * kBig;
+    float pr = length(vec2(fract(q.x * 2.0) - 0.5, (abs(y) - min(0.5, len * 0.32)) * 2.0)) * 0.5;
+    h -= aaStep(0.07, pr, fw) * 0.4 * kFine * step(1.0, seam) * step(2.9, abs(px - 6.5)); // beside the long port, not over it
+  } else if (type < 2.0) {                                                               // chamfer: a notch at every seam
+    h -= aaStep(0.24, seam, fw) * 0.7 * kBig;
+  } else if (type < 3.0) {                                                               // top/bottom face: rivets in a 1-1-2 rhythm
+    float rv = length(vec2(fract(q.x) - 0.5, q.y - len * 0.5)), big = step(1.5, mod(floor(q.x), 3.0));
+    h += aaStep(0.07 + 0.04 * big, rv, fw) * (0.25 + 0.15 * big) * kFine * step(1.0, seam);
+  } else if (type < 5.0) {
+    // outer facet (c12): two inset bands of fine engraved script around an amber centre seam, a row of ports and rivets
+    // outside each band, rough cast metal beyond
+    float y = q.y - len * 0.5, ay = abs(y), off = floor(abs(uW0) * 37.0), by = ay - 0.38;
+    h -= aaStep(0.045, ay, fw) * 0.45 * kBig;                                            // the centre seam
+    gGold += exp(-y * y / (sw * sw)) * 0.02 / sw;
+    float inBand = aaStep(0.26, abs(by), fw);
+    h -= inBand * 0.28 * kBig; castM -= inBand;
+    gRule = aaStep(0.018, abs(abs(by) - 0.3), fw) * kFine;                               // hairline rules
+    float sx = q.x * 2.0, sp = floor(sx) - panel * ${PANEL * 2}.0;                      // script at half-cell pitch
+    if (kScript > 0.0 && abs(by) < 0.26 && sp > 1.5 && sp < ${PANEL * 2 - 2}.5) {
+      float code = rCode(panel * ${PANEL * 2 - 4}.0 + sp - 2.0 + off + step(y, 0.0) * 53.0);
+      if (code >= 0.0) {
+        float d = glyphSdf(vec2((fract(sx) - 0.5) * 0.5, by * sign(y)) / 0.155, int(code)) * 0.155;
+        gInk = aaStep(0.017, d, fw) * kScript;
+      }
+    }
+    float ry = ay - 0.86;                                                                // ports (even cells) and rivet pairs (odd cells)
+    if (abs(ry) < 0.2 && seam > 0.3) {
+      float even = step(mod(ci, 2.0), 0.5), fx = fract(q.x) - 0.5;
+      float port = length(vec2(fx, ry));
+      float riv = length(vec2(abs(fx) - 0.25, ry));
+      h -= even * (aaStep(0.12, port, fw) - aaStep(0.045, port, fw) * 0.7) * 0.5 * kFine;
+      h += (1.0 - even) * aaStep(0.05, riv, fw) * 0.3 * kFine;
+      castM -= aaStep(0.16, abs(ry), fw);
+    }
+    float rp = fract((q.x - uTime * 0.6 + off) / 41.0) * 41.0 - 20.5;                    // the reading glow: ~3 cells, 0.6 cells/s
+    gRead = exp(-rp * rp * 0.18);
+  } else {                                                                               // groove walls: the luminous seam where they meet
+    float dd = type < 6.0 ? len - q.y : q.y, w = max(0.05, fw * 1.2);
+    gGroove = exp(-dd * dd / (w * w)) * 0.05 / w;
+  }
+  { // rough cast texture between the machined parts: value noise at 1/7 cell, faded before it gets under ~4 px
+    vec2 n = q * 7.0, i = floor(n), f = fract(n); f = f * f * (3.0 - 2.0 * f);
+    float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5), b = fract(sin(dot(i + vec2(1, 0), vec2(127.1, 311.7))) * 43758.5);
+    float c = fract(sin(dot(i + vec2(0, 1), vec2(127.1, 311.7))) * 43758.5), e = fract(sin(dot(i + vec2(1, 1), vec2(127.1, 311.7))) * 43758.5);
+    gCast = (mix(mix(a, b, f.x), mix(c, e, f.x), f.y) - 0.5) * clamp(castM, 0.0, 1.0) * (1.0 - smoothstep(0.02, 0.05, fw));
+    h += gCast * 0.12;
+  }
+  vec3 bn = bumpN(-vViewPosition, normal, h * uCell * 0.05);
+  normal = bn;
+  #ifdef USE_CLEARCOAT
+    clearcoatNormal = bn;
+  #endif
+  // Hairline strokes are shaded as frosted etching (rough, less metal), not bumped: a derivative bump on ~2 px lines
+  // breaks into 2x2-quad dots. Only the broader machining above goes through the bump.
+  roughnessFactor = clamp(mix(roughnessFactor, 0.55, max(gInk, gRule * 0.5)) + gCast * 0.3, 0.04, 1.0);
+  metalnessFactor = mix(metalnessFactor, 0.55, gInk);
+  gGold *= mix(0.25, 1.0, kBig);                                                         // far: a faint thread, never a glare
+}
+`;
+const RING_EMIT = /* glsl */ `
+totalEmissiveRadiance += vec3(0.55, 0.85, 1.0) * gInk * (0.07 + 0.9 * gRead) * max(uGlyph, 0.0);
+totalEmissiveRadiance += vec3(0.62, 0.72, 1.0) * min(gGroove, 1.5) * (0.5 + 0.3 * gRead) * max(uGlyph, 0.0);
+totalEmissiveRadiance += vec3(1.0, 0.62, 0.24) * min(gGold, 1.2) * 0.45 * (0.6 + 0.2 * min(uGlyph, 2.0));
+{ // oil sheen (Annihilation): a thin-film band only where the blade turns edge-on, no glow
+  float gz = 1.0 - abs(dot(nonPerturbedNormal, normalize(vViewPosition)));
+  float band = smoothstep(0.7, 0.88, gz) * (1.0 - smoothstep(0.94, 1.0, gz));
+  vec3 film = 0.5 + 0.5 * cos(6.2831853 * (gz * 2.6 + vG.x * 0.02 + uTime * 0.02 + vec3(0.0, 0.33, 0.67)));
+  totalEmissiveRadiance += film * band * 0.07;
+}`;
+
 type GlyphU = { uTime: { value: number }; uGlyph: { value: number }; uXW: { value: number }; uYW: { value: number }; uFlat: { value: number } };
-function glyphHook(u: GlyphU, w0: number) {
+const TEXT_U = { uText: { value: RING_TEXT.v }, uTextN: { value: RING_TEXT.n } };
+function glyphHook(u: GlyphU, w0: number, cell: number) {
   return (s: THREE.WebGLProgramParametersWithUniforms) => {
-    Object.assign(s.uniforms, u, { uW0: { value: w0 } });
-    s.vertexShader = s.vertexShader.replace("void main() {", `varying vec2 vG;\n${T4}\nvoid main() {\nvG = uv;`)
+    Object.assign(s.uniforms, u, TEXT_U, { uW0: { value: w0 }, uCell: { value: cell } });
+    s.vertexShader = s.vertexShader.replace("void main() {", `attribute vec2 aFacet; varying vec2 vG; varying vec2 vF;\n${T4}\nvoid main() {\nvG = uv; vF = aFacet;`)
       .replace("#include <project_vertex>", `vec4 mvPosition = viewMatrix * vec4(t4((modelMatrix * vec4(transformed, 1.0)).xyz, uW0), 1.0);
         gl_Position = projectionMatrix * mvPosition;`); // flat shading rebuilds normals from the warped surface
     s.fragmentShader = s.fragmentShader
-      .replace("void main() {", `varying vec2 vG; uniform float uTime; uniform float uGlyph;
-        float gh(vec2 p) { return fract(sin(dot(p, vec2(41.7, 289.3))) * 43758.5453); }
-        void main() {`)
-      .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-        { // a band of 3x5-dot glyphs along each blade face; a slow wave lights them column by column
-          vec2 g = vec2(vG.x * 380.0, fract(vG.y * 4.0));
-          vec2 cell = floor(g); vec2 f = fract(g);
-          vec2 sub = floor(vec2(f.x * 4.0, (g.y - 0.38) / 0.24 * 6.0));
-          float inBand = step(0.38, g.y) * step(g.y, 0.62) * step(sub.x, 2.0) * step(0.0, sub.y) * step(sub.y, 4.0);
-          float word = floor(cell.x / 7.0), face = floor(vG.y * 4.0);
-          float lit = step(0.5, gh(cell * 7.1 + sub + face * 13.0)) * inBand * step(mod(cell.x, 7.0), 5.5) * step(0.5, gh(vec2(word, face)));
-          lit *= 1.0 - smoothstep(0.05, 0.12, fwidth(g.x)); // a glyph's dot columns under ~2 px: fade, never shimmer
-          float wave = pow(0.5 + 0.5 * sin(vG.x * 6.2831853 * 3.0 - uTime * 0.7 + gh(cell) * 0.6), 14.0);
-          totalEmissiveRadiance += vec3(0.55, 0.85, 1.0) * lit * (0.04 + 1.6 * wave) * max(uGlyph, 0.0);
-        }
-        { // oil sheen (Annihilation): a thin-film band only where the blade turns edge-on, no glow
-          float gz = 1.0 - abs(dot(normal, normalize(vViewPosition)));
-          float band = smoothstep(0.7, 0.88, gz) * (1.0 - smoothstep(0.94, 1.0, gz));
-          vec3 film = 0.5 + 0.5 * cos(6.2831853 * (gz * 2.6 + vG.x * 5.0 + uTime * 0.02 + vec3(0.0, 0.33, 0.67)));
-          totalEmissiveRadiance += film * band * 0.07;
-        }`);
+      .replace("void main() {", `${RING_FS}\nvoid main() {`)
+      .replace("#include <clearcoat_normal_fragment_maps>", `#include <clearcoat_normal_fragment_maps>\n${RING_MAIN}`)
+      .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>\n${RING_EMIT}`);
   };
 }
 
 function ObsidianRing({ r, h, w, env, u }: { r: number; h: number; w: number; env: THREE.Texture | null; u: GlyphU }) {
-  const geo = useMemo(() => new THREE.TorusGeometry(r, h, 4, 220), [r, h]); // 4 tube sides: a faceted, monolithic blade
+  const { geo, cell } = useMemo(() => bladeGeometry(r, h * 0.95, h * 3.2 * 1.12), [r, h]); // a little taller than the old diamond blade, so the detail reads
   const mat = useMemo(() => {
     const m = new THREE.MeshPhysicalMaterial({
       color: "#030305", metalness: 0.9, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.03,
       iridescence: 0.3, iridescenceIOR: 1.5, iridescenceThicknessRange: [180, 520], flatShading: true, envMapIntensity: 0.45, // obsidian: a dark mirror, mostly clearcoat glints
     });
-    m.onBeforeCompile = glyphHook(u, w);
-    m.customProgramCacheKey = () => "tess-ring"; // one program; w0 is a uniform
+    m.onBeforeCompile = glyphHook(u, w, cell);
+    m.customProgramCacheKey = () => "tess-ring-2"; // one program; w0 and the cell size are uniforms
     return m;
-  }, [u, w]);
+  }, [u, w, cell]);
   useEffect(() => { mat.envMap = env; mat.needsUpdate = true; }, [mat, env]);
   useEffect(() => () => { geo.dispose(); mat.dispose(); }, [geo, mat]);
-  return <mesh geometry={geo} material={mat} scale={[1, 1, 3.2]} frustumCulled={false} />; // stretched along the tube's z: tall thin blade; the 4D warp leaves its bounds
+  return <mesh geometry={geo} material={mat} frustumCulled={false} />; // the 4D warp leaves its bounds
 }
 
 const _dir = new THREE.Vector3(), _ndc = new THREE.Vector3();
@@ -132,11 +270,11 @@ export function Singularity({ live, reduced, level, aligned = false }: { live: R
   const env = useAlienEnv();
   const halo = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: HALO_VS, fragmentShader: HALO_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-    uniforms: { uTime: { value: 0 }, uGain: { value: 1 }, uRays: { value: 1 }, uSize: { value: 30 } },
+    uniforms: { uTime: { value: 0 }, uGain: { value: 1 }, uRays: { value: 1 }, uSize: { value: 30 }, uCap: { value: 4 } },
   }), []);
   const disk = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: DISK_VS, fragmentShader: DISK_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide,
-    uniforms: { uTime: { value: 0 }, uGain: { value: 1 }, uIn: { value: 0.45 }, uOut: { value: 2.9 } },
+    uniforms: { uTime: { value: 0 }, uGain: { value: 1 }, uIn: { value: 0.45 }, uOut: { value: 2.9 }, uCap: { value: 2 } },
   }), []);
   const diskGeo = useMemo(() => new THREE.RingGeometry(0.45, 2.9, 160, 6), []);
   const quad = useMemo(() => new THREE.PlaneGeometry(1, 1), []);
@@ -161,6 +299,8 @@ export function Singularity({ live, reduced, level, aligned = false }: { live: R
     halo.uniforms.uTime.value = t;
     halo.uniforms.uGain.value = (0.7 + 0.2 * br + 0.9 * g + 0.6 * v) * (1 - 0.7 * calm); // overview: the lens would gather it into a blob
     halo.uniforms.uRays.value = (level === 0 ? 0.5 : 1) * (1 - 0.97 * calm) * 0.7; // god rays are a close-up drama: none on the overview
+    halo.uniforms.uCap.value = 1.0 + 3.0 * calm; // close range: exposure-clamped, never a flat white plate; overview unchanged
+    disk.uniforms.uCap.value = 0.75 + 1.25 * calm;
     disk.uniforms.uTime.value = t;
     disk.uniforms.uGain.value = (0.75 + 0.2 * br + 0.8 * g + 0.5 * v) * (1 - 0.75 * calm);
     glyph.uFlat.value = 0.85 * calm;
