@@ -19,6 +19,7 @@ type Data = {
   "morning.click": { source: Source; key: string };
   "morning.done": { source: Source; key: string };
   "journal.saved": { memoryId: string };
+  "remote.command": { command: string; ok: boolean; device: string }; // phone remote: the command type only, never its text
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -47,6 +48,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "morning.click": { source: oneOf(SOURCES), key: id },
   "morning.done": { source: oneOf(SOURCES), key: id },
   "journal.saved": { memoryId: id },
+  "remote.command": { command: oneOf(["navigate", "core.ask", "approval.list", "approve", "reject", "stopAll", "status", "invalid"]), ok: bool, device: id },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];

@@ -25,6 +25,19 @@ ORBIT's code doesn't change for this. It stays bound to `127.0.0.1`; Tailscale f
 - LIFE reminders show while ORBIT is open on the phone. They don't push when it's closed (no service worker, by design).
 - STUDIO, agents, Clip Factory and everything else still run on the PC. The phone is a remote screen for it, so **the PC must be on with ORBIT running**.
 
+## Phone remote (/remote): approvals, Stop-all, Studio queue, ask CORE
+
+A light page for the phone that doesn't need the full galaxy or a Supabase sign-in on the phone. It uses the same Tailscale Serve address as above; nothing else is exposed.
+
+1. In `.env.local` on the PC, set `REMOTE_SECRET` to 32+ random characters (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`) and make sure `SUPABASE_SECRET_KEY` is set. Restart ORBIT.
+2. On the iPhone, open `https://<your-pc>.<tailnet>.ts.net/remote` in Safari, tap Share → **Add to Home Screen**, then open **Remote** from the Home Screen. Pair from inside that app: on iPhone the home-screen app has its own cookies, separate from Safari.
+3. On the PC: Profile → **Pair phone**. Type the 6-digit code into the phone within 2 minutes (5 wrong tries lock the code; press Pair phone again for a new one).
+4. Paired phones are listed under Profile → Phone remote. **Revoke** stops one at once. Changing `REMOTE_SECRET` unpairs all of them.
+
+What the phone can do: approve or reject clips waiting in review, approve an AI Story spend at its exact quoted credits, approve & send a BUSINESS email draft (it shows the full message and recipient), turn Stop-all on or off, see the Studio queue, and ask CORE (its chats are titled "Phone: …"). It can only act on items already waiting for you; it can't start spends, sends or jobs. Retry clips that replace a published Short are reviewed on the PC. Every phone command is logged to the ledger (type and result, never the text).
+
+Never use `tailscale funnel` for ORBIT: funnel puts it on the public internet. `tailscale serve` keeps it inside your tailnet, and ORBIT itself keeps listening on 127.0.0.1 only.
+
 ## If something doesn't work
 
 - **The sign-in link opens localhost or fails:** check step 4, and open the link on the phone itself.

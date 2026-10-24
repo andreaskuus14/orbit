@@ -5,7 +5,8 @@ import { crossSiteBlocked } from "@/lib/csrf";
 import { publicOrigin } from "@/lib/origin-pure";
 
 // /w = workspace previews: the route checks the signed link + session itself (sandboxed pages' CSS/JS requests carry no cookies).
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health", "/w"];
+// /remote + /api/remote = the paired-phone remote: its routes check their own device token (or, for /api/remote/owner, the session).
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health", "/w", "/remote", "/api/remote"];
 
 export async function middleware(request: NextRequest) {
   if (crossSiteBlocked(request.method, request.nextUrl.pathname, { secFetchSite: request.headers.get("sec-fetch-site"), origin: request.headers.get("origin"), host: request.headers.get("host"), forwardedHost: request.headers.get("x-forwarded-host") }))

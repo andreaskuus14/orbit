@@ -1,0 +1,203 @@
+"use client";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+// /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
+// Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
+type Item = { id: string; kind: "clip" | "spend" | "send"; title: string; detail: string; credits?: number; seen?: string; to?: string; message?: string };
+type Status = { stop: { on: boolean; at: string }; queue: { active: { id: string; source: string; status: string; step: string; progress: number }[]; ready: number; approved: number; publishing: string | null; story: string | null } };
+
+const nonce = () => crypto.randomUUID();
+function send(type: string, fields: object = {}, echo?: object, stream = false) {
+  return fetch(`/api/remote${stream ? "?stream=1" : ""}`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ cmd: JSON.stringify({ type, nonce: nonce(), ...fields }), ...(echo ? { echo } : {}) }),
+  });
+}
+const errorOf = async (r: Response) => ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `Failed (${r.status})`;
+
+export function RemoteApp() {
+  const [paired, setPaired] = useState<boolean | null>(null);
+  const [off, setOff] = useState("");
+  const [status, setStatus] = useState<Status | null>(null);
+  const [items, setItems] = useState<Item[]>([]);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState("");
+
+  const load = useCallback(async () => {
+    const r = await send("status").catch(() => null);
+    if (!r) return setMsg({ ok: false, text: "Can't reach ORBIT: is the PC on and Tailscale connected?" });
+    if (r.status === 401) return setPaired(false);
+    if (r.status === 503) { setOff(await errorOf(r)); return setPaired(false); }
+    if (!r.ok) return setMsg({ ok: false, text: await errorOf(r) });
+    setPaired(true); setStatus(await r.json());
+    const a = await send("approval.list").catch(() => null);
+    if (a?.ok) setItems(((await a.json()) as { items: Item[] }).items);
+  }, []);
+  useEffect(() => {
+    void load();
+    const h = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 20_000);
+    const vis = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", vis);
+    return () => { clearInterval(h); document.removeEventListener("visibilitychange", vis); };
+  }, [load]);
+
+  async function act(key: string, run: () => Promise<Response>, ok: (j: { message?: string }) => string) {
+    setBusy(key); setMsg(null);
+    try {
+      const r = await run();
+      setMsg(r.ok ? { ok: true, text: ok(await r.json()) } : { ok: false, text: await errorOf(r) });
+    } catch { setMsg({ ok: false, text: "Network error" }); }
+    setBusy("");
+    void load();
+  }
+
+  const decide = (it: Item, approve: boolean) => {
+    const what = it.kind === "spend" ? `Spend ${it.credits} Higgsfield credits on “${it.title}”?` : it.kind === "send" ? `Email this exact message to ${it.to}?` : `${approve ? "Approve" : "Reject"} “${it.title}”?${approve ? "" : " Its files are deleted."}`;
+    if (!confirm(what)) return;
+    void act(it.id, () => send(approve ? "approve" : "reject", { id: it.id }, { kind: it.kind, ...(it.credits !== undefined ? { credits: it.credits } : {}), ...(it.seen ? { seen: it.seen } : {}) }), (j) => j.message ?? "Done");
+  };
+
+  const toggleStop = () => {
+    if (!status) return;
+    const on = status.stop.on;
+    if (!confirm(on ? "Resume ORBIT (turn Stop-all off)?" : "Stop all: pause agents, automations and goals now?")) return;
+    void act("stop", () => send("stopAll", {}, { on }), () => (on ? "ORBIT resumed" : "Stop-all is on: ORBIT paused"));
+  };
+
+  if (paired === null) return <Shell><p className="muted text-sm">Connecting…</p></Shell>;
+  if (!paired) return <Shell><Pair off={off} onPaired={() => void load()} /></Shell>;
+  const q = status?.queue;
+  return (
+    <Shell>
+      {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
+
+      <section className="card space-y-2" aria-labelledby="r-stop">
+        <h2 id="r-stop" className="text-sm font-semibold">Stop-all</h2>
+        <p className="muted text-sm">{status?.stop.on ? "ON: ORBIT is paused." : "Off: ORBIT is running."}</p>
+        <button className={status?.stop.on ? "btn w-full" : "btn danger w-full"} disabled={!!busy} onClick={toggleStop} style={{ minHeight: 48 }}>
+          {status?.stop.on ? "Resume ORBIT" : "Stop all"}
+        </button>
+      </section>
+
+      <section className="space-y-2" aria-labelledby="r-appr">
+        <h2 id="r-appr" className="text-sm font-semibold">Waiting for you ({items.length})</h2>
+        {!items.length && <p className="muted text-sm">Nothing to approve.</p>}
+        {items.map((it) => (
+          <article key={it.id} className="card space-y-2">
+            <div className="text-sm font-semibold">{it.title}</div>
+            <div className="muted text-xs">{it.detail}</div>
+            {it.kind === "spend" && <div className="text-sm">Quote: <b>{it.credits} credits</b></div>}
+            {it.kind === "send" && <>
+              <div className="text-sm">To: <b>{it.to}</b></div>
+              <pre className="field w-full whitespace-pre-wrap text-xs" style={{ fontFamily: "inherit", maxHeight: 260, overflow: "auto" }}>{it.message}</pre>
+            </>}
+            <div className="flex gap-2">
+              <button className="btn flex-1" style={{ minHeight: 44 }} disabled={!!busy} onClick={() => decide(it, true)}>
+                {busy === it.id ? "…" : it.kind === "spend" ? `Approve ${it.credits} credits` : it.kind === "send" ? "Approve & send" : "Approve"}
+              </button>
+              {it.kind === "clip" && <button className="chip" style={{ minHeight: 44 }} disabled={!!busy} onClick={() => decide(it, false)}>Reject</button>}
+            </div>
+          </article>
+        ))}
+      </section>
+
+      <section className="card space-y-1" aria-labelledby="r-queue">
+        <h2 id="r-queue" className="text-sm font-semibold">Studio queue</h2>
+        {q && <p className="muted text-sm">{q.ready} to review · {q.approved} approved, not yet published{q.publishing ? " · uploading now" : ""}{q.story ? " · AI story generating" : ""}</p>}
+        {q?.active.length ? q.active.map((j) => (
+          <div key={j.id} className="text-sm"><span className="font-semibold">{j.source}</span> <span className="muted">{j.step || j.status} {Math.round(j.progress * 100)}%</span></div>
+        )) : <p className="muted text-sm">No jobs running.</p>}
+      </section>
+
+      <Ask />
+    </Shell>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="mx-auto max-w-lg space-y-4 px-4" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
+      <h1 className="text-lg font-semibold tracking-wide" style={{ fontFamily: "var(--font-display)" }}>ORBITAL REMOTE</h1>
+      {children}
+    </main>
+  );
+}
+
+function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
+  const [code, setCode] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (off) return <p className="error" role="alert">{off}</p>;
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setErr("");
+    const r = await fetch("/api/remote/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code.trim(), name: /iPhone/.test(navigator.userAgent) ? "iPhone" : "Phone" }) }).catch(() => null);
+    setBusy(false);
+    if (r?.ok) return onPaired();
+    setErr(r ? await errorOf(r) : "Network error");
+  }
+  return (
+    <form onSubmit={submit} className="card space-y-3">
+      <p className="text-sm">On the PC: Profile → <b>Pair phone</b>. Type the 6-digit code here within 2 minutes.</p>
+      <p className="muted text-xs">On iPhone, add this page to the Home Screen first and pair from there: the home-screen app keeps its own sign-in.</p>
+      <input className="field w-full text-center text-2xl tracking-[0.4em]" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required aria-label="Pairing code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+      <button className="btn w-full" style={{ minHeight: 48 }} disabled={busy || code.length !== 6}>{busy ? "Pairing…" : "Pair"}</button>
+      {err && <p className="error" role="alert">{err}</p>}
+    </form>
+  );
+}
+
+function Ask() {
+  const [text, setText] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [step, setStep] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const ac = useRef<AbortController | null>(null);
+  async function ask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!text.trim() || busy) return;
+    setBusy(true); setAnswer(""); setErr(""); setStep("");
+    ac.current = new AbortController();
+    try {
+      const r = await fetch("/api/remote?stream=1", { method: "POST", headers: { "content-type": "application/json" }, signal: ac.current.signal,
+        body: JSON.stringify({ cmd: JSON.stringify({ type: "core.ask", nonce: nonce(), text: text.trim() }) }) });
+      if (!r.ok || !r.body) throw new Error(await errorOf(r));
+      const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += value;
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const l of lines) {
+          if (!l.trim()) continue;
+          const ev = JSON.parse(l) as { type: string; text?: string; label?: string; answer?: string; error?: string };
+          if (ev.type === "delta") setAnswer((a) => a + ev.text);
+          else if (ev.type === "reset") setAnswer("");
+          else if (ev.type === "step") setStep(ev.label ?? "");
+          else if (ev.type === "done") { setAnswer(ev.answer ?? ""); setStep(""); }
+          else if (ev.type === "error") setErr(ev.error ?? "CORE failed");
+        }
+      }
+      setText("");
+    } catch (e2) {
+      if (!ac.current?.signal.aborted) setErr(e2 instanceof Error ? e2.message : "Failed");
+    }
+    setBusy(false); setStep("");
+  }
+  return (
+    <form onSubmit={ask} className="card space-y-2" aria-labelledby="r-ask">
+      <h2 id="r-ask" className="text-sm font-semibold">Ask CORE</h2>
+      <textarea className="field h-24 w-full" maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask anything…" aria-label="Question for CORE" />
+      <div className="flex gap-2">
+        <button className="btn flex-1" style={{ minHeight: 44 }} disabled={busy || !text.trim()}>{busy ? "Thinking…" : "Ask"}</button>
+        {busy && <button type="button" className="chip" onClick={() => ac.current?.abort()}>Stop</button>}
+      </div>
+      {step && <p className="muted text-xs" aria-live="polite">{step}</p>}
+      {answer && <div className="whitespace-pre-wrap text-sm" aria-live="polite">{answer}</div>}
+      {err && <p className="error" role="alert">{err}</p>}
+    </form>
+  );
+}

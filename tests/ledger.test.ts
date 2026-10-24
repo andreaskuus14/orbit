@@ -18,6 +18,7 @@ const DATA: Record<string, object> = {
   "morning.click": { source: "studio", key: "studio:review" },
   "morning.done": { source: "devworld", key: "bug:b1" },
   "journal.saved": { memoryId: "m2" },
+  "remote.command": { command: "approve", ok: true, device: "d1" },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {
