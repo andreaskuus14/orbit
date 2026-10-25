@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { approveStory, editStory, getStory, listStories, quoteStory, runningStory, writeStory } from "@/lib/clips/story";
+import { approveStory, editStory, redoStory, getStory, listStories, quoteStory, runningStory, writeStory } from "@/lib/clips/story";
 import { validStoryOpts } from "@/lib/clips/story-pure";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export async function GET() {
   return Response.json({ stories: (await listStories()).slice(0, 20), running: runningStory(), dryRun: process.env.ORBIT_HIGGSFIELD_DRY_RUN === "1" });
 }
 
-/** Body: {action:"write", idea, style, length, voice, motion} | {action:"edit", id, story} | {action:"quote", id} | {action:"approve", id, credits}. */
+/** Body: {action:"write", idea, style, length, voice, motion, format?, model?} | {action:"edit", id, story, model?} | {action:"quote", id} | {action:"approve", id, credits} | {action:"redo", id, key}. */
 export async function POST(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
@@ -25,10 +25,11 @@ export async function POST(req: Request) {
     }
     const job = typeof b.id === "string" ? await getStory(b.id) : null;
     if (!job) return Response.json({ error: "Story not found" }, { status: 404 });
-    const out = b.action === "edit" ? await editStory(job, b.story)
+    const out = b.action === "edit" ? await editStory(job, b.story, b.model)
       : b.action === "quote" ? await quoteStory(job, req.signal)
       : b.action === "approve" ? await approveStory(job, b.credits)
-      : "action must be write, edit, quote or approve";
+      : b.action === "redo" ? await redoStory(job, b.key)
+      : "action must be write, edit, quote, approve or redo";
     return typeof out === "string" ? Response.json({ error: out }, { status: 409 }) : Response.json({ story: out });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });

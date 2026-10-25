@@ -167,3 +167,166 @@ test("assembleArgs renders a 1080x1920 Short with crossfades, narration, music a
     assert.match(probe, /Audio: aac/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ---- talking drama ----
+import { DRAMA_DEFAULT, DRAMA_SYSTEM, dialogueAss, dramaArgs, dramaItems, lineTimes, mergeItems, narrated, payable, rankTitles, redoItem, shotCast, submittable, thumbAss, thumbShots, unpaid, validDrama } from "../src/lib/clips/story-pure.ts";
+
+const shot = (i: number, speaker = i % 2 ? "Sara" : "Ben") => ({ setting: "A modern living room, warm lamp light", action: `Sara and Ben on the couch, beat ${i}`, camera: "close-up",
+  speaker, line: "I thought we were happy.", beat: "hurt", sec: 5 });
+const drama = { title: "She saw the messages", hook: "a very sad story", characters: [
+  { name: "Sara", look: "strawberry head, green leafy hair, white hoodie", voice: "young woman, soft" },
+  { name: "Ben", look: "banana head, grey t-shirt, jeans", voice: "young man, nervous" }], shots: [1, 2, 3, 4, 5, 6].map((i) => shot(i)) };
+
+test("validDrama: characters, speakers, shot seconds, line length and total", () => {
+  const d = validDrama(drama);
+  assert.ok(typeof d !== "string", String(d));
+  assert.equal(d.scenes.length, 6);
+  assert.equal(d.scenes[0].narration, "I thought we were happy.");
+  assert.equal(d.scenes[1].speaker, "Ben");
+  assert.match(d.scenes[0].visual, /living room.*couch/);
+  assert.match(String(validDrama({ ...drama, characters: drama.characters.slice(0, 1) })), /2-3 characters/);
+  assert.match(String(validDrama({ ...drama, shots: drama.shots.slice(0, 4) })), /5-7 shots/);
+  assert.match(String(validDrama({ ...drama, shots: [...drama.shots.slice(1), shot(1, "Mia")] })), /speaker must be one of Sara, Ben/);
+  assert.match(String(validDrama({ ...drama, shots: [...drama.shots.slice(1), { ...shot(1), line: "word ".repeat(10) }] })), /max 9 words/);
+  assert.match(String(validDrama({ ...drama, shots: [...drama.shots.slice(1), { ...shot(1), line: "She said she never loved him." }] })), /third person/);
+  assert.ok(narrated("Sara is so tired of this.", "Sara") && narrated("He knew it was over.", "Ben") && !narrated("I saw the messages, Ben.", "Sara"));
+  const h = validDrama({ ...drama, hooks: ["Who is Kiwi?", "I thought we were happy.", "She told me everything about you."] }) as Exclude<ReturnType<typeof validDrama>, string>;
+  assert.deepEqual(h.hooks, ["I thought we were happy.", "Who is Kiwi?"], "shot 1's line first; duplicates and narration dropped");
+  assert.match(String(validDrama({ ...drama, shots: drama.shots.slice(0, 5).map((s) => ({ ...s, sec: 4 })) })), /add up to 20 s/);
+  const long = validDrama({ ...drama, shots: [...drama.shots.slice(1), { ...shot(1), sec: 9 }] });
+  assert.ok(typeof long !== "string" && long.scenes[5].sec === 6, "shots clamp to 4-6 whole seconds");
+  // the owner's saved edits (Story shape) round-trip, even when short
+  const edited = validDrama({ ...d, scenes: d.scenes.slice(0, 5).map((s) => ({ ...s, sec: 4 })) }, false);
+  assert.ok(typeof edited !== "string" && edited.scenes.length === 5 && edited.scenes[0].sec === 4);
+  assert.match(DRAMA_SYSTEM, /FRUIT heads/);
+  assert.match(DRAMA_SYSTEM, /most emotional line/);
+  assert.equal((validDrama({ ...drama, titles: ["A", "B", "C", "D"] }) as { titles: string[] }).titles.length, 3);
+  assert.deepEqual((validDrama({ ...drama, title: "", titles: ["A", "B"] }) as { title: string; titles: string[] }).title, "A");
+});
+
+test("validStoryOpts: drama format picks a talking model", () => {
+  const o = validStoryOpts({ idea: "she finds messages on his phone", format: "drama" });
+  assert.deepEqual(o, { idea: "she finds messages on his phone", style: "", length: 45, voice: "none", motion: "video", format: "drama", model: DRAMA_DEFAULT });
+  assert.equal(typeof validStoryOpts({ idea: "a fox", format: "drama", model: "nope" }), "string");
+  assert.equal(typeof validStoryOpts({ idea: "a fox", format: "musical" }), "string");
+});
+
+test("dramaItems: a reference image per character, then talking shots that reference the cast and the speaker's first voice", () => {
+  const d = validDrama({ ...drama, shots: [...drama.shots.slice(0, 5), { ...shot(6, "Ben"), action: "Ben alone in the kitchen" }] }) as Exclude<ReturnType<typeof validDrama>, string>;
+  const o = validStoryOpts({ idea: "x x x", format: "drama", model: "gemini_omni_flash_1_1" }) as Exclude<ReturnType<typeof validStoryOpts>, string>;
+  const items = dramaItems(d, o, models);
+  assert.deepEqual(items.map((i) => i.key), ["char-0", "char-1", "video-0", "video-1", "video-2", "video-3", "video-4", "video-5"]);
+  assert.deepEqual(items.map((i) => i.index), [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(items[0].params.model, "img_m");
+  const v = items[2];
+  assert.equal(v.params.model, "gemini_omni_flash_1_1");
+  assert.equal(v.params.mode, "reference-to-video");
+  assert.equal(v.params.duration, 5);
+  assert.equal(v.params.use_unlim, false);
+  assert.match(String(v.params.prompt), /Sara says \(hurt\), in a young woman, soft voice: "I thought we were happy\."/);
+  assert.deepEqual(v.refs, ["char-0", "char-1"]);
+  assert.deepEqual(items[7].refs, ["char-1"], "a shot shows only who is in it");
+  assert.deepEqual(shotCast(d.scenes[5], d.characters!).map((c) => c.name), ["Ben"]);
+  assert.ok(items.every((i) => !i.after), "gemini takes no audio references");
+  const seed = dramaItems(d, { ...o, model: undefined }, models);
+  assert.equal(seed[2].params.generate_audio, true);
+  assert.deepEqual(seed.map((i) => i.after), [undefined, undefined, undefined, undefined, "video-0", "video-1", "video-0", "video-1"], "later shots reuse the speaker's first voice");
+});
+
+test("drama spend: character images are approved first, shots only after they exist; voice references go in a later round", () => {
+  const d = validDrama(drama) as Exclude<ReturnType<typeof validDrama>, string>;
+  const o = validStoryOpts({ idea: "x x x", format: "drama" }) as Exclude<ReturnType<typeof validStoryOpts>, string>;
+  const items = dramaItems(d, o, models);
+  assert.deepEqual(payable(items).map((i) => i.key), ["char-0", "char-1"], "step 1: only the cheap character images can be priced");
+  items.forEach((i) => (i.credits = i.kind === "image" ? 1 : 10));
+  assert.equal(quoteTotal(items), 2, "the first Approve covers only the images");
+  Object.assign(items[0], { jobId: "j0", status: "done" });
+  assert.deepEqual(payable(items).map((i) => i.key), ["char-1"], "no shot before all its characters exist");
+  Object.assign(items[1], { jobId: "j1", status: "done" });
+  assert.equal(payable(items).length, 6);
+  assert.equal(quoteTotal(items), 60);
+  const shots = payable(items);
+  const round1 = submittable(shots, items);
+  assert.deepEqual(round1.map((i) => i.key), ["video-0", "video-1"]);
+  assert.deepEqual(items[2].params.medias, [{ role: "image_references", value: "j0" }, { role: "image_references", value: "j1" }]);
+  Object.assign(items[2], { jobId: "s0", status: "done" });
+  Object.assign(items[3], { jobId: "s1", status: "done" });
+  const round2 = submittable(unpaid(items), items);
+  assert.equal(round2.length, 4);
+  assert.deepEqual(items[4].params.medias, [{ role: "image_references", value: "j0" }, { role: "image_references", value: "j1" }, { role: "audio_references", value: "s0" }]);
+});
+
+test("redoItem: regenerate one shot or an unused character, priced alone", () => {
+  const d = validDrama(drama) as Exclude<ReturnType<typeof validDrama>, string>;
+  const o = validStoryOpts({ idea: "x x x", format: "drama" }) as Exclude<ReturnType<typeof validStoryOpts>, string>;
+  const items = dramaItems(d, o, models).map((i) => ({ ...i, jobId: `j${i.index}`, status: "done" as const, file: `/x/${i.key}.mp4`, credits: 5 }));
+  const job: StoryJob = { v: 1, id: "abc123-abcdef", createdAt: "", updatedAt: "", status: "done", step: "", opts: o, story: d, items, warnings: [], quote: { total: 0, balance: 9, plan: null, fingerprint: "", at: "" } };
+  assert.match(redoItem(job, "char-0"), /Shots already use/);
+  assert.match(redoItem(job, "nope"), /Nothing made/);
+  assert.match(redoItem({ ...job, status: "generating" }, "video-3"), /being made/);
+  assert.equal(redoItem(job, "video-3"), "");
+  assert.equal(job.status, "draft");
+  assert.equal(job.quote, undefined);
+  assert.deepEqual(payable(job.items).map((i) => i.key), ["video-3"], "only that shot is priced and paid again");
+  const fresh = dramaItems(d, o, models).map((i) => (i.kind === "image" ? { ...i, jobId: "c", status: "done" as const } : i));
+  const j2: StoryJob = { ...job, status: "draft", items: fresh };
+  assert.equal(redoItem(j2, "char-1"), "", "a character can be redone before the shots are made");
+});
+
+test("mergeItems: an edit keeps made, unchanged items and re-pays only what changed", () => {
+  const d = validDrama(drama) as Exclude<ReturnType<typeof validDrama>, string>;
+  const o = validStoryOpts({ idea: "x x x", format: "drama" }) as Exclude<ReturnType<typeof validStoryOpts>, string>;
+  const made = dramaItems(d, o, models).map((i) => ({ ...i, jobId: `j${i.index}`, status: "done" as const, file: `/x/${i.key}` }));
+  made[2].params = { ...made[2].params, medias: [{ role: "image_references", value: "j0" }] };
+  const line = { ...d, scenes: d.scenes.map((s, i) => (i === 4 ? { ...s, narration: "You lied to me." } : s)) };
+  const a = mergeItems(made, dramaItems(line, o, models));
+  assert.deepEqual(payable(a).map((i) => i.key), ["video-4"], "a changed line re-makes only that shot");
+  assert.equal(a[2].file, "/x/video-0", "made shots keep their files (no new credits)");
+  const look = { ...d, characters: d.characters!.map((c, i) => (i === 1 ? { ...c, look: "pineapple head" } : c)) };
+  const b = mergeItems(made, dramaItems(look, o, models));
+  assert.deepEqual(unpaid(b).map((i) => i.key), ["char-1", "video-0", "video-1", "video-2", "video-3", "video-4", "video-5"], "a new look re-makes that character and every shot showing it");
+  assert.deepEqual(payable(b).map((i) => i.key), ["char-1"]);
+});
+
+test("packaging: emotional thumbnails, ranked titles, thumbnail text", () => {
+  const d = validDrama({ ...drama, shots: drama.shots.map((s, i) => (i === 3 ? { ...s, beat: "tears, shock" } : i === 1 ? { ...s, camera: "wide" } : s)) }) as Exclude<ReturnType<typeof validDrama>, string>;
+  const t = thumbShots(d.scenes);
+  assert.equal(t.length, 3);
+  assert.equal(t[0], 3, "a close-up crying beats the rest");
+  assert.ok(!t.includes(1), "a wide shot is not picked");
+  const titles = rankTitles(["She checked his phone", "I trusted the wrong person", "The text that ended it"]);
+  assert.equal(titles.length, 3);
+  assert.ok(titles.every((x) => x.text && Number.isFinite(x.score)));
+  assert.match(thumbAss("a very sad story"), /,T,,0,0,0,,A VERY SAD STORY/);
+});
+
+test("drama subtitles and line timing", () => {
+  assert.deepEqual(lineTimes(10, 5), { start: 10.2, end: 14.9 });
+  assert.deepEqual(lineTimes(10, 5, [{ start: 0.6, end: 1 }, { start: 1.1, end: 2.2 }]), { start: 10.5, end: 12.6 });
+  const ass = dialogueAss([{ text: "I saw {the} messages.", start: 0.2, end: 4.9 }], "a very sad story");
+  assert.match(ass, /Style: Line,Arial,54,&H00FFFFFF/);
+  assert.match(ass, /Dialogue: 0,0:00:00.20,0:00:04.90,Line,,0,0,0,,I saw \(the\) messages\./);
+  assert.match(ass, /Hook,,0,0,0,,a very sad story/);
+  assert.doesNotMatch(dialogueAss([{ text: "x", start: 0, end: 1 }]), /,Hook,,/);
+});
+
+test("dramaArgs renders hard cuts with each shot's own audio, a ducked music bed and subtitles", { skip: !hasFf && "no ffmpeg" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "drama-"));
+  try {
+    const mk = (args: string[]) => assert.equal(spawnSync(ff, ["-y", "-hide_banner", "-loglevel", "error", ...args], { cwd: dir }).status, 0);
+    mk(["-f", "lavfi", "-i", "testsrc2=s=360x640:d=1.2", "-f", "lavfi", "-i", "sine=f=440:d=1.2", "-shortest", "a.mp4"]);
+    mk(["-f", "lavfi", "-i", "testsrc2=s=360x640:d=1", "b.mp4"]); // no audio
+    mk(["-f", "lavfi", "-i", "color=c=red:s=64x64", "-frames:v", "1", "c.png"]); // dry-run still
+    mk(["-f", "lavfi", "-i", "sine=f=220:d=1", "m.mp3"]);
+    writeFileSync(path.join(dir, "c.ass"), dialogueAss([{ text: "I thought we were happy.", start: 0.1, end: 1 }], "hook"));
+    const args = dramaArgs({ shots: [{ file: "a.mp4", sec: 1.2, audio: true }, { file: "b.mp4", sec: 1, audio: false }, { file: "c.png", sec: 0.8, audio: false }], music: "m.mp3", ass: "c.ass", out: "o.mp4" });
+    assert.ok(!args.join(" ").includes("xfade") && !args.join(" ").includes("zoompan"), "hard cuts, no Ken Burns");
+    const r = spawnSync(ff, args, { cwd: dir, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr.slice(-800));
+    const probe = spawnSync(ff, ["-hide_banner", "-i", "o.mp4"], { cwd: dir, encoding: "utf8" }).stderr;
+    assert.match(probe, /1080x1920/);
+    assert.match(probe, /Duration: 00:00:03\.[45]/, "3 s of shots + the 0.5 s end hold");
+    assert.match(probe, /Audio: aac/);
+    assert.ok(args.join(" ").includes("loudnorm=I=-14"));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
