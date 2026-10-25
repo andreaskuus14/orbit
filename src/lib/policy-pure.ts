@@ -11,12 +11,13 @@ import { asksToRemember } from "./reflect-pure.ts";
 import { draftBlocked } from "./higgsfield-pure.ts";
 import { tonightBlocked } from "./night-pure.ts";
 import { wishBlocked } from "./deals-pure.ts";
+import { autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
 export type Decision = { allow: boolean; tier: Tier; reason: string };
 /** stopAll: Stop-all switch; attach: files attached this turn; pins: pinned project notes in context;
  *  steps: this answer's tool results so far, in core.ts's "You called <tool> <json>\nRESULT:\n..." form; question: latest user message. */
-export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[] };
+export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[]; autonomy?: Partial<Levels> };
 
 export const TIERS: Record<string, Tier> = {
   navigate: "T0", goal_status: "T0", business_status: "T0", ideas_list: "T0",
@@ -45,6 +46,12 @@ export const UI_APPROVALS: Record<string, string> = {
   "studio.publish": 'POST /api/studio/clips/<job>/<clip>/publish: only a clip with status "approved"',
 };
 
+// Profile → Autonomy area of each tool that starts work, writes or acts: an area set to Off refuses it (autonomyAllows "owner").
+export const TOOL_AREA: Record<string, Area> = {
+  ask_agent: "research", plan_task: "research", run_niche: "research", run_scout: "studio-prepare", save_memory: "memory",
+  create_goal: "goals", queue_tonight: "night-shift", add_wish: "deals", schedule_approved: "studio-publish", higgsfield_draft: "higgsfield-spend",
+};
+
 // Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true).
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
 export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status", "week_review"];
@@ -64,6 +71,8 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
 
   const stop = err(coreToolRefusal(ctx.stopAll, tool)); // core.ts:218
   if (stop) return no(stop);
+  const area = TOOL_AREA[tool], auto = area ? autonomyAllows(area, "owner", { levels: ctx.autonomy }) : null;
+  if (auto && !auto.ok) return no(auto.why);
   if (tool === "navigate") return dataIn ? no("navigate only as your first tool call, for the user's own request") : { allow: true, tier, reason: "first tool call" }; // core.ts:218 + 265
   if (ctx.attach && tool === "web_search") return no("with the user's attached files in context, web search is off for this answer (the search words could carry their text out)"); // core.ts:219
   if ((ctx.pins || privateIn) && LEAK_TOOLS.includes(tool)) return no("the user's private files, journal or pinned notes are in context; agents, news and web searches are off for the rest of this answer (they could carry that text out)"); // core.ts:220

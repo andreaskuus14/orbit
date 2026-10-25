@@ -6,6 +6,7 @@ import { freeSlots } from "@/lib/clips/publish-schedule";
 import { cleanOriginal, originalityIssue } from "@/lib/clips/publish-checks-pure";
 import { YT_UPLOAD_SCOPE, hasScopes, videoResource } from "@/lib/yt-analytics-pure";
 import { readStored } from "@/lib/yt-oauth";
+import { allows } from "@/lib/autonomy";
 
 // Uploads an approved clip to the connected YouTube channel in the background; progress/result land on clip.publish.
 export async function POST(req: Request, { params }: { params: Promise<{ job: string; clip: string }> }) {
@@ -20,6 +21,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ job: st
   if (typeof force !== "boolean") return Response.json({ error: "force must be a boolean" }, { status: 400 });
   const original = cleanOriginal(rawOriginal);
   if (original === null) return Response.json({ error: "original must be text of at most 200 characters" }, { status: 400 });
+  const off = allows("studio-publish", "owner"); // Profile → Autonomy: Off refuses even his click
+  if (!off.ok) return Response.json({ error: off.why }, { status: 409 });
   const s = await readStored();
   if (!s) return Response.json({ error: "Connect YouTube first" }, { status: 409 });
   if (!hasScopes(s.scope, [YT_UPLOAD_SCOPE])) return Response.json({ error: "Reconnect YouTube to allow uploads" }, { status: 403 });

@@ -159,6 +159,8 @@ export async function approveStory(job: StoryJob, credits: unknown): Promise<Sto
   const why = approveProblem(job, credits);
   if (why) return why;
   if (stopAllOn()) return PAUSED_MSG;
+  const off = (await import("../autonomy")).allows("higgsfield-spend", "owner"); // Profile → Autonomy: Off refuses the spend click too
+  if (!off.ok) return off.why;
   const w = await weekUsage(), total = quoteTotal(job.items);
   const over = capProblem(w.used, total, w.cap);
   if (over) return over;

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { emit } from "@/lib/claude";
 import { stopAllOn } from "@/lib/stop-all";
 import { emailIn, sendSubject } from "@/lib/business-pure";
+import { allows } from "@/lib/autonomy";
 
 const COLS = "*";
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
@@ -10,10 +11,12 @@ const one = (q: PromiseLike<{ data: unknown; error: { message: string } | null }
 
 /** BUSINESS "Approve & send": emails prospect `id`'s saved draft, only if it is still the version the owner read (`seen` = its
  *  updated_at) and still "To contact" (AGENTS.md rule 6). Used by /api/business and the phone remote's approve. */
-export async function sendDraft(sb: SupabaseClient, userId: string, id: string, seen: unknown): Promise<Response> {
+export async function sendDraft(sb: SupabaseClient, userId: string, id: string, seen: unknown, via = "approved in ORBIT"): Promise<Response> {
   const key = process.env.RESEND_API_KEY, from = process.env.ORBIT_MAIL_FROM;
   if (!key || !from) return fail("Sending isn't set up: add RESEND_API_KEY and ORBIT_MAIL_FROM to .env.local", 503);
   if (stopAllOn()) return fail("Not sending: Stop-all is on", 503);
+  const off = allows("business-send", "owner"); // Profile → Autonomy: Off refuses even his click; the auto runner checked "auto" itself
+  if (!off.ok) return fail(`Not sending: ${off.why}`, 503);
   const { data: p, error } = await sb.from("prospects").select("name, contact, draft, stage, notes").eq("id", id).maybeSingle();
   if (error) return fail(error.message, 500);
   if (!p) return fail("Not found", 404);
@@ -50,6 +53,6 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
     if (back?.length) await emit(sb, userId, "business.stage", "business", { prospect: id, to: "lead" });
     return fail(`Not sent: Resend ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`, 502);
   }
-  const notes = `${p.notes ? `${p.notes}\n` : ""}Emailed ${to} on ${stamp.slice(0, 10)} (approved in ORBIT).`.slice(-2000);
+  const notes = `${p.notes ? `${p.notes}\n` : ""}Emailed ${to} on ${stamp.slice(0, 10)} (${via}).`.slice(-2000);
   return one(sb.from("prospects").update({ notes }).eq("id", id).select(COLS).maybeSingle());
 }
