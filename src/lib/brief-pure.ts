@@ -110,7 +110,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
 
   const deal = x.deal;
   if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },
-    say: `An offer for ${short(deal.item, 8)} came in at about ${Math.round(deal.eur).toLocaleString("en-US")} euros, under your target.` });
+    say: `An offer for ${short(deal.item, 8)} came in at about ${Math.round(deal.eur).toLocaleString("en-US")} euros. That looks like a good price.` });
 
   if (x.lesson) add({ id: `lesson:${x.lesson.id}`, kind: "lesson", title: "Something I've noticed", detail: plain(x.lesson.text), open: { panel: "profile" },
     say: `One thing I've noticed: ${plain(x.lesson.text).replace(/\?/g, "").replace(/\.$/, "").replace(/^./, (c) => c.toLowerCase())}.` });
