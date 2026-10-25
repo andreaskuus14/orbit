@@ -4,6 +4,7 @@ import { isSleepCommand } from "./voice/wake";
 import { goToSleep } from "./voice/sleep";
 import { createClient } from "@/lib/supabase/client";
 import { numberCitations } from "@/lib/pure";
+import { OPEN_SOURCE_EVENT } from "@/lib/week-pure";
 import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
 import { appendActivity } from "@/lib/core-activity-pure";
@@ -274,7 +275,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
         : <div className="whitespace-pre-wrap">{m.content}</div>}
       {!!m.citations?.length && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {m.citations.map((c, n) => <button key={c.id} className="chip" onClick={() => onOpenMemory(c.id)}>[{n + 1}] {c.title}</button>)}
+          {m.citations.map((c, n) => <button key={c.id} className="chip" onClick={() => (c.kind.startsWith("week:") ? dispatchEvent(new CustomEvent(OPEN_SOURCE_EVENT, { detail: c })) : onOpenMemory(c.id))}>[{n + 1}] {c.title}</button>)}
         </div>
       )}
       {m.role === "assistant" && (

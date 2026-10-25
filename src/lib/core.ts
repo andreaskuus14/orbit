@@ -27,6 +27,7 @@ import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { MODULE_PRIVATE, MODULE_PROMPT, MODULE_WRITES, isModuleTool, moduleStatus, runModuleTool } from "./core-modules";
 import { classifyReflex, clockReply, smallTalkReply, type Reflex } from "./reflex-pure";
+import { citeWeek, knownCites, weekIntent } from "./week-pure";
 import { coreAnswerEval, type CoreEvalTool } from "./core-answer-eval-pure";
 import type { AnswerEval } from "./answer-eval-pure";
 import { recordCoreTurn } from "./perf-log";
@@ -114,6 +115,16 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       return null;
     });
     if (out) { ms.answer_eval = Date.now() - t0; logTiming(`reflex:${reflex}`); return out; }
+  }
+  // "what slipped / what did I get done / what's late": answered from ORBIT's own data, no model call (week-pure.ts)
+  const week = attach || project ? null : weekIntent(question);
+  if (week) {
+    const out = await import("./week").then((w) => w.weekReflex(sb, userId, week.intent, week.weeksAgo)).catch((e) => {
+      if (signal?.aborted) throw e;
+      console.error("[orbit] CORE week reflex failed; taking the full path", e);
+      return null;
+    });
+    if (out) { sendDelta?.(out.text); trace.push(...out.trace); ms.answer_eval = Date.now() - t0; logTiming(`reflex:week`); return out; }
   }
 
   let t = Date.now();
@@ -272,7 +283,8 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     .map((id) => byId.get(id))
     .filter((m): m is NonNullable<typeof m> => !!m)
     .map((m) => ({ id: m.id, title: m.title, kind: m.kind }));
-  return { text: answer || "(no answer)", citations, trace, model: tier };
+  const wk = citeWeek(answer, knownCites(steps.filter((s) => s.startsWith("You called week_review "))), citations.map((c) => c.id)); // [w:...] → [n], unknown ones dropped
+  return { text: wk.text || "(no answer)", citations: [...citations, ...wk.cites], trace, model: tier };
 }
 
 /** Local advisory check after the final review, never an answer gate or another model call.

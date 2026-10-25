@@ -31,6 +31,7 @@ const ACTIONS: Item[] = [
   { id: "act:doctor", label: "Check ORBIT health", hint: "Run the ORBIT doctor", keywords: "doctor diagnostics", run: () => nav({ panel: null, doctor: true }) },
   { id: "act:keys", label: "Keyboard shortcuts", keywords: "keys help", run: () => dispatchEvent(new Event(SHORTCUTS_EVENT)) },
   { id: "act:terminal", label: "fsociety terminal", hint: "Live read-only feed ( ` )", keywords: "hacker console log mr robot", run: () => dispatchEvent(new Event(TERMINAL_EVENT)) },
+  { id: "act:week", label: "Your week", hint: "What got done, what slipped (CORE)", keywords: "week review recap slipped done late wins ask my week", run: () => dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text: "How did my week go?" } })) },
   { id: "act:morning", label: "Good morning briefing", keywords: "brief daily", run: () => nav({ panel: null, morning: true }) },
   { id: "act:beliefs", label: "What ORBIT believes about me", keywords: "beliefs memory", run: () => nav({ panel: "memory", beliefs: true }) },
   { id: "act:stats", label: "STUDIO stats", hint: "Channel analytics", keywords: "youtube", run: () => nav({ panel: "studio", view: "stats" }) },
