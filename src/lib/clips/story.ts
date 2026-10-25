@@ -7,6 +7,7 @@ import { higgsfield } from "./higgsfield";
 import { generate, makeStory, StoryError, type RenderDeps } from "./story-render";
 import { capProblem, draftBlocked, draftItems, validDraft, weeklyCap, weekSpent } from "../higgsfield-pure";
 import { stopAllOn } from "../stop-all";
+import { pushNotify } from "../remote-push";
 import { PAUSED_MSG } from "../stop-all-pure";
 import { errText } from "../core-studio";
 import { STATE_V, audioArgs, parseDuration, probeArgs, type Word } from "./pure";
@@ -142,6 +143,7 @@ export async function quoteStory(job: StoryJob, signal?: AbortSignal): Promise<S
   job.error = r.ok.balance !== null && r.ok.balance < total ? { kind: "credits", message: `Not enough Higgsfield credits: ${total} needed, ${r.ok.balance} left` } : undefined;
   Object.assign(job, { status: job.status === "failed" ? "failed" : "quoted", step: `Costs ${total} credits` });
   await save(job);
+  if (total > 0 && !job.error) pushNotify("spend");
   return job;
 }
 
@@ -190,9 +192,11 @@ async function run(job: StoryJob, signal: AbortSignal) {
     await saveJob({ v: STATE_V, id: job.clipJob!, source: `AI story: ${job.story.title}`, createdAt: now, updatedAt: now, status: "done", progress: 1, step: "1 clip ready",
       warnings: job.warnings, clips: [clip], options: { count: 1, maxSec: 60, captions: true, layout: "fit" }, durationSec: out.duration });
     Object.assign(job, { status: "done", step: "In the review queue" });
+    pushNotify("clip");
   } catch (e) {
     const message = signal.aborted ? "Cancelled" : e instanceof Error ? e.message : String(e);
     Object.assign(job, { status: "failed", step: "Failed", error: { kind: e instanceof StoryError ? e.kind : hfErrorKind(message), message: message.slice(0, 600) } });
+    if (!signal.aborted) pushNotify("failed");
   } finally {
     await rm(path.join(dir, "audio.f32"), { force: true }).catch(() => {});
     await save(job);
