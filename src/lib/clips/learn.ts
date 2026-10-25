@@ -110,7 +110,8 @@ export async function tasteNotes(): Promise<string> {
   if (L.notes && Date.now() - L.notes.at < 60_000) return L.notes.text;
   const s = await load(); // prefsHint: UTC is fine, it leaves posting hours out
   const viral = await import("./study").then((m) => m.playbookNotes(), () => ""); // viral-study playbook (study.ts)
-  const text = [formatTaste(insights(s, await listJobs())), viral, prefsHint(learnPrefs(Object.values(s.clips), "UTC", "")), avoidHint((await loadIssues()).counts)].filter(Boolean).join("\n").slice(0, NOTES_MAX);
+  const kept = await import("../lessons").then((m) => m.keptLessonsText("studio"), () => ""); // lessons he kept about his clip reviews (lessons.ts)
+  const text = [kept && `Lessons he confirmed: ${kept}`, formatTaste(insights(s, await listJobs())), viral, prefsHint(learnPrefs(Object.values(s.clips), "UTC", "")), avoidHint((await loadIssues()).counts)].filter(Boolean).join("\n").slice(0, NOTES_MAX);
   L.notes = { at: Date.now(), text };
   return text;
 }

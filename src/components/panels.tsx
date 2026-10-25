@@ -24,6 +24,7 @@ import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
+import { LessonChip, LessonsSection } from "./LessonsCard";
 import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
 import { eventLabel } from "@/lib/event-label-pure";
@@ -37,7 +38,7 @@ import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechG
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
 type Cite = { id: string; title: string; kind: string };
 type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[] };
-type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[] };
+type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string } };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
@@ -181,7 +182,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       let buf = "";
       let finished = false;
       const handle = (line: string) => {
-        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; model?: "fast" | "smart" | "deep" };
+        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
         if (ev.conversationId && ev.conversationId !== convo.current) { setChatId(ev.conversationId); void chats.reload(); }
         if (ev.type === "delta" && ev.text) {
           partial += ev.text;
@@ -204,7 +205,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? ""));
           setLive(null);
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model,
-            chips: followUps(message, (ev.trace ?? []).map((s) => s.step)) }]);
+            chips: followUps(message, (ev.trace ?? []).map((s) => s.step)), lesson: ev.lesson }]);
         } else if (ev.type === "error") {
           throw new Error(ev.error || "CORE failed");
         }
@@ -308,6 +309,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           {m.chips.map((c) => <button key={c} type="button" className="chip" onClick={() => void send(c)}>{c}</button>)}
         </div>
       )}
+      {m.lesson && <LessonChip lesson={m.lesson} />}
       {!!m.trace?.length && (
         <ResultEvidence items={m.trace.flatMap((s) => s.evidence ?? [])} openMemory={onOpenMemory} />
       )}
@@ -642,6 +644,7 @@ export function ProfilePanel() {
     <PasswordSection />
     <PhonePairing />
     <PlaybookSection />
+    <LessonsSection />
     </div>
   );
 }
