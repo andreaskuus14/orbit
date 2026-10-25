@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { loadVoiceSettings, recognizerFor, voiceContext, whisperLang, CORE_DONE, VOICE_ASK, VOICE_CONVERSATION, VOICE_INTERRUPT, type HandsFree } from "./bus";
+import { loadVoiceSettings, recognizerFor, voiceContext, whisperLang, CALL_ACTIVE, CORE_DONE, VOICE_ASK, VOICE_CONVERSATION, VOICE_INTERRUPT, type HandsFree } from "./bus";
 import { alternatives, getSpeechRecognition, speechErrorMessage, VOICE_LISTEN, VOICE_PAUSE, VOICE_RESUME, type SpeechRec } from "./useVoiceInput";
 import { extractWakeQuestion, isSleepCommand } from "./wake";
 import { correctTranscript, endpointDelay, finalJoiner, isEcho, mergeFinals, pickBestAlternative, shouldBargeIn, STOP_WORDS, turnWaitMs } from "./hear";
@@ -32,6 +32,12 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
   const [visible, setVisible] = useState(true);
   const [away, setAway] = useState(false);
   const [held, setHeld] = useState(false); // push-to-talk has the mic
+  const [inCall, setInCall] = useState(false); // a voice call is on (here or on the phone): nothing said there is for "Hey Orbit"
+  useEffect(() => {
+    const on = (e: Event) => setInCall(!!(e as CustomEvent<{ on?: boolean }>).detail?.on);
+    addEventListener(CALL_ACTIVE, on);
+    return () => removeEventListener(CALL_ACTIVE, on);
+  }, []);
   // Conversation mode: survives the listening effect restarting (push-to-talk, focus), so it lives in a ref.
   const conv = useRef(IDLE);
   const [conversation, setConversation] = useState<ConvPhase>("idle");
@@ -53,11 +59,11 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
   const awayOff = away && !talking; // open mic was asked for: keep listening while you use another window
   const warned = useRef(false);
   useEffect(() => { // never holds the mic while hidden, during push-to-talk (held) or enrollment (which also sends VOICE_PAUSE)
-    if (!talking || !printOn || mode === "off" || !visible || held || paused || enrollment.on) return;
+    if (!talking || !printOn || mode === "off" || !visible || held || paused || inCall || enrollment.on) return;
     const s = startVoiceSampler(isSpeaking);
     sampler.current = s; warned.current = false;
     return () => { s.stop(); sampler.current = null; };
-  }, [talking, printOn, mode, visible, held, paused]);
+  }, [talking, printOn, mode, visible, held, paused, inCall]);
   useEffect(() => { if (mode === "off" && conv.current.phase !== "idle") convApply({ type: "stop" }); }, [mode]); // hands-free off ends open mic
   /** Open mic with voice match on: does the utterance that just ended sound like the enrolled user? No data = can't tell = yes. */
   const soundsLikeMe = () => {
@@ -106,7 +112,7 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
     const engine = recognizerFor({ handsFree: mode, engine: "chrome" }, "handsFree");
     const Ctor = engine === "chrome" ? getSpeechRecognition() : null; // local mode doesn't even look the recognizer up
     if (!engine) setError("");
-    if (!engine || paused || held || !visible || awayOff || (engine === "chrome" && !Ctor)) { setState("off"); return; }
+    if (!engine || paused || held || inCall || !visible || awayOff || (engine === "chrome" && !Ctor)) { setState("off"); return; }
     let alive = true, failures = 0, armedUntil = 0, rec: SpeechRec | null = null;
     // The next utterance needs no wake word: after a bare "Orbit", or while a conversation waits for the user.
     const open = () => armedUntil > Date.now() || conv.current.phase === "listening";
@@ -297,7 +303,7 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
     setError("");
     if (engine === "chrome") run(); else if (mode === "orbit") void runOrbit(); else void runLocal();
     return () => { removeEventListener(VOICE_PAUSE, pause); offSpeaking(); alive = false; clearTimeout(timer); clearTimeout(turn); clearTimeout(disarm); joiner.cancel(); setInterim(""); rec?.abort(); mic?.stop(); ctrl.abort(); setState("off"); };
-  }, [mode, paused, held, visible, awayOff, lang]);
+  }, [mode, paused, held, inCall, visible, awayOff, lang]);
 
   useEffect(() => {
     const resume = () => setHeld(false);

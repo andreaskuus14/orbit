@@ -141,6 +141,46 @@ function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean
   else child.kill("SIGKILL");
 }
 
+// Spare CLIs for voice calls: a `claude` already booted (Windows: ~5 s) and waiting for its prompt. Plain `-p` gives up on
+// stdin after 3 s, but stream-json input waits, so a spare is started with it and gets its prompt as one stream-json message.
+// Only plain text calls (no images, web, MCP or effort) with the exact same system prompt and model take one.
+type Spare = { key: string; dir: string; child: ReturnType<Awaited<ReturnType<typeof prepare>>["start"]>; timer: NodeJS.Timeout; gone: () => void };
+const sg = globalThis as unknown as { __orbitSpares?: Map<string, Spare> };
+const spares = (sg.__orbitSpares ??= new Map());
+const SPARE_MS = 10 * 60_000;
+const SPARE_FORMAT = ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
+const spareKey = (system: string, model: string) => `${model}\0${system}`;
+function dropSpare(sp: Spare, kill: boolean) {
+  if (spares.get(sp.key) === sp) spares.delete(sp.key);
+  clearTimeout(sp.timer);
+  if (kill && sp.child.exitCode === null) killTree(sp.child);
+  if (kill) removeTempDir(sp.dir);
+}
+/** Boot a spare CLI for this system prompt and model unless one is waiting. Never throws. */
+export async function warmClaude(system: string, model = MODEL): Promise<void> {
+  const key = spareKey(system, model), have = spares.get(key);
+  if (have && have.child.exitCode === null) return;
+  try {
+    const { dir, start } = await prepare(system, SPARE_FORMAT, model);
+    if (spares.get(key)?.child.exitCode === null) { removeTempDir(dir); return; } // a parallel warm won
+    const child = start();
+    const sp: Spare = { key, dir, child, timer: setTimeout(() => dropSpare(sp, true), SPARE_MS), gone: () => dropSpare(sp, true) };
+    sp.timer.unref?.();
+    child.on("error", sp.gone);
+    child.on("exit", sp.gone);
+    spares.set(key, sp);
+  } catch (e) { console.error("[orbit] spare CLI:", e instanceof Error ? e.message : e); }
+}
+/** Stop every spare (the call ended). */
+export const coolClaude = () => { for (const sp of [...spares.values()]) dropSpare(sp, true); };
+function takeSpare(system: string, model: string): Spare | null {
+  const sp = spares.get(spareKey(system, model));
+  if (!sp || sp.child.exitCode !== null) return null;
+  sp.child.off("exit", sp.gone); sp.child.off("error", sp.gone);
+  dropSpare(sp, false); // its dir now belongs to the call that took it
+  return sp;
+}
+
 /** purpose: what the call is for, for the usage meter (core, agent, goals, autopilot, clips, translate…); default by lane. */
 /** web: allow only WebSearch/WebFetch (read-only); web pages are untrusted, so that call's system prompt must say they are data. */
 export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean; mcp?: McpAccess; onLine?: (line: string) => void };
@@ -162,8 +202,10 @@ async function runClaudeStream(prompt: string | Promise<string>, system: string,
   signal?.throwIfAborted();
   const t0 = Date.now();
   // With images, stdin carries one stream-json user message (image blocks + text); tools stay disabled.
+  const spare = images.length || web || mcp || effort ? null : takeSpare(system, model ?? MODEL);
+  const json = images.length > 0 || !!spare;
   const input = images.length ? ["--input-format", "stream-json"] : [];
-  const { dir, start } = await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model, effort, web, mcp);
+  const { dir, start } = spare ? { dir: spare.dir, start: () => spare.child } : await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model, effort, web, mcp);
   try {
     return await new Promise<ClaudeResult>((resolve, reject) => {
       const child = start();
@@ -207,7 +249,7 @@ async function runClaudeStream(prompt: string | Promise<string>, system: string,
       });
       child.stdin.on("error", () => { /* EPIPE when the CLI is killed mid-write; the close handler reports it */ });
       // A prompt that fails to build kills the CLI before it gets any input.
-      Promise.resolve(prompt).then((p) => child.stdin.end(images.length ? streamJsonInput(p, images) : p), (e) => { done(); killTree(child); reject(e); });
+      Promise.resolve(prompt).then((p) => child.stdin.end(json ? streamJsonInput(p, images) : p), (e) => { done(); killTree(child); reject(e); });
     });
   } finally {
     removeTempDir(dir);

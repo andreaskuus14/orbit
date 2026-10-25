@@ -8,7 +8,7 @@ import { AnalyticsPanel, CorePanel, ProfilePanel } from "./panels";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { WorldPaused } from "./world-paused";
 import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
-import { VOICE_ASK, voiceContext } from "./voice/bus";
+import { CALL_ACTIVE, VOICE_ASK, voiceContext } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
 import { RemoteCall } from "./RemoteCall";
@@ -331,6 +331,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         pulses.current[e.planet] = Date.now();
         if (e.type.startsWith("memory.")) void refreshCount();
         if (e.type === "core.started") setBusy(true);
+        if (e.type === "call.started" || e.type === "call.ended") dispatchEvent(new CustomEvent(CALL_ACTIVE, { detail: { on: e.type === "call.started" } })); // a phone call: "Hey Orbit" off at once
         if (e.type === "core.completed") { setBusy(false); setWarning(false); }
         if (e.type === "core.failed") { setBusy(false); setWarning(true); }
         if (e.type === "pulse.started") setPulseBusy(true);

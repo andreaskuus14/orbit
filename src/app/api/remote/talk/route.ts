@@ -2,7 +2,7 @@ import { deviceFromCookie, ownerClient, rateOk, remoteProblem } from "@/lib/remo
 import { requireUser } from "@/lib/supabase/server";
 import { decodeAudioBody, MAX_AUDIO_BYTES } from "@/lib/audio-pure";
 import { loadVoiceAsr, MAX_VOICE_QUEUE, voiceQueue } from "@/lib/voice-asr";
-import { callSettings, callTurn, endCall, getCall, ringing, setCheckin, startCall } from "@/lib/call";
+import { callLive, callSettings, callTurn, endCall, getCall, ringing, setCheckin, startCall, warmCall } from "@/lib/call";
 import { validCheckin } from "@/lib/call-pure";
 import { MAX_ASK_CHARS } from "@/lib/remote-pure";
 
@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 // "ORBIT wants to talk": the call screen's endpoint, for the paired phone (device cookie) or the PC (signed-in session).
-// GET → {ringing, checkin}. POST ?op=start → {id, reason, say:[{text,audio}]}; ?op=turn&call=<id> with a 16 kHz mono WAV (or
+// GET → {ringing, live, checkin} (?warm=1: the call screen is open, make the next opener ahead). POST ?op=start → NDJSON
+// {type:"call",id,reason} then {type:"say",text,audio}*; ?op=turn&call=<id> with a 16 kHz mono WAV (or
 // JSON {text} from on-device speech recognition) → NDJSON (call.ts callTurn); ?op=end&call=<id>; ?op=settings {checkin:"HH:MM"|""}.
 // Audio is decoded in memory for this request only and never written anywhere.
 const fail = (error: string, status = 400, extra: object = {}) => Response.json({ error, ...extra }, { status });
@@ -31,10 +32,11 @@ async function caller() {
   return { sb: u.sb, userId: u.user.id };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const c = await caller();
   if (!c.sb) return c.res;
-  return Response.json({ ringing: ringing(), ...(await callSettings()) });
+  if (new URL(req.url).searchParams.get("warm") === "1") warmCall(c.sb, c.userId);
+  return Response.json({ ringing: ringing(), live: callLive(), ...(await callSettings()) });
 }
 
 export async function POST(req: Request) {
@@ -42,7 +44,7 @@ export async function POST(req: Request) {
   if (!c.sb) return c.res;
   const url = new URL(req.url), op = url.searchParams.get("op");
   try {
-    if (op === "start") return Response.json(await startCall(c.sb, c.userId));
+    if (op === "start") return await startCall(c.sb, c.userId);
     if (op === "settings") {
       const body = await req.json().catch(() => null) as { checkin?: unknown } | null;
       if (!body || !validCheckin(body.checkin)) return fail("checkin must be HH:MM or empty");
