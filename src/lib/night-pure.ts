@@ -12,7 +12,7 @@ export const TONIGHT_MAX = 10, TEXT_MAX = 500, MAX_GOALS = 3, MAX_RESEARCH = 4, 
 export const DRAFT_AGAIN_MS = 7 * 86_400_000; // a prospect gets at most one overnight follow-up draft a week
 export const RESEARCH_AGENTS = ["atlas", "nova", "forge", "vector", "echo", "sentinel"];
 
-export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals"] as const;
+export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health"] as const;
 export type NightKind = (typeof NIGHT_KINDS)[number];
 export const ITEM_STATUSES = ["done", "approval", "failed", "skipped"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -129,6 +129,7 @@ export type PlanInput = {
   followups: { id: string; name: string }[];
   drafted: Record<string, string>;
   nicheDue: boolean;
+  health?: boolean; // run the self-healing check (health.ts) tonight: no code changes, at most 3 fast-model notes
   deals?: number; // wishes the deal hunter would cover now (deals.ts dueCount); one read-only web call each
   handled: string[]; // `${kind}:${ref}` already in this night's run (a continued run doesn't redo them)
   now: number;
@@ -142,6 +143,7 @@ export type PlanInput = {
 export function planNight(i: PlanInput, s: NightSettings, used: { calls: number; ms: number }): { queue: NightTask[]; deferred: number } {
   const all: NightTask[] = [
     { kind: "hygiene", ref: "hygiene", label: "Memory tidy-up suggestions", calls: 0, minutes: 1 } as NightTask,
+    ...(i.health ? [{ kind: "health", ref: "health", label: "ORBIT health check", calls: 3, minutes: 5 } as NightTask] : []),
     ...i.tonight.slice(0, MAX_RESEARCH).map((t): NightTask => ({ kind: "research", ref: t.id, label: t.text.slice(0, 120), calls: 8, minutes: 10 })),
     ...i.goals.filter((g) => ["run", "sync"].includes(nextMove(g.doc, i.today).do)).slice(0, MAX_GOALS)
       .map((g): NightTask => ({ kind: "goal", ref: g.id, label: g.doc.title.slice(0, 120), calls: g.doc.budget.callsPerStep, minutes: 10 })),
@@ -151,8 +153,8 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
     { kind: "clips", ref: "clips", label: "Shorts packaging up to review", calls: 6, minutes: 10 } as NightTask,
     ...(i.nicheDue ? [{ kind: "niche", ref: "niche", label: "Weekly BUSINESS niche scout", calls: 1, minutes: 10 } as NightTask] : []),
   ].filter((t) => !i.handled.includes(`${t.kind}:${t.ref}`) && !i.off?.includes(t.kind));
-  // Kept lessons only reorder ORBIT's own work (so a tight budget defers what he cares less about); his asks and the free tidy-up stay first.
-  const w = (t: NightTask) => (t.kind === "research" || t.kind === "hygiene" ? Infinity : i.boost?.[t.kind] ?? 1);
+  // Kept lessons only reorder ORBIT's own work (so a tight budget defers what he cares less about); his asks, the free tidy-up and the health check stay first.
+  const w = (t: NightTask) => (t.kind === "research" || t.kind === "hygiene" || t.kind === "health" ? Infinity : i.boost?.[t.kind] ?? 1);
   all.sort((a, b) => w(b) - w(a)); // stable: equal weights keep the order above
   const queue: NightTask[] = [];
   let calls = used.calls, min = used.ms / 60_000, deferred = 0;

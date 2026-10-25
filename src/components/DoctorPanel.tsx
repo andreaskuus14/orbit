@@ -2,14 +2,48 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Report, Status } from "@/lib/doctor-pure";
 import type { BootResult } from "@/lib/doctor-boot-pure";
+import { builderText, type Issue } from "@/lib/health-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 
 const COLOR: Record<Status, string> = { ok: "var(--mint)", warn: "var(--amber)", fail: "var(--rose)" };
 const WORD: Record<Status, string> = { ok: "OK", warn: "CHECK", fail: "PROBLEM" };
+const ISSUE_COLOR: Record<Issue["status"], string> = { new: "var(--rose)", regressed: "var(--rose)", ongoing: "var(--amber)", resolved: "var(--mint)" };
+const ISSUE_WORD: Record<Issue["status"], string> = { new: "NEW", regressed: "BACK", ongoing: "ONGOING", resolved: "RESOLVED" };
+type Health = { lastRun: string | null; issues: Issue[] };
+
+/** HEALTH card: what the night health check found (redacted evidence), with the issue text to hand to a builder. Nothing here changes code. */
+function HealthCard({ health }: { health: Health }) {
+  const [copied, setCopied] = useState("");
+  const copy = async (i: Issue) => {
+    try { await navigator.clipboard.writeText(builderText(i)); setCopied(i.id); } catch { setCopied(""); }
+  };
+  return (
+    <section className="mt-4 rounded-lg border border-white/10 p-2 text-sm" aria-label="Health">
+      <b>Health</b>
+      <p className="muted text-xs">{health.lastRun ? `Night check ${new Date(health.lastRun).toLocaleString()}. ` : "Runs in the night shift. "}
+        {health.issues.some((i) => i.status !== "resolved") ? "Copy an issue and paste it to Claude Code or Codex; ORBIT never changes its own code." : "No open problems."}</p>
+      <ul className="mt-2 grid gap-2">
+        {health.issues.map((i) => (
+          <li key={i.id} className="rounded-lg border border-white/10 p-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <b className="text-xs">{i.title}</b>
+              <span className="shrink-0 font-mono text-[10px] tracking-widest" style={{ color: ISSUE_COLOR[i.status] }}>{ISSUE_WORD[i.status]}</span>
+            </div>
+            <p className="muted text-[11px]">{i.count}× · last {new Date(i.last).toLocaleString()} · severity {i.severity}</p>
+            {i.summary && <p className="mt-1 text-xs">{i.summary.summary} <span className="muted">Likely: {i.summary.cause}</span></p>}
+            <details className="mt-1"><summary className="muted cursor-pointer text-[11px]">Evidence</summary>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all text-[10px]">{i.excerpt}</pre></details>
+            <button className="chip mt-1" onClick={() => copy(i)} aria-label={`Copy issue text for a builder: ${i.title}`}>{copied === i.id ? "Copied" : "Copy for builder"}</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 /** ORBIT doctor: runs /api/doctor and lists each check with what to do. speak = read the result aloud (opened by voice/command). */
 export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: boolean }) {
-  const [report, setReport] = useState<(Report & { boot?: BootResult | null }) | null>(null);
+  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null }) | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const spoke = useRef(false);
@@ -20,7 +54,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
       const res = await fetch("/api/doctor", { cache: "no-store" });
       if (res.status === 401 || res.status === 403) throw new Error("ORBIT couldn't confirm your sign-in. Either the database (Supabase) is unreachable or you were signed out. Check your internet, then reload the page and sign in.");
       if (!res.ok) throw new Error(`The check didn't run (error ${res.status}). Restart ORBIT and try again.`);
-      const r = (await res.json()) as Report & { boot?: BootResult | null };
+      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null };
       setReport(r);
       if (speak && !spoke.current && speechSettings().speak) { spoke.current = true; speakChunk(r.speech); }
     } catch (e) {
@@ -73,6 +107,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
                 </ul>
               </> : <p className="muted mt-1 text-xs">No crashes since the boot before.</p>}
             </section>}
+            {report.health && <HealthCard health={report.health} />}
             <p className="muted mt-3 text-[10px]">Checked in {(report.ms / 1000).toFixed(1)} s · {new Date(report.at).toLocaleTimeString()}</p>
           </>}
       </div>

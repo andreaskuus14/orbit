@@ -33,6 +33,7 @@ const DATA: Record<string, object> = {
   "deal.found": { wishId: "w1", offerId: "o1a2b3c4d" },
   "autonomy.change": { area: "business-send", from: "ask", to: "auto" },
   "autonomy.act": { area: "business-send", action: "send", ref: "p1" },
+  "health.issue": { issue: "h1a2b3c4d", status: "new" },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {
