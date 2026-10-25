@@ -157,15 +157,17 @@ export async function getMorning(sb: SupabaseClient, userId: string, now = Date.
       if (error) throw error;
       return dueFollowups(data ?? [], now);
     }))]);
+  const nightP = within(import("./night").then((x) => x.getNightReport(sb, userId, now))).catch(() => null); // a failure just drops the section
   const [th, al, ids, cl, dw, dl, ar] = await cardSources;
   const life = ok(l), rec = ok(r), since = ok(sn), work = ok(w), st = ok(s), due = ok(bf);
-  const cands = dropDone(morningCandidates({ work, studioReady: st?.ready, proposals: ok(a)?.proposals, headlines: ok(i)?.headlines,
+  const base = dropDone(morningCandidates({ work, studioReady: st?.ready, proposals: ok(a)?.proposals, headlines: ok(i)?.headlines,
     alerts: ok(al)?.filter((x) => x.firedOn === today).map(alertText), followups: due, recall: rec, ideas: ok(ids)?.shown,
     deadlines: ok(dl), dev: ok(dw), archLesson: ok(ar) }), ok(cl) ?? [], now);
+  const cands = await import("./lessons").then((m) => m.morningPrior(userId, base), () => base); // kept lessons nudge base ±15% (lessons-pure withPrior)
   const hero = pickHero(cands, ok(th) ?? [], ok(cl) ?? [], now) ?? undefined;
   const cards = rankCards(cands.filter((x) => x.key !== hero?.key), ok(th) ?? [], now);
   // Only counted when its sources loaded: a mission ticked from missing data would be a false claim.
   const mission = st && work && ok(ct) !== undefined ? dailyMission({ shortsToday: st.today.length, contactedToday: ok(ct)!, approvalsWaiting: approvals(work) }) : undefined;
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
-    business: due && businessFollowupLine(due.length), overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(hero && { hero }), ...(since && { since }) };
+    business: due && businessFollowupLine(due.length), overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }) };
 }

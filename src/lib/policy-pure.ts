@@ -9,6 +9,7 @@ import { WS_TOOLS, wsTainted, wsWriteBlocked } from "./core-workspace.ts";
 import { createGoalBlocked } from "./goals-pure.ts";
 import { asksToRemember } from "./reflect-pure.ts";
 import { draftBlocked } from "./higgsfield-pure.ts";
+import { tonightBlocked } from "./night-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
 export type Decision = { allow: boolean; tier: Tier; reason: string };
@@ -23,6 +24,7 @@ export const TIERS: Record<string, Tier> = {
   ws_list: "T0", ws_read: "T0", rea_status: "T0", rea_read: "T0", week_review: "T0",
   web_search: "T1", fetch_url: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1",
   save_memory: "T2", ask_agent: "T2", create_goal: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
+  queue_tonight: "T2", // adds to the night shift's own queue; the night run's outside effects still wait for owner approvals
   life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", rea_analyze: "T2", rea_cancel: "T2",
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
   higgsfield_draft: "T3", // proposes a Higgsfield spend (price check only); the spend itself is the owner's story.approve click
@@ -74,6 +76,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "ws_write" || tool === "ws_create") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps))); // core-modules.ts:50
   else if (tool === "create_goal") blocked = createGoalBlocked(question, dataIn);
   else if (tool === "higgsfield_draft") blocked = draftBlocked(question, dataIn);
+  else if (tool === "queue_tonight") blocked = tonightBlocked(question, dataIn);
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
   if (blocked) return no(blocked);
   // shortcut: rea_analyze/rea_cancel keep their explicit-ask check inside REA code (not ported: REA files stay untouched).

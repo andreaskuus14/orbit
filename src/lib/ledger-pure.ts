@@ -2,6 +2,7 @@
 import { PLANETS } from "./planets.ts";
 import { STAGES, type Stage } from "./business-pure.ts";
 import { CARD_KINDS, SOURCES, type CardKind, type Source } from "./morning-rank-pure.ts";
+import { ITEM_STATUSES, NIGHT_KINDS, type ItemStatus, type NightKind } from "./night-pure.ts";
 
 type Data = {
   "core.turn": { model: string; tools: number; ms: number };
@@ -23,6 +24,11 @@ type Data = {
   "remote.command": { command: string; ok: boolean; device: string }; // phone remote: the command type only, never its text
   "higgsfield.spend": { jobId: string; credits: number; kind: "story" | "draft" }; // credits the owner's Approve click allowed
   "memory.hygiene": { action: "merge" | "retract"; decision: "accepted" | "dismissed"; key: string }; // ids only, never memory text
+  "night.start": { night: string }; // night shift (night.ts): ids and counts only, never task text, drafts or results
+  "night.task": { night: string; kind: NightKind; ref: string; status: ItemStatus };
+  "night.end": { night: string; done: number; approvals: number; failed: number; calls: number; minutes: number };
+  "lesson.kept": { id: string }; // learning loop (lessons.ts): the lesson id only, never its text
+  "lesson.rejected": { id: string };
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -55,6 +61,11 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "remote.command": { command: oneOf(["navigate", "core.ask", "approval.list", "approve", "reject", "stopAll", "status", "invalid"]), ok: bool, device: id },
   "higgsfield.spend": { jobId: id, credits: (v) => typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 100_000, kind: oneOf(["story", "draft"]) },
   "memory.hygiene": { action: oneOf(["merge", "retract"]), decision: oneOf(["accepted", "dismissed"]), key: id },
+  "night.start": { night: id },
+  "night.task": { night: id, kind: oneOf(NIGHT_KINDS), ref: id, status: oneOf(ITEM_STATUSES) },
+  "night.end": { night: id, done: count, approvals: count, failed: count, calls: count, minutes: count },
+  "lesson.kept": { id },
+  "lesson.rejected": { id },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];
