@@ -4,7 +4,7 @@
 // and only when the view direction turns. Shaders and the texture upload go through WarmCompile, so opening a scan never
 // compiles or uploads inside a frame. Fill rate is the limit on the owner's PC: splat count and on-screen size follow the
 // world quality preset (splatBudget), tiny/transparent splats are culled in the vertex shader.
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { WarmCompile } from "./WarmCompile";
@@ -13,8 +13,9 @@ import { TEX_ROW, texSize } from "@/lib/splat-pure";
 export type ScanData = {
   name: string; tex: Float32Array; count: number; total: number; format: string;
   bounds: { lo: [number, number, number]; hi: [number, number, number] }; bytes?: Uint8Array | null;
+  noteId?: string | null; note?: string; // the scan's MEMORY note (5.5: calibration and measurements live there)
 };
-type Reply = Omit<ScanData, "name"> & { order?: Float32Array; error?: string };
+type Reply = Omit<ScanData, "name"> & { order?: Float32Array; hit?: [number, number, number] | null; error?: string };
 export type SplatWorker = { call: (msg: Record<string, unknown>, transfer?: Transferable[]) => Promise<Reply>; stop: () => void };
 
 /** One worker for ARCH's scans (parse + sort), started on first use. */
@@ -73,7 +74,8 @@ void main() {
 
 const V2 = new THREE.Vector2(), FWD = new THREE.Vector3(), INV = new THREE.Matrix4(); // per-frame scratch
 
-export function SplatCloud({ scan, worker, cap, maxPx, flip }: { scan: ScanData; worker: SplatWorker; cap: number; maxPx: number; flip: boolean }) {
+/** children render in the scan's own coordinates (5.5 measurements). */
+export function SplatCloud({ scan, worker, cap, maxPx, flip, children }: { scan: ScanData; worker: SplatWorker; cap: number; maxPx: number; flip: boolean; children?: ReactNode }) {
   const mesh = useRef<THREE.Mesh>(null);
   const { camera, controls } = useThree() as unknown as { camera: THREE.Camera; controls: { target: THREE.Vector3; update: () => void } | null };
   const parts = useMemo(() => {
@@ -130,6 +132,7 @@ export function SplatCloud({ scan, worker, cap, maxPx, flip }: { scan: ScanData;
     <group position={offset}>
       <group rotation-x={flip ? Math.PI : 0}>
         <mesh ref={mesh} geometry={parts.geo} material={parts.mat} frustumCulled={false} />
+        {children}
       </group>
       <WarmCompile key={scan.name + scan.count} world="arch-scan" />
     </group>

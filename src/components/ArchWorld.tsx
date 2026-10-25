@@ -18,6 +18,7 @@ import { splatBudget } from "@/lib/splat-pure";
 import { lessonTag } from "@/lib/arch-studio-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
+import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
 
 const KEY = "orbit.arch.v1";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
@@ -233,6 +234,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   // ARCH studio (5.1–5.4): an open splat scan replaces the model in the canvas; the worker parses and depth-sorts it.
   const [scan, setScan] = useState<ScanData | null>(null), [flip, setFlip] = useState(false), [bump, setBump] = useState(0);
   const [worker] = useState(makeSplatWorker);
+  const [meas, setMeas] = useState<MeasureState | null>(null); // 5.5 measure, loaded from the scan's note
   useEffect(() => () => worker.stop(), [worker]);
   const budget = splatBudget(qualityPreset.dpr);
   const bg = scan ? SCAN_BG : holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : BG;
@@ -330,7 +332,9 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <fog attach="fog" args={[bg, 60, 140]} />
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
           <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} />
-          {scan ? <SplatCloud scan={scan} worker={worker} cap={budget.cap} maxPx={budget.maxPx} flip={flip} /> : <>
+          {scan ? <SplatCloud scan={scan} worker={worker} cap={budget.cap} maxPx={budget.maxPx} flip={flip}>
+            {meas && <MeasureLayer m={meas} set={setMeas} worker={worker} ext={Math.max(...scan.bounds.hi.map((h, i) => h - scan.bounds.lo[i]))} />}
+          </SplatCloud> : <>
           {holo ? <><HoloTable w={scene.plot.w} d={scene.plot.d} /><HoloClock solid={solid} t0={t0} reduced={reduced} /></> : <>
             <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[scene.plot.w, scene.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[scene.plot.ground]} roughness={1} /></mesh>
             <gridHelper args={[Math.max(scene.plot.w, scene.plot.d), Math.max(scene.plot.w, scene.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
@@ -394,8 +398,9 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
             <p className="text-xs">{Math.min(scan.count, budget.cap).toLocaleString("en")} of {scan.count.toLocaleString("en")} splats drawn at this quality{scan.count < scan.total ? ` (file had ${scan.total.toLocaleString("en")})` : ""}. Drag to orbit, scroll or pinch to zoom; 🚶 Walk to go inside.</p>
             <div className="flex flex-wrap gap-1.5">
               <button className="chip" aria-pressed={flip} onClick={() => setFlip((v) => !v)} title="Some exports are upside down (y-down): turn the scan upright">↕ Flip upright</button>
-              <button className="chip" onClick={() => { setScan(null); setWalk(false); }}>Close scan</button>
+              <button className="chip" onClick={() => { setScan(null); setMeas(null); setWalk(false); }}>Close scan</button>
             </div>
+            {meas && <MeasurePanel m={meas} set={setMeas} onSaved={() => setBump((b) => b + 1)} />}
           </div>
         )}
         {walk && <p className="muted text-xs" aria-live="polite">Walking at 1.6 m: WASD or arrow keys move, drag to look around, Esc or 🚶 Walk to go back. Walls stop you; doors let you through.</p>}
@@ -428,7 +433,8 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <button className="chip" onClick={() => download("arch-scene.json", JSON.stringify(scene, null, 2), "application/json")}>⬇ Scene JSON</button>
         </div>
 
-        <ArchStudio worker={worker} bump={bump} onScan={(s) => { setScan(s); setWalk(false); }} onTeach={(t) => void teach(t)}
+        <ArchStudio worker={worker} bump={bump} onScan={(s) => { setScan(s); setMeas(measureFrom(s)); setWalk(false); }}
+          onScanNote={(id, note) => setMeas((m) => m && { ...m, noteId: id, note })} onTeach={(t) => void teach(t)}
           lesson={lesson ? { building: lesson.building, text: lesson.chapters.map((c) => `${c.title}: ${c.text}`).join("\n") } : null} lessonKey={lesson ? lessonTag(lesson.building) : ""} />
 
         <div className="card space-y-1.5">
