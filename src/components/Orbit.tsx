@@ -23,6 +23,7 @@ import { notify } from "@/lib/notify-pure";
 import { OPEN_MEMORY_EVENT, PALETTE_EVENT } from "@/lib/palette-pure";
 import { OPEN_SOURCE_EVENT, citeTarget, type WeekCite } from "@/lib/week-pure";
 import { MorningCard } from "./MorningCard";
+import { MorningBrief } from "./MorningBrief";
 import { Herald } from "./Herald";
 import { WhatsNew } from "./WhatsNew";
 import { DoctorPanel } from "./DoctorPanel";
@@ -615,6 +616,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <EveningCapture />
         <Herald home={!shown && !approach && !gameOpen} coreBusy={busy} />
         <WhatsNew home={!shown && !approach} />
+        <MorningBrief home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       </>}
       {boot >= 2 && !shown && !approach && view === "3d" && <ContinueWork floating onOpenTask={openTask} onOpenGoal={openGoal} />}
       {boot >= 2 && !shown && !approach && <HalEye />}

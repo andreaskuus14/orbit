@@ -29,6 +29,7 @@ type Data = {
   "night.end": { night: string; done: number; approvals: number; failed: number; calls: number; minutes: number };
   "lesson.kept": { id: string }; // learning loop (lessons.ts): the lesson id only, never its text
   "lesson.rejected": { id: string };
+  "brief.shown": { day: string; items: string[]; spoken: boolean }; // morning brief (brief.ts): item ids only, never the words
   "deal.wish": { wishId: string; action: "added" | "removed" | "done" }; // deal hunter (deals.ts): ids and counts only, never items, prices or URLs
   "deal.hunt": { wishId: string; offers: number; great: number };
   "deal.found": { wishId: string; offerId: string };
@@ -69,6 +70,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "night.end": { night: id, done: count, approvals: count, failed: count, calls: count, minutes: count },
   "lesson.kept": { id },
   "lesson.rejected": { id },
+  "brief.shown": { day: id, items: (v) => Array.isArray(v) && v.length <= 6 && v.every(id), spoken: bool },
   "deal.wish": { wishId: id, action: oneOf(["added", "removed", "done"]) },
   "deal.hunt": { wishId: id, offers: count, great: count },
   "deal.found": { wishId: id, offerId: id },
