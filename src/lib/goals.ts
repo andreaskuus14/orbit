@@ -113,8 +113,9 @@ async function sampleMetric(sb: SupabaseClient, row: GoalRow) {
   if (st?.configured) await mutate(sb, row.id, (d) => (addSample(d, st.channel.subs) ? "" : "same"));
 }
 
-/** Event-driven: walk this goal forward until it needs the owner, runs out of today's budget, or ends. One driver per goal. */
-export async function advance(sb: SupabaseClient, userId: string, id: string): Promise<void> {
+/** Event-driven: walk this goal forward until it needs the owner, runs out of today's budget, or ends. One driver per goal.
+ *  maxRuns: start at most this many steps (the night shift takes one per goal per pass). */
+export async function advance(sb: SupabaseClient, userId: string, id: string, maxRuns = Infinity): Promise<void> {
   if (driving.has(id) || stopAllOn() || usageHold()) return; // Stop-all / near the usage budget: no new steps (advance runs again on the next event)
   const ac = new AbortController(), me: Driver = { ac, inSlot: false };
   driving.set(id, me);
@@ -142,6 +143,7 @@ export async function advance(sb: SupabaseClient, userId: string, id: string): P
         return;
       }
       if (move.do === "sync") { if (!(await sync(sb, userId, id, doc, move.i))) return; continue; }
+      if (maxRuns-- <= 0) return;
       // run: charge today's budget, create the step's task, then run it in a shared agent slot.
       const ch = await mutate(sb, id, (d) => (nextMove(d).do === "run" && charge(d) ? "" : "moved"));
       if ("error" in ch) continue;

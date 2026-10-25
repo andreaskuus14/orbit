@@ -10,6 +10,7 @@ import { speakChunk, speechSettings } from "./voice/speak";
 import { MorningCards, MorningHero, trackCard } from "./MorningCards";
 import type { WorkItem } from "@/lib/work-continuation-pure";
 import type { Card } from "@/lib/morning-rank-pure";
+import { WhileYouSlept } from "./NightShift";
 
 const KEY = "orbit.morning"; // { day: last auto-shown local day, speak: read it aloud when it auto-shows (speakMorning, default off) }
 type Saved = { day?: string; speak?: boolean };
@@ -145,6 +146,7 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
       {!data && !err && <p className="muted">Gathering your briefing…</p>}
       {data && (
         <div className="grid gap-3">
+          {data.night && <WhileYouSlept report={data.night} onOpenTask={(id) => { setOpen(false); onOpenTask(id); }} onOpenGoal={(id) => { setOpen(false); onOpenGoal(id); }} nav={nav} />}
           {s?.pausedUntil && <p className="warn">YouTube downloads paused until {s.pausedUntil}</p>}
           {data.hero && <MorningHero hero={data.hero} onOpen={openCard} />}
           <MorningCards cards={data.cards ?? []} problems={data.work?.problems} onOpen={openCard} />

@@ -19,6 +19,7 @@ import TeamBuilder from "./TeamBuilder";
 import IdeasPanel from "./IdeasPanel";
 import RecipesPanel from "./RecipesPanel";
 import GoalsPanel from "./GoalsPanel";
+import { TonightPanel } from "./NightShift";
 import { CHAIN_TITLE, type ChainView } from "@/lib/chains-pure";
 import { beamPairs, chainActive } from "@/lib/mission-pure";
 import type { QualityMode } from "@/lib/quality-pure";
@@ -458,7 +459,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
-  const [tab, setTab] = useState<"agents" | "teams" | "goals" | "ideas" | "recipes">("agents");
+  const [tab, setTab] = useState<"agents" | "teams" | "goals" | "ideas" | "recipes" | "night">("agents");
   useEffect(() => { if (focusGoal) setTab("goals"); }, [focusGoal]);
   useEffect(() => { if (radarUrl) setTab("ideas"); }, [radarUrl]);
   const [chains, setChains] = useState<ChainView[] | null>(null);
@@ -554,13 +555,17 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
             <div className="hud-title"><MaskText text="AGENTS STATION" /></div>
             <p className="muted text-xs">{list.length} agents · {list.filter((a) => status[a.slug] === "working").length} working · {list.filter((a) => status[a.slug] === "waiting").length} need approval{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</p>
             <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Station views">
-              {(["agents", "teams", "goals", "ideas", "recipes"] as const).map((t) => (
+              {(["agents", "teams", "goals", "ideas", "recipes", "night"] as const).map((t) => (
                 <button key={t} id={`st-tab-${t}`} role="tab" aria-selected={tab === t} aria-controls={`st-panel-${t}`} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
-                  {t === "agents" ? "🛰 Agents" : t === "teams" ? "👥 Teams" : t === "goals" ? "🎯 Goals" : t === "ideas" ? "💡 Ideas" : "📋 Recipes"}
+                  {t === "agents" ? "🛰 Agents" : t === "teams" ? "👥 Teams" : t === "goals" ? "🎯 Goals" : t === "ideas" ? "💡 Ideas" : t === "night" ? "🌙 Tonight" : "📋 Recipes"}
                 </button>
               ))}
             </div>
-            {tab === "recipes" ? (
+            {tab === "night" ? (
+              <div id="st-panel-night" role="tabpanel" aria-labelledby="st-tab-night" className="mt-3">
+                <TonightPanel />
+              </div>
+            ) : tab === "recipes" ? (
               <div id="st-panel-recipes" role="tabpanel" aria-labelledby="st-tab-recipes" className="mt-3">
                 <RecipesPanel onOpenTask={onOpenTask} />
               </div>
