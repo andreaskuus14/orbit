@@ -6,7 +6,7 @@ import { createCipheriv, createECDH, createPrivateKey, hkdfSync, randomBytes, si
 
 // ---- What gets sent ---------------------------------------------------------
 
-export type PushKind = "clip" | "spend" | "send" | "scheduled" | "published" | "failed" | "stop" | "night" | "call" | "deal";
+export type PushKind = "clip" | "spend" | "send" | "scheduled" | "published" | "failed" | "stop" | "night" | "call" | "deal" | "auto";
 export type PushMessage = { title: string; body: string; url: string; tag: PushKind };
 export const PUSH_GAP_MS = 2 * 60_000;
 
@@ -23,6 +23,7 @@ export function pushLabel(kind: PushKind, n = 1): PushMessage {
     stop: ["Stop-all is ON", "ORBIT is paused. Resume it from the PC.", "r-stop"],
     night: ["Night shift done", "See what ORBIT did while you slept.", "r-appr"], // night.ts sends its own counts (nightPush)
     deal: ["Deal found", "Something on your wishlist is at a good price.", "r-call"], // deals.ts, outside quiet hours; never the item or price
+    auto: ["ORBIT acted on its own", "Auto with limits. See Profile → Autonomy.", "r-queue"], // autonomy.ts sends its own label (autoPush)
     call: ["ORBIT wants to talk", n === 0 ? "Got a minute?" : many ? `${n} things need you.` : "One thing needs you.", "r-call"], // rung by call.ts, its own limits
   };
   const [title, body, anchor] = m[kind];

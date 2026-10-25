@@ -31,6 +31,7 @@ import { citeWeek, knownCites, weekIntent } from "./week-pure";
 import { coreAnswerEval, type CoreEvalTool } from "./core-answer-eval-pure";
 import type { AnswerEval } from "./answer-eval-pure";
 import { recordCoreTurn } from "./perf-log";
+import { autonomyLevels } from "./autonomy";
 
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
 const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
@@ -258,7 +259,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       const evidence: WriteEvidence[] = [];
       // Every tool call passes policy first (policy-pure.ts: Stop-all, navigate-first, attachment/private/link taint, explicit asks,
       // T3 only behind an owner approval path). T2/T3 verdicts go to the ledger: tool, tier, verdict, reason; never inputs.
-      const verdict = decide(reply.tool, reply.input ?? {}, { stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, steps, question, privateTools: MODULE_PRIVATE });
+      const verdict = decide(reply.tool, reply.input ?? {}, { stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, steps, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels() });
       const policyRow = policyEvent(reply.tool, verdict);
       if (policyRow) void emit(sb, userId, "policy.decision", "core", policyRow); // never throws
       try { out = !verdict.allow ? `Error: ${verdict.reason}` : (reply.tool === "navigate" ? navigateTool(reply.input ?? {}, onNavigate)

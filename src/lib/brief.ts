@@ -89,6 +89,7 @@ export const setBriefLife = (userId: string, life: boolean) => update(userId, (u
 
 /** The phone's morning-call opener from the same composer (no model call here; the call's own personaliser may add one). */
 export async function morningOpener(sb: SupabaseClient, userId: string, hour: number): Promise<string | null> {
+  if (!(await import("./autonomy")).allows("brief", "background", { stopAll: false }).ok) return null; // Profile → Autonomy: Off = plain opener
   const b = await within(composeToday(sb, userId), 8000);
   return b.items.length ? briefOpener(b, hour) : null;
 }

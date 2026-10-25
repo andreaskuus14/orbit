@@ -31,6 +31,8 @@ const eligible = (c: Clip) => c.status === "approved" && (!c.publish || c.publis
 /** Starts scheduling every approved, unpublished clip (background, sequential). Returns the batch, or a message for a 409.
  *  only: "<job>/<clip>" keys to limit it to (a CORE plan's picks). meta: per key, a wanted slot (must still be free) and description (autopilot). */
 export async function scheduleAll(only?: string[], meta: Record<string, { publishAt?: string; description?: string }> = {}): Promise<Batch | string> {
+  const off = (await import("../autonomy")).allows("studio-publish", "owner"); // Profile → Autonomy: Off refuses every upload path
+  if (!off.ok) return off.why;
   if (B.batch?.running) return "Already scheduling clips";
   const batch: Batch = (B.batch = { running: true, total: 0, scheduled: 0, at: new Date().toISOString() }); // claimed before any await
   const todo = await listJobs().then((jobs) => jobs.flatMap((j) => j.clips.filter((c) => eligible(c) && (!only || only.includes(`${j.id}/${c.id}`))).map((c) => [j.id, c.id] as const)), (e) => { batch.running = false; throw e; });
