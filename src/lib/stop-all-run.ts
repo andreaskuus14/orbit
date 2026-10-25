@@ -6,6 +6,7 @@ import { resumeChains } from "@/lib/chains";
 import { abortGoalDrivers, resumeGoals } from "@/lib/goals";
 import { resumeClipQueue } from "@/lib/clips/factory";
 import { abortNicheWork } from "@/lib/niche";
+import { pushNotify } from "@/lib/remote-push";
 
 /** Turn Stop-all on (cancelling running tasks/teams/goal drivers) or off (resuming queues). Used by /api/stop-all and the phone remote. */
 export async function switchStopAll(sb: SupabaseClient, userId: string, on: boolean, via = "") {
@@ -16,6 +17,7 @@ export async function switchStopAll(sb: SupabaseClient, userId: string, on: bool
     for (const id of liveTaskIds()) if (await cancelTask(sb, id).catch(() => false)) cancelled++; // tasks and team chains (their drivers are in the same map)
     goals = abortGoalDrivers();
     abortNicheWork(); // BUSINESS niche scout / shop build
+    pushNotify("stop");
   } else {
     resumeClipQueue(); void kickQueue(sb, userId); void resumeChains(sb, userId).catch(() => {}); void resumeGoals(sb, userId).catch(() => {}); // don't wait for the next tick
   }

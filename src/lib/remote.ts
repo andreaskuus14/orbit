@@ -15,8 +15,9 @@ import { listJobs } from "@/lib/clips/factory";
 import { listStories } from "@/lib/clips/story";
 import { approveProblem, quoteTotal } from "@/lib/clips/story-pure";
 import { emailIn } from "@/lib/business-pure";
+import type { PushSub } from "@/lib/remote-push-pure";
 
-export type Device = { id: string; name: string; userId: string; createdAt: string };
+export type Device = { id: string; name: string; userId: string; createdAt: string; push?: PushSub }; // push: its Web Push subscription (6.3)
 type State = { pair?: PairCode & { userId: string }; nonces: NonceCache; hits: Map<string, number[]>; seen: Map<string, string>; chat: Map<string, { id: string; at: number }>;
   owner?: { userId: string; email: string; sb: SupabaseClient }; save?: Promise<unknown> };
 const g = globalThis as unknown as { __orbitRemote?: State };
@@ -25,7 +26,7 @@ export const S: State = (g.__orbitRemote ??= { nonces: new NonceCache(), hits: n
 export const remoteSecret = () => process.env.REMOTE_SECRET ?? "";
 export const remoteProblem = () => secretProblem(process.env.REMOTE_SECRET);
 
-// ---- Devices: <data dir>/remote-devices.json (no secrets: tokens are HMAC-signed and never stored) ----
+// ---- Devices: <data dir>/remote-devices.json (tokens are HMAC-signed and never stored; push subscriptions are only usable with the VAPID key) ----
 const file = () => path.join(orbitDataDir(), "remote-devices.json");
 export async function listDevices(): Promise<Device[]> {
   try {

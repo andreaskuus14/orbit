@@ -7,6 +7,7 @@ import { availableParallelism } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { SMART_MODEL, askClaudeStream, emitAsOwner } from "../claude";
+import { pushNotify } from "../remote-push";
 import { stopAllOn } from "../stop-all";
 import { retryConsent, retryFingerprint } from "./flop-retry-pure";
 import { createLimiter } from "../pure";
@@ -495,10 +496,12 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
     lap("render");
     if (!job.clips.some((c) => c.status !== "failed")) throw new Error(`Every clip failed to render: ${job.clips[0]?.error ?? ""}`);
     await set(job, "done", 1, `${job.clips.filter((c) => c.status !== "failed").length} clips ready`);
+    pushNotify("clip");
   } catch (e) {
     job.error = signal.aborted ? "Cancelled" : e instanceof Error ? e.message : String(e);
     job.clips.forEach((c) => { if (c.status === "rendering") { c.status = "failed"; c.error = "not rendered"; } });
     await set(job, "failed", job.progress, "Failed");
+    if (!signal.aborted) pushNotify("failed");
     throw e;
   } finally {
     await rm(path.join(dir, pcmName), { force: true }).catch(() => {});
@@ -1062,6 +1065,7 @@ const setPublish = (jobId: string, clipId: string, patch: Partial<ClipPublish>, 
   job.updatedAt = clip.publish.at;
   await saveJob(job);
   if (went) void emitAsOwner("clip.published", "studio", { clipId: `${jobId}/${clipId}` }); // ids only: titles can carry source text
+  if (went) pushNotify(clip.publish.status === "scheduled" ? "scheduled" : "published");
   return clip;
 });
 
