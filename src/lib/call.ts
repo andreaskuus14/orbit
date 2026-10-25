@@ -131,7 +131,9 @@ function voice(text: string): Voiced {
 function prepareOpener(sb: SupabaseClient, userId: string, reason: CallReason): Pre {
   const at = Date.now();
   const items = toItems(sb).catch(() => [] as CallItem[]);
-  const base = Promise.all([items, dealFor(reason)]).then(([it, deal]) => opener(reason, localParts(at).h, it, deal));
+  const plainBase = Promise.all([items, dealFor(reason)]).then(([it, deal]) => opener(reason, localParts(at).h, it, deal));
+  // Morning call: the same composer as the PC's morning brief; any failure keeps the plain opener.
+  const base = reason !== "morning" ? plainBase : import("./brief").then((b) => b.morningOpener(sb, userId, localParts(at).h)).then((t) => t ?? plainBase, () => plainBase);
   const text = Promise.all([base, callNotes(sb, userId).catch(() => [])]).then(async ([b, notes]) => {
     if (!notes.length) return b;
     try {

@@ -27,6 +27,7 @@ const DATA: Record<string, object> = {
   "night.end": { night: "n1", done: 3, approvals: 2, failed: 0, calls: 17, minutes: 42 },
   "lesson.kept": { id: "proposal.agent|echo|-" },
   "lesson.rejected": { id: "correction|don t use tables" },
+  "brief.shown": { day: "2026-10-25", items: ["decision:task:t1", "night:2026-10-25"], spoken: true },
   "deal.wish": { wishId: "w1", action: "added" },
   "deal.hunt": { wishId: "w1", offers: 4, great: 1 },
   "deal.found": { wishId: "w1", offerId: "o1a2b3c4d" },

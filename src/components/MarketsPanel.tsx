@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { MARKETS_TAB } from "@/lib/brief-pure";
 import type { Analysis, getMarkets } from "@/lib/markets";
 import { NOTE, sparkPath, type Point, type Strategy } from "@/lib/markets-pure";
 import DealCards from "./DealCards";
@@ -24,7 +25,9 @@ const tone = (n: number | null) => (n === null || n === 0 ? undefined : { color:
 const Note = () => <p className="muted text-xs" role="note">⚠️ {NOTE}</p>;
 
 export default function MarketsPanel() {
-  const [tab, setTab] = useState<Tab>("Watchlist");
+  const [tab, setTab] = useState<Tab>(() => { // the morning brief's "Open" on a deal lands on Deals
+    try { const t = sessionStorage.getItem(MARKETS_TAB); sessionStorage.removeItem(MARKETS_TAB); return (TABS as readonly string[]).includes(t ?? "") ? (t as Tab) : "Watchlist"; } catch { return "Watchlist"; }
+  });
   const [st, setSt] = useState<State | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(async () => {

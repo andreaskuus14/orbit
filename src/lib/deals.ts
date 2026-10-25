@@ -155,11 +155,11 @@ export async function maybeDealHunt(sb: SupabaseClient, userIds: string[], now =
 /** For the night planner: how many wishes a hunt would cover now. */
 export const dueCount = async (now = Date.now()) => { const s = await load(); return Math.min(dueWishes(s.wishes, s.hunted, now).length, callsLeft(s, localDay(new Date(now)))); };
 
-/** For call-pure: great deals found in the last 12 h (offer ids), and the newest one for the call's opener. */
-export async function freshDeals(now = Date.now()): Promise<{ ids: string[]; latest: { item: string; eur: number } | null }> {
+/** For call-pure: great deals found in the last 12 h (offer ids), and the newest one for the call's opener. The morning brief looks back 24 h. */
+export async function freshDeals(now = Date.now(), ms = FRESH_MS): Promise<{ ids: string[]; latest: { item: string; eur: number } | null }> {
   const s = await load().catch(() => null);
   if (!s) return { ids: [], latest: null };
-  const fresh = s.found.filter((f) => now - Date.parse(f.at) < FRESH_MS);
+  const fresh = s.found.filter((f) => now - Date.parse(f.at) < ms);
   const f = fresh[fresh.length - 1], o = f && s.offers[f.wishId]?.find((x) => x.id === f.offerId), w = f && s.wishes.find((x) => x.id === f.wishId);
   return { ids: fresh.map((x) => x.offerId), latest: o && w ? { item: w.item, eur: o.eur } : null };
 }
