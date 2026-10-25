@@ -143,11 +143,11 @@ function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean
 
 /** purpose: what the call is for, for the usage meter (core, agent, goals, autopilot, clips, translate…); default by lane. */
 /** web: allow only WebSearch/WebFetch (read-only); web pages are untrusted, so that call's system prompt must say they are data. */
-export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean; mcp?: McpAccess };
+export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean; mcp?: McpAccess; onLine?: (line: string) => void };
 
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
-export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp }: AskOpts = {}): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane), web, mcp), signal);
+export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine }: AskOpts = {}): Promise<ClaudeResult> {
+  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane), web, mcp, onLine), signal);
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI.
@@ -157,7 +157,7 @@ export function askClaudeStream(prompt: string | Promise<string>, system: string
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
-async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false, mcp?: McpAccess): Promise<ClaudeResult> {
+async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false, mcp?: McpAccess, onLine?: (line: string) => void): Promise<ClaudeResult> {
   if (typeof prompt !== "string") prompt.catch(() => {}); // observed now; its error is reported once the CLI is up
   signal?.throwIfAborted();
   const t0 = Date.now();
@@ -179,6 +179,7 @@ async function runClaudeStream(prompt: string | Promise<string>, system: string,
       const timer = setTimeout(() => { killTree(child); reject(new Error(`Claude Code timed out after ${ms / 60_000} minutes`)); }, ms);
       const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
       const handle = (line: string) => {
+        onLine?.(line); // raw stream-json, e.g. to see which URLs the web tools really returned (niche.ts)
         const ev = parseStreamJsonLine(line);
         if (ev?.delta) { streamed += ev.delta; onDelta(ev.delta); }
         if (ev?.result) result = ev.result;

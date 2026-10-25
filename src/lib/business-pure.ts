@@ -79,7 +79,7 @@ export function findPrompt(query: string): string {
 }
 
 /** The first JSON array of objects in text that may wrap it in prose, a code fence or [1] citations. */
-function firstArray(t: string): unknown[] | null {
+export function firstArray(t: string): unknown[] | null {
   for (let i = t.search(/\[\s*\{/); i >= 0; i = t.slice(i + 1).search(/\[\s*\{/) < 0 ? -1 : i + 1 + t.slice(i + 1).search(/\[\s*\{/))
     for (let j = t.lastIndexOf("]"); j > i; j = t.lastIndexOf("]", j - 1)) {
       try { const v = JSON.parse(t.slice(i, j + 1)); if (Array.isArray(v)) return v; } catch { /* try a shorter slice */ }

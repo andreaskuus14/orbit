@@ -2,8 +2,10 @@
 import VisibilityPanel from "./VisibilityPanel";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
-import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, templateStats, type Find, type Lang, type Prospect, type Stage, type Template } from "@/lib/business-pure";
+import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, type Find, type Lang, type Prospect, type Stage, type Template } from "@/lib/business-pure";
 import { mapNodes, mapSummary } from "@/lib/business-map-pure";
+import { SIG_LABEL, scorecard, type Cell } from "@/lib/outreach-score-pure";
+import NicheCards from "./NicheCards";
 
 // Three.js loads after the drawer opens, so the list shows instantly.
 const BusinessMap = dynamic(() => import("./BusinessMap"), { ssr: false, loading: () => <div className="h-[260px] rounded-md border border-white/10" /> });
@@ -85,7 +87,9 @@ export default function BusinessPanel() {
         </div>
       )}
 
-      {st && <TemplateTable ps={st.prospects} />}
+      {st && <Scorecard ps={st.prospects} />}
+
+      <NicheCards />
 
       <VisibilityPanel />
 
@@ -99,14 +103,23 @@ export default function BusinessPanel() {
   );
 }
 
-function TemplateTable({ ps }: { ps: Prospect[] }) {
-  const rows = templateStats(ps);
-  if (!rows.some((r) => r.sent)) return null;
-  return (
-    <table className="w-full text-xs" aria-label="Reply rate per message angle">
-      <thead className="muted text-left"><tr><th>Angle</th><th className="text-right">Sent</th><th className="text-right">Replied</th><th className="text-right">Reply rate</th></tr></thead>
-      <tbody>{rows.map((r) => <tr key={r.template}><td>{r.template}</td><td className="num text-right">{r.sent}</td><td className="num text-right">{r.replied}</td><td className="num text-right">{r.sent ? `${r.rate}%` : "–"}</td></tr>)}</tbody>
+function Scorecard({ ps }: { ps: Prospect[] }) {
+  const sc = scorecard(ps);
+  if (!sc.segments.some((r) => r.sent)) return null;
+  const table = (label: string, head: string, rows: Cell[]) => (
+    <table className="w-full text-xs" aria-label={label}>
+      <thead className="muted text-left"><tr><th>{head}</th><th className="text-right">Sent</th><th className="text-right">Replied</th><th className="text-right">Rate</th><th className="text-right" title="95% range: where the true rate probably is">Range</th><th className="pl-2">Hint</th></tr></thead>
+      <tbody>{rows.map((r) => <tr key={r.key}><td>{r.key}</td><td className="num text-right">{r.sent}</td><td className="num text-right">{r.replied}</td><td className="num text-right">{r.sent ? `${r.rate}%` : "–"}</td>
+        <td className="num text-right muted">{r.sent ? `${r.low}–${r.high}%` : "–"}</td><td className={`pl-2 ${r.sig === "better" ? "ok" : r.sig === "worse" ? "error" : "muted"} !text-xs`}>{r.sent ? SIG_LABEL[r.sig] : ""}</td></tr>)}</tbody>
     </table>
+  );
+  return (
+    <section className="card space-y-2" aria-label="Outreach scorecard">
+      <h3 className="text-[11px] uppercase tracking-widest muted">Outreach scorecard</h3>
+      {sc.angles.some((r) => r.sent) && table("Reply rate per message angle", "Angle", sc.angles)}
+      {table("Reply rate per business type", "Business type", sc.segments)}
+      {sc.next && <p className="text-xs">Next angle to try: <b>{sc.next.angle}</b> <span className="muted">· {sc.next.why}. Pick it in a draft's Angle menu; sending stays your click.</span></p>}
+    </section>
   );
 }
 
