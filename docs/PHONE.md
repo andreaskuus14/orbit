@@ -22,7 +22,7 @@ ORBIT's code doesn't change for this. It stays bound to `127.0.0.1`; Tailscale f
 
 - CORE chat and voice (the mic needs the HTTPS address above).
 - All the planets. The drawer becomes a bottom sheet and the 2D view is the default on small screens.
-- LIFE reminders show while ORBIT is open on the phone. They don't push when it's closed (no service worker, by design).
+- LIFE reminders show while ORBIT is open on the phone. They don't push when it's closed. (Only the /remote app below has push notifications, and only for approvals, Shorts, failures and Stop-all.)
 - STUDIO, agents, Clip Factory and everything else still run on the PC. The phone is a remote screen for it, so **the PC must be on with ORBIT running**.
 
 ## Phone remote (/remote): approvals, Stop-all, Studio queue, ask CORE
@@ -35,6 +35,22 @@ A light page for the phone that doesn't need the full galaxy or a Supabase sign-
 4. Paired phones are listed under Profile → Phone remote. **Revoke** stops one at once. Changing `REMOTE_SECRET` unpairs all of them.
 
 What the phone can do: approve or reject clips waiting in review (it shows each clip's thumbnail; a clip without one is approved on the PC), approve a Higgsfield spend at its exact quoted credits, approve & send a BUSINESS email draft (it shows the full message and recipient), turn Stop-all **on** (resuming is done on the PC), see the Studio queue, and ask CORE (its chats are titled "Phone: …"). It can only act on items already waiting for you, exactly as it showed them (a clip, quote or draft that changed since must be reloaded); it can't start spends, sends or jobs. Retry clips that replace a published Short are reviewed on the PC. Every phone command is logged to the ledger (type and result, never the text).
+
+### Notifications on the phone (iOS 16.4+)
+
+Remote can buzz your phone when something needs you: a new clip to review, a Higgsfield quote ready, a BUSINESS draft ready to send (only when email sending is set up), a Short scheduled or published, a clip job or AI Story failed, or Stop-all switched on.
+
+1. On the PC: `npm run remote:vapid`. It prints two lines (`REMOTE_VAPID_PUBLIC=…`, `REMOTE_VAPID_PRIVATE=…`). Paste both into `.env.local` and restart ORBIT. Keep the private one secret. Optional: `REMOTE_VAPID_SUBJECT=mailto:you@example.com` (the contact Apple sees; default is the first `ORBIT_ALLOWED_EMAILS`).
+2. On the iPhone, open **Remote from the Home Screen** (notifications don't work in a Safari tab), scroll to **Notifications** and tap **Enable notifications**, then **Allow**. A "Notifications are on" test arrives within a few seconds.
+3. Tapping a notification opens Remote at the right section.
+
+What's in a notification: a fixed label like "New clip to review" or "A job failed" and a link into /remote. Never a clip title, email text, recipient, journal, memory or anything else you wrote; you see the details inside Remote after it opens. The label is end-to-end encrypted to the phone (Web Push), so Apple's push service only sees ciphertext.
+
+Limits: at most one notification per kind every 2 minutes (more in that window are combined into one, like "3 new clips to review"). Quiet hours 23:00–08:00 Tallinn time: only failures come through; the rest are skipped (Remote still lists everything waiting). The PC must be on with ORBIT running to send them.
+
+To stop: **Turn off on this phone** in Remote, or **Revoke** the phone on the PC (that deletes its subscription too), or remove the two `REMOTE_VAPID_*` lines. Making a new key pair turns them off until you tap Enable notifications again.
+
+If the test doesn't arrive: check iPhone Settings → Notifications → Remote is allowed, that Focus isn't hiding it, and ORBIT's log on the PC for `[remote] push`.
 
 Never use `tailscale funnel` for ORBIT: funnel puts it on the public internet. `tailscale serve` keeps it inside your tailnet, and ORBIT itself keeps listening on 127.0.0.1 only.
 

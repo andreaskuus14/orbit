@@ -28,6 +28,7 @@ function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", 
       if (name.endsWith("/claude")) return { BusyError: class extends Error {}, askClaude: async (...args: any[]) => { asks.push(args); return { text: answer }; } };
       if (name.endsWith("usage-meter")) return { usageHold: () => null };
       if (name.endsWith("stop-all")) return { stopAllOn: () => false };
+      if (name.endsWith("remote-push")) return { pushNotify: () => {} };
       if (name.endsWith("business-send")) return { sendDraft: () => { throw new Error("Drafting must never send"); } };
       throw new Error(name);
     },

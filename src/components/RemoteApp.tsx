@@ -112,7 +112,57 @@ export function RemoteApp() {
       </section>
 
       <Ask />
+      <Notify />
     </Shell>
+  );
+}
+
+/** Web Push (6.3). iOS: only inside the Home Screen app (16.4+), and permission must be asked from a tap. */
+function Notify() {
+  const [info, setInfo] = useState<{ problem: string; publicKey: string | null; on: boolean } | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [supported, setSupported] = useState(true); // checked after mount: the server render can't know
+  useEffect(() => {
+    if (!("serviceWorker" in navigator && "PushManager" in window && "Notification" in window)) return setSupported(false);
+    void navigator.serviceWorker.register("/remote/sw.js", { scope: "/remote" }).catch(() => {});
+    void fetch("/api/remote/push").then((r) => (r.ok ? r.json() : null)).then(setInfo).catch(() => {});
+  }, []);
+  async function enable() {
+    setBusy(true); setNote("");
+    try {
+      if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications are blocked: allow them for Remote in Settings → Notifications.");
+      const reg = await navigator.serviceWorker.register("/remote/sw.js", { scope: "/remote" });
+      await navigator.serviceWorker.ready;
+      const key = Uint8Array.from(atob(info!.publicKey!.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+      await (await reg.pushManager.getSubscription())?.unsubscribe(); // fresh each time: an old one may be tied to a previous key pair
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      const r = await fetch("/api/remote/push", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sub.toJSON()) });
+      if (!r.ok) throw new Error(await errorOf(r));
+      setInfo({ ...info!, on: true });
+      setNote(((await r.json()) as { sent?: boolean }).sent ? "On: a test notification is on its way." : "Saved, but the test notification didn't go through: check ORBIT's log on the PC.");
+    } catch (e) { setNote(e instanceof Error ? e.message : "Couldn't turn notifications on"); }
+    setBusy(false);
+  }
+  async function disable() {
+    setBusy(true); setNote("");
+    await fetch("/api/remote/push", { method: "DELETE" }).catch(() => null);
+    await (await navigator.serviceWorker.getRegistration("/remote"))?.pushManager.getSubscription().then((s) => s?.unsubscribe()).catch(() => {});
+    setInfo(info && { ...info, on: false }); setBusy(false);
+  }
+  return (
+    <section className="card space-y-2" aria-labelledby="r-notify">
+      <h2 id="r-notify" className="text-sm font-semibold">Notifications</h2>
+      {!supported ? <p className="muted text-sm">On iPhone (iOS 16.4+), open Remote from the Home Screen to turn notifications on.</p>
+        : !info ? <p className="muted text-sm">Checking…</p>
+        : info.problem ? <p className="muted text-sm">{info.problem}</p>
+        : <>
+          <p className="muted text-sm">Approvals waiting, Shorts going live, failed jobs and Stop-all. Only a short label, never the content. Quiet 23:00–08:00 except failures.</p>
+          {info.on ? <button className="chip" style={{ minHeight: 44 }} disabled={busy} onClick={disable}>Turn off on this phone</button>
+            : <button className="btn w-full" style={{ minHeight: 48 }} disabled={busy} onClick={enable}>{busy ? "…" : "Enable notifications"}</button>}
+        </>}
+      {note && <p className="muted text-sm" role="status">{note}</p>}
+    </section>
   );
 }
 

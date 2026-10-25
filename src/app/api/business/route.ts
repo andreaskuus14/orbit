@@ -4,6 +4,7 @@ import { BusyError, askClaude, emit } from "@/lib/claude";
 import { usageHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { sendDraft } from "@/lib/business-send";
+import { pushNotify } from "@/lib/remote-push";
 import { FOLLOWUP_SYSTEM, followupPrompt, FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, RESEARCH_SYSTEM, findPrompt, funnel, isTemplate, outreachPrompt, parseDraft, parseFinds, researchPrompt, trimDossier, validatePatch, validateProspect, withDossier, type Lang, type Prospect } from "@/lib/business-pure";
 
 export const dynamic = "force-dynamic";
@@ -112,6 +113,7 @@ export async function POST(req: Request) {
         if (!draft) return fail("CORE returned an empty draft; try again", 502);
         const save = (patch: object) => sb.from("prospects").update(patch).eq("id", b.id as string).select(COLS).maybeSingle();
         const patch = { draft, updated_at: new Date().toISOString() };
+        if (!followup && p.stage === "lead") pushNotify("send"); // phone push (6.3): a label only, never the draft
         // Tag only drafts that haven't gone out yet, so a sent message keeps the angle it was sent with.
         if (!template || p.stage !== "lead") return one(save(patch));
         const tagged = await save({ ...patch, template });
