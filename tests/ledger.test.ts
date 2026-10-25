@@ -25,6 +25,8 @@ const DATA: Record<string, object> = {
   "night.start": { night: "n1" },
   "night.task": { night: "n1", kind: "goal", ref: "g1", status: "approval" },
   "night.end": { night: "n1", done: 3, approvals: 2, failed: 0, calls: 17, minutes: 42 },
+  "lesson.kept": { id: "proposal.agent|echo|-" },
+  "lesson.rejected": { id: "correction|don t use tables" },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {
@@ -173,6 +175,10 @@ test("ledgerIssue: plain events pass, ledger types are checked", () => {
   assert.match(ledgerIssue("focus.session", "life", { minutes: 0 })!, /minutes/);
   assert.match(ledgerIssue("focus.session", "nowhere", { minutes: 5 })!, /planet/);
   assert.match(ledgerIssue("focus.session", "life", { minutes: 5 }, "")!, /caused_by/);
+  assert.equal(ledgerIssue("lesson.kept", "core", { id: "active|evening|+" }), null);
+  assert.match(ledgerIssue("lesson.rejected", "core", { id: "x".repeat(129) })!, /id/);
+  const kept = validate({ ...base, type: "lesson.kept", planet: "core", data: { id: "a|b|+", text: "He usually approves…" } });
+  assert.deepEqual("ok" in kept && kept.ok.data, { id: "a|b|+" }); // ids only: the lesson text never enters the ledger
 });
 
 test("fromRows: Postgres rows → ledger events; legacy and bad rows skipped", () => {
