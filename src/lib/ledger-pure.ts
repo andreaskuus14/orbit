@@ -34,6 +34,8 @@ type Data = {
   "deal.hunt": { wishId: string; offers: number; great: number };
   "deal.found": { wishId: string; offerId: string };
   "health.issue": { issue: string; status: "new" | "regressed" | "resolved" }; // self-healing (health.ts): the issue id only, never log text
+  "dev.session.start": { session: string }; // Roblox dev session log (dev-session.ts): the session id only, never code, paths or console text
+  "dev.session.end": { session: string };
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -76,6 +78,8 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "deal.hunt": { wishId: id, offers: count, great: count },
   "deal.found": { wishId: id, offerId: id },
   "health.issue": { issue: id, status: oneOf(["new", "regressed", "resolved"]) },
+  "dev.session.start": { session: id },
+  "dev.session.end": { session: id },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];

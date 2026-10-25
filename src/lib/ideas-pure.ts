@@ -3,7 +3,8 @@ export const AREAS = ["studio", "business", "markets", "agents", "core", "gamede
 export type Area = (typeof AREAS)[number];
 export type Idea = { id: string; video: string; videoTitle: string; title: string; summary: string; area: Area; score: number; next: string; at?: string; sourceAt?: string; dismissed?: boolean;
   // Comment-to-idea (comment-ideas-pure.ts): recurring viewer questions, linked to the source comments.
-  origin?: "comments"; commentKey?: string; askers?: number; comments?: { id: string; videoId: string; text: string }[] };
+  origin?: "comments" | "devsession"; commentKey?: string; askers?: number; comments?: { id: string; videoId: string; text: string }[];
+  sessionId?: string }; // devsession: a GAME DEV session turned into a "Day N" Short idea (dev-session-pure.ts sessionIdea; video is "")
 export const SHOW_AT = 60; // below this an idea is saved but hidden from the board
 export const TRANSCRIPT_MAX = 60_000;
 const DAY = 86_400_000;

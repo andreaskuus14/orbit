@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir";
 import { fetchPage, safeFetch } from "./memory";
-import { docFromYaml, docUrls, fresh, pageUrl, parseYaml, pruneCache, validName, type ApiDoc, type CacheEntry } from "./roblox-docs-pure";
+import { MAX_CACHE, docFromYaml, docUrls, fresh, pageUrl, parseYaml, pruneCache, validName, type ApiDoc, type CacheEntry, type DocPage } from "./roblox-docs-pure";
 
 // Roblox API reference lookup: Roblox's open-source Creator Docs YAML from GitHub (create.roblox.com page text as a summary-only fallback),
 // compacted and cached in ORBIT's data folder for 7 days. Best effort: a lookup never throws, it just returns fewer docs.
@@ -74,4 +74,25 @@ export async function lookupApi(names: string[], opts: { chain?: boolean; timeou
   const work = Promise.all([...new Set(names)].slice(0, 20).map((n) => one(n).catch(() => {})));
   await Promise.race([work, new Promise((r) => setTimeout(r, opts.timeoutMs ?? 8000))]);
   return Object.assign(Object.create(null) as Record<string, ApiDoc>, out); // a snapshot: late fetches don't change it
+}
+
+/* create.roblox.com pages through the read-only web path (fetchPage): the Luau helper checks its suggestion against them and cites the URLs. */
+const PAGE_TTL = 24 * 3600_000;
+const pages = (globalThis as unknown as { __orbitRbxPages?: Map<string, { at: number; page: DocPage | null }> }).__orbitRbxPages ??= new Map();
+
+/** The docs pages for these names (cached in memory for a day), whatever arrives within timeoutMs. Never throws. */
+export async function fetchDocPages(names: string[], timeoutMs = 8000): Promise<DocPage[]> {
+  const got: DocPage[] = [];
+  const one = async (name: string) => {
+    let e = pages.get(name);
+    if (!e || Date.now() - e.at > PAGE_TTL) {
+      const page = await fetchPage(pageUrl(name)).then((p) => ({ name, url: p.url, text: p.text }), () => null);
+      e = { at: Date.now(), page };
+      if (page) pages.set(name, e); // failures are retried next time
+      if (pages.size > MAX_CACHE) pages.delete(pages.keys().next().value!);
+    }
+    if (e.page) got.push(e.page);
+  };
+  await Promise.race([Promise.all(names.filter(validName).map(one)), new Promise((r) => setTimeout(r, timeoutMs))]);
+  return [...got];
 }

@@ -158,3 +158,25 @@ test("docs go into the Luau prompt as a fenced data block", () => {
   assert.match(p, /<roblox_docs>\ndocescape\n<\/roblox_docs>$/);
   assert.doesNotMatch(buildLuauPrompt({ mode: "explain", code: "y" }), /roblox_docs/);
 });
+
+test("checkAgainstPages: unknown method calls are flagged, own methods and documented ones pass, fetched URLs are cited", async () => {
+  const { checkAgainstPages, pageNames } = await import("../src/lib/roblox-docs-pure.ts");
+  const code = [
+    'local TweenService = game:GetService("TweenService")',
+    "local M = {}",
+    "function M:Hatch() end",
+    'TweenService:Create(part, info, {}):Play() -- :Fake() in a comment is ignored',
+    'local s = ":Nope()"',
+    "TweenService:Explode()",
+    "M:Hatch()",
+  ].join("\n");
+  const pages = [{ name: "TweenService", url: "https://create.roblox.com/docs/reference/engine/classes/TweenService", text: "Methods Create ( instance ) GetValue" },
+    { name: "Instance", url: "https://create.roblox.com/docs/reference/engine/classes/Instance", text: "GetService Play" }];
+  const r = checkAgainstPages(code, pages);
+  assert.deepEqual(r.sources.map((s) => s.url), pages.map((p) => p.url));
+  assert.deepEqual(r.flags.map((f) => [f.rule, f.line]), [["docs-page", 6]]);
+  assert.match(r.flags[0].message, /:Explode\(\)/);
+  assert.equal(checkAgainstPages(code, []).flags[0].rule, "docs-unchecked");
+  const names = pageNames(code, ["Instance", "../x"]);
+  assert.ok(names.includes("TweenService") && names.includes("RBXScriptSignal") && !names.includes("../x"));
+});

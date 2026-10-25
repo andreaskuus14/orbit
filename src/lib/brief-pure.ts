@@ -21,6 +21,7 @@ export type BriefIn = {
   decisions: Decision[]; replies: { id: string; name: string }[];
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
+  devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
   lesson?: { id: string; text: string }; snoozed: string[];
 };
 
@@ -110,6 +111,8 @@ export function briefItems(x: BriefIn): BriefItem[] {
   const rep = x.replies[0];
   if (rep) add({ id: `reply:${rep.id}`, kind: "result", title: `${plain(rep.name)} replied`, detail: "BUSINESS", open: { panel: "business" },
     say: x.replies.length === 1 ? `${short(rep.name, 6)} wrote back.` : `${short(rep.name, 6)} and ${num(x.replies.length - 1)} other ${x.replies.length === 2 ? "client" : "clients"} wrote back.` });
+
+  if (x.devSession) add({ id: `devsession:${x.devSession.id}`, kind: "result", title: x.devSession.title, detail: "GAME DEV session log", open: { panel: "creation" }, say: x.devSession.say });
 
   const deal = x.deal;
   if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },

@@ -110,3 +110,10 @@ test("a new serious health problem gets one line after the night shift, opening 
   assert.deepEqual(h.open, { doctor: true });
   assert.equal(briefItems(base({ health: { id: "h1", title: "x", say: "y" }, snoozed: ["health:h1"] })).some((i) => i.kind === "health"), false);
 });
+
+test("yesterday's Roblox session is one result line that opens GAME DEV", () => {
+  const items = briefItems(base({ devSession: { id: "s1", title: "Session 3 · 45 min · 2 scripts changed · 1 error", say: "Yesterday in Roblox Studio you worked 45 minutes and changed 2 scripts." } }));
+  const d = items.find((i) => i.id === "devsession:s1")!;
+  assert.equal(d.kind, "result");
+  assert.deepEqual(d.open, { panel: "creation" });
+});

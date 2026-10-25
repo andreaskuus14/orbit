@@ -205,7 +205,7 @@ export class PlanError extends Error {}
 export class InputError extends Error {}
 
 /** `keep`: indexes the owner left ticked (scene/map/pack plans only; objects first, then generated items; others ignore it). */
-export async function runBuild(userId: string, planId: string, keep?: number[]): Promise<BuildResult & { image: string | null; historyId?: string }> {
+export async function runBuild(userId: string, planId: string, keep?: number[]): Promise<BuildResult & { image: string | null; historyId?: string; label: string }> {
   const p = st.plans.get(planId);
   if (!p || p.userId !== userId) throw new PlanError("That plan wasn't found. Make a new plan.");
   if (planExpired(p.createdAt, Date.now())) { st.plans.delete(planId); throw new PlanError("That plan expired (plans last 10 minutes). Make a new plan."); }
@@ -226,7 +226,8 @@ export async function runBuild(userId: string, planId: string, keep?: number[]):
     if (isLayout(item) && item.objects?.length) out.notes = `${out.notes} ${POSITION_NOTE}`.trim();
     const shots = tap.shots();
     const id = await saveHistory(userId, item, shots.before, shots.after).catch(() => undefined); // best effort: a full disk mustn't fail a finished build
-    return id ? { ...out, image: null, historyId: id } : { ...out, image: r.image }; // with history, the UI loads the PNGs from there
+    const label = historyLabel(item);
+    return id ? { ...out, image: null, historyId: id, label } : { ...out, image: r.image, label }; // with history, the UI loads the PNGs from there
   });
 }
 

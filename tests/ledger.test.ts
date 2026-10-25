@@ -32,6 +32,8 @@ const DATA: Record<string, object> = {
   "deal.hunt": { wishId: "w1", offers: 4, great: 1 },
   "deal.found": { wishId: "w1", offerId: "o1a2b3c4d" },
   "health.issue": { issue: "h1a2b3c4d", status: "new" },
+  "dev.session.start": { session: "0b9c2f4e-1d2a-4c3b-8e5f-6a7b8c9d0e1f" },
+  "dev.session.end": { session: "0b9c2f4e-1d2a-4c3b-8e5f-6a7b8c9d0e1f" },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {
