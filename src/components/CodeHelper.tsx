@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { approvedText, SCRIPT_KINDS, PARENTS, MAX_INPUT, type LuauMode, type ScriptKind, type DiffLine, type LintFlag } from "@/lib/luau-pure";
 
 // DevWorld → Luau Code Helper: write, fix or explain Roblox scripts, review changes line by line, copy only approved lines.
@@ -8,9 +8,10 @@ const MODES: [LuauMode, string][] = [["write", "✍️ Write"], ["fix", "🩹 Fi
 
 type Result =
   | { mode: "explain"; text: string }
-  | { mode: "write" | "fix"; code: string; notes: string[]; flags: LintFlag[]; diff: DiffLine[] | null };
+  | { mode: "write" | "fix"; code: string; notes: string[]; flags: LintFlag[]; diff: DiffLine[] | null; sources?: { name: string; url: string }[] };
 
-export default function CodeHelper() {
+/** prefill: a backlog item's "Suggest fix" opens Fix mode with its title/detail as the error (key changes per click). */
+export default function CodeHelper({ prefill }: { prefill?: { key: number; error: string } }) {
   const [mode, setMode] = useState<LuauMode>("write");
   const [request, setRequest] = useState("");
   const [code, setCode] = useState("");
@@ -22,6 +23,8 @@ export default function CodeHelper() {
   const [res, setRes] = useState<Result | null>(null);
   const [rejected, setRejected] = useState<Set<number>>(new Set());
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => { if (prefill) { setMode("fix"); setError(prefill.error); setRes(null); setErr(""); } }, [prefill]);
 
   const size = request.length + code.length + error.length;
   const ready = mode === "write" ? !!request.trim() : !!code.trim();
@@ -101,7 +104,7 @@ export default function CodeHelper() {
           <div className="space-y-2">
             {res.flags.length > 0 && (
               <ul className="space-y-1 rounded-lg border border-amber-400/50 bg-amber-400/10 p-2 text-xs" aria-label="Warnings">
-                {res.flags.map((f, i) => <li key={i}>{f.rule === "api" || f.rule === "deprecated" ? "📘" : "⚠️"} <b>Line {f.line}:</b> {f.message}</li>)}
+                {res.flags.map((f, i) => <li key={i}>{f.rule === "api" || f.rule === "deprecated" || f.rule.startsWith("docs-") ? "📘" : "⚠️"} <b>Line {f.line}:</b> {f.message}</li>)}
               </ul>
             )}
             {res.diff ? <>
@@ -125,6 +128,11 @@ export default function CodeHelper() {
               <p className="muted text-xs">Too long for line-by-line review (over 600 lines): copying takes the whole result.</p>
               <pre className="max-h-80 overflow-auto rounded-lg bg-black/40 p-2 text-[11px]">{res.code}</pre>
             </>}
+            {!!res.sources?.length && (
+              <p className="muted text-xs">📘 Checked against Roblox docs:{" "}
+                {res.sources.map((x, i) => <span key={x.url}>{i ? ", " : ""}<a className="link" href={x.url} target="_blank" rel="noopener noreferrer">{x.name}</a></span>)}
+              </p>
+            )}
             <button className="btn w-full" onClick={() => void copy()} style={{ borderColor: PINK }}>{copied ? "✓ Copied" : res.diff ? "Copy approved code" : "Copy code"}</button>
             {res.notes.length > 0 && <ul className="list-disc space-y-0.5 pl-5 text-xs">{res.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
           </div>

@@ -5,6 +5,9 @@ export const PLATFORMS = ["roblox", "web", "other"] as const;
 export const STAGES = ["idea", "prototype", "alpha", "beta", "live"] as const;
 export const SEVERITIES = ["crash", "major", "minor", "polish"] as const;
 export const STATUSES = ["open", "fixing", "fixed", "wontfix"] as const;
+/** Backlog (roadmap 4.4): what an item is and how soon it matters. Optional on stored items (older saves have neither). */
+export const KINDS = ["bug", "feature", "polish"] as const;
+export const PRIORITIES = ["high", "medium", "low"] as const;
 /** Bundled images at /devworld/<key>.webp. */
 export const ART_KEYS = ["pet-sim", "planet-forge"] as const;
 /** Game Lab ids that can be played here; keep in sync with src/games/registry.ts (not imported: it isn't dependency-free). */
@@ -14,11 +17,16 @@ export type Platform = (typeof PLATFORMS)[number];
 export type Stage = (typeof STAGES)[number];
 export type Severity = (typeof SEVERITIES)[number];
 export type Status = (typeof STATUSES)[number];
+export type Kind = (typeof KINDS)[number];
+export type Priority = (typeof PRIORITIES)[number];
 export type Game = {
   id: string; name: string; platform: Platform; stage: Stage; pitch: string; notes: string;
   art?: (typeof ART_KEYS)[number]; playable?: (typeof PLAYABLE_IDS)[number];
 };
-export type Bug = { id: string; game: string; title: string; detail: string; severity: Severity; status: Status; created: string; fixed?: string };
+export type Bug = {
+  id: string; game: string; title: string; detail: string; severity: Severity; status: Status; created: string; fixed?: string;
+  kind?: Kind; priority?: Priority; goalId?: string; ref?: string; // ref: where it came from, e.g. a GitHub issue "#12"; goalId: the Goal made from it
+};
 export type DevWorld = { v: 1; games: Game[]; bugs: Bug[] };
 
 export const MAX_GAMES = 30;
@@ -84,6 +92,11 @@ function parse(raw: unknown): DevWorld {
       severity: oneOf(b.severity, SEVERITIES, `${at} severity`), status: oneOf(b.status, STATUSES, `${at} status`), created: iso(b.created, `${at} created`),
     };
     if (b.fixed != null) bug.fixed = iso(b.fixed, `${at} fixed`);
+    if (b.kind != null) bug.kind = oneOf(b.kind, KINDS, `${at} kind`);
+    if (b.priority != null) bug.priority = oneOf(b.priority, PRIORITIES, `${at} priority`);
+    if (b.goalId != null) bug.goalId = typeof b.goalId === "string" && /^[\w-]{1,64}$/.test(b.goalId) ? b.goalId : fail(`${at}: invalid goal id`);
+    const ref = text(b.ref, 40, `${at} ref`);
+    if (ref) bug.ref = ref;
     bugs.push(bug);
   }
   return { v: 1, games, bugs };

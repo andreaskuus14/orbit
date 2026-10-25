@@ -304,3 +304,31 @@ export function validateApiUse(code: string, docs: Record<string, ApiDoc>): Lint
   }
   return flags;
 }
+
+/* ---------- create.roblox.com page check (Luau suggestions are shown only after it) ---------- */
+
+export type DocPage = { name: string; url: string; text: string }; // url = the address actually fetched (after redirects)
+export const PAGE_CHECK_MAX = 10;
+/** Pages to fetch for a suggestion: the APIs the code names (plus their docs ancestors) and the two every script leans on. */
+export function pageNames(code: string, known: string[] = []): string[] {
+  return [...new Set([...extractApiNames(code, 8), ...known, "Instance", "RBXScriptSignal"])].filter(validName).slice(0, PAGE_CHECK_MAX);
+}
+
+/** Every `:Method(` call must appear on a fetched docs page, unless the code defines it itself (own modules/OOP).
+ *  sources = the pages that were fetched; no pages at all is its own warning, so an unchecked suggestion is never shown as checked. */
+export function checkAgainstPages(code: string, pages: DocPage[]): { sources: { name: string; url: string }[]; flags: LintFlag[] } {
+  const sources = pages.map((p) => ({ name: p.name, url: p.url }));
+  if (!pages.length) return { sources, flags: [{ rule: "docs-unchecked", line: 1, message: "Couldn't reach create.roblox.com to check this code against Roblox's docs: double-check unfamiliar methods." }] };
+  const body = blankStrings(code.replace(/\r\n?/g, "\n").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n"));
+  const defined = new Set([...body.matchAll(/function\s+[\w.]*[.:]([A-Za-z_]\w*)\s*\(/g), ...body.matchAll(/\.([A-Za-z_]\w*)\s*=\s*function\b/g)].map((m) => m[1]));
+  const words = new Set(pages.flatMap((p) => p.text.match(/[A-Za-z_]\w*/g) ?? []));
+  const flags: LintFlag[] = [], seen = new Set<string>();
+  for (const m of body.matchAll(/:\s*([A-Z]\w*)\s*\(/g)) {
+    const name = m[1];
+    if (seen.has(name) || defined.has(name) || words.has(name)) continue;
+    seen.add(name);
+    flags.push({ rule: "docs-page", line: body.slice(0, m.index).split("\n").length, message: `:${name}() isn't on the Roblox docs pages ORBIT fetched (fine if it's your own module's method)` });
+    if (flags.length >= 5) break;
+  }
+  return { sources, flags };
+}

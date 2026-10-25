@@ -25,9 +25,11 @@ import TextureStudio from "./TextureStudio";
 import PlaytestBot from "./PlaytestBot";
 import GridCity from "./GridCity";
 import HivePanel from "./HivePanel";
+import DevSessions from "./DevSessions";
+import { backlogGoal, fixContext, importDrafts, parseBacklog, sortBacklog } from "@/lib/backlog-pure";
 import {
-  ART_KEYS, PLATFORMS, PLAYABLE_IDS, SEVERITIES, STAGES, STATUSES, bugStats, isActive, qaPrompt, slugify, validateDevWorld,
-  type Bug, type DevWorld as World, type Game, type Platform, type Severity, type Stage, type Status,
+  ART_KEYS, KINDS, PLATFORMS, PLAYABLE_IDS, PRIORITIES, SEVERITIES, STAGES, STATUSES, bugStats, isActive, qaPrompt, slugify, validateDevWorld,
+  type Bug, type DevWorld as World, type Game, type Kind, type Platform, type Priority, type Severity, type Stage, type Status,
 } from "@/lib/devworld-pure";
 
 // CREATION → Game-dev world: a small "studio system" where each of the owner's games is a little world circling a forge star,
@@ -165,7 +167,8 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
   const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "hive" | "grid">("games");
+  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "hive" | "grid" | "sessions">("games");
+  const [fix, setFix] = useState<{ key: number; error: string } | undefined>(); // backlog → Code helper (Fix mode)
   const [rising, setRising] = useState(0); // bumped by a Herald trend card: Trend Radar opens on Rising
   useEffect(() => { if (tab !== "trends") setRising(0); }, [tab]); // leaving the radar ends the jump, so coming back opens it normally (runs before the mount check below, which may bump it)
   useEffect(() => {
@@ -268,7 +271,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Studio view">
           <button className="chip" aria-pressed={tab === "games"} onClick={() => setTab("games")}>🎮 Games</button>
           <button className="chip" aria-pressed={tab === "refs"} onClick={() => setTab("refs")} style={tab === "refs" ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>🎨 References</button>
-          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"], ["hive", "🐝 Hive"], ["grid", "🟦 Grid"]] as const).map(([k, label]) => (
+          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"], ["hive", "🐝 Hive"], ["grid", "🟦 Grid"], ["sessions", "🕒 Sessions"]] as const).map(([k, label]) => (
             <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
           ))}
         </div>
@@ -281,12 +284,13 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {tab === "scene" && <ScenePlanner />}
         {tab === "textures" && <TextureStudio />}
         <div hidden={tab !== "playtest"}><PlaytestBot world={world} commit={commit} gameId={selected} /></div>
-        <div hidden={tab !== "code"}><CodeHelper /></div>
+        <div hidden={tab !== "code"}><CodeHelper prefill={fix} /></div>
+        {tab === "sessions" && <DevSessions />}
         {tab !== "games" ? null : !world ? (
           loadErr ? <><p className="error">{loadErr}</p><button className="chip mt-2" onClick={() => void load()}>Retry</button></> : <p className="muted">Loading studio…</p>
         ) : game ? (
           <GameDetail key={game.id} game={game} world={world} commit={commit} onBack={() => setSelected(null)} onPlay={setPlaying}
-            onDeleted={() => setSelected(null)} onOpenTask={onOpenTask} />
+            onDeleted={() => setSelected(null)} onOpenTask={onOpenTask} onFix={(error) => { setFix({ key: Date.now(), error }); setTab("code"); }} />
         ) : (
           <>
             <div className="hud-title"><MaskText text="GAME STUDIO" /></div>
@@ -329,8 +333,8 @@ function Art({ game }: { game: Game }) {
   return <img src={`/devworld/${game.art}.webp`} alt={`${game.name} art`} className="h-32 w-full rounded-xl object-cover" onError={() => setBroken(true)} />;
 }
 
-function GameDetail({ game, world, commit, onBack, onPlay, onDeleted, onOpenTask }: {
-  game: Game; world: World; commit: (w: World) => boolean; onBack: () => void; onPlay: (id: string) => void; onDeleted: () => void; onOpenTask?: (id: string) => void;
+function GameDetail({ game, world, commit, onBack, onPlay, onDeleted, onOpenTask, onFix }: {
+  game: Game; world: World; commit: (w: World) => boolean; onBack: () => void; onPlay: (id: string) => void; onDeleted: () => void; onOpenTask?: (id: string) => void; onFix: (error: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [qa, setQa] = useState<{ busy: boolean; msg: string; ok: boolean }>({ busy: false, msg: "", ok: true });
@@ -377,7 +381,7 @@ function GameDetail({ game, world, commit, onBack, onPlay, onDeleted, onOpenTask
         }}>Delete game</button>
       </div>
       {qa.msg && <p role="status" className={qa.ok ? "ok" : "error"}>{qa.msg}</p>}
-      <BugTracker game={game} world={world} commit={commit} />
+      <BugTracker game={game} world={world} commit={commit} onFix={onFix} />
     </div>
   );
 }
@@ -411,23 +415,46 @@ function GameForm({ initial, taken, onSave, onCancel }: { initial?: Game; taken:
   );
 }
 
-function BugTracker({ game, world, commit }: { game: Game; world: World; commit: (w: World) => boolean }) {
+/** The game's backlog (roadmap 4.4): bugs, features and polish with priority and status; import a pasted list or GitHub issues text;
+ *  any item → a Goal (the planner drafts its steps) or → the Luau helper's Fix mode, whose suggestion is checked against Roblox's docs. */
+function BugTracker({ game, world, commit, onFix }: { game: Game; world: World; commit: (w: World) => boolean; onFix: (error: string) => void }) {
   const [all, setAll] = useState(false);
-  const [draft, setDraft] = useState({ title: "", severity: "major" as Severity, detail: "" });
-  const mine = world.bugs.filter((b) => b.game === game.id && (all || isActive(b)));
+  const [draft, setDraft] = useState({ title: "", severity: "major" as Severity, detail: "", kind: "bug" as Kind, priority: "medium" as Priority });
+  const [paste, setPaste] = useState<string | null>(null);
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [goalBusy, setGoalBusy] = useState("");
+  const mine = sortBacklog(world.bugs.filter((b) => b.game === game.id && (all || isActive(b))));
   const setBug = (id: string, patch: Partial<Bug>) => commit({ ...world, bugs: world.bugs.map((b) => (b.id === id ? { ...b, ...patch } : b)) });
 
   function add(e: React.FormEvent) {
     e.preventDefault();
     if (!draft.title.trim()) return;
-    const bug: Bug = { id: crypto.randomUUID(), game: game.id, title: draft.title, detail: draft.detail, severity: draft.severity, status: "open", created: new Date().toISOString() };
-    if (commit({ ...world, bugs: [...world.bugs, bug] })) setDraft({ title: "", severity: draft.severity, detail: "" });
+    const bug: Bug = { id: crypto.randomUUID(), game: game.id, title: draft.title, detail: draft.detail, severity: draft.severity, status: "open", created: new Date().toISOString(), kind: draft.kind, priority: draft.priority };
+    if (commit({ ...world, bugs: [...world.bugs, bug] })) setDraft({ ...draft, title: "", detail: "" });
+  }
+
+  function doImport() {
+    const drafts = parseBacklog(paste ?? "");
+    if (!drafts.length) { setNote({ ok: false, text: "Found no items. Paste one per line, or the output of gh issue list." }); return; }
+    const r = importDrafts(world, game.id, drafts, new Date().toISOString(), () => crypto.randomUUID());
+    if (commit(r.world)) { setPaste(null); setNote({ ok: true, text: `Imported ${r.added}${r.skipped ? `, skipped ${r.skipped} already there` : ""}.` }); }
+  }
+
+  async function toGoal(b: Bug) {
+    setGoalBusy(b.id); setNote(null);
+    try {
+      const r = await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(backlogGoal(game, b)) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Couldn't create the goal (${r.status})`);
+      setBug(b.id, { goalId: j.id });
+      setNote({ ok: true, text: "Goal created: its steps are being drafted in AGENTS → Goals. Nothing runs until you approve the plan." });
+    } catch (e) { setNote({ ok: false, text: e instanceof Error ? e.message : "Couldn't create the goal" }); } finally { setGoalBusy(""); }
   }
 
   return (
     <section aria-label={`Bugs for ${game.name}`} className="space-y-2">
       <div className="flex items-center justify-between">
-        <div className="hud-title">BUGS</div>
+        <div className="hud-title">BACKLOG</div>
         <div className="flex gap-1" role="group" aria-label="Bug filter">
           <button className="chip" aria-pressed={!all} onClick={() => setAll(false)}>Open</button>
           <button className="chip" aria-pressed={all} onClick={() => setAll(true)}>All</button>
@@ -437,8 +464,8 @@ function BugTracker({ game, world, commit }: { game: Game; world: World; commit:
         {mine.map((b) => (
           <li key={b.id} className="card space-y-1" style={{ boxShadow: `inset 3px 0 0 ${SEVERITY_COLOR[b.severity]}` }}>
             <div className="flex items-start justify-between gap-2">
-              <p className="text-sm">{b.title}</p>
-              <span className="shrink-0 text-xs" style={{ color: SEVERITY_COLOR[b.severity] }}>{b.severity}</span>
+              <p className="text-sm">{b.title}{b.ref && <span className="muted text-xs"> {b.ref}</span>}</p>
+              <span className="shrink-0 text-xs" style={{ color: SEVERITY_COLOR[b.severity] }}>{b.kind ?? "bug"} · {b.severity}</span>
             </div>
             {b.detail && <p className="muted whitespace-pre-wrap text-xs">{b.detail}</p>}
             <div className="flex items-center gap-2 text-xs">
@@ -446,24 +473,44 @@ function BugTracker({ game, world, commit }: { game: Game; world: World; commit:
                 onChange={(e) => { const status = e.target.value as Status; setBug(b.id, { status, fixed: status === "fixed" ? new Date().toISOString() : undefined }); }}>
                 {STATUSES.map((s) => <option key={s}>{s}</option>)}
               </select>
+              <select className="field py-1" aria-label={`Priority of ${b.title}`} value={b.priority ?? "medium"} onChange={(e) => setBug(b.id, { priority: e.target.value as Priority })}>
+                {PRIORITIES.map((p) => <option key={p}>{p}</option>)}
+              </select>
               <span className="muted">{b.fixed ? `fixed ${new Date(b.fixed).toLocaleDateString()}` : `logged ${new Date(b.created).toLocaleDateString()}`}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {b.goalId ? <span className="muted">🎯 Goal made</span>
+                : <button className="chip" disabled={!!goalBusy} onClick={() => void toGoal(b)}>{goalBusy === b.id ? "Creating…" : "→ Goal"}</button>}
+              {game.platform === "roblox" && <button className="chip" onClick={() => onFix(fixContext(b))}>🩹 Suggest fix</button>}
               <button className="chip ml-auto" aria-label={`Delete bug ${b.title}`}
                 onClick={() => { if (confirm(`Delete bug "${b.title}"?`)) commit({ ...world, bugs: world.bugs.filter((x) => x.id !== b.id) }); }}>Delete</button>
             </div>
           </li>
         ))}
       </ul>
-      {!mine.length && <p className="muted text-sm">{all ? "No bugs logged." : "No open bugs. Nice."}</p>}
+      {!mine.length && <p className="muted text-sm">{all ? "Nothing logged." : "Nothing open. Nice."}</p>}
+      {note && <p role="status" className={note.ok ? "ok text-sm" : "error text-sm"}>{note.text}</p>}
+      {paste === null ? <button className="chip" onClick={() => { setPaste(""); setNote(null); }}>📋 Import list or GitHub issues</button> : (
+        <div className="space-y-2">
+          <textarea className="field w-full font-mono text-xs" rows={5} maxLength={50_000} aria-label="Paste backlog items" value={paste} onChange={(e) => setPaste(e.target.value)}
+            placeholder={"- [bug][P1] Coins awarded twice — both servers award\n- feature: Rebirth (low)\nor paste: gh issue list --limit 100"} />
+          <div className="flex gap-2"><button className="btn" disabled={!paste.trim()} onClick={doImport}>Import</button><button className="chip" onClick={() => setPaste(null)}>Cancel</button></div>
+        </div>
+      )}
       <form className="space-y-2" onSubmit={add} aria-label="Add bug">
         <div className="flex gap-2">
-          <input className="field min-w-0 flex-1" required maxLength={140} placeholder="New bug title" aria-label="Bug title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+          <input className="field min-w-0 flex-1" required maxLength={140} placeholder="New item title" aria-label="Item title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
           <select className="field py-1" aria-label="Severity" value={draft.severity} onChange={(e) => setDraft({ ...draft, severity: e.target.value as Severity })}>
             {SEVERITIES.map((s) => <option key={s}>{s}</option>)}
           </select>
         </div>
+        <div className="flex gap-2">
+          <select className="field flex-1 py-1" aria-label="Kind" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as Kind })}>{KINDS.map((k) => <option key={k}>{k}</option>)}</select>
+          <select className="field flex-1 py-1" aria-label="Priority" value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value as Priority })}>{PRIORITIES.map((p) => <option key={p}>{p}</option>)}</select>
+        </div>
         <textarea className="field w-full" rows={2} maxLength={2000} placeholder="Steps to reproduce, what you expected (optional)" aria-label="Bug detail"
           value={draft.detail} onChange={(e) => setDraft({ ...draft, detail: e.target.value })} />
-        <button className="btn" disabled={!draft.title.trim() || world.bugs.length >= 500}>Add bug</button>
+        <button className="btn" disabled={!draft.title.trim() || world.bugs.length >= 500}>Add item</button>
       </form>
     </section>
   );
