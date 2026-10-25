@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   AREAS, AREA_INFO, AUTO_CONFIRM, DEFAULT_LEVELS, LIMIT_DEFAULTS, autonomyAllows, autonomyDefaults, autoPush, commitmentIn, doneToday, nightOff,
-  parseAutonomy, patchLimits, pickAuto, setLevel, autoClock, quietAuto, UNDO_MS, type Pending, type Area, type AutonomyState,
+  parseAutonomy, patchLimits, pickAuto, setLevel, autoClock, quietAuto, UNDO_MS, cancelPending, clipVersion, sendOutcome, autoApprove, undoAutoApprove, type Pending, type Area, type AutonomyState,
 } from "../src/lib/autonomy-pure.ts";
 import { decide, TIERS, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { planNight, NIGHT_DEFAULTS, type PlanInput } from "../src/lib/night-pure.ts";
@@ -57,6 +57,8 @@ test("setLevel: allowed levels only, auto needs the exact typed phrase, Higgsfie
   assert.match(setLevel(s, "business-send", "do", "") as string, /can be/);
   assert.match(setLevel(s, "business-send", "auto", "yes") as string, /Type "SEND EMAIL WITHOUT ME"/);
   assert.match(setLevel(s, "nope", "off", "") as string, /Unknown area/);
+  assert.match(setLevel(s, "business-send", "auto", AUTO_CONFIRM["business-send"], 0, "REMOTE_VAPID_PUBLIC is missing") as string, /needs phone pushes.*VAPID/); // no push set up: no auto
+  assert.equal(typeof setLevel(s, "business-send", "ask", "", 0, "REMOTE_VAPID_PUBLIC is missing"), "object"); // other levels still work
   const on = setLevel(s, "business-send", "auto", AUTO_CONFIRM["business-send"]) as AutonomyState;
   assert.equal(on.levels["business-send"], "auto");
   assert.equal(s.levels["business-send"], "ask"); // not mutated
@@ -77,18 +79,22 @@ test("auto limits: cap, Stop-all, known recipients, no prices/payments/contracts
   assert.equal(autonomyAllows("business-send", "auto", { ...base, doneToday: undefined }).ok, false); // unknown count fails closed
   assert.match(autonomyAllows("business-send", "auto", { ...base, stopAll: true }).why, /Stop-all/);
   assert.match(autonomyAllows("business-send", "auto", { ...base, known: false }).why, /existing BUSINESS prospects/);
-  for (const t of ["It costs €200", "Only 99 EUR a month", "our price is low", "send the invoice", "sign the contract", "I will deliver by Friday", "we'll do it", "20% off", "$50"])
+  for (const t of ["It costs €200", "Only 99 EUR a month", "our price is low", "send the invoice", "sign the contract", "I will deliver by Friday", "we'll do it", "20% off", "$50",
+    "a free trial", "a short pilot", "a small discount", "my IBAN", "bank transfer", "you pay later", "two hundred euros", "kakssada eurot", "viis eurot", "tasuta proov",
+    "hinnaga", "leping", "Это бесплатно", "цена", "договор", "we'd love to", "I guarantee it", "I promise", "ready by tomorrow", "on Monday", "in March 3", "call me at 5",
+    "A quick idea for Cafe 21"]) // the last one: the email subject is filtered too (any digit)
     assert.notEqual(commitmentIn(t), "", t);
-  for (const t of ["Hi, I liked your menu. Want to see a short idea?", "Design ideas for your shop", "Appreciate your time"]) assert.equal(commitmentIn(t), "", t);
+  for (const t of ["Hi, I liked your menu. Want to see a short idea?", "Design ideas for your shop", "Appreciate your time", "Tere! Mul on üks idee teie kohviku jaoks.", "Привет, есть идея",
+    "A quick idea for Cafe Roma"]) assert.equal(commitmentIn(t), "", t);
   assert.match(autonomyAllows("business-send", "auto", { ...base, text: "It's only €50" }).why, /always need you/);
 });
 
 test("pickAuto: once per target, cap counts pending and today's, nothing unless auto", () => {
   const now = Date.parse("2026-10-25T12:00:00Z");
-  const c = (ref: string, text = "Hi, a short idea for you") => ({ ref, seen: "v", label: ref, text });
-  const s: AutonomyState = { ...autonomyDefaults(), levels: { ...DEFAULT_LEVELS, "business-send": "auto" }, limits: { sendPerDay: 2, publishPerDay: 1 } };
+  const c = (ref: string, text = "Hi, a short idea for you") => ({ ref, seen: "v", label: ref, text, changedAt: "2026-10-25T11:00:00Z" });
+  const s: AutonomyState = { ...autonomyDefaults(), levels: { ...DEFAULT_LEVELS, "business-send": "auto" }, limits: { sendPerDay: 2, publishPerDay: 1 }, since: { "business-send": "2026-10-25T10:00:00Z" } };
   assert.deepEqual(pickAuto(autonomyDefaults(), "business-send", [c("a")], now, false), []);
-  assert.deepEqual(pickAuto(s, "business-send", [c("a"), c("b", "pay €5"), c("c"), c("d")], now, false).map((x) => x.ref), ["a", "c"]);
+  assert.deepEqual(pickAuto(s, "business-send", [c("a"), c("b", "pay 5 now"), c("c"), c("d")], now, false).map((x) => x.ref), ["a", "c"]);
   assert.deepEqual(pickAuto(s, "business-send", [c("a")], now, true), []);
   const used: AutonomyState = { ...s, done: [{ area: "business-send", ref: "a", at: "2026-10-25T08:00:00Z" }, { area: "business-send", ref: "z", at: "2026-10-23T08:00:00Z" }] };
   assert.equal(doneToday(used, "business-send", now), 1);
@@ -133,4 +139,66 @@ test("quiet hours 23:00-08:00 Tallinn: auto actions are held, and the 10-minute 
   const later = autoClock(morning.pending.filter((x) => x.id !== "b"), t8 + UNDO_MS);
   assert.deepEqual(later.due.map((x) => x.id), ["a", "c"]);
   assert.deepEqual(later.opened, {});
+});
+
+test("Cancel and Stop-all stick: a cancelled version is never re-queued (also after Resume); a new version may be", () => {
+  const now = Date.parse("2026-10-25T12:00:00Z");
+  const c = (ref: string, seen = "v1") => ({ ref, seen, label: ref, text: "Hi, a short idea for you", changedAt: "2026-10-25T11:00:00Z" });
+  const on = setLevel(autonomyDefaults(), "business-send", "auto", AUTO_CONFIRM["business-send"], Date.parse("2026-10-25T10:00:00Z")) as AutonomyState;
+  const q = (s: AutonomyState, refs: string[]): AutonomyState => ({ ...s, pending: [...s.pending, ...refs.map((r) => ({ id: r, area: "business-send" as const, ref: r, seen: "v1", label: r, at: "", dueAt: "" }))] });
+  const queued = q(on, ["a", "b"]);
+  const afterCancel = cancelPending(queued, (p) => p.id !== "a"); // his Cancel on "a"
+  assert.deepEqual(afterCancel.pending.map((p) => p.ref), ["b"]);
+  assert.deepEqual(afterCancel.cancelled, [{ area: "business-send", ref: "a", seen: "v1" }]);
+  assert.deepEqual(pickAuto(afterCancel, "business-send", [c("a")], now, false), []);
+  assert.deepEqual(pickAuto(afterCancel, "business-send", [c("a", "v2")], now, false).map((x) => x.ref), ["a"]); // he edited the draft: a new version
+  const stopped = cancelPending(queued, () => false); // Stop-all
+  assert.deepEqual(stopped.pending, []);
+  assert.deepEqual(pickAuto(stopped, "business-send", [c("a"), c("b")], now, false), []); // Resume: nothing comes back
+  // leaving auto cancels too, and switching back on starts a new `since`
+  const left = setLevel(queued, "business-send", "ask", "") as AutonomyState;
+  assert.equal(left.cancelled.length, 2);
+  const again = setLevel(left, "business-send", "auto", AUTO_CONFIRM["business-send"], Date.parse("2026-10-25T11:30:00Z")) as AutonomyState;
+  assert.equal(again.since["business-send"], "2026-10-25T11:30:00.000Z");
+  assert.equal((setLevel(again, "business-send", "auto", AUTO_CONFIRM["business-send"], now) as AutonomyState).since["business-send"], "2026-10-25T11:30:00.000Z"); // unchanged while on
+  assert.deepEqual(parseAutonomy(JSON.stringify(stopped)).cancelled, stopped.cancelled); // survives a restart
+});
+
+test("no back-catalogue blast: only drafts/clips made after auto was switched on; no `since` = nothing", () => {
+  const now = Date.parse("2026-10-25T12:00:00Z");
+  const c = (ref: string, changedAt: string) => ({ ref, seen: "v", label: ref, text: "Hi, a short idea for you", changedAt });
+  const on = setLevel(autonomyDefaults(), "business-send", "auto", AUTO_CONFIRM["business-send"], Date.parse("2026-10-25T10:00:00Z")) as AutonomyState;
+  assert.deepEqual(pickAuto(on, "business-send", [c("old", "2026-10-20T10:00:00Z"), c("new", "2026-10-25T10:30:00Z"), c("bad", "")], now, false).map((x) => x.ref), ["new"]);
+  assert.deepEqual(pickAuto({ ...on, since: {} }, "business-send", [c("new", "2026-10-25T10:30:00Z")], now, false), []); // hand-edited auto, no switch time
+});
+
+test("fired outcomes: unknown-result sends and failed auto-publishes count toward the cap; ORBIT's approve leaves no owner review entry", () => {
+  assert.equal(sendOutcome(true, 200), "done");
+  assert.equal(sendOutcome(false, 502), "unsure");
+  assert.equal(sendOutcome(false, 504), "unsure");
+  assert.equal(sendOutcome(false, 409), "skip");
+  assert.equal(sendOutcome(false, 503), "skip");
+  assert.equal(autoPush("business-send", "unsure").title, "ORBIT's auto email: result unknown");
+  const job = { updatedAt: "", feedback: [] as unknown[] }, clip: { status: string; publish?: unknown } = { status: "ready" };
+  autoApprove(job, clip, Date.parse("2026-10-25T12:00:00Z"));
+  assert.equal(clip.status, "approved");
+  assert.deepEqual(job.feedback, []);
+  assert.equal(undoAutoApprove(clip), true); // scheduleAll refused: back to Waiting for you
+  assert.equal(clip.status, "ready");
+  const going = { status: "approved", publish: { status: "uploading" } };
+  assert.equal(undoAutoApprove(going), false); // already on its way: left alone
+  assert.equal(going.status, "approved");
+});
+
+test("a Short's version covers video, title and description: editing any one makes a cancelled clip a new version", () => {
+  const base = { video: "clips/a.mp4", title: "Fox in snow", hook: "Watch this" };
+  const v = clipVersion(base);
+  for (const change of [{ video: "clips/b.mp4" }, { title: "Fox in the snow" }, { hook: "Wait for it" }]) assert.notEqual(clipVersion({ ...base, ...change }), v);
+  assert.equal(clipVersion({ ...base }), v);
+  const s: AutonomyState = { ...autonomyDefaults(), levels: { ...DEFAULT_LEVELS, "studio-publish": "auto" }, since: { "studio-publish": "2026-10-25T10:00:00Z" },
+    cancelled: [{ area: "studio-publish", ref: "j/c", seen: v }] };
+  const cand = (seen: string) => ({ ref: "j/c", seen, label: "Short", text: "Fox in snow\nWatch this", changedAt: "2026-10-25T11:00:00Z" });
+  assert.deepEqual(pickAuto(s, "studio-publish", [cand(v)], Date.parse("2026-10-25T12:00:00Z"), false), []);
+  assert.equal(pickAuto(s, "studio-publish", [cand(clipVersion({ ...base, title: "New title" }))], Date.parse("2026-10-25T12:00:00Z"), false).length, 1);
+  assert.equal(parseAutonomy(JSON.stringify({ ...s, pending: [{ id: "1", area: "studio-publish", ref: "j/c", seen: v + "x".repeat(400), label: "l", at: "", dueAt: "" }] })).pending.length, 1); // long versions survive a restart
 });

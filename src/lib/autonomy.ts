@@ -9,7 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
 import { emit } from "./claude";
-import { DONE_KEEP_MS, UNDO_MS, autoClock, autoPush, autonomyAllows, quietAuto, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
+import { DONE_KEEP_MS, UNDO_MS, autoApprove, autoClock, cancelPending, clipVersion, sendOutcome, undoAutoApprove, type Fired, autoPush, autonomyAllows, quietAuto, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
   type Action, type AllowCtx, type Area, type AutoArea, type AutonomyState, type Candidate, type Levels } from "./autonomy-pure";
 
 const file = () => path.join(orbitDataDir(), "autonomy.json");
@@ -43,14 +43,16 @@ function update(fn: (s: AutonomyState) => AutonomyState | string): Promise<Auton
 
 export async function setAreaLevel(sb: SupabaseClient, userId: string, area: unknown, level: unknown, confirm: unknown) {
   const from = autonomyLevels()[area as Area];
-  const r = await update((s) => setLevel(s, area, level, confirm));
+  const push = (await import("./remote-push")).pushProblem(); // the push after each auto action is part of the deal: no push, no auto
+  const r = await update((s) => setLevel(s, area, level, confirm, Date.now(), push));
   if (typeof r !== "string" && from !== level) await emit(sb, userId, "autonomy.change", "core", { area, from, to: level });
   return r;
 }
 export const setLimits = (b: Record<string, unknown>) => update((s) => { const l = patchLimits(b, s.limits); return typeof l === "string" ? l : { ...s, limits: l }; });
-export const cancelAuto = (id: unknown) => update((s) => (s.pending.some((p) => p.id === id) ? { ...s, pending: s.pending.filter((p) => p.id !== id) } : "Already gone (sent, or cancelled)"));
-/** Stop-all: every queued auto action is cancelled (nothing fires after Resume without being picked again). */
-export const clearAutoQueue = () => (autonomyState().pending.length ? update((s) => ({ ...s, pending: [] })).catch(() => {}) : Promise.resolve());
+/** His Cancel: that version is never queued again (a new draft / changed clip may be). */
+export const cancelAuto = (id: unknown) => update((s) => (s.pending.some((p) => p.id === id) ? cancelPending(s, (p) => p.id !== id) : "Already gone (sent, or cancelled)"));
+/** Stop-all: every queued auto action is cancelled the same way, so Resume doesn't re-queue them. */
+export const clearAutoQueue = () => (autonomyState().pending.length ? update((s) => cancelPending(s, () => false)).catch(() => {}) : Promise.resolve());
 
 const push = async (m: ReturnType<typeof autoPush>) => {
   const { pushProblem, deliver } = await import("./remote-push");
@@ -68,18 +70,18 @@ export async function tickAutonomy(sb: SupabaseClient, userId: string, now = Dat
     for (const p of clock.due) {
       const claimed = await update((s) => (s.pending.some((x) => x.id === p.id) ? { ...s, pending: s.pending.filter((x) => x.id !== p.id) } : "gone"));
       if (typeof claimed === "string") continue; // cancelled meanwhile
-      const ok = await (p.area === "business-send" ? fireSend(sb, userId, p) : firePublish(p)).catch((e) => { console.error("[orbit] auto action failed:", msg(e)); return false; });
-      if (!ok) continue;
-      await update((s) => ({ ...s, done: [...s.done, { area: p.area, ref: p.ref, at: new Date().toISOString() }] }));
-      await emit(sb, userId, "autonomy.act", "core", { area: p.area, action: p.area === "business-send" ? "send" : "publish", ref: p.ref.slice(0, 128) });
-      await push(autoPush(p.area, "done"));
+      const r: Fired = await (p.area === "business-send" ? fireSend(sb, userId, p) : firePublish(p)).catch((e): Fired => { console.error("[orbit] auto action failed:", msg(e)); return "skip"; });
+      if (r === "skip") continue;
+      await update((s) => ({ ...s, done: [...s.done, { area: p.area, ref: p.ref, at: new Date().toISOString() }] })); // counts toward the cap either way
+      if (r === "done" || p.area === "business-send") // an unknown-result email may have gone out: it's in the ledger too
+        await emit(sb, userId, "autonomy.act", "core", { area: p.area, action: p.area === "business-send" ? "send" : "publish", ref: p.ref.slice(0, 128) });
+      await push(autoPush(p.area, r));
     }
     for (const area of ["business-send", "studio-publish"] as const) {
       if (autonomyLevels()[area] !== "auto") continue;
       const picks = pickAuto(autonomyState(), area, await (area === "business-send" ? sendCandidates(sb, userId) : publishCandidates()), now, stopAllOn());
       if (!picks.length) continue;
       const quiet = quietAuto(now), at = new Date(now).toISOString(), dueAt = quiet ? "" : new Date(now + UNDO_MS).toISOString(); // held till 08:00
-
       await update((s) => ({ ...s, pending: [...s.pending, ...picks.map((c) => ({ id: randomUUID(), area, ref: c.ref, seen: c.seen, label: c.label, at, dueAt }))] }));
       if (!quiet) await push(autoPush(area, "queued", picks.length)); // a held one is pushed when its window opens
     }
@@ -87,42 +89,52 @@ export async function tickAutonomy(sb: SupabaseClient, userId: string, now = Dat
 }
 
 // Existing BUSINESS prospects only (the allowlist): still "To contact", a saved draft, one email address in Contact.
+// The filter sees subject + body (exactly what goes out); the version is the draft stamp sendDraft claims.
 async function sendCandidates(sb: SupabaseClient, userId: string): Promise<Candidate[]> {
-  const { emailIn } = await import("./business-pure");
+  const { emailIn, sendSubject } = await import("./business-pure");
   const { data } = await sb.from("prospects").select("id, name, contact, draft, updated_at").eq("user_id", userId).eq("stage", "lead").neq("draft", "").limit(100);
-  return (data ?? []).filter((p) => p.draft?.trim() && emailIn(p.contact ?? "")).map((p) => ({ ref: p.id, seen: p.updated_at, label: `Email to ${String(p.name).slice(0, 80)}`, text: p.draft }));
+  return (data ?? []).filter((p) => p.draft?.trim() && emailIn(p.contact ?? ""))
+    .map((p) => ({ ref: p.id, seen: p.updated_at, changedAt: p.updated_at, label: `Email to ${String(p.name).slice(0, 80)}`, text: `${sendSubject(p.name, p.draft)}\n${p.draft}` }));
 }
 
-async function fireSend(sb: SupabaseClient, userId: string, p: { ref: string; seen: string }): Promise<boolean> {
-  const { data: row } = await sb.from("prospects").select("draft, stage, updated_at").eq("user_id", userId).eq("id", p.ref).maybeSingle();
+async function fireSend(sb: SupabaseClient, userId: string, p: { ref: string; seen: string }): Promise<Fired> {
+  const { sendSubject } = await import("./business-pure");
+  const { data: row } = await sb.from("prospects").select("name, draft, stage, updated_at").eq("user_id", userId).eq("id", p.ref).maybeSingle();
   // Re-checked at send time: still auto, under the cap, untouched since queued (sendDraft also claims only that version), no money/promises.
-  if (!row || row.stage !== "lead" || row.updated_at !== p.seen) return false;
-  if (!allows("business-send", "auto", { doneToday: doneToday(autonomyState(), "business-send", Date.now()), text: row.draft ?? "", known: true }).ok) return false;
+  if (!row || row.stage !== "lead" || row.updated_at !== p.seen) return "skip";
+  if (!allows("business-send", "auto", { doneToday: doneToday(autonomyState(), "business-send", Date.now()), text: `${sendSubject(row.name, row.draft ?? "")}\n${row.draft ?? ""}`, known: true }).ok) return "skip";
   const { sendDraft } = await import("./business-send");
   const r = await sendDraft(sb, userId, p.ref, p.seen, "sent automatically by ORBIT, Autonomy: auto");
   if (!r.ok) console.error("[orbit] auto send:", r.status);
-  return r.ok;
+  return sendOutcome(r.ok, r.status);
 }
 
 // ORBIT's own rendered clips, waiting for review, that pass the publish checks. Scheduled into the next free slot (private until then).
+// The filter sees title + description (scheduleAll's default description is the hook); the version covers video, title and description.
 async function publishCandidates(): Promise<Candidate[]> {
   const [{ listJobs }, { originalityIssue }] = await Promise.all([import("./clips/factory"), import("./clips/publish-checks-pure")]);
   return (await listJobs()).flatMap((j) => j.clips.filter((c) => c.status === "ready" && !c.retryOf && !c.publish && c.video && !originalityIssue(j, c))
-    .map((c) => ({ ref: `${j.id}/${c.id}`, seen: c.video!, label: `Short: ${c.title.slice(0, 80)}`, text: "" })));
+    .map((c) => ({ ref: `${j.id}/${c.id}`, seen: clipVersion(c), changedAt: j.createdAt, label: `Short: ${c.title.slice(0, 80)}`, text: `${c.title}\n${c.hook}` })));
 }
 
-async function firePublish(p: { ref: string; seen: string }): Promise<boolean> {
-  const [{ getJob, updateClip, withJobLock }, { scheduleAll }, { originalityIssue }] = await Promise.all([import("./clips/factory"), import("./clips/publish-schedule"), import("./clips/publish-checks-pure")]);
+async function firePublish(p: { ref: string; seen: string }): Promise<Fired> {
+  const [{ getJob, saveJob, withJobLock }, { scheduleAll }, { originalityIssue }] = await Promise.all([import("./clips/factory"), import("./clips/publish-schedule"), import("./clips/publish-checks-pure")]);
   const [jobId, clipId] = p.ref.split("/");
   const approved = await withJobLock(async () => {
     const job = await getJob(jobId), clip = job?.clips.find((c) => c.id === clipId);
-    if (!job || !clip || clip.status !== "ready" || clip.retryOf || clip.video !== p.seen || originalityIssue(job, clip)) return false; // reviewed or changed meanwhile
-    if (!allows("studio-publish", "auto", { doneToday: doneToday(autonomyState(), "studio-publish", Date.now()), known: true }).ok) return false;
-    await updateClip(job, clip, { status: "approved", reason: "Auto-approved by ORBIT (Autonomy: auto)" });
+    if (!job || !clip || clip.status !== "ready" || clip.retryOf || clip.publish || clipVersion(clip) !== p.seen || originalityIssue(job, clip)) return false; // reviewed or changed meanwhile
+    if (!allows("studio-publish", "auto", { doneToday: doneToday(autonomyState(), "studio-publish", Date.now()), text: `${clip.title}\n${clip.hook}`, known: true }).ok) return false;
+    autoApprove(job, clip, Date.now());
+    await saveJob(job);
     return true;
   });
-  if (!approved) return false;
+  if (!approved) return "skip";
   const b = await scheduleAll([p.ref]);
-  if (typeof b === "string") console.error("[orbit] auto publish:", b);
-  return typeof b !== "string";
+  if (typeof b !== "string") return "done";
+  console.error("[orbit] auto publish:", b);
+  await withJobLock(async () => { // back to ready (as autopilot does): an approved clip would be picked up by "Schedule all" later
+    const job = await getJob(jobId), clip = job?.clips.find((c) => c.id === clipId);
+    if (job && clip && undoAutoApprove(clip)) await saveJob(job);
+  }).catch((e) => console.error("[orbit] auto publish couldn't undo approve:", msg(e)));
+  return "unsure";
 }

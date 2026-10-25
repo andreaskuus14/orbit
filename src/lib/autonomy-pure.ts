@@ -47,9 +47,14 @@ export const DONE_KEEP_MS = 8 * 86_400_000;
 
 // dueAt "": held by quiet hours; its cancel window (and the push) starts at 08:00.
 export type Pending = { id: string; area: AutoArea; ref: string; seen: string; label: string; at: string; dueAt: string };
-export type DoneAuto = { area: AutoArea; ref: string; at: string };
-export type AutonomyState = { levels: Levels; limits: Limits; pending: Pending[]; done: DoneAuto[] };
-export const autonomyDefaults = (): AutonomyState => ({ levels: { ...DEFAULT_LEVELS }, limits: { ...LIMIT_DEFAULTS }, pending: [], done: [] });
+export type DoneAuto = { area: AutoArea; ref: string; at: string }; // every attempt (sent, unknown result, failed upload) counts toward the cap
+// cancelled: what he cancelled (or Stop-all dropped): never picked again until that version (draft / video+title+description) changes.
+export type Cancelled = { area: AutoArea; ref: string; seen: string };
+// since: when each area was switched to auto; only drafts/clips made after it qualify (no back-catalogue blast). Missing = nothing qualifies.
+export type AutonomyState = { levels: Levels; limits: Limits; pending: Pending[]; done: DoneAuto[]; cancelled: Cancelled[]; since: Partial<Record<AutoArea, string>> };
+export const CANCELLED_MAX = 500;
+export const autonomyDefaults = (): AutonomyState => ({ levels: { ...DEFAULT_LEVELS }, limits: { ...LIMIT_DEFAULTS }, pending: [], done: [], cancelled: [], since: {} });
+const isAuto = (a: unknown): a is AutoArea => a === "business-send" || a === "studio-publish";
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
 const isArea = (a: unknown): a is Area => AREAS.includes(a as Area);
@@ -66,21 +71,31 @@ export function parseAutonomy(text: string): AutonomyState {
     if (!isObj(j)) return s;
     if (isObj(j.levels)) for (const a of AREAS) s.levels[a] = levelOf(j.levels as Partial<Levels>, a);
     if (isObj(j.limits)) { const l = patchLimits(j.limits, s.limits); if (typeof l !== "string") s.limits = l; }
-    const str = (v: unknown) => typeof v === "string" && v.length <= 300;
-    if (Array.isArray(j.pending)) s.pending = j.pending.filter((p: Record<string, unknown>) => isObj(p) && (p.area === "business-send" || p.area === "studio-publish") && ["id", "ref", "seen", "label", "at", "dueAt"].every((k) => str(p[k]))) as Pending[];
-    if (Array.isArray(j.done)) s.done = j.done.filter((d: Record<string, unknown>) => isObj(d) && (d.area === "business-send" || d.area === "studio-publish") && str(d.ref) && str(d.at)) as DoneAuto[];
+    const str = (v: unknown, max = 300) => typeof v === "string" && v.length <= max;
+    if (Array.isArray(j.pending)) s.pending = j.pending.filter((p: Record<string, unknown>) => isObj(p) && isAuto(p.area) && ["id", "ref", "label", "at", "dueAt"].every((k) => str(p[k])) && str(p.seen, 8000)) as Pending[];
+    if (Array.isArray(j.done)) s.done = j.done.filter((d: Record<string, unknown>) => isObj(d) && isAuto(d.area) && str(d.ref) && str(d.at)) as DoneAuto[];
+    if (Array.isArray(j.cancelled)) s.cancelled = j.cancelled.filter((d: Record<string, unknown>) => isObj(d) && isAuto(d.area) && str(d.ref) && typeof d.seen === "string").slice(-CANCELLED_MAX) as Cancelled[];
+    if (isObj(j.since)) for (const a of ["business-send", "studio-publish"] as const) if (!Number.isNaN(Date.parse(j.since[a] as string))) s.since[a] = j.since[a] as string;
   } catch { /* defaults */ }
   return s;
 }
 
-/** The owner's level change, or why not. Auto needs the exact typed phrase. */
-export function setLevel(s: AutonomyState, area: unknown, level: unknown, confirm: unknown): AutonomyState | string {
+/** Queued actions → cancelled (his Cancel, Stop-all, leaving auto): never re-queued while their version is unchanged. */
+export function cancelPending(s: AutonomyState, keep: (p: Pending) => boolean): AutonomyState {
+  const gone = s.pending.filter((p) => !keep(p));
+  return { ...s, pending: s.pending.filter(keep), cancelled: [...s.cancelled, ...gone.map(({ area, ref, seen }) => ({ area, ref, seen }))].slice(-CANCELLED_MAX) };
+}
+
+/** The owner's level change, or why not. Auto needs the exact typed phrase and working phone pushes (pushIssue: remote-push
+ *  pushProblem(), null when set up), so every auto action reaches him. now: switching to auto starts `since`. */
+export function setLevel(s: AutonomyState, area: unknown, level: unknown, confirm: unknown, now = Date.now(), pushIssue: string | null = null): AutonomyState | string {
   if (!isArea(area)) return "Unknown area";
   if (!LEVELS.includes(level as Level) || !AREA_INFO[area].levels.includes(level as Level)) return `${AREA_INFO[area].label} can be: ${AREA_INFO[area].levels.map((l) => LEVEL_TEXT[l].label).join(", ")}`;
   if (level === "auto" && confirm !== AUTO_CONFIRM[area]) return `Type "${AUTO_CONFIRM[area]}" to turn on auto`;
+  if (level === "auto" && s.levels[area] !== "auto" && pushIssue) return `Auto needs phone pushes so you hear about every action: pair your phone (Profile → Phone remote) and set up pushes first (${pushIssue})`;
   const next = { ...s, levels: { ...s.levels, [area]: level as Level } };
-  if (level !== "auto") next.pending = s.pending.filter((p) => p.area !== area); // leaving auto cancels what was waiting
-  return next;
+  if (level === "auto" && s.levels[area] !== "auto") next.since = { ...s.since, [area]: new Date(now).toISOString() };
+  return level === "auto" ? next : cancelPending(next, (p) => p.area !== area); // leaving auto cancels what was waiting
 }
 
 export function patchLimits(b: Record<string, unknown>, cur: Limits): Limits | string {
@@ -119,9 +134,24 @@ export function autonomyAllows(area: Area, action: Action, ctx: AllowCtx = {}): 
 }
 const capOf = (a: AutoArea, l: Limits) => (a === "business-send" ? l.sendPerDay : l.publishPerDay);
 
-// Prices, money, contracts, commitments: auto-sent text with any of these waits for the owner. Fails closed (false positives just mean "ask").
-const COMMIT = /[€$£¥]|\b\d[\d.,]*\s?(?:eur|euros?|usd|dollars?|gbp|pounds?|k|%)(?![a-z])|%|\b(?:prices?|priced|pricing|costs?|fees?|rates?|quotes?|quoted|invoices?|pay|paid|paying|payments?|deposit|discounts?|budget|contracts?|agreements?|sign|signed|terms|guarantee[sd]?|warrant(?:y|ies)?|commit(?:ment|ted|s)?|promise[sd]?|deadline|refunds?|purchase|subscription|we'll|we will|i'll|i will)\b/i;
-/** The first price/payment/contract/commitment word in text, or "". */
+// Prices, money, offers, contracts, dates and promises: auto-sent text with any of these waits for the owner. Deny-list that
+// fails closed (a false positive only means "ask him"): any digit or currency sign, and these words/stems in English, Estonian, Russian.
+const WORDS = [
+  "price", "prices", "priced", "pricing", "cost", "costs", "fee", "fees", "rate", "rates", "quote", "quotes", "quoted", "invoice", "invoices", "pay", "paid", "paying",
+  "payment", "payments", "payable", "deposit", "discount", "discounts", "budget", "cheap", "offer", "offers", "deal", "contract", "contracts", "agreement", "agreements",
+  "sign", "signed", "terms", "guarantee", "guaranteed", "guarantees", "warranty", "commit", "commits", "commitment", "committed", "promise", "promised", "promises",
+  "deadline", "refund", "refunds", "purchase", "subscription", "free", "trial", "pilot", "iban", "bank", "transfer", "money", "cash", "euro", "euros", "eur", "eurot",
+  "usd", "dollar", "dollars", "gbp", "pound", "pounds", "cent", "cents", "we'd", "we’d", "we'll", "we’ll", "we will", "i will", "i'll", "i’ll", "will deliver",
+  "by monday", "by tuesday", "by wednesday", "by thursday", "by friday", "by saturday", "by sunday", "by tomorrow", "by next", "by the end", "by end", "tomorrow", "next week",
+  "next month", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "april", "june", "july", "august", "september",
+  "october", "november", "december", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "twenty", "thirty", "forty", "fifty",
+  "hundred", "thousand", "million", "half", "kaks", "kolm", "neli", "viis", "kuus", "seitse", "kaheksa", "üheksa", "kümme", "sada", "tuhat", "miljon", "homme",
+];
+const STEMS = ["hind", "hinna", "tasu", "maks", "arve", "lepin", "pakkum", "allahind", "proov", "garant", "lubad", "lubame", "tähta", "raha", "euro",
+  "цен", "руб", "евро", "доллар", "бесплат", "договор", "оплат", "плат", "счет", "счёт", "скидк", "гарант", "обеща", "срок", "контракт", "пробн", "завтра"];
+const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+");
+const COMMIT = new RegExp(`[\\d€$£¥%₽]|(?<![\\p{L}'’])(?:${WORDS.map(esc).join("|")})(?![\\p{L}])|(?<![\\p{L}])(?:${STEMS.map(esc).join("|")})`, "iu");
+/** The first price/payment/offer/contract/date/promise match in text, or "". */
 export const commitmentIn = (text: string) => COMMIT.exec(text)?.[0] ?? "";
 
 // ---- Night shift / auto queue ------------------------------------------------------
@@ -137,14 +167,20 @@ export const doneToday = (s: AutonomyState, area: AutoArea, now: number) => {
   return s.done.filter((d) => d.area === area && localClock(Date.parse(d.at), TZ).day === day).length;
 };
 
-export type Candidate = { ref: string; seen: string; label: string; text?: string };
+// seen: the version (draft stamp / video+title+description); text: everything that would go out (subject + body, title + description);
+// changedAt: when it was made or last edited (only after the area's `since` counts).
+export type Candidate = { ref: string; seen: string; label: string; text?: string; changedAt: string };
 /** Which candidates to queue now (each goes out UNDO_MS later unless cancelled). Pending ones count toward the cap. */
 export function pickAuto(s: AutonomyState, area: AutoArea, cands: Candidate[], now: number, stopAll: boolean): Candidate[] {
+  const since = Date.parse(s.since[area] ?? "");
+  if (Number.isNaN(since)) return [];
   const seenRefs = new Set([...s.pending, ...s.done].filter((x) => x.area === area).map((x) => x.ref));
+  const cancelled = new Set(s.cancelled.filter((x) => x.area === area).map((x) => `${x.ref}\n${x.seen}`));
   let used = doneToday(s, area, now) + s.pending.filter((p) => p.area === area).length;
   const out: Candidate[] = [];
   for (const c of cands) {
-    if (seenRefs.has(c.ref)) continue; // once per prospect / clip
+    if (seenRefs.has(c.ref) || cancelled.has(`${c.ref}\n${c.seen}`)) continue; // once per prospect / clip; a cancelled version never again
+    if (!(Date.parse(c.changedAt) > since)) continue; // made before auto was switched on
     if (!autonomyAllows(area, "auto", { levels: s.levels, stopAll, limits: s.limits, doneToday: used, text: c.text, known: true }).ok) continue;
     out.push(c); used++;
   }
@@ -163,9 +199,30 @@ export function autoClock(pending: Pending[], now: number): { pending: Pending[]
   return { pending: next, opened, due: next.filter((p) => Date.parse(p.dueAt) <= now) };
 }
 
+/** A clip's publish version: video, title and description (scheduleAll's default description is the hook). Any change = a new version. */
+export const clipVersion = (c: { video?: string; title: string; hook: string }) => JSON.stringify([c.video ?? "", c.title, c.hook]);
+
+/** What a fired action counts as. done: it went out. unsure: may have gone out (Resend 502/504) or failed after ORBIT approved
+ *  the clip: counts toward the cap all the same. skip: nothing happened (refused, changed meanwhile). */
+export type Fired = "done" | "unsure" | "skip";
+export const sendOutcome = (ok: boolean, status: number): Fired => (ok ? "done" : status === 502 || status === 504 ? "unsure" : "skip");
+
+type AutoClip = { status: string; publish?: unknown };
+/** ORBIT's approve: status only. Not updateClip, so no owner "approved" review entry (the learning loop reads those as his taste). */
+export const autoApprove = (job: { updatedAt: string }, clip: AutoClip, now: number) => { clip.status = "approved"; job.updatedAt = new Date(now).toISOString(); };
+/** scheduleAll refused: back to "ready" (as autopilot does), or an approved clip would go out with the next "Schedule all". */
+export function undoAutoApprove(clip: AutoClip): boolean {
+  if (clip.status !== "approved" || clip.publish) return false;
+  clip.status = "ready";
+  return true;
+}
+
 /** The label-only push for an auto action (never names, addresses or text). */
-export function autoPush(area: AutoArea, phase: "queued" | "done", n = 1): PushMessage {
+export function autoPush(area: AutoArea, phase: "queued" | "done" | "unsure", n = 1): PushMessage {
   const what = area === "business-send" ? (n > 1 ? `${n} emails` : "an email") : (n > 1 ? `${n} Shorts` : "a Short");
+  if (phase === "unsure") return area === "business-send"
+    ? { title: "ORBIT's auto email: result unknown", body: "It may or may not have gone out. Check your Resend log on the PC.", url: "/remote#r-queue", tag: "auto" }
+    : { title: "ORBIT couldn't schedule a Short", body: "It's back in Waiting for you on the PC.", url: "/remote#r-queue", tag: "auto" };
   return phase === "queued"
     ? { title: `ORBIT will ${area === "business-send" ? "send" : "publish"} ${what} in ${UNDO_MS / 60_000} min`, body: "Cancel in Profile → Autonomy, or Stop-all.", url: "/remote#r-stop", tag: "auto" }
     : { title: `ORBIT ${area === "business-send" ? "sent" : "scheduled"} ${what}`, body: "Auto with limits. See Profile → Autonomy.", url: "/remote#r-queue", tag: "auto" };

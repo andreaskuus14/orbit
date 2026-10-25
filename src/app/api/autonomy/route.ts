@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { autonomyState, cancelAuto, setAreaLevel, setLimits } from "@/lib/autonomy";
 import { stopAllOn } from "@/lib/stop-all";
+import { pushProblem } from "@/lib/remote-push";
 import { TZ } from "@/lib/autonomy-pure";
 import { localClock } from "@/lib/night-pure";
 
@@ -14,7 +15,7 @@ export async function GET() {
   const s = autonomyState(), day = localClock(Date.now(), TZ).day;
   const r = await sb.from("events").select("created_at, payload").eq("type", "autonomy.act").gte("created_at", new Date(Date.now() - 86_400_000).toISOString()).order("created_at", { ascending: false }).limit(100);
   const today = (r.data ?? []).filter((e) => localClock(Date.parse(e.created_at), TZ).day === day).map((e) => ({ at: e.created_at, ...(e.payload as object) }));
-  return Response.json({ levels: s.levels, limits: s.limits, pending: s.pending, today, stopAll: stopAllOn() });
+  return Response.json({ levels: s.levels, limits: s.limits, pending: s.pending, today, stopAll: stopAllOn(), push: pushProblem() });
 }
 
 export async function POST(req: Request) {
