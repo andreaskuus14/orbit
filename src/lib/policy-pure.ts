@@ -20,7 +20,7 @@ export const TIERS: Record<string, Tier> = {
   navigate: "T0", goal_status: "T0", business_status: "T0", ideas_list: "T0",
   studio_status: "T0", learned: "T0", suggestions: "T0",
   life_status: "T0", life_journal: "T0", vault_search: "T0", vault_read: "T0", calendar_events: "T0", git_summary: "T0",
-  ws_list: "T0", ws_read: "T0", rea_status: "T0", rea_read: "T0",
+  ws_list: "T0", ws_read: "T0", rea_status: "T0", rea_read: "T0", week_review: "T0",
   web_search: "T1", fetch_url: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1",
   save_memory: "T2", ask_agent: "T2", create_goal: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
   life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", rea_analyze: "T2", rea_cancel: "T2",
@@ -41,9 +41,9 @@ export const UI_APPROVALS: Record<string, string> = {
   "studio.publish": 'POST /api/studio/clips/<job>/<clip>/publish: only a clip with status "approved"',
 };
 
-// Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true).
+// Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true).
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
-export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status"];
+export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status", "week_review"];
 const LINK_TOOLS = ["fetch_url", "read_news", "ask_agent", "reach_read"];
 const LEAK_TOOLS = ["ask_agent", "read_news", "web_search"];
 

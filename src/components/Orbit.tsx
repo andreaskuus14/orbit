@@ -20,6 +20,7 @@ import { Terminal } from "./Terminal";
 import { HalEye } from "./HalEye";
 import { notify } from "@/lib/notify-pure";
 import { OPEN_MEMORY_EVENT, PALETTE_EVENT } from "@/lib/palette-pure";
+import { OPEN_SOURCE_EVENT, citeTarget, type WeekCite } from "@/lib/week-pure";
 import { MorningCard } from "./MorningCard";
 import { Herald } from "./Herald";
 import { WhatsNew } from "./WhatsNew";
@@ -421,6 +422,14 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     addEventListener(OPEN_MEMORY_EVENT, f);
     return () => removeEventListener(OPEN_MEMORY_EVENT, f);
   }, [openMemory]);
+  useEffect(() => { // a CORE week citation: open its goal, task or place
+    const f = (e: Event) => {
+      const t = citeTarget((e as CustomEvent<WeekCite>).detail ?? { id: "", kind: "" });
+      if (t && "goal" in t) openGoal(t.goal); else if (t && "task" in t) openTask(t.task); else if (t) dispatchEvent(new CustomEvent(NAV_EVENT, { detail: t.nav }));
+    };
+    addEventListener(OPEN_SOURCE_EVENT, f);
+    return () => removeEventListener(OPEN_SOURCE_EVENT, f);
+  }, [openGoal, openTask]);
   const consumed = useCallback(() => setPending(null), []);
 
   // orbit:navigate (command bar, CORE, voice): drawers open over the galaxy as a click does; from the galaxy a world is

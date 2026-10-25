@@ -82,6 +82,12 @@ const MODULES: CoreModule[] = [
     run: async (t, i, c) => (await import("./goals")).runGoalTool(c.sb, c.userId, t as "goal_status" | "create_goal", i, c.question, c.tainted),
     status: async (c) => goalsLine((await (await import("./goals")).listGoals(c.sb, c.userId)).map((r) => r.doc.status)),
   },
+  {
+    // read-only; private: habit streaks and LIFE counts are in it (journal text never is: only a count of entries)
+    name: "WEEK", tools: ["week_review"], private: true,
+    prompt: "- week_review {\"week\"?: \"this\"|\"last\"}: his week (Europe/Tallinn, Monday start) from ORBIT's own data as facts: planned vs done, what slipped (deadline passed, Shorts target missed, started but not finished), what's late, streaks and biggest wins. For \"what slipped / what did I get done / what's late / how did my week go\". Cite each fact you use with its [w:...] marker exactly as written.",
+    run: async (_t, i, c) => (await import("./week")).runWeekTool(c.sb, c.userId, i),
+  },
 ];
 
 export const MODULE_PROMPT = modulePrompt(MODULES);
