@@ -57,6 +57,7 @@ export async function maybeSleep(sb: SupabaseClient, userIds: string[], now = ne
     for (const id of userIds) {
       const u = (state.users[id] ??= { counters: {} });
       const r = { consolidated: await consolidate(sb, id, ask).catch(log(0)), ...(await curate(sb, id, u, ask).catch(log({ retired: 0, merged: 0 }))), shorts: await shorts(now.getTime()).catch(log(undefined)) };
+      await import("./lessons").then((m) => m.mineLessons(sb, id, now.getTime())).catch(log(0)); // learning loop: his decisions → proposed lessons (no model call)
       u.report = { day: localDay(now), line: reportLine(r), at: now.toISOString() };
       if (u.report.line) await emit(sb, id, "core.slept", "core", { ...r }).catch(() => {});
     }

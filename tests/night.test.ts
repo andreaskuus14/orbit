@@ -64,6 +64,16 @@ test("planNight: owner's asks first, then runnable goals, drafts, clips, niche; 
   assert.ok(fits(queue[1], { calls: 32, ms: 0 }, S) && !fits(queue[1], { calls: 33, ms: 0 }, S) && !fits(queue[1], { calls: 0, ms: 141 * 60_000 }, S));
 });
 
+test("planNight: kept lessons only reorder ORBIT's own work; his asks and the tidy-up stay first", () => {
+  const tonight = [{ id: "t1", text: "Look into Shorts hooks", agent: "atlas", by: "owner" as const, at: "" }];
+  const goals = [{ id: "g1", doc: goal() }];
+  const boost = { clips: 1.12, goal: 0.9, research: 0.5, hygiene: 0.5 };
+  const { queue } = planNight(input({ tonight, goals, followups: [{ id: "p1", name: "Cafe" }], boost }), S, { calls: 0, ms: 0 });
+  assert.deepEqual(queue.map((t) => t.kind), ["hygiene", "research", "clips", "business", "goal"]);
+  // tight budget: the favoured kind wins the slot the goal would have taken
+  assert.deepEqual(planNight(input({ tonight, goals, boost }), { ...S, maxCalls: 14 }, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "research", "clips"]);
+});
+
 test("goalOutcome: done step, step OK needed, task approval, blocked, nothing to do", () => {
   const before = goal();
   const doneOne = structuredClone(before);

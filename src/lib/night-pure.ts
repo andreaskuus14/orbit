@@ -132,6 +132,7 @@ export type PlanInput = {
   handled: string[]; // `${kind}:${ref}` already in this night's run (a continued run doesn't redo them)
   now: number;
   today: string; // goals' budget day (server-local, goals-pure today())
+  boost?: Partial<Record<NightKind, number>>; // kept lessons' prior per kind (lessons.ts nightBoost, ~0.85–1.15); 1 when missing
 };
 
 /** The night's queue in order (owner's asks, goal steps, follow-up drafts, Shorts packaging, niche scout, hygiene), trimmed to the
@@ -147,6 +148,9 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
     { kind: "clips", ref: "clips", label: "Shorts packaging up to review", calls: 6, minutes: 10 } as NightTask,
     ...(i.nicheDue ? [{ kind: "niche", ref: "niche", label: "Weekly BUSINESS niche scout", calls: 1, minutes: 10 } as NightTask] : []),
   ].filter((t) => !i.handled.includes(`${t.kind}:${t.ref}`));
+  // Kept lessons only reorder ORBIT's own work (so a tight budget defers what he cares less about); his asks and the free tidy-up stay first.
+  const w = (t: NightTask) => (t.kind === "research" || t.kind === "hygiene" ? Infinity : i.boost?.[t.kind] ?? 1);
+  all.sort((a, b) => w(b) - w(a)); // stable: equal weights keep the order above
   const queue: NightTask[] = [];
   let calls = used.calls, min = used.ms / 60_000, deferred = 0;
   for (const t of all) {

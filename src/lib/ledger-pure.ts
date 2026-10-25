@@ -27,6 +27,8 @@ type Data = {
   "night.start": { night: string }; // night shift (night.ts): ids and counts only, never task text, drafts or results
   "night.task": { night: string; kind: NightKind; ref: string; status: ItemStatus };
   "night.end": { night: string; done: number; approvals: number; failed: number; calls: number; minutes: number };
+  "lesson.kept": { id: string }; // learning loop (lessons.ts): the lesson id only, never its text
+  "lesson.rejected": { id: string };
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -62,6 +64,8 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "night.start": { night: id },
   "night.task": { night: id, kind: oneOf(NIGHT_KINDS), ref: id, status: oneOf(ITEM_STATUSES) },
   "night.end": { night: id, done: count, approvals: count, failed: count, calls: count, minutes: count },
+  "lesson.kept": { id },
+  "lesson.rejected": { id },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];

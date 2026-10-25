@@ -75,7 +75,10 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
     await emit(sb, userId, "core.turn", "core", { model: out.model, tools, ms: Date.now() - t0 });
     void reflectOnTurn(sb, userId, cid); // learn in the background; never delays the answer, never throws
     void learnFacts(sb, userId, message, userMsg?.id ?? null, files.files.length > 0); // beliefs from the user's own words only (none on attachment turns); never throws
-    return out;
+    // "no, I meant…" / "don't do that again": propose a lesson he can keep with one tap (lessons.ts); never throws
+    const prevReply = [...history].reverse().find((t) => t.role === "assistant")?.content ?? "";
+    const lesson = files.files.length ? null : await import("@/lib/lessons").then((m) => m.captureCorrection(userId, message, prevReply, userMsg.id), () => null);
+    return { ...out, lesson };
   };
   const fail = async (e: unknown) => {
     const error = e instanceof Error ? e.message : "CORE failed";
@@ -94,12 +97,12 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
         send({ type: "start", conversationId: cid });
         let shown = "";
         try {
-          const { text, citations, trace, model } = await answer(
+          const { text, citations, trace, model, lesson } = await answer(
             (text) => { shown += text; send({ type: "delta", text }); }, ac.signal,
             () => { if (shown) { shown = ""; send({ type: "reset" }); } },
             (to) => send({ type: "navigate", to }),
             (tool, input) => send({ type: "step", label: stepLabel(tool, input) }));
-          send({ type: "done", conversationId: cid, answer: text, citations, trace, model });
+          send({ type: "done", conversationId: cid, answer: text, citations, trace, model, ...(lesson && { lesson }) });
         } catch (e) {
           // Stopped: keep what was already shown, plus what any agent task cancelled by the stop had finished.
           const done = e instanceof CoreStopped ? e.completed : "";
@@ -114,8 +117,8 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
   }
 
   try {
-    const { text, citations, trace, model } = await answer();
-    return Response.json({ conversationId: cid, answer: text, citations, trace, model });
+    const { text, citations, trace, model, lesson } = await answer();
+    return Response.json({ conversationId: cid, answer: text, citations, trace, model, ...(lesson && { lesson }) });
   } catch (e) {
     return Response.json({ conversationId: cid, error: await fail(e) }, { status: 502 });
   }
