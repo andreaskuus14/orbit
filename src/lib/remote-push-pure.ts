@@ -6,7 +6,7 @@ import { createCipheriv, createECDH, createPrivateKey, hkdfSync, randomBytes, si
 
 // ---- What gets sent ---------------------------------------------------------
 
-export type PushKind = "clip" | "spend" | "send" | "scheduled" | "published" | "failed" | "stop";
+export type PushKind = "clip" | "spend" | "send" | "scheduled" | "published" | "failed" | "stop" | "call";
 export type PushMessage = { title: string; body: string; url: string; tag: PushKind };
 export const PUSH_GAP_MS = 2 * 60_000;
 
@@ -21,6 +21,7 @@ export function pushLabel(kind: PushKind, n = 1): PushMessage {
     published: [many ? `${n} Shorts published` : "Short published", "It's live on YouTube.", "r-queue"],
     failed: [many ? `${n} jobs failed` : "A job failed", "Check ORBIT on the PC to see why.", "r-queue"],
     stop: ["Stop-all is ON", "ORBIT is paused. Resume it from the PC.", "r-stop"],
+    call: ["ORBIT wants to talk", n === 0 ? "Got a minute?" : many ? `${n} things need you.` : "One thing needs you.", "r-call"], // rung by call.ts, its own limits
   };
   const [title, body, anchor] = m[kind];
   return { title, body, url: `/remote#${anchor}`, tag: kind };

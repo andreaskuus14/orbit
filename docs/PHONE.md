@@ -52,6 +52,16 @@ To stop: **Turn off on this phone** in Remote, or **Revoke** the phone on the PC
 
 If the test doesn't arrive: check iPhone Settings → Notifications → Remote is allowed, that Focus isn't hiding it, and ORBIT's log on the PC for `[remote] push`.
 
+### Voice calls: "ORBIT wants to talk"
+
+ORBIT can call you, like a person would. The push says only "ORBIT wants to talk" and how many things need you; tap it, then **Answer** (iPhone only lets a page use the mic and speaker after a tap). ORBIT speaks first ("Morning. The night shift's done, and two things need your OK…"), then you just talk: **hands-free** (it hears when you stop) or **Hold to talk**. Talk over it and it stops. **Call ORBIT** in Remote starts a call yourself.
+
+When it calls: the morning after the night shift if approvals are waiting (08:00–11:00), right after a job fails, when an approval has waited 4+ hours, or at your daily check-in time (set it under **Talk to ORBIT**). At most twice a day, an hour apart, never 23:00–08:00, never while Stop-all is on, never during a call.
+
+Approving by voice: say "approve the squid clip". ORBIT names the exact item ("Approve the clip "Giant Squid"? Say yes to confirm.") and acts only on a plain **yes** within a minute, for that exact version; spends say the exact credits. Same checks as the Approve button. Anything else cancels. Rejecting works for clips only.
+
+Privacy: your voice goes only phone → PC over Tailscale, is transcribed by Whisper on the PC and never saved. ORBIT's voice is made by Kokoro on the PC. When you hang up (or after 10 quiet minutes) a 2–4 sentence summary is saved as a memory (not the journal) and the ledger gets ids and counts only. Journal and LIFE never come up unless you ask. Needs the Voice settings' Local Whisper model on the PC (first call downloads it); if Whisper can't load, the call falls back to the phone's own speech recognition. Optional `.env.local`: `ORBIT_CALL_VOICE=` (a Kokoro voice, default `af_heart`).
+
 Never use `tailscale funnel` for ORBIT: funnel puts it on the public internet. `tailscale serve` keeps it inside your tailnet, and ORBIT itself keeps listening on 127.0.0.1 only.
 
 ## If something doesn't work

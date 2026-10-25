@@ -28,9 +28,16 @@ const models = (): Models => ({
   audio: process.env.ORBIT_HIGGSFIELD_AUDIO_MODEL || "seed_audio",
 });
 
-type S = { running?: { id: string; ctrl: AbortController }; tts?: Promise<{ generate(t: string, o: { voice: string }): Promise<{ save(f: string): Promise<void> }> }> };
+type Kokoro = { generate(t: string, o: { voice: string; speed?: number }): Promise<{ audio: Float32Array; sampling_rate: number; save(f: string): Promise<void> }> };
+type S = { running?: { id: string; ctrl: AbortController }; tts?: Promise<Kokoro> };
 const g = globalThis as unknown as { __orbitStory?: S };
 const S = (g.__orbitStory ??= {});
+/** Kokoro-82M on the CPU, loaded once per process (story narration and voice calls share it). */
+export function kokoroTts(): Promise<Kokoro> {
+  const tts = (S.tts ??= import("kokoro-js").then((m) => m.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" })) as Promise<Kokoro>);
+  tts.catch(() => { if (S.tts === tts) S.tts = undefined; }); // let a later call retry the load
+  return tts;
+}
 
 const save = (job: StoryJob) => { job.updatedAt = new Date().toISOString(); return saveState(job.id, path.join(storiesDir(), `${job.id}.json`), job); };
 export const getStory = (id: string) => (/^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(id) ? readState<StoryJob>(storiesDir(), id, storyProblem) : Promise.resolve(null));
@@ -213,9 +220,7 @@ async function deps(ff: string, job: StoryJob, dir: string): Promise<RenderDeps>
     duration: async (f, signal) => parseDuration(await runFfmpeg(ff, probeArgs(f, true), { signal, timeoutMs: 60_000, okCodes: [1] })) ?? 0,
     hasAudio: async (f, signal) => /Stream #\d+:\d+.*: Audio:/.test(await runFfmpeg(ff, probeArgs(f, true), { signal, timeoutMs: 60_000, okCodes: [1] })),
     async tts(text, voice, file) {
-      const tts = (S.tts ??= import("kokoro-js").then((m) => m.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" })) as NonNullable<S["tts"]>);
-      tts.catch(() => { S.tts = undefined; }); // let a later story retry the load
-      await (await (await tts).generate(text, { voice })).save(file);
+      await (await (await kokoroTts()).generate(text, { voice })).save(file);
     },
     async words(file, signal): Promise<Word[]> {
       await runFfmpeg(ff, audioArgs(path.basename(file), "audio.f32", true), { cwd: dir, signal, timeoutMs: 5 * 60_000 });

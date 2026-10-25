@@ -1,13 +1,11 @@
 import { parseCommand, type RemoteCommand } from "@/lib/remote-pure";
-import { actionFor, echoProblem, GENERIC_ERROR, MAX_REMOTE_BODY, parseEcho, quoteStamp, RATE, stopProblem } from "@/lib/remote-web-pure";
+import { actionFor, GENERIC_ERROR, MAX_REMOTE_BODY, parseEcho, RATE, stopProblem } from "@/lib/remote-web-pure";
 import { deviceFromCookie, logCommand, ownerClient, pendingApprovals, rateOk, remoteChat, remoteProblem, S } from "@/lib/remote";
+import { decideApproval } from "@/lib/remote-act";
 import { stopAllState } from "@/lib/stop-all";
 import { switchStopAll } from "@/lib/stop-all-run";
-import { clipsDir, getJob, listJobs, publishingKey, startClipQueue, updateClip, withJobLock } from "@/lib/clips/factory";
-import { resolveInside } from "@/lib/clips/pure";
-import { stat } from "node:fs/promises";
-import { approveStory, getStory, runningStory } from "@/lib/clips/story";
-import { sendDraft } from "@/lib/business-send";
+import { listJobs, publishingKey } from "@/lib/clips/factory";
+import { runningStory } from "@/lib/clips/story";
 import { coreTurn } from "@/lib/core-turn";
 
 export const dynamic = "force-dynamic";
@@ -22,14 +20,6 @@ const hidden = (where: string, detail: unknown, status = 500, text = GENERIC_ERR
   console.error(`[remote] ${where}:`, detail instanceof Error ? detail.message : detail);
   return fail(text, status);
 };
-// Messages the owner can act on; anything else from the send path (Supabase/Resend text) stays in the server log.
-const SEND_TEXT: Record<number, string> = {
-  409: "Not sent: it was already contacted or the draft changed. Reload.",
-  503: "Not sending right now: Stop-all is on or email isn't set up on the PC.",
-  502: "The email service didn't confirm: it may or may not have gone out. Check on the PC before trying again.",
-  504: "The email service didn't answer: it may or may not have gone out. Check on the PC before trying again.",
-};
-
 /** CORE's NDJSON stream with any error event's text replaced (it can carry raw CLI/DB messages). */
 function sanitizeStream(res: Response): Response {
   if (!res.ok || !res.body) return res;
@@ -95,38 +85,8 @@ export async function POST(req: Request) {
       case "approvals":
         return done(Response.json({ items: (await pendingApprovals(sb)).map(({ key: _key, ...a }) => a) }));
       case "approve":
-      case "reject": {
-        const id = (cmd as { id: string }).id;
-        const action = cmd.type === "approve" ? "approve" : "reject";
-        const item = (await pendingApprovals(sb)).find((a) => a.id === id);
-        const why = echoProblem(item, e.echo, action);
-        if (why || !item) return done(fail(why, 409));
-        if (item.kind === "clip") {
-          const [jobId, clipId] = item.key.slice(5).split("/");
-          startClipQueue();
-          return done(await withJobLock(async () => {
-            const job = await getJob(jobId);
-            const clip = job?.clips.find((c) => c.id === clipId);
-            if (!job || !clip || clip.status !== "ready" || clip.retryOf) return fail("That clip is no longer waiting: reload", 409);
-            if (action === "approve") { // he must have been able to see it: no thumbnail file, no phone approval
-              const abs = clip.thumb?.startsWith("clips/") ? resolveInside(clipsDir(), clip.thumb.slice(6)) : null;
-              if (!abs || !/\.jpe?g$/i.test(abs) || !(await stat(abs).catch(() => null))?.isFile()) return fail("Open it on the PC to review: no preview for the phone", 409);
-            }
-            await updateClip(job, clip, { status: action === "approve" ? "approved" : "rejected" });
-            return Response.json({ ok: true, message: action === "approve" ? "Approved" : "Rejected" });
-          }));
-        }
-        if (item.kind === "spend") {
-          const job = await getStory(item.key.slice(6));
-          if (!job) return done(fail("Story not found", 404));
-          if (!job.quote || quoteStamp(job.quote) !== item.seen) return done(fail("The quote changed since you saw it: reload", 409)); // re-read: bound to the script and quote he saw
-          const out = await approveStory(job, item.credits); // re-checks the exact quote (approveProblem) before any credit is spent
-          return done(typeof out === "string" ? fail(out, 409) : Response.json({ ok: true, message: `Approved ${item.credits} credits: generating` }));
-        }
-        const sent = await sendDraft(sb, device.userId, item.key.slice(5), item.seen); // claims only the draft version the phone showed
-        if (sent.ok) return done(Response.json({ ok: true, message: `Sent to ${item.to}` }));
-        return done(hidden("send", await sent.text().catch(() => ""), sent.status, SEND_TEXT[sent.status] ?? GENERIC_ERROR));
-      }
+      case "reject":
+        return done(await decideApproval(sb, device.userId, (cmd as { id: string }).id, cmd.type === "approve" ? "approve" : "reject", e.echo));
       case "stopAll": {
         const why = stopProblem(stopAllState().on, e.echo); // ON only: resuming stays on the PC
         if (why) return done(fail(why, 409));
