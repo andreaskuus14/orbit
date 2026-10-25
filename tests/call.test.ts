@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  CALL, CALL_START, backchannel, callVad, decideCall, fallbackSummary, opener, parseCallState, takeSentences, voiceDecision, worthSending,
+  CALL, CALL_START, CALL_VAD, FILLERS, backchannel, callVad, cleanOpener, decideCall, endSilenceMs, fallbackSummary, itemsKey, opener, openerPrompt, parseCallState,
+  phraseKey, quickReply, takeSentences, voiceDecision, whenLabel, worthSending,
   type CallItem, type CallState,
 } from "../src/lib/call-pure.ts";
 import { MIC_START, type Mic } from "../src/lib/audio-pure.ts";
@@ -64,8 +65,6 @@ test("openers are short, natural and end on a question", () => {
   assert.match(m, /^Morning\. The night shift's done, and two things need your OK\. Want to start with the clip “Big Fish”\?$/);
   for (const r of ["urgent", "blocked", "checkin", "manual"] as const) assert.match(opener(r, 15, items), /\?$/);
   assert.equal(opener("checkin", 20, []), "Evening, just checking in. Nothing's waiting on you. How's it going?");
-  assert.notEqual(backchannel("what's next?", 0), backchannel("what's next?", 1));
-  assert.match(backchannel("I liked it", 0), /^(Mm-hm|Okay|Right|Got it)\.$/);
 });
 
 test("sentence chunking streams whole sentences and keeps abbreviations and decimals together", () => {
@@ -132,4 +131,53 @@ test("fallback summary keeps his words short and lists what was done", () => {
   const s = fallbackSummary([{ role: "assistant", content: "Morning." }, { role: "user", content: "Move the check-in to six." }], ["approved a clip"]);
   assert.equal(s, "On a call, Andreas said: “Move the check-in to six.”. Done on the call: approved a clip.");
   assert.equal(fallbackSummary([], []), "A short call with no decisions.");
+});
+
+test("fillers vary and never repeat within a call", () => {
+  assert.notEqual(backchannel("what's next?", 0), backchannel("what's next?", 1));
+  assert.match(backchannel("I liked it", 0)!, /^(Mm-hm|Okay|Right|Got it|I see|Yeah|Sure|Mm)\.$/);
+  const said = new Set<string>();
+  const got: string[] = [];
+  for (let i = 0; i < 20; i++) { const f = backchannel("I liked it", 0, said); if (!f) break; got.push(f); said.add(phraseKey(f)); }
+  assert.equal(new Set(got).size, got.length); // all different
+  assert.equal(backchannel("I liked it", 3, said), null); // all used up: silence, not a repeat
+  assert.ok(FILLERS.includes("One sec."));
+});
+
+test("goodbyes and bare okays are answered locally; an okay to a question goes to CORE", () => {
+  const none = new Set<string>();
+  assert.deepEqual(quickReply("Okay, bye!", "Done.", none)?.end, true);
+  assert.equal(quickReply("No, that's all, thanks", "Anything else?", none)?.end, true);
+  assert.equal(quickReply("I have to go", "", none)?.end, true);
+  const ack = quickReply("Okay.", "Done, approved.", none);
+  assert.ok(ack && !ack.end && /\?$/.test(ack.say));
+  assert.equal(quickReply("Okay.", "Want to start with the clip?", none), null);
+  assert.equal(quickReply("okay so what about the squid clip", "Done.", none), null);
+  const said = new Set(["Anything else?", "What else is on your mind?"].map(phraseKey));
+  assert.ok(!said.has(phraseKey(quickReply("cool", "Done.", said)!.say)));
+});
+
+test("end of turn: a short yes ends sooner, a long thought gets more room", () => {
+  assert.equal(endSilenceMs(400), CALL_VAD.shortEndMs);
+  assert.equal(endSilenceMs(2000), CALL_VAD.endMs);
+  assert.equal(endSilenceMs(8000), CALL_VAD.longEndMs);
+  // a 0.4 s "yes" then silence: the turn ends after shortEndMs, not the default
+  let m: Mic = { ...MIC_START, floor: 0.01 }, endedAt = -1;
+  for (let i = 0; i < 60; i++) { const r = callVad(m, i < 20 ? 0.1 : 0.001, 0.1, 21, false); m = r.m; if (r.event === "end" && endedAt < 0) endedAt = i; }
+  assert.ok(endedAt > 20 && (endedAt - 20) * 21 < CALL_VAD.endMs, `ended at frame ${endedAt}`);
+});
+
+test("earlier calls: when-labels, the opener prompt and a safe fallback", () => {
+  assert.equal(whenLabel("2026-10-25", "2026-10-25"), "earlier today");
+  assert.equal(whenLabel("2026-10-24", "2026-10-25"), "yesterday");
+  assert.equal(whenLabel("2026-10-23", "2026-10-25"), "on Friday");
+  assert.equal(whenLabel("2026-10-10", "2026-10-25"), null);
+  assert.equal(whenLabel("nope", "2026-10-25"), null);
+  const base = "Hey, I'm here. What's up?";
+  assert.match(openerPrompt(base, [{ when: "yesterday", text: "He wants the\nsquid clip shorter." }]), /OPENER:\nHey, I'm here\. What's up\?\n\nEARLIER CALLS \(data\):\n- yesterday: He wants the squid clip shorter\./);
+  assert.equal(cleanOpener("\"Hey. Following up on yesterday's squid clip: want to hear the shorter cut?\"", base), "Hey. Following up on yesterday's squid clip: want to hear the shorter cut?");
+  assert.equal(cleanOpener("Sure! Here's an opener:", base), base); // no question: not an opener
+  assert.equal(cleanOpener("See https://x.test ok?", base), base);
+  assert.equal(cleanOpener(`${"word ".repeat(70)}?`, base), base);
+  assert.equal(itemsKey([{ id: "b", seen: "2" }, { id: "a", seen: "1" }]), "a@1,b@2");
 });

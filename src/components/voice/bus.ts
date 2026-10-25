@@ -64,5 +64,8 @@ export const VOICE_ASK = "orbit:voice-ask"; // detail: { text: string }
 export const VOICE_INTERRUPT = "orbit:voice-interrupt";
 /** Start/stop conversation mode (the 💬 toggle). detail: { on: boolean } */
 export const VOICE_CONVERSATION = "orbit:voice-conversation";
+/** A voice call with ORBIT started or ended, on this PC or another device (RemoteCall, call.* events). detail: { on: boolean }
+ *  "Hey Orbit" lets go of the mic while one is on: his talk on the call is not for it. */
+export const CALL_ACTIVE = "orbit:call-active";
 /** CorePanel finished (or failed/stopped) a spoken answer's stream. */
 export const CORE_DONE = "orbit:core-done";

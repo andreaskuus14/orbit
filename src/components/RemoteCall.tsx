@@ -1,8 +1,9 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { concat, downsample, encodeWav, rms, zcr, MIC_START, type Mic } from "@/lib/audio-pure";
-import { CALL_VAD, callVad, worthSending } from "@/lib/call-pure";
+import { CALL_VAD, callVad, endSilenceMs, worthSending } from "@/lib/call-pure";
 import { MIC } from "./voice/voiceprint";
+import { CALL_ACTIVE } from "./voice/bus";
 
 // "ORBIT wants to talk": the call screen (phone remote and PC). ORBIT speaks first; then push-to-talk or hands-free (VAD), with
 // barge-in: talking over ORBIT stops its voice and the reply in flight. Audio goes only to this ORBIT server (/api/remote/talk),
@@ -10,6 +11,8 @@ import { MIC } from "./voice/voiceprint";
 type Line = { who: "orbit" | "you"; text: string };
 type Phase = "idle" | "ringing" | "connecting" | "live";
 const API = "/api/remote/talk";
+/** The PC's per-turn timings (ms since his audio arrived), as the latency line names them. */
+const STAGE: Record<string, string> = { asr: "heard", answer_text: "first words", core: "answer done", tts_first: "voice", first_audio: "first sound", answer_audio: "answer sound" };
 const b64ToBuf = (b: string) => Uint8Array.from(atob(b), (c) => c.charCodeAt(0)).buffer;
 type Rec = { start(): void; stop(): void; abort(): void; onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null; lang: string; interimResults: boolean };
 const SpeechRec = () => (typeof window === "undefined" ? undefined : ((window as unknown as { SpeechRecognition?: new () => Rec; webkitSpeechRecognition?: new () => Rec }).SpeechRecognition
@@ -25,19 +28,20 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
   const [ptt, setPtt] = useState(false);
   const [lat, setLat] = useState("");
   const [err, setErr] = useState("");
+  const [live, setLive] = useState(false); // a call is on somewhere (e.g. the phone): this PC's "Hey Orbit" stays off
   const r = useRef({ ctx: null as AudioContext | null, stream: null as MediaStream | null, proc: null as ScriptProcessorNode | null, call: "", playAt: 0,
     sources: [] as AudioBufferSourceNode[], turn: null as AbortController | null, handsFree: true, ptt: false, seg: [] as Float32Array[], pre: [] as Float32Array[],
-    m: { ...MIC_START } as Mic, segSpeech: 0, endedAt: 0, firstPlay: 0, speech: false, recognizer: null as Rec | null });
+    m: { ...MIC_START } as Mic, segSpeech: 0, endedAt: 0, firstPlay: 0, lagWhat: "replied", speech: false, recognizer: null as Rec | null });
 
   const say = (l: Line) => setLines((ls) => [...ls.slice(-5), l]);
   const talking = () => !!r.current.ctx && r.current.ctx.currentTime < r.current.playAt - 0.05;
 
   const poll = useCallback(async () => {
-    const res = await fetch(API).catch(() => null);
+    const res = await fetch(compact ? API : `${API}?warm=1`).catch(() => null); // the phone's call card: make the opener ahead
     if (!res?.ok) return;
     setAllowed(true);
-    const j = (await res.json()) as { ringing: string | null; checkin: string };
-    setCheckin(j.checkin);
+    const j = (await res.json()) as { ringing: string | null; live?: boolean; checkin: string };
+    setCheckin(j.checkin); setLive(!!j.live);
     setPhase((p) => (p === "idle" && (j.ringing || location.hash === "#r-call") ? "ringing" : p));
   }, []);
   useEffect(() => {
@@ -47,6 +51,8 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
     addEventListener("hashchange", hash);
     return () => { clearInterval(t); removeEventListener("hashchange", hash); };
   }, [poll, compact]);
+  const inCall = live || phase === "connecting" || phase === "live";
+  useEffect(() => { dispatchEvent(new CustomEvent(CALL_ACTIVE, { detail: { on: inCall } })); }, [inCall]);
 
   /** Stop ORBIT mid-sentence and drop the reply in flight. */
   const bargeIn = () => {
@@ -68,9 +74,33 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
     src.onended = () => { c.sources = c.sources.filter((x) => x !== src); if (!talking()) setState("listening"); };
     if (!c.firstPlay) {
       c.firstPlay = performance.now() + (at - ctx.currentTime) * 1000;
-      if (c.endedAt) setLat(`replied ${((c.firstPlay - c.endedAt) / 1000).toFixed(1)} s after you stopped`);
+      if (c.endedAt) setLat(`${c.lagWhat} ${((c.firstPlay - c.endedAt) / 1000).toFixed(1)} s after you ${c.lagWhat === "spoke" ? "answered" : "stopped"}`);
     }
     setState("talking");
+  }
+
+  /** ORBIT's NDJSON: {call} (pick-up), {heard}, {say} with audio, {error}, {end} (he said bye), {done} with the PC's timings. */
+  async function readEvents(stream: NonNullable<Response["body"]>, signal: AbortSignal) {
+    const c = r.current;
+    const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      const ls = buf.split("\n"); buf = ls.pop() ?? "";
+      for (const l of ls) {
+        if (!l.trim()) continue;
+        const ev = JSON.parse(l) as { type: string; id?: string; text?: string; audio?: string | null; error?: string; ms?: Record<string, number>; path?: string };
+        if (signal.aborted) return;
+        if (ev.type === "call" && ev.id) { c.call = ev.id; setPhase("live"); }
+        else if (ev.type === "heard" && ev.text) say({ who: "you", text: ev.text });
+        else if (ev.type === "say" && ev.text) { say({ who: "orbit", text: ev.text }); if (ev.audio) await play(ev.audio); }
+        else if (ev.type === "error") setErr(ev.error ?? "Something went wrong");
+        else if (ev.type === "end") setTimeout(() => { if (c.call) hangUp(); }, Math.max(0, ((c.playAt - (c.ctx?.currentTime ?? 0)) * 1000)) + 400);
+        else if (ev.type === "done" && ev.ms) setLat((x) => `${x}${x ? " · " : ""}PC${ev.path ? ` (${ev.path})` : ""}: ${Object.entries(ev.ms!).map(([k, v]) => `${STAGE[k] ?? k} ${v} ms`).join(", ")}`);
+      }
+    }
   }
 
   /** One turn: his audio (or text from on-device recognition) in, ORBIT's sentences out as they're ready. */
@@ -78,7 +108,7 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
     const c = r.current;
     bargeIn();
     const ac = (c.turn = new AbortController());
-    c.firstPlay = 0;
+    c.firstPlay = 0; c.lagWhat = "replied";
     setState("thinking"); setErr("");
     try {
       const res = await fetch(`${API}?op=turn&call=${c.call}`, "audio" in body
@@ -89,23 +119,7 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
         if (j.fallback === "speech" && SpeechRec()) { c.speech = true; setErr("Local Whisper is off: using this device's speech recognition."); return listenSpeech(); }
         throw new Error(j.error ?? `Failed (${res.status})`);
       }
-      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += value;
-        const ls = buf.split("\n"); buf = ls.pop() ?? "";
-        for (const l of ls) {
-          if (!l.trim()) continue;
-          const ev = JSON.parse(l) as { type: string; text?: string; audio?: string | null; error?: string; ms?: Record<string, number> };
-          if (ac.signal.aborted) return;
-          if (ev.type === "heard" && ev.text) say({ who: "you", text: ev.text });
-          else if (ev.type === "say" && ev.text) { say({ who: "orbit", text: ev.text }); if (ev.audio) await play(ev.audio); }
-          else if (ev.type === "error") setErr(ev.error ?? "Something went wrong");
-          else if (ev.type === "done" && ev.ms) setLat((x) => `${x}${x ? " · " : ""}PC: ${Object.entries(ev.ms!).map(([k, v]) => `${k} ${v} ms`).join(", ")}`);
-        }
-      }
+      await readEvents(res.body, ac.signal);
     } catch (e) {
       if (!ac.signal.aborted) setErr(e instanceof Error ? e.message : "Network error");
     } finally {
@@ -145,7 +159,7 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
       const seg = c.seg, speech = c.segSpeech;
       c.seg = []; c.segSpeech = 0;
       if (tooLong) c.m = { ...MIC_START, floor: c.m.floor };
-      c.endedAt = performance.now() - (tooLong ? 0 : CALL_VAD.endMs);
+      c.endedAt = performance.now() - (tooLong ? 0 : endSilenceMs(speech));
       if (worthSending(speech)) void turn({ audio: downsample(concat(seg), ctx.sampleRate) });
     }
   }
@@ -164,12 +178,13 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
       c.proc = c.ctx.createScriptProcessor(1024, 1, 1); // shortcut: deprecated but works in Safari; move to an AudioWorklet if it goes
       c.proc.onaudioprocess = (e) => onFrame(new Float32Array(e.inputBuffer.getChannelData(0)));
       src.connect(c.proc); c.proc.connect(c.ctx.destination); // outputs silence; it only runs while connected
-      const res = await fetch(`${API}?op=start`, { method: "POST" });
-      const j = (await res.json()) as { id?: string; error?: string; say?: { text: string; audio: string | null }[] };
-      if (!res.ok || !j.id) throw new Error(j.error ?? "ORBIT couldn't start the call");
-      c.call = j.id; c.m = { ...MIC_START }; c.seg = []; c.pre = []; c.speech = false;
-      setPhase("live");
-      for (const s of j.say ?? []) { say({ who: "orbit", text: s.text }); if (s.audio) await play(s.audio); }
+      c.m = { ...MIC_START }; c.seg = []; c.pre = []; c.speech = false; c.firstPlay = 0; c.lagWhat = "spoke"; c.endedAt = performance.now(); // latency line: answer tap → ORBIT's voice
+      const ac = (c.turn = new AbortController());
+      const res = await fetch(`${API}?op=start`, { method: "POST", signal: ac.signal });
+      if (!res.ok || !res.body) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "ORBIT couldn't start the call");
+      await readEvents(res.body, ac.signal); // the first sentence plays while the rest is still being voiced
+      if (c.turn === ac) c.turn = null;
+      if (!c.call) throw new Error("ORBIT couldn't start the call");
     } catch (e) {
       setErr(e instanceof Error && e.name === "NotAllowedError" ? "ORBIT needs the microphone: allow it for this page in Settings." : e instanceof Error ? e.message : "Couldn't start the call");
       hangUp(false);
