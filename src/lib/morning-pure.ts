@@ -5,6 +5,7 @@ import type { Recall } from "./resurface-pure";
 import type { WorkItem, WorkSummary } from "./work-continuation-pure";
 import { missionLine, type Mission } from "./daily-mission-pure.ts";
 import type { Card, Hero } from "./morning-rank-pure";
+import type { NightReport } from "./night-pure";
 
 export type MorningNav = "review" | "news" | "tasks" | "agents" | "life" | "goals";
 export type StudioIn = {
@@ -21,6 +22,7 @@ export type Morning = {
   cards?: Card[]; // the ranked morning cards (morning-rank-pure.ts)
   hero?: Hero; // "Do this first": the single best action, kept out of cards
   overnight?: string; // the sleep loop's report for today (sleep.ts), shown as one line
+  night?: NightReport; // "While you slept": last night's night shift (night.ts)
   suggestion: { text: string; nav: MorningNav | null; item?: WorkItem }; spoken: string;
 };
 

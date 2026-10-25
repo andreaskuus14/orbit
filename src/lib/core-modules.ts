@@ -83,6 +83,11 @@ const MODULES: CoreModule[] = [
     status: async (c) => goalsLine((await (await import("./goals")).listGoals(c.sb, c.userId)).map((r) => r.doc.status)),
   },
   {
+    name: "NIGHT", tools: ["queue_tonight"], writes: ["queue_tonight"],
+    prompt: "- queue_tonight {\"text\": string, \"agent\"?: \"atlas\"|\"nova\"|\"forge\"|\"vector\"|\"echo\"|\"sentinel\"}: add something to ORBIT's night shift (\"look into X tonight\", \"research Y overnight\"); default agent atlas (research). Only when the user asks in their latest message for it to be done tonight / overnight, as your first tool. An agent works on it in the night window while he sleeps; anything it wants to change or send waits for his approval in the morning; say so.",
+    run: async (_t, i, c) => (await import("./night")).runTonightTool(c.userId, i, c.question, c.tainted),
+  },
+  {
     // read-only; private: habit streaks and LIFE counts are in it (journal text never is: only a count of entries)
     name: "WEEK", tools: ["week_review"], private: true,
     prompt: "- week_review {\"week\"?: \"this\"|\"last\"}: his week (Europe/Tallinn, Monday start) from ORBIT's own data as facts: planned vs done, what slipped (deadline passed, Shorts target missed, started but not finished), what's late, streaks and biggest wins. For \"what slipped / what did I get done / what's late / how did my week go\". Cite each fact you use with its [w:...] marker exactly as written.",

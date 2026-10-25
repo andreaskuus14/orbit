@@ -22,6 +22,9 @@ const DATA: Record<string, object> = {
   "remote.command": { command: "approve", ok: true, device: "d1" },
   "higgsfield.spend": { jobId: "mf1-abc123", credits: 4.5, kind: "draft" },
   "memory.hygiene": { action: "merge", decision: "accepted", key: "merge:a:b" },
+  "night.start": { night: "n1" },
+  "night.task": { night: "n1", kind: "goal", ref: "g1", status: "approval" },
+  "night.end": { night: "n1", done: 3, approvals: 2, failed: 0, calls: 17, minutes: 42 },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {
