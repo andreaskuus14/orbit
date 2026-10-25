@@ -12,6 +12,7 @@ import { usageHold, usageLimited } from "./usage-meter";
 import { maybeSleep } from "./sleep";
 import { maybeWeeklyScout } from "./niche";
 import { maybeNightShift } from "./night";
+import { maybeDealHunt } from "./deals";
 import { maybeScorecard } from "./agent-replay";
 import { maybeArchDigest } from "./arch-digest";
 
@@ -69,6 +70,8 @@ async function tick(sb: SupabaseClient) {
     if (!limited) await maybeNightShift(sb, (users ?? []).map((u) => u.id));
     // Weekly BUSINESS niche scout (background lane, read-only web tools); not awaited: a run takes minutes. It re-checks Stop-all and usageHold itself.
     if (!limited) void maybeWeeklyScout().catch((e) => console.error("[orbit] niche scout check failed:", e instanceof Error ? e.message : e));
+    // Deal hunter (MARKETS → Deals): daytime, a wish at most every 6 h, daily call cap; not awaited. Re-checks Stop-all/usageHold itself.
+    if (!limited) void maybeDealHunt(sb, (users ?? []).map((u) => u.id));
     // Monthly agent scorecard (ANALYTICS): not awaited, a run takes up to ~50 min; it re-checks Stop-all and usage itself.
     if (!limited) void maybeScorecard(sb, (users ?? []).map((u) => u.id));
     // ARCH weekly studio digest: Sunday from 17:00 (Monday catch-up); without Claude it still comes, focus from the numbers.

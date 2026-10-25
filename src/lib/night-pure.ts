@@ -12,13 +12,13 @@ export const TONIGHT_MAX = 10, TEXT_MAX = 500, MAX_GOALS = 3, MAX_RESEARCH = 4, 
 export const DRAFT_AGAIN_MS = 7 * 86_400_000; // a prospect gets at most one overnight follow-up draft a week
 export const RESEARCH_AGENTS = ["atlas", "nova", "forge", "vector", "echo", "sentinel"];
 
-export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene"] as const;
+export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals"] as const;
 export type NightKind = (typeof NIGHT_KINDS)[number];
 export const ITEM_STATUSES = ["done", "approval", "failed", "skipped"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 // calls/minutes: the estimate the planner budgets with (the runner measures what was really used).
 export type NightTask = { kind: NightKind; ref: string; label: string; calls: number; minutes: number };
-export type Open = { task: string } | { goal: string; step?: number; stepId?: string } | { panel: "studio" | "business" | "memory" | "agents" };
+export type Open = { task: string } | { goal: string; step?: number; stepId?: string } | { panel: "studio" | "business" | "memory" | "agents" | "markets" };
 export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string };
 export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string };
 export type TonightItem = { id: string; text: string; agent: string; by: "owner" | "core"; at: string };
@@ -129,13 +129,14 @@ export type PlanInput = {
   followups: { id: string; name: string }[];
   drafted: Record<string, string>;
   nicheDue: boolean;
+  deals?: number; // wishes the deal hunter would cover now (deals.ts dueCount); one read-only web call each
   handled: string[]; // `${kind}:${ref}` already in this night's run (a continued run doesn't redo them)
   now: number;
   today: string; // goals' budget day (server-local, goals-pure today())
   boost?: Partial<Record<NightKind, number>>; // kept lessons' prior per kind (lessons.ts nightBoost, ~0.85–1.15); 1 when missing
 };
 
-/** The night's queue in order (owner's asks, goal steps, follow-up drafts, Shorts packaging, niche scout, hygiene), trimmed to the
+/** The night's queue in order (owner's asks, goal steps, follow-up drafts, deal hunt, Shorts packaging, niche scout, hygiene), trimmed to the
  *  budget left. Tasks that don't fit are counted in `deferred` (tonight items stay queued for the next night). */
 export function planNight(i: PlanInput, s: NightSettings, used: { calls: number; ms: number }): { queue: NightTask[]; deferred: number } {
   const all: NightTask[] = [
@@ -145,6 +146,7 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
       .map((g): NightTask => ({ kind: "goal", ref: g.id, label: g.doc.title.slice(0, 120), calls: g.doc.budget.callsPerStep, minutes: 10 })),
     ...i.followups.filter((p) => !(i.now - Date.parse(i.drafted[p.id] ?? "") < DRAFT_AGAIN_MS)).slice(0, MAX_FOLLOWUPS)
       .map((p): NightTask => ({ kind: "business", ref: p.id, label: `Follow-up for ${p.name.slice(0, 80)}`, calls: 1, minutes: 2 })),
+    ...(i.deals ? [{ kind: "deals", ref: "deals", label: `Deal hunt for ${i.deals} wish${i.deals > 1 ? "es" : ""}`, calls: i.deals, minutes: 6 * i.deals } as NightTask] : []),
     { kind: "clips", ref: "clips", label: "Shorts packaging up to review", calls: 6, minutes: 10 } as NightTask,
     ...(i.nicheDue ? [{ kind: "niche", ref: "niche", label: "Weekly BUSINESS niche scout", calls: 1, minutes: 10 } as NightTask] : []),
   ].filter((t) => !i.handled.includes(`${t.kind}:${t.ref}`));

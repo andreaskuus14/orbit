@@ -27,6 +27,9 @@ const DATA: Record<string, object> = {
   "night.end": { night: "n1", done: 3, approvals: 2, failed: 0, calls: 17, minutes: 42 },
   "lesson.kept": { id: "proposal.agent|echo|-" },
   "lesson.rejected": { id: "correction|don t use tables" },
+  "deal.wish": { wishId: "w1", action: "added" },
+  "deal.hunt": { wishId: "w1", offers: 4, great: 1 },
+  "deal.found": { wishId: "w1", offerId: "o1a2b3c4d" },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {
