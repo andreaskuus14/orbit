@@ -68,11 +68,11 @@ export function AutonomySection() {
       )}
       {!!v?.pending.length && (
         <div className="space-y-1">
-          <h4 className="text-xs font-semibold">Waiting to go out (cancel within 10 min)</h4>
+          <h4 className="text-xs font-semibold">Waiting to go out (cancel within 10 min; nothing goes out 23:00-08:00)</h4>
           <ul className="space-y-1">
             {v.pending.map((p) => (
               <li key={p.id} className="flex items-center justify-between gap-2 text-sm">
-                <span>{p.label} <span className="muted text-xs">at {new Date(p.dueAt).toLocaleTimeString()}</span></span>
+                <span>{p.label} <span className="muted text-xs">{p.dueAt ? `at ${new Date(p.dueAt).toLocaleTimeString()}` : "held for quiet hours: 10-min window starts at 08:00"}</span></span>
                 <button className="chip" onClick={() => void call({ action: "cancel", id: p.id })}>Cancel</button>
               </li>
             ))}

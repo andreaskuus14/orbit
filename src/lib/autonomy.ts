@@ -9,7 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
 import { emit } from "./claude";
-import { DONE_KEEP_MS, UNDO_MS, autoPush, autonomyAllows, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
+import { DONE_KEEP_MS, UNDO_MS, autoClock, autoPush, autonomyAllows, quietAuto, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
   type Action, type AllowCtx, type Area, type AutoArea, type AutonomyState, type Candidate, type Levels } from "./autonomy-pure";
 
 const file = () => path.join(orbitDataDir(), "autonomy.json");
@@ -62,7 +62,10 @@ export async function tickAutonomy(sb: SupabaseClient, userId: string, now = Dat
   const st = autonomyState();
   if (!st.pending.length && st.levels["business-send"] !== "auto" && st.levels["studio-publish"] !== "auto") return;
   try {
-    for (const p of st.pending.filter((x) => Date.parse(x.dueAt) <= now)) {
+    let clock: ReturnType<typeof autoClock> = { pending: [], opened: {}, due: [] };
+    await update((s) => { clock = autoClock(s.pending, now); return { ...s, pending: clock.pending }; }); // quiet hours hold; 08:00 opens the window
+    for (const [area, n] of Object.entries(clock.opened) as [AutoArea, number][]) await push(autoPush(area, "queued", n));
+    for (const p of clock.due) {
       const claimed = await update((s) => (s.pending.some((x) => x.id === p.id) ? { ...s, pending: s.pending.filter((x) => x.id !== p.id) } : "gone"));
       if (typeof claimed === "string") continue; // cancelled meanwhile
       const ok = await (p.area === "business-send" ? fireSend(sb, userId, p) : firePublish(p)).catch((e) => { console.error("[orbit] auto action failed:", msg(e)); return false; });
@@ -75,9 +78,10 @@ export async function tickAutonomy(sb: SupabaseClient, userId: string, now = Dat
       if (autonomyLevels()[area] !== "auto") continue;
       const picks = pickAuto(autonomyState(), area, await (area === "business-send" ? sendCandidates(sb, userId) : publishCandidates()), now, stopAllOn());
       if (!picks.length) continue;
-      const at = new Date(now).toISOString(), dueAt = new Date(now + UNDO_MS).toISOString();
+      const quiet = quietAuto(now), at = new Date(now).toISOString(), dueAt = quiet ? "" : new Date(now + UNDO_MS).toISOString(); // held till 08:00
+
       await update((s) => ({ ...s, pending: [...s.pending, ...picks.map((c) => ({ id: randomUUID(), area, ref: c.ref, seen: c.seen, label: c.label, at, dueAt }))] }));
-      await push(autoPush(area, "queued", picks.length));
+      if (!quiet) await push(autoPush(area, "queued", picks.length)); // a held one is pushed when its window opens
     }
   } catch (e) { console.error("[orbit] autonomy tick failed:", msg(e)); }
 }

@@ -32,7 +32,7 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
       if (!shouldShowBrief(last, now.getHours(), today)) return;
       try { localStorage.setItem(KEY, today); } catch { /* ignore */ }
       setOpen(true); setErr(""); setB(null); setMarks({});
-      fetch("/api/brief", { cache: "no-store" }).then((r) => r.json()).then((j) => { if (j.error) throw new Error(j.error); setB(j); })
+      fetch("/api/brief", { cache: "no-store" }).then((r) => r.json()).then((j) => { if (j.error) throw new Error(j.error); if (j.off) setOpen(false); else setB(j); })
         .catch((e) => setErr(e instanceof Error ? e.message : "Couldn't load the brief"));
     };
     check();

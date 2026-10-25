@@ -6,7 +6,7 @@
 import { localClock, type NightKind } from "./night-pure.ts";
 import type { PushMessage } from "./remote-push-pure.ts";
 
-export const AREAS = ["research", "memory", "studio-prepare", "studio-publish", "business-drafts", "business-send", "higgsfield-spend", "goals", "night-shift", "deals", "calls"] as const;
+export const AREAS = ["research", "brief", "memory", "studio-prepare", "studio-publish", "business-drafts", "business-send", "higgsfield-spend", "goals", "night-shift", "deals", "calls"] as const;
 export type Area = (typeof AREAS)[number];
 export const LEVELS = ["off", "ask", "do", "auto"] as const;
 export type Level = (typeof LEVELS)[number];
@@ -15,6 +15,7 @@ export type Levels = Record<Area, Level>;
 // levels: what the area may be set to. def: today's behaviour (unattended work that already ran on its own = "do", outside effects = "ask").
 export const AREA_INFO: Record<Area, { label: string; levels: readonly Level[]; def: Level; what: string }> = {
   research: { label: "Research", levels: ["off", "ask", "do"], def: "do", what: "Agents researching your night-shift asks and the weekly BUSINESS niche scout" },
+  brief: { label: "Morning brief", levels: ["off", "do"], def: "do", what: "The spoken \"Good morning\" overlay on the PC and the morning call's opener" },
   memory: { label: "Memory tidy-up", levels: ["off", "ask", "do"], def: "do", what: "Nightly memory consolidation and merge/retract suggestions (applied only when you accept them)" },
   "studio-prepare": { label: "Studio: prepare", levels: ["off", "ask", "do"], def: "do", what: "Packaging Shorts (titles, descriptions, slots) and clip scouting up to your review" },
   "studio-publish": { label: "Studio: publish", levels: ["off", "ask", "auto"], def: "ask", what: "Uploading Shorts to YouTube" },
@@ -44,6 +45,7 @@ export const UNDO_MS = 10 * 60_000;
 export const TZ = "Europe/Tallinn";
 export const DONE_KEEP_MS = 8 * 86_400_000;
 
+// dueAt "": held by quiet hours; its cancel window (and the push) starts at 08:00.
 export type Pending = { id: string; area: AutoArea; ref: string; seen: string; label: string; at: string; dueAt: string };
 export type DoneAuto = { area: AutoArea; ref: string; at: string };
 export type AutonomyState = { levels: Levels; limits: Limits; pending: Pending[]; done: DoneAuto[] };
@@ -147,6 +149,18 @@ export function pickAuto(s: AutonomyState, area: AutoArea, cands: Candidate[], n
     out.push(c); used++;
   }
   return out;
+}
+
+/** Quiet hours 23:00-08:00 Tallinn (same as phone pushes): no auto action goes out, and no cancel window runs while he sleeps. */
+export const quietAuto = (now: number) => { const m = localClock(now, TZ).min; return m >= 23 * 60 || m < 8 * 60; };
+
+/** Each tick: in quiet hours every queued action is held (dueAt ""); after them, held ones get a fresh UNDO_MS window
+ *  (`opened`, to push about) and those whose window has passed are `due`. */
+export function autoClock(pending: Pending[], now: number): { pending: Pending[]; opened: Partial<Record<AutoArea, number>>; due: Pending[] } {
+  if (quietAuto(now)) return { pending: pending.map((p) => ({ ...p, dueAt: "" })), opened: {}, due: [] };
+  const opened: Partial<Record<AutoArea, number>> = {}, dueAt = new Date(now + UNDO_MS).toISOString();
+  const next = pending.map((p) => (p.dueAt ? p : (opened[p.area] = (opened[p.area] ?? 0) + 1, { ...p, dueAt })));
+  return { pending: next, opened, due: next.filter((p) => Date.parse(p.dueAt) <= now) };
 }
 
 /** The label-only push for an auto action (never names, addresses or text). */

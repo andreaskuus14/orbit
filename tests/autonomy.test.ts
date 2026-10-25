@@ -2,14 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   AREAS, AREA_INFO, AUTO_CONFIRM, DEFAULT_LEVELS, LIMIT_DEFAULTS, autonomyAllows, autonomyDefaults, autoPush, commitmentIn, doneToday, nightOff,
-  parseAutonomy, patchLimits, pickAuto, setLevel, type Area, type AutonomyState,
+  parseAutonomy, patchLimits, pickAuto, setLevel, autoClock, quietAuto, UNDO_MS, type Pending, type Area, type AutonomyState,
 } from "../src/lib/autonomy-pure.ts";
 import { decide, TIERS, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { planNight, NIGHT_DEFAULTS, type PlanInput } from "../src/lib/night-pure.ts";
 import { validate } from "../src/lib/ledger-pure.ts";
 
 // What ORBIT did on its own before Autonomy existed: these ran unattended (night shift, scout, sleep loop, deal hunt, calls).
-const RAN_ALONE_TODAY: Area[] = ["research", "memory", "studio-prepare", "business-drafts", "goals", "night-shift", "deals", "calls"];
+const RAN_ALONE_TODAY: Area[] = ["research", "brief", "memory", "studio-prepare", "business-drafts", "goals", "night-shift", "deals", "calls"];
 
 test("defaults pin today's behaviour: owner clicks work everywhere, unattended work only where it already ran, no auto anywhere", () => {
   for (const a of AREAS) {
@@ -109,4 +109,28 @@ test("limits, pushes and ledger events carry no text", () => {
   assert.ok("error" in ev("autonomy.change", { area: "nope", from: "ask", to: "auto" }));
   assert.ok("error" in ev("autonomy.act", { area: "business-send", action: "pay", ref: "x" }));
   for (const a of AREAS) assert.ok(AREA_INFO[a].levels.includes(AREA_INFO[a].def), a);
+});
+
+test("quiet hours 23:00-08:00 Tallinn: auto actions are held, and the 10-minute cancel window starts at 08:00", () => {
+  const at = (iso: string) => Date.parse(iso); // October: Tallinn is UTC+3 until the 25th, UTC+2 after
+  const p = (id: string, dueAt: string, area: Pending["area"] = "business-send"): Pending => ({ id, area, ref: id, seen: "v", label: id, at: "", dueAt });
+  assert.equal(quietAuto(at("2026-10-20T20:30:00Z")), true); // 23:30
+  assert.equal(quietAuto(at("2026-10-20T04:59:00Z")), true); // 07:59
+  assert.equal(quietAuto(at("2026-10-20T05:00:00Z")), false); // 08:00
+  assert.equal(quietAuto(at("2026-10-20T19:59:00Z")), false); // 22:59
+  // queued 22:55, due 23:05: at 23:05 it is held, not sent
+  const night = autoClock([p("a", "2026-10-20T20:05:00Z"), p("b", "")], at("2026-10-20T20:05:00Z"));
+  assert.deepEqual(night.due, []);
+  assert.deepEqual(night.opened, {});
+  assert.ok(night.pending.every((x) => x.dueAt === ""));
+  assert.deepEqual(autoClock(night.pending, at("2026-10-21T01:00:00Z")).due, []); // 04:00: still nothing
+  // 08:00: a fresh window opens (and is pushed about), nothing goes out yet
+  const t8 = at("2026-10-21T05:00:00Z"), morning = autoClock([...night.pending, p("c", "", "studio-publish")], t8);
+  assert.deepEqual(morning.due, []);
+  assert.deepEqual(morning.opened, { "business-send": 2, "studio-publish": 1 });
+  assert.ok(morning.pending.every((x) => Date.parse(x.dueAt) === t8 + UNDO_MS));
+  // 08:10: due; a cancelled one (removed from pending) simply isn't there
+  const later = autoClock(morning.pending.filter((x) => x.id !== "b"), t8 + UNDO_MS);
+  assert.deepEqual(later.due.map((x) => x.id), ["a", "c"]);
+  assert.deepEqual(later.opened, {});
 });

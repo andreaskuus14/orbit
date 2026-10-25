@@ -2,11 +2,13 @@ import { requireUser } from "@/lib/supabase/server";
 import { getBrief, setBriefLife, snoozeItem } from "@/lib/brief";
 import { ledgerIssue } from "@/lib/ledger-pure";
 import { emit } from "@/lib/claude";
+import { allows } from "@/lib/autonomy";
 
 /** ORBIT's morning brief (brief.ts): items, card rows and the spoken words (polished by at most one fast-model call a day). */
 export async function GET() {
   const { sb, user, res } = await requireUser();
   if (res) return res;
+  if (!allows("brief", "background", { stopAll: false }).ok) return Response.json({ off: true }); // Profile → Autonomy: brief Off
   try {
     return Response.json(await getBrief(sb, user.id));
   } catch (e) {
