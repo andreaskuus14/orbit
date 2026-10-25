@@ -10,6 +10,7 @@ import { maybeBackup } from "./backup";
 import { stopAllOn } from "./stop-all";
 import { usageHold, usageLimited } from "./usage-meter";
 import { maybeSleep } from "./sleep";
+import { maybeWeeklyScout } from "./niche";
 
 // Server-side scheduler (briefings + automations): runs inside the ORBIT server process (npm run dev / npm start), so briefings
 // happen without a browser open. It needs SUPABASE_SECRET_KEY to act for the user with no session.
@@ -60,6 +61,8 @@ async function tick(sb: SupabaseClient) {
     }
     // Sleep loop: once a night 03:00–07:00, background lane; it re-checks Stop-all and usageHold itself.
     if (!limited) await maybeSleep(sb, (users ?? []).map((u) => u.id));
+    // Weekly BUSINESS niche scout (background lane, read-only web tools); not awaited: a run takes minutes. It re-checks Stop-all and usageHold itself.
+    if (!limited) void maybeWeeklyScout().catch((e) => console.error("[orbit] niche scout check failed:", e instanceof Error ? e.message : e));
     // Weekly local backup (JSON export + uploaded files) to ORBIT_BACKUP_DIR, default ../orbit-backups.
     await maybeBackup(sb, (users ?? []).map((u) => u.id)).catch((e) => console.error("[orbit] backup failed:", e instanceof Error ? e.message : e));
   } catch (e) {

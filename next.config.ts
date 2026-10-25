@@ -12,7 +12,8 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/(.*)",
+        // Every page except the shop-in-a-box preview, which the BUSINESS drawer frames itself (its route sends frame-ancestors 'self').
+        source: "/:path((?!api/business/shop/).*)",
         headers: [
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
@@ -20,6 +21,7 @@ const nextConfig: NextConfig = {
           { key: "Permissions-Policy", value: "camera=(), geolocation=()" },
         ],
       },
+      { source: "/api/business/shop/:id", headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }, { key: "Permissions-Policy", value: "camera=(), geolocation=()" }] },
     ];
   },
 };
