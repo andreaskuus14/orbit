@@ -9,7 +9,7 @@ export function cleanForSpeech(md: string): string {
     .replace(/^[ \t]*\|(.*?)\|?[ \t]*$/gm, (_, row: string) => row.split("|").map((c) => c.trim()).filter(Boolean).join(", "))
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\((?:[^()\s]|\([^)]*\))*\)/g, "$1")
-    .replace(/\[(?:\d+|m:[^\]\s]+)\]/g, "") // citation markers [1] / [m:uuid]
+    .replace(/\[(?:\d+|[mw]:[^\]\s]+)\]/g, "") // citation markers [1] / [m:uuid] / [w:goal:id]
     .replace(/https?:\/\/\S+/g, "a link")
     .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "")
     .replace(/^[ \t]{0,3}>[ \t]?/gm, "")
