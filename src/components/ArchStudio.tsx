@@ -3,6 +3,7 @@
 // Heavy work stays off the main thread: scans parse in the splat worker, photos shrink via createImageBitmap/OffscreenCanvas.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DEFAULT_MAX_SPLATS } from "@/lib/splat-pure";
+import type { ArchDigest } from "@/lib/arch-digest-pure";
 import { scanNote, searchStudio, studioItems, studioLinks, type Critique, type StudioItem, type StudioMemory } from "@/lib/arch-studio-pure";
 import type { ScanData, SplatWorker } from "./SplatCloud";
 
@@ -21,21 +22,22 @@ async function shrink(f: File): Promise<File> {
   return new File([await c.convertToBlob({ type: "image/jpeg", quality: 0.85 })], f.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
 }
 
-export function ArchStudio({ worker, lesson, lessonKey, onScan, onTeach, bump }: {
+export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTeach, bump }: {
   worker: SplatWorker; lesson: { building: string; text: string } | null; lessonKey: string;
-  onScan: (s: ScanData) => void; onTeach: (topic: string) => void; bump: number;
+  onScan: (s: ScanData) => void; onScanNote: (id: string, content: string) => void; onTeach: (topic: string) => void; bump: number;
 }) {
   const [scanMsg, setScanMsg] = useState(""), [scanBusy, setScanBusy] = useState(false);
   const [photo, setPhoto] = useState<File | null>(null), [brief, setBrief] = useState("");
   const [crit, setCrit] = useState<Critique | null>(null), [critMsg, setCritMsg] = useState(""), [critBusy, setCritBusy] = useState(false);
   const [rows, setRows] = useState<StudioMemory[]>([]), [q, setQ] = useState(""), [open, setOpen] = useState<string | null>(null), [libMsg, setLibMsg] = useState("");
+  const [digest, setDigest] = useState<ArchDigest | null>(null);
   useEffect(() => { try { setBrief(localStorage.getItem(BRIEF_KEY) ?? ""); } catch { /* private mode */ } }, []);
   useEffect(() => { try { localStorage.setItem(BRIEF_KEY, brief); } catch { /* private mode */ } }, [brief]);
 
   const refresh = useCallback(async () => {
     const r = await fetch("/api/arch/studio").catch(() => null);
     const j = await r?.json().catch(() => null);
-    if (r?.ok && Array.isArray(j?.rows)) { setRows(j.rows); setLibMsg(""); } else setLibMsg(j?.error ?? "Couldn't load the library.");
+    if (r?.ok && Array.isArray(j?.rows)) { setRows(j.rows); setDigest(j.digest ?? null); setLibMsg(""); } else setLibMsg(j?.error ?? "Couldn't load the library.");
   }, []);
   useEffect(() => { void refresh(); }, [refresh, bump]);
 
@@ -62,19 +64,21 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onTeach, bump }:
       const { lo, hi } = r.bounds;
       const note = scanNote({ file: f.name, vault: saved, format: r.format, total: r.total, count: r.count, size: [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]] }, lessonKey);
       const m = await fetch("/api/memories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "document", ...note }) });
+      const mem = (await m.json().catch(() => null))?.memory;
+      if (mem?.id) onScanNote(mem.id, String(mem.content ?? note.content));
       setScanMsg(m.ok ? `Saved as ${saved} in VAULT, linked in MEMORY.` : `Saved as ${saved} in VAULT; the MEMORY note failed.`);
       void refresh();
     } catch (e) { setScanMsg((e as Error).message); } finally { setScanBusy(false); }
   }
 
-  async function openScan(name: string) {
+  async function openScan(name: string, it: StudioItem) {
     setScanBusy(true); setScanMsg(`Opening ${name}…`);
     try {
       const r = await fetch(`/api/vault?file=${encodeURIComponent(name)}&raw=1`);
       if (!r.ok) throw new Error(r.status === 404 ? `${name} isn't on this PC (restore it in VAULT if it's cloud-only).` : `Couldn't open ${name} (${r.status}).`);
       const buf = await r.arrayBuffer();
       const s = await worker.call({ parse: buf, max: DEFAULT_MAX_SPLATS, store: false }, [buf]);
-      onScan({ ...s, name, bytes: null });
+      onScan({ ...s, name, bytes: null, noteId: it.id, note: it.content });
       setScanMsg(`${name}: ${s.count.toLocaleString("en")} splats.`);
     } catch (e) { setScanMsg((e as Error).message); } finally { setScanBusy(false); }
   }
@@ -100,6 +104,13 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onTeach, bump }:
   return (
     <details className="card space-y-2" aria-label="ARCH studio">
       <summary className="muted cursor-pointer text-[10px] uppercase tracking-widest">Studio · scans · sketch critique · precedents</summary>
+
+      {digest && <div className="space-y-1" aria-label="This week in the studio">
+        <div className="muted text-[10px] uppercase tracking-widest">Week of {digest.week}</div>
+        <p className="text-xs">{digest.lessons} lesson{digest.lessons === 1 ? "" : "s"}{digest.precedents.length ? ` (${digest.precedents.join(", ")})` : ""} · {digest.critiques} critique{digest.critiques === 1 ? "" : "s"} · {digest.scans} scan{digest.scans === 1 ? "" : "s"}</p>
+        {digest.weak.length > 0 && <p className="text-xs">Recurring: {digest.weak.map((w) => `${w.aspect} ${w.count}×`).join(", ")}</p>}
+        <p className="text-xs"><span className="font-semibold">Focus next week. </span>{digest.focus}</p>
+      </div>}
 
       <div className="space-y-1.5">
         <div className="muted text-[10px] uppercase tracking-widest">Scan</div>
@@ -146,7 +157,7 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onTeach, bump }:
             {isOpen && <div className="space-y-1 px-1 py-1 text-xs">
               <p className="muted whitespace-pre-line">{it.content.slice(0, 700)}{it.content.length > 700 ? "…" : ""}</p>
               <div className="flex flex-wrap gap-1">
-                {it.vault && <button className="chip" disabled={scanBusy} onClick={() => void openScan(it.vault!)}>◍ Open scan</button>}
+                {it.vault && <button className="chip" disabled={scanBusy} onClick={() => void openScan(it.vault!, it)}>◍ Open scan</button>}
                 {it.image && <a className="chip" href={`/api/memories/${it.id}/file`} target="_blank" rel="noreferrer">Sketch ↗</a>}
                 {near.map((n) => <button key={n.id} className="chip" onClick={() => setOpen(n.id)} title="Linked by building">{ICON[n.kind]} {n.title.slice(0, 40)}</button>)}
               </div>
