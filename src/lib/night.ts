@@ -104,6 +104,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     followups: dueFollowups((prospects.data ?? []) as Prospect[], Date.now()), drafted: st.users[userId]?.drafted ?? {},
     nicheDue: !!board && !board.busy && scoutDue({ lastAttempt: board.lastAttempt ?? undefined, lastOk: board.lastOk ?? undefined }, Date.now()),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
+    health: true,
     handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(),
     boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({})),
   };
@@ -160,6 +161,11 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
       const r = await (await import("./deals")).huntDeals(sb, userId, "background", { signal, max: t.calls });
       if (!r.wishes) return { ...base, status: "skipped", why: "No wish was due", at: at() };
       return { ...base, label: r.great ? `${r.great} great deal${r.great > 1 ? "s" : ""} found` : `Deal hunt: ${r.offers} offer${r.offers === 1 ? "" : "s"}, none great yet`, status: "done", open: { panel: "markets" }, at: at() };
+    }
+    case "health": { // reads logs and failures, writes notes for the Doctor panel; never touches code
+      const r = await (await import("./health")).runHealth(sb, userId, signal);
+      return r.fresh ? { ...base, label: `Health check: ${r.fresh} new problem${r.fresh > 1 ? "s" : ""} (see the Doctor panel)`, status: "done", at: at() }
+        : { ...base, status: "skipped", why: r.open ? `Nothing new; ${r.open} known problem${r.open > 1 ? "s" : ""} still open` : "Nothing broke", at: at() };
     }
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions

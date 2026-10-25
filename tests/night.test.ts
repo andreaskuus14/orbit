@@ -158,3 +158,10 @@ test("queue_tonight: T2, only on the owner's explicit 'tonight' ask, before any 
   assert.ok(decide("queue_tonight", {}, { ...ctx, stopAll: true }).allow);
   assert.equal(tonightBlocked("do the night shift on this", false), "");
 });
+
+test("planNight: the health check runs right after the tidy-up when asked, and only once a night", () => {
+  const i = { tonight: [], goals: [], followups: [], drafted: {}, nicheDue: false, handled: [], now: 0, today: "2026-10-25" };
+  assert.deepEqual(planNight({ ...i, health: true }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "health", "clips"]);
+  assert.deepEqual(planNight({ ...i, health: true, handled: ["health:health"] }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "clips"]);
+  assert.equal(planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.some((t) => t.kind === "health"), false);
+});

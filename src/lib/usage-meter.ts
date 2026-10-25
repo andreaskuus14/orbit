@@ -73,5 +73,7 @@ export function setUsageSettings(b: Record<string, unknown>): string {
 
 /** Claude calls recorded since `t` (ms): the night shift measures its budget with it (it counts every overnight call, conservatively). */
 export const callsSince = (t: number) => meter().calls.reduce((n, c) => n + (c.at >= t ? 1 : 0), 0);
+/** Failed calls since `t` (ms), purpose and time only: the night health check counts them. */
+export const failedCallsSince = (t: number) => meter().calls.filter((c) => !c.ok && c.at >= t).map((c) => ({ at: c.at, purpose: c.purpose }));
 /** When the owner last talked to CORE (its calls use purposes starting "core"); 0 if not in the last 7 days. */
 export const lastCoreCallAt = () => meter().calls.reduce((m, c) => (c.purpose.startsWith("core") && c.at > m ? c.at : m), 0);
