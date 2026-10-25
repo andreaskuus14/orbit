@@ -64,9 +64,9 @@ export async function maybeCall(): Promise<void> {
     const dev = (await listDevices()).find((d) => d.push);
     if (!dev) return;
     const sb = await ownerClient(dev.userId);
-    const [items, report] = await Promise.all([pendingApprovals(sb), readSleepReport(dev.userId).catch(() => undefined)]);
+    const [items, report, deals] = await Promise.all([pendingApprovals(sb), readSleepReport(dev.userId).catch(() => undefined), import("./deals").then((d) => d.freshDeals(now), () => ({ ids: [] }))]);
     let ring: ReturnType<typeof decideCall>["ring"] = null;
-    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)) }); ring = r.ring; return r.state; });
+    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids }); ring = r.ring; return r.state; });
     if (!ring) return;
     const { reason, things } = ring as NonNullable<typeof ring>;
     G.ring = { reason, at: now };
@@ -109,7 +109,8 @@ export async function startCall(sb: SupabaseClient, userId: string): Promise<{ i
   const reason = ringing() ?? "manual";
   G.ring = null;
   const items = await toItems(sb).catch(() => []);
-  const text = opener(reason, localParts(Date.now()).h, items);
+  const deal = reason === "deal" ? (await import("./deals").then((d) => d.freshDeals(), () => null))?.latest : null;
+  const text = opener(reason, localParts(Date.now()).h, items, deal);
   const id = randomUUID();
   G.sessions.set(id, { id, userId, sb, reason, turns: [{ role: "assistant", content: text }], pending: null, done: [], n: 0, lastAt: Date.now() });
   sweep();

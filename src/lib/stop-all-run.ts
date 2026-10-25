@@ -8,6 +8,7 @@ import { resumeClipQueue } from "@/lib/clips/factory";
 import { abortNicheWork } from "@/lib/niche";
 import { pushNotify } from "@/lib/remote-push";
 import { abortNightShift } from "@/lib/night";
+import { abortDealHunt } from "@/lib/deals";
 
 /** Turn Stop-all on (cancelling running tasks/teams/goal drivers) or off (resuming queues). Used by /api/stop-all and the phone remote. */
 export async function switchStopAll(sb: SupabaseClient, userId: string, on: boolean, via = "") {
@@ -19,6 +20,7 @@ export async function switchStopAll(sb: SupabaseClient, userId: string, on: bool
     goals = abortGoalDrivers();
     abortNicheWork(); // BUSINESS niche scout / shop build
     abortNightShift(); // the night shift's current step (its agent task is also in liveTaskIds above)
+    abortDealHunt(); // a running deal hunt (MARKETS → Deals)
     pushNotify("stop");
   } else {
     resumeClipQueue(); void kickQueue(sb, userId); void resumeChains(sb, userId).catch(() => {}); void resumeGoals(sb, userId).catch(() => {}); // don't wait for the next tick

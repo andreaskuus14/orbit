@@ -31,7 +31,7 @@ export function stepLabel(tool: string, input: Record<string, unknown> = {}): st
     studio_status: "Checking the studio…", learned: "Checking what works…", run_scout: "Starting the scout…",
     run_niche: "Starting niche research…", schedule_approved: "Scheduling clips…",
     rea_status: "Checking project analysis…", rea_analyze: "Starting project analysis…", rea_read: "Reading analysis evidence…", rea_cancel: "Stopping analysis…",
-    suggestions: "Checking what needs attention…", plan_task: "Starting the plan…", create_goal: "Setting up the goal…", goal_status: "Checking your goals…", review: "Double-checking the answer…",
+    suggestions: "Checking what needs attention…", plan_task: "Starting the plan…", create_goal: "Setting up the goal…", goal_status: "Checking your goals…", wishlist: "Checking your wishlist…", add_wish: "Adding to your wishlist…", review: "Double-checking the answer…",
   };
   return labels[tool] ?? "Working…";
 }

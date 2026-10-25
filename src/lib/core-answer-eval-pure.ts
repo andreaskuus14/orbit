@@ -5,9 +5,9 @@ export type CoreEvalTool = { tool: string; input: Readonly<Record<string, unknow
 const READS: Record<string, AnswerAction> = {
   search_memory: "search", web_search: "search", vault_search: "search", fetch_url: "read", read_news: "read",
   vault_read: "read", ws_read: "read", ws_list: "read", life_status: "read", life_journal: "read", calendar_events: "read",
-  git_summary: "read", studio_status: "read", learned: "read", business_status: "read", ideas_list: "read", goal_status: "read",
+  git_summary: "read", studio_status: "read", learned: "read", business_status: "read", ideas_list: "read", goal_status: "read", wishlist: "read",
 };
-const DONE: Record<string, AnswerAction[]> = { life_add_habit: ["create"], life_remind: ["create", "schedule"], life_check: ["update"], create_goal: ["create"] };
+const DONE: Record<string, AnswerAction[]> = { life_add_habit: ["create"], life_remind: ["create", "schedule"], life_check: ["update"], create_goal: ["create"], add_wish: ["create"] };
 const text = (v: unknown) => typeof v === "string" ? v : "";
 
 /** Adapt actual CORE tool results. Write receipts survive partial failure, but only for confirmed artifacts.

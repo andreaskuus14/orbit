@@ -29,6 +29,9 @@ type Data = {
   "night.end": { night: string; done: number; approvals: number; failed: number; calls: number; minutes: number };
   "lesson.kept": { id: string }; // learning loop (lessons.ts): the lesson id only, never its text
   "lesson.rejected": { id: string };
+  "deal.wish": { wishId: string; action: "added" | "removed" | "done" }; // deal hunter (deals.ts): ids and counts only, never items, prices or URLs
+  "deal.hunt": { wishId: string; offers: number; great: number };
+  "deal.found": { wishId: string; offerId: string };
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -66,6 +69,9 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "night.end": { night: id, done: count, approvals: count, failed: count, calls: count, minutes: count },
   "lesson.kept": { id },
   "lesson.rejected": { id },
+  "deal.wish": { wishId: id, action: oneOf(["added", "removed", "done"]) },
+  "deal.hunt": { wishId: id, offers: count, great: count },
+  "deal.found": { wishId: id, offerId: id },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];

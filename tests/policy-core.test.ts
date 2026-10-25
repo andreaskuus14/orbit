@@ -12,6 +12,7 @@ import { asksToRemember } from "../src/lib/reflect-pure.ts";
 import { ledgerIssue } from "../src/lib/ledger-pure.ts";
 import { draftBlocked } from "../src/lib/higgsfield-pure.ts";
 import { tonightBlocked } from "../src/lib/night-pure.ts";
+import { wishBlocked } from "../src/lib/deals-pure.ts";
 
 const ctx = (o: Partial<PolicyCtx> = {}): PolicyCtx => ({ stopAll: false, attach: false, pins: false, steps: [], question: "hello", ...o });
 const step = (tool: string, input: object = {}) => `You called ${tool} ${JSON.stringify(input)}\nRESULT:\nok`;
@@ -38,6 +39,7 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   else if (tool === "create_goal") b = createGoalBlocked(question, dataIn());
   else if (tool === "higgsfield_draft") b = draftBlocked(question, dataIn()); // roadmap 3.1: its runner's guard (story.ts runDraftTool)
   else if (tool === "queue_tonight") b = tonightBlocked(question, dataIn()); // night shift: its runner's guard (night.ts runTonightTool)
+  else if (tool === "add_wish") b = wishBlocked(question, dataIn()); // deal hunter: its runner's guard (deals.ts runDealTool)
   else if (tool === "save_memory" && !asksToRemember(question)) return "Error: only save when the user asks; reflection handles the rest";
   else if (!(tool in TIERS)) return `Error: unknown tool "${tool}"`;
   return b ? `Error: ${b}` : "";

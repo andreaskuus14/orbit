@@ -103,6 +103,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     tonight: st.users[userId]?.tonight ?? [], goals: (goals.data ?? []) as { id: string; doc: import("./goals-pure").Goal }[],
     followups: dueFollowups((prospects.data ?? []) as Prospect[], Date.now()), drafted: st.users[userId]?.drafted ?? {},
     nicheDue: !!board && !board.busy && scoutDue({ lastAttempt: board.lastAttempt ?? undefined, lastOk: board.lastOk ?? undefined }, Date.now()),
+    deals: await import("./deals").then((d) => d.dueCount(), () => 0),
     handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(),
     boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({})),
   };
@@ -154,6 +155,11 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
       await n.maybeWeeklyScout();
       const b = await n.nicheBoard();
       return b.lastOk && b.lastOk !== before ? { ...base, status: "done", label: "New BUSINESS niche ideas", open: { panel: "business" }, at: at() } : { ...base, status: b.lastError ? "failed" : "skipped", why: (b.lastError ?? "Not due").slice(0, 200), at: at() };
+    }
+    case "deals": { // read-only web hunt; a great deal pushes "Deal found" and may ring him after 08:00 (call-pure)
+      const r = await (await import("./deals")).huntDeals(sb, userId, "background", { signal, max: t.calls });
+      if (!r.wishes) return { ...base, status: "skipped", why: "No wish was due", at: at() };
+      return { ...base, label: r.great ? `${r.great} great deal${r.great > 1 ? "s" : ""} found` : `Deal hunt: ${r.offers} offer${r.offers === 1 ? "" : "s"}, none great yet`, status: "done", open: { panel: "markets" }, at: at() };
     }
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions
