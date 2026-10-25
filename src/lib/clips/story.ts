@@ -11,7 +11,7 @@ import { PAUSED_MSG } from "../stop-all-pure";
 import { errText } from "../core-studio";
 import { STATE_V, audioArgs, parseDuration, probeArgs, type Word } from "./pure";
 import {
-  STORY_SCENES, approveProblem, fingerprint, hfErrorKind, parseStory, quoteTotal, storyItems, storyProblem, unpaid, validStory,
+  DRAMA_MODELS, DRAMA_SYSTEM, STORY_SCENES, approveProblem, mergeItems, payable, redoItem, fingerprint, hfErrorKind, jsonObject, parseStory, quoteTotal, storyItems, storyProblem, validDrama, validStory,
   type Models, type Story, type StoryJob, type StoryOpts,
 } from "./story-pure";
 import type { ClipJob } from "./types";
@@ -63,11 +63,13 @@ Reply with ONLY one JSON object, no prose, no code fences:
 
 /** Claude writes the story package (one retry when the reply doesn't validate). */
 export async function writeStory(o: StoryOpts, signal?: AbortSignal): Promise<StoryJob> {
-  const ask = `Idea: ${o.idea}\nStyle: ${o.style || "cinematic, detailed digital painting"}\nTarget length: ${o.length} seconds`;
+  const drama = o.format === "drama";
+  const ask = drama ? `Idea: ${o.idea}${o.style ? `\nStyle: ${o.style}` : ""}`
+    : `Idea: ${o.idea}\nStyle: ${o.style || "cinematic, detailed digital painting"}\nTarget length: ${o.length} seconds`;
   let story: Story | string = "";
   for (let i = 0; i < 2 && typeof story === "string"; i++) {
-    const r = await askClaude(i ? `${ask}\n\nYour last reply was rejected: ${story}. Reply with the JSON only.` : ask, SYSTEM, { lane: "foreground", signal, model: MODEL, purpose: "clips", timeoutMs: 3 * 60_000 });
-    story = parseStory(r.text, o.length);
+    const r = await askClaude(i ? `${ask}\n\nYour last reply was rejected: ${story}. Reply with the JSON only.` : ask, drama ? DRAMA_SYSTEM : SYSTEM, { lane: "foreground", signal, model: MODEL, purpose: "clips", timeoutMs: 3 * 60_000 });
+    story = drama ? validDrama(jsonObject(r.text)) : parseStory(r.text, o.length);
   }
   if (typeof story === "string") throw new Error(`Claude's story didn't fit: ${story}`);
   const now = new Date().toISOString();
@@ -101,21 +103,37 @@ export async function weekUsage(): Promise<{ used: number; cap: number }> {
   return { used: weekSpent((await listStories()).flatMap((j) => j.approved ?? []), Date.now()), cap: weeklyCap(process.env.ORBIT_HIGGSFIELD_WEEKLY_CAP) };
 }
 
-/** The owner's edits. Only before anything was submitted; drops the old quote. */
-export async function editStory(job: StoryJob, input: unknown): Promise<StoryJob | string> {
+/** The owner's edits (and, for a drama, the video model). Narrated stories: only before anything was submitted. Dramas: any time
+ *  between runs (unchanged made items are kept, see mergeItems). Drops the old quote. */
+export async function editStory(job: StoryJob, input: unknown, model?: unknown): Promise<StoryJob | string> {
   if (job.draft) return "A CORE draft can't be edited: ask CORE for a new one";
-  if (job.items.some((i) => i.jobId) || ["generating", "assembling", "done"].includes(job.status)) return "This story is already being made; write a new one to change it";
-  const story = validStory(input, job.opts.length, false);
+  const drama = job.opts.format === "drama";
+  if (job.status === "generating" || job.status === "assembling") return "This story is being made; wait for it";
+  if (!drama && job.items.some((i) => i.jobId)) return "This story is already being made; write a new one to change it";
+  if (model !== undefined && (!drama || typeof model !== "string" || !(model in DRAMA_MODELS))) return "model must be one of the talking-drama video models";
+  const story = drama ? validDrama(input, false) : validStory(input, job.opts.length, false);
   if (typeof story === "string") return story;
-  Object.assign(job, { story, items: storyItems(story, job.opts, models()), quote: undefined, error: undefined, status: "draft", step: "Edited: get the cost again" });
+  if (model) job.opts = { ...job.opts, model: model as string };
+  // A drama keeps what's already made and unchanged (its character images, untouched shots): only the changes are paid again.
+  const items = drama ? mergeItems(job.items, storyItems(story, job.opts, models())) : storyItems(story, job.opts, models());
+  Object.assign(job, { story, items, quote: undefined, error: undefined, status: "draft", step: "Edited: get the cost again" });
   await save(job);
   return job;
 }
 
-/** Asks Higgsfield the price of every unpaid item (get_cost only: nothing is generated). */
+/** "Regenerate" one character image (before the shots are made) or one shot (also after the Short is built): the next quote prices only it. */
+export async function redoStory(job: StoryJob, key: unknown): Promise<StoryJob | string> {
+  if (S.running?.id === job.id) return "This story is being made; wait for it";
+  const why = redoItem(job, key);
+  if (why) return why;
+  await save(job);
+  return job;
+}
+
+/** Asks Higgsfield the price of every item the owner can approve now (get_cost only: nothing is generated). */
 export async function quoteStory(job: StoryJob, signal?: AbortSignal): Promise<StoryJob> {
   if (job.status === "generating" || job.status === "assembling") return job;
-  const todo = unpaid(job.items);
+  const todo = payable(job.items);
   const r = todo.length ? await higgsfield().quote(todo, signal ?? new AbortController().signal) : { ok: { balance: null, plan: null, credits: {} } };
   if ("error" in r) { Object.assign(job, { error: r.error, step: "Couldn't get the cost" }); await save(job); return job; }
   for (const it of todo) it.credits = r.ok.credits[it.key];
@@ -160,8 +178,13 @@ async function run(job: StoryJob, signal: AbortSignal) {
     if (!ff) throw new StoryError("other", "ffmpeg not found: run npm install (ffmpeg-static) or set ORBIT_FFMPEG");
     await mkdir(dir, { recursive: true });
     const out = await makeStory(job, dir, await deps(ff, job, dir), signal);
-    const clip: ClipJob["clips"][number] = { id: "clip-1", start: 0, end: out.duration, title: job.story.title, hook: job.story.hook, reason: "AI story made with Higgsfield", score: 0,
-      status: "ready", video: `clips/${job.clipJob}/${out.video}`, thumb: out.thumb && `clips/${job.clipJob}/${out.thumb}`,
+    if (!out) { // drama: the character images are made; the shots need their own quote and click
+      Object.assign(job, { status: "draft", quote: undefined, step: "Characters ready: check them (regenerate any you don't like), then get the cost of the shots" });
+      return;
+    }
+    const rel = (f: string) => `clips/${job.clipJob}/${f}`;
+    const clip: ClipJob["clips"][number] = { id: "clip-1", start: 0, end: out.duration, title: out.titles?.[0]?.text ?? job.story.title, hook: job.story.hook, reason: "AI story made with Higgsfield", score: 0,
+      status: "ready", video: rel(out.video), thumb: out.thumb && rel(out.thumb), ...(out.titles ? { titleOptions: out.titles } : {}), ...(out.thumbs?.length ? { thumbOptions: out.thumbs.map(rel) } : {}),
       notes: ["AI-generated: tick YouTube's altered or synthetic content label when you publish"] };
     const now = new Date().toISOString();
     await saveJob({ v: STATE_V, id: job.clipJob!, source: `AI story: ${job.story.title}`, createdAt: now, updatedAt: now, status: "done", progress: 1, step: "1 clip ready",
@@ -184,6 +207,7 @@ async function deps(ff: string, job: StoryJob, dir: string): Promise<RenderDeps>
     ffmpeg: exec,
     music: music.length ? path.join(musicDir(), music[Math.floor(Math.random() * music.length)]) : null,
     duration: async (f, signal) => parseDuration(await runFfmpeg(ff, probeArgs(f, true), { signal, timeoutMs: 60_000, okCodes: [1] })) ?? 0,
+    hasAudio: async (f, signal) => /Stream #\d+:\d+.*: Audio:/.test(await runFfmpeg(ff, probeArgs(f, true), { signal, timeoutMs: 60_000, okCodes: [1] })),
     async tts(text, voice, file) {
       const tts = (S.tts ??= import("kokoro-js").then((m) => m.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" })) as NonNullable<S["tts"]>);
       tts.catch(() => { S.tts = undefined; }); // let a later story retry the load

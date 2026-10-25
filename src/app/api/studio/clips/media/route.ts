@@ -8,7 +8,7 @@ import { parseByteRange, resolveInside } from "@/lib/clips/pure";
 
 export const dynamic = "force-dynamic";
 
-const TYPES: Record<string, string> = { ".mp4": "video/mp4", ".jpg": "image/jpeg" };
+const TYPES: Record<string, string> = { ".mp4": "video/mp4", ".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" }; // png/webp: AI Story character previews
 
 // Streams a rendered clip or thumbnail. ?f= is a Clip.video/thumb path ("clips/<job>/<file>"); only files under clips/ are served.
 // Range support lets <video> seek.
