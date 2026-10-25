@@ -2,13 +2,14 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Analysis, getMarkets } from "@/lib/markets";
 import { NOTE, sparkPath, type Point, type Strategy } from "@/lib/markets-pure";
+import DealCards from "./DealCards";
 
 // MARKETS drawer: watchlist, tracked portfolio, price alerts, AI explainer, PAPER trading + rule-based paper bot.
 // Tracking, education and simulation only — no broker, no real money. All data via /api/markets.
 
 type State = Awaited<ReturnType<typeof getMarkets>>;
 type Act = (body: object) => Promise<Record<string, unknown> | null>;
-const TABS = ["Watchlist", "Portfolio", "Alerts", "Analysis", "Paper"] as const;
+const TABS = ["Watchlist", "Portfolio", "Alerts", "Analysis", "Paper", "Deals"] as const;
 type Tab = (typeof TABS)[number];
 
 async function post(body: object): Promise<Record<string, unknown>> {
@@ -54,6 +55,7 @@ export default function MarketsPanel() {
           {tab === "Alerts" && <Alerts st={st} act={act} />}
           {tab === "Analysis" && <Explain tickers={st.watchlist.map((w) => w.ticker)} />}
           {tab === "Paper" && <Paper st={st} act={act} />}
+          {tab === "Deals" && <DealCards />}
         </div>
       )}
     </div>

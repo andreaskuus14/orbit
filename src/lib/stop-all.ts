@@ -6,7 +6,7 @@ import { STOP_OFF, parseStop, type StopState } from "./stop-all-pure.ts";
 
 // Global Stop-all flag: <ORBIT data dir>/stop-all.json, cached on globalThis so every entry point can check it synchronously.
 // Who checks it: scheduler tick, automations, kickQueue/runTask, chains drive, goals advance/draftPlan, plans drive, scout tick +
-// auto-clip, inbox auto-clip, autopilot tick, herald watch (niche scan + toasts), proposals, CORE's work-starting tools. Cancelling running work: /api/stop-all.
+// auto-clip, inbox auto-clip, autopilot tick, herald watch (niche scan + toasts), proposals, deal hunter (deals.ts), CORE's work-starting tools. Cancelling running work: /api/stop-all.
 
 const file = () => path.join(orbitDataDir(), "stop-all.json");
 const g = globalThis as unknown as { __orbitStopAll?: StopState; __orbitStopSave?: Promise<unknown> };

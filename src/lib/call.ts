@@ -68,9 +68,9 @@ export async function maybeCall(): Promise<void> {
     const dev = (await listDevices()).find((d) => d.push);
     if (!dev) return;
     const sb = await ownerClient(dev.userId);
-    const [items, report] = await Promise.all([pendingApprovals(sb), readSleepReport(dev.userId).catch(() => undefined)]);
+    const [items, report, deals] = await Promise.all([pendingApprovals(sb), readSleepReport(dev.userId).catch(() => undefined), import("./deals").then((d) => d.freshDeals(now), () => ({ ids: [] }))]);
     let ring: ReturnType<typeof decideCall>["ring"] = null;
-    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)) }); ring = r.ring; return r.state; });
+    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids }); ring = r.ring; return r.state; });
     if (!ring) return;
     const { reason, things } = ring as NonNullable<typeof ring>;
     G.ring = { reason, at: now };
@@ -119,6 +119,8 @@ async function callNotes(sb: SupabaseClient, userId: string): Promise<{ when: st
 }
 
 const PRE_MS = RING_MS;
+/** The newest great deal for a "deal" ring's opener ("an offer came in for X"), else null. */
+const dealFor = (reason: CallReason) => (reason === "deal" ? import("./deals").then((d) => d.freshDeals().then((f) => f.latest), () => null) : Promise.resolve(null));
 /** An opener split into sentences, each one's audio queued now (in order, ahead of anything queued later). */
 function voice(text: string): Voiced {
   const parts = takeSentences(text, true).done;
@@ -129,7 +131,7 @@ function voice(text: string): Voiced {
 function prepareOpener(sb: SupabaseClient, userId: string, reason: CallReason): Pre {
   const at = Date.now();
   const items = toItems(sb).catch(() => [] as CallItem[]);
-  const plainBase = items.then((it) => opener(reason, localParts(at).h, it));
+  const plainBase = Promise.all([items, dealFor(reason)]).then(([it, deal]) => opener(reason, localParts(at).h, it, deal));
   // Morning call: the same composer as the PC's morning brief; any failure keeps the plain opener.
   const base = reason !== "morning" ? plainBase : import("./brief").then((b) => b.morningOpener(sb, userId, localParts(at).h)).then((t) => t ?? plainBase, () => plainBase);
   const text = Promise.all([base, callNotes(sb, userId).catch(() => [])]).then(async ([b, notes]) => {
@@ -169,7 +171,7 @@ export async function startCall(sb: SupabaseClient, userId: string): Promise<Res
     ahead = !!v;
     v ??= voice(await pre.base);
   }
-  const { text, parts, audio } = v ?? voice(opener(reason, localParts(t0).h, items));
+  const { text, parts, audio } = v ?? voice(opener(reason, localParts(t0).h, items, await dealFor(reason)));
   const id = randomUUID();
   const s: Session = { id, userId, sb, reason, turns: [{ role: "assistant", content: text }], pending: null, done: [], n: 0, lastAt: t0, said: new Set(parts.map(phraseKey)) };
   G.sessions.set(id, s);
