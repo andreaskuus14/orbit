@@ -19,7 +19,7 @@ const save = (s: Saved) => { try { localStorage.setItem(KEY, JSON.stringify(s));
 const SEEN = "orbit.lastSeen"; // ms epoch of the last minute a window was visible (shared across windows)
 const lastSeen = () => { try { const v = Number(localStorage.getItem(SEEN)); return v > 0 ? v : null; } catch { return null; } };
 const markSeen = (t: number) => { try { localStorage.setItem(SEEN, String(t)); } catch { /* no storage: no recap */ } };
-const whatsNewUp = () => !!document.querySelector(".whats-new"); // WHAT'S NEW is on top: it owns Esc, and nothing is read aloud under it
+const whatsNewUp = () => !!document.querySelector(".whats-new, .morning-brief"); // WHAT'S NEW or the morning brief is on top: it owns Esc, and nothing is read aloud under it
 type Req = { current: AbortController | null };
 const begin = (r: Req) => { r.current?.abort(); return (r.current = new AbortController()); };
 const end = (r: Req, c: AbortController) => { if (r.current === c) r.current = null; };
