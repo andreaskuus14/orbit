@@ -28,7 +28,7 @@ async function readBytes(file: string, start: number, end: number): Promise<Buff
 }
 
 /** New text in `file` since `prev` (and the tail of "<file>.1" when the launcher rotated it); returns the new mark. */
-async function readSince(file: string, prev: Mark | null): Promise<{ text: string; mark: Mark | null }> {
+export async function readSince(file: string, prev: Mark | null): Promise<{ text: string; mark: Mark | null }> {
   const s = await stat(file).catch(() => null);
   if (!s) return { text: "", mark: prev };
   const id = String(s.birthtimeMs);

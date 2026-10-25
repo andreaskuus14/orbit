@@ -1,10 +1,12 @@
 import { disk, runDoctor } from "@/lib/doctor";
 import { bootSelfTest } from "@/lib/doctor-boot";
+import { healthView } from "@/lib/health";
 import { requireUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-// ORBIT doctor: every health check with a plain-English fix. Signed-in only; returns no secrets (env names only) and no log text.
+// ORBIT doctor: every health check with a plain-English fix. Signed-in only; returns no secrets (env names only). Log text appears only as the
+// night health check's redacted evidence excerpts (health-pure redact), for the owner to copy to a builder.
 // ?boot=1 → only this boot's cached self-test (what the bell uses); otherwise a fresh report plus that self-test.
 export async function GET(req: Request) {
   const { sb, res } = await requireUser();
@@ -16,6 +18,6 @@ export async function GET(req: Request) {
   }
   const boot = bootSelfTest().catch(() => null);
   if (new URL(req.url).searchParams.get("boot")) return Response.json(await boot);
-  const [report, b] = await Promise.all([runDoctor(sb), boot]);
-  return Response.json({ ...report, boot: b });
+  const [report, b, health] = await Promise.all([runDoctor(sb), boot, healthView().catch(() => null)]);
+  return Response.json({ ...report, boot: b, health });
 }

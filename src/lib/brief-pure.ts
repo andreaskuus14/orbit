@@ -6,10 +6,10 @@ import { plain } from "./morning-pure.ts";
 import type { PanelId } from "./planets";
 import type { WorkItem } from "./work-continuation-pure";
 
-export type BriefKind = "decision" | "night" | "calendar" | "first" | "result" | "lesson";
+export type BriefKind = "decision" | "night" | "health" | "calendar" | "first" | "result" | "lesson";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
-export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" };
+export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true };
 export type BriefItem = { id: string; kind: BriefKind; say: string; title: string; detail?: string; open?: BriefOpen; approve?: BriefApprove };
 export type Brief = { day: string; greeting: string; items: BriefItem[]; spoken: string; polished?: boolean };
 
@@ -20,6 +20,7 @@ export type BriefIn = {
   morning: Pick<Morning, "night" | "calendar" | "life" | "hero" | "studio">;
   decisions: Decision[]; replies: { id: string; name: string }[];
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
+  health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   lesson?: { id: string; text: string }; snoozed: string[];
 };
 
@@ -59,7 +60,7 @@ export function briefDecisions(night: NightApproval[], work: WorkItem[], remote:
   return out;
 }
 
-/** The brief's items in priority order: decisions, night shift, calendar, do-this-first, a result, a learned pattern. */
+/** The brief's items in priority order: decisions, night shift, a new serious health problem, calendar, do-this-first, a result, a learned pattern. */
 export function briefItems(x: BriefIn): BriefItem[] {
   const out: BriefItem[] = [];
   const snoozed = new Set(x.snoozed);
@@ -81,6 +82,8 @@ export function briefItems(x: BriefIn): BriefItem[] {
     add({ id: `night:${n.key}`, kind: "night", say, title: `Night shift: ${n.done.length} done${n.failed.length ? `, ${n.failed.length} failed` : ""}`,
       detail: top ? plain(top.label) : undefined, open: top?.open && "task" in top.open ? { task: top.open.task } : { panel: "agents" } });
   }
+
+  if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });
 
   const ev = x.morning.calendar?.today ?? [];
   if (ev.length) {

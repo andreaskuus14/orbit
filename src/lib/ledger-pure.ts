@@ -33,6 +33,7 @@ type Data = {
   "deal.wish": { wishId: string; action: "added" | "removed" | "done" }; // deal hunter (deals.ts): ids and counts only, never items, prices or URLs
   "deal.hunt": { wishId: string; offers: number; great: number };
   "deal.found": { wishId: string; offerId: string };
+  "health.issue": { issue: string; status: "new" | "regressed" | "resolved" }; // self-healing (health.ts): the issue id only, never log text
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -74,6 +75,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "deal.wish": { wishId: id, action: oneOf(["added", "removed", "done"]) },
   "deal.hunt": { wishId: id, offers: count, great: count },
   "deal.found": { wishId: id, offerId: id },
+  "health.issue": { issue: id, status: oneOf(["new", "regressed", "resolved"]) },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];

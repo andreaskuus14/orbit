@@ -101,3 +101,12 @@ test("a great deal is a notable result with Open to MARKETS → Deals", () => {
   assert.equal(it.say, "An offer for Sony WH-1000XM5 came in at about 190 euros. That looks like a good price.");
   assert.deepEqual(it.open, { panel: "markets", tab: "Deals" });
 });
+
+test("a new serious health problem gets one line after the night shift, opening the Doctor panel", () => {
+  const items = briefItems(base({ health: { id: "h1234abcd", title: "Crash", say: "One health note: ORBIT ran out of memory. The details are in the Doctor panel, ready to hand to a builder." } }));
+  assert.deepEqual(items.slice(0, 4).map((i) => i.kind), ["decision", "decision", "night", "health"]);
+  const h = items.find((i) => i.kind === "health")!;
+  assert.equal(h.id, "health:h1234abcd");
+  assert.deepEqual(h.open, { doctor: true });
+  assert.equal(briefItems(base({ health: { id: "h1", title: "x", say: "y" }, snoozed: ["health:h1"] })).some((i) => i.kind === "health"), false);
+});

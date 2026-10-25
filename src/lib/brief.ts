@@ -40,20 +40,21 @@ async function replies(sb: SupabaseClient, now: number) {
 /** The deterministic brief for now (no AI call). */
 export async function composeToday(sb: SupabaseClient, userId: string, now = Date.now()): Promise<Brief> {
   const day = localDay(new Date(now)), hour = new Date(now).getHours();
-  const [u, m, rem, rep, les, dl] = await Promise.all([
+  const [u, m, rem, rep, les, dl, hl] = await Promise.all([
     load().then((s) => s.users[userId] ?? {}),
     import("./morning").then((x) => x.getMorning(sb, userId, now)),
     within(import("./remote").then((x) => x.pendingApprovals(sb))).catch(() => []),
     within(replies(sb, now)).catch(() => []),
     within(import("./lessons").then((x) => x.lessonsView(userId))).then((v) => v.kept, () => []),
     within(import("./deals").then((x) => x.freshDeals(now, DAY))).catch(() => null),
+    within(Promise.all([import("./health"), import("./health-pure")]).then(async ([h, p]) => p.briefHealth(await h.healthIssues(), now))).catch(() => null),
   ]);
   const deal = dl?.latest && dl.ids.length ? { id: dl.ids[dl.ids.length - 1], ...dl.latest } : undefined;
   const lesson = les.length ? les[Math.floor(now / DAY) % les.length] : undefined; // a different kept lesson each day
   return composeBrief({
     day, hour, life: !!u.life, morning: m,
     decisions: briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem),
-    replies: rep, deal, lesson: lesson && { id: lesson.id, text: lesson.text },
+    replies: rep, deal, ...(hl && { health: hl }), lesson: lesson && { id: lesson.id, text: lesson.text },
     snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
   });
 }
