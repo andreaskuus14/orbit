@@ -94,3 +94,10 @@ test("shows once a day from 06:00", () => {
   assert.equal(shouldShowBrief("2026-10-25", 9, "2026-10-25"), false);
   assert.equal(shouldShowBrief("2026-10-24", 9, "2026-10-25"), true);
 });
+
+test("a great deal is a notable result with Open to MARKETS → Deals", () => {
+  const it = briefItems(base({ decisions: [], replies: [], morning: {}, deal: { id: "o1", item: "Sony WH-1000XM5", eur: 189.6 } })).find((i) => i.id === "deal:o1")!;
+  assert.equal(it.kind, "result");
+  assert.equal(it.say, "An offer for Sony WH-1000XM5 came in at about 190 euros, under your target.");
+  assert.deepEqual(it.open, { panel: "markets", tab: "Deals" });
+});

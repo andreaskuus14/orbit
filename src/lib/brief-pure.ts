@@ -9,7 +9,7 @@ import type { WorkItem } from "./work-continuation-pure";
 export type BriefKind = "decision" | "night" | "calendar" | "first" | "result" | "lesson";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
-export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" };
+export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" };
 export type BriefItem = { id: string; kind: BriefKind; say: string; title: string; detail?: string; open?: BriefOpen; approve?: BriefApprove };
 export type Brief = { day: string; greeting: string; items: BriefItem[]; spoken: string; polished?: boolean };
 
@@ -18,10 +18,13 @@ export type Decision = { id: string; title: string; what: string; open?: BriefOp
 export type BriefIn = {
   day: string; hour: number; life: boolean; // life: he allowed calendar titles / reminder text in the brief (off by default)
   morning: Pick<Morning, "night" | "calendar" | "life" | "hero" | "studio">;
-  decisions: Decision[]; replies: { id: string; name: string }[]; lesson?: { id: string; text: string }; snoozed: string[];
+  decisions: Decision[]; replies: { id: string; name: string }[];
+  deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
+  lesson?: { id: string; text: string }; snoozed: string[];
 };
 
 export const MAX_ITEMS = 6;
+export const MARKETS_TAB = "orbit.markets.tab"; // sessionStorage: the MARKETS tab to open on next mount (brief → Deals)
 export const MAX_WORDS = 150; // ≈ 60 s spoken
 export const TOOK_OFF = 1000; // yesterday's Short counts as "took off" from this many views
 const WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
@@ -104,6 +107,10 @@ export function briefItems(x: BriefIn): BriefItem[] {
   const rep = x.replies[0];
   if (rep) add({ id: `reply:${rep.id}`, kind: "result", title: `${plain(rep.name)} replied`, detail: "BUSINESS", open: { panel: "business" },
     say: x.replies.length === 1 ? `${short(rep.name, 6)} wrote back.` : `${short(rep.name, 6)} and ${num(x.replies.length - 1)} other ${x.replies.length === 2 ? "client" : "clients"} wrote back.` });
+
+  const deal = x.deal;
+  if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },
+    say: `An offer for ${short(deal.item, 8)} came in at about ${Math.round(deal.eur).toLocaleString("en-US")} euros, under your target.` });
 
   if (x.lesson) add({ id: `lesson:${x.lesson.id}`, kind: "lesson", title: "Something I've noticed", detail: plain(x.lesson.text), open: { panel: "profile" },
     say: `One thing I've noticed: ${plain(x.lesson.text).replace(/\?/g, "").replace(/\.$/, "").replace(/^./, (c) => c.toLowerCase())}.` });

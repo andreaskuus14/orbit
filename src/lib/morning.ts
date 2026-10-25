@@ -138,7 +138,21 @@ const approvals = (w: { items: { status: string }[]; more: number }) => {
   return k === w.items.length ? k + w.more : k;
 };
 
+// The morning card and the morning brief both ask on the first open: one gather serves both (since stays per request).
+const MEMO_MS = 15_000;
+const memo = new Map<string, { at: number; p: Promise<Morning> }>();
 export async function getMorning(sb: SupabaseClient, userId: string, now = Date.now(), from: number | null = null): Promise<Morning> {
+  let m = memo.get(userId);
+  if (!m || Math.abs(now - m.at) > MEMO_MS) {
+    const p = gather(sb, userId, now);
+    memo.set(userId, (m = { at: now, p }));
+    p.catch(() => { if (memo.get(userId)?.p === p) memo.delete(userId); });
+  }
+  const [base, since] = await Promise.all([m.p, from === null ? undefined : getSince(sb, from, now).catch(() => undefined)]);
+  return { ...base, ...(since && { since }) };
+}
+
+async function gather(sb: SupabaseClient, userId: string, now: number): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
   const today = localDay(new Date(now)); // markets' firedOn is a server-local day; goal deadlines are local days too
@@ -146,7 +160,7 @@ export async function getMorning(sb: SupabaseClient, userId: string, now = Date.
     within(clicks(sb, now)), within(devworld(sb, now)), within(deadlines(sb, userId, today)), within(archLesson(sb, now))]);
   const [s, i, a, l, r, sn, c, w, ct, bf] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
     within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
-    from === null ? Promise.resolve(undefined) : getSince(sb, from, now),
+    Promise.resolve(undefined), // since: per request, in getMorning
     // Same cache entry as the LIFE card. No Google client configured → no calendar section at all.
     within(Promise.all([import("./gcal"), import("./gcal-pure")]).then(async ([g, p]) => {
       if (!g.calEnv()) return undefined;
@@ -159,7 +173,7 @@ export async function getMorning(sb: SupabaseClient, userId: string, now = Date.
     }))]);
   const nightP = within(import("./night").then((x) => x.getNightReport(sb, userId, now))).catch(() => null); // a failure just drops the section
   const [th, al, ids, cl, dw, dl, ar] = await cardSources;
-  const life = ok(l), rec = ok(r), since = ok(sn), work = ok(w), st = ok(s), due = ok(bf);
+  const life = ok(l), rec = ok(r), since = ok(sn) as MorningSince | undefined, work = ok(w), st = ok(s), due = ok(bf);
   const base = dropDone(morningCandidates({ work, studioReady: st?.ready, proposals: ok(a)?.proposals, headlines: ok(i)?.headlines,
     alerts: ok(al)?.filter((x) => x.firedOn === today).map(alertText), followups: due, recall: rec, ideas: ok(ids)?.shown,
     deadlines: ok(dl), dev: ok(dw), archLesson: ok(ar) }), ok(cl) ?? [], now);

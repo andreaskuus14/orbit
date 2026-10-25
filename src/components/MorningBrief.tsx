@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { localDay } from "@/lib/morning-pure";
-import { shouldShowBrief, type Brief, type BriefItem } from "@/lib/brief-pure";
+import { MARKETS_TAB, shouldShowBrief, type Brief, type BriefItem } from "@/lib/brief-pure";
 import { speakChunk, speechSettings, stop } from "./voice/speak";
 import { api } from "./AgentMission";
 
@@ -67,6 +67,7 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
     else if ("goal" in o) onOpenGoal(o.goal);
     else if ("work" in o) (o.work.kind === "task" ? onOpenTask : onOpenGoal)(o.work.id);
     else if ("memory" in o) dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id: o.memory } }));
+    else if ("tab" in o) { try { sessionStorage.setItem(MARKETS_TAB, o.tab); } catch { /* opens on Watchlist */ } dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: o.panel } })); }
     else dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: o.panel, ...(o.view && { view: o.view }) } }));
   };
   const act = async (i: BriefItem, what: "approve" | "snooze") => {
