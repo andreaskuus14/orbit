@@ -15,6 +15,7 @@ import { maybeNightShift } from "./night";
 import { maybeDealHunt } from "./deals";
 import { maybeScorecard } from "./agent-replay";
 import { maybeArchDigest } from "./arch-digest";
+import { allows, tickAutonomy } from "./autonomy";
 
 // Server-side scheduler (briefings + automations): runs inside the ORBIT server process (npm run dev / npm start), so briefings
 // happen without a browser open. It needs SUPABASE_SECRET_KEY to act for the user with no session.
@@ -32,7 +33,7 @@ async function tick(sb: SupabaseClient) {
     // Event-triggered automations first (they should feel instant), then scheduled ones, then briefings.
     await handleEvents(sb).catch((e) => console.error("[orbit] automation events failed:", e?.message ?? e)); // still advances its cursor: startAutomation refuses while Stop-all is on
     if (stopAllOn()) return; // Stop-all: no automations, queue starts, chain resumes, briefings, proposals or backups
-    void import("./call").then((c) => c.maybeCall()); // "ORBIT wants to talk": rings the paired phone when call-pure says so; never throws
+    if (allows("calls", "background").ok) void import("./call").then((c) => c.maybeCall()); // "ORBIT wants to talk": rings the paired phone when call-pure says so; never throws
     const limited = usageLimited(); // a real Claude limit: start nothing that needs Claude, and don't burn briefing slots (failed runs count as ran)
     for (const { id } of users ?? []) {
       if (limited) continue;
@@ -65,13 +66,15 @@ async function tick(sb: SupabaseClient) {
       }
     }
     // Sleep loop: once a night 03:00–07:00, background lane; it re-checks Stop-all and usageHold itself.
-    if (!limited) await maybeSleep(sb, (users ?? []).map((u) => u.id));
+    if (!limited && allows("memory", "background").ok) await maybeSleep(sb, (users ?? []).map((u) => u.id));
     // Night shift (night.ts): in its window while the owner is idle, a bounded queue of safe work; not awaited. Re-checks Stop-all/usageHold per step.
     if (!limited) await maybeNightShift(sb, (users ?? []).map((u) => u.id));
     // Weekly BUSINESS niche scout (background lane, read-only web tools); not awaited: a run takes minutes. It re-checks Stop-all and usageHold itself.
-    if (!limited) void maybeWeeklyScout().catch((e) => console.error("[orbit] niche scout check failed:", e instanceof Error ? e.message : e));
+    if (!limited && allows("research", "background").ok) void maybeWeeklyScout().catch((e) => console.error("[orbit] niche scout check failed:", e instanceof Error ? e.message : e));
     // Deal hunter (MARKETS → Deals): daytime, a wish at most every 6 h, daily call cap; not awaited. Re-checks Stop-all/usageHold itself.
-    if (!limited) void maybeDealHunt(sb, (users ?? []).map((u) => u.id));
+    if (!limited && allows("deals", "background").ok) void maybeDealHunt(sb, (users ?? []).map((u) => u.id));
+    // Profile → Autonomy "auto with limits" (off by default: a no-op until the owner turns it on with the typed phrase).
+    if (users?.[0]) await tickAutonomy(sb, users[0].id);
     // Monthly agent scorecard (ANALYTICS): not awaited, a run takes up to ~50 min; it re-checks Stop-all and usage itself.
     if (!limited) void maybeScorecard(sb, (users ?? []).map((u) => u.id));
     // ARCH weekly studio digest: Sunday from 17:00 (Monday catch-up); without Claude it still comes, focus from the numbers.

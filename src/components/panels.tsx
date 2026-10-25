@@ -11,6 +11,7 @@ import { appendActivity } from "@/lib/core-activity-pure";
 import { CoreActivity } from "./CoreActivity";
 import { PasswordSection } from "./PasswordSection";
 import { PhonePairing } from "./PhonePairing";
+import { AutonomySection } from "./AutonomySection";
 import { ResultEvidence } from "./ResultEvidence";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
@@ -642,6 +643,7 @@ export function ProfilePanel() {
       <button className="btn">Save profile</button> {msg && <span className="muted text-sm">{msg}</span>}
     </form>
     <PasswordSection />
+    <AutonomySection />
     <PhonePairing />
     <PlaybookSection />
     <LessonsSection />

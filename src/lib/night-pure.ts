@@ -133,6 +133,7 @@ export type PlanInput = {
   handled: string[]; // `${kind}:${ref}` already in this night's run (a continued run doesn't redo them)
   now: number;
   today: string; // goals' budget day (server-local, goals-pure today())
+  off?: NightKind[]; // kinds Profile → Autonomy doesn't allow unattended (autonomy-pure nightOff; empty with the defaults)
   boost?: Partial<Record<NightKind, number>>; // kept lessons' prior per kind (lessons.ts nightBoost, ~0.85–1.15); 1 when missing
 };
 
@@ -149,7 +150,7 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
     ...(i.deals ? [{ kind: "deals", ref: "deals", label: `Deal hunt for ${i.deals} wish${i.deals > 1 ? "es" : ""}`, calls: i.deals, minutes: 6 * i.deals } as NightTask] : []),
     { kind: "clips", ref: "clips", label: "Shorts packaging up to review", calls: 6, minutes: 10 } as NightTask,
     ...(i.nicheDue ? [{ kind: "niche", ref: "niche", label: "Weekly BUSINESS niche scout", calls: 1, minutes: 10 } as NightTask] : []),
-  ].filter((t) => !i.handled.includes(`${t.kind}:${t.ref}`));
+  ].filter((t) => !i.handled.includes(`${t.kind}:${t.ref}`) && !i.off?.includes(t.kind));
   // Kept lessons only reorder ORBIT's own work (so a tight budget defers what he cares less about); his asks and the free tidy-up stay first.
   const w = (t: NightTask) => (t.kind === "research" || t.kind === "hygiene" ? Infinity : i.boost?.[t.kind] ?? 1);
   all.sort((a, b) => w(b) - w(a)); // stable: equal weights keep the order above

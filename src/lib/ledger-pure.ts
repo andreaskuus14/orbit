@@ -2,6 +2,7 @@
 import { PLANETS } from "./planets.ts";
 import { STAGES, type Stage } from "./business-pure.ts";
 import { CARD_KINDS, SOURCES, type CardKind, type Source } from "./morning-rank-pure.ts";
+import { AREAS, LEVELS, type Area } from "./autonomy-pure.ts";
 import { ITEM_STATUSES, NIGHT_KINDS, type ItemStatus, type NightKind } from "./night-pure.ts";
 
 type Data = {
@@ -32,6 +33,8 @@ type Data = {
   "deal.wish": { wishId: string; action: "added" | "removed" | "done" }; // deal hunter (deals.ts): ids and counts only, never items, prices or URLs
   "deal.hunt": { wishId: string; offers: number; great: number };
   "deal.found": { wishId: string; offerId: string };
+  "autonomy.change": { area: Area; from: string; to: string }; // Profile → Autonomy: levels only
+  "autonomy.act": { area: Area; action: "send" | "publish"; ref: string }; // an auto action ORBIT took: prospect / job/clip id only
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -72,6 +75,8 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "deal.wish": { wishId: id, action: oneOf(["added", "removed", "done"]) },
   "deal.hunt": { wishId: id, offers: count, great: count },
   "deal.found": { wishId: id, offerId: id },
+  "autonomy.change": { area: oneOf(AREAS), from: oneOf(LEVELS), to: oneOf(LEVELS) },
+  "autonomy.act": { area: oneOf(AREAS), action: oneOf(["send", "publish"]), ref: id },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];

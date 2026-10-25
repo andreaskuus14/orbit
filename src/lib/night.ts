@@ -5,6 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { askClaude, createBudget, emit, recordUsage } from "./claude";
 import { stopAllOn } from "./stop-all";
+import { allows, autonomyLevels } from "./autonomy";
+import { nightOff } from "./autonomy-pure";
 import { callsSince, lastCoreCallAt, usageHold } from "./usage-meter";
 import { today } from "./goals-pure";
 import { FOLLOWUP_SYSTEM, dueFollowups, followupPrompt, type Prospect } from "./business-pure";
@@ -55,7 +57,7 @@ export async function maybeNightShift(sb: SupabaseClient, userIds: string[], now
     if (N.ac) return;
     // shortcut: "idle" = no CORE chat for idleMin minutes (the server can't see the PC's keyboard; scripts/night checks that before sleeping).
     const id = userIds[0]; // ORBIT has one owner; the run acts for him
-    if (!id || startBlock({ now, s: st.settings, run: st.users[id]?.run, lastActive: lastCoreCallAt(), stopAll: stopAllOn(), hold: usageHold() })) return;
+    if (!id || !allows("night-shift", "background").ok || startBlock({ now, s: st.settings, run: st.users[id]?.run, lastActive: lastCoreCallAt(), stopAll: stopAllOn(), hold: usageHold() })) return;
     N.ac = new AbortController();
     void runNight(sb, id, N.ac).catch((e) => console.error("[orbit] night shift failed:", msg(e))).finally(() => { N.ac = null; });
   } catch (e) { console.error("[orbit] night shift check failed:", msg(e)); }
@@ -104,7 +106,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     followups: dueFollowups((prospects.data ?? []) as Prospect[], Date.now()), drafted: st.users[userId]?.drafted ?? {},
     nicheDue: !!board && !board.busy && scoutDue({ lastAttempt: board.lastAttempt ?? undefined, lastOk: board.lastOk ?? undefined }, Date.now()),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
-    handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(),
+    handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: nightOff(autonomyLevels()),
     boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({})),
   };
 }
