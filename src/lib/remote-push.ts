@@ -15,6 +15,7 @@ const subject = () => {
 
 /** Tell the paired phone something happened (a fixed label only; see pushLabel). Rate-limited and coalesced per kind. */
 export function pushNotify(kind: PushKind): void {
+  if (kind === "failed") void import("./call").then((c) => c.noteUrgent(), () => {}); // a failure may be worth a call (call-pure decides)
   if (pushProblem()) return;
   if (kind === "send" && !(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM)) return; // the phone can't approve sends then
   const now = Date.now();
@@ -44,7 +45,7 @@ export async function deliver(msg: PushMessage, deviceId?: string): Promise<numb
       const res = await fetch(sub.endpoint, {
         method: "POST", signal: AbortSignal.timeout(15_000),
         headers: { Authorization: vapidAuth(sub.endpoint, pub, priv, subject(), Date.now()), "Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream",
-          TTL: String(msg.tag === "failed" ? 86_400 : 4 * 3600), Urgency: msg.tag === "failed" || msg.tag === "stop" ? "high" : "normal" },
+          TTL: String(msg.tag === "failed" ? 86_400 : msg.tag === "call" ? 1800 : 4 * 3600), Urgency: msg.tag === "failed" || msg.tag === "stop" || msg.tag === "call" ? "high" : "normal" },
         body: new Uint8Array(encryptPayload(Buffer.from(JSON.stringify(msg)), sub)),
       }).catch((e) => { console.error("[remote] push:", e instanceof Error ? e.message : e); return null; });
       if (res?.ok) ok++;

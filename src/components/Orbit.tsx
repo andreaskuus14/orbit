@@ -11,6 +11,7 @@ import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
 import { VOICE_ASK, voiceContext } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
+import { RemoteCall } from "./RemoteCall";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { NAV_EVENT, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
 import { StudioNotifier } from "./StudioNotifier";
@@ -585,7 +586,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       </div>
       {boot >= 2 && <CursorRing />}
       <PerfBeacon />
-      {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><MarketWatcher /></>}
+      {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><MarketWatcher /><RemoteCall compact /></>}
 
       {drawer && !WORLDS.includes(drawer) && (
         <aside ref={drawerDrag.ref} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}

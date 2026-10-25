@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RemoteCall } from "./RemoteCall";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
@@ -111,6 +112,7 @@ export function RemoteApp() {
         )) : <p className="muted text-sm">No jobs running.</p>}
       </section>
 
+      <RemoteCall />
       <Ask />
       <Notify />
     </Shell>
