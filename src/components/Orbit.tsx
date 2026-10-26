@@ -1,5 +1,7 @@
 "use client";
 import { PerfBeacon, perfCtx } from "./PerfBeacon";
+import { AmbientSound, AmbientSoundMenu } from "./AmbientSound";
+import { ambientEvent } from "./spatial-audio";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -335,6 +337,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "events", filter: `user_id=eq.${userId}` }, (payload) => {
         const e = payload.new as { type: string; planet: string };
         pulses.current[e.planet] = Date.now();
+        ambientEvent(e.type, (payload.new as { payload?: { status?: unknown } }).payload); // a soft chime from the planet
         if (e.type.startsWith("memory.")) void refreshCount();
         if (e.type === "core.started") setBusy(true);
         if (e.type === "call.started" || e.type === "call.ended") dispatchEvent(new CustomEvent(CALL_ACTIVE, { detail: { on: e.type === "call.started" } })); // a phone call: "Hey Orbit" off at once
@@ -590,10 +593,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, mission: true } }))}>Mission control</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(SHORTCUTS_EVENT))}>Keyboard shortcuts <kbd>?</kbd></button>
         <button className="hud-menu-item" aria-pressed={sfxOn} onClick={() => { sfx.set(!sfxOn); setSfxOn(!sfxOn); if (!sfxOn) sfx.tick(); }}>UI sounds: {sfxOn ? "on" : "off"}</button>
+        <AmbientSoundMenu />
         <button className="hud-menu-item" onClick={signOut} title={email}>Sign out</button>
       </div>
       {boot >= 2 && <CursorRing />}
       <PerfBeacon />
+      <AmbientSound />
       {perfRun && <PerfRun />}
       {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><MarketWatcher /><RemoteCall compact /></>}
 
