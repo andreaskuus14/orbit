@@ -8,14 +8,19 @@
 // All motion is uniforms on the GPU plus four group rotations; every shader output is clamped finite and >= 0 (bloom NaN rule).
 import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
+import { standIn } from "../WarmCompile";
 import * as THREE from "three";
-import { HOLO, useAlienEnv } from "./env";
+import { ENV_SKY, HOLO, useAlienEnv } from "./env";
 import { Fractal } from "./Fractal";
 import { coreCalm, coreScale, tesseractAngle } from "@/lib/alien-pure";
 import { easeInStop, newUnseen, unseenJump, unseenStep, watched, wrapAngle } from "@/lib/alien-behaviour-pure";
 import type { CoreLive } from "../ParticleCore";
 import { encode, SCRIPT_GLSL } from "@/lib/alien-script-pure";
-import { PLANETS } from "@/lib/planets";
+import { PLANETS, planetById } from "@/lib/planets";
+import { expDamp } from "@/lib/smooth-damp-pure";
+import { CORE_SIGNAL, moodEvent, moodLook, moodTau, newLook, newMoodCtx, resolveMood, type CoreSignal, type Look } from "@/lib/core-mood-pure";
+import { CORE_BUSY } from "@/lib/interruption-pure";
+import { voiceLevel } from "../voice/bus";
 
 const finite = (x: number, lo = 0, hi = 1) => (Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : lo);
 
@@ -248,25 +253,57 @@ function glyphHook(u: GlyphU, w0: number, cell: number) {
   };
 }
 
-function ObsidianRing({ r, h, w, env, u }: { r: number; h: number; w: number; env: THREE.Texture | null; u: GlyphU }) {
+/** First light (standIn in WarmCompile): the blade as clean obsidian, the way it reads from afar (the machining fades out
+ *  there anyway), in a small program: the same 4D warp, facet normals, the coat's mirror of the sky, the CORE's glint and
+ *  the oil-sheen band. The machined program (~2,700 instructions) crossfades in when it has compiled. */
+const STAND_VS = /* glsl */ `${T4}
+varying vec3 vW;
+void main() { vW = t4((modelMatrix * vec4(position, 1.0)).xyz, uW0); gl_Position = projectionMatrix * viewMatrix * vec4(vW, 1.0); }`;
+const STAND_FS = /* glsl */ `uniform float uTime; uniform float opacity; varying vec3 vW;
+${HOLO}
+${ENV_SKY}
+void main() {
+  vec3 V = normalize(cameraPosition - vW), L = normalize(-vW), n = normalize(cross(dFdx(vW), dFdy(vW)));
+  n *= sign(dot(n, V) + 1e-6);
+  float gz = 1.0 - abs(dot(n, V)), f5 = pow(gz, 5.0);
+  vec3 r = reflect(-V, n);
+  vec3 c = vec3(0.0012) * (0.86 * max(dot(n, L), 0.0) + 0.02) + envSky(r) * 0.45 * (0.04 + 0.96 * f5 + 0.012);
+  c += vec3(1.0, 0.95, 0.86) * pow(max(dot(r, L), 0.0), 300.0) * 3.0;
+  float band = smoothstep(0.7, 0.88, gz) * (1.0 - smoothstep(0.94, 1.0, gz));
+  c += (0.5 + 0.5 * cos(6.2831853 * (gz * 2.6 + uTime * 0.02 + vec3(0.0, 0.33, 0.67)))) * band * 0.07;
+  gl_FragColor = vec4(c, opacity);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+
+function ObsidianRing({ r, h, w, env, u, tint }: { r: number; h: number; w: number; env: THREE.Texture | null; u: GlyphU; tint: THREE.Color }) {
   const { geo, cell } = useMemo(() => bladeGeometry(r, h * 0.95, h * 3.2 * 1.12), [r, h]); // a little taller than the old diamond blade, so the detail reads
   const mat = useMemo(() => {
     const m = new THREE.MeshPhysicalMaterial({
       color: "#030305", metalness: 0.9, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.03,
       iridescence: 0.3, iridescenceIOR: 1.5, iridescenceThicknessRange: [180, 520], flatShading: true, envMapIntensity: 0.45, // obsidian: a dark mirror, mostly clearcoat glints
     });
+    m.emissive = tint; // shared: CORE's mood colour (tool planet, amber approval, grey error) washes all four blades
     m.onBeforeCompile = glyphHook(u, w, cell);
     m.customProgramCacheKey = () => "tess-ring-2"; // one program; w0 and the cell size are uniforms
+    standIn(m, new THREE.ShaderMaterial({ vertexShader: STAND_VS, fragmentShader: STAND_FS, transparent: true, uniforms: { ...u, uW0: { value: w }, opacity: { value: 1 } } }));
     return m;
-  }, [u, w, cell]);
+  }, [u, w, cell, tint]);
   useEffect(() => { mat.envMap = env; mat.needsUpdate = true; }, [mat, env]);
   useEffect(() => () => { geo.dispose(); mat.dispose(); }, [geo, mat]);
   return <mesh geometry={geo} material={mat} frustumCulled={false} />; // the 4D warp leaves its bounds
 }
 
-const _dir = new THREE.Vector3(), _ndc = new THREE.Vector3();
+const _dir = new THREE.Vector3(), _ndc = new THREE.Vector3(), _q = new THREE.Quaternion(), _Y = new THREE.Vector3(0, 1, 0);
+const LOOK_KEYS = Object.keys(newLook()) as (keyof Look)[];
+const AMBER = new THREE.Color("#fbbf24"), GREY = new THREE.Color(0.5, 0.5, 0.52), BEAM_COL = new THREE.Color("#bfe9ff");
+// Listening: each ring turns to present its script band to the viewer (camera frame, ring axis up, tipped toward the
+// eye a little more per ring). QPT = that pose with the ring's fixed tilt undone, since the tilt group sits inside.
+const QPT = RINGS.map((k, i) => new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.32 + i * 0.07, 0, 0))
+  .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...(k.tilt as unknown as [number, number, number]))).invert()));
+const BEAM_N = 48, BEAM_IN = 0.6, BEAM_OUT = 11;
 
-export function Singularity({ live, reduced, level, aligned = false }: { live: RefObject<CoreLive>; reduced: boolean; level: number; aligned?: boolean }) {
+export function Singularity({ live, reduced, level, aligned = false, approval = false }: { live: RefObject<CoreLive>; reduced: boolean; level: number; aligned?: boolean; approval?: boolean }) {
   const env = useAlienEnv();
   const halo = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: HALO_VS, fragmentShader: HALO_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
@@ -284,6 +321,35 @@ export function Singularity({ live, reduced, level, aligned = false }: { live: R
   const fractalGain = useMemo(() => () => gain.current, []);
   useEffect(() => () => { halo.dispose(); disk.dispose(); diskGeo.dispose(); quad.dispose(); }, [halo, disk, diskGeo, quad]);
 
+  // E4: what CORE is doing (core-mood-pure), eased into the existing uniforms. Same line material as the planet beams in
+  // Galaxy, so the scan beam reuses that program (no new shader compile).
+  const tint = useMemo(() => new THREE.Color(0, 0, 0), []);
+  const mood = useRef({ ctx: newMoodCtx(), tgt: newLook(), cur: newLook(), toolCol: new THREE.Color(), approval, diskT: 0, ph: 0, scan: 0, pre: new Float32Array(RINGS.length) });
+  mood.current.approval = approval;
+  useEffect(() => {
+    const M = mood.current;
+    const onBusy = (e: Event) => { moodEvent(M.ctx, { type: "busy", on: (e as CustomEvent<boolean>).detail === true }, performance.now()); };
+    const onSig = (e: Event) => {
+      const d = (e as CustomEvent<CoreSignal>).detail;
+      if (!d || (d.type !== "step" && d.type !== "error")) return;
+      moodEvent(M.ctx, d, performance.now());
+      const p = M.ctx.target && planetById(M.ctx.target);
+      if (p) M.toolCol.set(p.color); // kept after the step ends, so the colour fades out instead of flipping
+    };
+    addEventListener(CORE_BUSY, onBusy); addEventListener(CORE_SIGNAL, onSig);
+    return () => { removeEventListener(CORE_BUSY, onBusy); removeEventListener(CORE_SIGNAL, onSig); };
+  }, []);
+  const beam = useMemo(() => {
+    const g = new THREE.BufferGeometry(), pos = new Float32Array(BEAM_N * 3);
+    for (let i = 0; i < BEAM_N; i++) pos[i * 3] = BEAM_IN + (BEAM_OUT - BEAM_IN) * (i / (BEAM_N - 1));
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(BEAM_N * 3), 3));
+    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    l.frustumCulled = false; l.visible = false; l.rotation.z = 0.12;
+    return l;
+  }, []);
+  useEffect(() => () => { beam.geometry.dispose(); (beam.material as THREE.Material).dispose(); }, [beam]);
+
   const rings = useRef<(THREE.Group | null)[]>([]);
   const spin = useRef<(THREE.Group | null)[]>([]);
   // The 4D angles drift slowly (as tesseractAngle did); unseen change (Blindsight) adds a jump on top, only behind a fast
@@ -296,19 +362,45 @@ export function Singularity({ live, reduced, level, aligned = false }: { live: R
   useFrame(({ clock, camera }, dt) => {
     const t = reduced ? 12 : clock.elapsedTime, L = live.current, calm = coreCalm(camera.position.length());
     const g = finite(L?.g ?? 0), br = finite(L?.breath ?? 0.5), v = finite((L?.mic ?? 0) + (L?.spk ?? 0));
+    const M = mood.current, C = M.cur, st = Number.isFinite(dt) ? Math.min(0.1, Math.max(0, dt)) : 0;
+    const m = resolveMood(M.ctx, performance.now(), { listening: voiceLevel.listening, mic: finite(L?.mic ?? 0), spk: finite(L?.spk ?? 0), approval: M.approval });
+    moodLook(m, M.tgt);
+    const tau = moodTau(m);
+    for (let i = 0; i < LOOK_KEYS.length; i++) { const k = LOOK_KEYS[i]; C[k] = expDamp(C[k], M.tgt[k], tau, st); }
+    M.diskT += st * (1 + 2.5 * C.swirl); M.ph += st * Math.PI * 2 * C.breath;
+    const pulse = reduced ? 0.8 : 0.55 + 0.45 * Math.cos(t * Math.PI); // the amber pulse: every 2 s, steady with reduced motion
+    tint.copy(M.toolCol).multiplyScalar(0.35 * C.tint);
+    tint.r += AMBER.r * 0.3 * C.amber * pulse; tint.g += AMBER.g * 0.3 * C.amber * pulse; tint.b += AMBER.b * 0.3 * C.amber * pulse;
+    tint.r += GREY.r * 0.14 * C.desat; tint.g += GREY.g * 0.14 * C.desat; tint.b += GREY.b * 0.14 * C.desat;
+    const drain = 1 - C.desat; // error: the colourful light drains for a moment (no new shader: gains + a grey wash)
     halo.uniforms.uTime.value = t;
-    halo.uniforms.uGain.value = (0.7 + 0.2 * br + 0.9 * g + 0.6 * v) * (1 - 0.7 * calm); // overview: the lens would gather it into a blob
-    halo.uniforms.uRays.value = (level === 0 ? 0.5 : 1) * (1 - 0.97 * calm) * 0.7; // god rays are a close-up drama: none on the overview
+    halo.uniforms.uGain.value = (0.7 + 0.2 * br + 0.9 * g + 0.6 * v + 0.25 * C.amber * pulse) * (1 - 0.7 * calm) * (1 - 0.3 * C.desat); // overview: the lens would gather it into a blob
+    halo.uniforms.uRays.value = (level === 0 ? 0.5 : 1) * (1 - 0.97 * calm) * 0.7 * drain; // god rays are a close-up drama: none on the overview
     halo.uniforms.uCap.value = 1.0 + 3.0 * calm; // close range: exposure-clamped, never a flat white plate; overview unchanged
     disk.uniforms.uCap.value = 0.75 + 1.25 * calm;
-    disk.uniforms.uTime.value = t;
-    disk.uniforms.uGain.value = (0.75 + 0.2 * br + 0.8 * g + 0.5 * v) * (1 - 0.75 * calm);
-    glyph.uFlat.value = 0.85 * calm;
-    root.current?.scale.setScalar(coreScale(camera.position.length()));
+    disk.uniforms.uTime.value = reduced ? t : M.diskT; // thinking: the inner swirl (lensed into the ring) runs faster
+    disk.uniforms.uGain.value = (0.75 + 0.2 * br + 0.8 * g + 0.5 * v) * (1 - 0.75 * calm) * (1 - 0.6 * C.desat);
+    glyph.uFlat.value = Math.max(0.85 * calm, 0.75 * C.face); // listening: the rings settle out of 4D so the script reads
+    root.current?.scale.setScalar(coreScale(camera.position.length()) * (reduced ? 1 : 1 + 0.012 * Math.sin(M.ph))); // breathing
     glyph.uTime.value = t;
-    glyph.uGlyph.value = (0.8 + 1.5 * g + 0.8 * v) * (1 - 0.6 * calm);
+    glyph.uGlyph.value = (0.8 + 1.5 * g + 0.8 * v + 0.6 * C.face) * (1 - 0.6 * calm) * (1 - 0.8 * C.desat);
+    beam.visible = C.beam > 0.01;
+    if (beam.visible) { // searching the web: a thin beam turning around the core, light running outward along it
+      const col = beam.geometry.attributes.color as THREE.BufferAttribute, head = reduced ? 2 : (t * 0.6) % 1.3;
+      if (!reduced) M.scan += st * 0.7;
+      beam.rotation.y = M.scan;
+      for (let i = 0; i < BEAM_N; i++) {
+        const x = i / (BEAM_N - 1), k = (0.12 + (x <= head ? Math.exp(-((head - x) ** 2) / 0.004) : 0)) * (1 - x * 0.6) * C.beam * drain;
+        col.setXYZ(i, BEAM_COL.r * k, BEAM_COL.g * k, BEAM_COL.b * k);
+      }
+      col.needsUpdate = true;
+    }
     gain.current = halo.uniforms.uGain.value;
-    if (reduced) { glyph.uXW.value = tesseractAngle(t, 0, true); glyph.uYW.value = tesseractAngle(t, 1, true); return; }
+    if (reduced) {
+      glyph.uXW.value = tesseractAngle(t, 0, true); glyph.uYW.value = tesseractAngle(t, 1, true);
+      for (let i = 0; i < RINGS.length; i++) rings.current[i]?.scale.setScalar(1 - 0.07 * C.tight);
+      return;
+    }
     const step = Number.isFinite(dt) ? Math.min(0.1, Math.max(0, dt)) : 0;
     const U = un.current;
     camera.getWorldDirection(_dir);
@@ -324,14 +416,20 @@ export function Singularity({ live, reduced, level, aligned = false }: { live: R
       U.xw = wrapAngle(U.xw + step * 0.23); U.yw = wrapAngle(U.yw + step * 0.137); // the slow drift (same rates as before); after an alignment it resumes from there
       if (unseenStep(U, step, watched(ang, onScreen))) {
         U.xw = wrapAngle(U.xw + unseenJump(0)); U.yw = wrapAngle(U.yw + unseenJump(1));
-        for (let i = 0; i < RINGS.length; i++) { const o = rings.current[i]; if (o) o.rotation.y += (1.9 + i * 0.7) * Math.sign(RINGS[i].pre); } // precession jumps too
+        for (let i = 0; i < RINGS.length; i++) M.pre[i] += (1.9 + i * 0.7) * Math.sign(RINGS[i].pre); // precession jumps too
       }
     }
     glyph.uXW.value = U.xw; glyph.uYW.value = U.yw;
     for (let i = 0; i < RINGS.length; i++) { // spin about the blade's own axis, precess the whole ring around y
       const s = spin.current[i], o = rings.current[i];
-      if (s) s.rotation.z += step * RINGS[i].spin * (1 + 2 * g);
-      if (o) o.rotation.y += step * RINGS[i].pre;
+      // thinking: the glyph rings (alternate spin signs) counter-rotate faster; listening: they slow down and face you
+      if (s) s.rotation.z += step * RINGS[i].spin * (1 + 2 * g) * (1 + 3 * C.counter) * (1 - 0.8 * C.face);
+      M.pre[i] += step * RINGS[i].pre;
+      if (o) {
+        o.quaternion.setFromAxisAngle(_Y, M.pre[i]);
+        if (C.face > 0.001) o.quaternion.slerp(_q.copy(camera.quaternion).multiply(QPT[i]), C.face); // root has no rotation: camera frame = parent frame
+        o.scale.setScalar(1 - 0.07 * C.tight + 0.035 * C.ripple * finite(L?.spk ?? 0) * Math.sin(t * 9 - i * 1.3)); // speaking: ripples out ring by ring
+      }
     }
   });
 
@@ -343,11 +441,12 @@ export function Singularity({ live, reduced, level, aligned = false }: { live: R
         <group key={i} ref={(el) => { rings.current[i] = el; }}>
           <group rotation={k.tilt as unknown as [number, number, number]}>
             <group ref={(el) => { spin.current[i] = el; }}>
-              <ObsidianRing r={k.r} h={k.h} w={k.w} env={env} u={glyph} />
+              <ObsidianRing r={k.r} h={k.h} w={k.w} env={env} u={glyph} tint={tint} />
             </group>
           </group>
         </group>
       ))}
+      <primitive object={beam} />
       <Hypercube u={glyph} />
       <Fractal size={1.5} on={level >= 2} reduced={reduced} gain={fractalGain} />
     </group>

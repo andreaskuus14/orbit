@@ -67,6 +67,8 @@ async function tick(sb: SupabaseClient) {
     }
     // Sleep loop: once a night 03:00–07:00, background lane; it re-checks Stop-all and usageHold itself.
     if (!limited && allows("memory", "background").ok) await maybeSleep(sb, (users ?? []).map((u) => u.id));
+    // Episodic memory (episodes.ts): once a day from 02:00, ORBIT's own records → episode memories. No model call; not awaited.
+    if (allows("memory", "background").ok) void import("./episodes").then((m) => m.maybeEpisodes(sb, (users ?? []).map((u) => u.id)));
     // Night shift (night.ts): in its window while the owner is idle, a bounded queue of safe work; not awaited. Re-checks Stop-all/usageHold per step.
     if (!limited) await maybeNightShift(sb, (users ?? []).map((u) => u.id));
     // Weekly BUSINESS niche scout (background lane, read-only web tools); not awaited: a run takes minutes. It re-checks Stop-all and usageHold itself.

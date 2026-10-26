@@ -14,11 +14,9 @@ vec3 holo(float x) {
 }
 `;
 
-const ENV_FS = /* glsl */ `
-varying vec3 vD;
-${HOLO}
-void main() {
-  vec3 d = normalize(vD);
+/** The reflection map's sky in direction `d` (before PMREM's blur). Also the stand-ins' fake reflection (needs HOLO). */
+export const ENV_SKY = /* glsl */ `
+vec3 envSky(vec3 d) {
   float a = atan(d.z, d.x);
   vec3 c = vec3(0.01, 0.012, 0.02) + vec3(0.10, 0.12, 0.18) * pow(max(d.y, 0.0), 0.7); // cold dome: liquid metal needs something to mirror
   c += mix(vec3(1.0), holo(a * 0.32 + 0.1), 0.35) * exp(-pow(d.y * 9.0, 2.0)) * 1.3;                    // iridescent horizon band
@@ -26,8 +24,13 @@ void main() {
   c += holo(0.62) * 2.2 * exp(-pow((a - 2.3) * 9.0, 2.0)) * smoothstep(0.9, 0.0, abs(d.y - 0.1)); // vertical slit
   c += holo(0.12) * 1.8 * exp(-pow((a + 1.6) * 11.0, 2.0)) * smoothstep(0.8, 0.0, abs(d.y + 0.15));
   c += vec3(0.25, 0.35, 0.6) * pow(max(-d.y, 0.0), 3.0) * 0.4;                    // underglow
-  gl_FragColor = vec4(max(c, vec3(0.0)), 1.0);
+  return max(c, vec3(0.0));
 }`;
+const ENV_FS = /* glsl */ `
+varying vec3 vD;
+${HOLO}
+${ENV_SKY}
+void main() { gl_FragColor = vec4(envSky(normalize(vD)), 1.0); }`;
 
 type PmremInternals = { _setSize?: (n: number) => void; _allocateTargets?: () => THREE.WebGLRenderTarget; _blurMaterial?: THREE.Material | null; _lodPlanes?: THREE.BufferGeometry[] };
 
