@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
-import { AnalyticsPanel, CorePanel, ProfilePanel } from "./panels";
+import { AnalyticsPanel, CorePanel, MemoryPanel, ProfilePanel } from "./panels";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { WorldPaused } from "./world-paused";
 import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
@@ -58,6 +58,7 @@ import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
+const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: WorldLoading });
 const StudioWorld = dynamic(() => import("./StudioWorld"), { ssr: false, loading: WorldLoading });
 const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false, loading: WorldLoading });
@@ -191,6 +192,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   // Back from Google's YouTube consent screen (?studio=…): reopen STUDIO; StudioStats reads and clears the query.
   useEffect(() => { if (new URLSearchParams(location.search).has("studio")) setPanel("studio"); }, []);
+  const [perfRun, setPerfRun] = useState(false);
+  useEffect(() => { setPerfRun(new URLSearchParams(location.search).get("perfrun") === "1"); }, []);
   useEffect(() => {
     const q = new URLSearchParams(location.search), u = q.get("radar");
     if (!u) return;
@@ -532,7 +535,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {has("creation") && <Kept on={at("creation")}><DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} paused={!at("creation")} /></Kept>}
       {has("agents") && <Kept on={at("agents")}><AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} paused={!at("agents")} /></Kept>}
       {has("arch") && <Kept on={at("arch")}><ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} paused={!at("arch")} /></Kept>}
-      {has("memory") && <Kept on={at("memory")}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} /></Kept>}
+      {has("memory") && <Kept on={at("memory")}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} List={MemoryPanel} /></Kept>}
       {shown && KEEP.includes(shown) && at(shown) ? null : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
@@ -591,6 +594,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       </div>
       {boot >= 2 && <CursorRing />}
       <PerfBeacon />
+      {perfRun && <PerfRun />}
       {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><MarketWatcher /><RemoteCall compact /></>}
 
       {drawer && !WORLDS.includes(drawer) && (

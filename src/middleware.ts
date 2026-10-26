@@ -13,6 +13,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 });
   // Launcher / night run poll these; no session work. (busy checks its own Host header and returns only booleans.)
   if (request.nextUrl.pathname === "/api/health" || request.nextUrl.pathname === "/api/studio/busy") return NextResponse.next();
+  // Public demo: static fixture page, no session work (it never calls /api; its fetch guard answers from fixtures).
+  if (request.nextUrl.pathname === "/demo") return NextResponse.next();
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

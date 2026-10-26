@@ -557,7 +557,7 @@ function Beams({ positions, pulses, reduced }: { positions: Positions; pulses: R
   return <>{lines.map(({ id, line }) => <primitive key={id} object={line} />)}</>;
 }
 
-function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, level, aligned }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced"> & { particles?: number; level: number; aligned: boolean }) {
+function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, level, aligned, approval }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced"> & { particles?: number; level: number; aligned: boolean; approval: boolean }) {
   const sat = useRef<THREE.Mesh>(null);
   const voice = useRef({ mic: 0, speak: 0 }); // smoothed copy of voiceLevel (read per frame, no React state)
   const live = useRef<CoreLive>({ g: 0, mic: 0, spk: 0, breath: 0 }); // handed to the singularity and the particle swarm each frame
@@ -591,7 +591,7 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, l
   return (
     <group>
       <pointLight intensity={2.7} decay={0} color="#fff1dc" /> {/* no falloff: inner worlds would blow out, outer ones go dark */}
-      <Singularity live={live} reduced={reduced} level={level} aligned={aligned} />
+      <Singularity live={live} reduced={reduced} level={level} aligned={aligned} approval={approval} />
       {swarm && <group scale={0.62}><ParticleCore side={particles} busy={busy} warning={warning} live={live} onFail={onPcFail} /></group>}
       {/* Invisible hit area. */}
       <mesh ref={hit} onClick={(e) => { e.stopPropagation(); onSelect("core"); }}
@@ -916,6 +916,7 @@ export default function Galaxy(props: GalaxyProps) {
   const [coarse] = useState(() => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
   const dprMax = coarse ? Math.min(1.5, q.dpr) : Math.min(2, q.dpr);
   const [dpr, setDpr] = useState<number | null>(null); // RenderScale's choice; until then the plain range
+  perfCtx.rdpr = dpr ?? -1; // the scripted perf run reports it
   const windows = level > 0 && !props.reduced; // window planets + the dive: off on level 0 and under reduced motion
   const film = q.film && !props.reduced; // grain is motion, aberration is motion: both off for reduced motion
   const dof = q.dof && !props.reduced;
@@ -951,7 +952,7 @@ export default function Galaxy(props: GalaxyProps) {
         <Stars radius={110} depth={60} count={level === 0 || props.reduced ? Math.min(2000, q.stars) : 4500} factor={2.6} fade speed={props.reduced ? 0 : 0.15} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <Dust count={q.dust} reduced={props.reduced} feel={feel} />
-        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} aligned={props.selected === "core"} />
+        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} aligned={props.selected === "core"} approval={!!props.ships?.tasks.some((t) => t.status === "awaiting_approval")} />
         <Filaments positions={positions} pulses={props.pulses} reduced={props.reduced} />
         <Beams positions={positions} pulses={props.pulses} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}

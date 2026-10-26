@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AREAS, AREA_INFO, AUTO_CONFIRM, LEVEL_TEXT, LIMIT_MAX, type Area, type Level, type Levels, type Limits, type Pending } from "@/lib/autonomy-pure";
 import { changeStopAll } from "./nav-command";
+import { PredictionEligible } from "./OrbitThinks";
 
 type View = { levels: Levels; limits: Limits; pending: Pending[]; today: { at: string; area: Area; action: string; ref: string }[]; stopAll: boolean; push: string | null };
 
@@ -88,6 +89,7 @@ export function AutonomySection() {
           </ul>
         ) : <p className="muted text-xs">None today.</p>}
       </div>
+      <PredictionEligible />
       {err && <p className="error text-sm" role="alert">{err}</p>}
     </section>
   );

@@ -1,6 +1,7 @@
 // Phone push (roadmap 6.3), server glue: fire-and-forget pushNotify(kind) from the places that create approvals, publish Shorts,
 // fail jobs or switch Stop-all on. Policy + crypto: remote-push-pure.ts. Subscriptions live on the paired device (remote.ts), so
 // revoking the phone deletes its subscription. Never throws into the caller.
+import { pushBody } from "./persona-pure";
 import { encryptPayload, flush, gate, pushLabel, vapidAuth, vapidProblem, type PushKind, type PushMessage, type Slot } from "./remote-push-pure";
 
 const g = globalThis as unknown as { __orbitPush?: { slots: Map<PushKind, Slot>; timers: Set<PushKind> } };
@@ -41,6 +42,7 @@ export async function deliver(msg: PushMessage, deviceId?: string): Promise<numb
     const pub = process.env.REMOTE_VAPID_PUBLIC!, priv = process.env.REMOTE_VAPID_PRIVATE!;
     const { listDevices, updateDevices } = await import("./remote"); // lazy: remote.ts imports the clip factory, which calls us
     const targets = (await listDevices()).filter((d) => d.push && (!deviceId || d.id === deviceId));
+    if (targets.length) msg = { ...msg, body: pushBody(msg.tag, msg.body, await import("./persona").then((m) => m.ownerPersona())) }; // ORBIT's voice; still a fixed label
     let ok = 0;
     for (const d of targets) {
       const sub = d.push!;

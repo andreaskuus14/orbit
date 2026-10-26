@@ -1,4 +1,5 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
 import { useCallback, useEffect, useState } from "react";
 
 export type Proposal = {
@@ -63,6 +64,7 @@ export function ProposalsPanel({ onOpenTask }: { onOpenTask?: (taskId: string) =
             <div className="flex gap-2 pt-1">
               <button className="btn" onClick={() => act(p.id, "approve")} disabled={busy !== null}>{busy === p.id ? "Starting…" : "Approve"}</button>
               <button className="chip" onClick={() => act(p.id, "dismiss")} disabled={busy !== null} aria-label={`Dismiss ${p.title}`}>Dismiss</button>
+              <OrbitThinks id={`proposal:${p.id}`} />
             </div>
           </li>
         ))}
