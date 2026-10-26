@@ -1,6 +1,8 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
 import { useCallback, useEffect, useState } from "react";
 import type { Offer, Wish } from "@/lib/deals-pure";
+import NegotiatorBox from "./NegotiatorBox";
 
 // MARKETS → Deals: his wishlist and what the deal hunter found on public listings and shops (read-only). ORBIT never contacts a
 // seller or buys: the message draft is for him to copy and send himself.
@@ -118,7 +120,8 @@ function OfferRow({ o, draft, any, dismiss }: { o: Offer; draft?: string; any: b
           <button className="chip" onClick={() => void navigator.clipboard?.writeText(draft).then(() => setCopied(true), () => {})}>{copied ? "Copied" : "Copy"}</button>
         </details>
       )}
-      <button className="chip mt-1" disabled={any} onClick={dismiss}>Not interested</button>
+      <div className="mt-1 flex flex-wrap gap-1.5"><button className="chip" disabled={any} onClick={dismiss}>Not interested</button> <OrbitThinks id={`deal:${o.id}`} />
+        <NegotiatorBox refKey={`offer:${o.id}`} title={o.title} hint={{ floor: Math.round(o.eur * 0.85), ceiling: Math.round(o.eur) }} /></div>
     </li>
   );
 }

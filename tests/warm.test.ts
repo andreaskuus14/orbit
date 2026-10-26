@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { passesChanged, programLabel, skipFrame, slowest } from "../src/lib/warm-pure.ts";
+import { passesChanged, programLabel, skipFrame, slowest, standInAlpha } from "../src/lib/warm-pure.ts";
 
 test("a composer warms on its first frame and again only when its passes change", () => {
   const a = {}, b = {}, c = {};
@@ -32,4 +32,14 @@ test("programLabel: name, three's shader id, ORBIT variant defines, first custom
   assert.equal(programLabel("", "4,5,highp,srgb-linear", "uniform vec3 uCam; uniform mat4 uMVP;"), "shader(uCam,uMVP)");
   assert.equal(programLabel("", "basic,highp", "uniform vec3 diffuse;"), "basic");
   assert.equal(programLabel("", "physical,STANDARD,,highp", ""), "standard");
+});
+
+test("a stand-in fades from fully on to gone over its crossfade, eased, never outside [0, 1]", () => {
+  assert.equal(standInAlpha(0, 400), 1);
+  assert.equal(standInAlpha(200, 400), 0.5);
+  assert.equal(standInAlpha(400, 400), 0);
+  assert.equal(standInAlpha(900, 400), 0);
+  assert.equal(standInAlpha(-5, 400), 1);
+  assert.ok(standInAlpha(40, 400) > 0.95); // eased: barely moves at the start
+  assert.equal(standInAlpha(10, 0), 0); // no fade: straight off
 });
