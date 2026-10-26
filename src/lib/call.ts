@@ -82,6 +82,16 @@ export async function maybeCall(): Promise<void> {
   }
 }
 
+/** He asked to be called (Shortcut "Call me"): ring the paired phone now; Answer then plays the opener made here.
+ *  Returns how many phones the push reached; 0 when push isn't set up or a call is already on. */
+export async function ringNow(sb: SupabaseClient, userId: string): Promise<number> {
+  if (G.sessions.size || pushProblem()) return 0;
+  const things = (await pendingApprovals(sb).catch(() => [])).length;
+  G.ring = { reason: "manual", at: Date.now() };
+  G.pre = prepareOpener(sb, userId, "manual");
+  return deliver(pushLabel("call", things));
+}
+
 // ---- Voice out: Kokoro on this PC, one sentence at a time, as a 16-bit WAV (base64) ----
 export type Spoken = { text: string; audio: string | null };
 function tts(text: string): Promise<string | null> {
