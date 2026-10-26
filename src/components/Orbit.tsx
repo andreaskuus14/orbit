@@ -57,6 +57,7 @@ import { useDragPanel } from "./useDragPanel";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
+const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
 const NewsGlobe = dynamic(() => import("./NewsGlobe"), { ssr: false, loading: WorldLoading });
 const StudioWorld = dynamic(() => import("./StudioWorld"), { ssr: false, loading: WorldLoading });
 const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false, loading: WorldLoading });
@@ -189,6 +190,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   // Back from Google's YouTube consent screen (?studio=…): reopen STUDIO; StudioStats reads and clears the query.
   useEffect(() => { if (new URLSearchParams(location.search).has("studio")) setPanel("studio"); }, []);
+  const [perfRun, setPerfRun] = useState(false);
+  useEffect(() => { setPerfRun(new URLSearchParams(location.search).get("perfrun") === "1"); }, []);
   useEffect(() => {
     const q = new URLSearchParams(location.search), u = q.get("radar");
     if (!u) return;
@@ -588,6 +591,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       </div>
       {boot >= 2 && <CursorRing />}
       <PerfBeacon />
+      {perfRun && <PerfRun />}
       {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><MarketWatcher /><RemoteCall compact /></>}
 
       {drawer && !WORLDS.includes(drawer) && (

@@ -43,7 +43,7 @@ export function hello(hour: number): string {
 
 type NightApproval = { label: string; open?: { task: string } | { goal: string; step?: number; stepId?: string } | { panel: string } };
 /** Everything waiting on his OK, night shift first, deduped by task. Remote approvals (clips, spends, emails) only open. */
-export function briefDecisions(night: NightApproval[], work: WorkItem[], remote: { id: string; kind: "clip" | "spend" | "send"; title: string; credits?: number; to?: string }[]): Decision[] {
+export function briefDecisions(night: NightApproval[], work: WorkItem[], remote: { id: string; kind: "clip" | "spend" | "send" | "nego"; title: string; detail?: string; credits?: number; to?: string }[]): Decision[] {
   const out: Decision[] = [];
   for (const i of night) {
     const o = i.open;
@@ -56,8 +56,8 @@ export function briefDecisions(night: NightApproval[], work: WorkItem[], remote:
   }
   for (const r of remote) out.push({
     id: r.id, title: plain(r.title),
-    what: r.kind === "clip" ? `the clip ${q(r.title)}` : r.kind === "spend" ? `the ${r.credits ?? ""} credit spend for ${q(r.title)}`.replace("  ", " ") : `the email to ${plain(r.title)}`,
-    open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "send" ? { panel: "business" } : { panel: "studio" },
+    what: r.kind === "clip" ? `the clip ${q(r.title)}` : r.kind === "spend" ? `the ${r.credits ?? ""} credit spend for ${q(r.title)}`.replace("  ", " ") : r.kind === "nego" ? `your reply to ${plain(r.title)}` : `the email to ${plain(r.title)}`,
+    open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "send" ? { panel: "business" } : r.kind === "nego" ? (r.detail?.startsWith("Deal") ? { panel: "markets", tab: "Deals" } : { panel: "business" }) : { panel: "studio" },
   });
   return out;
 }

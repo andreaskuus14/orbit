@@ -8,6 +8,8 @@ import type { Mark } from "./doctor-boot-pure";
 import { failedCallsSince, usageHold, usageView } from "./usage-meter";
 import { coreStats, rollupScenes } from "./perf-pure";
 import { coreTurns, sceneWindows } from "./perf-log";
+import { listRuns } from "./perf-runs";
+import { compareRuns, previousOf, regressionLines } from "./perf-run-pure";
 import { HEALTH_SYSTEM, buildSamples, isoWeek, logSamples, mergeIssues, parseSummary, perfSamples, rollPerf, sortIssues, summaryPrompt, toSummarise, triage,
   type Issue, type PerfSnap, type Sample } from "./health-pure";
 
@@ -81,17 +83,24 @@ function perfNow(now: number): PerfSnap {
   return { week: isoWeek(now), core, fps };
 }
 
+/** p95 regressions (>15%) in scripted perf runs (npm run perf:run) saved since the last health pass. */
+async function perfRunSamples(since: string): Promise<Sample[]> {
+  const runs = await listRuns(60).catch(() => []), from = Date.parse(since);
+  return runs.filter((r) => r.at > from && !r.hidden).flatMap((r) => regressionLines(r, compareRuns(previousOf(runs, r), r)).map((line) => ({ source: "perf" as const, area: "system", at: new Date(r.at).toISOString(), line })));
+}
+
 /** The night shift's health slot. Returns how many issues are new/regressed and how many model notes were written. */
 export async function runHealth(sb: SupabaseClient, userId: string, signal?: AbortSignal): Promise<{ fresh: number; notes: number; open: number }> {
   const st = await load(), now = Date.now(), nowIso = new Date(now).toISOString(), since = st.lastRun ?? new Date(now - DAY).toISOString();
-  const [srv, lch, bld, jobs] = await Promise.all([
+  const [srv, lch, bld, jobs, runs] = await Promise.all([
     readSince(path.join(process.cwd(), "orbit-server.log"), st.server ?? null),
     readSince(path.join(process.cwd(), "orbit-launcher.log"), st.launcher ?? null),
     buildLog(st.build),
     jobSamples(sb, userId, since),
+    perfRunSamples(since),
   ]);
   const perf = rollPerf(st.perf, perfNow(now));
-  const samples = [...logSamples(srv.text, "server", nowIso), ...logSamples(lch.text, "launcher", nowIso), ...bld.samples, ...jobs, ...perfSamples(perf, nowIso)];
+  const samples = [...logSamples(srv.text, "server", nowIso), ...logSamples(lch.text, "launcher", nowIso), ...bld.samples, ...jobs, ...perfSamples(perf, nowIso), ...runs];
   const { issues, changed } = mergeIssues(st.issues, triage(samples, nowIso), nowIso);
 
   let notes = 0;
