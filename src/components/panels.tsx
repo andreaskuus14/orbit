@@ -250,13 +250,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     }
   }, [busy, newProject, newChat, setChatId, chats.reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // While CORE is open: Ctrl/⌘+K focuses its input (capture phase + preventDefault, so Orbit's command-bar shortcut skips it)
-  // and Esc stops a streaming answer instead of closing the panel.
+  // While CORE is open: Esc stops a streaming answer instead of closing the panel. (Ctrl/⌘+K is the Warp palette.)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return; // VoiceControls already used this Esc (both listen in the capture phase)
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); inputRef.current?.focus(); }
-      else if (e.key === "Escape" && busy) { e.preventDefault(); e.stopPropagation(); abort.current?.abort(); stopSpeech(); }
+      if (e.key === "Escape" && busy) { e.preventDefault(); e.stopPropagation(); abort.current?.abort(); stopSpeech(); }
     };
     addEventListener("keydown", h, true);
     return () => removeEventListener("keydown", h, true);
