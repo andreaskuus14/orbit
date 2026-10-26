@@ -16,6 +16,7 @@ import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { buildFront, lidarDots, moveWalker, NO_FRONT, WALK, wallRects, walkStart, type Rect } from "@/lib/arch-walk-pure";
 import { splatBudget } from "@/lib/splat-pure";
 import { lessonTag } from "@/lib/arch-studio-pure";
+import { quizCards } from "@/lib/study-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
@@ -317,6 +318,11 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     setLessonMsg(r?.ok ? "Saved to MEMORY." : "Couldn't save the lesson.");
     if (r?.ok) setBump((b) => b + 1);
   }
+  async function studyQuiz() { // the quiz becomes study cards in MEMORY (spaced repetition)
+    if (!lesson) return;
+    const r = await fetch("/api/study", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", source: "arch", ref: lesson.building, cards: quizCards(lesson.quiz) }) }).catch(() => null);
+    setLessonMsg(r?.ok ? "Quiz added to your study cards in MEMORY." : "Couldn't add the study cards.");
+  }
   const focus = new Set(lesson && ch < lesson.chapters.length ? lesson.chapters[ch].focus : []);
 
   const field = (k: "w" | "d" | "h" | "x" | "z" | "off" | "sill", label: string) => part && <NumField key={`${part.id}-${k}-${part[k]}`} label={label} name={part.name} value={part[k] ?? 0} pos={k === "x" || k === "z" || k === "off"}
@@ -387,6 +393,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
               <button className="chip" disabled={ch === 0} onClick={() => goTo(lesson, ch - 1)}>← Back</button>
               <button className="chip" disabled={ch >= lesson.chapters.length} onClick={() => goTo(lesson, ch + 1)}>{ch === lesson.chapters.length - 1 ? "Quiz →" : "Next →"}</button>
               <button className="chip" onClick={() => void saveLesson()}>Save lesson</button>
+              {lesson.quiz.length > 0 && <button className="chip" onClick={() => void studyQuiz()} title="Spaced repetition in MEMORY">Study the quiz</button>}
               <button className="chip" onClick={endLesson} title="Back to your own model">End lesson</button>
             </div>
             <p className="muted text-[11px]">Simplified massing, dimensions approximate. Check facts against a book before you cite them.</p>
