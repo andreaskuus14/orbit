@@ -18,6 +18,7 @@ import { splatBudget } from "@/lib/splat-pure";
 import { lessonTag } from "@/lib/arch-studio-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
+import { DaylightPanel, DaylightRooms, type Daylight } from "./ArchDaylight";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
 
 const KEY = "orbit.arch.v1";
@@ -221,6 +222,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const [noRoof, setNoRoof] = useState(false), [spin, setSpin] = useState(false);
   const [mode, setMode] = useState<"model" | "bp" | "holo">("model"), bp = mode === "bp", holo = mode === "holo";
   const [walk, setWalk] = useState(false);
+  const [dayOn, setDayOn] = useState(false), [daylight, setDaylight] = useState<Daylight | null>(null);
   const [sun, setSun] = useState<{ on: boolean; date: string; hour: number }>(() => ({ on: false, date: new Date().toISOString().slice(0, 10), hour: 12 }));
   const sunAt = useMemo(() => { const d = new Date(`${sun.date}T00:00`); d.setMinutes(Math.round(sun.hour * 60)); return d; }, [sun.date, sun.hour]);
   const sunInfo = useMemo(() => {
@@ -345,9 +347,10 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <BuildClock run={run} onStart={setT0} />
           {(() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
             return <>
-              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={noRoof && p.kind === "roof"} bp={bp} holo={holo} inside={walk} />)}
+              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={(noRoof || !!daylight) && p.kind === "roof"} bp={bp} holo={holo} inside={walk} />)}
               {scene.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
                 appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} holo={holo} />)}
+              {daylight && !holo && <DaylightRooms d={daylight} />}
             </>; })()}
           </>}
           {walk && !paused && <Walker key={scan?.name ?? "model"} rects={scan ? noRects : rects} plot={scanPlot ?? plotWD} onExit={() => setWalk(false)} />}
@@ -418,6 +421,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
               {" · "}sunrise {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, sunset {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. The plot's −Z side faces north.</p>}
           </div>
         )}
+        {dayOn && <DaylightPanel parts={scene.parts} site={SITE} d={daylight} onChange={setDaylight} />}
         <div className="flex flex-wrap gap-1.5">
           <button className="chip" onClick={() => setRun((n) => n + 1)} title="Replay the assembly, bottom to top">▶ Build</button>
           <button className="chip" aria-pressed={noRoof} onClick={() => setNoRoof((v) => !v)}>Hide roof</button>
@@ -426,6 +430,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <button className="chip" aria-pressed={holo} onClick={() => setMode((m) => (m === "holo" ? "model" : "holo"))} title="The building as a hologram on a holotable">Holo</button>
           <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title="Walk through at eye height: WASD or arrows, drag to look, Esc to exit">🚶 Walk</button>
           <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ Sun study</button>
+          <button className="chip" aria-pressed={dayOn} onClick={() => { setDayOn((v) => !v); setDaylight(null); }} title="Direct-sun hours and daylight per room, a teaching estimate">🌤 Daylight</button>
           <button className="chip" disabled={!past.length} onClick={undo}>↶ Undo</button>
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>Start over</button>
           <button className="chip" disabled={!shell} onClick={addInterior} title="A straight wall across the first floor; move or resize it with the numbers">+ Interior wall</button>
