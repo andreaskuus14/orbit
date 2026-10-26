@@ -191,7 +191,10 @@ export async function sendContract(sb: SupabaseClient, userId: string, id: unkno
   });
   const settle = (fn: (c: Contract) => void) => update((list) => { const x = find(list, c.id); fn(x); return x; });
   const { readStream } = await import("./vault");
-  const pdf = Buffer.from(await new Response((await readStream(c.signed!.pdf, null)).stream).arrayBuffer());
+  const unclaim = () => settle((x) => { if (x.status === "sent") { x.status = "signed"; delete x.sent; } }); // nothing went out
+  let pdf: Buffer;
+  try { pdf = Buffer.from(await new Response((await readStream(c.signed!.pdf, null)).stream).arrayBuffer()); }
+  catch { await unclaim(); throw new ContractError("The signed PDF is missing from VAULT: nothing was sent. Take your signature back and sign again to make a fresh one.", 409); }
   let r: Response;
   try {
     r = await fetch("https://api.resend.com/emails", {
@@ -209,7 +212,7 @@ export async function sendContract(sb: SupabaseClient, userId: string, id: unkno
     throw new ContractError(`The email service had a problem (${r.status}): it may or may not have been sent. It stays marked Sent.`, 502);
   }
   if (!r.ok) { // a clear refusal: nothing went out
-    await settle((x) => { if (x.status === "sent") { x.status = "signed"; delete x.sent; } });
+    await unclaim();
     throw new ContractError(`Not sent: Resend ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`, 502);
   }
   void ledger(sb, userId, c);

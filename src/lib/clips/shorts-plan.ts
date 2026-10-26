@@ -108,14 +108,20 @@ export async function setShortsTarget(t: unknown) {
 export async function approveBatch(ids: unknown, credits: unknown): Promise<Batch | string> {
   if (G.__orbitShortsBatch) return "A batch is already being made";
   if (stopAllOn()) return PAUSED_MSG;
-  const off = (await import("../autonomy")).allows("higgsfield-spend", "owner");
-  if (!off.ok) return off.why;
-  const c = await current(), why = batchProblem(c.batch, ids, credits) || capProblem(c.w.used, c.batch.credits, c.w.cap);
-  if (why) return why;
+  const run = (G.__orbitShortsBatch = { ids: [] as string[], done: [] as string[], errors: [] as string[] }); // claimed before any await: a double click can't start two runs
+  const refuse = (why: string) => { if (G.__orbitShortsBatch === run) G.__orbitShortsBatch = undefined; return why; };
+  let c: Awaited<ReturnType<typeof current>>;
   // His click approves the batch as it is now: each story's quote is hashed here, so a story changed later needs a fresh approval.
   const seen = new Map<string, string>();
-  for (const it of c.batch.items) { const j = await getStory(it.id); if (j?.quote) seen.set(it.id, await contentHash(spendContent(j.quote.fingerprint, it.credits))); }
-  const run = (G.__orbitShortsBatch = { ids: c.batch.items.map((i) => i.id), done: [] as string[], errors: [] as string[] });
+  try {
+    const off = (await import("../autonomy")).allows("higgsfield-spend", "owner");
+    if (!off.ok) return refuse(off.why);
+    c = await current();
+    const why = batchProblem(c.batch, ids, credits) || capProblem(c.w.used, c.batch.credits, c.w.cap);
+    if (why) return refuse(why);
+    for (const it of c.batch.items) { const j = await getStory(it.id); if (j?.quote) seen.set(it.id, await contentHash(spendContent(j.quote.fingerprint, it.credits))); }
+  } catch (e) { refuse(""); throw e; }
+  run.ids = c.batch.items.map((i) => i.id);
   void (async () => {
     for (const it of c.batch.items) {
       if (!(await idle(() => runningStory() === null))) { run.errors.push(`${it.title}: another story kept running`); continue; }
