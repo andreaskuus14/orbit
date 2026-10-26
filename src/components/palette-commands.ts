@@ -1,6 +1,6 @@
 // Warp palette command registry: the one place to add a place or quick action (CommandPalette.tsx reads COMMANDS).
 // Rule: a command only navigates or opens a screen. Anything that approves, sends, spends or deletes opens where the
-// owner decides it; it never does it from here. (Stop-all ON is the exception: it only pauses work.)
+// owner decides it; it never does it from here. (Stop-all ON is the exception: it only pauses work, after the same confirm as the HUD button.)
 import { PLANETS } from "@/lib/planets";
 import { NAV_EVENT, type NavTarget, type LifeView } from "@/lib/nav-pure";
 import { notify } from "@/lib/notify-pure";
@@ -42,6 +42,8 @@ export const COMMANDS: Command[] = [
   // Opens where approvals are decided; the palette never approves.
   act("approvals", "Open approvals", () => nav({ panel: null, mission: true }), "Mission control: what waits for you", "approve pending waiting proposals"),
   act("stopall", "Stop all (pause agents and automations)", () => {
+    // Same confirm as the HUD button (StopAll.tsx).
+    if (!confirm("Stop everything?\n\nRunning agent tasks, agent teams and goal steps are cancelled, and no automation, scout, autopilot, briefing or suggestion starts until you press Resume. Clip renders already running finish. CORE chat keeps answering.")) return;
     changeStopAll(true).catch((e) => notify({ kind: "system", title: "Stop-all failed", body: e instanceof Error ? e.message : String(e) }));
   }, "Kill switch ON. Resume from the HUD", "kill switch pause halt emergency"),
   act("doctor", "Check ORBIT health", () => nav({ panel: null, doctor: true }), "Run the ORBIT doctor", "doctor diagnostics"),
