@@ -33,7 +33,7 @@ test("operator report: what ORBIT did, results, time saved, failures (ids only)"
   assert.equal(r.savedMinutes, MINUTES_SAVED["night.research"] + MINUTES_SAVED["health.fix"] + MINUTES_SAVED["night.business"] + MINUTES_SAVED["auto.publish"] + MINUTES_SAVED["deal.hunt"]);
   assert.deepEqual({ ...r.money }, { credits: 12.5, spends: 1, replies: 1, pilots: 0, paying: 0, lost: 0, dealsFound: 1, shortsOut: 0, views: 1200, likes: 40 });
   assert.deepEqual(r.failed.map((f) => f.cite), ["event:night.task~4", "event:health.issue~12"]); // the resolved disk issue is a fix, not a failure
-  assert.match(r.spoken, /^Operator report\. This week I handled 5 things on my own, which saved you about 45 min\./);
+  assert.match(r.spoken, /^Operator report\. This week I handled 5 things on my own, which saved you about 45 minutes\./);
   assert.match(r.lines.join(" "), /12\.5 Higgsfield credits/);
   const empty = operatorReport({ now, events: [], levels: DEFAULT_LEVELS, lessons: [] });
   assert.deepEqual([empty.did, empty.failed, empty.suggest], [[], [], []]);

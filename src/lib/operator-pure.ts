@@ -51,7 +51,7 @@ export type OperatorReport = {
 
 const ev = (e: LedgerEvent) => `event:${e.type}~${e.id}`;
 const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`;
-const hrs = (m: number) => (m < 60 ? `${m} min` : `${Math.round(m / 6) / 10} h`);
+const hrs = (m: number) => (m < 60 ? `${m} minutes` : `${Math.round(m / 6) / 10} hours`);
 
 export function operatorReport(x: OpIn): OperatorReport {
   const w = weekWindow(x.now, x.weeksAgo ?? 0), stop = Math.min(w.end, x.now + 1);
@@ -97,7 +97,7 @@ export function operatorReport(x: OpIn): OperatorReport {
   const suggest = suggestRaises(x);
 
   const m = money, lines = [
-    did.length ? `On its own: ${did.slice(0, 4).map((r) => `${r.count} ${r.label}`).join(", ")}${nights ? ` over ${n(nights, "night")}` : ""}.` : "ORBIT didn't do anything on its own this week.",
+    did.length ? `On its own: ${did.slice(0, 4).map((r) => `${r.label} ${r.count}`).join(", ")}${nights ? ` over ${n(nights, "night")}` : ""}.` : "ORBIT didn't do anything on its own this week.",
     approvalsPrepared ? `${n(approvalsPrepared, "thing")} prepared up to your approval.` : "",
     `Results: ${[m.shortsOut && n(m.shortsOut, "Short") + " out", m.views && `${m.views.toLocaleString("en")} views in 48 h`, m.replies && n(m.replies, "business reply", "business replies"),
       m.pilots && n(m.pilots, "pilot"), m.paying && `${m.paying} paying`, m.dealsFound && n(m.dealsFound, "deal") + " found"].filter(Boolean).join(", ") || "nothing measurable yet"}.`,
@@ -111,7 +111,7 @@ export function operatorReport(x: OpIn): OperatorReport {
     m.replies || m.pilots || m.paying ? `Business: ${[m.replies && n(m.replies, "reply", "replies"), m.pilots && n(m.pilots, "pilot"), m.paying && `${m.paying} paying`].filter(Boolean).join(", ")}.` : "",
     m.credits ? `You spent ${Math.round(m.credits)} Higgsfield credits.` : "",
     failed.length ? `${n(failed.length, "thing")} failed, it's on the card.` : "",
-    suggest[0] ? `You always approve ${suggest[0].label.toLowerCase()}, want to raise it to ${LEVEL_WORD[suggest[0].to]}? Your call, in Profile, Autonomy.` : "",
+    suggest[0] ? `You nearly always approve ${suggest[0].label.toLowerCase().replace(":", "")}, want to raise it to ${LEVEL_WORD[suggest[0].to]}? Your call, in Profile, Autonomy.` : "",
   ].filter(Boolean).join(" ");
   return { from: w.from, to: w.to, did, nights, approvalsPrepared, money, savedMinutes, failed: failed.slice(0, 8), suggest, lines, spoken };
 }
@@ -136,7 +136,7 @@ export function suggestRaises(x: Pick<OpIn, "now" | "events" | "levels" | "lesso
   for (const l of [...x.lessons].sort((a, b) => b.confidence - a.confidence)) {
     if (l.sign !== 1 || l.confidence < LESSON_CONFIDENCE || l.status === "rejected") continue;
     const area = LESSON_AREA.find(([re]) => re.test(l.area))?.[1];
-    if (area) offer(area, `A ${l.status} lesson: you approve ${Math.round(l.confidence * 100)}% of the time`, [`lesson:${l.id}`]);
+    if (area) offer(area, `A ${l.status} lesson: you approve these ${Math.round(l.confidence * 100)}% of the time`, [`lesson:${l.id}`]);
   }
   return [...out.values()];
 }

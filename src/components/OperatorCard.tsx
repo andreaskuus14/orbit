@@ -24,7 +24,7 @@ export function OperatorCard({ r }: { r: OperatorReport }) {
         <div key={k} className="rounded border border-white/10 px-2 py-1"><div className="num text-base font-semibold">{v}</div><div className="muted text-[10px] uppercase tracking-wider">{k}</div></div>))}</div>}
       {r.did.length > 0 && <ul className="grid gap-1">{r.did.map((d) => (
         <li key={d.key} className="grid grid-cols-[1fr_auto] items-center gap-x-2 text-xs">
-          <span>{d.count} {d.label}</span><span className="muted num">{d.minutes} min</span>
+          <span>{d.label} <b className="num">{d.count}</b></span><span className="muted num">{d.minutes} min</span>
           <span className="col-span-2 h-1 rounded bg-white/10"><span className="block h-1 rounded bg-cyan-400/70" style={{ width: `${(d.minutes / max) * 100}%` }} /></span>
         </li>))}</ul>}
       {r.failed.length > 0 && <div className="text-xs"><span className="mc-hero-k">WHAT FAILED</span>
