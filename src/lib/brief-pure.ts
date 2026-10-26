@@ -23,6 +23,7 @@ export type BriefIn = {
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
   lesson?: { id: string; text: string }; snoozed: string[];
+  habits?: { done: number; due: number }; // last week's habit check-ins, counts only (habit-nudge-pure habitWeek); said on Mondays
   echo?: { short?: string | null; reply?: string | null }; // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
 };
 
@@ -118,6 +119,10 @@ export function briefItems(x: BriefIn): BriefItem[] {
   const deal = x.deal;
   if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },
     say: `An offer for ${short(deal.item, 8)} came in at about ${Math.round(deal.eur).toLocaleString("en-US")} euros. That looks like a good price.` });
+
+  // LIFE: counts only, and spoken (so polished by the model) only with his LIFE opt-in; otherwise just on the card.
+  if (x.habits?.due && new Date(`${x.day}T12:00`).getDay() === 1) add({ id: `habits:${x.day}`, kind: "result", title: `Habits last week: ${x.habits.done}/${x.habits.due}`,
+    detail: "LIFE", open: { panel: "life" }, say: x.life ? `Last week you kept ${num(x.habits.done)} of ${num(x.habits.due)} habit check-ins.` : "" });
 
   if (x.lesson) add({ id: `lesson:${x.lesson.id}`, kind: "lesson", title: "Something I've noticed", detail: plain(x.lesson.text), open: { panel: "profile" },
     say: `One thing I've noticed: ${plain(x.lesson.text).replace(/\?/g, "").replace(/\.$/, "").replace(/^./, (c) => c.toLowerCase())}.` });

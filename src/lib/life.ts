@@ -7,6 +7,7 @@ import {
   emptyStore, isDateKey, isRepeat, nextOccurrence, journalText, matchHabit, pruneReminders, reminderTimeError, streak, summaryText, view,
   type Habit, type LifeState, type LifeStore, type Reminder, type Repeat,
 } from "./life-pure";
+import { habitWeek, isChannel, parseWindow, recordAt, shouldNudge, ignoredRun, type NudgeCtx } from "./habit-nudge-pure";
 
 // LIFE workspace (habits, focus, reminders, journal), stored locally in <ORBIT data dir>/life.json like follows.json.
 
@@ -83,10 +84,37 @@ export async function checkHabit(nameOrId: string, done = true, date?: string): 
     const set = new Set(h.done);
     if (done) set.add(day); else set.delete(day);
     h.done = [...set].sort().slice(-400); // shortcut: keeps ~400 completions per habit; enough for streak display
+    if (day === t) { const n = new Date(); h.at = recordAt(h.at, t, done ? n.getHours() * 60 + n.getMinutes() : null); } // learns when he usually does it
     if (day < h.created) h.created = day;
     return { ok: true as const, name: h.name, streak: streak(h, t) };
   });
 }
+
+/** Habit engine: when (parseWindow text, "" = no window) and how (off|toast|push) to nudge. Named days replace the habit's days. */
+export async function setHabitNudge(id: string, when: string, channel: string): Promise<{ ok: true } | { error: string }> {
+  const p = when.trim() ? parseWindow(when) : null;
+  if (when.trim() && !p) return { error: "Try e.g. “evening 19–22”, “after lunch” or “on Mondays”" };
+  if (!isChannel(channel)) return { error: "Channel must be off, toast or push" };
+  return update((s) => {
+    const h = s.habits.find((x) => x.id === id);
+    if (!h) return { error: "Habit not found" };
+    if (p) { h.window = p.window; if (p.days) h.days = p.days; } else delete h.window;
+    if (channel === "off") delete h.nudge; else h.nudge = channel;
+    return { ok: true as const };
+  });
+}
+
+/** Habits to nudge now (habit-nudge-pure decides); each is marked nudged for today first so no window shows it twice. */
+export async function claimNudges(now: number, ctx: NudgeCtx): Promise<Habit[]> {
+  const d = new Date(now), day = dateKey(d), min = d.getHours() * 60 + d.getMinutes();
+  if (!(await read()).habits.some((h) => shouldNudge(h, day, min, ctx))) return []; // most ticks: no write
+  return update((s) => s.habits.filter((h) => shouldNudge(h, day, min, ctx)).map((h) => {
+    h.ignored = ignoredRun(h, day); h.nudged = day;
+    return { ...h };
+  }));
+}
+/** Last week's habit check-ins, counts only (the brief's weekly line). */
+export const lastHabitWeek = async () => habitWeek((await read()).habits, today());
 
 export async function addReminder(text: string, atIso: string, repeat?: Repeat): Promise<{ reminder: Reminder } | { error: string }> {
   const tx = typeof text === "string" ? text.replace(/\s+/g, " ").trim() : "";

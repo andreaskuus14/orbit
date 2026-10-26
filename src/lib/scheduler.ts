@@ -33,6 +33,7 @@ async function tick(sb: SupabaseClient) {
     // Event-triggered automations first (they should feel instant), then scheduled ones, then briefings.
     await handleEvents(sb).catch((e) => console.error("[orbit] automation events failed:", e?.message ?? e)); // still advances its cursor: startAutomation refuses while Stop-all is on
     if (stopAllOn()) return; // Stop-all: no automations, queue starts, chain resumes, briefings, proposals or backups
+    void import("./habit-nudge").then((m) => m.tickHabits()).catch((e) => console.error("[orbit] habit nudges failed:", e instanceof Error ? e.message : e)); // LIFE, local, no model
     if (allows("calls", "background").ok) void import("./call").then((c) => c.maybeCall()); // "ORBIT wants to talk": rings the paired phone when call-pure says so; never throws
     const limited = usageLimited(); // a real Claude limit: start nothing that needs Claude, and don't burn briefing slots (failed runs count as ran)
     for (const { id } of users ?? []) {

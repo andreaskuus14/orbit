@@ -7,6 +7,7 @@ import { switchStopAll } from "@/lib/stop-all-run";
 import { listJobs, publishingKey } from "@/lib/clips/factory";
 import { runningStory } from "@/lib/clips/story";
 import { coreTurn } from "@/lib/core-turn";
+import { checkHabit } from "@/lib/life";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -100,6 +101,10 @@ export async function POST(req: Request) {
           { remote: true, onConversation: (id) => S.chat.set(device.id, { id, at: Date.now() }) });
         if (!res.ok) return done(hidden("core.ask", await res.text().catch(() => ""), res.status));
         return done(sanitizeStream(res));
+      }
+      case "habitDone": { // by id only (uuid checked in parseCommand); today, like a tap on the PC
+        const r = await checkHabit((cmd as { id: string }).id);
+        return done("error" in r ? fail("That habit is gone: check LIFE on the PC", 404) : Response.json({ ok: true, message: `Done: ${r.name}${r.streak > 1 ? ` · ${r.streak} in a row` : ""}` }));
       }
       default:
         return done(fail("Not available from the phone"));

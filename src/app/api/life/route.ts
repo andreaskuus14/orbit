@@ -1,18 +1,20 @@
 import { requireUser } from "@/lib/supabase/server";
 import { emit } from "@/lib/claude";
-import { addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal } from "@/lib/life";
+import { addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal, setHabitNudge } from "@/lib/life";
+import { setFocusUntil, takeHabitToasts } from "@/lib/habit-nudge";
 import { MAX_FOCUS_MIN, isRepeat } from "@/lib/life-pure";
 
 export const dynamic = "force-dynamic";
 
 // LIFE workspace. GET → full state (?due=1 → { due } reminders whose time has come and that haven't fired).
 // addReminder takes optional repeat: daily|weekdays|weekly.
-// POST { action: addHabit|removeHabit|check|addReminder|removeReminder|fired|focus|journal, ... }.
+// POST { action: addHabit|removeHabit|check|nudge|focusBlock|addReminder|removeReminder|fired|focus|journal, ... }.
+// ?due=1 also drains in-app habit nudges ({ habits }) from habit-nudge.ts.
 
 export async function GET(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
-  if (new URL(req.url).searchParams.get("due") === "1") return Response.json({ due: await getDue() });
+  if (new URL(req.url).searchParams.get("due") === "1") return Response.json({ due: await getDue(), habits: takeHabitToasts() });
   return Response.json(await getLife());
 }
 
@@ -41,6 +43,17 @@ export async function POST(req: Request) {
       const q = id ?? str(b.name, 80);
       if (!q || (b.done !== undefined && typeof b.done !== "boolean")) return bad("Missing habit or invalid done");
       return out(await checkHabit(q, b.done ?? true, date));
+    }
+    case "nudge": {
+      const when = str(b.when ?? "", 60), channel = str(b.channel, 10);
+      if (!id || when === null || channel === null) return bad("Missing id, when or channel");
+      return out(await setHabitNudge(id, when, channel));
+    }
+    case "focusBlock": { // LifePanel's focus timer: habit nudges wait until it ends (0 = no focus block)
+      const until = b.until;
+      if (!Number.isSafeInteger(until) || until < 0 || until > Date.now() + 4 * 3600_000) return bad("Invalid until");
+      setFocusUntil(until);
+      return Response.json({ ok: true });
     }
     case "addReminder": {
       const text = str(b.text, 200), at = str(b.at, 40);
