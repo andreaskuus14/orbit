@@ -2,9 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   approveProblem, dashboard, daysLate, editInvoice, invoicePdf, isOverdue, newInvoice, nextNumber, overdueLine, parseSeller, readyProblem,
-  refCheckDigit, refNumber, refValid, reminderDraft, remindDue, setStatus, toCents, totals, view, briefInvoices, remoteInvoices, invoicePushes, PUSH_AGAIN_DAYS,
+  refCheckDigit, refNumber, refValid, reminderDraft, remindDue, setStatus, toCents, totals, view, briefInvoices, remoteInvoices, reminderContent, invoicePushes, PUSH_AGAIN_DAYS,
   type Invoice, type Seller,
 } from "../src/lib/invoices-pure.ts";
+import { emailIn } from "../src/lib/business-pure.ts";
 
 const NOW = Date.parse("2026-10-26T10:00:00.000Z"), TODAY = "2026-10-26";
 const seller = parseSeller({ name: "Andreas OÜ", regCode: "12345678", vatNo: "EE123456789", address: "Tartu mnt 1, Tallinn", iban: "EE38 2200 2210 2014 5685", email: "a@example.com" }) as Seller;
@@ -113,9 +114,10 @@ test("reminders: drafts only for overdue, version-checked approval, weekly at mo
   assert.match(r.text, new RegExp(od.ref));
   assert.match((reminderDraft(od, seller, "Estonian", TODAY, NOW) as { text: string }).text, /viitenumber/);
   const w = { ...od, reminder: r };
-  assert.equal(approveProblem(w, r.at, TODAY), "");
-  assert.match(approveProblem(w, "old", TODAY), /changed/);
-  assert.match(approveProblem({ ...w, status: "paid" }, r.at, TODAY), /no longer overdue/);
+  assert.equal(approveProblem(w, TODAY), "");
+  assert.match(approveProblem({ ...w, reminder: null }, TODAY), /No reminder/);
+  assert.match(approveProblem({ ...w, status: "paid" }, TODAY), /no longer overdue/);
+  assert.deepEqual(reminderContent(w), { to: emailIn(w.buyer.email) ?? "", subject: r.subject, text: r.text }); // what approvalGate hashes
   assert.deepEqual(remindDue([od, w], TODAY).map((x) => x.reminder), [null]);
   assert.equal(remindDue([{ ...od, reminded: [{ at: "2026-10-22T09:00:00Z", via: "email" }] }], TODAY).length, 0);
   assert.equal(remindDue([{ ...od, reminded: [{ at: "2026-10-18T09:00:00Z", via: "email" }] }], TODAY).length, 1);
@@ -145,7 +147,7 @@ test("phone remote: waiting reminders become invoice approvals with the full tex
   assert.equal(remoteInvoices([waiting, sent()], TODAY, true).length, 1); // only an overdue invoice with a draft
   assert.equal(a.key, "invoice:i1");
   assert.equal(a.message, r.text);
-  assert.equal(a.seen, r.at); // the version echoed back on approve
+  assert.deepEqual(a.content, reminderContent(waiting)); // remote.ts hashes it into seen
   assert.equal(a.buyer, "Cake Shop");
   assert.equal(a.amount, "€620.00");
   assert.equal(a.daysLate, 9);

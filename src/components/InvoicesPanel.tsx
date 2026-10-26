@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { REMIND_LANGS, daysLate, euro, totals, view, type Dashboard, type Invoice, type Seller, type View } from "@/lib/invoices-pure";
+import { contentHash } from "@/lib/approval-pure";
+import { REMIND_LANGS, reminderContent, daysLate, euro, totals, view, type Dashboard, type Invoice, type Seller, type View } from "@/lib/invoices-pure";
 import type { Negotiation } from "@/lib/negotiator-pure";
 
 // Invoices (roadmap B6) inside BUSINESS: his seller details, drafts made from a prospect or an agreed negotiation, the PDF,
@@ -158,7 +159,7 @@ function Row({ i, today, open, toggle, busy, act }: { i: Invoice; today: string;
                   <p className="whitespace-pre-wrap">{i.reminder.text}</p>
                   <div className="flex gap-1.5">
                     <button className={`chip ${sure ? "ok" : ""}`} disabled={any}
-                      onClick={() => (sure ? (setSure(false), void act(`approve:${i.id}`, { action: "approve", id: i.id, seen: i.reminder!.at }, (j) => j.text && setCopy(j.text))) : (setSure(true), setTimeout(() => setSure(false), 5000)))}>
+                      onClick={() => (sure ? (setSure(false), void contentHash(reminderContent(i)).then((seen) => act(`approve:${i.id}`, { action: "approve", id: i.id, seen }, (j) => j.text && setCopy(j.text)))) : (setSure(true), setTimeout(() => setSure(false), 5000)))}>
                       {busy === `approve:${i.id}` ? "…" : sure ? "Click again to approve" : "✓ Approve"}</button>
                     <button className="chip" disabled={any} onClick={() => void act(`drop:${i.id}`, { action: "drop", id: i.id })}>Discard</button>
                   </div>

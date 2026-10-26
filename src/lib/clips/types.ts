@@ -8,6 +8,7 @@ export type Clip = { id: string; start: number; end: number; title: string; hook
   notes?: string[];
   retryOf?: { clipId: string; videoId: string; title: string };
   retryApproved?: { at: string; fingerprint: string };
+  approvedHash?: string; // contentHash(clipContent) when it was approved: publishing needs the same media (approval-pure)
   flopRetry?: { at: string; clipId?: string; error?: string; privateAt?: string; restoredAt?: string; privacyPending?: boolean };
   status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; // video/thumb = paths relative to the studio root, "/" separators
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; // owner's picks: choosing one sets title / thumb (thumbOptions: same path form as thumb)

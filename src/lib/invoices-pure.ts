@@ -219,11 +219,12 @@ export function reminderDraft(i: Invoice, s: Seller | null, lang: unknown, today
   const subject = (lang === "Estonian" ? `Meeldetuletus: arve ${i.number}` : `Reminder: invoice ${i.number}`) + (me ? ` (${me})` : "");
   return { text: text.trim(), subject: subject.replace(/[\r\n]+/g, " ").slice(0, 150), at: new Date(now).toISOString() }; // at doubles as the version he approves
 }
-/** Why his approve click can't go ahead ("" = it can): the draft must be the one he read, and still overdue. */
-export function approveProblem(i: Invoice | undefined, seen: unknown, today: string): string {
+/** The exact email a reminder approval covers (approval-pure contentHash; the panel and Remote hash the same shape). */
+export const reminderContent = (i: Pick<Invoice, "buyer" | "reminder">) => ({ to: emailIn(i.buyer.email) ?? "", subject: i.reminder?.subject ?? "", text: i.reminder?.text ?? "" });
+/** Why his approve click can't go ahead ("" = it can): a draft is waiting and it is still overdue. Its exact version is checked by approvalGate. */
+export function approveProblem(i: Invoice | undefined, today: string): string {
   if (!i) return "Not found";
   if (!i.reminder) return "No reminder is waiting";
-  if (i.reminder.at !== seen) return "The reminder changed since you read it: reload";
   if (!isOverdue(i, today)) return "It's no longer overdue (paid or not sent)";
   return "";
 }
@@ -253,7 +254,7 @@ export const briefInvoices = (list: Invoice[], today: string) =>
 export const remoteInvoices = (list: Invoice[], today: string, canEmail: boolean) =>
   list.filter((i) => i.reminder && isOverdue(i, today)).map((i) => ({
     key: `invoice:${i.id}`, title: `Invoice ${i.number}`, detail: "BUSINESS invoice reminder", buyer: i.buyer.name, amount: euro(totals(i).gross),
-    daysLate: daysLate(i, today), message: i.reminder!.text, seen: i.reminder!.at, ...(canEmail && emailIn(i.buyer.email) && { to: emailIn(i.buyer.email)! }),
+    daysLate: daysLate(i, today), message: i.reminder!.text, content: reminderContent(i), ...(canEmail && emailIn(i.buyer.email) && { to: emailIn(i.buyer.email)! }),
   }));
 
 export const PUSH_AGAIN_DAYS = 7;

@@ -2,7 +2,7 @@
 // (/api/remote/talk), so both go through the same echo checks and the same functions the PC uses.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stat } from "node:fs/promises";
-import { echoProblem, GENERIC_ERROR, quoteStamp, type Echo } from "@/lib/remote-web-pure";
+import { echoProblem, GENERIC_ERROR, type Echo } from "@/lib/remote-web-pure";
 import { pendingApprovals } from "@/lib/remote";
 import { clipsDir, getJob, startClipQueue, updateClip, withJobLock } from "@/lib/clips/factory";
 import { resolveInside } from "@/lib/clips/pure";
@@ -43,12 +43,11 @@ export async function decideApproval(sb: SupabaseClient, userId: string, id: str
   if (item.kind === "spend") {
     const job = await getStory(item.key.slice(6));
     if (!job) return fail("Story not found", 404);
-    if (!job.quote || quoteStamp(job.quote) !== item.seen) return fail("The quote changed since you saw it: reload", 409); // re-read: bound to the script and quote he saw
-    const out = await approveStory(job, item.credits); // re-checks the exact quote (approveProblem) before any credit is spent
+    const out = await approveStory(job, item.credits, item.seen); // item.seen = echoed hash of the quote he saw; approveStory re-hashes the job
     return typeof out === "string" ? fail(out, 409) : Response.json({ ok: true, message: `Approved ${item.credits} credits: generating` });
   }
   if (item.kind === "nego") {
-    const r = await approveNegotiation(sb, userId, item.key.slice(5), item.seen); // re-checks the draft version and his limits
+    const r = await approveNegotiation(sb, userId, item.key.slice(5), item.seen); // item.seen = hash of the draft he saw; re-checked with his limits
     const j = (await r.json().catch(() => ({}))) as { message?: string; error?: string };
     return r.ok ? Response.json({ ok: true, message: j.message ?? "Approved" }) : fail(j.error ?? GENERIC_ERROR, r.status) // negotiator errors are owner-facing text, no Supabase/Resend bodies;
   }

@@ -1,4 +1,5 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CAM_NAME, CAPTION_STYLES, CHANNEL_LINK_MSG, LAYOUT_NAME, REJECT_REASONS, bytes, channelLink, isJobActive, layoutText, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
 import ReviewQueue from "./ReviewQueue";
@@ -1070,7 +1071,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
         <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2" aria-label={`Clips from ${job.source}`}>
           {clips.map((c) => (
             <li key={c.id} id={`cf-clip-${job.id}/${c.id}`} tabIndex={-1} className="rounded-xl focus:outline focus:outline-2 focus:outline-[#f43f5e]">
-              <ClipCard clip={c} reduced={reduced} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />}
+              <ClipCard clip={c} reduced={reduced} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<><Note k={`clip:${job.id}/${c.id}`} />{c.status === "ready" && <OrbitThinks id={`clip:${job.id}/${c.id}`} />}</>}
                 picks={(c.status === "ready" || c.status === "approved") && <>
                   <ClipPicks clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPick={(body) => void onPatch(c.id, body)}
                     onMore={() => void onTitles(c.id)} onReview={() => void onTitles(c.id, true)} moreBusy={!!busy[`titles:${job.id}/${c.id}`]} />

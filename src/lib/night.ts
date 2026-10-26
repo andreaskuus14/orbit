@@ -12,7 +12,7 @@ import { today } from "./goals-pure";
 import { localDay } from "./morning-pure";
 import { FOLLOWUP_SYSTEM, dueFollowups, followupPrompt, type Prospect } from "./business-pure";
 import { scoutDue } from "./niche-pure";
-import { NIGHT_KINDS, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest, startBlock, tonightBlocked, wakePushDue,
+import { NIGHT_KINDS, PERSONA_STUDIO_RUNS, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest, startBlock, tonightBlocked, wakePushDue,
   type NightItem, type NightRun, type NightState, type NightTask, type NightUser } from "./night-pure";
 
 // Night shift runner (rules: night-pure.ts). Called every scheduler tick; starts at most one run at a time, in the night window,
@@ -107,7 +107,8 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     followups: dueFollowups((prospects.data ?? []) as Prospect[], Date.now()), drafted: st.users[userId]?.drafted ?? {},
     nicheDue: !!board && !board.busy && scoutDue({ lastAttempt: board.lastAttempt ?? undefined, lastOk: board.lastOk ?? undefined }, Date.now()),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
-    health: true,
+    health: true, dream: true,
+    personas: await import("./personas").then((m) => m.personasDue(userId), () => false),
     handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: nightOff(autonomyLevels()),
     boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({})),
   };
@@ -149,9 +150,12 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     }
     case "clips": { // titles, descriptions and slots for rendered clips; publishing stays the owner's Approve click
       const [{ packageNow }, { listJobs }] = await Promise.all([import("./clips/autopilot"), import("./clips/factory")]);
+      // Shorts autopilot v2: the week's scripts + Higgsfield prices (get_cost only) → one morning "Approve N Shorts" batch.
+      const plan = await import("./clips/shorts-plan").then((m) => m.prepShorts(userId, signal)).catch((e) => { console.error("[orbit] shorts plan:", e); return null; });
       await packageNow();
       const ready = (await listJobs()).flatMap((j) => j.clips).filter((c) => c.status === "ready").length;
-      return ready ? { ...base, label: `${ready} Short${ready > 1 ? "s" : ""} ready for your review`, status: "approval", open: { panel: "studio" }, at: at() } : { ...base, status: "skipped", why: "No clips waiting", at: at() };
+      const label = [ready && `${ready} Short${ready > 1 ? "s" : ""} ready for your review`, plan?.batch.label].filter(Boolean).join(" · ");
+      return label ? { ...base, label, status: "approval", open: { panel: "studio" }, at: at() } : { ...base, status: "skipped", why: "No clips waiting", at: at() };
     }
     case "niche": {
       const n = await import("./niche");
@@ -167,8 +171,19 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     }
     case "health": { // reads logs and failures, writes notes for the Doctor panel; never touches code
       const r = await (await import("./health")).runHealth(sb, userId, signal);
+      await (await import("./self-improve")).maybeSelfImprove(sb, userId, signal); // weekly "Make ORBIT better" tasks (once per ISO week)
       return r.fresh ? { ...base, label: `Health check: ${r.fresh} new problem${r.fresh > 1 ? "s" : ""} (see the Doctor panel)`, status: "done", at: at() }
         : { ...base, status: "skipped", why: r.open ? `Nothing new; ${r.open} known problem${r.open > 1 ? "s" : ""} still open` : "Nothing broke", at: at() };
+    }
+    case "dream": { // the morning brief asks it; nothing is edited, so it's never a "done" or an approval here
+      const ns = (await load()).settings, key = nightKey(Date.now(), ns), r = await (await import("./dream")).runDream(sb, userId, key, ns.tz, signal);
+      const d = await (await import("./dream-ideas")).runIdeas(sb, userId, key, signal).catch((e) => ({ n: 0, why: e instanceof Error ? e.message : String(e) })); // dream mode: idea combinations, one call
+      return { ...base, status: "skipped", why: `${r.dream ? "One question saved for the morning brief" : r.why}; ${d.n ? `${d.n} idea${d.n > 1 ? "s" : ""} in DREAMS` : `no ideas (${d.why})`}`, at: at() };
+    }
+    case "personas": { // look-only Studio runs + one walkthrough; backlog proposals wait for his Add click in GAME DEV → Personas
+      const { runPersonaPlaytest } = await import("./personas");
+      const r = await runPersonaPlaytest(sb, userId, { studioRuns: PERSONA_STUDIO_RUNS, day: nightKey(Date.now(), (await load()).settings), signal });
+      return { ...base, label: r.line, status: r.proposals.length ? "approval" : "done", ...(r.proposals.length ? { why: `${r.proposals.length} backlog proposal${r.proposals.length > 1 ? "s" : ""} in GAME DEV → Personas` } : {}), at: at() };
     }
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions

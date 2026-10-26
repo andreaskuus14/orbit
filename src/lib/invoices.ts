@@ -7,10 +7,11 @@ import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
 import { allows } from "./autonomy";
 import { emailIn } from "./business-pure";
+import { approvalGate } from "./approval-pure";
 import { resendMail } from "./business-send";
 import { localDay } from "./morning-pure";
 import {
-  approveProblem, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus,
+  approveProblem, reminderContent, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus,
   type From, type Invoice, type Seller,
 } from "./invoices-pure";
 
@@ -139,12 +140,12 @@ export async function pushInvoiceReminders(now = Date.now()) {
 
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
-/** His approve click on a reminder draft (`seen` = the draft's `at` he read). Emails the buyer through the BUSINESS send path
+/** His approve click on a reminder draft (`seen` = contentHash of reminderContent, the exact email he read). Emails the buyer through the BUSINESS send path
  *  when Resend is set up and the buyer has an email; otherwise it is recorded as approved for him to copy. Never automatic. */
 export async function approveReminder(sb: SupabaseClient, userId: string, id: unknown, seen: unknown): Promise<Response> {
   if (stopAllOn()) return fail("Not now: Stop-all is on", 503);
   const day = today(), s0 = await load(), i0 = s0.invoices.find((x) => x.id === id);
-  const why = approveProblem(i0, seen, day);
+  const why = approveProblem(i0, day) || (await approvalGate("invoices.remind", seen, reminderContent(i0!)));
   if (why || !i0) return fail(why, why === "Not found" ? 404 : 409);
   const to = process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM ? emailIn(i0.buyer.email) : null;
   if (to) { const a = allows("business-send", "owner"); if (!a.ok) return fail(`Not sending: ${a.why}`, 503); }
@@ -152,7 +153,7 @@ export async function approveReminder(sb: SupabaseClient, userId: string, id: un
   // Claim first (the draft leaves the store), so a double tap can't send twice.
   const claimed = await update((s) => {
     const cur = s.invoices.find((x) => x.id === i0.id);
-    if (approveProblem(cur, seen, day)) return null;
+    if (approveProblem(cur, day) || cur!.reminder!.at !== draft.at) return null; // same version the gate just hashed
     const next = { ...cur!, reminder: null, reminded: [...cur!.reminded, { at: new Date().toISOString(), via: to ? ("unknown" as const) : ("copy" as const) }], updated: new Date().toISOString() };
     put(s, next);
     return next;

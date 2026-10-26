@@ -52,3 +52,23 @@ export function goalsLine(statuses: GoalStatus[]): string {
   const live = statuses.filter((status) => isLive({ status })).length;
   return live ? `${n(live, "active goal")} (goal_status for details)` : "";
 }
+
+/** When each module's tool instructions go into a CORE turn (§1.4): only if the request (or CORE's previous reply, for
+ *  "yes, do it") matches. Modules without a hint always load. Hiding instructions never changes policy (decide() still gates every call).
+ *  shortcut: keyword hints miss oddly worded asks (the model then just lacks that tool); upgrade to a model/embedding router if that bites. */
+export const MODULE_HINTS: Record<string, RegExp> = {
+  STUDIO: /short|clip|studio|scout|niche|channel|youtube|schedul|upload|stream|suggest|attention|what should i|anything (?:i|to)|plan_task|make \d+/i,
+  LIFE: /habit|remind|journal|focus|calendar|meeting|event|appointment|git|commit|repo|changed|vault|file|pdf|document|reflect|today|tomorrow|every (?:day|week|mon|tue|wed|thu|fri|sat|sun)/i,
+  REACH: /trend|viral|reddit|kick|twitch|bluesky|bsky|exploding|blowing up|livestreamfail|lsf/i,
+  WORKSPACE: /workspace|build|make|create|website|page|app|file|code|html|preview|ws_/i,
+  BUSINESS: /business|client|lead|prospect|follow.?up|pipeline|customer/i,
+  IDEAS: /idea/i,
+  HIGGSFIELD: /image|picture|photo|video|generat|higgsfield|render|draw/i,
+  GOALS: /goal|target|subscriber|milestone|deadline|progress/i,
+  NIGHT: /tonight|overnight|night|while i sleep/i,
+  DEALS: /wish|deal|buy|price|cheap|offer|€|eur|sale/i,
+  WEEK: /week|slipp|late|get done|got done|did i|streak|wins?\b|behind/i,
+};
+export function selectModules<T extends ModuleSpec>(mods: T[], text: string): T[] {
+  return mods.filter((m) => !MODULE_HINTS[m.name] || MODULE_HINTS[m.name].test(text));
+}
