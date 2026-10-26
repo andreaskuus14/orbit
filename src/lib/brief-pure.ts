@@ -22,6 +22,7 @@ export type BriefIn = {
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
+  review?: { id: string; say: string }; // the weekly review call he didn't pick up (review-call-pure missedReviewLine)
   lesson?: { id: string; text: string }; snoozed: string[];
   echo?: { short?: string | null; reply?: string | null }; // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
 };
@@ -84,6 +85,8 @@ export function briefItems(x: BriefIn): BriefItem[] {
     add({ id: `night:${n.key}`, kind: "night", say, title: `Night shift: ${n.done.length} done${n.failed.length ? `, ${n.failed.length} failed` : ""}`,
       detail: top ? plain(top.label) : undefined, open: top?.open && "task" in top.open ? { task: top.open.task } : { panel: "agents" } });
   }
+
+  if (x.review) add({ id: x.review.id, kind: "result", title: "Your weekly review", detail: "Missed call: tell ORBIT your top 3 for the week", say: x.review.say });
 
   if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });
 

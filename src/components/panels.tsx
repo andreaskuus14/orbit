@@ -12,6 +12,7 @@ import { CoreActivity } from "./CoreActivity";
 import { PasswordSection } from "./PasswordSection";
 import { PhonePairing } from "./PhonePairing";
 import { AutonomySection } from "./AutonomySection";
+import { WeeklyReviewSetting } from "./RemoteCall";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
 import type { WriteEvidence } from "@/lib/completion-pure";
@@ -666,6 +667,7 @@ export function ProfilePanel() {
     <PasswordSection />
     <AutonomySection />
     <PhonePairing />
+    <WeeklyReviewSetting />
     <PersonaSection />
     <PlaybookSection />
     <LessonsSection />

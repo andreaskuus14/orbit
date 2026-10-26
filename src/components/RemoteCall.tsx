@@ -269,3 +269,33 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
     </div>
   );
 }
+
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+type Review = { on: boolean; day: number; at: string };
+/** Profile: the weekly review call (off until he turns it on). ORBIT rings once at this time; unanswered, it waits in the next morning's brief. */
+export function WeeklyReviewSetting() {
+  const [v, setV] = useState<Review | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => { fetch(API).then((r) => (r.ok ? r.json() : null)).then((j: { review?: Review } | null) => j?.review && setV(j.review), () => {}); }, []);
+  async function save(next: Review) {
+    setErr("");
+    const res = await fetch(`${API}?op=settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ review: next }) }).catch(() => null);
+    const j = (await res?.json().catch(() => ({}))) as { review?: Review; error?: string } | undefined;
+    if (res?.ok && j?.review) setV(j.review); else setErr(j?.error ?? "Could not save");
+  }
+  if (!v) return null;
+  return (
+    <section className="card space-y-2" aria-labelledby="weekly-call">
+      <h2 id="weekly-call" className="text-sm font-semibold">Weekly review call</h2>
+      <p className="muted text-sm">ORBIT rings once and talks you through the week: what got done, what&apos;s waiting, one thing it noticed, and your top 3 for next week (saved as goals only after you say yes). It never approves anything on the call. Missed? It waits in the next morning&apos;s brief.</p>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v.on} onChange={(e) => void save({ ...v, on: e.target.checked })} /> Call me for a weekly review</label>
+      <div className="flex flex-wrap gap-2">
+        <select className="field" value={v.day} disabled={!v.on} onChange={(e) => void save({ ...v, day: Number(e.target.value) })} aria-label="Review day">
+          {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+        </select>
+        <input type="time" className="field" min="08:00" max="22:59" value={v.at} disabled={!v.on} onChange={(e) => e.target.value && void save({ ...v, at: e.target.value })} aria-label="Review time" />
+      </div>
+      {err && <p className="error" role="alert">{err}</p>}
+    </section>
+  );
+}

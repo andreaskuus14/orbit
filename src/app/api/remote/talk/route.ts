@@ -2,8 +2,8 @@ import { deviceFromCookie, ownerClient, rateOk, remoteProblem } from "@/lib/remo
 import { requireUser } from "@/lib/supabase/server";
 import { decodeAudioBody, MAX_AUDIO_BYTES } from "@/lib/audio-pure";
 import { loadVoiceAsr, MAX_VOICE_QUEUE, voiceQueue } from "@/lib/voice-asr";
-import { callLive, callSettings, callTurn, endCall, getCall, ringing, setCheckin, startCall, warmCall } from "@/lib/call";
-import { validCheckin } from "@/lib/call-pure";
+import { callLive, callSettings, callTurn, endCall, getCall, ringing, setCheckin, setReview, startCall, warmCall } from "@/lib/call";
+import { validCheckin, validReview } from "@/lib/call-pure";
 import { MAX_ASK_CHARS } from "@/lib/remote-pure";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export const maxDuration = 300;
 // "ORBIT wants to talk": the call screen's endpoint, for the paired phone (device cookie) or the PC (signed-in session).
 // GET → {ringing, live, checkin} (?warm=1: the call screen is open, make the next opener ahead). POST ?op=start → NDJSON
 // {type:"call",id,reason} then {type:"say",text,audio}*; ?op=turn&call=<id> with a 16 kHz mono WAV (or
-// JSON {text} from on-device speech recognition) → NDJSON (call.ts callTurn); ?op=end&call=<id>; ?op=settings {checkin:"HH:MM"|""}.
+// JSON {text} from on-device speech recognition) → NDJSON (call.ts callTurn); ?op=end&call=<id>; ?op=settings {checkin:"HH:MM"|""} or {review:{on,day,at}}.
 // Audio is decoded in memory for this request only and never written anywhere.
 const fail = (error: string, status = 400, extra: object = {}) => Response.json({ error, ...extra }, { status });
 const RATE = { limit: 60, windowMs: 60_000 };
@@ -46,7 +46,12 @@ export async function POST(req: Request) {
   try {
     if (op === "start") return await startCall(c.sb, c.userId);
     if (op === "settings") {
-      const body = await req.json().catch(() => null) as { checkin?: unknown } | null;
+      const body = await req.json().catch(() => null) as { checkin?: unknown; review?: unknown } | null;
+      if (body && "review" in body) { // Profile → weekly review call
+        const review = validReview(body.review);
+        if (!review) return fail("review must be {on, day 0-6, at HH:MM between 08:00 and 22:59}");
+        return Response.json({ review: (await setReview(review)).review });
+      }
       if (!body || !validCheckin(body.checkin)) return fail("checkin must be HH:MM or empty");
       return Response.json({ checkin: (await setCheckin(body.checkin)).checkin });
     }
