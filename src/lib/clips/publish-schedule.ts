@@ -58,7 +58,7 @@ export async function scheduleAll(only?: string[], meta: Record<string, { publis
           if (!at) return "No free slot in the next 6 months";
           const video = videoResource({ publishAt: at, ...(want?.description && { description: want.description }) }, clip);
           if (typeof video === "string") return `${clip.title}: ${video}`;
-          await startPublish(job, clip, file, video);
+          try { await startPublish(job, clip, file, video); } catch (e) { return `${clip.title}: ${(e as Error).message}`; } // e.g. media changed since approval
           return "started";
         });
       } while (r === "busy");
