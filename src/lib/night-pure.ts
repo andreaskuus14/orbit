@@ -12,7 +12,7 @@ export const TONIGHT_MAX = 10, TEXT_MAX = 500, MAX_GOALS = 3, MAX_RESEARCH = 4, 
 export const DRAFT_AGAIN_MS = 7 * 86_400_000; // a prospect gets at most one overnight follow-up draft a week
 export const RESEARCH_AGENTS = ["atlas", "nova", "forge", "vector", "echo", "sentinel"];
 
-export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health"] as const;
+export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health", "company"] as const;
 export type NightKind = (typeof NIGHT_KINDS)[number];
 export const ITEM_STATUSES = ["done", "approval", "failed", "skipped"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -22,7 +22,9 @@ export type Open = { task: string } | { goal: string; step?: number; stepId?: st
 export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string };
 export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string };
 export type TonightItem = { id: string; text: string; agent: string; by: "owner" | "core"; at: string };
-export type NightUser = { tonight: TonightItem[]; run?: NightRun; drafted: Record<string, string> };
+// company: goals the owner queued from AGENTS → Company "for tonight"; the night shift starts them as company chains (company.ts).
+export type CompanyTonight = { id: string; goal: string; at: string };
+export type NightUser = { tonight: TonightItem[]; run?: NightRun; drafted: Record<string, string>; company?: CompanyTonight[] };
 export type NightState = { settings: NightSettings; users: Record<string, NightUser> };
 
 // ---- Settings and state -----------------------------------------------------
@@ -54,7 +56,7 @@ export function parseNight(text: string): NightState {
     const j = JSON.parse(text) as Partial<NightState>;
     const settings = patchNightSettings((j?.settings ?? {}) as Record<string, unknown>, NIGHT_DEFAULTS);
     const users = j?.users && typeof j.users === "object" ? j.users : {};
-    for (const u of Object.values(users)) { u.tonight = Array.isArray(u.tonight) ? u.tonight : []; u.drafted = u.drafted && typeof u.drafted === "object" ? u.drafted : {}; }
+    for (const u of Object.values(users)) { u.tonight = Array.isArray(u.tonight) ? u.tonight : []; u.drafted = u.drafted && typeof u.drafted === "object" ? u.drafted : {}; if (!Array.isArray(u.company)) delete u.company; }
     return { settings: typeof settings === "string" ? { ...NIGHT_DEFAULTS } : settings, users };
   } catch { return { settings: { ...NIGHT_DEFAULTS }, users: {} }; }
 }
@@ -68,6 +70,16 @@ export function addTonight(list: TonightItem[], b: { text?: unknown; agent?: unk
   if (list.length >= TONIGHT_MAX) return `Tonight's list is full (${TONIGHT_MAX}); remove one first`;
   if (list.some((t) => t.text.toLowerCase() === text.toLowerCase())) return "That's already on tonight's list";
   return [...list, { id, text, agent, by, at: new Date(now).toISOString() }];
+}
+
+export const COMPANY_TONIGHT_MAX = 3;
+/** Queue a company goal for tonight, or why not. `planErr`: company-pure planCompany's error for this goal ("" when it plans). */
+export function addCompanyTonight(list: CompanyTonight[], goalIn: unknown, planErr: string, id: string, now: number): CompanyTonight[] | string {
+  if (planErr) return planErr;
+  const goal = String(goalIn).replace(/\s+/g, " ").trim();
+  if (list.length >= COMPANY_TONIGHT_MAX) return `Tonight's company list is full (${COMPANY_TONIGHT_MAX}); remove one first`;
+  if (list.some((t) => t.goal.toLowerCase() === goal.toLowerCase())) return "That goal is already queued for tonight";
+  return [...list, { id, goal, at: new Date(now).toISOString() }];
 }
 
 /** The task request for a tonight item: the owner's words fenced as data, with the night rules restated. */
@@ -123,6 +135,18 @@ export function wakePushDue(now: number, s: NightSettings, run?: NightRun): bool
 
 // ---- What --------------------------------------------------------------------
 
+export type OpenChain = { id: string; goal: string; steps: { status: string; calls?: number }[] };
+const STEP_CALLS = 7, STEP_MIN = 8; // agents.ts MAX_STEPS / createBudget's default minutes, for a step without its own cap
+
+/** A chain's queued steps from the first one not done, stopping at anything running, waiting or failed (steps run strictly in order). */
+export function companySteps(c: OpenChain): NightTask[] {
+  const out: NightTask[] = [], n = c.steps.length, goal = c.goal.replace(/^Company: /, "").slice(0, 90);
+  let k = c.steps.findIndex((s) => s.status !== "done");
+  for (; k >= 0 && k < n && c.steps[k].status === "queued"; k++)
+    out.push({ kind: "company", ref: `${c.id}:${k}`, label: `Company: ${goal} (step ${k + 1}/${n})`, calls: c.steps[k].calls ?? STEP_CALLS, minutes: STEP_MIN });
+  return out;
+}
+
 export type PlanInput = {
   tonight: TonightItem[];
   goals: { id: string; doc: Goal }[];
@@ -135,6 +159,7 @@ export type PlanInput = {
   now: number;
   today: string; // goals' budget day (server-local, goals-pure today())
   off?: NightKind[]; // kinds Profile → Autonomy doesn't allow unattended (autonomy-pure nightOff; empty with the defaults)
+  company?: OpenChain[]; // running company chains (chains.ts openCompanyChains): one night task per queued step, in order
   boost?: Partial<Record<NightKind, number>>; // kept lessons' prior per kind (lessons.ts nightBoost, ~0.85–1.15); 1 when missing
 };
 
@@ -147,6 +172,7 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
     ...i.tonight.slice(0, MAX_RESEARCH).map((t): NightTask => ({ kind: "research", ref: t.id, label: t.text.slice(0, 120), calls: 8, minutes: 10 })),
     ...i.goals.filter((g) => ["run", "sync"].includes(nextMove(g.doc, i.today).do)).slice(0, MAX_GOALS)
       .map((g): NightTask => ({ kind: "goal", ref: g.id, label: g.doc.title.slice(0, 120), calls: g.doc.budget.callsPerStep, minutes: 10 })),
+    ...(i.company ?? []).flatMap(companySteps),
     ...i.followups.filter((p) => !(i.now - Date.parse(i.drafted[p.id] ?? "") < DRAFT_AGAIN_MS)).slice(0, MAX_FOLLOWUPS)
       .map((p): NightTask => ({ kind: "business", ref: p.id, label: `Follow-up for ${p.name.slice(0, 80)}`, calls: 1, minutes: 2 })),
     ...(i.deals ? [{ kind: "deals", ref: "deals", label: `Deal hunt for ${i.deals} wish${i.deals > 1 ? "es" : ""}`, calls: i.deals, minutes: 6 * i.deals } as NightTask] : []),
@@ -186,7 +212,7 @@ export function goalOutcome(id: string, before: Goal, after: Goal | null): Pick<
 
 // ---- Morning report ----------------------------------------------------------
 
-export type NightReport = { key: string; startedAt: string; endedAt?: string; running: boolean; done: NightItem[]; approvals: NightItem[]; failed: NightItem[]; calls: number; minutes: number; stopped?: string; deferred: number };
+export type NightReport = { company?: string; key: string; startedAt: string; endedAt?: string; running: boolean; done: NightItem[]; approvals: NightItem[]; failed: NightItem[]; calls: number; minutes: number; stopped?: string; deferred: number };
 
 /** "While you slept": last night's run (only on the morning it ends), with approvals the owner already answered dropped.
  *  live: current status of each task the run linked to. */
@@ -195,7 +221,9 @@ export function nightReport(run: NightRun | undefined, live: Record<string, stri
   const answered = (i: NightItem) => !!i.open && "task" in i.open && live[i.open.task] !== undefined && live[i.open.task] !== "awaiting_approval";
   const items = run.items.filter((i) => !(i.status === "approval" && answered(i)));
   if (!items.some((i) => i.status !== "skipped") && !running) return null;
+  const co = items.filter((i) => i.kind === "company"), cd = co.filter((i) => i.status === "done").length, ca = co.filter((i) => i.status === "approval").length;
   return {
+    ...(cd || ca ? { company: `Company: ${cd} step${cd === 1 ? "" : "s"} done, ${ca} waiting for you` } : {}),
     key: run.key, startedAt: run.startedAt, endedAt: run.endedAt, running, calls: run.calls, minutes: Math.round(run.ms / 60_000), stopped: run.stopped, deferred: run.deferred ?? 0,
     done: items.filter((i) => i.status === "done"), approvals: items.filter((i) => i.status === "approval"), failed: items.filter((i) => i.status === "failed"),
   };

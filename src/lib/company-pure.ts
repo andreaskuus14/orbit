@@ -1,7 +1,7 @@
 // AGENT COMPANY (pure, tested in tests/company.test.ts). ORBIT's built-in agents presented as a small company. Runner: src/lib/company.ts.
 // The CEO is this planner (no model call): it turns one owner goal into a 2-4 step AGENT TEAMS chain (chains-pure.ts), each step capped by
 // its role's budget. The chain runner hands each result forward and stops at an approval; nothing here sends, publishes or spends.
-import { CHAIN_TITLE, type Draft } from "./chains-pure.ts";
+import { CHAIN_TITLE, parseMeta, type Draft } from "./chains-pure.ts";
 
 export const ROLES = ["ceo", "researcher", "analyst", "writer", "ops"] as const;
 export type Role = (typeof ROLES)[number];
@@ -71,3 +71,10 @@ export function orgChart(rows: TaskRow[], cases: { agent: string; score: number 
 
 /** Ledger status for a finished step (runTask's status). */
 export const stepStatus = (s: string): "done" | "approval" | "failed" => (s === "done" ? "done" : s === "awaiting_approval" ? "approval" : "failed");
+
+/** The company.step event for a chain step whose approval was just resolved (agents.ts resolvePending): null when the parent isn't a
+ *  company chain or the step is still waiting. parentRequest: the chain row's request (ChainMeta JSON). */
+export function resolvedStep(parentRequest: string | null, agent: string, status: string): { role: Role; status: "done" | "failed" } | null {
+  const role = parseMeta(parentRequest)?.company ? roleOf(agent) : null;
+  return role && status !== "awaiting_approval" ? { role, status: status === "done" ? "done" : "failed" } : null;
+}

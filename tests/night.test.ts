@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  NIGHT_DEFAULTS, addTonight, fits, goalOutcome, inWindow, localClock, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest,
+  NIGHT_DEFAULTS, addCompanyTonight, addTonight, companySteps, fits, goalOutcome, inWindow, localClock, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest,
   startBlock, tonightBlocked, wakePushDue, type NightRun, type NightSettings, type PlanInput,
 } from "../src/lib/night-pure.ts";
 import type { Goal, Step } from "../src/lib/goals-pure.ts";
@@ -164,4 +164,37 @@ test("planNight: the health check runs right after the tidy-up when asked, and o
   assert.deepEqual(planNight({ ...i, health: true }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "health", "clips"]);
   assert.deepEqual(planNight({ ...i, health: true, handled: ["health:health"] }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "clips"]);
   assert.equal(planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.some((t) => t.kind === "health"), false);
+});
+
+test("company chains: queued steps in order from the first not done, stop at a wait; budget, autonomy off and handled respected", () => {
+  const c = { id: "c1", goal: "Company: Research X", steps: [{ status: "done", calls: 8 }, { status: "queued", calls: 7 }, { status: "queued" }] };
+  assert.deepEqual(companySteps(c).map((t) => [t.ref, t.calls]), [["c1:1", 7], ["c1:2", 7]]);
+  assert.match(companySteps(c)[0].label, /^Company: Research X \(step 2\/3\)$/);
+  assert.deepEqual(companySteps({ ...c, steps: [{ status: "awaiting_approval" }, { status: "queued" }] }), []);
+  assert.deepEqual(companySteps({ ...c, steps: [{ status: "done" }, { status: "done" }] }), []);
+  const q = (o: Partial<PlanInput>, s = S) => planNight(input({ company: [c], ...o }), s, { calls: 0, ms: 0 }).queue.filter((t) => t.kind === "company").map((t) => t.ref);
+  assert.deepEqual(q({}), ["c1:1", "c1:2"]);
+  assert.deepEqual(q({ off: ["company"] }), []);
+  assert.deepEqual(q({ handled: ["company:c1:1"] }), ["c1:2"]);
+  assert.deepEqual(q({}, { ...S, maxCalls: 13 }), ["c1:1"]); // clips (6) first fits, then one 7-call step
+});
+
+test("company tonight queue: planner errors, dupes and the cap; parseNight keeps it", () => {
+  const a = addCompanyTonight([], " Research  X ", "", "q1", t0130) as { goal: string }[];
+  assert.equal(a[0].goal, "Research X");
+  assert.match(addCompanyTonight(a as never, "research x", "", "q2", t0130) as string, /already/);
+  assert.equal(addCompanyTonight([], "", "goal must be 3-291 characters", "q", t0130), "goal must be 3-291 characters");
+  const full = ["a1", "b2", "c3"].map((g, i) => ({ id: `${i}`, goal: g, at: "" }));
+  assert.match(addCompanyTonight(full, "d4 goal", "", "q", t0130) as string, /full/);
+  assert.equal(parseNight(JSON.stringify({ users: { u: { tonight: [], company: "junk" } } })).users.u.company, undefined);
+});
+
+test("night report: one Company line for company steps", () => {
+  const items = [
+    { kind: "company" as const, ref: "c:0", label: "a", status: "done" as const, at: "" },
+    { kind: "company" as const, ref: "c:1", label: "b", status: "approval" as const, open: { task: "t9" }, at: "" },
+  ];
+  assert.equal(nightReport(run({ items }), { t9: "awaiting_approval" }, t0815, S, false)!.company, "Company: 1 step done, 1 waiting for you");
+  assert.equal(nightReport(run({ items: [items[0]] }), {}, t0815, S, false)!.company, "Company: 1 step done, 0 waiting for you");
+  assert.equal(nightReport(run(), {}, t0815, S, false)!.company, undefined);
 });

@@ -3,11 +3,12 @@ import { useCallback, useState } from "react";
 import { StatusPill, api, usePoll } from "./AgentMission";
 import { COMPANY, planCompany, type OrgSeat } from "@/lib/company-pure";
 import type { ChainView } from "@/lib/chains-pure";
+import type { CompanyTonight } from "@/lib/night-pure";
 
 // AGENTS → Company: the built-in agents as a small company. The CEO (a planner in code, no Claude call) turns one goal into a chain of
 // roles; each step hands its result forward and anything outward stops in the normal approvals queue (open the step to approve).
 
-type View = { seats: OrgSeat[]; chains: ChainView[] };
+type View = { seats: OrgSeat[]; chains: ChainView[]; tonight: CompanyTonight[] };
 const ago = (iso: string) => { const m = Math.max(0, (Date.now() - Date.parse(iso)) / 60_000); return m < 60 ? `${Math.floor(m)}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`; };
 
 export default function CompanyPanel({ names, visible, onOpenTask }: { names: Record<string, string>; visible: boolean; onOpenTask?: (id: string) => void }) {
@@ -21,10 +22,10 @@ export default function CompanyPanel({ names, visible, onOpenTask }: { names: Re
   const plan = goal.trim().length >= 3 ? planCompany(goal) : null;
   const who = (agent: string) => names[agent] ?? agent;
 
-  async function start(e: React.FormEvent) {
+  async function start(e: React.FormEvent, tonight = false) {
     e.preventDefault();
     setBusy(true); setMsg("");
-    try { await api("/api/company", { method: "POST", body: JSON.stringify({ goal }) }); setGoal(""); load(); }
+    try { await api("/api/company", { method: "POST", body: JSON.stringify({ goal, ...(tonight ? { tonight } : {}) }) }); setGoal(""); load(); }
     catch (e2) { setMsg(e2 instanceof Error ? e2.message : "Could not start"); }
     finally { setBusy(false); }
   }
@@ -34,11 +35,22 @@ export default function CompanyPanel({ names, visible, onOpenTask }: { names: Re
       <form onSubmit={start} className="space-y-1.5" aria-label="Give the company a goal">
         <input className="field w-full" value={goal} maxLength={291} onChange={(e) => setGoal(e.target.value)} placeholder="One goal, e.g. research Roblox pet sim trends and write a plan" aria-label="Goal" />
         {plan && <p className="muted text-xs">{typeof plan === "string" ? plan : `CEO plan: ${plan.roles.slice(1).map((r) => COMPANY[r].title).join(" → ")} · at most ${plan.steps.reduce((n, s) => n + (s.calls ?? 0), 0)} Claude calls`}</p>}
-        <button className="chip" disabled={busy || !plan || typeof plan === "string"}>{busy ? "Starting…" : "Start"}</button>
+        <div className="flex gap-1">
+          <button className="chip" disabled={busy || !plan || typeof plan === "string"}>{busy ? "Starting…" : "Start"}</button>
+          <button type="button" className="chip" disabled={busy || !plan || typeof plan === "string"} onClick={(e) => void start(e, true)}
+            title="The night shift starts it and runs its steps within tonight's budget">🌙 Tonight</button>
+        </div>
         <p className="muted text-xs">Nothing is sent, published or bought: saves and automations wait for your approval on the step.</p>
       </form>
       {msg && <p className="error text-xs" role="alert">{msg}</p>}
       {v && <>
+        {v.tonight.length > 0 && <ul className="space-y-1" aria-label="Queued for tonight">
+          {v.tonight.map((t) => (
+            <li key={t.id} className="card text-xs flex justify-between gap-2"><span className="truncate">🌙 {t.goal}</span>
+              <button className="chip" onClick={() => void api(`/api/company?tonight=${encodeURIComponent(t.id)}`, { method: "DELETE" }).then(load, (e) => setMsg(e.message))}
+                aria-label={`Remove "${t.goal}" from tonight`}>Remove</button></li>
+          ))}
+        </ul>}
         <ul className="space-y-1" aria-label="Org chart">
           {v.seats.map((s) => (
             <li key={s.role} className="card text-xs space-y-0.5" style={s.role === "ceo" ? undefined : { marginLeft: "0.75rem" }}>
