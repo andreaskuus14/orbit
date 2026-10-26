@@ -45,7 +45,7 @@ async function candidates(userId?: string): Promise<Cand[]> {
   if (!userId) return all;
   // Kept lessons nudge each source up or down (e.g. "comment ideas do well") the way they nudge the morning brief.
   const nudged = await import("../lessons").then((m) => m.morningPrior(userId, all.map((c) => ({ ...c, base: c.score, kind: "clips" }))), () => null);
-  return nudged ? nudged.map(({ base, kind: _k, ...c }) => ({ ...c, score: base })) : all;
+  return nudged ? nudged.map((x): Cand => ({ key: x.key, source: x.source, title: x.title, idea: x.idea, score: x.base })) : all;
 }
 
 /** Plan the week, write tonight's scripts and get prices. Never approves anything. */
@@ -111,7 +111,7 @@ export async function approveBatch(ids: unknown, credits: unknown): Promise<Batc
   if (!off.ok) return off.why;
   const c = await current(), why = batchProblem(c.batch, ids, credits) || capProblem(c.w.used, c.batch.credits, c.w.cap);
   if (why) return why;
-  const run = (G.__orbitShortsBatch = { ids: c.batch.items.map((i) => i.id), done: [], errors: [] });
+  const run = (G.__orbitShortsBatch = { ids: c.batch.items.map((i) => i.id), done: [] as string[], errors: [] as string[] });
   void (async () => {
     for (const it of c.batch.items) {
       if (!(await idle(() => runningStory() === null))) { run.errors.push(`${it.title}: another story kept running`); continue; }
