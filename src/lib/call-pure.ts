@@ -221,8 +221,12 @@ const ask = (it: CallItem, action: "approve" | "reject") => action === "reject" 
 
 /** null: not about approvals, CORE answers. Otherwise what to say, the next pending confirmation, and (only after an explicit
  *  yes to the exact item and version just asked about) the action, whose echo the server re-checks against what's waiting now. */
-export function voiceDecision(pending: Pending | null, text: string, items: CallItem[], now: number): Decision | null {
+export function voiceDecision(pending: Pending | null, text: string, items: CallItem[], now: number, car = false): Decision | null {
   const t = norm(text);
+  if (car) { // car mode: nothing is approved or rejected by voice; he does it on screen once stopped
+    if (ADVICE.test(t) || (!APPROVE.test(t) && !REJECT.test(t))) return null;
+    return { pending: null, say: items.length ? "Not while you're on the move. It stays marked for review, so approve it on screen later." : "There's nothing waiting for you right now." };
+  }
   if (pending) {
     const live = now - pending.at <= CALL.confirmMs;
     if (YES.test(t)) {

@@ -27,7 +27,7 @@ import {
   type CallItem, type CallReason, type CallState, type CallTurn, type Pending,
 } from "./call-pure";
 
-type Session = { id: string; userId: string; sb: SupabaseClient; reason: CallReason; turns: CallTurn[]; pending: Pending | null; done: string[]; n: number; lastAt: number; busy?: AbortController; said: Set<string> };
+type Session = { id: string; userId: string; sb: SupabaseClient; reason: CallReason; turns: CallTurn[]; pending: Pending | null; done: string[]; n: number; lastAt: number; busy?: AbortController; said: Set<string>; car?: boolean };
 /** An opener made ahead (when ORBIT rings, or while the call screen is open): its text and its first sentence's audio. */
 type Voiced = { text: string; parts: string[]; audio: Promise<string | null>[] };
 type Pre = { reason: CallReason; at: number; key: Promise<string>; base: Promise<string>; voiced: Promise<Voiced> };
@@ -159,7 +159,7 @@ const NDJSON = { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-C
 
 /** Pick up: NDJSON {type:"call",id,reason} then {type:"say",text,audio} per opener sentence, the first as soon as its audio is ready
  *  (made ahead when ORBIT rang). Spare Claude CLIs boot while ORBIT talks, so his first reply skips the CLI's start-up. */
-export async function startCall(sb: SupabaseClient, userId: string): Promise<Response> {
+export async function startCall(sb: SupabaseClient, userId: string, car = false): Promise<Response> {
   for (const s of [...G.sessions.values()]) void endCall(s.userId, s.id); // one call at a time
   const t0 = Date.now();
   const reason = ringing() ?? "manual";
@@ -174,7 +174,7 @@ export async function startCall(sb: SupabaseClient, userId: string): Promise<Res
   }
   const { text, parts, audio } = v ?? voice(opener(reason, localParts(t0).h, items, await dealFor(reason)));
   const id = randomUUID();
-  const s: Session = { id, userId, sb, reason, turns: [{ role: "assistant", content: text }], pending: null, done: [], n: 0, lastAt: t0, said: new Set(parts.map(phraseKey)) };
+  const s: Session = { id, userId, sb, reason, turns: [{ role: "assistant", content: text }], pending: null, done: [], n: 0, lastAt: t0, said: new Set(parts.map(phraseKey)), car };
   G.sessions.set(id, s);
   sweep();
   void emit(sb, userId, "call.started", "core", { callId: id, reason });
@@ -235,7 +235,7 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
         if (!heard.trim()) return;
         s.turns.push({ role: "user", content: heard });
         const items = await waiting;
-        const d = voiceDecision(s.pending, heard, items, Date.now());
+        const d = voiceDecision(s.pending, heard, items, Date.now(), s.car);
         const quick = d ? null : quickReply(heard, s.turns.findLast((t) => t.role === "assistant")?.content ?? "", s.said);
         if (d) {
           path = "approval";
