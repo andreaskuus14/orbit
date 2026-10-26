@@ -22,19 +22,27 @@ export function pdfString(s: string): string {
 
 export const pdfText = (x: number, y: number, font: PdfFont, size: number, s: string) => `BT /${font} ${size} Tf ${x.toFixed(1)} ${y.toFixed(1)} Td ${pdfString(s)} Tj ET`;
 
-/** The whole file. Object 1 catalog, 2 page tree, 3-5 fonts, 6 info, then a page + its content per page. */
-export function pdfDoc(pages: PdfPage[], size: { w: number; h: number }, title = ""): Uint8Array {
+/** A baseline JPEG drawn as /Im<i> (DCTDecode: the file's bytes go in as they are). bytes = one char per byte (latin1). */
+export type PdfJpeg = { w: number; h: number; bytes: string };
+/** Draw image i into the box (x, y = bottom-left, points). */
+export const pdfImage = (i: number, x: number, y: number, w: number, h: number) => `q ${w.toFixed(1)} 0 0 ${h.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)} cm /Im${i} Do Q`;
+
+/** The whole file. Object 1 catalog, 2 page tree, 3-5 fonts, 6 info, then a page + its content per page, then the images. */
+export function pdfDoc(pages: PdfPage[], size: { w: number; h: number }, title = "", images: PdfJpeg[] = []): Uint8Array {
   const objs: string[] = [];
   const kids = pages.map((_, i) => `${7 + 2 * i} 0 R`).join(" ");
   objs.push("<< /Type /Catalog /Pages 2 0 R >>", `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`);
   for (const f of Object.values(FONTS)) objs.push(`<< /Type /Font /Subtype /Type1 /BaseFont /${f} /Encoding /WinAnsiEncoding >>`);
   objs.push(`<< /Title ${pdfString(title)} /Producer (ORBIT) >>`);
   const fonts = Object.keys(FONTS).map((k, i) => `/${k} ${3 + i} 0 R`).join(" ");
+  const firstImg = 7 + 2 * pages.length, xobj = images.length ? ` /XObject << ${images.map((_, i) => `/Im${i} ${firstImg + i} 0 R`).join(" ")} >>` : "";
   for (const [i, p] of pages.entries()) {
     const stream = p.ops.join("\n");
-    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${size.w} ${size.h}] /Resources << /Font << ${fonts} >> >> /Contents ${8 + 2 * i} 0 R >>`,
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${size.w} ${size.h}] /Resources << /Font << ${fonts} >>${xobj} >> /Contents ${8 + 2 * i} 0 R >>`,
       `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
   }
+  for (const im of images)
+    objs.push(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >>\nstream\n${im.bytes}\nendstream`);
   let out = "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n";
   const offsets: number[] = [];
   objs.forEach((o, i) => { offsets.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
