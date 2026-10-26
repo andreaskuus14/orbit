@@ -19,6 +19,7 @@ import SoundFinder from "./SoundFinder";
 import ThumbMaker from "./ThumbMaker";
 import TrendRadar from "./TrendRadar";
 import { DEV_TAB_EVENT, DEV_TAB_KEY } from "@/lib/herald-pure";
+import { LUAU_FIX_EVENT } from "@/lib/screen-look-pure";
 import CodeHelper from "./CodeHelper";
 import ScenePlanner from "./ScenePlanner";
 import TextureStudio from "./TextureStudio";
@@ -156,6 +157,10 @@ function Rig() {
 
 type Props = { paused?: boolean /* kept mounted but hidden */; flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; onPlaying?: (p: boolean) => void };
 
+// A screen-look "Fix with docs" fires before GAME DEV mounts: hold the error until the panel takes it.
+let pendingFix = "";
+if (typeof window !== "undefined") addEventListener(LUAU_FIX_EVENT, (e) => { pendingFix = String((e as CustomEvent<string>).detail ?? ""); });
+
 export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat, quality = "auto", paused = false }: Props) {
   const q = useLeanQuality(quality);
   const glr = useGlRecovery();
@@ -176,6 +181,12 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
     try { if (sessionStorage.getItem(DEV_TAB_KEY) === "trends") { sessionStorage.removeItem(DEV_TAB_KEY); go(); } } catch { /* no storage: the event still works */ }
     addEventListener(DEV_TAB_EVENT, go);
     return () => removeEventListener(DEV_TAB_EVENT, go);
+  }, []);
+  useEffect(() => {
+    const take = () => { if (pendingFix) { setFix({ key: Date.now(), error: pendingFix }); setTab("code"); pendingFix = ""; } };
+    take();
+    addEventListener(LUAU_FIX_EVENT, take);
+    return () => removeEventListener(LUAU_FIX_EVENT, take);
   }, []);
   const saved = useRef<World | null>(null); // last world the server accepted: the rollback target
   const queue = useRef(Promise.resolve());
