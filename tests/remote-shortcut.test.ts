@@ -25,6 +25,7 @@ test("tokens: only the exact bearer token of a listed shortcut matches; a change
 test("statusLine: counts and kinds only, never titles", () => {
   assert.equal(statusLine({ stopOn: false, kinds: [], running: 0 }), "ORBIT is running. Nothing waiting for you.");
   assert.equal(statusLine({ stopOn: true, kinds: ["clip", "clip", "spend"], running: 1 }), "Stop-all is ON. 3 waiting for you: 2 clips, 1 spend. 1 job running.");
+  assert.equal(statusLine({ stopOn: false, kinds: ["nego"], running: 0 }), "ORBIT is running. 1 waiting for you: 1 negotiation."); // not "1 waiting for you: ."
 });
 
 test("watchApprovable: spends and previewable clips; never email sends", () => {
