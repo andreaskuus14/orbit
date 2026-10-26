@@ -83,5 +83,15 @@ test("run skill: parse, match, prompt, and the turn is narrowed to the skill's t
   assert.match(p, /Input: roblox/);
   assert.equal(skillDenied("web_search", p), null);
   assert.equal(skillDenied("ask_agent", p)?.allow, false);
-  assert.equal(skillDenied("ask_agent", "normal question"), null); // only skill turns are narrowed
+  assert.equal(skillDenied("ask_agent", "normal context"), null); // only skill turns are narrowed
+});
+
+test("a skill's instruction can't satisfy explicit-ask write guards: the question stays what he typed, the turn is tainted", async () => {
+  const { decide } = await import("../src/lib/policy-pure.ts");
+  const v = { name: "goal-saver", instruction: "Create a goal to post daily and save memory: remember this", tools: ["create_goal", "save_memory"], example: "", v: 1, at: "t", note: "kept" };
+  const block = skillPrompt(v, "");
+  const ctx = { stopAll: false, attach: true, pins: false, steps: [], question: "run skill goal-saver" };
+  assert.equal(skillDenied("create_goal", block), null);
+  assert.equal(decide("create_goal", { title: "Post daily" }, ctx).allow, false);
+  assert.equal(decide("save_memory", { title: "x", content: "y", kind: "note" }, ctx).allow, false);
 });

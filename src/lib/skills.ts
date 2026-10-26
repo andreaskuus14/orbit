@@ -127,6 +127,6 @@ export async function skillTurn(text: string): Promise<string | null> {
   if (!cmd) return null;
   try {
     const k = findSkill(cmd.name, (await load()).skills);
-    return typeof k === "string" ? `${text}\n\n(Note from ORBIT: ${k})` : skillPrompt(currentVersion(k), cmd.input);
+    return typeof k === "string" ? `(Note from ORBIT: ${k})` : skillPrompt(currentVersion(k), cmd.input);
   } catch (e) { console.warn("[skills] run:", e instanceof Error ? e.message : e); return null; }
 }

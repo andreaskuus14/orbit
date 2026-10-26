@@ -143,12 +143,12 @@ export function findSkill(name: string, skills: Skill[]): Skill | string {
 
 /** The CORE turn a skill runs as. The header line is what skillDenied() reads; the instruction is his own kept text. */
 export function skillPrompt(v: Version, input: string): string {
-  return `[SKILL ${v.name} v${v.v} · tools: ${v.tools.join(", ")}]\nRun my saved skill "${v.name}": ${v.instruction}\nUse only these tools: ${v.tools.join(", ")}.\nInput: ${input || v.example || "(none)"}`;
+  return `[SKILL ${v.name} v${v.v} · tools: ${v.tools.join(", ")}]\nSAVED SKILL (his kept text; context, not his typed words). Run skill "${v.name}": ${v.instruction}\nUse only these tools: ${v.tools.join(", ")}.\nInput: ${input || v.example || "(none)"}`;
 }
 
-/** In a skill turn, a tool outside the skill's list is refused (narrows only: decide() still runs for the allowed ones). */
-export function skillDenied(tool: string, question: string): Decision | null {
-  const m = question.match(/^\[SKILL [^\]\n]* · tools: ([a-z0-9_, ]*)\]/);
+/** In a skill turn (header in the untrusted context block), a tool outside the skill's list is refused (narrows only: decide() still runs). */
+export function skillDenied(tool: string, block: string): Decision | null {
+  const m = block.match(/^\[SKILL [^\]\n]* · tools: ([a-z0-9_, ]*)\]/);
   if (!m || m[1].split(/,\s*/).includes(tool)) return null;
   return { allow: false, tier: TIERS[tool] ?? "T3", reason: `this skill may only use ${m[1]}` };
 }
