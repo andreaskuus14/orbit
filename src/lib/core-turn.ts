@@ -61,14 +61,18 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
     ]);
     if (priorError) throw priorError;
     const history = ((prior ?? []) as (ContextTurn & { id: string })[]).reverse();
+    // "run skill weekly-niche-check": his typed words stay the question; the kept skill text rides as an untrusted context block
+    // (passed like an attachment, so the turn is tainted and explicit-ask writes need his own typed words). skills.ts
+    const skill = await import("@/lib/skills").then((m) => m.skillTurn(message), () => null);
     // Current files already have their full prompt block (and images); do not repeat their stored copy.
     const saved = retainedAttachments(history.filter((t) => t.id !== userMsg.id));
     const contextAttach = saved ? {
       block: attachmentPrompt([{ name: "Earlier attachments in this chat (retained text, up to 20k characters)", text: saved }], []) + (attach?.block ?? ""),
       images: attach?.images ?? [],
     } : attach;
+    const withSkill = skill ? { block: skill + "\n\n" + (contextAttach?.block ?? ""), images: contextAttach?.images ?? [] } : contextAttach;
     const t0 = Date.now();
-    const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, contextAttach, project.text, project.tainted, project.memoryProject, cid);
+    const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, project.text, project.tainted, project.memoryProject, cid);
     await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
     await emit(sb, userId, "core.completed", "core", { conversationId: cid });

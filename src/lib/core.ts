@@ -33,6 +33,7 @@ import { coreAnswerEval, type CoreEvalTool } from "./core-answer-eval-pure";
 import type { AnswerEval } from "./answer-eval-pure";
 import { recordCoreTurn } from "./perf-log";
 import { autonomyLevels } from "./autonomy";
+import { skillDenied } from "./skills-pure";
 import { maxSteps, fallbackNote, sessionInput } from "./core-capability-pure";
 import { randomUUID } from "node:crypto";
 import type { CliSession } from "./claude";
@@ -288,7 +289,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       const evidence: WriteEvidence[] = [];
       // Every tool call passes policy first (policy-pure.ts: Stop-all, navigate-first, attachment/private/link taint, explicit asks,
       // T3 only behind an owner approval path). T2/T3 verdicts go to the ledger: tool, tier, verdict, reason; never inputs.
-      const verdict = decide(reply.tool, reply.input ?? {}, { stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, steps, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels() });
+      const verdict = skillDenied(reply.tool, attach?.block ?? "") ?? decide(reply.tool, reply.input ?? {}, { stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, steps, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels() });
       const policyRow = policyEvent(reply.tool, verdict);
       if (policyRow) void emit(sb, userId, "policy.decision", "core", policyRow); // never throws
       try { out = !verdict.allow ? `Error: ${verdict.reason}` : (reply.tool === "navigate" ? navigateTool(reply.input ?? {}, onNavigate)
