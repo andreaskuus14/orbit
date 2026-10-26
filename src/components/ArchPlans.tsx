@@ -2,7 +2,7 @@
 // ARCH floor-plan generator panel (roadmap 3): a brief → 3–5 layout options from the pure solver; picking one replaces the
 // model, so the 3D view, sun study, walk and costs work on it. No model calls.
 import { useMemo, useState } from "react";
-import { generatePlans, parseBrief, planScene, STARTER_BRIEF, type PlanOption } from "@/lib/arch-plan-pure";
+import { generatePlans, withCore, parseBrief, planScene, STARTER_BRIEF, type PlanOption } from "@/lib/arch-plan-pure";
 import type { Scene } from "@/lib/arch-pure";
 
 const HUES = ["#c9a227", "#5b8def", "#d9663b", "#4caf7a", "#a066c9", "#3bb3b3", "#c95b8d", "#8d9c3b"];
@@ -25,7 +25,7 @@ export function ArchPlans({ plot, onPick }: { plot: { w: number; d: number }; on
   const [pw, setPw] = useState(plot.w), [pd, setPd] = useState(plot.d), [floors, setFloors] = useState(1), [seed, setSeed] = useState(1);
   const [opts, setOpts] = useState<PlanOption[] | null>(null);
   const brief = useMemo(() => parseBrief(rooms, adj, { w: pw, d: pd }, floors), [rooms, adj, pw, pd, floors]);
-  const names = brief.rooms.map((r) => r.name);
+  const names = withCore(brief).rooms.map((r) => r.name);
   const num = (label: string, v: number, set: (n: number) => void, min: number, max: number) => (
     <label className="flex items-center gap-1 text-xs">{label}<input className="field w-14" type="number" min={min} max={max} value={v} onChange={(e) => set(Number(e.target.value))} /></label>);
 
@@ -50,7 +50,7 @@ export function ArchPlans({ plot, onPick }: { plot: { w: number; d: number }; on
           <button className="chip" onClick={() => onPick(planScene(brief, o))}>Use this plan</button>
         </div>))}
       {opts && !opts.length && <p className="muted text-xs">Add at least one room.</p>}
-      <p className="muted text-[11px]">Rectangles to wall centre lines, north up. No stairs are added: list them as a room. A study sketch, not a design.</p>
+      <p className="muted text-[11px]">Rectangles to wall centre lines, north up. With 2+ floors a dogleg stair core and hall are added, aligned on every floor. A study sketch, not a design.</p>
     </div>
   );
 }

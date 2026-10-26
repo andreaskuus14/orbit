@@ -2,11 +2,11 @@
 // adjacency wishes) → 3–5 rectangular layout options. Each option is a slicing tree: the ordered room list is split in two
 // halves of ~equal area and the rectangle cut across its longer side, recursively. Hill climbing then swaps rooms (and moves
 // them between floors) to raise the score. No model calls; a fixed seed gives the same options every time.
-// Areas are gross (to wall centre lines). No stairs are added: put "Stairs 5" in the brief if the house has floors.
+// Areas are gross (to wall centre lines). With 2+ floors a stair core + hall strip is added on the west side (withCore).
 import { fitOpenings, MAX, RULES, type Face, type Part, type Scene } from "./arch-pure.ts";
 
 export type Room = { name: string; area: number; floor?: number }; // floor 1-based; unset = the solver picks
-export type Brief = { plot: { w: number; d: number }; floors: number; rooms: Room[]; adj: [string, string][] };
+export type Brief = { plot: { w: number; d: number }; floors: number; rooms: Room[]; adj: [string, string][]; core?: { stair: number[]; circ: number[] } };
 export type Rect = { x0: number; z0: number; x1: number; z1: number };
 export type Cut = Rect & { a: number[]; b: number[] }; // a wall line (x0 = x1 or z0 = z1) with the rooms on either side
 export type Breakdown = { areaErr: number; adjMet: number; adjTotal: number; corridorPct: number; daylight: number; thin: number };
@@ -14,8 +14,8 @@ export type PlanOption = { score: number; parts: Breakdown; w: number; d: number
 
 export const PLAN = { maxRooms: 16, maxFloors: 3, slab: 0.2, wallH: 2.8, inner: 0.2, setback: 2, minShare: 1, door: 0.9, window: 1.2, options: 5 };
 const OUTSIDE = "outside"; // adjacency pseudo-room: "Entrance - outside" = the room has an exterior wall on floor 1
-const DARK_OK = /bath|wc|toilet|sauna|stor|closet|wardrobe|pantry|utility|hall|corridor|entr|lobby|stair/i; // no window needed
-const CIRC = /hall|corridor|entr|lobby/i;
+const DARK_OK = /bath|wc|toilet|sauna|stor|closet|wardrobe|pantry|utility|hall|corridor|entr|lobby|stair|landing/i; // no window needed
+const CIRC = /hall|corridor|entr|lobby|landing/i;
 const EPS = 1e-6;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -47,6 +47,31 @@ export function parseBrief(roomsText: string, adjText: string, plot: { w: number
   }
   const fl = Math.round(Math.min(PLAN.maxFloors, Math.max(1, floors || 1)));
   return { plot: { w: Math.min(MAX.plot, Math.max(5, plot.w || 0)), d: Math.min(MAX.plot, Math.max(5, plot.d || 0)) }, floors: fl, rooms: rooms.map((r) => (r.floor && r.floor > fl ? { ...r, floor: fl } : r)), adj };
+}
+
+/** Stair for a storey height H (m), by the 2R + G = 600–650 mm rule with R ≤ 190 mm and G ≥ 250 mm (Nordic rules of
+ *  thumb for a house stair; a teaching estimate). Returns the straight run and a dogleg (two 1.0 m flights + 1.0 m landing). */
+export const STAIR = { maxR: 190, minG: 250, ruleLo: 600, ruleHi: 650, width: 1, gap: 0.1 };
+export const stairRule = (R: number, G: number) => ({ rule: Math.round(2 * R + G), ok: R <= STAIR.maxR && G >= STAIR.minG && 2 * R + G >= STAIR.ruleLo && 2 * R + G <= STAIR.ruleHi });
+export function stairDesign(H: number) {
+  const n = Math.ceil((H * 1000) / STAIR.maxR), R = r2((H * 1000) / n), G = Math.max(STAIR.minG, Math.round(625 - 2 * R));
+  const flight = (Math.ceil(n / 2) - 1) * G / 1000;
+  return { risers: n, R, G, ...stairRule(R, G), straight: { w: STAIR.width, l: r2(((n - 1) * G) / 1000) }, dogleg: { w: 2 * STAIR.width + STAIR.gap, l: r2(flight + STAIR.width) } };
+}
+/** The run a straight stair of `len` m would force for storey H: goings squeezed to fit (n − 1 treads). */
+export const straightFit = (H: number, len: number) => { const n = Math.ceil((H * 1000) / STAIR.maxR), R = (H * 1000) / n, G = (len * 1000) / (n - 1); return { R: r2(R), G: r2(G), ...stairRule(R, G) }; };
+
+/** Multi-floor brief → the same brief plus a stair core: "Stairs k" on every floor, the first hall/entrance room pinned to
+ *  floor 1 (or an added "Hall"), and a "Landing k" on upper floors. Idempotent; a brief that already lists stairs is kept. */
+export function withCore(b: Brief): Brief {
+  if (b.core || b.floors < 2 || b.rooms.some((r) => /stair/i.test(r.name))) return b;
+  const rooms = b.rooms.map((r) => ({ ...r })), D = stairDesign(PLAN.slab + PLAN.wallH), stair: number[] = [], circ: number[] = [];
+  for (let f = 0; f < b.floors; f++) {
+    let c = f ? -1 : rooms.findIndex((r) => CIRC.test(r.name) && (!r.floor || r.floor === 1));
+    if (c >= 0) rooms[c].floor = 1; else { c = rooms.push({ name: f ? `Landing ${f + 1}` : "Hall", area: 8, floor: f + 1 }) - 1; }
+    circ.push(c); stair.push(rooms.push({ name: `Stairs ${f + 1}`, area: r2(D.dogleg.w * D.dogleg.l), floor: f + 1 }) - 1);
+  }
+  return { ...b, rooms, core: { stair, circ } };
 }
 
 /** Slicing tree: split the ordered list where the two halves' areas are closest, cut across the longer side. */
@@ -94,21 +119,28 @@ type State = number[][]; // per floor, the ordered room indices
 const key = (s: State) => s.map((f) => f.join(",")).join("|");
 
 function evaluate(b: Brief, st: State, w: number, d: number): PlanOption {
-  const area = b.rooms.map((r) => r.area), floors = st.map((order) => {
+  const D = stairDesign(PLAN.slab + PLAN.wallH).dogleg, cw = b.core ? D.w : 0, X = r2(-w / 2 + cw);
+  const area = b.rooms.map((r) => r.area), floors = st.map((order, f) => {
     const rooms: { i: number; r: Rect }[] = [], cuts: Cut[] = [];
-    if (order.length) slice(order, area, { x0: -w / 2, z0: -d / 2, x1: w / 2, z1: d / 2 }, rooms, cuts);
+    if (order.length) slice(order, area, { x0: X, z0: -d / 2, x1: w / 2, z1: d / 2 }, rooms, cuts);
+    if (b.core) { // the core strip: stairs at the north end, the hall/landing below, same place on every floor
+      const s = b.core.stair[f], c = b.core.circ[f], zs = r2(-d / 2 + D.l);
+      rooms.push({ i: s, r: { x0: -w / 2, z0: -d / 2, x1: X, z1: zs } }, { i: c, r: { x0: -w / 2, z0: zs, x1: X, z1: d / 2 } });
+      cuts.push({ x0: X, x1: X, z0: -d / 2, z1: d / 2, a: [s, c], b: rooms.filter(({ r }) => Math.abs(r.x0 - X) < EPS).map(({ i }) => i) });
+    }
     return { rooms, cuts };
   });
+  const auto = new Set(b.core ? [...b.core.stair, ...b.core.circ.filter((i) => /^(Hall|Landing \d)$/.test(b.rooms[i].name))] : []);
   const at = new Map<number, { f: number; r: Rect }>();
   floors.forEach((fl, f) => fl.rooms.forEach(({ i, r }) => at.set(i, { f, r })));
   const sz = (r: Rect) => [r.x1 - r.x0, r.z1 - r.z0];
   let err = 0, circ = 0, total = 0, lit = 0, needLit = 0, thin = 0;
   for (const [i, { r }] of at) {
     const [x, z] = sz(r), a = x * z;
-    err += Math.abs(a - area[i]) / area[i]; total += a;
+    if (!auto.has(i)) err += Math.abs(a - area[i]) / area[i]; total += a; // the core's size is fixed by the stair
     if (CIRC.test(b.rooms[i].name)) circ += a;
     if (!DARK_OK.test(b.rooms[i].name)) { needLit++; if (outerFaces(r, w, d).some((o) => segLen(o.seg) >= PLAN.window + 0.6)) lit++; }
-    if (Math.min(x, z) < 2 || Math.max(x, z) / Math.min(x, z) > 3) thin++;
+    if (!DARK_OK.test(b.rooms[i].name) && (Math.min(x, z) < 2 || Math.max(x, z) / Math.min(x, z) > 3)) thin++;
   }
   const met: [number, number][] = [];
   const idx = (n: string) => (n === OUTSIDE ? -1 : b.rooms.findIndex((r) => r.name === n));
@@ -118,7 +150,7 @@ function evaluate(b: Brief, st: State, w: number, d: number): PlanOption {
     const s = A && B && A.f === B.f ? shared(A.r, B.r) : null;
     if (s && segLen(s) >= PLAN.minShare + 0.6) met.push([ia, ib]); // + 0.6: the door keeps 0.3 m clear at each end
   }
-  const parts: Breakdown = { areaErr: r2(at.size ? err / at.size : 0), adjMet: met.length, adjTotal: b.adj.length, corridorPct: r2(total ? (100 * circ) / total : 0), daylight: r2(needLit ? lit / needLit : 1), thin };
+  const parts: Breakdown = { areaErr: r2(at.size > auto.size ? err / (at.size - auto.size) : 0), adjMet: met.length, adjTotal: b.adj.length, corridorPct: r2(total ? (100 * circ) / total : 0), daylight: r2(needLit ? lit / needLit : 1), thin };
   const score = 30 * Math.max(0, 1 - 3 * parts.areaErr) + 35 * (b.adj.length ? met.length / b.adj.length : 1) + 25 * parts.daylight + 10 * (1 - parts.corridorPct / 100) - 4 * thin;
   return { score: Math.round(score * 10) / 10, parts, w, d, floors, met };
 }
@@ -141,8 +173,9 @@ function* moves(b: Brief, st: State): Generator<State> {
 
 /** 3–5 options, best first. Several seeded starts per footprint shape, each improved by first-improvement hill climbing;
  *  options with the same room arrangement are kept once. Empty when the brief has no rooms. */
-export function generatePlans(b: Brief, seed = 1): PlanOption[] {
-  if (!b.rooms.length) return [];
+export function generatePlans(brief: Brief, seed = 1): PlanOption[] {
+  if (!brief.rooms.length) return [];
+  const b = withCore(brief), core = new Set(b.core ? [...b.core.stair, ...b.core.circ] : []);
   const runs: { o: PlanOption; k: string }[] = [];
   for (const stretch of [1, 1.35, 1 / 1.35]) {
     const { w, d } = footprint(b, stretch);
@@ -151,7 +184,7 @@ export function generatePlans(b: Brief, seed = 1): PlanOption[] {
       const st: State = Array.from({ length: b.floors }, () => []);
       const load = new Array(b.floors).fill(0);
       const order = b.rooms.map((_, i) => i).sort((x, y) => b.rooms[y].area - b.rooms[x].area || rand() - 0.5);
-      for (const i of order) { // pinned rooms to their floor, the rest to the lightest floor
+      for (const i of order) { if (core.has(i)) continue; // pinned rooms to their floor, the rest to the lightest floor
         const f = b.rooms[i].floor ? b.rooms[i].floor! - 1 : load.indexOf(Math.min(...load));
         st[f].push(i); load[f] += b.rooms[i].area;
       }
@@ -176,7 +209,8 @@ export function generatePlans(b: Brief, seed = 1): PlanOption[] {
 /** An option → an ARCH scene in the usual part format: per floor a slab, an outer shell and one straight wall per slicing
  *  cut; a door wherever a wish is met, the front door on the first floor's entrance/hall, a window on each room that wants
  *  daylight. Openings are fitted by fitOpenings, so they sit inside their wall like hand-made ones. */
-export function planScene(b: Brief, o: PlanOption): Scene {
+export function planScene(brief: Brief, o: PlanOption): Scene {
+  const b = withCore(brief), D = stairDesign(PLAN.slab + PLAN.wallH);
   const { w, d } = o, T = RULES.wallThick, H = PLAN.slab + PLAN.wallH, parts: Part[] = [], openings: Part[] = [];
   let n = 0;
   const id = () => `f${(n++).toString(36)}`;
@@ -196,8 +230,14 @@ export function planScene(b: Brief, o: PlanOption): Scene {
         : { id: wid, kind: "wall", name: label, x: c.x0, y: y + PLAN.slab, z: mid, w: PLAN.inner, d: len, h: PLAN.wallH });
     }
     const rect = new Map(fl.rooms.map(({ i, r }) => [i, r]));
-    for (const [ia, ib] of o.met) {
-      if (ia < 0 || ib < 0) continue; // "outside" wishes get the front door below
+    const pairs = o.met.filter(([ia, ib]) => ia >= 0 && ib >= 0); // "outside" wishes get the front door below
+    if (b.core) { // every room on the hall/landing gets a door to it, so each floor is reachable from the stair
+      const c = b.core.circ[f], C = rect.get(c)!;
+      for (const { i, r } of fl.rooms) { const s = shared(C, r); if (i !== b.core.stair[f] && s && segLen(s) >= PLAN.minShare + 0.6 && !pairs.some((p) => p.includes(i) && p.includes(c))) pairs.push([c, i]); }
+      if (f < o.floors.length - 1) { const S = rect.get(b.core.stair[f])!;
+        parts.push({ id: id(), kind: "stair", name: `Stairs ${f + 1}→${f + 2}: dogleg, ${D.risers} risers ${D.R}/${D.G} mm, 2R+G ${D.rule}`, x: r2((S.x0 + S.x1) / 2), y: y + PLAN.slab, z: r2((S.z0 + S.z1) / 2), w: r2(S.x1 - S.x0 - T), d: r2(S.z1 - S.z0 - T), h: H }); }
+    }
+    for (const [ia, ib] of pairs) {
       const A = rect.get(ia), B = rect.get(ib), s = A && B && shared(A, B);
       if (!s) continue;
       const alongX = Math.abs(s.z0 - s.z1) < EPS, c = fl.cuts.find((k) => (alongX ? Math.abs(k.z0 - k.z1) < EPS && Math.abs(k.z0 - s.z0) < EPS && k.x0 <= s.x0 + EPS && k.x1 >= s.x1 - EPS

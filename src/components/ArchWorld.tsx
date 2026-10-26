@@ -24,7 +24,7 @@ import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./Sc
 
 const KEY = "orbit.arch.v1";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
-const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9", window: "#33475b", door: "#6b4f3a" };
+const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9", window: "#33475b", door: "#6b4f3a", stair: "#b08968" };
 const FACE_ROT = { n: Math.PI, s: 0, e: Math.PI / 2, w: -Math.PI / 2 }; // turns local +Z to face outward
 const GROUND: Record<Scene["plot"]["ground"], string> = { grass: "#c9d3bf", gravel: "#d9d6cf", forest: "#b9c6b0", sand: "#e6dcc6" };
 const BG = "#ebe7e0", GOLD = "#c9a24a", FAIL = "#dc2626"; // FAIL: structure coach says this member is too small

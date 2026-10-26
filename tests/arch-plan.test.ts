@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generatePlans, parseBrief, planScene, shared, STARTER_BRIEF } from "../src/lib/arch-plan-pure.ts";
+import { generatePlans, parseBrief, planScene, shared, stairDesign, straightFit, STARTER_BRIEF, withCore } from "../src/lib/arch-plan-pure.ts";
 import { boq } from "../src/lib/arch-pure.ts";
 import { wallRects } from "../src/lib/arch-walk-pure.ts";
 
@@ -45,7 +45,7 @@ test("hill climbing beats the unimproved start on adjacency", () => {
 test("pinned rooms stay on their floor; floors balance", () => {
   const b = parseBrief("Living 30\nKitchen 15\nBed 14 @2\nBed 2 12 @2\nBath 6", "Bed - Bath", { w: 25, d: 25 }, 2);
   const o = generatePlans(b, 1)[0];
-  const floorOf = (n: string) => o.floors.findIndex((f) => f.rooms.some(({ i }) => b.rooms[i].name === n));
+  const names = withCore(b).rooms.map((r) => r.name), floorOf = (n: string) => o.floors.findIndex((f) => f.rooms.some(({ i }) => names[i] === n));
   assert.equal(floorOf("Bed"), 1);
   assert.equal(floorOf("Bed 2"), 1);
   assert.equal(floorOf("Bath"), 1, "bath joins the bedrooms to meet the wish");
@@ -64,4 +64,38 @@ test("planScene builds a valid ARCH model: doors where wishes are met, walls, ro
   assert.equal(q.doors, doors.length);
   assert.ok(q.blocks > 0 && q.concreteM3 > 0);
   assert.ok(wallRects(s.parts).length > walls.length, "doors cut walking gaps");
+});
+
+/* Hand calc, storey 0.2 + 2.8 = 3.0 m: n = ⌈3000/190⌉ = 16 risers, R = 187.5 mm, G = 625 − 375 = 250 mm,
+   2R + G = 625 ✓ (600–650). Straight run 15 × 0.25 = 3.75 m; dogleg flights of 8 risers: 7 × 0.25 + 1.0 landing = 2.75 m × 2.1 m.
+   A 2.5 m straight run would squeeze G to 2500/15 = 167 mm: 2R + G = 542 < 600 → fails. */
+test("stair design follows 2R + G = 600–650 mm", () => {
+  const s = stairDesign(3);
+  assert.deepEqual([s.risers, s.R, s.G, s.rule, s.ok], [16, 187.5, 250, 625, true]);
+  assert.deepEqual(s.straight, { w: 1, l: 3.75 });
+  assert.deepEqual(s.dogleg, { w: 2.1, l: 2.75 });
+  const t = straightFit(3, 2.5);
+  assert.equal(t.ok, false);
+  assert.equal(t.rule, 542);
+});
+
+test("multi-floor plans get a stair core aligned on every floor, next to the hall, with a stair part", () => {
+  const b = parseBrief(STARTER_BRIEF.rooms + "\nBedroom 3 12\nBath 2 5", STARTER_BRIEF.adj, { w: 30, d: 25 }, 2);
+  const B = withCore(b);
+  assert.equal(withCore(B), B, "idempotent");
+  assert.equal(withCore(parseBrief("Stairs 5\nLiving 30", "", { w: 20, d: 20 }, 2)).core, undefined, "listed stairs are kept");
+  const o = generatePlans(b, 1)[0];
+  const at = (i: number) => o.floors.flatMap((f) => f.rooms).find((r) => r.i === i)!.r;
+  const [s1, s2] = B.core!.stair.map(at);
+  assert.deepEqual(s1, s2, "stairs line up");
+  assert.ok(shared(s1, at(B.core!.circ[0])) && shared(s2, at(B.core!.circ[1])), "stairs open onto hall and landing");
+  assert.equal(B.rooms[B.core!.circ[0]].name, "Entrance hall");
+  const sc = planScene(b, o), st = sc.parts.filter((p) => p.kind === "stair");
+  assert.equal(st.length, 1);
+  assert.equal(st[0].h, 3);
+  assert.match(st[0].name, /2R\+G 625/);
+  // every upper room touching the landing has a door on its wall
+  const doors = sc.parts.filter((p) => p.kind === "door" && /Landing 2/.test(p.name));
+  assert.ok(doors.length >= 1);
+  assert.equal(boq(sc.parts).roofM2, boq(sc.parts.filter((p) => p.kind !== "stair")).roofM2, "a stair is not counted as roof");
 });
