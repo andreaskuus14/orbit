@@ -38,6 +38,7 @@ import { ChatSheet, chatsApi, useCoreChats } from "./CoreChats";
 import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, codeBlocks } from "@/lib/core-chats-pure";
 import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { CORE_BUSY } from "@/lib/interruption-pure";
+import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { isLearned } from "@/lib/memory-world-pure";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
@@ -191,7 +192,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       let buf = "";
       let finished = false;
       const handle = (line: string) => {
-        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
+        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; tool?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
         if (ev.conversationId && ev.conversationId !== convo.current) { setChatId(ev.conversationId); void chats.reload(); }
         if (ev.type === "delta" && ev.text) {
           partial += ev.text;
@@ -200,6 +201,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLive(partial); });
         } else if (ev.type === "step" && ev.label) {
           setActivity((labels) => appendActivity(labels, ev.label!));
+          if (ev.tool) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "step", tool: ev.tool } })); // the singularity shows it (E4)
         } else if (ev.type === "navigate" && ev.to) {
           navTo = ev.to;
         } else if (ev.type === "reset") {
@@ -232,6 +234,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       const stopped = ac.signal.aborted;
       if (talk) stopSpeech();
       if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
+      if (!stopped) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "error" } }));
       setMsgs((m) => [...m, stopped
         ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._` }
         : { role: "assistant", content: e instanceof Error ? e.message : "CORE failed", error: true }]);
