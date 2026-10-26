@@ -60,6 +60,9 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
     ]);
     if (priorError) throw priorError;
     const history = ((prior ?? []) as (ContextTurn & { id: string })[]).reverse();
+    // "run skill weekly-niche-check": CORE runs that kept skill's text instead (skills.ts); the chat keeps what he typed
+    const skill = await import("@/lib/skills").then((m) => m.skillTurn(message), () => null);
+    if (skill && history.at(-1)?.id === userMsg.id) history[history.length - 1] = { ...history[history.length - 1], content: skill };
     // Current files already have their full prompt block (and images); do not repeat their stored copy.
     const saved = retainedAttachments(history.filter((t) => t.id !== userMsg.id));
     const contextAttach = saved ? {
