@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { getWeekly } from "@/lib/weekly";
 import { readArchDigest } from "@/lib/arch-digest";
 import { digestLine } from "@/lib/arch-digest-pure";
+import { predictionWeekLine } from "@/lib/predict";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { sb, user, res } = await requireUser();
   if (res) return res;
-  const [w, arch] = await Promise.all([getWeekly(sb), readArchDigest(user.id).catch(() => null)]);
-  const line = digestLine(arch, new Date()); // ARCH studio digest (5.6), one line
-  return Response.json(line ? { ...w, lines: [...w.lines, line] } : w);
+  const [w, arch, guess] = await Promise.all([getWeekly(sb), readArchDigest(user.id).catch(() => null), predictionWeekLine(sb, user.id)]);
+  const extra = [digestLine(arch, new Date()), guess].filter(Boolean); // ARCH studio digest (5.6); how well ORBIT guessed his decisions (C4)
+  return Response.json(extra.length ? { ...w, lines: [...w.lines, ...extra] } : w);
 }

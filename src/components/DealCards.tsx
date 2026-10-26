@@ -1,4 +1,5 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
 import { useCallback, useEffect, useState } from "react";
 import type { Offer, Wish } from "@/lib/deals-pure";
 
@@ -118,7 +119,7 @@ function OfferRow({ o, draft, any, dismiss }: { o: Offer; draft?: string; any: b
           <button className="chip" onClick={() => void navigator.clipboard?.writeText(draft).then(() => setCopied(true), () => {})}>{copied ? "Copied" : "Copy"}</button>
         </details>
       )}
-      <button className="chip mt-1" disabled={any} onClick={dismiss}>Not interested</button>
+      <button className="chip mt-1" disabled={any} onClick={dismiss}>Not interested</button> <OrbitThinks id={`deal:${o.id}`} />
     </li>
   );
 }

@@ -1,4 +1,5 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CAM_NAME, CAPTION_STYLES, CHANNEL_LINK_MSG, LAYOUT_NAME, REJECT_REASONS, bytes, channelLink, isJobActive, layoutText, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
 import ReviewQueue from "./ReviewQueue";
@@ -1158,6 +1159,7 @@ function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publi
         {reviewable && (
           <>
             {c.status !== "rejected" && <button className="chip" onClick={() => onPatch(c.id, { status: "approved", ...(c.retryOf && { replaceOriginal: c.retryOf.videoId }) })} disabled={busy || c.status === "approved"} aria-pressed={c.status === "approved"} aria-label={`Approve ${c.title}${c.retryOf ? " and replace original after publication" : ""}`}>✓ {c.retryOf ? "Approve & replace after publication" : "Approve"}</button>}
+            {c.status === "ready" && <OrbitThinks id={`clip:${job.id}/${c.id}`} />}
             {c.status !== "rejected" && <RejectButton title={c.title} onReject={(reason) => void onPatch(c.id, { status: "rejected", ...(reason ? { reason } : {}) })} disabled={busy || c.publish?.status === "uploading"} />}
           </>
         )}
