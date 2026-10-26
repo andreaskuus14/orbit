@@ -8,6 +8,7 @@ import path from "node:path";
 import * as crypto from "node:crypto";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import * as approval from "../src/lib/approval-pure.ts";
 import * as pure from "../src/lib/contracts-pure.ts";
 import * as biz from "../src/lib/business-pure.ts";
 
@@ -24,6 +25,7 @@ async function load(vault: object) {
   runInNewContext(code, { module: m, exports: m.exports, Response, Buffer, AbortSignal, structuredClone, process: { env: { RESEND_API_KEY: "k", ORBIT_MAIL_FROM: "me@x.ee" } },
     fetch: async (...a: unknown[]) => { sends.push(a); return new Response("{}"); },
     require: (name: string) => {
+      if (name.endsWith("approval-pure")) return approval;
       if (name === "node:crypto") return crypto;
       if (name === "node:fs/promises") return fsp;
       if (name === "node:path") return { default: path };
@@ -39,12 +41,13 @@ async function load(vault: object) {
       throw new Error(name);
     },
   });
-  return { m, dir, sends };
+  const seen = await approval.contentHash(pure.contractSendContent(c as never));
+  return { m, dir, sends, seen };
 }
 
 test("sendContract: a missing signed PDF un-claims (back to Signed) and sends nothing", async () => {
-  const { m, dir, sends } = await load({ readStream: async () => { throw new Error("ENOENT"); } });
-  await assert.rejects(m.exports.sendContract({}, "u", "c1", "2026-10-02T00:00:00Z"), /nothing was sent/);
+  const { m, dir, sends, seen } = await load({ readStream: async () => { throw new Error("ENOENT"); } });
+  await assert.rejects(m.exports.sendContract({}, "u", "c1", seen), /nothing was sent/);
   assert.equal(sends.length, 0);
   const saved = JSON.parse(await fsp.readFile(path.join(dir, "contracts.json"), "utf8")).contracts[0];
   assert.equal(saved.status, "signed");
@@ -52,8 +55,8 @@ test("sendContract: a missing signed PDF un-claims (back to Signed) and sends no
 });
 
 test("sendContract: with the PDF it sends once and stays Sent", async () => {
-  const { m, dir, sends } = await load({ readStream: async () => ({ stream: new Blob(["%PDF"]).stream() }) });
-  const c = await m.exports.sendContract({}, "u", "c1", "2026-10-02T00:00:00Z");
+  const { m, dir, sends, seen } = await load({ readStream: async () => ({ stream: new Blob(["%PDF"]).stream() }) });
+  const c = await m.exports.sendContract({}, "u", "c1", seen);
   assert.equal(c.status, "sent");
   assert.equal(sends.length, 1);
   assert.equal(JSON.parse(await fsp.readFile(path.join(dir, "contracts.json"), "utf8")).contracts[0].status, "sent");

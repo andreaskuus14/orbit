@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import * as approval from "../src/lib/approval-pure.ts";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/lib/clips/shorts-plan.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 
@@ -13,6 +14,7 @@ function load(allowed = true) {
   const m = { exports: {} as any };
   const g: Record<string, unknown> = { module: m, exports: m.exports, console, setTimeout,
     require: (name: string) => {
+      if (name.endsWith("approval-pure")) return approval;
       if (name === "node:path") return { default: path };
       if (name.endsWith("/factory")) return { listJobs: async () => [], readState: async () => null, saveState: async () => {}, studioRoot: () => "/x" };
       if (name.endsWith("/story")) return { listStories: async () => [], getStory: async (id: string) => ({ id }), runningStory: () => null, weekUsage: async () => ({ used: 0, cap: 100 }),
