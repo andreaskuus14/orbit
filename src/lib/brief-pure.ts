@@ -22,6 +22,7 @@ export type BriefIn = {
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
+  recap?: { id: string }; // yesterday's private recap reel in STUDIO (clips/recap.ts)
   lesson?: { id: string; text: string }; snoozed: string[];
   echo?: { short?: string | null; reply?: string | null }; // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
 };
@@ -114,6 +115,8 @@ export function briefItems(x: BriefIn): BriefItem[] {
     say: (x.replies.length === 1 ? `${short(rep.name, 6)} wrote back` : `${short(rep.name, 6)} and ${num(x.replies.length - 1)} other ${x.replies.length === 2 ? "client" : "clients"} wrote back`) + (x.echo?.reply ? `, ${x.echo.reply}.` : ".") });
 
   if (x.devSession) add({ id: `devsession:${x.devSession.id}`, kind: "result", title: x.devSession.title, detail: "GAME DEV session log", open: { panel: "creation" }, say: x.devSession.say });
+
+  if (x.recap) add({ id: `recap:${x.recap.id}`, kind: "result", title: "Yesterday in 25 seconds", detail: "Private recap in STUDIO, never posted", open: { panel: "studio", view: "review" }, say: "Yesterday in 25 seconds is ready in STUDIO, a private recap of my day, if you want a look." });
 
   const deal = x.deal;
   if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },

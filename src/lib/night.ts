@@ -88,6 +88,7 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
     await save();
     await emit(sb, userId, "night.task", "core", { night: run.id, kind: t.kind, ref: t.ref.slice(0, 128), status: item.status });
   }
+  if (!run.stopped) await import("./clips/recap").then((r) => r.makeRecap(sb, userId, ac.signal)).catch((e) => console.error("[orbit] daily recap:", msg(e))); // local ffmpeg only, no model
   run.endedAt = new Date().toISOString();
   await save();
   const u = used();
