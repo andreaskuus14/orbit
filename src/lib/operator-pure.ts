@@ -18,6 +18,7 @@ export const MINUTES_SAVED = {
   "night.hygiene": 3, // memory tidy-up suggestions
   "night.deals": 3, // a wishlist re-check
   "night.health": 5, // the nightly health check
+  "night.personas": 20, // a persona playtest of his game plan
   "auto.send": 3, // an email sent without his click (auto, with limits)
   "auto.publish": 5, // a Short uploaded without his click
   "deal.hunt": 2, // a shop page checked for a wish
@@ -27,7 +28,7 @@ export const MINUTES_SAVED = {
 export type SavedKey = keyof typeof MINUTES_SAVED;
 export const SAVED_LABEL: Record<SavedKey, string> = {
   "night.research": "research asks answered", "night.goal": "goal steps run", "night.business": "follow-up drafts", "night.clips": "Shorts packaged",
-  "night.niche": "niche scouts", "night.hygiene": "memory tidy-ups", "night.deals": "deal re-checks", "night.health": "health checks",
+  "night.niche": "niche scouts", "night.hygiene": "memory tidy-ups", "night.deals": "deal re-checks", "night.health": "health checks", "night.personas": "persona playtests",
   "auto.send": "emails sent on auto", "auto.publish": "Shorts published on auto", "deal.hunt": "deal hunts", "health.fix": "health issues fixed", "brief.shown": "morning briefs",
 };
 
