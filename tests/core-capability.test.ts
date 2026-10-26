@@ -37,3 +37,30 @@ test("voice summary: only the first paragraph is spoken, full text stays", () =>
 test("voice summary: a leading heading does not end the summary", () => {
   assert.deepEqual(speechChunks("## Plan\n\nDo A first. Then B.\n\nDetail.", true), ["Plan.", "Do A first.", "Then B."]);
 });
+
+import { sessionInput } from "../src/lib/core-capability-pure.ts";
+import { selectModules, MODULE_HINTS } from "../src/lib/core-modules-pure.ts";
+
+test("sessionInput: full, history-less, or nothing", () => {
+  const t = "User: hi\nCORE: hey";
+  const p = `NOW: x\n\nCONVERSATION SO FAR:\n${t}\n\nUSER: next`;
+  assert.equal(sessionInput(p, t, false, false), p);
+  assert.equal(sessionInput(p, t, true, false), "NOW: x\n\nUSER: next");
+  assert.equal(sessionInput(p, t, true, true), "");
+  assert.equal(sessionInput(p, "", true, false), p);
+});
+
+test("fallbackNote: session fallback is visible", () => {
+  assert.match(fallbackNote([{ step: "fallback", detail: "session → stateless (No conversation found)" }]), /session failed.*No conversation found/);
+});
+
+test("selectModules loads only what the request needs", () => {
+  const mods = ["STUDIO", "LIFE", "DEALS", "WEEK", "REA", "IDEAS"].map((name) => ({ name, prompt: name, tools: [] }));
+  const names = (t: string) => selectModules(mods, t).map((m) => m.name);
+  assert.deepEqual(names("remind me at 6 to call mom"), ["LIFE", "REA"]);
+  assert.deepEqual(names("I want a used RTX 4070 under 400€"), ["DEALS", "REA"]);
+  assert.deepEqual(names("what slipped this week"), ["WEEK", "REA"]);
+  assert.deepEqual(names("explain quantum tunnelling"), ["REA"]); // no hint: always loads
+  assert.ok(names("schedule the approved clips").includes("STUDIO"));
+  assert.ok(Object.keys(MODULE_HINTS).length >= 10);
+});

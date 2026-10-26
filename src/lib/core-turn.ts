@@ -68,7 +68,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       images: attach?.images ?? [],
     } : attach;
     const t0 = Date.now();
-    const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, contextAttach, project.text, project.tainted, project.memoryProject);
+    const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, contextAttach, project.text, project.tainted, project.memoryProject, cid);
     await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
     await emit(sb, userId, "core.completed", "core", { conversationId: cid });

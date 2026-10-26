@@ -36,9 +36,19 @@ Roadmap §1.1–1.6, batch items 1–3. Line numbers are as of branch `core-capa
 
 Approval and policy rules (`decide`, `policy-pure.ts`) are unchanged.
 
+## Batch 2: sessions and per-module instructions
+
+- **Opt-in session (`ORBIT_CORE_SESSION=resume`, default off).** Each CORE chat keeps one Claude CLI session id. Its first call uses `--session-id <uuid>`, later calls use `--resume <uuid>` (flags checked against the installed `claude --help`). Session calls all run in one fixed folder (`$TMP/orbit-core-sessions`) because the CLI files sessions by working directory. What is sent:
+  - a new session gets the full prompt;
+  - a resumed one gets it without the `CONVERSATION SO FAR` block;
+  - steps after the first in a turn send only the new tool results (`sessionInput`).
+  On any session error, that step is redone statelessly, the session is dropped, and the answer gets a visible note. The map lives in memory, so a server restart starts new sessions. Phone calls and agents stay stateless. Code: `claude.ts` (`CliSession`, `prepare`), `core.ts` (`coreSessions`, step loop), `core-turn.ts` (passes the chat id).
+- **Per-module instructions (§1.4).** The system prompt now names the modules in one line. Each turn's prompt carries only the modules whose `MODULE_HINTS` keywords match the question or CORE's last reply (`selectModules` in `core-modules-pure.ts`). Modules without a hint always load. `decide()` and approvals are unchanged.
+
 ## Left to do
 
 - **Agent SDK / session evaluation (roadmap 1.1, batch item 2):** CORE is a request-and-response wrapper with its own JSON tool loop. The next step is to try `@anthropic-ai/claude-agent-sdk` (or `claude -p --resume <session>` with `--output-format stream-json`), so tool calls get real ids and structured errors, the session survives across steps and follow-ups, and context management and prompt caching work. ORBIT's tools would be exposed as an in-process MCP server gated by `decide()`. First check that the SDK works with the subscription login on Windows.
-- Prompt layering (1.4): the system prompt still carries every module's tools on every turn (`MODULE_PROMPT`). It needs to load per task.
+- Module hints are keywords. An oddly worded request can miss its module, and the model then lacks that tool for the turn.
+- Session mode is untested against a live, signed-in CLI here (none is signed in in this sandbox).
 - "prepared / executed / verified" states (1.6) need the mission record (batch item 4).
 - The readout repeats constants (8000 / 8 messages / 270 s) instead of importing them. Keep them in sync if they change.

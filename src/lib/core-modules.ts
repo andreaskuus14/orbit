@@ -1,6 +1,6 @@
 // CORE modules (IO side of core-modules-pure.ts). To plug a new module into CORE: add one entry here. Nothing in core.ts changes.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { businessLine, goalsLine, habitsLine, ideasLine, studioLine, modulePrompt, privateTools, statusBlock, toolModule, writeTools, type ModuleSpec } from "./core-modules-pure";
+import { businessLine, goalsLine, habitsLine, ideasLine, studioLine, modulePrompt, privateTools, selectModules, statusBlock, toolModule, writeTools, type ModuleSpec } from "./core-modules-pure";
 import { dueFollowups, type Prospect } from "./business-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { STUDIO_TOOLS, runPlanTool, runStudioTool, type StudioTool } from "./core-studio";
@@ -102,6 +102,9 @@ const MODULES: CoreModule[] = [
 ];
 
 export const MODULE_PROMPT = modulePrompt(MODULES);
+/** Only the modules this turn needs (core-modules-pure selectModules), for the per-turn prompt. */
+export const modulePromptFor = (text: string) => modulePrompt(selectModules(MODULES, text));
+export const MODULE_NAMES = MODULES.map((m) => m.name).join(", ");
 export const MODULE_PRIVATE = privateTools(MODULES);
 export const MODULE_WRITES = writeTools(MODULES);
 export const isModuleTool = (tool: string) => !!toolModule(MODULES, tool);
