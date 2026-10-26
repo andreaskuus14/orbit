@@ -28,7 +28,7 @@ export function guardFetch(data: DemoData, real: typeof fetch, origin: string, b
     const key = `${method} ${url.pathname}`;
     if (url.origin === origin && !/^\/api(\/|$)/i.test(url.pathname)) return real(input, init);
     if (url.origin === origin && Object.hasOwn(data, key)) return json(structuredClone(data[key]));
-    blocked.push(key);
+    blocked.push(url.origin === origin ? key : `${method} ${url.href}`);
     return json({ error: DEMO_NOTE }, 403);
   };
 }
