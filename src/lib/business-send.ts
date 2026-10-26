@@ -56,3 +56,20 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
   const notes = `${p.notes ? `${p.notes}\n` : ""}Emailed ${to} on ${stamp.slice(0, 10)} (${via}).`.slice(-2000);
   return one(sb.from("prospects").update({ notes }).eq("id", id).select(COLS).maybeSingle());
 }
+
+/** One email through Resend, the BUSINESS send path, for callers that already gated (Stop-all, autonomy) and claimed the send.
+ *  "unknown": no answer or a server error, it may have gone out; "refused": a clear 4xx, nothing went out. */
+export async function resendMail(m: { to: string; subject: string; text: string; idempotencyKey: string }): Promise<{ result: "sent" | "unknown" | "refused"; why?: string }> {
+  const key = process.env.RESEND_API_KEY, from = process.env.ORBIT_MAIL_FROM;
+  if (!key || !from) return { result: "refused", why: "Sending isn't set up" };
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "Idempotency-Key": m.idempotencyKey },
+      body: JSON.stringify({ from, to: m.to, subject: m.subject, text: m.text, ...(process.env.ORBIT_MAIL_REPLY_TO ? { reply_to: process.env.ORBIT_MAIL_REPLY_TO } : {}) }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (r.status >= 500 || r.status === 429) return { result: "unknown", why: `Resend ${r.status}` };
+    if (!r.ok) return { result: "refused", why: `Resend ${r.status}` };
+    return { result: "sent" };
+  } catch { return { result: "unknown", why: "no answer from Resend" }; }
+}

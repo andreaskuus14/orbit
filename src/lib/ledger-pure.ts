@@ -5,6 +5,7 @@ import { CARD_KINDS, SOURCES, type CardKind, type Source } from "./morning-rank-
 import { AREAS, LEVELS, type Area } from "./autonomy-pure.ts";
 import { ITEM_STATUSES, NIGHT_KINDS, type ItemStatus, type NightKind } from "./night-pure.ts";
 import { INTENTS, NEGO_STATES, type Intent, type NegoState } from "./negotiator-pure.ts";
+import { STATUSES as INVOICE_STATUSES, type Status as InvoiceStatus } from "./invoices-pure.ts";
 
 type Data = {
   "core.turn": { model: string; tools: number; ms: number };
@@ -41,6 +42,8 @@ type Data = {
   "dev.session.start": { session: string }; // Roblox dev session log (dev-session.ts): the session id only, never code, paths or console text
   "dev.session.end": { session: string };
   "nego.step": { nego: string; intent?: Intent; state: NegoState }; // negotiator (negotiator.ts): the negotiation id, intent and state only, never text or prices
+  "invoice.status": { invoice: string; to: InvoiceStatus }; // invoices (invoices.ts): the invoice id and status only, never buyers or amounts
+  "invoice.reminder": { invoice: string; via: "email" | "copy" | "unknown" };
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -88,6 +91,8 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "dev.session.start": { session: id },
   "dev.session.end": { session: id },
   "nego.step": { nego: id, intent: opt(oneOf(INTENTS)), state: oneOf(NEGO_STATES) },
+  "invoice.status": { invoice: id, to: oneOf(INVOICE_STATUSES) },
+  "invoice.reminder": { invoice: id, via: oneOf(["email", "copy", "unknown"]) },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];

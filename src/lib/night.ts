@@ -9,6 +9,7 @@ import { allows, autonomyLevels } from "./autonomy";
 import { nightOff } from "./autonomy-pure";
 import { callsSince, lastCoreCallAt, usageHold } from "./usage-meter";
 import { today } from "./goals-pure";
+import { localDay } from "./morning-pure";
 import { FOLLOWUP_SYSTEM, dueFollowups, followupPrompt, type Prospect } from "./business-pure";
 import { scoutDue } from "./niche-pure";
 import { NIGHT_KINDS, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest, startBlock, tonightBlocked, wakePushDue,
@@ -184,7 +185,13 @@ export async function getNightReport(sb: SupabaseClient, userId: string, now = D
   const st = await load(), run = st.users[userId]?.run;
   const ids = (run?.items ?? []).flatMap((i) => (i.open && "task" in i.open ? [i.open.task] : []));
   const { data } = ids.length ? await sb.from("tasks").select("id, status").eq("user_id", userId).in("id", ids) : { data: [] };
-  return nightReport(run, Object.fromEntries((data ?? []).map((t) => [t.id, t.status])), now, st.settings, nightRunning());
+  const r = nightReport(run, Object.fromEntries((data ?? []).map((t) => [t.id, t.status])), now, st.settings, nightRunning());
+  if (r) { // one line about money owed, when any invoice is overdue (invoices-pure overdueLine)
+    const [{ allInvoices }, { overdueLine }] = await Promise.all([import("./invoices"), import("./invoices-pure")]);
+    const line = overdueLine(await allInvoices(), localDay(new Date(now)));
+    if (line) r.invoices = line;
+  }
+  return r;
 }
 
 export async function nightView(sb: SupabaseClient, userId: string) {

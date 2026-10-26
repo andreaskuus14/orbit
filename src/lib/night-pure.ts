@@ -186,7 +186,7 @@ export function goalOutcome(id: string, before: Goal, after: Goal | null): Pick<
 
 // ---- Morning report ----------------------------------------------------------
 
-export type NightReport = { key: string; startedAt: string; endedAt?: string; running: boolean; done: NightItem[]; approvals: NightItem[]; failed: NightItem[]; calls: number; minutes: number; stopped?: string; deferred: number };
+export type NightReport = { invoices?: string; key: string; startedAt: string; endedAt?: string; running: boolean; done: NightItem[]; approvals: NightItem[]; failed: NightItem[]; calls: number; minutes: number; stopped?: string; deferred: number };
 
 /** "While you slept": last night's run (only on the morning it ends), with approvals the owner already answered dropped.
  *  live: current status of each task the run linked to. */
