@@ -47,6 +47,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
   if (userMsgErr) return Response.json({ error: userMsgErr.message }, { status: 500 });
 
   opts.onConversation?.(conversationId);
+  if (body.screen === true && files.files.some((f) => f.kind === "image")) void emit(sb, userId, "screen.look", "core", { message: userMsg.id }); // ids only: never the image or question
   void emit(sb, userId, "core.started", "core", { conversationId, ...(opts.remote ? { source: "remote" } : {}) }); // never throws; the answer needn't wait for the event row
   const cid = conversationId as string;
 
