@@ -4,8 +4,9 @@
 // the previous result appended as labelled data; meta keeps each own request's length so the API can show the original.
 // (tasks.request is capped at 8000 chars, so the step texts live in the children, not in the parent's JSON.)
 
-export type Draft = { goal: string; steps: { agent: string; request: string }[] };
-export type ChainMeta = { chain: 1; goal: string; steps: { agent: string; len: number }[] };
+// calls: optional per-step Claude-call cap (a company role's budget, company-pure.ts); company: started by the AGENTS company planner.
+export type Draft = { goal: string; steps: { agent: string; request: string; calls?: number }[] };
+export type ChainMeta = { chain: 1; goal: string; steps: { agent: string; len: number; calls?: number }[]; company?: 1 };
 export type StepStatus = "queued" | "running" | "done" | "failed" | "awaiting_approval" | "cancelled";
 export type ChainStatus = "running" | "done" | "failed" | "waiting" | "cancelled";
 export type ChildRow = { id: string; agent: string; title: string; request: string; status: string; result: string | null; error: string | null; started_at?: string | null };
@@ -29,12 +30,14 @@ export function validateChain(x: unknown): Draft | string {
     if (!agent) return `step ${i + 1}: agent is required`;
     const request = s(raw?.request, 2000);
     if (!request) return `step ${i + 1}: request must be 1-2000 characters`;
-    steps.push({ agent, request });
+    if (raw.calls !== undefined && !(Number.isInteger(raw.calls) && (raw.calls as number) >= 1 && (raw.calls as number) <= 12)) return `step ${i + 1}: calls must be 1-12`;
+    steps.push({ agent, request, ...(raw.calls !== undefined ? { calls: raw.calls as number } : {}) });
   }
   return { goal, steps };
 }
 
-export const toMeta = (d: Draft): ChainMeta => ({ chain: 1, goal: d.goal, steps: d.steps.map((x) => ({ agent: x.agent, len: x.request.length })) });
+export const toMeta = (d: Draft, company = false): ChainMeta => ({ chain: 1, goal: d.goal,
+  steps: d.steps.map((x) => ({ agent: x.agent, len: x.request.length, ...(x.calls ? { calls: x.calls } : {}) })), ...(company ? { company: 1 as const } : {}) });
 
 export function parseMeta(request: string | null): ChainMeta | null {
   try {

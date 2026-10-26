@@ -98,13 +98,13 @@ async function sendCandidates(sb: SupabaseClient, userId: string): Promise<Candi
 }
 
 async function fireSend(sb: SupabaseClient, userId: string, p: { ref: string; seen: string }): Promise<Fired> {
-  const { sendSubject } = await import("./business-pure");
-  const { data: row } = await sb.from("prospects").select("name, draft, stage, updated_at").eq("user_id", userId).eq("id", p.ref).maybeSingle();
+  const { sendSubject, sendStamp } = await import("./business-pure");
+  const { data: row } = await sb.from("prospects").select("name, contact, draft, stage, updated_at").eq("user_id", userId).eq("id", p.ref).maybeSingle();
   // Re-checked at send time: still auto, under the cap, untouched since queued (sendDraft also claims only that version), no money/promises.
   if (!row || row.stage !== "lead" || row.updated_at !== p.seen) return "skip";
   if (!allows("business-send", "auto", { doneToday: doneToday(autonomyState(), "business-send", Date.now()), text: `${sendSubject(row.name, row.draft ?? "")}\n${row.draft ?? ""}`, known: true }).ok) return "skip";
   const { sendDraft } = await import("./business-send");
-  const r = await sendDraft(sb, userId, p.ref, p.seen, "sent automatically by ORBIT, Autonomy: auto");
+  const r = await sendDraft(sb, userId, p.ref, await sendStamp(row), "sent automatically by ORBIT, Autonomy: auto");
   if (!r.ok) console.error("[orbit] auto send:", r.status);
   return sendOutcome(r.ok, r.status);
 }
@@ -125,6 +125,8 @@ async function firePublish(p: { ref: string; seen: string }): Promise<Fired> {
     if (!job || !clip || clip.status !== "ready" || clip.retryOf || clip.publish || clipVersion(clip) !== p.seen || originalityIssue(job, clip)) return false; // reviewed or changed meanwhile
     if (!allows("studio-publish", "auto", { doneToday: doneToday(autonomyState(), "studio-publish", Date.now()), text: `${clip.title}\n${clip.hook}`, known: true }).ok) return false;
     autoApprove(job, clip, Date.now());
+    const { contentHash, clipContent } = await import("./approval-pure");
+    clip.approvedHash = await contentHash(clipContent(clip)); // Autonomy: auto approves the media its checks just saw
     await saveJob(job);
     return true;
   });
