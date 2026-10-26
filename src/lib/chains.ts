@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelTask, getAgent, kickQueue, runTask } from "./agents";
 import { stopAllOn } from "./stop-all";
-import { CHAIN_TITLE, chainView, composeRequest, nextMove, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
+import { createBudget, emit } from "./claude";
+import { COMPANY_PREFIX, resolvedStep, roleOf, stepStatus } from "./company-pure";
+import { CHAIN_TITLE, byStep, chainView, composeRequest, nextMove, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
 
 // AGENT TEAMS runner: the chain lives in the tasks table (see chains-pure.ts), so it survives restarts. drive() walks the steps in order,
 // one at a time per chain, and stops at an approval; resumeChains (GET /api/chains, and the scheduler tick if wired) picks it up again.
@@ -19,12 +21,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Parent = { id: string; status: string; request: string; project_id: string | null };
 
 /** Validated body → new chain id, or an error message. */
-export async function createChain(sb: SupabaseClient, userId: string, body: unknown, prefix = CHAIN_TITLE, start = true): Promise<{ chainId: string } | { error: string }> {
+// start false: only create the rows (the night shift then drives it step by step within its budget). company: an AGENTS company chain.
+export async function createChain(sb: SupabaseClient, userId: string, body: unknown, prefix = CHAIN_TITLE, start = true, company = false): Promise<{ chainId: string } | { error: string }> {
   const d = validateChain(body);
   if (typeof d === "string") return { error: d };
   for (const st of d.steps) if (!(await getAgent(sb, st.agent, userId))) return { error: `Unknown agent "${st.agent}"` };
   const { data: parent, error } = await sb.from("tasks").insert({
-    user_id: userId, agent: "nova", title: `${prefix}${d.goal}`.slice(0, 200), request: JSON.stringify(toMeta(d)), status: "running",
+    user_id: userId, agent: "nova", title: `${prefix}${d.goal}`.slice(0, 200), request: JSON.stringify(toMeta(d, company)), status: "running",
   }).select("id").single(); // started_at stays null: the stale-task sweep only touches rows with a started_at
   if (error) return { error: error.message };
   driving.add(parent.id); // so a GET poll can't start a driver before the step rows exist
@@ -71,10 +74,28 @@ export async function listChains(sb: SupabaseClient, userId: string): Promise<Ch
   return views(sb, userId, (data ?? []) as Parent[]);
 }
 
-/** For a server-side tick: continue this user's running chains. */
-export async function resumeChains(sb: SupabaseClient, userId: string) {
+/** For a server-side tick: continue this user's running chains. skipCompany: in the night window, company chains are the night shift's (its budget). */
+export async function resumeChains(sb: SupabaseClient, userId: string, skipCompany = false) {
   const { data } = await sb.from("tasks").select("id, request").eq("user_id", userId).is("parent_id", null).eq("status", "running").like("title", `${CHAIN_TITLE}%`);
-  for (const p of data ?? []) if (parseMeta(p.request)) void drive(sb, userId, p.id);
+  for (const p of data ?? []) { const m = parseMeta(p.request); if (m && !(skipCompany && m.company)) void drive(sb, userId, p.id); }
+}
+
+/** Running company chains with each step's status and call cap, for the night shift's planner (night-pure companySteps). Never drives. */
+export async function openCompanyChains(sb: SupabaseClient, userId: string) {
+  const { data, error } = await sb.from("tasks").select("id, request").eq("user_id", userId).is("parent_id", null).eq("status", "running")
+    .like("title", `${CHAIN_TITLE}${COMPANY_PREFIX}%`).limit(10);
+  if (error) throw error;
+  const ps = (data ?? []).flatMap((p) => { const meta = parseMeta(p.request); return meta?.company ? [{ id: p.id as string, meta }] : []; });
+  const kids = await loadKids(sb, ps.map((p) => p.id));
+  return ps.map(({ id, meta }) => ({ id, goal: meta.goal,
+    steps: byStep(meta, kids.get(id) ?? []).map((c, k) => ({ status: c?.status ?? "failed", calls: meta.steps[k].calls })) }));
+}
+
+/** agents.ts resolvePending → the company.step event for a chain step whose approval was just resolved (no-op for other tasks). */
+export async function stepResolved(sb: SupabaseClient, userId: string, chainId: string, agent: string, status: string, approved: boolean) {
+  const { data: p } = await sb.from("tasks").select("request").eq("id", chainId).maybeSingle();
+  const ev = resolvedStep(p?.request ?? null, agent, status, approved);
+  if (ev) await emit(sb, userId, "company.step", "agents", { chain: chainId, ...ev });
 }
 
 /** Cancel the chain, its running step and every step not started yet. False when there's nothing to cancel. */
@@ -112,9 +133,12 @@ export async function withSlot(sb: SupabaseClient, userId: string, taskId: strin
   finally { slots().delete(taskId); void kickQueue(sb, userId); }
 }
 
-/** Run the chain's next steps in order until it ends, waits for an approval, or is cancelled. Idempotent: one driver per chain. */
-export async function drive(sb: SupabaseClient, userId: string, id: string, gate?: () => Promise<boolean>) { // gate: MISSIONS pause, checked before each step
-  if (driving.has(id) || stopAllOn()) return; // Stop-all: no driver; the chain row stays "running" and resumeChains drives it after Resume
+/** Run the chain's next steps in order until it ends, waits for an approval, is cancelled, or has run maxSteps steps (the night shift: 1).
+ *  gate: MISSIONS pause, checked before each step.
+ *  Idempotent: one driver per chain. Returns the last step it ran and runTask's status, or null when it ran none. */
+export async function drive(sb: SupabaseClient, userId: string, id: string, gate?: () => Promise<boolean>, maxSteps = Infinity): Promise<{ taskId: string; status: string } | null> {
+  let last: { taskId: string; status: string } | null = null, ran = 0;
+  if (driving.has(id) || stopAllOn()) return last; // Stop-all: no driver; the chain row stays "running" and resumeChains drives it after Resume
   driving.add(id);
   const ac = new AbortController();
   live().set(id, ac);
@@ -122,34 +146,41 @@ export async function drive(sb: SupabaseClient, userId: string, id: string, gate
     for (;;) {
       const { data: p } = await sb.from("tasks").select(PARENT_COLS).eq("id", id).maybeSingle();
       const meta = p ? parseMeta(p.request) : null;
-      if (!p || !meta || p.status !== "running") return;
+      if (!p || !meta || p.status !== "running") return last;
       const kids = (await loadKids(sb, [id])).get(id) ?? [];
       if (ac.signal.aborted) { // cancelTask(chainId) from AGENTS/OPERATIONS
         await finish(sb, id, "cancelled", null, null);
         await stopKids(sb, kids);
-        return;
+        return last;
       }
       const move = nextMove(meta, kids);
-      if (move.do === "wait") return;
-      if (move.do === "finish") return void (await finish(sb, id, move.status, move.result, move.error));
+      if (move.do === "wait") return last;
+      if (move.do === "finish") { await finish(sb, id, move.status, move.result, move.error); return last; }
       if (move.do === "busy") {
         // Not ours (we await our own steps): an approval executing in resolvePending, or orphaned by a restart.
-        if (live().has(move.task.id) || Date.parse(move.task.started_at ?? "") > Date.now() - STALE_MS) return;
+        if (live().has(move.task.id) || Date.parse(move.task.started_at ?? "") > Date.now() - STALE_MS) return last;
         await sb.from("tasks").update({ status: "failed", error: "Interrupted (ORBIT restarted)", finished_at: new Date().toISOString() }).eq("id", move.task.id).eq("status", "running");
         continue;
       }
-      if (gate && !(await gate())) return;
+      if (gate && !(await gate())) return last;
+      if (ran >= maxSteps) return last;
+      ran++;
       // run: wait for a free agent slot (shared with kickQueue), then run the step like any task.
       await withSlot(sb, userId, move.task.id, ac.signal, async () => {
         if (move.prev) {
           const own = move.task.request.slice(0, meta.steps[move.k].len);
           await sb.from("tasks").update({ request: composeRequest(own, move.prev.agent, move.prev.result) }).eq("id", move.task.id).eq("status", "queued");
         }
-        await runTask(sb, userId, move.task.id, 0, undefined, ac.signal);
+        const st = meta.steps[move.k], role = meta.company ? roleOf(st.agent) : null; // company runs log ids/roles only to the ledger
+        if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: "started" });
+        const r = await runTask(sb, userId, move.task.id, 0, st.calls ? createBudget(undefined, st.calls) : undefined, ac.signal);
+        last = { taskId: move.task.id, status: r.status };
+        if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: stepStatus(r.status) });
       });
     }
   } catch (e) {
     console.error("[orbit] chain runner failed:", id, e instanceof Error ? e.message : e);
+    return last;
   } finally {
     if (live().get(id) === ac) live().delete(id);
     driving.delete(id);

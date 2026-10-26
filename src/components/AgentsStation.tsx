@@ -16,6 +16,7 @@ import { holoLine } from "@/lib/hologram-pure";
 import { AgentsPanel, type Task } from "./AgentsPanels";
 import AgentMission, { STATUS_DOT, api, usePoll } from "./AgentMission";
 import TeamBuilder from "./TeamBuilder";
+import CompanyPanel from "./CompanyPanel";
 import IdeasPanel from "./IdeasPanel";
 import RecipesPanel from "./RecipesPanel";
 import SkillsPanel from "./SkillsPanel";
@@ -461,7 +462,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
-  const [tab, setTab] = useState<"agents" | "missions" | "teams" | "goals" | "ideas" | "recipes" | "skills" | "night">("agents");
+  const [tab, setTab] = useState<"agents" | "company" | "missions" | "teams" | "goals" | "ideas" | "recipes" | "skills" | "night">("agents");
   useEffect(() => { if (focusGoal) setTab("goals"); }, [focusGoal]);
   useEffect(() => { if (radarUrl) setTab("ideas"); }, [radarUrl]);
   const [chains, setChains] = useState<ChainView[] | null>(null);
@@ -557,9 +558,9 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
             <div className="hud-title"><MaskText text="AGENTS STATION" /></div>
             <p className="muted text-xs">{list.length} agents · {list.filter((a) => status[a.slug] === "working").length} working · {list.filter((a) => status[a.slug] === "waiting").length} need approval{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</p>
             <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Station views">
-              {(["agents", "missions", "teams", "goals", "ideas", "recipes", "skills", "night"] as const).map((t) => (
+              {(["agents", "company", "missions", "teams", "goals", "ideas", "recipes", "skills", "night"] as const).map((t) => (
                 <button key={t} id={`st-tab-${t}`} role="tab" aria-selected={tab === t} aria-controls={`st-panel-${t}`} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
-                  {t === "agents" ? "🛰 Agents" : t === "missions" ? "🚀 Missions" : t === "teams" ? "👥 Teams" : t === "goals" ? "🎯 Goals" : t === "ideas" ? "💡 Ideas" : t === "night" ? "🌙 Tonight" : t === "skills" ? "✨ Skills" : "📋 Recipes"}
+                  {t === "agents" ? "🛰 Agents" : t === "company" ? "🏢 Company" : t === "missions" ? "🚀 Missions" : t === "teams" ? "👥 Teams" : t === "goals" ? "🎯 Goals" : t === "ideas" ? "💡 Ideas" : t === "night" ? "🌙 Tonight" : t === "skills" ? "✨ Skills" : "📋 Recipes"}
                 </button>
               ))}
             </div>
@@ -582,6 +583,10 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
             ) : tab === "goals" ? (
               <div id="st-panel-goals" role="tabpanel" aria-labelledby="st-tab-goals" className="mt-3">
                 <GoalsPanel agents={list} visible={visible} onOpenTask={onOpenTask} focusId={focusGoal} />
+              </div>
+            ) : tab === "company" ? (
+              <div id="st-panel-company" role="tabpanel" aria-labelledby="st-tab-company" className="mt-3">
+                <CompanyPanel names={Object.fromEntries(list.map((a) => [a.slug, a.name]))} visible={visible} onOpenTask={onOpenTask} />
               </div>
             ) : tab === "missions" ? (
               <div id="st-panel-missions" role="tabpanel" aria-labelledby="st-tab-missions" className="mt-3">

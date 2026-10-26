@@ -7,12 +7,13 @@ import { askClaude, createBudget, emit, recordUsage } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { allows, autonomyLevels } from "./autonomy";
 import { nightOff } from "./autonomy-pure";
+import { planCompany, stepStatus } from "./company-pure";
 import { callsSince, lastCoreCallAt, usageHold } from "./usage-meter";
 import { today } from "./goals-pure";
 import { localDay } from "./morning-pure";
 import { FOLLOWUP_SYSTEM, dueFollowups, followupPrompt, type Prospect } from "./business-pure";
 import { scoutDue } from "./niche-pure";
-import { NIGHT_KINDS, PERSONA_STUDIO_RUNS, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest, startBlock, tonightBlocked, wakePushDue,
+import { NIGHT_KINDS, PERSONA_STUDIO_RUNS, addCompanyTonight, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest, startBlock, tonightBlocked, wakePushDue,
   type NightItem, type NightRun, type NightState, type NightTask, type NightUser } from "./night-pure";
 
 // Night shift runner (rules: night-pure.ts). Called every scheduler tick; starts at most one run at a time, in the night window,
@@ -76,6 +77,7 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
   if (!prev || prev.key !== key) await emit(sb, userId, "night.start", "core", { night: run.id });
   console.log("[orbit] night shift starting");
 
+  await startQueuedCompany(sb, userId, run);
   const { queue, deferred } = planNight(await planInput(sb, userId, st, run), s, used());
   run.deferred = deferred;
   for (const t of queue) {
@@ -96,6 +98,19 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
   console.log(`[orbit] night shift ${run.stopped ? `stopped (${run.stopped})` : "done"}: ${run.items.length} item(s), ${u.calls} Claude call(s)`);
 }
 
+/** Company goals queued "for tonight": created as company chains (rows only, no model call); planNight then runs their steps within budget. */
+async function startQueuedCompany(sb: SupabaseClient, userId: string, run: NightRun) {
+  const list = (await load()).users[userId]?.company ?? [];
+  if (!list.length || stopAllOn() || nightOff(autonomyLevels()).includes("company")) return;
+  const [{ createChain }, { planCompany }] = await Promise.all([import("./chains"), import("./company-pure")]);
+  for (const q of list) {
+    const plan = planCompany(q.goal);
+    const r = typeof plan === "string" ? { error: plan } : await createChain(sb, userId, { goal: plan.goal, steps: plan.steps }, undefined, false, true).catch((e) => ({ error: msg(e) }));
+    if ("error" in r) run.items.push({ kind: "company", ref: `start:${q.id}`, label: `Company: ${q.goal.slice(0, 100)}`, status: "failed", why: r.error.slice(0, 200), at: new Date().toISOString() });
+    await update((x) => { const u = user(x, userId); u.company = (u.company ?? []).filter((y) => y.id !== q.id); }); // failed ones too: reported, not retried every night
+  }
+}
+
 async function planInput(sb: SupabaseClient, userId: string, st: NightState, run: NightRun) {
   const [goals, prospects, board] = await Promise.all([
     sb.from("goals").select("id, doc").eq("user_id", userId).in("status", ["approved", "running", "waiting"]).limit(30),
@@ -106,6 +121,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     tonight: st.users[userId]?.tonight ?? [], goals: (goals.data ?? []) as { id: string; doc: import("./goals-pure").Goal }[],
     followups: dueFollowups((prospects.data ?? []) as Prospect[], Date.now()), drafted: st.users[userId]?.drafted ?? {},
     nicheDue: !!board && !board.busy && scoutDue({ lastAttempt: board.lastAttempt ?? undefined, lastOk: board.lastOk ?? undefined }, Date.now()),
+    company: await import("./chains").then((c) => c.openCompanyChains(sb, userId), () => []),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
     health: true, dream: true,
     personas: await import("./personas").then((m) => m.personasDue(userId), () => false),
@@ -175,6 +191,13 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
       return r.fresh ? { ...base, label: `Health check: ${r.fresh} new problem${r.fresh > 1 ? "s" : ""} (see the Doctor panel)`, status: "done", at: at() }
         : { ...base, status: "skipped", why: r.open ? `Nothing new; ${r.open} known problem${r.open > 1 ? "s" : ""} still open` : "Nothing broke", at: at() };
     }
+    case "company": { // one step of a company chain through the chain runner (role budget, approvals queue); never more than one per task
+      const chainId = t.ref.split(":")[0];
+      const r = await (await import("./chains")).drive(sb, userId, chainId, undefined, 1);
+      if (!r) return { ...base, status: "skipped", why: "Already running, or waiting for you", at: at() };
+      const st = stepStatus(r.status);
+      return { ...base, status: st, ...(st === "approval" ? { open: { task: r.taskId } } : { open: { panel: "agents" as const } }), at: at() };
+    }
     case "dream": { // the morning brief asks it; nothing is edited, so it's never a "done" or an approval here
       const ns = (await load()).settings, key = nightKey(Date.now(), ns), r = await (await import("./dream")).runDream(sb, userId, key, ns.tz, signal);
       const d = await (await import("./dream-ideas")).runIdeas(sb, userId, key, signal).catch((e) => ({ n: 0, why: e instanceof Error ? e.message : String(e) })); // dream mode: idea combinations, one call
@@ -216,6 +239,16 @@ export async function nightView(sb: SupabaseClient, userId: string) {
 
 export const addTonightItem = (userId: string, b: { text?: unknown; agent?: unknown }, by: "owner" | "core") =>
   update((s) => { const u = user(s, userId), r = addTonight(u.tonight, b, by, randomUUID(), Date.now()); if (typeof r === "string") return r; u.tonight = r; return ""; });
+/** AGENTS → Company "Tonight": queue a goal for the night shift to start (night.json, on this PC). */
+export const addCompanyTonightItem = (userId: string, goal: unknown) =>
+  update((s) => { const p = planCompany(goal), u = user(s, userId), r = addCompanyTonight(u.company ?? [], goal, typeof p === "string" ? p : "", randomUUID(), Date.now());
+    if (typeof r === "string") return r; u.company = r; return ""; });
+export const removeCompanyTonightItem = (userId: string, id: string) =>
+  update((s) => { const u = user(s, userId), n = (u.company ?? []).length; u.company = (u.company ?? []).filter((t) => t.id !== id); return n === u.company.length ? "Not queued for tonight" : ""; });
+export const companyTonight = async (userId: string) => (await load()).users[userId]?.company ?? [];
+/** In the night window (and the night shift on): company chains advance only through the night shift's budget. */
+export const nightOwnsCompany = async (now = Date.now()) => { const s = (await load()).settings; return s.enabled && allows("night-shift", "background").ok && inWindow(now, s); };
+
 export const removeTonightItem = (userId: string, id: string) =>
   update((s) => { const u = user(s, userId), n = u.tonight.length; u.tonight = u.tonight.filter((t) => t.id !== id); return n === u.tonight.length ? "Not on tonight's list" : ""; });
 export const setNightSettings = (b: Record<string, unknown>) =>
