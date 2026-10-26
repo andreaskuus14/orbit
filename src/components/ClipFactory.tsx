@@ -1071,7 +1071,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
         <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2" aria-label={`Clips from ${job.source}`}>
           {clips.map((c) => (
             <li key={c.id} id={`cf-clip-${job.id}/${c.id}`} tabIndex={-1} className="rounded-xl focus:outline focus:outline-2 focus:outline-[#f43f5e]">
-              <ClipCard clip={c} reduced={reduced} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />}
+              <ClipCard clip={c} reduced={reduced} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<><Note k={`clip:${job.id}/${c.id}`} />{c.status === "ready" && <OrbitThinks id={`clip:${job.id}/${c.id}`} />}</>}
                 picks={(c.status === "ready" || c.status === "approved") && <>
                   <ClipPicks clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPick={(body) => void onPatch(c.id, body)}
                     onMore={() => void onTitles(c.id)} onReview={() => void onTitles(c.id, true)} moreBusy={!!busy[`titles:${job.id}/${c.id}`]} />
@@ -1159,7 +1159,6 @@ function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publi
         {reviewable && (
           <>
             {c.status !== "rejected" && <button className="chip" onClick={() => onPatch(c.id, { status: "approved", ...(c.retryOf && { replaceOriginal: c.retryOf.videoId }) })} disabled={busy || c.status === "approved"} aria-pressed={c.status === "approved"} aria-label={`Approve ${c.title}${c.retryOf ? " and replace original after publication" : ""}`}>✓ {c.retryOf ? "Approve & replace after publication" : "Approve"}</button>}
-            {c.status === "ready" && <OrbitThinks id={`clip:${job.id}/${c.id}`} />}
             {c.status !== "rejected" && <RejectButton title={c.title} onReject={(reason) => void onPatch(c.id, { status: "rejected", ...(reason ? { reason } : {}) })} disabled={busy || c.publish?.status === "uploading"} />}
           </>
         )}
