@@ -14,7 +14,7 @@ import { isAllowedEmail } from "@/lib/allow";
 import { listJobs } from "@/lib/clips/factory";
 import { listStories } from "@/lib/clips/story";
 import { approveProblem, quoteTotal } from "@/lib/clips/story-pure";
-import { emailIn } from "@/lib/business-pure";
+import { emailIn, sendStamp } from "@/lib/business-pure";
 import { waitingNegotiations } from "@/lib/negotiator";
 import type { PushSub } from "@/lib/remote-push-pure";
 
@@ -117,7 +117,7 @@ export async function pendingApprovals(sb: SupabaseClient): Promise<Approval[]> 
   }
   for (const p of prospects as { id: string; name: string; contact: string | null; draft: string | null; updated_at: string }[]) {
     const to = emailIn(p.contact ?? "");
-    if (to && p.draft?.trim()) out.push(item(`send:${p.id}`, { kind: "send", title: p.name, detail: "BUSINESS email", to, message: p.draft, seen: p.updated_at }));
+    if (to && p.draft?.trim()) out.push(item(`send:${p.id}`, { kind: "send", title: p.name, detail: "BUSINESS email", to, message: p.draft, seen: await sendStamp(p) })); // the hash of exactly what approving emails
   }
   // Negotiator (B2): replies drafted inside his limits. `to` only when approving will email it (else he copies it to the seller himself).
   const negos = await waitingNegotiations().catch(() => []);
