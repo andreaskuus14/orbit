@@ -171,6 +171,7 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
       if (error) throw error;
       return dueFollowups(data ?? [], now);
     }))]);
+  const invP = within(import("./invoices").then(async (x) => (await import("./invoices-pure")).overdueLine(await x.allInvoices(), today))).catch(() => ""); // "2 invoices overdue: …"
   const nightP = within(import("./night").then((x) => x.getNightReport(sb, userId, now))).catch(() => null); // a failure just drops the section
   const [th, al, ids, cl, dw, dl, ar] = await cardSources;
   const life = ok(l), rec = ok(r), since = ok(sn) as MorningSince | undefined, work = ok(w), st = ok(s), due = ok(bf);
@@ -183,5 +184,5 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
   // Only counted when its sources loaded: a mission ticked from missing data would be a false claim.
   const mission = st && work && ok(ct) !== undefined ? dailyMission({ shortsToday: st.today.length, contactedToday: ok(ct)!, approvalsWaiting: approvals(work) }) : undefined;
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
-    business: due && businessFollowupLine(due.length), overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }) };
+    business: [due && businessFollowupLine(due.length), await invP].filter(Boolean).join(". ") || undefined, overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }) };
 }

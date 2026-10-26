@@ -1,6 +1,7 @@
 // BUSINESS planet: the owner's client pipeline for the Lead Follow-up Autopilot (services/lead-followup).
 // Pure: validation, the outreach prompt and the funnel numbers (tested in tests/business.test.ts).
 // ORBIT only drafts messages; the owner sends them himself (ORBIT stays read-only on outside platforms).
+import { contentHash } from "./approval-pure.ts";
 
 export const STAGES = ["lead", "contacted", "replied", "pilot", "paying", "lost"] as const;
 export type Stage = (typeof STAGES)[number];
@@ -119,6 +120,10 @@ export function sendSubject(name: string, draft: string): string {
   const lang: Lang = /[А-Яа-яЁё]/.test(draft) ? "Russian" : /[õäöüÕÄÖÜšžŠŽ]/.test(draft) ? "Estonian" : "English";
   return SUBJECT[lang](name.replace(/[\r\n]+/g, " ").slice(0, 80));
 }
+/** Exactly what "Approve & send" emails; its contentHash is the approval the owner's click carries (approval-pure approvalGate). */
+export const sendContent = (p: { name: string; contact: string | null; draft: string | null }) =>
+  ({ to: emailIn(p.contact ?? ""), subject: sendSubject(p.name, p.draft ?? ""), text: p.draft ?? "" });
+export const sendStamp = (p: Parameters<typeof sendContent>[0]) => contentHash(sendContent(p));
 
 /** Notes use explicit reply markers; negative status notes do not count as replies. */
 export function dueFollowups<T extends Pick<Prospect, "stage" | "updated_at" | "notes">>(prospects: T[], now: number): T[] {
