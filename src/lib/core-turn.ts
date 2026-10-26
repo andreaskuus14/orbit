@@ -101,7 +101,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
             (text) => { shown += text; send({ type: "delta", text }); }, ac.signal,
             () => { if (shown) { shown = ""; send({ type: "reset" }); } },
             (to) => send({ type: "navigate", to }),
-            (tool, input) => send({ type: "step", label: stepLabel(tool, input) }));
+            (tool, input) => send({ type: "step", label: stepLabel(tool, input), tool }));
           send({ type: "done", conversationId: cid, answer: text, citations, trace, model, ...(lesson && { lesson }) });
         } catch (e) {
           // Stopped: keep what was already shown, plus what any agent task cancelled by the stop had finished.
