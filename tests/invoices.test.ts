@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   approveProblem, dashboard, daysLate, editInvoice, invoicePdf, isOverdue, newInvoice, nextNumber, overdueLine, parseSeller, readyProblem,
-  refCheckDigit, refNumber, refValid, reminderDraft, remindDue, setStatus, toCents, totals, view, briefInvoices,
+  refCheckDigit, refNumber, refValid, reminderDraft, remindDue, setStatus, toCents, totals, view, briefInvoices, remoteInvoices, invoicePushes, PUSH_AGAIN_DAYS,
   type Invoice, type Seller,
 } from "../src/lib/invoices-pure.ts";
 
@@ -135,4 +135,36 @@ test("PDF: a valid file with Estonian letters and the reference", () => {
   assert.ok(s.includes(i.ref) && s.includes("620.00"));
   const xref = Number(s.match(/startxref\n(\d+)/)![1]);
   assert.equal(s.slice(xref, xref + 4), "xref");
+});
+
+test("phone remote: waiting reminders become invoice approvals with the full text, buyer, amount and days late", () => {
+  const due = sent({ due: "2026-10-17" });
+  const r = reminderDraft(due, seller, "English", TODAY, NOW) as { text: string; subject: string; at: string };
+  const waiting = { ...due, reminder: r };
+  const [a] = remoteInvoices([waiting, sent(), { ...sent({ due: "2026-10-17" }), status: "paid" as const, reminder: r }], TODAY, true);
+  assert.equal(remoteInvoices([waiting, sent()], TODAY, true).length, 1); // only an overdue invoice with a draft
+  assert.equal(a.key, "invoice:i1");
+  assert.equal(a.message, r.text);
+  assert.equal(a.seen, r.at); // the version echoed back on approve
+  assert.equal(a.buyer, "Cake Shop");
+  assert.equal(a.amount, "€620.00");
+  assert.equal(a.daysLate, 9);
+  assert.equal(a.to, "c@shop.ee");
+  assert.equal(remoteInvoices([waiting], TODAY, false)[0].to, undefined); // no Resend: he copies it
+  assert.equal(remoteInvoices([{ ...waiting, buyer: { ...waiting.buyer, email: "a@x.ee, b@y.ee" } }], TODAY, true)[0].to, undefined); // same rule as approveReminder
+  assert.deepEqual(remoteInvoices([{ ...waiting, due: "2026-10-30" }], TODAY, true), []); // no longer overdue
+});
+
+test("invoice push: once per invoice per week, only while a reminder is waiting", () => {
+  const due = sent({ due: "2026-10-17" });
+  const waiting = { ...due, reminder: reminderDraft(due, seller, "English", TODAY, NOW) as { text: string; subject: string; at: string } };
+  const [p] = invoicePushes([waiting], TODAY, NOW);
+  assert.equal(p.id, "i1");
+  assert.match(p.title, /^Invoice 2026-\d{3} is 9 days overdue — a reminder is ready$/);
+  assert.doesNotMatch(p.title + p.body, /Cake|€/); // no buyer or amount on the lock screen
+  assert.deepEqual(invoicePushes([due], TODAY, NOW), []); // no draft, no push
+  const day = 86_400_000;
+  assert.deepEqual(invoicePushes([{ ...waiting, pushedAt: new Date(NOW - (PUSH_AGAIN_DAYS * day - 1)).toISOString() }], TODAY, NOW), []);
+  assert.equal(invoicePushes([{ ...waiting, pushedAt: new Date(NOW - PUSH_AGAIN_DAYS * day).toISOString() }], TODAY, NOW).length, 1);
+  assert.match(invoicePushes([{ ...waiting, due: "2026-10-25" }], TODAY, NOW)[0].title, / 1 day overdue/);
 });

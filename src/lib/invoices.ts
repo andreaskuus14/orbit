@@ -10,7 +10,7 @@ import { emailIn } from "./business-pure";
 import { resendMail } from "./business-send";
 import { localDay } from "./morning-pure";
 import {
-  approveProblem, dashboard, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus,
+  approveProblem, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus,
   type From, type Invoice, type Seller,
 } from "./invoices-pure";
 
@@ -121,6 +121,20 @@ export async function pdfOf(id: unknown): Promise<{ file: Uint8Array; name: stri
   const why = readyProblem(i, s.seller);
   if (why) return why;
   return { file: invoicePdf(i, s.seller!), name: `invoice-${i.number}.pdf` };
+}
+
+/** Scheduler tick: push "Invoice X is N days overdue — a reminder is ready" for waiting drafts, once per invoice per week.
+ *  Stamped before sending so a crash can't repeat it; skipped (not stamped) in quiet hours or Stop-all. Never throws. */
+export async function pushInvoiceReminders(now = Date.now()) {
+  try {
+    const { pushProblem, deliver } = await import("./remote-push"), { quietAt } = await import("./remote-push-pure");
+    if (stopAllOn() || pushProblem() || quietAt(now)) return;
+    const day = localDay(new Date(now)), due = invoicePushes((await load()).invoices, day, now);
+    if (!due.length) return;
+    const at = new Date(now).toISOString();
+    const stamped = await update((s) => due.filter((p) => { const i = s.invoices.find((x) => x.id === p.id); if (i) put(s, { ...i, pushedAt: at }); return !!i; }));
+    for (const p of stamped) void deliver({ title: p.title, body: p.body, url: "/remote#r-appr", tag: "invoice" });
+  } catch (e) { console.error("[orbit] invoice push:", e instanceof Error ? e.message : e); }
 }
 
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
