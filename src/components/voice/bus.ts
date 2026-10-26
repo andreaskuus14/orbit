@@ -4,7 +4,7 @@
 
 import type { PanelId } from "@/lib/planets";
 
-export const voiceLevel = { mic: 0, speak: 0 }; // 0..1, updated by the voice input / speech output
+export const voiceLevel = { mic: 0, speak: 0, listening: false }; // levels 0..1, updated by the voice input / speech output; listening: a mic is taking a question (VoiceControls)
 /** The open panel, kept current by Orbit, so the recognizer can prefer alternatives that are commands for this place. */
 export const voiceContext: { current?: PanelId | null } = {};
 

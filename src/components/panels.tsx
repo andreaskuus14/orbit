@@ -12,6 +12,7 @@ import { CoreActivity } from "./CoreActivity";
 import { PasswordSection } from "./PasswordSection";
 import { PhonePairing } from "./PhonePairing";
 import { AutonomySection } from "./AutonomySection";
+import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
@@ -21,11 +22,15 @@ import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { Markdown } from "./AgentsPanels";
 import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
+import { ScreenLook, type LookAsk } from "./ScreenLook";
+import { parseLookRequest, robloxErrors, LUAU_FIX_EVENT, type Preset } from "@/lib/screen-look-pure";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
+import { EpisodesList } from "./EpisodesList";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
 import { PredictionScore } from "./OrbitThinks";
+import { PerfRuns } from "./PerfRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
 import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
@@ -34,13 +39,14 @@ import { ChatSheet, chatsApi, useCoreChats } from "./CoreChats";
 import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, codeBlocks } from "@/lib/core-chats-pure";
 import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { CORE_BUSY } from "@/lib/interruption-pure";
+import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { isLearned } from "@/lib/memory-world-pure";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
 type Cite = { id: string; title: string; kind: string };
 type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[] };
-type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string } };
+type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[] };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
@@ -71,6 +77,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const [copied, setCopied] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const att = useAttachments(); // files for the next message (📎 / drop / paste)
+  const [lookAsk, setLookAsk] = useState<LookAsk | null>(null); // "look at my screen" said/typed: waits for his click (the browser needs one)
   const fileRef = useRef<HTMLInputElement>(null);
   const lastQ = useRef(""); // for Retry and ↑ in an empty input
   const convo = useRef<string | null>(null);
@@ -135,9 +142,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) { ac?.abort(); if (!flying.current) stopSpeech(); } }, 0); };
   }, []);
 
-  const send = useCallback(async (text: string, fromVoice?: boolean) => {
+  const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset) => {
     const message = text.trim();
     const nav = parseNavCommand(message, { current: "core" });
+    const asked = !look && !nav ? parseLookRequest(message) : null;
+    if (asked) { setLookAsk(asked); setInput(""); return; } // never captures by itself: the strip shows a "choose the window" button
     if ((!message && !att.has()) || (busy && !nav)) return; // direct commands still work while CORE answers
     stopSpeech();
     if (isSleepCommand(message)) { void goToSleep(); return; }
@@ -173,7 +182,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     try {
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
+        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
@@ -184,7 +193,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       let buf = "";
       let finished = false;
       const handle = (line: string) => {
-        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
+        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; tool?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
         if (ev.conversationId && ev.conversationId !== convo.current) { setChatId(ev.conversationId); void chats.reload(); }
         if (ev.type === "delta" && ev.text) {
           partial += ev.text;
@@ -193,6 +202,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLive(partial); });
         } else if (ev.type === "step" && ev.label) {
           setActivity((labels) => appendActivity(labels, ev.label!));
+          if (ev.tool) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "step", tool: ev.tool } })); // the singularity shows it (E4)
         } else if (ev.type === "navigate" && ev.to) {
           navTo = ev.to;
         } else if (ev.type === "reset") {
@@ -207,7 +217,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? ""));
           setLive(null);
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model,
-            chips: followUps(message, (ev.trace ?? []).map((s) => s.step)), lesson: ev.lesson }]);
+            chips: followUps(message, (ev.trace ?? []).map((s) => s.step)), lesson: ev.lesson, fixes: look === "roblox" ? robloxErrors(ev.answer ?? "") : undefined }]);
         } else if (ev.type === "error") {
           throw new Error(ev.error || "CORE failed");
         }
@@ -225,6 +235,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       const stopped = ac.signal.aborted;
       if (talk) stopSpeech();
       if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
+      if (!stopped) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "error" } }));
       setMsgs((m) => [...m, stopped
         ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._` }
         : { role: "assistant", content: e instanceof Error ? e.message : "CORE failed", error: true }]);
@@ -311,6 +322,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           {m.chips.map((c) => <button key={c} type="button" className="chip" onClick={() => void send(c)}>{c}</button>)}
         </div>
       )}
+      {!!m.fixes?.length && (
+        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Roblox errors">
+          {m.fixes.map((f) => <button key={f} type="button" className="chip max-w-full truncate" title={`Open the Luau helper (docs-checked) in Fix mode with: ${f}`}
+            onClick={() => { dispatchEvent(new CustomEvent(LUAU_FIX_EVENT, { detail: f })); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: { panel: "creation" } })); }}>🩹 Fix with docs: {f.slice(0, 60)}</button>)}
+        </div>
+      )}
       {m.lesson && <LessonChip lesson={m.lesson} />}
       {!!m.trace?.length && (
         <ResultEvidence items={m.trace.flatMap((s) => s.evidence ?? [])} openMemory={onOpenMemory} />
@@ -357,6 +374,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
         <div ref={end} />
       </div>
       <AttachChips items={att.items} error={att.error} onRemove={att.remove} />
+      <ScreenLook busy={busy} input={input} ask={lookAsk} onAsk={setLookAsk} run={async (file, text, preset) => { await att.add([file]); await send(text, false, preset); }} />
       <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
         <input ref={fileRef} type="file" multiple accept={ACCEPT} className="sr-only" tabIndex={-1} aria-hidden onChange={(e) => { if (e.target.files) void att.add(e.target.files); e.target.value = ""; }} />
         <button type="button" className="btn" title="Attach images or documents (or drop / paste them)" aria-label="Attach files" disabled={busy} onClick={() => fileRef.current?.click()}>📎</button>
@@ -450,6 +468,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const [form, setForm] = useState({ kind: "note" as Kind, title: "", content: "", url: "", tags: "" });
   const [saving, setSaving] = useState(false);
   const [learnedOnly, setLearnedOnly] = useState(false);
+  const [episodesOnly, setEpisodesOnly] = useState(false);
   const [beliefs, setBeliefs] = useState(false);
   useEffect(() => {
     if (takeBeliefsRequest()) setBeliefs(true); // "what do you know about me" opened MEMORY
@@ -591,9 +610,10 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
         </form>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <button type="button" className="chip" aria-pressed={learnedOnly} onClick={() => setLearnedOnly(!learnedOnly)}>Learned by CORE</button>
+          <button type="button" className="chip" aria-pressed={episodesOnly} onClick={() => setEpisodesOnly(!episodesOnly)}>Episodes</button>
           {q.trim() && mode && <span className="muted text-xs">{mode === "hybrid" ? "Keyword + semantic search" : "Keyword search"}</span>}
         </div>
-        <ul className="space-y-2">
+        {episodesOnly ? <EpisodesList onOpen={setFocus} /> : <ul className="space-y-2">
           {shown.map((m) => (
             <li key={m.id}>
               <button className="card w-full text-left" onClick={() => setOpen(m)}>
@@ -604,7 +624,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
             </li>
           ))}
           {!shown.length && !err && <li className="muted">{learnedOnly ? "CORE hasn't saved anything by itself here yet." : q.trim() ? "Nothing matched." : "No memories yet. Capture your first one above."}</li>}
-        </ul>
+        </ul>}
       </div>
     </div>
   );
@@ -646,6 +666,7 @@ export function ProfilePanel() {
     <PasswordSection />
     <AutonomySection />
     <PhonePairing />
+    <PersonaSection />
     <PlaybookSection />
     <LessonsSection />
     </div>
@@ -760,6 +781,7 @@ export function AnalyticsPanel() {
       <UsageMeter />
       <AgentScorecard />
       <PredictionScore />
+      <PerfRuns />
       <LifeStats />
       <h3 className="h3">Recent activity</h3>
       <ul className="space-y-1 text-sm">{s.events.map((e, i) => { const event = eventLabel(e.type); return <li key={i}><span aria-hidden="true">{event.icon}</span> <b>{event.label}</b> <span className="muted">{when(e.created_at)}</span></li>; })}{!s.events.length && <li className="muted">Nothing yet.</li>}</ul>
