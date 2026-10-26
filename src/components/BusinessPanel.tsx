@@ -7,6 +7,7 @@ import { mapNodes, mapSummary } from "@/lib/business-map-pure";
 import { SIG_LABEL, scorecard, type Cell } from "@/lib/outreach-score-pure";
 import NicheCards from "./NicheCards";
 import InvoicesPanel from "./InvoicesPanel";
+import MoneyPanel from "./MoneyPanel";
 import NegotiatorBox from "./NegotiatorBox";
 
 // Three.js loads after the drawer opens, so the list shows instantly.
@@ -94,6 +95,7 @@ export default function BusinessPanel() {
       <NicheCards />
 
       {st && <InvoicesPanel prospects={st.prospects} />}
+      <MoneyPanel />
 
       <VisibilityPanel />
 
