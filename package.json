@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "eval:ai": "node --experimental-strip-types scripts/ai-scorecard.ts",
+    "demo:build": "node scripts/demo-build.mjs",
     "gate": "tsc --noEmit -p . && npm test && npm run eval:ai && next build",
     "textures": "node scripts/fetch-textures.mjs",
     "app:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-shortcut.ps1",
