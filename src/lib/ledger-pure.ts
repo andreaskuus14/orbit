@@ -3,6 +3,7 @@ import { PLANETS } from "./planets.ts";
 import { STAGES, type Stage } from "./business-pure.ts";
 import { CARD_KINDS, SOURCES, type CardKind, type Source } from "./morning-rank-pure.ts";
 import { AREAS, LEVELS, type Area } from "./autonomy-pure.ts";
+import { STATUSES as CONTRACT_STATUSES, type Status as ContractStatus } from "./contracts-pure.ts";
 import { ITEM_STATUSES, NIGHT_KINDS, type ItemStatus, type NightKind } from "./night-pure.ts";
 import { INTENTS, NEGO_STATES, type Intent, type NegoState } from "./negotiator-pure.ts";
 
@@ -40,7 +41,11 @@ type Data = {
   "health.issue": { issue: string; status: "new" | "regressed" | "resolved" }; // self-healing (health.ts): the issue id only, never log text
   "dev.session.start": { session: string }; // Roblox dev session log (dev-session.ts): the session id only, never code, paths or console text
   "dev.session.end": { session: string };
+  "screen.look": { message: string }; // "look at my screen" (ScreenLook.tsx): the CORE message id only, never the image or question
+  "contract.status": { contractId: string; to: ContractStatus; version: number }; // BUSINESS contracts (contracts.ts): ids only, never parties, prices or text
   "nego.step": { nego: string; intent?: Intent; state: NegoState }; // negotiator (negotiator.ts): the negotiation id, intent and state only, never text or prices
+  "focus.start": { focus: string; minutes: number }; // time dilation (focus.ts): the block id and minutes only, never the goal
+  "focus.end": { focus: string; minutes: number }; // minutes actually focused
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -70,7 +75,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "morning.click": { source: oneOf(SOURCES), key: id },
   "morning.done": { source: oneOf(SOURCES), key: id },
   "journal.saved": { memoryId: id },
-  "remote.command": { command: oneOf(["navigate", "core.ask", "approval.list", "approve", "reject", "stopAll", "status", "invalid"]), ok: bool, device: id },
+  "remote.command": { command: oneOf(["navigate", "core.ask", "approval.list", "approve", "reject", "stopAll", "status", "invalid", "shortcut.status", "shortcut.call", "shortcut.stop", "shortcut.approve", "shortcut.ask"]), ok: bool, device: id }, // shortcut.*: Shortcuts & Watch, device "shortcut:<id>"
   "higgsfield.spend": { jobId: id, credits: (v) => typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 100_000, kind: oneOf(["story", "draft"]) },
   "memory.hygiene": { action: oneOf(["merge", "retract"]), decision: oneOf(["accepted", "dismissed"]), key: id },
   "night.start": { night: id },
@@ -87,7 +92,11 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "health.issue": { issue: id, status: oneOf(["new", "regressed", "resolved"]) },
   "dev.session.start": { session: id },
   "dev.session.end": { session: id },
+  "screen.look": { message: id },
+  "contract.status": { contractId: id, to: oneOf(CONTRACT_STATUSES), version: (v) => Number.isInteger(v) && (v as number) >= 1 },
   "nego.step": { nego: id, intent: opt(oneOf(INTENTS)), state: oneOf(NEGO_STATES) },
+  "focus.start": { focus: id, minutes: (v) => count(v) && (v as number) <= 1440 },
+  "focus.end": { focus: id, minutes: (v) => count(v) && (v as number) <= 1440 },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];
