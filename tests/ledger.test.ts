@@ -37,6 +37,7 @@ const DATA: Record<string, object> = {
   "dev.session.start": { session: "0b9c2f4e-1d2a-4c3b-8e5f-6a7b8c9d0e1f" },
   "dev.session.end": { session: "0b9c2f4e-1d2a-4c3b-8e5f-6a7b8c9d0e1f" },
   "nego.step": { nego: "n1", intent: "counter", state: "talking" },
+  "company.step": { chain: "c1", role: "writer", status: "approval" },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {

@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelTask, getAgent, kickQueue, runTask } from "./agents";
 import { stopAllOn } from "./stop-all";
+import { createBudget, emit } from "./claude";
+import { roleOf, stepStatus } from "./company-pure";
 import { CHAIN_TITLE, chainView, composeRequest, nextMove, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
 
 // AGENT TEAMS runner: the chain lives in the tasks table (see chains-pure.ts), so it survives restarts. drive() walks the steps in order,
@@ -19,12 +21,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Parent = { id: string; status: string; request: string; project_id: string | null };
 
 /** Validated body → new chain id, or an error message. */
-export async function createChain(sb: SupabaseClient, userId: string, body: unknown): Promise<{ chainId: string } | { error: string }> {
+export async function createChain(sb: SupabaseClient, userId: string, body: unknown, company = false): Promise<{ chainId: string } | { error: string }> {
   const d = validateChain(body);
   if (typeof d === "string") return { error: d };
   for (const st of d.steps) if (!(await getAgent(sb, st.agent, userId))) return { error: `Unknown agent "${st.agent}"` };
   const { data: parent, error } = await sb.from("tasks").insert({
-    user_id: userId, agent: "nova", title: `${CHAIN_TITLE}${d.goal}`.slice(0, 200), request: JSON.stringify(toMeta(d)), status: "running",
+    user_id: userId, agent: "nova", title: `${CHAIN_TITLE}${d.goal}`.slice(0, 200), request: JSON.stringify(toMeta(d, company)), status: "running",
   }).select("id").single(); // started_at stays null: the stale-task sweep only touches rows with a started_at
   if (error) return { error: error.message };
   driving.add(parent.id); // so a GET poll can't start a driver before the step rows exist
@@ -144,7 +146,10 @@ export async function drive(sb: SupabaseClient, userId: string, id: string) {
           const own = move.task.request.slice(0, meta.steps[move.k].len);
           await sb.from("tasks").update({ request: composeRequest(own, move.prev.agent, move.prev.result) }).eq("id", move.task.id).eq("status", "queued");
         }
-        await runTask(sb, userId, move.task.id, 0, undefined, ac.signal);
+        const st = meta.steps[move.k], role = meta.company ? roleOf(st.agent) : null; // company runs log ids/roles only to the ledger
+        if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: "started" });
+        const r = await runTask(sb, userId, move.task.id, 0, st.calls ? createBudget(undefined, st.calls) : undefined, ac.signal);
+        if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: stepStatus(r.status) });
       });
     }
   } catch (e) {
