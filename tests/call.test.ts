@@ -181,3 +181,13 @@ test("earlier calls: when-labels, the opener prompt and a safe fallback", () => 
   assert.equal(cleanOpener(`${"word ".repeat(70)}?`, base), base);
   assert.equal(itemsKey([{ id: "b", seen: "2" }, { id: "a", seen: "1" }]), "a@1,b@2");
 });
+
+test("a contract waiting for his signature rings once per contract, after deals, never in quiet hours", () => {
+  const r = decideCall(CALL_START, { ...sig(at(10)), contracts: ["k1"] });
+  assert.deepEqual(r.ring, { reason: "contract", things: 1 });
+  assert.match(opener("contract", 10, []), /contract waits for your signature.*signing it is yours/);
+  assert.equal(decideCall({ ...r.state, lastAt: 0 }, { ...sig(at(12)), contracts: ["k1"] }).ring, null); // already rung about k1
+  assert.equal(decideCall(CALL_START, { ...sig(at(23, 30)), contracts: ["k1"] }).ring, null);
+  assert.equal(decideCall(CALL_START, { ...sig(at(10)), contracts: ["k1"], deals: ["d1"] }).ring?.reason, "deal");
+  assert.deepEqual(parseCallState(JSON.stringify(r.state)).contracted, ["k1"]);
+});

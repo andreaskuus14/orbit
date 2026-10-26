@@ -10,9 +10,10 @@ export type NightSettings = { enabled: boolean; from: string; until: string; tz:
 export const NIGHT_DEFAULTS: NightSettings = { enabled: true, from: "01:00", until: "06:30", tz: "Europe/Tallinn", wake: "08:00", maxCalls: 40, maxMinutes: 150, idleMin: 30 };
 export const TONIGHT_MAX = 10, TEXT_MAX = 500, MAX_GOALS = 3, MAX_RESEARCH = 4, MAX_FOLLOWUPS = 3;
 export const DRAFT_AGAIN_MS = 7 * 86_400_000; // a prospect gets at most one overnight follow-up draft a week
+export const PERSONA_STUDIO_RUNS = 2; // real look-only Studio playtests per night (each up to 4 minutes); the rest is simulated
 export const RESEARCH_AGENTS = ["atlas", "nova", "forge", "vector", "echo", "sentinel"];
 
-export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health"] as const;
+export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health", "personas"] as const;
 export type NightKind = (typeof NIGHT_KINDS)[number];
 export const ITEM_STATUSES = ["done", "approval", "failed", "skipped"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -131,6 +132,7 @@ export type PlanInput = {
   nicheDue: boolean;
   health?: boolean; // run the self-healing check (health.ts) tonight: no code changes, at most 3 fast-model notes
   deals?: number; // wishes the deal hunter would cover now (deals.ts dueCount); one read-only web call each
+  personas?: boolean; // persona playtest of the pet sim due (personas.ts): 1 walkthrough call + PERSONA_STUDIO_RUNS look-only Studio runs
   handled: string[]; // `${kind}:${ref}` already in this night's run (a continued run doesn't redo them)
   now: number;
   today: string; // goals' budget day (server-local, goals-pure today())
@@ -150,6 +152,7 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
     ...i.followups.filter((p) => !(i.now - Date.parse(i.drafted[p.id] ?? "") < DRAFT_AGAIN_MS)).slice(0, MAX_FOLLOWUPS)
       .map((p): NightTask => ({ kind: "business", ref: p.id, label: `Follow-up for ${p.name.slice(0, 80)}`, calls: 1, minutes: 2 })),
     ...(i.deals ? [{ kind: "deals", ref: "deals", label: `Deal hunt for ${i.deals} wish${i.deals > 1 ? "es" : ""}`, calls: i.deals, minutes: 6 * i.deals } as NightTask] : []),
+    ...(i.personas ? [{ kind: "personas", ref: "personas", label: "Persona playtest of the pet sim", calls: 1 + PERSONA_STUDIO_RUNS, minutes: 5 + 4 * PERSONA_STUDIO_RUNS } as NightTask] : []),
     { kind: "clips", ref: "clips", label: "Shorts packaging up to review", calls: 6, minutes: 10 } as NightTask,
     ...(i.nicheDue ? [{ kind: "niche", ref: "niche", label: "Weekly BUSINESS niche scout", calls: 1, minutes: 10 } as NightTask] : []),
   ].filter((t) => !i.handled.includes(`${t.kind}:${t.ref}`) && !i.off?.includes(t.kind));
