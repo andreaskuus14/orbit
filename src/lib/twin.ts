@@ -5,7 +5,7 @@ import { orbitDataDir } from "./data-dir";
 import { askClaude, emit, recordUsage, MODEL } from "./claude";
 import { fromRows } from "./ledger-pure";
 import { weeklyCap } from "./higgsfield-pure";
-import { TWIN_SYSTEM, argueIntent, fallbackTwin, itemKey, parseDecision, parseState, parseTwin, pickEvidence, remember, setMuted, shouldArgue, twinPrompt, twinText, type Decision, type TwinState, type TwinView } from "./twin-pure";
+import { TWIN_SYSTEM, argueIntent, fallbackTwin, itemKey, parseDecision, parseState, parseTwin, pickEvidence, remember, setMuted, shouldArgue, twinPrompt, twinText, type Decision, type TwinKind, type TwinState, type TwinView } from "./twin-pure";
 
 // ORBIT twin I/O (logic: twin-pure.ts). One model call per twin view, rule-based fallback on any failure.
 // State: <ORBIT data dir>/twin.json (local: which items were argued, muted kinds). Ledger: twin.shown / twin.muted, ids only.
@@ -47,14 +47,19 @@ export function twinView(sb: SupabaseClient, userId: string, raw: unknown, signa
   return run;
 }
 
+/** His newest ledger events relevant to this kind, one line each (also the courtroom's ledger facts). */
+export async function ledgerEvidence(sb: SupabaseClient, userId: string, kind: TwinKind) {
+  const { data } = await sb.from("events").select("id, created_at, type, planet, payload, caused_by").eq("user_id", userId)
+    .gte("created_at", new Date(Date.now() - 90 * 86_400_000).toISOString()).order("created_at", { ascending: false }).limit(1000);
+  return pickEvidence(kind, fromRows(data ?? []));
+}
+
 async function argue(sb: SupabaseClient, userId: string, d: Decision, signal?: AbortSignal): Promise<TwinView | null> {
   if (d.kind === "spend") d.cap = weeklyCap(process.env.ORBIT_HIGGSFIELD_WEEKLY_CAP); // his setting, not the page's
   const verdict = shouldArgue(d, await load(), Date.now(), process.env.ORBIT_TWIN_SPEND_MIN);
   if (!verdict.argue) return null;
   if (verdict.repeat) return verdict.repeat;
-  const { data } = await sb.from("events").select("id, created_at, type, planet, payload, caused_by").eq("user_id", userId)
-    .gte("created_at", new Date(Date.now() - 90 * 86_400_000).toISOString()).order("created_at", { ascending: false }).limit(1000);
-  const ev = pickEvidence(d.kind, fromRows(data ?? []));
+  const ev = await ledgerEvidence(sb, userId, d.kind);
   let view: TwinView | null = null;
   try {
     const r = await askClaude(twinPrompt(d, ev), TWIN_SYSTEM, { lane: "foreground", model: MODEL, timeoutMs: 45_000, purpose: "twin", signal });
