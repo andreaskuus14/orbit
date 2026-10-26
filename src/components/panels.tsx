@@ -29,6 +29,7 @@ import { EpisodesList } from "./EpisodesList";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
+import { PredictionScore } from "./OrbitThinks";
 import { PerfRuns } from "./PerfRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
 import { loadUsageTotals } from "@/lib/analytics-usage";
@@ -779,6 +780,7 @@ export function AnalyticsPanel() {
       <p className="muted text-xs">CORE runs on your Claude subscription, so there is no per-token cost to track.</p>
       <UsageMeter />
       <AgentScorecard />
+      <PredictionScore />
       <PerfRuns />
       <LifeStats />
       <h3 className="h3">Recent activity</h3>
