@@ -7,7 +7,7 @@ import type { ApprovalKind } from "./remote-web-pure";
 
 // ---- When to ring ------------------------------------------------------------
 
-export type CallReason = "morning" | "urgent" | "deal" | "blocked" | "checkin" | "manual";
+export type CallReason = "morning" | "urgent" | "deal" | "contract" | "blocked" | "checkin" | "manual";
 export const CALL = {
   maxPerDay: 2, minGapMs: 60 * 60_000, blockHours: 4, morningUntil: 11, checkinWindowMin: 120,
   idleEndMs: 10 * 60_000, urgentFreshMs: 2 * 3600_000, confirmMs: 60_000, maxTurns: 40,
@@ -15,10 +15,10 @@ export const CALL = {
 export const CALL_TZ = "Europe/Tallinn"; // same clock as push quiet hours (remote-push-pure)
 
 /** Persisted in <data dir>/call.json. seen: approval id → when ORBIT first saw it waiting; nagged: ids already rung about; dealt: great-deal offer ids already rung about. */
-export type CallState = { day: string; calls: number; lastAt: number; morningDay: string; checkinDay: string; checkin: string; seen: Record<string, number>; nagged: string[]; urgentAt: number; dealt: string[] };
+export type CallState = { day: string; calls: number; lastAt: number; morningDay: string; checkinDay: string; checkin: string; seen: Record<string, number>; nagged: string[]; urgentAt: number; dealt: string[]; contracted?: string[] };
 export const CALL_START: CallState = { day: "", calls: 0, lastAt: 0, morningDay: "", checkinDay: "", checkin: "", seen: {}, nagged: [], urgentAt: 0, dealt: [] };
-/** deals: great deals the hunter found in the last 12 h (deals.ts freshDeals), offer ids only. */
-export type CallSignals = { now: number; stopAll: boolean; approvals: string[]; nightReport: boolean; deals?: string[] };
+/** deals: great deals the hunter found in the last 12 h (deals.ts freshDeals), offer ids only. contracts: contracts waiting for his signature (contracts-pure waitingIds). */
+export type CallSignals = { now: number; stopAll: boolean; approvals: string[]; nightReport: boolean; deals?: string[]; contracts?: string[] };
 export type Ring = { reason: Exclude<CallReason, "manual">; things: number };
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -33,7 +33,8 @@ export function parseCallState(raw: string): CallState {
   if (o.seen && typeof o.seen === "object") for (const [k, v] of Object.entries(o.seen)) if (typeof v === "number") seen[k] = v;
   return { day: s(o.day), calls: num(o.calls), lastAt: num(o.lastAt), morningDay: s(o.morningDay), checkinDay: s(o.checkinDay),
     checkin: validCheckin(o.checkin) ? o.checkin : "", seen, nagged: Array.isArray(o.nagged) ? o.nagged.filter((x): x is string => typeof x === "string") : [], urgentAt: num(o.urgentAt),
-    dealt: Array.isArray(o.dealt) ? o.dealt.filter((x): x is string => typeof x === "string").slice(-50) : [] };
+    dealt: Array.isArray(o.dealt) ? o.dealt.filter((x): x is string => typeof x === "string").slice(-50) : [],
+    ...(Array.isArray(o.contracted) && { contracted: o.contracted.filter((x): x is string => typeof x === "string").slice(-50) }) };
 }
 
 /** Day ("YYYY-MM-DD"), hour and minute-of-day in the owner's zone. */
@@ -57,10 +58,12 @@ export function decideCall(prev: CallState, sig: CallSignals): { state: CallStat
 
   const urgent = st.urgentAt > st.lastAt && now - st.urgentAt < CALL.urgentFreshMs; // a failure from hours ago waits for the morning card
   const deals = (sig.deals ?? []).filter((id) => !st.dealt.includes(id)); // "an offer came in for something you wanted": once per deal
+  const contracts = (sig.contracts ?? []).filter((id) => !(st.contracted ?? []).includes(id)); // "a contract waits for your signature": once per contract
   const blocked = sig.approvals.filter((id) => now - seen[id] >= CALL.blockHours * 3600_000 && !st.nagged.includes(id));
   const ck = HHMM.exec(st.checkin), ckMin = ck ? Number(ck[1]) * 60 + Number(ck[2]) : -1;
   const reason: Ring["reason"] | null = urgent ? "urgent"
     : deals.length ? "deal"
+    : contracts.length ? "contract"
     : sig.nightReport && sig.approvals.length && h < CALL.morningUntil && st.morningDay !== day ? "morning"
     : blocked.length ? "blocked"
     : ckMin >= 0 && st.checkinDay !== day && min >= ckMin && min < ckMin + CALL.checkinWindowMin ? "checkin"
@@ -68,8 +71,9 @@ export function decideCall(prev: CallState, sig: CallSignals): { state: CallStat
   if (!reason) return none;
   return {
     state: { ...st, calls: st.calls + 1, lastAt: now, nagged: [...st.nagged, ...blocked], dealt: [...st.dealt, ...deals].slice(-50),
+      ...(reason === "contract" && { contracted: [...(st.contracted ?? []), ...contracts].slice(-50) }),
       morningDay: reason === "morning" ? day : st.morningDay, checkinDay: reason === "checkin" ? day : st.checkinDay },
-    ring: { reason, things: sig.approvals.length + (urgent ? 1 : 0) + (reason === "deal" ? deals.length : 0) },
+    ring: { reason, things: sig.approvals.length + (urgent ? 1 : 0) + (reason === "deal" ? deals.length : reason === "contract" ? contracts.length : 0) },
   };
 }
 
@@ -90,6 +94,7 @@ export function opener(reason: CallReason, hour: number, items: Pick<CallItem, "
   switch (reason) {
     case "morning": return `${hi}. The night shift's done, and ${need}. Want to start with ${first}?`;
     case "deal": return deal ? `${hi}. An offer came in for ${q(deal.item)} at a good price, about ${Math.round(deal.eur)} euros. Want the details?` : `${hi}. The deal hunter found something on your wishlist at a good price. Want the details?`;
+    case "contract": return `${hi}. A contract waits for your signature. I drafted it from your details; signing it is yours, on the PC. Want me to go over what's in it?`;
     case "urgent": return `${hi}, sorry to grab you. Something failed on the PC${n ? `, and ${need}` : ""}. Want me to walk you through it?`;
     case "blocked": return `${hi}, quick one. ${first[0].toUpperCase()}${first.slice(1)} has been waiting on you for a while. Got a sec for it?`;
     case "checkin": return n ? `${hi}, it's check-in time. ${need[0].toUpperCase()}${need.slice(1)}, nothing urgent. How's it going?` : `${hi}, just checking in. Nothing's waiting on you. How's it going?`;
@@ -216,8 +221,7 @@ function resolve(t: string, items: CallItem[]): CallItem[] {
 
 const ask = (it: CallItem, action: "approve" | "reject") => action === "reject" ? `Reject the clip ${q(it.title)}? Its files get deleted. Say yes to confirm.`
   : it.kind === "clip" ? `Approve the clip ${q(it.title)}? Say yes to confirm.`
-  : it.kind === "spend" ? `Spend ${it.credits} Higgsfield credits on ${q(it.title)}? Say yes to confirm.`
-  : `Send the email to ${it.to ?? it.title}, exactly as drafted? Say yes to confirm.`;
+  : `Spend ${it.credits} Higgsfield credits on ${q(it.title)}? Say yes to confirm.`;
 
 /** null: not about approvals, CORE answers. Otherwise what to say, the next pending confirmation, and (only after an explicit
  *  yes to the exact item and version just asked about) the action, whose echo the server re-checks against what's waiting now. */
@@ -241,6 +245,8 @@ export function voiceDecision(pending: Pending | null, text: string, items: Call
   if (hits.length > 1) return { pending: null, say: `Which one? ${hits.slice(0, 3).map(describe).join(", or ")}?` };
   const it = hits[0];
   if (action === "reject" && it.kind !== "clip") return { pending: null, say: "I can only reject clips by voice. That one I'll just leave waiting." };
+  // AGENTS rule 6: an email goes out only after he has read that exact message, which a voice call can't show him.
+  if (action === "approve" && it.kind === "send") return { pending: null, say: `The email to ${it.to ?? it.title} needs you to read it first, so approve it on screen, in Remote or BUSINESS.` };
   if (action === "approve" && it.kind === "clip" && !it.thumb) return { pending: null, say: "That clip has no preview for the phone, so have a look at it on the PC first." };
   return { pending: { id: it.id, action, kind: it.kind, seen: it.seen, ...(it.credits !== undefined ? { credits: it.credits } : {}), at: now }, say: ask(it, action) };
 }

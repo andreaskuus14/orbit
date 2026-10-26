@@ -25,6 +25,7 @@ export type BriefIn = {
   dream?: { id: string; question: string }; // last night's ONE question (dream-pure); his answer goes through CORE like any message
   idea?: { id: string; title: string; more: number }; // last night's dream-mode idea (dream-ideas-pure briefIdea)
   lesson?: { id: string; text: string }; snoozed: string[];
+  echo?: { short?: string | null; reply?: string | null }; // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
 };
 
 export const MAX_ITEMS = 6;
@@ -44,7 +45,7 @@ export function hello(hour: number): string {
 
 type NightApproval = { label: string; open?: { task: string } | { goal: string; step?: number; stepId?: string } | { panel: string } };
 /** Everything waiting on his OK, night shift first, deduped by task. Remote approvals (clips, spends, emails) only open. */
-export function briefDecisions(night: NightApproval[], work: WorkItem[], remote: { id: string; kind: "clip" | "spend" | "send"; title: string; credits?: number; to?: string }[]): Decision[] {
+export function briefDecisions(night: NightApproval[], work: WorkItem[], remote: { id: string; kind: "clip" | "spend" | "send" | "nego"; title: string; detail?: string; credits?: number; to?: string }[]): Decision[] {
   const out: Decision[] = [];
   for (const i of night) {
     const o = i.open;
@@ -57,8 +58,8 @@ export function briefDecisions(night: NightApproval[], work: WorkItem[], remote:
   }
   for (const r of remote) out.push({
     id: r.id, title: plain(r.title),
-    what: r.kind === "clip" ? `the clip ${q(r.title)}` : r.kind === "spend" ? `the ${r.credits ?? ""} credit spend for ${q(r.title)}`.replace("  ", " ") : `the email to ${plain(r.title)}`,
-    open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "send" ? { panel: "business" } : { panel: "studio" },
+    what: r.kind === "clip" ? `the clip ${q(r.title)}` : r.kind === "spend" ? `the ${r.credits ?? ""} credit spend for ${q(r.title)}`.replace("  ", " ") : r.kind === "nego" ? `your reply to ${plain(r.title)}` : `the email to ${plain(r.title)}`,
+    open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "send" ? { panel: "business" } : r.kind === "nego" ? (r.detail?.startsWith("Deal") ? { panel: "markets", tab: "Deals" } : { panel: "business" }) : { panel: "studio" },
   });
   return out;
 }
@@ -112,10 +113,10 @@ export function briefItems(x: BriefIn): BriefItem[] {
 
   const best = [...(x.morning.studio?.yesterday ?? [])].filter((y) => (y.views ?? 0) >= TOOK_OFF).sort((a, b) => b.views! - a.views!)[0];
   if (best) add({ id: `short:${best.videoId ?? best.title.slice(0, 60)}`, kind: "result", title: `${plain(best.title)}`, detail: `${best.views!.toLocaleString("en-US")} views`,
-    open: { panel: "studio" }, say: `Good news, your Short ${q(best.title)} took off. It's at ${best.views!.toLocaleString("en-US")} views.` });
+    open: { panel: "studio" }, say: `Good news, your Short ${q(best.title)} took off. It's at ${best.views!.toLocaleString("en-US")} views${x.echo?.short ? `, ${x.echo.short}` : ""}.` });
   const rep = x.replies[0];
   if (rep) add({ id: `reply:${rep.id}`, kind: "result", title: `${plain(rep.name)} replied`, detail: "BUSINESS", open: { panel: "business" },
-    say: x.replies.length === 1 ? `${short(rep.name, 6)} wrote back.` : `${short(rep.name, 6)} and ${num(x.replies.length - 1)} other ${x.replies.length === 2 ? "client" : "clients"} wrote back.` });
+    say: (x.replies.length === 1 ? `${short(rep.name, 6)} wrote back` : `${short(rep.name, 6)} and ${num(x.replies.length - 1)} other ${x.replies.length === 2 ? "client" : "clients"} wrote back`) + (x.echo?.reply ? `, ${x.echo.reply}.` : ".") });
 
   if (x.devSession) add({ id: `devsession:${x.devSession.id}`, kind: "result", title: x.devSession.title, detail: "GAME DEV session log", open: { panel: "creation" }, say: x.devSession.say });
 

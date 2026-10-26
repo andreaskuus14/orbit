@@ -45,14 +45,15 @@ export function actionFor(cmd: RemoteCommand): RemoteAction {
 
 // ---- Approvals -------------------------------------------------------------
 
-export type ApprovalKind = "clip" | "spend" | "send";
+export type ApprovalKind = "clip" | "spend" | "send" | "nego";
 /** One item already waiting for the owner. key is internal ("clip:<job>/<clip>", "spend:<story>", "send:<prospect uuid>"). */
 export type Approval = {
   id: string; key: string; kind: ApprovalKind; title: string; detail: string;
   seen: string; // the version the owner is shown: clip stamp, quote time + script fingerprint, or the draft's updated_at
   credits?: number; // spend: the exact quoted total
   thumb?: boolean; // clip: has a thumbnail the phone can show (no thumbnail = review on the PC)
-  to?: string; message?: string; // send: recipient and full text
+  to?: string; message?: string; // send: recipient and full text; nego: the negotiation reply (to only when it will be emailed)
+  strategy?: string; // nego: the one-line plan, e.g. "anchor at €450, concede 5% max"
 };
 export type Echo = { kind: ApprovalKind; credits?: number; seen?: string } | { on: boolean };
 
@@ -74,7 +75,7 @@ export function parseEcho(cmd: RemoteCommand, raw: unknown): { ok: true; echo: E
     if (!keysAre(o, ["on"]) || typeof o.on !== "boolean") return { ok: false, error: "echo must be {on}" };
     return { ok: true, echo: { on: o.on } };
   }
-  if (!keysAre(o, ["kind", "credits", "seen"]) || !["clip", "spend", "send"].includes(o.kind as string)) return { ok: false, error: "echo.kind required" };
+  if (!keysAre(o, ["kind", "credits", "seen"]) || !["clip", "spend", "send", "nego"].includes(o.kind as string)) return { ok: false, error: "echo.kind required" };
   if (o.credits !== undefined && (typeof o.credits !== "number" || !Number.isFinite(o.credits) || o.credits < 0)) return { ok: false, error: "echo.credits must be a number" };
   if (o.seen !== undefined && (typeof o.seen !== "string" || o.seen.length > 128)) return { ok: false, error: "echo.seen must be a string" };
   return { ok: true, echo: { kind: o.kind as ApprovalKind, credits: o.credits as number | undefined, seen: o.seen as string | undefined } };
