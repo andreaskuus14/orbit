@@ -47,6 +47,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
   if (userMsgErr) return Response.json({ error: userMsgErr.message }, { status: 500 });
 
   opts.onConversation?.(conversationId);
+  if (body.screen === true && files.files.some((f) => f.kind === "image")) void emit(sb, userId, "screen.look", "core", { message: userMsg.id }); // ids only: never the image or question
   void emit(sb, userId, "core.started", "core", { conversationId, ...(opts.remote ? { source: "remote" } : {}) }); // never throws; the answer needn't wait for the event row
   const cid = conversationId as string;
 
@@ -77,7 +78,8 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
     void learnFacts(sb, userId, message, userMsg?.id ?? null, files.files.length > 0); // beliefs from the user's own words only (none on attachment turns); never throws
     // "no, I meant…" / "don't do that again": propose a lesson he can keep with one tap (lessons.ts); never throws
     const prevReply = [...history].reverse().find((t) => t.role === "assistant")?.content ?? "";
-    const lesson = files.files.length ? null : await import("@/lib/lessons").then((m) => m.captureCorrection(userId, message, prevReply, userMsg.id), () => null);
+    const lesson = files.files.length ? null : (prevReply && await import("@/lib/persona").then((m) => m.captureReaction(userId, message), () => null)) // "too long" → a slider step (persona.ts)
+      || await import("@/lib/lessons").then((m) => m.captureCorrection(userId, message, prevReply, userMsg.id), () => null);
     return { ...out, lesson };
   };
   const fail = async (e: unknown) => {

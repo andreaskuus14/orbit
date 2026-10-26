@@ -10,7 +10,7 @@
 import { useEffect, useMemo } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { HOLO, useAlienEnv } from "./env";
+import { ENV_SKY, HOLO, useAlienEnv } from "./env";
 import { compileAs, warmLater } from "../WarmCompile";
 
 /** Shared GLSL noise (no uniforms, no derivatives: safe in vertex shaders too). */
@@ -449,6 +449,68 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
   useEffect(() => { mat.envMap = env; mat.needsUpdate = true; }, [mat, env]);
   useEffect(() => () => mat.dispose(), [mat]);
   return { mat, u };
+}
+
+/** First light (standIn in WarmCompile): a look-alike of a galaxy planet in a few hundred instructions, drawn until the
+ *  real surface program has compiled, then crossfaded out. The palette with its family's broad pattern (bands, swirls,
+ *  mottling, oceans and ice), the CORE's light, a mirror of the reflection map's sky, the same rims. It shares the planet's
+ *  uniforms and colour, so it turns, tints and dims with it. */
+type LiquidU = ReturnType<typeof useLiquidMetal>["u"];
+export function planetStandIn(u: LiquidU, mat: THREE.MeshPhysicalMaterial, rim: { uRim: { value: number }; uRimColor: { value: THREE.Color } }) {
+  return new THREE.ShaderMaterial({
+    transparent: true, // one program from the first frame to the end of the crossfade
+    uniforms: { ...u, ...rim, uBase: { value: mat.color }, uEnv: { value: mat.envMapIntensity }, opacity: { value: 1 } },
+    vertexShader: /* glsl */ `uniform float uTime; uniform float uLq; uniform float uChrome; varying vec3 vLq; varying vec3 vW; varying vec3 vN;
+      void main() {
+        vLq = position / max(uLq, 1e-3);
+        vec3 p = position + normal * uLq * 0.018 * uChrome * (sin(vLq.x * 5.0 + uTime * 0.9) * sin(vLq.y * 4.0 - uTime * 0.7) + sin(vLq.z * 6.0 + uTime * 1.1) * 0.6);
+        vec4 w = modelMatrix * vec4(p, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: /* glsl */ `uniform float uTime; uniform float uFam; uniform vec3 uSeed; uniform vec3 uPA; uniform vec3 uPB; uniform vec3 uPC; uniform vec3 uTint;
+      uniform vec3 uBase; uniform float uChrome; uniform float uFar; uniform float uIdent; uniform float uEnv; uniform float uRim; uniform vec3 uRimColor; uniform float opacity;
+      varying vec3 vLq; varying vec3 vW; varying vec3 vN;
+      vec3 h33(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
+      float gnoise(vec3 p) {
+        vec3 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+        #define G(o) dot(h33(i + o) * 2.0 - 1.0, f - o)
+        return mix(mix(mix(G(vec3(0,0,0)), G(vec3(1,0,0)), u.x), mix(G(vec3(0,1,0)), G(vec3(1,1,0)), u.x), u.y),
+                   mix(mix(G(vec3(0,0,1)), G(vec3(1,0,1)), u.x), mix(G(vec3(0,1,1)), G(vec3(1,1,1)), u.x), u.y), u.z);
+        #undef G
+      }
+      ${HOLO}
+      ${ENV_SKY}
+      void main() {
+        vec3 n = normalize(vN), q = normalize(vLq), V = normalize(cameraPosition - vW), L = normalize(-vW), s = q + uSeed;
+        float f = 1.0 - clamp(abs(dot(n, V)), 0.0, 1.0);
+        float fb = gnoise(s * 2.0) * 0.62; // fbm's broad octave: at first light the worlds are small on screen
+        vec3 col = vec3(1.0);
+        if (uFam < -0.5) col = vec3(1.0);
+        else if (uFam < 0.5) { // banded
+          float y = q.y + fb * 0.13, b = 0.5 + 0.5 * sin(y * 15.0 + sin(y * 5.0 + uSeed.x) * 1.8);
+          col = mix(mix(uPA, uPB, smoothstep(0.2, 0.8, b)), uPC, smoothstep(0.85, 1.0, b) * 0.3);
+        } else if (uFam < 1.5) { // marbled
+          float m = fb * 1.4;
+          col = mix(mix(uPA, uPB, smoothstep(-0.28, 0.28, m)), uPC, (1.0 - smoothstep(0.0, 0.07, abs(m - 0.08))) * 0.7);
+        } else if (uFam < 2.5) col = mix(mix(uPA, uPB, smoothstep(-0.3, 0.35, fb)), uPC, 0.12); // cratered: mottled, crater floors on average
+        else { // oceanic
+          float coast = smoothstep(0.02, 0.06, fb);
+          col = mix(uPB * (0.6 + 0.4 * smoothstep(-0.4, 0.02, fb)), uPA * (0.8 + 0.4 * fb), coast);
+          col = mix(mix(col, uPC, smoothstep(0.78, 0.86, abs(q.y) + fb * 0.15)), vec3(0.92, 0.94, 0.97), 0.12);
+        }
+        col *= uBase;
+        vec3 r = reflect(-V, n);
+        vec3 c = col * (1.0 - uChrome) * (0.86 * max(dot(n, L), 0.0) + 0.02); // the CORE (2.7 / pi, no falloff) and the fill
+        c += envSky(r) * uEnv * (col * uChrome + 0.04 + 0.96 * pow(f, 5.0)); // the mirror (metal tints it) and the coat
+        c += vec3(1.0, 0.95, 0.86) * pow(max(dot(r, L), 0.0), 40.0) * mix(0.15, 1.0, uChrome);
+        vec3 hc = holo(q.y * 0.3 + uTime * 0.02);
+        c += hc * pow(f, 2.5) * 0.55 * mix(0.15, 1.0, uChrome);
+        c += mix(mix(uTint, vec3(0.75, 0.82, 1.0), 0.35) * (pow(f, 2.6) * 1.1 + 0.04), uTint * (pow(f, 1.8) * 1.4 + 0.12), uIdent) * uFar;
+        gl_FragColor = vec4(max(c, vec3(0.0)) + uRimColor * f * f * f * max(uRim, 0.0), opacity);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  });
 }
 
 /* ---------- thought cluster: a shell of synapse points, dense at the surface, thinning outward ----------

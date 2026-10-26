@@ -23,7 +23,7 @@ import { Singularity } from "./alien/Singularity";
 import { GalaxyVeil, NeuralArms } from "./alien/NeuralArms";
 import { Filaments } from "./alien/Filaments";
 import { Lensing } from "./alien/Lensing";
-import { HoloRing, ThoughtShell, useLiquidMetal, type SurfaceLook } from "./alien/LiquidPlanet";
+import { HoloRing, planetStandIn, ThoughtShell, useLiquidMetal, type SurfaceLook } from "./alien/LiquidPlanet";
 import { MicroWorld, Ringworld } from "./alien/MicroWorld";
 import { WindowDive, WindowPlanets } from "./alien/WindowPlanet";
 import { lensRadius } from "./alien/micro-pure";
@@ -37,7 +37,7 @@ import {
 import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
-import { WarmCompile, WarmIn } from "./WarmCompile";
+import { standIn, WarmCompile, WarmIn } from "./WarmCompile";
 import { newScale, renderDpr, scaleFloor, stepScale, type ScaleState } from "@/lib/render-scale-pure";
 import { perfMark } from "./PerfBeacon";
 import { perfCtx } from "./PerfBeacon";
@@ -346,6 +346,8 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   const rim = useRim(); // cold fresnel rim: brighter on hover / focus so the world pops off the dark
   const liquid = useLiquidMetal(p.color, !!look.obsidian, size, rim.onBeforeCompile, look.surf, true); // lite at start: see useLiquidMetal
   useEffect(() => { liquid.u.uIdent.value = 0; }, [liquid]); // the galaxy: a thin atmosphere rim, not a glowing blob
+  // first light: drawn until the surface program has compiled (registered while rendering: before the canvas's warm-up)
+  useMemo(() => standIn(liquid.mat, planetStandIn(liquid.u, liquid.mat, rim.u)), [liquid, rim]);
   const base = useMemo(() => liquid.mat.color.clone(), [liquid]);
   const lit = useRef(light); lit.current = light;
   const pulse = useCallback(() => glow(pulses, p.id), [pulses, p.id]);
@@ -889,6 +891,7 @@ export default function Galaxy(props: GalaxyProps) {
   const [coarse] = useState(() => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
   const dprMax = coarse ? Math.min(1.5, q.dpr) : Math.min(2, q.dpr);
   const [dpr, setDpr] = useState<number | null>(null); // RenderScale's choice; until then the plain range
+  perfCtx.rdpr = dpr ?? -1; // the scripted perf run reports it
   const windows = level > 0 && !props.reduced; // window planets + the dive: off on level 0 and under reduced motion
   const film = q.film && !props.reduced; // grain is motion, aberration is motion: both off for reduced motion
   const dof = q.dof && !props.reduced;

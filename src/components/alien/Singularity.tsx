@@ -8,8 +8,9 @@
 // All motion is uniforms on the GPU plus four group rotations; every shader output is clamped finite and >= 0 (bloom NaN rule).
 import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
+import { standIn } from "../WarmCompile";
 import * as THREE from "three";
-import { HOLO, useAlienEnv } from "./env";
+import { ENV_SKY, HOLO, useAlienEnv } from "./env";
 import { Fractal } from "./Fractal";
 import { coreCalm, coreScale, tesseractAngle } from "@/lib/alien-pure";
 import { easeInStop, newUnseen, unseenJump, unseenStep, watched, wrapAngle } from "@/lib/alien-behaviour-pure";
@@ -252,6 +253,29 @@ function glyphHook(u: GlyphU, w0: number, cell: number) {
   };
 }
 
+/** First light (standIn in WarmCompile): the blade as clean obsidian, the way it reads from afar (the machining fades out
+ *  there anyway), in a small program: the same 4D warp, facet normals, the coat's mirror of the sky, the CORE's glint and
+ *  the oil-sheen band. The machined program (~2,700 instructions) crossfades in when it has compiled. */
+const STAND_VS = /* glsl */ `${T4}
+varying vec3 vW;
+void main() { vW = t4((modelMatrix * vec4(position, 1.0)).xyz, uW0); gl_Position = projectionMatrix * viewMatrix * vec4(vW, 1.0); }`;
+const STAND_FS = /* glsl */ `uniform float uTime; uniform float opacity; varying vec3 vW;
+${HOLO}
+${ENV_SKY}
+void main() {
+  vec3 V = normalize(cameraPosition - vW), L = normalize(-vW), n = normalize(cross(dFdx(vW), dFdy(vW)));
+  n *= sign(dot(n, V) + 1e-6);
+  float gz = 1.0 - abs(dot(n, V)), f5 = pow(gz, 5.0);
+  vec3 r = reflect(-V, n);
+  vec3 c = vec3(0.0012) * (0.86 * max(dot(n, L), 0.0) + 0.02) + envSky(r) * 0.45 * (0.04 + 0.96 * f5 + 0.012);
+  c += vec3(1.0, 0.95, 0.86) * pow(max(dot(r, L), 0.0), 300.0) * 3.0;
+  float band = smoothstep(0.7, 0.88, gz) * (1.0 - smoothstep(0.94, 1.0, gz));
+  c += (0.5 + 0.5 * cos(6.2831853 * (gz * 2.6 + uTime * 0.02 + vec3(0.0, 0.33, 0.67)))) * band * 0.07;
+  gl_FragColor = vec4(c, opacity);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+
 function ObsidianRing({ r, h, w, env, u, tint }: { r: number; h: number; w: number; env: THREE.Texture | null; u: GlyphU; tint: THREE.Color }) {
   const { geo, cell } = useMemo(() => bladeGeometry(r, h * 0.95, h * 3.2 * 1.12), [r, h]); // a little taller than the old diamond blade, so the detail reads
   const mat = useMemo(() => {
@@ -262,6 +286,7 @@ function ObsidianRing({ r, h, w, env, u, tint }: { r: number; h: number; w: numb
     m.emissive = tint; // shared: CORE's mood colour (tool planet, amber approval, grey error) washes all four blades
     m.onBeforeCompile = glyphHook(u, w, cell);
     m.customProgramCacheKey = () => "tess-ring-2"; // one program; w0 and the cell size are uniforms
+    standIn(m, new THREE.ShaderMaterial({ vertexShader: STAND_VS, fragmentShader: STAND_FS, transparent: true, uniforms: { ...u, uW0: { value: w }, opacity: { value: 1 } } }));
     return m;
   }, [u, w, cell, tint]);
   useEffect(() => { mat.envMap = env; mat.needsUpdate = true; }, [mat, env]);
