@@ -47,7 +47,7 @@ export function parseCallState(raw: string): CallState {
     checkin: validCheckin(o.checkin) ? o.checkin : "", seen, nagged: Array.isArray(o.nagged) ? o.nagged.filter((x): x is string => typeof x === "string") : [], urgentAt: num(o.urgentAt),
     dealt: Array.isArray(o.dealt) ? o.dealt.filter((x): x is string => typeof x === "string").slice(-50) : [],
     ...(Array.isArray(o.contracted) && { contracted: o.contracted.filter((x): x is string => typeof x === "string").slice(-50) }),
-    ...(validReview(o.review) && { review: validReview(o.review)! }), ...(o.reviewDay && { reviewDay: s(o.reviewDay) }), ...(num(o.reviewAt) && { reviewAt: num(o.reviewAt) }) };
+    ...(validReview(o.review) && { review: validReview(o.review)! }), ...(s(o.reviewDay) && { reviewDay: s(o.reviewDay) }), ...(num(o.reviewAt) && { reviewAt: num(o.reviewAt) }) };
 }
 
 /** Day ("YYYY-MM-DD"), hour and minute-of-day in the owner's zone. */
