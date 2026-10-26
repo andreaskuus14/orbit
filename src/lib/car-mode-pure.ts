@@ -8,8 +8,8 @@ export const MAX_READ = 5; // more than this is "and N more": he can't take in a
 export const MAX_CAR_CHARS = 900; // ≈ 60 s spoken
 export const LATER_KEY = "orbit.remote.later"; // localStorage: ids read aloud in car mode, flagged for on-screen review
 
-const RANK: Record<ApprovalKind, number> = { send: 0, nego: 1, spend: 2, clip: 3 }; // people waiting on a reply first, clips last
-const NOUN: Record<ApprovalKind, string> = { send: "an email", nego: "a negotiation reply", spend: "a Higgsfield spend", clip: "a clip" };
+const RANK: Record<ApprovalKind, number> = { send: 0, nego: 1, invoice: 2, spend: 3, clip: 4 }; // people waiting on a reply first, clips last
+const NOUN: Record<ApprovalKind, string> = { send: "an email", nego: "a negotiation reply", invoice: "an invoice reminder", spend: "a Higgsfield spend", clip: "a clip" };
 const WORDS = ["One", "Two", "Three", "Four", "Five"];
 
 /** Messages to people first, then spends, then clips; the list's own order within a kind. */

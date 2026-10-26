@@ -502,6 +502,7 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
   if (saveErr) ({ error: saveErr } = await sb.from("tasks").update(done).eq("user_id", userId).eq("id", taskId).eq("status", "running")); // retry the record, never the actions
   if (saveErr) throw new Error(`Actions ran but their results couldn't be saved: ${saveErr.message}`);
   await emit(sb, userId, outcome.status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId, status: outcome.status });
+  if (task.parent_id) await import("./chains").then((c) => c.stepResolved(sb, userId, task.parent_id, task.agent, outcome.status, approve)).catch(() => {}); // company.step for an approved chain step
   await settleParents(sb, userId, task.parent_id);
   return pending;
 }

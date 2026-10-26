@@ -6,8 +6,8 @@ import { voiceDecision, type CallItem } from "../src/lib/call-pure.ts";
 const it = (id: string, kind: CarItem["kind"], title = id): CarItem => ({ id, kind, title });
 
 test("carOrder: emails and replies first, then spends, then clips; stable within a kind", () => {
-  const out = carOrder([it("c1", "clip"), it("s1", "spend"), it("e1", "send"), it("c2", "clip"), it("n1", "nego"), it("e2", "send")]);
-  assert.deepEqual(out.map((x) => x.id), ["e1", "e2", "n1", "s1", "c1", "c2"]);
+  const out = carOrder([it("c1", "clip"), it("s1", "spend"), it("e1", "send"), it("c2", "clip"), it("n1", "nego"), it("e2", "send"), it("i1", "invoice")]);
+  assert.deepEqual(out.map((x) => x.id), ["e1", "e2", "n1", "i1", "s1", "c1", "c2"]);
 });
 
 test("waitingSpeech: titles only, ordered, capped, and returns the ids it read", () => {
@@ -58,5 +58,5 @@ test("voiceDecision in car mode: never approves or rejects, even after a yes", (
   }
   assert.equal(voiceDecision(null, "yes", items, 0, true), null);
   assert.equal(voiceDecision(null, "what's the weather", items, 0, true), null);
-  assert.ok(voiceDecision(null, "approve the email", items, 0)?.pending, "outside car mode it still asks to confirm");
+  assert.ok(voiceDecision(null, "approve the clip", items, 0)?.pending, "outside car mode it still asks to confirm");
 });

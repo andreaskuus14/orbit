@@ -1,4 +1,5 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
 // Weekly memory hygiene in the MEMORY panel: at most 3 proposals a week. Accept runs the existing routes (PATCH/DELETE
 // /api/memories/:id, POST /api/facts "wrong"), then records the click (ledger event). Dismiss never proposes it again.
 import { useCallback, useEffect, useState } from "react";
@@ -58,6 +59,7 @@ export function MemoryHygiene({ onChanged }: { onChanged: () => void }) {
           <div className="flex gap-2">
             <button className="btn" onClick={() => act(p, "accepted")} disabled={busy !== null}>{busy === p.key ? "Working…" : "Accept"}</button>
             <button className="chip" onClick={() => act(p, "dismissed")} disabled={busy !== null}>Dismiss</button>
+            <OrbitThinks id={`hygiene:${p.key}`} />
           </div>
         </li>))}</ul>
     </div>

@@ -65,6 +65,86 @@ Feels like a person: ORBIT writes its opener (and voices it) as soon as it rings
 
 Never use `tailscale funnel` for ORBIT: funnel puts it on the public internet. `tailscale serve` keeps it inside your tailnet, and ORBIT itself keeps listening on 127.0.0.1 only.
 
+## Shortcuts & Watch: ORBIT from Siri, the Apple Watch and the Action button
+
+Five Shortcuts that talk to ORBIT over the same Tailscale address as Remote: **Status**, **Call me**, **Stop-all ON**, **Approve next** and **Ask CORE**. Each answers in one short line that Siri reads out. They work on the iPhone, from Siri ("Hey Siri, ORBIT status"), on the Apple Watch (the watch reaches ORBIT through the paired iPhone's Tailscale), and on the Action button.
+
+Each Shortcut gets **its own token**, allowed exactly one action. A Status token can't approve or stop anything, so if one leaks, revoke just that one.
+
+### Before you start
+
+1. Remote is set up (`REMOTE_SECRET` and `SUPABASE_SECRET_KEY` in `.env.local`, see above). Tailscale is on on the iPhone.
+2. For **Call me**: Remote's notifications are on (see "Notifications on the phone").
+3. On the PC: Profile → Phone remote → **Shortcuts & Watch**. Pick the action, press **New token**, then **Copy**. The token appears only once; ORBIT keeps only a fingerprint of it. Make one token per Shortcut. AirDrop or Universal Clipboard it to the iPhone, or type it in carefully.
+
+Below, `https://arvuti.your-tailnet.ts.net` is your address (`tailscale serve status`) and `Bearer orbit_sc_…` is the line you copied.
+
+### Every Shortcut starts the same way
+
+In the **Shortcuts** app on the iPhone: **+** (new shortcut), rename it (the name is what you say to Siri), then add **Get Contents of URL**:
+
+- URL: `https://arvuti.your-tailnet.ts.net/api/remote/shortcut`
+- Tap **Show More**. Method: **POST**.
+- Headers: **Add new header**. Key `Authorization`, Text `Bearer orbit_sc_…` (the whole copied line).
+- Request Body: **JSON** (only when a recipe below adds a field).
+
+Then add **Speak Text** with *Contents of URL* as the text (or **Show Result** if you'd rather read it). Finally open the shortcut's details (**ⓘ**) and turn on **Show on Apple Watch**.
+
+### 1. "ORBIT status"
+
+Token: **Status**. Just the two actions above: Get Contents of URL → Speak Text.
+Siri says something like: "ORBIT is running. 3 waiting for you: 2 clips, 1 spend. 1 job running." Counts only, never titles.
+
+### 2. "Call me"
+
+Token: **Call me**. Get Contents of URL → Speak Text.
+Your iPhone gets the "ORBIT wants to talk" notification: tap it, then **Answer** (iPhone needs that tap for the mic). Same call as Remote's **Call ORBIT**. At most one ring every 2 minutes. (No phone-line calling yet: it rings the Remote app.)
+
+### 3. "Stop ORBIT"
+
+Token: **Stop-all ON**. Get Contents of URL → Speak Text.
+Turns Stop-all **on** and cancels running tasks, exactly like the button. It can't turn it off: resuming is done on the PC. If it's already on, Siri says so.
+Good on the **Action button** (Settings → Action Button → Shortcut → Stop ORBIT) or as a watch complication.
+
+### 4. "Approve next"
+
+Token: **Approve next**. ORBIT names the next clip or Higgsfield spend and a 4-digit code; you say the code back (and for a spend, the credits). Build it like this:
+
+1. **Get Contents of URL** (POST, the Authorization header, no body).
+2. **Speak Text**: *Contents of URL*.
+3. **If** *Contents of URL* **contains** `To confirm`
+4. **Ask for Input**: Input Type **Text**, Prompt `Code`. (On the watch you dictate or scribble; on the iPhone, say or type it.)
+5. **Get Contents of URL** again: same URL, POST, same header, Request Body **JSON** with one field: key `reply`, type Text, value *Provided Input*.
+6. **Speak Text**: *Contents of URL* (the second one).
+7. **End If** (Shortcuts adds it).
+
+How it goes: "Approve the Higgsfield spend for "Squid Story", 120 credits? To confirm, say 4 8 2 1 and then 120." You say "4821 120". ORBIT approves only if:
+- the code is right (3 wrong tries cancel it) and you answer within 2 minutes; each run makes a new code, and a code works once;
+- the item is still waiting **exactly** as it was named (a clip that changed or a re-quoted spend is refused: run it again);
+- for a spend, the credits you said are the exact quote. These are the same checks as Remote's Approve button.
+
+What it won't approve: **BUSINESS emails** (read the full message in Remote and approve there), clips without a preview, retry clips (PC only). It never rejects anything.
+
+### 5. "Ask ORBIT"
+
+Token: **Ask CORE**.
+
+1. **Dictate Text** (or **Ask for Input**, Text, Prompt `Ask CORE`).
+2. **Get Contents of URL**: POST, the header, Request Body **JSON** with key `text`, value *Dictated Text*.
+3. **Speak Text**: *Contents of URL*.
+
+CORE answers short (a few sentences, no links or formatting) and the chat appears in CORE titled "Phone: …"; asks within 30 minutes continue the same chat. At most 6 questions a minute. Long answers can take a while; if Shortcuts gives up waiting, the answer is still in that chat on the PC.
+
+### Safety
+
+- Tokens: 256-bit random, one action each, shown once, stored only as an HMAC keyed by `REMOTE_SECRET`. **Revoke** in Profile → Phone remote stops one at once; changing `REMOTE_SECRET` revokes them all (and unpairs phones).
+- Reach: the same Tailscale Serve address as Remote: only your tailnet. Never use `tailscale funnel`.
+- Limits: 20 requests a minute per token, 6 CORE questions a minute, 1 ring per 2 minutes.
+- Never weaker than Remote: Stop-all only goes ON, approvals only for items already waiting with the exact version (and credits), no new spends, sends or jobs.
+- Ledger: each run is logged as `remote.command` with the action (e.g. `shortcut.approve`), ok/failed and `shortcut:<id>`. Never your question, the answer or item titles.
+- Anyone holding your iPhone unlocked (or a watch on your wrist) can run them, the same as Remote. Shortcuts that act (Stop, Approve) can require the phone to be unlocked: in Settings → Siri, keep **Allow Siri When Locked** off, or don't add those to the lock screen.
+- If a Shortcut says "This shortcut isn't connected to ORBIT", its token was revoked or `REMOTE_SECRET` changed: make a new token and paste it into the header.
+
 ## If something doesn't work
 
 - **The sign-in link opens localhost or fails:** check step 4, and open the link on the phone itself.
