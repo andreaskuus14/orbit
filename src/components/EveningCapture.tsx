@@ -17,10 +17,14 @@ export function EveningCapture() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [listening, setListening] = useState(false);
   const [canVoice, setCanVoice] = useState(false);
+  const [review, setReview] = useState(""); // the accepted day plan: done / missed (api/dayplan)
 
   useEffect(() => {
     setCanVoice(!!getSpeechRecognition());
-    const open = () => { const d = ref.current; if (!d || d.open) return; setMsg(null); d.showModal(); };
+    const open = () => {
+      const d = ref.current; if (!d || d.open) return; setMsg(null); d.showModal();
+      fetch("/api/dayplan").then((r) => r.json()).then((j) => setReview(j?.review?.text ?? ""), () => {});
+    };
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") { e.preventDefault(); open(); }
     };
@@ -82,6 +86,7 @@ export function EveningCapture() {
           <h2 id="evening-title" className="hud-title">TODAY IN A MINUTE</h2>
           <button type="button" className="chip" onClick={() => ref.current?.close()}>Close</button>
         </div>
+        {review && <p className="text-sm" aria-label="Today's plan">{review}</p>}
         <label htmlFor="evening-text" className="muted text-xs">What happened, what mattered, what&apos;s next? A few lines is plenty. Private: kept as a journal memory.</label>
         <textarea id="evening-text" className="field evening-text" autoFocus maxLength={ENTRY_MAX} value={text} disabled={busy}
           onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void save(); } }} />
