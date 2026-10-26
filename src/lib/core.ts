@@ -143,7 +143,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       at("playbook", getPlaybook(sb, userId)), // cached; null without the table
       at("summaries", sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).eq("kind", "conversation").eq("source", "core-summary").order("updated_at", { ascending: false }).limit(3)),
       at("chats", searchMemories(sb, question, 3, userId, { coreSummariesOnly: true }).catch(() => ({ results: [] }))),
-      at("facts", Promise.all([factsContext(sb, userId, question), import("./lessons").then((m) => m.lessonsContext(userId, question), () => ""), import("./episodes").then((m) => m.episodesContext(sb, userId, question), () => "")]).then((xs) => xs.filter(Boolean).join("\n\n"))), // beliefs ("" until migration 0008) + kept lessons (lessons.ts) + two recalled episodes (episodes.ts); never throws
+      at("facts", Promise.all([factsContext(sb, userId, question), import("./lessons").then((m) => m.lessonsContext(userId, question), () => ""), import("./episodes").then((m) => m.episodesContext(sb, userId, question), () => ""), import("./dream").then((m) => m.dreamContext(userId), () => "")]).then((xs) => xs.filter(Boolean).join("\n\n"))), // beliefs ("" until migration 0008) + kept lessons (lessons.ts) + two recalled episodes (episodes.ts) + this morning's dream question (dream.ts); never throws
       at("modules", moduleStatus(sb, userId)), // one live line per module (core-modules.ts); never throws
       at("world", import("./world").then((m) => m.worldContext(sb, userId))), // goals, this week, commitments; "" on failure
     ]);
