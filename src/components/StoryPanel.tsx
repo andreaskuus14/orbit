@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { TwinCard } from "./TwinCard";
 
 // Clip Factory → "AI Story": idea → Claude's script (editable) → Higgsfield price → Approve → Short in the review queue.
 // Server: /api/studio/clips/story (src/lib/clips/story.ts). Nothing is generated before the Approve click.
@@ -256,6 +257,7 @@ export default function StoryPanel({ active, seed, onOpenClip, onChanged }: { ac
             {castStep && !priced && <span className="muted self-center text-xs">Step 1 of 2: the character pictures (cheap). You'll see them before paying for the video shots.</span>}
             {job.status === "done" && job.clipJob && <button className="btn" onClick={() => onOpenClip(job.clipJob!, "clip-1")}>🎬 Open in Clips to review</button>}
           </div>
+          {job.status !== "done" && !working && priced && total > 0 && <TwinCard decision={{ kind: "spend", ref: job.id, title: job.draft ? `Higgsfield ${job.draft.count} ${job.draft.kind} draft` : `AI Story: ${job.story.title}`, detail: job.draft ? job.draft.prompt : job.opts.idea, credits: total }} />}
         </section>
       )}
     </div>

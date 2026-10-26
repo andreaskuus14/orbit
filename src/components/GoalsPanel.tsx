@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { StatusPill, api, usePoll } from "./AgentMission";
+import { TwinCard } from "./TwinCard";
 import { move } from "@/lib/mission-pure";
 import { linePath, toPoints } from "@/lib/chart-pure";
 import type { Goal, MetricKind, StepDraft } from "@/lib/goals-pure";
@@ -163,6 +164,7 @@ function Detail({ g, busy, err, act, name, color, agents, onBack, onOpenTask }: 
       {g.blocker && <p className="error break-words">Blocker: {g.blocker}</p>}
       {g.planning && <p className="muted" role="status">An agent is drafting the plan…</p>}
       {g.planError && <p className="error break-words">{g.planError}</p>}
+      {g.status === "draft" && !g.planning && g.steps.length >= 3 && <TwinCard decision={{ kind: "goal-plan", ref: id, title: g.title, detail: [g.why, ...g.steps.map((s, i) => `${i + 1}. ${s.what}`)].filter(Boolean).join("\n") }} />}
 
       <div className="flex flex-wrap gap-1.5">
         {g.status === "draft" && !edit && <button className="btn" disabled={busy || g.steps.length < 3} onClick={() => void act({ action: "approve", id, stepIds: g.steps.map((s) => s.id) })}>Approve plan</button>}

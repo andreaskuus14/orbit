@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { AREAS, AREA_INFO, AUTO_CONFIRM, LEVEL_TEXT, LIMIT_MAX, type Area, type Level, type Levels, type Limits, type Pending } from "@/lib/autonomy-pure";
 import { changeStopAll } from "./nav-command";
+import { TwinCard } from "./TwinCard";
+import { KIND_LABEL, type TwinKind } from "@/lib/twin-pure";
 
 type View = { levels: Levels; limits: Limits; pending: Pending[]; today: { at: string; area: Area; action: string; ref: string }[]; stopAll: boolean; push: string | null };
 
@@ -10,21 +12,29 @@ export function AutonomySection() {
   const [v, setV] = useState<View | null>(null);
   const [err, setErr] = useState("");
   const [limits, setLimitsDraft] = useState<Limits | null>(null);
+  const [twin, setTwin] = useState<{ area: Area; from: Level; to: Level } | null>(null); // the twin argues against the latest raise (never blocks it)
+  const [muted, setMuted] = useState<TwinKind[]>([]);
+  const mute = (kind: TwinKind, on: boolean) => void fetch("/api/twin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "mute", kind, muted: on }) })
+    .then((r) => r.json()).then((j) => Array.isArray(j?.muted) && setMuted(j.muted), () => {});
   const call = useCallback(async (body?: object) => {
     setErr("");
     const r = await fetch("/api/autonomy", body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined).catch(() => null);
     const j = r && (await r.json().catch(() => null));
     if (r?.ok && j) { setV(j); setLimitsDraft(j.limits); } else setErr(j?.error ?? "Couldn't load Autonomy");
   }, []);
+  useEffect(() => { void fetch("/api/twin").then((r) => r.json()).then((j) => Array.isArray(j?.muted) && setMuted(j.muted), () => {}); }, []);
   useEffect(() => { void call(); const h = setInterval(() => void call(), 30_000); return () => clearInterval(h); }, [call]);
 
   function pick(area: Area, level: Level) {
+    const argue = () => v && setTwin({ area, from: v.levels[area], to: level });
     if (level === "auto") {
       const phrase = AUTO_CONFIRM[area]!;
       const typed = prompt(`${AREA_INFO[area].label} → Auto with limits.\n\nORBIT will then act WITHOUT your click (this changes AGENTS.md rule 6 for this area). Limits: ${area === "business-send" ? `${v?.limits.sendPerDay} emails/day, existing prospects only` : `${v?.limits.publishPerDay} Shorts/day`}, only drafts/clips made after you switch this on, nothing with numbers, prices, payments, offers, dates, contracts or promises, 10 minutes to cancel (held 23:00-08:00), a push after each one, Stop-all pauses it.\n\nType ${phrase} to confirm:`);
       if (typed === null) return;
+      argue();
       return void call({ action: "level", area, level, confirm: typed });
     }
+    argue();
     void call({ action: "level", area, level });
   }
   async function pauseAll() {
@@ -56,6 +66,7 @@ export function AutonomySection() {
                   </button>
                 ))}
               </span>
+              {twin?.area === a && <div className="w-full"><TwinCard decision={{ kind: "autonomy", ref: `${a}.${twin.to}`, title: `${AREA_INFO[a].label}: ${LEVEL_TEXT[twin.from].label} → ${LEVEL_TEXT[twin.to].label}`, detail: AREA_INFO[a].what, from: twin.from, to: twin.to }} /></div>}
             </li>
           ))}
         </ul>
@@ -88,6 +99,7 @@ export function AutonomySection() {
           </ul>
         ) : <p className="muted text-xs">None today.</p>}
       </div>
+      {muted.length > 0 && <p className="muted text-xs">The twin stays quiet on {muted.map((k) => <button key={k} className="chip ml-1 text-xs" onClick={() => mute(k, false)} title="Let the twin argue on these again">{KIND_LABEL[k]} ✕</button>)}</p>}
       {err && <p className="error text-sm" role="alert">{err}</p>}
     </section>
   );
