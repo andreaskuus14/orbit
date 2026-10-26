@@ -24,6 +24,7 @@ import { stopAllOn } from "./stop-all";
 import { decide, policyEvent } from "./policy-pure";
 import { logActivity } from "./activity";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
+import { CORE_LANG_RULE, type Lang } from "./i18n-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { MODULE_PRIVATE, MODULE_PROMPT, MODULE_WRITES, isModuleTool, moduleStatus, runModuleTool } from "./core-modules";
 import { classifyReflex, clockReply, smallTalkReply, type Reflex } from "./reflex-pure";
@@ -96,7 +97,7 @@ ${facts || "(empty)"}`;
  * One CORE turn: retrieve relevant memories, ask Claude, return answer + citations + execution trace.
  * With onDelta, the answer text streams out as it is written (tool-call replies stream nothing); `signal` stops it.
  */
-export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "") {
+export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", lang: Lang = "en") {
   const trace: TraceStep[] = [];
   const question = typedText(history[history.length - 1].content); // attached file names never count as the user's words
 
@@ -193,7 +194,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       const last = step === MAX_STEPS - 1;
       signal?.throwIfAborted();
       onStep?.("think", {});
-      const tail = `\n\n${typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you and will hear your answer read aloud: by default answer in 1-3 short conversational sentences, no lists, headings or links. If they ask for detail, an explanation or a story, give the full answer in spoken-style paragraphs.\n\n" : ""}${tier === "deep" ? deepNote : ""}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
+      const tail = `\n\n${CORE_LANG_RULE[lang]}${typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you and will hear your answer read aloud: by default answer in 1-3 short conversational sentences, no lists, headings or links. If they ask for detail, an explanation or a story, give the full answer in spoken-style paragraphs.\n\n" : ""}${tier === "deep" ? deepNote : ""}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
       const ask = prompt ? prompt + tail : prep.then((p) => (prompt = p) + tail);
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
       if (tier === "deep" && deepLeft() - 60_000 < 30_000) { tier = "smart"; trace.push({ step: "fallback", detail: "deep → main model (time limit)", ms: 0, ok: false }); }

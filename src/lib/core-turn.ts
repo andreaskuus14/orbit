@@ -11,15 +11,17 @@ import { retainedAttachments, type ContextTurn } from "@/lib/core-context-pure";
 import { prepareAttachments } from "@/lib/core-attach";
 import { chatProjectContext, updateChats } from "@/lib/core-chats";
 import { MAX_MESSAGES, chatTitle, isId, moveChat } from "@/lib/core-chats-pure";
+import { parseLang } from "@/lib/i18n-pure";
 
 // One CORE chat turn (moved out of /api/core so the phone remote runs the exact same path). body: {message, attachments?, voice?,
-// conversationId?, projectId?}; ?stream=1 on req answers as NDJSON. opts.remote marks a turn asked from the paired phone.
+// conversationId?, projectId?, lang?}; ?stream=1 on req answers as NDJSON. opts.remote marks a turn asked from the paired phone.
 export async function coreTurn(req: Request, sb: SupabaseClient, userId: string, body: Record<string, any>, opts: { remote?: boolean; onConversation?: (id: string) => void } = {}): Promise<Response> {
   const files = parseAttachments(body.attachments); // up to 3, type checked by magic bytes, base64 in the JSON body
   if ("error" in files) return Response.json({ error: files.error }, { status: 400 });
   const typed = str(body.message ?? "", 8000); // null only when too long or not a string
   const message = typed === null ? null : typed || (files.files.length ? "Take a look at what I attached." : null);
   const voice = body.voice === true; // asked out loud: answer short enough to listen to
+  const lang = parseLang(body.lang); // the UI language switch: "et" = CORE answers in Estonian
   if (!message) return Response.json({ error: "Message is required (max 8000 chars)" }, { status: 400 });
   const attach = await prepareAttachments(files.files);
   const content = files.files.length ? message + attachedSuffix(files.files.map((f) => f.name)) : message;
@@ -67,7 +69,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       images: attach?.images ?? [],
     } : attach;
     const t0 = Date.now();
-    const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, contextAttach, project.text, project.tainted, project.memoryProject);
+    const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, contextAttach, project.text, project.tainted, project.memoryProject, lang);
     await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
     await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
     await emit(sb, userId, "core.completed", "core", { conversationId: cid });

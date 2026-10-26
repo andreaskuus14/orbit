@@ -5,10 +5,12 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./AgentMission";
 import { stoppedText, type NightItem, type NightReport, type NightSettings, type TonightItem } from "@/lib/night-pure";
 import type { NavTarget } from "@/lib/nav-pure";
+import { useT } from "./i18n";
 
 type Nav = (t: NavTarget) => void;
 
 export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report: NightReport; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void; nav: Nav }) {
+  const { t } = useT();
   const [gone, setGone] = useState<Record<string, string>>({}); // item key → what happened to it here
   const [err, setErr] = useState("");
   const key = (i: NightItem) => `${i.kind}:${i.ref}`;
@@ -24,16 +26,16 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
     try {
       if (o && "task" in o) await api(`/api/tasks/${o.task}`, { method: "POST", body: JSON.stringify({ action: approve ? "approve" : "reject" }) });
       else if (o && "goal" in o && o.stepId) await api("/api/goals", { method: "POST", body: JSON.stringify({ action: "ok", id: o.goal, step: o.step, stepId: o.stepId }) });
-      setGone((g) => ({ ...g, [key(i)]: approve ? "approved" : "rejected" }));
-    } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't do that"); }
+      setGone((g) => ({ ...g, [key(i)]: t(approve ? "common.approved" : "common.rejected") }));
+    } catch (e) { setErr(e instanceof Error ? e.message : t("common.failed")); }
   };
-  const copy = (t: string) => { void navigator.clipboard?.writeText(t).catch(() => {}); };
+  const copy = (s: string) => { void navigator.clipboard?.writeText(s).catch(() => {}); };
   const end = report.endedAt ? new Date(report.endedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const row = (i: NightItem, icon: string) => <button className="text-left" onClick={() => open(i)} disabled={!i.open}>{icon} {i.label}</button>;
   return (
-    <div aria-label="While you slept">
-      <b>🌙 While you slept</b>{" "}
-      <span className="muted text-xs">{report.running ? "working now…" : `${report.calls} Claude call${report.calls === 1 ? "" : "s"} · ${report.minutes} min${end ? ` · done ${end}` : ""}`}</span>
+    <div aria-label={t("night.slept")}>
+      <b>🌙 {t("night.slept")}</b>{" "}
+      <span className="muted text-xs">{report.running ? t("night.working") : `${report.calls} Claude call${report.calls === 1 ? "" : "s"} · ${report.minutes} min${end ? ` · done ${end}` : ""}`}</span>
       {err && <p className="error text-xs" role="alert">{err}</p>}
       <ul className="since-list muted grid gap-1">
         {report.approvals.map((i) => (
@@ -41,13 +43,13 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
             {row(i, "✋")}
             {gone[key(i)] ? <span className="text-xs"> · {gone[key(i)]}</span> : (
               <span className="ml-1 inline-flex gap-1">
-                {i.open && "task" in i.open && <><button className="chip" onClick={() => void act(i, true)}>Approve</button><button className="chip" onClick={() => void act(i, false)}>Reject</button></>}
-                {i.open && "goal" in i.open && i.open.stepId && <button className="chip" onClick={() => void act(i, true)}>OK step</button>}
+                {i.open && "task" in i.open && <><button className="chip" onClick={() => void act(i, true)}>{t("common.approve")}</button><button className="chip" onClick={() => void act(i, false)}>{t("common.reject")}</button></>}
+                {i.open && "goal" in i.open && i.open.stepId && <button className="chip" onClick={() => void act(i, true)}>{t("night.okStep")}</button>}
               </span>
             )}
             {i.draft && (
-              <details className="text-xs"><summary>Read the draft (not sent)</summary>
-                <p className="whitespace-pre-wrap">{i.draft}</p><button className="chip" onClick={() => copy(i.draft!)}>Copy</button>
+              <details className="text-xs"><summary>{t("night.draft")}</summary>
+                <p className="whitespace-pre-wrap">{i.draft}</p><button className="chip" onClick={() => copy(i.draft!)}>{t("common.copy")}</button>
               </details>
             )}
           </li>

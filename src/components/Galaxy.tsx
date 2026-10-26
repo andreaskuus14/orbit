@@ -42,6 +42,8 @@ import { newScale, renderDpr, scaleFloor, stepScale, type ScaleState } from "@/l
 import { perfMark } from "./PerfBeacon";
 import { perfCtx } from "./PerfBeacon";
 import { InkGlyph } from "./InkGlyph";
+import { useT } from "./i18n";
+import { ET, translate, type Lang } from "@/lib/i18n-pure";
 import { AlienScript } from "./AlienScript";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
 
@@ -609,13 +611,13 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, l
 }
 
 const BODIES = ["core", ...PLANETS.map((p) => p.id)];
-const LABEL_W = BODIES.map((id) => (id === "core" ? 4 : PLANETS.find((p) => p.id === id)!.name.length) * 11 + 18); // px, 12px font at 0.3em tracking
+const LABEL_W = BODIES.map((id) => (id === "core" ? 4 : Math.max(PLANETS.find((p) => p.id === id)!.name.length, ET[`planet.${id as PlanetId}`]?.length ?? 0)) * 11 + 18); // px, 12px font at 0.3em tracking; the longer of the English and Estonian name
 
 /** Projects each body's position to screen space every frame and moves plain DOM labels there (no extra React roots).
  *  Also places the HUD's leader label beside the hovered planet and writes the focus coordinates (no allocations). */
-function LabelProjector({ positions, scales, labels, leaders, hover, selected, hud, story, reduced }: {
+function LabelProjector({ positions, scales, labels, leaders, hover, selected, hud, story, reduced, lang }: {
   positions: Positions; scales: Scales; labels: RefObject<Record<string, HTMLSpanElement | null>>; leaders: RefObject<Record<string, HTMLSpanElement | null>>;
-  hover: RefObject<PlanetId | null>; selected: PanelId | null; hud: RefObject<HudEls>; story: RefObject<Story>; reduced: boolean;
+  hover: RefObject<PlanetId | null>; selected: PanelId | null; hud: RefObject<HudEls>; story: RefObject<Story>; reduced: boolean; lang: Lang;
 }) {
   const v = useMemo(() => new THREE.Vector3(), []);
   const st = useRef({ t: 0, text: "" });
@@ -677,7 +679,7 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
       v.copy(positions[hp.id]).project(camera);
       if (v.z < 1) {
         const T = cursorTarget, dist = Math.max(0.1, camera.position.distanceTo(positions[hp.id]));
-        T.at = performance.now(); T.label = hp.name;
+        T.at = performance.now(); T.label = translate(lang, `planet.${hp.id}`);
         T.script = sc.alpha[BODIES.indexOf(hp.id)] > 0.3; // its own label already names it: the ring shows the script instead
         T.r = ((planetSize(hp) * (scales[hp.id] ?? 1)) / (dist * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)))) * (size.height / 2);
         T.x = ((v.x + 1) / 2) * size.width; T.y = ((1 - v.y) / 2) * size.height;
@@ -847,6 +849,7 @@ function loadScale(): ScaleState { try { const v = Number(localStorage.getItem(S
 function saveScale(s: ScaleState) { try { localStorage.setItem(SCALE_KEY, String(s.scale)); } catch { /* storage off */ } }
 
 export default function Galaxy(props: GalaxyProps) {
+  const { t, lang } = useT();
   const positions = useMemo<Positions>(() => Object.fromEntries(PLANETS.map((p) => [p.id, new THREE.Vector3()])), []);
   const scales = useMemo<Scales>(() => Object.fromEntries(PLANETS.map((p) => [p.id, 1])), []);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
@@ -953,7 +956,7 @@ export default function Galaxy(props: GalaxyProps) {
         <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} story={story} />
         <PointerFeel feel={feel} enabled={!props.reduced && !coarse && !staged} />
         <Parallax feel={feel} on={!props.reduced && !staged} /> {/* after every rig: it offsets the camera they placed */}
-        <LabelProjector positions={positions} scales={scales} labels={labels} leaders={leaders} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
+        <LabelProjector positions={positions} scales={scales} labels={labels} leaders={leaders} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} lang={lang} />
         {windows && <WindowPlanets hover={hover} dive={props.dive ?? null} positions={positions} sizes={sizes} scales={scales} />}
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
         {/* Shaders compile in parallel before the first frame. No 4 s release here: releasing mid-compile compiled the rest
@@ -992,7 +995,7 @@ export default function Galaxy(props: GalaxyProps) {
           {props.busy && <InkGlyph reduced={props.reduced} />}
         </span>
         {PLANETS.map((p) => ( // calm labels (c11): pearl, with a breath of the world's identity colour
-          <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>{p.name}<AlienScript text={p.name} className="planet-script" /></span>
+          <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>{t(`planet.${p.id}`)}<AlienScript text={p.name} className="planet-script" /></span>
         ))}
       </div>
       </div>

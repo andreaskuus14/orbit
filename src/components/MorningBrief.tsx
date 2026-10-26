@@ -9,12 +9,15 @@ import { localDay } from "@/lib/morning-pure";
 import { MARKETS_TAB, shouldShowBrief, type Brief, type BriefItem } from "@/lib/brief-pure";
 import { speakChunk, speechSettings, stop } from "./voice/speak";
 import { api } from "./AgentMission";
+import { useT } from "./i18n";
+import { greetKey } from "@/lib/i18n-pure";
 
 const KEY = "orbit.brief"; // the local day it was last shown
 const ICON: Record<BriefItem["kind"], string> = { decision: "✋", night: "🌙", health: "🩺", calendar: "📅", first: "➜", result: "✦", lesson: "💡" };
 type Got = Brief & { life: boolean };
 
 export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void }) {
+  const { t, lang } = useT();
   const [open, setOpen] = useState(false);
   const [b, setB] = useState<Got | null>(null);
   const [err, setErr] = useState("");
@@ -78,25 +81,25 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
       if (what === "snooze") await post({ snooze: i.id });
       else if (a && "task" in a) await api(`/api/tasks/${a.task}`, { method: "POST", body: JSON.stringify({ action: "approve" }) });
       else if (a) await api("/api/goals", { method: "POST", body: JSON.stringify({ action: "ok", id: a.goal, step: a.step, stepId: a.stepId }) });
-      setMarks((m) => ({ ...m, [i.id]: what === "snooze" ? "Snoozed till tomorrow" : "Approved" }));
-    } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't do that"); }
+      setMarks((m) => ({ ...m, [i.id]: t(what === "snooze" ? "brief.snoozed" : "common.approved") }));
+    } catch (e) { setErr(e instanceof Error ? e.message : t("common.failed")); }
   };
   const setLife = (life: boolean) => { setB((x) => x && { ...x, life }); void post({ life }).catch(() => {}); };
 
   return (
-    <section className="morning-brief" role="dialog" aria-modal="false" aria-label="Morning brief">
+    <section className="morning-brief" role="dialog" aria-modal="false" aria-label={t("brief.aria")}>
       <div className="mb-inner glass hud-panel">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="mb-hello">{b?.greeting ?? "Good morning."}</h2>
+          <h2 className="mb-hello">{lang === "et" ? `${t(greetKey(new Date().getHours()))}.` : b?.greeting ?? "Good morning."}</h2>
           <div className="flex gap-1">
-            {!muted && b && <button className="chip" onClick={() => { stop(); setMuted(true); }} aria-label="Mute the brief">Mute</button>}
-            <button className="chip" onClick={close} aria-label="Skip the morning brief">Skip</button>
+            {!muted && b && <button className="chip" onClick={() => { stop(); setMuted(true); }} aria-label={t("brief.muteAria")}>{t("brief.mute")}</button>}
+            <button className="chip" onClick={close} aria-label={t("brief.skipAria")}>{t("brief.skip")}</button>
           </div>
         </div>
         <div aria-live="polite">
           {err && <p className="error text-sm" role="alert">{err}</p>}
-          {!b && !err && <p className="muted text-sm">Pulling your morning together…</p>}
-          {b && !b.items.length && <p className="muted">Nothing needs you this morning. Enjoy it.</p>}
+          {!b && !err && <p className="muted text-sm">{t("brief.loading")}</p>}
+          {b && !b.items.length && <p className="muted">{t("brief.empty")}</p>}
           {b && b.items.length > 0 && (
             <ul className="mt-3 grid gap-2">
               {b.items.map((i, k) => (
@@ -108,9 +111,9 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
                   </span>
                   {marks[i.id] ? <span className="muted text-xs">{marks[i.id]}</span> : (
                     <span className="flex shrink-0 gap-1">
-                      {i.approve && <button className="chip" onClick={() => void act(i, "approve")}>Approve</button>}
-                      {i.open && <button className="chip" onClick={() => go(i)}>Open</button>}
-                      <button className="chip" onClick={() => void act(i, "snooze")} aria-label={`Snooze ${i.title} until tomorrow`}>Snooze</button>
+                      {i.approve && <button className="chip" onClick={() => void act(i, "approve")}>{t("common.approve")}</button>}
+                      {i.open && <button className="chip" onClick={() => go(i)}>{t("common.open")}</button>}
+                      <button className="chip" onClick={() => void act(i, "snooze")} aria-label={t("brief.snoozeAria", { title: i.title })}>{t("brief.snooze")}</button>
                     </span>
                   )}
                 </li>
@@ -119,7 +122,7 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
           )}
           {b && (
             <label className="muted mt-3 flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={b.life} onChange={(e) => setLife(e.target.checked)} /> Say calendar titles and reminders aloud (from tomorrow)
+              <input type="checkbox" checked={b.life} onChange={(e) => setLife(e.target.checked)} /> {t("brief.life")}
             </label>
           )}
         </div>

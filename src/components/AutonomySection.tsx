@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "./i18n";
 import { AREAS, AREA_INFO, AUTO_CONFIRM, LEVEL_TEXT, LIMIT_MAX, type Area, type Level, type Levels, type Limits, type Pending } from "@/lib/autonomy-pure";
 import { changeStopAll } from "./nav-command";
 import { PredictionEligible } from "./OrbitThinks";
@@ -8,6 +9,7 @@ type View = { levels: Levels; limits: Limits; pending: Pending[]; today: { at: s
 
 /** Profile → Autonomy: per-area level, limits for auto, today's auto actions (ledger), queued ones with Cancel, and Pause all (= Stop-all). */
 export function AutonomySection() {
+  const { t } = useT();
   const [v, setV] = useState<View | null>(null);
   const [err, setErr] = useState("");
   const [limits, setLimitsDraft] = useState<Limits | null>(null);
@@ -35,7 +37,7 @@ export function AutonomySection() {
 
   return (
     <section className="space-y-3" aria-labelledby="autonomy-title">
-      <h3 id="autonomy-title" className="text-sm font-semibold">Autonomy</h3>
+      <h3 id="autonomy-title" className="text-sm font-semibold">{t("profile.autonomy")}</h3>
       <p className="muted text-sm">How much ORBIT may do on its own, per area. The defaults are how ORBIT has always worked: nothing is sent, published or spent without your click.</p>
       <button className="btn w-full py-3 text-base" onClick={() => void pauseAll()} disabled={v?.stopAll} aria-describedby="autonomy-pause">
         {v?.stopAll ? "All autonomy is paused (Stop-all is on)" : "Pause all autonomy"}

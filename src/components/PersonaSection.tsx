@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useT } from "./i18n";
 import type { Persona, Slider } from "@/lib/persona-pure"; // types only: persona-pure pulls server code
 
 // Profile → "ORBIT's character": four sliders, the call voice, a fixed preview line, and a pending style suggestion. Data: /api/persona.
@@ -7,6 +8,7 @@ import type { Persona, Slider } from "@/lib/persona-pure"; // types only: person
 type View = { persona: Persona; proposal: { text: string } | null; voices: string[]; preview: string; labels: Record<Slider, string[]> };
 
 export function PersonaSection() {
+  const { t } = useT();
   const [v, setV] = useState<View | null>(null);
   const [msg, setMsg] = useState("");
   const send = (body: object, done = "Saved.") => {
@@ -18,7 +20,7 @@ export function PersonaSection() {
   useEffect(() => { fetch("/api/persona", { cache: "no-store" }).then((r) => r.json()).then((j) => (j.error ? setMsg(j.error) : setV(j))).catch((e) => setMsg(e.message)); }, []);
   return (
     <section className="space-y-2" aria-labelledby="persona-h">
-      <h3 id="persona-h" className="h3">ORBIT&apos;s character</h3>
+      <h3 id="persona-h" className="h3">{t("profile.persona")}</h3>
       <p className="muted text-xs">One voice in chat, calls, the morning brief and push: a calm, dry-witted alien intelligence that likes you. It always disagrees honestly and says when it&apos;s unsure; no setting makes it flatter you.</p>
       {v && <>
         {v.proposal && (
