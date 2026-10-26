@@ -6,7 +6,7 @@
 import { localClock, type NightKind } from "./night-pure.ts";
 import type { PushMessage } from "./remote-push-pure.ts";
 
-export const AREAS = ["research", "brief", "memory", "studio-prepare", "studio-publish", "business-drafts", "business-send", "higgsfield-spend", "goals", "night-shift", "deals", "calls"] as const;
+export const AREAS = ["research", "brief", "memory", "studio-prepare", "studio-publish", "business-drafts", "business-send", "higgsfield-spend", "goals", "night-shift", "deals", "calls", "contracts"] as const;
 export type Area = (typeof AREAS)[number];
 export const LEVELS = ["off", "ask", "do", "auto"] as const;
 export type Level = (typeof LEVELS)[number];
@@ -26,6 +26,8 @@ export const AREA_INFO: Record<Area, { label: string; levels: readonly Level[]; 
   "night-shift": { label: "Night shift", levels: ["off", "do"], def: "do", what: "The whole night shift run while you sleep" },
   deals: { label: "Deal hunter", levels: ["off", "ask", "do"], def: "do", what: "Checking public shop pages for your wishlist" },
   calls: { label: "Calls", levels: ["off", "do"], def: "do", what: "Ringing your phone when something needs you" },
+  // Never "do" or "auto": ORBIT drafts a contract only when he asks, and NEVER signs or sends one (contracts-pure transition()).
+  contracts: { label: "Contracts", levels: ["off", "ask"], def: "ask", what: "Drafting contracts from a prospect or deal for your review. Only you sign and send them" },
 };
 export const LEVEL_TEXT: Record<Level, { label: string; means: string }> = {
   off: { label: "Off", means: "ORBIT never does this, not even when you ask." },
@@ -156,7 +158,7 @@ export const commitmentIn = (text: string) => COMMIT.exec(text)?.[0] ?? "";
 
 // ---- Night shift / auto queue ------------------------------------------------------
 
-export const NIGHT_AREA: Record<NightKind, Area> = { research: "research", niche: "research", goal: "goals", business: "business-drafts", clips: "studio-prepare", hygiene: "memory", deals: "deals", health: "night-shift" }; // health: the self-heal check, part of the night shift itself
+export const NIGHT_AREA: Record<NightKind, Area> = { research: "research", niche: "research", goal: "goals", business: "business-drafts", clips: "studio-prepare", hygiene: "memory", deals: "deals", health: "night-shift", personas: "night-shift", dream: "memory" }; // health: the self-heal check, part of the night shift itself
 /** Night kinds the current levels don't allow unattended (empty with the defaults). */
 export const nightOff = (levels?: Partial<Levels>): NightKind[] =>
   (Object.keys(NIGHT_AREA) as NightKind[]).filter((k) => !autonomyAllows(NIGHT_AREA[k], "background", { levels }).ok);
