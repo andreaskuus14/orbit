@@ -30,6 +30,7 @@ function browser(raw: string | null, now = 1_000_000) {
       clearInterval(id: number) { intervals.delete(id); },
       fetch: async (_url: string, options: { body: string }) => {
         const body = JSON.parse(options.body);
+        if (body.action === "timer") return { ok: true, json: async () => ({ ok: true }) }; // live relay for /screen
         // The durable break must exist before any focus logging request leaves the page.
         assert.equal(JSON.parse(storage.get(focus.FOCUS_TIMER_KEY)!).phase, "break");
         logs.push(body.minutes);
