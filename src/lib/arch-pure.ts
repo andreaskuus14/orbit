@@ -149,21 +149,22 @@ export const RULES = {
   blockFace: 0.6 * 0.2, // 600 × 200 mm block face, m²
   roofPitchFactor: 1.15, // pitched roof area vs footprint
 };
-export type Boq = { concreteM3: number; rebarT: number; blocks: number; wallM3: number; roofM2: number; windows: number; doors: number };
+/** wallM2 = net wall face (openings off), slabM2 = all slab plan area, windowM2 = glazed area: the areas the materials lab prices. */
+export type Boq = { concreteM3: number; rebarT: number; blocks: number; wallM3: number; roofM2: number; windows: number; doors: number; wallM2: number; slabM2: number; windowM2: number };
 
 /** Walls: a block is the outer shell (a thin one is one straight wall); foundations are strips; slabs are solid.
  *  Windows and doors are cut out of their wall's face and volume and counted per piece. */
 export function boq(parts: Part[]): Boq {
-  let concreteM3 = 0, wallM3 = 0, wallFace = 0, roofM2 = 0, windows = 0, doors = 0;
+  let concreteM3 = 0, wallM3 = 0, wallFace = 0, roofM2 = 0, windows = 0, doors = 0, slabM2 = 0, windowM2 = 0;
   for (const p of parts) {
-    if (p.kind === "slab") concreteM3 += p.w * p.d * p.h;
+    if (p.kind === "slab") { concreteM3 += p.w * p.d * p.h; slabM2 += p.w * p.d; }
     else if (p.kind === "foundation") { // a strip under the outer walls; a narrow block is a single strip or pad
       const t = RULES.stripWidth;
       concreteM3 += Math.min(p.w, p.d) <= 2 * t ? p.w * p.d * p.h : (2 * (p.w + p.d) - 4 * t) * t * p.h;
     } else if (isOpening(p.kind)) {
       const wall = parts.find((q) => q.id === p.host);
       if (!wall) continue;
-      if (p.kind === "window") windows++; else doors++;
+      if (p.kind === "window") { windows++; windowM2 += p.w * p.h; } else doors++;
       wallFace -= p.w * p.h; wallM3 -= p.w * p.h * (isStraightWall(wall) ? Math.min(wall.w, wall.d) : RULES.wallThick);
     } else if (p.kind === "wall") {
       if (isStraightWall(p)) { wallFace += Math.max(p.w, p.d) * p.h; wallM3 += p.w * p.d * p.h; } // one straight wall
@@ -171,11 +172,11 @@ export function boq(parts: Part[]): Boq {
     }
     else roofM2 += p.w * p.d * RULES.roofPitchFactor;
   }
-  return { concreteM3: r2(concreteM3), rebarT: r2((concreteM3 * RULES.rebarKgPerM3) / 1000), blocks: Math.max(0, Math.ceil(r2(wallFace) / RULES.blockFace)), wallM3: Math.max(0, r2(wallM3)), roofM2: r2(roofM2), windows, doors };
+  return { concreteM3: r2(concreteM3), rebarT: r2((concreteM3 * RULES.rebarKgPerM3) / 1000), blocks: Math.max(0, Math.ceil(r2(wallFace) / RULES.blockFace)), wallM3: Math.max(0, r2(wallM3)), roofM2: r2(roofM2), windows, doors, wallM2: Math.max(0, r2(wallFace)), slabM2: r2(slabM2), windowM2: r2(windowM2) };
 }
 
 /** Unit prices in EUR (VAT excluded). source + date are shown next to every price so it can be checked. */
-export type PriceItem = { key: keyof Omit<Boq, "wallM3">; label: string; unit: string; eur: number; source: string; date: string };
+export type PriceItem = { key: keyof Omit<Boq, "wallM3" | "wallM2" | "slabM2" | "windowM2">; label: string; unit: string; eur: number; source: string; date: string };
 export const STARTER_PRICES: PriceItem[] = [
   { key: "concreteM3", label: "Ready-mix C25/30 XC2/XC3", unit: "m³", eur: 110, source: "starter estimate, unverified: press Check live prices", date: "" },
   { key: "rebarT", label: "Rebar B500B", unit: "t", eur: 900, source: "starter estimate, unverified: press Check live prices", date: "" },
