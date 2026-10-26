@@ -115,11 +115,41 @@ export function RemoteApp() {
         )) : <p className="muted text-sm">No jobs running.</p>}
       </section>
 
+      <Place />
       <VoiceMemo />
       <RemoteCall />
       <Ask />
       <Notify />
     </Shell>
+  );
+}
+
+/** Location-aware brief: shown only when he switched it on in Profile on the PC. One rough point per tap, nothing in the background. */
+function Place() {
+  const [on, setOn] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void fetch("/api/remote/place").then((r) => (r.ok ? r.json() : null)).then((j) => setOn(!!j?.on)).catch(() => {}); }, []);
+  if (!on) return null;
+  function update() {
+    if (!("geolocation" in navigator)) return setNote("This browser can't share location.");
+    setBusy(true); setNote("");
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const round = (v: number) => Math.round(v * 100) / 100; // ~1 km before it leaves the phone
+      const r = await fetch("/api/remote/place", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ lat: round(pos.coords.latitude), lon: round(pos.coords.longitude) }) }).catch(() => null);
+      const j = r && (await r.json().catch(() => null));
+      setNote(r?.ok ? (j?.near ? `Near ${j.near}.` : "Updated: not near a saved place.") : j?.error ?? "Network error");
+      setBusy(false);
+    }, (e) => { setNote(e.code === e.PERMISSION_DENIED ? "Location is blocked: allow it for Remote in Settings → Privacy → Location Services." : "Couldn't get a location."); setBusy(false); },
+    { enableHighAccuracy: false, maximumAge: 10 * 60_000, timeout: 15_000 });
+  }
+  return (
+    <section className="card space-y-2" aria-labelledby="r-place">
+      <h2 id="r-place" className="text-sm font-semibold">Place</h2>
+      <p className="muted text-sm">Sends a rough location (about 1 km) to your PC for the morning brief. Only when you tap; the PC keeps just the latest one.</p>
+      <button className="btn w-full" style={{ minHeight: 44 }} disabled={busy} onClick={update}>{busy ? "…" : "Update place"}</button>
+      {note && <p className="muted text-sm" role="status">{note}</p>}
+    </section>
   );
 }
 

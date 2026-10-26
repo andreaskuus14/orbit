@@ -12,7 +12,7 @@ import { api } from "./AgentMission";
 import { DayPlan } from "./DayPlan";
 
 const KEY = "orbit.brief"; // the local day it was last shown
-const ICON: Record<BriefItem["kind"], string> = { decision: "✋", night: "🌙", health: "🩺", calendar: "📅", first: "➜", result: "✦", lesson: "💡", question: "❔" };
+const ICON: Record<BriefItem["kind"], string> = { decision: "✋", night: "🌙", health: "🩺", calendar: "📅", weather: "🌦", place: "📍", first: "➜", result: "✦", lesson: "💡", question: "❔" };
 type Got = Brief & { life: boolean };
 
 export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void }) {

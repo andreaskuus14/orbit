@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { askClaude, FAST_MODEL, recordUsage } from "./claude";
 import { localDay } from "./morning-pure";
+import { placeLines } from "./place-pure";
 import { briefEcho } from "./episodes-pure";
 import { POLISH_SYSTEM, briefDecisions, briefOpener, cleanPolish, composeBrief, polishPrompt, type Brief } from "./brief-pure";
 import { briefContracts } from "./contracts-pure";
@@ -42,7 +43,7 @@ async function replies(sb: SupabaseClient, now: number) {
 /** The deterministic brief for now (no AI call). */
 export async function composeToday(sb: SupabaseClient, userId: string, now = Date.now()): Promise<Brief> {
   const day = localDay(new Date(now)), hour = new Date(now).getHours();
-  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, dr, di] = await Promise.all([
+  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, dr, di, pl] = await Promise.all([
     load().then((s) => s.users[userId] ?? {}),
     import("./morning").then((x) => x.getMorning(sb, userId, now)),
     within(import("./remote").then((x) => x.pendingApprovals(sb))).catch(() => []),
@@ -55,13 +56,20 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     within(import("./episodes").then((x) => x.listEpisodes(sb, userId, 100))).catch(() => []),
     within(import("./dream").then((x) => x.dreamToday(userId, now))).catch(() => null),
     within(Promise.all([import("./dream-ideas"), import("./dream-ideas-pure")]).then(async ([a, p]) => p.briefIdea((await a.ideasView(userId)).ideas, day))).catch(() => null),
+    import("./place").then((x) => x.readPlace()).catch(() => null), // opt-in; off → no place lines
   ]);
+  const weather = pl ? await within(import("./weather").then((x) => x.briefWeather(pl, now)), 6000).catch(() => null) : null; // no saved place → none
+  const inv = await within(import("./invoices").then((x) => x.allInvoices())).catch(() => []); // overdue reminders waiting for his approve
+  // contracts only open: he signs on the PC
+  const decisions = [...briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem), ...briefContracts(ct), ...(await import("./invoices-pure")).briefInvoices(inv, day)];
+  // Tasks and goals can only be approved on the PC; phone-remote items (clips, spends, emails) can be done from the phone.
+  const place = pl ? placeLines(pl, now, [...decisions.map((d) => d.title), ...(m.work?.items ?? []).map((w) => w.title), ...(m.hero ? [m.hero.title] : [])],
+    decisions.filter((d) => /^(task|goal):/.test(d.id)).length) : [];
   const deal = dl?.latest && dl.ids.length ? { id: dl.ids[dl.ids.length - 1], ...dl.latest } : undefined;
   const lesson = les.length ? les[Math.floor(now / DAY) % les.length] : undefined; // a different kept lesson each day
-  const inv = await within(import("./invoices").then((x) => x.allInvoices())).catch(() => []); // overdue reminders waiting for his approve
   return composeBrief({
     day, hour, life: !!u.life, morning: m,
-    decisions: [...briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem), ...briefContracts(ct), ...(await import("./invoices-pure")).briefInvoices(inv, day)], // contracts only open: he signs on the PC
+    decisions, place, ...(weather && { weather }),
     replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(dr && { dream: { id: dr.key, question: dr.question } }), ...(di && { idea: di }), lesson: lesson && { id: lesson.id, text: lesson.text },
     echo: { short: briefEcho(eps, "short", now, (m.studio?.yesterday ?? []).map((y) => y.title)), reply: briefEcho(eps, "reply", now, rep.map((r) => r.name)) },
     snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
