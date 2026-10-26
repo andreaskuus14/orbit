@@ -52,6 +52,7 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     within(import("./dev-session").then((x) => x.yesterdaySession(userId, now))).catch(() => null),
     import("./place").then((x) => x.readPlace()).catch(() => null), // opt-in; off → no place lines
   ]);
+  const weather = pl ? await within(import("./weather").then((x) => x.briefWeather(pl, now)), 6000).catch(() => null) : null; // no saved place → none
   const decisions = briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem);
   // Tasks and goals can only be approved on the PC; phone-remote items (clips, spends, emails) can be done from the phone.
   const place = pl ? placeLines(pl, now, [...decisions.map((d) => d.title), ...(m.work?.items ?? []).map((w) => w.title), ...(m.hero ? [m.hero.title] : [])],
@@ -60,7 +61,7 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
   const lesson = les.length ? les[Math.floor(now / DAY) % les.length] : undefined; // a different kept lesson each day
   return composeBrief({
     day, hour, life: !!u.life, morning: m,
-    decisions, place,
+    decisions, place, ...(weather && { weather }),
     replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), lesson: lesson && { id: lesson.id, text: lesson.text },
     snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
   });

@@ -6,8 +6,9 @@ import { plain } from "./morning-pure.ts";
 import type { PanelId } from "./planets";
 import type { WorkItem } from "./work-continuation-pure";
 import type { PlaceLine } from "./place-pure";
+import type { WeatherLine } from "./weather-pure";
 
-export type BriefKind = "decision" | "night" | "health" | "calendar" | "place" | "first" | "result" | "lesson";
+export type BriefKind = "decision" | "night" | "health" | "calendar" | "weather" | "place" | "first" | "result" | "lesson";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
 export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true };
@@ -24,6 +25,7 @@ export type BriefIn = {
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
   lesson?: { id: string; text: string }; snoozed: string[];
+  weather?: WeatherLine; // today's forecast for a saved place (weather.ts briefWeather)
   place?: PlaceLine[]; // opt-in location lines (place-pure placeLines): only a saved place name, never coordinates
 };
 
@@ -100,6 +102,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
     add({ id: `reminder:${x.day}`, kind: "calendar", title: `Reminder at ${r.at}`, detail: plain(r.text), open: { panel: "life" }, say: `Don't forget, at ${r.at}: ${short(r.text, 8)}.` });
   }
 
+  if (x.weather) add({ ...x.weather, kind: "weather" });
   for (const p of x.place ?? []) add({ id: p.id, kind: "place", title: p.title, say: p.say });
 
   const h = x.morning.hero;
