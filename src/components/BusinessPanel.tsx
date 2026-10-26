@@ -6,6 +6,8 @@ import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, type Find
 import { mapNodes, mapSummary } from "@/lib/business-map-pure";
 import { SIG_LABEL, scorecard, type Cell } from "@/lib/outreach-score-pure";
 import NicheCards from "./NicheCards";
+import ContractsPanel from "./ContractsPanel";
+import NegotiatorBox from "./NegotiatorBox";
 
 // Three.js loads after the drawer opens, so the list shows instantly.
 const BusinessMap = dynamic(() => import("./BusinessMap"), { ssr: false, loading: () => <div className="h-[260px] rounded-md border border-white/10" /> });
@@ -88,6 +90,8 @@ export default function BusinessPanel() {
       )}
 
       {st && <Scorecard ps={st.prospects} />}
+
+      {st && <ContractsPanel prospects={st.prospects} />}
 
       <NicheCards />
 
@@ -207,6 +211,7 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
         <button className={`chip ${sure ? "error" : ""}`} disabled={any} onClick={() => (sure ? void act(`del:${p.id}`, { action: "delete", id: p.id }) : (setSure(true), setTimeout(() => setSure(false), 4000)))}>
           {sure ? "Really delete?" : "Delete"}</button>
       </div>
+      {p.stage !== "lead" && p.stage !== "lost" && <NegotiatorBox refKey={`prospect:${p.id}`} title={p.name} hint={p.fee ? { floor: p.fee, ceiling: p.fee } : undefined} />}
       {p.draft && (
         <div className="rounded-md border border-white/10 p-2">
           <p className="whitespace-pre-wrap select-all">{p.draft}</p>

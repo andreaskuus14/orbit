@@ -10,7 +10,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { NOISE } from "./LiquidPlanet";
-import { compileAs, WarmIn } from "../WarmCompile";
+import { compileAs, standIn, WarmIn } from "../WarmCompile";
 import { cityDensity, microStage, newStage, rankCount, structureBudget } from "./micro-pure";
 
 type N1 = { value: number };
@@ -420,6 +420,15 @@ void main() {
   gl_FragColor = vec4(max(col, vec3(0.0)), 1.0);
 }`;
 
+// First light (standIn in WarmCompile): the band's three faces in their average colours, lit the same way; the land,
+// seas and clouds crossfade in when HALO_FS has compiled.
+const HALO_STAND_FS = /* glsl */ `uniform float opacity; varying vec3 vP; varying vec3 vNl; varying vec3 vW; varying vec3 vN;
+${LIT}
+void main() {
+  vec3 N = normalize(vN) * (gl_FrontFacing ? 1.0 : -1.0);
+  vec3 alb = abs(vNl.y) >= 0.5 ? vec3(0.45, 0.47, 0.51) : gl_FrontFacing ? vec3(0.045, 0.05, 0.065) : vec3(0.12, 0.17, 0.2);
+  gl_FragColor = vec4(max(microLit(vW, N, alb, 0.05), vec3(0.0)), opacity);
+}`;
 const RW_A = new THREE.Vector3(), RW_UP = new THREE.Vector3(0, 1, 0);
 export function Ringworld({ size, u, detail, reduced }: { size: number; u: { uTime: N1 }; detail: () => number; reduced: boolean }) {
   const Rw = size * 2.2, Ww = size * 0.4, Wh = size * 0.06;
@@ -429,6 +438,7 @@ export function Ringworld({ size, u, detail, reduced }: { size: number; u: { uTi
   }, [Rw, Ww, Wh]);
   const mat = useMemo(() => new THREE.ShaderMaterial({ vertexShader: HALO_VS, fragmentShader: HALO_FS, side: THREE.DoubleSide,
     uniforms: { uTime: u.uTime, uRw: { value: Rw }, uWw: { value: Ww }, uDetail: { value: 0 } } }), [u, Rw, Ww]);
+  useMemo(() => standIn(mat, new THREE.ShaderMaterial({ vertexShader: HALO_VS, fragmentShader: HALO_STAND_FS, side: THREE.DoubleSide, transparent: true, uniforms: { opacity: { value: 1 } } })), [mat]);
   useEffect(() => () => { geo.dispose(); mat.dispose(); }, [geo, mat]);
   const ref = useRef<THREE.Mesh>(null), tilt = useRef<THREE.Group>(null);
   useFrame((_, dt) => {
