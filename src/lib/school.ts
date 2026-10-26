@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir";
 import {
-  MAX_COURSES, MAX_ITEMS, archLink, clean, dueMs, emptyStore, hoursOk, parseStore, patchSettings, planSchool, prepText, schoolBrief, validateItem,
+  MAX_COURSES, MAX_ITEMS, archLink, clean, dayKey, dueMs, emptyStore, hoursOk, parseStore, patchSettings, planSchool, prepText, schoolBrief, validateItem,
   type Busy, type SchoolStore,
 } from "./school-pure";
 
@@ -36,7 +36,16 @@ function update<T>(fn: (s: SchoolStore) => T): Promise<T> {
 /** Calendar events (next 14 days, if connected) are busy time; the planner never puts study blocks on them. */
 async function busy(now: number): Promise<Busy[]> {
   const ev = await import("./gcal").then((m) => m.calendarEvents(14, now)).catch(() => null);
-  return (ev ?? []).filter((e) => !e.allDay).map((e) => ({ start: Date.parse(e.start), end: Date.parse(e.end) })).filter((b) => b.end > b.start);
+  const f = await import("./focus").then((m) => m.focusState().focus).catch(() => null); // a running focus block stays free of study blocks
+  return [...(ev ?? []).filter((e) => !e.allDay).map((e) => ({ start: Date.parse(e.start), end: Date.parse(e.end) })), ...(f ? [{ start: f.startAt, end: f.endAt }] : [])].filter((b) => b.end > b.start);
+}
+
+/** Today's planned study blocks (for "Plan my day", where they are fixed items). */
+export async function schoolToday(now = Date.now()) {
+  const s = await read();
+  if (!s.items.length) return [];
+  return planSchool(s, now, await busy(now)).blocks.filter((b) => dayKey(b.start) === dayKey(now))
+    .map((b) => ({ start: b.start, end: b.end, title: s.items.find((i) => i.id === b.itemId)?.title ?? "school work" }));
 }
 
 export async function getSchool(now = Date.now()) {

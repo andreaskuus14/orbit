@@ -2,6 +2,7 @@
 import { useCallback, useState } from "react";
 import { INTENTS, type Intent, type Negotiation } from "@/lib/negotiator-pure";
 import { LANGS } from "@/lib/business-pure";
+import { contentHash, negoContent } from "@/lib/approval-pure";
 
 // Negotiator (roadmap B2) for one BUSINESS prospect or deal offer: his limits, their replies (pasted by him), ORBIT's plan + draft,
 // and his approve. Drafts are always inside his limits; an edit outside them needs "I mean it". Nothing goes out without his click.
@@ -95,7 +96,7 @@ export default function NegotiatorBox({ refKey, title, hint }: { refKey: string;
               <button className="chip" onClick={() => setText(d.text)}>Undo</button>
             </> : <>
               <button className={`chip ${sure ? "ok" : ""}`} disabled={any}
-                onClick={() => (sure ? (setSure(false), void act("approve", { action: "approve", id: n.id, seen: d.at })) : (setSure(true), setTimeout(() => setSure(false), 5000)))}>
+                onClick={() => (sure ? (setSure(false), void contentHash(negoContent(n.id, d.text)).then((seen) => act("approve", { action: "approve", id: n.id, seen }))) : (setSure(true), setTimeout(() => setSure(false), 5000)))}>
                 {busy === "approve" ? "…" : sure ? "Click again to approve" : "✓ Approve"}</button>
               <button className="chip" onClick={() => void navigator.clipboard?.writeText(d.text).catch(() => {})}>Copy</button>
             </>}
