@@ -88,6 +88,8 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
     await save();
     await emit(sb, userId, "night.task", "core", { night: run.id, kind: t.kind, ref: t.ref.slice(0, 128), status: item.status });
   }
+  // ORBIT's diary: one fast-model call if the night still has room, else the plain template (diary.ts)
+  await import("./diary").then((m) => m.writeDiary(sb, userId, run, !ac.signal.aborted && used().calls < s.maxCalls && inWindow(Date.now(), s), ac.signal)).catch(() => {});
   run.endedAt = new Date().toISOString();
   await save();
   const u = used();
