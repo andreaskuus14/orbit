@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { getWeekly } from "@/lib/weekly";
 import { readArchDigest } from "@/lib/arch-digest";
 import { digestLine } from "@/lib/arch-digest-pure";
+import { getOperatorReport } from "@/lib/operator";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { sb, user, res } = await requireUser();
   if (res) return res;
-  const [w, arch] = await Promise.all([getWeekly(sb), readArchDigest(user.id).catch(() => null)]);
+  const [w, arch, operator] = await Promise.all([getWeekly(sb), readArchDigest(user.id).catch(() => null), getOperatorReport(sb, user.id).catch(() => null)]); // operator: B7
   const line = digestLine(arch, new Date()); // ARCH studio digest (5.6), one line
-  return Response.json(line ? { ...w, lines: [...w.lines, line] } : w);
+  return Response.json({ ...(line ? { ...w, lines: [...w.lines, line] } : w), operator });
 }
