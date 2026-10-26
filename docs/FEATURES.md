@@ -19,7 +19,7 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 ## MEMORY
 
 - **Constellation:** every memory is a star; similar memories are linked by light that fades with age. A timeline replays how the web grew.
-- **Chronicle** (Chronicle mode): your life and work as a river of days, with moments, streaks and "firsts". Scrub it or press play. Private journal moments appear only if you turn on *include private*.
+- **Chronicle** (Chronicle mode): your life and work as a river of days, with moments, streaks and "firsts". Scrub it or press play. Private journal moments appear only if you tick *Include private* (on this device only).
 - **Episodes** (Episodes list, *Build now*): every night ORBIT turns calls, decisions, wins, setbacks and finished goals into short episode memories. Journal text is never used.
 - **Tidy-up suggestions:** up to 3 a week (merge duplicates, retire old or contradicted beliefs). Nothing changes until you press *Accept*.
 - **Never without you:** nothing is merged, edited or deleted on its own.
