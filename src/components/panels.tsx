@@ -24,6 +24,7 @@ import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
 import { ScreenLook, type LookAsk } from "./ScreenLook";
 import { parseLookRequest, robloxErrors, LUAU_FIX_EVENT, type Preset } from "@/lib/screen-look-pure";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
+import { EpisodesList } from "./EpisodesList";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
@@ -462,6 +463,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const [form, setForm] = useState({ kind: "note" as Kind, title: "", content: "", url: "", tags: "" });
   const [saving, setSaving] = useState(false);
   const [learnedOnly, setLearnedOnly] = useState(false);
+  const [episodesOnly, setEpisodesOnly] = useState(false);
   const [beliefs, setBeliefs] = useState(false);
   useEffect(() => {
     if (takeBeliefsRequest()) setBeliefs(true); // "what do you know about me" opened MEMORY
@@ -603,9 +605,10 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
         </form>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <button type="button" className="chip" aria-pressed={learnedOnly} onClick={() => setLearnedOnly(!learnedOnly)}>Learned by CORE</button>
+          <button type="button" className="chip" aria-pressed={episodesOnly} onClick={() => setEpisodesOnly(!episodesOnly)}>Episodes</button>
           {q.trim() && mode && <span className="muted text-xs">{mode === "hybrid" ? "Keyword + semantic search" : "Keyword search"}</span>}
         </div>
-        <ul className="space-y-2">
+        {episodesOnly ? <EpisodesList onOpen={setFocus} /> : <ul className="space-y-2">
           {shown.map((m) => (
             <li key={m.id}>
               <button className="card w-full text-left" onClick={() => setOpen(m)}>
@@ -616,7 +619,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
             </li>
           ))}
           {!shown.length && !err && <li className="muted">{learnedOnly ? "CORE hasn't saved anything by itself here yet." : q.trim() ? "Nothing matched." : "No memories yet. Capture your first one above."}</li>}
-        </ul>
+        </ul>}
       </div>
     </div>
   );
