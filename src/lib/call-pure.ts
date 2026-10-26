@@ -18,7 +18,7 @@ export const CALL_TZ = "Europe/Tallinn"; // same clock as push quiet hours (remo
 export type CallState = { day: string; calls: number; lastAt: number; morningDay: string; checkinDay: string; checkin: string; seen: Record<string, number>; nagged: string[]; urgentAt: number; dealt: string[]; contracted?: string[] };
 export const CALL_START: CallState = { day: "", calls: 0, lastAt: 0, morningDay: "", checkinDay: "", checkin: "", seen: {}, nagged: [], urgentAt: 0, dealt: [] };
 /** deals: great deals the hunter found in the last 12 h (deals.ts freshDeals), offer ids only. contracts: contracts waiting for his signature (contracts-pure waitingIds). */
-export type CallSignals = { now: number; stopAll: boolean; approvals: string[]; nightReport: boolean; deals?: string[]; contracts?: string[] };
+export type CallSignals = { now: number; stopAll: boolean; approvals: string[]; nightReport: boolean; deals?: string[]; contracts?: string[]; focus?: boolean }; // focus: a time-dilation block is running
 export type Ring = { reason: Exclude<CallReason, "manual">; things: number };
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -57,6 +57,7 @@ export function decideCall(prev: CallState, sig: CallSignals): { state: CallStat
   if (sig.stopAll || quietHour(h) || st.calls >= CALL.maxPerDay || now - st.lastAt < CALL.minGapMs) return none;
 
   const urgent = st.urgentAt > st.lastAt && now - st.urgentAt < CALL.urgentFreshMs; // a failure from hours ago waits for the morning card
+  if (sig.focus && !urgent) return none; // focus block: only an urgent call rings; the rest wait (nothing is used up)
   const deals = (sig.deals ?? []).filter((id) => !st.dealt.includes(id)); // "an offer came in for something you wanted": once per deal
   const contracts = (sig.contracts ?? []).filter((id) => !(st.contracted ?? []).includes(id)); // "a contract waits for your signature": once per contract
   const blocked = sig.approvals.filter((id) => now - seen[id] >= CALL.blockHours * 3600_000 && !st.nagged.includes(id));

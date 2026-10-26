@@ -38,6 +38,7 @@ import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
 import { standIn, WarmCompile, WarmIn } from "./WarmCompile";
+import { dilationScale } from "@/lib/dilation-pure";
 import { newScale, renderDpr, scaleFloor, stepScale, type ScaleState } from "@/lib/render-scale-pure";
 import { perfMark } from "./PerfBeacon";
 import { perfCtx } from "./PerfBeacon";
@@ -69,6 +70,7 @@ export type GalaxyProps = {
   onDiveCross?: () => void;  // the camera crossed the surface: mount the world now, it crossfades in
   onDiveCancel?: () => void; // the user grabbed the view mid-dive
   onIdle?: () => void;       // start-up and background shaders are compiled: a good moment for other idle work
+  dilation?: { startAt: number; endAt: number } | null; // time dilation focus block: the galaxy's clock runs slow
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -620,7 +622,8 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
   const v = useMemo(() => new THREE.Vector3(), []);
   const st = useRef({ t: 0, text: "" });
   const sc = useMemo(() => { const n = BODIES.length; const f = () => new Float64Array(n); return { x: f(), y: f(), prio: f(), vis: f(), alpha: f(), order: f(), ax: f(), ay: f(), ox: f(), oy: f(), la: f() }; }, []);
-  useFrame(({ camera, size, controls }, dt) => {
+  useFrame(({ camera, size, controls }, scaled) => {
+    const dt = realDt(scaled); // labels track the camera in real time, even dilated
     const els = labels.current;
     if (!els) return;
     const S = story.current, stopId = S.stop >= 0 ? PLANETS[S.stop].id : null, h0 = hover.current;
@@ -755,7 +758,8 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive }: {
     camera.updateProjectionMatrix();
   }, [panelOpen, size, camera]);
 
-  useFrame((_, dt) => {
+  useFrame((_, scaled) => {
+    const dt = realDt(scaled); // camera flights keep real time, even dilated
     if (!controls) return;
     if (story.current.owns) { flight.current = null; return; } // the intro / scroll journey is driving the camera
     const f = flight.current;
@@ -794,11 +798,32 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive }: {
 }
 
 /** Averages the frame rate over 0.5 s windows and asks for a cheaper/richer level (rules in lib/quality-pure). */
+/* Time dilation: the scene's clock (dt and elapsedTime for every useFrame) runs at dilationScale. One patch on the canvas's
+   clock, no shader changes; the frame loop and WarmCompile's hold are untouched. Reduced motion: no change (already still). */
+let frameScale = 1;
+/** This frame's real seconds, for what must not slow down: frame-rate monitors, camera flights, labels. */
+const realDt = (dt: number) => dt / frameScale;
+function Dilation({ span, reduced }: { span: GalaxyProps["dilation"]; reduced: boolean }) {
+  const clock = useThree((s) => s.clock);
+  const ref = useRef(span);
+  ref.current = span;
+  useEffect(() => {
+    clock.getDelta = function getDelta(this: THREE.Clock) {
+      const d = THREE.Clock.prototype.getDelta.call(this);
+      frameScale = reduced ? 1 : dilationScale(ref.current, Date.now());
+      this.elapsedTime -= d * (1 - frameScale);
+      return d * frameScale;
+    };
+    return () => { delete (clock as Partial<THREE.Clock>).getDelta; frameScale = 1; };
+  }, [clock, reduced]);
+  return null;
+}
+
 function QualityMonitor({ level, max, onLevel }: { level: QualityLevel; max: QualityLevel; onLevel: (l: QualityLevel) => void }) {
   const st = useRef({ warm: 0, frames: 0, t: 0, worst: 0, q: { level, low: 0, high: 0 } as QualityState });
   useEffect(() => { st.current.q = { ...st.current.q, level, low: 0, high: 0 }; st.current.warm = 0; }, [level]); // a level change hitches: re-warm
-  useFrame((_, dt) => {
-    const s = st.current;
+  useFrame((_, scaled) => {
+    const s = st.current, dt = realDt(scaled);
     if ((s.warm += dt) < 2) return; // first frames compile shaders and upload textures
     s.frames++; s.t += dt; s.worst = Math.max(s.worst, dt * 1000);
     if (s.t < 0.5) return;
@@ -826,8 +851,8 @@ function RenderScale({ max, onDpr }: { max: number; onDpr: (dpr: number) => void
   const size = useThree((s) => s.size);
   const st = useRef({ s: loadScale(), warm: 0, frames: 0, t: 0, worst: 0, low: 0, high: 0 });
   useEffect(() => { onDpr(renderDpr(size.width, size.height, devicePixelRatio, max, st.current.s.scale)); st.current.warm = 0; }, [size.width, size.height, max, onDpr]);
-  useFrame((_, dt) => {
-    const r = st.current;
+  useFrame((_, scaled) => {
+    const r = st.current, dt = realDt(scaled);
     if ((r.warm += dt) < 2) return; // start-up and every resize hitch: no evidence
     r.frames++; r.t += dt; r.worst = Math.max(r.worst, dt * 1000);
     if (r.t < 0.5) return;
@@ -959,6 +984,7 @@ export default function Galaxy(props: GalaxyProps) {
         {/* Shaders compile in parallel before the first frame. No 4 s release here: releasing mid-compile compiled the rest
             synchronously in one 14 s frame (owner's PC); the loader stays up instead. Hidden parts warm after the first frames. */}
         <WarmCompile cap={20_000} defer onDone={compiled} onLater={props.onIdle} />
+        <Dilation span={props.dilation} reduced={props.reduced} />
         <RenderScale max={dprMax} onDpr={setDpr} />
         <FirstFrames onReady={onReady} />
         {mode === "auto" && !staged && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
