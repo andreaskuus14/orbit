@@ -32,6 +32,7 @@ import { coreAnswerEval, type CoreEvalTool } from "./core-answer-eval-pure";
 import type { AnswerEval } from "./answer-eval-pure";
 import { recordCoreTurn } from "./perf-log";
 import { autonomyLevels } from "./autonomy";
+import { maxSteps, fallbackNote } from "./core-capability-pure";
 
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
 const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
@@ -45,7 +46,7 @@ type Profile = {
   research_priorities: string[]; communication: string;
 };
 
-const MAX_STEPS = 5;
+export const MAX_STEPS = maxSteps(process.env.ORBIT_CORE_MAX_STEPS); // was 5; the turn time budget below still bounds it
 const AGENT_LIST = BUILTIN_AGENTS.map((a) => `${a.slug} (${a.role.split(":")[0]})`).join(", ");
 
 function systemPrompt(p: Profile | null, today: string) {
@@ -130,7 +131,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
 
   let t = Date.now();
   let tier = attach ? "smart" as const : pickModel(question, [...history].reverse().find((h) => h.role === "assistant")?.content);
-  if (voice && tier === "deep") tier = "smart"; // spoken replies must start fast; the extra review pass would also re-write what is being read aloud
+  if (typeof voice === "string" && tier === "deep") tier = "smart"; // phone call: no screen, the reply must start fast. On-screen voice keeps full depth (only its summary is spoken)
   const system = systemPrompt(await at("profile", cachedProfile(sb, userId)), localDate()); // no clock: the same all day, so spare CLIs (warmCore) and prompt caching match
   onStep?.("search_memory", {});
   let byId = new Map<string, { id: string; title: string; kind: string }>(); // memories in context, for citations
@@ -190,10 +191,10 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
   let answer = "";
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      const last = step === MAX_STEPS - 1;
+      const last = step === MAX_STEPS - 1 || (step > 0 && deepLeft() < 90_000); // out of steps or turn time: answer now
       signal?.throwIfAborted();
       onStep?.("think", {});
-      const tail = `\n\n${typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you and will hear your answer read aloud: by default answer in 1-3 short conversational sentences, no lists, headings or links. If they ask for detail, an explanation or a story, give the full answer in spoken-style paragraphs.\n\n" : ""}${tier === "deep" ? deepNote : ""}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
+      const tail = `\n\n${typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you: only the FIRST paragraph of \"final\" is read aloud. Make it a 1-3 sentence conversational summary (no lists, headings or links). Brevity applies only to that summary, never to the work: do every step the request needs, and when it needs more (a plan, a draft, results, steps), put the complete result below the summary after a blank line; it stays on screen.\n\n" : ""}${tier === "deep" ? deepNote : ""}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
       const ask = prompt ? prompt + tail : prep.then((p) => (prompt = p) + tail);
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
       if (tier === "deep" && deepLeft() - 60_000 < 30_000) { tier = "smart"; trace.push({ step: "fallback", detail: "deep → main model (time limit)", ms: 0, ok: false }); }
@@ -285,7 +286,8 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     .filter((m): m is NonNullable<typeof m> => !!m)
     .map((m) => ({ id: m.id, title: m.title, kind: m.kind }));
   const wk = citeWeek(answer, knownCites(steps.filter((s) => s.startsWith("You called week_review "))), citations.map((c) => c.id)); // [w:...] → [n], unknown ones dropped
-  return { text: wk.text || "(no answer)", citations: [...citations, ...wk.cites], trace, model: tier };
+  const text = (wk.text || `_(CORE stopped after ${steps.length} tool calls without writing an answer.)_`) + fallbackNote(trace);
+  return { text, citations: [...citations, ...wk.cites], trace, model: tier };
 }
 
 /** Local advisory check after the final review, never an answer gate or another model call.

@@ -27,14 +27,14 @@ export const DEEP_MODEL = process.env.ORBIT_MODEL_DEEP || "opus";
  *  An older CLI without --effort fails the call, and CORE then redoes the step on the main model. */
 const effortEnv = process.env.ORBIT_DEEP_EFFORT ?? "high";
 export const DEEP_EFFORT = /^(low|medium|high|xhigh|max)$/.test(effortEnv) ? effortEnv : "";
-const TIMEOUT_MS = 120_000;
+export const TIMEOUT_MS = 120_000;
 const WIN = process.platform === "win32";
 const HINT = "Install Claude Code and run `claude` once to sign in (or set ORBIT_CLAUDE_BIN to its full path).";
 
 // At most 3 `claude` processes at once across the whole server; the rest queue in two lanes. Foreground (CORE chat,
 // voice) is served first and background (agents, automations, briefings, clips) may hold at most limit-1 slots, so a
 // chat never waits behind a pile of agent work. Kept on globalThis so dev hot reloads don't create a second limit.
-const MAX_CLI = Number(process.env.ORBIT_CLAUDE_CONCURRENCY) || 3;
+export const MAX_CLI = Number(process.env.ORBIT_CLAUDE_CONCURRENCY) || 3;
 const gl = globalThis as unknown as { __orbitClaudeLanes?: ReturnType<typeof createLaneLimiter> };
 const cliSlot = (gl.__orbitClaudeLanes ??= createLaneLimiter(MAX_CLI));
 

@@ -10,6 +10,7 @@ import { parseAttachments, attachedSuffix, attachmentPrompt } from "@/lib/attach
 import { retainedAttachments, type ContextTurn } from "@/lib/core-context-pure";
 import { prepareAttachments } from "@/lib/core-attach";
 import { chatProjectContext, updateChats } from "@/lib/core-chats";
+import { describeFailure } from "@/lib/core-capability-pure";
 import { MAX_MESSAGES, chatTitle, isId, moveChat } from "@/lib/core-chats-pure";
 
 // One CORE chat turn (moved out of /api/core so the phone remote runs the exact same path). body: {message, attachments?, voice?,
@@ -83,7 +84,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
     return { ...out, lesson };
   };
   const fail = async (e: unknown) => {
-    const error = e instanceof Error ? e.message : "CORE failed";
+    const error = e instanceof Error ? describeFailure(e.message) : "CORE failed"; // login / usage limit / timeout named plainly
     await emit(sb, userId, "core.failed", "core", { conversationId: cid, error: error.slice(0, 300) });
     return error;
   };
