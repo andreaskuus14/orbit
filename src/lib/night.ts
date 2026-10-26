@@ -170,6 +170,7 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     }
     case "health": { // reads logs and failures, writes notes for the Doctor panel; never touches code
       const r = await (await import("./health")).runHealth(sb, userId, signal);
+      await (await import("./self-improve")).maybeSelfImprove(sb, userId, signal); // weekly "Make ORBIT better" tasks (once per ISO week)
       return r.fresh ? { ...base, label: `Health check: ${r.fresh} new problem${r.fresh > 1 ? "s" : ""} (see the Doctor panel)`, status: "done", at: at() }
         : { ...base, status: "skipped", why: r.open ? `Nothing new; ${r.open} known problem${r.open > 1 ? "s" : ""} still open` : "Nothing broke", at: at() };
     }
