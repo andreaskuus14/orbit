@@ -40,6 +40,8 @@
   ],
   "exclude": [
     "node_modules",
-    "vendor"
+    "vendor",
+    ".next-demo-stage",
+    "demo-dist"
   ]
 }
