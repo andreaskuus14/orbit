@@ -9,15 +9,17 @@ import { localDay } from "@/lib/morning-pure";
 import { MARKETS_TAB, shouldShowBrief, type Brief, type BriefItem } from "@/lib/brief-pure";
 import { speakChunk, speechSettings, stop } from "./voice/speak";
 import { api } from "./AgentMission";
+import { DayPlan } from "./DayPlan";
 
 const KEY = "orbit.brief"; // the local day it was last shown
-const ICON: Record<BriefItem["kind"], string> = { decision: "✋", night: "🌙", health: "🩺", calendar: "📅", first: "➜", result: "✦", lesson: "💡", study: "🗂" };
+const ICON: Record<BriefItem["kind"], string> = { decision: "✋", night: "🌙", health: "🩺", calendar: "📅", weather: "🌦", place: "📍", first: "➜", result: "✦", lesson: "💡", question: "❔", study: "🗂" };
 type Got = Brief & { life: boolean };
 
 export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const [b, setB] = useState<Got | null>(null);
   const [err, setErr] = useState("");
+  const [planning, setPlanning] = useState(false);
   const [muted, setMuted] = useState(false);
   const [marks, setMarks] = useState<Record<string, string>>({}); // item id → what happened to it here
   const homeRef = useRef(home);
@@ -90,6 +92,7 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
         <div className="flex items-center justify-between gap-2">
           <h2 className="mb-hello">{b?.greeting ?? "Good morning."}</h2>
           <div className="flex gap-1">
+            <button className="chip" aria-pressed={planning} onClick={() => setPlanning((x) => !x)}>Plan my day</button>
             {!muted && b && <button className="chip" onClick={() => { stop(); setMuted(true); }} aria-label="Mute the brief">Mute</button>}
             <button className="chip" onClick={close} aria-label="Skip the morning brief">Skip</button>
           </div>
@@ -118,6 +121,7 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
               ))}
             </ul>
           )}
+          {planning && <DayPlan onOpen={(open) => go({ open } as BriefItem)} />}
           {b && (
             <label className="muted mt-3 flex items-center gap-2 text-xs">
               <input type="checkbox" checked={b.life} onChange={(e) => setLife(e.target.checked)} /> Say calendar titles and reminders aloud (from tomorrow)

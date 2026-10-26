@@ -127,3 +127,21 @@ test("study cards due: one '3 minutes of cards' item that opens a MEMORY review;
   assert.equal(briefItems(base({ study: 0 })).some((i) => i.kind === "study"), false);
   assert.equal(briefItems(base({ study: 3, snoozed: ["study:2026-10-25"] })).some((i) => i.kind === "study"), false);
 });
+
+test("last night's dream question: a brief item, and the opener's one question when nothing waits on his OK", () => {
+  const dream = { id: "deadline:n1:2026-10-30", question: "You said the pet sim update ships Friday, but there's been no dev session since Monday. Still Friday?" };
+  const items = briefItems(base({ dream }));
+  assert.equal(items.find((i) => i.kind === "question")?.say, dream.question);
+  assert.equal(briefOpener(composeBrief(base({ dream })), 8).endsWith("Want to go through it now?"), true, "decisions still come first");
+  const o = briefOpener(composeBrief(base({ dream, decisions: [] })), 8);
+  assert.ok(o.endsWith("Still Friday?"));
+  assert.equal((o.match(/\?/g) ?? []).length, 1);
+  assert.equal(cleanOpener(o, "fallback"), o);
+  assert.ok(!briefItems(base({ dream, snoozed: [`dream:${dream.id}`] })).some((i) => i.kind === "question"));
+});
+
+test("dream mode: one 'ORBIT dreamt' line", () => {
+  const it = briefItems(base({ idea: { id: "i1", title: "How light moves through a house", more: 2 } })).find((i) => i.id === "idea:i1");
+  assert.equal(it?.title, "ORBIT dreamt: How light moves through a house");
+  assert.equal(it?.detail, "In DREAMS under Goals (+2 more)");
+});
