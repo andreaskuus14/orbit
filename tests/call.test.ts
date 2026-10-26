@@ -124,7 +124,9 @@ test("spends name the exact credits, rejects are clip-only, ambiguity asks which
   assert.equal(voiceDecision(null, "how was the night?", items, 0), null);
   assert.match(voiceDecision(null, "approve the clip", [{ ...items[0], thumb: false }], 0)!.say!, /no preview/);
   assert.equal(voiceDecision(null, "approve the clip", [], 0)!.say, "There's nothing waiting for you right now.");
-  assert.match(voiceDecision(null, "send the email", items, 0)!.say!, /^Send the email to hi@acme\.test/);
+  const em = voiceDecision(null, "send the email", items, 0)!; // emails are screen-only: never sent on a spoken yes
+  assert.match(em.say!, /^The email to hi@acme\.test needs you to read it first/);
+  assert.equal(em.pending, null);
 });
 
 test("fallback summary keeps his words short and lists what was done", () => {

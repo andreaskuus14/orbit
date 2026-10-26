@@ -151,7 +151,7 @@ export const closeNegotiation = (sb: SupabaseClient, userId: string, id: unknown
 });
 
 /** Contract hand-off: no contracts module on main yet, so an agreement is his to write; this is the one place to wire it in later. */
-export const contractNote = (n: Negotiation) => (n.state === "agreed" ? `Agreed at €${[...n.turns].reverse().find((t) => t.price !== null)?.price ?? "?"}: write the agreement yourself (no contracts module yet).` : "");
+export const contractNote = (n: Negotiation) => (n.state === "agreed" ? `Agreed at €${[...n.turns].reverse().find((t) => t.price !== null)?.price ?? "?"}: draft the contract in BUSINESS → Contracts.` : "");
 
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
