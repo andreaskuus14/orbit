@@ -12,6 +12,7 @@ import { CoreActivity } from "./CoreActivity";
 import { PasswordSection } from "./PasswordSection";
 import { PhonePairing } from "./PhonePairing";
 import { AutonomySection } from "./AutonomySection";
+import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
@@ -661,6 +662,7 @@ export function ProfilePanel() {
     <PasswordSection />
     <AutonomySection />
     <PhonePairing />
+    <PersonaSection />
     <PlaybookSection />
     <LessonsSection />
     </div>
