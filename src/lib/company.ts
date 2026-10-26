@@ -15,7 +15,7 @@ export async function startCompany(sb: SupabaseClient, userId: string, goal: unk
   if (usageLimited()) return { error: "Claude usage limit reached" };
   const plan = planCompany(goal);
   if (typeof plan === "string") return { error: plan };
-  const r = await createChain(sb, userId, { goal: plan.goal, steps: plan.steps }, true);
+  const r = await createChain(sb, userId, { goal: plan.goal, steps: plan.steps }, undefined, true, true);
   return "error" in r ? r : { ...r, roles: plan.roles };
 }
 

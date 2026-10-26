@@ -1,11 +1,15 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
 import VisibilityPanel from "./VisibilityPanel";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
-import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, type Find, type Lang, type Prospect, type Stage, type Template } from "@/lib/business-pure";
+import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, sendStamp, type Find, type Lang, type Prospect, type Stage, type Template } from "@/lib/business-pure";
 import { mapNodes, mapSummary } from "@/lib/business-map-pure";
 import { SIG_LABEL, scorecard, type Cell } from "@/lib/outreach-score-pure";
 import NicheCards from "./NicheCards";
+import InvoicesPanel from "./InvoicesPanel";
+import MoneyPanel from "./MoneyPanel";
+import ContractsPanel from "./ContractsPanel";
 import NegotiatorBox from "./NegotiatorBox";
 
 // Three.js loads after the drawer opens, so the list shows instantly.
@@ -90,7 +94,12 @@ export default function BusinessPanel() {
 
       {st && <Scorecard ps={st.prospects} />}
 
+      {st && <ContractsPanel prospects={st.prospects} />}
+
       <NicheCards />
+
+      {st && <InvoicesPanel prospects={st.prospects} />}
+      <MoneyPanel />
 
       <VisibilityPanel />
 
@@ -216,10 +225,11 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
           <div className="mt-1 flex flex-wrap items-center gap-2"><button className="chip" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
             {canSend && to && p.stage === "lead" && (
               <button className={`chip ${sendSure ? "ok" : ""}`} disabled={any}
-                onClick={() => (sendSure ? (setSendSure(false), void act(`send:${p.id}`, { action: "send", id: p.id, seen: p.updated_at })) : (setSendSure(true), setTimeout(() => setSendSure(false), 5000)))}>
+                onClick={() => (sendSure ? (setSendSure(false), void sendStamp(p).then((seen) => act(`send:${p.id}`, { action: "send", id: p.id, seen }))) : (setSendSure(true), setTimeout(() => setSendSure(false), 5000)))}>
                 {busy === `send:${p.id}` ? "Sending…" : sendSure ? `Click again to send to ${to}` : "✉ Approve & send"}</button>)}
             {canSend && to && p.stage === "lead" && /https?:\/\/|www\./i.test(p.draft) && <span className="error text-[11px]">This draft contains a link: check it's one you meant to send.</span>}
-            <span className="muted text-[11px]">{canSend && to && p.stage === "lead" ? "Read it first: nothing is sent until you click twice." : canSend && p.stage === "lead" ? "To send from ORBIT, put one email address in Contact." : "Check it, then send it yourself."} Only say you tested their reply time if you really did.</span></div>
+            <span className="muted text-[11px]">{canSend && to && p.stage === "lead" ? "Read it first: nothing is sent until you click twice." : canSend && p.stage === "lead" ? "To send from ORBIT, put one email address in Contact." : "Check it, then send it yourself."} Only say you tested their reply time if you really did.</span>
+            {p.stage === "lead" && <OrbitThinks id={`draft:${p.id}`} />}</div>
         </div>
       )}
     </li>

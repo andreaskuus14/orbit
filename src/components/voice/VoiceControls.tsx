@@ -73,6 +73,8 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   const popRef = useRef<HTMLDivElement>(null);
   const popId = useId();
   const wake = useWakeWord(ready ? s.handsFree : "off", voice.listening, s.lang);
+  const asking = voice.listening || wake.conversation === "listening";
+  useEffect(() => { voiceLevel.listening = asking; return () => { voiceLevel.listening = false; }; }, [asking]); // the singularity leans in
   const pttEngine = recognizerFor(s, "pushToTalk");
   // Where the microphone audio goes right now: push-to-talk while it records, otherwise hands-free.
   const route = voice.listening ? pttEngine : recognizerFor(s, "handsFree");

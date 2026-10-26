@@ -68,6 +68,7 @@ test("resolvedStep: the company.step event after an approval, only for company c
   assert.deepEqual(resolvedStep(req, "forge", "done"), { role: "writer", status: "done" });
   assert.deepEqual(resolvedStep(req, "forge", "failed"), { role: "writer", status: "failed" });
   assert.equal(resolvedStep(req, "forge", "awaiting_approval"), null);
+  assert.deepEqual(resolvedStep(req, "forge", "done", false), { role: "writer", status: "failed" }); // owner rejected
   assert.equal(resolvedStep(JSON.stringify(toMeta({ goal: p.goal, steps: p.steps })), "forge", "done"), null); // plain team chain
   assert.equal(resolvedStep(null, "forge", "done"), null);
 });

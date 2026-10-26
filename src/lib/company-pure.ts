@@ -73,8 +73,8 @@ export function orgChart(rows: TaskRow[], cases: { agent: string; score: number 
 export const stepStatus = (s: string): "done" | "approval" | "failed" => (s === "done" ? "done" : s === "awaiting_approval" ? "approval" : "failed");
 
 /** The company.step event for a chain step whose approval was just resolved (agents.ts resolvePending): null when the parent isn't a
- *  company chain or the step is still waiting. parentRequest: the chain row's request (ChainMeta JSON). */
-export function resolvedStep(parentRequest: string | null, agent: string, status: string): { role: Role; status: "done" | "failed" } | null {
+ *  company chain or the step is still waiting. A rejected approval is "failed", never "done". parentRequest: the chain row's request (ChainMeta JSON). */
+export function resolvedStep(parentRequest: string | null, agent: string, status: string, approved = true): { role: Role; status: "done" | "failed" } | null {
   const role = parseMeta(parentRequest)?.company ? roleOf(agent) : null;
-  return role && status !== "awaiting_approval" ? { role, status: status === "done" ? "done" : "failed" } : null;
+  return role && status !== "awaiting_approval" ? { role, status: approved && status === "done" ? "done" : "failed" } : null;
 }
