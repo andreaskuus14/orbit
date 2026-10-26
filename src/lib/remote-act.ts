@@ -9,6 +9,7 @@ import { resolveInside } from "@/lib/clips/pure";
 import { approveStory, getStory } from "@/lib/clips/story";
 import { sendDraft } from "@/lib/business-send";
 import { approveNegotiation } from "@/lib/negotiator";
+import { approveReminder } from "@/lib/invoices";
 
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 // Messages the owner can act on; anything else from the send path (Supabase/Resend text) stays in the server log.
@@ -49,6 +50,13 @@ export async function decideApproval(sb: SupabaseClient, userId: string, id: str
     const r = await approveNegotiation(sb, userId, item.key.slice(5), item.seen); // item.seen = hash of the draft he saw; re-checked with his limits
     const j = (await r.json().catch(() => ({}))) as { message?: string; error?: string };
     return r.ok ? Response.json({ ok: true, message: j.message ?? "Approved" }) : fail(j.error ?? GENERIC_ERROR, r.status) // negotiator errors are owner-facing text, no Supabase/Resend bodies;
+  }
+  if (item.kind === "invoice") {
+    const r = await approveReminder(sb, userId, item.key.slice(8), item.seen); // Stop-all, Autonomy business-send, claim-first, exact draft version
+    const j = (await r.json().catch(() => ({}))) as { message?: string; error?: string; text?: string };
+    if (r.ok) return Response.json({ ok: true, message: j.text ? "Approved: copy the reminder and send it yourself." : `Reminder sent to ${item.to}` }); // fixed text: no Resend reasons on the phone
+    if (r.status === 502) return fail(SEND_TEXT[502], 502);
+    return fail(j.error ?? GENERIC_ERROR, r.status); // invoices.ts errors are owner-facing text
   }
   const sent = await sendDraft(sb, userId, item.key.slice(5), item.seen); // claims only the draft version the phone showed
   if (sent.ok) return Response.json({ ok: true, message: `Sent to ${item.to}` });

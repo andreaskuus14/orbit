@@ -19,7 +19,7 @@ export const EFFECTS: Record<string, Effect> = {
   higgsfield_draft: "reversible", // quote only; the spend is story.approve
   schedule_approved: "publish", // uploads only clips already approved by his click (status "approved")
   // owner-click actions
-  "business.send": "outward-send", "contracts.send": "outward-send", "negotiator.approve": "outward-send",
+  "business.send": "outward-send", "contracts.send": "outward-send", "negotiator.approve": "outward-send", "invoices.remind": "outward-send",
   "story.approve": "spend", "studio.schedule": "publish", "studio.publish": "publish", "contracts.sign": "sign",
 };
 

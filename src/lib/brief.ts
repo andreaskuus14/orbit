@@ -58,9 +58,10 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
   ]);
   const deal = dl?.latest && dl.ids.length ? { id: dl.ids[dl.ids.length - 1], ...dl.latest } : undefined;
   const lesson = les.length ? les[Math.floor(now / DAY) % les.length] : undefined; // a different kept lesson each day
+  const inv = await within(import("./invoices").then((x) => x.allInvoices())).catch(() => []); // overdue reminders waiting for his approve
   return composeBrief({
     day, hour, life: !!u.life, morning: m,
-    decisions: [...briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem), ...briefContracts(ct)], // contracts only open: he signs on the PC
+    decisions: [...briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem), ...briefContracts(ct), ...(await import("./invoices-pure")).briefInvoices(inv, day)], // contracts only open: he signs on the PC
     replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(dr && { dream: { id: dr.key, question: dr.question } }), ...(di && { idea: di }), lesson: lesson && { id: lesson.id, text: lesson.text },
     echo: { short: briefEcho(eps, "short", now, (m.studio?.yesterday ?? []).map((y) => y.title)), reply: briefEcho(eps, "reply", now, rep.map((r) => r.name)) },
     snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),

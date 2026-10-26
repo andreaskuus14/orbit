@@ -17,6 +17,9 @@ import { approveProblem, quoteTotal } from "@/lib/clips/story-pure";
 import { emailIn, sendStamp } from "@/lib/business-pure";
 import { contentHash, negoContent, spendContent } from "@/lib/approval-pure";
 import { waitingNegotiations } from "@/lib/negotiator";
+import { allInvoices } from "@/lib/invoices";
+import { remoteInvoices } from "@/lib/invoices-pure";
+import { localDay } from "@/lib/morning-pure";
 import type { PushSub } from "@/lib/remote-push-pure";
 
 export type Device = { id: string; name: string; userId: string; createdAt: string; push?: PushSub }; // push: its Web Push subscription (6.3)
@@ -130,6 +133,8 @@ export async function pendingApprovals(sb: SupabaseClient): Promise<Approval[]> 
     const to = n.side === "sell" ? contacts.get(n.ref.slice(9)) ?? undefined : undefined;
     out.push(item(`nego:${n.id}`, { kind: "nego", title: n.title, detail: n.side === "sell" ? "BUSINESS negotiation" : "Deal: message to the seller", strategy: n.draft!.strategy, message: n.draft!.text, seen: await contentHash(negoContent(n.id, n.draft!.text)), ...(to && { to }) }));
   }
+  // Invoices (B6): overdue reminder drafts, approved through invoices.ts approveReminder (same guards as the PC click).
+  for (const { key, content, ...a } of remoteInvoices(await allInvoices(), localDay(new Date()), !!(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM))) out.push(item(key, { kind: "invoice", ...a, seen: await contentHash(content) }));
   return out;
 }
 

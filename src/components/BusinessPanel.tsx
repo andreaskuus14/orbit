@@ -7,6 +7,8 @@ import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, sendStamp
 import { mapNodes, mapSummary } from "@/lib/business-map-pure";
 import { SIG_LABEL, scorecard, type Cell } from "@/lib/outreach-score-pure";
 import NicheCards from "./NicheCards";
+import InvoicesPanel from "./InvoicesPanel";
+import MoneyPanel from "./MoneyPanel";
 import ContractsPanel from "./ContractsPanel";
 import NegotiatorBox from "./NegotiatorBox";
 
@@ -95,6 +97,9 @@ export default function BusinessPanel() {
       {st && <ContractsPanel prospects={st.prospects} />}
 
       <NicheCards />
+
+      {st && <InvoicesPanel prospects={st.prospects} />}
+      <MoneyPanel />
 
       <VisibilityPanel />
 

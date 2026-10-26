@@ -14,6 +14,7 @@ import { listDevices, ownerClient, pendingApprovals } from "./remote";
 import { decideApproval } from "./remote-act";
 import { deliver, pushProblem } from "./remote-push";
 import { pushLabel } from "./remote-push-pure";
+import { screenOnly } from "./remote-web-pure";
 import { readSleepReport } from "./sleep";
 import { stopAllOn } from "./stop-all";
 import { focusActive } from "./focus";
@@ -71,7 +72,7 @@ export async function maybeCall(): Promise<void> {
     const dev = (await listDevices()).find((d) => d.push);
     if (!dev) return;
     const sb = await ownerClient(dev.userId);
-    const [items, report, deals, contracts] = await Promise.all([pendingApprovals(sb).then((a) => a.filter((i) => i.kind !== "nego")), readSleepReport(dev.userId).catch(() => undefined), import("./deals").then((d) => d.freshDeals(now), () => ({ ids: [] })),
+    const [items, report, deals, contracts] = await Promise.all([pendingApprovals(sb).then((a) => a.filter((i) => !screenOnly(i.kind))), readSleepReport(dev.userId).catch(() => undefined), import("./deals").then((d) => d.freshDeals(now), () => ({ ids: [] })),
       import("./contracts").then((c) => c.waitingContracts(now), () => [] as string[])]);
     let ring: ReturnType<typeof decideCall>["ring"] = null;
     await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids, contracts, focus: focusActive(now) }); ring = r.ring; return r.state; });
@@ -112,9 +113,9 @@ function tts(text: string): Promise<string | null> {
 /** Load Kokoro and make the short fillers ahead of the first turn (cached for the life of the process). */
 export const warmVoice = () => { for (const t of FILLERS) if (!G.cache.has(t)) void tts(t); };
 
-// Negotiation replies (prices) are approved on a screen where he reads them, never by voice.
+// Negotiation replies (prices) and invoice reminders are approved on a screen where he reads them, never by voice.
 const toItems = (sb: SupabaseClient): Promise<CallItem[]> =>
-  pendingApprovals(sb).then((a) => a.filter((i) => i.kind !== "nego").map(({ id, kind, title, seen, credits, to, thumb }) => ({ id, kind, title, seen, credits, to, thumb })));
+  pendingApprovals(sb).then((a) => a.filter((i) => !screenOnly(i.kind)).map(({ id, kind, title, seen, credits, to, thumb }) => ({ id, kind, title, seen, credits, to, thumb })));
 
 // ---- Sessions ----
 function sweep() {
