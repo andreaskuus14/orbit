@@ -20,6 +20,7 @@ import { DAY, edgeBorn, edgeGlow } from "@/lib/memory-edges-pure";
 import { useAlienEnv } from "./alien/env";
 import { useMountLater, WarmCompile } from "./WarmCompile";
 import { smoothDampVec } from "@/lib/smooth-damp-pure";
+import { PeopleCanvas, PeoplePanel, usePeople } from "./PeopleRing";
 
 type Star = { id: string; title: string; kind: string; tags: string[]; created_at: string; source: string | null; x: number; y: number; z: number };
 type MapData = { items: Star[]; links: { from: string; to: string }[]; edges?: [number, number, number][]; total: number };
@@ -346,6 +347,8 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const [goal, setGoal] = useState<{ at: [number, number, number]; dist: number; n: number } | null>(null);
   const [when, setWhen] = useState<number | null>(null); // replayed moment (ms); null = now
   const [playing, setPlaying] = useState(false);
+  const [people, setPeople] = useState(false); // the People ring replaces the constellation (its own canvas)
+  const ppl = usePeople(people && !paused);
   const fly = (at: [number, number, number], dist: number) => setGoal((g) => ({ at, dist, n: (g?.n ?? 0) + 1 }));
 
   useEffect(() => { // refetch when returning from List view or to the world: memories may have been added or deleted meanwhile
@@ -419,7 +422,8 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="MEMORY: your memories as a constellation" style={{ background: BG }}>
-      {!flat && later && (
+      {!flat && later && people && <PeopleCanvas st={ppl} reduced={reduced} paused={paused} />}
+      {!flat && later && !people && (
         <Canvas key={glr.key} onCreated={onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
           onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -449,14 +453,15 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
       <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] flex-col gap-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label="MEMORY controls">
         <div className="flex items-center justify-between gap-2">
           <h2 className="brand text-base">MEMORY <span className="muted num text-xs font-normal">{data ? `${data.items.length}${data.total > data.items.length ? ` of ${data.total}` : ""} stars` : ""}</span></h2>
-          {!flat && <div className="flex gap-1.5">
-            <button className="chip" aria-pressed={!list} onClick={() => setList(false)}>Constellation</button>
-            <button className="chip" aria-pressed={list} onClick={() => setList(true)}>List view</button>
-          </div>}
+          <div className="flex gap-1.5">
+            {!flat && <button className="chip" aria-pressed={!list && !people} onClick={() => { setList(false); setPeople(false); }}>Constellation</button>}
+            {!flat && <button className="chip" aria-pressed={list && !people} onClick={() => { setList(true); setPeople(false); }}>List view</button>}
+            <button className="chip" aria-pressed={people} onClick={() => setPeople(!people)}>People</button>
+          </div>
         </div>
 
-        <MemoryHygiene onChanged={onChanged} />
-        {list || flat ? <MemoryPanel focusId={focusId} onChanged={onChanged} /> : <>
+        {!people && <MemoryHygiene onChanged={onChanged} />}
+        {people ? <PeoplePanel st={ppl} /> : list || flat ? <MemoryPanel focusId={focusId} onChanged={onChanged} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}
             onChange={(e) => setQuery(e.target.value)} aria-label="Search memories in the constellation" />
           {err && <p className="error" role="alert">{err}</p>}
