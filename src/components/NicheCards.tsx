@@ -1,4 +1,5 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
 import { useCallback, useEffect, useState } from "react";
 import { marginOf, type Kit, type Niche } from "@/lib/niche-pure";
 
@@ -72,6 +73,7 @@ function Card({ n, kit, dir, busy, building, any, act }: { n: Niche; kit: Kit | 
       <div className="flex flex-wrap gap-1.5">
         {n.status !== "kept" && <button className="chip" disabled={any} onClick={() => void act(`keep:${n.id}`, { action: "keep", id: n.id })}>Keep</button>}
         <button className="chip" disabled={any} onClick={() => void act(`dismiss:${n.id}`, { action: "dismiss", id: n.id })}>Dismiss</button>
+        {n.status === "new" && <OrbitThinks id={`niche:${n.id}`} />}
         {n.status === "kept" && <button className="chip" disabled={any} onClick={() => void act(`build:${n.id}`, { action: "build", id: n.id })}>
           {building || busy === `build:${n.id}` ? "CORE is writing the shop…" : n.shopAt ? "Rebuild shop" : "Build shop"}</button>}
         {kit && <button className="chip" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide shop" : "Show shop"}</button>}
