@@ -22,6 +22,7 @@ export type BriefIn = {
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
+  goalRisk?: { id: string; title: string; say: string }; // a goal whose weekly milestones are at risk / behind (goal-autopilot.ts goalRisk)
   lesson?: { id: string; text: string }; snoozed: string[];
   echo?: { short?: string | null; reply?: string | null }; // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
 };
@@ -85,6 +86,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
       detail: top ? plain(top.label) : undefined, open: top?.open && "task" in top.open ? { task: top.open.task } : { panel: "agents" } });
   }
 
+  if (x.goalRisk) add({ id: `goalrisk:${x.goalRisk.id}`, kind: "result", title: x.goalRisk.title, detail: "Weekly milestones", open: { goal: x.goalRisk.id }, say: x.goalRisk.say });
   if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });
 
   const ev = x.morning.calendar?.today ?? [];

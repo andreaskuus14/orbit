@@ -42,7 +42,7 @@ async function replies(sb: SupabaseClient, now: number) {
 /** The deterministic brief for now (no AI call). */
 export async function composeToday(sb: SupabaseClient, userId: string, now = Date.now()): Promise<Brief> {
   const day = localDay(new Date(now)), hour = new Date(now).getHours();
-  const [u, m, rem, rep, les, dl, hl, ds, ct, eps] = await Promise.all([
+  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, gr] = await Promise.all([
     load().then((s) => s.users[userId] ?? {}),
     import("./morning").then((x) => x.getMorning(sb, userId, now)),
     within(import("./remote").then((x) => x.pendingApprovals(sb))).catch(() => []),
@@ -53,13 +53,14 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     within(import("./dev-session").then((x) => x.yesterdaySession(userId, now))).catch(() => null),
     within(import("./contracts").then((x) => x.listContracts())).catch(() => []),
     within(import("./episodes").then((x) => x.listEpisodes(sb, userId, 100))).catch(() => []),
+    within(import("./goal-autopilot").then((x) => x.goalRisk(sb, userId))).catch(() => null),
   ]);
   const deal = dl?.latest && dl.ids.length ? { id: dl.ids[dl.ids.length - 1], ...dl.latest } : undefined;
   const lesson = les.length ? les[Math.floor(now / DAY) % les.length] : undefined; // a different kept lesson each day
   return composeBrief({
     day, hour, life: !!u.life, morning: m,
     decisions: [...briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem), ...briefContracts(ct)], // contracts only open: he signs on the PC
-    replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), lesson: lesson && { id: lesson.id, text: lesson.text },
+    replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(gr && { goalRisk: gr }), lesson: lesson && { id: lesson.id, text: lesson.text },
     echo: { short: briefEcho(eps, "short", now, (m.studio?.yesterday ?? []).map((y) => y.title)), reply: briefEcho(eps, "reply", now, rep.map((r) => r.name)) },
     snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
   });
