@@ -16,8 +16,18 @@ const DEDUPE_MS = 60_000;
 const KINDS: NotifyKind[] = ["studio", "agents", "life", "core", "system"];
 export const KIND_ICON: Record<NotifyKind, string> = { studio: "🎬", agents: "🤖", life: "⏰", core: "✨", system: "⚙️" };
 
+// Time dilation (TimeDilation.tsx): while a focus block runs, bell notices wait here; red alerts still go through.
+let held: NotifyDetail[] | null = null;
+/** on: start holding. off: stop, and get what was held (the caller re-publishes it). */
+export function holdNotify(on: boolean): NotifyDetail[] {
+  const out = held ?? [];
+  held = on ? held ?? [] : null;
+  return on ? [] : out;
+}
+
 /** Publish to the bell. No-op where there's no event target (server, tests). */
 export function notify(detail: NotifyDetail): void {
+  if (held && !isProblem(detail)) { held.push(detail); return; }
   const g = globalThis as { dispatchEvent?: (e: Event) => boolean; CustomEvent?: typeof CustomEvent };
   if (g.dispatchEvent && g.CustomEvent) g.dispatchEvent(new g.CustomEvent(NOTIFY_EVENT, { detail }));
 }

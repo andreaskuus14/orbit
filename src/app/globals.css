@@ -740,6 +740,9 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .memory-star-label { display: flex; flex-direction: column; gap: 2px; max-width: 16rem; padding: 3px 0 3px 10px; border-left: 1px solid rgba(125, 211, 252, 0.6); white-space: nowrap; }
 .memory-star-label b { overflow: hidden; text-overflow: ellipsis; font-weight: 500; font-size: 0.78rem; color: #e6f1ff; text-shadow: 0 0 8px rgba(2, 3, 8, 0.9); }
 .memory-star-label span { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.18em; text-transform: uppercase; color: #7dd3fc; }
+.chronicle-caption { font-size: 1.05rem; letter-spacing: 0.02em; color: #e6f1ff; text-shadow: 0 0 14px rgba(125, 211, 252, 0.55), 0 0 4px rgba(2, 3, 8, 0.9); animation: chronicle-cap 0.6s ease-out; }
+@keyframes chronicle-cap { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .chronicle-caption { animation: none; } }
 /* Loading tiles: the HUD panel restyle painted over the shimmer, so loading looked like empty, broken boxes. */
 .dash-tile.skeleton, .glass .skeleton { background: linear-gradient(90deg, rgba(186, 214, 255, 0.04), rgba(186, 214, 255, 0.13), rgba(186, 214, 255, 0.04)) !important; background-size: 200% 100% !important; animation: shimmer 1.3s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .dash-tile.skeleton, .glass .skeleton { animation: none; } }
