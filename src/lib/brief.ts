@@ -70,7 +70,7 @@ export async function getBrief(sb: SupabaseClient, userId: string, now = Date.no
   await update(userId, (x) => ({ ...x, polish: { day: b.day } })); // the day's one try is used before the call: a crash can't make it two
   let text = b.spoken;
   try {
-    const r = await askClaude(polishPrompt(b.spoken), POLISH_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 12_000, purpose: "brief.polish" });
+    const r = await askClaude(`${await import("./persona").then((m) => m.personaContext(userId, "brief"))}\n\n${polishPrompt(b.spoken)}`, POLISH_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 12_000, purpose: "brief.polish" });
     void recordUsage(sb, userId, "brief.polish", r, FAST_MODEL);
     text = cleanPolish(r.text, b.spoken);
   } catch (e) { console.error("[brief] polish:", e instanceof Error ? e.message : e); }

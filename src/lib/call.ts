@@ -21,6 +21,8 @@ import { transcribeSpeech } from "./voice-asr";
 import { kokoroTts } from "./clips/story";
 import { encodeWav } from "./audio-pure";
 import { cleanWhisperText } from "@/components/voice/hear";
+import { getPersona, lastPersona } from "./persona";
+import { personaPrompt } from "./persona-pure";
 import {
   CALL, FILLERS, OPENER_SYSTEM, SUMMARY_SYSTEM, backchannel, callStyle, cleanOpener, decideCall, fallbackSummary, itemsKey, localParts, opener, openerPrompt, parseCallState,
   phraseKey, quickReply, takeSentences, transcriptText, voiceDecision, whenLabel,
@@ -35,7 +37,7 @@ type G = { sessions: Map<string, Session>; ring: { reason: CallReason; at: numbe
 const g = globalThis as unknown as { __orbitCall?: G };
 const G: G = (g.__orbitCall ??= { sessions: new Map(), ring: null, checkedAt: 0, tts: Promise.resolve(), cache: new Map() });
 const RING_MS = 30 * 60_000; // a ring older than the push's TTL is just a normal call
-const VOICE = () => process.env.ORBIT_CALL_VOICE || "af_heart";
+const VOICE = () => lastPersona().voice || process.env.ORBIT_CALL_VOICE || "af_heart"; // Profile → ORBIT's character first
 
 // ---- State file: <data dir>/call.json (counters, first-seen times, check-in time; no content) ----
 const file = () => path.join(orbitDataDir(), "call.json");
@@ -137,12 +139,12 @@ function prepareOpener(sb: SupabaseClient, userId: string, reason: CallReason): 
   const text = Promise.all([base, callNotes(sb, userId).catch(() => [])]).then(async ([b, notes]) => {
     if (!notes.length) return b;
     try {
-      const r = await askClaude(openerPrompt(b, notes), OPENER_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 20_000, purpose: "call.opener" });
+      const r = await askClaude(`${personaPrompt(await getPersona(userId), "opener")}\n\n${openerPrompt(b, notes)}`, OPENER_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 20_000, purpose: "call.opener" });
       void recordUsage(sb, userId, "call.opener", r, FAST_MODEL);
       return cleanOpener(r.text, b);
     } catch (e) { console.error("[call] opener:", e instanceof Error ? e.message : e); return b; }
   });
-  const voiced = text.then(voice);
+  const voiced = Promise.all([text, getPersona(userId)]).then(([t]) => voice(t)); // persona read first: its Kokoro voice says it
   voiced.then((v) => Promise.all(v.audio)).then(() => warmVoice(), () => {}); // fillers queue behind the opener's audio
   return { reason, at, key: items.then(itemsKey), base, voiced };
 }
@@ -164,7 +166,7 @@ export async function startCall(sb: SupabaseClient, userId: string): Promise<Res
   const reason = ringing() ?? "manual";
   const pre = G.pre;
   G.ring = null; G.pre = undefined;
-  const items = await toItems(sb).catch(() => [] as CallItem[]);
+  const [items] = await Promise.all([toItems(sb).catch(() => [] as CallItem[]), getPersona(userId)]); // fresh persona: voice and call style
   let v: Voiced | null = null, ahead = false;
   if (pre && pre.reason === reason && t0 - pre.at < PRE_MS && (await pre.key) === itemsKey(items)) {
     v = await Promise.race([pre.voiced, wait(1500).then(() => null)]); // still personalising after 1.5 s: the plain one now
@@ -262,7 +264,7 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
               const r = takeSentences(buf);
               buf = r.rest;
               r.done.forEach(sayNew);
-            }, ac.signal, () => { buf = ""; }, callStyle(items));
+            }, ac.signal, () => { buf = ""; }, callStyle(items)); // ORBIT's character comes with CORE's prompt (persona "call" surface)
             ms.core = Date.now() - t0;
             path = out.trace.some((x) => x.step === "reflex") ? "reflex" : out.model;
             const r = takeSentences(buf, true);

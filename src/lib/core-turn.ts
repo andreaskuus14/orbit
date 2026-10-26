@@ -77,7 +77,8 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
     void learnFacts(sb, userId, message, userMsg?.id ?? null, files.files.length > 0); // beliefs from the user's own words only (none on attachment turns); never throws
     // "no, I meant…" / "don't do that again": propose a lesson he can keep with one tap (lessons.ts); never throws
     const prevReply = [...history].reverse().find((t) => t.role === "assistant")?.content ?? "";
-    const lesson = files.files.length ? null : await import("@/lib/lessons").then((m) => m.captureCorrection(userId, message, prevReply, userMsg.id), () => null);
+    const lesson = files.files.length ? null : (prevReply && await import("@/lib/persona").then((m) => m.captureReaction(userId, message), () => null)) // "too long" → a slider step (persona.ts)
+      || await import("@/lib/lessons").then((m) => m.captureCorrection(userId, message, prevReply, userMsg.id), () => null);
     return { ...out, lesson };
   };
   const fail = async (e: unknown) => {
