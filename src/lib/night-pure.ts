@@ -6,8 +6,9 @@
 import { clean, nextMove, type Goal } from "./goals-pure.ts";
 import type { PushMessage } from "./remote-push-pure.ts";
 
-export type NightSettings = { enabled: boolean; from: string; until: string; tz: string; wake: string; maxCalls: number; maxMinutes: number; idleMin: number };
-export const NIGHT_DEFAULTS: NightSettings = { enabled: true, from: "01:00", until: "06:30", tz: "Europe/Tallinn", wake: "08:00", maxCalls: 40, maxMinutes: 150, idleMin: 30 };
+export type NightSettings = { enabled: boolean; from: string; until: string; tz: string; wake: string; maxCalls: number; maxMinutes: number; idleMin: number;
+  pin: Partial<Record<NightKind, "on" | "off">> }; // his overrides of the learned plan (night-learn-pure)
+export const NIGHT_DEFAULTS: NightSettings = { enabled: true, from: "01:00", until: "06:30", tz: "Europe/Tallinn", wake: "08:00", maxCalls: 40, maxMinutes: 150, idleMin: 30, pin: {} };
 export const TONIGHT_MAX = 10, TEXT_MAX = 500, MAX_GOALS = 3, MAX_RESEARCH = 4, MAX_FOLLOWUPS = 3;
 export const DRAFT_AGAIN_MS = 7 * 86_400_000; // a prospect gets at most one overnight follow-up draft a week
 export const PERSONA_STUDIO_RUNS = 2; // real look-only Studio playtests per night (each up to 4 minutes); the rest is simulated
@@ -21,7 +22,7 @@ export type ItemStatus = (typeof ITEM_STATUSES)[number];
 export type NightTask = { kind: NightKind; ref: string; label: string; calls: number; minutes: number };
 export type Open = { task: string } | { goal: string; step?: number; stepId?: string } | { panel: "studio" | "business" | "memory" | "agents" | "markets" };
 export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string };
-export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string };
+export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string; why?: string };
 export type TonightItem = { id: string; text: string; agent: string; by: "owner" | "core"; at: string };
 export type NightUser = { tonight: TonightItem[]; run?: NightRun; drafted: Record<string, string> };
 export type NightState = { settings: NightSettings; users: Record<string, NightUser> };
@@ -44,6 +45,14 @@ export function patchNightSettings(b: Record<string, unknown>, cur: NightSetting
     const v = int(b[k], lo, hi);
     if (Number.isNaN(v)) return `${k} must be a whole number ${lo}-${hi}`;
     s[k] = v;
+  }
+  if (b.pin !== undefined) { // {kind: "on" | "off" | "auto"}; "auto" hands the kind back to the learning
+    if (!b.pin || typeof b.pin !== "object") return "pin must be {kind: on/off/auto}";
+    s.pin = { ...s.pin };
+    for (const [k, v] of Object.entries(b.pin)) {
+      if (!(NIGHT_KINDS as readonly string[]).includes(k) || !["on", "off", "auto"].includes(v as string)) return `pin: ${k} must be on, off or auto`;
+      if (v === "auto") delete s.pin[k as NightKind]; else s.pin[k as NightKind] = v as "on" | "off";
+    }
   }
   if (s.from === s.until) return "the night window needs a different start and end";
   return s;
@@ -137,7 +146,7 @@ export type PlanInput = {
   now: number;
   today: string; // goals' budget day (server-local, goals-pure today())
   off?: NightKind[]; // kinds Profile → Autonomy doesn't allow unattended (autonomy-pure nightOff; empty with the defaults)
-  boost?: Partial<Record<NightKind, number>>; // kept lessons' prior per kind (lessons.ts nightBoost, ~0.85–1.15); 1 when missing
+  boost?: Partial<Record<NightKind, number>>; // kept lessons' prior (lessons.ts nightBoost) × the learned value (night-learn-pure); 1 when missing
 };
 
 /** The night's queue in order (owner's asks, goal steps, follow-up drafts, deal hunt, Shorts packaging, niche scout, hygiene), trimmed to the
@@ -189,7 +198,7 @@ export function goalOutcome(id: string, before: Goal, after: Goal | null): Pick<
 
 // ---- Morning report ----------------------------------------------------------
 
-export type NightReport = { key: string; startedAt: string; endedAt?: string; running: boolean; done: NightItem[]; approvals: NightItem[]; failed: NightItem[]; calls: number; minutes: number; stopped?: string; deferred: number };
+export type NightReport = { key: string; startedAt: string; endedAt?: string; running: boolean; done: NightItem[]; approvals: NightItem[]; failed: NightItem[]; calls: number; minutes: number; stopped?: string; deferred: number; why?: string };
 
 /** "While you slept": last night's run (only on the morning it ends), with approvals the owner already answered dropped.
  *  live: current status of each task the run linked to. */
@@ -199,7 +208,7 @@ export function nightReport(run: NightRun | undefined, live: Record<string, stri
   const items = run.items.filter((i) => !(i.status === "approval" && answered(i)));
   if (!items.some((i) => i.status !== "skipped") && !running) return null;
   return {
-    key: run.key, startedAt: run.startedAt, endedAt: run.endedAt, running, calls: run.calls, minutes: Math.round(run.ms / 60_000), stopped: run.stopped, deferred: run.deferred ?? 0,
+    key: run.key, startedAt: run.startedAt, endedAt: run.endedAt, running, calls: run.calls, minutes: Math.round(run.ms / 60_000), stopped: run.stopped, deferred: run.deferred ?? 0, why: run.why,
     done: items.filter((i) => i.status === "done"), approvals: items.filter((i) => i.status === "approval"), failed: items.filter((i) => i.status === "failed"),
   };
 }

@@ -11,6 +11,7 @@ import { callsSince, lastCoreCallAt, usageHold } from "./usage-meter";
 import { today } from "./goals-pure";
 import { FOLLOWUP_SYSTEM, dueFollowups, followupPrompt, type Prospect } from "./business-pure";
 import { scoutDue } from "./niche-pure";
+import { whyLine, type Learned } from "./night-learn-pure";
 import { NIGHT_KINDS, PERSONA_STUDIO_RUNS, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest, startBlock, tonightBlocked, wakePushDue,
   type NightItem, type NightRun, type NightState, type NightTask, type NightUser } from "./night-pure";
 
@@ -75,8 +76,9 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
   if (!prev || prev.key !== key) await emit(sb, userId, "night.start", "core", { night: run.id });
   console.log("[orbit] night shift starting");
 
-  const { queue, deferred } = planNight(await planInput(sb, userId, st, run), s, used());
-  run.deferred = deferred;
+  const learned = await (await import("./night-learn")).learnedPlan(sb, userId, s, key); // what he approved before reorders/fades ORBIT's own work
+  const { queue, deferred } = planNight(await planInput(sb, userId, st, run, learned), s, used());
+  run.deferred = deferred; run.why = whyLine(learned, queue.map((t) => t.kind), s.pin) || undefined;
   for (const t of queue) {
     if (ac.signal.aborted || stopAllOn()) { run.stopped = "stop-all"; break; }
     if (usageHold()) { run.stopped = "usage"; break; }
@@ -95,7 +97,7 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
   console.log(`[orbit] night shift ${run.stopped ? `stopped (${run.stopped})` : "done"}: ${run.items.length} item(s), ${u.calls} Claude call(s)`);
 }
 
-async function planInput(sb: SupabaseClient, userId: string, st: NightState, run: NightRun) {
+async function planInput(sb: SupabaseClient, userId: string, st: NightState, run: NightRun, learned: Learned) {
   const [goals, prospects, board] = await Promise.all([
     sb.from("goals").select("id, doc").eq("user_id", userId).in("status", ["approved", "running", "waiting"]).limit(30),
     sb.from("prospects").select("id, name, stage, updated_at, notes").eq("user_id", userId).eq("stage", "contacted").limit(300),
@@ -108,8 +110,9 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
     health: true,
     personas: await import("./personas").then((m) => m.personasDue(userId), () => false),
-    handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: nightOff(autonomyLevels()),
-    boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({})),
+    handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: [...nightOff(autonomyLevels()), ...learned.drop],
+    boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({}) as Record<string, number>)
+      .then((b) => Object.fromEntries(NIGHT_KINDS.map((k) => [k, (b[k] ?? 1) * (learned.weight[k] ?? 1)]))),
   };
 }
 
