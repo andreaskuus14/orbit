@@ -18,7 +18,9 @@ import AgentMission, { STATUS_DOT, api, usePoll } from "./AgentMission";
 import TeamBuilder from "./TeamBuilder";
 import IdeasPanel from "./IdeasPanel";
 import RecipesPanel from "./RecipesPanel";
+import SkillsPanel from "./SkillsPanel";
 import GoalsPanel from "./GoalsPanel";
+import MissionsPanel from "./MissionsPanel";
 import { TonightPanel } from "./NightShift";
 import { CHAIN_TITLE, type ChainView } from "@/lib/chains-pure";
 import { beamPairs, chainActive } from "@/lib/mission-pure";
@@ -459,7 +461,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
-  const [tab, setTab] = useState<"agents" | "teams" | "goals" | "ideas" | "recipes" | "night">("agents");
+  const [tab, setTab] = useState<"agents" | "missions" | "teams" | "goals" | "ideas" | "recipes" | "skills" | "night">("agents");
   useEffect(() => { if (focusGoal) setTab("goals"); }, [focusGoal]);
   useEffect(() => { if (radarUrl) setTab("ideas"); }, [radarUrl]);
   const [chains, setChains] = useState<ChainView[] | null>(null);
@@ -555,15 +557,19 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
             <div className="hud-title"><MaskText text="AGENTS STATION" /></div>
             <p className="muted text-xs">{list.length} agents · {list.filter((a) => status[a.slug] === "working").length} working · {list.filter((a) => status[a.slug] === "waiting").length} need approval{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</p>
             <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Station views">
-              {(["agents", "teams", "goals", "ideas", "recipes", "night"] as const).map((t) => (
+              {(["agents", "missions", "teams", "goals", "ideas", "recipes", "skills", "night"] as const).map((t) => (
                 <button key={t} id={`st-tab-${t}`} role="tab" aria-selected={tab === t} aria-controls={`st-panel-${t}`} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
-                  {t === "agents" ? "🛰 Agents" : t === "teams" ? "👥 Teams" : t === "goals" ? "🎯 Goals" : t === "ideas" ? "💡 Ideas" : t === "night" ? "🌙 Tonight" : "📋 Recipes"}
+                  {t === "agents" ? "🛰 Agents" : t === "missions" ? "🚀 Missions" : t === "teams" ? "👥 Teams" : t === "goals" ? "🎯 Goals" : t === "ideas" ? "💡 Ideas" : t === "night" ? "🌙 Tonight" : t === "skills" ? "✨ Skills" : "📋 Recipes"}
                 </button>
               ))}
             </div>
             {tab === "night" ? (
               <div id="st-panel-night" role="tabpanel" aria-labelledby="st-tab-night" className="mt-3">
                 <TonightPanel />
+              </div>
+            ) : tab === "skills" ? (
+              <div id="st-panel-skills" role="tabpanel" aria-labelledby="st-tab-skills" className="mt-3">
+                <SkillsPanel />
               </div>
             ) : tab === "recipes" ? (
               <div id="st-panel-recipes" role="tabpanel" aria-labelledby="st-tab-recipes" className="mt-3">
@@ -576,6 +582,10 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
             ) : tab === "goals" ? (
               <div id="st-panel-goals" role="tabpanel" aria-labelledby="st-tab-goals" className="mt-3">
                 <GoalsPanel agents={list} visible={visible} onOpenTask={onOpenTask} focusId={focusGoal} />
+              </div>
+            ) : tab === "missions" ? (
+              <div id="st-panel-missions" role="tabpanel" aria-labelledby="st-tab-missions" className="mt-3">
+                <MissionsPanel visible={visible} onOpenTask={onOpenTask} />
               </div>
             ) : tab === "teams" ? (
               <div id="st-panel-teams" role="tabpanel" aria-labelledby="st-tab-teams" className="mt-3">

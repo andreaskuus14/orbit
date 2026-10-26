@@ -3,6 +3,7 @@ import { emit } from "@/lib/claude";
 import { embed } from "@/lib/embeddings";
 import { MEMORY_COLUMNS } from "@/lib/memory";
 import { cleanTags, str } from "@/lib/pure";
+import { isMissingColumn, PROVENANCE_COLUMNS } from "@/lib/provenance-pure";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -10,7 +11,9 @@ export async function GET(_: Request, { params }: Ctx) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const { id } = await params;
-  const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("id", id).maybeSingle();
+  const one = (cols: string) => sb.from("memories").select(cols).eq("id", id).maybeSingle();
+  let { data, error } = await one(`${MEMORY_COLUMNS}, ${PROVENANCE_COLUMNS}`);
+  if (isMissingColumn(error)) ({ data, error } = await one(MEMORY_COLUMNS)); // until migration 0019
   if (error) return Response.json({ error: error.message }, { status: 400 });
   if (!data) return Response.json({ error: "Not found" }, { status: 404 });
   const { data: links } = await sb.from("memory_links").select("id, from_id, to_id, status, score")

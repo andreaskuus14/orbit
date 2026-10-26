@@ -52,7 +52,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ job: st
     }
     const video = videoResource(meta, clip);
     if (typeof video === "string") return Response.json({ error: video }, { status: 400 });
-    await startPublish(job, clip, file, video);
+    try { await startPublish(job, clip, file, video); } catch (e) { return Response.json({ error: (e as Error).message, clip }, { status: 409 }); } // approval gate / retry consent
     return Response.json({ clip }, { status: 202 });
   });
 }

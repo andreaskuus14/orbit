@@ -8,6 +8,7 @@ import { stopAllOn } from "./stop-all";
 import { usageHold } from "./usage-meter";
 import { allows } from "./autonomy";
 import { emailIn, sendSubject, LANGS } from "./business-pure";
+import { approvalGate, negoContent } from "./approval-pure";
 import {
   NEGO_SYSTEM, addReply, applyApproval, approveProblem, editDraft, makeDraft, negoPrompt, newNegotiation, parseLimits, replan, refSide, waiting,
   type Negotiation, type Plan, type Turn,
@@ -151,17 +152,18 @@ export const closeNegotiation = (sb: SupabaseClient, userId: string, id: unknown
 });
 
 /** Contract hand-off: no contracts module on main yet, so an agreement is his to write; this is the one place to wire it in later. */
-export const contractNote = (n: Negotiation) => (n.state === "agreed" ? `Agreed at €${[...n.turns].reverse().find((t) => t.price !== null)?.price ?? "?"}: write the agreement yourself (no contracts module yet).` : "");
+export const contractNote = (n: Negotiation) => (n.state === "agreed" ? `Agreed at €${[...n.turns].reverse().find((t) => t.price !== null)?.price ?? "?"}: draft the contract in BUSINESS → Contracts.` : "");
 
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
-/** His approve click (BUSINESS, morning brief or phone): `seen` must be the draft version he read. Emails a BUSINESS prospect when
+/** His approve click (BUSINESS, morning brief or phone): `seen` must be the contentHash of the draft he read (negoContent). Emails a BUSINESS prospect when
  *  Resend is set up and Contact holds one address; otherwise records it as approved for him to copy. Never automatic. */
 export async function approveNegotiation(sb: SupabaseClient, userId: string, id: unknown, seen: unknown): Promise<Response> {
   if (stopAllOn()) return fail("Not now: Stop-all is on", 503);
   const n = (await load()).negotiations.find((x) => x.id === id);
-  const why = approveProblem(n, seen);
+  const why = approveProblem(n, n?.draft?.at) || (await approvalGate("negotiator.approve", seen, negoContent(n!.id, n!.draft!.text))); // seen = hash of the draft he read
   if (why || !n) return fail(why, why === "Not found" ? 404 : 409);
+  const version = n.draft!.at;
   let to: string | null = null, subject = "";
   const key = process.env.RESEND_API_KEY, from = process.env.ORBIT_MAIL_FROM;
   if (n.side === "sell" && key && from) {
@@ -173,7 +175,7 @@ export async function approveNegotiation(sb: SupabaseClient, userId: string, id:
   // Claim first (the draft leaves the store), so a double tap can't send twice.
   const claimed = await update((s) => {
     const cur = s.negotiations.find((x) => x.id === n.id);
-    if (approveProblem(cur, seen)) return null;
+    if (approveProblem(cur, version)) return null;
     const next = applyApproval(cur!, to ? "unknown" : "copy", Date.now());
     put(s, next);
     return next;
@@ -191,7 +193,7 @@ export async function approveNegotiation(sb: SupabaseClient, userId: string, id:
   let r: Response;
   try {
     r = await fetch("https://api.resend.com/emails", {
-      method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "Idempotency-Key": `orbit-nego-${n.id}-${seen}` },
+      method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "Idempotency-Key": `orbit-nego-${n.id}-${version}` },
       body: JSON.stringify({ from, to, subject, text: n.draft!.text, ...(process.env.ORBIT_MAIL_REPLY_TO ? { reply_to: process.env.ORBIT_MAIL_REPLY_TO } : {}) }),
       signal: AbortSignal.timeout(20_000),
     });
