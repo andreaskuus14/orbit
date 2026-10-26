@@ -199,7 +199,7 @@ Reply with JSON only: {"pick": <candidate number>, "question": "<text>"}`;
 export const dreamPrompt = (cands: Candidate[]) => cands.slice(0, 3).map((c, i) =>
   `CANDIDATE ${i + 1} (${c.kind})\nDRAFT: ${c.question}\nFROM: ${c.evidence.map((e) => e.slice(0, 200)).join(" | ")}`).join("\n\n");
 
-const nums = (t: string) => t.match(/\d+/g) ?? [];
+const nums = (t: string): string[] => t.match(/\d+/g) ?? [];
 /** The model's pick and words if they hold up: valid JSON, one question at the end, short, on topic, no new numbers. */
 export function cleanDream(text: string, cands: Candidate[]): { cand: Candidate; question: string } | null {
   try {

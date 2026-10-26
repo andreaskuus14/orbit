@@ -106,7 +106,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     followups: dueFollowups((prospects.data ?? []) as Prospect[], Date.now()), drafted: st.users[userId]?.drafted ?? {},
     nicheDue: !!board && !board.busy && scoutDue({ lastAttempt: board.lastAttempt ?? undefined, lastOk: board.lastOk ?? undefined }, Date.now()),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
-    health: true,
+    health: true, dream: true,
     handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: nightOff(autonomyLevels()),
     boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({})),
   };
@@ -168,6 +168,10 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
       const r = await (await import("./health")).runHealth(sb, userId, signal);
       return r.fresh ? { ...base, label: `Health check: ${r.fresh} new problem${r.fresh > 1 ? "s" : ""} (see the Doctor panel)`, status: "done", at: at() }
         : { ...base, status: "skipped", why: r.open ? `Nothing new; ${r.open} known problem${r.open > 1 ? "s" : ""} still open` : "Nothing broke", at: at() };
+    }
+    case "dream": { // the morning brief asks it; nothing is edited, so it's never a "done" or an approval here
+      const ns = (await load()).settings, r = await (await import("./dream")).runDream(sb, userId, nightKey(Date.now(), ns), ns.tz, signal);
+      return { ...base, status: "skipped", why: r.dream ? "One question saved for the morning brief" : r.why, at: at() };
     }
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions
