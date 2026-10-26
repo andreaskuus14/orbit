@@ -26,6 +26,7 @@ import { ScreenLook, type LookAsk } from "./ScreenLook";
 import { parseLookRequest, robloxErrors, LUAU_FIX_EVENT, type Preset } from "@/lib/screen-look-pure";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
 import { EpisodesList } from "./EpisodesList";
+import { Rewind } from "./Rewind";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
@@ -601,6 +602,8 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
           </ul>
         </div>
       )}
+
+      <Rewind onOpen={setFocus} />
 
       <div>
         <div className="flex items-center justify-between"><h3 className="h3">Memories</h3><span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>What ORBIT believes</button><a className="link text-xs" href="/api/export">Export JSON</a></span></div>
