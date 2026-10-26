@@ -437,12 +437,12 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
             {!coachRows.length && <p className="muted text-xs">No upper floor yet: the ground slab rests on the ground. Add a second floor to check one.</p>}
             {coachRows.map((r) => <details key={r.part.id} open={r.part.id === sel || coachRows.length === 1} className="text-xs">
               <summary className={r.now.ok ? "" : "font-semibold"} style={r.now.ok ? undefined : { color: FAIL }}>
-                {r.part.name}: span {r.span.toFixed(2)} m, modelled {r.now.size} → {r.now.ok ? "OK" : "too small"} ({Math.round(r.now.util * 100)} % used)</summary>
+                {r.part.name}: span {r.span.toFixed(2)} m{r.walls.length ? ` (split by ${r.walls.length} interior wall${r.walls.length > 1 ? "s" : ""})` : ""}, modelled {r.now.size} → {r.now.ok ? "OK" : "too small"} ({Math.round(r.now.util * 100)} % used)</summary>
               <pre className="whitespace-pre-wrap text-[11px] leading-snug">{r.now.steps.join("\n")}</pre>
               <p>{r.best ? <>Smallest standard section that passes: <b>{r.best.size}</b> ({Math.round(r.best.util * 100)} % used). </> : "No standard section passes: shorten the span with a wall or beam underneath, or use glulam/steel. "}
                 {r.best && r.best.h !== Math.round(r.part.h * 1000) && <button className="chip" onClick={() => apply([{ op: "set", id: r.part.id, h: r.best!.h / 1000 }])}>Set floor depth to {r.best.h} mm</button>}</p>
             </details>)}
-            <p className="muted text-[11px]">Simply supported, uniform load, span = shorter side less one wall (interior walls not counted as supports). Timber: EN 338 C24 f_m,k 24 N/mm², E_0,mean 11 000 N/mm², ρ_mean 420 kg/m³; EN 1995-1-1 k_mod 0.8, γ_M 1.3, k_def 0.6; limit L/300. Concrete: EN 1992-1-1 bending + span/depth (eq. 7.16). Shear, bearing, vibration and fire are not checked.</p>
+            <p className="muted text-[11px]">Simply supported, uniform load, span = shorter side less one wall, split by full-width interior walls under the slab (teaching estimate). Timber: EN 338 C24 f_m,k 24 N/mm², E_0,mean 11 000 N/mm², ρ_mean 420 kg/m³; EN 1995-1-1 k_mod 0.8, γ_M 1.3, k_def 0.6; limit L/300. Concrete: EN 1992-1-1 bending + span/depth (eq. 7.16). Shear, bearing, vibration and fire are not checked.</p>
           </div>
         )}
         <div className="flex flex-wrap gap-1.5">

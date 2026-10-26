@@ -75,3 +75,28 @@ test("coach checks only slabs standing on walls, and flags a thin one", () => {
   assert.equal(r.now.ok, false); // 45×170 fails deflection
   assert.equal(r.best!.h, 195);
 });
+
+/* 10×8 house, upper floor slab 200 mm. Shell walls 300 mm: centre lines 8 − 0.3 = 7.7 m apart across the short side.
+   No inner wall: span 7.7 m → 200 mm RC fails span/depth (L/d = 7700/170 = 45 > ~33); no C24 joist passes either.
+   A full-width wall along x at z = 0 (9.4 m long, between the shell walls) splits it: gaps 3.85 + 3.85 → span 3.85 m.
+   200 mm RC: L/d = 3850/170 = 22.6 → OK; timber 45×200 over 3.85 m (45×195 already passes 4 m) → OK. */
+test("an interior wall under the slab splits the span: a 10×8 house with a central wall passes", () => {
+  const s = starterScene(); // walls y 0.2 h 2.8 → top 3.0
+  const upper = { id: "u", kind: "slab" as const, name: "Floor 2", x: 0, y: 3, z: 0, w: 10, d: 8, h: 0.2 };
+  const mid = { id: "m", kind: "wall" as const, name: "Central wall", x: 0, y: 0.2, z: 0, w: 9.4, d: 0.2, h: 2.8 };
+  const [open] = coach([...s.parts, upper], "concrete", 1);
+  near(open.span, 7.7);
+  assert.equal(open.now.ok, false);
+  assert.equal(coach([...s.parts, upper], "timber", 0.4)[0].now.ok, false);
+  for (const type of ["concrete", "timber"] as const) {
+    const [r] = coach([...s.parts, upper, mid], type, 0.4);
+    near(r.span, 3.85);
+    assert.deepEqual(r.walls.map((w) => w.id), ["m"]);
+    assert.equal(r.now.ok, true, `${type} passes with the central wall`);
+  }
+  // a wall that stops short (needs a beam), or one not reaching the slab, is not a support
+  const short = { ...mid, w: 5 }, low = { ...mid, h: 2.4 };
+  for (const w of [short, low]) near(coach([...s.parts, upper, w], "concrete", 1)[0].span, 7.7);
+  // a wall along z at x = 1 splits the 10 m way into 5.85 + 3.85: the 7.7 m short way still governs
+  near(coach([...s.parts, upper, { ...mid, x: 1, z: 0, w: 0.2, d: 7.4 }], "concrete", 1)[0].span, 5.85);
+});

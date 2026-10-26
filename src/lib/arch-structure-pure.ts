@@ -2,7 +2,7 @@
 // a structural engineer must check real designs. Simply supported one-way members under a uniform load, Eurocode-style:
 // timber joists/beams in C24 (EN 338, EN 1995-1-1) and solid reinforced concrete slabs (EN 1992-1-1). Each check returns the
 // working as lines with his numbers in, so he can follow it by hand. No model calls: every number comes from here.
-import { RULES, type Part } from "./arch-pure.ts";
+import { isStraightWall, RULES, type Part } from "./arch-pure.ts";
 
 /** Residential floor, EN 1991-1-1 category A: q_k = 1.5 kN/m² imposed (Finnish/Estonian NA value for floors). */
 export const LOAD = { qk: 1.5, gammaG: 1.35, gammaQ: 1.5, psi2: 0.3 }; // EN 1990 eq. 6.10 factors; ψ2 = 0.3 for category A
@@ -84,16 +84,30 @@ export function smallest(type: FloorType, L: number, s: number): Check | null {
   return null;
 }
 
-/** A modelled slab the coach checks: one standing on walls (bottom above ground). Span = shorter side less one wall thickness
- *  (centre to centre of the shell walls). shortcut: interior walls are not treated as supports; add that if he asks. */
-export const spanOf = (p: Part) => Math.max(0.5, Math.min(p.w, p.d) - RULES.wallThick);
+/** Interior load-bearing walls under a slab split its span. A support is a straight wall whose top meets the slab's underside
+ *  and which runs (nearly) the full width of the slab between the shell walls; a shorter wall would need a beam, so it is
+ *  not counted. The slab spans whichever way gives the shorter clear span: per direction the supports are the two shell wall
+ *  centre lines plus every full-width wall across it, and the span there is the largest gap. Teaching estimate. */
+export function supportsOf(p: Part, parts: Part[]): { span: number; walls: Part[] } {
+  const T = RULES.wallThick, under = parts.filter((q) => q.kind === "wall" && isStraightWall(q) && Math.abs(q.y + q.h - p.y) < 0.05
+    && Math.abs(q.x - p.x) < p.w / 2 && Math.abs(q.z - p.z) < p.d / 2);
+  let best = { span: Infinity, walls: [] as Part[] };
+  for (const across of ["z", "x"] as const) { // a span along z is split by walls running along x, and the other way round
+    const len = across === "z" ? p.d : p.w, width = across === "z" ? p.w : p.d, c = across === "z" ? p.z : p.x;
+    const walls = under.filter((q) => (across === "z" ? q.w >= q.d && q.w >= width - 2 * T - 0.1 : q.d > q.w && q.d >= width - 2 * T - 0.1));
+    const lines = [c - (len - T) / 2, ...walls.map((q) => (across === "z" ? q.z : q.x)), c + (len - T) / 2].sort((a, b) => a - b);
+    const span = Math.max(...lines.slice(1).map((v, i) => v - lines[i]));
+    if (span < best.span - 1e-9) best = { span, walls };
+  }
+  return { span: Math.max(0.5, best.span), walls: best.walls };
+}
 export const suspended = (parts: Part[]) => parts.filter((p) => p.kind === "slab" && p.y > 0.05);
-export type CoachRow = { part: Part; span: number; now: Check; best: Check | null };
+export type CoachRow = { part: Part; span: number; walls: Part[]; now: Check; best: Check | null };
 /** Each suspended slab: the modelled depth checked as is (timber: joists as deep as the slab block, as wide as the coach's pick
  *  or 45 mm), and the smallest standard section. */
 export function coach(parts: Part[], type: FloorType, s: number): CoachRow[] {
   return suspended(parts).map((p) => {
-    const span = spanOf(p), best = smallest(type, span, s), h = Math.round(p.h * 1000);
-    return { part: p, span, now: type === "timber" ? timberCheck(span, s, best?.b ?? 45, h) : slabCheck(span, h), best };
+    const { span, walls } = supportsOf(p, parts), best = smallest(type, span, s), h = Math.round(p.h * 1000);
+    return { part: p, span, walls, now: type === "timber" ? timberCheck(span, s, best?.b ?? 45, h) : slabCheck(span, h), best };
   });
 }
