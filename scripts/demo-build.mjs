@@ -9,7 +9,7 @@ import { join, resolve } from "node:path";
 const root = resolve(import.meta.dirname, ".."), stage = join(root, ".next-demo-stage"), dist = join(root, "demo-dist");
 const run = (args, cwd, env = {}) => {
   const r = spawnSync(process.execPath, args, { cwd, stdio: "inherit", env: { ...process.env, ...env } });
-  if (r.status !== 0) process.exit(r.status ?? 1);
+  if (r.status !== 0) { rmSync(stage, { recursive: true, force: true }); process.exit(r.status ?? 1); } // a stale copy of src/ would double tsc's work
 };
 
 rmSync(stage, { recursive: true, force: true });
@@ -21,7 +21,7 @@ for (const f of ["layout.tsx", "globals.css", "observatory.css", "icon.png", "de
 symlinkSync(join(root, "node_modules"), join(stage, "node_modules"), "junction");
 
 run([createRequire(import.meta.url).resolve("next/dist/bin/next"), "build"], stage, { ORBIT_DEMO_EXPORT: "1", NEXT_TELEMETRY_DISABLED: "1" });
-if (!existsSync(join(stage, "out", "demo.html"))) { console.error("demo:build: out/demo.html missing"); process.exit(1); }
+if (!existsSync(join(stage, "out", "demo.html"))) { console.error("demo:build: out/demo.html missing"); rmSync(stage, { recursive: true, force: true }); process.exit(1); }
 cpSync(join(stage, "out"), dist, { recursive: true });
 rmSync(stage, { recursive: true, force: true });
 run(["--test", "--experimental-strip-types", "tests/demo-leak.test.ts"], root);
