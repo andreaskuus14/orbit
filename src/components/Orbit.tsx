@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
-import { AnalyticsPanel, CorePanel, ProfilePanel } from "./panels";
+import { AnalyticsPanel, CorePanel, MemoryPanel, ProfilePanel } from "./panels";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { WorldPaused } from "./world-paused";
 import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
@@ -533,7 +533,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {has("creation") && <Kept on={at("creation")}><DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} paused={!at("creation")} /></Kept>}
       {has("agents") && <Kept on={at("agents")}><AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} paused={!at("agents")} /></Kept>}
       {has("arch") && <Kept on={at("arch")}><ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} paused={!at("arch")} /></Kept>}
-      {has("memory") && <Kept on={at("memory")}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} /></Kept>}
+      {has("memory") && <Kept on={at("memory")}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} List={MemoryPanel} /></Kept>}
       {shown && KEEP.includes(shown) && at(shown) ? null : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
