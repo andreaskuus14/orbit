@@ -314,6 +314,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           {i === msgs.length - 1 && lastQ.current && !busy && (
             <button type="button" className="chip" title="Ask the last question again" onClick={() => void send(lastQ.current)}>↻ Retry</button>
           )}
+          {m.trace?.some((x) => x.step === "local") && <span className="chip !py-0 !text-[10px]" title="Claude was unreachable, rate-limited or on hold, so this answer came from the local model on this PC (no tools)">local brain</span>}
           {m.model && <span className="muted ml-auto opacity-60" title={m.model === "fast" ? "Quick reply from the fast model" : m.model === "deep" ? (m.trace?.some((x) => x.step === "review") ? "Deep answer: planned, then self-checked by the strongest model" : "Deep answer from the strongest model") : "Answered by the main model"}>{m.model}</span>}
         </div>
       )}
