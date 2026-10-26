@@ -127,7 +127,10 @@ function swapIn(scene: THREE.Object3D): Swap[] {
     if (!cheap) return;
     // shortcut: the stand-in keeps the geometry the mesh had at start (the planets' close-up LOD comes much later)
     const over = new THREE.Mesh(mesh.geometry, cheap);
-    over.raycast = () => {}; over.frustumCulled = mesh.frustumCulled; over.renderOrder = mesh.renderOrder;
+    over.raycast = () => {}; over.frustumCulled = mesh.frustumCulled;
+    // it stands in for an opaque surface: first among the transparent, so rings and glows still draw over it; pulled a
+    // hair toward the camera, so it wins the depth test against the real surface during the crossfade
+    over.renderOrder = -1000; Object.assign(cheap, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
     out.push({ mesh, heavy, over, done: false });
   });
   for (const s of out) { s.mesh.add(s.over); s.heavy.visible = false; }
