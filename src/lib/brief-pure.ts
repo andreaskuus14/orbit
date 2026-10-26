@@ -5,8 +5,9 @@ import type { Morning } from "./morning-pure";
 import { plain } from "./morning-pure.ts";
 import type { PanelId } from "./planets";
 import type { WorkItem } from "./work-continuation-pure";
+import type { PlaceLine } from "./place-pure";
 
-export type BriefKind = "decision" | "night" | "health" | "calendar" | "first" | "result" | "lesson";
+export type BriefKind = "decision" | "night" | "health" | "calendar" | "place" | "first" | "result" | "lesson";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
 export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true };
@@ -23,6 +24,7 @@ export type BriefIn = {
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
   lesson?: { id: string; text: string }; snoozed: string[];
+  place?: PlaceLine[]; // opt-in location lines (place-pure placeLines): only a saved place name, never coordinates
 };
 
 export const MAX_ITEMS = 6;
@@ -97,6 +99,8 @@ export function briefItems(x: BriefIn): BriefItem[] {
     const r = x.morning.life.next;
     add({ id: `reminder:${x.day}`, kind: "calendar", title: `Reminder at ${r.at}`, detail: plain(r.text), open: { panel: "life" }, say: `Don't forget, at ${r.at}: ${short(r.text, 8)}.` });
   }
+
+  for (const p of x.place ?? []) add({ id: p.id, kind: "place", title: p.title, say: p.say });
 
   const h = x.morning.hero;
   const heroWork = h && "work" in h.open ? h.open.work.id : null; // already said as a decision: don't say it twice

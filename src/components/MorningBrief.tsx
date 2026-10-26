@@ -11,7 +11,7 @@ import { speakChunk, speechSettings, stop } from "./voice/speak";
 import { api } from "./AgentMission";
 
 const KEY = "orbit.brief"; // the local day it was last shown
-const ICON: Record<BriefItem["kind"], string> = { decision: "✋", night: "🌙", health: "🩺", calendar: "📅", first: "➜", result: "✦", lesson: "💡" };
+const ICON: Record<BriefItem["kind"], string> = { decision: "✋", night: "🌙", health: "🩺", calendar: "📅", place: "📍", first: "➜", result: "✦", lesson: "💡" };
 type Got = Brief & { life: boolean };
 
 export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void }) {
