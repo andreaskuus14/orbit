@@ -4,6 +4,7 @@
 // Reminders for overdue ones are drafts only; they go out through the BUSINESS send path after his click, never automatically.
 // Money is kept in cents (integers) so totals never drift.
 import { pdfDoc, pdfText, type PdfPage } from "./pdf-pure.ts";
+import { emailIn } from "./business-pure.ts";
 
 export const STATUSES = ["draft", "sent", "paid"] as const;
 export type Status = (typeof STATUSES)[number];
@@ -22,6 +23,7 @@ export type Invoice = {
   issued: string; due: string; status: Status; sentAt: string | null; paidAt: string | null; notes: string;
   reminder: Reminder | null; // the draft waiting for his approval
   reminded: { at: string; via: "email" | "copy" | "unknown" }[];
+  pushedAt?: string; // last phone push about its waiting reminder (once a week at most)
   created: string; updated: string;
 };
 
@@ -243,6 +245,25 @@ export const briefInvoices = (list: Invoice[], today: string) =>
   list.filter((i) => i.reminder && isOverdue(i, today)).slice(0, 3).map((i) => ({
     id: `invoice:${i.id}`, title: `Reminder to ${i.buyer.name}`, what: `the payment reminder to ${i.buyer.name} for invoice ${i.number}`, open: { panel: "business" as const },
   }));
+
+// ---- Phone remote (approvals list + push) ----------------------------------------
+
+/** Reminder drafts waiting for his click, as phone approval items (remote.ts adds the HMAC id). `to` only when approving
+ *  will email it (same rule as approveReminder); otherwise he copies the text himself. seen = the draft's `at`, echoed back exactly on approve. */
+export const remoteInvoices = (list: Invoice[], today: string, canEmail: boolean) =>
+  list.filter((i) => i.reminder && isOverdue(i, today)).map((i) => ({
+    key: `invoice:${i.id}`, title: `Invoice ${i.number}`, detail: "BUSINESS invoice reminder", buyer: i.buyer.name, amount: euro(totals(i).gross),
+    daysLate: daysLate(i, today), message: i.reminder!.text, seen: i.reminder!.at, ...(canEmail && emailIn(i.buyer.email) && { to: emailIn(i.buyer.email)! }),
+  }));
+
+export const PUSH_AGAIN_DAYS = 7;
+/** Waiting reminders to push about now: at most once per invoice per week (pushedAt is stamped by the caller before sending). */
+export function invoicePushes(list: Invoice[], today: string, now: number) {
+  return list.filter((i) => i.reminder && isOverdue(i, today) && !(i.pushedAt && now - Date.parse(i.pushedAt) < PUSH_AGAIN_DAYS * 86_400_000)).map((i) => {
+    const n = daysLate(i, today);
+    return { id: i.id, title: `Invoice ${i.number} is ${n} day${n === 1 ? "" : "s"} overdue — a reminder is ready`, body: "Read it and approve it in Remote." };
+  });
+}
 
 // ---- PDF ------------------------------------------------------------------------
 
