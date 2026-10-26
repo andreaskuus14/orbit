@@ -6,7 +6,7 @@ import { plain } from "./morning-pure.ts";
 import type { PanelId } from "./planets";
 import type { WorkItem } from "./work-continuation-pure";
 
-export type BriefKind = "decision" | "night" | "health" | "calendar" | "first" | "result" | "lesson";
+export type BriefKind = "decision" | "night" | "health" | "calendar" | "school" | "first" | "result" | "lesson";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
 export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true };
@@ -22,6 +22,7 @@ export type BriefIn = {
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
+  school?: { id: string; title: string; say: string; detail?: string }; // heavy week / today's study blocks / next deadline (school-pure schoolBrief)
   lesson?: { id: string; text: string }; snoozed: string[];
   echo?: { short?: string | null; reply?: string | null }; // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
 };
@@ -98,6 +99,8 @@ export function briefItems(x: BriefIn): BriefItem[] {
     const r = x.morning.life.next;
     add({ id: `reminder:${x.day}`, kind: "calendar", title: `Reminder at ${r.at}`, detail: plain(r.text), open: { panel: "life" }, say: `Don't forget, at ${r.at}: ${short(r.text, 8)}.` });
   }
+
+  if (x.school) add({ ...x.school, kind: "school", open: { panel: "life" } });
 
   const h = x.morning.hero;
   const heroWork = h && "work" in h.open ? h.open.work.id : null; // already said as a decision: don't say it twice

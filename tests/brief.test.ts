@@ -117,3 +117,11 @@ test("yesterday's Roblox session is one result line that opens GAME DEV", () => 
   assert.equal(d.kind, "result");
   assert.deepEqual(d.open, { panel: "creation" });
 });
+
+test("school line sits after the calendar and opens LIFE", () => {
+  const items = briefItems(base({ school: { id: "school:2026-10-25", title: "School: 2 hours today", say: "For school, you've got 2 hours planned today, starting at 16:00." } }));
+  const k = items.findIndex((i) => i.kind === "school");
+  assert.equal(items[k - 1].kind, "calendar");
+  assert.deepEqual(items[k].open, { panel: "life" });
+  assert.equal(briefItems(base({ school: { id: "s1", title: "x", say: "y" }, snoozed: ["s1"] })).some((i) => i.kind === "school"), false);
+});
