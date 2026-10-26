@@ -8,7 +8,7 @@ import { cancelTask, kickQueue } from "./agents";
 import { stopAllOn } from "./stop-all";
 import { usageHold } from "./usage-meter";
 import { readState, saveState, studioRoot } from "./clips/factory";
-import { classifyMemo, filingFor, MEMO_SYSTEM, memoPrompt, parseModelKind, pushMemo, refiled, refileProblem, undoneMemo, undoProblem, type Memo, type MemoKind, type MemoRef } from "./memos-pure";
+import { classifyMemo, filingFor, MEMO_SYSTEM, memoPrompt, parseModelKind, pushMemo, refiled, startProblem, refileProblem, undoneMemo, undoProblem, type Memo, type MemoKind, type MemoRef } from "./memos-pure";
 
 // VOICE MEMOS store: <studio>/memos.json (local, like ideas.json); kept audio in <studio>/memos/<id>.wav. Logic: memos-pure.ts.
 // Nothing here sends anything outward: memos become tasks (the AGENTS queue) or memories, like typing them in ORBIT would.
@@ -46,10 +46,9 @@ async function classify(sb: SupabaseClient, userId: string, text: string): Promi
 
 async function fileAs(sb: SupabaseClient, userId: string, kind: MemoKind, text: string): Promise<MemoRef> {
   const f = filingFor(kind, text);
-  if (f.to === "task") { // same insert + queue kick as POST /api/tasks
-    const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent: "nova", title: f.title, request: f.request }).select("id").single();
+  if (f.to === "task") { // parked (see MEMO_TASK_NOTE): startMemo queues it
+    const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent: "nova", title: f.title, request: f.request, status: f.status, error: f.error }).select("id").single();
     if (error) throw error;
-    void kickQueue(sb, userId);
     return { to: "task", id: data.id };
   }
   const { memory } = await createMemory(sb, userId, { kind: f.kind, title: f.title, content: f.content, source: "voice-memo", tags: f.tags, folder: f.folder });
@@ -106,5 +105,20 @@ export function undoMemo(sb: SupabaseClient, userId: string, id: string): Promis
     const next = undoneMemo(m);
     await save({ memos: s.memos.map((x) => (x.id === id ? next : x)) });
     return next;
+  });
+}
+
+/** The owner's Start tap: queue the parked task (same update as the PC's Retry), then kick the queue. */
+export function startMemo(sb: SupabaseClient, userId: string, id: string): Promise<Memo | string> {
+  return locked(async () => {
+    const s = await load(), m = s.memos.find((x) => x.id === id);
+    const why = startProblem(m);
+    if (why || !m?.ref) return why;
+    const { data, error } = await sb.from("tasks").update({ status: "queued", error: null, started_at: null, finished_at: null }).eq("id", m.ref.id).eq("status", "cancelled").select("id");
+    if (error) throw error;
+    const next: Memo = { ...m, started: true };
+    await save({ memos: s.memos.map((x) => (x.id === id ? next : x)) });
+    if (data?.length) void kickQueue(sb, userId);
+    return next; // already started from the PC: just mark it
   });
 }

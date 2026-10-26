@@ -4,14 +4,14 @@ import { ASR_RATE, decodeAudioBody } from "@/lib/audio-pure";
 import { loadVoiceAsr, MAX_VOICE_QUEUE, transcribeSpeech, voiceQueue } from "@/lib/voice-asr";
 import { cleanWhisperText } from "@/components/voice/hear";
 import { MAX_MEMO_CHARS, MAX_MEMO_SEC } from "@/lib/memos-pure";
-import { fileMemo, listMemos, refileMemo, undoMemo } from "@/lib/memos";
+import { fileMemo, listMemos, refileMemo, startMemo, undoMemo } from "@/lib/memos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 // Voice memos, for the paired phone (device cookie) or the PC (signed-in session). GET → {memos}.
 // POST ?op=file[&keep=1] with a 16 kHz mono WAV (≤ 2 min) → transcribe locally → classify → file → {memo}.
-// POST ?op=refile {id, kind} / ?op=undo {id} → {memo}. The audio is decoded in memory and dropped after transcription,
+// POST ?op=refile {id, kind} / ?op=undo {id} / ?op=start {id} (memo tasks are filed parked; Start queues them) → {memo}. The audio is decoded in memory and dropped after transcription,
 // unless keep=1 (then it's saved next to memos.json on the PC). Nothing is sent outward.
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 const RATE = { limit: 20, windowMs: 60_000 };
@@ -43,10 +43,10 @@ export async function POST(req: Request) {
   if (!c.sb) return c.res;
   const url = new URL(req.url), op = url.searchParams.get("op");
   try {
-    if (op === "refile" || op === "undo") {
+    if (op === "refile" || op === "undo" || op === "start") {
       const body = await req.json().catch(() => null) as { id?: unknown; kind?: unknown } | null;
       if (!body || typeof body.id !== "string") return fail("id required");
-      const r = op === "undo" ? await undoMemo(c.sb, c.userId, body.id) : await refileMemo(c.sb, c.userId, body.id, body.kind);
+      const r = op === "undo" ? await undoMemo(c.sb, c.userId, body.id) : op === "start" ? await startMemo(c.sb, c.userId, body.id) : await refileMemo(c.sb, c.userId, body.id, body.kind);
       return typeof r === "string" ? fail(r, 409) : Response.json({ memo: r });
     }
     if (op !== "file") return fail("Unknown op");

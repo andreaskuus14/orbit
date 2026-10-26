@@ -67,7 +67,7 @@ export function VoiceMemo({ compact = false }: { compact?: boolean }) {
     setState("idle");
   }
 
-  async function act(op: "refile" | "undo", kind?: MemoKind) {
+  async function act(op: "refile" | "undo" | "start", kind?: MemoKind) {
     if (!memo) return;
     setState("busy"); setErr("");
     try {
@@ -96,10 +96,12 @@ export function VoiceMemo({ compact = false }: { compact?: boolean }) {
       {err && <p className="error text-sm" role="alert">{err}</p>}
       {memo && (
         <div className={compact ? "card space-y-2" : "space-y-2"} role="status">
-          <div className="text-sm">{memo.undone ? <>Undone: <b>not filed</b></> : <>Filed as <b>{MEMO_LABEL[memo.kind]}</b>{memo.by === "model" ? " (AI guess)" : ""}</>}</div>
+          <div className="text-sm">{memo.undone ? <>Undone: <b>not filed</b></> : <>Filed as <b>{MEMO_LABEL[memo.kind]}</b>{memo.by === "model" ? " (AI guess)" : ""}{memo.ref?.to === "task" && !memo.started ? " (not started)" : ""}</>}</div>
           <p className="muted text-xs">“{memo.text}”</p>
           {!memo.undone && <div className="flex flex-wrap gap-2">
             <button type="button" className="chip" style={{ minHeight: 40 }} disabled={state === "busy"} onClick={() => setChanging((v) => !v)} aria-expanded={changing}>Change</button>
+            {memo.ref?.to === "task" && (memo.started ? <span className="muted text-xs self-center">Started</span>
+              : <button type="button" className="btn" style={{ minHeight: 40 }} disabled={state === "busy"} onClick={() => void act("start")}>Start</button>)}
             <button type="button" className="chip" style={{ minHeight: 40 }} disabled={state === "busy"} onClick={() => void act("undo")}>Undo</button>
           </div>}
           {changing && !memo.undone && <div className="flex flex-wrap gap-2" aria-label="File as">

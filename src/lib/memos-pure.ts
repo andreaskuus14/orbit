@@ -45,14 +45,16 @@ export function stripLabel(text: string): string {
 }
 const titleOf = (t: string) => { const s = t.split(/(?<=[.!?])\s/)[0].trim(); return s.length > 80 ? `${s.slice(0, 79)}…` : s; };
 
+/** Memo tasks are parked, never started: a misheard memo mustn't spend a run. "cancelled" so the PC's Retry starts it too. */
+export const MEMO_TASK_NOTE = "From a voice memo: not started. Press Start on the phone or Retry here to run it.";
 export type Filing =
-  | { to: "task"; title: string; request: string }
+  | { to: "task"; title: string; request: string; status: "cancelled"; error: string }
   | { to: "memory"; kind: "note" | "idea" | "goal"; title: string; content: string; tags: string[]; folder: string | null };
 /** Where each kind goes: tasks through the tasks table (the AGENTS queue), everything else as a memory. */
 export function filingFor(kind: MemoKind, text: string): Filing {
   const body = stripLabel(text), title = titleOf(body), tags = ["voice-memo"];
   switch (kind) {
-    case "task": return { to: "task", title, request: body };
+    case "task": return { to: "task", title, request: body, status: "cancelled", error: MEMO_TASK_NOTE };
     case "idea": return { to: "memory", kind: "idea", title, content: body, tags, folder: null };
     case "memory": return { to: "memory", kind: "note", title, content: body, tags, folder: null };
     case "goal-step": return { to: "memory", kind: "goal", title, content: body, tags: [...tags, "goal-step"], folder: "Goal steps" };
@@ -62,7 +64,7 @@ export function filingFor(kind: MemoKind, text: string): Filing {
 }
 
 export type MemoRef = { to: "task" | "memory"; id: string };
-export type Memo = { id: string; at: string; text: string; kind: MemoKind; by: "rules" | "model" | "owner"; source: "phone" | "pc"; ref: MemoRef | null; undone?: true; audio?: string };
+export type Memo = { id: string; at: string; text: string; kind: MemoKind; by: "rules" | "model" | "owner"; source: "phone" | "pc"; ref: MemoRef | null; undone?: true; audio?: string; started?: true };
 
 /** Why this memo can't be re-filed as `kind`, or "". */
 export function refileProblem(m: Memo | undefined, kind: unknown): string {
@@ -72,7 +74,8 @@ export function refileProblem(m: Memo | undefined, kind: unknown): string {
   return kind === m.kind ? "Already filed there" : "";
 }
 export const undoProblem = (m: Memo | undefined) => (!m ? "That memo is gone" : m.undone ? "Already undone" : "");
-export const refiled = (m: Memo, kind: MemoKind, ref: MemoRef): Memo => ({ ...m, kind, by: "owner", ref });
+export const startProblem = (m: Memo | undefined) => (!m ? "That memo is gone" : m.undone ? "That memo was undone" : m.ref?.to !== "task" ? "Only tasks can be started" : m.started ? "Already started" : "");
+export const refiled = (m: Memo, kind: MemoKind, ref: MemoRef): Memo => ({ ...m, kind, by: "owner", ref, started: undefined });
 export const undoneMemo = (m: Memo): Memo => ({ ...m, ref: null, undone: true });
 export const MAX_MEMOS = 200;
 /** Newest first, capped. Returns the memos dropped off the end (their kept audio files get deleted). */

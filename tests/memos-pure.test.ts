@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyMemo, filingFor, parseModelKind, pushMemo, MAX_MEMOS, refiled, refileProblem, stripLabel, undoneMemo, undoProblem, memoPrompt, type Memo } from "../src/lib/memos-pure.ts";
+import { classifyMemo, filingFor, parseModelKind, pushMemo, MAX_MEMOS, refiled, refileProblem, stripLabel, undoneMemo, undoProblem, memoPrompt, type Memo, startProblem, MEMO_TASK_NOTE } from "../src/lib/memos-pure.ts";
 
 test("rules: clear cues are sure", () => {
   const cases: [string, string][] = [
@@ -40,7 +40,7 @@ test("model reply parsing", () => {
 });
 
 test("filing: tasks to the queue, the rest as tagged memories", () => {
-  assert.deepEqual(filingFor("task", "Task: call the bank. Ask about the card."), { to: "task", title: "call the bank.", request: "call the bank. Ask about the card." });
+  assert.deepEqual(filingFor("task", "Task: call the bank. Ask about the card."), { to: "task", title: "call the bank.", request: "call the bank. Ask about the card.", status: "cancelled", error: MEMO_TASK_NOTE });
   const s = filingFor("shopping", "Shopping list, oat milk");
   assert.equal(s.to, "memory");
   if (s.to === "memory") { assert.equal(s.folder, "Shopping list"); assert.deepEqual(s.tags, ["voice-memo", "shopping-list"]); assert.equal(s.content, "oat milk"); }
@@ -58,7 +58,12 @@ test("re-file and undo state", () => {
   assert.equal(refileProblem(m, "task"), "");
   const r = refiled(m, "task", { to: "task", id: "t1" });
   assert.deepEqual([r.kind, r.by, r.ref], ["task", "owner", { to: "task", id: "t1" }]);
+  assert.equal(startProblem(m), "Only tasks can be started");
+  assert.equal(startProblem(r), "");
+  assert.equal(startProblem({ ...r, started: true }), "Already started");
+  assert.equal(refiled({ ...r, started: true }, "idea", { to: "memory", id: "m2" }).started, undefined);
   const u = undoneMemo(r);
+  assert.equal(startProblem(u), "That memo was undone");
   assert.equal(u.ref, null);
   assert.equal(undoProblem(u), "Already undone");
   assert.equal(refileProblem(u, "idea"), "That memo was undone");
