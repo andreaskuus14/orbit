@@ -1,4 +1,5 @@
 import path from "node:path";
+import { contentHash, spendContent } from "../approval-pure";
 import { listJobs, readState, saveState, studioRoot } from "./factory";
 import { approveStory, getStory, listStories, quoteStory, runningStory, weekUsage, writeStory } from "./story";
 import { DRAMA_DEFAULT, approveProblem, fingerprint, payable, quoteTotal, validStoryOpts, type StoryJob } from "./story-pure";
@@ -111,12 +112,15 @@ export async function approveBatch(ids: unknown, credits: unknown): Promise<Batc
   if (!off.ok) return off.why;
   const c = await current(), why = batchProblem(c.batch, ids, credits) || capProblem(c.w.used, c.batch.credits, c.w.cap);
   if (why) return why;
+  // His click approves the batch as it is now: each story's quote is hashed here, so a story changed later needs a fresh approval.
+  const seen = new Map<string, string>();
+  for (const it of c.batch.items) { const j = await getStory(it.id); if (j?.quote) seen.set(it.id, await contentHash(spendContent(j.quote.fingerprint, it.credits))); }
   const run = (G.__orbitShortsBatch = { ids: c.batch.items.map((i) => i.id), done: [] as string[], errors: [] as string[] });
   void (async () => {
     for (const it of c.batch.items) {
       if (!(await idle(() => runningStory() === null))) { run.errors.push(`${it.title}: another story kept running`); continue; }
       const job = await getStory(it.id);
-      const r = job ? await approveStory(job, it.credits) : "Story not found"; // re-checks quote, cap, Stop-all and Autonomy per story
+      const r = job ? await approveStory(job, it.credits, seen.get(it.id)) : "Story not found"; // re-checks quote, cap, Stop-all and Autonomy per story
       if (typeof r === "string") { run.errors.push(`${it.title}: ${r}`); continue; }
       await idle(() => runningStory() !== it.id);
       const after = await getStory(it.id);

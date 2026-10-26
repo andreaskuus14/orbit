@@ -20,12 +20,12 @@ export type Decision = { allow: boolean; tier: Tier; reason: string };
 export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[]; autonomy?: Partial<Levels> };
 
 export const TIERS: Record<string, Tier> = {
-  navigate: "T0", goal_status: "T0", business_status: "T0", ideas_list: "T0",
+  navigate: "T0", goal_status: "T0", mission_status: "T0", business_status: "T0", ideas_list: "T0",
   studio_status: "T0", learned: "T0", suggestions: "T0",
   life_status: "T0", life_journal: "T0", vault_search: "T0", vault_read: "T0", calendar_events: "T0", git_summary: "T0",
   ws_list: "T0", ws_read: "T0", rea_status: "T0", rea_read: "T0", week_review: "T0", wishlist: "T0",
   web_search: "T1", fetch_url: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1",
-  save_memory: "T2", ask_agent: "T2", create_goal: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
+  save_memory: "T2", ask_agent: "T2", create_goal: "T2", start_mission: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
   add_wish: "T2", // adds to his own wishlist; the hunter only reads public pages, and nothing is bought or sent by ORBIT
   queue_tonight: "T2", // adds to the night shift's own queue; the night run's outside effects still wait for owner approvals
   life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", rea_analyze: "T2", rea_cancel: "T2",
@@ -48,7 +48,7 @@ export const UI_APPROVALS: Record<string, string> = {
 
 // Profile → Autonomy area of each tool that starts work, writes or acts: an area set to Off refuses it (autonomyAllows "owner").
 export const TOOL_AREA: Record<string, Area> = {
-  ask_agent: "research", plan_task: "research", run_niche: "research", run_scout: "studio-prepare", save_memory: "memory",
+  ask_agent: "research", start_mission: "research", plan_task: "research", run_niche: "research", run_scout: "studio-prepare", save_memory: "memory",
   create_goal: "goals", queue_tonight: "night-shift", add_wish: "deals", schedule_approved: "studio-publish", higgsfield_draft: "higgsfield-spend",
 };
 
