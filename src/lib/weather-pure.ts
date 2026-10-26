@@ -8,8 +8,9 @@ export type Forecast = { time: string[]; temp: number[]; rainPct: number[]; code
 /** ~11 km grid: enough for a city forecast, too coarse to say which street. */
 export const weatherGrid = (v: number) => Math.round(v * 10) / 10;
 
-/** Which saved place to forecast: the one the phone is near (when the opt-in is on and the point is fresh), else the PC's place. */
+/** Which saved place to forecast: the one the phone is near (when the point is fresh), else the PC's place; none while the opt-in is off. */
 export function weatherPlace(s: PlaceState, now: number): Place | null {
+  if (!s.on) return null; // off means no location use at all, saved places included
   const p = currentPoint(s, now);
   return (p && nearestPlace(p, s.places)) || s.places.find((x) => x.pc) || null;
 }

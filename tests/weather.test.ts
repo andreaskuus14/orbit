@@ -52,12 +52,12 @@ test("parseForecast: Open-Meteo shape in, junk out; URL sends only ~10 km coordi
   assert.match(u, /hourly=temperature_2m,precipitation_probability,weather_code/);
 });
 
-test("weatherPlace: phone's nearby place when on and fresh, else the PC place, else none", () => {
+test("weatherPlace: phone's nearby place when fresh, else the PC place, else none; nothing while off", () => {
   const now = Date.parse(`${day}T07:00:00Z`);
   const home = { name: "Home", lat: 59.44, lon: 24.75, pc: true }, tartu = { name: "Tartu", lat: 58.38, lon: 26.73 };
   const last = { lat: 58.38, lon: 26.72, at: new Date(now - 3_600_000).toISOString() };
   assert.equal(weatherPlace({ on: true, places: [home, tartu], last }, now)?.name, "Tartu");
-  assert.equal(weatherPlace({ on: false, places: [home, tartu], last }, now)?.name, "Home");
+  assert.equal(weatherPlace({ on: false, places: [home, tartu], last }, now), null);
   assert.equal(weatherPlace({ on: true, places: [home, tartu], last: { ...last, at: new Date(now - 13 * 3_600_000).toISOString() } }, now)?.name, "Home");
   assert.equal(weatherPlace({ on: true, places: [tartu] }, now), null);
 });

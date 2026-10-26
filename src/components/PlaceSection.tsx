@@ -27,7 +27,7 @@ export function PlaceSection() {
         Off unless you turn it on. When on, the phone remote sends a rough location (rounded to about 1 km) only when you tap <b>Update place</b> there:
         no background tracking, and only the latest point is kept, in ORBIT's data folder on this PC. The morning brief then may add a line like
         “you're near School, and … is waiting” or “you're away from your PC, 3 things need it”. Your location never goes to an AI model; only a place name you saved can appear in the brief.
-        Weather: if you saved a place marked “my PC is here” (or the phone is near a saved place while this is on), the brief adds one line like
+        Weather (only while this is on): if the phone is near a saved place, or you saved one marked “my PC is here”, the brief adds one line like
         “around Home today: 4 to 9 degrees, rain after 15:00”. Once a morning ORBIT asks Open-Meteo (free, no account) for that place's
         coordinates rounded to about 10 km; nothing else is sent. No saved place, no weather.
       </p>
