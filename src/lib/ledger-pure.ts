@@ -3,6 +3,7 @@ import { PLANETS } from "./planets.ts";
 import { STAGES, type Stage } from "./business-pure.ts";
 import { CARD_KINDS, SOURCES, type CardKind, type Source } from "./morning-rank-pure.ts";
 import { AREAS, LEVELS, type Area } from "./autonomy-pure.ts";
+import { STATUSES as CONTRACT_STATUSES, type Status as ContractStatus } from "./contracts-pure.ts";
 import { ITEM_STATUSES, NIGHT_KINDS, type ItemStatus, type NightKind } from "./night-pure.ts";
 
 type Data = {
@@ -39,6 +40,7 @@ type Data = {
   "health.issue": { issue: string; status: "new" | "regressed" | "resolved" }; // self-healing (health.ts): the issue id only, never log text
   "dev.session.start": { session: string }; // Roblox dev session log (dev-session.ts): the session id only, never code, paths or console text
   "dev.session.end": { session: string };
+  "contract.status": { contractId: string; to: ContractStatus; version: number }; // BUSINESS contracts (contracts.ts): ids only, never parties, prices or text
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -85,6 +87,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "health.issue": { issue: id, status: oneOf(["new", "regressed", "resolved"]) },
   "dev.session.start": { session: id },
   "dev.session.end": { session: id },
+  "contract.status": { contractId: id, to: oneOf(CONTRACT_STATUSES), version: (v) => Number.isInteger(v) && (v as number) >= 1 },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];

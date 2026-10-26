@@ -6,6 +6,7 @@ import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, type Find
 import { mapNodes, mapSummary } from "@/lib/business-map-pure";
 import { SIG_LABEL, scorecard, type Cell } from "@/lib/outreach-score-pure";
 import NicheCards from "./NicheCards";
+import ContractsPanel from "./ContractsPanel";
 
 // Three.js loads after the drawer opens, so the list shows instantly.
 const BusinessMap = dynamic(() => import("./BusinessMap"), { ssr: false, loading: () => <div className="h-[260px] rounded-md border border-white/10" /> });
@@ -88,6 +89,8 @@ export default function BusinessPanel() {
       )}
 
       {st && <Scorecard ps={st.prospects} />}
+
+      {st && <ContractsPanel prospects={st.prospects} />}
 
       <NicheCards />
 

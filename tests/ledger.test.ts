@@ -36,6 +36,7 @@ const DATA: Record<string, object> = {
   "health.issue": { issue: "h1a2b3c4d", status: "new" },
   "dev.session.start": { session: "0b9c2f4e-1d2a-4c3b-8e5f-6a7b8c9d0e1f" },
   "dev.session.end": { session: "0b9c2f4e-1d2a-4c3b-8e5f-6a7b8c9d0e1f" },
+  "contract.status": { contractId: "c-1", to: "signed", version: 2 },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {
