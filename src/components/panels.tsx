@@ -10,6 +10,7 @@ import { followUps } from "@/lib/core-ui";
 import { appendActivity } from "@/lib/core-activity-pure";
 import { CoreActivity } from "./CoreActivity";
 import { PasswordSection } from "./PasswordSection";
+import { TimeCapsuleSection } from "./TimeCapsuleSection";
 import { PhonePairing } from "./PhonePairing";
 import { AutonomySection } from "./AutonomySection";
 import { PersonaSection } from "./PersonaSection";
@@ -666,6 +667,7 @@ export function ProfilePanel() {
     <PasswordSection />
     <AutonomySection />
     <PhonePairing />
+    <TimeCapsuleSection />
     <PersonaSection />
     <PlaybookSection />
     <LessonsSection />
