@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { CALL_START, decideCall, parseCallState } from "../src/lib/call-pure.ts";
 import { cleanFuture, fit, futureScript, futureWindow, goalPace, hasData, oneThing, pace, project, streak, weekly, type FutureIn } from "../src/lib/future-pure.ts";
 
 const NOW = Date.parse("2026-10-26T18:00:00Z"), DAY = 86_400_000;
@@ -87,4 +88,17 @@ test("monthly window: evenings 18-21, once per month", () => {
   assert.equal(futureWindow("2026-10", "2026-10-26", 19), false);
   assert.equal(futureWindow("2026-09", "2026-10-26", 17), false);
   assert.equal(futureWindow("2026-09", "2026-10-26", 21), false);
+});
+
+test("monthly ring through decideCall: evening only, once a month, lowest priority, never under Stop-all", () => {
+  const at = (h: number, d = 26) => Date.UTC(2026, 9, d, h - 2); // Tallinn = UTC+2
+  const sig = (now: number, o = {}) => ({ now, stopAll: false, approvals: [], nightReport: false, future: true, ...o });
+  const r = decideCall(CALL_START, sig(at(19)));
+  assert.equal(r.ring?.reason, "future"); assert.equal(r.state.futureMonth, "2026-10");
+  assert.equal(decideCall({ ...r.state, lastAt: 0 }, sig(at(20, 27))).ring, null); // already this month
+  assert.equal(decideCall(CALL_START, sig(at(15))).ring, null);
+  assert.equal(decideCall(CALL_START, sig(at(19), { stopAll: true })).ring, null);
+  assert.equal(decideCall(CALL_START, sig(at(19), { future: false })).ring, null); // no numbers, no call
+  assert.equal(decideCall({ ...CALL_START, calls: 2, day: "2026-10-26" }, sig(at(19))).ring, null); // daily limit
+  assert.equal(parseCallState(JSON.stringify(r.state)).futureMonth, "2026-10");
 });

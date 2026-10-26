@@ -164,7 +164,7 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
     }
   }
 
-  async function answer() {
+  async function answer(future = false) {
     const c = r.current;
     setPhase("connecting"); setErr(""); setLines([]); setLat("");
     if (location.hash === "#r-call") history.replaceState(null, "", location.pathname);
@@ -180,7 +180,7 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
       src.connect(c.proc); c.proc.connect(c.ctx.destination); // outputs silence; it only runs while connected
       c.m = { ...MIC_START }; c.seg = []; c.pre = []; c.speech = false; c.firstPlay = 0; c.lagWhat = "spoke"; c.endedAt = performance.now(); // latency line: answer tap → ORBIT's voice
       const ac = (c.turn = new AbortController());
-      const res = await fetch(`${API}?op=start`, { method: "POST", signal: ac.signal });
+      const res = await fetch(`${API}?op=start${future ? "&reason=future" : ""}`, { method: "POST", signal: ac.signal });
       if (!res.ok || !res.body) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "ORBIT couldn't start the call");
       await readEvents(res.body, ac.signal); // the first sentence plays while the rest is still being voiced
       if (c.turn === ac) c.turn = null;
@@ -225,6 +225,8 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
       <h2 id="r-call" className="text-sm font-semibold">Talk to ORBIT</h2>
       <p className="muted text-sm">ORBIT calls you when something needs you (max twice a day, never 23:00–08:00). Or call it now.</p>
       <button className="btn w-full" style={{ minHeight: 48 }} onClick={() => void answer()}>Call ORBIT</button>
+      <button className="chip w-full" style={{ minHeight: 44 }} onClick={() => void answer(true)}>Call from you, a year out</button>
+      <p className="muted text-xs">A projection from your last 12 weeks of numbers, not a promise. It also rings once a month, in the evening.</p>
       <label className="flex items-center justify-between gap-2 text-sm">
         <span className="muted">Daily check-in call</span>
         <input type="time" className="field" value={checkin} onChange={(e) => void saveCheckin(e.target.value)} aria-label="Daily check-in time" />

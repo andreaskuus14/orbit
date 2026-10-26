@@ -26,11 +26,12 @@ import {
   phraseKey, quickReply, takeSentences, transcriptText, voiceDecision, whenLabel,
   type CallItem, type CallReason, type CallState, type CallTurn, type Pending,
 } from "./call-pure";
+import { futureWindow, monthOf } from "./future-pure";
 
-type Session = { id: string; userId: string; sb: SupabaseClient; reason: CallReason; turns: CallTurn[]; pending: Pending | null; done: string[]; n: number; lastAt: number; busy?: AbortController; said: Set<string> };
+type Session = { id: string; userId: string; sb: SupabaseClient; reason: CallReason; turns: CallTurn[]; pending: Pending | null; done: string[]; n: number; lastAt: number; busy?: AbortController; said: Set<string>; who?: string };
 /** An opener made ahead (when ORBIT rings, or while the call screen is open): its text and its first sentence's audio. */
 type Voiced = { text: string; parts: string[]; audio: Promise<string | null>[] };
-type Pre = { reason: CallReason; at: number; key: Promise<string>; base: Promise<string>; voiced: Promise<Voiced> };
+type Pre = { reason: CallReason; at: number; key: Promise<string>; base: Promise<string>; voiced: Promise<Voiced>; who?: Promise<string> };
 type G = { sessions: Map<string, Session>; ring: { reason: CallReason; at: number } | null; checkedAt: number; save?: Promise<unknown>; tts: Promise<unknown>; cache: Map<string, string>; sweep?: NodeJS.Timeout; pre?: Pre };
 const g = globalThis as unknown as { __orbitCall?: G };
 const G: G = (g.__orbitCall ??= { sessions: new Map(), ring: null, checkedAt: 0, tts: Promise.resolve(), cache: new Map() });
@@ -68,9 +69,11 @@ export async function maybeCall(): Promise<void> {
     const dev = (await listDevices()).find((d) => d.push);
     if (!dev) return;
     const sb = await ownerClient(dev.userId);
+    const lp = localParts(now), st = await load(); // the future-self call needs numbers: gathered only inside its monthly window
+    const future = !stopAllOn() && futureWindow(st.futureMonth ?? "", lp.day, lp.h) && await import("./future").then((f) => f.futureReady(sb, dev.userId), () => false);
     const [items, report, deals] = await Promise.all([pendingApprovals(sb), readSleepReport(dev.userId).catch(() => undefined), import("./deals").then((d) => d.freshDeals(now), () => ({ ids: [] }))]);
     let ring: ReturnType<typeof decideCall>["ring"] = null;
-    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids }); ring = r.ring; return r.state; });
+    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids, future }); ring = r.ring; return r.state; });
     if (!ring) return;
     const { reason, things } = ring as NonNullable<typeof ring>;
     G.ring = { reason, at: now };
@@ -131,6 +134,13 @@ function voice(text: string): Voiced {
 function prepareOpener(sb: SupabaseClient, userId: string, reason: CallReason): Pre {
   const at = Date.now();
   const items = toItems(sb).catch(() => [] as CallItem[]);
+  if (reason === "future") { // his own numbers, phrased once; no earlier-call follow-ups
+    const f = import("./future").then((m) => m.futureCall(sb, userId));
+    const base = f.then((x) => x.text, () => opener("future", localParts(at).h, []));
+    const voiced = base.then(voice);
+    voiced.then((v) => Promise.all(v.audio)).then(() => warmVoice(), () => {});
+    return { reason, at, key: items.then(itemsKey), base, voiced, who: f.then((x) => x.who, () => "") };
+  }
   const plainBase = Promise.all([items, dealFor(reason)]).then(([it, deal]) => opener(reason, localParts(at).h, it, deal));
   // Morning call: the same composer as the PC's morning brief; any failure keeps the plain opener.
   const base = reason !== "morning" ? plainBase : import("./brief").then((b) => b.morningOpener(sb, userId, localParts(at).h)).then((t) => t ?? plainBase, () => plainBase);
@@ -158,10 +168,12 @@ const NDJSON = { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-C
 
 /** Pick up: NDJSON {type:"call",id,reason} then {type:"say",text,audio} per opener sentence, the first as soon as its audio is ready
  *  (made ahead when ORBIT rang). Spare Claude CLIs boot while ORBIT talks, so his first reply skips the CLI's start-up. */
-export async function startCall(sb: SupabaseClient, userId: string): Promise<Response> {
+export async function startCall(sb: SupabaseClient, userId: string, want?: "future"): Promise<Response> {
+  if (want && stopAllOn()) return Response.json({ error: "Stop-all is on: no calls until you turn it off" }, { status: 409 });
   for (const s of [...G.sessions.values()]) void endCall(s.userId, s.id); // one call at a time
   const t0 = Date.now();
-  const reason = ringing() ?? "manual";
+  const reason = want ?? ringing() ?? "manual";
+  if (want) void update((s) => ({ ...s, futureMonth: monthOf(localParts(t0).day) })).catch(() => {}); // he asked: no monthly ring on top
   const pre = G.pre;
   G.ring = null; G.pre = undefined;
   const items = await toItems(sb).catch(() => [] as CallItem[]);
@@ -171,9 +183,14 @@ export async function startCall(sb: SupabaseClient, userId: string): Promise<Res
     ahead = !!v;
     v ??= voice(await pre.base);
   }
+  let who = reason === "future" && v ? (await pre?.who) || undefined : undefined;
+  if (reason === "future" && !who) { // asked for (or the ring's opener went stale): phrase it now, the plain script after 8 s
+    const f = await import("./future").then((m) => m.futureCall(sb, userId, 8_000));
+    v = voice(f.text); who = f.who;
+  }
   const { text, parts, audio } = v ?? voice(opener(reason, localParts(t0).h, items, await dealFor(reason)));
   const id = randomUUID();
-  const s: Session = { id, userId, sb, reason, turns: [{ role: "assistant", content: text }], pending: null, done: [], n: 0, lastAt: t0, said: new Set(parts.map(phraseKey)) };
+  const s: Session = { id, userId, sb, reason, turns: [{ role: "assistant", content: text }], pending: null, done: [], n: 0, lastAt: t0, said: new Set(parts.map(phraseKey)), who };
   G.sessions.set(id, s);
   sweep();
   void emit(sb, userId, "call.started", "core", { callId: id, reason });
@@ -262,7 +279,7 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
               const r = takeSentences(buf);
               buf = r.rest;
               r.done.forEach(sayNew);
-            }, ac.signal, () => { buf = ""; }, callStyle(items));
+            }, ac.signal, () => { buf = ""; }, callStyle(items, s.who));
             ms.core = Date.now() - t0;
             path = out.trace.some((x) => x.step === "reflex") ? "reflex" : out.model;
             const r = takeSentences(buf, true);
