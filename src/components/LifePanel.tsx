@@ -152,6 +152,7 @@ const timer = restored.timer;
 const phaseLen = (p: typeof timer.phase) => focusPhaseSeconds(timer.plan, p);
 function saveTimer() {
   try { localStorage.setItem(FOCUS_TIMER_KEY, JSON.stringify(timer)); } catch { /* storage unavailable: keep the in-memory timer */ }
+  post({ action: "timer", timer }).catch(() => {}); // for the read-only second screen
 }
 const timerListeners = new Set<(logged?: boolean) => void>();
 let timerTick: ReturnType<typeof setInterval> | null = null;

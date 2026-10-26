@@ -17,8 +17,9 @@ import { approveProblem, quoteTotal } from "@/lib/clips/story-pure";
 import { emailIn } from "@/lib/business-pure";
 import { waitingNegotiations } from "@/lib/negotiator";
 import type { PushSub } from "@/lib/remote-push-pure";
+import { deviceType } from "@/lib/screen-pure";
 
-export type Device = { id: string; name: string; userId: string; createdAt: string; push?: PushSub }; // push: its Web Push subscription (6.3)
+export type Device = { id: string; name: string; userId: string; createdAt: string; push?: PushSub; type?: "screen" }; // push: its Web Push subscription (6.3); type screen: read-only second screen
 type State = { pair?: PairCode & { userId: string }; nonces: NonceCache; hits: Map<string, number[]>; seen: Map<string, string>; chat: Map<string, { id: string; at: number }>;
   owner?: { userId: string; email: string; sb: SupabaseClient }; save?: Promise<unknown> };
 const g = globalThis as unknown as { __orbitRemote?: State };
@@ -56,15 +57,16 @@ export function rateOk(key: string, r: { limit: number; windowMs: number }) {
   return t.ok;
 }
 
-/** The paired device behind this request's cookie, or null (bad/expired token, or revoked device). */
-export async function deviceFromCookie(): Promise<Device | null> {
+/** The paired device behind this request's cookie, or null (bad/expired token, or revoked device).
+ *  A read-only screen counts as unpaired unless the route asks for it (readOnlyOk) and then checks scopeAllows itself. */
+export async function deviceFromCookie(readOnlyOk = false): Promise<Device | null> {
   const token = (await cookies()).get(REMOTE_COOKIE)?.value;
   if (!token) return null;
   const v = verifyToken(token, remoteSecret(), Date.now());
   if (!v.ok) return null;
   const d = (await listDevices()).find((x) => x.id === v.payload.deviceId) ?? null;
   if (d) S.seen.set(d.id, new Date().toISOString());
-  return d;
+  return d && (readOnlyOk || deviceType(d) === "phone") ? d : null;
 }
 
 /** A Supabase client signed in as the owner (RLS applies, as on the PC). Minted server-side with the service key: a magic-link
