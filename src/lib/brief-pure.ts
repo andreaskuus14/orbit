@@ -6,7 +6,7 @@ import { plain } from "./morning-pure.ts";
 import type { PanelId } from "./planets";
 import type { WorkItem } from "./work-continuation-pure";
 
-export type BriefKind = "decision" | "night" | "health" | "calendar" | "first" | "result" | "lesson";
+export type BriefKind = "decision" | "night" | "health" | "calendar" | "first" | "result" | "lesson" | "question";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
 export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true };
@@ -22,6 +22,8 @@ export type BriefIn = {
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
+  dream?: { id: string; question: string }; // last night's ONE question (dream-pure); his answer goes through CORE like any message
+  idea?: { id: string; title: string; more: number }; // last night's dream-mode idea (dream-ideas-pure briefIdea)
   lesson?: { id: string; text: string }; snoozed: string[];
   echo?: { short?: string | null; reply?: string | null }; // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
 };
@@ -43,7 +45,7 @@ export function hello(hour: number): string {
 
 type NightApproval = { label: string; open?: { task: string } | { goal: string; step?: number; stepId?: string } | { panel: string } };
 /** Everything waiting on his OK, night shift first, deduped by task. Remote approvals (clips, spends, emails) only open. */
-export function briefDecisions(night: NightApproval[], work: WorkItem[], remote: { id: string; kind: "clip" | "spend" | "send" | "nego"; title: string; detail?: string; credits?: number; to?: string }[]): Decision[] {
+export function briefDecisions(night: NightApproval[], work: WorkItem[], remote: { id: string; kind: "clip" | "spend" | "send" | "nego" | "invoice"; title: string; detail?: string; credits?: number; to?: string }[]): Decision[] {
   const out: Decision[] = [];
   for (const i of night) {
     const o = i.open;
@@ -54,7 +56,7 @@ export function briefDecisions(night: NightApproval[], work: WorkItem[], remote:
     if (w.status !== "awaiting_approval" || out.some((d) => d.id === `${w.kind}:${w.id}`)) continue;
     out.push({ id: `${w.kind}:${w.id}`, title: plain(w.title), what: q(w.title), open: { work: w }, ...(w.kind === "task" && { approve: { task: w.id } }) });
   }
-  for (const r of remote) out.push({
+  for (const r of remote) if (r.kind !== "invoice") out.push({ // invoice reminders come from invoices-pure briefInvoices
     id: r.id, title: plain(r.title),
     what: r.kind === "clip" ? `the clip ${q(r.title)}` : r.kind === "spend" ? `the ${r.credits ?? ""} credit spend for ${q(r.title)}`.replace("  ", " ") : r.kind === "nego" ? `your reply to ${plain(r.title)}` : `the email to ${plain(r.title)}`,
     open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "send" ? { panel: "business" } : r.kind === "nego" ? (r.detail?.startsWith("Deal") ? { panel: "markets", tab: "Deals" } : { panel: "business" }) : { panel: "studio" },
@@ -86,6 +88,9 @@ export function briefItems(x: BriefIn): BriefItem[] {
   }
 
   if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });
+
+  if (x.dream) add({ id: `dream:${x.dream.id}`, kind: "question", title: plain(x.dream.question), detail: "Answer in CORE or on the call", open: { panel: "core" }, say: plain(x.dream.question) });
+  if (x.idea) add({ id: `idea:${x.idea.id}`, kind: "night", title: `ORBIT dreamt: ${plain(x.idea.title)}`, detail: `In DREAMS under Goals${x.idea.more ? ` (+${x.idea.more} more)` : ""}`, open: { panel: "agents" }, say: `I dreamt up an idea: ${plain(x.idea.title)}.` });
 
   const ev = x.morning.calendar?.today ?? [];
   if (ev.length) {
@@ -138,8 +143,10 @@ export function composeBrief(x: BriefIn): Brief {
 export function briefOpener(b: Brief, hour: number): string {
   const hi = hour < 12 ? "Morning." : "Hey.";
   const lines: string[] = [];
-  for (const i of b.items.slice(0, 2)) if (words([hi, ...lines, i.say].join(" ")) <= 40) lines.push(i.say);
-  const ask = b.items[0]?.kind === "decision" ? "Want to go through it now?" : b.items.length > lines.length ? "Want the rest?" : "Anything you need from me?";
+  // Last night's question is the one question when nothing waits on his OK; it ends the opener instead of "Want the rest?".
+  const dq = b.items[0]?.kind === "decision" ? undefined : b.items.find((i) => i.kind === "question"), rest = b.items.filter((i) => i !== dq);
+  for (const i of rest.slice(0, 2)) if (words([hi, ...lines, i.say].join(" ")) <= 40 - (dq ? words(dq.say) : 0)) lines.push(i.say);
+  const ask = b.items[0]?.kind === "decision" ? "Want to go through it now?" : dq ? dq.say : rest.length > lines.length ? "Want the rest?" : "Anything you need from me?";
   return [hi, ...lines, ask].join(" ").replace(/\s+/g, " ").trim();
 }
 

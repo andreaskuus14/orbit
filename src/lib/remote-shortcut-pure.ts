@@ -38,7 +38,7 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 /** One line Siri can read: Stop-all, what's waiting (kinds and counts only, never titles), what's running. */
 export function statusLine(s: { stopOn: boolean; kinds: readonly Approval["kind"][]; running: number }): string {
   const n = (k: Approval["kind"]) => s.kinds.filter((x) => x === k).length;
-  const parts = [[n("clip"), "clip"], [n("spend"), "spend"], [n("send"), "email"]].filter(([c]) => c).map(([c, w]) => plural(c as number, w as string));
+  const parts = [[n("clip"), "clip"], [n("spend"), "spend"], [n("send"), "email"], [n("nego"), "negotiation"]].filter(([c]) => c).map(([c, w]) => plural(c as number, w as string));
   const waiting = s.kinds.length ? `${s.kinds.length} waiting for you: ${parts.join(", ")}.` : "Nothing waiting for you.";
   return `${s.stopOn ? "Stop-all is ON." : "ORBIT is running."} ${waiting}${s.running ? ` ${plural(s.running, "job")} running.` : ""}`;
 }
