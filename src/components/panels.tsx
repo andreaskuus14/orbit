@@ -21,6 +21,8 @@ import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { Markdown } from "./AgentsPanels";
 import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
+import { ScreenLook, type LookAsk } from "./ScreenLook";
+import { parseLookRequest, robloxErrors, LUAU_FIX_EVENT, type Preset } from "@/lib/screen-look-pure";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
@@ -40,7 +42,7 @@ import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechG
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
 type Cite = { id: string; title: string; kind: string };
 type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[] };
-type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string } };
+type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[] };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
@@ -71,6 +73,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const [copied, setCopied] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const att = useAttachments(); // files for the next message (📎 / drop / paste)
+  const [lookAsk, setLookAsk] = useState<LookAsk | null>(null); // "look at my screen" said/typed: waits for his click (the browser needs one)
   const fileRef = useRef<HTMLInputElement>(null);
   const lastQ = useRef(""); // for Retry and ↑ in an empty input
   const convo = useRef<string | null>(null);
@@ -135,9 +138,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) { ac?.abort(); if (!flying.current) stopSpeech(); } }, 0); };
   }, []);
 
-  const send = useCallback(async (text: string, fromVoice?: boolean) => {
+  const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset) => {
     const message = text.trim();
     const nav = parseNavCommand(message, { current: "core" });
+    const asked = !look && !nav ? parseLookRequest(message) : null;
+    if (asked) { setLookAsk(asked); setInput(""); return; } // never captures by itself: the strip shows a "choose the window" button
     if ((!message && !att.has()) || (busy && !nav)) return; // direct commands still work while CORE answers
     stopSpeech();
     if (isSleepCommand(message)) { void goToSleep(); return; }
@@ -173,7 +178,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     try {
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
+        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
@@ -207,7 +212,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? ""));
           setLive(null);
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model,
-            chips: followUps(message, (ev.trace ?? []).map((s) => s.step)), lesson: ev.lesson }]);
+            chips: followUps(message, (ev.trace ?? []).map((s) => s.step)), lesson: ev.lesson, fixes: look === "roblox" ? robloxErrors(ev.answer ?? "") : undefined }]);
         } else if (ev.type === "error") {
           throw new Error(ev.error || "CORE failed");
         }
@@ -311,6 +316,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           {m.chips.map((c) => <button key={c} type="button" className="chip" onClick={() => void send(c)}>{c}</button>)}
         </div>
       )}
+      {!!m.fixes?.length && (
+        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Roblox errors">
+          {m.fixes.map((f) => <button key={f} type="button" className="chip max-w-full truncate" title={`Open the Luau helper (docs-checked) in Fix mode with: ${f}`}
+            onClick={() => { dispatchEvent(new CustomEvent(LUAU_FIX_EVENT, { detail: f })); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: { panel: "creation" } })); }}>🩹 Fix with docs: {f.slice(0, 60)}</button>)}
+        </div>
+      )}
       {m.lesson && <LessonChip lesson={m.lesson} />}
       {!!m.trace?.length && (
         <ResultEvidence items={m.trace.flatMap((s) => s.evidence ?? [])} openMemory={onOpenMemory} />
@@ -357,6 +368,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
         <div ref={end} />
       </div>
       <AttachChips items={att.items} error={att.error} onRemove={att.remove} />
+      <ScreenLook busy={busy} input={input} ask={lookAsk} onAsk={setLookAsk} run={async (file, text, preset) => { await att.add([file]); await send(text, false, preset); }} />
       <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
         <input ref={fileRef} type="file" multiple accept={ACCEPT} className="sr-only" tabIndex={-1} aria-hidden onChange={(e) => { if (e.target.files) void att.add(e.target.files); e.target.value = ""; }} />
         <button type="button" className="btn" title="Attach images or documents (or drop / paste them)" aria-label="Attach files" disabled={busy} onClick={() => fileRef.current?.click()}>📎</button>

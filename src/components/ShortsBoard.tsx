@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ShortsPlanCard from "./ShortsPlanCard";
 import { STAGES, pipelineCards, validTarget, weekProgress, weekStartOf, type Card, type Open, type PIdea, type PJob, type PStory, type Stage } from "@/lib/clips/pipeline-pure";
 
 // Clip Factory → "Pipeline": every Short from idea to its live slot, the weekly target, and the packaging scorer for the title A/B.
@@ -71,6 +72,8 @@ export default function ShortsBoard({ jobs, active, reduced, onOpen, onPickTitle
         </p>
         {warn && <p className="error mt-1 text-[11px]" role="alert">{warn}</p>}
       </section>
+
+      <ShortsPlanCard active={active} target={target} onOpen={onOpen} />
 
       <div className="grid grid-cols-2 gap-2 @2xl:grid-cols-3 @5xl:grid-cols-6" aria-label="Shorts pipeline">
         {STAGES.map((stage) => {
