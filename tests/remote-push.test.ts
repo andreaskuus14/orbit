@@ -84,7 +84,7 @@ test("gate: one per kind per 2 min, the rest coalesced; quiet hours drop all but
 });
 
 test("labels carry no item content: fixed text and a /remote deep link", () => {
-  for (const k of ["clip", "spend", "send", "scheduled", "published", "failed", "stop", "call"] as const) {
+  for (const k of ["clip", "spend", "send", "scheduled", "published", "failed", "stop", "call", "invoice"] as const) {
     const m = pushLabel(k, 3);
     assert.match(m.url, /^\/remote#r-[a-z]+$/);
     assert.deepEqual(Object.keys(m).sort(), ["body", "tag", "title", "url"]);

@@ -11,7 +11,7 @@ import { stopAllOn } from "./stop-all";
 import { usageHold, usageLimited } from "./usage-meter";
 import { maybeSleep } from "./sleep";
 import { maybeWeeklyScout } from "./niche";
-import { maybeNightShift } from "./night";
+import { maybeNightShift, nightOwnsCompany } from "./night";
 import { maybeDealHunt } from "./deals";
 import { maybeScorecard } from "./agent-replay";
 import { maybeArchDigest } from "./arch-digest";
@@ -39,7 +39,8 @@ async function tick(sb: SupabaseClient) {
       if (limited) continue;
       await runDueAutomations(sb, id).catch((e) => console.error("[orbit] scheduled automations failed:", e?.message ?? e));
       void kickQueue(sb, id); // tasks still queued after a restart (the in-process queue is gone) start again
-      void resumeChains(sb, id).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
+      void nightOwnsCompany().then((night) => resumeChains(sb, id, night)).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
+      void import("./missions").then((m) => m.resumeMissions(sb, id)).catch((e) => console.error("[orbit] missions resume failed:", e?.message ?? e));
       const since = new Date(Date.now() - 8 * 86400_000).toISOString();
       const { data: recent } = await sb.from("briefings").select("kind, created_at").eq("user_id", id).gte("created_at", since).order("created_at", { ascending: false });
       // Failed attempts count as "ran" too, so a broken feed doesn't retry every minute.
@@ -77,6 +78,8 @@ async function tick(sb: SupabaseClient) {
     if (!limited && allows("deals", "background").ok) void maybeDealHunt(sb, (users ?? []).map((u) => u.id));
     // Profile → Autonomy "auto with limits" (off by default: a no-op until the owner turns it on with the typed phrase).
     if (users?.[0]) await tickAutonomy(sb, users[0].id);
+    // Invoices: a phone push when an overdue reminder draft is waiting, once per invoice per week (quiet hours and Stop-all skip it).
+    await import("./invoices").then((x) => x.pushInvoiceReminders(), () => {});
     // Monthly agent scorecard (ANALYTICS): not awaited, a run takes up to ~50 min; it re-checks Stop-all and usage itself.
     if (!limited) void maybeScorecard(sb, (users ?? []).map((u) => u.id));
     // ARCH weekly studio digest: Sunday from 17:00 (Monday catch-up); without Claude it still comes, focus from the numbers.
