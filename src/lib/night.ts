@@ -170,8 +170,9 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
         : { ...base, status: "skipped", why: r.open ? `Nothing new; ${r.open} known problem${r.open > 1 ? "s" : ""} still open` : "Nothing broke", at: at() };
     }
     case "dream": { // the morning brief asks it; nothing is edited, so it's never a "done" or an approval here
-      const ns = (await load()).settings, r = await (await import("./dream")).runDream(sb, userId, nightKey(Date.now(), ns), ns.tz, signal);
-      return { ...base, status: "skipped", why: r.dream ? "One question saved for the morning brief" : r.why, at: at() };
+      const ns = (await load()).settings, key = nightKey(Date.now(), ns), r = await (await import("./dream")).runDream(sb, userId, key, ns.tz, signal);
+      const d = await (await import("./dream-ideas")).runIdeas(sb, userId, key, signal).catch((e) => ({ n: 0, why: e instanceof Error ? e.message : String(e) })); // dream mode: idea combinations, one call
+      return { ...base, status: "skipped", why: `${r.dream ? "One question saved for the morning brief" : r.why}; ${d.n ? `${d.n} idea${d.n > 1 ? "s" : ""} in DREAMS` : `no ideas (${d.why})`}`, at: at() };
     }
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions

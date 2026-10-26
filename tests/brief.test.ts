@@ -129,3 +129,9 @@ test("last night's dream question: a brief item, and the opener's one question w
   assert.equal(cleanOpener(o, "fallback"), o);
   assert.ok(!briefItems(base({ dream, snoozed: [`dream:${dream.id}`] })).some((i) => i.kind === "question"));
 });
+
+test("dream mode: one 'ORBIT dreamt' line", () => {
+  const it = briefItems(base({ idea: { id: "i1", title: "How light moves through a house", more: 2 } })).find((i) => i.id === "idea:i1");
+  assert.equal(it?.title, "ORBIT dreamt: How light moves through a house");
+  assert.equal(it?.detail, "In DREAMS under Goals (+2 more)");
+});

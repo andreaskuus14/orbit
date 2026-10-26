@@ -144,7 +144,7 @@ export type PlanInput = {
 export function planNight(i: PlanInput, s: NightSettings, used: { calls: number; ms: number }): { queue: NightTask[]; deferred: number } {
   const all: NightTask[] = [
     { kind: "hygiene", ref: "hygiene", label: "Memory tidy-up suggestions", calls: 0, minutes: 1 } as NightTask,
-    ...(i.dream ? [{ kind: "dream", ref: "dream", label: "Dreaming: one question for the morning", calls: 2, minutes: 2 } as NightTask] : []),
+    ...(i.dream ? [{ kind: "dream", ref: "dream", label: "Dreaming: one question and a few ideas for the morning", calls: 3, minutes: 3 } as NightTask] : []),
     ...(i.health ? [{ kind: "health", ref: "health", label: "ORBIT health check", calls: 3, minutes: 5 } as NightTask] : []),
     ...i.tonight.slice(0, MAX_RESEARCH).map((t): NightTask => ({ kind: "research", ref: t.id, label: t.text.slice(0, 120), calls: 8, minutes: 10 })),
     ...i.goals.filter((g) => ["run", "sync"].includes(nextMove(g.doc, i.today).do)).slice(0, MAX_GOALS)

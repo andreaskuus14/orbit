@@ -40,7 +40,7 @@ async function replies(sb: SupabaseClient, now: number) {
 /** The deterministic brief for now (no AI call). */
 export async function composeToday(sb: SupabaseClient, userId: string, now = Date.now()): Promise<Brief> {
   const day = localDay(new Date(now)), hour = new Date(now).getHours();
-  const [u, m, rem, rep, les, dl, hl, ds, dr] = await Promise.all([
+  const [u, m, rem, rep, les, dl, hl, ds, dr, di] = await Promise.all([
     load().then((s) => s.users[userId] ?? {}),
     import("./morning").then((x) => x.getMorning(sb, userId, now)),
     within(import("./remote").then((x) => x.pendingApprovals(sb))).catch(() => []),
@@ -50,13 +50,14 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     within(Promise.all([import("./health"), import("./health-pure")]).then(async ([h, p]) => p.briefHealth(await h.healthIssues(), now))).catch(() => null),
     within(import("./dev-session").then((x) => x.yesterdaySession(userId, now))).catch(() => null),
     within(import("./dream").then((x) => x.dreamToday(userId, now))).catch(() => null),
+    within(Promise.all([import("./dream-ideas"), import("./dream-ideas-pure")]).then(async ([a, p]) => p.briefIdea((await a.ideasView(userId)).ideas, day))).catch(() => null),
   ]);
   const deal = dl?.latest && dl.ids.length ? { id: dl.ids[dl.ids.length - 1], ...dl.latest } : undefined;
   const lesson = les.length ? les[Math.floor(now / DAY) % les.length] : undefined; // a different kept lesson each day
   return composeBrief({
     day, hour, life: !!u.life, morning: m,
     decisions: briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem),
-    replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(dr && { dream: { id: dr.key, question: dr.question } }), lesson: lesson && { id: lesson.id, text: lesson.text },
+    replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(dr && { dream: { id: dr.key, question: dr.question } }), ...(di && { idea: di }), lesson: lesson && { id: lesson.id, text: lesson.text },
     snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
   });
 }

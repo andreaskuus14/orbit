@@ -23,6 +23,7 @@ export type BriefIn = {
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
   dream?: { id: string; question: string }; // last night's ONE question (dream-pure); his answer goes through CORE like any message
+  idea?: { id: string; title: string; more: number }; // last night's dream-mode idea (dream-ideas-pure briefIdea)
   lesson?: { id: string; text: string }; snoozed: string[];
 };
 
@@ -88,6 +89,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
   if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });
 
   if (x.dream) add({ id: `dream:${x.dream.id}`, kind: "question", title: plain(x.dream.question), detail: "Answer in CORE or on the call", open: { panel: "core" }, say: plain(x.dream.question) });
+  if (x.idea) add({ id: `idea:${x.idea.id}`, kind: "night", title: `ORBIT dreamt: ${plain(x.idea.title)}`, detail: `In DREAMS under Goals${x.idea.more ? ` (+${x.idea.more} more)` : ""}`, open: { panel: "agents" }, say: `I dreamt up an idea: ${plain(x.idea.title)}.` });
 
   const ev = x.morning.calendar?.today ?? [];
   if (ev.length) {
