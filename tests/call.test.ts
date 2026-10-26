@@ -9,7 +9,15 @@ import { MIC_START, type Mic } from "../src/lib/audio-pure.ts";
 
 // 2026-10-26 is after the DST switch: Tallinn = UTC+2.
 const at = (h: number, m = 0, d = 26) => Date.UTC(2026, 9, d, h - 2, m);
-const sig = (now: number, o: Partial<{ stopAll: boolean; approvals: string[]; nightReport: boolean }> = {}) => ({ now, stopAll: false, approvals: [], nightReport: false, ...o });
+const sig = (now: number, o: Partial<{ stopAll: boolean; approvals: string[]; nightReport: boolean; focus: boolean }> = {}) => ({ now, stopAll: false, approvals: [], nightReport: false, ...o });
+
+test("a focus block lets only an urgent call ring, and uses nothing up", () => {
+  const morning = sig(at(8, 30), { approvals: ["a"], nightReport: true, focus: true });
+  const held = decideCall(CALL_START, morning);
+  assert.equal(held.ring, null);
+  assert.equal(decideCall(held.state, { ...morning, focus: false }).ring?.reason, "morning"); // rings once the block ends
+  assert.equal(decideCall({ ...CALL_START, urgentAt: at(8, 20) }, morning).ring?.reason, "urgent");
+});
 
 test("morning after the night shift rings once when approvals wait", () => {
   const r = decideCall(CALL_START, sig(at(8, 30), { approvals: ["a", "b"], nightReport: true }));
@@ -124,7 +132,9 @@ test("spends name the exact credits, rejects are clip-only, ambiguity asks which
   assert.equal(voiceDecision(null, "how was the night?", items, 0), null);
   assert.match(voiceDecision(null, "approve the clip", [{ ...items[0], thumb: false }], 0)!.say!, /no preview/);
   assert.equal(voiceDecision(null, "approve the clip", [], 0)!.say, "There's nothing waiting for you right now.");
-  assert.match(voiceDecision(null, "send the email", items, 0)!.say!, /^Send the email to hi@acme\.test/);
+  const em = voiceDecision(null, "send the email", items, 0)!; // emails are screen-only: never sent on a spoken yes
+  assert.match(em.say!, /^The email to hi@acme\.test needs you to read it first/);
+  assert.equal(em.pending, null);
 });
 
 test("fallback summary keeps his words short and lists what was done", () => {
@@ -180,4 +190,14 @@ test("earlier calls: when-labels, the opener prompt and a safe fallback", () => 
   assert.equal(cleanOpener("See https://x.test ok?", base), base);
   assert.equal(cleanOpener(`${"word ".repeat(70)}?`, base), base);
   assert.equal(itemsKey([{ id: "b", seen: "2" }, { id: "a", seen: "1" }]), "a@1,b@2");
+});
+
+test("a contract waiting for his signature rings once per contract, after deals, never in quiet hours", () => {
+  const r = decideCall(CALL_START, { ...sig(at(10)), contracts: ["k1"] });
+  assert.deepEqual(r.ring, { reason: "contract", things: 1 });
+  assert.match(opener("contract", 10, []), /contract waits for your signature.*signing it is yours/);
+  assert.equal(decideCall({ ...r.state, lastAt: 0 }, { ...sig(at(12)), contracts: ["k1"] }).ring, null); // already rung about k1
+  assert.equal(decideCall(CALL_START, { ...sig(at(23, 30)), contracts: ["k1"] }).ring, null);
+  assert.equal(decideCall(CALL_START, { ...sig(at(10)), contracts: ["k1"], deals: ["d1"] }).ring?.reason, "deal");
+  assert.deepEqual(parseCallState(JSON.stringify(r.state)).contracted, ["k1"]);
 });

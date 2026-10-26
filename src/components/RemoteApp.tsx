@@ -1,10 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RemoteCall } from "./RemoteCall";
+import { VoiceMemo } from "./VoiceMemo";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
-type Item = { id: string; kind: "clip" | "spend" | "send" | "nego"; title: string; detail: string; seen: string; credits?: number; thumb?: boolean; to?: string; message?: string; strategy?: string };
+type Item = { id: string; kind: "clip" | "spend" | "send" | "nego" | "invoice"; title: string; detail: string; seen: string; credits?: number; thumb?: boolean; to?: string; message?: string; strategy?: string; buyer?: string; amount?: string; daysLate?: number };
 type Status = { stop: { on: boolean; at: string }; queue: { active: { id: string; source: string; status: string; step: string; progress: number }[]; ready: number; approved: number; publishing: string | null; story: string | null } };
 
 const nonce = () => crypto.randomUUID();
@@ -54,7 +55,7 @@ export function RemoteApp() {
   }
 
   const decide = (it: Item, approve: boolean) => {
-    const what = it.kind === "spend" ? `Spend ${it.credits} Higgsfield credits on “${it.title}”?` : it.kind === "send" || (it.kind === "nego" && it.to) ? `Email this exact message to ${it.to}?` : it.kind === "nego" ? `Approve this message to “${it.title}”? You copy and send it yourself.` : `${approve ? "Approve" : "Reject"} “${it.title}”?${approve ? "" : " Its files are deleted."}`;
+    const what = it.kind === "spend" ? `Spend ${it.credits} Higgsfield credits on “${it.title}”?` : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? `Email this exact message to ${it.to}?` : it.kind === "nego" || it.kind === "invoice" ? `Approve this message to “${it.kind === "invoice" ? it.buyer : it.title}”? You copy and send it yourself.` : `${approve ? "Approve" : "Reject"} “${it.title}”?${approve ? "" : " Its files are deleted."}`;
     if (!confirm(what)) return;
     void act(it.id, () => send(approve ? "approve" : "reject", { id: it.id }, { kind: it.kind, seen: it.seen, ...(it.credits !== undefined ? { credits: it.credits } : {}) }), (j) => j.message ?? "Done");
   };
@@ -90,13 +91,14 @@ export function RemoteApp() {
               : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={`Thumbnail of ${it.title}`} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} />)}
             {it.kind === "spend" && <div className="text-sm">Quote: <b>{it.credits} credits</b></div>}
             {it.kind === "nego" && <div className="text-xs">Plan: {it.strategy}</div>}
-            {(it.kind === "send" || it.kind === "nego") && <>
+            {it.kind === "invoice" && <div className="text-sm">{it.buyer} owes <b>{it.amount}</b> · {it.daysLate} day{it.daysLate === 1 ? "" : "s"} overdue</div>}
+            {(it.kind === "send" || it.kind === "nego" || it.kind === "invoice") && <>
               {it.to && <div className="text-sm">To: <b>{it.to}</b></div>}
               <pre className="field w-full whitespace-pre-wrap text-xs" style={{ fontFamily: "inherit", maxHeight: 260, overflow: "auto" }}>{it.message}</pre>
             </>}
             <div className="flex gap-2">
               <button className="btn flex-1" style={{ minHeight: 44 }} disabled={!!busy || blind} onClick={() => decide(it, true)}>
-                {busy === it.id ? "…" : it.kind === "spend" ? `Approve ${it.credits} credits` : it.kind === "send" || (it.kind === "nego" && it.to) ? "Approve & send" : "Approve"}
+                {busy === it.id ? "…" : it.kind === "spend" ? `Approve ${it.credits} credits` : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? "Approve & send" : "Approve"}
               </button>
               {it.kind === "clip" && <button className="chip" style={{ minHeight: 44 }} disabled={!!busy} onClick={() => decide(it, false)}>Reject</button>}
             </div>
@@ -114,6 +116,7 @@ export function RemoteApp() {
       </section>
 
       <Place />
+      <VoiceMemo />
       <RemoteCall />
       <Ask />
       <Notify />
