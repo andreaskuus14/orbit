@@ -25,6 +25,7 @@ import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
+import { PerfRuns } from "./PerfRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
 import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
@@ -758,6 +759,7 @@ export function AnalyticsPanel() {
       <p className="muted text-xs">CORE runs on your Claude subscription, so there is no per-token cost to track.</p>
       <UsageMeter />
       <AgentScorecard />
+      <PerfRuns />
       <LifeStats />
       <h3 className="h3">Recent activity</h3>
       <ul className="space-y-1 text-sm">{s.events.map((e, i) => { const event = eventLabel(e.type); return <li key={i}><span aria-hidden="true">{event.icon}</span> <b>{event.label}</b> <span className="muted">{when(e.created_at)}</span></li>; })}{!s.events.length && <li className="muted">Nothing yet.</li>}</ul>

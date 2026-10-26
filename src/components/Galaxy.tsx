@@ -889,6 +889,7 @@ export default function Galaxy(props: GalaxyProps) {
   const [coarse] = useState(() => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
   const dprMax = coarse ? Math.min(1.5, q.dpr) : Math.min(2, q.dpr);
   const [dpr, setDpr] = useState<number | null>(null); // RenderScale's choice; until then the plain range
+  perfCtx.rdpr = dpr ?? -1; // the scripted perf run reports it
   const windows = level > 0 && !props.reduced; // window planets + the dive: off on level 0 and under reduced motion
   const film = q.film && !props.reduced; // grain is motion, aberration is motion: both off for reduced motion
   const dof = q.dof && !props.reduced;
