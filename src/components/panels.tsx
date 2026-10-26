@@ -9,6 +9,8 @@ import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
 import { appendActivity } from "@/lib/core-activity-pure";
 import { CoreActivity } from "./CoreActivity";
+import { CoreWorkspace } from "./CoreWorkspace";
+import { cancelsJob, missionOf, turnArtifact } from "@/lib/core-workspace-pure";
 import { PasswordSection } from "./PasswordSection";
 import { PhonePairing } from "./PhonePairing";
 import { AutonomySection } from "./AutonomySection";
@@ -74,6 +76,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => onSpeakingChange(setSpeaking), []);
   const [activity, setActivity] = useState<string[]>([]);
+  const [heard, setHeard] = useState(""); // last spoken question, shown as the voice transcript
   const [copied, setCopied] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const att = useAttachments(); // files for the next message (📎 / drop / paste)
@@ -155,6 +158,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     // Speak only answers to spoken questions; settings are re-read per chunk so toggling takes effect live.
     let myGen = speechGen(); // a later stop() (barge-in, Stop button) silences the rest of this answer
     const talk = fromVoice || takeVoiceAsked();
+    if (talk) setHeard(message);
     const say = (parts: string[]) => { if (talk && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
     const voiceOut = sentenceStream();
     const fly = (to: NavTarget) => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to }));
@@ -270,8 +274,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     if (sentInitial.current === initial) return;
     sentInitial.current = initial;
     onConsumed();
-    // Busy: never drop the new question (e.g. a voice follow-up). Stop the running answer and send it once that settles.
-    if (busy) { queued.current = initial; abort.current?.abort(); }
+    // Busy: never drop the new question (e.g. a voice follow-up).
+    // A cancel stops the job; any other follow-up (talking over CORE included) waits for it to finish.
+    if (busy) { if (cancelsJob(initial)) { abort.current?.abort(); stopSpeech(); } else queued.current = initial; }
     else void send(initial);
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -341,8 +346,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     </div>
   )), [msgs, onOpenMemory, speaking, copied, busy, send, project, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const lastCore = [...msgs].reverse().find((m) => m.role === "assistant" && !m.error);
+  const artifact = useMemo(() => (lastCore ? turnArtifact(lastCore.content) : null), [lastCore]);
+  const mission = busy ? missionOf([], activity, true) : missionOf(lastCore?.trace, [], false, !!artifact) // while busy, the old turn's steps aren't this job's;
   return (
-    <div className="relative flex h-full flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+    <div className="core-ws">
+    <div className="relative flex h-full min-w-0 flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
       onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); void att.add(e.dataTransfer.files); } }}>
       <div className="mb-2 flex items-center gap-1.5 text-xs">
         <button type="button" className="chip" aria-expanded={sheet} onClick={() => setSheet((v) => !v)} title="Chats and projects">☰ Chats</button>
@@ -386,6 +395,8 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
             ? <button type="button" className="btn" onClick={stopSpeech}>Stop</button>
             : <button className="btn" disabled={!input.trim() && !att.items.length}>Send</button>}
       </form>
+    </div>
+    <CoreWorkspace artifact={artifact} mission={mission} busy={busy} heard={heard} onAsk={(t) => void send(t)} />
     </div>
   );
 }
