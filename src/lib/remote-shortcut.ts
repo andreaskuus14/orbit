@@ -7,8 +7,9 @@ import { orbitDataDir } from "@/lib/data-dir";
 import { remoteSecret } from "@/lib/remote";
 import { isShortcutAction, newShortcutToken, shortcutHash, shortcutName, type Challenge, type Shortcut, type ShortcutAction } from "@/lib/remote-shortcut-pure";
 
-const g = globalThis as unknown as { __orbitShortcut?: { save?: Promise<unknown>; challenges: Map<string, Challenge> } };
-export const SC = (g.__orbitShortcut ??= { challenges: new Map() });
+type State = { save?: Promise<unknown>; challenges: Map<string, Challenge> };
+const g = globalThis as unknown as { __orbitShortcut?: State };
+export const SC: State = (g.__orbitShortcut ??= { challenges: new Map() });
 
 // <data dir>/remote-shortcuts.json: names, actions and token HMACs (never the tokens).
 const file = () => path.join(orbitDataDir(), "remote-shortcuts.json");
