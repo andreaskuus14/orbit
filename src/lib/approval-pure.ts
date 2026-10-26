@@ -30,6 +30,14 @@ export async function contentHash(content: unknown): Promise<string> {
   return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// The exact content each approval covers (both sides build it the same way; business/contracts have their own in their -pure files).
+/** Higgsfield spend: the script+options fingerprint the quote priced and the credits he approves. */
+export const spendContent = (fingerprint: string, credits: number) => ({ fingerprint, credits });
+/** Negotiator reply: the draft text. shortcut: the recipient comes from the prospect's Contact at send time, not hashed; hash it once the PC view shows it. */
+export const negoContent = (id: string, text: string) => ({ id, text });
+/** Clip publish: the media he approved (video, thumbnail, cut). The title/description come from the publish click itself. */
+export const clipContent = (c: { video?: string; thumb?: string; start: number; end: number }) => ({ video: c.video ?? "", thumb: c.thumb ?? "", start: c.start, end: c.end });
+
 /** "" when `action` may run with `content`; otherwise why not. `approved` is the hash the owner's click carried. */
 export async function approvalGate(action: string, approved: unknown, content: unknown): Promise<string> {
   if (!(action in EFFECTS)) return `unknown action "${action}"`;

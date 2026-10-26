@@ -1,4 +1,5 @@
 import { languageVerdict } from "./lang-pure";
+import { approvalGate, clipContent, contentHash } from "../approval-pure";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -258,6 +259,7 @@ export async function updateClip(job: ClipJob, clip: Clip, patch: { status?: "ap
     if (changedRetry || patch.status === "rejected") { clip.retryApproved = undefined; if (clip.status === "approved") clip.status = "ready"; }
     if (patch.status === "approved") { clip.status = "approved"; clip.retryApproved = ownerRetryApproval ? { at: new Date().toISOString(), fingerprint: retryFingerprint(clip) } : undefined; }
   }
+  if (patch.status === "approved" && clip.status === "approved") clip.approvedHash = await contentHash(clipContent(clip)); // only an approve click stamps; later edits don't
   job.updatedAt = new Date().toISOString();
   await saveJob(job);
 }
@@ -1044,6 +1046,8 @@ export const publishDone = () => S.pub?.done;
 /** Marks the clip "uploading" and uploads it in the background (one at a time). Call under withJobLock after checking the clip. */
 export async function startPublish(job: ClipJob, clip: Clip, file: string, video: VideoResource) {
   if (clip.retryOf && !retryConsent(clip)) throw new Error("Review and approve this exact retry before publishing");
+  const gate = await approvalGate("studio.publish", clip.approvedHash, clipContent(clip)); // the one publish point: route, scheduleAll, autonomy
+  if (gate) throw new Error(gate);
   const ctrl = new AbortController();
   S.pub = { job: job.id, clip: clip.id, ctrl, done: Promise.resolve() };
   const at = new Date().toISOString();

@@ -125,6 +125,8 @@ async function firePublish(p: { ref: string; seen: string }): Promise<Fired> {
     if (!job || !clip || clip.status !== "ready" || clip.retryOf || clip.publish || clipVersion(clip) !== p.seen || originalityIssue(job, clip)) return false; // reviewed or changed meanwhile
     if (!allows("studio-publish", "auto", { doneToday: doneToday(autonomyState(), "studio-publish", Date.now()), text: `${clip.title}\n${clip.hook}`, known: true }).ok) return false;
     autoApprove(job, clip, Date.now());
+    const { contentHash, clipContent } = await import("./approval-pure");
+    clip.approvedHash = await contentHash(clipContent(clip)); // Autonomy: auto approves the media its checks just saw
     await saveJob(job);
     return true;
   });

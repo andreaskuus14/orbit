@@ -33,3 +33,23 @@ test("changed content needs fresh approval; the exact approved content passes", 
   }
   assert.equal(await approvalGate("navigate", undefined, {}), ""); // reads need no approval
 });
+
+test("contracts, negotiator, Higgsfield spend and clip publish: changed content needs fresh approval", async () => {
+  const { contractSendContent } = await import("../src/lib/contracts-pure.ts");
+  const { spendContent, negoContent, clipContent } = await import("../src/lib/approval-pure.ts");
+  type C = Parameters<typeof contractSendContent>[0];
+  const c = { title: "Service", cover: "Hi, signed copy attached.", signed: { hash: "pdf1" }, versions: [{ fields: { partyEmail: "p@x.ee", ownerName: "Andreas" } }] } as unknown as C;
+  const cases: [string, unknown, unknown[]][] = [
+    ["contracts.send", contractSendContent(c), [contractSendContent({ ...c, cover: "Hi!" } as C), contractSendContent({ ...c, signed: { hash: "pdf2" } } as C),
+      contractSendContent({ ...c, versions: [{ fields: { partyEmail: "evil@x.ee", ownerName: "Andreas" } }] } as unknown as C)]],
+    ["negotiator.approve", negoContent("n1", "We can do 900."), [negoContent("n1", "We can do 800."), negoContent("n2", "We can do 900.")]],
+    ["story.approve", spendContent("fp1", 40), [spendContent("fp1", 41), spendContent("fp2", 40)]],
+    ["studio.publish", clipContent({ video: "clips/a.mp4", thumb: "clips/a.jpg", start: 1, end: 30 }), [clipContent({ video: "clips/b.mp4", thumb: "clips/a.jpg", start: 1, end: 30 }), clipContent({ video: "clips/a.mp4", thumb: "clips/a.jpg", start: 1, end: 31 })]],
+  ];
+  for (const [action, v1, changed] of cases) {
+    const ok = await contentHash(v1);
+    assert.equal(await approvalGate(action, ok, v1), "", action);
+    assert.match(await approvalGate(action, undefined, v1), /approval/, action); // e.g. an approved clip from before this change
+    for (const v2 of changed) assert.match(await approvalGate(action, ok, v2), /changed/, action);
+  }
+});
