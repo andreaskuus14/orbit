@@ -9,12 +9,13 @@ import { adminClient } from "@/lib/supabase/admin";
 import { orbitDataDir } from "@/lib/data-dir";
 import { emit } from "@/lib/claude";
 import { makePairCode, NonceCache, verifyToken, type PairCode, type RemoteCommand } from "@/lib/remote-pure";
-import { approvalId, clipStamp, ledgerData, quoteStamp, REMOTE_COOKIE, secretProblem, takeRate, type Approval } from "@/lib/remote-web-pure";
+import { approvalId, clipStamp, ledgerData, REMOTE_COOKIE, secretProblem, takeRate, type Approval } from "@/lib/remote-web-pure";
 import { isAllowedEmail } from "@/lib/allow";
 import { listJobs } from "@/lib/clips/factory";
 import { listStories } from "@/lib/clips/story";
 import { approveProblem, quoteTotal } from "@/lib/clips/story-pure";
-import { emailIn } from "@/lib/business-pure";
+import { emailIn, sendStamp } from "@/lib/business-pure";
+import { contentHash, negoContent, spendContent } from "@/lib/approval-pure";
 import { waitingNegotiations } from "@/lib/negotiator";
 import type { PushSub } from "@/lib/remote-push-pure";
 
@@ -113,11 +114,11 @@ export async function pendingApprovals(sb: SupabaseClient): Promise<Approval[]> 
   const out: Approval[] = clips.map(({ thumbPath: _t, ...a }) => a);
   for (const s of stories) {
     const credits = quoteTotal(s.items);
-    if (s.quote && !approveProblem(s, credits)) out.push(item(`spend:${s.id}`, { kind: "spend", title: s.story.title, detail: `${s.draft ? "Higgsfield draft" : "AI Story"}: Higgsfield spend${s.quote.balance !== null ? ` (balance ${s.quote.balance})` : ""}`, credits, seen: quoteStamp(s.quote) }));
+    if (s.quote && !approveProblem(s, credits)) out.push(item(`spend:${s.id}`, { kind: "spend", title: s.story.title, detail: `${s.draft ? "Higgsfield draft" : "AI Story"}: Higgsfield spend${s.quote.balance !== null ? ` (balance ${s.quote.balance})` : ""}`, credits, seen: await contentHash(spendContent(s.quote.fingerprint, credits)) })); // the hash approving spends on
   }
   for (const p of prospects as { id: string; name: string; contact: string | null; draft: string | null; updated_at: string }[]) {
     const to = emailIn(p.contact ?? "");
-    if (to && p.draft?.trim()) out.push(item(`send:${p.id}`, { kind: "send", title: p.name, detail: "BUSINESS email", to, message: p.draft, seen: p.updated_at }));
+    if (to && p.draft?.trim()) out.push(item(`send:${p.id}`, { kind: "send", title: p.name, detail: "BUSINESS email", to, message: p.draft, seen: await sendStamp(p) })); // the hash of exactly what approving emails
   }
   // Negotiator (B2): replies drafted inside his limits. `to` only when approving will email it (else he copies it to the seller himself).
   const negos = await waitingNegotiations().catch(() => []);
@@ -127,7 +128,7 @@ export async function pendingApprovals(sb: SupabaseClient): Promise<Approval[]> 
     : new Map<string, string | null>();
   for (const n of negos) {
     const to = n.side === "sell" ? contacts.get(n.ref.slice(9)) ?? undefined : undefined;
-    out.push(item(`nego:${n.id}`, { kind: "nego", title: n.title, detail: n.side === "sell" ? "BUSINESS negotiation" : "Deal: message to the seller", strategy: n.draft!.strategy, message: n.draft!.text, seen: n.draft!.at, ...(to && { to }) }));
+    out.push(item(`nego:${n.id}`, { kind: "nego", title: n.title, detail: n.side === "sell" ? "BUSINESS negotiation" : "Deal: message to the seller", strategy: n.draft!.strategy, message: n.draft!.text, seen: await contentHash(negoContent(n.id, n.draft!.text)), ...(to && { to }) }));
   }
   return out;
 }

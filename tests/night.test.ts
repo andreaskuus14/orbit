@@ -165,3 +165,9 @@ test("planNight: the health check runs right after the tidy-up when asked, and o
   assert.deepEqual(planNight({ ...i, health: true, handled: ["health:health"] }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "clips"]);
   assert.equal(planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.some((t) => t.kind === "health"), false);
 });
+
+test("dreaming: a cheap first-tier step when asked for, never deferred by lessons", () => {
+  const i = { tonight: [], goals: [], followups: [], drafted: {}, nicheDue: false, handled: [], now: 0, today: "2026-10-28", dream: true, boost: { clips: 1.15 } };
+  assert.deepEqual(planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "dream", "clips"]);
+  assert.deepEqual(planNight({ ...i, handled: ["dream:dream"] }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "clips"]);
+});
