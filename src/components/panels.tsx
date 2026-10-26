@@ -9,8 +9,11 @@ import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
 import { appendActivity } from "@/lib/core-activity-pure";
 import { CoreActivity } from "./CoreActivity";
+import { CoreWorkspace } from "./CoreWorkspace";
+import { cancelsJob, missionOf, turnArtifact } from "@/lib/core-workspace-pure";
 import { PasswordSection } from "./PasswordSection";
 import { PhonePairing } from "./PhonePairing";
+import { PlaceSection } from "./PlaceSection";
 import { AutonomySection } from "./AutonomySection";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
@@ -22,6 +25,7 @@ import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { Markdown } from "./AgentsPanels";
 import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
+import { VoiceMemo } from "./VoiceMemo";
 import { ScreenLook, type LookAsk } from "./ScreenLook";
 import { parseLookRequest, robloxErrors, LUAU_FIX_EVENT, type Preset } from "@/lib/screen-look-pure";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
@@ -41,9 +45,10 @@ import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { CORE_BUSY } from "@/lib/interruption-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { isLearned } from "@/lib/memory-world-pure";
+import MemoryControls from "./MemoryControls";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
-type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
+type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
 type Cite = { id: string; title: string; kind: string };
 type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[] };
 type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[] };
@@ -74,6 +79,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => onSpeakingChange(setSpeaking), []);
   const [activity, setActivity] = useState<string[]>([]);
+  const [heard, setHeard] = useState(""); // last spoken question, shown as the voice transcript
   const [copied, setCopied] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const att = useAttachments(); // files for the next message (📎 / drop / paste)
@@ -155,8 +161,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     // Speak only answers to spoken questions; settings are re-read per chunk so toggling takes effect live.
     let myGen = speechGen(); // a later stop() (barge-in, Stop button) silences the rest of this answer
     const talk = fromVoice || takeVoiceAsked();
+    if (talk) setHeard(message);
     const say = (parts: string[]) => { if (talk && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
-    const voiceOut = sentenceStream();
+    const voiceOut = sentenceStream(true);
     const fly = (to: NavTarget) => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to }));
     const files = nav ? [] : att.take(); // pending attachments must not send a direct command to Claude
     setMsgs((m) => [...m, { role: "user", content: [message, files.length && `📎 ${files.map((f) => f.name).join(", ")}`].filter(Boolean).join("\n") }]);
@@ -214,7 +221,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           finished = true;
           flush();
           // The final answer equals the streamed text up to citation markers (stripped for speech): speak only the tail.
-          say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? ""));
+          say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? "", true));
           setLive(null);
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model,
             chips: followUps(message, (ev.trace ?? []).map((s) => s.step)), lesson: ev.lesson, fixes: look === "roblox" ? robloxErrors(ev.answer ?? "") : undefined }]);
@@ -270,8 +277,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     if (sentInitial.current === initial) return;
     sentInitial.current = initial;
     onConsumed();
-    // Busy: never drop the new question (e.g. a voice follow-up). Stop the running answer and send it once that settles.
-    if (busy) { queued.current = initial; abort.current?.abort(); }
+    // Busy: never drop the new question (e.g. a voice follow-up).
+    // A cancel stops the job; any other follow-up (talking over CORE included) waits for it to finish.
+    if (busy) { if (cancelsJob(initial)) { abort.current?.abort(); stopSpeech(); } else queued.current = initial; }
     else void send(initial);
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -341,8 +349,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     </div>
   )), [msgs, onOpenMemory, speaking, copied, busy, send, project, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const lastCore = [...msgs].reverse().find((m) => m.role === "assistant" && !m.error);
+  const artifact = useMemo(() => (lastCore ? turnArtifact(lastCore.content) : null), [lastCore]);
+  const mission = busy ? missionOf([], activity, true) : missionOf(lastCore?.trace, [], false, !!artifact) // while busy, the old turn's steps aren't this job's;
   return (
-    <div className="relative flex h-full flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+    <div className="core-ws">
+    <div className="relative flex h-full min-w-0 flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
       onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); void att.add(e.dataTransfer.files); } }}>
       <div className="mb-2 flex items-center gap-1.5 text-xs">
         <button type="button" className="chip" aria-expanded={sheet} onClick={() => setSheet((v) => !v)} title="Chats and projects">☰ Chats</button>
@@ -375,6 +387,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       </div>
       <AttachChips items={att.items} error={att.error} onRemove={att.remove} />
       <ScreenLook busy={busy} input={input} ask={lookAsk} onAsk={setLookAsk} run={async (file, text, preset) => { await att.add([file]); await send(text, false, preset); }} />
+      <VoiceMemo compact />
       <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
         <input ref={fileRef} type="file" multiple accept={ACCEPT} className="sr-only" tabIndex={-1} aria-hidden onChange={(e) => { if (e.target.files) void att.add(e.target.files); e.target.value = ""; }} />
         <button type="button" className="btn" title="Attach images or documents (or drop / paste them)" aria-label="Attach files" disabled={busy} onClick={() => fileRef.current?.click()}>📎</button>
@@ -386,6 +399,8 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
             ? <button type="button" className="btn" onClick={stopSpeech}>Stop</button>
             : <button className="btn" disabled={!input.trim() && !att.items.length}>Send</button>}
       </form>
+    </div>
+    <CoreWorkspace artifact={artifact} mission={mission} busy={busy} heard={heard} onAsk={(t) => void send(t)} />
     </div>
   );
 }
@@ -553,6 +568,8 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
         <textarea className="field h-56 w-full" value={open.content} onChange={(e) => setOpen({ ...open, content: e.target.value })} aria-label="Content" />
         <input className="field w-full" value={open.tags.join(", ")} onChange={(e) => setOpen({ ...open, tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })} placeholder="tags, comma separated" aria-label="Tags" />
         <p className="muted text-xs">{open.kind} · source: {open.source}{open.url && <> · <a className="link" href={open.url} target="_blank" rel="noreferrer noopener">open link</a></>}{open.storage_path && <> · <a className="link" href={`/api/memories/${open.id}/file`} target="_blank" rel="noreferrer">open file</a></>} · created {when(open.created_at)} · updated {when(open.updated_at)}</p>
+        <MemoryControls key={open.id} id={open.id} content={open.content} confirmation={open.confirmation} recheckAt={open.recheck_at} onOpen={setFocus}
+          onDone={(gone) => { if (gone) setOpen(null); void load(q); onChanged(); }} />
         {err && <p className="error">{err}</p>}
         <div className="flex gap-2"><button className="btn" onClick={saveEdit}>Save</button><button className="btn danger" onClick={remove}>Delete</button></div>
       </div>
@@ -666,6 +683,7 @@ export function ProfilePanel() {
     <PasswordSection />
     <AutonomySection />
     <PhonePairing />
+    <PlaceSection />
     <PersonaSection />
     <PlaybookSection />
     <LessonsSection />

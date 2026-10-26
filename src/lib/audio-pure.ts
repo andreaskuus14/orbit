@@ -78,8 +78,8 @@ export function encodeWav(x: Float32Array, rate = ASR_RATE): Uint8Array {
 }
 
 /** Request body → 16 kHz mono samples, or an error message. Accepts a WAV (PCM16 or Float32) or raw little-endian Float32. */
-export function decodeAudioBody(b: Uint8Array): { audio: Float32Array } | { error: string } {
-  if (b.length > MAX_AUDIO_BYTES) return { error: `Audio too long (max ${MAX_AUDIO_SEC} s)` };
+export function decodeAudioBody(b: Uint8Array, maxSec = MAX_AUDIO_SEC): { audio: Float32Array } | { error: string } {
+  if (b.length > maxSec * ASR_RATE * 4 + 1024) return { error: `Audio too long (max ${maxSec} s)` };
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
   const tag = (o: number) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
   let audio: Float32Array;
@@ -107,7 +107,7 @@ export function decodeAudioBody(b: Uint8Array): { audio: Float32Array } | { erro
     for (let i = 0; i < audio.length; i++) audio[i] = dv.getFloat32(i * 4, true);
   }
   if (audio.length < ASR_RATE / 10) return { error: "Audio too short" };
-  if (audio.length > MAX_AUDIO_SEC * ASR_RATE) return { error: `Audio too long (max ${MAX_AUDIO_SEC} s)` };
+  if (audio.length > maxSec * ASR_RATE) return { error: `Audio too long (max ${maxSec} s)` };
   for (let i = 0; i < audio.length; i++) if (!Number.isFinite(audio[i])) return { error: "Audio contains invalid samples" };
   return { audio };
 }
