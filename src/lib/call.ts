@@ -70,9 +70,10 @@ export async function maybeCall(): Promise<void> {
     const dev = (await listDevices()).find((d) => d.push);
     if (!dev) return;
     const sb = await ownerClient(dev.userId);
-    const [items, report, deals] = await Promise.all([pendingApprovals(sb), readSleepReport(dev.userId).catch(() => undefined), import("./deals").then((d) => d.freshDeals(now), () => ({ ids: [] }))]);
+    const [items, report, deals, contracts] = await Promise.all([pendingApprovals(sb).then((a) => a.filter((i) => i.kind !== "nego")), readSleepReport(dev.userId).catch(() => undefined), import("./deals").then((d) => d.freshDeals(now), () => ({ ids: [] })),
+      import("./contracts").then((c) => c.waitingContracts(now), () => [] as string[])]);
     let ring: ReturnType<typeof decideCall>["ring"] = null;
-    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids }); ring = r.ring; return r.state; });
+    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids, contracts }); ring = r.ring; return r.state; });
     if (!ring) return;
     const { reason, things } = ring as NonNullable<typeof ring>;
     G.ring = { reason, at: now };
@@ -82,6 +83,16 @@ export async function maybeCall(): Promise<void> {
   } catch (e) {
     console.error("[call] ring check failed:", e instanceof Error ? e.message : e);
   }
+}
+
+/** He asked to be called (Shortcut "Call me"): ring the paired phone now; Answer then plays the opener made here.
+ *  Returns how many phones the push reached; 0 when push isn't set up or a call is already on. */
+export async function ringNow(sb: SupabaseClient, userId: string): Promise<number> {
+  if (G.sessions.size || pushProblem()) return 0;
+  const things = (await pendingApprovals(sb).catch(() => [])).length;
+  G.ring = { reason: "manual", at: Date.now() };
+  G.pre = prepareOpener(sb, userId, "manual");
+  return deliver(pushLabel("call", things));
 }
 
 // ---- Voice out: Kokoro on this PC, one sentence at a time, as a 16-bit WAV (base64) ----
@@ -100,8 +111,9 @@ function tts(text: string): Promise<string | null> {
 /** Load Kokoro and make the short fillers ahead of the first turn (cached for the life of the process). */
 export const warmVoice = () => { for (const t of FILLERS) if (!G.cache.has(t)) void tts(t); };
 
+// Negotiation replies (prices) are approved on a screen where he reads them, never by voice.
 const toItems = (sb: SupabaseClient): Promise<CallItem[]> =>
-  pendingApprovals(sb).then((a) => a.map(({ id, kind, title, seen, credits, to, thumb }) => ({ id, kind, title, seen, credits, to, thumb })));
+  pendingApprovals(sb).then((a) => a.filter((i) => i.kind !== "nego").map(({ id, kind, title, seen, credits, to, thumb }) => ({ id, kind, title, seen, credits, to, thumb })));
 
 // ---- Sessions ----
 function sweep() {

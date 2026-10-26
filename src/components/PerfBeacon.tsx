@@ -12,8 +12,14 @@ export const perfCtx: Ctx = {}; // the galaxy writes its state here (level, stop
 const RING = 4096; // 10 s at up to ~400 Hz; it wraps (keeps the newest) past that
 const ring = new FrameRing(RING), scratch = new Float32Array(RING);
 const marks: unknown[] = [];
+/** Only in a scripted perf run (?perfrun=1, PerfRun.tsx): every mark from page load on, with the step it fell in. */
+export const runMarks: { mark: string; at: number; seg?: string; extra?: Ctx }[] | null =
+  typeof location !== "undefined" && new URLSearchParams(location.search).get("perfrun") === "1" ? [] : null;
 /** Records a boot milestone (ms since navigation) for /api/perf, e.g. when the galaxy first drew; `extra` joins its ctx. */
-export function perfMark(name: string, extra?: Ctx) { marks.push({ at: Math.round(performance.now()), ms: 0, mark: name, scripts: [], ctx: { ...perfCtx, ...extra, w: innerWidth, h: innerHeight, dpr: devicePixelRatio, vis: document.visibilityState } }); }
+export function perfMark(name: string, extra?: Ctx) {
+  runMarks?.push({ mark: name, at: Math.round(performance.now()), seg: typeof perfCtx.runSeg === "string" ? perfCtx.runSeg : undefined, extra });
+  marks.push({ at: Math.round(performance.now()), ms: 0, mark: name, scripts: [], ctx: { ...perfCtx, ...extra, w: innerWidth, h: innerHeight, dpr: devicePixelRatio, vis: document.visibilityState } });
+}
 
 export function PerfBeacon() {
   const [hud, setHud] = useState<string | null>(null);
@@ -67,14 +73,15 @@ export function PerfBeacon() {
     return () => { po?.disconnect(); clearInterval(t); cancelAnimationFrame(raf); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
-  // Shift+F: live readout of the current window (not while typing).
+  // Shift+F: live readout of the current window (not while typing). Shift+Alt+P: reload into a scripted perf run.
   useEffect(() => {
     let iv = 0;
     const show = () => { const s = frameStats(ring, scratch); if (s && s.n >= 10) setHud(`${Math.round(s.fps)} fps · p95 ${s.p95} ms`); };
     const k = (e: KeyboardEvent) => {
-      if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.code !== "KeyF") return;
+      if (!e.shiftKey || e.ctrlKey || e.metaKey || (e.code !== "KeyF" && e.code !== "KeyP") || e.altKey !== (e.code === "KeyP")) return;
       const el = e.target as HTMLElement | null;
       if (el?.closest?.("input, textarea, select, [contenteditable=''], [contenteditable=true]")) return;
+      if (e.code === "KeyP") { location.search = "?perfrun=1"; return; } // a cold start, like the scripted run
       if (iv) { clearInterval(iv); iv = 0; setHud(null); } else { setHud("…"); show(); iv = window.setInterval(show, 500); }
     };
     addEventListener("keydown", k);

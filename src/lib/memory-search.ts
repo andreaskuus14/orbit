@@ -5,7 +5,7 @@ import { CANDIDATE_LIMIT, memoryLimit, memoryProject, memoryProjectFilter, selec
 export const MEMORY_COLUMNS = "id, kind, title, content, source, url, storage_path, tags, folder, visibility, created_at, updated_at";
 // includeJournal: only the owner's own MEMORY search. CORE and agents never get journal entries (LIFE data; it would also leave
 // the turn untainted while private text is in context). The vector pool can't filter, so hydration drops them too.
-export type MemorySearchOptions = { projectName?: string; coreSummariesOnly?: boolean; includeJournal?: boolean };
+export type MemorySearchOptions = { projectName?: string; coreSummariesOnly?: boolean; includeJournal?: boolean; kind?: string }; // kind: only that kind (episodes.ts recall)
 type EmbedQuery = (text: string, type: "query") => Promise<number[] | null>;
 
 /** Candidate retrieval is separate from the Claude bridge so the real query flow can be tested offline. */
@@ -19,6 +19,7 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
     let base = sb.from("memories").select("id");
     if (options.coreSummariesOnly) base = base.eq("kind", "conversation").eq("source", "core-summary");
     if (!options.includeJournal) base = base.neq("kind", "journal");
+    if (options.kind) base = base.eq("kind", options.kind);
     return await (userId ? base.eq("user_id", userId) : base)
       .textSearch("fts", q, { type: "websearch", config: "english" })
       .limit(CANDIDATE_LIMIT);
@@ -46,6 +47,7 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
   let base = sb.from("memories").select(MEMORY_COLUMNS).in("id", ids);
   if (options.coreSummariesOnly) base = base.eq("kind", "conversation").eq("source", "core-summary");
   if (!options.includeJournal) base = base.neq("kind", "journal");
+  if (options.kind) base = base.eq("kind", options.kind);
   // Keep the explicit owner filter on hydration too: admin/background clients bypass RLS.
   const { data, error } = await (userId ? base.eq("user_id", userId) : base);
   if (error) throw error;
