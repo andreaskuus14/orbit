@@ -19,10 +19,12 @@ import SoundFinder from "./SoundFinder";
 import ThumbMaker from "./ThumbMaker";
 import TrendRadar from "./TrendRadar";
 import { DEV_TAB_EVENT, DEV_TAB_KEY } from "@/lib/herald-pure";
+import { LUAU_FIX_EVENT } from "@/lib/screen-look-pure";
 import CodeHelper from "./CodeHelper";
 import ScenePlanner from "./ScenePlanner";
 import TextureStudio from "./TextureStudio";
 import PlaytestBot from "./PlaytestBot";
+import PersonaPlaytest from "./PersonaPlaytest";
 import GridCity from "./GridCity";
 import HivePanel from "./HivePanel";
 import DevSessions from "./DevSessions";
@@ -156,6 +158,10 @@ function Rig() {
 
 type Props = { paused?: boolean /* kept mounted but hidden */; flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; onPlaying?: (p: boolean) => void };
 
+// A screen-look "Fix with docs" fires before GAME DEV mounts: hold the error until the panel takes it.
+let pendingFix = "";
+if (typeof window !== "undefined") addEventListener(LUAU_FIX_EVENT, (e) => { pendingFix = String((e as CustomEvent<string>).detail ?? ""); });
+
 export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat, quality = "auto", paused = false }: Props) {
   const q = useLeanQuality(quality);
   const glr = useGlRecovery();
@@ -167,7 +173,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
   const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "hive" | "grid" | "sessions">("games");
+  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "personas" | "hive" | "grid" | "sessions">("games");
   const [fix, setFix] = useState<{ key: number; error: string } | undefined>(); // backlog → Code helper (Fix mode)
   const [rising, setRising] = useState(0); // bumped by a Herald trend card: Trend Radar opens on Rising
   useEffect(() => { if (tab !== "trends") setRising(0); }, [tab]); // leaving the radar ends the jump, so coming back opens it normally (runs before the mount check below, which may bump it)
@@ -176,6 +182,12 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
     try { if (sessionStorage.getItem(DEV_TAB_KEY) === "trends") { sessionStorage.removeItem(DEV_TAB_KEY); go(); } } catch { /* no storage: the event still works */ }
     addEventListener(DEV_TAB_EVENT, go);
     return () => removeEventListener(DEV_TAB_EVENT, go);
+  }, []);
+  useEffect(() => {
+    const take = () => { if (pendingFix) { setFix({ key: Date.now(), error: pendingFix }); setTab("code"); pendingFix = ""; } };
+    take();
+    addEventListener(LUAU_FIX_EVENT, take);
+    return () => removeEventListener(LUAU_FIX_EVENT, take);
   }, []);
   const saved = useRef<World | null>(null); // last world the server accepted: the rollback target
   const queue = useRef(Promise.resolve());
@@ -271,7 +283,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Studio view">
           <button className="chip" aria-pressed={tab === "games"} onClick={() => setTab("games")}>🎮 Games</button>
           <button className="chip" aria-pressed={tab === "refs"} onClick={() => setTab("refs")} style={tab === "refs" ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>🎨 References</button>
-          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"], ["hive", "🐝 Hive"], ["grid", "🟦 Grid"], ["sessions", "🕒 Sessions"]] as const).map(([k, label]) => (
+          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"], ["hive", "🐝 Hive"], ["grid", "🟦 Grid"], ["sessions", "🕒 Sessions"]] as const).map(([k, label]) => (
             <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
           ))}
         </div>
@@ -284,6 +296,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {tab === "scene" && <ScenePlanner />}
         {tab === "textures" && <TextureStudio />}
         <div hidden={tab !== "playtest"}><PlaytestBot world={world} commit={commit} gameId={selected} /></div>
+        {tab === "personas" && <PersonaPlaytest world={world} commit={commit} gameId={selected} />}
         <div hidden={tab !== "code"}><CodeHelper prefill={fix} /></div>
         {tab === "sessions" && <DevSessions />}
         {tab !== "games" ? null : !world ? (
