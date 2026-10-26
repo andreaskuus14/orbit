@@ -12,10 +12,12 @@ import { usageHold } from "./usage-meter";
 import { allows } from "./autonomy";
 import { pushNotify } from "./remote-push";
 import { emailIn } from "./business-pure";
+import { approvalGate } from "./approval-pure";
 import {
   FILL_SYSTEM, STATUSES, contractText, MAX_COMMENTS, MAX_CONTRACTS, MAX_VERSIONS, TEMPLATES, cleanFields, contractPdf, coverEmail, coverSubject, current, fillPrompt, isTemplateId,
   makeVersion, mergeFields, missing, overridesOf, parseFill, parseSignature, sha256Hex, transition, waitingIds,
   type Contract, type Event, type Fields, type Override, type Status,
+  contractSendContent,
 } from "./contracts-pure";
 
 export class ContractError extends Error { status: number; constructor(m: string, status = 400) { super(m); this.status = status; } }
@@ -169,16 +171,17 @@ export async function ownerStep(sb: SupabaseClient, userId: string, id: unknown,
 }
 
 /** "Approve & send": emails the signed PDF with his cover text to the counterparty, only from his click on the exact cover he read
- *  (seen = updatedAt). Same guards as BUSINESS sendDraft: Resend set up, Stop-all off, BUSINESS email and Contracts not Off, claimed first. */
+ *  (seen = contentHash of contractSendContent: recipient, subject, cover text and the signed PDF's hash). Same guards as BUSINESS sendDraft: Resend set up, Stop-all off, BUSINESS email and Contracts not Off, claimed first. */
 export async function sendContract(sb: SupabaseClient, userId: string, id: unknown, seen: unknown): Promise<Contract> {
   const key = process.env.RESEND_API_KEY, from = process.env.ORBIT_MAIL_FROM;
   if (!key || !from) throw new ContractError("Sending isn't set up: add RESEND_API_KEY and ORBIT_MAIL_FROM to .env.local, or download the PDF and email it yourself", 503);
   if (stopAllOn()) throw new ContractError("Not sending: Stop-all is on", 503);
   for (const a of ["business-send", "contracts"] as const) { const v = allows(a, "owner"); if (!v.ok) throw new ContractError(`Not sending: ${v.why}`, 503); }
   const stamp = new Date().toISOString();
-  const c = await update((list) => { // claim signed → sent first: one email even on a double click
+  const c = await update(async (list) => { // claim signed → sent first: one email even on a double click
     const c = find(list, id);
-    if (seen !== c.updatedAt) throw new ContractError("It changed since you read it: reload and check the email again", 409);
+    const gate = await approvalGate("contracts.send", seen, contractSendContent(c));
+    if (gate) throw new ContractError(gate, 409);
     if (!c.signed || c.signed.hash !== current(c).hash) throw new ContractError("Sign this version first", 409);
     const to = emailIn(current(c).fields.partyEmail ?? "");
     if (!to) throw new ContractError("Put the other party's email address in the contract first");

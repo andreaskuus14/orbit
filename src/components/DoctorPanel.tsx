@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Report, Status } from "@/lib/doctor-pure";
 import type { BootResult } from "@/lib/doctor-boot-pure";
 import { builderText, type Issue } from "@/lib/health-pure";
+import { builderBrief, type Improve } from "@/lib/self-improve-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 
 const COLOR: Record<Status, string> = { ok: "var(--mint)", warn: "var(--amber)", fail: "var(--rose)" };
@@ -41,9 +42,36 @@ function HealthCard({ health }: { health: Health }) {
   );
 }
 
+/** MAKE ORBIT BETTER card (C6): this week's ranked improvement tasks with a builder brief to copy. Nothing here changes code. */
+function ImproveCard({ improve }: { improve: Improve }) {
+  const [copied, setCopied] = useState("");
+  const copy = async (i: number) => {
+    try { await navigator.clipboard.writeText(builderBrief(improve.tasks[i], i + 1, improve.week)); setCopied(improve.tasks[i].key); } catch { setCopied(""); }
+  };
+  return (
+    <section className="mt-4 rounded-lg border border-white/10 p-2 text-sm" aria-label="Make ORBIT better">
+      <b>Make ORBIT better</b>
+      <p className="muted text-xs">Week {improve.week}. {improve.tasks.length ? "ORBIT's weakest spots, ranked. Copy a brief for Claude Code or Codex; ORBIT never changes its own code." : "No weak spots found this week."}</p>
+      <ol className="mt-2 grid gap-2">
+        {improve.tasks.map((t, i) => (
+          <li key={t.key} className="rounded-lg border border-white/10 p-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <b className="text-xs">{i + 1}. {t.title}</b>
+              <span className="muted shrink-0 font-mono text-[10px]">IMPACT {t.impact}</span>
+            </div>
+            <p className="mt-1 text-xs">{t.problem}</p>
+            <p className="muted text-[11px]">Evidence: {t.evidence.join(", ")}</p>
+            <button className="chip mt-1" onClick={() => copy(i)} aria-label={`Copy builder brief: ${t.title}`}>{copied === t.key ? "Copied" : "Copy for builder"}</button>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 /** ORBIT doctor: runs /api/doctor and lists each check with what to do. speak = read the result aloud (opened by voice/command). */
 export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: boolean }) {
-  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null }) | null>(null);
+  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null }) | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const spoke = useRef(false);
@@ -54,7 +82,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
       const res = await fetch("/api/doctor", { cache: "no-store" });
       if (res.status === 401 || res.status === 403) throw new Error("ORBIT couldn't confirm your sign-in. Either the database (Supabase) is unreachable or you were signed out. Check your internet, then reload the page and sign in.");
       if (!res.ok) throw new Error(`The check didn't run (error ${res.status}). Restart ORBIT and try again.`);
-      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null };
+      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null };
       setReport(r);
       if (speak && !spoke.current && speechSettings().speak) { spoke.current = true; speakChunk(r.speech); }
     } catch (e) {
@@ -108,6 +136,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
               </> : <p className="muted mt-1 text-xs">No crashes since the boot before.</p>}
             </section>}
             {report.health && <HealthCard health={report.health} />}
+            {report.improve && <ImproveCard improve={report.improve} />}
             <p className="muted mt-3 text-[10px]">Checked in {(report.ms / 1000).toFixed(1)} s · {new Date(report.at).toLocaleTimeString()}</p>
           </>}
       </div>
