@@ -20,9 +20,9 @@ export function useRealSkyPlace() {
   useEffect(() => {
     if (!on) return;
     let alive = true;
-    // well after start-up; a 404 (no place feature) or no PC place keeps Tallinn
-    const t = setTimeout(() => fetch("/api/place").then((r) => (r.ok ? r.json() : null)).then((d: { places?: { lat: number; lon: number; pc?: boolean }[] } | null) => {
-      const pc = d?.places?.find((p) => p.pc);
+    // well after start-up; the place feature off (its opt-in), or no PC place, keeps Tallinn
+    const t = setTimeout(() => fetch("/api/place").then((r) => (r.ok ? r.json() : null)).then((d: { on?: boolean; places?: { lat: number; lon: number; pc?: boolean }[] } | null) => {
+      const pc = d?.on !== true ? undefined : d.places?.find((p) => p.pc);
       if (alive && pc && Number.isFinite(pc.lat) && Number.isFinite(pc.lon)) setPlace({ lat: pc.lat, lon: pc.lon });
     }).catch(() => {}), 15_000);
     return () => { alive = false; clearTimeout(t); };

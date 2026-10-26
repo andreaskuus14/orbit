@@ -1,6 +1,6 @@
 // CORE's LIFE + VAULT tools. Changes (check a habit, add a habit, add a reminder) only happen as the user's own request:
 // refused once any page, file, agent or studio output is in context, so injected text can't write to LIFE.
-export const LIFE_TOOLS = ["life_status", "life_check", "life_add_habit", "life_remind", "life_journal", "vault_search", "vault_read", "calendar_events", "git_summary"] as const;
+export const LIFE_TOOLS = ["life_status", "life_check", "life_add_habit", "life_remind", "life_journal", "vault_search", "vault_read", "calendar_events", "git_summary", "plan_day"] as const;
 export type LifeTool = (typeof LIFE_TOOLS)[number];
 export const isLifeTool = (t: string): t is LifeTool => (LIFE_TOOLS as readonly string[]).includes(t);
 
@@ -19,7 +19,7 @@ export function lifeWriteBlocked(tool: LifeTool, question: string, tainted: bool
   return asked ? null : "the user's latest message didn't ask for this LIFE change; answer instead";
 }
 
-export async function runLifeTool(tool: LifeTool, input: Record<string, unknown>, question: string, tainted: boolean): Promise<string> {
+export async function runLifeTool(tool: LifeTool, input: Record<string, unknown>, question: string, tainted: boolean, ctx?: { sb: import("@supabase/supabase-js").SupabaseClient; userId: string }): Promise<string> {
   const blocked = lifeWriteBlocked(tool, question, tainted);
   if (blocked) return `Error: ${blocked}`;
   try {
@@ -54,6 +54,10 @@ export async function runLifeTool(tool: LifeTool, input: Record<string, unknown>
         const days = (await import("./gcal-pure")).calDays(input.days);
         const ev = await (await import("./gcal")).calendarEvents(days);
         return ev ? (await import("./gcal-pure")).calendarText(ev, days) : "Google Calendar isn't connected: the user can click Connect Google Calendar in LIFE → Today.";
+      }
+      case "plan_day": { // proposal only: he drags and accepts it himself in the morning brief
+        const { planDay } = await import("./dayplan");
+        return (await import("./dayplan-pure")).planText(await planDay(ctx?.sb ?? null, ctx?.userId ?? null, { fresh: input.fresh === true }));
       }
       case "git_summary": {
         const days = Math.min(31, Math.max(1, Math.round(Number(input.days)) || 7));
