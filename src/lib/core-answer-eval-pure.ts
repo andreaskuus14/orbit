@@ -4,7 +4,7 @@ import type { WriteEvidence } from "./completion-pure.ts";
 export type CoreEvalTool = { tool: string; input: Readonly<Record<string, unknown>>; output: string; evidence: readonly WriteEvidence[] };
 const READS: Record<string, AnswerAction> = {
   search_memory: "search", web_search: "search", vault_search: "search", fetch_url: "read", read_news: "read",
-  vault_read: "read", ws_read: "read", ws_list: "read", life_status: "read", life_journal: "read", calendar_events: "read",
+  vault_read: "read", ws_read: "read", ws_list: "read", life_status: "read", life_journal: "read", calendar_events: "read", plan_day: "read",
   git_summary: "read", studio_status: "read", learned: "read", business_status: "read", ideas_list: "read", goal_status: "read", wishlist: "read",
 };
 const DONE: Record<string, AnswerAction[]> = { life_add_habit: ["create"], life_remind: ["create", "schedule"], life_check: ["update"], create_goal: ["create"], add_wish: ["create"] };
