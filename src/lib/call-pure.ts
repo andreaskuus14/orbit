@@ -221,8 +221,7 @@ function resolve(t: string, items: CallItem[]): CallItem[] {
 
 const ask = (it: CallItem, action: "approve" | "reject") => action === "reject" ? `Reject the clip ${q(it.title)}? Its files get deleted. Say yes to confirm.`
   : it.kind === "clip" ? `Approve the clip ${q(it.title)}? Say yes to confirm.`
-  : it.kind === "spend" ? `Spend ${it.credits} Higgsfield credits on ${q(it.title)}? Say yes to confirm.`
-  : `Send the email to ${it.to ?? it.title}, exactly as drafted? Say yes to confirm.`;
+  : `Spend ${it.credits} Higgsfield credits on ${q(it.title)}? Say yes to confirm.`;
 
 /** null: not about approvals, CORE answers. Otherwise what to say, the next pending confirmation, and (only after an explicit
  *  yes to the exact item and version just asked about) the action, whose echo the server re-checks against what's waiting now. */
@@ -246,6 +245,8 @@ export function voiceDecision(pending: Pending | null, text: string, items: Call
   if (hits.length > 1) return { pending: null, say: `Which one? ${hits.slice(0, 3).map(describe).join(", or ")}?` };
   const it = hits[0];
   if (action === "reject" && it.kind !== "clip") return { pending: null, say: "I can only reject clips by voice. That one I'll just leave waiting." };
+  // AGENTS rule 6: an email goes out only after he has read that exact message, which a voice call can't show him.
+  if (action === "approve" && it.kind === "send") return { pending: null, say: `The email to ${it.to ?? it.title} needs you to read it first, so approve it on screen, in Remote or BUSINESS.` };
   if (action === "approve" && it.kind === "clip" && !it.thumb) return { pending: null, say: "That clip has no preview for the phone, so have a look at it on the PC first." };
   return { pending: { id: it.id, action, kind: it.kind, seen: it.seen, ...(it.credits !== undefined ? { credits: it.credits } : {}), at: now }, say: ask(it, action) };
 }

@@ -387,3 +387,17 @@
 @media (prefers-reduced-motion: reduce) { .mc[open] { animation: none; } }
 .continue-work-chip { position: absolute; z-index: 16; top: 5rem; left: .75rem; }
 .orbit-shell:has(.whats-new) .continue-work-chip { display: none; }
+/* CORE command workspace: conversation left, artifact + mission + voice right (the drawer widens only on wide screens). */
+@media (min-width: 64rem) {
+  .drawer:has(.core-ws) { width: min(68rem, calc(100vw - 1.5rem)); }
+  .core-ws { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 26rem); gap: 1rem; height: 100%; min-height: 0; }
+}
+.core-ws { height: 100%; min-height: 0; }
+.core-ws-side { display: none; }
+@media (min-width: 64rem) { .core-ws-side { display: flex; flex-direction: column; gap: .75rem; overflow-y: auto; border-left: 1px solid #b4d9e030; padding-left: 1rem; } }
+.core-ws-card h3 { font-family: var(--font-mono); letter-spacing: .15em; font-size: .6rem; text-transform: uppercase; color: #8da2af; margin-bottom: .4rem; }
+.core-ws-text { width: 100%; min-height: 14rem; font-family: var(--font-mono); font-size: .75rem; line-height: 1.5; resize: vertical; }
+.core-ws-frame { width: 100%; height: 16rem; border: 1px solid #b4d9e030; border-radius: 8px; background: #fff; }
+.core-ws-proof { font-size: .72rem; margin-bottom: .4rem; padding-left: .5rem; border-left: 2px solid #8da2af; }
+.core-ws-proof.executed { border-color: #a78bfa; }
+.core-ws-proof.verified { border-color: #5eead4; }

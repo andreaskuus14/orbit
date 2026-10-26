@@ -9,3 +9,10 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   return coreTurn(req, sb, user.id, body && typeof body === "object" ? body : {});
 }
+
+/** The effective CORE setup (models, limits, session mode) for the DEV world readout. */
+export async function GET() {
+  const { res } = await requireUser();
+  if (res) return res;
+  return Response.json((await import("@/lib/core-config")).coreConfig());
+}
