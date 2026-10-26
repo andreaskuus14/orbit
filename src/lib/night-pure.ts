@@ -13,7 +13,7 @@ export const DRAFT_AGAIN_MS = 7 * 86_400_000; // a prospect gets at most one ove
 export const PERSONA_STUDIO_RUNS = 2; // real look-only Studio playtests per night (each up to 4 minutes); the rest is simulated
 export const RESEARCH_AGENTS = ["atlas", "nova", "forge", "vector", "echo", "sentinel"];
 
-export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health", "personas"] as const;
+export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health", "personas", "rivals"] as const;
 export type NightKind = (typeof NIGHT_KINDS)[number];
 export const ITEM_STATUSES = ["done", "approval", "failed", "skipped"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -132,6 +132,7 @@ export type PlanInput = {
   nicheDue: boolean;
   health?: boolean; // run the self-healing check (health.ts) tonight: no code changes, at most 3 fast-model notes
   deals?: number; // wishes the deal hunter would cover now (deals.ts dueCount); one read-only web call each
+  rivals?: number; // competitor pages the weekly BUSINESS rivals watch would read now (rivals.ts rivalsDue); no model calls
   personas?: boolean; // persona playtest of the pet sim due (personas.ts): 1 walkthrough call + PERSONA_STUDIO_RUNS look-only Studio runs
   handled: string[]; // `${kind}:${ref}` already in this night's run (a continued run doesn't redo them)
   now: number;
@@ -154,6 +155,7 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
     ...(i.deals ? [{ kind: "deals", ref: "deals", label: `Deal hunt for ${i.deals} wish${i.deals > 1 ? "es" : ""}`, calls: i.deals, minutes: 6 * i.deals } as NightTask] : []),
     ...(i.personas ? [{ kind: "personas", ref: "personas", label: "Persona playtest of the pet sim", calls: 1 + PERSONA_STUDIO_RUNS, minutes: 5 + 4 * PERSONA_STUDIO_RUNS } as NightTask] : []),
     { kind: "clips", ref: "clips", label: "Shorts packaging up to review", calls: 6, minutes: 10 } as NightTask,
+    ...(i.rivals ? [{ kind: "rivals", ref: "rivals", label: "Weekly BUSINESS competitor watch", calls: 0, minutes: 1 + Math.ceil(i.rivals / 2) } as NightTask] : []),
     ...(i.nicheDue ? [{ kind: "niche", ref: "niche", label: "Weekly BUSINESS niche scout", calls: 1, minutes: 10 } as NightTask] : []),
   ].filter((t) => !i.handled.includes(`${t.kind}:${t.ref}`) && !i.off?.includes(t.kind));
   // Kept lessons only reorder ORBIT's own work (so a tight budget defers what he cares less about); his asks, the free tidy-up and the health check stay first.

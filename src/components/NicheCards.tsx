@@ -1,5 +1,6 @@
 "use client";
 import { OrbitThinks } from "./OrbitThinks";
+import RivalsBox from "./RivalsBox";
 import { useCallback, useEffect, useState } from "react";
 import { marginOf, type Kit, type Niche } from "@/lib/niche-pure";
 
@@ -78,6 +79,7 @@ function Card({ n, kit, dir, busy, building, any, act }: { n: Niche; kit: Kit | 
           {building || busy === `build:${n.id}` ? "CORE is writing the shop…" : n.shopAt ? "Rebuild shop" : "Build shop"}</button>}
         {kit && <button className="chip" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide shop" : "Show shop"}</button>}
       </div>
+      {n.status === "kept" && <RivalsBox id={n.id} />}
       {kit && open && (
         <div className="space-y-2 rounded-md border border-white/10 p-2">
           <iframe title={`Preview of ${kit.brand}`} sandbox="" src={`/api/business/shop/${n.id}?v=${encodeURIComponent(n.shopAt ?? "")}`} className="h-[420px] w-full rounded bg-white" />
