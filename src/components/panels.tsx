@@ -157,7 +157,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     let myGen = speechGen(); // a later stop() (barge-in, Stop button) silences the rest of this answer
     const talk = fromVoice || takeVoiceAsked();
     const say = (parts: string[]) => { if (talk && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
-    const voiceOut = sentenceStream();
+    const voiceOut = sentenceStream(true);
     const fly = (to: NavTarget) => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to }));
     const files = nav ? [] : att.take(); // pending attachments must not send a direct command to Claude
     setMsgs((m) => [...m, { role: "user", content: [message, files.length && `📎 ${files.map((f) => f.name).join(", ")}`].filter(Boolean).join("\n") }]);
@@ -215,7 +215,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           finished = true;
           flush();
           // The final answer equals the streamed text up to citation markers (stripped for speech): speak only the tail.
-          say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? ""));
+          say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? "", true));
           setLive(null);
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model,
             chips: followUps(message, (ev.trace ?? []).map((s) => s.step)), lesson: ev.lesson, fixes: look === "roblox" ? robloxErrors(ev.answer ?? "") : undefined }]);
