@@ -1,10 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RemoteCall } from "./RemoteCall";
+import { NeedCard, RemoteGalaxy, type Item } from "./RemoteHome";
+import { biggestFirst, headline } from "@/lib/remote-ui-pure";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
-type Item = { id: string; kind: "clip" | "spend" | "send" | "nego"; title: string; detail: string; seen: string; credits?: number; thumb?: boolean; to?: string; message?: string; strategy?: string };
 type Status = { stop: { on: boolean; at: string }; queue: { active: { id: string; source: string; status: string; step: string; progress: number }[]; ready: number; approved: number; publishing: string | null; story: string | null } };
 
 const nonce = () => crypto.randomUUID();
@@ -67,46 +68,34 @@ export function RemoteApp() {
   if (paired === null) return <Shell><p className="muted text-sm">Connecting…</p></Shell>;
   if (!paired) return <Shell><Pair off={off} onPaired={() => void load()} /></Shell>;
   const q = status?.queue;
+  const paused = !!status?.stop.on;
   return (
     <Shell>
+      <RemoteGalaxy need={items.length} jobs={q?.active.length ?? 0} paused={paused} />
+      {/* Slot: the car-mode branch's "Car mode" button goes here. */}
+
+      <section className="rm-hero" aria-labelledby="r-stop">
+        <p className="rm-status" style={{ color: paused ? "var(--rose)" : items.length ? "var(--amber)" : "var(--ink)" }} aria-live="polite">{headline(items.length, paused)}</p>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="r-stop" className="muted text-sm">{paused ? "Stop-all ON: resume it from the PC." : "Running · Stop-all off"}</h2>
+          {!paused && <button className="btn danger" disabled={!!busy} onClick={stopAll} style={{ minHeight: 44, minWidth: 104 }}>Stop all</button>}
+        </div>
+      </section>
+
       {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
 
-      <section className="card space-y-2" aria-labelledby="r-stop">
-        <h2 id="r-stop" className="text-sm font-semibold">Stop-all</h2>
-        <p className="muted text-sm">{status?.stop.on ? "ON: ORBIT is paused. Resume it from the PC." : "Off: ORBIT is running."}</p>
-        {!status?.stop.on && <button className="btn danger w-full" disabled={!!busy} onClick={stopAll} style={{ minHeight: 48 }}>Stop all</button>}
-      </section>
-
-      <section className="space-y-2" aria-labelledby="r-appr">
-        <h2 id="r-appr" className="text-sm font-semibold">Waiting for you ({items.length})</h2>
+      <section className="space-y-3" aria-labelledby="r-appr">
+        <h2 id="r-appr" className="rm-label">Needs you · {items.length}</h2>
         {!items.length && <p className="muted text-sm">Nothing to approve.</p>}
-        {items.map((it) => {
-          const blind = it.kind === "clip" && (!it.thumb || noThumb[it.id]); // he can't see it here: review on the PC
-          return (
-          <article key={it.id} className="card space-y-2">
-            <div className="text-sm font-semibold">{it.title}</div>
-            <div className="muted text-xs">{it.detail}</div>
-            {it.kind === "clip" && (blind ? <p className="muted text-sm">No preview: open on PC to review.</p>
-              : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={`Thumbnail of ${it.title}`} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} />)}
-            {it.kind === "spend" && <div className="text-sm">Quote: <b>{it.credits} credits</b></div>}
-            {it.kind === "nego" && <div className="text-xs">Plan: {it.strategy}</div>}
-            {(it.kind === "send" || it.kind === "nego") && <>
-              {it.to && <div className="text-sm">To: <b>{it.to}</b></div>}
-              <pre className="field w-full whitespace-pre-wrap text-xs" style={{ fontFamily: "inherit", maxHeight: 260, overflow: "auto" }}>{it.message}</pre>
-            </>}
-            <div className="flex gap-2">
-              <button className="btn flex-1" style={{ minHeight: 44 }} disabled={!!busy || blind} onClick={() => decide(it, true)}>
-                {busy === it.id ? "…" : it.kind === "spend" ? `Approve ${it.credits} credits` : it.kind === "send" || (it.kind === "nego" && it.to) ? "Approve & send" : "Approve"}
-              </button>
-              {it.kind === "clip" && <button className="chip" style={{ minHeight: 44 }} disabled={!!busy} onClick={() => decide(it, false)}>Reject</button>}
-            </div>
-          </article>
-          );
-        })}
+        {biggestFirst(items).map((it) => (
+          <NeedCard key={it.id} it={it} busy={busy} blind={it.kind === "clip" && (!it.thumb || !!noThumb[it.id])} // he can't see it here: review on the PC
+            onThumbError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} decide={decide} />
+        ))}
       </section>
 
-      <section className="card space-y-1" aria-labelledby="r-queue">
-        <h2 id="r-queue" className="text-sm font-semibold">Studio queue</h2>
+      {/* Night report and Place sections slot in here once the remote API serves them (not on main yet). */}
+      <section className="rm-sec" aria-labelledby="r-queue">
+        <h2 id="r-queue" className="rm-label">Studio queue</h2>
         {q && <p className="muted text-sm">{q.ready} to review · {q.approved} approved, not yet published{q.publishing ? " · uploading now" : ""}{q.story ? " · AI story generating" : ""}</p>}
         {q?.active.length ? q.active.map((j) => (
           <div key={j.id} className="text-sm"><span className="font-semibold">{j.source}</span> <span className="muted">{j.step || j.status} {Math.round(j.progress * 100)}%</span></div>
@@ -154,8 +143,8 @@ function Notify() {
     setInfo(info && { ...info, on: false }); setBusy(false);
   }
   return (
-    <section className="card space-y-2" aria-labelledby="r-notify">
-      <h2 id="r-notify" className="text-sm font-semibold">Notifications</h2>
+    <section className="rm-sec" aria-labelledby="r-notify">
+      <h2 id="r-notify" className="rm-label">Notifications</h2>
       {!supported ? <p className="muted text-sm">On iPhone (iOS 16.4+), open Remote from the Home Screen to turn notifications on.</p>
         : !info ? <p className="muted text-sm">Checking…</p>
         : info.problem ? <p className="muted text-sm">{info.problem}</p>
@@ -171,8 +160,8 @@ function Notify() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="mx-auto max-w-lg space-y-4 px-4" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
-      <h1 className="text-lg font-semibold tracking-wide" style={{ fontFamily: "var(--font-display)" }}>ORBITAL REMOTE</h1>
+    <main className="rm-shell mx-auto max-w-lg space-y-4">
+      <h1 className="rm-title">ORBITAL REMOTE</h1>
       {children}
     </main>
   );
@@ -243,12 +232,12 @@ function Ask() {
     setBusy(false); setStep("");
   }
   return (
-    <form onSubmit={ask} className="card space-y-2" aria-labelledby="r-ask">
-      <h2 id="r-ask" className="text-sm font-semibold">Ask CORE</h2>
+    <form onSubmit={ask} className="rm-sec" aria-labelledby="r-ask">
+      <h2 id="r-ask" className="rm-label">Ask CORE</h2>
       <textarea className="field h-24 w-full" maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask anything…" aria-label="Question for CORE" />
       <div className="flex gap-2">
         <button className="btn flex-1" style={{ minHeight: 44 }} disabled={busy || !text.trim()}>{busy ? "Thinking…" : "Ask"}</button>
-        {busy && <button type="button" className="chip" onClick={() => ac.current?.abort()}>Stop</button>}
+        {busy && <button type="button" className="chip" style={{ minHeight: 44 }} onClick={() => ac.current?.abort()}>Stop</button>}
       </div>
       {step && <p className="muted text-xs" aria-live="polite">{step}</p>}
       {answer && <div className="whitespace-pre-wrap text-sm" aria-live="polite">{answer}</div>}
