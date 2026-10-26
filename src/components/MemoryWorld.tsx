@@ -22,6 +22,7 @@ import { ClusterHalos, ClusterList } from "./MemoryClusters";
 import type { Graph } from "@/lib/memory-graph-pure";
 import { useMountLater, WarmCompile } from "./WarmCompile";
 import { smoothDampVec } from "@/lib/smooth-damp-pure";
+import { PeopleCanvas, PeoplePanel, usePeople } from "./PeopleRing";
 import dynamic from "next/dynamic";
 
 const Chronicle = dynamic(() => import("./Chronicle"), { ssr: false }); // its own canvas, loaded only when he opens Chronicle
@@ -354,6 +355,9 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const [playing, setPlaying] = useState(false);
   const [chron, setChron] = useState(false), [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const river = chron && !list && !flat; // Chronicle replaces the constellation's canvas (one WebGL context at a time)
+  const [people, setPeople] = useState(false); // the People ring replaces the constellation (its own canvas); not in the demo
+  const peep = people && !!List && !list;
+  const ppl = usePeople(peep && !paused);
   const fly = (at: [number, number, number], dist: number) => setGoal((g) => ({ at, dist, n: (g?.n ?? 0) + 1 }));
 
   useEffect(() => { // refetch when returning from List view or to the world: memories may have been added or deleted meanwhile
@@ -428,7 +432,8 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="MEMORY: your memories as a constellation" style={{ background: BG }}>
       {river && <Chronicle reduced={reduced} quality={quality} paused={paused} slot={slot} />}
-      {!flat && later && !river && (
+      {!flat && later && peep && <PeopleCanvas st={ppl} reduced={reduced} paused={paused} />}
+      {!flat && later && !river && !peep && (
         <Canvas key={glr.key} onCreated={onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
           onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -460,14 +465,15 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
         <div className="flex items-center justify-between gap-2">
           <h2 className="brand text-base">MEMORY <span className="muted num text-xs font-normal">{data ? `${data.items.length}${data.total > data.items.length ? ` of ${data.total}` : ""} stars` : ""}</span></h2>
           {!flat && List && <div className="flex gap-1.5">
-            <button className="chip" aria-pressed={!list && !chron} onClick={() => { setList(false); setChron(false); }}>Constellation</button>
-            <button className="chip" aria-pressed={river} onClick={() => { setList(false); setChron(true); }}>Chronicle</button>
-            <button className="chip" aria-pressed={list} onClick={() => { setList(true); setChron(false); }}>List view</button>
+            <button className="chip" aria-pressed={!list && !chron && !peep} onClick={() => { setList(false); setChron(false); setPeople(false); }}>Constellation</button>
+            <button className="chip" aria-pressed={river} onClick={() => { setList(false); setChron(true); setPeople(false); }}>Chronicle</button>
+            <button className="chip" aria-pressed={peep} onClick={() => { setList(false); setChron(false); setPeople(true); }}>People</button>
+            <button className="chip" aria-pressed={list} onClick={() => { setList(true); setChron(false); setPeople(false); }}>List view</button>
           </div>}
         </div>
 
-        {List && <MemoryHygiene onChanged={onChanged} />}
-        {List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && river ? <div ref={setSlot} /> : <>
+        {List && !peep && <MemoryHygiene onChanged={onChanged} />}
+        {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && river ? <div ref={setSlot} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}
             onChange={(e) => setQuery(e.target.value)} aria-label="Search memories in the constellation" />
           {err && <p className="error" role="alert">{err}</p>}
