@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError } from "@/lib/claude";
+import { VaultError } from "@/lib/vault";
 import { ContractError, addComment, createContract, editContract, listContracts, ownerStep, sendContract, setCover, signContract } from "@/lib/contracts";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
   } catch (e) {
     if (e instanceof ContractError) return fail(e.message, e.status);
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-    if (e && typeof e === "object" && "status" in e && typeof e.status === "number") return fail((e as Error).message, e.status); // VaultError (full disk, too big)
+    if (e instanceof VaultError) return fail(e.message, e.status); // saving the signed PDF: VAULT full, file too big
     return fail(`Couldn't do that: ${e instanceof Error ? e.message : "unknown error"}`, 502);
   }
 }

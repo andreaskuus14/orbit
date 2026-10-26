@@ -203,7 +203,7 @@ export type Version = { n: number; at: string; by: "owner" | "orbit"; fields: Fi
 
 /** The canonical text of a version: what the hash covers and what the PDF prints. */
 export function contractText(t: Template, title: string, f: Fields, clauses: VClause[]): string {
-  const party = (who: "owner" | "party") => [f[`${who}Name`], f[`${who}Id`] && `ID/reg. code ${f[`${who}Id`]}`, f[`${who}Address`], f[`${who}Email`]].filter(Boolean).join(", ") || BLANK;
+  const party = (who: "owner" | "party") => { const k = (s: string) => f[`${who}${s}` as FieldKey]; return [k("Name"), k("Id") && `ID/reg. code ${k("Id")}`, k("Address"), k("Email")].filter(Boolean).join(", ") || BLANK; };
   const mine = t.id === "nda" ? t.roles[0] : f.ownerRole ?? t.roles[0], theirs = t.roles.find((r) => r !== mine) ?? t.roles[1];
   return [title.toUpperCase(), "", `${mine}: ${party("owner")}`, `${theirs}: ${party("party")}`, "",
     ...clauses.flatMap((c, i) => [`${i + 1}. ${c.heading}`, c.text, ""])].join("\n").trimEnd() + "\n";
@@ -336,7 +336,9 @@ export function contractPdf(t: Template, c: Pick<Contract, "title">, v: Version,
   };
   const text = contractText(t, c.title, v.fields, v.clauses).split("\n");
   line(text[0], 15, "F2"); y -= 6;
-  for (const l of text.slice(1)) /^\d+\. /.test(l) ? (y -= 2, line(l, 11, "F2")) : l ? line(l) : (y -= 6);
+  for (const l of text.slice(1)) {
+    if (/^\d+\. /.test(l)) { y -= 2; line(l, 11, "F2"); } else if (l) line(l); else y -= 6;
+  }
   newPage();
   line("SIGNATURES", 13, "F2"); y -= 10;
   const mine = t.id === "nda" ? t.roles[0] : v.fields.ownerRole ?? t.roles[0], theirs = t.roles.find((r) => r !== mine) ?? t.roles[1];
