@@ -16,6 +16,7 @@ import { deliver, pushProblem } from "./remote-push";
 import { pushLabel } from "./remote-push-pure";
 import { readSleepReport } from "./sleep";
 import { stopAllOn } from "./stop-all";
+import { focusActive } from "./focus";
 import { localDay } from "./morning-pure";
 import { transcribeSpeech } from "./voice-asr";
 import { kokoroTts } from "./clips/story";
@@ -70,7 +71,7 @@ export async function maybeCall(): Promise<void> {
     const sb = await ownerClient(dev.userId);
     const [items, report, deals] = await Promise.all([pendingApprovals(sb).then((a) => a.filter((i) => i.kind !== "nego")), readSleepReport(dev.userId).catch(() => undefined), import("./deals").then((d) => d.freshDeals(now), () => ({ ids: [] }))]);
     let ring: ReturnType<typeof decideCall>["ring"] = null;
-    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids }); ring = r.ring; return r.state; });
+    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids, focus: focusActive(now) }); ring = r.ring; return r.state; });
     if (!ring) return;
     const { reason, things } = ring as NonNullable<typeof ring>;
     G.ring = { reason, at: now };

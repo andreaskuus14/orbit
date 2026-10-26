@@ -9,7 +9,15 @@ import { MIC_START, type Mic } from "../src/lib/audio-pure.ts";
 
 // 2026-10-26 is after the DST switch: Tallinn = UTC+2.
 const at = (h: number, m = 0, d = 26) => Date.UTC(2026, 9, d, h - 2, m);
-const sig = (now: number, o: Partial<{ stopAll: boolean; approvals: string[]; nightReport: boolean }> = {}) => ({ now, stopAll: false, approvals: [], nightReport: false, ...o });
+const sig = (now: number, o: Partial<{ stopAll: boolean; approvals: string[]; nightReport: boolean; focus: boolean }> = {}) => ({ now, stopAll: false, approvals: [], nightReport: false, ...o });
+
+test("a focus block lets only an urgent call ring, and uses nothing up", () => {
+  const morning = sig(at(8, 30), { approvals: ["a"], nightReport: true, focus: true });
+  const held = decideCall(CALL_START, morning);
+  assert.equal(held.ring, null);
+  assert.equal(decideCall(held.state, { ...morning, focus: false }).ring?.reason, "morning"); // rings once the block ends
+  assert.equal(decideCall({ ...CALL_START, urgentAt: at(8, 20) }, morning).ring?.reason, "urgent");
+});
 
 test("morning after the night shift rings once when approvals wait", () => {
   const r = decideCall(CALL_START, sig(at(8, 30), { approvals: ["a", "b"], nightReport: true }));

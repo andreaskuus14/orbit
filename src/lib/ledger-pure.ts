@@ -41,6 +41,8 @@ type Data = {
   "dev.session.start": { session: string }; // Roblox dev session log (dev-session.ts): the session id only, never code, paths or console text
   "dev.session.end": { session: string };
   "nego.step": { nego: string; intent?: Intent; state: NegoState }; // negotiator (negotiator.ts): the negotiation id, intent and state only, never text or prices
+  "focus.start": { focus: string; minutes: number }; // time dilation (focus.ts): the block id and minutes only, never the goal
+  "focus.end": { focus: string; minutes: number }; // minutes actually focused
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -88,6 +90,8 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "dev.session.start": { session: id },
   "dev.session.end": { session: id },
   "nego.step": { nego: id, intent: opt(oneOf(INTENTS)), state: oneOf(NEGO_STATES) },
+  "focus.start": { focus: id, minutes: (v) => count(v) && (v as number) <= 1440 },
+  "focus.end": { focus: id, minutes: (v) => count(v) && (v as number) <= 1440 },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
 export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];
