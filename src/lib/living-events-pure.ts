@@ -49,3 +49,6 @@ export function admit(pool: Slot[], e: Effect, now: number): "coalesced" | "adde
 export function allowed(o: { reduced: boolean; hidden: boolean; level: number; frameMs: number }): boolean {
   return !o.reduced && !o.hidden && o.level > 0 && o.frameMs < 1000 / 45;
 }
+
+/** Window event Orbit fires for each `events` row (detail: { type, planet }); the galaxy's LivingEffects listens. */
+export const LIVING_EVENT = "orbit:living";
