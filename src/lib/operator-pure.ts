@@ -68,7 +68,7 @@ export function operatorReport(x: OpIn): OperatorReport {
     switch (e.type) {
       case "night.end": nights++; break;
       case "night.task":
-        if (e.data.status === "done" || e.data.status === "approval") bump(`night.${e.data.kind}`);
+        if ((e.data.status === "done" || e.data.status === "approval") && `night.${e.data.kind}` in MINUTES_SAVED) bump(`night.${e.data.kind}` as SavedKey); // new night kinds count once added to MINUTES_SAVED
         if (e.data.status === "approval") approvalsPrepared++;
         if (e.data.status === "failed") failed.push({ what: `Night shift ${e.data.kind} task failed`, cite: ev(e) });
         break;
