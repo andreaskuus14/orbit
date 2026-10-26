@@ -41,9 +41,10 @@ import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { CORE_BUSY } from "@/lib/interruption-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { isLearned } from "@/lib/memory-world-pure";
+import MemoryControls from "./MemoryControls";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
-type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
+type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
 type Cite = { id: string; title: string; kind: string };
 type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[] };
 type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[] };
@@ -553,6 +554,8 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
         <textarea className="field h-56 w-full" value={open.content} onChange={(e) => setOpen({ ...open, content: e.target.value })} aria-label="Content" />
         <input className="field w-full" value={open.tags.join(", ")} onChange={(e) => setOpen({ ...open, tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })} placeholder="tags, comma separated" aria-label="Tags" />
         <p className="muted text-xs">{open.kind} · source: {open.source}{open.url && <> · <a className="link" href={open.url} target="_blank" rel="noreferrer noopener">open link</a></>}{open.storage_path && <> · <a className="link" href={`/api/memories/${open.id}/file`} target="_blank" rel="noreferrer">open file</a></>} · created {when(open.created_at)} · updated {when(open.updated_at)}</p>
+        <MemoryControls key={open.id} id={open.id} content={open.content} confirmation={open.confirmation} recheckAt={open.recheck_at} onOpen={setFocus}
+          onDone={(gone) => { if (gone) setOpen(null); void load(q); onChanged(); }} />
         {err && <p className="error">{err}</p>}
         <div className="flex gap-2"><button className="btn" onClick={saveEdit}>Save</button><button className="btn danger" onClick={remove}>Delete</button></div>
       </div>

@@ -7,7 +7,7 @@ export type Confirmation = "suggested" | "confirmed";
 export type MemRecord = {
   id: string; kind: string; title: string; content: string; source: string; source_ref?: string | null;
   created_at: string; confirmation?: Confirmation | null; recheck_at?: string | null;
-  tags?: string[]; folder?: string | null; url?: string | null; storage_path?: string | null;
+  tags?: string[] | null; folder?: string | null; url?: string | null; storage_path?: string | null;
 };
 export type ContextItem = { id: string; title: string; line: string; link: string; confirmation: Confirmation; stale: boolean };
 
@@ -124,4 +124,35 @@ export function correctionPlan(id: string, newContent: string, rows: Pick<MemRec
 /** "Forget this": delete the record; derived summaries are rebuilt without it (not deleted: they hold other sources). Audit keeps ids only. */
 export function forgetPlan(id: string, rows: Pick<MemRecord, "id" | "tags" | "source_ref">[]) {
   return { delete: [id], rebuild: derivedFrom(id, rows), audit: { action: "forget", id } };
+}
+
+// ---------- IO helpers (pure) ----------
+export const PROVENANCE_COLUMNS = "source_ref, confirmation, recheck_at";
+/** Postgres "column does not exist" (42703) or PostgREST's schema-cache miss: migration 0019 hasn't run yet. */
+export const isMissingColumn = (e: { code?: string; message?: string } | null | undefined) =>
+  !!e && (e.code === "42703" || e.code === "PGRST204" || /column .* does not exist|could not find the .* column/i.test(e.message ?? ""));
+/** A derived summary that quotes the old text verbatim gets the new text (or loses it on forget, newText = ""). null = unchanged. */
+export function rewriteDerived(content: string, oldText: string, newText: string): string | null {
+  const o = oldText.trim();
+  if (o.length < 8 || !content.includes(o)) return null;
+  return content.split(o).join(newText.trim()).replace(/\n{3,}/g, "\n\n").trim();
+}
+/** [m:<id>] citations in a CORE reply. */
+export const citedIds = (text: string) => [...new Set([...text.matchAll(/\[m:([0-9a-f-]{36})\]/gi)].map((m) => m[1]))];
+
+/** CORE's one-line steer when the user uses a memory control phrase. CORE never edits or deletes memories itself. */
+export function controlHint(question: string, history: { role: string; content: string }[]): string {
+  const c = parseControl(question);
+  if (!c) return "";
+  const last = [...history].reverse().find((h) => h.role === "assistant")?.content ?? "";
+  const ids = citedIds(last);
+  const line = {
+    why: ids.length
+      ? `The user asks why you said that. Your last answer cited ${ids.map((id) => `[m:${id}]`).join(", ")}. Name those memories as your sources (title, kind, when saved, and whether it is marked suggested/unconfirmed), say plainly what was your own inference, and point to MEMORY → Why? on each for the full source chain.`
+      : "The user asks why you said that. Your last answer cited no memories: say honestly it came from the conversation or your general knowledge, not from his saved memories.",
+    remember: "The user asked you to remember something: save it with save_memory (it is stored as confirmed, with this chat as its source).",
+    correct: `The user is correcting a memory. You cannot edit memories: say what you will treat as true from now on in this chat, and ask him to open the memory ${ids.length ? `(${ids.map((id) => `[m:${id}]`).join(", ")}) ` : ""}in MEMORY and press Correct, which also updates summaries built from it.`,
+    forget: `The user wants something forgotten. You cannot delete memories: ask him to open it ${ids.length ? `(${ids.map((id) => `[m:${id}]`).join(", ")}) ` : ""}in MEMORY and press Forget. Don't bring it up again in this chat.`,
+  }[c.action];
+  return `MEMORY CONTROL (from ORBIT, not the user's words): ${line}\n\n`;
 }

@@ -70,3 +70,23 @@ test("remember / correct / forget plans", () => {
   assert.deepEqual([c.patch.content, c.patch.embedding, c.reindex, c.rebuild], ["new", null, ["a"], ["sum", "ep"]]);
   assert.deepEqual(forgetPlan("a", rows).rebuild, ["sum", "ep"]);
 });
+
+import { citedIds, isMissingColumn, rewriteDerived } from "../src/lib/provenance-pure.ts";
+test("io helpers", () => {
+  assert.equal(isMissingColumn({ code: "42703" }), true);
+  assert.equal(isMissingColumn({ message: "Could not find the 'confirmation' column of 'memories'" }), true);
+  assert.equal(isMissingColumn({ code: "23505" }), false);
+  assert.equal(rewriteDerived("A. I train Tuesdays.\n\n\nB.", "I train Tuesdays.", "I train Wednesdays."), "A. I train Wednesdays.\n\nB.");
+  assert.equal(rewriteDerived("A. B.", "short", ""), null);
+  assert.equal(rewriteDerived("nothing here", "I train Tuesdays.", ""), null);
+  assert.deepEqual(citedIds("x [m:0f8a1b2c-1234-4abc-8def-001122334455] y [m:0f8a1b2c-1234-4abc-8def-001122334455]"), ["0f8a1b2c-1234-4abc-8def-001122334455"]);
+});
+
+import { controlHint } from "../src/lib/provenance-pure.ts";
+test("CORE control hint", () => {
+  const id = "0f8a1b2c-1234-4abc-8def-001122334455";
+  assert.equal(controlHint("hello", []), "");
+  assert.match(controlHint("Why do you think that?", [{ role: "assistant", content: `You like X [m:${id}]` }]), new RegExp(id));
+  assert.match(controlHint("why do you think that?", []), /cited no memories/);
+  assert.match(controlHint("Forget that", []), /cannot delete/);
+});
