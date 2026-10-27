@@ -2,6 +2,7 @@ import { disk, runDoctor } from "@/lib/doctor";
 import { bootSelfTest } from "@/lib/doctor-boot";
 import { healthView } from "@/lib/health";
 import { improveView } from "@/lib/self-improve";
+import { ackSystemIncident, systemHealthView } from "@/lib/system-health";
 import { requireUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,17 @@ export async function GET(req: Request) {
   }
   const boot = bootSelfTest().catch(() => null);
   if (new URL(req.url).searchParams.get("boot")) return Response.json(await boot);
-  const [report, b, health, improve] = await Promise.all([runDoctor(sb), boot, healthView().catch(() => null), improveView(sb, user.id).catch(() => null)]);
-  return Response.json({ ...report, boot: b, health, improve });
+  const [report, b, health, improve, system] = await Promise.all([runDoctor(sb), boot, healthView().catch(() => null), improveView(sb, user.id).catch(() => null),
+    systemHealthView(sb, user.id).catch(() => null)]);
+  return Response.json({ ...report, boot: b, health, improve, system });
+}
+
+// POST {ack: "<incident key>"}: the owner's "Got it" on a System health incident (no more pushes for it; it still clears by itself).
+export async function POST(req: Request) {
+  const { res } = await requireUser();
+  if (res) return res;
+  const b = (await req.json().catch(() => null)) as { ack?: unknown } | null;
+  if (typeof b?.ack !== "string" || !b.ack || b.ack.length > 100) return Response.json({ error: "ack: incident key required" }, { status: 400 });
+  await ackSystemIncident(b.ack);
+  return Response.json({ ok: true });
 }

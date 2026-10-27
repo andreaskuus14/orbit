@@ -172,6 +172,12 @@ test("time capsule backup runs first when due, free of model calls", () => {
   assert.ok(!planNight(input({}), S, { calls: 0, ms: 0 }).queue.some((t) => t.kind === "backup"));
 });
 
+test("open-loop scan is free and only planned when asked", () => {
+  const { queue } = planNight(input({ loops: true }), S, { calls: 0, ms: 0 });
+  assert.deepEqual(queue.find((t) => t.kind === "loops"), { kind: "loops", ref: "loops", label: "Open loops scan", calls: 0, minutes: 1 });
+  assert.ok(!planNight(input({}), S, { calls: 0, ms: 0 }).queue.some((t) => t.kind === "loops"));
+});
+
 test("company chains: queued steps in order from the first not done, stop at a wait; budget, autonomy off and handled respected", () => {
   const c = { id: "c1", goal: "Company: Research X", steps: [{ status: "done", calls: 8 }, { status: "queued", calls: 7 }, { status: "queued" }] };
   assert.deepEqual(companySteps(c).map((t) => [t.ref, t.calls]), [["c1:1", 7], ["c1:2", 7]]);

@@ -40,7 +40,7 @@ test("defaults pin the night planner: same queue with the default off-list", () 
   assert.deepEqual(off.sort(), ["business", "niche", "research", "rivals"]);
   assert.deepEqual(planNight({ ...i, off }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "health", "deals", "clips"]);
   assert.ok(planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.some((t) => t.kind === "health")); // the pin above includes the new health slot
-  assert.deepEqual(nightOff({ ...DEFAULT_LEVELS, "night-shift": "off" }), ["health", "personas", "backup"]); // health, the persona playtest and the time capsule belong to the night shift itself
+  assert.deepEqual(nightOff({ ...DEFAULT_LEVELS, "night-shift": "off" }), ["health", "personas", "backup", "loops"]); // health, the persona playtest and the time capsule belong to the night shift itself
 });
 
 test("Off refuses even the owner's ask; Ask stops unattended work only", () => {
