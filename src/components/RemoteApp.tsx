@@ -6,6 +6,7 @@ import { biggestFirst, headline } from "@/lib/remote-ui-pure";
 import { RemoteCar, readLater } from "./RemoteCar";
 import { VoiceMemo } from "./VoiceMemo";
 import { getLang, LangSwitch, useT } from "./i18n";
+import type { PhoneNight } from "@/lib/remote-web-pure";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
@@ -114,7 +115,7 @@ export function RemoteApp() {
         ))}
       </section>
 
-      {/* Night report section slots in here once the remote API serves it. */}
+      <Night />
       <section className="rm-sec" aria-labelledby="r-queue">
         <h2 id="r-queue" className="rm-label">{t("remote.queue")}</h2>
         {q && <p className="muted text-sm">{t("remote.queueLine", { ready: q.ready, approved: q.approved })}{q.publishing ? t("remote.uploading") : ""}{q.story ? t("remote.story") : ""}</p>}
@@ -130,6 +131,22 @@ export function RemoteApp() {
       <Notify />
       <LangSwitch />
     </Shell>
+  );
+}
+
+/** Last night's report: titles and counts only (the server shapes it, see nightForPhone). Hidden when the night did nothing. */
+function Night() {
+  const { t } = useT();
+  const [n, setN] = useState<PhoneNight>(null);
+  useEffect(() => { void send("night").then((r) => (r.ok ? r.json() : null)).then((j: { night?: PhoneNight } | null) => setN(j?.night ?? null)).catch(() => {}); }, []);
+  if (!n) return null;
+  const rows = [...n.approvals.map((x) => ["approval", x] as const), ...n.done.map((x) => ["done", x] as const), ...n.failed.map((x) => ["failed", x] as const)];
+  return (
+    <section className="rm-sec" aria-labelledby="r-night">
+      <h2 id="r-night" className="rm-label">{t("remote.night")}</h2>
+      <p className="muted text-sm">{t("remote.nightLine", n.counts)}{n.running ? t("remote.nightRunning") : ""}{n.stopped ? ` · ${n.stopped}` : ""}</p>
+      {!!rows.length && <ul className="space-y-1 text-sm">{rows.map(([k, title], i) => <li key={i}><span className="muted">{t(`remote.nightTag.${k}`)}:</span> {title}</li>)}</ul>}
+    </section>
   );
 }
 

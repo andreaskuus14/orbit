@@ -93,6 +93,8 @@ const BASE = {
   "remote.paused": "ORBIT is paused", "remote.quiet": "All quiet", "remote.need.one": "{n} thing needs you", "remote.need.other": "{n} things need you",
   "remote.kind.spend": "Spend", "remote.kind.send": "Email", "remote.kind.nego": "Reply", "remote.kind.invoice": "Invoice", "remote.kind.clip": "Clip",
   "remote.later": "Review later",
+  "remote.night": "Night report", "remote.nightLine": "{done} done · {approvals} to approve · {failed} failed", "remote.nightRunning": " · still working",
+  "remote.nightTag.done": "Done", "remote.nightTag.approval": "To approve", "remote.nightTag.failed": "Failed",
   "remote.owes.one": "{buyer} owes {amount} · {n} day overdue", "remote.owes.other": "{buyer} owes {amount} · {n} days overdue",
 
   "habit.time": "Habit time", "habit.toastReason": "Habit time: {name}", "habit.nudgeAt": " · nudge ~{t}",
@@ -215,6 +217,8 @@ export const ET: Partial<Record<Key, string>> = {
   "remote.paused": "ORBIT on peatatud", "remote.quiet": "Kõik on rahulik", "remote.need.one": "{n} asi ootab sind", "remote.need.other": "{n} asja ootab sind",
   "remote.kind.spend": "Kulu", "remote.kind.send": "E-kiri", "remote.kind.nego": "Vastus", "remote.kind.invoice": "Arve", "remote.kind.clip": "Klipp",
   "remote.later": "Vaata hiljem",
+  "remote.night": "Öine aruanne", "remote.nightLine": "{done} tehtud · {approvals} kinnitada · {failed} ebaõnnestus", "remote.nightRunning": " · töötab veel",
+  "remote.nightTag.done": "Tehtud", "remote.nightTag.approval": "Kinnitada", "remote.nightTag.failed": "Ebaõnnestus",
   "remote.owes.one": "{buyer} võlgneb {amount} · {n} päev üle tähtaja", "remote.owes.other": "{buyer} võlgneb {amount} · {n} päeva üle tähtaja",
 
   "habit.time": "Harjumuse aeg", "habit.toastReason": "Harjumuse aeg: {name}", "habit.nudgeAt": " · meeldetuletus ~{t}",
