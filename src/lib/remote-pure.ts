@@ -91,7 +91,7 @@ export const NONCE_CACHE_SIZE = 500;
 
 export type RemoteCommand =
   | { type: "navigate"; nonce: string; panel: RemotePanel }
-  | { type: "core.ask"; nonce: string; text: string }
+  | { type: "core.ask"; nonce: string; text: string; lang?: "et" }
   | { type: "approval.list"; nonce: string }
   | { type: "approve"; nonce: string; id: string; requiresOwnerConfirm: true }
   | { type: "reject"; nonce: string; id: string }
@@ -103,7 +103,7 @@ export type CommandResult = { ok: true; cmd: RemoteCommand } | { ok: false; erro
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NONCE = /^[A-Za-z0-9_-]{16,64}$/;
 const FIELDS: Record<RemoteCommand["type"], string[]> = {
-  navigate: ["panel"], "core.ask": ["text"], "approval.list": [], approve: ["id"], reject: ["id"], stopAll: [], status: [], brief: [],
+  navigate: ["panel"], "core.ask": ["text", "lang"], "approval.list": [], approve: ["id"], reject: ["id"], stopAll: [], status: [], brief: [],
 };
 
 /** Bounded LRU of seen nonces (oldest evicted first). */
@@ -145,7 +145,8 @@ export function parseCommand(json: unknown, nonces: NonceCache): CommandResult {
     case "core.ask":
       if (typeof o.text !== "string" || !o.text.trim()) return { ok: false, error: "text required" };
       if (o.text.length > MAX_ASK_CHARS) return { ok: false, error: `text over ${MAX_ASK_CHARS} chars` };
-      cmd = { type, nonce, text: o.text };
+      if (o.lang !== undefined && o.lang !== "en" && o.lang !== "et") return { ok: false, error: "bad lang" };
+      cmd = { type, nonce, text: o.text, ...(o.lang === "et" ? { lang: "et" as const } : {}) }; // et: CORE answers in Estonian
       break;
     case "approve":
     case "reject":

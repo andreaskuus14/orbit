@@ -13,6 +13,7 @@ import { today } from "./goals-pure";
 import { localDay } from "./morning-pure";
 import { FOLLOWUP_SYSTEM, dueFollowups, followupPrompt, type Prospect } from "./business-pure";
 import { scoutDue } from "./niche-pure";
+import { whyLine, type Learned } from "./night-learn-pure";
 import { NIGHT_KINDS, PERSONA_STUDIO_RUNS, addCompanyTonight, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest, startBlock, tonightBlocked, wakePushDue,
   type NightItem, type NightRun, type NightState, type NightTask, type NightUser } from "./night-pure";
 
@@ -78,8 +79,9 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
   console.log("[orbit] night shift starting");
 
   await startQueuedCompany(sb, userId, run);
-  const { queue, deferred } = planNight(await planInput(sb, userId, st, run), s, used());
-  run.deferred = deferred;
+  const learned = await (await import("./night-learn")).learnedPlan(sb, userId, s, key); // what he approved before reorders/fades ORBIT's own work
+  const { queue, deferred } = planNight(await planInput(sb, userId, st, run, learned), s, used());
+  run.deferred = deferred; run.why = whyLine(learned, queue.map((t) => t.kind), s.pin) || undefined;
   for (const t of queue) {
     if (ac.signal.aborted || stopAllOn()) { run.stopped = "stop-all"; break; }
     if (usageHold()) { run.stopped = "usage"; break; }
@@ -92,6 +94,8 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
     await emit(sb, userId, "night.task", "core", { night: run.id, kind: t.kind, ref: t.ref.slice(0, 128), status: item.status });
   }
   if (!run.stopped) await import("./clips/recap").then((r) => r.makeRecap(sb, userId, ac.signal)).catch((e) => console.error("[orbit] daily recap:", msg(e))); // local ffmpeg only, no model
+  // ORBIT's diary: one fast-model call if the night still has room, else the plain template (diary.ts)
+  await import("./diary").then((m) => m.writeDiary(sb, userId, run, !ac.signal.aborted && used().calls < s.maxCalls && inWindow(Date.now(), s), ac.signal)).catch(() => {});
   run.endedAt = new Date().toISOString();
   await save();
   const u = used();
@@ -112,7 +116,7 @@ async function startQueuedCompany(sb: SupabaseClient, userId: string, run: Night
   }
 }
 
-async function planInput(sb: SupabaseClient, userId: string, st: NightState, run: NightRun) {
+async function planInput(sb: SupabaseClient, userId: string, st: NightState, run: NightRun, learned: Learned) {
   const [goals, prospects, board] = await Promise.all([
     sb.from("goals").select("id, doc").eq("user_id", userId).in("status", ["approved", "running", "waiting"]).limit(30),
     sb.from("prospects").select("id, name, stage, updated_at, notes").eq("user_id", userId).eq("stage", "contacted").limit(300),
@@ -127,8 +131,9 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     rivals: await import("./rivals").then((r) => r.rivalsDue(), () => 0),
     health: true, dream: true,
     personas: await import("./personas").then((m) => m.personasDue(userId), () => false),
-    handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: nightOff(autonomyLevels()),
-    boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({})),
+    handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: [...nightOff(autonomyLevels()), ...learned.drop],
+    boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({}) as Record<string, number>)
+      .then((b) => Object.fromEntries(NIGHT_KINDS.map((k) => [k, (b[k] ?? 1) * (learned.weight[k] ?? 1)]))),
   };
 }
 
@@ -216,6 +221,7 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     }
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions
+      await import("./memory-graph").then((m) => m.rebuildGraph(sb, userId)).catch((e) => console.error("[orbit] memory graph:", msg(e))); // local clusters for MEMORY; no model call
       const k = h.proposals.filter((p) => p.status === "pending").length;
       return k ? { ...base, label: `${k} memory tidy-up suggestion${k > 1 ? "s" : ""}`, status: "approval", open: { panel: "memory" }, at: at() } : { ...base, status: "skipped", why: "Nothing to tidy", at: at() };
     }
