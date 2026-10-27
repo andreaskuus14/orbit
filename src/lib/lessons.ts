@@ -153,4 +153,6 @@ export const morningPrior = <T extends { base: number; source?: string; kind: st
 /** Night-shift prior for one work kind (night-pure NIGHT_KINDS), 1 when nothing applies. */
 export const nightBoost = (userId: string, kind: string) => kept(userId).then((k) => lessonBoost(k, [kind]), () => 1);
 /** Kept lessons of one planet for owner-less background prompts (single-owner ORBIT: every profile's kept lessons). */
+/** His kept lessons (future-self call). */
+export const keptLessons = (userId: string) => kept(userId);
 export const keptLessonsText = (planet: string) => kept().then((k) => keptText(k, planet), () => "");
