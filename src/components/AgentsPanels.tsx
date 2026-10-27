@@ -135,7 +135,7 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
   const paused = useWorldPaused(); // inside a kept-but-hidden world: no polling
   useEffect(() => {
     if (!active || paused) return;
-    const h = setInterval(() => void load(), 2500);
+    const h = setInterval(() => { if (!document.hidden) void load(); }, 2500);
     return () => clearInterval(h);
   }, [active, paused, load]);
 
@@ -228,7 +228,7 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
   const paused = useWorldPaused();
   useEffect(() => {
     if (!active || open || paused) return;
-    const h = setInterval(() => void load(), 3000);
+    const h = setInterval(() => { if (!document.hidden) void load(); }, 3000);
     return () => clearInterval(h);
   }, [active, open, paused, load]);
 

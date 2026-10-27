@@ -20,8 +20,9 @@ async function rows(sb: SupabaseClient, q: (cols: string) => PromiseLike<{ data:
 
 /** Summaries built from this memory: tagged with its id, or citing it as source_ref (after 0019). */
 async function derived(sb: SupabaseClient, id: string) {
-  const all = await rows(sb, (cols) => sb.from("memories").select(cols).contains("tags", [id]).neq("kind", "journal").limit(50));
-  const byRef = await rows(sb, (cols) => sb.from("memories").select(cols).eq("source_ref", id).neq("kind", "journal").limit(50)).catch(() => []);
+  const [all, byRef] = await Promise.all([
+    rows(sb, (cols) => sb.from("memories").select(cols).contains("tags", [id]).neq("kind", "journal").limit(50)),
+    rows(sb, (cols) => sb.from("memories").select(cols).eq("source_ref", id).neq("kind", "journal").limit(50)).catch(() => [])]);
   return [...new Map([...all, ...byRef].map((r) => [r.id, r])).values()];
 }
 

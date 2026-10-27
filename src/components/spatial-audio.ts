@@ -1,7 +1,7 @@
 // Spatial ambient sound (roadmap E6): every planet hums its own quiet drone from where it is, the CORE a low hum, and real
 // events chime from the planet they belong to. Web Audio only, no files. Rules (mapping, coalescing, mix) live in
 // lib/ambient-sound-pure.ts; this module owns the graph. Off until he enables "Ambient sound" in the HUD menu.
-import * as THREE from "three";
+import type * as THREE from "three"; // type-only: keeps three.js out of the first-load bundle (Orbit imports this)
 import { PLANETS } from "@/lib/planets";
 import { SOUND_RANGE } from "@/lib/spatial-sound-pure";
 import { admit, AMBIENT_KEY, COALESCE_START, cueFor, DAWN_KEY, dawnDue, HUM_HZ, mix, parseVolume, VOLUME_KEY, voiceFor } from "@/lib/ambient-sound-pure";
@@ -85,12 +85,13 @@ export function setAmbient(on: boolean) {
 
 export function setAmbientVolume(v: number) { write(VOLUME_KEY, String(v)); applyMix(); }
 
-// Pooled: the frame loop allocates nothing.
-const fwd = new THREE.Vector3(), up = new THREE.Vector3();
+// Pooled: the frame loop allocates nothing. Cloned once from the camera's own Vector3, so no runtime three import here.
+let fwd: THREE.Vector3 | undefined, up: THREE.Vector3 | undefined;
 /** Called from the galaxy's frame loop: the listener follows the camera, each planet's panner its planet. */
 export function frameAmbient(camera: THREE.Camera, positions: Readonly<Record<string, THREE.Vector3>>) {
   if (!ctx || ctx.state !== "running") return;
   const l = ctx.listener, p = camera.position, q = camera.quaternion;
+  fwd ??= p.clone(); up ??= p.clone();
   fwd.set(0, 0, -1).applyQuaternion(q); up.set(0, 1, 0).applyQuaternion(q);
   if (listenerParams) {
     l.positionX.value = p.x; l.positionY.value = p.y; l.positionZ.value = p.z;

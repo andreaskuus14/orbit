@@ -163,8 +163,7 @@ async function scanNiche(now: number, meter: { units: number }): Promise<NicheVi
   try {
     const [{ scoutView }, { readState, studioRoot }, { judgeShorts, learnProblem }, { allKeywords }] = await Promise.all([
       import("./clips/scout"), import("./clips/factory"), import("./clips/learn-pure"), import("./clips/scout-pure")]);
-    const sv = await scoutView();
-    const ls = await readState<import("./clips/learn-pure").LearnState>(studioRoot(), "learn", learnProblem);
+    const [sv, ls] = await Promise.all([scoutView(), readState<import("./clips/learn-pure").LearnState>(studioRoot(), "learn", learnProblem)]);
     const winners = judgeShorts(Object.values(ls?.clips ?? {})).filter((j) => j.verdict === "winner").map((j) => j.f.creator);
     out.queries = nicheQueries(winners, sv.scout.watchlist.map((w) => w.title), allKeywords(sv.scout));
     if (!out.queries.length) return { ...out, hint: "Add creators or keywords in the Video Scout (or publish a few Shorts) to scan your niche" };
