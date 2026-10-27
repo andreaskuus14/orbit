@@ -1,11 +1,15 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voiceLevel, whisperLang, VOICE_ASK, VOICE_CONVERSATION, type HandsFree, type VoiceSettings } from "./bus";
 import { getSpeechRecognition, VOICE_PAUSE, VOICE_RESUME, type VoiceInput } from "./useVoiceInput";
-import { useWakeWord } from "./useWakeWord";
+import type { Wake } from "./WakeWord";
 import { enrollment, loadVoicePrint, saveVoicePrint, startVoiceSampler, type VoicePrint, type VoiceProfile } from "./voiceprint";
 import { warmNaturalVoice } from "./speak";
 
+// The wake-word listener (~40 KB with its helpers) loads only once hands-free is on.
+const WakeWord = dynamic(() => import("./WakeWord"), { ssr: false });
+const WAKE_OFF: Wake = { state: "off", error: "", interim: "", conversation: "idle", note: "" };
 const ENROLL = ["The quick brown fox jumps over the lazy dog.", "Seven bright stars are shining over the quiet sea.", "I like warm soup and long walks on rainy days."];
 const ENROLL_MS = 4500;
 
@@ -72,7 +76,8 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   const gearRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const popId = useId();
-  const wake = useWakeWord(ready ? s.handsFree : "off", voice.listening, s.lang);
+  const [w, setWake] = useState<Wake | null>(null);
+  const wake = w ?? WAKE_OFF;
   const asking = voice.listening || wake.conversation === "listening";
   useEffect(() => { voiceLevel.listening = asking; return () => { voiceLevel.listening = false; }; }, [asking]); // the singularity leans in
   const pttEngine = recognizerFor(s, "pushToTalk");
@@ -170,6 +175,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
 
   return (
     <>
+      {ready && s.handsFree !== "off" && <WakeWord mode={s.handsFree} paused={voice.listening} lang={s.lang} onChange={setWake} />}
       <button ref={micRef} type="button" className={"chip voice-mic" + (listening ? " on" : live ? " live" : "")} onClick={toggle}
         aria-pressed={listening} aria-label={micLabel} title={`${micLabel}\n${routeText}`} aria-disabled={!voice.supported || undefined}>
         <span className="voice-ring" aria-hidden="true" />
