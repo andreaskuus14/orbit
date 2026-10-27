@@ -6,7 +6,7 @@ import { MODEL, askClaude, emitAsOwner } from "../claude";
 import { clipsDir, ffmpegPath, readState, runFfmpeg, saveJob, saveState, studioRoot, transcribe } from "./factory";
 import { higgsfield } from "./higgsfield";
 import { generate, makeStory, StoryError, type RenderDeps } from "./story-render";
-import { capProblem, draftBlocked, draftItems, validDraft, weeklyCap, weekSpent } from "../higgsfield-pure";
+import { capProblem, draftBlocked, draftItems, validDraft, weeklyCap, weekSpent, type Draft } from "../higgsfield-pure";
 import { stopAllOn } from "../stop-all";
 import { pushNotify } from "../remote-push";
 import { PAUSED_MSG } from "../stop-all-pure";
@@ -91,20 +91,27 @@ export async function writeStory(o: StoryOpts, signal?: AbortSignal): Promise<St
 export async function runDraftTool(input: Record<string, unknown>, question: string, tainted: boolean): Promise<string> {
   const blocked = draftBlocked(question, tainted); // decide() checked this too; the runner keeps its own guard like STUDIO's
   if (blocked) return `Error: ${blocked}`;
-  const d = validDraft(input, models());
-  if (typeof d === "string") return `Error: ${d}`;
   try {
-    const now = new Date().toISOString();
-    const job: StoryJob = { v: 1, id: newId(), createdAt: now, updatedAt: now, status: "draft", step: "Drafted by CORE: asking Higgsfield the price",
-      opts: { idea: d.prompt, style: "", length: 0, voice: "none", motion: d.kind === "video" ? "video" : "stills" },
-      story: { title: `CORE: ${d.count}× ${d.kind}, ${d.prompt}`.slice(0, 100), hook: "", scenes: [] }, items: draftItems(d), warnings: [], draft: d };
-    await save(job);
-    void quoteStory(job).catch(() => {}); // get_cost only (hf-guard quote mode); can take minutes, so not inside CORE's turn
+    const d = await queueDraft(input);
+    if (typeof d === "string") return `Error: ${d}`;
     const w = await weekUsage();
     return `Done: drafted ${d.count} ${d.kind}${d.count > 1 ? "s" : ""} (${d.model}, ${d.aspect}). Nothing is generated and no credits are spent: ORBIT is only asking Higgsfield the price. It waits in STUDIO → Clip Factory → AI Story for the user's Approve click (${w.used} of ${w.cap} weekly credits used); tell them.`;
   } catch (e) {
     return `Error: ${errText(e)}`;
   }
+}
+
+/** A draft in the AI Story queue, priced only (CORE's tool, or the owner's "Get Higgsfield quote" click in BUSINESS). Nothing is generated before Approve. */
+export async function queueDraft(input: Record<string, unknown>): Promise<Draft | string> {
+  const d = validDraft(input, models());
+  if (typeof d === "string") return d;
+  const now = new Date().toISOString();
+  const job: StoryJob = { v: 1, id: newId(), createdAt: now, updatedAt: now, status: "draft", step: "Drafted by CORE: asking Higgsfield the price",
+    opts: { idea: d.prompt, style: "", length: 0, voice: "none", motion: d.kind === "video" ? "video" : "stills" },
+    story: { title: `CORE: ${d.count}× ${d.kind}, ${d.prompt}`.slice(0, 100), hook: "", scenes: [] }, items: draftItems(d), warnings: [], draft: d };
+  await save(job);
+  void quoteStory(job).catch(() => {}); // get_cost only (hf-guard quote mode); can take minutes, so not inside CORE's turn
+  return d;
 }
 
 /** This week's approved Higgsfield credits (every Approve click on a story or draft) and the cap. */

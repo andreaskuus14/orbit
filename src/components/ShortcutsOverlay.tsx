@@ -7,8 +7,7 @@ export const SHORTCUTS_EVENT = "orbit:shortcuts";
 // Gathered from the handlers: Orbit.tsx, EveningCapture.tsx, voice/VoiceControls.tsx, ReviewQueue.tsx, ClipFactory.tsx. Keep in sync when adding keys.
 const GROUPS: [string, [string, string][]][] = [
   ["Everywhere", [
-    ["Ctrl/⌘ K", "Focus the command bar (or CORE's input when CORE is open)"],
-    ["Ctrl/⌘ P", "Search everything: planets, actions, memories, VAULT files"],
+    ["Ctrl/⌘ K (or P)", "Warp: jump to any place, search memories, goals, approvals, people, files; quick actions"],
     ["Ctrl M", "Start / stop voice input"],
     ["Ctrl/⌘ Shift E", "Today in a minute: a short evening note"],
     ["Esc (CORE answering)", "Stop the answer"],

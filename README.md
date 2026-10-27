@@ -12,7 +12,7 @@ CORE runs on **Claude Code under your own Claude login**, so there is no API key
 - **MEMORY**: capture notes, ideas, decisions and links (pages are fetched and stored as text, with SSRF protection). Keyword search, optional semantic search, tags, edit, delete, JSON export. Similar memories are *suggested*; nothing links until you confirm.
 - **CORE**: searches your memory first, answers with numbered citations, shows an execution trace. Uses your profile (only what you typed).
 - **ANALYTICS**: real counts and recent events from your own data, plus a Claude usage meter (rolling 5-hour and 7-day windows, by purpose, with your own budget).
-- **Command bar** (Ctrl/⌘ K) sends a request to CORE.
+- **Command bar** sends a request to CORE. **Warp** (Ctrl/⌘ K) jumps anywhere, searches everything and runs quick actions.
 
 ## Phase 2: INTELLIGENCE
 - **Pulse** (news intelligence agent) fetches your feeds (topics become Google News search feeds; any RSS/Atom URL works), removes duplicates, groups headlines into events, counts independent outlets, and has Claude write a briefing that may only use those articles. Every claim cites real articles with links and timestamps; stories are marked *Confirmed* (2+ outlets) or *Single source*. Drafts without verifiable sources are discarded.

@@ -11,6 +11,7 @@ import { useGlRecovery } from "./useGlRecovery";
 import type { MemoryPanel } from "./panels"; // passed in by Orbit: the public demo must not bundle panels (Supabase client)
 import { MemoryHygiene } from "./MemoryHygiene";
 import { beliefsPending } from "./BeliefsPanel";
+import { studyPending } from "./StudyCards";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
@@ -18,15 +19,18 @@ import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { centroid, isLearned, searchStars } from "@/lib/memory-world-pure";
 import { DAY, edgeBorn, edgeGlow } from "@/lib/memory-edges-pure";
 import { useAlienEnv } from "./alien/env";
+import { ClusterHalos, ClusterList } from "./MemoryClusters";
+import type { Graph } from "@/lib/memory-graph-pure";
 import { useMountLater, WarmCompile } from "./WarmCompile";
 import { smoothDampVec } from "@/lib/smooth-damp-pure";
 import { PeopleCanvas, PeoplePanel, usePeople } from "./PeopleRing";
 import dynamic from "next/dynamic";
 
 const Chronicle = dynamic(() => import("./Chronicle"), { ssr: false }); // its own canvas, loaded only when he opens Chronicle
+const Palace = dynamic(() => import("./MemoryPalace"), { ssr: false }); // likewise, only when he opens Palace
 
 type Star = { id: string; title: string; kind: string; tags: string[]; created_at: string; source: string | null; x: number; y: number; z: number };
-type MapData = { items: Star[]; links: { from: string; to: string }[]; edges?: [number, number, number][]; total: number };
+type MapData = { items: Star[]; links: { from: string; to: string }[]; edges?: [number, number, number][]; total: number; graph?: Graph | null };
 
 const BG = "#020308";
 const KIND_COLOR: Record<string, string> = {
@@ -344,7 +348,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const q = useLeanQuality(quality);
   const [data, setData] = useState<MapData | null>(null);
   const [err, setErr] = useState("");
-  const [list, setList] = useState(() => !!List && (!!focusId || beliefsPending()));
+  const [list, setList] = useState(() => !!List && (!!focusId || beliefsPending() || studyPending()));
   const [query, setQuery] = useState("");
   const [hover, setHover] = useState<number | null>(null);
   const [sel, setSel] = useState<number | null>(null);
@@ -356,6 +360,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const [people, setPeople] = useState(false); // the People ring replaces the constellation (its own canvas); not in the demo
   const peep = people && !!List && !list;
   const ppl = usePeople(peep && !paused);
+  const [pal, setPal] = useState(false), hall = pal && !!List && !flat; // Palace too (not in the demo); it stays behind the detail panel a crystal opens
   const fly = (at: [number, number, number], dist: number) => setGoal((g) => ({ at, dist, n: (g?.n ?? 0) + 1 }));
 
   useEffect(() => { // refetch when returning from List view or to the world: memories may have been added or deleted meanwhile
@@ -378,7 +383,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
     if (i !== undefined && data) { setSel(i); const m = data.items[i]; fly([m.x, m.y, m.z], 9); }
   }, [focusId, index, data]);
   useEffect(() => { // not gated on paused: this nav also opens MEMORY, and arrives before the world un-pauses
-    const h = (e: Event) => { if ((e as CustomEvent<NavTarget>).detail?.beliefs) setList(true); };
+    const h = (e: Event) => { const d = (e as CustomEvent<NavTarget>).detail; if (d?.beliefs || d?.study) setList(true); };
     addEventListener(NAV_EVENT, h);
     return () => removeEventListener(NAV_EVENT, h);
   }, []);
@@ -430,8 +435,10 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="MEMORY: your memories as a constellation" style={{ background: BG }}>
       {river && <Chronicle reduced={reduced} quality={quality} paused={paused} slot={slot} />}
+      {hall && <Palace items={data?.items ?? null} links={data?.links ?? []} reduced={reduced} quality={quality} paused={paused} slot={list ? null : slot}
+        onOpen={(id) => { const i = index.get(id); if (i !== undefined) open(i); }} />}
       {!flat && later && peep && <PeopleCanvas st={ppl} reduced={reduced} paused={paused} />}
-      {!flat && later && !river && !peep && (
+      {!flat && later && !river && !peep && !hall && (
         <Canvas key={glr.key} onCreated={onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
           onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -440,6 +447,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           <Stars radius={120} depth={60} count={reduced ? 800 : Math.min(3000, q.stars)} factor={2.2} fade speed={reduced ? 0 : 0.2} />
           <FarRings reduced={reduced} />
           {data && <Constellation data={data} at={when} hi={hi} searching={!!query.trim()} reduced={reduced} lite={q.bloomScale === 0} onHover={setHover} onPick={open} />}
+          {data?.graph && !query.trim() && <ClusterHalos graph={data.graph} items={data.items} />}
           {label && (
             <Html position={[label.x, label.y, label.z]} style={{ pointerEvents: "none", transform: "translate(14px, -50%)" }} zIndexRange={[12, 0]}>
               <div className="memory-star-label"><b>{label.title}</b><span>{label.kind}{isLearned(label.source) ? " · learned by CORE" : ""}</span></div>
@@ -462,15 +470,16 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
         <div className="flex items-center justify-between gap-2">
           <h2 className="brand text-base">MEMORY <span className="muted num text-xs font-normal">{data ? `${data.items.length}${data.total > data.items.length ? ` of ${data.total}` : ""} stars` : ""}</span></h2>
           {!flat && List && <div className="flex gap-1.5">
-            <button className="chip" aria-pressed={!list && !chron && !peep} onClick={() => { setList(false); setChron(false); setPeople(false); }}>Constellation</button>
-            <button className="chip" aria-pressed={river} onClick={() => { setList(false); setChron(true); setPeople(false); }}>Chronicle</button>
-            <button className="chip" aria-pressed={peep} onClick={() => { setList(false); setChron(false); setPeople(true); }}>People</button>
-            <button className="chip" aria-pressed={list} onClick={() => { setList(true); setChron(false); setPeople(false); }}>List view</button>
+            <button className="chip" aria-pressed={!list && !chron && !peep && !hall} onClick={() => { setList(false); setChron(false); setPeople(false); setPal(false); }}>Constellation</button>
+            <button className="chip" aria-pressed={river} onClick={() => { setList(false); setChron(true); setPeople(false); setPal(false); }}>Chronicle</button>
+            <button className="chip" aria-pressed={peep} onClick={() => { setList(false); setChron(false); setPeople(true); setPal(false); }}>People</button>
+            <button className="chip" aria-pressed={hall && !list} onClick={() => { setList(false); setChron(false); setPeople(false); setPal(true); }}>Palace</button>
+            <button className="chip" aria-pressed={list} onClick={() => { setList(true); setChron(false); setPeople(false); setPal(false); }}>List view</button>
           </div>}
         </div>
 
         {List && !peep && <MemoryHygiene onChanged={onChanged} />}
-        {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && river ? <div ref={setSlot} /> : <>
+        {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && (river || hall) ? <div ref={setSlot} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}
             onChange={(e) => setQuery(e.target.value)} aria-label="Search memories in the constellation" />
           {err && <p className="error" role="alert">{err}</p>}
@@ -496,6 +505,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
               onChange={(e) => { setPlaying(false); const d = Number(e.target.value); setWhen(d >= spanDays ? null : span.t0 + d * DAY); }} />
             <button className="chip" onClick={() => { setPlaying(false); setWhen(null); }} disabled={when === null}>Now</button>
           </div>}
+          {data?.graph && <ClusterList graph={data.graph} items={data.items} onFly={fly} onSelect={(i) => { setSel(i); const m = data.items[i]; fly([m.x, m.y, m.z], 9); }} />}
           {kinds.length > 0 && <ul className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]" aria-label="Legend">
             {kinds.map((k) => <li key={k} className="muted flex items-center gap-1.5"><i aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 9, background: kindColor(k), boxShadow: `0 0 6px ${kindColor(k)}` }} />{k}</li>)}
             <li className="muted flex items-center gap-1.5"><i aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 9, border: "1px solid currentColor" }} />learned by CORE</li>
