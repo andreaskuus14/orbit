@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { coach, type Finding } from "@/lib/studio-coach-pure";
+import { useT } from "./i18n";
 import { channelHealth, postedThisWeek, type Health, type Light } from "@/lib/studio-health-pure";
 import { FEW_VIEWS, areaPath, compact, delta, linePath, mmss, niceTicks, tooFewToCompare, toPoints, type Box } from "@/lib/chart-pure";
 
@@ -107,6 +108,7 @@ type Series = { name: string; values: number[]; color: string; fill?: boolean; f
 function LineChart({ title, labels, tipLabels, series, fmtY, height = 220, max: fixedMax }: {
   title: string; labels: string[]; tipLabels?: string[]; series: Series[]; fmtY: (v: number) => string; height?: number; max?: number;
 }) {
+  const { t: tr } = useT();
   const [ref, w] = useWidth();
   const gid = `g${useId().replace(/[^\w-]/g, "")}`;
   const n = labels.length, box = boxFor(w, height);
@@ -167,7 +169,7 @@ function LineChart({ title, labels, tipLabels, series, fmtY, height = 220, max: 
       </div>
       <table className="sr-only">
         <caption>{title}</caption>
-        <thead><tr><th scope="col">Point</th>{series.map((s) => <th key={s.name} scope="col">{s.name}</th>)}</tr></thead>
+        <thead><tr><th scope="col">{tr("ss.point")}</th>{series.map((s) => <th key={s.name} scope="col">{s.name}</th>)}</tr></thead>
         <tbody>{tl.map((l, j) => <tr key={j}><th scope="row">{l}</th>{series.map((s) => <td key={s.name}>{fmtY(s.values[j])}</td>)}</tr>)}</tbody>
       </table>
     </figure>
@@ -187,22 +189,24 @@ const LIGHT: Record<Light, { dot: string; word: string }> = {
 };
 /** The three numbers that matter most, each with a light, and one plain next step. Details stay below. */
 function HealthCard({ h }: { h: Health }) {
+  const { t: tr } = useT();
   return (
     <section className="card space-y-2" aria-labelledby="health-title">
-      <h3 id="health-title" className="text-sm font-semibold">Channel health</h3>
+      <h3 id="health-title" className="text-sm font-semibold">{tr("ss.health")}</h3>
       <ul className="grid gap-2 sm:grid-cols-3">{h.items.map((i) => (
         <li key={i.id} className="rounded-md border border-white/10 p-2">
           <div className="flex items-center gap-1.5 text-xs"><span aria-hidden className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: LIGHT[i.light].dot }} />
-            {i.label}<span className="sr-only">: {LIGHT[i.light].word}</span></div>
+            {i.label}<span className="sr-only">: {tr(`ss.light.${i.light}`)}</span></div>
           <div className="num text-lg font-semibold">{i.value}</div>
-          <div className="muted text-[11px]">Goal: {i.goal}</div>
+          <div className="muted text-[11px]">{tr("ss.goal")} {i.goal}</div>
         </li>))}</ul>
-      <p className="text-sm"><b>Do this next:</b> {h.next}</p>
+      <p className="text-sm"><b>{tr("ss.doNext")}</b> {h.next}</p>
     </section>
   );
 }
 
 function SubsChart({ daily }: { daily: Daily[] }) {
+  const { t: tr } = useT();
   const [ref, w] = useWidth();
   const H = 180, n = daily.length, box = boxFor(w, H);
   const ticks = niceTicks(Math.max(1, ...daily.map((d) => Math.max(d.subsGained || 0, d.subsLost || 0))), 2, true);
@@ -216,10 +220,10 @@ function SubsChart({ daily }: { daily: Daily[] }) {
   return (
     <figure className="m-0">
       <div className="mb-1 flex gap-3 text-[11px]" aria-hidden>
-        <span className="flex items-center gap-1"><i className="inline-block size-2.5 rounded-sm" style={{ background: C.rose }} />Gained (up)</span>
-        <span className="flex items-center gap-1"><i className="inline-block size-2.5 rounded-sm" style={{ background: C.wine }} />Lost (down)</span>
+        <span className="flex items-center gap-1"><i className="inline-block size-2.5 rounded-sm" style={{ background: C.rose }} />{tr("ss.gainedUp")}</span>
+        <span className="flex items-center gap-1"><i className="inline-block size-2.5 rounded-sm" style={{ background: C.wine }} />{tr("ss.lostDown")}</span>
       </div>
-      <div ref={ref} className="relative" style={{ height: H }} role="group" aria-label="Subscribers gained and lost per day. Use left and right arrow keys to read each day." {...handlers}>
+      <div ref={ref} className="relative" style={{ height: H }} role="group" aria-label={tr("ss.subsAria")} {...handlers}>
         {w > 0 && (
           <svg width={w} height={H} aria-hidden className="block select-none">
             {[top, 0, -top].map((t) => (
@@ -245,15 +249,15 @@ function SubsChart({ daily }: { daily: Daily[] }) {
         {d && w > 0 && (
           <Tip x={box.x0 + i! * bw + bw / 2} w={w}>
             <span>{dayLabel(d.day, true)}</span>
-            <b className="num">+{d.subsGained} gained · −{d.subsLost} lost</b>
-            <span>net {d.subsGained - d.subsLost >= 0 ? "+" : "−"}{Math.abs(d.subsGained - d.subsLost)}</span>
+            <b className="num">{tr("ss.gainedLost", { g: d.subsGained, l: d.subsLost })}</b>
+            <span>{tr("ss.net")} {d.subsGained - d.subsLost >= 0 ? "+" : "−"}{Math.abs(d.subsGained - d.subsLost)}</span>
           </Tip>
         )}
-        <p className="sr-only" aria-live="polite">{d ? `${dayLabel(d.day, true)}: ${d.subsGained} gained, ${d.subsLost} lost` : ""}</p>
+        <p className="sr-only" aria-live="polite">{d ? `${dayLabel(d.day, true)}: ${tr("ss.gainedLost", { g: d.subsGained, l: d.subsLost })}` : ""}</p>
       </div>
       <table className="sr-only">
-        <caption>Subscribers per day</caption>
-        <thead><tr><th scope="col">Day</th><th scope="col">Gained</th><th scope="col">Lost</th></tr></thead>
+        <caption>{tr("ss.subsPerDay")}</caption>
+        <thead><tr><th scope="col">{tr("ss.day")}</th><th scope="col">{tr("ss.gained")}</th><th scope="col">{tr("ss.lost")}</th></tr></thead>
         <tbody>{daily.map((x) => <tr key={x.day}><th scope="row">{x.day}</th><td>{x.subsGained}</td><td>{x.subsLost}</td></tr>)}</tbody>
       </table>
     </figure>
@@ -262,8 +266,9 @@ function SubsChart({ daily }: { daily: Daily[] }) {
 
 /** Horizontal bars (HTML): label, bar scaled to the largest, value and share of the total as text. */
 function HBars({ rows, label }: { rows: { label: string; value: number }[]; label: string }) {
+  const { t: tr } = useT();
   const total = rows.reduce((s, r) => s + (r.value || 0), 0), max = Math.max(1, ...rows.map((r) => r.value || 0));
-  if (!rows.length) return <p className="muted text-xs">No data for this range.</p>;
+  if (!rows.length) return <p className="muted text-xs">{tr("ss.noData")}</p>;
   return (
     <ul className="space-y-1.5" aria-label={label}>
       {rows.slice(0, 8).map((r, k) => (
@@ -291,13 +296,14 @@ function Spark({ values }: { values: number[] }) {
 }
 
 function Kpi({ label, value, cur, prev, spark, few }: { label: string; value: string; cur: number; prev: number; spark?: number[]; few?: boolean }) {
+  const { t: tr } = useT();
   const d = few ? { dir: 0, text: "—" } : delta(cur, prev); // few views: a % change would be noise
   return (
     <div className="card !p-2.5">
       <dt className="muted text-[10px] uppercase tracking-widest">{label}</dt>
       <dd className="num text-xl font-semibold">{value}</dd>
       <dd className="num text-[11px] !text-shadow-none" style={{ color: d.dir > 0 ? C.rose : "var(--muted)" }}>
-        {d.text} <span className="sr-only">{few ? "too few views to compare with" : "versus"} the previous period</span><span aria-hidden className="muted"> vs prev</span>
+        {d.text} <span className="sr-only">{tr(few ? "ss.tooFewPrev" : "ss.vsPrevLong")}</span><span aria-hidden className="muted">{tr("ss.vsPrev")}</span>
         {spark && <Spark values={spark} />}
       </dd>
     </div>
@@ -307,23 +313,24 @@ function Kpi({ label, value, cur, prev, spark, few }: { label: string; value: st
 const LEVEL = { fix: { icon: "⚠", label: "Fix" }, good: { icon: "▲", label: "Working" }, info: { icon: "ⓘ", label: "Note" } } as const;
 /** What the numbers mean and the one thing to do next (studio-coach-pure.ts). */
 function Coach({ findings }: { findings: Finding[] }) {
-  if (!findings.length) return <p className="card text-xs muted">Nothing stands out in this range. Keep your posting rhythm and check back next week.</p>;
+  const { t: tr } = useT();
+  if (!findings.length) return <p className="card text-xs muted">{tr("ss.nothing")}</p>;
   return (
-    <section className="card" aria-label="Coach">
-      <h3 className="hud-title studio-title mb-2 !text-[0.7rem]">COACH · WHAT TO DO NEXT</h3>
+    <section className="card" aria-label={tr("ss.coach")}>
+      <h3 className="hud-title studio-title mb-2 !text-[0.7rem]">{tr("ss.coachHead")}</h3>
       <ol className="space-y-2.5">
         {findings.map((f) => (
           <li key={f.title} className="grid grid-cols-[auto_1fr] gap-x-2 text-sm">
             <span aria-hidden style={{ color: f.level === "good" ? C.rose : f.level === "fix" ? C.cherry : "var(--muted)" }}>{LEVEL[f.level].icon}</span>
             <div className="min-w-0">
-              <p className="font-semibold"><span className="sr-only">{LEVEL[f.level].label}: </span>{f.title}</p>
+              <p className="font-semibold"><span className="sr-only">{tr(`ss.level.${f.level}`)}: </span>{f.title}</p>
               <p className="muted text-xs">{f.why}</p>
-              <p className="text-xs"><b>Do this:</b> {f.todo}</p>
+              <p className="text-xs"><b>{tr("ss.doThis")}</b> {f.todo}</p>
             </div>
           </li>
         ))}
       </ol>
-      <p className="muted mt-2 text-[10px]">ORBIT&apos;s rules of thumb from your own numbers, not YouTube benchmarks.</p>
+      <p className="muted mt-2 text-[10px]">{tr("ss.rulesOfThumb")}</p>
     </section>
   );
 }
@@ -348,6 +355,7 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
   videoId: string | null; videoTitle?: string; reduced: boolean; onPickVideo?: (id: string) => void;
   titleOf?: (id: string) => string | undefined; // optional: video titles for the top-videos table
 }) {
+  const { t: tr } = useT();
   const [range, setRange] = useState<7 | 28 | 90 | 365>(28);
   const [scope, setScope] = useState<"channel" | "video">(videoId ? "video" : "channel");
   const [metric, setMetric] = useState<Metric>("views");
@@ -423,32 +431,32 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
   const vName = videoTitle || (videoId ? shortId(videoId) : "");
 
   return (
-    <div className={`studio-stats glass @container h-full w-full overflow-y-auto p-3 sm:p-4 ${reduced ? "" : "panel-in"}`} role="region" aria-label="YouTube statistics" aria-busy={loading}>
+    <div className={`studio-stats glass @container h-full w-full overflow-y-auto p-3 sm:p-4 ${reduced ? "" : "panel-in"}`} role="region" aria-label={tr("ss.region")} aria-busy={loading}>
       {/* header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="hud-title studio-title truncate">STATS{live ? ` · ${live.channelTitle.toUpperCase()}` : ""}</h2>
+        <h2 className="hud-title studio-title truncate">{tr("ss.stats")}{live ? ` · ${live.channelTitle.toUpperCase()}` : ""}</h2>
         <div className="flex items-center gap-2">
-          {live && <span className="muted text-[11px]">Updated {new Date(live.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
-          <button className="chip" onClick={() => load(true)} disabled={loading} aria-label="Refresh statistics">{loading ? "Loading…" : "Refresh"}</button>
-          {onClose && <button className="chip" onClick={onClose} aria-label="Close statistics">×</button>}
+          {live && <span className="muted text-[11px]">{tr("ss.updated")} {new Date(live.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+          <button className="chip" onClick={() => load(true)} disabled={loading} aria-label={tr("ss.refreshAria")}>{tr(loading ? "common.loading" : "cf.refresh")}</button>
+          {onClose && <button className="chip" onClick={onClose} aria-label={tr("ss.close")}>×</button>}
         </div>
       </div>
       {flash && (
         <p className={`mt-1 text-xs ${flash.ok ? "ok" : "error"}`} role="status">
-          {flash.text} <button className="underline" onClick={() => setFlash(null)} aria-label="Dismiss message">Dismiss</button>
+          {flash.text} <button className="underline" onClick={() => setFlash(null)} aria-label={tr("ss.dismissMsg")}>{tr("cf.dismiss")}</button>
         </p>
       )}
 
       {(!data || data.connected) && ( // keep range/scope chips when a request failed, so the user can switch back
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <div className="flex gap-1" role="group" aria-label="Date range">
+          <div className="flex gap-1" role="group" aria-label={tr("ss.range")}>
             {RANGES.map(([d, l]) => <button key={d} className="chip num" aria-pressed={range === d} onClick={() => setRange(d)}>{l}</button>)}
           </div>
-          <div className="flex min-w-0 gap-1" role="group" aria-label="Scope">
-            <button className="chip" aria-pressed={scope === "channel"} onClick={() => setScope("channel")}>Channel</button>
+          <div className="flex min-w-0 gap-1" role="group" aria-label={tr("ss.scope")}>
+            <button className="chip" aria-pressed={scope === "channel"} onClick={() => setScope("channel")}>{tr("ss.channel")}</button>
             <button className="chip min-w-0 max-w-[16rem] truncate" aria-pressed={scope === "video"} disabled={!videoId} onClick={() => setScope("video")}
-              title={videoTitle} aria-label={videoId ? `Selected video: ${videoTitle || videoId}` : "Video (pick a video first)"}>
-              {videoId ? `Video · ${vName}` : "Video (pick one)"}
+              title={videoTitle} aria-label={videoId ? tr("ss.selectedVideo", { name: videoTitle || videoId }) : tr("ss.videoPickFirst")}>
+              {videoId ? `${tr("ss.video")} · ${vName}` : tr("ss.videoPick")}
             </button>
           </div>
         </div>
@@ -457,12 +465,12 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
       {err && (
         <div className="card mt-3 text-sm" role="alert">
           <p className="error">{err}</p>
-          <button className="btn mt-2" onClick={() => load()} disabled={loading}>Try again</button>
+          <button className="btn mt-2" onClick={() => load()} disabled={loading}>{tr("task.retry")}</button>
         </div>
       )}
 
       {loading && !data && !err && (
-        <div className="mt-3 space-y-3" aria-label="Loading statistics">
+        <div className="mt-3 space-y-3" aria-label={tr("ss.loading")}>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">{Array.from({ length: 7 }, (_, k) => <Skeleton key={k} h={92} reduced={reduced} />)}</div>
           <Skeleton h={260} reduced={reduced} />
           <div className="grid gap-3 @2xl:grid-cols-2"><Skeleton h={200} reduced={reduced} /><Skeleton h={200} reduced={reduced} /></div>
@@ -474,13 +482,12 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
       {live && (
         <div className="mt-3 space-y-3" style={{ opacity: loading ? 0.55 : 1, transition: reduced ? "none" : "opacity 0.2s" }}>
           <p className="muted text-xs">
-            {dayLabel(live.range.start, true)} – {dayLabel(live.range.end, true)} · Data through {dayLabel(live.range.end, true)} (YouTube Analytics lags about 2 days)
+            {dayLabel(live.range.start, true)} – {dayLabel(live.range.end, true)} · {tr("ss.through", { d: dayLabel(live.range.end, true) })}
           </p>
 
           {few && (
             <p className="card text-xs" role="note">
-              <b>Collecting data.</b> Only {live.totals.views} views in this range, so changes vs the previous period are hidden until a range has {FEW_VIEWS}+ views.
-              YouTube first shows each Short to a small test audience; posting regularly with your own take on each clip matters more than these numbers right now.
+              <b>{tr("ss.collecting")}</b> {tr("ss.fewViews", { n: live.totals.views, min: FEW_VIEWS })}
             </p>
           )}
 
@@ -489,71 +496,71 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
           <Coach findings={findings} />
 
           <dl className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
-            <Kpi few={few} label="Views" value={compact(live.totals.views)} cur={live.totals.views} prev={live.prevTotals.views} spark={daily.map((d) => d.views)} />
-            {full && <Kpi few={few} label="Watch time" value={`${compact(live.totals.watchMinutes / 60)} h`} cur={live.totals.watchMinutes} prev={live.prevTotals.watchMinutes} spark={daily.map((d) => d.watchMinutes)} />}
-            <Kpi few={few} label="Avg view" value={mmss(live.totals.avgViewSec)} cur={live.totals.avgViewSec} prev={live.prevTotals.avgViewSec}
+            <Kpi few={few} label={tr("ss.views")} value={compact(live.totals.views)} cur={live.totals.views} prev={live.prevTotals.views} spark={daily.map((d) => d.views)} />
+            {full && <Kpi few={few} label={tr("ss.watchTime")} value={`${compact(live.totals.watchMinutes / 60)} h`} cur={live.totals.watchMinutes} prev={live.prevTotals.watchMinutes} spark={daily.map((d) => d.watchMinutes)} />}
+            <Kpi few={few} label={tr("ss.avgView")} value={mmss(live.totals.avgViewSec)} cur={live.totals.avgViewSec} prev={live.prevTotals.avgViewSec}
               spark={daily.map((d) => (d.views > 0 ? (d.watchMinutes * 60) / d.views : 0))} />
-            <Kpi few={few} label="Subscribers" value={`${live.totals.subsGained - live.totals.subsLost >= 0 ? "+" : "−"}${compact(Math.abs(live.totals.subsGained - live.totals.subsLost))}`}
+            <Kpi few={few} label={tr("ss.subscribers")} value={`${live.totals.subsGained - live.totals.subsLost >= 0 ? "+" : "−"}${compact(Math.abs(live.totals.subsGained - live.totals.subsLost))}`}
               cur={live.totals.subsGained - live.totals.subsLost} prev={live.prevTotals.subsGained - live.prevTotals.subsLost} spark={daily.map((d) => d.subsGained - d.subsLost)} />
-            {live.engaged && <Kpi few={few} label="Engaged views" value={compact(live.engaged.cur)} cur={live.engaged.cur} prev={live.engaged.prev} />}
-            {full && <Kpi few={few} label="Likes" value={compact(live.totals.likes)} cur={live.totals.likes} prev={live.prevTotals.likes} />}
-            {full && <Kpi few={few} label="Comments" value={compact(live.totals.comments)} cur={live.totals.comments} prev={live.prevTotals.comments} />}
-            {full && <Kpi few={few} label="Shares" value={compact(live.totals.shares)} cur={live.totals.shares} prev={live.prevTotals.shares} />}
+            {live.engaged && <Kpi few={few} label={tr("ss.engaged")} value={compact(live.engaged.cur)} cur={live.engaged.cur} prev={live.engaged.prev} />}
+            {full && <Kpi few={few} label={tr("ss.likes")} value={compact(live.totals.likes)} cur={live.totals.likes} prev={live.prevTotals.likes} />}
+            {full && <Kpi few={few} label={tr("ss.comments")} value={compact(live.totals.comments)} cur={live.totals.comments} prev={live.prevTotals.comments} />}
+            {full && <Kpi few={few} label={tr("ss.shares")} value={compact(live.totals.shares)} cur={live.totals.shares} prev={live.prevTotals.shares} />}
           </dl>
 
-          <section className="card" aria-label="Daily trend">
+          <section className="card" aria-label={tr("ss.trend")}>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="hud-title studio-title !text-[0.7rem]">{m[1].toUpperCase()} PER DAY</h3>
-              <div className="flex gap-1" role="group" aria-label="Chart metric">
-                {METRICS.map(([k, l]) => <button key={k} className="chip" aria-pressed={metric === k} onClick={() => setMetric(k)}>{l}</button>)}
+              <h3 className="hud-title studio-title !text-[0.7rem]">{tr("ss.perDay", { m: tr(`ss.m.${m[0]}`) }).toUpperCase()}</h3>
+              <div className="flex gap-1" role="group" aria-label={tr("ss.metric")}>
+                {METRICS.map(([k]) => <button key={k} className="chip" aria-pressed={metric === k} onClick={() => setMetric(k)}>{tr(`ss.m.${k}`)}</button>)}
               </div>
             </div>
             {daily.length ? (
-              <LineChart title={`${m[1]} per day`} labels={labels} tipLabels={tipLabels}
-                series={[{ name: m[1], values: daily.map(m[2]), color: C.cherry, fill: true }]} fmtY={m[3]} />
-            ) : <p className="muted text-xs">No daily data for this range yet.</p>}
+              <LineChart title={tr("ss.perDay", { m: tr(`ss.m.${m[0]}`) })} labels={labels} tipLabels={tipLabels}
+                series={[{ name: tr(`ss.m.${m[0]}`), values: daily.map(m[2]), color: C.cherry, fill: true }]} fmtY={m[3]} />
+            ) : <p className="muted text-xs">{tr("ss.noDaily")}</p>}
           </section>
 
-          <button className="chip" aria-expanded={full} onClick={() => setFull((f) => !f)}>{full ? "▴ Simple view" : "▾ Full dashboard: watch time, reactions, traffic, countries, top videos"}</button>
+          <button className="chip" aria-expanded={full} onClick={() => setFull((f) => !f)}>{full ? `▴ ${tr("ss.simple")}` : `▾ ${tr("ss.full")}`}</button>
 
           {full && <div className="grid gap-3 @2xl:grid-cols-2">
-            <Section title="Subscribers gained vs lost">
-              {daily.length ? <SubsChart daily={daily} /> : <p className="muted text-xs">No data for this range.</p>}
+            <Section title={tr("ss.subsTitle")}>
+              {daily.length ? <SubsChart daily={daily} /> : <p className="muted text-xs">{tr("ss.noData")}</p>}
             </Section>
             {vid ? (
-              <Section title="Audience retention">
+              <Section title={tr("ss.retention")}>
                 {live.retention?.length ? (
                   <>
                     <div className="mb-1 flex gap-3 text-[11px]" aria-hidden>
-                      <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-4" style={{ background: C.cherry }} />Still watching</span>
-                      <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-4 opacity-60" style={{ background: C.blush }} />Relative to similar videos</span>
+                      <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-4" style={{ background: C.cherry }} />{tr("ss.still")}</span>
+                      <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-4 opacity-60" style={{ background: C.blush }} />{tr("ss.relativeLong")}</span>
                     </div>
-                    <LineChart title="Audience retention (% of viewers still watching)" height={180} max={1}
-                      labels={live.retention.map((r) => `${Math.round(r.t * 100)}%`)} tipLabels={live.retention.map((r) => `${Math.round(r.t * 100)}% into the video`)}
+                    <LineChart title={tr("ss.retentionTitle")} height={180} max={1}
+                      labels={live.retention.map((r) => `${Math.round(r.t * 100)}%`)} tipLabels={live.retention.map((r) => tr("ss.into", { pct: Math.round(r.t * 100) }))}
                       series={[
-                        { name: "Still watching", values: live.retention.map((r) => r.ratio), color: C.cherry, fill: true },
-                        { name: "Relative", values: live.retention.map((r) => r.relative), color: C.blush, faint: true },
+                        { name: tr("ss.still"), values: live.retention.map((r) => r.ratio), color: C.cherry, fill: true },
+                        { name: tr("ss.relative"), values: live.retention.map((r) => r.relative), color: C.blush, faint: true },
                       ]}
                       fmtY={(v) => `${Math.round((Number.isFinite(v) ? v : 0) * 100)}%`} />
                   </>
-                ) : <p className="muted text-xs">Retention needs enough views; YouTube hides it for small videos.</p>}
+                ) : <p className="muted text-xs">{tr("ss.retentionHidden")}</p>}
               </Section>
             ) : (
-              <Section title="Top videos">
+              <Section title={tr("ss.topVideos")}>
                 <TopVideos rows={live.topVideos ?? []} titleOf={titleOf} onPick={onPickVideo} selected={videoId} />
               </Section>
             )}
-            <Section title="Traffic sources">
-              <HBars label="Traffic sources" rows={live.traffic.map((t) => ({ label: t.label || t.source, value: t.views }))} />
+            <Section title={tr("ss.traffic")}>
+              <HBars label={tr("ss.traffic")} rows={live.traffic.map((t) => ({ label: t.label || t.source, value: t.views }))} />
             </Section>
-            <Section title="Top countries">
-              <HBars label="Top countries" rows={live.countries.map((c) => ({ label: country(c.country), value: c.views }))} />
+            <Section title={tr("ss.countries")}>
+              <HBars label={tr("ss.countries")} rows={live.countries.map((c) => ({ label: country(c.country), value: c.views }))} />
             </Section>
           </div>}
 
           {live.warnings.length > 0 && <p className="muted text-xs">{live.warnings.join(" · ")}</p>}
           <p className="text-right text-xs">
-            <button className="muted underline" onClick={disconnect} disabled={busy}>{busy ? "Disconnecting…" : "Disconnect YouTube"}</button>
+            <button className="muted underline" onClick={disconnect} disabled={busy}>{tr(busy ? "ss.disconnecting" : "ss.disconnect")}</button>
           </p>
         </div>
       )}
@@ -562,12 +569,13 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
 }
 
 function TopVideos({ rows, titleOf, onPick, selected }: { rows: NonNullable<Live["topVideos"]>; titleOf?: (id: string) => string | undefined; onPick?: (id: string) => void; selected: string | null }) {
-  if (!rows.length) return <p className="muted text-xs">No video views in this range.</p>;
+  const { t: tr } = useT();
+  if (!rows.length) return <p className="muted text-xs">{tr("ss.noVideoViews")}</p>;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead className="muted text-[10px] uppercase tracking-widest">
-          <tr><th scope="col" className="w-6 text-left">#</th><th scope="col" className="text-left">Video</th><th scope="col" className="text-right">Views</th><th scope="col" className="text-right">Watch h</th><th scope="col" className="text-right">Avg</th></tr>
+          <tr><th scope="col" className="w-6 text-left">#</th><th scope="col" className="text-left">{tr("ss.video")}</th><th scope="col" className="text-right">{tr("ss.views")}</th><th scope="col" className="text-right">{tr("ss.watchH")}</th><th scope="col" className="text-right">{tr("ss.avg")}</th></tr>
         </thead>
         <tbody>
           {rows.slice(0, 10).map((r, k) => {
@@ -576,7 +584,7 @@ function TopVideos({ rows, titleOf, onPick, selected }: { rows: NonNullable<Live
               <tr key={r.id} className={`hud-row !table-row cursor-pointer${r.id === selected ? " on" : ""}`} onClick={() => onPick?.(r.id)}>
                 <td className="num muted py-1">{k + 1}</td>
                 <td className="max-w-0 truncate py-1 pr-2">
-                  {onPick ? <button className="max-w-full truncate text-left hover:underline" onClick={(e) => { e.stopPropagation(); onPick(r.id); }} title={name} aria-label={`Show stats for ${name}`}>{name}</button> : name}
+                  {onPick ? <button className="max-w-full truncate text-left hover:underline" onClick={(e) => { e.stopPropagation(); onPick(r.id); }} title={name} aria-label={tr("ss.showFor", { name })}>{name}</button> : name}
                 </td>
                 <td className="num text-right">{compact(r.views)}</td>
                 <td className="num text-right">{compact(r.watchMinutes / 60)}</td>
@@ -591,32 +599,33 @@ function TopVideos({ rows, titleOf, onPick, selected }: { rows: NonNullable<Live
 }
 
 function NotConnected({ data }: { data: Extract<Analytics, { connected: false }> }) {
-  const connect = <a className="btn inline-block px-6 py-2.5 text-base" href="/api/studio/oauth/start">Connect YouTube</a>;
-  const privacy = <p className="muted mt-2 text-xs">Read-only access; the token stays on this PC.</p>;
+  const { t: tr } = useT();
+  const connect = <a className="btn inline-block px-6 py-2.5 text-base" href="/api/studio/oauth/start">{tr("cf.connectYt")}</a>;
+  const privacy = <p className="muted mt-2 text-xs">{tr("ss.readOnly")}</p>;
   if (data.reason === "not_connected") return (
     <div className="card mt-4 py-6 text-center">
-      <p className="mb-3 text-sm">Connect your channel to see views, watch time, subscribers, traffic and retention.</p>
+      <p className="mb-3 text-sm">{tr("ss.connectIntro")}</p>
       {connect}{privacy}
     </div>
   );
   if (data.reason === "expired") return (
     <div className="card mt-4 py-6 text-center">
-      <p className="mb-3 text-sm">Google ended this connection (the token expired or was revoked). Test-mode Google apps expire tokens after 7 days; publishing the OAuth app avoids that.</p>
-      <a className="btn inline-block px-6 py-2.5 text-base" href="/api/studio/oauth/start">Reconnect YouTube</a>{privacy}
+      <p className="mb-3 text-sm">{tr("ss.expired")}</p>
+      <a className="btn inline-block px-6 py-2.5 text-base" href="/api/studio/oauth/start">{tr("ss.reconnect")}</a>{privacy}
     </div>
   );
   const env = data.setupEnv?.length ? data.setupEnv : null;
   return (
     <div className="card mt-4 text-sm">
-      <b>Set up YouTube Analytics</b>
+      <b>{tr("ss.setup")}</b>
       <ol className="mt-2 list-decimal space-y-1 pl-5">
-        <li>Google Cloud Console → APIs &amp; Services → enable <b>YouTube Analytics API</b> and <b>YouTube Data API v3</b>.</li>
-        <li>OAuth consent screen: <b>External</b>, add yourself as a test user (or publish the app to avoid the 7-day token expiry).</li>
-        <li>Credentials → Create credentials → <b>OAuth client ID</b> → application type <b>Desktop app</b>.</li>
-        <li>Put the client id and secret in <code>.env.local</code>{env ? ":" : "."}
+        <li>{tr("ss.step1")} <b>{"YouTube Analytics API"}</b> {tr("ss.and")} <b>{"YouTube Data API v3"}</b>.</li>
+        <li>{tr("ss.step2a")} <b>{"External"}</b>{tr("ss.step2b")}</li>
+        <li>{tr("ss.step3a")} <b>{"OAuth client ID"}</b> {tr("ss.step3b")} <b>{"Desktop app"}</b>.</li>
+        <li>{tr("ss.step4")} <code>{".env.local"}</code>{env ? ":" : "."}
           {env && <pre className="mt-1 overflow-x-auto rounded bg-black/40 p-2 text-xs">{env.map((e) => `${e}=…`).join("\n")}</pre>}
         </li>
-        <li>Run <code>npm run app:rebuild</code>, then come back and press Connect.</li>
+        <li>{tr("ss.step5a")} <code>{"npm run app:rebuild"}</code>{tr("ss.step5b")}</li>
       </ol>
     </div>
   );
