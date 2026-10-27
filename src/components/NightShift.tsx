@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./AgentMission";
 import { stoppedText, type NightItem, type NightReport, type NightSettings, type TonightItem } from "@/lib/night-pure";
+import { LEARN_KINDS, NOUN } from "@/lib/night-learn-pure";
 import type { NavTarget } from "@/lib/nav-pure";
 import { useT } from "./i18n";
 
@@ -37,6 +38,7 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
       <b>🌙 {t("night.slept")}</b>{" "}
       <span className="muted text-xs">{report.running ? t("night.working") : `${report.calls} Claude call${report.calls === 1 ? "" : "s"} · ${report.minutes} min${end ? ` · done ${end}` : ""}`}</span>
       {err && <p className="error text-xs" role="alert">{err}</p>}
+      {report.why && <p className="muted text-xs">Why tonight's plan: {report.why}</p>}
       <ul className="since-list muted grid gap-1">
         {report.approvals.map((i) => (
           <li key={key(i)}>
@@ -86,6 +88,17 @@ export function TonightPanel() {
         {v?.running && " Working now."}
       </p>
       {s && <label className="muted flex items-center gap-2 text-xs"><input type="checkbox" checked={s.enabled} onChange={(e) => void post({ action: "settings", enabled: e.target.checked })} /> Run the night shift</label>}
+      {s && (
+        <details className="muted text-xs"><summary>What ORBIT does on its own (learns from what you approve)</summary>
+          {LEARN_KINDS.map((k) => (
+            <label key={k} className="flex items-center justify-between gap-2">{NOUN[k]}
+              <select className="field" value={s.pin?.[k] ?? "auto"} onChange={(e) => void post({ action: "settings", pin: { [k]: e.target.value } })}>
+                <option value="auto">Learn</option><option value="on">Always</option><option value="off">Never</option>
+              </select>
+            </label>
+          ))}
+        </details>
+      )}
       <form onSubmit={add} className="flex gap-1.5">
         <input className="field flex-1" value={text} maxLength={500} onChange={(e) => setText(e.target.value)} placeholder="Look into … tonight" aria-label="Add a task for tonight" />
         <button className="chip" disabled={!text.trim()}>Add</button>
