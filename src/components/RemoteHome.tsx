@@ -48,7 +48,7 @@ export function RemoteGalaxy({ need, jobs, paused }: { need: number; jobs: numbe
 }
 
 /** One approval in the "Needs you" stack. Same buttons, labels and disabled rules as before the redesign. */
-export function NeedCard({ it, busy, blind, onThumbError, decide }: { it: Item; busy: string; blind: boolean; onThumbError: () => void; decide: (it: Item, approve: boolean) => void }) {
+export function NeedCard({ it, busy, blind, later, onThumbError, decide }: { it: Item; busy: string; blind: boolean; later?: boolean; onThumbError: () => void; decide: (it: Item, approve: boolean) => void }) {
   const kind = it.kind === "spend" ? "Spend" : it.kind === "send" ? "Email" : it.kind === "nego" ? "Reply" : it.kind === "invoice" ? "Invoice" : "Clip";
   return (
     <article className={`rm-need rm-need-${it.kind}`}>
@@ -56,7 +56,7 @@ export function NeedCard({ it, busy, blind, onThumbError, decide }: { it: Item; 
         <span className="rm-kind">{kind}</span>
         {it.kind === "spend" && <span className="rm-big">{it.credits}<small> credits</small></span>}
       </div>
-      <div className="text-base font-semibold leading-snug">{it.title}</div>
+      <div className="text-base font-semibold leading-snug">{it.title}{later && <span className="chip ml-2 text-xs">Review later</span>}</div>
       <div className="muted text-xs">{it.detail}</div>
       {it.kind === "clip" && (blind ? <p className="muted text-sm">No preview: open on PC to review.</p>
         : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={`Thumbnail of ${it.title}`} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={onThumbError} />)}

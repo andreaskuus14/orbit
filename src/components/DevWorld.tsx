@@ -25,6 +25,7 @@ import ScenePlanner from "./ScenePlanner";
 import TextureStudio from "./TextureStudio";
 import PlaytestBot from "./PlaytestBot";
 import PersonaPlaytest from "./PersonaPlaytest";
+import GameCopilot from "./GameCopilot";
 import GridCity from "./GridCity";
 import HivePanel from "./HivePanel";
 import DevSessions from "./DevSessions";
@@ -174,7 +175,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
   const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "personas" | "hive" | "grid" | "sessions" | "core">("games");
+  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "personas" | "economy" | "hive" | "grid" | "sessions" | "core">("games");
   const [fix, setFix] = useState<{ key: number; error: string } | undefined>(); // backlog → Code helper (Fix mode)
   const [rising, setRising] = useState(0); // bumped by a Herald trend card: Trend Radar opens on Rising
   useEffect(() => { if (tab !== "trends") setRising(0); }, [tab]); // leaving the radar ends the jump, so coming back opens it normally (runs before the mount check below, which may bump it)
@@ -284,10 +285,11 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Studio view">
           <button className="chip" aria-pressed={tab === "games"} onClick={() => setTab("games")}>🎮 Games</button>
           <button className="chip" aria-pressed={tab === "refs"} onClick={() => setTab("refs")} style={tab === "refs" ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>🎨 References</button>
-          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"], ["hive", "🐝 Hive"], ["grid", "🟦 Grid"], ["sessions", "🕒 Sessions"], ["core", "⚙ CORE"]] as const).map(([k, label]) => (
+          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"], ["economy", "🪙 Economy"], ["hive", "🐝 Hive"], ["grid", "🟦 Grid"], ["sessions", "🕒 Sessions"], ["core", "⚙ CORE"]] as const).map(([k, label]) => (
             <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
           ))}
         </div>
+        {tab === "games" && <LocalBrainLine />}
         <div hidden={tab !== "refs"}><RefBoard /></div>
         {tab === "sounds" && <SoundFinder />}
         <div hidden={tab !== "thumbs"}><ThumbMaker /></div>
@@ -298,6 +300,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {tab === "textures" && <TextureStudio />}
         <div hidden={tab !== "playtest"}><PlaytestBot world={world} commit={commit} gameId={selected} /></div>
         {tab === "personas" && <PersonaPlaytest world={world} commit={commit} gameId={selected} />}
+        {tab === "economy" && <GameCopilot world={world} gameId={selected} />}
         <div hidden={tab !== "code"}><CodeHelper prefill={fix} /></div>
         {tab === "sessions" && <DevSessions />}
         {tab === "core" && <CoreConfigPanel />}
@@ -529,4 +532,12 @@ function BugTracker({ game, world, commit, onFix }: { game: Game; world: World; 
       </form>
     </section>
   );
+}
+
+/** Health line: is the offline brain (Ollama, used when Claude is unreachable) reachable? Hidden while it's off. */
+function LocalBrainLine() {
+  const [st, setSt] = useState<{ state: string; text: string } | null>(null);
+  useEffect(() => { void fetch("/api/devworld/local", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null), () => null).then(setSt); }, []);
+  if (!st || st.state === "off") return null;
+  return <p role="status" className={`mb-2 text-xs ${st.state === "ok" ? "ok" : "muted"}`}>🧠 {st.text}</p>;
 }

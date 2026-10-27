@@ -8,6 +8,7 @@ import * as nav from "../src/lib/nav-pure.ts";
 import * as planets from "../src/lib/planets.ts";
 import * as hear from "../src/components/voice/hear.ts";
 import * as wake from "../src/components/voice/wake.ts";
+import * as i18n from "../src/lib/i18n-pure.ts";
 import * as conversation from "../src/components/voice/conversation.ts";
 
 // Run the real component handlers with React hooks and I/O replaced. No browser, Supabase or Claude required.
@@ -63,6 +64,7 @@ function component(file: string, attachments = false) {
       if (name.endsWith("/CoreChats")) return { useCoreChats: () => ({ map: {}, chats: [], projects: [], reload: noop }) };
       if (name.endsWith("/speech-text")) return { sentenceStream: () => ({}) };
       if (name.endsWith("/wake")) return { isSleepCommand: () => false };
+      if (name === "./i18n") return { useT: () => ({ lang: "en", t: (k: any, v?: any) => i18n.translate("en", k, v), tn: (k: any, n: number) => i18n.plural("en", k, n) }), getLang: () => "en", LangSwitch: noop };
       return new Proxy({}, { get: () => noop });
     },
   });
