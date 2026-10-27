@@ -57,6 +57,7 @@ import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
 import { useT } from "./i18n";
 import { LIVING_EVENT } from "@/lib/living-events-pure";
+import { BrandMark } from "./BrandMark";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -572,8 +573,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
       <header className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-4 py-3">
         <button className="logo" onClick={closeWorld} aria-label={t("hud.home")}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/orbit-mark.png" alt="" width={40} height={40} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          <BrandMark size={40} />
           <span><span className="brand block">Orbital</span><span className="muted block text-[10px] tracking-[0.2em]">{t("hud.tagline")}</span></span>
         </button>
         <div className="hud-bar-top">

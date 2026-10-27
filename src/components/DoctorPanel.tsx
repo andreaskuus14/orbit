@@ -105,6 +105,10 @@ function HealthCard({ health }: { health: Health }) {
 function ImproveCard({ improve }: { improve: Improve }) {
   const [copied, setCopied] = useState("");
   const [patch, setPatch] = useState<Record<string, PatchResult | "busy">>({});
+  useEffect(() => { // saved drafts survive a reload; a click made meanwhile wins
+    void fetch("/api/self-improve").then((x) => x.json() as Promise<{ drafts?: Record<string, PatchResult> }>)
+      .then((r) => setPatch((p) => ({ ...r.drafts, ...p }))).catch(() => {});
+  }, []);
   const copy = async (i: number) => {
     try { await navigator.clipboard.writeText(builderBrief(improve.tasks[i], i + 1, improve.week)); setCopied(improve.tasks[i].key); } catch { setCopied(""); }
   };

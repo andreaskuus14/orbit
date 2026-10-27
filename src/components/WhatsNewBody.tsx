@@ -7,6 +7,7 @@ import {
   position, resume, setupUrl, shouldAutoOpen, skip, type Progress,
 } from "@/lib/tour-pure";
 import { useT } from "./i18n";
+import { announce } from "./announce";
 
 // "What's new" as a guided tour (chapters, steps, Show me, setup hints). Data and rules: lib/tour-pure.ts.
 // Opens by itself once per TOUR_KEY; afterwards only from Ctrl+K → "What's new tour" (TOUR_EVENT), where it resumes.
@@ -30,6 +31,7 @@ export default function WhatsNewBody({ home, reopen }: { home: boolean; reopen: 
   }, [update]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const show = active && home && p && !p.closed;
+  useEffect(() => { if (show) announce(t("tour.ready")); }, [show]); // eslint-disable-line react-hooks/exhaustive-deps -- once per opening
   useEffect(() => {
     if (!show) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") update(skip(p)); };

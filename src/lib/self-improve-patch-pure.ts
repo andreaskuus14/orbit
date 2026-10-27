@@ -162,3 +162,20 @@ export const handoffText = (t: Task, d: Draft, file: string) => [
 ].join("\n");
 
 export const slug = (key: string) => key.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "task";
+
+/** <week>-<task>.patch, or -2, -3 … when that name is taken: a new draft never overwrites an older one. */
+export function patchName(week: string, key: string, taken: string[]): string {
+  const base = `${week}-${slug(key)}`;
+  for (let n = 1; ; n++) { const f = `${base}${n > 1 ? `-${n}` : ""}.patch`; if (!taken.includes(f)) return f; }
+}
+
+/** Saved drafts (index.json next to the .patch files), so the card shows them again after a reload. */
+export type SavedDraft = { week: string; key: string; file: string; handoff: string; rationale: string; test: string };
+export const MAX_SAVED = 100;
+export const addSaved = (index: SavedDraft[], d: SavedDraft) => [...index, d].slice(-MAX_SAVED);
+/** This week's newest draft per task key. */
+export function weekDrafts(index: SavedDraft[], week: string): Record<string, PatchResult> {
+  const out: Record<string, PatchResult> = {};
+  for (const d of index) if (d.week === week) out[d.key] = { file: d.file, handoff: d.handoff, rationale: d.rationale, test: d.test };
+  return out;
+}
