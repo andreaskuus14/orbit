@@ -64,6 +64,7 @@ function component(file: string, attachments = false) {
       if (name.endsWith("/CoreChats")) return { useCoreChats: () => ({ map: {}, chats: [], projects: [], reload: noop }) };
       if (name.endsWith("/speech-text")) return { sentenceStream: () => ({}) };
       if (name.endsWith("/wake")) return { isSleepCommand: () => false };
+      if (name.endsWith("/useDragPanel")) return { useDragPanel: () => ({ ref: { current: null }, handle: {} }) };
       if (name === "./i18n") return { useT: () => ({ lang: "en", t: (k: any, v?: any) => i18n.translate("en", k, v), tn: (k: any, n: number) => i18n.plural("en", k, n) }), getLang: () => "en", LangSwitch: noop };
       return new Proxy({}, { get: () => noop });
     },
