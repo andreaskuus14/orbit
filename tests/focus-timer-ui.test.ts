@@ -41,7 +41,7 @@ function browser(raw: string | null, now = 1_000_000) {
         if (id.endsWith("focus-timer-pure")) return focus;
         if (id.endsWith("life-pure")) return { ALL_DAYS: [] };
         if (id.endsWith("habit-nudge-pure")) return {};
-        if (id === "./voice/bus" || id === "./CalendarCard" || id === "./SchoolPanel") return {};
+        if (id === "./voice/bus" || id === "./CalendarCard" || id === "./SchoolPanel" || id === "./i18n") return {};
         return require(id);
       },
     });

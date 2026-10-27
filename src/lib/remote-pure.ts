@@ -98,13 +98,14 @@ export type RemoteCommand =
   | { type: "stopAll"; nonce: string }
   | { type: "status"; nonce: string }
   | { type: "brief"; nonce: string }
+  | { type: "night"; nonce: string } // last night's report, titles and counts only (remote-web-pure nightForPhone)
   | { type: "habit.done"; nonce: string; id: string }; // one-tap Done from a habit nudge: marks that LIFE habit done today
 export type CommandResult = { ok: true; cmd: RemoteCommand } | { ok: false; error: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NONCE = /^[A-Za-z0-9_-]{16,64}$/;
 const FIELDS: Record<RemoteCommand["type"], string[]> = {
-  navigate: ["panel"], "core.ask": ["text", "lang"], "approval.list": [], approve: ["id"], reject: ["id"], stopAll: [], status: [], brief: [], "habit.done": ["id"],
+  navigate: ["panel"], "core.ask": ["text", "lang"], "approval.list": [], approve: ["id"], reject: ["id"], stopAll: [], status: [], brief: [], night: [], "habit.done": ["id"],
 };
 
 /** Bounded LRU of seen nonces (oldest evicted first). */
@@ -156,7 +157,7 @@ export function parseCommand(json: unknown, nonces: NonceCache): CommandResult {
       cmd = type === "approve" ? { type, nonce, id: o.id.toLowerCase(), requiresOwnerConfirm: true } : { type: type as "reject" | "habit.done", nonce, id: o.id.toLowerCase() };
       break;
     default:
-      cmd = { type: type as "approval.list" | "stopAll" | "status" | "brief", nonce };
+      cmd = { type: type as "approval.list" | "stopAll" | "status" | "brief" | "night", nonce };
   }
   // Checked last so a rejected command does not burn its nonce, but before returning ok so a replay never passes.
   if (nonces.has(nonce)) return { ok: false, error: "replayed nonce" };
