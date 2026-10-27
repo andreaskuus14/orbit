@@ -14,13 +14,14 @@ export const EFFECTS: Record<string, Effect> = {
   web_search: "read", fetch_url: "read", read_news: "read", reach_trending: "read", reach_read: "read",
   // CORE tools: changes to his own data only
   save_memory: "reversible", ask_agent: "reversible", create_goal: "reversible", plan_task: "reversible", run_scout: "reversible", run_niche: "reversible",
-  add_wish: "reversible", queue_tonight: "reversible", life_check: "reversible", life_add_habit: "reversible", life_remind: "reversible",
+  add_wish: "reversible", propose_rule: "reversible", queue_tonight: "reversible", life_check: "reversible", life_add_habit: "reversible", life_remind: "reversible",
   ws_write: "reversible", ws_create: "reversible", rea_analyze: "reversible", rea_cancel: "reversible",
   higgsfield_draft: "reversible", // quote only; the spend is story.approve
   schedule_approved: "publish", // uploads only clips already approved by his click (status "approved")
   // owner-click actions
   "business.send": "outward-send", "contracts.send": "outward-send", "negotiator.approve": "outward-send", "invoices.remind": "outward-send",
   "story.approve": "spend", "studio.schedule": "publish", "studio.publish": "publish", "contracts.sign": "sign",
+  "rules.add": "reversible", "rules.confirm": "reversible", "rules.pause": "reversible", "rules.resume": "reversible", "rules.delete": "reversible", // standing rules run only existing runners; outward steps still wait in Approvals
   "loops.close": "reversible", "loops.snooze": "reversible", "loops.task": "reversible", // open loops: his own bookkeeping (task = his day plan)
   "court.run": "read", "court.keep": "reversible", "twin.argue": "read", "twin.mute": "reversible", // model calls on his own data; keep = a memory
 };
