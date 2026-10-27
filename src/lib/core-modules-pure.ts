@@ -67,6 +67,7 @@ export const MODULE_HINTS: Record<string, RegExp> = {
   GOALS: /goal|target|subscriber|milestone|deadline|progress/i,
   NIGHT: /tonight|overnight|night|while i sleep/i,
   DEALS: /wish|deal|buy|price|cheap|offer|€|eur|sale/i,
+  RULES: /\b(?:every|each|daily|weekly|weekdays?|whenever|when|rules?|iga|igal|kui|reegel)\b/i,
   WEEK: /week|slipp|late|get done|got done|did i|streak|wins?\b|behind/i,
 };
 export function selectModules<T extends ModuleSpec>(mods: T[], text: string): T[] {

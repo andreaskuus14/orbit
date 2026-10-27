@@ -6,6 +6,7 @@ import { biggestFirst, headline } from "@/lib/remote-ui-pure";
 import { RemoteCar, readLater } from "./RemoteCar";
 import { VoiceMemo } from "./VoiceMemo";
 import { getLang, LangSwitch, useT } from "./i18n";
+import type { PhoneNight } from "@/lib/remote-web-pure";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
@@ -21,7 +22,7 @@ function send(type: string, fields: object = {}, echo?: object, stream = false) 
 const errorOf = async (r: Response) => ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `Failed (${r.status})`;
 
 export function RemoteApp() {
-  const { t, tn } = useT();
+  const { t, lang } = useT();
   const [paired, setPaired] = useState<boolean | null>(null);
   const [off, setOff] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
@@ -87,16 +88,16 @@ export function RemoteApp() {
 
       {habit && (
         <section className="card space-y-2" aria-labelledby="r-habit">
-          <h2 id="r-habit" className="text-sm font-semibold">Habit time</h2>
+          <h2 id="r-habit" className="text-sm font-semibold">{t("habit.time")}</h2>
           <button className="btn w-full" style={{ minHeight: 48 }} disabled={!!busy}
-            onClick={() => void act("habit", () => send("habit.done", { id: habit }), (j) => { setHabit(""); history.replaceState(null, "", "/remote"); return j.message ?? "Done"; })}>
-            {busy === "habit" ? "…" : "Done"}
+            onClick={() => void act("habit", () => send("habit.done", { id: habit }), (j) => { setHabit(""); history.replaceState(null, "", "/remote"); return j.message ?? t("remote.done"); })}>
+            {busy === "habit" ? "…" : t("remote.done")}
           </button>
         </section>
       )}
 
       <section className="rm-hero" aria-labelledby="r-stop">
-        <p className="rm-status" style={{ color: paused ? "var(--rose)" : items.length ? "var(--amber)" : "var(--ink)" }} aria-live="polite">{headline(items.length, paused)}</p>
+        <p className="rm-status" style={{ color: paused ? "var(--rose)" : items.length ? "var(--amber)" : "var(--ink)" }} aria-live="polite">{headline(items.length, paused, lang)}</p>
         <div className="flex items-center justify-between gap-3">
           <h2 id="r-stop" className="muted text-sm">{t(paused ? "remote.stopOn" : "remote.stopOff")}</h2>
           {!paused && <button className="btn danger" disabled={!!busy} onClick={stopAll} style={{ minHeight: 44, minWidth: 104 }}>{t("remote.stopButton")}</button>}
@@ -114,7 +115,7 @@ export function RemoteApp() {
         ))}
       </section>
 
-      {/* Night report section slots in here once the remote API serves it. */}
+      <Night />
       <section className="rm-sec" aria-labelledby="r-queue">
         <h2 id="r-queue" className="rm-label">{t("remote.queue")}</h2>
         {q && <p className="muted text-sm">{t("remote.queueLine", { ready: q.ready, approved: q.approved })}{q.publishing ? t("remote.uploading") : ""}{q.story ? t("remote.story") : ""}</p>}
@@ -130,6 +131,22 @@ export function RemoteApp() {
       <Notify />
       <LangSwitch />
     </Shell>
+  );
+}
+
+/** Last night's report: titles and counts only (the server shapes it, see nightForPhone). Hidden when the night did nothing. */
+function Night() {
+  const { t } = useT();
+  const [n, setN] = useState<PhoneNight>(null);
+  useEffect(() => { void send("night").then((r) => (r.ok ? r.json() : null)).then((j: { night?: PhoneNight } | null) => setN(j?.night ?? null)).catch(() => {}); }, []);
+  if (!n) return null;
+  const rows = [...n.approvals.map((x) => ["approval", x] as const), ...n.done.map((x) => ["done", x] as const), ...n.failed.map((x) => ["failed", x] as const)];
+  return (
+    <section className="rm-sec" aria-labelledby="r-night">
+      <h2 id="r-night" className="rm-label">{t("remote.night")}</h2>
+      <p className="muted text-sm">{t("remote.nightLine", n.counts)}{n.running ? t("remote.nightRunning") : ""}{n.stopped ? ` · ${n.stopped}` : ""}</p>
+      {!!rows.length && <ul className="space-y-1 text-sm">{rows.map(([k, title], i) => <li key={i}><span className="muted">{t(`remote.nightTag.${k}`)}:</span> {title}</li>)}</ul>}
+    </section>
   );
 }
 
@@ -183,7 +200,7 @@ function Notify() {
       const key = Uint8Array.from(atob(info!.publicKey!.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
       await (await reg.pushManager.getSubscription())?.unsubscribe(); // fresh each time: an old one may be tied to a previous key pair
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-      const r = await fetch("/api/remote/push", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sub.toJSON()) });
+      const r = await fetch("/api/remote/push", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...sub.toJSON(), lang: getLang() }) });
       if (!r.ok) throw new Error(await errorOf(r));
       setInfo({ ...info!, on: true });
       setNote(((await r.json()) as { sent?: boolean }).sent ? "On: a test notification is on its way." : "Saved, but the test notification didn't go through: check ORBIT's log on the PC.");

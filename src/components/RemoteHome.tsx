@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useT } from "./i18n";
 
 // Pieces of the phone remote's home screen. Visual only: every action is passed in from RemoteApp.
 export type Item = { id: string; kind: "clip" | "spend" | "send" | "nego" | "invoice"; title: string; detail: string; seen: string; credits?: number; thumb?: boolean; to?: string; message?: string; strategy?: string; buyer?: string; amount?: string; daysLate?: number };
@@ -49,28 +50,29 @@ export function RemoteGalaxy({ need, jobs, paused }: { need: number; jobs: numbe
 
 /** One approval in the "Needs you" stack. Same buttons, labels and disabled rules as before the redesign. */
 export function NeedCard({ it, busy, blind, later, onThumbError, decide }: { it: Item; busy: string; blind: boolean; later?: boolean; onThumbError: () => void; decide: (it: Item, approve: boolean) => void }) {
-  const kind = it.kind === "spend" ? "Spend" : it.kind === "send" ? "Email" : it.kind === "nego" ? "Reply" : it.kind === "invoice" ? "Invoice" : "Clip";
+  const { t, tn } = useT();
+  const [owes, owed] = tn("remote.owes", it.daysLate ?? 0, { buyer: it.buyer ?? "" }).split("{amount}"); // {amount} left unfilled so it can be bold
   return (
     <article className={`rm-need rm-need-${it.kind}`}>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="rm-kind">{kind}</span>
-        {it.kind === "spend" && <span className="rm-big">{it.credits}<small> credits</small></span>}
+        <span className="rm-kind">{t(`remote.kind.${it.kind}`)}</span>
+        {it.kind === "spend" && <span className="rm-big">{it.credits}<small> {tn("remote.credits", it.credits ?? 0).replace(/^\S+\s/, "")}</small>{/* the noun only: the number is big */}</span>}
       </div>
-      <div className="text-base font-semibold leading-snug">{it.title}{later && <span className="chip ml-2 text-xs">Review later</span>}</div>
+      <div className="text-base font-semibold leading-snug">{it.title}{later && <span className="chip ml-2 text-xs">{t("remote.later")}</span>}</div>
       <div className="muted text-xs">{it.detail}</div>
-      {it.kind === "clip" && (blind ? <p className="muted text-sm">No preview: open on PC to review.</p>
-        : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={`Thumbnail of ${it.title}`} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={onThumbError} />)}
-      {it.kind === "nego" && <div className="text-xs">Plan: {it.strategy}</div>}
-      {it.kind === "invoice" && <div className="text-sm">{it.buyer} owes <b>{it.amount}</b> · {it.daysLate} day{it.daysLate === 1 ? "" : "s"} overdue</div>}
+      {it.kind === "clip" && (blind ? <p className="muted text-sm">{t("remote.noPreview")}</p>
+        : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={t("remote.thumbAlt", { title: it.title })} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={onThumbError} />)}
+      {it.kind === "nego" && <div className="text-xs">{t("remote.plan")} {it.strategy}</div>}
+      {it.kind === "invoice" && <div className="text-sm">{owes}<b>{it.amount}</b>{owed}</div>}
       {(it.kind === "send" || it.kind === "nego" || it.kind === "invoice") && <>
-        {it.to && <div className="text-sm">To: <b>{it.to}</b></div>}
+        {it.to && <div className="text-sm">{t("remote.to")} <b>{it.to}</b></div>}
         <pre className="field w-full whitespace-pre-wrap text-xs" style={{ fontFamily: "inherit", maxHeight: 260, overflow: "auto" }}>{it.message}</pre>
       </>}
       <div className="flex gap-2">
         <button className="btn flex-1" style={{ minHeight: 48 }} disabled={!!busy || blind} onClick={() => decide(it, true)}>
-          {busy === it.id ? "…" : it.kind === "spend" ? `Approve ${it.credits} credits` : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? "Approve & send" : "Approve"}
+          {busy === it.id ? "…" : it.kind === "spend" ? tn("remote.approveCredits", it.credits ?? 0) : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? t("remote.approveSend") : t("common.approve")}
         </button>
-        {it.kind === "clip" && <button className="chip" style={{ minHeight: 48, minWidth: 88 }} disabled={!!busy} onClick={() => decide(it, false)}>Reject</button>}
+        {it.kind === "clip" && <button className="chip" style={{ minHeight: 48, minWidth: 88 }} disabled={!!busy} onClick={() => decide(it, false)}>{t("common.reject")}</button>}
       </div>
     </article>
   );

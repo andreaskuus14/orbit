@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createPublicKey, verify } from "node:crypto";
-import { encryptPayload, flush, gate, parseSubscription, pushLabel, PUSH_GAP_MS, quietAt, vapidAuth, vapidKeys, vapidProblem } from "../src/lib/remote-push-pure.ts";
+import { encryptPayload, flush, gate, parseSubscription, pushFor, pushLabel, PUSH_GAP_MS, quietAt, vapidAuth, vapidKeys, vapidProblem } from "../src/lib/remote-push-pure.ts";
 
 test("aes128gcm matches the RFC 8291 Appendix A test vector", () => {
   const body = encryptPayload(Buffer.from("When I grow up, I want to be a watermelon"), {
@@ -89,4 +89,14 @@ test("labels carry no item content: fixed text and a /remote deep link", () => {
     assert.match(m.url, /^\/remote#r-[a-z]+$/);
     assert.deepEqual(Object.keys(m).sort(), ["body", "tag", "title", "url"]);
   }
+});
+
+test("pushFor: the habit label in Estonian for an Estonian phone; other kinds and English unchanged", () => {
+  const h = { ...pushLabel("habit"), url: "/remote?habit=x#r-habit", habit: "x" };
+  assert.equal(pushFor(h, "et").title, "Harjumuse aeg");
+  assert.equal(pushFor(h, "et").habit, "x");
+  assert.equal(pushFor(h, "en"), h);
+  assert.equal(pushFor(h, undefined), h);
+  const c = pushLabel("clip");
+  assert.equal(pushFor(c, "et"), c);
 });
