@@ -1,11 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rrfMerge, toOrQuery } from "./pure.ts";
+import { exactMatchIds, exactTerms, isMissingColumn, PROVENANCE_COLUMNS } from "./provenance-pure.ts";
 import { CANDIDATE_LIMIT, memoryLimit, memoryProject, memoryProjectFilter, selectCoreMemoryIds, type MemoryMetadata } from "./memory-retrieval-pure.ts";
 
 export const MEMORY_COLUMNS = "id, kind, title, content, source, url, storage_path, tags, folder, visibility, created_at, updated_at";
 // includeJournal: only the owner's own MEMORY search. CORE and agents never get journal entries (LIFE data; it would also leave
 // the turn untainted while private text is in context). The vector pool can't filter, so hydration drops them too.
-export type MemorySearchOptions = { projectName?: string; coreSummariesOnly?: boolean; includeJournal?: boolean; kind?: string }; // kind: only that kind (episodes.ts recall)
+export type MemorySearchOptions = { projectName?: string; coreSummariesOnly?: boolean; includeJournal?: boolean; kind?: string; exact?: boolean }; // kind: only that kind (episodes.ts recall); exact: names/ids first (CORE)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- same untyped rows the client returned before
+type Hydrated = { data: any[] | null; error: { code?: string; message?: string } | null };
 type EmbedQuery = (text: string, type: "query") => Promise<number[] | null>;
 
 /** Candidate retrieval is separate from the Claude bridge so the real query flow can be tested offline. */
@@ -24,13 +27,21 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
       .textSearch("fts", q, { type: "websearch", config: "english" })
       .limit(CANDIDATE_LIMIT);
   };
-  const [fts, vec, context] = await Promise.all([
+  // Names and ids in the question ("Marko", "pet sim", a uuid) match exactly and go first; best-effort.
+  const terms = !options.exact || options.coreSummariesOnly ? [] : exactTerms(query).slice(0, 5);
+  const [fts, vec, context, exact] = await Promise.all([
     ftsIds(query),
     embed(query, "query").then((e) => e ? sb.rpc(options.coreSummariesOnly ? "match_core_summaries" : "match_memories", { query_embedding: JSON.stringify(e), match_count: CANDIDATE_LIMIT }) : null),
     project ? (async () => {
       const base = sb.from("memories").select("id,title,tags,folder");
       return await (userId ? base.eq("user_id", userId) : base).or(memoryProjectFilter(project))
         .order("updated_at", { ascending: false }).order("id").limit(CANDIDATE_LIMIT);
+    })().catch(() => null) : Promise.resolve(null),
+    terms.length ? (async () => {
+      const ors = terms.map((t) => /^[0-9a-f-]{36}$/.test(t) ? `id.eq.${t}` : memoryProjectFilter(t)).join(",");
+      let base = sb.from("memories").select("id,kind,title,tags,folder").or(ors).neq("kind", "journal");
+      if (options.kind) base = base.eq("kind", options.kind);
+      return await (userId ? base.eq("user_id", userId) : base).order("updated_at", { ascending: false }).limit(CANDIDATE_LIMIT);
     })().catch(() => null) : Promise.resolve(null),
   ]);
   if (fts.error) throw fts.error;
@@ -41,15 +52,20 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
     (fts.data ?? []).map((r) => r.id as string),
     ((vec?.data ?? []) as { id: string }[]).map((r) => r.id),
   ]);
-  const ids = selectCoreMemoryIds(ranked.map((r) => r.id), projectRows, query, count, project);
+  const exactIds = exact?.error ? [] : exactMatchIds(terms, (exact?.data ?? []) as (MemoryMetadata & { kind: string })[]).slice(0, 3);
+  const ids = [...new Set([...exactIds, ...selectCoreMemoryIds(ranked.map((r) => r.id), projectRows, query, count, project)])].slice(0, count);
   const mode = vec ? "hybrid" : "fulltext";
   if (!ids.length) return { results: [], mode };
-  let base = sb.from("memories").select(MEMORY_COLUMNS).in("id", ids);
-  if (options.coreSummariesOnly) base = base.eq("kind", "conversation").eq("source", "core-summary");
-  if (!options.includeJournal) base = base.neq("kind", "journal");
-  if (options.kind) base = base.eq("kind", options.kind);
-  // Keep the explicit owner filter on hydration too: admin/background clients bypass RLS.
-  const { data, error } = await (userId ? base.eq("user_id", userId) : base);
+  const hydrate = (cols: string) => {
+    let base = sb.from("memories").select(cols).in("id", ids);
+    if (options.coreSummariesOnly) base = base.eq("kind", "conversation").eq("source", "core-summary");
+    if (!options.includeJournal) base = base.neq("kind", "journal");
+    if (options.kind) base = base.eq("kind", options.kind);
+    // Keep the explicit owner filter on hydration too: admin/background clients bypass RLS.
+    return userId ? base.eq("user_id", userId) : base;
+  };
+  let { data, error } = await hydrate(`${MEMORY_COLUMNS}, ${PROVENANCE_COLUMNS}`) as Hydrated;
+  if (isMissingColumn(error)) ({ data, error } = await hydrate(MEMORY_COLUMNS) as Hydrated); // until migration 0019
   if (error) throw error;
   const byId = new Map((data ?? []).map((m) => [m.id as string, m]));
   const candidates = ids.map((id) => byId.get(id)).filter((m): m is NonNullable<typeof m> => !!m);

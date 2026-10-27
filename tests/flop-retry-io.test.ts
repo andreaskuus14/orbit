@@ -7,6 +7,7 @@ import ts from "typescript";
 import * as learn from "../src/lib/clips/learn-pure.ts";
 import * as policy from "../src/lib/clips/flop-retry-pure.ts";
 import * as clipPure from "../src/lib/clips/pure.ts";
+import * as approvalPure from "../src/lib/approval-pure.ts";
 import * as analytics from "../src/lib/yt-analytics-pure.ts";
 import { crossSiteBlocked } from "../src/lib/csrf.ts";
 import type { Clip, ClipJob } from "../src/lib/clips/types.ts";
@@ -27,6 +28,7 @@ function factory() {
       if (n === "./pure") return clipPure;
       if (n === "./format") return { rootClipId: (s: string) => s.replace(/-v\d+$/, "") };
       if (n === "./flop-retry-pure") return policy;
+      if (n === "../approval-pure") return approvalPure;
       if (n === "../asr-pool") return { asrWorkers: () => 1 };
       return {};
     },
