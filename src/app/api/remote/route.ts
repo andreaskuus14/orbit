@@ -1,5 +1,5 @@
 import { parseCommand, type RemoteCommand } from "@/lib/remote-pure";
-import { actionFor, GENERIC_ERROR, MAX_REMOTE_BODY, parseEcho, RATE, stopProblem } from "@/lib/remote-web-pure";
+import { actionFor, GENERIC_ERROR, MAX_REMOTE_BODY, nightForPhone, parseEcho, RATE, stopProblem } from "@/lib/remote-web-pure";
 import { deviceFromCookie, logCommand, ownerClient, pendingApprovals, rateOk, remoteChat, remoteProblem, S } from "@/lib/remote";
 import { decideApproval } from "@/lib/remote-act";
 import { stopAllState } from "@/lib/stop-all";
@@ -11,6 +11,7 @@ import { checkHabit } from "@/lib/life";
 import { deviceType, scopeAllows } from "@/lib/screen-pure";
 import { getBrief } from "@/lib/brief";
 import { allows } from "@/lib/autonomy";
+import { getNightReport } from "@/lib/night";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -115,6 +116,8 @@ export async function POST(req: Request) {
         const b = await getBrief(sb, device.userId);
         return done(Response.json({ greeting: b.greeting, spoken: b.spoken }));
       }
+      case "night": // read only: titles and counts (nightForPhone), null when last night did nothing
+        return done(Response.json({ night: nightForPhone(await getNightReport(sb, device.userId)) }));
       default:
         return done(fail("Not available from the phone"));
     }

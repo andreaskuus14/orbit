@@ -2,6 +2,8 @@
 // Server glue: remote.ts; routes: /api/remote/*; page: /remote.
 import { createHash, createHmac } from "node:crypto";
 import type { RemoteCommand } from "./remote-pure.ts";
+import { stoppedText, type NightReport } from "./night-pure.ts";
+import { noAmounts } from "./screen-pure.ts";
 
 export const REMOTE_COOKIE = "orbit_remote";
 export const REMOTE_TOKEN_DAYS = 30;
@@ -29,7 +31,7 @@ export function takeRate(hits: readonly number[], now: number, limit: number, wi
   return { ok: true, hits: [...live, now] };
 }
 
-export type RemoteAction = "status" | "approvals" | "approve" | "reject" | "stopAll" | "ask" | "brief" | "habitDone" | "unsupported";
+export type RemoteAction = "status" | "approvals" | "approve" | "reject" | "stopAll" | "ask" | "brief" | "night" | "habitDone" | "unsupported";
 /** Command → what the server does. navigate would steer the PC screen, which the phone page doesn't offer. */
 export function actionFor(cmd: RemoteCommand): RemoteAction {
   switch (cmd.type) {
@@ -41,8 +43,23 @@ export function actionFor(cmd: RemoteCommand): RemoteAction {
     case "core.ask": return "ask";
     case "habit.done": return "habitDone";
     case "brief": return "brief";
+    case "night": return "night";
     default: return "unsupported";
   }
+}
+
+// ---- Night report ----------------------------------------------------------
+
+export type PhoneNight = { running: boolean; done: string[]; approvals: string[]; failed: string[]; counts: { done: number; approvals: number; failed: number }; stopped?: string } | null;
+const NIGHT_TITLES = 8;
+/** Last night's report for the phone: titles (money stripped, capped) and counts only. Never drafts, reasons, links, amounts,
+ *  the invoice line or anything from the journal. */
+export function nightForPhone(r: NightReport | null): PhoneNight {
+  if (!r) return null;
+  const titles = (xs: NightReport["done"]) => xs.slice(0, NIGHT_TITLES).map((i) => noAmounts(i.label, 80));
+  const stopped = noAmounts(stoppedText(r.stopped), 80);
+  return { running: r.running, done: titles(r.done), approvals: titles(r.approvals), failed: titles(r.failed),
+    counts: { done: r.done.length, approvals: r.approvals.length, failed: r.failed.length }, ...(stopped ? { stopped } : {}) };
 }
 
 // ---- Approvals -------------------------------------------------------------

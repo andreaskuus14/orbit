@@ -99,6 +99,11 @@ const MODULES: CoreModule[] = [
     status: async () => { const b = await (await import("./deals")).dealBoard(); const great = Object.values(b.offers).flat().filter((o) => o.great).length; return b.wishes.length ? `${b.wishes.length} on the wishlist${great ? `, ${great} great deal${great === 1 ? "" : "s"} found (wishlist for details)` : ""}` : ""; },
   },
   {
+    name: "RULES", tools: ["propose_rule"], writes: ["propose_rule"],
+    prompt: "- propose_rule {\"text\": string}: a standing rule for recurring ORBIT work (\"prepare my weekly project review on Sunday\", \"every weekday 7:30 check deals\", \"when a client replies, draft an answer\"); text = his rule in his own words (English or Estonian). Only when the user asks for it in their latest message, as your first tool. Reminders to him personally are life_remind, not this. It is saved as a proposal and NOTHING runs until he confirms the parsed version in Agents → Rules; anything a run would send, publish or spend still waits for his approval; say so.",
+    run: async (_t, i, c) => (await import("./rules")).runRuleTool(i, c.question, c.tainted),
+  },
+  {
     // read-only; private: habit streaks and LIFE counts are in it (journal text never is: only a count of entries)
     name: "WEEK", tools: ["week_review"], private: true,
     prompt: "- week_review {\"week\"?: \"this\"|\"last\"}: his week (Europe/Tallinn, Monday start) from ORBIT's own data as facts: planned vs done, what slipped (deadline passed, Shorts target missed, started but not finished), what's late, streaks and biggest wins. For \"what slipped / what did I get done / what's late / how did my week go\". Cite each fact you use with its [w:...] marker exactly as written.",

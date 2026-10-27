@@ -4,14 +4,71 @@ import type { Report, Status } from "@/lib/doctor-pure";
 import type { BootResult } from "@/lib/doctor-boot-pure";
 import { builderText, type Issue } from "@/lib/health-pure";
 import { builderBrief, type Improve } from "@/lib/self-improve-pure";
+import type { systemHealthView } from "@/lib/system-health";
+import type { SvcState } from "@/lib/system-health-pure";
 import type { PatchResult } from "@/lib/self-improve-patch-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
+import { useDialogFocus } from "./useDialogFocus";
 
 const COLOR: Record<Status, string> = { ok: "var(--mint)", warn: "var(--amber)", fail: "var(--rose)" };
 const WORD: Record<Status, string> = { ok: "OK", warn: "CHECK", fail: "PROBLEM" };
 const ISSUE_COLOR: Record<Issue["status"], string> = { new: "var(--rose)", regressed: "var(--rose)", ongoing: "var(--amber)", resolved: "var(--mint)" };
 const ISSUE_WORD: Record<Issue["status"], string> = { new: "NEW", regressed: "BACK", ongoing: "ONGOING", resolved: "RESOLVED" };
 type Health = { lastRun: string | null; issues: Issue[] };
+type System = Awaited<ReturnType<typeof systemHealthView>>;
+const SVC: Record<SvcState, Status> = { ok: "ok", down: "fail", off: "warn" };
+const SVC_WORD: Record<SvcState, string> = { ok: "OK", down: "DOWN", off: "OFF" };
+const GBS = (b: number | null) => (b == null ? "?" : `${(b / 1024 ** 3).toFixed(1)} GB`);
+const when = (t: string | number | null) => (t ? new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "never");
+const of = (b: { used: number; cap: number | null; pct: number | null }, unit: string) => `${b.used}${b.cap ? ` of ${b.cap}` : ""} ${unit}${b.pct != null ? ` (${b.pct}%)` : ""}`;
+const KIND_WORD = { task: "Agent tasks", mission: "Missions", night: "Night tasks", clip: "Clip renders" } as const;
+
+/** SYSTEM card (roadmap 9.5): services with last success, failed jobs (7 days), storage, models, budgets and incidents. Read-only but for "Got it". */
+function SystemCard({ sys, onAck }: { sys: System; onAck: (key: string) => void }) {
+  const open = sys.incidents.filter((i) => i.state !== "resolved");
+  return (
+    <section className="mt-4 rounded-lg border border-white/10 p-2 text-sm" aria-label="System health">
+      <b>System</b>
+      <p className="muted text-xs">{open.length ? `${open.length} open incident${open.length > 1 ? "s" : ""}. Each one pushes to your phone once (not 23-08) and clears itself when fixed.` : "No open incidents."}</p>
+      {sys.incidents.length > 0 && <ul className="mt-2 grid gap-1">
+        {sys.incidents.map((i) => (
+          <li key={i.key + i.opened} className="flex items-baseline justify-between gap-2 text-xs">
+            <span><b style={{ color: i.state === "resolved" ? "var(--mint)" : i.state === "ack" ? "var(--amber)" : "var(--rose)" }}>{i.state.toUpperCase()}</b> {i.title}
+              <span className="muted"> · since {when(i.opened)}{i.resolvedAt ? `, fixed ${when(i.resolvedAt)}` : ""}</span></span>
+            {i.state === "open" && <button className="chip shrink-0" onClick={() => onAck(i.key)} aria-label={`Acknowledge: ${i.title}`}>Got it</button>}
+          </li>))}
+      </ul>}
+      <h3 className="mt-3 text-xs font-bold">Services</h3>
+      <ul className="grid gap-1">
+        {sys.services.map((v) => (
+          <li key={v.id} className="text-xs">
+            <span className="font-mono text-[10px] tracking-widest" style={{ color: COLOR[SVC[v.state]] }}>{SVC_WORD[v.state]}</span> <b>{v.label}</b>
+            <span className="muted"> · {v.detail} · last success {when(v.lastOk)}</span>
+          </li>))}
+      </ul>
+      <h3 className="mt-3 text-xs font-bold">Failed in the last 7 days</h3>
+      <ul className="grid gap-1">
+        {sys.failed.map((f) => (
+          <li key={f.kind} className="text-xs"><b>{KIND_WORD[f.kind]}: {f.count}</b>
+            {f.recent.length > 0 && <span className="muted"> · {f.recent.map((r) => `${r.label} (${when(r.at)})`).join("; ")}</span>}</li>))}
+      </ul>
+      <h3 className="mt-3 text-xs font-bold">Storage (free space)</h3>
+      <ul className="grid gap-1">
+        {sys.storage.map((d) => <li key={d.id} className="text-xs"><b style={{ color: COLOR[d.status] }}>{GBS(d.free)}</b> {d.label} <span className="muted break-all">· {d.dir}</span></li>)}
+      </ul>
+      <h3 className="mt-3 text-xs font-bold">Models and budgets</h3>
+      <ul className="grid gap-1 text-xs">
+        {sys.models.map((m) => <li key={m.role}><b>{m.role}</b> {m.model}: {m.state === "ok" ? "available" : m.state === "failing" ? "last call failed" : m.state === "limited" ? "usage limit" : "not used"}
+          <span className="muted"> · {m.calls7d} calls in 7 days, last success {when(m.lastOk)}</span></li>)}
+        {sys.local && <li><b>local</b> {sys.local} (Ollama, see Services)</li>}
+        <li><b>Claude, 5 hours:</b> {of(sys.usage.h5, "calls")}{sys.usage.hold ? <span className="muted"> · {sys.usage.hold}</span> : null}</li>
+        <li><b>Claude, 7 days:</b> {of(sys.usage.d7, "calls")}{!sys.usage.d7.cap && <span className="muted"> · set ORBIT_CLAUDE_WEEKLY_CALLS for a weekly budget</span>}</li>
+        {sys.higgsfield && <li><b>Higgsfield this week:</b> {of(sys.higgsfield, "credits")}</li>}
+        <li><b>Night budget:</b> {sys.night ? <>{of(sys.night.calls, "calls")}, {of(sys.night.minutes, "min")} <span className="muted">· night of {sys.night.night}{sys.night.stopped ? `, stopped: ${sys.night.stopped}` : ""}</span></> : <span className="muted">no run yet</span>}</li>
+      </ul>
+    </section>
+  );
+}
 
 /** HEALTH card: what the night health check found (redacted evidence), with the issue text to hand to a builder. Nothing here changes code. */
 function HealthCard({ health }: { health: Health }) {
@@ -92,10 +149,12 @@ function ImproveCard({ improve }: { improve: Improve }) {
 
 /** ORBIT doctor: runs /api/doctor and lists each check with what to do. speak = read the result aloud (opened by voice/command). */
 export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: boolean }) {
-  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null }) | null>(null);
+  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null }) | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const spoke = useRef(false);
+  const box = useRef<HTMLElement>(null);
+  useDialogFocus(box, true, onClose);
 
   const run = useCallback(async () => {
     setBusy(true); setErr("");
@@ -103,7 +162,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
       const res = await fetch("/api/doctor", { cache: "no-store" });
       if (res.status === 401 || res.status === 403) throw new Error("ORBIT couldn't confirm your sign-in. Either the database (Supabase) is unreachable or you were signed out. Check your internet, then reload the page and sign in.");
       if (!res.ok) throw new Error(`The check didn't run (error ${res.status}). Restart ORBIT and try again.`);
-      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null };
+      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null };
       setReport(r);
       if (speak && !spoke.current && speechSettings().speak) { spoke.current = true; speakChunk(r.speech); }
     } catch (e) {
@@ -113,10 +172,15 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
     } finally { setBusy(false); }
   }, [speak]);
   useEffect(() => { void run(); }, [run]);
+  const ack = async (key: string) => {
+    const res = await fetch("/api/doctor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ack: key }) }).catch(() => null);
+    // On failure the button just stays (try again); setErr would hide the whole report.
+    if (res?.ok) setReport((r) => r?.system ? { ...r, system: { ...r.system, incidents: r.system.incidents.map((i) => (i.key === key && i.state === "open" ? { ...i, state: "ack" as const } : i)) } } : r);
+  };
   useEffect(() => () => stopSpeech(), []); // closing the panel stops the read-out
 
   return (
-    <aside className="glass drawer" style={{ zIndex: 40 }} role="dialog" aria-label="ORBIT doctor">
+    <aside ref={box} tabIndex={-1} className="glass drawer" style={{ zIndex: 40 }} role="dialog" aria-label="ORBIT doctor">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="brand text-base">🩺 ORBIT doctor</h2>
         <div className="flex gap-2">
@@ -156,6 +220,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
                 </ul>
               </> : <p className="muted mt-1 text-xs">No crashes since the boot before.</p>}
             </section>}
+            {report.system && <SystemCard sys={report.system} onAck={ack} />}
             {report.health && <HealthCard health={report.health} />}
             {report.improve && <ImproveCard improve={report.improve} />}
             <p className="muted mt-3 text-[10px]">Checked in {(report.ms / 1000).toFixed(1)} s · {new Date(report.at).toLocaleTimeString()}</p>

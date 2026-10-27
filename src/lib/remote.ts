@@ -10,6 +10,7 @@ import { orbitDataDir } from "@/lib/data-dir";
 import { emit } from "@/lib/claude";
 import { makePairCode, NonceCache, verifyToken, type PairCode, type RemoteCommand } from "@/lib/remote-pure";
 import { approvalId, clipStamp, ledgerData, REMOTE_COOKIE, secretProblem, takeRate, type Approval } from "@/lib/remote-web-pure";
+import type { Lang } from "@/lib/i18n-pure";
 import { isAllowedEmail } from "@/lib/allow";
 import { listJobs } from "@/lib/clips/factory";
 import { listStories } from "@/lib/clips/story";
@@ -23,7 +24,7 @@ import { localDay } from "@/lib/morning-pure";
 import type { PushSub } from "@/lib/remote-push-pure";
 import { deviceType } from "@/lib/screen-pure";
 
-export type Device = { id: string; name: string; userId: string; createdAt: string; push?: PushSub; type?: "screen" }; // push: its Web Push subscription (6.3); type screen: read-only second screen
+export type Device = { id: string; name: string; userId: string; createdAt: string; push?: PushSub; type?: "screen"; lang?: Lang }; // push: its Web Push subscription (6.3); lang: the phone's UI language when it subscribed; type screen: read-only second screen
 type State = { pair?: PairCode & { userId: string }; nonces: NonceCache; hits: Map<string, number[]>; seen: Map<string, string>; chat: Map<string, { id: string; at: number }>;
   owner?: { userId: string; email: string; sb: SupabaseClient }; save?: Promise<unknown> };
 const g = globalThis as unknown as { __orbitRemote?: State };

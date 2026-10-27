@@ -4,6 +4,7 @@ import { concat, downsample, encodeWav, rms, zcr, MIC_START, type Mic } from "@/
 import { CALL_VAD, callVad, endSilenceMs, worthSending } from "@/lib/call-pure";
 import { MIC } from "./voice/voiceprint";
 import { CALL_ACTIVE } from "./voice/bus";
+import { useDialogFocus } from "./useDialogFocus";
 
 // "ORBIT wants to talk": the call screen (phone remote and PC). ORBIT speaks first; then push-to-talk or hands-free (VAD), with
 // barge-in: talking over ORBIT stops its voice and the reply in flight. Audio goes only to this ORBIT server (/api/remote/talk),
@@ -229,6 +230,8 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
     if (res?.ok) setCheckin(((await res.json()) as { checkin: string }).checkin);
   }
 
+  const box = useRef<HTMLDivElement>(null);
+  useDialogFocus(box, phase !== "idle"); // no Esc: a stray key must not hang up a call
   if (!allowed) return null;
   if (phase === "idle") return compact ? null : (
     <section className="rm-sec" aria-labelledby="r-call">
@@ -248,7 +251,7 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
 
   const label = phase === "ringing" ? "ORBIT wants to talk" : phase === "connecting" ? "Connecting…" : state === "talking" ? "ORBIT is talking" : state === "thinking" ? "Thinking…" : ptt ? "Go ahead…" : handsFree ? "Listening" : "Hold to talk";
   return (
-    <div role="dialog" aria-modal="true" aria-label="Call with ORBIT" className="fixed inset-0 z-[100] flex flex-col items-center justify-between px-4"
+    <div ref={box} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Call with ORBIT" className="fixed inset-0 z-[100] flex flex-col items-center justify-between px-4"
       style={{ background: "radial-gradient(circle at 50% 30%, #0b2540 0%, var(--bg) 70%)", paddingTop: "max(2rem, env(safe-area-inset-top))", paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
       <div className="flex flex-col items-center gap-3 pt-6">
         <div aria-hidden className="rounded-full" style={{ width: 120, height: 120, border: "2px solid var(--cyan)", boxShadow: `0 0 ${state === "talking" && phase === "live" ? 60 : 20}px rgba(34,211,238,.5)`, transition: "box-shadow .3s" }} />
