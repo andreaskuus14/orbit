@@ -5,6 +5,7 @@ import type { LifeView } from "@/lib/nav-pure";
 import { FOCUS_TIMER_KEY, advanceFocusTimer, focusPhaseSeconds, restoreFocusTimer, type RestoredFocusTimer } from "@/lib/focus-timer-pure";
 import { VOICE_ASK } from "./voice/bus";
 import CalendarCard from "./CalendarCard";
+import SchoolPanel from "./SchoolPanel";
 
 // LIFE workspace drawer: today's habits, habit list, focus timer, reminders, journal. All data via /api/life.
 
@@ -16,7 +17,7 @@ async function post<T = Record<string, unknown>>(body: object): Promise<T> {
 }
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const TABS = ["Today", "Habits", "Focus", "Reminders", "Journal"] as const;
+const TABS = ["Today", "Habits", "Focus", "Reminders", "Journal", "School"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_OF: Record<LifeView, Tab> = { today: "Today", habits: "Habits", focus: "Focus", reminders: "Reminders", journal: "Journal" };
 const longDate = (k: string) => new Date(`${k}T12:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
@@ -55,6 +56,7 @@ export default function LifePanel({ open }: { open?: { tab: LifeView; start?: tr
           {tab === "Focus" && <Focus st={st} reload={load} />}
           {tab === "Reminders" && <Reminders st={st} act={act} />}
           {tab === "Journal" && <Journal st={st} act={act} />}
+          {tab === "School" && <SchoolPanel />}
         </div>
       )}
     </div>
