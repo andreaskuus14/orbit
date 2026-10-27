@@ -12,7 +12,7 @@ import { api } from "./AgentMission";
 import { DayPlan } from "./DayPlan";
 
 const KEY = "orbit.brief"; // the local day it was last shown
-const ICON: Record<BriefItem["kind"], string> = { decision: "✋", night: "🌙", health: "🩺", calendar: "📅", school: "🎓", weather: "🌦", place: "📍", first: "➜", result: "✦", lesson: "💡", question: "❔" };
+const ICON: Record<BriefItem["kind"], string> = { decision: "✋", night: "🌙", health: "🩺", calendar: "📅", school: "🎓", weather: "🌦", place: "📍", first: "➜", result: "✦", lesson: "💡", question: "❔", study: "🗂" };
 type Got = Brief & { life: boolean };
 
 export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void }) {
@@ -69,6 +69,7 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
     else if ("goal" in o) onOpenGoal(o.goal);
     else if ("work" in o) (o.work.kind === "task" ? onOpenTask : onOpenGoal)(o.work.id);
     else if ("memory" in o) dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id: o.memory } }));
+    else if ("study" in o) dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: "memory", study: true } }));
     else if ("doctor" in o) dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, doctor: true } }));
     else if ("tab" in o) { try { sessionStorage.setItem(MARKETS_TAB, o.tab); } catch { /* opens on Watchlist */ } dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: o.panel } })); }
     else dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: o.panel, ...(o.view && { view: o.view }) } }));
