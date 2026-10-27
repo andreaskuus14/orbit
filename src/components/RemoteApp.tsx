@@ -218,7 +218,8 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
+/** Also used by /screen (screen: pairs as a read-only screen). */
+export function Pair({ off, onPaired, screen }: { off: string; onPaired: () => void; screen?: boolean }) {
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -226,7 +227,7 @@ function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setErr("");
-    const r = await fetch("/api/remote/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code.trim(), name: /iPhone/.test(navigator.userAgent) ? "iPhone" : "Phone" }) }).catch(() => null);
+    const r = await fetch("/api/remote/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code.trim(), ...(screen ? { name: "Screen", type: "screen" } : { name: /iPhone/.test(navigator.userAgent) ? "iPhone" : "Phone" }) }) }).catch(() => null);
     setBusy(false);
     if (r?.ok) return onPaired();
     setErr(r ? await errorOf(r) : "Network error");
@@ -234,7 +235,7 @@ function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
   return (
     <form onSubmit={submit} className="card space-y-3">
       <p className="text-sm">On the PC: Profile → <b>Pair phone</b>. Type the 6-digit code here within 2 minutes.</p>
-      <p className="muted text-xs">On iPhone, add this page to the Home Screen first and pair from there: the home-screen app keeps its own sign-in.</p>
+      <p className="muted text-xs">{screen ? "This pairs a read-only screen: it can look, never approve, stop or ask." : "On iPhone, add this page to the Home Screen first and pair from there: the home-screen app keeps its own sign-in."}</p>
       <input className="field w-full text-center text-2xl tracking-[0.4em]" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required aria-label="Pairing code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
       <button className="btn w-full" style={{ minHeight: 48 }} disabled={busy || code.length !== 6}>{busy ? "Pairing…" : "Pair"}</button>
       {err && <p className="error" role="alert">{err}</p>}
