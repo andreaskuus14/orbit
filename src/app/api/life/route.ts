@@ -1,13 +1,14 @@
 import { requireUser } from "@/lib/supabase/server";
 import { emit } from "@/lib/claude";
-import { addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal } from "@/lib/life";
+import { addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal, setLiveFocus } from "@/lib/life";
+import { restoreFocusTimer } from "@/lib/focus-timer-pure";
 import { MAX_FOCUS_MIN, isRepeat } from "@/lib/life-pure";
 
 export const dynamic = "force-dynamic";
 
 // LIFE workspace. GET → full state (?due=1 → { due } reminders whose time has come and that haven't fired).
 // addReminder takes optional repeat: daily|weekdays|weekly.
-// POST { action: addHabit|removeHabit|check|addReminder|removeReminder|fired|focus|journal, ... }.
+// POST { action: addHabit|removeHabit|check|addReminder|removeReminder|fired|focus|timer|journal, ... }.
 
 export async function GET(req: Request) {
   const { res } = await requireUser();
@@ -59,6 +60,9 @@ export async function POST(req: Request) {
       await emit(sb, user.id, "focus.session", "life", { minutes: m });
       return Response.json({ today });
     }
+    case "timer": // the PC's live focus timer, for /screen; anything invalid becomes a paused timer
+      setLiveFocus(restoreFocusTimer(JSON.stringify(b.timer ?? null), Date.now()).timer);
+      return Response.json({ ok: true });
     case "journal": {
       const text = str(b.text, 2000);
       if (text === null) return bad("Journal entry must be at most 2000 characters");

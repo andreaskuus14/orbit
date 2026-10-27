@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RemoteCall } from "./RemoteCall";
+import { RemoteCar, readLater } from "./RemoteCar";
 import { VoiceMemo } from "./VoiceMemo";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
@@ -25,6 +26,10 @@ export function RemoteApp() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState("");
   const [noThumb, setNoThumb] = useState<Record<string, boolean>>({}); // thumbnails that failed to load
+  const [car, setCar] = useState(false);
+  const [later, setLater] = useState<string[]>([]); // read aloud in car mode: approve on screen
+  useEffect(() => setLater(readLater()), []);
+  const getBrief = useCallback(async () => { const r = await send("brief"); return r.ok ? ((await r.json()) as { off?: boolean; greeting?: string; spoken?: string }) : null; }, []);
 
   const load = useCallback(async () => {
     const r = await send("status").catch(() => null);
@@ -71,6 +76,8 @@ export function RemoteApp() {
   return (
     <Shell>
       {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
+      <button className="btn w-full text-lg" style={{ minHeight: 56 }} onClick={() => setCar(true)}>Car mode</button>
+      {car && <RemoteCar items={items} getBrief={getBrief} onLater={setLater} onExit={() => setCar(false)} />}
 
       <section className="card space-y-2" aria-labelledby="r-stop">
         <h2 id="r-stop" className="text-sm font-semibold">Stop-all</h2>
@@ -85,7 +92,7 @@ export function RemoteApp() {
           const blind = it.kind === "clip" && (!it.thumb || noThumb[it.id]); // he can't see it here: review on the PC
           return (
           <article key={it.id} className="card space-y-2">
-            <div className="text-sm font-semibold">{it.title}</div>
+            <div className="text-sm font-semibold">{it.title}{later.includes(it.id) && <span className="chip ml-2 text-xs">Review later</span>}</div>
             <div className="muted text-xs">{it.detail}</div>
             {it.kind === "clip" && (blind ? <p className="muted text-sm">No preview: open on PC to review.</p>
               : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={`Thumbnail of ${it.title}`} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} />)}
@@ -211,7 +218,8 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
+/** Also used by /screen (screen: pairs as a read-only screen). */
+export function Pair({ off, onPaired, screen }: { off: string; onPaired: () => void; screen?: boolean }) {
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -219,7 +227,7 @@ function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setErr("");
-    const r = await fetch("/api/remote/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code.trim(), name: /iPhone/.test(navigator.userAgent) ? "iPhone" : "Phone" }) }).catch(() => null);
+    const r = await fetch("/api/remote/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code.trim(), ...(screen ? { name: "Screen", type: "screen" } : { name: /iPhone/.test(navigator.userAgent) ? "iPhone" : "Phone" }) }) }).catch(() => null);
     setBusy(false);
     if (r?.ok) return onPaired();
     setErr(r ? await errorOf(r) : "Network error");
@@ -227,7 +235,7 @@ function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
   return (
     <form onSubmit={submit} className="card space-y-3">
       <p className="text-sm">On the PC: Profile → <b>Pair phone</b>. Type the 6-digit code here within 2 minutes.</p>
-      <p className="muted text-xs">On iPhone, add this page to the Home Screen first and pair from there: the home-screen app keeps its own sign-in.</p>
+      <p className="muted text-xs">{screen ? "This pairs a read-only screen: it can look, never approve, stop or ask." : "On iPhone, add this page to the Home Screen first and pair from there: the home-screen app keeps its own sign-in."}</p>
       <input className="field w-full text-center text-2xl tracking-[0.4em]" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required aria-label="Pairing code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
       <button className="btn w-full" style={{ minHeight: 48 }} disabled={busy || code.length !== 6}>{busy ? "Pairing…" : "Pair"}</button>
       {err && <p className="error" role="alert">{err}</p>}

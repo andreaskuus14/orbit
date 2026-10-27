@@ -8,10 +8,10 @@ import type { WorkItem } from "./work-continuation-pure";
 import type { PlaceLine } from "./place-pure";
 import type { WeatherLine } from "./weather-pure";
 
-export type BriefKind = "decision" | "night" | "health" | "calendar" | "weather" | "place" | "first" | "result" | "lesson" | "question";
+export type BriefKind = "decision" | "night" | "health" | "calendar" | "school" | "weather" | "place" | "first" | "result" | "lesson" | "question" | "study";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
-export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true };
+export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true } | { panel: "memory"; study: true };
 export type BriefItem = { id: string; kind: BriefKind; say: string; title: string; detail?: string; open?: BriefOpen; approve?: BriefApprove };
 export type Brief = { day: string; greeting: string; items: BriefItem[]; spoken: string; polished?: boolean };
 
@@ -24,9 +24,11 @@ export type BriefIn = {
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
+  school?: { id: string; title: string; say: string; detail?: string }; // heavy week / today's study blocks / next deadline (school-pure schoolBrief)
   dream?: { id: string; question: string }; // last night's ONE question (dream-pure); his answer goes through CORE like any message
   idea?: { id: string; title: string; more: number }; // last night's dream-mode idea (dream-ideas-pure briefIdea)
   lesson?: { id: string; text: string }; snoozed: string[];
+  study?: number; // study cards due today (study-pure dueToday)
   weather?: WeatherLine; // today's forecast for a saved place (weather.ts briefWeather)
   place?: PlaceLine[]; // opt-in location lines (place-pure placeLines): only a saved place name, never coordinates
   echo?: { short?: string | null; reply?: string | null }; // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
@@ -68,7 +70,7 @@ export function briefDecisions(night: NightApproval[], work: WorkItem[], remote:
   return out;
 }
 
-/** The brief's items in priority order: decisions, night shift, a new serious health problem, calendar, do-this-first, a result, a learned pattern. */
+/** The brief's items in priority order: decisions, night shift, a new serious health problem, calendar, do-this-first, a result, study cards due, a learned pattern. */
 export function briefItems(x: BriefIn): BriefItem[] {
   const out: BriefItem[] = [];
   const snoozed = new Set(x.snoozed);
@@ -108,6 +110,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
     add({ id: `reminder:${x.day}`, kind: "calendar", title: `Reminder at ${r.at}`, detail: plain(r.text), open: { panel: "life" }, say: `Don't forget, at ${r.at}: ${short(r.text, 8)}.` });
   }
 
+  if (x.school) add({ ...x.school, kind: "school", open: { panel: "life" } });
   if (x.weather) add({ ...x.weather, kind: "weather" });
   for (const p of x.place ?? []) add({ id: p.id, kind: "place", title: p.title, say: p.say });
 
@@ -130,6 +133,9 @@ export function briefItems(x: BriefIn): BriefItem[] {
   const deal = x.deal;
   if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },
     say: `An offer for ${short(deal.item, 8)} came in at about ${Math.round(deal.eur).toLocaleString("en-US")} euros. That looks like a good price.` });
+
+  if (x.study) add({ id: `study:${x.day}`, kind: "study", title: "3 minutes of cards", detail: `${x.study} study card${x.study === 1 ? "" : "s"} due`, open: { panel: "memory", study: true },
+    say: `You've got ${x.study === 1 ? "one study card" : `${num(x.study)} study cards`} due. Three minutes of cards keeps it all fresh.` });
 
   if (x.lesson) add({ id: `lesson:${x.lesson.id}`, kind: "lesson", title: "Something I've noticed", detail: plain(x.lesson.text), open: { panel: "profile" },
     say: `One thing I've noticed: ${plain(x.lesson.text).replace(/\?/g, "").replace(/\.$/, "").replace(/^./, (c) => c.toLowerCase())}.` });
