@@ -2,7 +2,7 @@
 // the AI only turns words into edit ops, and every quantity and euro is computed here from the geometry and the price table.
 // Rules of thumb are for learning, not certification: anything built for real needs an engineer's sign-off.
 
-export const KINDS = ["foundation", "slab", "wall", "roof", "window", "door"] as const;
+export const KINDS = ["foundation", "slab", "wall", "roof", "window", "door", "stair"] as const;
 export type Kind = (typeof KINDS)[number];
 export type OpeningKind = "window" | "door";
 export const isOpening = (k: Kind): k is OpeningKind => k === "window" || k === "door";
@@ -169,7 +169,7 @@ export function boq(parts: Part[]): Boq {
       if (isStraightWall(p)) { wallFace += Math.max(p.w, p.d) * p.h; wallM3 += p.w * p.d * p.h; } // one straight wall
       else { const perim = 2 * (p.w + p.d) - 4 * RULES.wallThick; wallFace += perim * p.h; wallM3 += perim * p.h * RULES.wallThick; } // outer shell
     }
-    else roofM2 += p.w * p.d * RULES.roofPitchFactor;
+    else if (p.kind === "roof") roofM2 += p.w * p.d * RULES.roofPitchFactor; // shortcut: stairs are not priced yet
   }
   return { concreteM3: r2(concreteM3), rebarT: r2((concreteM3 * RULES.rebarKgPerM3) / 1000), blocks: Math.max(0, Math.ceil(r2(wallFace) / RULES.blockFace)), wallM3: Math.max(0, r2(wallM3)), roofM2: r2(roofM2), windows, doors };
 }
