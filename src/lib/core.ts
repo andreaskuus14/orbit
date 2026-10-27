@@ -140,6 +140,10 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     if (out) { sendDelta?.(out.text); trace.push(...out.trace); ms.answer_eval = Date.now() - t0; logTiming(`reflex:week`); return out; }
   }
 
+  // "argue the other side": ORBIT twin's case against whatever the chat was about (twin.ts)
+  const twin = attach || project ? null : await import("./twin").then((m) => m.argueReflex(sb, userId, question, history, signal)).catch((e) => { if (signal?.aborted) throw e; console.error("[orbit] twin failed; taking the full path", e); return null; });
+  if (twin) { sendDelta?.(twin.text); trace.push(...twin.trace); logTiming("reflex:twin"); return twin; }
+
   let t = Date.now();
   let tier = attach ? "smart" as const : pickModel(question, [...history].reverse().find((h) => h.role === "assistant")?.content);
   if (typeof voice === "string" && tier === "deep") tier = "smart"; // phone call: no screen, the reply must start fast. On-screen voice keeps full depth (only its summary is spoken)
