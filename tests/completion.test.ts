@@ -105,7 +105,7 @@ test("actual retry endpoint preserves receipts in both root and delegated tasks"
     const exports: Record<string, any> = {};
     const source = ts.transpileModule(readFileSync(new URL("../src/app/api/tasks/[id]/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
     vm.runInNewContext(source, { exports, Response, require: (name: string) => name.endsWith("supabase/server") ? { requireUser: async () => ({ sb: h.sb, user: { id: "owner" } }) }
-      : name.endsWith("completion-pure") ? { canRetryTask } : name.endsWith("/agents") ? { kickQueue: () => { kicks++; }, ConflictError: Error } : {} });
+      : name.endsWith("completion-pure") ? { canRetryTask } : name.endsWith("/agents") ? { kickQueue: () => { kicks++; }, ConflictError: Error } : name.endsWith("/csrf") ? { crossSiteBlocked: () => false } : {} });
     const response = await exports.POST(new Request("http://localhost/api/tasks/root", { method: "POST", body: JSON.stringify({ action: "retry" }) }), { params: Promise.resolve({ id: "root" }) });
     assert.equal(response.status, 409);
     assert.equal(h.db[0].status, "failed");
