@@ -5,12 +5,13 @@
 // It only reorders and trims the existing queue: same budget caps, Stop-all, window and autonomy checks; no new spend path.
 import type { ItemStatus, NightKind } from "./night-pure.ts";
 import type { PArea, Prediction } from "./predict-pure.ts";
+import { translate } from "./i18n-pure.ts";
 
 // His own asks (research), the free tidy-up and the health check always run first; only ORBIT's own initiatives are learned.
 export const LEARN_KINDS = ["goal", "business", "clips", "niche", "deals", "personas"] as const satisfies readonly NightKind[];
 // Where his later decision on a night result shows up in the predictions module (kinds without one learn from "done" only).
 export const AREA_OF: Partial<Record<NightKind, PArea>> = { business: "drafts", clips: "clips", niche: "niches", deals: "deals" };
-export const NOUN: Record<string, string> = { goal: "goal steps", business: "business drafts", clips: "Shorts packaging", niche: "niche scouts", deals: "deal hunts", personas: "persona playtests" };
+export const NOUN: Record<string, string> = Object.fromEntries(LEARN_KINDS.map((k) => [k, translate("en", `night.noun.${k}`)])); // UI: t(`night.noun.${k}`)
 const DAY = 86_400_000;
 export const HALF_LIFE = 21 * DAY, MAX_AGE = 120 * DAY, IGNORED_AFTER = 7 * DAY;
 export const DROP = 0.25; // a sampled value below this skips the kind tonight…

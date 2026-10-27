@@ -2,6 +2,7 @@
 // → { trigger: schedule | event, action, scope, permissions }. No model call: the owner confirms the parsed version before it is active.
 // Execution (rules.ts) reuses ORBIT's own runners only: agent tasks, skills (as a Nova task), missions, the deal hunter and week facts.
 // Client-safe (no node imports).
+import { translate, type Key, type Lang } from "./i18n-pure.ts";
 
 export type RuleSchedule = { days: number[]; hour: number; minute: number }; // days: 0 = Sunday; this PC's local time
 export const RULE_EVENTS = {
@@ -180,19 +181,18 @@ export function ruleDue(s: RuleSchedule, lastRun: string | null, activeSince: st
   return !lastRun || Date.parse(lastRun) < slot.getTime();
 }
 
-const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const pad = (n: number) => String(n).padStart(2, "0");
-export function describeTrigger(t: RuleTrigger): string {
-  if (t.type === "event") return RULE_EVENTS[t.event];
+export function describeTrigger(t: RuleTrigger, lang: Lang = "en"): string {
+  if (t.type === "event") return translate(lang, `rules.ev.${t.event}`);
   const { days, hour, minute } = t.schedule, k = days.join();
-  const d = k === ALL.join() ? "Every day" : k === WEEKDAYS.join() ? "Every weekday" : k === "0,6" ? "Weekends"
-    : `Every ${days.map((x) => DAY_NAMES[x]).join(days.length === 2 ? " and " : ", ")}`;
-  return `${d} at ${pad(hour)}:${pad(minute)}`;
+  const d = k === ALL.join() ? translate(lang, "rules.everyDay") : k === WEEKDAYS.join() ? translate(lang, "rules.everyWeekday") : k === "0,6" ? translate(lang, "rules.weekends")
+    : translate(lang, "rules.everyDays", { days: days.map((x) => translate(lang, `rules.day.${x}` as Key)).join(days.length === 2 ? translate(lang, "rules.and") : ", ") });
+  return translate(lang, "rules.at", { d, t: `${pad(hour)}:${pad(minute)}` });
 }
-export function describeAction(a: RuleAction): string {
-  if (a.kind === "orbit") return a.id === "deals" ? "Check the deal hunter's wishlist" : "Prepare this week's review (facts from ORBIT)";
-  if (a.kind === "skill") return `Run skill “${a.name}”${a.input ? `: ${a.input}` : ""}`;
-  if (a.kind === "mission") return `Mission: ${a.objective}`;
+export function describeAction(a: RuleAction, lang: Lang = "en"): string {
+  if (a.kind === "orbit") return translate(lang, a.id === "deals" ? "rules.act.deals" : "rules.act.week");
+  if (a.kind === "skill") return translate(lang, "rules.act.skill", { name: a.name, input: a.input ? `: ${a.input}` : "" });
+  if (a.kind === "mission") return translate(lang, "rules.act.mission", { objective: a.objective });
   return `${NAMES[a.agent] ?? a.agent}: ${a.prompt}`;
 }
 

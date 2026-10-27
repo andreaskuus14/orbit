@@ -2,7 +2,7 @@
 // The chosen UI language (localStorage "orbit.lang", per device) as a tiny shared store: useT() works in any tree, the PC galaxy
 // and the phone /remote alike, with no provider to mount. Strings and rules: lib/i18n-pure.ts.
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { LANG_KEY, parseLang, plural, translate, type Lang } from "@/lib/i18n-pure";
+import { LANG_KEY, parseLang, plural, translate, tx, type Lang } from "@/lib/i18n-pure";
 
 const subs = new Set<() => void>();
 let mem: Lang = "en"; // used when storage is blocked
@@ -28,6 +28,7 @@ export function useT() {
     lang,
     t: (...a: Parameters<typeof translate> extends [Lang, ...infer R] ? R : never) => translate(lang, ...a),
     tn: (...a: Parameters<typeof plural> extends [Lang, ...infer R] ? R : never) => plural(lang, ...a),
+    tx: (key: string, en: string) => tx(lang, key, en), // server-sent English by its stable id
   }), [lang]);
 }
 
