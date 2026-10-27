@@ -6,20 +6,20 @@ import { publicOrigin } from "@/lib/origin-pure";
 
 export const dynamic = "force-dynamic";
 
-// Phone: POST {code, name?} with the 6-digit code the PC shows → a device token in an HttpOnly cookie (see docs/PHONE.md).
+// Phone: POST {code, name?, type?: "screen"} with the 6-digit code the PC shows → a device token in an HttpOnly cookie (see docs/PHONE.md).
 // DELETE forgets the token on this phone (the PC's Revoke is what unpairs it for good).
 export async function POST(req: Request) {
   const problem = remoteProblem();
   if (problem) return Response.json({ error: problem }, { status: 503 });
   if (!rateOk("pair", RATE.pair)) return Response.json({ error: "Too many tries: wait a minute" }, { status: 429 });
-  const b = (await req.json().catch(() => null)) as { code?: unknown; name?: unknown } | null;
+  const b = (await req.json().catch(() => null)) as { code?: unknown; name?: unknown; type?: unknown } | null;
   const p = S.pair;
   if (!p) return Response.json({ error: "No pairing code: press Pair phone on the PC first" }, { status: 400 });
   const now = Date.now();
   const r = verifyPair(p, b?.code, now);
   S.pair = { ...r.pair, userId: p.userId };
   if (!r.ok) return Response.json({ error: { expired: "That code expired: make a new one on the PC", locked: "Too many wrong codes: make a new one on the PC", used: "That code was already used: make a new one on the PC", wrong: "Wrong code" }[r.reason] }, { status: 401 });
-  const device = { id: newDeviceId(), name: deviceName(b?.name), userId: p.userId, createdAt: new Date(now).toISOString() };
+  const device = { id: newDeviceId(), name: deviceName(b?.name), userId: p.userId, createdAt: new Date(now).toISOString(), ...(b?.type === "screen" && { type: "screen" as const }) }; // asking for a screen only ever narrows rights
   await updateDevices((ds) => [...ds, device]);
   const token = signToken({ deviceId: device.id, issuedAt: now, exp: now + REMOTE_TOKEN_DAYS * 86_400_000 }, remoteSecret());
   const h = req.headers;

@@ -7,7 +7,7 @@ import { PAUSED_MSG } from "../stop-all-pure";
 import { usageHold } from "../usage-meter";
 import { validDraft } from "../higgsfield-pure";
 import { readState, saveState, studioRoot } from "./factory";
-import { models, queueDraft } from "./story";
+import { models, queueDraftAs } from "./story";
 import { jsonObject } from "./story-pure";
 import { LONGFORM_SYSTEM, LF_MAX, LF_MIN, lengthProblem, longProblem, validPlan, visualDraft, type LongJob, type LongPlan } from "./longform-pure";
 
@@ -61,7 +61,7 @@ export async function draftVisual(job: LongJob, what: unknown): Promise<LongJob 
   if (job.drafts.some((d) => d.key === v.key)) return "Already priced: approve or delete it in AI Story";
   const d = validDraft(v.input, models());
   if (typeof d === "string") return d;
-  const s = await queueDraft(d, "Long-form");
+  const s = await queueDraftAs(d, "Long-form");
   job.drafts.push({ key: v.key, story: s.id });
   await save(job);
   return job;

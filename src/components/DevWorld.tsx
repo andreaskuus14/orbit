@@ -288,6 +288,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
             <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
           ))}
         </div>
+        {tab === "games" && <LocalBrainLine />}
         <div hidden={tab !== "refs"}><RefBoard /></div>
         {tab === "sounds" && <SoundFinder />}
         <div hidden={tab !== "thumbs"}><ThumbMaker /></div>
@@ -529,4 +530,12 @@ function BugTracker({ game, world, commit, onFix }: { game: Game; world: World; 
       </form>
     </section>
   );
+}
+
+/** Health line: is the offline brain (Ollama, used when Claude is unreachable) reachable? Hidden while it's off. */
+function LocalBrainLine() {
+  const [st, setSt] = useState<{ state: string; text: string } | null>(null);
+  useEffect(() => { void fetch("/api/devworld/local", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null), () => null).then(setSt); }, []);
+  if (!st || st.state === "off") return null;
+  return <p role="status" className={`mb-2 text-xs ${st.state === "ok" ? "ok" : "muted"}`}>🧠 {st.text}</p>;
 }

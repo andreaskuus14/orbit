@@ -91,10 +91,9 @@ export async function writeStory(o: StoryOpts, signal?: AbortSignal): Promise<St
 export async function runDraftTool(input: Record<string, unknown>, question: string, tainted: boolean): Promise<string> {
   const blocked = draftBlocked(question, tainted); // decide() checked this too; the runner keeps its own guard like STUDIO's
   if (blocked) return `Error: ${blocked}`;
-  const d = validDraft(input, models());
-  if (typeof d === "string") return `Error: ${d}`;
   try {
-    await queueDraft(d, "CORE");
+    const d = await queueDraft(input);
+    if (typeof d === "string") return `Error: ${d}`;
     const w = await weekUsage();
     return `Done: drafted ${d.count} ${d.kind}${d.count > 1 ? "s" : ""} (${d.model}, ${d.aspect}). Nothing is generated and no credits are spent: ORBIT is only asking Higgsfield the price. It waits in STUDIO → Clip Factory → AI Story for the user's Approve click (${w.used} of ${w.cap} weekly credits used); tell them.`;
   } catch (e) {
@@ -104,7 +103,7 @@ export async function runDraftTool(input: Record<string, unknown>, question: str
 
 /** A priced Higgsfield proposal in the AI Story queue (CORE's drafts, long-form visuals). Saved, then quoted (get_cost only, in the
  *  background: it can take minutes). Nothing is generated before the owner's Approve click on it. `by` labels who drafted it. */
-export async function queueDraft(d: Draft, by: string): Promise<StoryJob> {
+export async function queueDraftAs(d: Draft, by: string): Promise<StoryJob> {
   const now = new Date().toISOString();
   const job: StoryJob = { v: 1, id: newId(), createdAt: now, updatedAt: now, status: "draft", step: `Drafted by ${by}: asking Higgsfield the price`,
     opts: { idea: d.prompt, style: "", length: 0, voice: "none", motion: d.kind === "video" ? "video" : "stills" },
@@ -112,6 +111,14 @@ export async function queueDraft(d: Draft, by: string): Promise<StoryJob> {
   await save(job);
   void quoteStory(job).catch(() => {});
   return job;
+}
+
+/** A draft in the AI Story queue, priced only (CORE's tool, or the owner's "Get Higgsfield quote" click in BUSINESS). Nothing is generated before Approve. */
+export async function queueDraft(input: Record<string, unknown>): Promise<Draft | string> {
+  const d = validDraft(input, models());
+  if (typeof d === "string") return d;
+  await queueDraftAs(d, "CORE");
+  return d;
 }
 
 /** This week's approved Higgsfield credits (every Approve click on a story or draft) and the cap. */

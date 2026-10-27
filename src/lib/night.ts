@@ -91,6 +91,8 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
     await save();
     await emit(sb, userId, "night.task", "core", { night: run.id, kind: t.kind, ref: t.ref.slice(0, 128), status: item.status });
   }
+  // ORBIT's diary: one fast-model call if the night still has room, else the plain template (diary.ts)
+  await import("./diary").then((m) => m.writeDiary(sb, userId, run, !ac.signal.aborted && used().calls < s.maxCalls && inWindow(Date.now(), s), ac.signal)).catch(() => {});
   run.endedAt = new Date().toISOString();
   await save();
   const u = used();
@@ -215,6 +217,7 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     }
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions
+      await import("./memory-graph").then((m) => m.rebuildGraph(sb, userId)).catch((e) => console.error("[orbit] memory graph:", msg(e))); // local clusters for MEMORY; no model call
       const k = h.proposals.filter((p) => p.status === "pending").length;
       return k ? { ...base, label: `${k} memory tidy-up suggestion${k > 1 ? "s" : ""}`, status: "approval", open: { panel: "memory" }, at: at() } : { ...base, status: "skipped", why: "Nothing to tidy", at: at() };
     }
