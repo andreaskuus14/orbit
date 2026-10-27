@@ -90,6 +90,21 @@ const BASE = {
   "remote.checking": "Checking…",
   "remote.notifyAbout": "Approvals waiting, Shorts going live, failed jobs and Stop-all. Only a short label, never the content. Quiet 23:00–08:00 except failures.",
   "remote.notifyOff": "Turn off on this phone", "remote.notifyOn": "Enable notifications",
+  "remote.paused": "ORBIT is paused", "remote.quiet": "All quiet", "remote.need.one": "{n} thing needs you", "remote.need.other": "{n} things need you",
+  "remote.kind.spend": "Spend", "remote.kind.send": "Email", "remote.kind.nego": "Reply", "remote.kind.invoice": "Invoice", "remote.kind.clip": "Clip",
+  "remote.later": "Review later",
+  "remote.night": "Night report", "remote.nightLine": "{done} done · {approvals} to approve · {failed} failed", "remote.nightRunning": " · still working",
+  "remote.nightTag.done": "Done", "remote.nightTag.approval": "To approve", "remote.nightTag.failed": "Failed",
+  "remote.owes.one": "{buyer} owes {amount} · {n} day overdue", "remote.owes.other": "{buyer} owes {amount} · {n} days overdue",
+
+  "habit.time": "Habit time", "habit.toastReason": "Habit time: {name}", "habit.nudgeAt": " · nudge ~{t}",
+  "habit.when": "When: evening 19–22, after lunch, on Mondays", "habit.whenAria": "When to nudge {name}", "habit.howAria": "How to nudge {name}",
+  "habit.off": "No nudge", "habit.toast": "In ORBIT", "habit.push": "Phone", "habit.save": "Save",
+  "push.habit.title": "Habit time", "push.habit.body": "One of your habits is up. Tap Done when it's done.",
+
+  "tour.title": "WHAT'S NEW", "tour.step": "{n} of {total}", "tour.chapters": "Tour chapters", "tour.showMe": "Show me",
+  "tour.next": "Next", "tour.back": "Back", "tour.finish": "Finish", "tour.skip": "Skip for now",
+  "tour.skipAria": "Skip the tour for now. Resume it from Ctrl+K: What's new tour", "tour.setup": "Set this up:", "tour.setupLink": "Setup steps",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -103,7 +118,7 @@ export const EN = { ...BASE, ...Object.fromEntries(PLANETS.flatMap((p) => [[`pla
  *   snooze = lükka homsesse · skip = jäta vahele · mute = vaigista · open = ava · close = sulge
  *   memory (a saved item) = mälukirje · agent task = agendi ülesanne · automation = automatiseering · goal = eesmärk
  *   brief/briefing = ülevaade · morning brief = hommikuülevaade · clip = klipp · Short = Short · credit = krediit
- *   notification = teavitus · profile = profiil · CORE, ORBIT, Orbital, Pulse, Higgsfield = names, never translated
+ *   notification = teavitus · nudge (habit) = meeldetuletus · habit = harjumus · profile = profiil · CORE, ORBIT, Orbital, Pulse, Higgsfield = names, never translated
  * Counts: after a number other than 1 Estonian takes the partitive singular ("3 agenti"), so .one/.other is enough. */
 export const ET: Partial<Record<Key, string>> = {
   "common.close": "Sulge", "common.open": "Ava", "common.approve": "Kinnita", "common.reject": "Lükka tagasi",
@@ -203,6 +218,21 @@ export const ET: Partial<Record<Key, string>> = {
   "remote.checking": "Kontrollin…",
   "remote.notifyAbout": "Ootel kinnitused, avalikuks läinud Shortid, ebaõnnestunud tööd ja „Peata kõik“. Ainult lühike silt, mitte kunagi sisu. Kell 23–08 vaikne, välja arvatud vead.",
   "remote.notifyOff": "Lülita selles telefonis välja", "remote.notifyOn": "Lülita teavitused sisse",
+  "remote.paused": "ORBIT on peatatud", "remote.quiet": "Kõik on rahulik", "remote.need.one": "{n} asi ootab sind", "remote.need.other": "{n} asja ootab sind",
+  "remote.kind.spend": "Kulu", "remote.kind.send": "E-kiri", "remote.kind.nego": "Vastus", "remote.kind.invoice": "Arve", "remote.kind.clip": "Klipp",
+  "remote.later": "Vaata hiljem",
+  "remote.night": "Öine aruanne", "remote.nightLine": "{done} tehtud · {approvals} kinnitada · {failed} ebaõnnestus", "remote.nightRunning": " · töötab veel",
+  "remote.nightTag.done": "Tehtud", "remote.nightTag.approval": "Kinnitada", "remote.nightTag.failed": "Ebaõnnestus",
+  "remote.owes.one": "{buyer} võlgneb {amount} · {n} päev üle tähtaja", "remote.owes.other": "{buyer} võlgneb {amount} · {n} päeva üle tähtaja",
+
+  "habit.time": "Harjumuse aeg", "habit.toastReason": "Harjumuse aeg: {name}", "habit.nudgeAt": " · meeldetuletus ~{t}",
+  "habit.when": "Millal (kellaaeg või inglise keeles): 19–22, after lunch, on Mondays", "habit.whenAria": "Millal meelde tuletada: {name}", "habit.howAria": "Kuidas meelde tuletada: {name}",
+  "habit.off": "Ära tuleta meelde", "habit.toast": "ORBITis", "habit.push": "Telefonis", "habit.save": "Salvesta",
+  "push.habit.title": "Harjumuse aeg", "push.habit.body": "Üks su harjumustest on käes. Vajuta „Tehtud“, kui see on tehtud.",
+
+  "tour.title": "UUDISED", "tour.step": "{n}/{total}", "tour.chapters": "Tuuri peatükid", "tour.showMe": "Näita",
+  "tour.next": "Edasi", "tour.back": "Tagasi", "tour.finish": "Valmis", "tour.skip": "Jäta praegu vahele",
+  "tour.skipAria": "Jäta tuur praegu vahele. Jätka seda Ctrl+K kaudu: What's new tour", "tour.setup": "Seadista:", "tour.setupLink": "Seadistuse sammud",
 };
 
 type Vars = Record<string, string | number>;
