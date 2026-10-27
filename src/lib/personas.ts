@@ -56,7 +56,8 @@ export async function runPersonaPlaytest(sb: SupabaseClient, userId: string, opt
     opts.signal?.throwIfAborted();
     const log = await import("./dev-session").then((m) => m.listDevSessions(sb, userId)).then((ss) => ss.flatMap((s) => s.events).slice(-20)
       .map((e) => `${e.source}: ${e.label}${e.ok ? "" : " (failed)"}${e.errors.length ? ` errors: ${e.errors.slice(0, 2).join(" | ")}` : ""}${e.changes.length ? ` changed: ${e.changes.map((c) => c.name).slice(0, 5).join(", ")}` : ""}`), () => []);
-    const context = (await load())[userId]?.context ?? "";
+    const econ = await import("./economy").then((m) => m.economyContextFor(userId), () => ""); // economy personas: free / small spender / whale
+    const context = [econ, (await load())[userId]?.context ?? ""].filter(Boolean).join("\n\n");
     const r = await askClaude(walkthroughPrompt({ game, bugs: world.bugs.filter((b) => b.game === game.id && isActive(b)).map((b) => b.title), context, log, runs: measured }), WALK_SYSTEM,
       { lane: "background", purpose: "personas.walkthrough", timeoutMs: 240_000, signal: opts.signal });
     await recordUsage(sb, userId, "personas.walkthrough", r);

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "./i18n";
 
 type View = { problem: string; pair: { code: string; expiresAt: number } | null; devices: { id: string; name: string; createdAt: string; lastSeen: string | null }[];
   shortcuts?: { id: string; name: string; action: string; createdAt: string; lastSeen: string | null }[]; token?: string };
@@ -7,6 +8,7 @@ const KINDS: [string, string][] = [["status", "Status"], ["call", "Call me"], ["
 
 /** Profile: pair the phone remote (/remote) with a 2-minute code, and revoke paired phones. Setup: docs/PHONE.md. */
 export function PhonePairing() {
+  const { t } = useT();
   const [v, setV] = useState<View | null>(null);
   const [err, setErr] = useState("");
   const [now, setNow] = useState(Date.now());
@@ -27,7 +29,7 @@ export function PhonePairing() {
   const left = v?.pair ? Math.max(0, Math.ceil((v.pair.expiresAt - now) / 1000)) : 0;
   return (
     <section className="space-y-3" aria-labelledby="phone-title">
-      <h3 id="phone-title" className="text-sm font-semibold">Phone remote</h3>
+      <h3 id="phone-title" className="text-sm font-semibold">{t("profile.phone")}</h3>
       <p className="muted text-sm">Approvals, Stop-all, Studio queue and CORE from your phone over Tailscale. On the phone open <b>/remote</b> on your Tailscale address (docs/PHONE.md).</p>
       {v?.problem ? <p className="error text-sm">{v.problem}</p> : (
         <div className="flex items-center gap-3">

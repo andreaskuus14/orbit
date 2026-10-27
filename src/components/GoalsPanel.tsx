@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { StatusPill, api, usePoll } from "./AgentMission";
+import { TwinCard } from "./TwinCard";
+import { CourtPanel } from "./CourtPanel";
 import { move } from "@/lib/mission-pure";
 import { linePath, toPoints } from "@/lib/chart-pure";
 import type { Goal, MetricKind, StepDraft } from "@/lib/goals-pure";
@@ -108,6 +110,7 @@ export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { a
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => { if (focusId) setOpen(focusId); }, [focusId]);
   const [creating, setCreating] = useState(false);
+  const [court, setCourt] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => { api<{ goals: GoalView[] }>("/api/goals").then((r) => { setGoals(r.goals); setErr(""); }).catch((e) => setErr(e.message)); }, []);
@@ -123,6 +126,7 @@ export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { a
   }
 
   const g = goals?.find((x) => x.id === open);
+  if (court) return <CourtPanel onBack={() => setCourt(false)} />;
   if (creating) return <NewGoal agents={agents} onDone={(id) => { setCreating(false); if (id) setOpen(id); load(); }} />;
   if (g) return <Detail key={g.id} g={g} busy={busy} err={err} act={act} name={name} color={color} agents={agents} onBack={() => setOpen(null)} onOpenTask={onOpenTask} />;
 
@@ -130,7 +134,7 @@ export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { a
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="muted text-xs">Goals move only when a step finishes, when you open them, or when you press Continue. No schedules.</p>
-        <button className="btn shrink-0" onClick={() => setCreating(true)}>+ New goal</button>
+        <span className="flex shrink-0 gap-1.5"><button className="chip" onClick={() => setCourt(true)} title="Agent courtroom for a big decision">⚖ Decide</button><button className="btn" onClick={() => setCreating(true)}>+ New goal</button></span>
       </div>
       {!goals ? <p className="muted text-xs">{err ? "" : "Loading…"}</p> : !goals.length ? <p className="muted text-xs">No goals yet.</p> : (
         <ul className="space-y-2 text-xs">
@@ -219,6 +223,7 @@ function Detail({ g, busy, err, act, name, color, agents, onBack, onOpenTask }: 
       {g.blocker && <p className="error break-words">Blocker: {g.blocker}</p>}
       {g.planning && <p className="muted" role="status">An agent is drafting the plan…</p>}
       {g.planError && <p className="error break-words">{g.planError}</p>}
+      {g.status === "draft" && !g.planning && g.steps.length >= 3 && <TwinCard decision={{ kind: "goal-plan", ref: id, title: g.title, detail: [g.why, ...g.steps.map((s, i) => `${i + 1}. ${s.what}`)].filter(Boolean).join("\n") }} />}
 
       <div className="flex flex-wrap gap-1.5">
         {g.status === "draft" && !edit && <button className="btn" disabled={busy || g.steps.length < 3} onClick={() => void act({ action: "approve", id, stepIds: g.steps.map((s) => s.id) })}>Approve plan</button>}
