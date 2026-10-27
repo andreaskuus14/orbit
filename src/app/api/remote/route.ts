@@ -7,6 +7,7 @@ import { switchStopAll } from "@/lib/stop-all-run";
 import { listJobs, publishingKey } from "@/lib/clips/factory";
 import { runningStory } from "@/lib/clips/story";
 import { coreTurn } from "@/lib/core-turn";
+import { checkHabit } from "@/lib/life";
 import { deviceType, scopeAllows } from "@/lib/screen-pure";
 import { getBrief } from "@/lib/brief";
 import { allows } from "@/lib/autonomy";
@@ -104,6 +105,10 @@ export async function POST(req: Request) {
           { remote: true, onConversation: (id) => S.chat.set(device.id, { id, at: Date.now() }) });
         if (!res.ok) return done(hidden("core.ask", await res.text().catch(() => ""), res.status));
         return done(sanitizeStream(res));
+      }
+      case "habitDone": { // by id only (uuid checked in parseCommand); today, like a tap on the PC
+        const r = await checkHabit((cmd as { id: string }).id);
+        return done("error" in r ? fail("That habit is gone: check LIFE on the PC", 404) : Response.json({ ok: true, message: `Done: ${r.name}${r.streak > 1 ? ` · ${r.streak} in a row` : ""}` }));
       }
       case "brief": { // car mode reads it aloud: the same brief the PC shows (Profile → Autonomy: Off = none)
         if (!allows("brief", "background", { stopAll: false }).ok) return done(Response.json({ off: true }));

@@ -231,15 +231,15 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
 
   if (!allowed) return null;
   if (phase === "idle") return compact ? null : (
-    <section className="card space-y-2" aria-labelledby="r-call">
-      <h2 id="r-call" className="text-sm font-semibold">Talk to ORBIT</h2>
+    <section className="rm-sec" aria-labelledby="r-call">
+      <h2 id="r-call" className="rm-label">Talk to ORBIT</h2>
       <p className="muted text-sm">ORBIT calls you when something needs you (max twice a day, never 23:00–08:00). Or call it now.</p>
       <button className="btn w-full" style={{ minHeight: 48 }} onClick={() => void answer()}>Call ORBIT</button>
       <label className="flex items-center justify-between gap-2 text-sm">
         <span className="muted">Daily check-in call</span>
         <input type="time" className="field" value={checkin} onChange={(e) => void saveCheckin(e.target.value)} aria-label="Daily check-in time" />
       </label>
-      {checkin && <button className="chip" onClick={() => void saveCheckin("")}>No check-in</button>}
+      {checkin && <button className="chip" style={{ minHeight: 44 }} onClick={() => void saveCheckin("")}>No check-in</button>}
       {err && <p className="error" role="alert">{err}</p>}
     </section>
   );

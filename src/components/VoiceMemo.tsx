@@ -81,8 +81,8 @@ export function VoiceMemo({ compact = false }: { compact?: boolean }) {
 
   const label = state === "rec" ? `Recording… ${secs}s (release to file)` : state === "busy" ? "Filing…" : compact ? "🎙 Hold for memo" : "Hold to record a memo";
   return (
-    <section className={compact ? "mt-2 space-y-2" : "card space-y-2"} aria-labelledby={compact ? undefined : "r-memo"}>
-      {!compact && <h2 id="r-memo" className="text-sm font-semibold">Voice memo</h2>}
+    <section className={compact ? "mt-2 space-y-2" : "rm-sec"} aria-labelledby={compact ? undefined : "r-memo"}>
+      {!compact && <h2 id="r-memo" className="rm-label">Voice memo</h2>}
       <div className="flex items-center gap-3">
         <button type="button" className={state === "rec" ? "btn danger" : "btn"} disabled={state === "busy"} aria-pressed={state === "rec"}
           style={{ minHeight: compact ? undefined : 56, flex: compact ? undefined : 1, userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", touchAction: "none" }}

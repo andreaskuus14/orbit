@@ -33,6 +33,7 @@ export type BriefIn = {
   study?: number; // study cards due today (study-pure dueToday)
   weather?: WeatherLine; // today's forecast for a saved place (weather.ts briefWeather)
   place?: PlaceLine[]; // opt-in location lines (place-pure placeLines): only a saved place name, never coordinates
+  habits?: { done: number; due: number }; // last week's habit check-ins, counts only (habit-nudge-pure habitWeek); said on Mondays
   echo?: { short?: string | null; reply?: string | null }; // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
 };
 
@@ -139,6 +140,9 @@ export function briefItems(x: BriefIn): BriefItem[] {
   if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },
     say: `An offer for ${short(deal.item, 8)} came in at about ${Math.round(deal.eur).toLocaleString("en-US")} euros. That looks like a good price.` });
 
+  // LIFE: counts only, and spoken (so polished by the model) only with his LIFE opt-in; otherwise just on the card.
+  if (x.habits?.due && new Date(`${x.day}T12:00`).getDay() === 1) add({ id: `habits:${x.day}`, kind: "result", title: `Habits last week: ${x.habits.done}/${x.habits.due}`,
+    detail: "LIFE", open: { panel: "life" }, say: x.life ? `Last week you kept ${num(x.habits.done)} of ${num(x.habits.due)} habit check-ins.` : "" });
   if (x.study) add({ id: `study:${x.day}`, kind: "study", title: "3 minutes of cards", detail: `${x.study} study card${x.study === 1 ? "" : "s"} due`, open: { panel: "memory", study: true },
     say: `You've got ${x.study === 1 ? "one study card" : `${num(x.study)} study cards`} due. Three minutes of cards keeps it all fresh.` });
 
