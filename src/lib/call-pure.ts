@@ -4,10 +4,11 @@
 // Server glue: call.ts; route: /api/remote/talk; UI: components/RemoteCall.tsx.
 import { micStep, type Mic } from "./audio-pure.ts";
 import type { ApprovalKind } from "./remote-web-pure";
+import { futureWindow, monthOf } from "./future-pure.ts";
 
 // ---- When to ring ------------------------------------------------------------
 
-export type CallReason = "morning" | "urgent" | "deal" | "contract" | "blocked" | "checkin" | "review" | "manual";
+export type CallReason = "morning" | "urgent" | "deal" | "contract" | "blocked" | "checkin" | "review" | "future" | "manual";
 export const CALL = {
   maxPerDay: 2, minGapMs: 60 * 60_000, blockHours: 4, morningUntil: 11, checkinWindowMin: 120,
   idleEndMs: 10 * 60_000, urgentFreshMs: 2 * 3600_000, confirmMs: 60_000, maxTurns: 40,
@@ -20,10 +21,10 @@ export const REVIEW_DEFAULT: ReviewSettings = { on: false, day: 0, at: "19:00" }
 /** Persisted in <data dir>/call.json. seen: approval id → when ORBIT first saw it waiting; nagged: ids already rung about; dealt: great-deal offer ids already rung about.
  *  reviewDay: the local day the weekly review last rang (once, never retried); reviewAt: when it rang, cleared once he picks up (unanswered → next morning's brief). */
 export type CallState = { day: string; calls: number; lastAt: number; morningDay: string; checkinDay: string; checkin: string; seen: Record<string, number>; nagged: string[]; urgentAt: number; dealt: string[]; contracted?: string[];
-  review?: ReviewSettings; reviewDay?: string; reviewAt?: number };
+  futureMonth?: string; review?: ReviewSettings; reviewDay?: string; reviewAt?: number };
 export const CALL_START: CallState = { day: "", calls: 0, lastAt: 0, morningDay: "", checkinDay: "", checkin: "", seen: {}, nagged: [], urgentAt: 0, dealt: [] };
-/** deals: great deals the hunter found in the last 12 h (deals.ts freshDeals), offer ids only. contracts: contracts waiting for his signature (contracts-pure waitingIds). */
-export type CallSignals = { now: number; stopAll: boolean; approvals: string[]; nightReport: boolean; deals?: string[]; contracts?: string[]; focus?: boolean }; // focus: a time-dilation block is running
+/** deals: great deals the hunter found in the last 12 h (deals.ts freshDeals), offer ids only. contracts: contracts waiting for his signature (contracts-pure waitingIds). future: there are numbers for a future-self call. */
+export type CallSignals = { now: number; stopAll: boolean; approvals: string[]; nightReport: boolean; deals?: string[]; contracts?: string[]; focus?: boolean; future?: boolean }; // focus: a time-dilation block is running
 export type Ring = { reason: Exclude<CallReason, "manual">; things: number };
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -47,7 +48,8 @@ export function parseCallState(raw: string): CallState {
     checkin: validCheckin(o.checkin) ? o.checkin : "", seen, nagged: Array.isArray(o.nagged) ? o.nagged.filter((x): x is string => typeof x === "string") : [], urgentAt: num(o.urgentAt),
     dealt: Array.isArray(o.dealt) ? o.dealt.filter((x): x is string => typeof x === "string").slice(-50) : [],
     ...(Array.isArray(o.contracted) && { contracted: o.contracted.filter((x): x is string => typeof x === "string").slice(-50) }),
-    ...(validReview(o.review) && { review: validReview(o.review)! }), ...(s(o.reviewDay) && { reviewDay: s(o.reviewDay) }), ...(num(o.reviewAt) && { reviewAt: num(o.reviewAt) }) };
+    ...(validReview(o.review) && { review: validReview(o.review)! }), ...(s(o.reviewDay) && { reviewDay: s(o.reviewDay) }), ...(num(o.reviewAt) && { reviewAt: num(o.reviewAt) }),
+    ...(s(o.futureMonth) ? { futureMonth: s(o.futureMonth) } : {}) };
 }
 
 /** Day ("YYYY-MM-DD"), hour and minute-of-day in the owner's zone. */
@@ -85,13 +87,14 @@ export function decideCall(prev: CallState, sig: CallSignals): { state: CallStat
     : review ? "review"
     : blocked.length ? "blocked"
     : ckMin >= 0 && st.checkinDay !== day && min >= ckMin && min < ckMin + CALL.checkinWindowMin ? "checkin"
+    : sig.future && futureWindow(st.futureMonth ?? "", day, h) ? "future"
     : null;
   if (!reason) return none;
   return {
     state: { ...st, calls: st.calls + 1, lastAt: now, nagged: [...st.nagged, ...blocked], dealt: [...st.dealt, ...deals].slice(-50),
       ...(reason === "contract" && { contracted: [...(st.contracted ?? []), ...contracts].slice(-50) }),
       morningDay: reason === "morning" ? day : st.morningDay, checkinDay: reason === "checkin" ? day : st.checkinDay,
-      ...(reason === "review" && { reviewDay: day, reviewAt: now }) },
+      ...(reason === "review" && { reviewDay: day, reviewAt: now }), futureMonth: reason === "future" ? monthOf(day) : st.futureMonth },
     ring: { reason, things: sig.approvals.length + (urgent ? 1 : 0) + (reason === "deal" ? deals.length : reason === "contract" ? contracts.length : 0) },
   };
 }
@@ -117,15 +120,16 @@ export function opener(reason: CallReason, hour: number, items: Pick<CallItem, "
     case "urgent": return `${hi}, sorry to grab you. Something failed on the PC${n ? `, and ${need}` : ""}. Want me to walk you through it?`;
     case "blocked": return `${hi}, quick one. ${first[0].toUpperCase()}${first.slice(1)} has been waiting on you for a while. Got a sec for it?`;
     case "review": return `${hi}, it's time for your weekly review. Got five minutes?`;
+    case "future": return "Hey, it's you, from a year out. Well, a projection of you. Want to hear where this pace leads?";
     case "checkin": return n ? `${hi}, it's check-in time. ${need[0].toUpperCase()}${need.slice(1)}, nothing urgent. How's it going?` : `${hi}, just checking in. Nothing's waiting on you. How's it going?`;
     default: return n ? `Hey, I'm here. ${need[0].toUpperCase()}${need.slice(1)}, by the way. What's up?` : "Hey, I'm here. What's up?";
   }
 }
 
 /** The call's prompt profile, given to CORE in place of its plain "spoken answer" note. Item titles are data. */
-export function callStyle(items: Pick<CallItem, "kind" | "title" | "credits" | "to">[]): string {
+export function callStyle(items: Pick<CallItem, "kind" | "title" | "credits" | "to">[], who = "You are on a live VOICE CALL with Andreas, talking like a human assistant on the phone, not a chatbot. Everything you write is read aloud."): string {
   const list = items.length ? items.map((it, i) => `${i + 1}. ${describe(it)}`).join("\n") : "(nothing)";
-  return `You are on a live VOICE CALL with Andreas, talking like a human assistant on the phone, not a chatbot. Everything you write is read aloud.
+  return `${who}
 - Short spoken sentences: usually one or two, at most about 35 words. Contractions. Plain words: no lists, headings, markdown, links, emoji or citations.
 - Sound natural: a quick "Yeah," "Right," or "Got it," is fine sometimes, but vary it and don't open every reply the same way.
 - Ask at most ONE question, then stop and let him talk. Don't recap what he just said.
@@ -245,11 +249,11 @@ const ask = (it: CallItem, action: "approve" | "reject") => action === "reject" 
 
 /** null: not about approvals, CORE answers. Otherwise what to say, the next pending confirmation, and (only after an explicit
  *  yes to the exact item and version just asked about) the action, whose echo the server re-checks against what's waiting now. */
-export function voiceDecision(pending: Pending | null, text: string, items: CallItem[], now: number, car = false): Decision | null {
+export function voiceDecision(pending: Pending | null, text: string, items: CallItem[], now: number, car = false, why = "Not while you're on the move."): Decision | null {
   const t = norm(text);
-  if (car) { // car mode: nothing is approved or rejected by voice; he does it on screen once stopped
+  if (car) { // car mode (and the future-self call): nothing is approved or rejected by voice; he does it on screen
     if (ADVICE.test(t) || (!APPROVE.test(t) && !REJECT.test(t))) return null;
-    return { pending: null, say: items.length ? "Not while you're on the move. It stays marked for review, so approve it on screen later." : "There's nothing waiting for you right now." };
+    return { pending: null, say: items.length ? `${why} It stays marked for review, so approve it on screen later.` : "There's nothing waiting for you right now." };
   }
   if (pending) {
     const live = now - pending.at <= CALL.confirmMs;

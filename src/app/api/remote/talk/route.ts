@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 // "ORBIT wants to talk": the call screen's endpoint, for the paired phone (device cookie) or the PC (signed-in session).
-// GET → {ringing, live, checkin} (?warm=1: the call screen is open, make the next opener ahead). POST ?op=start → NDJSON
+// GET → {ringing, live, checkin} (?warm=1: the call screen is open, make the next opener ahead). POST ?op=start (&reason=future: the future-self call) → NDJSON
 // {type:"call",id,reason} then {type:"say",text,audio}*; ?op=turn&call=<id> with a 16 kHz mono WAV (or
 // JSON {text} from on-device speech recognition) → NDJSON (call.ts callTurn); ?op=end&call=<id>; ?op=settings {checkin:"HH:MM"|""} or {review:{on,day,at}}.
 // Audio is decoded in memory for this request only and never written anywhere.
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   if (!c.sb) return c.res;
   const url = new URL(req.url), op = url.searchParams.get("op");
   try {
-    if (op === "start") return await startCall(c.sb, c.userId, url.searchParams.get("car") === "1");
+    if (op === "start") return await startCall(c.sb, c.userId, url.searchParams.get("car") === "1", url.searchParams.get("reason") === "future" ? "future" : undefined);
     if (op === "settings") {
       const body = await req.json().catch(() => null) as { checkin?: unknown; review?: unknown } | null;
       if (body && "review" in body) { // Profile → weekly review call
