@@ -30,7 +30,9 @@ export function loadVoiceAsr(lang: VoiceLang = "en"): Promise<Asr> {
 export function transcribeSpeech(audio: Float32Array, lang: VoiceLang = "en"): Promise<string> {
   const run = async () => {
     const asr = await loadVoiceAsr(lang);
-    const out = await asr(audio, lang === "en" ? undefined : { task: "transcribe", ...(lang === "et" ? { language: "estonian" } : {}) });
+    // Over 30 s (voice memos): Whisper's window is 30 s, so transcribe in overlapping chunks.
+    const long = audio.length > 30 * 16000 ? { chunk_length_s: 30, stride_length_s: 5 } : undefined;
+    const out = await asr(audio, lang === "en" ? long : { task: "transcribe", ...(lang === "et" ? { language: "estonian" } : {}), ...long });
     return (Array.isArray(out) ? out[0]?.text : out.text) ?? "";
   };
   g.__orbitVoiceN = voiceQueue() + 1;

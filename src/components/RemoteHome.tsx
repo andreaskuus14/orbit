@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 // Pieces of the phone remote's home screen. Visual only: every action is passed in from RemoteApp.
-export type Item = { id: string; kind: "clip" | "spend" | "send" | "nego"; title: string; detail: string; seen: string; credits?: number; thumb?: boolean; to?: string; message?: string; strategy?: string };
+export type Item = { id: string; kind: "clip" | "spend" | "send" | "nego" | "invoice"; title: string; detail: string; seen: string; credits?: number; thumb?: boolean; to?: string; message?: string; strategy?: string; buyer?: string; amount?: string; daysLate?: number };
 
 function useReducedMotion() {
   const [reduce, setReduce] = useState(false);
@@ -49,7 +49,7 @@ export function RemoteGalaxy({ need, jobs, paused }: { need: number; jobs: numbe
 
 /** One approval in the "Needs you" stack. Same buttons, labels and disabled rules as before the redesign. */
 export function NeedCard({ it, busy, blind, onThumbError, decide }: { it: Item; busy: string; blind: boolean; onThumbError: () => void; decide: (it: Item, approve: boolean) => void }) {
-  const kind = it.kind === "spend" ? "Spend" : it.kind === "send" ? "Email" : it.kind === "nego" ? "Reply" : "Clip";
+  const kind = it.kind === "spend" ? "Spend" : it.kind === "send" ? "Email" : it.kind === "nego" ? "Reply" : it.kind === "invoice" ? "Invoice" : "Clip";
   return (
     <article className={`rm-need rm-need-${it.kind}`}>
       <div className="flex items-baseline justify-between gap-2">
@@ -61,13 +61,14 @@ export function NeedCard({ it, busy, blind, onThumbError, decide }: { it: Item; 
       {it.kind === "clip" && (blind ? <p className="muted text-sm">No preview: open on PC to review.</p>
         : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={`Thumbnail of ${it.title}`} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={onThumbError} />)}
       {it.kind === "nego" && <div className="text-xs">Plan: {it.strategy}</div>}
-      {(it.kind === "send" || it.kind === "nego") && <>
+      {it.kind === "invoice" && <div className="text-sm">{it.buyer} owes <b>{it.amount}</b> · {it.daysLate} day{it.daysLate === 1 ? "" : "s"} overdue</div>}
+      {(it.kind === "send" || it.kind === "nego" || it.kind === "invoice") && <>
         {it.to && <div className="text-sm">To: <b>{it.to}</b></div>}
         <pre className="field w-full whitespace-pre-wrap text-xs" style={{ fontFamily: "inherit", maxHeight: 260, overflow: "auto" }}>{it.message}</pre>
       </>}
       <div className="flex gap-2">
         <button className="btn flex-1" style={{ minHeight: 48 }} disabled={!!busy || blind} onClick={() => decide(it, true)}>
-          {busy === it.id ? "…" : it.kind === "spend" ? `Approve ${it.credits} credits` : it.kind === "send" || (it.kind === "nego" && it.to) ? "Approve & send" : "Approve"}
+          {busy === it.id ? "…" : it.kind === "spend" ? `Approve ${it.credits} credits` : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? "Approve & send" : "Approve"}
         </button>
         {it.kind === "clip" && <button className="chip" style={{ minHeight: 48, minWidth: 88 }} disabled={!!busy} onClick={() => decide(it, false)}>Reject</button>}
       </div>

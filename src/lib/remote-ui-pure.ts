@@ -8,7 +8,7 @@ export function headline(waiting: number, paused: boolean): string {
 }
 
 // Money first (largest quote first), then messages that leave the house, then clips.
-const RANK: Record<string, number> = { spend: 0, send: 1, nego: 2, clip: 3 };
+const RANK: Record<string, number> = { spend: 0, send: 1, invoice: 1, nego: 2, clip: 3 };
 
 /** "Needs you" stack, biggest first. Stable: equal items keep the server's order. */
 export function biggestFirst<T extends { kind: string; credits?: number }>(items: T[]): T[] {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { RemoteCall } from "./RemoteCall";
 import { NeedCard, RemoteGalaxy, type Item } from "./RemoteHome";
 import { biggestFirst, headline } from "@/lib/remote-ui-pure";
+import { VoiceMemo } from "./VoiceMemo";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
@@ -55,7 +56,7 @@ export function RemoteApp() {
   }
 
   const decide = (it: Item, approve: boolean) => {
-    const what = it.kind === "spend" ? `Spend ${it.credits} Higgsfield credits on “${it.title}”?` : it.kind === "send" || (it.kind === "nego" && it.to) ? `Email this exact message to ${it.to}?` : it.kind === "nego" ? `Approve this message to “${it.title}”? You copy and send it yourself.` : `${approve ? "Approve" : "Reject"} “${it.title}”?${approve ? "" : " Its files are deleted."}`;
+    const what = it.kind === "spend" ? `Spend ${it.credits} Higgsfield credits on “${it.title}”?` : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? `Email this exact message to ${it.to}?` : it.kind === "nego" || it.kind === "invoice" ? `Approve this message to “${it.kind === "invoice" ? it.buyer : it.title}”? You copy and send it yourself.` : `${approve ? "Approve" : "Reject"} “${it.title}”?${approve ? "" : " Its files are deleted."}`;
     if (!confirm(what)) return;
     void act(it.id, () => send(approve ? "approve" : "reject", { id: it.id }, { kind: it.kind, seen: it.seen, ...(it.credits !== undefined ? { credits: it.credits } : {}) }), (j) => j.message ?? "Done");
   };
@@ -93,7 +94,7 @@ export function RemoteApp() {
         ))}
       </section>
 
-      {/* Night report and Place sections slot in here once the remote API serves them (not on main yet). */}
+      {/* Night report section slots in here once the remote API serves it. */}
       <section className="rm-sec" aria-labelledby="r-queue">
         <h2 id="r-queue" className="rm-label">Studio queue</h2>
         {q && <p className="muted text-sm">{q.ready} to review · {q.approved} approved, not yet published{q.publishing ? " · uploading now" : ""}{q.story ? " · AI story generating" : ""}</p>}
@@ -102,10 +103,41 @@ export function RemoteApp() {
         )) : <p className="muted text-sm">No jobs running.</p>}
       </section>
 
+      <Place />
+      <VoiceMemo />
       <RemoteCall />
       <Ask />
       <Notify />
     </Shell>
+  );
+}
+
+/** Location-aware brief: shown only when he switched it on in Profile on the PC. One rough point per tap, nothing in the background. */
+function Place() {
+  const [on, setOn] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void fetch("/api/remote/place").then((r) => (r.ok ? r.json() : null)).then((j) => setOn(!!j?.on)).catch(() => {}); }, []);
+  if (!on) return null;
+  function update() {
+    if (!("geolocation" in navigator)) return setNote("This browser can't share location.");
+    setBusy(true); setNote("");
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const round = (v: number) => Math.round(v * 100) / 100; // ~1 km before it leaves the phone
+      const r = await fetch("/api/remote/place", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ lat: round(pos.coords.latitude), lon: round(pos.coords.longitude) }) }).catch(() => null);
+      const j = r && (await r.json().catch(() => null));
+      setNote(r?.ok ? (j?.near ? `Near ${j.near}.` : "Updated: not near a saved place.") : j?.error ?? "Network error");
+      setBusy(false);
+    }, (e) => { setNote(e.code === e.PERMISSION_DENIED ? "Location is blocked: allow it for Remote in Settings → Privacy → Location Services." : "Couldn't get a location."); setBusy(false); },
+    { enableHighAccuracy: false, maximumAge: 10 * 60_000, timeout: 15_000 });
+  }
+  return (
+    <section className="rm-sec" aria-labelledby="r-place">
+      <h2 id="r-place" className="rm-label">Place</h2>
+      <p className="muted text-sm">Sends a rough location (about 1 km) to your PC for the morning brief. Only when you tap; the PC keeps just the latest one.</p>
+      <button className="btn w-full" style={{ minHeight: 44 }} disabled={busy} onClick={update}>{busy ? "…" : "Update place"}</button>
+      {note && <p className="muted text-sm" role="status">{note}</p>}
+    </section>
   );
 }
 
