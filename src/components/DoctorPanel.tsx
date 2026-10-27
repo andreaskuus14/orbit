@@ -4,6 +4,7 @@ import type { Report, Status } from "@/lib/doctor-pure";
 import type { BootResult } from "@/lib/doctor-boot-pure";
 import { builderText, type Issue } from "@/lib/health-pure";
 import { builderBrief, type Improve } from "@/lib/self-improve-pure";
+import type { PatchResult } from "@/lib/self-improve-patch-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 
 const COLOR: Record<Status, string> = { ok: "var(--mint)", warn: "var(--amber)", fail: "var(--rose)" };
@@ -42,11 +43,22 @@ function HealthCard({ health }: { health: Health }) {
   );
 }
 
-/** MAKE ORBIT BETTER card (C6): this week's ranked improvement tasks with a builder brief to copy. Nothing here changes code. */
+/** MAKE ORBIT BETTER card (C6): this week's ranked improvement tasks with a builder brief to copy, or (§10.6) a drafted patch saved
+ *  locally for review. Nothing here changes code: the patch is never applied, committed or pushed. */
 function ImproveCard({ improve }: { improve: Improve }) {
   const [copied, setCopied] = useState("");
+  const [patch, setPatch] = useState<Record<string, PatchResult | "busy">>({});
   const copy = async (i: number) => {
     try { await navigator.clipboard.writeText(builderBrief(improve.tasks[i], i + 1, improve.week)); setCopied(improve.tasks[i].key); } catch { setCopied(""); }
+  };
+  const draft = async (key: string) => {
+    setPatch((p) => ({ ...p, [key]: "busy" }));
+    const r = await fetch("/api/self-improve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key }) })
+      .then((x) => x.json() as Promise<PatchResult>).catch(() => ({ error: "Network error" }));
+    setPatch((p) => ({ ...p, [key]: r }));
+  };
+  const copyHandoff = async (key: string, text: string) => {
+    try { await navigator.clipboard.writeText(text); setCopied(`patch:${key}`); } catch { setCopied(""); }
   };
   return (
     <section className="mt-4 rounded-lg border border-white/10 p-2 text-sm" aria-label="Make ORBIT better">
@@ -62,6 +74,15 @@ function ImproveCard({ improve }: { improve: Improve }) {
             <p className="mt-1 text-xs">{t.problem}</p>
             <p className="muted text-[11px]">Evidence: {t.evidence.join(", ")}</p>
             <button className="chip mt-1" onClick={() => copy(i)} aria-label={`Copy builder brief: ${t.title}`}>{copied === t.key ? "Copied" : "Copy for builder"}</button>
+            {(() => {
+              const p = patch[t.key];
+              if (!p || p === "busy") return <button className="chip ml-1 mt-1" disabled={p === "busy"} onClick={() => draft(t.key)} aria-label={`Draft a patch for review: ${t.title}`}
+                title="One Claude call drafts a diff + test. Saved locally, never applied.">{p === "busy" ? "Drafting…" : "Draft patch"}</button>;
+              if ("error" in p) return <div className="mt-1 text-xs" role="alert"><span style={{ color: "var(--rose)" }}>{p.error}</span>
+                {p.problems && <ul className="muted list-disc pl-4 text-[11px]">{p.problems.map((w) => <li key={w}>{w}</li>)}</ul>}</div>;
+              return <div className="mt-1 text-xs"><p>{p.rationale}</p><p className="muted text-[11px]">Test: {p.test} · Saved (not applied): <span className="break-all font-mono">{p.file}</span></p>
+                <button className="chip mt-1" onClick={() => copyHandoff(t.key, p.handoff)} aria-label={`Copy patch handoff for Claude Code: ${t.title}`}>{copied === `patch:${t.key}` ? "Copied" : "Copy to Claude Code"}</button></div>;
+            })()}
           </li>
         ))}
       </ol>
