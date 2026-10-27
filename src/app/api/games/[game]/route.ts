@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
+import { crossSiteBlocked } from "@/lib/csrf";
 import { gameById } from "@/games/registry";
 import { planPut, readStored, tombstone } from "@/games/saves";
 
@@ -37,6 +38,8 @@ export async function GET(_: Request, { params }: Ctx) {
 
 /** Body: { save, gen, rev } to store a save (gen/rev as last read or written), { settings } to store settings ({} = defaults). */
 export async function PUT(req: Request, { params }: Ctx) {
+  const h = req.headers; // the middleware matcher skips paths ending in .png etc., so check here too
+  if (crossSiteBlocked("PUT", "/api/games", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const game = gameById((await params).game);
@@ -77,7 +80,9 @@ export async function PUT(req: Request, { params }: Ctx) {
 }
 
 /** Explicit reset: replaces the save with a tombstone of the next generation (so in-flight older saves are refused), keeps settings. */
-export async function DELETE(_: Request, { params }: Ctx) {
+export async function DELETE(req: Request, { params }: Ctx) {
+  const h = req.headers; // the middleware matcher skips paths ending in .png etc., so check here too
+  if (crossSiteBlocked("DELETE", "/api/games", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const game = gameById((await params).game);
