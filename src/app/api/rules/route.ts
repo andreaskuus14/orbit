@@ -1,14 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
-import { actRule, listRules, saveRule } from "@/lib/rules";
-import { describeAction, describeTrigger, nextRun, parseRule } from "@/lib/rules-pure";
+import { actRule, listRules, runRuleNow, saveRule } from "@/lib/rules";
+import { describeAction, describeTrigger, localDay, nextRun, parseRule } from "@/lib/rules-pure";
 
 export const dynamic = "force-dynamic";
 
 // Standing rules (Agents → Rules). GET: rules with readable trigger/action, next run and the last run's task status.
 // POST {action}: parse {text} (preview only, saves nothing) | add {text} (his confirm click: re-parsed server-side, active) |
-// confirm | pause | resume | delete {id}. Every one is his own click on his own data (approval-pure EFFECTS "rules.*").
+// confirm | pause | resume | delete | run {id} (run = "Run now", same runner path as a scheduled run). Every one is his own click on his own data (approval-pure EFFECTS "rules.*").
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 64;
 
@@ -21,6 +21,7 @@ async function view(sb: SupabaseClient) {
       ...r, when: describeTrigger(r.trigger), what: describeAction(r.action),
       next: r.status === "active" && r.trigger.type === "schedule" ? nextRun(r.trigger.schedule, now)?.toISOString() ?? null : null,
       task: (tasks ?? []).find((t) => t.id === r.last?.taskId) ?? null,
+      skippedToday: r.today?.day === localDay(now) ? r.today.skipped : 0,
     })),
   };
 }
@@ -34,7 +35,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const h = req.headers;
   if (crossSiteBlocked("POST", "/api/rules", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return fail("Cross-site request refused", 403);
-  const { sb, res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b || typeof b !== "object" || Array.isArray(b)) return fail("JSON body required");
@@ -50,6 +51,9 @@ export async function POST(req: Request) {
     } else if (!isId(b.id)) return fail("id is required");
     else if (b.action === "confirm" || b.action === "pause" || b.action === "resume" || b.action === "delete") {
       const err = await actRule(b.id, b.action);
+      if (err) return fail(err, 409);
+    } else if (b.action === "run") {
+      const err = await runRuleNow(sb, user.id, b.id);
       if (err) return fail(err, 409);
     } else return fail("Unknown action");
     return Response.json(await view(sb));

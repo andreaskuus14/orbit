@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkDiff, forbiddenPath, handoffText, parseDiff, parsePatchReply, patchFile, pickFiles, slug } from "../src/lib/self-improve-patch-pure.ts";
+import { addSaved, checkDiff, forbiddenPath, MAX_SAVED, patchName, type SavedDraft, weekDrafts, handoffText, parseDiff, parsePatchReply, patchFile, pickFiles, slug } from "../src/lib/self-improve-patch-pure.ts";
 import type { Task } from "../src/lib/self-improve-pure.ts";
 
 const file = (p: string, minus: string[], plus: string[], o: { from?: string; to?: string } = {}) => [
@@ -96,4 +96,22 @@ test("parsePatchReply, patch file and handoff", () => {
   assert.match(h, /AGENTS\.md/);
   assert.match(h, /never `main`/);
   assert.equal(slug("lesson:Health/Foo"), "lesson-health-foo");
+});
+
+test("patch names never overwrite: -2, -3 for the same task and week", () => {
+  assert.equal(patchName("2026-W44", "Slow Boot", []), "2026-W44-slow-boot.patch");
+  assert.equal(patchName("2026-W44", "Slow Boot", ["2026-W44-slow-boot.patch"]), "2026-W44-slow-boot-2.patch");
+  assert.equal(patchName("2026-W44", "Slow Boot", ["2026-W44-slow-boot.patch", "2026-W44-slow-boot-2.patch"]), "2026-W44-slow-boot-3.patch");
+});
+
+test("saved drafts: this week's newest per task, index capped", () => {
+  const d = (week: string, key: string, file: string): SavedDraft => ({ week, key, file, handoff: "h", rationale: "r", test: "t" });
+  const idx = [d("2026-W43", "a", "old"), d("2026-W44", "a", "a1"), d("2026-W44", "b", "b1"), d("2026-W44", "a", "a2")];
+  const w = weekDrafts(idx, "2026-W44");
+  assert.deepEqual(Object.keys(w).sort(), ["a", "b"]);
+  assert.equal("file" in w.a && w.a.file, "a2");
+  let big: SavedDraft[] = [];
+  for (let i = 0; i < MAX_SAVED + 5; i++) big = addSaved(big, d("w", String(i), "f"));
+  assert.equal(big.length, MAX_SAVED);
+  assert.equal(big[0].key, "5");
 });

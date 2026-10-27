@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addRule, describeAction, describeTrigger, lastSlot, nextRun, parseRule, ruleBlocked, ruleDue, type ParsedRule, type RuleSchedule } from "../src/lib/rules-pure.ts";
+import { addRule, countEventRun, describeAction, EVENT_RUNS_PER_DAY, describeTrigger, lastSlot, nextRun, parseRule, ruleBlocked, ruleDue, type DayCount, type ParsedRule, type RuleSchedule } from "../src/lib/rules-pure.ts";
 
 const ok = (t: string) => { const p = parseRule(t); if ("error" in p) assert.fail(`${t}: ${p.error}`); return p as ParsedRule; };
 const sched = (t: string) => { const p = ok(t); assert.equal(p.trigger.type, "schedule", t); return (p.trigger as { schedule: RuleSchedule }).schedule; };
@@ -102,4 +102,14 @@ test("descriptions, adding, CORE guard", () => {
   assert.equal(ruleBlocked("kui klient vastab, koosta vastus", false), "");
   assert.notEqual(ruleBlocked("every Sunday prepare my weekly review", true), "");
   assert.notEqual(ruleBlocked("what's the weather", false), "");
+});
+
+test("event rules: at most 5 runs a local day, extra hits counted as skipped, fresh count next day", () => {
+  const d = new Date(2026, 9, 27, 10, 0);
+  let c: DayCount | undefined, ok = 0;
+  for (let i = 0; i < 7; i++) { const r = countEventRun(c, d); c = r.count; if (r.ok) ok++; }
+  assert.equal(ok, EVENT_RUNS_PER_DAY);
+  assert.deepEqual(c, { day: "2026-10-27", runs: 5, skipped: 2 });
+  const next = countEventRun(c, new Date(2026, 9, 28, 0, 1));
+  assert.deepEqual(next, { ok: true, count: { day: "2026-10-28", runs: 1, skipped: 0 } });
 });
