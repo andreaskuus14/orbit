@@ -56,7 +56,7 @@ const BASE = {
   "night.slept": "While you slept", "night.working": "working now…", "night.okStep": "OK step", "night.draft": "Read the draft (not sent)",
 
   "brief.aria": "Morning brief", "brief.mute": "Mute", "brief.muteAria": "Mute the brief", "brief.skip": "Skip", "brief.skipAria": "Skip the morning brief",
-  "brief.loading": "Pulling your morning together…", "brief.empty": "Nothing needs you this morning. Enjoy it.",
+  "brief.loading": "Pulling your morning together…", "brief.ready": "Morning brief ready.", "brief.empty": "Nothing needs you this morning. Enjoy it.",
   "brief.snooze": "Snooze", "brief.snoozeAria": "Snooze {title} until tomorrow", "brief.snoozed": "Snoozed till tomorrow",
   "brief.life": "Say calendar titles and reminders aloud (from tomorrow)",
 
@@ -104,7 +104,7 @@ const BASE = {
 
   "tour.title": "WHAT'S NEW", "tour.step": "{n} of {total}", "tour.chapters": "Tour chapters", "tour.showMe": "Show me",
   "tour.next": "Next", "tour.back": "Back", "tour.finish": "Finish", "tour.skip": "Skip for now",
-  "tour.skipAria": "Skip the tour for now. Resume it from Ctrl+K: What's new tour", "tour.setup": "Set this up:", "tour.setupLink": "Setup steps",
+  "tour.skipAria": "Skip the tour for now. Resume it from Ctrl+K: What's new tour", "tour.setup": "Set this up:", "tour.ready": "What's new tour is open.", "tour.setupLink": "Setup steps",
 
   "common.loading": "Loading…", "common.add": "Add", "common.remove": "Remove", "common.cancel": "Cancel", "common.copied": "Copied",
 
@@ -186,6 +186,7 @@ const BASE = {
   "life.once": "Once", "life.weekdays": "Weekdays", "life.everyWeek": "Every week", "life.notify": "Enable desktop notifications", "life.done": " · done",
   "life.deleteReminder": "Delete reminder {text}", "life.noReminders": "No upcoming reminders.", "life.saved": "Saved",
   "life.journalPh": "How was today? (saves when you click away)", "life.reflect": "Reflect with CORE",
+  "rules.runNow": "Run now", "rules.skipped.one": "{n} event skipped today (limit {max} runs a day)", "rules.skipped.other": "{n} events skipped today (limit {max} runs a day)",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -266,7 +267,7 @@ export const ET: Partial<Record<Key, string>> = {
   "night.slept": "Kuni sa magasid", "night.working": "töötab praegu…", "night.okStep": "Kinnita samm", "night.draft": "Loe mustandit (pole saadetud)",
 
   "brief.aria": "Hommikuülevaade", "brief.mute": "Vaigista", "brief.muteAria": "Vaigista ülevaade", "brief.skip": "Jäta vahele", "brief.skipAria": "Jäta hommikuülevaade vahele",
-  "brief.loading": "Panen su hommikut kokku…", "brief.empty": "Täna hommikul pole sind kuskil vaja. Naudi seda.",
+  "brief.loading": "Panen su hommikut kokku…", "brief.ready": "Hommikune ülevaade on valmis.", "brief.empty": "Täna hommikul pole sind kuskil vaja. Naudi seda.",
   "brief.snooze": "Homseks", "brief.snoozeAria": "Lükka „{title}“ homsesse", "brief.snoozed": "Lükatud homsesse",
   "brief.life": "Loe kalendrisündmused ja meeldetuletused ette (alates homsest)",
 
@@ -314,7 +315,7 @@ export const ET: Partial<Record<Key, string>> = {
 
   "tour.title": "UUDISED", "tour.step": "{n}/{total}", "tour.chapters": "Tuuri peatükid", "tour.showMe": "Näita",
   "tour.next": "Edasi", "tour.back": "Tagasi", "tour.finish": "Valmis", "tour.skip": "Jäta praegu vahele",
-  "tour.skipAria": "Jäta tuur praegu vahele. Jätka seda Ctrl+K kaudu: What's new tour", "tour.setup": "Seadista:", "tour.setupLink": "Seadistuse sammud",
+  "tour.skipAria": "Jäta tuur praegu vahele. Jätka seda Ctrl+K kaudu: What's new tour", "tour.setup": "Seadista:", "tour.ready": "Uudiste tuur on avatud.", "tour.setupLink": "Seadistuse sammud",
 
   "common.loading": "Laadin…", "common.add": "Lisa", "common.remove": "Eemalda", "common.cancel": "Tühista", "common.copied": "Kopeeritud",
 
@@ -396,6 +397,7 @@ export const ET: Partial<Record<Key, string>> = {
   "life.once": "Üks kord", "life.weekdays": "Tööpäeviti", "life.everyWeek": "Iga nädal", "life.notify": "Luba töölaua teavitused", "life.done": " · tehtud",
   "life.deleteReminder": "Kustuta meeldetuletus {text}", "life.noReminders": "Tulevasi meeldetuletusi pole.", "life.saved": "Salvestatud",
   "life.journalPh": "Kuidas tänane päev läks? (salvestub, kui mujale klõpsad)", "life.reflect": "Mõtiskle koos CORE'iga",
+  "rules.runNow": "Käivita kohe", "rules.skipped.one": "{n} sündmus jäeti täna vahele (piir {max} käivitust päevas)", "rules.skipped.other": "{n} sündmust jäeti täna vahele (piir {max} käivitust päevas)",
 };
 
 type Vars = Record<string, string | number>;

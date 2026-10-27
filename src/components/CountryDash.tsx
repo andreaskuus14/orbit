@@ -386,11 +386,12 @@ function LinkMap({ self, linked }: { self: string; linked: { name: string; n: nu
   );
 }
 
-export function StoryCard({ s, onCountry, lead = false }: { s: Result; onCountry?: (n: string) => void; lead?: boolean }) {
+// `pinned` set (even false) makes the card focusable so the globe list can pin it from the keyboard.
+export function StoryCard({ s, onCountry, lead = false, pinned }: { s: Result; onCountry?: (n: string) => void; lead?: boolean; pinned?: boolean }) {
   const score = s.score ?? importance(s.title);
   const level = score >= 3 ? "major" : score >= 2 ? "key" : "";
   return (
-    <li className={`card story ${level}${lead ? " lead" : ""}`}>
+    <li className={`card story ${level}${lead ? " lead" : ""}`} tabIndex={pinned === undefined ? undefined : 0} aria-current={pinned || undefined}>
       <div className="story-meta">
         {level && <span className={`badge ${level}`}>{level === "major" ? "MAJOR" : "KEY"}</span>}
         <span className="truncate">{s.source ?? "unknown source"}</span>

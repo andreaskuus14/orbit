@@ -23,6 +23,7 @@ export type RuleResult = { at: string; ok: boolean; text: string; taskId?: strin
 export type Rule = ParsedRule & {
   id: string; text: string; status: "proposed" | "active" | "paused"; by: "owner" | "core";
   created: string; activeSince: string | null; lastRun: string | null; last: RuleResult | null;
+  today?: DayCount; // event rules only: runs and skipped events on this PC's local day
 };
 
 const L = "(?<![\\p{L}\\d])", R = "(?![\\p{L}\\d])"; // word edges that also work for õ/ä/ö/ü (JS \b is ASCII-only)
@@ -193,6 +194,16 @@ export function describeAction(a: RuleAction): string {
   if (a.kind === "skill") return `Run skill “${a.name}”${a.input ? `: ${a.input}` : ""}`;
   if (a.kind === "mission") return `Mission: ${a.objective}`;
   return `${NAMES[a.agent] ?? a.agent}: ${a.prompt}`;
+}
+
+/** This PC's local day, "YYYY-MM-DD". */
+export const localDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+export const EVENT_RUNS_PER_DAY = 5;
+export type DayCount = { day: string; runs: number; skipped: number };
+/** Count one event hit against the daily cap: ok=false means skip it (and it is counted as skipped). */
+export function countEventRun(c: DayCount | undefined, now: Date): { ok: boolean; count: DayCount } {
+  const day = localDay(now), cur = c?.day === day ? c : { day, runs: 0, skipped: 0 };
+  return cur.runs < EVENT_RUNS_PER_DAY ? { ok: true, count: { ...cur, runs: cur.runs + 1 } } : { ok: false, count: { ...cur, skipped: cur.skipped + 1 } };
 }
 
 export const MAX_RULES = 50;

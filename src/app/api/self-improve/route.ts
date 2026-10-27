@@ -1,8 +1,16 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
-import { draftPatch } from "@/lib/self-improve-patch";
+import { draftPatch, savedDrafts } from "@/lib/self-improve-patch";
 
 export const dynamic = "force-dynamic";
+
+// GET: this week's saved drafts per task key (so the card shows them after a reload).
+export async function GET() {
+  const { sb, user, res } = await requireUser();
+  if (res) return res;
+  try { return Response.json({ drafts: await savedDrafts(sb, user.id) }); }
+  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Drafts unreadable" }, { status: 500 }); }
+}
 
 // POST {key}: the owner's click on a "Make ORBIT better" task → one model call drafts a reviewable patch, saved locally (never applied).
 export async function POST(req: Request) {

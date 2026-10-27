@@ -2,12 +2,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./AgentMission";
 import { useWorldPaused } from "./world-paused";
-import type { ParsedRule, Rule } from "@/lib/rules-pure";
+import { EVENT_RUNS_PER_DAY, type ParsedRule, type Rule } from "@/lib/rules-pure";
 import { useT } from "./i18n";
 
 // Agents → Rules (roadmap 8.4): write a rule in plain words, read back what ORBIT understood, confirm. Pause is one tap.
 type Shown = { when: string; what: string };
-type Row = Rule & Shown & { next: string | null; task: { id: string; status: string; error: string | null } | null };
+type Row = Rule & Shown & { next: string | null; task: { id: string; status: string; error: string | null } | null; skippedToday: number };
 const EXAMPLES = ["Prepare my weekly project review on Sunday", "Every weekday 7:30 check deals", "When a client replies, draft an answer"];
 const at = (iso: string) => new Date(iso).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -74,6 +74,7 @@ export function RulesView({ onOpenTask }: { onOpenTask: (id: string) => void }) 
             <div className="flex items-center justify-between gap-2">
               <b className={r.status === "paused" ? "muted" : ""}>{r.name}</b>
               <span className="flex gap-1.5">
+                {r.status === "active" && <button className="chip" disabled={busy} onClick={() => post({ action: "run", id: r.id })}>{t("rules.runNow")}</button>}
                 {r.status === "proposed" && <button className="chip" disabled={busy} onClick={() => post({ action: "confirm", id: r.id })}>{t("rules.confirm")}</button>}
                 {r.status !== "proposed" && <button className="chip" disabled={busy} aria-pressed={r.status === "paused"} onClick={() => post({ action: r.status === "active" ? "pause" : "resume", id: r.id })}>{t(r.status === "active" ? "rules.pause" : "stop.resume")}</button>}
                 <button className="chip" disabled={busy} aria-label={t("rules.deleteAria", { name: r.name })} onClick={() => { if (confirm(t("rules.deleteConfirm", { name: r.name }))) void post({ action: "delete", id: r.id }); }}>{t("rules.delete")}</button>
@@ -83,6 +84,7 @@ export function RulesView({ onOpenTask }: { onOpenTask: (id: string) => void }) 
             <div className="muted mt-1 text-xs">
               {r.status === "proposed" ? t("rules.proposed") : r.status === "paused" ? t("stop.paused") : r.next ? t("rules.next", { at: at(r.next) }) : t("rules.active")}
               {" · "}“{r.text}”
+              {r.skippedToday > 0 && ` · ${tn("rules.skipped", r.skippedToday, { max: EVENT_RUNS_PER_DAY })}`}
             </div>
             {r.last && (
               <div className="mt-1 text-xs">

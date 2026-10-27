@@ -36,9 +36,30 @@ were already parallel.
 - `Terminal`, `MissionControl` (small, event listeners that should be mounted by boot 3), `AlertWatch` and `StopAll`
   (alerts and the safety switch keep checking while hidden; 30–60 s), `ScreenApp` (a wall display, always visible).
 
+## Changed (branch `perf-2`)
+
+**5. Boot cards load their bodies only when they have something to show.** Each is now a small always-mounted gate that
+decides, plus a `next/dynamic` body:
+- `MorningCard.tsx` keeps all timing/fetch logic (auto-show, recap, "good morning" nav); the card's markup moved to
+  `MorningCardBody.tsx`, so `MorningCards`, `NightShift` and with it `night-pure` + `goals-pure` (~47 KB) leave the first load.
+- `MorningBrief.tsx` is the once-a-day check; `MorningBriefBody.tsx` (old component: fetch on mount, `DayPlan`) mounts keyed by
+  the day, so a brief left open overnight refetches on the new day as before.
+- `WhatsNew.tsx` mounts `WhatsNewBody.tsx` (+ `tour-pure` steps, 24 KB) only when the tour is unseen (same rule as
+  `parseProgress`/`shouldAutoOpen`) or on `TOUR_EVENT` (Ctrl+K), passing `reopen` because the body's own listener did not exist
+  yet. `TOUR_KEY`/`TOUR_EVENT` moved to `lib/tour-key-pure.ts` (re-exported from `tour-pure`): **bump `TOUR_KEY` there.**
+
+**6. Wake word loads once hands-free is on.** `VoiceControls` mounts `voice/WakeWord.tsx` (dynamic; calls `useWakeWord` and
+reports its state up) only when settings are loaded and hands-free ≠ Off. Switching hands-free on loads the chunk and starts
+listening right away; Off unmounts it (same cleanup as before, state back to "off"). `useWakeWord`, `conversation`, `orbitmic`
+(~31 KB) leave the first load. The mic button, Ctrl+M and the settings popover stay in the first load.
+
+Static graph from `page.tsx` (`import type` and `import()` skipped): 129 → 115 files, ~855 KB → ~678 KB of source.
+Tests: `tests/boot-gates.test.ts` (wake word mounts only with hands-free on, WakeWord resets on unmount, WhatsNew and
+MorningBrief gates).
+
+**Not changed:** `Herald` is a background watcher (polls, notifications, speech) whose logic is its body; nothing to defer.
+`brief-pure` (17 KB) stays reachable via the MorningBrief gate for the one-line `shouldShowBrief`; tree-shaking should drop
+the rest. The first open of each body now waits for its chunk (a "Loading…" moment on the morning card/brief).
+
 ## Remaining ideas
-- Boot-batch-1 cards (`MorningCard`, `MorningBrief`, `Herald`, `WhatsNew` with `tour-pure` 24 KB) are always mounted but
-  usually render nothing; each could be a tiny gate that dynamic-imports its body only when there is something to show.
-- `VoiceControls` + `useWakeWord` (~40 KB) are needed only once voice is enabled; load on that setting.
-- `night-pure`/`goals-pure` reach the first load via `NightShift`; check whether the HUD needs more than a label there.
-- Measure with `?perfrun=1` / the build's chunk report before and after this branch to confirm the first-load size drop.
+- Measure with `?perfrun=1` / the build's chunk report before and after these branches to confirm the first-load size drop.
