@@ -8,6 +8,8 @@ import { bridgeApprovals, bridgeStudio, bridgeTasks, countdown, usagePct } from 
 import { eventLabel } from "@/lib/event-label-pure";
 import { clock } from "@/lib/terminal-pure";
 import { createClient } from "@/lib/supabase/client";
+import { OpenLoops } from "./OpenLoops";
+import type { PanelId } from "@/lib/planets";
 
 const get = (url: string) => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 type Data = { tasks?: unknown; proposals?: unknown; usage?: unknown; studio?: unknown; doctor?: unknown; events?: { type: string; created_at: string }[] };
@@ -61,7 +63,7 @@ export function MissionControl() {
   }, [open, sb]);
 
   const close = () => ref.current?.close();
-  const go = (panel: "operations" | "agents") => { close(); dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel } })); };
+  const go = (panel: PanelId) => { close(); dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel } })); };
 
   const tasks = bridgeTasks(d.tasks, now), waiting = bridgeApprovals(d.tasks, d.proposals), studio = bridgeStudio(d.studio, now);
   const u = o(d.usage), h5 = o(u.h5), d7 = o(u.d7), set = o(u.settings), lvl = o(u.level), limit = o(u.limit);
@@ -122,6 +124,8 @@ export function MissionControl() {
             </> : <p className="mc-dim">Self-test not ready.</p>}
           </Panel>
 
+          <OpenLoops go={go} />
+
           <Panel label="Event log" code="TAIL">
             <ol className="mc-log" aria-live="off">
               {(d.events ?? []).map((e, i) => { const l = eventLabel(e.type); return <li key={i}><span className="mc-num mc-dim">{clock(e.created_at)}</span> {l.label}</li>; })}
@@ -129,7 +133,7 @@ export function MissionControl() {
             </ol>
           </Panel>
         </div>
-        <p className="mc-foot mc-dim">READ-ONLY · NOTHING HERE APPROVES OR RUNS ANYTHING</p>
+        <p className="mc-foot mc-dim">NOTHING HERE APPROVES, SENDS OR RUNS ANYTHING</p>
       </>}
     </dialog>
   );

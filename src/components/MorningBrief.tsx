@@ -73,6 +73,7 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
     else if ("work" in o) (o.work.kind === "task" ? onOpenTask : onOpenGoal)(o.work.id);
     else if ("memory" in o) dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id: o.memory } }));
     else if ("study" in o) dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: "memory", study: true } }));
+    else if ("mission" in o) dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, mission: true } }));
     else if ("doctor" in o) dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, doctor: true } }));
     else if ("tab" in o) { try { sessionStorage.setItem(MARKETS_TAB, o.tab); } catch { /* opens on Watchlist */ } dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: o.panel } })); }
     else dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: o.panel, ...(o.view && { view: o.view }) } }));

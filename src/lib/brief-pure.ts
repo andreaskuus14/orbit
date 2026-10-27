@@ -11,7 +11,7 @@ import type { WeatherLine } from "./weather-pure";
 export type BriefKind = "decision" | "night" | "health" | "calendar" | "school" | "weather" | "place" | "first" | "result" | "lesson" | "question" | "study";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
-export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true } | { panel: "memory"; study: true };
+export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true } | { panel: "memory"; study: true } | { mission: true };
 export type BriefItem = { id: string; kind: BriefKind; say: string; title: string; detail?: string; open?: BriefOpen; approve?: BriefApprove };
 export type Brief = { day: string; greeting: string; items: BriefItem[]; spoken: string; polished?: boolean };
 
@@ -25,6 +25,7 @@ export type BriefIn = {
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
   recap?: { id: string }; // yesterday's private recap reel in STUDIO (clips/recap.ts)
+  loops?: { id: string; title: string; say: string }; // open loops from last night's scan (loops.ts loopsBrief)
   goalRisk?: { id: string; title: string; say: string }; // a goal whose weekly milestones are at risk / behind (goal-autopilot.ts goalRisk)
   school?: { id: string; title: string; say: string; detail?: string }; // heavy week / today's study blocks / next deadline (school-pure schoolBrief)
   dream?: { id: string; question: string }; // last night's ONE question (dream-pure); his answer goes through CORE like any message
@@ -100,6 +101,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
   if (x.review) add({ id: x.review.id, kind: "result", title: "Your weekly review", detail: "Missed call: tell ORBIT your top 3 for the week", say: x.review.say });
 
   if (x.goalRisk) add({ id: `goalrisk:${x.goalRisk.id}`, kind: "result", title: x.goalRisk.title, detail: "Weekly milestones", open: { goal: x.goalRisk.id }, say: x.goalRisk.say });
+  if (x.loops) add({ id: x.loops.id, kind: "result", title: x.loops.title, detail: "Mission control → Open loops", open: { mission: true }, say: x.loops.say });
   if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });
 
   if (x.dream) add({ id: `dream:${x.dream.id}`, kind: "question", title: plain(x.dream.question), detail: "Answer in CORE or on the call", open: { panel: "core" }, say: plain(x.dream.question) });

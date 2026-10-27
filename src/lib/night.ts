@@ -129,7 +129,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     company: await import("./chains").then((c) => c.openCompanyChains(sb, userId), () => []),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
     rivals: await import("./rivals").then((r) => r.rivalsDue(), () => 0),
-    health: true, dream: true,
+    health: true, dream: true, loops: true,
     backup: await import("./capsule").then((m) => m.backupDue(), () => false),
     personas: await import("./personas").then((m) => m.personasDue(userId), () => false),
     handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: [...nightOff(autonomyLevels()), ...learned.drop],
@@ -219,6 +219,10 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
       const { runPersonaPlaytest } = await import("./personas");
       const r = await runPersonaPlaytest(sb, userId, { studioRuns: PERSONA_STUDIO_RUNS, day: nightKey(Date.now(), (await load()).settings), signal });
       return { ...base, label: r.line, status: r.proposals.length ? "approval" : "done", ...(r.proposals.length ? { why: `${r.proposals.length} backlog proposal${r.proposals.length > 1 ? "s" : ""} in GAME DEV → Personas` } : {}), at: at() };
+    }
+    case "loops": { // open loops (loops.ts): rules only, no model call; Journal/LIFE never read
+      const r = await (await import("./loops")).scanLoops(sb, userId);
+      return { ...base, label: r.line, status: "done", at: at() };
     }
     case "backup": { // time capsule (capsule.ts): local folder only; a failure (e.g. drive unplugged) shows as failed with the reason
       const r = await (await import("./capsule")).runBackup();
