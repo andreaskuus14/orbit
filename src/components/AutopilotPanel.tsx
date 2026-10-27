@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorldPaused } from "./world-paused";
+import { useT } from "./i18n";
 import { avatar, multBars, nextAction, type Pref } from "@/lib/clips/autopilot-ui";
 
 // "🤖 Autopilot" tab of the Clip Factory: a status hero (switch, daily cap ring, next action, clickable pipeline), the clips waiting for
@@ -44,6 +45,7 @@ export default function AutopilotPanel({ active: tabOn, onChanged, onOpenClip, o
   active: boolean; onChanged?: () => void; onOpenClip?: (job: string, clip: string) => void; onOpenFind?: () => void;
 }) {
   const paused = useWorldPaused(), active = tabOn && !paused; // STUDIO kept but hidden: no polling, no keys
+  const { t: tr } = useT();
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
@@ -105,8 +107,8 @@ export default function AutopilotPanel({ active: tabOn, onChanged, onOpenClip, o
     return () => removeEventListener("keydown", h, true);
   }, []);
 
-  if (err && !d) return <section className="card text-xs"><p className="error" role="alert">{err}</p><button className="btn mt-2" onClick={() => void load()}>Try again</button></section>;
-  if (!d) return <section className="card text-xs" role="status" aria-label="Loading autopilot"><span className="muted">Loading autopilot…</span></section>;
+  if (err && !d) return <section className="card text-xs"><p className="error" role="alert">{err}</p><button className="btn mt-2" onClick={() => void load()}>{tr("task.retry")}</button></section>;
+  if (!d) return <section className="card text-xs" role="status" aria-label={tr("ap.loading")}><span className="muted">{tr("ap.loading")}…</span></section>;
   const s = d.settings, show = (st: Stage) => !filter || filter === st;
   const used = d.today.downloads + d.today.scoutAuto, cap = d.today.cap;
   const next = nextAction({ waiting: waiting.length, clipping: d.counts.clipping, packaging: d.counts.packaging, candidates: d.candidates.length, running: d.scout.running,
@@ -118,29 +120,29 @@ export default function AutopilotPanel({ active: tabOn, onChanged, onOpenClip, o
   return (
     <div ref={root} className="space-y-3 text-xs">
       {/* ---- status hero ---- */}
-      <section className="card relative overflow-hidden !p-3 sm:!p-4" aria-label="Autopilot status"
+      <section className="card relative overflow-hidden !p-3 sm:!p-4" aria-label={tr("ap.status")}
         style={{ background: s.auto ? "radial-gradient(120% 140% at 0% 0%, rgba(255,46,99,0.22), transparent 55%), linear-gradient(165deg, rgba(255,214,224,0.07), rgba(30,4,14,0.55))" : undefined }}>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <button role="switch" aria-checked={s.auto} disabled={busy === "settings"} onClick={() => void patch({ auto: !s.auto })}
-            className="flex items-center gap-3 rounded-full border px-2 py-1.5 pr-4 transition" aria-label={`Autopilot auto-clipping ${s.auto ? "on" : "off"}`}
+            className="flex items-center gap-3 rounded-full border px-2 py-1.5 pr-4 transition" aria-label={tr("ap.switchAria", { state: tr(s.auto ? "common.on" : "common.off") })}
             style={{ borderColor: s.auto ? "#ff2e63" : "rgba(255,143,171,0.25)", boxShadow: s.auto ? "0 0 22px rgba(255,46,99,0.45)" : "none", background: "rgba(20,2,10,0.5)" }}>
             <span className="relative h-7 w-12 rounded-full transition" style={{ background: s.auto ? "linear-gradient(90deg,#c9184a,#ff2e63)" : "rgba(255,255,255,0.12)" }}>
               <span className="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all" style={{ left: s.auto ? "1.375rem" : "0.125rem" }} />
             </span>
             <span className="text-left leading-tight">
-              <span className="studio-title block text-lg font-bold tracking-[0.2em]" style={{ fontFamily: "var(--font-display)" }}>AUTOPILOT {s.auto ? "ON" : "OFF"}</span>
-              <span className="muted block text-[10px]">{s.auto ? "auto-clips your auto-clip creators after each scout run" : "you pick what to clip"}</span>
+              <span className="studio-title block text-lg font-bold tracking-[0.2em]" style={{ fontFamily: "var(--font-display)" }}>{tr(s.auto ? "ap.on" : "ap.off")}</span>
+              <span className="muted block text-[10px]">{tr(s.auto ? "ap.onHint" : "ap.offHint")}</span>
             </span>
           </button>
 
-          <div className="flex items-center gap-2" role="img" aria-label={`Today: ${used} of ${cap} videos clipped`}>
+          <div className="flex items-center gap-2" role="img" aria-label={tr("ap.todayAria", { n: used, cap })}>
             <svg width="56" height="56" viewBox="0 0 56 56" aria-hidden>
               <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="6" />
               <circle cx="28" cy="28" r="23" fill="none" stroke="#ff2e63" strokeWidth="6" strokeLinecap="round" transform="rotate(-90 28 28)"
                 strokeDasharray={`${cap ? Math.min(1, used / cap) * 144.5 : 0} 144.5`} style={{ filter: "drop-shadow(0 0 4px rgba(255,46,99,0.7))", transition: "stroke-dasharray 0.6s" }} />
               <text x="28" y="32" textAnchor="middle" className="num" fill="#ffe5ec" fontSize="13" fontWeight="700">{used}/{cap}</text>
             </svg>
-            <span className="leading-tight"><span className="muted block text-[10px] uppercase tracking-widest">today</span><b className="num">{used} of {cap}</b> videos</span>
+            <span className="leading-tight"><span className="muted block text-[10px] uppercase tracking-widest">{tr("ap.today")}</span><b className="num">{used}/{cap}</b> {tr("ap.videos")}</span>
           </div>
 
           <p className="min-w-[12rem] flex-1 text-sm font-semibold" role="status" aria-live="polite">
@@ -149,11 +151,11 @@ export default function AutopilotPanel({ active: tabOn, onChanged, onOpenClip, o
           </p>
         </div>
 
-        <ol className="mt-3 grid grid-cols-3 gap-1.5 sm:grid-cols-6" aria-label="Pipeline: click a stage to filter">
+        <ol className="mt-3 grid grid-cols-3 gap-1.5 sm:grid-cols-6" aria-label={tr("ap.pipeline")}>
           {STEPS.map(([k, t, icon]) => (
             <li key={k}>
               <button className="chip flex w-full flex-col items-center !rounded-xl !px-1 !py-1.5" aria-pressed={filter === k} onClick={() => setFilter(filter === k ? null : k)}
-                aria-label={`${t}: ${d.counts[k]}. ${filter === k ? "Show everything" : "Show only this stage"}`}>
+                aria-label={`${t}: ${d.counts[k]}. ${tr(filter === k ? "ap.showAll" : "ap.showStage")}`}>
                 <span className="num text-base font-bold leading-none" style={{ color: d.counts[k] ? (k === "waiting" ? "#ff8fab" : "#ffe5ec") : "var(--muted)" }}>{d.counts[k]}</span>
                 <span className="mt-0.5 whitespace-nowrap text-[10px]"><span aria-hidden>{icon} </span>{t}</span>
               </button>
@@ -161,35 +163,34 @@ export default function AutopilotPanel({ active: tabOn, onChanged, onOpenClip, o
           ))}
         </ol>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {d.counts.failed > 0 && <button className="chip error !px-2 !py-0.5" aria-pressed={filter === "failed"} onClick={() => setFilter(filter === "failed" ? null : "failed")}>⚠ Failed {d.counts.failed}</button>}
-          {filter && <button className="chip !px-2 !py-0.5" onClick={() => setFilter(null)}>Show everything</button>}
+          {d.counts.failed > 0 && <button className="chip error !px-2 !py-0.5" aria-pressed={filter === "failed"} onClick={() => setFilter(filter === "failed" ? null : "failed")}>⚠ {tr("ap.failed", { n: d.counts.failed })}</button>}
+          {filter && <button className="chip !px-2 !py-0.5" onClick={() => setFilter(null)}>{tr("ap.showAll")}</button>}
         </div>
         {note && <p className="mt-2" role="status">{note}</p>}
       </section>
 
       {/* ---- waiting for you ---- */}
-      {show("waiting") && <section className="card space-y-2" aria-label="Waiting for you">
+      {show("waiting") && <section className="card space-y-2" aria-label={tr("ap.waiting")}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className={H}>👀 WAITING FOR YOU <span className="num">({waiting.length})</span></h3>
+          <h3 className={H}>👀 {tr("ap.waiting").toUpperCase()} <span className="num">({waiting.length})</span></h3>
           {waiting.length > 0 && <div className="flex items-center gap-1.5">
-            <span className="muted hidden sm:inline"><kbd>A</kbd> <kbd>A</kbd> approve · <kbd>S</kbd> <kbd>S</kbd> skip · <kbd>←</kbd><kbd>→</kbd></span>
-            {waiting.length > 1 && <><button className="chip !px-2" onClick={() => move(-1)} aria-label="Previous clip">←</button>
-              <span className="num" aria-label={`Clip ${waiting.indexOf(cur) + 1} of ${waiting.length}`}>{waiting.indexOf(cur) + 1}/{waiting.length}</span>
-              <button className="chip !px-2" onClick={() => move(1)} aria-label="Next clip">→</button></>}
+            <span className="muted hidden sm:inline"><kbd>A</kbd> <kbd>A</kbd> {tr("ap.kApprove")} · <kbd>S</kbd> <kbd>S</kbd> {tr("ap.kSkip")} · <kbd>←</kbd><kbd>→</kbd></span>
+            {waiting.length > 1 && <><button className="chip !px-2" onClick={() => move(-1)} aria-label={tr("ap.prev")}>←</button>
+              <span className="num" aria-label={tr("ap.clipOf", { n: waiting.indexOf(cur) + 1, total: waiting.length })}>{waiting.indexOf(cur) + 1}/{waiting.length}</span>
+              <button className="chip !px-2" onClick={() => move(1)} aria-label={tr("ap.next")}>→</button></>}
           </div>}
         </div>
         {!cur ? <p className="muted py-3 text-center text-sm">
-          {d.counts.packaging + d.counts.clipping ? `📦 ${d.counts.packaging + d.counts.clipping} on the way: clips land here packaged (title, thumbnail, description, slot).`
-            : d.candidates.length ? "Nothing to approve yet. Clip a candidate below and it lands here, ready to approve."
-            : "Nothing to approve. Find candidates first; the best clips will wait here for your OK."}</p>
+          {d.counts.packaging + d.counts.clipping ? `📦 ${tr("ap.onTheWay", { n: d.counts.packaging + d.counts.clipping })}`
+            : tr(d.candidates.length ? "ap.nothingYet" : "ap.nothing")}</p>
           : <WaitingCard key={cur.key} w={cur} note={notes.current[cur.key] ?? ""} onNote={(t) => { notes.current[cur.key] = t; }} slots={d.slots ?? []} busy={busy} armed={armed === `ok:${cur.key}` ? "ok" : armed === `skip:${cur.key}` ? "skip" : ""} onApprove={() => void approve(cur)} onSkip={() => skip(cur)}
             onEdit={onOpenClip ? () => { const [j, c] = cur.key.split("/"); onOpenClip(j, c); } : undefined}
             onTitle={(title) => void act(`t:${cur.key}`, () => call("POST", { action: "edit", key: cur.key, title }))}
             onSlot={(slot) => void act(`slot:${cur.key}`, () => call("POST", { action: "edit", key: cur.key, slot }), "Slot changed")}
             onReview={() => void act(`rev:${cur.key}`, () => call("POST", { action: "review", key: cur.key }))} />}
-        {waiting.length > 1 && <div className="flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="All waiting clips">
+        {waiting.length > 1 && <div className="flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label={tr("ap.allWaiting")}>
           {waiting.map((w, k) => (
-            <button key={w.key} onClick={() => { setArmed(""); setAtKey(w.key); }} aria-pressed={w.key === cur?.key} aria-label={`Show ${w.p.title}`}
+            <button key={w.key} onClick={() => { setArmed(""); setAtKey(w.key); }} aria-pressed={w.key === cur?.key} aria-label={tr("ap.show", { title: w.p.title })}
               className="aspect-[9/16] w-10 shrink-0 overflow-hidden rounded border-2" style={{ borderColor: w.key === cur?.key ? "#ff2e63" : "transparent" }}>
               {w.p.thumb ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={media(w.p.thumb)} alt="" loading="lazy" className="h-full w-full object-cover" /> : <span className="num">{k + 1}</span>}
             </button>
@@ -198,16 +199,16 @@ export default function AutopilotPanel({ active: tabOn, onChanged, onOpenClip, o
       </section>}
 
       {/* ---- candidates ---- */}
-      {show("found") && <section className="card space-y-2" aria-label="Candidates">
+      {show("found") && <section className="card space-y-2" aria-label={tr("ap.candidates")}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className={H}>🔭 CANDIDATES</h3>
+          <h3 className={H}>🔭 {tr("ap.candidates").toUpperCase()}</h3>
           <button className="btn !px-3 !py-1 !text-xs" disabled={!!busy || d.scout.running || !d.scout.configured} onClick={() => void act("find", () => call("POST", { action: "find" }), "Looking for new videos…")}>
-            {d.scout.running ? "Searching…" : "Find candidates"}</button>
+            {tr(d.scout.running ? "ap.searching" : "ap.find")}</button>
         </div>
-        {d.scout.lastRun && <p className="muted">{d.scout.lastRun.ok ? d.scout.lastRun.summary : <span className="error">Last search failed: {d.scout.lastRun.error}</span>}</p>}
-        {!d.scout.configured ? <p>Add <code>YOUTUBE_API_KEY</code> to .env.local so ORBIT can read your creators&apos; uploads.</p>
-          : !d.scout.creators.length && !d.scout.keywords.length ? <p className="py-2">No sources yet. <button className="chip" onClick={onOpenFind}>➕ Add creators or topics</button></p>
-          : !d.candidates.length ? <p className="muted py-2">No new videos since the last search. Press Find candidates, or wait for the daily run.</p> : (
+        {d.scout.lastRun && <p className="muted">{d.scout.lastRun.ok ? d.scout.lastRun.summary : <span className="error">{tr("ap.lastFailed")} {d.scout.lastRun.error}</span>}</p>}
+        {!d.scout.configured ? <p>{tr("cf.apiKey1")} <code>{"YOUTUBE_API_KEY"}</code> {tr("ap.apiKey2")}</p>
+          : !d.scout.creators.length && !d.scout.keywords.length ? <p className="py-2">{tr("ap.noSources")} <button className="chip" onClick={onOpenFind}>➕ {tr("ap.addSources")}</button></p>
+          : !d.candidates.length ? <p className="muted py-2">{tr("ap.noNew")}</p> : (
           <ol className="space-y-1.5">
             {d.candidates.map((c, k) => { const av = avatar(c.channel); return (
               <li key={c.videoId} className="flex items-center gap-2 rounded-lg p-1.5 hover:bg-white/5">
@@ -217,25 +218,25 @@ export default function AutopilotPanel({ active: tabOn, onChanged, onOpenClip, o
                   <a href={c.url} target="_blank" rel="noreferrer" className="block truncate font-semibold hover:underline">{c.title}</a>
                   <div className="flex items-center gap-2">
                     <span className="muted shrink-0">{c.channel}</span>
-                    <span className="hud-bar w-16 shrink-0" style={{ ["--accent" as string]: "#ff2e63" }} role="img" aria-label={`Score ${c.apScore} of 100`}><i style={{ width: `${c.apScore}%` }} /></span>
+                    <span className="hud-bar w-16 shrink-0" style={{ ["--accent" as string]: "#ff2e63" }} role="img" aria-label={tr("cf.score", { n: c.apScore })}><i style={{ width: `${c.apScore}%` }} /></span>
                     <b className="num">{c.apScore}</b>
                   </div>
                   <div className="mt-0.5 flex flex-wrap gap-1">{c.why.map((w) => <span key={w} className="rounded-full border border-white/10 px-1.5 text-[10px] text-[#ffd6e0]/80">{w}</span>)}</div>
                 </div>
-                <button className="chip shrink-0" disabled={!!busy || d.today.left < 1} aria-label={`Clip ${c.title}`} onClick={() => void act(`clip:${c.videoId}`, () => call("POST", { action: "clip", videoIds: [c.videoId] }).then((r) => {
+                <button className="chip shrink-0" disabled={!!busy || d.today.left < 1} aria-label={tr("cf.clipAria", { title: c.title })} onClick={() => void act(`clip:${c.videoId}`, () => call("POST", { action: "clip", videoIds: [c.videoId] }).then((r) => {
                   const x = r as { started: string[]; errors: string[] }; if (x.errors.length) throw new Error(x.errors.join("; "));
-                }), "Downloading: clips will wait for you when they're ready")}>{busy === `clip:${c.videoId}` ? "Starting…" : "✂ Clip it"}</button>
+                }), "Downloading: clips will wait for you when they're ready")}>{busy === `clip:${c.videoId}` ? tr("cf.starting") : `✂ ${tr("cf.clipIt")}`}</button>
               </li>
             ); })}
           </ol>
         )}
-        {d.today.left < 1 && <p className="muted">Today&apos;s cap is reached; more tomorrow (or raise Videos per day in Settings).</p>}
+        {d.today.left < 1 && <p className="muted">{tr("ap.capReached")}</p>}
       </section>}
 
       {/* ---- one pipeline stage ---- */}
       {pipeFilter && <section className="card space-y-1.5" aria-label={`${pipeFilter} clips`}>
         <h3 className={H}>{(STEPS.find(([k]) => k === pipeFilter)?.[1] ?? "Failed").toUpperCase()}</h3>
-        {!pipeRows.length ? <p className="muted">Nothing here right now.</p> : <ul className="space-y-1.5">{pipeRows.map((r) => (
+        {!pipeRows.length ? <p className="muted">{tr("ap.empty")}</p> : <ul className="space-y-1.5">{pipeRows.map((r) => (
           <li key={r.key} className="flex items-center gap-2">
             {r.thumb && /* eslint-disable-next-line @next/next/no-img-element */ <img src={media(r.thumb)} alt="" loading="lazy" className="aspect-[9/16] w-7 shrink-0 rounded object-cover" />}
             <span className="min-w-0 flex-1 truncate">{r.title} <span className="muted">· {r.sub}</span></span>
@@ -243,48 +244,48 @@ export default function AutopilotPanel({ active: tabOn, onChanged, onOpenClip, o
       </section>}
 
       {/* ---- what's working ---- */}
-      {!filter && <section className="card space-y-2" aria-label="What's working">
-        <h3 className={H}>📈 WHAT&apos;S WORKING <span className="muted normal-case tracking-normal">· {d.working.confidence}</span></h3>
-        {d.working.n < 2 ? <p className="muted">Once 2+ autopilot Shorts have 3 days of stats, this shows which creators, clip lengths and posting hours beat your usual.</p> : <>
+      {!filter && <section className="card space-y-2" aria-label={tr("ap.working")}>
+        <h3 className={H}>📈 {tr("ap.working").toUpperCase()} <span className="muted normal-case tracking-normal">· {d.working.confidence}</span></h3>
+        {d.working.n < 2 ? <p className="muted">{tr("ap.workingWait")}</p> : <>
           <div className="grid gap-2 sm:grid-cols-3">
-            <Bars title="Creators" dim="creator" rec={d.working.dims?.creator} />
-            <Bars title="Clip length (s)" dim="length" rec={d.working.dims?.length} />
-            <Bars title="Posting hour" dim="hour" rec={d.working.dims?.hour} />
+            <Bars title={tr("cf.creators")} dim="creator" rec={d.working.dims?.creator} />
+            <Bars title={tr("ap.clipLen")} dim="length" rec={d.working.dims?.length} />
+            <Bars title={tr("ap.hour")} dim="hour" rec={d.working.dims?.hour} />
           </div>
           {d.working.findings.length ? <ul className="list-disc pl-4">{d.working.findings.map((f) => <li key={f.text}>{f.text}</li>)}</ul>
-            : <p className="muted">No clear pattern yet: your Shorts perform about the same across creators, lengths and titles.</p>}
-          <p className="muted">Bars are views vs your usual (the line = 1×), pulled toward the usual until there are more Shorts, so one lucky video can&apos;t steer everything.</p>
+            : <p className="muted">{tr("ap.noPattern")}</p>}
+          <p className="muted">{tr("ap.barsHint")}</p>
         </>}
       </section>}
 
       {/* ---- settings drawer ---- */}
-      <details className="card" aria-label="Autopilot settings">
-        <summary className="cursor-pointer select-none"><span className={H}>⚙ SETTINGS</span> <span className="muted">· {s.dailyDownloads}/day · {LAYOUTS.find(([v]) => v === s.options.layout)?.[1]}{s.options.captions ? " · captions" : ""}</span></summary>
+      <details className="card" aria-label={tr("ap.settings")}>
+        <summary className="cursor-pointer select-none"><span className={H}>⚙ {tr("cf.settings").toUpperCase()}</span> <span className="muted">· {tr("ap.perDay", { n: s.dailyDownloads })} · {LAYOUTS.find(([v]) => v === s.options.layout)?.[1]}{s.options.captions ? tr("cf.withCaptions") : ""}</span></summary>
         <div className="mt-2 space-y-2">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={s.auto} disabled={busy === "settings"} onChange={(e) => void patch({ auto: e.target.checked })} /> Auto-clip after each scout run <span className="muted">(only creators marked auto-clip)</span></label>
-            <label className="flex items-center gap-1.5">Videos per day
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={s.auto} disabled={busy === "settings"} onChange={(e) => void patch({ auto: e.target.checked })} /> {tr("ap.autoAfter")} <span className="muted">{tr("ap.onlyMarked")}</span></label>
+            <label className="flex items-center gap-1.5">{tr("ap.videosPerDay")}
               <select className="chip" value={s.dailyDownloads} disabled={busy === "settings"} onChange={(e) => void patch({ dailyDownloads: Number(e.target.value) })}>
                 {[0, 1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
-              <span className="muted num">(today: {d.today.downloads} autopilot + {d.today.scoutAuto} scout auto-clip, shared cap)</span>
+              <span className="muted num">{tr("ap.todaySplit", { a: d.today.downloads, s: d.today.scoutAuto })}</span>
             </label>
-            <label className="flex items-center gap-1.5">Layout
+            <label className="flex items-center gap-1.5">{tr("cf.layout")}
               <select className="chip" value={s.options.layout} disabled={busy === "settings"} onChange={(e) => void patch({ options: { layout: e.target.value } })}>
                 {LAYOUTS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
               </select>
             </label>
-            {s.options.layout === "split" && <label className="flex items-center gap-1.5">Cam
+            {s.options.layout === "split" && <label className="flex items-center gap-1.5">{tr("ap.cam")}
               <select className="chip" value={s.options.camSide} disabled={busy === "settings"} onChange={(e) => void patch({ options: { camSide: e.target.value } })}>
                 {["left", "right", "tl", "tr", "bl", "br"].map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </label>}
-            <label className="flex items-center gap-1.5"><input type="checkbox" checked={s.options.captions} disabled={busy === "settings"} onChange={(e) => void patch({ options: { captions: e.target.checked } })} /> Captions</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={s.options.captions} disabled={busy === "settings"} onChange={(e) => void patch({ options: { captions: e.target.checked } })} /> {tr("cf.captions")}</label>
           </div>
-          <p className="muted">Sources: {d.scout.creators.length ? d.scout.creators.join(", ") : "no creators yet"}{d.scout.keywords.length ? ` · topics: ${d.scout.keywords.join(", ")}` : ""}
-            {" "}{onOpenFind && <button className="chip !px-2 !py-0.5" onClick={onOpenFind}>Edit creators &amp; topics</button>}
-            {" "}· daily search at {String(d.scout.runAt).padStart(2, "0")}:00 · YouTube budget today {d.scout.usedToday}/{d.scout.budget} units.</p>
-          <p className="muted">⚖ Clipping other creators&apos; videos is your responsibility: only clip creators who allow it, credit them, and follow YouTube&apos;s copyright and reused-content policies.</p>
+          <p className="muted">{tr("ap.sources")} {d.scout.creators.length ? d.scout.creators.join(", ") : tr("ap.noCreators")}{d.scout.keywords.length ? tr("ap.topics", { list: d.scout.keywords.join(", ") }) : ""}
+            {" "}{onOpenFind && <button className="chip !px-2 !py-0.5" onClick={onOpenFind}>{tr("ap.editSources")}</button>}
+            {" "}· {tr("ap.budget", { h: String(d.scout.runAt).padStart(2, "0"), used: d.scout.usedToday, max: d.scout.budget })}</p>
+          <p className="muted">⚖ {tr("ap.responsibility")}</p>
         </div>
       </details>
     </div>
@@ -295,16 +296,17 @@ function WaitingCard({ w, note, onNote, slots, busy, armed, onApprove, onSkip, o
   w: Waiting; note: string; onNote: (t: string) => void; slots: string[]; busy: string; armed: "" | "ok" | "skip"; onApprove: () => void; onSkip: () => void; onEdit?: () => void;
   onTitle: (t: string) => void; onSlot: (s: string) => void; onReview: () => void;
 }) {
+  const { t: tr } = useT();
   const p = w.p, vid = useRef<HTMLVideoElement>(null), [playing, setPlaying] = useState(false), [added, setAdded] = useState(note);
   const play = (on: boolean) => { const v = vid.current; if (!v) return; if (on) void v.play().then(() => setPlaying(true), () => {}); else { v.pause(); setPlaying(false); } };
   const any = !!busy;
   return (
-    <article className="grid gap-3 sm:grid-cols-[minmax(8rem,11rem)_1fr]" aria-label={`Waiting: ${p.title}`}>
+    <article className="grid gap-3 sm:grid-cols-[minmax(8rem,11rem)_1fr]" aria-label={tr("ap.waitingAria", { title: p.title })}>
       <div className="relative mx-auto aspect-[9/16] w-40 overflow-hidden rounded-xl border border-[#ff8fab]/30 bg-black sm:w-full" style={{ boxShadow: "0 0 24px rgba(255,46,99,0.25)" }}
         onMouseEnter={() => play(true)} onMouseLeave={() => play(false)}>
         {p.video ? <video ref={vid} src={media(p.video)} poster={p.thumb ? media(p.thumb) : undefined} muted loop playsInline preload="none" className="h-full w-full object-cover" />
           : p.thumb ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={media(p.thumb)} alt="" className="h-full w-full object-cover" /> : null}
-        {p.video && <button className="absolute inset-0 grid place-items-center" onClick={() => play(!playing)} aria-label={playing ? "Pause preview" : "Play preview"}>
+        {p.video && <button className="absolute inset-0 grid place-items-center" onClick={() => play(!playing)} aria-label={tr(playing ? "ap.pausePreview" : "ap.playPreview")}>
           {!playing && <span className="grid h-10 w-10 place-items-center rounded-full bg-black/55 text-lg backdrop-blur" aria-hidden>▶</span>}</button>}
       </div>
 
@@ -313,46 +315,47 @@ function WaitingCard({ w, note, onNote, slots, busy, armed, onApprove, onSkip, o
           <p className="text-lg font-bold leading-snug text-[#ffe5ec]" style={{ fontFamily: "var(--font-display)" }}>{p.title}</p>
           <p className="muted">{p.titleWhy}</p>
         </div>
-        {!!p.alts?.length && <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Runner-up titles">
-          <span className="muted">Swap:</span>
-          {p.alts.map((t) => <button key={t} className="chip !px-2 !py-0.5 text-left !text-[11px]" disabled={any} onClick={() => onTitle(t)} aria-label={`Use title: ${t}`}>↔ {t}</button>)}
+        {!!p.alts?.length && <div className="flex flex-wrap items-center gap-1" role="group" aria-label={tr("ap.runnerUps")}>
+          <span className="muted">{tr("ap.swap")}</span>
+          {p.alts.map((t) => <button key={t} className="chip !px-2 !py-0.5 text-left !text-[11px]" disabled={any} onClick={() => onTitle(t)} aria-label={tr("ap.useTitle", { t })}>↔ {t}</button>)}
         </div>}
-        {p.notes?.length ? <ul className="space-y-0.5 rounded-lg border border-[#ff8fab]/20 bg-[#ff2e63]/5 p-2" aria-label="Title critics' notes">
+        {p.notes?.length ? <ul className="space-y-0.5 rounded-lg border border-[#ff8fab]/20 bg-[#ff2e63]/5 p-2" aria-label={tr("ap.critics")}>
           {p.notes.map((n, k) => <li key={k}><span aria-hidden>🧐 </span>{n}</li>)}
-        </ul> : <button className="chip !px-2 !py-0.5" disabled={any} onClick={onReview}>{busy === `rev:${w.key}` ? "Critics reading…" : "🧐 Review titles"}</button>}
-        <label className="flex flex-wrap items-center gap-1.5"><span className="muted">Slot</span>
+        </ul> : <button className="chip !px-2 !py-0.5" disabled={any} onClick={onReview}>{busy === `rev:${w.key}` ? tr("ap.criticsReading") : `🧐 ${tr("ap.reviewTitles")}`}</button>}
+        <label className="flex flex-wrap items-center gap-1.5"><span className="muted">{tr("ap.slot")}</span>
           <select className="chip" value={p.slot ?? ""} disabled={any} onChange={(e) => onSlot(e.target.value)}>
-            {!p.slot && <option value="">none free</option>}
+            {!p.slot && <option value="">{tr("ap.noneFree")}</option>}
             {p.slot && <option value={p.slot}>{when(p.slot)}</option>}
             {slots.filter((x) => x !== p.slot).map((x) => <option key={x} value={x}>{when(x)}</option>)}
           </select>
           <span className="muted">{p.slotWhy}</span>
         </label>
-        {p.description && <details><summary className="muted cursor-pointer">Description</summary><p className="mt-1 whitespace-pre-line">{p.description}</p></details>}
-        <label className="block"><span className="muted">What I added (your commentary, reaction or analysis)</span>
-          <input className="field mt-0.5 w-full !px-2 !py-1" value={added} maxLength={200} disabled={any} placeholder="e.g. my voiceover explaining why this play works"
+        {p.description && <details><summary className="muted cursor-pointer">{tr("cf.description")}</summary><p className="mt-1 whitespace-pre-line">{p.description}</p></details>}
+        <label className="block"><span className="muted">{tr("ap.whatAdded")}</span>
+          <input className="field mt-0.5 w-full !px-2 !py-1" value={added} maxLength={200} disabled={any} placeholder={tr("ap.whatAddedPh")}
             onChange={(e) => { setAdded(e.target.value); onNote(e.target.value); }} />
-          <span className="muted text-[11px]">This is another creator&apos;s video. YouTube shows plain re-uploads to fewer people since 1 Oct 2026, so it needs your own layer.</span>
+          <span className="muted text-[11px]">{tr("ap.ownLayer")}</span>
         </label>
         <div className="flex flex-wrap gap-2 pt-1">
-          <button className="btn !px-4 !py-2 !text-sm" disabled={any || !p.slot} onClick={onApprove} style={armed === "ok" ? { outline: "2px solid #ffe5ec", outlineOffset: 2, boxShadow: "0 0 30px rgba(255,46,99,0.8)" } : undefined}>{busy === `ok:${w.key}` ? "Approving…" : "✅ Approve & schedule"} <kbd className="ml-1 hidden sm:inline">A</kbd></button>
+          <button className="btn !px-4 !py-2 !text-sm" disabled={any || !p.slot} onClick={onApprove} style={armed === "ok" ? { outline: "2px solid #ffe5ec", outlineOffset: 2, boxShadow: "0 0 30px rgba(255,46,99,0.8)" } : undefined}>{busy === `ok:${w.key}` ? tr("ap.approving") : `✅ ${tr("ap.approveSchedule")}`} <kbd className="ml-1 hidden sm:inline">A</kbd></button>
           <button className={`chip !px-4 !py-2 ${armed === "skip" ? "error" : ""}`} disabled={any} onClick={onSkip} style={armed === "skip" ? { borderColor: "#fb7185" } : undefined}>
-            {busy === `skip:${w.key}` ? "Skipping…" : armed === "skip" ? "Really skip?" : "Skip"} <kbd className="ml-1 hidden sm:inline">S</kbd></button>
-          {onEdit && <button className="chip !px-4 !py-2" disabled={any} onClick={onEdit}>✏ Edit</button>}
+            {tr(busy === `skip:${w.key}` ? "ap.skipping" : armed === "skip" ? "ap.reallySkip" : "brief.skip")} <kbd className="ml-1 hidden sm:inline">S</kbd></button>
+          {onEdit && <button className="chip !px-4 !py-2" disabled={any} onClick={onEdit}>✏ {tr("auto.editBtn")}</button>}
         </div>
         <p role="status" className={armed ? "font-semibold text-[#ffd6e0]" : "sr-only"}>
-          {armed === "ok" ? "Press A again within 5 s to approve & schedule." : armed === "skip" ? "Skip deletes this clip's render. Press Skip (or S) again within 5 s to confirm." : ""}</p>
+          {armed === "ok" ? tr("ap.armedOk") : armed === "skip" ? tr("ap.armedSkip") : ""}</p>
       </div>
     </article>
   );
 }
 
 function Bars({ title, dim, rec }: { title: string; dim: "creator" | "length" | "hour"; rec?: Record<string, Pref> }) {
+  const { t: tr } = useT();
   const { bars, one } = multBars(dim, rec);
   return (
     <figure className="rounded-lg border border-white/10 p-2">
       <figcaption className="muted mb-1 text-[10px] uppercase tracking-widest">{title}</figcaption>
-      {!bars.length ? <p className="muted">No data yet</p> : <ul className="space-y-1">{bars.map((b) => (
+      {!bars.length ? <p className="muted">{tr("ap.noData")}</p> : <ul className="space-y-1">{bars.map((b) => (
         <li key={b.label} className="grid grid-cols-[minmax(0,5rem)_1fr_2rem_3.6rem] items-center gap-1.5" aria-label={`${b.label}: ${b.mult.toFixed(2)}× usual views, ${b.n} Shorts, ${b.badge} signal`}>
           <span className="truncate" title={b.label}>{b.label}</span>
           <span className="relative h-2.5 rounded-full bg-white/5" aria-hidden>

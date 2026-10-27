@@ -10,6 +10,7 @@ import { daily, forecast, type Forecast } from "@/lib/forecast-pure";
 import { EVIDENCE, EVIDENCE_KINDS, type EvidenceKind } from "@/lib/goal-autopilot-pure";
 import type { GoalTrack } from "@/lib/goal-autopilot";
 import { DreamsList } from "./DreamsList";
+import { useT } from "./i18n";
 
 // 🎯 GOALS in the Agents Station: list, new-goal form, goal detail (plan editor, step timeline, metric sparkline, learned, log).
 // Polling GET /api/goals is itself one of the events that advances a goal (there is no schedule). Goal text and results are untrusted:
@@ -71,41 +72,43 @@ function BurnUp({ t }: { t: GoalTrack }) {
 }
 
 function Milestones({ g, busy, act }: { g: GoalView; busy: boolean; act: (b: object, c?: string) => Promise<boolean> }) {
+  const { t: tr } = useT();
   const [kind, setKind] = useState<EvidenceKind>("shorts");
   const [total, setTotal] = useState("");
   const t = g.track, ap = g.autopilot, id = g.id;
   if (!g.deadline || ["done", "stopped"].includes(g.status) && !ap) return null;
   if (!ap || !t) return (
-    <form className="card flex flex-wrap items-end gap-1.5" aria-label="Set weekly milestones" onSubmit={(e) => { e.preventDefault(); void act({ action: "milestones", id, evidence: kind, total: Number(total) }); }}>
-      <span className="hud-title w-full text-[0.7rem]">WEEKLY MILESTONES</span>
-      <label className="min-w-0 flex-1"><span className="muted">Count</span><select className="field w-full" value={kind} onChange={(e) => setKind(e.target.value as EvidenceKind)}>{EVIDENCE_KINDS.map((k) => <option key={k} value={k}>{EVIDENCE[k].label}</option>)}</select></label>
-      <label className="w-24"><span className="muted">Total by {g.deadline}</span><input className="field w-full" type="number" min={1} required value={total} onChange={(e) => setTotal(e.target.value)} /></label>
-      <button className="btn" disabled={busy || !total}>Set milestones</button>
+    <form className="card flex flex-wrap items-end gap-1.5" aria-label={tr("goal.setMilestones")} onSubmit={(e) => { e.preventDefault(); void act({ action: "milestones", id, evidence: kind, total: Number(total) }); }}>
+      <span className="hud-title w-full text-[0.7rem]">{tr("goal.milestones").toUpperCase()}</span>
+      <label className="min-w-0 flex-1"><span className="muted">{tr("goal.count")}</span><select className="field w-full" value={kind} onChange={(e) => setKind(e.target.value as EvidenceKind)}>{EVIDENCE_KINDS.map((k) => <option key={k} value={k}>{EVIDENCE[k].label}</option>)}</select></label>
+      <label className="w-24"><span className="muted">{tr("goal.totalBy", { d: g.deadline })}</span><input className="field w-full" type="number" min={1} required value={total} onChange={(e) => setTotal(e.target.value)} /></label>
+      <button className="btn" disabled={busy || !total}>{tr("goal.setBtn")}</button>
     </form>
   );
   const r = t.replan;
   return (
-    <section className="card space-y-1" aria-label="Weekly milestones">
-      <div className="flex justify-between"><span className="hud-title text-[0.7rem]">WEEKLY MILESTONES</span><b style={{ color: TRACK_COLOR[t.track] }}>{t.track}</b></div>
-      <p className="muted">{t.actual} / {ap.total} {t.label} · plan {Math.floor(t.expected)} by today · {t.pace}/week lately</p>
+    <section className="card space-y-1" aria-label={tr("goal.milestones")}>
+      <div className="flex justify-between"><span className="hud-title text-[0.7rem]">{tr("goal.milestones").toUpperCase()}</span><b style={{ color: TRACK_COLOR[t.track] }}>{t.track}</b></div>
+      <p className="muted">{t.actual} / {ap.total} {t.label} · {tr("goal.pace", { plan: Math.floor(t.expected), pace: t.pace })}</p>
       <BurnUp t={t} />
       <ol className="space-y-0.5">{t.checks.map((c) => (
         <li key={c.due} className="flex justify-between gap-2"><span className="min-w-0 break-words">{c.due.slice(5)} · {c.doneWhen}</span>
           <span style={{ color: c.met === true ? "#4ade80" : c.met === false ? "#f87171" : undefined }}>{c.actual}/{c.target} {c.met === true ? "✓" : c.met === false ? "✗" : ""}</span></li>
       ))}</ol>
       {r && (
-        <div className="card space-y-1" style={{ borderColor: "#f87171" }} aria-label="Proposed re-plan">
-          <p><b>Re-plan:</b> {r.kind === "shift" ? `move the deadline to ${r.deadline}` : r.kind === "cut" ? `cut the scope to ${r.total} ${t.label}` : `add a catch-up step: ${r.step.what}`}</p>
+        <div className="card space-y-1" style={{ borderColor: "#f87171" }} aria-label={tr("goal.replanAria")}>
+          <p><b>{tr("goal.replan")}</b> {r.kind === "shift" ? tr("goal.shift", { d: r.deadline }) : r.kind === "cut" ? tr("goal.cut", { n: r.total, label: t.label }) : tr("goal.catchUp", { what: r.step.what })}</p>
           <p className="muted">{r.why}</p>
-          <button className="btn" disabled={busy} onClick={() => void act({ action: "replan", id, seen: r })}>Accept re-plan</button>
+          <button className="btn" disabled={busy} onClick={() => void act({ action: "replan", id, seen: r })}>{tr("goal.acceptReplan")}</button>
         </div>
       )}
-      <button className="chip" disabled={busy} onClick={() => void act({ action: "phrase", id })}>Phrase milestones (1 AI call)</button>
+      <button className="chip" disabled={busy} onClick={() => void act({ action: "phrase", id })}>{tr("goal.phrase")}</button>
     </section>
   );
 }
 
 export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { agents: Roster; visible: boolean; onOpenTask?: (id: string) => void; focusId?: string | null }) {
+  const { t: tr } = useT();
   const [goals, setGoals] = useState<GoalView[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => { if (focusId) setOpen(focusId); }, [focusId]);
@@ -133,16 +136,16 @@ export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { a
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="muted text-xs">Goals move only when a step finishes, when you open them, or when you press Continue. No schedules.</p>
-        <span className="flex shrink-0 gap-1.5"><button className="chip" onClick={() => setCourt(true)} title="Agent courtroom for a big decision">⚖ Decide</button><button className="btn" onClick={() => setCreating(true)}>+ New goal</button></span>
+        <p className="muted text-xs">{tr("goal.intro")}</p>
+        <span className="flex shrink-0 gap-1.5"><button className="chip" onClick={() => setCourt(true)} title={tr("goal.courtTitle")}>⚖ {tr("goal.decide")}</button><button className="btn" onClick={() => setCreating(true)}>+ {tr("goal.new")}</button></span>
       </div>
-      {!goals ? <p className="muted text-xs">{err ? "" : "Loading…"}</p> : !goals.length ? <p className="muted text-xs">No goals yet.</p> : (
+      {!goals ? <p className="muted text-xs">{err ? "" : tr("common.loading")}</p> : !goals.length ? <p className="muted text-xs">{tr("goal.none")}</p> : (
         <ul className="space-y-2 text-xs">
           {goals.map((x) => (
             <li key={x.id}>
               <button className="card w-full space-y-1 text-left" onClick={() => setOpen(x.id)} aria-label={`${x.title}, ${x.status}`}>
                 <span className="flex items-start justify-between gap-2"><b className="min-w-0 break-words">{x.title}</b><StatusPill status={x.status} /></span>
-                <span className="muted block">{x.steps.filter((s) => s.status === "done").length}/{x.steps.length} steps{x.progress.now !== null ? ` · ${x.progress.now}${x.progress.target !== null ? ` / ${x.progress.target}` : ""}` : ""}{x.waitingFor ? ` · waiting for ${x.waitingFor}` : ""}{x.track ? ` · ${x.track.track}` : ""}{x.planning ? " · drafting plan…" : ""}</span>
+                <span className="muted block">{tr("goal.steps", { done: x.steps.filter((s) => s.status === "done").length, n: x.steps.length })}{x.progress.now !== null ? ` · ${x.progress.now}${x.progress.target !== null ? ` / ${x.progress.target}` : ""}` : ""}{x.waitingFor ? tr("goal.waitingShort", { who: x.waitingFor }) : ""}{x.track ? ` · ${x.track.track}` : ""}{x.planning ? tr("goal.draftingShort") : ""}</span>
                 {x.progress.pct !== null && <span className="block h-1 rounded bg-white/10"><span className="block h-1 rounded" style={{ width: `${x.progress.pct}%`, background: "var(--cyan)" }} /></span>}
               </button>
             </li>
@@ -156,6 +159,7 @@ export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { a
 }
 
 function NewGoal({ agents, onDone }: { agents: Roster; onDone: (id?: string) => void }) {
+  const { t: tr } = useT();
   const [f, setF] = useState({ title: "", why: "", kind: "none" as MetricKind, target: "", how: "", deadline: "", runsPerDay: 4, callsPerStep: 8 });
   const [picked, setPicked] = useState<string[]>(() => agents.filter((a) => ["atlas", "forge", "nova"].includes(a.slug)).map((a) => a.slug));
   const [err, setErr] = useState("");
@@ -170,27 +174,27 @@ function NewGoal({ agents, onDone }: { agents: Roster; onDone: (id?: string) => 
     } catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not create the goal"); setBusy(false); }
   }
   return (
-    <form onSubmit={submit} className="space-y-2 text-xs" aria-label="New goal">
-      <button type="button" className="chip" onClick={() => onDone()}>← Goals</button>
-      <label className="block"><span className="hud-title text-[0.7rem]">GOAL</span><input className="field w-full" required maxLength={200} value={f.title} onChange={(e) => set({ title: e.target.value })} placeholder="e.g. Reach 1,000 subscribers" /></label>
-      <label className="block"><span className="hud-title text-[0.7rem]">WHY</span><textarea className="field min-h-[3rem] w-full" maxLength={1000} value={f.why} onChange={(e) => set({ why: e.target.value })} /></label>
+    <form onSubmit={submit} className="space-y-2 text-xs" aria-label={tr("goal.new")}>
+      <button type="button" className="chip" onClick={() => onDone()}>{tr("goal.back")}</button>
+      <label className="block"><span className="hud-title text-[0.7rem]">{tr("goal.goal").toUpperCase()}</span><input className="field w-full" required maxLength={200} value={f.title} onChange={(e) => set({ title: e.target.value })} placeholder={tr("goal.titlePh")} /></label>
+      <label className="block"><span className="hud-title text-[0.7rem]">{tr("goal.why").toUpperCase()}</span><textarea className="field min-h-[3rem] w-full" maxLength={1000} value={f.why} onChange={(e) => set({ why: e.target.value })} /></label>
       <div className="grid grid-cols-2 gap-2">
-        <label className="block"><span className="muted">Success metric</span>
+        <label className="block"><span className="muted">{tr("goal.metricLbl")}</span>
           <select className="field w-full" value={f.kind} onChange={(e) => set({ kind: e.target.value as MetricKind })}>{METRICS.map((m) => <option key={m.kind} value={m.kind}>{m.label}</option>)}</select></label>
-        <label className="block"><span className="muted">Target</span><input className="field w-full" type="number" disabled={f.kind === "none" || f.kind === "steps"} value={f.target} onChange={(e) => set({ target: e.target.value })} /></label>
+        <label className="block"><span className="muted">{tr("goal.target")}</span><input className="field w-full" type="number" disabled={f.kind === "none" || f.kind === "steps"} value={f.target} onChange={(e) => set({ target: e.target.value })} /></label>
       </div>
-      {f.kind !== "none" && <label className="block"><span className="muted">How to measure (optional)</span><input className="field w-full" maxLength={200} value={f.how} onChange={(e) => set({ how: e.target.value })} /></label>}
-      <label className="block"><span className="muted">Deadline (optional)</span><input className="field w-full" type="date" value={f.deadline} onChange={(e) => set({ deadline: e.target.value })} /></label>
-      <fieldset className="card"><legend className="muted px-1">Agents that may work on it</legend>
+      {f.kind !== "none" && <label className="block"><span className="muted">{tr("goal.how")}</span><input className="field w-full" maxLength={200} value={f.how} onChange={(e) => set({ how: e.target.value })} /></label>}
+      <label className="block"><span className="muted">{tr("goal.deadlineOpt")}</span><input className="field w-full" type="date" value={f.deadline} onChange={(e) => set({ deadline: e.target.value })} /></label>
+      <fieldset className="card"><legend className="muted px-1">{tr("goal.agents")}</legend>
         <div className="flex flex-wrap gap-2">{agents.map((a) => (
           <label key={a.slug} className="flex items-center gap-1"><input type="checkbox" checked={picked.includes(a.slug)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, a.slug] : p.filter((x) => x !== a.slug)))} /><span style={{ color: a.color }}>{a.name}</span></label>
         ))}</div>
       </fieldset>
       <div className="grid grid-cols-2 gap-2">
-        <label className="block"><span className="muted">Max agent runs / day</span><input className="field w-full" type="number" min={1} max={20} value={f.runsPerDay} onChange={(e) => set({ runsPerDay: Number(e.target.value) })} /></label>
-        <label className="block"><span className="muted">Max AI calls / step</span><input className="field w-full" type="number" min={2} max={12} value={f.callsPerStep} onChange={(e) => set({ callsPerStep: Number(e.target.value) })} /></label>
+        <label className="block"><span className="muted">{tr("goal.runsDay")}</span><input className="field w-full" type="number" min={1} max={20} value={f.runsPerDay} onChange={(e) => set({ runsPerDay: Number(e.target.value) })} /></label>
+        <label className="block"><span className="muted">{tr("goal.callsStep")}</span><input className="field w-full" type="number" min={2} max={12} value={f.callsPerStep} onChange={(e) => set({ callsPerStep: Number(e.target.value) })} /></label>
       </div>
-      <button className="btn" disabled={busy || !picked.length}>{busy ? "Creating…" : "Create & draft a plan"}</button>
+      <button className="btn" disabled={busy || !picked.length}>{tr(busy ? "goal.creating" : "goal.create")}</button>
       {err && <p className="error" role="alert">{err}</p>}
     </form>
   );
@@ -200,6 +204,7 @@ function Detail({ g, busy, err, act, name, color, agents, onBack, onOpenTask }: 
   g: GoalView; busy: boolean; err: string; act: (b: object, c?: string) => Promise<boolean>; name: (s: string) => string; color: (s: string) => string | undefined;
   agents: Roster; onBack: () => void; onOpenTask?: (id: string) => void;
 }) {
+  const { t: tr } = useT();
   const pending = g.steps.filter((s) => s.status === "pending");
   const [edit, setEdit] = useState<Edit[] | null>(null);
   const [baseIds, setBaseIds] = useState<string[]>([]); // pending step ids when editing started: the server refuses a save over a moved plan
@@ -215,75 +220,75 @@ function Detail({ g, busy, err, act, name, color, agents, onBack, onOpenTask }: 
 
   return (
     <div className="space-y-3 text-xs">
-      <button className="chip" onClick={onBack}>← Goals</button>
+      <button className="chip" onClick={onBack}>{tr("goal.back")}</button>
       <div className="flex items-start justify-between gap-2"><h3 className="break-words text-sm font-semibold">🎯 {g.title}</h3><StatusPill status={g.status} /></div>
       {g.why && <p className="muted break-words">{g.why}</p>}
-      <p className="muted">{g.deadline ? `Deadline ${g.deadline}${g.deadline < new Date().toISOString().slice(0, 10) && g.status !== "done" ? " (passed)" : ""} · ` : ""}{g.runsLeft} of {g.budget.runsPerDay} runs left today · up to {g.budget.callsPerStep} AI calls per step</p>
-      {g.waitingFor && <p style={{ color: "#fbbf24" }}>Waiting for {g.waitingFor}.</p>}
-      {g.blocker && <p className="error break-words">Blocker: {g.blocker}</p>}
-      {g.planning && <p className="muted" role="status">An agent is drafting the plan…</p>}
+      <p className="muted">{g.deadline ? `${tr("goal.deadline", { d: g.deadline })}${g.deadline < new Date().toISOString().slice(0, 10) && g.status !== "done" ? tr("goal.passed") : ""} · ` : ""}{tr("goal.budget", { left: g.runsLeft, max: g.budget.runsPerDay, calls: g.budget.callsPerStep })}</p>
+      {g.waitingFor && <p style={{ color: "#fbbf24" }}>{tr("goal.waiting", { who: g.waitingFor })}</p>}
+      {g.blocker && <p className="error break-words">{tr("goal.blocker")} {g.blocker}</p>}
+      {g.planning && <p className="muted" role="status">{tr("goal.drafting")}</p>}
       {g.planError && <p className="error break-words">{g.planError}</p>}
       {g.status === "draft" && !g.planning && g.steps.length >= 3 && <TwinCard decision={{ kind: "goal-plan", ref: id, title: g.title, detail: [g.why, ...g.steps.map((s, i) => `${i + 1}. ${s.what}`)].filter(Boolean).join("\n") }} />}
 
       <div className="flex flex-wrap gap-1.5">
-        {g.status === "draft" && !edit && <button className="btn" disabled={busy || g.steps.length < 3} onClick={() => void act({ action: "approve", id, stepIds: g.steps.map((s) => s.id) })}>Approve plan</button>}
-        {g.status === "draft" && <button className="chip" disabled={busy || !!g.planning} onClick={() => void act({ action: "redraft", id })}>Redraft</button>}
-        {["approved", "waiting", "blocked"].includes(g.status) && <button className="btn" disabled={busy} onClick={() => void act({ action: "continue", id })}>Continue</button>}
-        {["approved", "running", "waiting", "blocked"].includes(g.status) && <button className="chip" disabled={busy} onClick={() => void act({ action: "pause", id })}>Pause</button>}
-        {g.status === "paused" && <button className="btn" disabled={busy} onClick={() => void act({ action: "resume", id })}>Resume</button>}
-        {!["done", "stopped"].includes(g.status) && <button className="chip" disabled={busy} onClick={() => void act({ action: "stop", id }, "Stop this goal for good? A running step is cancelled.")}>Stop</button>}
-        {["draft", "done", "stopped"].includes(g.status) && <button className="chip" disabled={busy} onClick={() => void act({ action: "delete", id }, "Delete this goal?").then((ok) => ok && onBack())}>Delete</button>}
+        {g.status === "draft" && !edit && <button className="btn" disabled={busy || g.steps.length < 3} onClick={() => void act({ action: "approve", id, stepIds: g.steps.map((s) => s.id) })}>{tr("goal.approvePlan")}</button>}
+        {g.status === "draft" && <button className="chip" disabled={busy || !!g.planning} onClick={() => void act({ action: "redraft", id })}>{tr("goal.redraft")}</button>}
+        {["approved", "waiting", "blocked"].includes(g.status) && <button className="btn" disabled={busy} onClick={() => void act({ action: "continue", id })}>{tr("goal.continue")}</button>}
+        {["approved", "running", "waiting", "blocked"].includes(g.status) && <button className="chip" disabled={busy} onClick={() => void act({ action: "pause", id })}>{tr("rules.pause")}</button>}
+        {g.status === "paused" && <button className="btn" disabled={busy} onClick={() => void act({ action: "resume", id })}>{tr("stop.resume")}</button>}
+        {!["done", "stopped"].includes(g.status) && <button className="chip" disabled={busy} onClick={() => void act({ action: "stop", id }, tr("goal.stopConfirm"))}>{tr("core.stop")}</button>}
+        {["draft", "done", "stopped"].includes(g.status) && <button className="chip" disabled={busy} onClick={() => void act({ action: "delete", id }, tr("goal.deleteConfirm")).then((ok) => ok && onBack())}>{tr("rules.delete")}</button>}
       </div>
 
       {g.metric.kind !== "none" && (
-        <section className="card space-y-1" aria-label="Metric">
-          <div className="flex justify-between"><span className="hud-title text-[0.7rem]">METRIC</span><span>{g.progress.now ?? "–"}{g.progress.target !== null ? ` / ${g.progress.target}` : ""}{g.progress.pct !== null ? ` (${g.progress.pct}%)` : ""}</span></div>
+        <section className="card space-y-1" aria-label={tr("goal.metric")}>
+          <div className="flex justify-between"><span className="hud-title text-[0.7rem]">{tr("goal.metric").toUpperCase()}</span><span>{g.progress.now ?? "–"}{g.progress.target !== null ? ` / ${g.progress.target}` : ""}{g.progress.pct !== null ? ` (${g.progress.pct}%)` : ""}</span></div>
           {g.metric.how && <p className="muted break-words">{g.metric.how}</p>}
           {g.metric.kind !== "steps" && (() => {
             const f = forecast(g.metric.samples, g.metric.target, g.deadline);
             return <>{f.projected && g.deadline ? <Fan g={g} f={f} /> : <Spark values={g.metric.samples.map((s) => s.value)} />}<p className="muted text-xs">{f.summary}</p></>;
           })()}
           {g.metric.kind === "manual" && <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); void act({ action: "metric", id, value: Number(val) }).then((ok) => ok && setVal("")); }}>
-            <input className="field min-w-0 flex-1 !py-1" type="number" value={val} onChange={(e) => setVal(e.target.value)} aria-label="New metric value" /><button className="chip" disabled={busy || val === ""}>Record</button></form>}
+            <input className="field min-w-0 flex-1 !py-1" type="number" value={val} onChange={(e) => setVal(e.target.value)} aria-label={tr("goal.newValue")} /><button className="chip" disabled={busy || val === ""}>{tr("goal.record")}</button></form>}
         </section>
       )}
 
       <Milestones g={g} busy={busy} act={act} />
 
       {g.proposal && (
-        <section className="card space-y-1" style={{ borderColor: "#fbbf24" }} aria-label="Proposed plan change">
-          <p><b>Proposed change:</b> {g.proposal.reason}</p>
-          <ol className="list-decimal pl-5">{g.proposal.steps.map((s, k) => <li key={k}><b style={{ color: color(s.agent) }}>{name(s.agent)}</b> {s.what}{s.needsApproval ? " ⚠ needs OK" : ""}</li>)}</ol>
-          <div className="flex gap-1.5"><button className="btn" disabled={busy} onClick={() => void act({ action: "proposal", id, accept: true })}>Apply change</button><button className="chip" disabled={busy} onClick={() => void act({ action: "proposal", id, accept: false })}>Keep current plan</button></div>
+        <section className="card space-y-1" style={{ borderColor: "#fbbf24" }} aria-label={tr("goal.proposalAria")}>
+          <p><b>{tr("goal.proposal")}</b> {g.proposal.reason}</p>
+          <ol className="list-decimal pl-5">{g.proposal.steps.map((s, k) => <li key={k}><b style={{ color: color(s.agent) }}>{name(s.agent)}</b> {s.what}{s.needsApproval ? tr("goal.needsOk") : ""}</li>)}</ol>
+          <div className="flex gap-1.5"><button className="btn" disabled={busy} onClick={() => void act({ action: "proposal", id, accept: true })}>{tr("goal.apply")}</button><button className="chip" disabled={busy} onClick={() => void act({ action: "proposal", id, accept: false })}>{tr("goal.keep")}</button></div>
         </section>
       )}
 
-      <section aria-label="Plan">
-        <div className="flex items-center justify-between"><span className="hud-title">PLAN</span>
-          {EDITABLE.includes(g.status) && !edit && <button className="chip" onClick={startEdit}>Edit steps</button>}</div>
+      <section aria-label={tr("goal.plan")}>
+        <div className="flex items-center justify-between"><span className="hud-title">{tr("goal.plan").toUpperCase()}</span>
+          {EDITABLE.includes(g.status) && !edit && <button className="chip" onClick={startEdit}>{tr("goal.editSteps")}</button>}</div>
         {edit ? (
           <div className="mt-1 space-y-2">
             {edit.map((s, i) => (
               <div key={s.key} className="card space-y-1" style={{ borderLeft: `3px solid ${color(s.agent) ?? "var(--line)"}` }}>
                 <div className="flex items-center gap-1">
-                  <select className="field min-w-0 flex-1 !py-1" value={s.agent} onChange={(e) => setE(s.key, { agent: e.target.value })} aria-label={`Step ${i + 1} agent`}>{allowed.map((a) => <option key={a.slug} value={a.slug}>{a.name}</option>)}</select>
-                  <button className="chip !px-2" disabled={i === 0} onClick={() => setEdit((x) => x && move(x, i, -1))} aria-label={`Move step ${i + 1} up`}>↑</button>
-                  <button className="chip !px-2" disabled={i === edit.length - 1} onClick={() => setEdit((x) => x && move(x, i, 1))} aria-label={`Move step ${i + 1} down`}>↓</button>
-                  <button className="chip !px-2" onClick={() => setEdit((x) => x && x.filter((y) => y.key !== s.key))} aria-label={`Remove step ${i + 1}`}>✕</button>
+                  <select className="field min-w-0 flex-1 !py-1" value={s.agent} onChange={(e) => setE(s.key, { agent: e.target.value })} aria-label={tr("goal.stepAgent", { n: i + 1 })}>{allowed.map((a) => <option key={a.slug} value={a.slug}>{a.name}</option>)}</select>
+                  <button className="chip !px-2" disabled={i === 0} onClick={() => setEdit((x) => x && move(x, i, -1))} aria-label={tr("goal.stepUp", { n: i + 1 })}>↑</button>
+                  <button className="chip !px-2" disabled={i === edit.length - 1} onClick={() => setEdit((x) => x && move(x, i, 1))} aria-label={tr("goal.stepDown", { n: i + 1 })}>↓</button>
+                  <button className="chip !px-2" onClick={() => setEdit((x) => x && x.filter((y) => y.key !== s.key))} aria-label={tr("goal.stepRemove", { n: i + 1 })}>✕</button>
                 </div>
-                <textarea className="field w-full" maxLength={500} value={s.what} onChange={(e) => setE(s.key, { what: e.target.value })} aria-label={`Step ${i + 1}: what`} />
-                <input className="field w-full" maxLength={300} value={s.expected} onChange={(e) => setE(s.key, { expected: e.target.value })} placeholder="Expected output" aria-label={`Step ${i + 1}: expected output`} />
-                <label className="flex items-center gap-1"><input type="checkbox" checked={s.needsApproval} onChange={(e) => setE(s.key, { needsApproval: e.target.checked })} /> Wait for my OK before it runs</label>
+                <textarea className="field w-full" maxLength={500} value={s.what} onChange={(e) => setE(s.key, { what: e.target.value })} aria-label={tr("goal.stepWhat", { n: i + 1 })} />
+                <input className="field w-full" maxLength={300} value={s.expected} onChange={(e) => setE(s.key, { expected: e.target.value })} placeholder={tr("goal.expectedPh")} aria-label={tr("goal.stepExpected", { n: i + 1 })} />
+                <label className="flex items-center gap-1"><input type="checkbox" checked={s.needsApproval} onChange={(e) => setE(s.key, { needsApproval: e.target.checked })} /> {tr("goal.waitOk")}</label>
               </div>
             ))}
             <div className="flex flex-wrap gap-1.5">
-              <button className="chip" onClick={() => setEdit((x) => x && [...x, { what: "", agent: allowed[0]?.slug ?? "nova", expected: "", needsApproval: false, key: nextKey++ }])}>+ Add step</button>
-              <button className="btn" disabled={busy} onClick={() => void act({ action: "edit", id, steps: edit, baseIds }).then((ok) => ok && setEdit(null))}>Save steps</button>
-              <button className="chip" onClick={() => setEdit(null)}>Cancel</button>
+              <button className="chip" onClick={() => setEdit((x) => x && [...x, { what: "", agent: allowed[0]?.slug ?? "nova", expected: "", needsApproval: false, key: nextKey++ }])}>+ {tr("goal.addStep")}</button>
+              <button className="btn" disabled={busy} onClick={() => void act({ action: "edit", id, steps: edit, baseIds }).then((ok) => ok && setEdit(null))}>{tr("goal.saveSteps")}</button>
+              <button className="chip" onClick={() => setEdit(null)}>{tr("common.cancel")}</button>
             </div>
-            <p className="muted">Steps that publish, upload, schedule, send or delete always wait for your OK before they run; their actions wait for your approval in Operations.</p>
+            <p className="muted">{tr("goal.risky")}</p>
           </div>
-        ) : !g.steps.length ? <p className="muted">{g.planning ? "Drafting…" : "No steps yet."}</p> : (
+        ) : !g.steps.length ? <p className="muted">{tr(g.planning ? "goal.draftingDots" : "goal.noSteps")}</p> : (
           <ol className="mt-1 space-y-1">
             {g.steps.map((s, i) => (
               <li key={s.id}>
@@ -293,14 +298,14 @@ function Detail({ g, busy, err, act, name, color, agents, onBack, onOpenTask }: 
                     <StatusPill status={s.status === "waiting" ? "awaiting_approval" : s.status} />
                   </summary>
                   <div className="mt-1 space-y-1 pl-3">
-                    <p className="muted whitespace-pre-wrap break-words">{s.what}{s.expected ? `\nExpected: ${s.expected}` : ""}</p>
+                    <p className="muted whitespace-pre-wrap break-words">{s.what}{s.expected ? `\n${tr("goal.expected", { e: s.expected })}` : ""}</p>
                     {s.result && <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words">{s.result}</p>}
-                    {s.reflection && <p className="break-words"><b>Reflection{s.moved ? ` (moved the metric: ${s.moved})` : ""}:</b> {s.reflection}</p>}
+                    {s.reflection && <p className="break-words"><b>{tr("goal.reflection")}{s.moved ? tr("goal.moved", { m: s.moved }) : ""}:</b> {s.reflection}</p>}
                     {s.error && <p className="error break-words">{s.error}</p>}
                     {i === next && s.status === "pending" && s.needsApproval && !s.ok && ["approved", "waiting", "paused"].includes(g.status) &&
-                      <button className="btn" disabled={busy} onClick={() => void act({ action: "ok", id, step: i, stepId: s.id })}>OK, run this step</button>}
-                    {s.status === "waiting" && s.taskId && onOpenTask && <button className="link" style={{ color: "#fbbf24" }} onClick={() => onOpenTask(s.taskId!)}>Needs approval: open in Operations →</button>}
-                    {s.taskId && s.status !== "waiting" && onOpenTask && <button className="link" onClick={() => onOpenTask(s.taskId!)}>Open task →</button>}
+                      <button className="btn" disabled={busy} onClick={() => void act({ action: "ok", id, step: i, stepId: s.id })}>{tr("goal.okRun")}</button>}
+                    {s.status === "waiting" && s.taskId && onOpenTask && <button className="link" style={{ color: "#fbbf24" }} onClick={() => onOpenTask(s.taskId!)}>{tr("goal.needsApproval")}</button>}
+                    {s.taskId && s.status !== "waiting" && onOpenTask && <button className="link" onClick={() => onOpenTask(s.taskId!)}>{tr("goal.openTask")}</button>}
                   </div>
                 </details>
               </li>
@@ -309,8 +314,8 @@ function Detail({ g, busy, err, act, name, color, agents, onBack, onOpenTask }: 
         )}
       </section>
 
-      {g.learned.length > 0 && <section aria-label="What I learned"><div className="hud-title">WHAT I LEARNED</div><ul className="list-disc pl-5">{g.learned.map((l, k) => <li key={k} className="break-words">{l}</li>)}</ul></section>}
-      <section aria-label="Timeline"><div className="hud-title">TIMELINE</div>
+      {g.learned.length > 0 && <section aria-label={tr("goal.learned")}><div className="hud-title">{tr("goal.learned").toUpperCase()}</div><ul className="list-disc pl-5">{g.learned.map((l, k) => <li key={k} className="break-words">{l}</li>)}</ul></section>}
+      <section aria-label={tr("goal.timeline")}><div className="hud-title">{tr("goal.timeline").toUpperCase()}</div>
         <ul className="muted space-y-0.5">{[...g.log].reverse().slice(0, 15).map((e, k) => <li key={k}>{e.at.slice(5, 16).replace("T", " ")} · {e.text}</li>)}</ul></section>
       {err && <p className="error" role="alert">{err}</p>}
     </div>
