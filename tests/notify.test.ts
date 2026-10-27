@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addItem, parseItems, unreadCount, relTime, notify, NOTIFY_EVENT, NOTIFY_CAP, type NotifyItem } from "../src/lib/notify-pure.ts";
+import { addItem, parseItems, unreadCount, relTime, notify, holdNotify, NOTIFY_EVENT, NOTIFY_CAP, type NotifyItem } from "../src/lib/notify-pure.ts";
 
 const T = 1_700_000_000_000;
 
@@ -52,4 +52,21 @@ test("notify dispatches on globalThis (window in the browser), no-op without it"
   g.dispatchEvent = bus.dispatchEvent.bind(bus);
   try { notify({ title: "hi", kind: "agents" }); } finally { delete g.dispatchEvent; }
   assert.deepEqual(got, { title: "hi", kind: "agents" });
+});
+
+test("during a focus block notices are held, red alerts still go out, and the held ones come back at the end", () => {
+  const bus = new EventTarget(), g = globalThis as { dispatchEvent?: unknown }, got: string[] = [];
+  bus.addEventListener(NOTIFY_EVENT, (e) => { got.push((e as CustomEvent).detail.title); });
+  g.dispatchEvent = bus.dispatchEvent.bind(bus);
+  try {
+    holdNotify(true);
+    notify({ title: "Agent finished", kind: "agents" });
+    notify({ title: "Upload failed: quota", kind: "studio" });
+    holdNotify(true); // a second "on" keeps what is held
+    assert.deepEqual(got, ["Upload failed: quota"]);
+    assert.deepEqual(holdNotify(false).map((d) => d.title), ["Agent finished"]);
+    assert.deepEqual(holdNotify(false), []);
+    notify({ title: "after", kind: "core" });
+    assert.deepEqual(got, ["Upload failed: quota", "after"]);
+  } finally { delete g.dispatchEvent; holdNotify(false); }
 });

@@ -1,5 +1,7 @@
 "use client";
 import { PerfBeacon, perfCtx } from "./PerfBeacon";
+import { AmbientSound, AmbientSoundMenu } from "./AmbientSound";
+import { ambientEvent } from "./spatial-audio";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -54,6 +56,7 @@ import type { ShipTask } from "@/lib/ships-pure";
 import { CursorRing } from "./CursorRing";
 import { MaskText } from "./MaskText";
 import { useDragPanel } from "./useDragPanel";
+import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
@@ -102,6 +105,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const boot = useBootBatch(3);
   const [view, setView] = useState<"3d" | "2d" | null>(null); // null = still deciding: show the loader, never flash the 2D index
   const [reduced, setReduced] = useState(false);
+  const [dilation, setDilation] = useState<{ startAt: number; endAt: number } | null>(null); // a time dilation focus block
   const [panel, setPanel] = useState<PanelId | null>(null);
   const [memoryCount, setMemoryCount] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -333,6 +337,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "events", filter: `user_id=eq.${userId}` }, (payload) => {
         const e = payload.new as { type: string; planet: string };
         pulses.current[e.planet] = Date.now();
+        ambientEvent(e.type, (payload.new as { payload?: { status?: unknown } }).payload); // a soft chime from the planet
         if (e.type.startsWith("memory.")) void refreshCount();
         if (e.type === "core.started") setBusy(true);
         if (e.type === "call.started" || e.type === "call.ended") dispatchEvent(new CustomEvent(CALL_ACTIVE, { detail: { on: e.type === "call.started" } })); // a phone call: "Hey Orbit" off at once
@@ -523,7 +528,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
         <div className="absolute inset-0" style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
-          <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships}
+          <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation}
             dive={dive} onDiveCross={onDiveCross} onDiveCancel={onDiveCancel} onIdle={onGalaxyIdle} />
         </div>
       )}
@@ -562,6 +567,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title="Realtime link to the backend that animates the galaxy">{live === "live" ? "LIVE" : live === "offline" ? "OFFLINE" : "CONNECTING"}</span>
           {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start Orbital from the desktop shortcut for the production server.">DEV</span>}
           <StopAll />
+          <TimeDilation onSpan={setDilation} />
           <NotificationCenter home={!shown && !approach && !gameOpen} />
           <StudioNotifier />
           <OrbitExplore selected={shown} onSelect={select} />
@@ -587,10 +593,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, mission: true } }))}>Mission control</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(SHORTCUTS_EVENT))}>Keyboard shortcuts <kbd>?</kbd></button>
         <button className="hud-menu-item" aria-pressed={sfxOn} onClick={() => { sfx.set(!sfxOn); setSfxOn(!sfxOn); if (!sfxOn) sfx.tick(); }}>UI sounds: {sfxOn ? "on" : "off"}</button>
+        <AmbientSoundMenu />
         <button className="hud-menu-item" onClick={signOut} title={email}>Sign out</button>
       </div>
       {boot >= 2 && <CursorRing />}
       <PerfBeacon />
+      <AmbientSound />
       {perfRun && <PerfRun />}
       {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><MarketWatcher /><RemoteCall compact /></>}
 
