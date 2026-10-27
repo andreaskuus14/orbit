@@ -54,6 +54,8 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
         ))}
         {report.done.map((i) => <li key={key(i)}>{row(i, "✓")}</li>)}
         {report.failed.map((i) => <li key={key(i)} className="warn">{row(i, "⚠")}{i.why && <span className="text-xs"> · {i.why}</span>}</li>)}
+        {report.company && <li className="text-xs">{report.company}</li>}
+        {report.invoices && <li className="warn">€ {report.invoices}: reminders in BUSINESS</li>}
         {report.stopped && <li className="text-xs">{stoppedText(report.stopped)}{report.deferred ? ` · ${report.deferred} left for tonight` : ""}</li>}
       </ul>
     </div>

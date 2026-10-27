@@ -189,10 +189,7 @@ function applyTimer(result: RestoredFocusTimer) {
 let focusWas = false;
 function focusSignal() {
   const on = timer.endAt > 0 && timer.phase === "focus";
-  if (on !== focusWas) {
-    focusWas = on; dispatchEvent(new CustomEvent("orbit:focus", { detail: { on } }));
-    void post({ action: "focusBlock", until: on ? timer.endAt : 0 }).catch(() => {}); // habit nudges wait out the focus block
-  }
+  if (on !== focusWas) { focusWas = on; dispatchEvent(new CustomEvent("orbit:focus", { detail: { on } })); }
 }
 function ensureTick() {
   if (timerTick) return;

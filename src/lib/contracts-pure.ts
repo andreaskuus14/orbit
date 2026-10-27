@@ -3,6 +3,7 @@
 // UI: components/ContractsPanel.tsx. The model only fills fields and suggests clause wording; every change from the template
 // is shown. ORBIT NEVER signs: only the owner's own click on "Sign" moves a contract to "signed" (AGENTS.md rule 6).
 import { pdfDoc, pdfText, type PdfPage } from "./pdf-pure.ts";
+import { emailIn } from "./business-pure.ts";
 
 // ---- Templates -----------------------------------------------------------------
 
@@ -287,6 +288,11 @@ export function coverEmail(c: Pick<Contract, "title">, f: Fields): string {
   return `Hello ${f.partyName || ""},\n\nPlease find attached the ${c.title.toLowerCase()} as we agreed, signed by me. If everything is in order, please sign the last page and send a scan or photo back to me. If you would like to change anything, just reply to this email.\n\nBest regards,\n${f.ownerName || ""}`.replace("Hello ,", "Hello,");
 }
 export const coverSubject = (c: Pick<Contract, "title">, f: Fields) => `${c.title} for signature${f.ownerName ? ` (${f.ownerName})` : ""}`.replace(/[\r\n]+/g, " ").slice(0, 150);
+/** Exactly what "Approve & send" emails: its contentHash is the approval his click carries (approval-pure approvalGate). */
+export const contractSendContent = (c: Contract) => {
+  const f = current(c).fields;
+  return { to: emailIn(f.partyEmail ?? ""), subject: coverSubject(c, f), text: c.cover, pdf: c.signed?.hash ?? null };
+};
 
 // ---- The model's part: fill blanks, suggest clause wording --------------------------
 
