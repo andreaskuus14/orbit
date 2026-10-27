@@ -7,10 +7,16 @@ import {
   emptyStore, isDateKey, isRepeat, nextOccurrence, journalText, matchHabit, pruneReminders, reminderTimeError, streak, summaryText, view,
   type Habit, type LifeState, type LifeStore, type Reminder, type Repeat,
 } from "./life-pure";
+import type { FocusTimer } from "./focus-timer-pure";
 
 // LIFE workspace (habits, focus, reminders, journal), stored locally in <ORBIT data dir>/life.json like follows.json.
 
 export type { LifeState, Habit, Reminder };
+
+// The focus timer lives in the PC browser; it reports each change here (memory only) so the read-only /screen can show it.
+const lf = globalThis as unknown as { __orbitFocus?: FocusTimer };
+export const setLiveFocus = (t: FocusTimer) => { lf.__orbitFocus = t; };
+export const liveFocus = () => lf.__orbitFocus ?? null;
 
 const file = () => {
   const local = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "orbit") : path.join(os.homedir(), ".orbit");

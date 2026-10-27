@@ -4,6 +4,7 @@ import type { Clip, ClipJob } from "./types.ts";
 // Since 1 Oct 2026 YouTube shows Shorts re-uploaded from other creators "without adding anything of your own" to fewer people,
 // and channels that mainly do that get less reach. So a clip from someone else's video needs the owner's own layer, stated in words.
 
+export const RECAP_SOURCE = "ORBIT daily recap: "; // + the local day: ORBIT's private daily recap reel (recap-pure.ts), never posted
 export const ORIGINAL_MIN = 10, ORIGINAL_MAX = 200;
 
 /** Own footage: the devlog preset clips the owner's own Roblox build sessions. Everything else may be another creator's video. */
@@ -18,7 +19,8 @@ export function cleanOriginal(v: unknown): string | null | undefined {
 }
 
 /** Why this clip can't be published yet, or null. */
-export function originalityIssue(job: Pick<ClipJob, "options">, clip: Pick<Clip, "original">): string | null {
+export function originalityIssue(job: Pick<ClipJob, "options"> & { source?: string }, clip: Pick<Clip, "original">): string | null {
+  if (job.source?.startsWith(RECAP_SOURCE)) return "This is ORBIT's private daily recap: it is never posted."; // every publish path checks here
   if (ownSource(job) || (clip.original?.trim().length ?? 0) >= ORIGINAL_MIN) return null;
   return "This clip is from another creator's video. Since 1 Oct 2026 YouTube shows re-uploads to fewer people. " +
     "Add your own layer first (your commentary, reaction or analysis) and describe it in “What I added”.";

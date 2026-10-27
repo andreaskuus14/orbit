@@ -21,6 +21,7 @@ export const EFFECTS: Record<string, Effect> = {
   // owner-click actions
   "business.send": "outward-send", "contracts.send": "outward-send", "negotiator.approve": "outward-send", "invoices.remind": "outward-send",
   "story.approve": "spend", "studio.schedule": "publish", "studio.publish": "publish", "contracts.sign": "sign",
+  "court.run": "read", "court.keep": "reversible", "twin.argue": "read", "twin.mute": "reversible", // model calls on his own data; keep = a memory
 };
 
 export const isConsequential = (action: string) => CONSEQUENTIAL.includes(EFFECTS[action] ?? "sign"); // unknown = fail closed
