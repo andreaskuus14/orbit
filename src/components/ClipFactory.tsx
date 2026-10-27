@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, ty
 import { CAM_NAME, CAPTION_STYLES, CHANNEL_LINK_MSG, LAYOUT_NAME, REJECT_REASONS, bytes, channelLink, isJobActive, layoutText, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
 import ReviewQueue from "./ReviewQueue";
 import { useWorldPaused } from "./world-paused";
+import { useT } from "./i18n";
 import ClipPicks from "./ClipPicks";
 import LearnedCard from "./LearnedCard";
 import AutopilotPanel from "./AutopilotPanel";
@@ -101,13 +102,14 @@ const readTab = (): Tab | null => {
 
 /** "(?)": a long explanation behind a small button; hover shows it as a tooltip, click/tap/keyboard toggles it inline. */
 function Help({ text }: { text: string }) {
+  const { t: tr } = useT();
   const [open, setOpen] = useState(false);
   const id = useId();
   return (
     <>
       {/* 24px hit target (40px on touch) around a 16px circle; negative margin keeps the text line height */}
       <button type="button" className="muted -my-1 inline-grid h-6 w-6 place-items-center rounded-full align-middle pointer-coarse:-m-2 pointer-coarse:h-10 pointer-coarse:w-10"
-        title={text} aria-label="More info" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
+        title={text} aria-label={tr("cf.moreInfo")} aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
         <span aria-hidden className="grid h-4 w-4 place-items-center rounded-full border border-white/20 text-[10px] leading-none">?</span>
       </button>
       <span id={id} hidden={!open} className="muted mt-0.5 block w-full text-[11px] leading-snug">{text}</span>
@@ -123,13 +125,14 @@ const Empty = ({ text, action }: { text: string; action?: ReactNode }) => (
 );
 
 /** Two-click confirm without window.confirm: first click arms ("Sure?"), second runs; blur or 4 s disarms. */
-function ConfirmButton({ id, label, sure = "Sure?", aria, onConfirm, disabled, className = "chip" }: { id?: string; label: string; sure?: string; aria: string; onConfirm: () => void; disabled?: boolean; className?: string }) {
+function ConfirmButton({ id, label, sure, aria, onConfirm, disabled, className = "chip" }: { id?: string; label: string; sure?: string; aria: string; onConfirm: () => void; disabled?: boolean; className?: string }) {
+  const { t: tr } = useT();
   const [armed, setArmed] = useState(false);
   useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(false), 4000); return () => clearTimeout(t); }, [armed]);
   return (
-    <button id={id} className={className} disabled={disabled} onBlur={() => setArmed(false)} aria-label={armed ? `Confirm: ${aria}` : aria}
+    <button id={id} className={className} disabled={disabled} onBlur={() => setArmed(false)} aria-label={armed ? tr("cf.confirmAria", { aria }) : aria}
       style={armed ? { borderColor: "#fb7185" } : undefined} onClick={() => (armed ? (setArmed(false), onConfirm()) : setArmed(true))}>
-      {armed ? sure : label}
+      {armed ? sure ?? tr("cf.sure") : label}
     </button>
   );
 }
@@ -138,6 +141,7 @@ function ConfirmButton({ id, label, sure = "Sure?", aria, onConfirm, disabled, c
 
 const seenReview = new WeakSet<object>();
 export default function ClipFactory({ reduced, onClose, review }: { reduced: boolean; onClose?: () => void; review?: object | null /* a new object opens the morning review */ }) {
+  const { t: tr, tn } = useT();
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -303,12 +307,12 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   };
   const goSchedule = () => { selectTab("clips"); requestAnimationFrame(() => document.getElementById("schedule-all")?.focus()); };
   // One obvious next step, in priority order: review > schedule > connect YouTube > wait for work > find videos.
-  const next = fresh ? <button className="btn" onClick={() => setReviewing(true)} aria-label={`Review ${fresh} new clips`}>☀ {plural(fresh, "clip")} ready to review</button>
-    : unpublished && yt?.canUpload ? <button className="btn" onClick={goSchedule} aria-label={`Schedule all ${unpublished} approved clips`}>🕒 {unpublished} approved → Schedule all</button>
-    : unpublished && yt?.configured ? <a className="btn" href="/api/studio/oauth/start">🔗 Connect YouTube to publish {unpublished} approved</a>
+  const next = fresh ? <button className="btn" onClick={() => setReviewing(true)} aria-label={tr("cf.reviewAria", { n: fresh })}>☀ {tn("cf.readyReview", fresh)}</button>
+    : unpublished && yt?.canUpload ? <button className="btn" onClick={goSchedule} aria-label={tr("cf.scheduleAllAria", { n: unpublished })}>🕒 {tr("cf.approvedSchedule", { n: unpublished })}</button>
+    : unpublished && yt?.configured ? <a className="btn" href="/api/studio/oauth/start">🔗 {tr("cf.connectToPublish", { n: unpublished })}</a>
     : workText ? workNext
-    : <button className="btn" onClick={() => { selectTab("find"); setScoutRun((n) => n + 1); }} aria-label="Find videos: run the video scout">🔭 Find videos</button>;
-  const tabs: [Tab, string][] = [["pipeline", "▦ Pipeline"], ["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["story", "✨ AI Story"], ["longform", "🎞 Long-form"], ["calendar", "📅 Calendar"], ["insights", "🧠 Insights"], ["autopilot", "🤖 Autopilot"]];
+    : <button className="btn" onClick={() => { selectTab("find"); setScoutRun((n) => n + 1); }} aria-label={tr("cf.findAria")}>🔭 {tr("cf.findVideos")}</button>;
+  const tabs: [Tab, string][] = [["pipeline", `▦ ${tr("cf.tab.pipeline")}`], ["find", `🔭 ${tr("cf.findVideos")}`], ["clips", `🎬 ${tr("cf.tab.clips")}${fresh ? tr("cf.tab.new", { n: fresh }) : ""}`], ["story", `✨ ${tr("cf.tab.story")}`], ["longform", `🎞 ${tr("cf.tab.longform")}`], ["calendar", `📅 ${tr("cf.tab.calendar")}`], ["insights", `🧠 ${tr("cf.tab.insights")}`], ["autopilot", `🤖 ${tr("cf.tab.autopilot")}`]];
   const onTabKey = (e: KeyboardEvent) => {
     const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (!d) return;
@@ -318,24 +322,24 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   };
 
   return (
-    <div className={`studio-clips glass @container h-full w-full overflow-y-auto p-3 sm:p-4 ${reduced ? "" : "panel-in"}`} role="region" aria-label="Clip factory" aria-busy={loading}>
+    <div className={`studio-clips glass @container h-full w-full overflow-y-auto p-3 sm:p-4 ${reduced ? "" : "panel-in"}`} role="region" aria-label={tr("cf.title")} aria-busy={loading}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="hud-title studio-title truncate">CLIP FACTORY</h2>
+        <h2 className="hud-title studio-title truncate">{tr("cf.title").toUpperCase()}</h2>
         <div className="flex items-center gap-2">
-          <button className="chip" onClick={() => { void load(); void loadYt(); }} disabled={loading} aria-label={loading ? "Refreshing clip factory" : "Refresh clip factory"}>↻ Refresh</button>
-          {onClose && <button className="chip" onClick={onClose} aria-label="Close clip factory">×</button>}
+          <button className="chip" onClick={() => { void load(); void loadYt(); }} disabled={loading} aria-label={tr(loading ? "cf.refreshing" : "cf.refreshAria")}>↻ {tr("cf.refresh")}</button>
+          {onClose && <button className="chip" onClick={onClose} aria-label={tr("cf.close")}>×</button>}
         </div>
       </div>
 
       {err && (
         <div className="card mt-3 text-sm" role="alert">
           <p className="error">{err}</p>
-          <button className="btn mt-2" onClick={() => load()} disabled={loading}>Try again</button>
+          <button className="btn mt-2" onClick={() => load()} disabled={loading}>{tr("task.retry")}</button>
         </div>
       )}
 
       {loading && !data && !err && (
-        <div className="mt-3 space-y-3" role="status" aria-label="Loading clip factory"><span className="sr-only">Loading…</span>
+        <div className="mt-3 space-y-3" role="status" aria-label={tr("cf.loading")}><span className="sr-only">{tr("common.loading")}</span>
           <Skeleton h={120} reduced={reduced} /><Skeleton h={90} reduced={reduced} />
           <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2">{Array.from({ length: 4 }, (_, k) => <Skeleton key={k} h={260} reduced={reduced} />)}</div>
         </div>
@@ -343,22 +347,22 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
 
       {data && (
         <div className="mt-3 space-y-3">
-          <section className="card flex min-h-[3.25rem] flex-wrap items-center gap-x-3 gap-y-1.5" aria-label="Next step">
-            <span className="muted text-[10px] uppercase tracking-widest">Next</span>
+          <section className="card flex min-h-[3.25rem] flex-wrap items-center gap-x-3 gap-y-1.5" aria-label={tr("cf.nextStep")}>
+            <span className="muted text-[10px] uppercase tracking-widest">{tr("cf.next")}</span>
             {next}
             {workText && next !== workNext && <span className="muted num text-[11px]">{workText}</span>}
-            <span className="sr-only" aria-live="polite">{active ? "Working… auto-updating" : ""}</span>{/* no % here: it would be re-announced every poll */}
+            <span className="sr-only" aria-live="polite">{active ? tr("cf.working") : ""}</span>{/* no % here: it would be re-announced every poll */}
           </section>
 
           {health.length > 0 && (
-            <section className="card text-[11px]" aria-label="Upload health" role="status">
+            <section className="card text-[11px]" aria-label={tr("cf.uploadHealth")} role="status">
               <ul className="space-y-1">{health.map((h) => <li key={h}><span aria-hidden>⚠ </span>{h}</li>)}</ul>
             </section>
           )}
           {(!data.tools.ffmpeg || !data.tools.transcriber) && <ToolsBanner tools={data.tools} />}
           {!!data.quarantined?.length && <QuarantineNotice root={data.root} files={data.quarantined} />}
 
-          <div role="tablist" aria-label="Clip factory sections" className="flex flex-wrap gap-1.5" onKeyDown={onTabKey}>
+          <div role="tablist" aria-label={tr("cf.sections")} className="flex flex-wrap gap-1.5" onKeyDown={onTabKey}>
             {tabs.map(([id, text]) => (
               <button key={id} id={`cf-tab-${id}`} role="tab" className="chip !px-3 !py-1" aria-selected={shown === id} aria-controls={`cf-panel-${id}`}
                 tabIndex={shown === id ? 0 : -1} onClick={() => selectTab(id)}>{text}</button>
@@ -380,51 +384,51 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
 
           <div id="cf-panel-calendar" role="tabpanel" aria-labelledby="cf-tab-calendar" hidden={shown !== "calendar"} className="space-y-3">
             {shown === "calendar" && <StudioCalendar jobs={data.jobs} waiting={unpublished} onOpen={openClip}
-              scheduleAll={yt?.canUpload ? <button className="btn" onClick={goSchedule}>🕒 Schedule all</button> /* the one ScheduleAll lives in Clips (it polls) */ : unpublished > 0 && yt?.configured ? <a className="chip" href="/api/studio/oauth/start">🔗 Connect YouTube</a> : null} />}
+              scheduleAll={yt?.canUpload ? <button className="btn" onClick={goSchedule}>🕒 {tr("cf.scheduleAll")}</button> /* the one ScheduleAll lives in Clips (it polls) */ : unpublished > 0 && yt?.configured ? <a className="chip" href="/api/studio/oauth/start">🔗 {tr("cf.connectYt")}</a> : null} />}
           </div>
 
           <div id="cf-panel-find" role="tabpanel" aria-labelledby="cf-tab-find" hidden={shown !== "find"} className="space-y-3">
           <ScoutSection visible={visible} onQueued={() => void load(true)} runSignal={scoutRun} reduced={reduced}
             layout={autoOpts && <LayoutChip o={autoOpts} onSave={(p) => void setAutoLayout(p)} />} />
 
-          <Section title="Inbox">
-            <p className="text-sm">Drop long videos into your Studio inbox folder:</p>
+          <Section title={tr("cf.inbox")}>
+            <p className="text-sm">{tr("cf.inboxDrop")}</p>
             <code className="num mt-1 block overflow-x-auto whitespace-nowrap rounded bg-black/40 p-2 text-xs">{data.root}</code>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <button className="chip" onClick={openFolder} disabled={busy.open}>{busy.open ? "Opening…" : "📂 Open inbox folder"}</button>
+              <button className="chip" onClick={openFolder} disabled={busy.open}>{busy.open ? tr("cf.opening") : `📂 ${tr("cf.openInbox")}`}</button>
               {notes.opened && !notes.open && <span className="ok text-xs" role="status">{notes.opened}</span>}
             </div>
             <Note k="open" />
             <label className="mt-2 flex items-center gap-1.5 text-sm">
               <input type="checkbox" checked={!!autoInbox} disabled={autoInbox === null || busy.auto} onChange={(e) => void toggleAuto(e.target.checked)} />
-              Auto-clip new files dropped here <Help text="Uses the clip settings below as they are when you turn this on. Files already in the folder are left alone. The video scout clips with these settings too." />
+              {tr("cf.autoInbox")} <Help text={tr("cf.autoInboxHelp")} />
             </label>
             {autoInbox && autoOpts && <LayoutChip o={autoOpts} onSave={(p) => void setAutoLayout(p)} />}
             <Note k="auto" />
-            <p className="muted mt-1 text-xs">Put stream files from creators here — ORBIT clips them automatically.</p>
-            <p className="muted mt-2 text-xs">Only clip videos you&apos;re allowed to. <Help text="Use your own uploads, or creators who allow clipping." /></p>
+            <p className="muted mt-1 text-xs">{tr("cf.putStreams")}</p>
+            <p className="muted mt-2 text-xs">{tr("cf.onlyAllowed")} <Help text={tr("cf.onlyAllowedHelp")} /></p>
 
             <AddFromLink tools={data.tools} opts={opts} setOpts={setOpts} busy={busy.dl} onSubmit={(body) => download(body)} />
             <Note k="dl" />
             {(data.downloads ?? []).length > 0 && (
-              <ul className="mt-2 space-y-2" aria-label="Downloads">
+              <ul className="mt-2 space-y-2" aria-label={tr("cf.downloads")}>
                 {data.downloads.map((d) => (
                   <li key={d.id} className="rounded-xl border border-white/10 p-2 text-xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <b className="min-w-0 flex-1 truncate" title={d.url}>{d.file ?? d.url}</b>
                       <div className="flex items-center gap-1.5">
                         <Status text={DL_LABEL[d.status]} tone={toneOf(d.status)} />
-                        <ConfirmButton label={d.status === "queued" || d.status === "downloading" ? "Cancel" : "Remove"} sure="Sure?" aria={`Remove download ${d.url}`}
+                        <ConfirmButton label={tr(d.status === "queued" || d.status === "downloading" ? "common.cancel" : "common.remove")} aria={tr("cf.removeDl", { url: d.url })}
                           onConfirm={() => void delDownload(d.id)} disabled={busy[`dl:${d.id}`]} />
                       </div>
                     </div>
                     {d.status === "downloading" && <Progress pct={Math.round(d.progress * 100)} step={d.step} label={`Download progress for ${d.url}`} reduced={reduced} />}
                     {d.status === "failed" && (
                       <div className="mt-1" role="alert">
-                        <p className="error">{d.error || "The download failed."}</p>
+                        <p className="error">{d.error || tr("cf.dlFailed")}</p>
                         <button className="btn mt-1" disabled={busy[`dl:${d.id}`] || !data.tools.ytdlp}
                           onClick={() => void download({ url: d.url, permission: d.permission, ...(d.autoClip ? { autoClip: d.autoClip } : {}) }, d.id)}>
-                          {busy[`dl:${d.id}`] ? "Starting…" : "Try again"}
+                          {busy[`dl:${d.id}`] ? tr("cf.starting") : tr("task.retry")}
                         </button>
                       </div>
                     )}
@@ -435,9 +439,9 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
             )}
 
             {!data.inbox.length ? (
-              <Empty text="The inbox is empty. Drop a video file into the folder, then refresh." action={<button className="chip" onClick={() => void load()} disabled={loading}>↻ Refresh</button>} />
+              <Empty text={tr("cf.inboxEmpty")} action={<button className="chip" onClick={() => void load()} disabled={loading}>↻ {tr("cf.refresh")}</button>} />
             ) : (
-              <ul className="mt-3 space-y-2" aria-label="Inbox videos">
+              <ul className="mt-3 space-y-2" aria-label={tr("cf.inboxVideos")}>
                 {data.inbox.map((f) => {
                   const job = f.jobId ? byId.get(f.jobId) : undefined, k = `make:${f.name}`, fid = `clipform-${f.name.replace(/[^\w-]/g, "_")}`;
                   return (
@@ -446,28 +450,28 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
                         <div className="min-w-0">
                           <b className="block truncate text-sm" title={f.name}>{f.name}</b>
                           <span className="muted num text-[11px]">{bytes(f.size)} · {when(f.mtime)}</span>
-                          {f.permission && <span className="muted block truncate text-[11px]" title={f.permission}>Permission: {f.permission}</span>}
+                          {f.permission && <span className="muted block truncate text-[11px]" title={f.permission}>{tr("cf.permission")} {f.permission}</span>}
                         </div>
                         {f.jobId ? (
-                          job ? <Status text={JOB_LABEL[job.status] ?? job.status} tone={toneOf(job.status)} /> : <Status text="Has a job" />
+                          job ? <Status text={JOB_LABEL[job.status] ?? job.status} tone={toneOf(job.status)} /> : <Status text={tr("cf.hasJob")} />
                         ) : (
                           <button className="chip" aria-expanded={form === f.name} aria-controls={fid} onClick={() => setForm((c) => (c === f.name ? null : f.name))}
-                            aria-label={`Make clips from ${f.name}`}>🎬 Make clips</button>
+                            aria-label={tr("cf.makeFrom", { name: f.name })}>🎬 {tr("cf.makeClips")}</button>
                         )}
                       </div>
                       {form === f.name && !f.jobId && (
                         <form id={fid} className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-2 text-xs" onSubmit={(e) => { e.preventDefault(); void make(f.name, { ...opts, captions: opts.captions && data.tools.transcriber }); }}>
-                          <Choice legend="Style" values={["viral", "devlog"] as Opts["preset"][]} value={opts.preset} fmt={(v) => (v === "devlog" ? "🛠 Devlog" : "🔥 Highlights")}
-                            hint={opts.preset === "devlog" ? "Your own build session: progress, bugs, explanations → \"Day N of building my Roblox game\"" : undefined}
+                          <Choice legend={tr("cf.style")} values={["viral", "devlog"] as Opts["preset"][]} value={opts.preset} fmt={(v) => (v === "devlog" ? "🛠 Devlog" : `🔥 ${tr("cf.highlights")}`)}
+                            hint={opts.preset === "devlog" ? tr("cf.devlogHint") : undefined}
                             onChange={(preset) => setOpts((o) => ({ ...o, preset, ...(preset === "devlog" ? { count: 3, maxSec: 60 } : {}) }))} />
-                          <Choice legend="Number of clips" values={[3, 5, 8]} value={opts.count} fmt={String} onChange={(count) => setOpts((o) => ({ ...o, count }))} />
-                          <Choice legend="Max length" values={[30, 45, 60]} value={opts.maxSec} fmt={(v) => `${v} s`} onChange={(maxSec) => setOpts((o) => ({ ...o, maxSec }))} />
+                          <Choice legend={tr("cf.count")} values={[3, 5, 8]} value={opts.count} fmt={String} onChange={(count) => setOpts((o) => ({ ...o, count }))} />
+                          <Choice legend={tr("cf.maxLen")} values={[30, 45, 60]} value={opts.maxSec} fmt={(v) => `${v} s`} onChange={(maxSec) => setOpts((o) => ({ ...o, maxSec }))} />
                           <label className="flex items-center gap-1.5">
                             <input type="checkbox" checked={opts.captions && data.tools.transcriber} onChange={(e) => setOpts((o) => ({ ...o, captions: e.target.checked }))} disabled={!data.tools.transcriber} />
-                            Captions{!data.tools.transcriber ? " (needs transcriber)" : ""}
+                            {tr("cf.captions")}{!data.tools.transcriber ? tr("cf.needsTranscriber") : ""}
                           </label>
                           <EditOptions opts={opts} setOpts={setOpts} />
-                          <button type="submit" className="btn" disabled={busy[k] || !data.tools.ffmpeg}>{busy[k] ? "Starting…" : "Start"}</button>
+                          <button type="submit" className="btn" disabled={busy[k] || !data.tools.ffmpeg}>{busy[k] ? tr("cf.starting") : tr("life.start")}</button>
                         </form>
                       )}
                       {conflict[f.name] && <Conflict onAgain={() => make(f.name, conflict[f.name], true)} busy={busy[k]} />}
@@ -482,15 +486,15 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
           </div>
 
           <div id="cf-panel-clips" role="tabpanel" aria-labelledby="cf-tab-clips" hidden={shown !== "clips"} className="space-y-3">
-          <Section title="Clip jobs" right={<>
+          <Section title={tr("cf.jobs")} right={<>
             <ScheduleAll count={unpublished} canUpload={!!yt?.canUpload} onChange={load} />
             {rejectedCount > 0 && (
-              <button className="chip" aria-pressed={showRejected} onClick={() => setShowRejected((s) => !s)} aria-label={`${showRejected ? "Hide" : "Show"} ${rejectedCount} rejected clips`}>
-                {showRejected ? "Hide" : "Show"} rejected ({rejectedCount})
+              <button className="chip" aria-pressed={showRejected} onClick={() => setShowRejected((s) => !s)} aria-label={tr(showRejected ? "cf.hideRejected" : "cf.showRejected", { n: rejectedCount })}>
+                {tr(showRejected ? "cf.hideRejected" : "cf.showRejected", { n: rejectedCount })}
               </button>
             )}
           </>}>
-            {!jobs.length && <Empty text="No clips yet. Find a video to clip, or add one from a link." action={<button className="btn" onClick={() => selectTab("find")}>🔭 Find videos</button>} />}
+            {!jobs.length && <Empty text={tr("cf.noClips")} action={<button className="btn" onClick={() => selectTab("find")}>🔭 {tr("cf.findVideos")}</button>} />}
             <div className="space-y-3">
               {jobs.map((j) => (
                 <JobCard key={j.id} job={j} reduced={reduced} showRejected={showRejected} busy={busy} Note={Note} yt={yt} publishing={data.publishing}
@@ -527,6 +531,7 @@ const ago = (iso: string) => { const h = (Date.now() - Date.parse(iso)) / 3_600_
 
 /** Finds source videos by itself: approved creators (watchlist) + niche keyword searches, ranked for clip potential. */
 function ScoutSection({ visible, onQueued, runSignal, reduced, layout }: { visible: boolean; onQueued: () => void; runSignal: number; reduced: boolean; layout?: ReactNode /* Clip it + creator auto-clip use the inbox auto-clip settings */ }) {
+  const { t: tr } = useT();
   const [d, setD] = useState<ScoutData | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -570,15 +575,15 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout }: { visib
 
   const s = d?.scout, last = s?.lastRun, picks = (s?.picks ?? []).filter((p) => p.status !== "dismissed");
   return (
-    <Section title="Video scout" right={d && (
+    <Section title={tr("cf.scout")} right={d && (
       <div className="flex items-center gap-1.5">
-        <button className="chip" aria-expanded={open} aria-controls="scout-settings" onClick={() => setOpen((o) => !o)} aria-label="Scout settings">⚙ Settings</button>
-        <button className="btn !px-3 !py-1 !text-xs" onClick={() => void run()} disabled={busy.run || d.running || !d.configured} aria-label="Run the video scout now">{d.running ? (d.researching ? "Researching…" : "Scouting…") : busy.run ? "Starting…" : "🔭 Run scout now"}</button>
+        <button className="chip" aria-expanded={open} aria-controls="scout-settings" onClick={() => setOpen((o) => !o)} aria-label={tr("cf.scoutSettings")}>⚙ {tr("cf.settings")}</button>
+        <button className="btn !px-3 !py-1 !text-xs" onClick={() => void run()} disabled={busy.run || d.running || !d.configured} aria-label={tr("cf.runScoutAria")}>{d.running ? tr(d.researching ? "cf.researching" : "cf.scouting") : busy.run ? tr("cf.starting") : `🔭 ${tr("cf.runScoutNow")}`}</button>
       </div>
     )}>
       {err && <p className="error text-xs" role="alert">{err}</p>}
-      {!d && !err && <div className="space-y-2" role="status" aria-label="Loading the scout"><span className="sr-only">Loading the scout…</span><Skeleton h={18} reduced={reduced} /><Skeleton h={90} reduced={reduced} /></div>}
-      {d && !d.configured && <p className="text-xs">Add <code className="num rounded bg-black/40 px-1">YOUTUBE_API_KEY</code> to .env.local and restart ORBIT so the scout can search YouTube.</p>}
+      {!d && !err && <div className="space-y-2" role="status" aria-label={tr("cf.loadingScout")}><span className="sr-only">{tr("cf.loadingScout")}…</span><Skeleton h={18} reduced={reduced} /><Skeleton h={90} reduced={reduced} /></div>}
+      {d && !d.configured && <p className="text-xs">{tr("cf.apiKey1")} <code className="num rounded bg-black/40 px-1">{"YOUTUBE_API_KEY"}</code> {tr("cf.apiKey2")}</p>}
       {d && s && (
         <>
           <div className="flex flex-wrap items-center gap-x-1">
@@ -588,7 +593,7 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout }: { visib
             <Help text={`${last ? `Last run ${when(last.at)}, ranked by ${last.ranker === "claude" ? "Claude" : "stats"}. ` : ""}YouTube budget today ${d.usedToday}/${d.budget} units. Runs daily at ${String(s.runAt).padStart(2, "0")}:00.`} />
           </div>
           {last && !last.ok && <p className="error mt-1 text-xs" role="alert">⚠ {last.error}</p>}
-          {!!last?.warnings?.length && <ul className="mt-1 space-y-0.5 text-[11px]" aria-label="Scout warnings">{last.warnings.slice(0, 5).map((w, k) => <li key={k}>⚠ {w}</li>)}</ul>}
+          {!!last?.warnings?.length && <ul className="mt-1 space-y-0.5 text-[11px]" aria-label={tr("cf.scoutWarnings")}>{last.warnings.slice(0, 5).map((w, k) => <li key={k}>⚠ {w}</li>)}</ul>}
           <Note k="run" />
           {layout}
           <CreatorsBox s={s} busy={busy} Note={Note} added={added} onSave={save} onAdd={addCreator} />
@@ -599,11 +604,11 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout }: { visib
           {last?.ok && last.summary && <p className="num mt-2 text-[11px]" role="status">{last.summary}</p>}
           {!picks.length ? (
             s.watchlist.length || s.keywords.length || s.aiKeywords.length
-              ? <Empty text={last ? "No picks yet. Lower the min length or raise the max age in ⚙ Settings, or add more creators." : "No picks yet. Run the scout to find videos."}
-                  action={<button className="chip" onClick={() => void run()} disabled={busy.run || d.running || !d.configured}>🔭 Run scout</button>} />
-              : <Empty text="Add a creator above (someone who allows clipping), then run the scout." />
+              ? <Empty text={tr(last ? "cf.noPicksTune" : "cf.noPicksRun")}
+                  action={<button className="chip" onClick={() => void run()} disabled={busy.run || d.running || !d.configured}>🔭 {tr("cf.runScout")}</button>} />
+              : <Empty text={tr("cf.addCreatorFirst")} />
           ) : (
-            <ul className="mt-2 space-y-2" aria-label="Scout picks">
+            <ul className="mt-2 space-y-2" aria-label={tr("cf.scoutPicks")}>
               {picks.map((p) => (
                 <li key={p.videoId} className="flex gap-2 rounded-xl border border-white/10 p-2 text-xs">
                   <a href={`https://www.youtube.com/watch?v=${p.videoId}`} target="_blank" rel="noopener noreferrer" className="shrink-0" aria-label={`Open ${p.title} on YouTube`}>
@@ -612,15 +617,15 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout }: { visib
                   </a>
                   <div className="min-w-0 flex-1">
                     <b className="line-clamp-2 leading-snug">{p.title}</b>
-                    <span className="muted num block text-[11px]">{p.channel} · {mmss(p.durationSec)} · {ago(p.publishedAt)} · {compact(p.stats.views)} views</span>
+                    <span className="muted num block text-[11px]">{p.channel} · {mmss(p.durationSec)} · {ago(p.publishedAt)} · {tr("cf.views", { n: compact(p.stats.views) })}</span>
                     <p className="mt-0.5 leading-snug">{p.reason}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-1">
-                      <Status text={`score ${p.score}/100`} tone={p.score >= 70 ? "good" : undefined} />
-                      <Status text={p.source === "watchlist" ? "★ Watchlist" : "🔎 Keyword"} />
-                      {p.status === "queued" ? <Status text="✓ Sent to clip maker ↓" tone="good" /> : (
+                      <Status text={tr("cf.score", { n: p.score })} tone={p.score >= 70 ? "good" : undefined} />
+                      <Status text={p.source === "watchlist" ? `★ ${tr("cf.watchlist")}` : `🔎 ${tr("cf.keyword")}`} />
+                      {p.status === "queued" ? <Status text={tr("cf.sent")} tone="good" /> : (
                         <>
-                          <button className="chip" onClick={() => void pick(p, "clip")} disabled={busy[`pick:${p.videoId}`]} aria-label={`Clip ${p.title}`}>✂ Clip it</button>
-                          <button className="chip" onClick={() => void pick(p, "dismiss")} disabled={busy[`pick:${p.videoId}`]} aria-label={`Dismiss ${p.title}`}>Dismiss</button>
+                          <button className="chip" onClick={() => void pick(p, "clip")} disabled={busy[`pick:${p.videoId}`]} aria-label={tr("cf.clipAria", { title: p.title })}>✂ {tr("cf.clipIt")}</button>
+                          <button className="chip" onClick={() => void pick(p, "dismiss")} disabled={busy[`pick:${p.videoId}`]} aria-label={tr("cf.dismissAria", { title: p.title })}>{tr("cf.dismiss")}</button>
                         </>
                       )}
                     </div>
@@ -631,7 +636,7 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout }: { visib
               ))}
             </ul>
           )}
-          {picks.some((p) => p.source === "keyword") && <p className="muted mt-2 text-[11px]">🔎 Keyword finds: check permission first. <Help text="Keyword finds come from creators you haven't approved: check they allow clipping before you press Clip it." /></p>}
+          {picks.some((p) => p.source === "keyword") && <p className="muted mt-2 text-[11px]">🔎 {tr("cf.kwFinds")} <Help text={tr("cf.kwFindsHelp")} /></p>}
         </>
       )}
     </Section>
@@ -642,25 +647,26 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout }: { visib
 function CreatorsBox({ s, busy, Note, added, onSave, onAdd }: { s: ScoutSettings; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode; added: string;
   onSave: (key: string, body: ScoutPatch) => Promise<boolean>; onAdd: (input: string) => Promise<boolean> }) {
   const [input, setInput] = useState("");
+  const { t: tr } = useT();
   const setWatch = (creator: CreatorOp) => void onSave("watch", { creator });
   return (
     <div className="mt-2 rounded-xl border border-white/10 p-2 text-xs">
-      <b className="block text-sm">★ Creators</b>
-      <p className="muted text-[11px]">Only creators who allow clipping. <Help text="Auto-clip lets the daily run download their best new video by itself (up to the daily limit); finished clips still wait for your review." /></p>
-      <ul className="mt-1 space-y-1" aria-label="Watchlist">
+      <b className="block text-sm">★ {tr("cf.creators")}</b>
+      <p className="muted text-[11px]">{tr("cf.creatorsOnly")} <Help text={tr("cf.creatorsHelp")} /></p>
+      <ul className="mt-1 space-y-1" aria-label={tr("cf.watchlist")}>
         {s.watchlist.map((w) => (
           <li key={w.channelId} className="flex flex-wrap items-center gap-2">
             <span className="min-w-0 flex-1 truncate" title={w.channelId}>{w.title}</span>
             <label className="flex items-center gap-1"><input type="checkbox" checked={w.autoClip} disabled={busy.watch}
-              onChange={(e) => setWatch({ channelId: w.channelId, autoClip: e.target.checked })} aria-label={`Auto-clip ${w.title}`} /> Auto-clip</label>
-            <ConfirmButton label="Remove" aria={`Remove ${w.title} from the watchlist`} disabled={busy.watch} onConfirm={() => setWatch({ channelId: w.channelId, remove: true })} />
+              onChange={(e) => setWatch({ channelId: w.channelId, autoClip: e.target.checked })} aria-label={tr("cf.autoClipAria", { title: w.title })} /> {tr("cf.autoClip")}</label>
+            <ConfirmButton label={tr("common.remove")} aria={tr("cf.unwatchAria", { title: w.title })} disabled={busy.watch} onConfirm={() => setWatch({ channelId: w.channelId, remove: true })} />
           </li>
         ))}
       </ul>
       <Note k="watch" />
       <form className="mt-1 flex gap-1" onSubmit={async (e) => { e.preventDefault(); if (input.trim() && (await onAdd(input.trim()))) setInput(""); }}>
-        <input className="field min-w-0 flex-1 !px-2 !py-1 !text-xs" placeholder="Add a creator: @handle, name or channel/video link" value={input} maxLength={200} onChange={(e) => setInput(e.target.value)} aria-label="Creator to add" />
-        <button type="submit" className="chip" disabled={busy.add || !input.trim()} aria-label="Add creator">{busy.add ? "Adding…" : "+ Add"}</button>
+        <input className="field min-w-0 flex-1 !px-2 !py-1 !text-xs" placeholder={tr("cf.creatorPh")} value={input} maxLength={200} onChange={(e) => setInput(e.target.value)} aria-label={tr("cf.creatorToAdd")} />
+        <button type="submit" className="chip" disabled={busy.add || !input.trim()} aria-label={tr("cf.addCreator")}>{busy.add ? tr("cf.adding") : `+ ${tr("common.add")}`}</button>
       </form>
       <Note k="add" />
       {added && !busy.add && <p className="ok mt-1 text-xs" role="status">{added}</p>}
@@ -672,39 +678,40 @@ function CreatorsBox({ s, busy, Note, added, onSave, onAdd }: { s: ScoutSettings
 function NicheCard({ d, busy, Note, onSave, onAdd, onResearch, onUse }: { d: ScoutData; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode;
   onSave: (key: string, body: ScoutPatch) => Promise<boolean>; onAdd: (input: string) => Promise<boolean>; onResearch: () => void; onUse: (name: string) => void }) {
   const s = d.scout, rep = s.niche, run = s.nicheRun, watching = new Set(s.watchlist.map((w) => w.channelId));
+  const { t: tr } = useT();
   const inUse = (kw: string[]) => kw.length === s.aiKeywords.length && kw.every((k) => s.aiKeywords.includes(k));
   return (
     <div className="mt-2 rounded-xl border border-white/10 p-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <b className="flex-1 text-sm">🧭 Niche report</b>
-        <button className="chip" onClick={onResearch} disabled={busy.niche || d.running || !d.configured} aria-label="Research my niche">{d.researching ? "Researching…" : "🔭 Find my niche"}</button>
+        <b className="flex-1 text-sm">🧭 {tr("cf.nicheReport")}</b>
+        <button className="chip" onClick={onResearch} disabled={busy.niche || d.running || !d.configured} aria-label={tr("cf.researchAria")}>{d.researching ? tr("cf.researching") : `🔭 ${tr("cf.findNiche")}`}</button>
       </div>
       <div className="flex flex-wrap items-center gap-x-1">
       <p className="muted num text-[11px]" aria-live="polite">
-        {rep ? `Report ${when(rep.at)} · refreshes weekly${s.nicheAuto ? " · auto-applies the top niche" : ""}` : "Suggests a niche and creators to clip."}
-        {run && ` · last research ${when(run.at)}, ${run.units} units`}
+        {rep ? tr("cf.report", { at: when(rep.at) }) + (s.nicheAuto ? tr("cf.reportAuto") : "") : tr("cf.nicheHint")}
+        {run && tr("cf.lastResearch", { at: when(run.at), units: run.units })}
       </p>
-        {!rep && <Help text="ORBIT reads this week's trending gaming/entertainment videos and top clip Shorts, then suggests a niche and the creators to clip (about 410 YouTube units, refreshes weekly)." />}
+        {!rep && <Help text={tr("cf.nicheHelp")} />}
       </div>
       {run && !run.ok && <p className="error mt-1 text-xs" role="alert">⚠ {run.error}</p>}
-      {!!run?.warnings?.length && <ul className="mt-1 space-y-0.5 text-[11px]" aria-label="Niche research notes">{run.warnings.slice(0, 4).map((w, k) => <li key={k}>{w.startsWith("Auto:") ? "✓" : "⚠"} {w}</li>)}</ul>}
+      {!!run?.warnings?.length && <ul className="mt-1 space-y-0.5 text-[11px]" aria-label={tr("cf.nicheNotes")}>{run.warnings.slice(0, 4).map((w, k) => <li key={k}>{w.startsWith("Auto:") ? "✓" : "⚠"} {w}</li>)}</ul>}
       <Note k="niche" />
       {rep && (
-        <ol className="mt-1 space-y-2" aria-label="Suggested niches">
+        <ol className="mt-1 space-y-2" aria-label={tr("cf.niches")}>
           {rep.niches.map((n) => (
             <li key={n.name} className="rounded-lg border border-white/10 p-2">
               <div className="flex flex-wrap items-center gap-1">
                 <b className="flex-1">{n.name}</b>
-                <Status text={`score ${n.score}/100`} tone={n.score >= 70 ? "good" : undefined} />
-                {inUse(n.keywords) ? <Status text="✓ Keywords in use" tone="good" /> : <button className="chip" onClick={() => onUse(n.name)} disabled={busy.niche} aria-label={`Use the niche ${n.name}`}>Use this niche</button>}
+                <Status text={tr("cf.score", { n: n.score })} tone={n.score >= 70 ? "good" : undefined} />
+                {inUse(n.keywords) ? <Status text={tr("cf.kwInUse")} tone="good" /> : <button className="chip" onClick={() => onUse(n.name)} disabled={busy.niche} aria-label={tr("cf.useNicheAria", { name: n.name })}>{tr("cf.useNiche")}</button>}
               </div>
               <p className="mt-0.5 leading-snug">{n.why}</p>
-              <p className="muted text-[11px]">Keywords: {n.keywords.join(" · ")}</p>
-              <ul className="mt-1 space-y-0.5" aria-label={`Creators for ${n.name}`}>
+              <p className="muted text-[11px]">{tr("cf.keywords")} {n.keywords.join(" · ")}</p>
+              <ul className="mt-1 space-y-0.5" aria-label={tr("cf.creatorsFor", { name: n.name })}>
                 {rep.creators.filter((c) => c.niche === n.name).map((c) => (
                   <li key={c.channelId} className="flex flex-wrap items-center gap-2">
-                    <span className="min-w-0 flex-1"><b>{c.title}</b> <span className="muted num">{compact(c.subscribers)} subs</span> — {c.evidence}</span>
-                    {watching.has(c.channelId) ? <Status text="★ Watching" /> : <button className="chip" onClick={() => void onAdd(c.channelId)} disabled={busy.add} aria-label={`Watch ${c.title}`}>＋ Watch</button>}
+                    <span className="min-w-0 flex-1"><b>{c.title}</b> <span className="muted num">{tr("cf.subs", { n: compact(c.subscribers) })}</span> — {c.evidence}</span>
+                    {watching.has(c.channelId) ? <Status text={`★ ${tr("cf.watching")}`} /> : <button className="chip" onClick={() => void onAdd(c.channelId)} disabled={busy.add} aria-label={tr("cf.watchAria", { title: c.title })}>＋ {tr("cf.watch")}</button>}
                   </li>
                 ))}
               </ul>
@@ -713,8 +720,8 @@ function NicheCard({ d, busy, Note, onSave, onAdd, onResearch, onUse }: { d: Sco
         </ol>
       )}
       {!!s.aiKeywords.length && (
-        <p className="mt-1 text-[11px]">AI keywords searched with yours: {s.aiKeywords.join(" · ")}{" "}
-          <button className="chip" onClick={() => void onSave("aikw", { aiKeywords: [] })} disabled={busy.aikw} aria-label="Clear AI keywords">Clear</button></p>
+        <p className="mt-1 text-[11px]">{tr("cf.aiKw")} {s.aiKeywords.join(" · ")}{" "}
+          <button className="chip" onClick={() => void onSave("aikw", { aiKeywords: [] })} disabled={busy.aikw} aria-label={tr("cf.clearAiKw")}>{tr("cf.clear")}</button></p>
       )}
       <Note k="aikw" />
     </div>
@@ -723,6 +730,7 @@ function NicheCard({ d, busy, Note, onSave, onAdd, onResearch, onUse }: { d: Sco
 
 function ScoutSettingsForm({ s, busy, Note, onSave }: { s: ScoutSettings; busy: Record<string, boolean>; Note: (p: { k: string }) => ReactNode;
   onSave: (key: string, body: ScoutPatch) => Promise<boolean> }) {
+  const { t: tr } = useT();
   const [f, setF] = useState({ keywords: s.keywords.join("\n"), maxAgeHours: s.maxAgeHours, creatorMaxAgeDays: s.creatorMaxAgeDays, minMinutes: s.minMinutes, dailyAuto: s.dailyAuto, runAt: s.runAt });
   const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
   const numField = (k: "maxAgeHours" | "creatorMaxAgeDays" | "minMinutes" | "dailyAuto" | "runAt", name: string, min: number, max: number) => (
@@ -736,20 +744,20 @@ function ScoutSettingsForm({ s, busy, Note, onSave }: { s: ScoutSettings; busy: 
         e.preventDefault();
         void onSave("settings", { keywords: f.keywords.split("\n").map((k) => k.trim()).filter(Boolean), maxAgeHours: f.maxAgeHours, creatorMaxAgeDays: f.creatorMaxAgeDays, minMinutes: f.minMinutes, dailyAuto: f.dailyAuto, runAt: f.runAt });
       }}>
-        <label className="block"><span className={label}>Keywords: search words to discover new creators (one per line; up to 3 searched per run, 100 units each). Channel links go under Creators.</span>
+        <label className="block"><span className={label}>{tr("cf.kwHelp")}</span>
           <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} value={f.keywords} onChange={(e) => setF((x) => ({ ...x, keywords: e.target.value }))} />
         </label>
         <div className="flex flex-wrap gap-2">
-          {numField("creatorMaxAgeDays", "Creator videos max age (d)", 1, 60)}{numField("maxAgeHours", "Keyword videos max age (h)", 1, 336)}{numField("minMinutes", "Min length (min)", 1, 180)}
-          {numField("dailyAuto", "Auto clips/day", 0, 5)}{numField("runAt", "Daily run (hour)", 0, 23)}
+          {numField("creatorMaxAgeDays", tr("cf.creatorAge"), 1, 60)}{numField("maxAgeHours", tr("cf.kwAge"), 1, 336)}{numField("minMinutes", tr("cf.minLen"), 1, 180)}
+          {numField("dailyAuto", tr("cf.autoPerDay"), 0, 5)}{numField("runAt", tr("cf.runHour"), 0, 23)}
         </div>
-        <button type="submit" className="btn" disabled={busy.settings}>{busy.settings ? "Saving…" : "Save settings"}</button>
+        <button type="submit" className="btn" disabled={busy.settings}>{tr(busy.settings ? "auto.saving" : "cf.saveSettings")}</button>
         <Note k="settings" />
       </form>
       <div>
         <label className="flex items-center gap-1"><input type="checkbox" checked={s.nicheAuto} disabled={busy.nicheAuto}
-          onChange={(e) => void onSave("nicheAuto", { nicheAuto: e.target.checked })} /> Auto-apply the weekly niche report (its keywords + watch its creators)</label>
-        <p className="muted text-[11px]">Auto-clip stays your choice per creator. <Help text="Clipping without the creator's permission risks copyright strikes." /></p>
+          onChange={(e) => void onSave("nicheAuto", { nicheAuto: e.target.checked })} /> {tr("cf.nicheAuto")}</label>
+        <p className="muted text-[11px]">{tr("cf.autoChoice")} <Help text={tr("cf.strikes")} /></p>
         <Note k="nicheAuto" />
       </div>
     </div>
@@ -757,18 +765,19 @@ function ScoutSettingsForm({ s, busy, Note, onSave }: { s: ScoutSettings; busy: 
 }
 
 function ToolsBanner({ tools }: { tools: ToolsStatus }) {
+  const { t: tr } = useT();
   const [copied, setCopied] = useState(false);
   const onlyTranscriber = tools.ffmpeg && !tools.transcriber;
   return (
     <div className="card text-sm" role="status" style={{ borderColor: "#fb923c" }}>
-      <b>⚠ {onlyTranscriber ? "Captions are unavailable" : "Video tools are missing"}</b>
-      <p className="mt-1">Missing: {tools.missing.join(", ")}.</p>
-      {onlyTranscriber && <p className="mt-1">Clips still work, just without captions.</p>}
-      <p className="mt-1">On the PC, run this in PowerShell:</p>
+      <b>⚠ {tr(onlyTranscriber ? "cf.noCaptions" : "cf.noTools")}</b>
+      <p className="mt-1">{tr("cf.missing")} {tools.missing.join(", ")}.</p>
+      {onlyTranscriber && <p className="mt-1">{tr("cf.stillWork")}</p>}
+      <p className="mt-1">{tr("cf.runPs")}</p>
       <div className="mt-1 flex items-center gap-2">
         <code className="num block min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded bg-black/40 p-2 text-xs">{SETUP}</code>
-        <button className="chip shrink-0" aria-label="Copy setup command" onClick={() => navigator.clipboard?.writeText(SETUP).then(() => setCopied(true), () => setCopied(false))}>
-          {copied ? "Copied ✓" : "Copy"}
+        <button className="chip shrink-0" aria-label={tr("cf.copySetup")} onClick={() => navigator.clipboard?.writeText(SETUP).then(() => setCopied(true), () => setCopied(false))}>
+          {copied ? `${tr("cf.copied")} ✓` : tr("common.copy")}
         </button>
       </div>
     </div>
@@ -776,6 +785,7 @@ function ToolsBanner({ tools }: { tools: ToolsStatus }) {
 }
 
 function QuarantineNotice({ root, files }: { root: string; files: Quarantined[] }) {
+  const { t: tr } = useT();
   const sep = root.includes("\\") ? "\\" : "/";
   const dirs = [...new Set(files.map((q) => q.file.split("/").slice(0, -1).join(sep)))];
   const n = files.length, kind = files.every((q) => /^(jobs|downloads)\//.test(q.file)) ? "job" : "data"; // root files: scout.json, learn.json…
@@ -783,10 +793,10 @@ function QuarantineNotice({ root, files }: { root: string; files: Quarantined[] 
     <div className="card text-sm" role="alert" style={{ borderColor: "#fb923c" }}>
       <b>⚠ {n === 1 ? `1 damaged ${kind} file was set aside` : `${n} damaged ${kind} files were set aside`}:</b>
       <ul className="mt-1 text-xs">{files.slice(0, 5).map((q) => <li key={q.file}><span className="num">{q.file.split("/").pop()}</span> — {q.reason}{q.at ? ` · ${when(q.at)}` : ""}</li>)}</ul>
-      {n > 5 && <p className="muted text-xs">…and {n - 5} more.</p>}
-      <p className="mt-1 text-xs">Moved, not deleted. They&apos;re in:</p>
+      {n > 5 && <p className="muted text-xs">{tr("cf.andMore", { n: n - 5 })}</p>}
+      <p className="mt-1 text-xs">{tr("cf.movedIn")}</p>
       {dirs.map((d) => <code key={d} className="num mt-1 block overflow-x-auto whitespace-nowrap rounded bg-black/40 p-2 text-xs">{root}{sep}{d}</code>)}
-      <p className="muted mt-1 text-xs">Move or delete them there to clear this notice.</p>
+      <p className="muted mt-1 text-xs">{tr("cf.moveToClear")}</p>
     </div>
   );
 }
@@ -811,45 +821,47 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
 }) {
   const [url, setUrl] = useState("");
   const [auto, setAuto] = useState(false);
+  const { t: tr } = useT();
   const okUrl = parseClipUrl(url.trim()), ch = okUrl ? channelLink(okUrl) : null; // a channel page: wrong box
   const submit = async () => {
     if (!okUrl || ch) return;
     if (await onSubmit({ url: okUrl, permission: "", ...(auto ? { autoClip: { ...opts, preset: "viral", captions: opts.captions && tools.transcriber } } : {}) })) setUrl("");
   };
   return (
-    <form className="mt-3 space-y-2 rounded-xl border border-white/10 p-2 text-xs" aria-label="Add from link" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <b className="block text-sm">🔗 Add from link</b>
+    <form className="mt-3 space-y-2 rounded-xl border border-white/10 p-2 text-xs" aria-label={tr("cf.addLink")} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+      <b className="block text-sm">🔗 {tr("cf.addLink")}</b>
       <label className="block">
-        <span className="muted mb-1 block text-[10px] uppercase tracking-widest">YouTube or Twitch link</span>
-        <input className="field w-full !px-2 !py-1 !text-xs" type="text" inputMode="url" maxLength={2000} placeholder="Paste a YouTube, Twitch or Kick link" value={url}
+        <span className="muted mb-1 block text-[10px] uppercase tracking-widest">{tr("cf.linkLabel")}</span>
+        <input className="field w-full !px-2 !py-1 !text-xs" type="text" inputMode="url" maxLength={2000} placeholder={tr("cf.linkPh")} value={url}
           onChange={(e) => setUrl(e.target.value)} aria-invalid={!!url.trim() && !okUrl} />
       </label>
-      {!!url.trim() && !okUrl && <p className="error">That doesn&apos;t look like a YouTube, Twitch or Kick video link.</p>}
+      {!!url.trim() && !okUrl && <p className="error">{tr("cf.badLink")}</p>}
       {ch && <p className="error" role="alert">{CHANNEL_LINK_MSG[ch]}</p>}
       <label className="flex items-center gap-1.5">
-        <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Make clips when it&apos;s downloaded
+        <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> {tr("cf.makeWhenDl")}
       </label>
       {auto && (
         <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-          <Choice legend="Number of clips" values={[3, 5, 8]} value={opts.count} fmt={String} onChange={(count) => setOpts((o) => ({ ...o, count }))} />
-          <Choice legend="Max length" values={[30, 45, 60]} value={opts.maxSec} fmt={(v) => `${v} s`} onChange={(maxSec) => setOpts((o) => ({ ...o, maxSec }))} />
+          <Choice legend={tr("cf.count")} values={[3, 5, 8]} value={opts.count} fmt={String} onChange={(count) => setOpts((o) => ({ ...o, count }))} />
+          <Choice legend={tr("cf.maxLen")} values={[30, 45, 60]} value={opts.maxSec} fmt={(v) => `${v} s`} onChange={(maxSec) => setOpts((o) => ({ ...o, maxSec }))} />
           <label className="flex items-center gap-1.5">
             <input type="checkbox" checked={opts.captions && tools.transcriber} onChange={(e) => setOpts((o) => ({ ...o, captions: e.target.checked }))} disabled={!tools.transcriber} />
-            Captions{!tools.transcriber ? " (needs transcriber)" : ""}
+            {tr("cf.captions")}{!tools.transcriber ? tr("cf.needsTranscriber") : ""}
           </label>
           <EditOptions opts={opts} setOpts={setOpts} />
         </div>
       )}
-      <button type="submit" className="btn" disabled={busy || !okUrl || !!ch || !tools.ytdlp || !tools.ffmpeg}>{busy ? "Adding…" : "⬇ Download"}</button>
-      {!tools.ytdlp && <p>Needs yt-dlp. On the PC, run <code className="num rounded bg-black/40 px-1">{YTDLP_SETUP}</code> in PowerShell, then restart ORBIT.</p>}
+      <button type="submit" className="btn" disabled={busy || !okUrl || !!ch || !tools.ytdlp || !tools.ffmpeg}>{busy ? tr("cf.adding") : `⬇ ${tr("cf.download")}`}</button>
+      {!tools.ytdlp && <p>{tr("cf.ytdlp1")} <code className="num rounded bg-black/40 px-1">{YTDLP_SETUP}</code> {tr("cf.ytdlp2")}</p>}
     </form>
   );
 }
 
 function Conflict({ onAgain, busy }: { onAgain: () => void; busy?: boolean }) {
+  const { t: tr } = useT();
   return (
     <p className="mt-2 flex flex-wrap items-center gap-2 text-xs" role="alert">
-      This video already has clips. <button className="chip" onClick={onAgain} disabled={busy}>{busy ? "Starting…" : "Make again"}</button>
+      {tr("cf.hasClips")} <button className="chip" onClick={onAgain} disabled={busy}>{tr(busy ? "cf.starting" : "cf.makeAgain")}</button>
     </p>
   );
 }
@@ -869,6 +881,7 @@ function Choice<T extends string | number>({ legend, values, value, fmt, onChang
 /** Devlog folder: OBS recordings saved into <inbox>/devlog become 3 devlog Shorts each, waiting in review (never published on their own). */
 type DevlogState = { enabled: boolean; days: Record<string, number>; path: string; problem?: string; options?: Opts }; // GET/POST /api/studio/clips/devlog
 function DevlogCard({ onChange }: { onChange: () => void }) {
+  const { t: tr } = useT();
   const [s, setS] = useState<DevlogState | null>(null);
   const [busy, setBusy] = useState(""), [note, setNote] = useState(""), [err, setErr] = useState("");
   useEffect(() => { void api<DevlogState>(`${API}/devlog`).then(setS, (e) => setErr(e instanceof Error ? e.message : "Couldn't load")); }, []);
@@ -881,17 +894,17 @@ function DevlogCard({ onChange }: { onChange: () => void }) {
   });
   const day = s ? Math.max(0, ...Object.values<number>(s.days)) : 0;
   return (
-    <Section title="🛠 Devlog → Shorts">
-      <p className="text-sm">Point OBS&apos;s recording path at this folder. Each finished build session becomes 3 devlog Shorts (≤ 60 s) titled &quot;Day N of building my Roblox game: …&quot;, waiting for you in review. Record to mp4, or turn off OBS auto-remux.</p>
+    <Section title={tr("cf.devlogTitle")}>
+      <p className="text-sm">{tr("cf.devlogIntro")}</p>
       {s && <code className="num mt-1 block overflow-x-auto whitespace-nowrap rounded bg-black/40 p-2 text-xs">{s.path}</code>}
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <button className="chip" onClick={open} disabled={!!busy}>{busy === "open" ? "Opening…" : "📂 Open devlog folder"}</button>
+        <button className="chip" onClick={open} disabled={!!busy}>{busy === "open" ? tr("cf.opening") : `📂 ${tr("cf.openDevlog")}`}</button>
         {note && <span className="ok text-xs" role="status">{note}</span>}
-        {s && <span className="muted num text-[11px]">{day ? `Last devlog: Day ${day}` : "No devlogs yet: the next one is Day 1"}</span>}
+        {s && <span className="muted num text-[11px]">{day ? tr("cf.lastDevlog", { n: day }) : tr("cf.noDevlog")}</span>}
       </div>
       <label className="mt-2 flex items-center gap-1.5 text-sm">
         <input type="checkbox" checked={!!s?.enabled} disabled={!s || !!busy} onChange={(e) => void toggle(e.target.checked)} />
-        Devlog folder: auto-clip new recordings <Help text="Off by default. Only recordings that land here after you turn it on are clipped. Clips are never published on their own." />
+        {tr("cf.devlogAuto")} <Help text={tr("cf.devlogAutoHelp")} />
       </label>
       {s?.options && <LayoutChip o={s.options} onSave={(p) => void setLayout(p)} />}
       {s?.problem && <p className="error mt-1 text-xs" role="alert">{s.problem}</p>}
@@ -905,6 +918,7 @@ function DevlogCard({ onChange }: { onChange: () => void }) {
 type GitRepos = { env: string[]; saved: string[] };
 type Script = { hook: string; script: string; titles: string[] };
 function DevlogScriptBox() {
+  const { t: tr } = useT();
   const [repos, setRepos] = useState<GitRepos | null>(null), [draft, setDraft] = useState(""), [edit, setEdit] = useState(false);
   const [busy, setBusy] = useState(""), [err, setErr] = useState(""), [out, setOut] = useState<(Script & { commits: number }) | null>(null), [copied, setCopied] = useState(false);
   useEffect(() => { void api<GitRepos>("/api/git").then((r) => { setRepos(r); setDraft(r.saved.join("\n")); }, () => setRepos(null)); }, []);
@@ -916,25 +930,25 @@ function DevlogScriptBox() {
   return (
     <div className="mt-3 space-y-2 border-t border-white/10 pt-2 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <button className="chip" onClick={() => void suggest()} disabled={!!busy || !all.length}>{busy === "suggest" ? "Writing…" : "✍ Suggest a devlog script from my commits this week"}</button>
-        <button className="chip text-xs" onClick={() => setEdit((v) => !v)} aria-expanded={edit}>Git repos ({all.length})</button>
+        <button className="chip" onClick={() => void suggest()} disabled={!!busy || !all.length}>{busy === "suggest" ? tr("cf.writing") : `✍ ${tr("cf.suggestScript")}`}</button>
+        <button className="chip text-xs" onClick={() => setEdit((v) => !v)} aria-expanded={edit}>{tr("cf.gitRepos", { n: all.length })}</button>
       </div>
       {(edit || (repos && !all.length)) && (
         <div className="space-y-1">
-          {repos?.env.map((p) => <code key={p} className="num block text-xs">{p} <span className="muted">(ORBIT_GIT_REPOS)</span></code>)}
-          <textarea className="field num w-full text-xs" rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={"C:\\Users\\you\\Games\\MyRobloxGame"} aria-label="Git repo folders, one per line (read-only access)" />
-          <button className="chip text-xs" onClick={() => void save()} disabled={!!busy}>{busy === "save" ? "Saving…" : "Save repos"}</button>
-          <span className="muted ml-2 text-[11px]">Absolute folders, one per line. ORBIT only reads git log and diff --stat.</span>
+          {repos?.env.map((p) => <code key={p} className="num block text-xs">{p} <span className="muted">{"(ORBIT_GIT_REPOS)"}</span></code>)}
+          <textarea className="field num w-full text-xs" rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={tr("cf.repoPh")} aria-label={tr("cf.repoAria")} />
+          <button className="chip text-xs" onClick={() => void save()} disabled={!!busy}>{tr(busy === "save" ? "auto.saving" : "cf.saveRepos")}</button>
+          <span className="muted ml-2 text-[11px]">{tr("cf.repoHint")}</span>
         </div>
       )}
       {err && <p className="error text-xs" role="alert">{err}</p>}
       {out && (
         <div className="space-y-1 rounded bg-black/30 p-2">
-          <p className="muted text-[11px]">From {out.commits} commits · not published anywhere</p>
-          {out.hook && <p><b>Hook:</b> {out.hook}</p>}
+          <p className="muted text-[11px]">{tr("cf.fromCommits", { n: out.commits })}</p>
+          {out.hook && <p><b>{tr("cf.hook")}</b> {out.hook}</p>}
           <p className="whitespace-pre-wrap">{out.script}</p>
           {out.titles.length > 0 && <ul className="muted list-disc pl-4 text-xs">{out.titles.map((t) => <li key={t}>{t}</li>)}</ul>}
-          <button className="chip text-xs" onClick={() => navigator.clipboard?.writeText(text).then(() => setCopied(true), () => setCopied(false))}>{copied ? "Copied" : "Copy"}</button>
+          <button className="chip text-xs" onClick={() => navigator.clipboard?.writeText(text).then(() => setCopied(true), () => setCopied(false))}>{tr(copied ? "cf.copied" : "common.copy")}</button>
         </div>
       )}
     </div>
@@ -965,27 +979,28 @@ function CamPicker({ side, size, set }: { side: CamSide; size?: number; set: (p:
 
 /** Layout, pacing, zooms and language for a clip job. */
 function EditOptions({ opts, setOpts }: { opts: Opts; setOpts: (f: (o: Opts) => Opts) => void }) {
+  const { t: tr } = useT();
   return (
     <>
-      <Choice legend="Layout" values={LAYOUTS} value={opts.layout} fmt={(v) => LAYOUT[v][0]} hint={LAYOUT[opts.layout][1]}
+      <Choice legend={tr("cf.layout")} values={LAYOUTS} value={opts.layout} fmt={(v) => LAYOUT[v][0]} hint={LAYOUT[opts.layout][1]}
         onChange={(layout) => setOpts((o) => ({ ...o, layout }))} />
       {opts.layout === "split" && <CamPicker side={opts.camSide} size={opts.camSize} set={(p) => setOpts((o) => ({ ...o, ...p }))} />}
-      <Choice legend="Speech" values={["en", "auto"] as Opts["language"][]} value={opts.language} fmt={(v) => (v === "en" ? "English" : "Any language")}
+      <Choice legend={tr("cf.speech")} values={["en", "auto"] as Opts["language"][]} value={opts.language} fmt={(v) => tr(v === "en" ? "cf.english" : "cf.anyLang")}
         onChange={(language) => setOpts((o) => ({ ...o, language }))} />
-      <label className="flex items-center gap-1.5" title="Cuts pauses of 0.7 s or more">
-        <input type="checkbox" checked={opts.jumpCuts} onChange={(e) => setOpts((o) => ({ ...o, jumpCuts: e.target.checked }))} /> Jump cuts (remove dead air)
+      <label className="flex items-center gap-1.5" title={tr("cf.jumpTitle")}>
+        <input type="checkbox" checked={opts.jumpCuts} onChange={(e) => setOpts((o) => ({ ...o, jumpCuts: e.target.checked }))} /> {tr("cf.jumpLong")}
       </label>
-      <label className="flex items-center gap-1.5" title="A quick zoom on the loudest moments, at most one every 6 s">
-        <input type="checkbox" checked={opts.zooms} onChange={(e) => setOpts((o) => ({ ...o, zooms: e.target.checked }))} /> Zoom punch-ins
+      <label className="flex items-center gap-1.5" title={tr("cf.zoomTitle")}>
+        <input type="checkbox" checked={opts.zooms} onChange={(e) => setOpts((o) => ({ ...o, zooms: e.target.checked }))} /> {tr("cf.zoomLong")}
       </label>
-      <label className="flex items-center gap-1.5" title="Opens with 1-2 s of the loudest moment, then a white flash into the clip (skipped when it's in the first 3 s)">
-        <input type="checkbox" checked={opts.coldOpen} onChange={(e) => setOpts((o) => ({ ...o, coldOpen: e.target.checked }))} /> Cold open (peak first)
+      <label className="flex items-center gap-1.5" title={tr("cf.coldTitle")}>
+        <input type="checkbox" checked={opts.coldOpen} onChange={(e) => setOpts((o) => ({ ...o, coldOpen: e.target.checked }))} /> {tr("cf.coldLong")}
       </label>
-      <label className="flex items-center gap-1.5" title="Ends at most 0.3 s after the last word, with a short audio fade, so the replay loops smoothly">
-        <input type="checkbox" checked={opts.loopEnd} onChange={(e) => setOpts((o) => ({ ...o, loopEnd: e.target.checked }))} /> Loop-friendly ending
+      <label className="flex items-center gap-1.5" title={tr("cf.loopTitle")}>
+        <input type="checkbox" checked={opts.loopEnd} onChange={(e) => setOpts((o) => ({ ...o, loopEnd: e.target.checked }))} /> {tr("cf.loopLong")}
       </label>
-      <label className="flex items-center gap-1.5" title="A thin bar along the bottom edge that fills as the clip plays">
-        <input type="checkbox" checked={opts.progressBar} onChange={(e) => setOpts((o) => ({ ...o, progressBar: e.target.checked }))} /> Progress bar
+      <label className="flex items-center gap-1.5" title={tr("cf.barTitle")}>
+        <input type="checkbox" checked={opts.progressBar} onChange={(e) => setOpts((o) => ({ ...o, progressBar: e.target.checked }))} /> {tr("cf.bar")}
       </label>
     </>
   );
@@ -994,15 +1009,16 @@ function EditOptions({ opts, setOpts }: { opts: Opts; setOpts: (f: (o: Opts) => 
 type LayoutOpts = Pick<Opts, "layout" | "camSide" | "camSize">;
 /** Clips started from saved settings (inbox auto-clip, devlog folder): the layout they get, changeable in place. */
 function LayoutChip({ o, onSave }: { o: LayoutOpts; onSave: (p: Partial<LayoutOpts>) => void }) {
+  const { t: tr } = useT();
   const [open, setOpen] = useState(false);
   return (
     <div className="mt-1 text-xs">
-      <span className="muted">Layout: </span>
+      <span className="muted">{tr("cf.layout")}: </span>
       <button type="button" className="chip !px-2 !py-0.5 !text-[11px]" aria-expanded={open} onClick={() => setOpen((x) => !x)}
-        aria-label={`Layout: ${layoutText(o)}. ${open ? "Close" : "Change"}`}>{layoutText(o)} · {open ? "done" : "change"}</button>
+        aria-label={`${tr("cf.layout")}: ${layoutText(o)}. ${tr(open ? "common.close" : "cf.changeCap")}`}>{layoutText(o)} · {tr(open ? "cf.done" : "cf.change")}</button>
       {open && (
         <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-2">
-          <Choice legend="Layout" values={LAYOUTS} value={o.layout} fmt={(v) => LAYOUT[v][0]} hint={LAYOUT[o.layout][1]} onChange={(layout) => onSave({ layout })} />
+          <Choice legend={tr("cf.layout")} values={LAYOUTS} value={o.layout} fmt={(v) => LAYOUT[v][0]} hint={LAYOUT[o.layout][1]} onChange={(layout) => onSave({ layout })} />
           {o.layout === "split" && <CamPicker side={o.camSide} size={o.camSize} set={onSave} />}
         </div>
       )}
@@ -1022,6 +1038,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
   onRetry: () => void; onDelete: () => void; onPatch: PatchFn; onPublish: PublishFn; onCheck: (clip: string) => Promise<boolean>; onVersion: VersionFn; onTitles: (clip: string, review?: boolean) => Promise<boolean>; onReload: () => void;
 }) {
   const o = job.options; // what the original clips were rendered with (mirrors baseEdit in pure.ts)
+  const { t: tr } = useT();
   const base: VersionEdit = { layout: o.layout ?? "fit", camSide: o.camSide ?? "right", camSize: o.camSize, captions: o.captions ? "karaoke" : "none", jumpCuts: o.jumpCuts ?? true, zooms: o.zooms ?? true,
     coldOpen: o.coldOpen ?? false, progressBar: o.progressBar ?? false, loopEnd: o.loopEnd ?? false }; // missing = job from before these options
   const working = isJobActive(job), pct = Math.round(Math.min(1, Math.max(0, job.progress || 0)) * 100);
@@ -1033,12 +1050,12 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
         <div className="min-w-0">
           <b className="block truncate text-sm" title={job.source}>{job.source}</b>
           <span className="muted num text-[11px]">
-            {when(job.createdAt)}{job.durationSec ? ` · ${mmss(job.durationSec)} long` : ""} · {job.options.count} clips ≤ {job.options.maxSec} s{job.options.captions ? " · captions" : ""} · {layoutText(job.options)}
+            {when(job.createdAt)}{job.durationSec ? tr("cf.long", { d: mmss(job.durationSec) }) : ""} · {tr("cf.clipsMax", { n: job.options.count, s: job.options.maxSec })}{job.options.captions ? tr("cf.withCaptions") : ""} · {layoutText(job.options)}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
           <Status text={JOB_LABEL[job.status] ?? job.status} tone={toneOf(job.status)} />
-          <ConfirmButton label="Delete" sure="Delete?" aria={`Delete job for ${job.source}`} onConfirm={onDelete} disabled={busy[`del:${job.id}`]} />
+          <ConfirmButton label={tr("rules.delete")} sure={tr("cf.deleteQ")} aria={tr("cf.deleteJob", { src: job.source })} onConfirm={onDelete} disabled={busy[`del:${job.id}`]} />
         </div>
       </div>
       <Note k={`del:${job.id}`} />
@@ -1049,7 +1066,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
 
       {job.status === "done" && job.timings && (
         <p className="muted num mt-1 text-[11px]">
-          Took {mmss(job.timings.audio + job.timings.transcribe + job.timings.pick + job.timings.render)}: audio {mmss(job.timings.audio)} · transcribe {mmss(job.timings.transcribe)} · pick {mmss(job.timings.pick)} · render {mmss(job.timings.render)}
+          {tr("cf.took", { total: mmss(job.timings.audio + job.timings.transcribe + job.timings.pick + job.timings.render), audio: mmss(job.timings.audio), transcribe: mmss(job.timings.transcribe), pick: mmss(job.timings.pick), render: mmss(job.timings.render) })}
         </p>
       )}
 
@@ -1059,12 +1076,12 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
           onPick={(id) => { const el = document.getElementById(`cf-clip-${job.id}/${id}`); el?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" }); el?.focus({ preventScroll: true }); }} />
       )}
 
-      {job.warnings.length > 0 && <ul className="mt-2 space-y-0.5 text-xs" aria-label="Warnings">{job.warnings.map((w, k) => <li key={k} className={w.startsWith("Looks like a re-upload") ? "error font-medium" : undefined}>⚠ {w}</li>)}</ul>}
+      {job.warnings.length > 0 && <ul className="mt-2 space-y-0.5 text-xs" aria-label={tr("cf.warnings")}>{job.warnings.map((w, k) => <li key={k} className={w.startsWith("Looks like a re-upload") ? "error font-medium" : undefined}>⚠ {w}</li>)}</ul>}
 
       {job.status === "failed" && (
         <div className="mt-2 text-sm" role="alert">
-          <p className="error">{job.error || "The job failed."}</p>
-          <button className="btn mt-2" onClick={onRetry} disabled={busy[`make:${job.source}`]}>{busy[`make:${job.source}`] ? "Starting…" : "Try again"}</button>
+          <p className="error">{job.error || tr("cf.jobFailed")}</p>
+          <button className="btn mt-2" onClick={onRetry} disabled={busy[`make:${job.source}`]}>{tr(busy[`make:${job.source}`] ? "cf.starting" : "task.retry")}</button>
           <Note k={`make:${job.source}`} />
         </div>
       )}
@@ -1090,7 +1107,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
           ))}
         </ul>
       )}
-      {!clips.length && job.status === "done" && <p className="muted mt-2 text-xs">{hidden ? `All ${hidden} clips are rejected (use “Show rejected”).` : "No clips were found in this video."}</p>}
+      {!clips.length && job.status === "done" && <p className="muted mt-2 text-xs">{hidden ? tr("cf.allRejected", { n: hidden }) : tr("cf.noneFound")}</p>}
     </article>
   );
 }
@@ -1098,6 +1115,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
 function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publish }: { clip: Clip; reduced: boolean; busy: boolean; onPatch: PatchFn; note: ReactNode; picks: ReactNode; version: ReactNode; publish: ReactNode }) {
   const [play, setPlay] = useState(false);
   const [edit, setEdit] = useState<string | null>(null);
+  const { t: tr } = useT();
   const [more, setMore] = useState(false);
   const reviewable = c.status === "ready" || c.status === "approved" || c.status === "rejected";
   const len = Math.max(0, c.end - c.start);
@@ -1120,7 +1138,7 @@ function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publi
           </button>
         ) : (
           <div className="grid h-full place-items-center p-2 text-center">
-            <span className={c.status === "failed" ? "error" : "muted"}>{c.status === "failed" ? `⚠ ${c.error || "Render failed"}` : "🎞 Rendering…"}</span>
+            <span className={c.status === "failed" ? "error" : "muted"}>{c.status === "failed" ? `⚠ ${c.error || tr("cf.renderFailed")}` : `🎞 ${tr("cf.rendering")}`}</span>
           </div>
         )}
         {c.virality && !play && <div className="pointer-events-none absolute right-1.5 top-1.5"><ScoreRing v={c.virality} reduced={reduced} /></div>}
@@ -1134,33 +1152,33 @@ function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publi
 
       {edit != null ? (
         <form className="flex flex-col gap-1" onSubmit={(e) => { e.preventDefault(); void save(); }}>
-          <label className="sr-only" htmlFor={`t-${c.id}`}>Clip title</label>
+          <label className="sr-only" htmlFor={`t-${c.id}`}>{tr("cf.clipTitle")}</label>
           <input id={`t-${c.id}`} className="field !px-2 !py-1 !text-xs" value={edit} maxLength={120} autoFocus
             onChange={(e) => setEdit(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setEdit(null); }} />
           <div className="flex gap-1">
-            <button type="submit" className="chip" disabled={busy || !edit.trim()}>{busy ? "Saving…" : "Save"}</button>
-            <button type="button" className="chip" onClick={() => setEdit(null)}>Cancel</button>
+            <button type="submit" className="chip" disabled={busy || !edit.trim()}>{tr(busy ? "auto.saving" : "habit.save")}</button>
+            <button type="button" className="chip" onClick={() => setEdit(null)}>{tr("common.cancel")}</button>
           </div>
         </form>
       ) : (
         <div className="flex items-start gap-1">
           <b className="min-w-0 flex-1 leading-snug">{c.title}</b>
-          <button className="chip shrink-0 !px-1.5 !py-0" onClick={() => setEdit(c.title)} aria-label={`Edit title: ${c.title}`}>✎</button>
+          <button className="chip shrink-0 !px-1.5 !py-0" onClick={() => setEdit(c.title)} aria-label={tr("cf.editTitle", { title: c.title })}>✎</button>
         </div>
       )}
       {c.status === "ready" && picks /* while reviewing, title/thumb picks stay in view */}
       {c.hook && <p className="leading-snug">“{c.hook}”</p>}
-      {c.retryOf && <p className="text-xs">Retry of {c.retryOf.title}. Approving will make the original private only after this retry is public. Restore is available in Last Shorts.</p>}
+      {c.retryOf && <p className="text-xs">{tr("cf.retryOf", { title: c.retryOf.title })}</p>}
       {c.notes?.map((n, i) => <p key={i} className="muted text-[11px]">{n}</p>)}
       {c.reason && <p className="muted line-clamp-2 text-[11px] leading-snug" title={c.reason}>{c.reason}</p>}
-      <p className="muted num text-[11px]">{mmss(c.start)}–{mmss(c.end)} · {mmss(len)} · {c.virality ? "editor" : "score"} {score(c.score)}/100</p>
+      <p className="muted num text-[11px]">{mmss(c.start)}–{mmss(c.end)} · {mmss(len)} · {tr(c.virality ? "cf.editor" : "cf.scoreWord")} {score(c.score)}/100</p>
       {c.virality && <ScoreWhy v={c.virality} />}
       {c.video && c.error && <p className="muted text-[11px] leading-snug">⚠ {c.error}</p>}
 
       <div className="mt-auto flex flex-wrap gap-1">
         {reviewable && (
           <>
-            {c.status !== "rejected" && <button className="chip" onClick={() => onPatch(c.id, { status: "approved", ...(c.retryOf && { replaceOriginal: c.retryOf.videoId }) })} disabled={busy || c.status === "approved"} aria-pressed={c.status === "approved"} aria-label={`Approve ${c.title}${c.retryOf ? " and replace original after publication" : ""}`}>✓ {c.retryOf ? "Approve & replace after publication" : "Approve"}</button>}
+            {c.status !== "rejected" && <button className="chip" onClick={() => onPatch(c.id, { status: "approved", ...(c.retryOf && { replaceOriginal: c.retryOf.videoId }) })} disabled={busy || c.status === "approved"} aria-pressed={c.status === "approved"} aria-label={`Approve ${c.title}${c.retryOf ? " and replace original after publication" : ""}`}>✓ {tr(c.retryOf ? "cf.approveReplace" : "common.approve")}</button>}
             {c.status !== "rejected" && <RejectButton title={c.title} onReject={(reason) => void onPatch(c.id, { status: "rejected", ...(reason ? { reason } : {}) })} disabled={busy || c.publish?.status === "uploading"} />}
           </>
         )}
@@ -1170,12 +1188,12 @@ function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publi
       {(c.video || version || (c.status !== "ready" && picks)) && (
         <>
           <button className="chip self-start !px-2 !py-0.5 !text-[10px]" aria-expanded={more} aria-controls={`more-${c.id}`} onClick={() => setMore((m) => !m)}
-            aria-label={`${more ? "Fewer" : "More"} options for ${c.title}`}>{more ? "Less ▴" : "More… ▾"}</button>
+            aria-label={`${more ? "Fewer" : "More"} options for ${c.title}`}>{more ? `${tr("cf.less")} ▴` : `${tr("cf.more")} ▾`}</button>
           {/* hidden, not unmounted: an open "Another version" form keeps what was typed */}
           <div id={`more-${c.id}`} hidden={!more} className="flex flex-col gap-1.5">
             {c.status !== "ready" && picks}
             {version}
-            {c.video && <a className="chip self-start" href={media(c.video)} download aria-label={`Download ${c.title}`}>⬇ Download</a>}
+            {c.video && <a className="chip self-start" href={media(c.video)} download aria-label={tr("cf.downloadAria", { title: c.title })}>⬇ {tr("cf.download")}</a>}
           </div>
         </>
       )}
@@ -1185,15 +1203,16 @@ function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publi
 
 /** Reject in two clicks; while armed, a reason chip rejects in one click with that reason (optional, stored as feedback). */
 function RejectButton({ title, disabled, onReject }: { title: string; disabled?: boolean; onReject: (reason?: string) => void }) {
+  const { t: tr } = useT();
   const [armed, setArmed] = useState(false);
   useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(false), 8000); return () => clearTimeout(t); }, [armed]);
-  if (!armed) return <button className="chip" disabled={disabled} onClick={() => setArmed(true)} aria-label={`Reject ${title}`}>✕ Reject</button>;
+  if (!armed) return <button className="chip" disabled={disabled} onClick={() => setArmed(true)} aria-label={tr("cf.rejectAria", { title })}>✕ {tr("common.reject")}</button>;
   const go = (r?: string) => { setArmed(false); onReject(r); };
   return (
     <div role="group" aria-label={`Reject ${title}`} className="flex w-full flex-wrap items-center gap-1"
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setArmed(false); }}>
-      <button className="chip" autoFocus style={{ borderColor: "#fb7185" }} onClick={() => go()} aria-label={`Confirm: reject ${title}`}>Sure? ✕</button>
-      <span className="muted text-[10px]">or why:</span>
+      <button className="chip" autoFocus style={{ borderColor: "#fb7185" }} onClick={() => go()} aria-label={tr("cf.confirmAria", { aria: tr("cf.rejectAria", { title }) })}>{tr("cf.sure")} ✕</button>
+      <span className="muted text-[10px]">{tr("cf.orWhy")}</span>
       {REJECT_REASONS.map((r) => <button key={r} className="chip !px-1.5 !py-0 !text-[10px]" onClick={() => go(r)} aria-label={`Reject ${title}: ${r}`}>{r}</button>)}
     </div>
   );
@@ -1205,19 +1224,20 @@ const signed = (n: number) => `${n > 0 ? "+" : ""}${n} s`;
 /** "🧪 Hook lab": three alternative openings rendered as versions, ranked from channel data. The owner picks; publishing stays his click. */
 function HookLabBox({ jobId, clip: c, started, onReload }: { jobId: string; clip: Clip; started: boolean; onReload: () => void }) {
   const [busy, setBusy] = useState(false), [err, setErr] = useState(""), [rank, setRank] = useState<HookLabRank | null>(null);
+  const { t: tr } = useT();
   const url = `${API}/${encodeURIComponent(jobId)}/${encodeURIComponent(c.id)}/hooklab`;
   const run = async (fn: () => Promise<void>) => { setBusy(true); setErr(""); try { await fn(); } catch (e) { setErr(e instanceof Error ? e.message : "Something went wrong"); } finally { setBusy(false); } };
   return (
     <div className="flex flex-col gap-1">
       {started
-        ? <button className="chip self-start" disabled={busy} onClick={() => void run(async () => setRank(await api<HookLabRank>(url)))}>🧪 {busy ? "Ranking…" : "Compare A/B/C"}</button>
+        ? <button className="chip self-start" disabled={busy} onClick={() => void run(async () => setRank(await api<HookLabRank>(url)))}>🧪 {tr(busy ? "cf.ranking" : "cf.compare")}</button>
         : <button className="chip self-start" disabled={busy} onClick={() => void run(async () => { await api(url, { method: "POST" }); onReload(); })}
-            aria-label={`Hook lab: three alternative openings of ${c.title}`}>{busy ? "Starting…" : "🧪 Hook lab"}</button>}
+            aria-label={`Hook lab: three alternative openings of ${c.title}`}>{busy ? tr("cf.starting") : `🧪 ${tr("cf.hookLab")}`}</button>}
       {err && <p className="error text-xs" role="alert">{err}</p>}
       {rank && (
         <div className="rounded-md border border-white/10 p-1.5 text-[11px]" aria-live="polite">
-          {rank.pending > 0 && <p className="muted">{rank.pending} of {rank.total} still rendering.</p>}
-          {rank.why && <p><b>Predicted winner:</b> {rank.why}</p>}
+          {rank.pending > 0 && <p className="muted">{tr("cf.stillRendering", { n: rank.pending, total: rank.total })}</p>}
+          {rank.why && <p><b>{tr("cf.winner")}</b> {rank.why}</p>}
           <ol className="mt-1 space-y-1">
             {rank.ranked.map((r) => (
               <li key={r.id}>
@@ -1226,7 +1246,7 @@ function HookLabBox({ jobId, clip: c, started, onReload }: { jobId: string; clip
               </li>
             ))}
           </ol>
-          <p className="muted mt-1">A prediction only: approve and publish the one you like.</p>
+          <p className="muted mt-1">{tr("cf.predictionOnly")}</p>
         </div>
       )}
     </div>
@@ -1237,9 +1257,10 @@ type VersionForm = VersionEdit & { title: string; hook: string; start: number; e
 /** "Another version": same moment re-rendered with other settings, from the saved analysis (fast, no transcription). */
 function VersionBox({ clip: c, base, busy, onVersion, note }: { clip: Clip; base: VersionEdit; busy: boolean; onVersion: VersionFn; note: ReactNode }) {
   const [f, setF] = useState<VersionForm | null>(null);
+  const { t: tr } = useT();
   if (!f) return (
     <div>
-      <button className="chip" onClick={() => setF({ ...base, title: c.title, hook: c.hook, start: 0, end: 0, suggest: false })} aria-label={`Make another version of ${c.title}`}>↻ Another version</button>
+      <button className="chip" onClick={() => setF({ ...base, title: c.title, hook: c.hook, start: 0, end: 0, suggest: false })} aria-label={tr("cf.anotherAria", { title: c.title })}>↻ {tr("cf.another")}</button>
       {note}
     </div>
   );
@@ -1261,29 +1282,29 @@ function VersionBox({ clip: c, base, busy, onVersion, note }: { clip: Clip; base
   );
   return (
     <form className="flex flex-col gap-1.5 rounded-md border border-white/10 p-1.5" aria-label={`Another version of ${c.title}`} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <Choice legend="Layout" values={LAYOUTS} value={f.layout} fmt={(v) => LAYOUT[v][0]} onChange={(layout) => set({ layout })} />
+      <Choice legend={tr("cf.layout")} values={LAYOUTS} value={f.layout} fmt={(v) => LAYOUT[v][0]} onChange={(layout) => set({ layout })} />
       {f.layout === "split" && <CamPicker side={f.camSide} size={f.camSize} set={set} />}
-      <Choice legend="Captions" values={[...CAPTION_STYLES]} value={f.captions} fmt={(v) => CAPTION_LABEL[v]} onChange={(captions) => set({ captions })} />
-      <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.jumpCuts} onChange={(e) => set({ jumpCuts: e.target.checked })} /> Jump cuts</label>
-      <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.zooms} onChange={(e) => set({ zooms: e.target.checked })} /> Zooms</label>
-      <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!f.coldOpen} onChange={(e) => set({ coldOpen: e.target.checked })} /> Cold open</label>
-      <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!f.loopEnd} onChange={(e) => set({ loopEnd: e.target.checked })} /> Loop ending</label>
-      <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!f.progressBar} onChange={(e) => set({ progressBar: e.target.checked })} /> Progress bar</label>
+      <Choice legend={tr("cf.captions")} values={[...CAPTION_STYLES]} value={f.captions} fmt={(v) => CAPTION_LABEL[v]} onChange={(captions) => set({ captions })} />
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.jumpCuts} onChange={(e) => set({ jumpCuts: e.target.checked })} /> {tr("cf.jump")}</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.zooms} onChange={(e) => set({ zooms: e.target.checked })} /> {tr("cf.zooms")}</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!f.coldOpen} onChange={(e) => set({ coldOpen: e.target.checked })} /> {tr("cf.cold")}</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!f.loopEnd} onChange={(e) => set({ loopEnd: e.target.checked })} /> {tr("cf.loop")}</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!f.progressBar} onChange={(e) => set({ progressBar: e.target.checked })} /> {tr("cf.bar")}</label>
       <fieldset>
-        <legend className={label}>Trim</legend>
-        {nudgeRow("start", "Start")}{nudgeRow("end", "End")}
+        <legend className={label}>{tr("cf.trim")}</legend>
+        {nudgeRow("start", tr("cf.start"))}{nudgeRow("end", tr("cf.end"))}
         <p className="muted num mt-0.5 text-[10px]">{mmss(Math.max(0, c.start + f.start))}–{mmss(c.end + f.end)}</p>
       </fieldset>
-      <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.suggest} onChange={(e) => set({ suggest: e.target.checked })} /> ✨ New title &amp; hook by Claude</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.suggest} onChange={(e) => set({ suggest: e.target.checked })} /> ✨ {tr("cf.suggestNew")}</label>
       {!f.suggest && (
         <>
-          <label><span className={label}>Title</span><input className="field w-full !px-2 !py-1 !text-xs" value={f.title} maxLength={70} onChange={(e) => set({ title: e.target.value })} /></label>
-          <label><span className={label}>Hook (first 2 s)</span><input className="field w-full !px-2 !py-1 !text-xs" value={f.hook} maxLength={40} placeholder="No hook" onChange={(e) => set({ hook: e.target.value })} /></label>
+          <label><span className={label}>{tr("cf.titleLbl")}</span><input className="field w-full !px-2 !py-1 !text-xs" value={f.title} maxLength={70} onChange={(e) => set({ title: e.target.value })} /></label>
+          <label><span className={label}>{tr("cf.hookLbl")}</span><input className="field w-full !px-2 !py-1 !text-xs" value={f.hook} maxLength={40} placeholder={tr("cf.noHook")} onChange={(e) => set({ hook: e.target.value })} /></label>
         </>
       )}
       <div className="flex gap-1">
-        <button type="submit" className="chip" disabled={busy}>{busy ? "Starting…" : "↻ Render"}</button>
-        <button type="button" className="chip" onClick={() => setF(null)}>Cancel</button>
+        <button type="submit" className="chip" disabled={busy}>{busy ? tr("cf.starting") : `↻ ${tr("cf.render")}`}</button>
+        <button type="button" className="chip" onClick={() => setF(null)}>{tr("common.cancel")}</button>
       </div>
       {note}
     </form>
@@ -1302,6 +1323,7 @@ const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6
 function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublish, onCheck, onVersion, note }: { jobId: string; devlog: boolean; clip: Clip; yt: YtStatus | null; reduced: boolean; busy: boolean; stale: boolean; onPublish: PublishFn; onCheck: () => void; onVersion?: VersionFn; note: ReactNode }) {
   const [form, setForm] = useState<PublishBody | null>(null);
   const [at, setAt] = useState("");
+  const { t: tr } = useT();
   const [mode, setMode] = useState<PubWhen>("now");
   const [sched, setSched] = useState<Schedule | null>(null);
   const p = c.publish;
@@ -1312,7 +1334,7 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
     const publishAt = mode === "next" ? "next" : mode === "pick" && at ? new Date(at).toISOString() : undefined;
     if (await onPublish(c.id, { ...form, original: devlog ? undefined : form.original, ...(publishAt ? { publishAt } : {}), ...(unsure ? { force: true } : {}) })) setForm(null);
   };
-  const reconnect = (text: string) => <p className="rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX}>{text} <a className="underline" href="/api/studio/oauth/start">Connect YouTube</a></p>;
+  const reconnect = (text: string) => <p className="rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX}>{text} <a className="underline" href="/api/studio/oauth/start">{tr("cf.connectYt")}</a></p>;
 
   if (p?.status === "uploading" && !stale) {
     return <Progress pct={Math.round(Math.min(1, Math.max(0, p.progress ?? 0)) * 100)} step="Uploading to YouTube" label={`Upload progress for ${c.title}`} reduced={reduced} />;
@@ -1320,10 +1342,10 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
   if (p?.status === "done" && p.videoId) {
     return (
       <div className="space-y-1 rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX} role="status">
-        <p>✓ On YouTube{p.privacy ? ` · ${p.privacy}` : ""}</p>
-        <a className="block underline" href={`https://youtube.com/shorts/${p.videoId}`} {...ext}>Open on YouTube ↗</a>
-        <a className="block underline" href={`https://studio.youtube.com/video/${p.videoId}/edit`} {...ext}>Open in YouTube Studio ↗</a>
-        <p className="muted">Stuck on private? <Help text={LOCKED_NOTE} /></p>
+        <p>✓ {tr("cf.onYt")}{p.privacy ? ` · ${p.privacy}` : ""}</p>
+        <a className="block underline" href={`https://youtube.com/shorts/${p.videoId}`} {...ext}>{tr("cf.openYt")} ↗</a>
+        <a className="block underline" href={`https://studio.youtube.com/video/${p.videoId}/edit`} {...ext}>{tr("cf.openStudio")} ↗</a>
+        <p className="muted">{tr("cf.stuck")} <Help text={LOCKED_NOTE} /></p>
       </div>
     );
   }
@@ -1331,34 +1353,34 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
     const live = !!p.scheduledFor && Date.parse(p.scheduledFor) <= Date.now();
     return (
       <div className="space-y-1 rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX} role="status">
-        <p>{live ? `✓ Live since ${when(p.scheduledFor!)}` : `🕒 Goes live ${p.scheduledFor ? when(p.scheduledFor) : "at the scheduled time"}`}</p>
-        <a className="block underline" href={`https://youtube.com/shorts/${p.videoId}`} {...ext}>Open on YouTube ↗</a>
-        <a className="block underline" href={`https://studio.youtube.com/video/${p.videoId}/edit`} {...ext}>{live ? "Open in YouTube Studio ↗" : "Reschedule or unschedule in YouTube Studio ↗"}</a>
-        {!live && <p className="muted">Change the time in YouTube Studio. <Help text="ORBIT can upload but not edit videos, so change the time in YouTube Studio (Visibility → Schedule)." /></p>}
+        <p>{live ? `✓ ${tr("cf.liveSince", { at: when(p.scheduledFor!) })}` : `🕒 ${tr("cf.goesLive", { at: p.scheduledFor ? when(p.scheduledFor) : tr("cf.atScheduled") })}`}</p>
+        <a className="block underline" href={`https://youtube.com/shorts/${p.videoId}`} {...ext}>{tr("cf.openYt")} ↗</a>
+        <a className="block underline" href={`https://studio.youtube.com/video/${p.videoId}/edit`} {...ext}>{tr(live ? "cf.openStudio" : "cf.reschedule")} ↗</a>
+        {!live && <p className="muted">{tr("cf.changeTime")} <Help text={tr("cf.changeTimeHelp")} /></p>}
       </div>
     );
   }
   if (unsure && !form) { // no plain retry: it could duplicate the video
     return (
       <div className="space-y-1 rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX} role="status">
-        <p>⏳ {(p?.status === "unknown" && p.error) || "Outcome unknown — check YouTube"}</p>
-        {!yt?.connected && reconnect("Checking needs YouTube connected.")}
+        <p>⏳ {(p?.status === "unknown" && p.error) || tr("cf.unknown")}</p>
+        {!yt?.connected && reconnect(tr("cf.checkNeeds"))}
         <div className="flex flex-wrap gap-1">
-          <button className="chip" onClick={onCheck} disabled={busy} aria-label={`Check YouTube for ${c.title}`}>{busy ? "Checking…" : "🔍 Check YouTube"}</button>
-          {yt?.canUpload && <ConfirmButton label="Upload again anyway" sure="Could duplicate — sure?" aria={`Upload ${c.title} again even though it may already be on YouTube`} onConfirm={open} disabled={busy} />}
+          <button className="chip" onClick={onCheck} disabled={busy} aria-label={`Check YouTube for ${c.title}`}>{busy ? tr("cf.checking") : `🔍 ${tr("cf.checkYt")}`}</button>
+          {yt?.canUpload && <ConfirmButton label={tr("cf.uploadAgain")} sure={tr("cf.dupSure")} aria={`Upload ${c.title} again even though it may already be on YouTube`} onConfirm={open} disabled={busy} />}
         </div>
         {note}
       </div>
     );
   }
-  if (yt && !yt.configured) return <p className="muted text-xs">YouTube sign-in isn&apos;t set up: add YOUTUBE_OAUTH_CLIENT_ID and YOUTUBE_OAUTH_CLIENT_SECRET to .env.local.</p>;
-  if (!yt?.connected) return reconnect("YouTube isn't connected.");
-  if (!yt.canUpload) return reconnect("Reconnect YouTube to allow uploads.");
+  if (yt && !yt.configured) return <p className="muted text-xs">{tr("cf.noOauth")}</p>;
+  if (!yt?.connected) return reconnect(tr("cf.notConnected"));
+  if (!yt.canUpload) return reconnect(tr("cf.reconnect"));
   if (!form) {
     return (
       <div className="space-y-1">
-        {p?.status === "failed" && <p className="error text-[11px]" role="alert">⚠ {p.error || "The upload failed."}</p>}
-        <button className="chip" onClick={open} aria-label={`Publish ${c.title} to YouTube`}>{p?.status === "failed" ? "↻ Try publishing again" : "▶ Publish"}</button>
+        {p?.status === "failed" && <p className="error text-[11px]" role="alert">⚠ {p.error || tr("cf.uploadFailed")}</p>}
+        <button className="chip" onClick={open} aria-label={`Publish ${c.title} to YouTube`}>{p?.status === "failed" ? `↻ ${tr("cf.publishAgain")}` : `▶ ${tr("cf.publish")}`}</button>
         {note}
       </div>
     );
@@ -1368,50 +1390,50 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
   const tooSoon = mode === "pick" && !!at && new Date(at).getTime() < Date.now() + MIN_LEAD;
   return (
     <form className="flex flex-col gap-1.5 rounded-md border border-white/10 p-1.5" aria-label={`Publish ${c.title} to YouTube`} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <label><span className={label}>Title</span>
+      <label><span className={label}>{tr("cf.titleLbl")}</span>
         <input className="field w-full !px-2 !py-1 !text-xs" value={form.title} maxLength={100} required onChange={(e) => set({ title: e.target.value })} />
       </label>
-      <label><span className={label}>Description</span>
+      <label><span className={label}>{tr("cf.description")}</span>
         <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} value={form.description} maxLength={5000} onChange={(e) => set({ description: e.target.value })} />
       </label>
       <DescribeButton job={jobId} clip={c.id} onText={(description) => set({ description })} />
       {!devlog && (
-        <label><span className={label}>What I added</span>
+        <label><span className={label}>{tr("cf.whatAdded")}</span>
           <input className="field w-full !px-2 !py-1 !text-xs" value={form.original ?? ""} maxLength={200} required minLength={10}
-            placeholder="Your commentary, reaction or analysis" onChange={(e) => set({ original: e.target.value })} />
-          <span className="muted text-[11px]">Another creator&apos;s video needs your own layer: YouTube shows plain re-uploads to fewer people since 1 Oct 2026.</span>
+            placeholder={tr("cf.whatAddedPh")} onChange={(e) => set({ original: e.target.value })} />
+          <span className="muted text-[11px]">{tr("cf.ownLayer")}</span>
         </label>
       )}
       {!devlog && onVersion && (
         // Uses the existing "make another version" render: the note becomes the big opening text (first 6 words, both renderers).
         <button type="button" className="chip self-start" disabled={(form.original ?? "").trim().length < 10}
           onClick={() => void onVersion(c.id, { hook: (form.original ?? "").trim(), original: (form.original ?? "").trim(), start: 0, end: 0, suggest: false })}>
-          🖊 Put my take on screen (new version, first 6 words)</button>
+          🖊 {tr("cf.takeOnScreen")}</button>
       )}
       <label className="flex items-center gap-1.5 text-[11px]">
         <input type="checkbox" checked={!!form.aiContent} onChange={(e) => set({ aiContent: e.target.checked })} />
-        Has realistic AI-made people, places or events (YouTube adds an &quot;altered or synthetic&quot; label)
+        {tr("cf.aiContent")}
       </label>
-      <label><span className={label}>Visibility</span>
+      <label><span className={label}>{tr("cf.visibility")}</span>
         <select className="field w-full !px-2 !py-1 !text-xs" value={mode === "now" ? form.privacy : "private"} disabled={mode !== "now"} onChange={(e) => set({ privacy: e.target.value as PublishBody["privacy"] })}>
-          <option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>
+          <option value="private">{tr("cf.private")}</option><option value="unlisted">{tr("cf.unlisted")}</option><option value="public">{tr("cf.public")}</option>
         </select>
       </label>
-      <Choice legend="When" values={["now", "next", "pick"] as PubWhen[]} value={mode} fmt={(v) => WHEN_LABEL[v]} onChange={setMode} />
-      {mode === "next" && <p className="muted text-[11px]">{sched ? (sched.next[0] ? `Next free slot: ${when(sched.next[0])}` : "No free slot in the next 6 months — edit your slots.") : "Finding the next free slot…"}</p>}
+      <Choice legend={tr("rules.when")} values={["now", "next", "pick"] as PubWhen[]} value={mode} fmt={(v) => tr(`cf.when.${v}`)} onChange={setMode} />
+      {mode === "next" && <p className="muted text-[11px]">{sched ? (sched.next[0] ? tr("cf.nextSlot", { at: when(sched.next[0]) }) : tr("cf.noSlot")) : tr("cf.findingSlot")}</p>}
       {mode === "pick" && (
-        <label><span className="sr-only">Publish time</span>
+        <label><span className="sr-only">{tr("cf.publishTime")}</span>
           <input className="field w-full !px-2 !py-1 !text-xs" type="datetime-local" value={at} min={localInput(new Date(Date.now() + MIN_LEAD))} required onChange={(e) => setAt(e.target.value)} />
         </label>
       )}
-      {tooSoon && <p className="error text-[11px]">Pick a time at least 15 minutes from now.</p>}
-      {mode !== "now" && <p className="muted text-[11px]">Uploads now as private; YouTube makes it public at that time, even if this PC is off.</p>}
+      {tooSoon && <p className="error text-[11px]">{tr("cf.tooSoon")}</p>}
+      {mode !== "now" && <p className="muted text-[11px]">{tr("cf.uploadsPrivate")}</p>}
       {mode !== "now" && sched && <SlotSettings sched={sched} onSaved={setSched} />}
-      {/[<>]/.test(form.title + form.description) && <p className="error text-[11px]">YouTube doesn&apos;t allow &lt; or &gt;.</p>}
-      <p className="muted text-[11px]">YouTube may keep it private. <Help text={LOCKED_NOTE} /></p>
+      {/[<>]/.test(form.title + form.description) && <p className="error text-[11px]">{tr("cf.noBrackets")}</p>}
+      <p className="muted text-[11px]">{tr("cf.mayPrivate")} <Help text={LOCKED_NOTE} /></p>
       <div className="flex gap-1">
-        <button type="submit" className="chip" disabled={busy || !form.title.trim() || /[<>]/.test(form.title + form.description) || (mode === "pick" && (!at || tooSoon))}>{busy ? "Starting…" : mode === "now" ? "▶ Upload" : "🕒 Schedule"}</button>
-        <button type="button" className="chip" onClick={() => setForm(null)}>Cancel</button>
+        <button type="submit" className="chip" disabled={busy || !form.title.trim() || /[<>]/.test(form.title + form.description) || (mode === "pick" && (!at || tooSoon))}>{busy ? tr("cf.starting") : mode === "now" ? `▶ ${tr("cf.upload")}` : `🕒 ${tr("cf.schedule")}`}</button>
+        <button type="button" className="chip" onClick={() => setForm(null)}>{tr("common.cancel")}</button>
       </div>
       {note}
     </form>
@@ -1421,13 +1443,14 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
 /** "Slots: 12:00, 17:00, 21:00 · edit" — the owner's publishing slots (in their time zone), edited inline inside the publish form. */
 function SlotSettings({ sched, onSaved }: { sched: Schedule; onSaved: (s: Schedule) => void }) {
   const [edit, setEdit] = useState<{ slots: string; perDay: number; timezone: string } | null>(null);
+  const { t: tr } = useT();
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const s = sched.settings, local = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (!edit) return (
     <p className="muted text-[11px]">
-      Slots: {s.slots.join(", ")}{s.perDay < s.slots.length ? ` · max ${s.perDay}/day` : ""}{s.timezone !== local ? ` (${s.timezone})` : ""} ·{" "}
-      <button type="button" className="underline" onClick={() => setEdit({ slots: s.slots.join(", "), perDay: s.perDay, timezone: s.timezone })} aria-label="Edit publishing slots">edit</button>
+      {tr("cf.slots")} {s.slots.join(", ")}{s.perDay < s.slots.length ? tr("cf.maxPerDay", { n: s.perDay }) : ""}{s.timezone !== local ? ` (${s.timezone})` : ""} ·{" "}
+      <button type="button" className="underline" onClick={() => setEdit({ slots: s.slots.join(", "), perDay: s.perDay, timezone: s.timezone })} aria-label={tr("cf.editSlots")}>{tr("cf.change")}</button>
     </p>
   );
   const save = async () => {
@@ -1442,14 +1465,14 @@ function SlotSettings({ sched, onSaved }: { sched: Schedule; onSaved: (s: Schedu
   const field = "field w-full !px-2 !py-1 !text-xs", label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
   return (
     <fieldset className="flex flex-col gap-1 rounded-md border border-white/10 p-1.5">
-      <legend className={label}>Publishing slots</legend>
-      <label><span className={label}>Times (HH:MM)</span><input className={field} value={edit.slots} onKeyDown={enter} onChange={(e) => setEdit({ ...edit, slots: e.target.value })} placeholder="12:00, 17:00, 21:00" /></label>
-      <label><span className={label}>Clips per day</span><input className={field} type="number" min={1} max={12} value={edit.perDay} onKeyDown={enter} onChange={(e) => setEdit({ ...edit, perDay: Number(e.target.value) })} /></label>
-      <label><span className={label}>Time zone</span><input className={field} value={edit.timezone} onKeyDown={enter} onChange={(e) => setEdit({ ...edit, timezone: e.target.value })} placeholder="Europe/Tallinn" /></label>
+      <legend className={label}>{tr("cf.pubSlots")}</legend>
+      <label><span className={label}>{tr("cf.times")}</span><input className={field} value={edit.slots} onKeyDown={enter} onChange={(e) => setEdit({ ...edit, slots: e.target.value })} placeholder="12:00, 17:00, 21:00" /></label>
+      <label><span className={label}>{tr("cf.perDay")}</span><input className={field} type="number" min={1} max={12} value={edit.perDay} onKeyDown={enter} onChange={(e) => setEdit({ ...edit, perDay: Number(e.target.value) })} /></label>
+      <label><span className={label}>{tr("cf.tz")}</span><input className={field} value={edit.timezone} onKeyDown={enter} onChange={(e) => setEdit({ ...edit, timezone: e.target.value })} placeholder={tr("cf.tzPh")} /></label>
       {err && <p className="error text-[11px]" role="alert">{err}</p>}
       <div className="flex gap-1">
-        <button type="button" className="chip" onClick={() => void save()} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
-        <button type="button" className="chip" onClick={() => setEdit(null)}>Cancel</button>
+        <button type="button" className="chip" onClick={() => void save()} disabled={busy}>{tr(busy ? "auto.saving" : "habit.save")}</button>
+        <button type="button" className="chip" onClick={() => setEdit(null)}>{tr("common.cancel")}</button>
       </div>
     </fieldset>
   );
@@ -1457,6 +1480,7 @@ function SlotSettings({ sched, onSaved }: { sched: Schedule; onSaved: (s: Schedu
 
 /** "Schedule all approved": the server uploads every approved, unpublished clip into the next free slots, one at a time. */
 function ScheduleAll({ count, canUpload, onChange }: { count: number; canUpload: boolean; onChange: (quiet?: boolean) => void }) {
+  const { t: tr } = useT();
   const paused = useWorldPaused();
   const [batch, setBatch] = useState<Batch | null>(null);
   const [mine, setMine] = useState(false); // only show a result for a run seen in this panel
@@ -1480,13 +1504,13 @@ function ScheduleAll({ count, canUpload, onChange }: { count: number; canUpload:
     }
     finally { setBusy(false); }
   };
-  if (batch?.running) return <span className="muted text-[11px]" aria-live="polite">🕒 Scheduling {Math.min(batch.scheduled + 1, batch.total)}/{batch.total}…</span>;
+  if (batch?.running) return <span className="muted text-[11px]" aria-live="polite">🕒 {tr("cf.scheduling", { a: Math.min(batch.scheduled + 1, batch.total), b: batch.total })}</span>;
   return (
     <div className="flex flex-col items-end gap-0.5">
-      {count > 0 && canUpload && <ConfirmButton id="schedule-all" className="btn !px-3 !py-1 !text-xs" label={`🕒 Schedule all approved (${count})`} sure={`Upload ${count} into the next slots?`} aria={`Schedule all ${count} approved clips into the next free slots`} onConfirm={() => void start()} disabled={busy} />}
+      {count > 0 && canUpload && <ConfirmButton id="schedule-all" className="btn !px-3 !py-1 !text-xs" label={`🕒 ${tr("cf.scheduleAllN", { n: count })}`} sure={tr("cf.uploadNSure", { n: count })} aria={tr("cf.scheduleAllSlots", { n: count })} onConfirm={() => void start()} disabled={busy} />}
       {mine && batch && (batch.error
-        ? <p className="error text-[11px]" role="alert">{batch.scheduled} scheduled. {batch.error}</p>
-        : <p className="ok text-[11px]" role="status">✓ {batch.scheduled} scheduled</p>)}
+        ? <p className="error text-[11px]" role="alert">{tr("cf.scheduledN", { n: batch.scheduled })}. {batch.error}</p>
+        : <p className="ok text-[11px]" role="status">✓ {tr("cf.scheduledN", { n: batch.scheduled })}</p>)}
       {err && <p className="error text-[11px]" role="alert">{err}</p>}
     </div>
   );

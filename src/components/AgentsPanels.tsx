@@ -48,12 +48,12 @@ const safeHref = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
 
 /* ---------- small Markdown renderer for agent output ---------- */
 
-function inline(text: string, openMemory?: (id: string) => void): ReactNode[] {
+function inline(text: string, openMemory?: (id: string) => void, memLabel = "memory"): ReactNode[] {
   return text.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\)|\[m:[0-9a-f-]{36}\]|\*\*[^*]+\*\*|`[^`]+`)/gi).map((part, i) => {
     const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
     if (link) return <a key={i} className="link" href={safeHref(link[2])} target="_blank" rel="noreferrer noopener">{link[1]}</a>;
     const mem = part.match(/^\[m:([0-9a-f-]{36})\]$/i);
-    if (mem) return <button key={i} className="chip" onClick={() => openMemory?.(mem[1])}>memory</button>;
+    if (mem) return <button key={i} className="chip" onClick={() => openMemory?.(mem[1])}>{memLabel}</button>;
     if (part.startsWith("**") && part.endsWith("**")) return <strong key={i} className="hl-strong">{part.slice(2, -2)}</strong>;
     if (part.startsWith("`") && part.endsWith("`")) return <code key={i} className="rounded bg-black/40 px-1">{part.slice(1, -1)}</code>;
     return <Fragment key={i}>{highlight(part, i)}</Fragment>;
@@ -61,6 +61,7 @@ function inline(text: string, openMemory?: (id: string) => void): ReactNode[] {
 }
 
 export function Markdown({ text, openMemory }: { text: string; openMemory?: (id: string) => void }) {
+  const mem = useT().t("ops.memory");
   const out: ReactNode[] = [];
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
@@ -74,10 +75,10 @@ export function Markdown({ text, openMemory }: { text: string; openMemory?: (id:
     const s = t.trim();
     if (!s) continue;
     if (/^\|.*\|$/.test(s)) { out.push(<p key={i} className="font-mono text-xs">{s}</p>); continue; }
-    if (s.startsWith("### ")) out.push(<h4 key={i} className="mt-3 font-semibold">{inline(s.slice(4), openMemory)}</h4>);
+    if (s.startsWith("### ")) out.push(<h4 key={i} className="mt-3 font-semibold">{inline(s.slice(4), openMemory, mem)}</h4>);
     else if (s.startsWith("## ") || s.startsWith("# ")) out.push(<h3 key={i} className="h3 mt-4">{s.replace(/^#+\s/, "")}</h3>);
-    else if (/^([-*]|\d+\.)\s/.test(s)) out.push(<p key={i} className="pl-4">• {inline(s.replace(/^([-*]|\d+\.)\s/, ""), openMemory)}</p>);
-    else out.push(<p key={i}>{inline(s, openMemory)}</p>);
+    else if (/^([-*]|\d+\.)\s/.test(s)) out.push(<p key={i} className="pl-4">• {inline(s.replace(/^([-*]|\d+\.)\s/, ""), openMemory, mem)}</p>);
+    else out.push(<p key={i}>{inline(s, openMemory, mem)}</p>);
   }
   return <div className="space-y-2 text-sm leading-relaxed">{out}</div>;
 }
@@ -204,6 +205,7 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
 /* ---------- OPERATIONS: tasks + projects ---------- */
 
 export function OperationsPanel({ focusTask, openMemory }: { focusTask: string | null; openMemory: (id: string) => void }) {
+  const { t: tr } = useT();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -259,7 +261,7 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
     <div className="flex gap-1.5" role="tablist">
       {(["tasks", "automations", "rules", "activity"] as const).map((t) => (
         <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
-          {t === "tasks" ? "Tasks & projects" : t === "automations" ? "Automations" : t === "rules" ? "Rules" : "Activity"}
+          {tr(`ops.tab.${t}`)}
         </button>
       ))}
     </div>
@@ -272,42 +274,42 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
     <div className="space-y-5">
       {tabs}
       <form onSubmit={create} className="space-y-2">
-        <h3 className="h3">New task</h3>
+        <h3 className="h3">{tr("ops.newTask")}</h3>
         <textarea className="field h-20 w-full" value={form.request} onChange={(e) => setForm({ ...form, request: e.target.value })}
-          placeholder="e.g. Research the best ways to grow a Roblox game in 2026 and save a report" aria-label="Task" maxLength={8000} />
+          placeholder={tr("ops.taskPh")} aria-label={tr("ops.task")} maxLength={8000} />
         <div className="flex flex-wrap gap-2">
-          <select className="field" value={form.agent} onChange={(e) => setForm({ ...form, agent: e.target.value })} aria-label="Agent">
-            {agents.map((a) => <option key={a.slug} value={a.slug}>{a.name}{a.slug === "nova" ? " (decides & delegates)" : ""}</option>)}
+          <select className="field" value={form.agent} onChange={(e) => setForm({ ...form, agent: e.target.value })} aria-label={tr("ops.agent")}>
+            {agents.map((a) => <option key={a.slug} value={a.slug}>{a.name}{a.slug === "nova" ? tr("ops.novaHint") : ""}</option>)}
           </select>
-          <select className="field" value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} aria-label="Project">
-            <option value="">No project</option>
+          <select className="field" value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} aria-label={tr("ops.project")}>
+            <option value="">{tr("ops.noProject")}</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <button className="btn" disabled={!form.request.trim()}>Start</button>
+          <button className="btn" disabled={!form.request.trim()}>{tr("life.start")}</button>
         </div>
         {err && <p className="error">{err}</p>}
       </form>
 
       <div>
-        <div className="flex items-center justify-between"><h3 className="h3">Projects</h3></div>
+        <div className="flex items-center justify-between"><h3 className="h3">{tr("ops.projects")}</h3></div>
         <ul className="mt-2 space-y-1.5 text-sm">
           {projects.map((p) => (
             <li key={p.id} className="flex items-center justify-between gap-2">
-              <button className={`text-left ${filter === p.id ? "link" : ""}`} onClick={() => setFilter(filter === p.id ? "" : p.id)}>{p.name} <span className="muted text-xs">· {p.status}</span></button>
-              <select className="field py-0.5 text-xs" value={p.status} onChange={(e) => setProjectStatus(p, e.target.value)} aria-label={`Status of ${p.name}`}>
-                <option value="active">active</option><option value="paused">paused</option><option value="done">done</option>
+              <button className={`text-left ${filter === p.id ? "link" : ""}`} onClick={() => setFilter(filter === p.id ? "" : p.id)}>{p.name} <span className="muted text-xs">· {tr(`ops.status.${p.status}` as "ops.status.active")}</span></button>
+              <select className="field py-0.5 text-xs" value={p.status} onChange={(e) => setProjectStatus(p, e.target.value)} aria-label={tr("ops.statusOf", { name: p.name })}>
+                <option value="active">{tr("ops.status.active")}</option><option value="paused">{tr("ops.status.paused")}</option><option value="done">{tr("ops.status.done")}</option>
               </select>
             </li>
           ))}
         </ul>
         <form onSubmit={addProject} className="mt-2 flex gap-2">
-          <input className="field flex-1" value={newProject} onChange={(e) => setNewProject(e.target.value)} placeholder="New project name" aria-label="New project" maxLength={120} />
-          <button className="chip">Add</button>
+          <input className="field flex-1" value={newProject} onChange={(e) => setNewProject(e.target.value)} placeholder={tr("ops.newProjectPh")} aria-label={tr("ops.newProject")} maxLength={120} />
+          <button className="chip">{tr("common.add")}</button>
         </form>
       </div>
 
       <div>
-        <h3 className="h3">Tasks{filter ? " in project" : ""}</h3>
+        <h3 className="h3">{tr(filter ? "ops.tasksIn" : "ops.tasks")}</h3>
         <ul className="mt-2 space-y-2">
           {tasks.map((t) => (
             <li key={t.id}>
@@ -317,7 +319,7 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
               </button>
             </li>
           ))}
-          {!tasks.length && <li className="muted text-sm">No tasks yet. Give one above, or type into the command bar in Task mode.</li>}
+          {!tasks.length && <li className="muted text-sm">{tr("ops.noTasks")}</li>}
         </ul>
       </div>
     </div>
@@ -327,6 +329,7 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
 /* ---------- AGENTS: the workforce ---------- */
 
 export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }) {
+  const { t: tr } = useT();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [sel, setSel] = useState<string | null>(null);
@@ -360,7 +363,7 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
     catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not create"); }
   }
   async function removeAgent(slug: string) {
-    if (!confirm("Remove this custom agent? Its past tasks stay.")) return;
+    if (!confirm(tr("agents.removeConfirm"))) return;
     try { await api(`/api/agents?slug=${slug}`, { method: "DELETE" }); setSel(null); void load(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not remove"); }
   }
@@ -369,21 +372,21 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
   if (agent) {
     return (
       <div className="space-y-3">
-        <button className="link" onClick={() => setSel(null)}>← All agents</button>
+        <button className="link" onClick={() => setSel(null)}>{tr("agents.all")}</button>
         <div><b style={{ color: agent.color }}>{agent.name}</b> <span className="muted text-sm">· {agent.role}</span></div>
-        <p className="muted text-xs">Tools: {agent.tools.join(", ") || "none"} · {agent.stats.calls} AI calls, {agent.stats.tokens.toLocaleString()} tokens (30 days)</p>
-        <details className="text-xs"><summary className="cursor-pointer muted">Instructions</summary><p className="mt-1 whitespace-pre-wrap">{agent.instructions}</p></details>
+        <p className="muted text-xs">{tr("agents.toolsLine", { tools: agent.tools.join(", ") || tr("agents.none"), calls: agent.stats.calls, tokens: agent.stats.tokens.toLocaleString() })}</p>
+        <details className="text-xs"><summary className="cursor-pointer muted">{tr("agents.instructions")}</summary><p className="mt-1 whitespace-pre-wrap">{agent.instructions}</p></details>
         <form onSubmit={give} className="flex gap-2">
-          <input className="field flex-1" value={ask} onChange={(e) => setAsk(e.target.value)} placeholder={`Give ${agent.name} a task`} aria-label={`Task for ${agent.name}`} maxLength={8000} />
-          <button className="btn" disabled={!ask.trim()}>Start</button>
+          <input className="field flex-1" value={ask} onChange={(e) => setAsk(e.target.value)} placeholder={tr("agents.givePh", { name: agent.name })} aria-label={tr("agents.taskFor", { name: agent.name })} maxLength={8000} />
+          <button className="btn" disabled={!ask.trim()}>{tr("life.start")}</button>
         </form>
-        {!agent.builtin && <button className="chip" onClick={() => removeAgent(agent.slug)}>Remove agent</button>}
-        <h3 className="h3">Task history</h3>
+        {!agent.builtin && <button className="chip" onClick={() => removeAgent(agent.slug)}>{tr("agents.remove")}</button>}
+        <h3 className="h3">{tr("agents.history")}</h3>
         <ul className="space-y-1.5 text-sm">
           {tasks.map((t) => (
             <li key={t.id}><button className="text-left" onClick={() => onOpenTask(t.id)}>{t.title} <span className="text-xs" style={{ color: STATUS[t.status].color }}>· {STATUS[t.status].label}</span> <span className="muted text-xs">· {when(t.created_at)}</span></button></li>
           ))}
-          {!tasks.length && <li className="muted">No tasks yet.</li>}
+          {!tasks.length && <li className="muted">{tr("agents.noTasks")}</li>}
         </ul>
         {err && <p className="error">{err}</p>}
       </div>
@@ -392,7 +395,7 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
 
   return (
     <div className="space-y-4">
-      <p className="muted text-sm">Your AI workforce. Each agent has its own instructions and only the tools listed. Anything that changes your data waits for your approval.</p>
+      <p className="muted text-sm">{tr("agents.intro")}</p>
       <ProposalsPanel onOpenTask={onOpenTask} />
       <ul className="grid gap-2 sm:grid-cols-2">
         {agents.map((a) => (
@@ -400,37 +403,37 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
             <button className="card h-full w-full text-left" onClick={() => setSel(a.slug)} style={{ borderColor: a.stats.running ? a.color : undefined }}>
               <div className="flex items-center justify-between">
                 <b style={{ color: a.color }}>{a.name}</b>
-                <span className="text-xs" style={{ color: a.stats.running ? "var(--cyan)" : "var(--muted)" }}>{a.stats.running ? "● working" : "idle"}</span>
+                <span className="text-xs" style={{ color: a.stats.running ? "var(--cyan)" : "var(--muted)" }}>{tr(a.stats.running ? "agents.working" : "agents.idle")}</span>
               </div>
               <div className="muted text-xs">{a.role}</div>
-              <div className="muted mt-1 text-[11px]">{a.stats.done} done · {a.stats.failed} failed · {a.stats.tokens.toLocaleString()} tokens</div>
+              <div className="muted mt-1 text-[11px]">{tr("agents.stats", { done: a.stats.done, failed: a.stats.failed, tokens: a.stats.tokens.toLocaleString() })}</div>
             </button>
           </li>
         ))}
       </ul>
-      <p className="muted text-xs">Flow (automations) arrives with the Automation Studio.</p>
+      <p className="muted text-xs">{tr("agents.flow")}</p>
       <OrbitLog />
 
       {creating ? (
         <form onSubmit={createAgent} className="card space-y-2">
-          <h3 className="h3">New custom agent</h3>
-          <input className="field w-full" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Name (e.g. Roblox Scout)" aria-label="Agent name" maxLength={60} />
-          <input className="field w-full" value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} placeholder="One-line role" aria-label="Role" maxLength={200} />
-          <textarea className="field h-28 w-full" value={draft.instructions} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} placeholder="Instructions: what it should do and how it should answer" aria-label="Instructions" maxLength={8000} />
+          <h3 className="h3">{tr("agents.new")}</h3>
+          <input className="field w-full" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={tr("agents.namePh")} aria-label={tr("agents.name")} maxLength={60} />
+          <input className="field w-full" value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} placeholder={tr("agents.rolePh")} aria-label={tr("agents.role")} maxLength={200} />
+          <textarea className="field h-28 w-full" value={draft.instructions} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} placeholder={tr("agents.instrPh")} aria-label={tr("agents.instructions")} maxLength={8000} />
           <fieldset className="space-y-1 text-xs">
-            <legend className="muted">Allowed tools</legend>
+            <legend className="muted">{tr("agents.allowed")}</legend>
             {tools.map((t) => (
               <label key={t.name} className="flex items-start gap-2">
                 <input type="checkbox" checked={draft.tools.includes(t.name)}
                   onChange={(e) => setDraft({ ...draft, tools: e.target.checked ? [...draft.tools, t.name] : draft.tools.filter((x) => x !== t.name) })} />
-                <span><b>{t.name}</b>{t.approval ? " (asks you first)" : ""} — <span className="muted">{t.description}</span></span>
+                <span><b>{t.name}</b>{t.approval ? tr("agents.asks") : ""} — <span className="muted">{t.description}</span></span>
               </label>
             ))}
           </fieldset>
-          <div className="flex gap-2"><button className="btn">Create agent</button><button type="button" className="chip" onClick={() => setCreating(false)}>Cancel</button></div>
+          <div className="flex gap-2"><button className="btn">{tr("agents.create")}</button><button type="button" className="chip" onClick={() => setCreating(false)}>{tr("common.cancel")}</button></div>
         </form>
       ) : (
-        <button className="chip" onClick={() => setCreating(true)}>+ Create custom agent</button>
+        <button className="chip" onClick={() => setCreating(true)}>{tr("agents.createCustom")}</button>
       )}
       {err && <p className="error">{err}</p>}
     </div>
@@ -458,6 +461,7 @@ const TEMPLATES: (Partial<Draft> & { name: string; prompt: string })[] = [
 const EMPTY: Draft = { name: "", when: "day", time: "09:00", weekday: 1, kind: "", agent: "nova", prompt: "" };
 
 export function AutomationsView({ agents, onOpenTask }: { agents: AutomationAgent[]; onOpenTask: (id: string) => void }) {
+  const { t: tr, tn } = useT();
   const [list, setList] = useState<Automation[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -481,7 +485,7 @@ export function AutomationsView({ agents, onOpenTask }: { agents: AutomationAgen
   }
   async function act(a: Automation, what: "toggle" | "run" | "delete") {
     if (locked.current || draft) return;
-    if (what === "delete" && !confirm(`Delete "${a.name}"? Past runs stay in your tasks.`)) return;
+    if (what === "delete" && !confirm(tr("auto.deleteConfirm", { name: a.name }))) return;
     locked.current = true; setBusy(true); setErr("");
     try {
       if (what === "toggle") await api("/api/automations", { method: "PATCH", body: JSON.stringify({ id: a.id, enabled: !a.enabled }) });
@@ -495,12 +499,12 @@ export function AutomationsView({ agents, onOpenTask }: { agents: AutomationAgen
     finally { locked.current = false; setBusy(false); }
   }
   const canSave = !!draft?.name.trim() && (draft?.prompt.trim().length ?? 0) >= 5 && agents.some((a) => a.slug === draft?.agent && a.enabled !== false);
-  const form = draft && <form onSubmit={save} className="mt-3 space-y-2" aria-label={editing ? "Edit automation" : "New automation"}>
+  const form = draft && <form onSubmit={save} className="mt-3 space-y-2" aria-label={tr(editing ? "auto.edit" : "auto.new")}>
     <AutomationFields draft={draft} agents={agents} disabled={busy} onChange={(p) => setDraft({ ...draft, ...p })} />
-    {editing && <p className="muted text-xs">Save first, then use Run now to test the saved instructions.</p>}
+    {editing && <p className="muted text-xs">{tr("auto.saveFirst")}</p>}
     <div className="flex gap-2">
-      <button className="btn" disabled={busy || !canSave}>{busy ? "Saving…" : editing ? "Save changes" : "Save automation"}</button>
-      <button type="button" className="chip" disabled={busy} onClick={cancel}>Cancel</button>
+      <button className="btn" disabled={busy || !canSave}>{tr(busy ? "auto.saving" : editing ? "auto.saveChanges" : "auto.save")}</button>
+      <button type="button" className="chip" disabled={busy} onClick={cancel}>{tr("common.cancel")}</button>
     </div>
   </form>;
 
@@ -509,34 +513,34 @@ export function AutomationsView({ agents, onOpenTask }: { agents: AutomationAgen
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1.5">
-        <button className="btn" disabled={busy || !!editing} onClick={() => { setErr(""); setDraft(EMPTY); }}>+ New automation</button>
+        <button className="btn" disabled={busy || !!editing} onClick={() => { setErr(""); setDraft(EMPTY); }}>{tr("auto.newBtn")}</button>
         {TEMPLATES.map((t) => <button key={t.name} className="chip" disabled={busy || !!editing} onClick={() => { setErr(""); setDraft({ ...EMPTY, ...t }); }}>{t.name}</button>)}
       </div>
-      <p className="muted text-xs">Tip: in Task mode you can just say “every Friday at 16:00, summarize my week” and Flow builds it for you.</p>
+      <p className="muted text-xs">{tr("auto.tip")}</p>
       <ul className="space-y-2">
         {list.map((a) => (
           <li key={a.id} className="card text-sm" style={a.enabled && a.last?.status === "failed" ? { borderColor: "#f43f5e" } : undefined}>
             <div className="flex items-center justify-between gap-2">
               <b className={a.enabled ? "" : "muted"}>{a.name}</b>
               <span className="flex gap-1.5">
-                <button className="chip" disabled={busy || !!draft} onClick={() => { setErr(""); setEditing(a.id); setDraft(automationDraft(a)); }} aria-label={`Edit ${a.name}`}>Edit</button>
-                <button className="chip" disabled={busy || !!draft} onClick={() => act(a, "run")}>Run now</button>
-                <button className="chip" disabled={busy || !!draft} onClick={() => act(a, "toggle")}>{a.enabled ? "Pause" : "Resume"}</button>
-                <button className="chip" disabled={busy || !!draft} onClick={() => act(a, "delete")} aria-label={`Delete ${a.name}`}>Delete</button>
+                <button className="chip" disabled={busy || !!draft} onClick={() => { setErr(""); setEditing(a.id); setDraft(automationDraft(a)); }} aria-label={tr("auto.editAria", { name: a.name })}>{tr("auto.editBtn")}</button>
+                <button className="chip" disabled={busy || !!draft} onClick={() => act(a, "run")}>{tr("rules.runNow")}</button>
+                <button className="chip" disabled={busy || !!draft} onClick={() => act(a, "toggle")}>{tr(a.enabled ? "rules.pause" : "stop.resume")}</button>
+                <button className="chip" disabled={busy || !!draft} onClick={() => act(a, "delete")} aria-label={tr("rules.deleteAria", { name: a.name })}>{tr("rules.delete")}</button>
               </span>
             </div>
             {editing === a.id && form}
-            <div className="muted text-xs">{a.when} → {a.agent} · {a.run_count} runs{a.enabled ? "" : " · paused"}</div>
+            <div className="muted text-xs">{a.when} → {a.agent} · {tn("auto.runs", a.run_count)}{a.enabled ? "" : tr("auto.paused")}</div>
             {a.last && (
               <div className="mt-1 text-xs">
-                Last run: <button className="link" onClick={() => onOpenTask(a.last!.id)}>{STATUS[a.last.status].label}</button>
+                {tr("auto.lastRun")} <button className="link" onClick={() => onOpenTask(a.last!.id)}>{STATUS[a.last.status].label}</button>
                 <span className="muted"> · {when(a.last.created_at)}</span>
                 {a.last.error && <span className="error"> · {a.last.error.slice(0, 120)}</span>}
               </div>
             )}
           </li>
         ))}
-        {!list.length && <li className="muted text-sm">No automations yet. Start from a template above.</li>}
+        {!list.length && <li className="muted text-sm">{tr("auto.empty")}</li>}
       </ul>
       {err && <p className="error" role="alert">{err}</p>}
     </div>

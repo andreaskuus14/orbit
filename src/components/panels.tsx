@@ -68,6 +68,7 @@ const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "med
 
 /* ---------------- CORE chat ---------------- */
 export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreeted }: { initial: string | null; onConsumed: () => void; onOpenMemory: (id: string) => void; greeting?: string | null; onGreeted?: () => void }) {
+  const { t: tr } = useT();
   const [msgs, setMsgs] = useState<Msg[]>([]);
   // "Orbital wake up" greeting: shown as a CORE bubble only (local state, never sent to /api/core or saved).
   const greeted = useRef<string | null>(null);
@@ -307,37 +308,37 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       {m.role === "assistant" && (
         <div className="mt-2 flex flex-wrap items-center gap-1 text-xs">
           {!m.error && <>
-            <button type="button" className="chip" aria-label={copied === i ? "Copied" : "Copy answer"} title="Copy"
+            <button type="button" className="chip" aria-label={tr(copied === i ? "cf.copied" : "core.copyAnswer")} title={tr("common.copy")}
               onClick={() => { void navigator.clipboard?.writeText(m.content.replace(/\s*\[[ma]:[^\]]+\]/g, "")).then(() => { setCopied(i); setTimeout(() => setCopied((c) => (c === i ? -1 : c)), 1500); }); }}>
-              {copied === i ? "✓ Copied" : "Copy"}
+              {copied === i ? `✓ ${tr("cf.copied")}` : tr("common.copy")}
             </button>
-            <button type="button" className="chip" aria-label={speaking ? "Stop speaking" : "Read aloud"} title={speaking ? "Stop speaking" : "Read aloud"}
+            <button type="button" className="chip" aria-label={tr(speaking ? "core.stopSpeaking" : "core.readAloud")} title={tr(speaking ? "core.stopSpeaking" : "core.readAloud")}
               onClick={() => { const was = speaking; stopSpeech(); if (!was) speechChunks(m.content).forEach((c) => speakChunk(c)); }}>
-              {speaking ? "■ Stop" : "🔊 Read aloud"}
+              {speaking ? `■ ${tr("core.stop")}` : `🔊 ${tr("core.readAloud")}`}
             </button>
-            <button type="button" className="chip" disabled={!project} title={project ? "Pin this reply to the project" : "Move this chat into a project to pin replies"}
-              onClick={() => void pin(m.content)}>{pinned === m.content ? "✓ Pinned" : "📌 Pin"}</button>
+            <button type="button" className="chip" disabled={!project} title={tr(project ? "core.pinTitle" : "core.pinNeedsProject")}
+              onClick={() => void pin(m.content)}>{pinned === m.content ? `✓ ${tr("core.pinned")}` : `📌 ${tr("core.pin")}`}</button>
             {project && codeBlocks(m.content) && (
-              <button type="button" className="chip" title="Pin only the code blocks to the project" onClick={() => void pin(codeBlocks(m.content), `Code: ${chats.chats.find((c) => c.id === chatId)?.title ?? "chat"}`.slice(0, 100))}>
-                {pinned === codeBlocks(m.content) ? "✓ Pinned" : "📌 Pin code"}</button>
+              <button type="button" className="chip" title={tr("core.pinCodeTitle")} onClick={() => void pin(codeBlocks(m.content), `Code: ${chats.chats.find((c) => c.id === chatId)?.title ?? "chat"}`.slice(0, 100))}>
+                {pinned === codeBlocks(m.content) ? `✓ ${tr("core.pinned")}` : `📌 ${tr("core.pinCode")}`}</button>
             )}
           </>}
           {i === msgs.length - 1 && lastQ.current && !busy && (
-            <button type="button" className="chip" title="Ask the last question again" onClick={() => void send(lastQ.current)}>↻ Retry</button>
+            <button type="button" className="chip" title={tr("core.retryTitle")} onClick={() => void send(lastQ.current)}>↻ {tr("task.retry")}</button>
           )}
-          {m.trace?.some((x) => x.step === "local") && <span className="chip !py-0 !text-[10px]" title="Claude was unreachable, rate-limited or on hold, so this answer came from the local model on this PC (no tools)">local brain</span>}
+          {m.trace?.some((x) => x.step === "local") && <span className="chip !py-0 !text-[10px]" title={tr("core.localTitle")}>{tr("core.local")}</span>}
           {m.model && <span className="muted ml-auto opacity-60" title={m.model === "fast" ? "Quick reply from the fast model" : m.model === "deep" ? (m.trace?.some((x) => x.step === "review") ? "Deep answer: planned, then self-checked by the strongest model" : "Deep answer from the strongest model") : "Answered by the main model"}>{m.model}</span>}
         </div>
       )}
       {!busy && i === msgs.length - 1 && !!m.chips?.length && (
-        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Suggested follow-ups">
+        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={tr("core.followUps")}>
           {m.chips.map((c) => <button key={c} type="button" className="chip" onClick={() => void send(c)}>{c}</button>)}
         </div>
       )}
       {!!m.fixes?.length && (
-        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Roblox errors">
+        <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={tr("core.robloxErrors")}>
           {m.fixes.map((f) => <button key={f} type="button" className="chip max-w-full truncate" title={`Open the Luau helper (docs-checked) in Fix mode with: ${f}`}
-            onClick={() => { dispatchEvent(new CustomEvent(LUAU_FIX_EVENT, { detail: f })); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: { panel: "creation" } })); }}>🩹 Fix with docs: {f.slice(0, 60)}</button>)}
+            onClick={() => { dispatchEvent(new CustomEvent(LUAU_FIX_EVENT, { detail: f })); dispatchEvent(new CustomEvent(NAV_EVENT, { detail: { panel: "creation" } })); }}>🩹 {tr("core.fixDocs")} {f.slice(0, 60)}</button>)}
         </div>
       )}
       {m.lesson && <LessonChip lesson={m.lesson} />}
@@ -346,12 +347,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       )}
       {!!m.trace?.length && (
         <details className="mt-2 text-xs muted">
-          <summary className="cursor-pointer">Execution trace</summary>
+          <summary className="cursor-pointer">{tr("core.trace")}</summary>
           <ul className="mt-1 space-y-0.5">{m.trace.map((s, n) => <li key={n}>{s.ok ? "✓" : "✗"} <b>{s.step}</b> · {s.ms}ms · {s.detail}</li>)}</ul>
         </details>
       )}
     </div>
-  )), [msgs, onOpenMemory, speaking, copied, busy, send, project, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
+  )), [msgs, onOpenMemory, speaking, copied, busy, send, project, pinned, tr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lastCore = [...msgs].reverse().find((m) => m.role === "assistant" && !m.error);
   const artifact = useMemo(() => (lastCore ? turnArtifact(lastCore.content) : null), [lastCore]);
@@ -361,17 +362,17 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     <div className="relative flex h-full min-w-0 flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
       onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); void att.add(e.dataTransfer.files); } }}>
       <div className="mb-2 flex items-center gap-1.5 text-xs">
-        <button type="button" className="chip" aria-expanded={sheet} onClick={() => setSheet((v) => !v)} title="Chats and projects">☰ Chats</button>
-        <span className="min-w-0 flex-1 truncate font-semibold">{chatId ? chats.chats.find((c) => c.id === chatId)?.title ?? "Chat" : "New chat"}</span>
-        <span className="muted shrink-0" aria-live="polite">{busy ? "Saving…" : chatId ? "✓ Saved" : ""}</span>
+        <button type="button" className="chip" aria-expanded={sheet} onClick={() => setSheet((v) => !v)} title={tr("core.chatsTitle")}>☰ {tr("core.chats")}</button>
+        <span className="min-w-0 flex-1 truncate font-semibold">{chatId ? chats.chats.find((c) => c.id === chatId)?.title ?? tr("core.chat") : tr("core.newChat")}</span>
+        <span className="muted shrink-0" aria-live="polite">{busy ? tr("auto.saving") : chatId ? `✓ ${tr("life.saved")}` : ""}</span>
         {!!chats.projects.length && (
-          <select className="field max-w-[8rem] py-1 text-xs" aria-label="Project for this chat" value={project ?? ""}
+          <select className="field max-w-[8rem] py-1 text-xs" aria-label={tr("core.projectFor")} value={project ?? ""}
             onChange={(e) => { const v = e.target.value || null; setNewProject(v); if (chatId) void chats.act({ action: "move", id: chatId, projectId: v }); }}>
-            <option value="">No project</option>
+            <option value="">{tr("ops.noProject")}</option>
             {chats.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         )}
-        <button type="button" className="chip" onClick={() => newChat()} disabled={!msgs.length && !chatId} title="Start a new chat">＋ New</button>
+        <button type="button" className="chip" onClick={() => newChat()} disabled={!msgs.length && !chatId} title={tr("core.newTitle")}>＋ {tr("core.new")}</button>
       </div>
       {chats.error && !sheet && <p className="error mb-2 text-xs" role="alert">{chats.error}</p>}
       {sheet && <ChatSheet {...chats} activeId={chatId} onOpen={(id) => void openChat(id)} onNew={newChat} onClose={() => setSheet(false)}
@@ -379,7 +380,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       <CoreSuggests tick={msgs.length} />
       <PlanCard tick={msgs.length} />
       <div className="flex-1 space-y-4 overflow-y-auto pr-1" aria-live="polite" aria-busy={busy}>
-        {!msgs.length && <p className="muted">Ask CORE anything. It answers from your memories, reads links you paste, checks the latest news, and hands bigger jobs to your agents. Sources are cited.</p>}
+        {!msgs.length && <p className="muted">{tr("core.intro")}</p>}
         {history}
         {busy && <CoreActivity labels={activity} streaming={!!live} />}
         {busy && live && <div className="bubble core">
@@ -393,15 +394,15 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       <ScreenLook busy={busy} input={input} ask={lookAsk} onAsk={setLookAsk} run={async (file, text, preset) => { await att.add([file]); await send(text, false, preset); }} />
       <VoiceMemo compact />
       <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
-        <input ref={fileRef} type="file" multiple accept={ACCEPT} className="sr-only" tabIndex={-1} aria-hidden aria-label="Attach files" onChange={(e) => { if (e.target.files) void att.add(e.target.files); e.target.value = ""; }} />
-        <button type="button" className="btn" title="Attach images or documents (or drop / paste them)" aria-label="Attach files" disabled={busy} onClick={() => fileRef.current?.click()}>📎</button>
-        <input ref={inputRef} className="field flex-1" value={input} onChange={(e) => setInput(e.target.value)} onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void att.add(e.clipboardData.files); } }} placeholder="Message CORE  (↑ last question · Esc stops)"
-          onKeyDown={(e) => { if (e.key === "ArrowUp" && !input && lastQ.current) { e.preventDefault(); setInput(lastQ.current); } }} maxLength={8000} aria-label="Message CORE" />
+        <input ref={fileRef} type="file" multiple accept={ACCEPT} className="sr-only" tabIndex={-1} aria-hidden aria-label={tr("core.attach")} onChange={(e) => { if (e.target.files) void att.add(e.target.files); e.target.value = ""; }} />
+        <button type="button" className="btn" title={tr("core.attachTitle")} aria-label={tr("core.attach")} disabled={busy} onClick={() => fileRef.current?.click()}>📎</button>
+        <input ref={inputRef} className="field flex-1" value={input} onChange={(e) => setInput(e.target.value)} onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void att.add(e.clipboardData.files); } }} placeholder={tr("core.ph")}
+          onKeyDown={(e) => { if (e.key === "ArrowUp" && !input && lastQ.current) { e.preventDefault(); setInput(lastQ.current); } }} maxLength={8000} aria-label={tr("core.message")} />
         {busy
-          ? <button type="button" className="btn" onClick={() => { abort.current?.abort(); stopSpeech(); }}>Stop</button>
+          ? <button type="button" className="btn" onClick={() => { abort.current?.abort(); stopSpeech(); }}>{tr("core.stop")}</button>
           : speaking && !input.trim()
-            ? <button type="button" className="btn" onClick={stopSpeech}>Stop</button>
-            : <button className="btn" disabled={!input.trim() && !att.items.length}>Send</button>}
+            ? <button type="button" className="btn" onClick={stopSpeech}>{tr("core.stop")}</button>
+            : <button className="btn" disabled={!input.trim() && !att.items.length}>{tr("core.send")}</button>}
       </form>
     </div>
     <CoreWorkspace artifact={artifact} mission={mission} busy={busy} heard={heard} onAsk={(t) => void send(t)} />
@@ -411,6 +412,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
 
 /** "CORE suggests": up to 3 proactive suggestions (src/lib/insights-pure.ts), each with its one-click action and dismiss. */
 function CoreSuggests({ tick }: { tick: number }) {
+  const { t: tr } = useT();
   const [items, setItems] = useState<Suggestion[]>([]);
   const [busyKey, setBusyKey] = useState("");
   const [err, setErr] = useState("");
@@ -432,13 +434,13 @@ function CoreSuggests({ tick }: { tick: number }) {
   };
   if (!items.length) return null;
   return (
-    <section className="mb-3 space-y-1.5" aria-label="CORE suggests">
-      <div className="muted text-xs uppercase tracking-wide">CORE suggests</div>
+    <section className="mb-3 space-y-1.5" aria-label={tr("core.suggests")}>
+      <div className="muted text-xs uppercase tracking-wide">{tr("core.suggests")}</div>
       {items.slice(0, 3).map((s) => (
         <div key={s.key} className="glass flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm">
-          <span className="min-w-0 flex-1" title={s.detail}>{s.priority === "high" && <span aria-label="Important">● </span>}{s.title}</span>
+          <span className="min-w-0 flex-1" title={s.detail}>{s.priority === "high" && <span aria-label={tr("core.important")}>● </span>}{s.title}</span>
           {s.actions.map((a) => <button key={a.label} type="button" className="chip" disabled={!!busyKey} onClick={() => void run(s, a)}>{busyKey === s.key ? "…" : a.label}</button>)}
-          <button type="button" className="chip" aria-label={`Dismiss: ${s.title}`} title="Dismiss" disabled={!!busyKey} onClick={() => void mark(s.key, "dismiss")}>✕</button>
+          <button type="button" className="chip" aria-label={tr("cf.dismissAria", { title: s.title })} title={tr("cf.dismiss")} disabled={!!busyKey} onClick={() => void mark(s.key, "dismiss")}>✕</button>
         </div>
       ))}
       {err && <p className="text-xs text-red-400" role="alert">{err}</p>}
@@ -448,6 +450,7 @@ function CoreSuggests({ tick }: { tick: number }) {
 
 /** A CORE plan's progress ("Step 2/4: rendering… 62%"), the OK button for scheduling steps, and Cancel. */
 function PlanCard({ tick }: { tick: number }) {
+  const { t: tr } = useT();
   const [plan, setPlan] = useState<(Plan & { line: string }) | null>(null);
   const [err, setErr] = useState("");
   const active = plan?.status === "running" || plan?.status === "waiting";
@@ -461,11 +464,11 @@ function PlanCard({ tick }: { tick: number }) {
   };
   if (!plan || (!active && Date.now() - Date.parse(plan.updatedAt) > 10 * 60_000)) return null;
   return (
-    <section className="glass mb-3 rounded-lg px-3 py-2 text-sm" aria-label="CORE plan" aria-live="polite">
+    <section className="glass mb-3 rounded-lg px-3 py-2 text-sm" aria-label={tr("core.plan")} aria-live="polite">
       <div className="flex flex-wrap items-center gap-2">
         <b className="min-w-0 flex-1">{plan.goal}</b>
-        {plan.status === "waiting" && <button type="button" className="btn" onClick={() => act("confirm")}>OK, schedule</button>}
-        {active && <button type="button" className="chip" onClick={() => act("cancel")}>Cancel</button>}
+        {plan.status === "waiting" && <button type="button" className="btn" onClick={() => act("confirm")}>{tr("core.okSchedule")}</button>}
+        {active && <button type="button" className="chip" onClick={() => act("cancel")}>{tr("common.cancel")}</button>}
       </div>
       <div className={plan.status === "failed" ? "mt-1 text-red-400" : "muted mt-1"}>{plan.line}</div>
       {err && <p className="text-xs text-red-400" role="alert">{err}</p>}
@@ -477,6 +480,7 @@ function PlanCard({ tick }: { tick: number }) {
 type LinkRow = { id: string; status: string; score: number | null; from: { id: string; title: string } | null; to: { id: string; title: string } | null };
 
 export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; onChanged: () => void }) {
+  const { t: tr } = useT();
   const [items, setItems] = useState<Memory[]>([]);
   const [q, setQ] = useState("");
   const [mode, setMode] = useState("");
@@ -551,7 +555,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not update"); }
   }
   async function remove() {
-    if (!open || !confirm(`Delete "${open.title}"? This can't be undone.`)) return;
+    if (!open || !confirm(tr("mem.deleteConfirm", { title: open.title }))) return;
     try { await api(`/api/memories/${open.id}`, { method: "DELETE" }); setOpen(null); await Promise.all([load(q), loadLinks()]); onChanged(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not delete"); }
   }
@@ -567,15 +571,15 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   if (open) {
     return (
       <div className="space-y-3">
-        <button className="link" onClick={() => setOpen(null)}>← Back</button>
-        <input className="field w-full" value={open.title} onChange={(e) => setOpen({ ...open, title: e.target.value })} aria-label="Title" />
-        <textarea className="field h-56 w-full" value={open.content} onChange={(e) => setOpen({ ...open, content: e.target.value })} aria-label="Content" />
-        <input className="field w-full" value={open.tags.join(", ")} onChange={(e) => setOpen({ ...open, tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })} placeholder="tags, comma separated" aria-label="Tags" />
-        <p className="muted text-xs">{open.kind} · source: {open.source}{open.url && <> · <a className="link" href={open.url} target="_blank" rel="noreferrer noopener">open link</a></>}{open.storage_path && <> · <a className="link" href={`/api/memories/${open.id}/file`} target="_blank" rel="noreferrer">open file</a></>} · created {when(open.created_at)} · updated {when(open.updated_at)}</p>
+        <button className="link" onClick={() => setOpen(null)}>{tr("mem.back")}</button>
+        <input className="field w-full" value={open.title} onChange={(e) => setOpen({ ...open, title: e.target.value })} aria-label={tr("cf.titleLbl")} />
+        <textarea className="field h-56 w-full" value={open.content} onChange={(e) => setOpen({ ...open, content: e.target.value })} aria-label={tr("mem.content")} />
+        <input className="field w-full" value={open.tags.join(", ")} onChange={(e) => setOpen({ ...open, tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })} placeholder={tr("mem.tagsPh")} aria-label={tr("mem.tags")} />
+        <p className="muted text-xs">{open.kind} · {tr("mem.source", { s: open.source })}{open.url && <> · <a className="link" href={open.url} target="_blank" rel="noreferrer noopener">{tr("mem.openLink")}</a></>}{open.storage_path && <> · <a className="link" href={`/api/memories/${open.id}/file`} target="_blank" rel="noreferrer">{tr("mem.openFile")}</a></>} · {tr("mem.dates", { c: when(open.created_at), u: when(open.updated_at) })}</p>
         <MemoryControls key={open.id} id={open.id} content={open.content} confirmation={open.confirmation} recheckAt={open.recheck_at} onOpen={setFocus}
           onDone={(gone) => { if (gone) setOpen(null); void load(q); onChanged(); }} />
         {err && <p className="error">{err}</p>}
-        <div className="flex gap-2"><button className="btn" onClick={saveEdit}>Save</button><button className="btn danger" onClick={remove}>Delete</button></div>
+        <div className="flex gap-2"><button className="btn" onClick={saveEdit}>{tr("habit.save")}</button><button className="btn danger" onClick={remove}>{tr("rules.delete")}</button></div>
         <LearnThis key={open.id} memory={open} />
       </div>
     );
@@ -585,25 +589,25 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
     <div className="space-y-5">
       <StudyCards />
       <form onSubmit={capture} className="space-y-2">
-        <h3 className="h3">Capture</h3>
-        <textarea className="field h-24 w-full" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Anything worth remembering…" aria-label="Content" maxLength={200000} />
+        <h3 className="h3">{tr("mem.capture")}</h3>
+        <textarea className="field h-24 w-full" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder={tr("mem.capturePh")} aria-label={tr("mem.content")} maxLength={200000} />
         <div className="flex gap-2">
-          <input className="field flex-1" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Title (optional)" aria-label="Title" maxLength={300} />
-          <select className="field" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as Kind })} aria-label="Kind">{KINDS.map((k) => <option key={k}>{k}</option>)}</select>
+          <input className="field flex-1" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={tr("mem.titlePh")} aria-label={tr("cf.titleLbl")} maxLength={300} />
+          <select className="field" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as Kind })} aria-label={tr("mem.kind")}>{KINDS.map((k) => <option key={k}>{k}</option>)}</select>
         </div>
         <div className="flex gap-2">
-          <input className="field flex-1" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="Link to save (https://…)" aria-label="URL" />
-          <input className="field flex-1" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="tags" aria-label="Tags" />
+          <input className="field flex-1" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder={tr("mem.urlPh")} aria-label={tr("mem.url")} />
+          <input className="field flex-1" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder={tr("mem.tagsShort")} aria-label={tr("mem.tags")} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button className="btn" disabled={saving || (!form.content.trim() && !form.url.trim() && !form.title.trim())}>{saving ? "Saving…" : "Save to memory"}</button>
+          <button className="btn" disabled={saving || (!form.content.trim() && !form.url.trim() && !form.title.trim())}>{tr(saving ? "auto.saving" : "mem.save")}</button>
           <label className={`chip cursor-pointer${saving ? " opacity-50" : ""}`}>
-            Upload file
+            {tr("mem.upload")}
             <input ref={fileRef} type="file" className="sr-only" disabled={saving}
               accept=".pdf,.docx,.txt,.md,.csv,image/png,image/jpeg,image/webp,image/gif"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
           </label>
-          <span className="muted text-xs">PDF, Word, text, images · max 4 MB</span>
+          <span className="muted text-xs">{tr("mem.uploadHint")}</span>
         </div>
         {note && <p className="ok">{note}</p>}
         {err && <p className="error">{err}</p>}
@@ -611,14 +615,14 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
 
       {!!suggested.length && (
         <div>
-          <h3 className="h3">Suggested connections</h3>
-          <p className="muted text-xs">Found by similarity. Nothing is linked until you confirm.</p>
+          <h3 className="h3">{tr("mem.suggested")}</h3>
+          <p className="muted text-xs">{tr("mem.suggestedHint")}</p>
           <ul className="mt-2 space-y-2">
             {suggested.map((l) => (
               <li key={l.id} className="card text-sm">
                 <button className="link text-left" onClick={() => l.from && setFocus(l.from.id)}>{l.from?.title}</button> ↔ <button className="link text-left" onClick={() => l.to && setFocus(l.to.id)}>{l.to?.title}</button>
                 <span className="muted"> · {Math.round((l.score ?? 0) * 100)}%</span>
-                <div className="mt-1 flex gap-2"><button className="chip" onClick={() => decide(l.id, "confirmed")}>Confirm</button><button className="chip" onClick={() => decide(l.id, "rejected")}>Dismiss</button></div>
+                <div className="mt-1 flex gap-2"><button className="chip" onClick={() => decide(l.id, "confirmed")}>{tr("rules.confirm")}</button><button className="chip" onClick={() => decide(l.id, "rejected")}>{tr("cf.dismiss")}</button></div>
               </li>
             ))}
           </ul>
@@ -628,27 +632,27 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
       <Rewind onOpen={setFocus} />
 
       <div>
-        <div className="flex items-center justify-between"><h3 className="h3">Memories</h3><span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>What ORBIT believes</button><a className="link text-xs" href="/api/export">Export JSON</a></span></div>
+        <div className="flex items-center justify-between"><h3 className="h3">{tr("mem.title")}</h3><span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a></span></div>
         <form className="my-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); void load(q.trim()); }}>
-          <input className="field flex-1" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your memory" aria-label="Search memories" />
-          <button className="btn">Search</button>
+          <input className="field flex-1" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr("mem.searchPh")} aria-label={tr("mem.searchAria")} />
+          <button className="btn">{tr("mem.search")}</button>
         </form>
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          <button type="button" className="chip" aria-pressed={learnedOnly} onClick={() => setLearnedOnly(!learnedOnly)}>Learned by CORE</button>
-          <button type="button" className="chip" aria-pressed={episodesOnly} onClick={() => setEpisodesOnly(!episodesOnly)}>Episodes</button>
-          {q.trim() && mode && <span className="muted text-xs">{mode === "hybrid" ? "Keyword + semantic search" : "Keyword search"}</span>}
+          <button type="button" className="chip" aria-pressed={learnedOnly} onClick={() => setLearnedOnly(!learnedOnly)}>{tr("mem.learned")}</button>
+          <button type="button" className="chip" aria-pressed={episodesOnly} onClick={() => setEpisodesOnly(!episodesOnly)}>{tr("mem.episodes")}</button>
+          {q.trim() && mode && <span className="muted text-xs">{tr(mode === "hybrid" ? "mem.hybrid" : "mem.keyword")}</span>}
         </div>
         {episodesOnly ? <EpisodesList onOpen={setFocus} /> : <ul className="space-y-2">
           {shown.map((m) => (
             <li key={m.id}>
               <button className="card w-full text-left" onClick={() => setOpen(m)}>
-                <div className="font-medium">{m.title}{isLearned(m.source) && <span className="badge learned ml-2 align-middle">LEARNED BY CORE</span>}</div>
+                <div className="font-medium">{m.title}{isLearned(m.source) && <span className="badge learned ml-2 align-middle">{tr("mem.learned").toUpperCase()}</span>}</div>
                 <div className="muted line-clamp-2 text-xs">{m.content.slice(0, 200)}</div>
                 <div className="muted mt-1 text-[11px]">{m.kind} · {when(m.created_at)}{m.tags.length ? ` · ${m.tags.map((t) => `#${t}`).join(" ")}` : ""}</div>
               </button>
             </li>
           ))}
-          {!shown.length && !err && <li className="muted">{learnedOnly ? "CORE hasn't saved anything by itself here yet." : q.trim() ? "Nothing matched." : "No memories yet. Capture your first one above."}</li>}
+          {!shown.length && !err && <li className="muted">{tr(learnedOnly ? "mem.noLearned" : q.trim() ? "mem.noMatch" : "mem.empty")}</li>}
         </ul>}
       </div>
     </div>
@@ -710,7 +714,7 @@ type PlaybookData = { available: boolean; message?: string; rules: string[]; ver
 const sourceLabel = (s: string) => (s.startsWith("user") ? "you" + (s === "user:clear" ? " (cleared)" : "") : s.startsWith("revert") ? `revert to ${s.slice(7)}` : "CORE");
 
 function PlaybookSection() {
-  const { t } = useT();
+  const { t, tn } = useT();
   const [d, setD] = useState<PlaybookData | null>(null);
   const [draft, setDraft] = useState<string[]>([]);
   const [add, setAdd] = useState("");
@@ -736,37 +740,37 @@ function PlaybookSection() {
   return (
     <section className="space-y-2" aria-labelledby="playbook-h">
       <h3 id="playbook-h" className="h3">{t("profile.playbook")}</h3>
-      <p className="muted text-xs">CORE learns from your chats by saving memories and updating these rules. It doesn&apos;t retrain its underlying model. Rules can only be about answer style (length, tone, format, language), never tools, data, links or approvals, and you can edit or remove any of them.</p>
-      {d && !d.available ? <p className="muted text-sm">{d.message}</p> : !d ? (!msg && <p className="muted text-sm">Loading…</p>) : (
+      <p className="muted text-xs">{t("pb.intro")}</p>
+      {d && !d.available ? <p className="muted text-sm">{d.message}</p> : !d ? (!msg && <p className="muted text-sm">{t("common.loading")}</p>) : (
         <>
           <ul className="space-y-2">
             {draft.map((r, i) => (
               <li key={i} className="flex gap-2">
-                <input className="field flex-1 text-sm" value={r} maxLength={200} aria-label={`Rule ${i + 1}`} disabled={busy}
+                <input className="field flex-1 text-sm" value={r} maxLength={200} aria-label={t("pb.rule", { n: i + 1 })} disabled={busy}
                   onChange={(e) => setDraft(draft.map((x, j) => (j === i ? e.target.value : x)))}
                   onKeyDown={(e) => { if (e.key === "Enter" && dirty) void post({ action: "set", rules: draft }); }} />
-                <button type="button" className="chip" disabled={busy} aria-label={`Delete rule ${i + 1}`} onClick={() => post({ action: "set", rules: draft.filter((_, j) => j !== i) }, "Rule removed.")}>Delete</button>
+                <button type="button" className="chip" disabled={busy} aria-label={t("pb.deleteRule", { n: i + 1 })} onClick={() => post({ action: "set", rules: draft.filter((_, j) => j !== i) }, t("pb.removed"))}>{t("rules.delete")}</button>
               </li>
             ))}
-            {!draft.length && <li className="muted text-sm">No learned rules yet. CORE adds them when it notices how you like things done.</li>}
+            {!draft.length && <li className="muted text-sm">{t("pb.empty")}</li>}
           </ul>
-          {dirty && <div className="flex gap-2"><button type="button" className="btn" disabled={busy} onClick={() => post({ action: "set", rules: draft })}>Save changes</button><button type="button" className="chip" onClick={() => setDraft(d.rules)}>Undo edits</button></div>}
-          <form className="flex gap-2" onSubmit={async (e) => { e.preventDefault(); if (add.trim() && await post({ action: "set", rules: [...draft, add] }, "Rule added.")) setAdd(""); }}>
-            <input className="field flex-1 text-sm" value={add} onChange={(e) => setAdd(e.target.value)} placeholder="Add a rule, e.g. Answer in short bullet points" maxLength={200} aria-label="New rule" disabled={busy || draft.length >= 30} />
-            <button className="btn" disabled={busy || !add.trim() || draft.length >= 30}>Add</button>
+          {dirty && <div className="flex gap-2"><button type="button" className="btn" disabled={busy} onClick={() => post({ action: "set", rules: draft })}>{t("auto.saveChanges")}</button><button type="button" className="chip" onClick={() => setDraft(d.rules)}>{t("pb.undo")}</button></div>}
+          <form className="flex gap-2" onSubmit={async (e) => { e.preventDefault(); if (add.trim() && await post({ action: "set", rules: [...draft, add] }, t("pb.added"))) setAdd(""); }}>
+            <input className="field flex-1 text-sm" value={add} onChange={(e) => setAdd(e.target.value)} placeholder={t("pb.addPh")} maxLength={200} aria-label={t("pb.newRule")} disabled={busy || draft.length >= 30} />
+            <button className="btn" disabled={busy || !add.trim() || draft.length >= 30}>{t("common.add")}</button>
           </form>
           <div className="flex flex-wrap items-center gap-2">
-            {!!d.rules.length && <button type="button" className="chip" disabled={busy} onClick={() => confirm("Remove all learned rules? You can revert from history.") && post({ action: "clear" }, "Cleared.")}>Clear all</button>}
-            {d.version > 0 && <span className="muted text-xs">Version {d.version}</span>}
+            {!!d.rules.length && <button type="button" className="chip" disabled={busy} onClick={() => confirm(t("pb.clearConfirm")) && post({ action: "clear" }, t("pb.cleared"))}>{t("pb.clearAll")}</button>}
+            {d.version > 0 && <span className="muted text-xs">{t("pb.version", { n: d.version })}</span>}
           </div>
           {d.history.length > 1 && (
             <details className="learn-history">
-              <summary className="link text-xs">Previous versions</summary>
+              <summary className="link text-xs">{t("pb.previous")}</summary>
               <ul className="mt-2 space-y-1">
                 {d.history.filter((h) => h.version !== d.version).map((h) => (
                   <li key={h.version} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="muted" title={h.rules.join("\n") || "(no rules)"}>v{h.version} · {sourceLabel(h.source)} · {h.rules.length} rule{h.rules.length === 1 ? "" : "s"} · {when(h.at)}</span>
-                    <button type="button" className="chip" disabled={busy} onClick={() => post({ action: "revert", version: h.version }, `Reverted to v${h.version}.`)}>Revert</button>
+                    <span className="muted" title={h.rules.join("\n") || "(no rules)"}>v{h.version} · {sourceLabel(h.source)} · {tn("pb.rules", h.rules.length)} · {when(h.at)}</span>
+                    <button type="button" className="chip" disabled={busy} onClick={() => post({ action: "revert", version: h.version }, t("pb.reverted", { n: h.version }))}>{t("pb.revert")}</button>
                   </li>
                 ))}
               </ul>
@@ -781,6 +785,7 @@ function PlaybookSection() {
 
 /* ---------------- ANALYTICS (real counts) ---------------- */
 export function AnalyticsPanel() {
+  const { t: tr } = useT();
   const sb = useMemo(() => createClient(), []);
   const [days, setDays] = useState<UsageDays>(7);
   const [s, setS] = useState<{ memories: number; messages: number; calls: number; tokens: number; usage: UsageTotal[]; events: { type: string; created_at: string }[] } | null>(null);
@@ -804,21 +809,21 @@ export function AnalyticsPanel() {
   const stat = (n: number | string, l: string) => <div className="card"><div className="text-2xl">{n}</div><div className="muted text-xs">{l}</div></div>;
   return (
     <div className="space-y-4">
-      <div className="flex gap-2" role="group" aria-label="Usage period">{([7, 30] as const).map((d) => <button key={d} className="chip" aria-pressed={days === d} onClick={() => setDays(d)}>Last {d} days</button>)}</div>
-      {err ? <p className="error" role="alert">{err}</p> : !s ? <p className="muted" role="status">Loading…</p> : <>
-      <div className="grid grid-cols-2 gap-2">{stat(s.memories, "memories")}{stat(s.messages, "chat messages")}{stat(s.calls, `AI calls · ${days} days`)}{stat(s.tokens.toLocaleString(), `tokens used · ${days} days`)}</div>
-      <table className="w-full text-xs" aria-label={`AI usage by model and purpose, last ${days} days`}>
-        <thead><tr><th className="text-left">Model / purpose</th><th className="text-right">Calls</th><th className="text-right">Tokens</th></tr></thead>
-        <tbody>{s.usage.map((g) => <tr key={JSON.stringify([g.model, g.purpose])}><td>{g.model} / {g.purpose}</td><td className="text-right num">{Number(g.calls).toLocaleString()}</td><td className="text-right num">{usageSummary([g]).tokens.toLocaleString()}</td></tr>)}{!s.usage.length && <tr><td colSpan={3} className="muted">No usage in this period.</td></tr>}</tbody>
+      <div className="flex gap-2" role="group" aria-label={tr("an.period")}>{([7, 30] as const).map((d) => <button key={d} className="chip" aria-pressed={days === d} onClick={() => setDays(d)}>{tr("an.lastDays", { n: d })}</button>)}</div>
+      {err ? <p className="error" role="alert">{err}</p> : !s ? <p className="muted" role="status">{tr("common.loading")}</p> : <>
+      <div className="grid grid-cols-2 gap-2">{stat(s.memories, tr("an.memories"))}{stat(s.messages, tr("an.messages"))}{stat(s.calls, tr("an.calls", { n: days }))}{stat(s.tokens.toLocaleString(), tr("an.tokens", { n: days }))}</div>
+      <table className="w-full text-xs" aria-label={tr("an.tableAria", { n: days })}>
+        <thead><tr><th className="text-left">{tr("an.model")}</th><th className="text-right">{tr("an.callsCol")}</th><th className="text-right">{tr("an.tokensCol")}</th></tr></thead>
+        <tbody>{s.usage.map((g) => <tr key={JSON.stringify([g.model, g.purpose])}><td>{g.model} / {g.purpose}</td><td className="text-right num">{Number(g.calls).toLocaleString()}</td><td className="text-right num">{usageSummary([g]).tokens.toLocaleString()}</td></tr>)}{!s.usage.length && <tr><td colSpan={3} className="muted">{tr("an.noUsage")}</td></tr>}</tbody>
       </table>
-      <p className="muted text-xs">CORE runs on your Claude subscription, so there is no per-token cost to track.</p>
+      <p className="muted text-xs">{tr("an.subscription")}</p>
       <UsageMeter />
       <AgentScorecard />
       <PredictionScore />
       <PerfRuns />
       <LifeStats />
-      <h3 className="h3">Recent activity</h3>
-      <ul className="space-y-1 text-sm">{s.events.map((e, i) => { const event = eventLabel(e.type); return <li key={i}><span aria-hidden="true">{event.icon}</span> <b>{event.label}</b> <span className="muted">{when(e.created_at)}</span></li>; })}{!s.events.length && <li className="muted">Nothing yet.</li>}</ul>
+      <h3 className="h3">{tr("an.recent")}</h3>
+      <ul className="space-y-1 text-sm">{s.events.map((e, i) => { const event = eventLabel(e.type); return <li key={i}><span aria-hidden="true">{event.icon}</span> <b>{event.label}</b> <span className="muted">{when(e.created_at)}</span></li>; })}{!s.events.length && <li className="muted">{tr("an.nothing")}</li>}</ul>
       </>}
     </div>
   );
