@@ -36,5 +36,5 @@ export function describeFailure(msg: string): string {
 export type CoreConfig = {
   auth: string; bin: string; models: { main: string; fast: string; deep: string; smart: string }; deepEffort: string;
   maxSteps: number; sessionMode: string; toolResultChars: number; historyFull: number; turnBudgetS: number; callTimeoutS: number; concurrency: number;
-  session: string; tools: string; voice: string;
+  session: string; tools: string; voice: string; localBrain?: string;
 };

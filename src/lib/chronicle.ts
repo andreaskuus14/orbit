@@ -24,7 +24,7 @@ async function store(s: Titles) {
 }
 const allTitles = (t: Titles) => Object.assign({}, ...Object.values(t.months).map((m) => m.titles)) as Record<string, string>;
 
-async function gather(sb: SupabaseClient, userId: string, includePrivate: boolean, now: number): Promise<ChronIn> {
+export async function gather(sb: SupabaseClient, userId: string, includePrivate: boolean, now: number): Promise<ChronIn> {
   const rows = <T>(p: PromiseLike<{ data: T[] | null }>) => Promise.resolve(p).then((r) => r.data ?? [], () => [] as T[]);
   let mem = sb.from("memories").select("id, title, kind, tags, source, created_at").eq("user_id", userId);
   if (!includePrivate) mem = mem.neq("kind", "journal"); // journal rows are not even read unless he asked for them
