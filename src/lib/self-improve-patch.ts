@@ -1,17 +1,36 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { askClaude, MODEL, recordUsage } from "./claude";
 import { blocked } from "./agent-replay";
 import { improveView } from "./self-improve";
-import { PATCH_SYSTEM, checkDiff, handoffText, parsePatchReply, patchFile, patchPrompt, pickFiles, slug, type PatchResult } from "./self-improve-patch-pure";
+import { PATCH_SYSTEM, addSaved, checkDiff, handoffText, parsePatchReply, patchFile, patchName, patchPrompt, pickFiles, weekDrafts, type PatchResult, type SavedDraft } from "./self-improve-patch-pure";
 
 // Draft a patch for one "Make ORBIT better" task (rules: self-improve-patch-pure.ts). Only on the owner's click; one model call with up to
 // 4 source files as context; refused under Stop-all or the usage limit. Saves <data dir>/self-improve-patches/<week>-<task>.patch and
-// returns the handoff text. It never applies, commits, pushes or deploys anything: no git, no writes outside that folder.
+// returns the handoff text. index.json in that folder lists the drafts so the card shows them after a reload. It never applies, commits, pushes or deploys anything: no git, no writes outside that folder.
 
 const MAX_FILE = 40_000; // chars per context file; bigger files are cut
+
+const DIR = () => path.join(orbitDataDir(), "self-improve-patches");
+const INDEX = () => path.join(DIR(), "index.json");
+
+async function loadIndex(): Promise<SavedDraft[]> {
+  let raw: string;
+  try { raw = await readFile(INDEX(), "utf8"); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw e;
+  }
+  const x = JSON.parse(raw) as SavedDraft[]; // a broken index throws instead of being overwritten
+  if (!Array.isArray(x)) throw new Error("self-improve-patches/index.json is unreadable; fix or move it aside.");
+  return x;
+}
+
+/** This week's saved drafts per task key, for the card after a reload. */
+export async function savedDrafts(sb: SupabaseClient, userId: string): Promise<Record<string, PatchResult>> {
+  return weekDrafts(await loadIndex(), (await improveView(sb, userId)).week);
+}
 
 const g = globalThis as unknown as { __orbitPatchBusy?: boolean };
 
@@ -40,10 +59,14 @@ export async function draftPatch(sb: SupabaseClient, userId: string, key: string
     if (!d) return { error: "The model didn't return a diff. Try again or copy the brief instead." };
     const problems = checkDiff(d.diff);
     if (problems.length) return { error: "Refused: the draft breaks ORBIT's safety rules, so it was not saved.", problems };
-    const dir = path.join(orbitDataDir(), "self-improve-patches"), file = path.join(dir, `${week}-${slug(t.key)}.patch`);
+    const dir = DIR(), index = await loadIndex();
     await mkdir(dir, { recursive: true });
-    await writeFile(file, patchFile(t, d, week));
-    return { file, handoff: handoffText(t, d, file), rationale: d.rationale, test: d.test };
+    const file = path.join(dir, patchName(week, t.key, await readdir(dir)));
+    await writeFile(file, patchFile(t, d, week), { flag: "wx" }); // wx: never overwrite an older draft
+    const saved = { week, key: t.key, file, handoff: handoffText(t, d, file), rationale: d.rationale, test: d.test };
+    await writeFile(INDEX() + ".tmp", JSON.stringify(addSaved(index, saved), null, 1));
+    await rename(INDEX() + ".tmp", INDEX());
+    return { file, handoff: saved.handoff, rationale: d.rationale, test: d.test };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Drafting failed" };
   } finally { g.__orbitPatchBusy = false; }

@@ -5,7 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { kickQueue } from "./agents";
 import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
-import { addRule, parseRule, ruleBlocked, ruleDue, describeAction, describeTrigger, type Rule, type RuleEvent, type RuleResult } from "./rules-pure";
+import { usageLimited } from "./usage-meter";
+import { addRule, countEventRun, parseRule, ruleBlocked, ruleDue, describeAction, describeTrigger, type Rule, type RuleEvent, type RuleResult } from "./rules-pure";
 
 // Standing rules store + runner (logic: rules-pure.ts). State: <ORBIT data dir>/rules.json (local, single owner, like deals/skills).
 // Runs only through ORBIT's existing runners: agent tasks (pending approvals intact), skills as a Nova task, missions, the deal
@@ -99,14 +100,29 @@ async function runRule(sb: SupabaseClient, userId: string, r: Rule, why: string)
   } catch (e) { return { at, ok: false, text: msg(e) }; }
 }
 
-async function fire(sb: SupabaseClient, userId: string, r: Rule, why: string) {
-  if (stopAllOn()) return;
+/** Start one run; null = started, else why not. `event` runs count against the daily cap (countEventRun). */
+async function fire(sb: SupabaseClient, userId: string, r: Rule, why: string, event = false): Promise<string | null> {
+  if (stopAllOn()) return "Stop-all is on";
   // Mark the slot first: a crash or failed start never repeats every minute. A pause that landed meanwhile wins.
-  const go = await update((s) => { const x = s.rules.find((y) => y.id === r.id); if (x?.status !== "active") return false; x.lastRun = new Date().toISOString(); return true; });
-  if (!go) return;
+  const whyNot = await update((s) => {
+    const x = s.rules.find((y) => y.id === r.id);
+    if (x?.status !== "active") return "Rule is not active";
+    if (event) { const c = countEventRun(x.today, new Date()); x.today = c.count; if (!c.ok) return "Daily event limit reached"; }
+    x.lastRun = new Date().toISOString(); return null;
+  });
+  if (whyNot) return whyNot;
   console.log(`[orbit] rule "${r.name}" starting (${why.slice(0, 60)})`);
   // not awaited: a deal hunt takes minutes and must not hold up the scheduler tick
   void runRule(sb, userId, r, why).then((res) => update((s) => { const x = s.rules.find((y) => y.id === r.id); if (x) x.last = res; })).catch((e) => console.error("[orbit] rule result not saved:", msg(e)));
+  return null;
+}
+
+/** His "Run now" click: the same path as a scheduled run (Stop-all, usage limit, approvals for outward steps). */
+export async function runRuleNow(sb: SupabaseClient, userId: string, id: string): Promise<string | null> {
+  if (usageLimited()) return "Claude usage limit reached; try again after it resets";
+  const r = (await load()).rules.find((x) => x.id === id);
+  if (!r) return "Rule not found";
+  return fire(sb, userId, r, "run now (your click)");
 }
 
 // Only memories he saved trigger "memory.created" rules (same as automations.ts): agent saves would loop.
@@ -151,7 +167,7 @@ export async function tickRules(sb: SupabaseClient, userIds: string[], now = new
     for (const r of active) {
       const t = r.trigger;
       if (t.type === "schedule") { if (ruleDue(t.schedule, r.lastRun, r.activeSince, now)) await fire(sb, owner, r, "schedule"); }
-      else for (const h of hits) if (h.userId === owner && h.event === t.event) await fire(sb, owner, r, h.why);
+      else for (const h of hits) if (h.userId === owner && h.event === t.event) await fire(sb, owner, r, h.why, true);
     }
   } catch (e) { console.error("[orbit] standing rules failed:", msg(e)); }
 }
