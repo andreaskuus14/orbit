@@ -13,6 +13,7 @@ export type NavTarget = {
   mission?: true; // mission: the full-screen "bridge" overlay (MissionControl.tsx) over whatever is on screen
   doctor?: true; // doctor: open the ORBIT doctor (health checks) and read the result aloud; stays where you are
   beliefs?: true; // beliefs: MEMORY opens "What ORBIT believes"
+  study?: true; // study: MEMORY opens a study-cards review
   stopAll?: true; voice?: boolean; // direct actions: stay in the current world; voice sets output on/off
   continueWork?: true; // open the unfinished-work list, without starting or resuming a task
   evening?: true; // open "Today in a minute" (EveningCapture.tsx) over whatever is on screen

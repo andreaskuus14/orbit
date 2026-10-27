@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { Stored } from "@/lib/lessons-pure";
+import { useT } from "./i18n";
 
 // "What I learned about you" (Profile) and the one-tap chip CORE shows after a correction. Data: /api/lessons (lessons.ts).
 
@@ -25,6 +26,7 @@ function Evidence({ l }: { l: Stored }) {
 }
 
 export function LessonsSection() {
+  const { t } = useT();
   const [v, setV] = useState<View | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -35,7 +37,7 @@ export function LessonsSection() {
   };
   return (
     <section className="space-y-2" aria-labelledby="lessons-h">
-      <h3 id="lessons-h" className="h3">What I learned about you</h3>
+      <h3 id="lessons-h" className="h3">{t("profile.lessons")}</h3>
       <p className="muted text-xs">Every night ORBIT looks at your own decisions (clips you approve or reject, proposals, morning clicks, memory suggestions, niches, outreach replies, when you&apos;re active) and notes patterns, like an assistant would. Nothing is used until you keep it. Kept lessons are added next to your style rules and never change them; “Not true” lessons are never suggested again.</p>
       {!v ? (!msg && <p className="muted text-sm">Loading…</p>) : (<>
         <ul className="space-y-2" aria-label="New lessons">

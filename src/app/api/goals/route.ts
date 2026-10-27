@@ -2,11 +2,12 @@ import { requireUser } from "@/lib/supabase/server";
 import { advance, createGoal, getGoal, goalAction, listGoals, type GoalAction, type GoalRow } from "@/lib/goals";
 import { isLive, planningActive, progress, runsLeft } from "@/lib/goals-pure";
 import { crossSiteBlocked } from "@/lib/csrf";
+import { trackGoals, type GoalTrack } from "@/lib/goal-autopilot";
 
 export const dynamic = "force-dynamic";
 
-const ACTIONS: GoalAction[] = ["approve", "edit", "redraft", "ok", "proposal", "pause", "resume", "stop", "continue", "metric", "delete"];
-const view = (r: GoalRow) => ({ id: r.id, createdAt: r.created_at, updatedAt: r.updated_at, ...r.doc, planning: planningActive(r.doc) ? r.doc.planning : undefined, progress: progress(r.doc), runsLeft: runsLeft(r.doc) });
+const ACTIONS: GoalAction[] = ["approve", "edit", "redraft", "ok", "proposal", "pause", "resume", "stop", "continue", "metric", "delete", "milestones", "replan", "phrase"];
+const view = (r: GoalRow, tracks?: Map<string, GoalTrack>) => ({ id: r.id, createdAt: r.created_at, updatedAt: r.updated_at, ...r.doc, planning: planningActive(r.doc) ? r.doc.planning : undefined, progress: progress(r.doc), runsLeft: runsLeft(r.doc), track: tracks?.get(r.id) });
 
 /** ?id= → one goal, else the newest 30. Opening a goal (or the list) is one of the events that advances it: no schedules. */
 export async function GET(req: Request) {
@@ -16,8 +17,9 @@ export async function GET(req: Request) {
     const id = new URL(req.url).searchParams.get("id");
     const rows = id ? [await getGoal(sb, id)].filter((r): r is GoalRow => !!r) : await listGoals(sb, user.id);
     for (const r of rows) if (isLive(r.doc) && r.doc.status !== "blocked") void advance(sb, user.id, r.id);
-    if (id) return rows[0] ? Response.json(view(rows[0])) : Response.json({ error: "Not found" }, { status: 404 });
-    return Response.json({ goals: rows.map(view) });
+    const tracks = await trackGoals(sb, user.id, rows).catch(() => undefined); // milestones' weekly check from evidence
+    if (id) return rows[0] ? Response.json(view(rows[0], tracks)) : Response.json({ error: "Not found" }, { status: 404 });
+    return Response.json({ goals: rows.map((r) => view(r, tracks)) });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
   }
@@ -40,7 +42,7 @@ export async function POST(req: Request) {
     if (!ACTIONS.includes(body.action as GoalAction) || typeof body.id !== "string") return Response.json({ error: "action and id required" }, { status: 400 });
     const r = await goalAction(sb, user.id, body.id, body.action as GoalAction, body);
     if (r.error) return Response.json({ error: r.error }, { status: 409 });
-    return Response.json(r.row ? view(r.row) : { ok: true });
+    return Response.json(r.row ? view(r.row, await trackGoals(sb, user.id, [r.row]).catch(() => undefined)) : { ok: true });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
   }

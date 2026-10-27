@@ -3,6 +3,7 @@
 // Lifecycle: draft (plan drafted, owner reviews) → approved (ready for the next step) → running (one step's task in flight)
 // → waiting (an OK click, a task approval, a plan-change proposal or the daily budget) → … → done; paused / blocked / stopped on the side.
 // Goal text, step results and web content are DATA: prompts fence them and say so; nothing here ever approves a side effect itself.
+import type { Autopilot } from "./goal-autopilot-pure.ts";
 
 export type GoalStatus = "draft" | "approved" | "running" | "waiting" | "paused" | "blocked" | "done" | "stopped";
 export type MetricKind = "none" | "manual" | "steps" | "youtube_subscribers";
@@ -17,6 +18,7 @@ export type Goal = {
   deadline?: string; agents: string[]; budget: { runsPerDay: number; callsPerStep: number }; usage: { day: string; runs: number };
   steps: Step[]; proposal?: Proposal; learned: string[]; blocker?: string; waitingFor?: string;
   planning?: string; planError?: string; log: { at: string; text: string }[];
+  autopilot?: Autopilot; // weekly milestones (goal-autopilot-pure.ts)
 };
 export type GoalInput = Pick<Goal, "title" | "why" | "metric" | "deadline" | "agents" | "budget">;
 
@@ -77,8 +79,9 @@ export function validateSteps(x: unknown, agents: string[], min = MIN_STEPS, max
 }
 
 const sid = () => Math.random().toString(36).slice(2, 10);
-const toStep = (d: StepDraft): Step => ({ ...d, id: sid(), status: "pending" });
-const log = (g: Goal, text: string, now = new Date()) => { g.log = [...g.log, { at: now.toISOString(), text: text.slice(0, 300) }].slice(-60); };
+export const toStep = (d: StepDraft): Step => ({ ...d, id: sid(), status: "pending" });
+export const logGoal = (g: Goal, text: string, now = new Date()) => { g.log = [...g.log, { at: now.toISOString(), text: text.slice(0, 300) }].slice(-60); };
+const log = logGoal;
 
 /** First JSON object in a model reply (models sometimes wrap it in prose or a code fence). */
 export function parseJson(text: string): Record<string, unknown> | null {
