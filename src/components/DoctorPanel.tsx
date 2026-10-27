@@ -8,6 +8,7 @@ import type { systemHealthView } from "@/lib/system-health";
 import type { SvcState } from "@/lib/system-health-pure";
 import type { PatchResult } from "@/lib/self-improve-patch-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
+import { useDialogFocus } from "./useDialogFocus";
 
 const COLOR: Record<Status, string> = { ok: "var(--mint)", warn: "var(--amber)", fail: "var(--rose)" };
 const WORD: Record<Status, string> = { ok: "OK", warn: "CHECK", fail: "PROBLEM" };
@@ -152,6 +153,8 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const spoke = useRef(false);
+  const box = useRef<HTMLElement>(null);
+  useDialogFocus(box, true, onClose);
 
   const run = useCallback(async () => {
     setBusy(true); setErr("");
@@ -177,7 +180,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
   useEffect(() => () => stopSpeech(), []); // closing the panel stops the read-out
 
   return (
-    <aside className="glass drawer" style={{ zIndex: 40 }} role="dialog" aria-label="ORBIT doctor">
+    <aside ref={box} tabIndex={-1} className="glass drawer" style={{ zIndex: 40 }} role="dialog" aria-label="ORBIT doctor">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="brand text-base">🩺 ORBIT doctor</h2>
         <div className="flex gap-2">
