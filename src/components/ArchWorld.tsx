@@ -20,6 +20,7 @@ import { lessonTag } from "@/lib/arch-studio-pure";
 import { shadowOf } from "@/lib/arch-time-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
+import { ArchMaterials } from "./ArchMaterials";
 import { PortfolioPanel } from "./PortfolioPanel";
 import { archCaption } from "@/lib/portfolio-pure";
 import { ArchPlans } from "./ArchPlans";
@@ -522,6 +523,8 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           </tbody></table>
           <p className="muted text-[11px]">{prices.some((p) => !p.date) ? "Some prices are unverified starter estimates. " : ""}Hover a row for its price source. Window and door areas are taken off the walls. Labour and transport aren&apos;t counted yet.</p>
         </div>
+
+        <ArchMaterials q={q} />
 
         {tips.length > 0 && <div className="card space-y-1"><div className="muted text-[10px] uppercase tracking-widest">Bulk buying</div>{tips.map((t) => <p key={t} className="text-xs">• {t}</p>)}</div>}
         <p className="muted text-[11px]">A study tool: rules of thumb (rebar ~100 kg/m³, 300 mm block walls). Anything you build for real needs an engineer&apos;s sign-off.</p>
