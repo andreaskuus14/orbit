@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NonceCache, parseCommand } from "../src/lib/remote-pure.ts";
-import { actionFor, approvalId, clipStamp, cookieOptions, deviceName, echoProblem, ledgerData, parseEcho, quoteStamp, secretProblem, stopProblem, takeRate, type Approval } from "../src/lib/remote-web-pure.ts";
+import { actionFor, approvalId, clipStamp, cookieOptions, deviceName, echoProblem, ledgerData, parseEcho, quoteStamp, screenOnly, secretProblem, stopProblem, takeRate, type Approval } from "../src/lib/remote-web-pure.ts";
 
 const SECRET = "k".repeat(32);
 const cmd = (o: object) => {
@@ -131,4 +131,15 @@ test("deviceName: printable, short, default iPhone", () => {
   assert.equal(deviceName(""), "iPhone");
   assert.equal(deviceName(42), "iPhone");
   assert.equal(deviceName("x".repeat(80)).length, 40);
+});
+
+test("invoice approvals: echoed with their exact version, approve-only, screen-only (no voice/Watch/Shortcut)", () => {
+  const ap = cmd({ type: "approve", id: ID });
+  assert.deepEqual(parseEcho(ap, { kind: "invoice", seen: "2026-10-26T10:00:00.000Z" }), { ok: true, echo: { kind: "invoice", credits: undefined, seen: "2026-10-26T10:00:00.000Z" } });
+  const item: Approval = { id: ID, key: "invoice:i1", kind: "invoice", title: "Invoice 2026-001", detail: "", seen: "v1", message: "Hello" };
+  assert.equal(echoProblem(item, { kind: "invoice", seen: "v1" }, "approve"), "");
+  assert.notEqual(echoProblem(item, { kind: "invoice", seen: "v0" }, "approve"), "");
+  assert.notEqual(echoProblem(item, { kind: "send", seen: "v1" }, "approve"), "");
+  assert.notEqual(echoProblem(item, { kind: "invoice", seen: "v1" }, "reject"), "");
+  assert.deepEqual((["clip", "spend", "send", "nego", "invoice"] as const).filter(screenOnly), ["nego", "invoice"]);
 });

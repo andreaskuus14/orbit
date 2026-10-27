@@ -67,9 +67,11 @@ export function splitLong(s: string, max = 150): string[] {
   return out;
 }
 
-/** Feed streamed Markdown deltas; get back cleaned sentences ready to speak. flush() returns the rest. */
-export function sentenceStream() {
-  let buf = "";
+/** Feed streamed Markdown deltas; get back cleaned sentences ready to speak. flush() returns the rest.
+ *  summaryOnly (voice): speak only the first paragraph, the spoken summary; the full answer stays on screen.
+ *  A paragraph counts once it has 3+ words, so a leading heading doesn't end the summary. */
+export function sentenceStream(summaryOnly = false) {
+  let buf = "", all = "", fed = 0, end = -1;
   const drain = (final: boolean) => {
     const out: string[] = [];
     for (let c = nextCut(buf, final); c > 0; c = nextCut(buf, final)) {
@@ -78,15 +80,26 @@ export function sentenceStream() {
     }
     return out;
   };
+  const feed = (final: boolean) => {
+    if (summaryOnly && end < 0) {
+      for (const m of all.matchAll(/\n[ \t]*\n/g)) {
+        if (all.slice(0, m.index).split(/\s+/).filter((w) => /\w/.test(w)).length >= 3) { end = m.index; break; }
+      }
+    }
+    const lim = end >= 0 ? end : all.length;
+    buf += all.slice(fed, lim);
+    fed = lim;
+    return drain(final || end >= 0);
+  };
   return {
-    push: (delta: string) => { buf += delta; return drain(false); },
-    flush: () => drain(true),
-    reset: () => { buf = ""; },
+    push: (delta: string) => { all += delta; return feed(false); },
+    flush: () => feed(true),
+    reset: () => { buf = ""; all = ""; fed = 0; end = -1; },
   };
 }
 
-/** A whole Markdown text as speakable chunks (for replaying a finished answer). */
-export function speechChunks(md: string): string[] {
-  const s = sentenceStream();
+/** A whole Markdown text as speakable chunks (for replaying a finished answer); summaryOnly as in sentenceStream. */
+export function speechChunks(md: string, summaryOnly = false): string[] {
+  const s = sentenceStream(summaryOnly);
   return [...s.push(md), ...s.flush()];
 }
