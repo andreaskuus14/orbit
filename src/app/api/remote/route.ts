@@ -7,6 +7,7 @@ import { switchStopAll } from "@/lib/stop-all-run";
 import { listJobs, publishingKey } from "@/lib/clips/factory";
 import { runningStory } from "@/lib/clips/story";
 import { coreTurn } from "@/lib/core-turn";
+import { deviceType, scopeAllows } from "@/lib/screen-pure";
 import { getBrief } from "@/lib/brief";
 import { allows } from "@/lib/autonomy";
 
@@ -49,7 +50,7 @@ function sanitizeStream(res: Response): Response {
 export async function POST(req: Request) {
   const problem = remoteProblem();
   if (problem) return fail(problem, 503);
-  const device = await deviceFromCookie();
+  const device = await deviceFromCookie(true); // a screen gets through here, then only to its read-only allow-list below
   if (!device) return fail("Not paired", 401);
   if (!rateOk(`cmd:${device.id}`, RATE.cmd)) return fail("Too many commands: wait a minute", 429);
   const raw = await req.text().catch(() => "");
@@ -64,6 +65,7 @@ export async function POST(req: Request) {
   const parsed = parseCommand(body.cmd, S.nonces);
   if (!parsed.ok) { log(null, false); return fail(parsed.error); }
   const cmd = parsed.cmd;
+  if (!scopeAllows(deviceType(device), actionFor(cmd))) { log(cmd, false); return fail("This screen is read-only", 403); }
   const e = parseEcho(cmd, body.echo);
   if (!e.ok) { log(cmd, false); return fail(e.error); }
   const done = (res: Response) => { log(cmd, res.ok); return res; };
