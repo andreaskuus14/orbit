@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ProposalsPanel } from "./ProposalsPanel";
+import { OrbitLog } from "./OrbitLog";
 import { useWorldPaused } from "./world-paused";
 import { highlight } from "./Highlight";
 import { ActivityView } from "./ActivityView";
@@ -402,6 +403,7 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
         ))}
       </ul>
       <p className="muted text-xs">Flow (automations) arrives with the Automation Studio.</p>
+      <OrbitLog />
 
       {creating ? (
         <form onSubmit={createAgent} className="card space-y-2">

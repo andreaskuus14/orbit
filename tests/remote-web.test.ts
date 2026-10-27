@@ -40,6 +40,7 @@ test("actionFor: every command type maps; navigate is not offered", () => {
   assert.equal(actionFor(cmd({ type: "reject", id: ID })), "reject");
   assert.equal(actionFor(cmd({ type: "stopAll" })), "stopAll");
   assert.equal(actionFor(cmd({ type: "core.ask", text: "hi" })), "ask");
+  assert.equal(actionFor(cmd({ type: "brief" })), "brief");
   assert.equal(actionFor(cmd({ type: "navigate", panel: "studio" })), "unsupported");
 });
 

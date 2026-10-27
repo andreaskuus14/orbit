@@ -48,9 +48,9 @@ test("boq, cost and bulk tips come from geometry", () => {
   assert.ok(q.blocks > 0 && q.roofM2 > 0);
   const c = costLines(q, STARTER_PRICES);
   assert.equal(c.total, c.lines.reduce((s, l) => s + l.total, 0));
-  const tips = bulkTips({ concreteM3: 13.5, rebarT: 0.5, blocks: 0, wallM3: 0, roofM2: 0, windows: 0, doors: 0 });
+  const tips = bulkTips({ concreteM3: 13.5, rebarT: 0.5, blocks: 0, wallM3: 0, roofM2: 0, windows: 0, doors: 0, wallM2: 0, slabM2: 0, windowM2: 0 });
   assert.ok(tips.some((t) => t.includes("15 m³")) && tips.some((t) => t.includes("spare")) && tips.some((t) => t.includes("Rebar")));
-  assert.deepEqual(bulkTips({ concreteM3: 0, rebarT: 0, blocks: 0, wallM3: 0, roofM2: 0, windows: 0, doors: 0 }), []);
+  assert.deepEqual(bulkTips({ concreteM3: 0, rebarT: 0, blocks: 0, wallM3: 0, roofM2: 0, windows: 0, doors: 0, wallM2: 0, slabM2: 0, windowM2: 0 }), []);
 });
 
 const win = (o: { w?: number; off?: number; sill?: number; host?: string } = {}): Op => ({ op: "add", kind: "window", host: "p3", face: "s", w: 1.2, ...o });
