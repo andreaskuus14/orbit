@@ -10,7 +10,7 @@ import type { GoalRow } from "./goals";
 // GOAL AUTOPILOT IO: gathers evidence (ledger events, finished tasks, ARCH saves) and handles the owner's three clicks.
 // Read-only except those clicks; the one model call (phrasing) runs only on his "Phrase" click.
 
-const LEDGER_TYPES = ["clip.published", "business.stage", "invoice.paid", "focus.session"];
+const LEDGER_TYPES = ["clip.published", "business.stage", "invoice.status", "focus.session"];
 
 /** Evidence since the earliest milestone start of these goals (bounded queries; each source fails soft to nothing). */
 export async function loadEvidence(sb: SupabaseClient, userId: string, since: string): Promise<Evidence[]> {

@@ -7,6 +7,7 @@ import type { Goal, MetricKind, StepDraft } from "@/lib/goals-pure";
 import { daily, forecast, type Forecast } from "@/lib/forecast-pure";
 import { EVIDENCE, EVIDENCE_KINDS, type EvidenceKind } from "@/lib/goal-autopilot-pure";
 import type { GoalTrack } from "@/lib/goal-autopilot";
+import { DreamsList } from "./DreamsList";
 
 // 🎯 GOALS in the Agents Station: list, new-goal form, goal detail (plan editor, step timeline, metric sparkline, learned, log).
 // Polling GET /api/goals is itself one of the events that advances a goal (there is no schedule). Goal text and results are untrusted:
@@ -144,6 +145,7 @@ export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { a
           ))}
         </ul>
       )}
+      <DreamsList onGoal={load} />
       {err && <p className="error" role="alert">{err}</p>}
     </div>
   );

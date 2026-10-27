@@ -15,7 +15,7 @@ export const EVIDENCE = {
   tasks: { label: "agent tasks done", match: (e) => e.type === "task.done" },
   arch: { label: "ARCH pieces saved", match: (e) => e.type === "arch.saved" },
   clients: { label: "clients paying", match: (e) => e.type === "business.stage" && e.data?.to === "paying" },
-  invoices: { label: "invoices paid", match: (e) => e.type === "invoice.paid" }, // shortcut: no such ledger event on main yet; counts from the day one is emitted
+  invoices: { label: "invoices paid", match: (e) => e.type === "invoice.status" && e.data?.to === "paid" },
   focus: { label: "focus sessions", match: (e) => e.type === "focus.session" },
 } satisfies Record<string, Source>;
 export type EvidenceKind = keyof typeof EVIDENCE;
