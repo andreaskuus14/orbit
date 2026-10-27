@@ -8,6 +8,9 @@ import { join, relative, resolve } from "node:path";
 import { importGraph } from "../scripts/demo-graph.ts";
 import { DEMO_ROUTES, guardFetch, coreReply } from "../src/lib/demo-shell-pure.ts";
 import { demoData } from "../src/app/demo/data.ts";
+import { readSnapshots } from "../src/lib/arch-time-pure.ts";
+import { engageProblem } from "../src/lib/clips/engage-pure.ts";
+import { studioItems } from "../src/lib/arch-studio-pure.ts";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const rel = (f: string) => relative(ROOT, f).replaceAll("\\", "/");
@@ -70,12 +73,33 @@ test("runtime fetch guard: every /api path the demo code mentions is answered lo
   assert.deepEqual(sent, []);
   assert.ok(blocked.includes("POST https://evil.example/collect") && blocked.includes("POST /API/core"));
   assert.equal((await (await f("/api/memories/map")).json()).items.length, 36);
-  // A fixture keyed with a query answers only that exact query; the same path with another query stays refused.
+  // One path-level fixture answers every query on STUDIO analytics (Last Shorts and the Stats ranges).
   const shorts = await f("/api/studio/analytics?results=1");
   assert.equal(shorts.status, 200);
-  assert.ok(Array.isArray((await shorts.json()).shorts) && (await f("/api/studio/analytics?range=28")).status === 403);
+  assert.ok(Array.isArray((await shorts.json()).shorts) && (await f("/api/studio/analytics?range=28")).status === 200);
   await f("/_next/static/chunk.js");
   assert.deepEqual(sent, ["/_next/static/chunk.js"], "same-origin static files still load");
+});
+
+test("tab fixtures (STUDIO stats/clips, follows, place, ARCH studio/versions) are read-only, valid and fictional", async () => {
+  const data = demoData(), get = (p: string) => data[`GET ${p}`] as Record<string, any>;
+  const a = get("/api/studio/analytics");
+  assert.equal(a.connected, true);
+  assert.equal(a.daily.length, 28);
+  assert.equal(a.totals.views, a.daily.reduce((s: number, d: { views: number }) => s + d.views, 0));
+  assert.ok(a.shorts.length > 0, "Last Shorts (?results=1) reads the same fixture");
+  assert.deepEqual(get("/api/place"), { on: false, places: [] }, "the demo never has a location");
+  assert.equal(readSnapshots(get("/api/arch/versions").versions).length, 3);
+  assert.equal(engageProblem(get("/api/studio/clips/engage")), "");
+  assert.ok(studioItems(get("/api/arch/studio").rows).every((i) => !i.vault && !i.image), "no vault files or images to fetch");
+  assert.ok(get("/api/news/follows").countries.length > 0);
+  // writes on the newly answered paths stay refused with the demo note
+  const f = guardFetch(data, (async () => new Response("")) as typeof fetch, "https://demo.example");
+  for (const p of ["/api/arch/versions", "/api/git", "/api/news/follows", "/api/studio/clips/schedule", "/api/studio/autopilot", "/api/studio/oauth/disconnect"]) {
+    const r = await f(p, { method: "POST" });
+    assert.equal(r.status, 403, p);
+    assert.match((await r.json()).error, /demo/);
+  }
 });
 
 test("CORE answers from a script", () => {

@@ -12,7 +12,23 @@ export const DEMO_ROUTES: Readonly<Record<string, string>> = {
   "GET /api/studio": "/api/studio",
   "GET /api/studio/clips": "/api/studio/clips",
   "GET /api/studio/clips/learn": "/api/studio/clips/learn",
-  "GET /api/studio/analytics?results=1": "/api/studio/analytics?results=1", // STUDIO's Last Shorts strip (an exact query is matched first)
+  "GET /api/studio/analytics": "/api/studio/analytics", // one fixture for every query: ?range=, &video= (Stats) and ?results=1 (Last Shorts)
+  "GET /api/studio/oauth/status": "/api/studio/oauth/status",
+  "GET /api/studio/clips/inbox-auto": "/api/studio/clips/inbox-auto",
+  "GET /api/studio/clips/schedule": "/api/studio/clips/schedule",
+  "GET /api/studio/clips/devlog": "/api/studio/clips/devlog",
+  "GET /api/studio/clips/scout": "/api/studio/clips/scout",
+  "GET /api/studio/clips/story": "/api/studio/clips/story",
+  "GET /api/studio/clips/engage": "/api/studio/clips/engage",
+  "GET /api/studio/shorts-plan": "/api/studio/shorts-plan",
+  "GET /api/studio/longform": "/api/studio/longform",
+  "GET /api/studio/autopilot": "/api/studio/autopilot",
+  "GET /api/ideas": "/api/ideas",
+  "GET /api/git": "/api/git",
+  "GET /api/place": "/api/place",
+  "GET /api/news/follows": "/api/news/follows",
+  "GET /api/arch/studio": "/api/arch/studio",
+  "GET /api/arch/versions": "/api/arch/versions",
   "POST /api/arch": "/api/arch", // ARCH's "build" answers with the canned garden plot: no model call
 };
 
