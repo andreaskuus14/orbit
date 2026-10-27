@@ -1,73 +1,82 @@
 "use client";
-import { useEffect, useState } from "react";
-import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
+import { useCallback, useEffect, useState } from "react";
+import { NAV_EVENT } from "@/lib/nav-pure";
 import { PALETTE_EVENT } from "@/lib/palette-pure";
-import { TERMINAL_EVENT } from "@/lib/terminal-pure";
+import {
+  CHAPTERS, SETUP, START, STEPS, TOUR_EVENT, TOUR_KEY, back, chapterDone, chapterOf, goTo, next, openChapter, parseProgress,
+  position, resume, setupUrl, shouldAutoOpen, skip, type Progress,
+} from "@/lib/tour-pure";
+import { useT } from "./i18n";
 
-// One-time "what's new" card after an update. Bump KEY's version when a new round ships something worth showing.
-const KEY = "orbit.whatsnew.2026-10-18b";
-const ITEMS: { icon: string; title: string; text: string; go?: NavTarget; event?: string }[] = [
-  { icon: "✨", title: "Pop-ups", text: "ORBIT now pops up uploads due, viral trends (Clip it), briefings and breaking news. Mute it in the 🔔 bell." },
-  { icon: "🔥", title: "Blowing up in your niche", text: "Trend Radar → Rising shows Shorts exploding in your niche right now.", go: { panel: "creation" } },
-  { icon: "📚", title: "Viral study", text: "Press 📚 Study on a viral Short: ORBIT learns why it works and edits your clips that way.", go: { panel: "studio", view: "clips" } },
-  { icon: "🏆", title: "Winners vs flops", text: "See which of your Shorts won or flopped and why. Autopilot learns from it.", go: { panel: "studio", view: "clips" } },
-  { icon: "🔺", title: "Rising games", text: "Trend Radar → Rising spots Roblox games growing fast, before they peak.", go: { panel: "creation" } },
-  { icon: "🟦", title: "The Grid", text: "GAME DEV → Grid: your scripts as a neon city. Red buildings have errors.", go: { panel: "creation" } },
-  { icon: "🐝", title: "The Hive", text: "GAME DEV → Hive: 6 AI minds brainstorm, vote and give you the top 3.", go: { panel: "creation" } },
-  { icon: "💻", title: "fsociety terminal", text: "Press the key left of 1 for a live hacker view of agents, health and usage.", event: TERMINAL_EVENT },
-  { icon: "🔴", title: "ORBIT eye", text: "The eye on the home screen glows when ORBIT listens or talks. Click it to mute." },
-  { icon: "🧠", title: "CORE deep mode", text: "Start with “deep:” or say “think hard” — CORE plans, answers and double-checks.", go: { panel: "core" } },
-  { icon: "📁", title: "CORE makes real files", text: "“Build me a website” saves real files. Open them in VAULT → Workspaces with ▶ preview.", go: { panel: "vault" } },
-  { icon: "🏗", title: "GAME DEV Wave B", text: "Map from your reference board, asset packs, GUI scripts and before/after build history.", go: { panel: "creation" } },
-  { icon: "👋", title: "Welcome back", text: "After 3+ hours away, one card shows what happened while you were gone." },
-  { icon: "🎙", title: "Voice", text: "Say “let's just talk” for open mic. Try “ORBIT mic” and “Remember my voice” in voice settings." },
-  { icon: "🌍", title: "Every country", text: "All countries on the globe, local news per country (Estonia: ERR, Postimees).", go: { panel: "intelligence" } },
-  { icon: "💬", title: "CORE chats & projects", text: "☰ Chats to reopen old chats, ＋ New, and projects with pinned notes.", go: { panel: "core" } },
-  { icon: "🏕", title: "GAME DEV: Roblox tools", text: "Scene from a sentence, free-model virus scan, textures, code helper, style lock and a playtest bot.", go: { panel: "creation" } },
-  { icon: "🛠", title: "Devlog → Shorts", text: "Point OBS at the devlog folder; recordings become “Day N” Shorts in REVIEW.", go: { panel: "studio", view: "clips" } },
-  { icon: "🌱", title: "LIFE", text: "Habits with streaks, reminders (also “every day at 9”), a focus timer and a journal. Say “start focus”.", go: { panel: "life" } },
-  { icon: "🗄️", title: "VAULT", text: "Your private files on this PC: drop, preview, search inside, ask CORE.", go: { panel: "vault" } },
-  { icon: "⌕", title: "Search everything", text: "Ctrl+K: jump anywhere, search everything, quick actions.", event: PALETTE_EVENT },
-  { icon: "📅", title: "STUDIO calendar", text: "Your week of Shorts and free slots, in Clip Factory → Calendar.", go: { panel: "studio", view: "clips" } },
-  { icon: "🧠", title: "From your memory", text: "The morning briefing brings back what you saved a week, month or year ago." },
-  { icon: "🔔", title: "Notifications", text: "The bell keeps STUDIO notes, reminders and agent results." },
-  { icon: "🎬", title: "THEATER", text: "Your creators as chips, and Continue watching.", go: { panel: "theater" } },
-];
+// "What's new" as a guided tour (chapters, steps, Show me, setup hints). Data and rules: lib/tour-pure.ts.
+// Opens by itself once per TOUR_KEY; afterwards only from Ctrl+K → "What's new tour" (TOUR_EVENT), where it resumes.
+const load = () => { try { return parseProgress(localStorage.getItem(TOUR_KEY)); } catch { return null; } };
+const save = (p: Progress) => { try { localStorage.setItem(TOUR_KEY, JSON.stringify(p)); } catch { /* no storage: this session only */ } };
 
 export function WhatsNew({ home }: { home: boolean }) {
-  const [open, setOpen] = useState(false);
-  useEffect(() => { try { if (!localStorage.getItem(KEY)) setOpen(true); } catch { /* no storage: skip the card */ } }, []);
-  const close = () => { setOpen(false); try { localStorage.setItem(KEY, "1"); } catch { /* ignore */ } };
+  const { lang, t } = useT();
+  const [p, setP] = useState<Progress | null>(null);
+  const [active, setActive] = useState(false); // this session: shown on the galaxy until skipped or finished
+  const update = useCallback((q: Progress) => { setP(q); save(q); if (q.closed) setActive(false); }, []);
+
   useEffect(() => {
-    if (!open || !home) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    const stored = load();
+    if (shouldAutoOpen(stored)) { update(goTo(START, START.at)); setActive(true); } else setP(stored);
+    const reopen = () => { update(resume(load())); setActive(true); };
+    addEventListener(TOUR_EVENT, reopen);
+    return () => removeEventListener(TOUR_EVENT, reopen);
+  }, [update]);
+
+  const show = active && home && p && !p.closed;
+  useEffect(() => {
+    if (!show) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") update(skip(p)); };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, [open, home]);
-  if (!open || !home) return null;
-  const go = (it: (typeof ITEMS)[number]) => {
-    close();
-    if (it.go) dispatchEvent(new CustomEvent(NAV_EVENT, { detail: it.go }));
-    else if (it.event) dispatchEvent(new Event(it.event));
+  }, [show, p, update]);
+  if (!show) return null;
+
+  const step = STEPS.find((x) => x.id === p.at) ?? STEPS[0];
+  const chapter = chapterOf(step.id);
+  const { n, total } = position(p);
+  // Show me: move on first, so coming back to the galaxy continues with the next step.
+  const showMe = () => {
+    update(next(p));
+    if (step.go) dispatchEvent(new CustomEvent(NAV_EVENT, { detail: step.go }));
+    else if (step.event === "palette") dispatchEvent(new Event(PALETTE_EVENT));
   };
   return (
     <>
     {/* Phones only (CSS): the card becomes a top sheet over a tap-to-dismiss backdrop. */}
-    <div className="sheet-backdrop" onClick={close} aria-hidden />
-    <section className="glass hud-panel whats-new absolute left-3 top-16 z-20 w-[min(22rem,calc(100vw-1.5rem))] p-4 text-sm" role="dialog" aria-labelledby="whats-new-title">
-      <div className="mb-2 flex items-center justify-between">
-        <h2 id="whats-new-title" className="hud-title">WHAT&apos;S NEW</h2>
-        <button className="chip" onClick={close} aria-label="Dismiss what's new" autoFocus>Got it</button>
+    <div className="sheet-backdrop" onClick={() => update(skip(p))} aria-hidden />
+    <section className="glass hud-panel whats-new absolute left-3 top-16 z-20 w-[min(24rem,calc(100vw-1.5rem))] p-4 text-sm" role="dialog" aria-labelledby="whats-new-title">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 id="whats-new-title" className="hud-title">{t("tour.title")} <span className="muted">· {t("tour.step", { n, total })}</span></h2>
+        <button className="chip" onClick={() => update(skip(p))} aria-label={t("tour.skipAria")} title={t("tour.skipAria")}>{t("tour.skip")}</button>
       </div>
-      <ul className="grid gap-2">
-        {ITEMS.map((it) => (
-          <li key={it.title}>
-            {it.go || it.event
-              ? <button className="w-full text-left" onClick={() => go(it)}><b>{it.icon} {it.title}</b> <span className="muted">{it.text}</span></button>
-              : <p><b>{it.icon} {it.title}</b> <span className="muted">{it.text}</span></p>}
-          </li>
+      <div className="mb-3 flex flex-wrap gap-1" role="group" aria-label={t("tour.chapters")}>
+        {CHAPTERS.map((c) => (
+          <button key={c.id} className="chip text-xs" aria-pressed={c.id === chapter.id} onClick={() => update(openChapter(p, c.id))}>
+            {c.icon} {c.title[lang]}{chapterDone(p, c) ? " ✓" : ""}
+          </button>
         ))}
-      </ul>
+      </div>
+      <div aria-live="polite">
+        <h3 className="mb-1 font-semibold">{step.icon} {step.title[lang]}</h3>
+        <p className="muted">{step.text[lang]}</p>
+        {step.setup && (
+          <p className="mt-2 text-xs">
+            <b>⚙ {t("tour.setup")}</b> {SETUP[step.setup].text[lang]}{" "}
+            <a className="underline" href={setupUrl(step.setup)} target="_blank" rel="noreferrer">{t("tour.setupLink")} ↗</a>
+          </p>
+        )}
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <button className="chip" onClick={() => update(back(p))} disabled={n === 1}>{t("tour.back")}</button>
+        <span className="flex-1" />
+        {(step.go || step.event) && <button className="chip" onClick={showMe}>{t("tour.showMe")}</button>}
+        <button className="chip" onClick={() => update(next(p))} autoFocus>{n === total ? t("tour.finish") : t("tour.next")}</button>
+      </div>
     </section>
     </>
   );

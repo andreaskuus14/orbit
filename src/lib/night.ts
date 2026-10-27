@@ -129,7 +129,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     company: await import("./chains").then((c) => c.openCompanyChains(sb, userId), () => []),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
     rivals: await import("./rivals").then((r) => r.rivalsDue(), () => 0),
-    health: true, dream: true,
+    health: true, dream: true, loops: true,
     backup: await import("./capsule").then((m) => m.backupDue(), () => false),
     personas: await import("./personas").then((m) => m.personasDue(userId), () => false),
     handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: [...nightOff(autonomyLevels()), ...learned.drop],
@@ -220,6 +220,10 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
       const r = await runPersonaPlaytest(sb, userId, { studioRuns: PERSONA_STUDIO_RUNS, day: nightKey(Date.now(), (await load()).settings), signal });
       return { ...base, label: r.line, status: r.proposals.length ? "approval" : "done", ...(r.proposals.length ? { why: `${r.proposals.length} backlog proposal${r.proposals.length > 1 ? "s" : ""} in GAME DEV → Personas` } : {}), at: at() };
     }
+    case "loops": { // open loops (loops.ts): rules only, no model call; Journal/LIFE never read
+      const r = await (await import("./loops")).scanLoops(sb, userId);
+      return { ...base, label: r.line, status: "done", at: at() };
+    }
     case "backup": { // time capsule (capsule.ts): local folder only; a failure (e.g. drive unplugged) shows as failed with the reason
       const r = await (await import("./capsule")).runBackup();
       const { fmtMB } = await import("./capsule-pure");
@@ -263,6 +267,8 @@ export const addCompanyTonightItem = (userId: string, goal: unknown) =>
     if (typeof r === "string") return r; u.company = r; return ""; });
 export const removeCompanyTonightItem = (userId: string, id: string) =>
   update((s) => { const u = user(s, userId), n = (u.company ?? []).length; u.company = (u.company ?? []).filter((t) => t.id !== id); return n === u.company.length ? "Not queued for tonight" : ""; });
+/** Last night's run and the budget it ran under (System health's "night budget used"). */
+export const lastNightRun = async (userId: string) => { const s = await load(); return { run: s.users[userId]?.run ?? null, settings: s.settings }; };
 export const companyTonight = async (userId: string) => (await load()).users[userId]?.company ?? [];
 /** In the night window (and the night shift on): company chains advance only through the night shift's budget. */
 export const nightOwnsCompany = async (now = Date.now()) => { const s = (await load()).settings; return s.enabled && allows("night-shift", "background").ok && inWindow(now, s); };

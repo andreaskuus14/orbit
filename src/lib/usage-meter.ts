@@ -79,3 +79,5 @@ export const failedCallsSince = (t: number) => meter().calls.filter((c) => !c.ok
 export const lastCoreCallAt = () => meter().calls.reduce((m, c) => (c.purpose.startsWith("core") && c.at > m ? c.at : m), 0);
 /** The last 7 days of calls (time and cost only): the Money view folds them into ORBIT's own spend. */
 export const meterCalls = () => meter().calls.map((c) => ({ at: c.at, cost: c.cost }));
+/** The last 7 days of calls (time, model, ok): System health's model availability. */
+export const modelCalls = () => meter().calls.map((c) => ({ at: c.at, model: c.model, ok: c.ok }));

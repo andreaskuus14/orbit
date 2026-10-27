@@ -101,6 +101,10 @@ const BASE = {
   "habit.when": "When: evening 19–22, after lunch, on Mondays", "habit.whenAria": "When to nudge {name}", "habit.howAria": "How to nudge {name}",
   "habit.off": "No nudge", "habit.toast": "In ORBIT", "habit.push": "Phone", "habit.save": "Save",
   "push.habit.title": "Habit time", "push.habit.body": "One of your habits is up. Tap Done when it's done.",
+
+  "tour.title": "WHAT'S NEW", "tour.step": "{n} of {total}", "tour.chapters": "Tour chapters", "tour.showMe": "Show me",
+  "tour.next": "Next", "tour.back": "Back", "tour.finish": "Finish", "tour.skip": "Skip for now",
+  "tour.skipAria": "Skip the tour for now. Resume it from Ctrl+K: What's new tour", "tour.setup": "Set this up:", "tour.setupLink": "Setup steps",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -225,6 +229,10 @@ export const ET: Partial<Record<Key, string>> = {
   "habit.when": "Millal (kellaaeg või inglise keeles): 19–22, after lunch, on Mondays", "habit.whenAria": "Millal meelde tuletada: {name}", "habit.howAria": "Kuidas meelde tuletada: {name}",
   "habit.off": "Ära tuleta meelde", "habit.toast": "ORBITis", "habit.push": "Telefonis", "habit.save": "Salvesta",
   "push.habit.title": "Harjumuse aeg", "push.habit.body": "Üks su harjumustest on käes. Vajuta „Tehtud“, kui see on tehtud.",
+
+  "tour.title": "UUDISED", "tour.step": "{n}/{total}", "tour.chapters": "Tuuri peatükid", "tour.showMe": "Näita",
+  "tour.next": "Edasi", "tour.back": "Tagasi", "tour.finish": "Valmis", "tour.skip": "Jäta praegu vahele",
+  "tour.skipAria": "Jäta tuur praegu vahele. Jätka seda Ctrl+K kaudu: What's new tour", "tour.setup": "Seadista:", "tour.setupLink": "Seadistuse sammud",
 };
 
 type Vars = Record<string, string | number>;

@@ -4,9 +4,11 @@
 import { pushBody } from "./persona-pure";
 import { encryptPayload, flush, gate, pushFor, pushLabel, vapidAuth, vapidProblem, type PushKind, type PushMessage, type Slot } from "./remote-push-pure";
 
-const g = globalThis as unknown as { __orbitPush?: { slots: Map<PushKind, Slot>; timers: Set<PushKind> } };
-const P = (g.__orbitPush ??= { slots: new Map(), timers: new Set() });
+const g = globalThis as unknown as { __orbitPush?: { slots: Map<PushKind, Slot>; timers: Set<PushKind>; lastOk?: number } };
+const P: { slots: Map<PushKind, Slot>; timers: Set<PushKind>; lastOk?: number } = (g.__orbitPush ??= { slots: new Map(), timers: new Set() });
 
+/** When a push last reached a phone since this server started (System health). */
+export const lastPushOk = () => P.lastOk ?? 0;
 export const pushProblem = () => vapidProblem(process.env.REMOTE_VAPID_PUBLIC, process.env.REMOTE_VAPID_PRIVATE);
 // The JWT's contact (Apple requires one): sent to the push service only.
 const subject = () => {
@@ -52,7 +54,7 @@ export async function deliver(msg: PushMessage, deviceId?: string): Promise<numb
           TTL: String(msg.tag === "failed" ? 86_400 : msg.tag === "call" ? 1800 : 4 * 3600), Urgency: msg.tag === "failed" || msg.tag === "stop" || msg.tag === "call" ? "high" : "normal" },
         body: new Uint8Array(encryptPayload(Buffer.from(JSON.stringify(pushFor(msg, d.lang))), sub)),
       }).catch((e) => { console.error("[remote] push:", e instanceof Error ? e.message : e); return null; });
-      if (res?.ok) ok++;
+      if (res?.ok) { ok++; P.lastOk = Date.now(); }
       else if (res?.status === 404 || res?.status === 410) await updateDevices((ds) => ds.map((x) => (x.id === d.id && x.push?.endpoint === sub.endpoint ? { ...x, push: undefined } : x)));
       else if (res) console.error("[remote] push refused:", res.status, (await res.text().catch(() => "")).slice(0, 200));
     }
