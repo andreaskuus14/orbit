@@ -31,6 +31,7 @@ import { parseLookRequest, robloxErrors, LUAU_FIX_EVENT, type Preset } from "@/l
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
 import { EpisodesList } from "./EpisodesList";
 import { Rewind } from "./Rewind";
+import { LearnThis, StudyCards } from "./StudyCards";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
@@ -258,13 +259,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     }
   }, [busy, newProject, newChat, setChatId, chats.reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // While CORE is open: Ctrl/⌘+K focuses its input (capture phase + preventDefault, so Orbit's command-bar shortcut skips it)
-  // and Esc stops a streaming answer instead of closing the panel.
+  // While CORE is open: Esc stops a streaming answer instead of closing the panel. (Ctrl/⌘+K is the Warp palette.)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return; // VoiceControls already used this Esc (both listen in the capture phase)
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); inputRef.current?.focus(); }
-      else if (e.key === "Escape" && busy) { e.preventDefault(); e.stopPropagation(); abort.current?.abort(); stopSpeech(); }
+      if (e.key === "Escape" && busy) { e.preventDefault(); e.stopPropagation(); abort.current?.abort(); stopSpeech(); }
     };
     addEventListener("keydown", h, true);
     return () => removeEventListener("keydown", h, true);
@@ -573,12 +572,14 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
           onDone={(gone) => { if (gone) setOpen(null); void load(q); onChanged(); }} />
         {err && <p className="error">{err}</p>}
         <div className="flex gap-2"><button className="btn" onClick={saveEdit}>Save</button><button className="btn danger" onClick={remove}>Delete</button></div>
+        <LearnThis key={open.id} memory={open} />
       </div>
     );
   }
 
   return (
     <div className="space-y-5">
+      <StudyCards />
       <form onSubmit={capture} className="space-y-2">
         <h3 className="h3">Capture</h3>
         <textarea className="field h-24 w-full" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Anything worth remembering…" aria-label="Content" maxLength={200000} />

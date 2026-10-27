@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { score, rank, fold, pushRecent, rowsOf } from "../src/lib/palette-pure.ts";
+import { score, rank, fold, pushRecent, parseRecent, prospectRows, rowsOf } from "../src/lib/palette-pure.ts";
 
 test("tiers: prefix > word start > substring > subsequence > none", () => {
   const p = score("mem", "Memory"), w = score("mem", "Go to memory"), s = score("emo", "Memory"), q = score("mmy", "Memory");
@@ -29,9 +29,42 @@ test("rank orders by score, stable, uses keywords", () => {
   assert.equal(rank("", items).length, 4);
 });
 
-test("pushRecent dedupes and caps", () => {
-  assert.deepEqual(pushRecent(["a", "b", "c"], "b"), ["b", "a", "c"]);
-  assert.equal(pushRecent(["1", "2", "3", "4", "5", "6"], "7").length, 6);
+test("pushRecent dedupes by id, newest first, and caps", () => {
+  const r = (id: string) => ({ id, label: id.toUpperCase() });
+  assert.deepEqual(pushRecent([r("a"), r("b"), r("c")], { id: "b", label: "B2" }).map((x) => x.label), ["B2", "A", "C"]);
+  assert.equal(pushRecent(Array.from({ length: 8 }, (_, i) => r(String(i))), r("x")).length, 8);
+});
+
+test("parseRecent reads objects, upgrades old bare ids, drops junk", () => {
+  const labels: Record<string, string> = { "go:core": "CORE" };
+  const raw = JSON.stringify(["go:core", "go:gone", { id: "mem:1", label: "Note", hint: "MEMORY" }, { id: "x" }, 5, null]);
+  assert.deepEqual(parseRecent(raw, (id) => labels[id]), [{ id: "go:core", label: "CORE" }, { id: "mem:1", label: "Note", hint: "MEMORY" }]);
+  assert.deepEqual(parseRecent("not json", () => "x"), []);
+  assert.deepEqual(parseRecent(null, () => "x"), []);
+  assert.deepEqual(parseRecent('{"a":1}', () => "x"), []);
+});
+
+test("multi-word queries match words in any order, below whole-query tiers", () => {
+  const s = score("clips studio", "STUDIO · Clips");
+  assert.ok(s > 0 && s < 1, String(s));
+  assert.equal(score("clips arch", "STUDIO · Clips"), 0);
+  assert.ok(score("studio clips", "STUDIO · Clips") >= 1); // in order: still a subsequence
+});
+
+test("recent ids win ties without jumping a tier", () => {
+  const items = [{ id: "a", label: "Clips one" }, { id: "b", label: "Clips two" }, { id: "c", label: "My clips" }];
+  assert.deepEqual(rank("clips", items, ["b"]).map((x) => x.id), ["b", "a", "c"]);
+  assert.deepEqual(rank("clips", items, ["c"]).map((x) => x.id), ["a", "b", "c"]); // word start + boost < prefix
+});
+
+test("prospectRows: businesses and their contact people, junk skipped", () => {
+  const body = { prospects: [{ id: "p1", name: "Kohvik", contact: " Mari Tamm ", stage: "lead" }, { id: "p2", name: "Pood", contact: "" }, { id: 3, name: "x" }, null] };
+  assert.deepEqual(prospectRows(body), {
+    prospects: [{ id: "p1", label: "Kohvik", hint: "BUSINESS · lead" }, { id: "p2", label: "Pood", hint: "BUSINESS" }],
+    people: [{ id: "p1", label: "Mari Tamm", hint: "Kohvik" }],
+  });
+  assert.deepEqual(prospectRows({ error: "x" }), { prospects: [], people: [] });
+  assert.deepEqual(prospectRows(null), { prospects: [], people: [] });
 });
 
 test("rowsOf accepts array or wrapped bodies, skips junk", () => {
