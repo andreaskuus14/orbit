@@ -30,6 +30,7 @@ function browser(raw: string | null, now = 1_000_000) {
       clearInterval(id: number) { intervals.delete(id); },
       fetch: async (_url: string, options: { body: string }) => {
         const body = JSON.parse(options.body);
+        if (body.action === "timer") return { ok: true, json: async () => ({ ok: true }) }; // live relay for /screen
         // The durable break must exist before any focus logging request leaves the page.
         assert.equal(JSON.parse(storage.get(focus.FOCUS_TIMER_KEY)!).phase, "break");
         logs.push(body.minutes);
@@ -40,7 +41,7 @@ function browser(raw: string | null, now = 1_000_000) {
         if (id.endsWith("focus-timer-pure")) return focus;
         if (id.endsWith("life-pure")) return { ALL_DAYS: [] };
         if (id.endsWith("habit-nudge-pure")) return {};
-        if (id === "./voice/bus" || id === "./CalendarCard") return {};
+        if (id === "./voice/bus" || id === "./CalendarCard" || id === "./SchoolPanel") return {};
         return require(id);
       },
     });

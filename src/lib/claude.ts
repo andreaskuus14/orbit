@@ -5,8 +5,9 @@ import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.ts";
 import { streamJsonInput } from "./attach-pure.ts";
-import { recordCall } from "./usage-meter.ts";
+import { recordCall, usageHold } from "./usage-meter.ts";
 import { isLimitAnswer } from "./usage-meter-pure.ts";
+import { OLLAMA_URL, claudeDown, localAllowed, ollamaAnswer, ollamaRequest } from "./local-model-pure.ts";
 import { ledgerIssue } from "./ledger-pure.ts";
 import { adminClient } from "./supabase/admin.ts";
 
@@ -100,7 +101,8 @@ export function stoppedReport(headline: string, steps: { step: string; detail: s
   return `**${headline}.** ${done.length ? `Completed before stopping:\n${done.join("\n")}` : "Nothing was completed yet."}`;
 }
 
-export type ClaudeResult = { text: string; inputTokens: number; outputTokens: number; ms: number };
+/** local: answered by the offline brain (Ollama), not Claude: CORE shows a "local brain" badge. */
+export type ClaudeResult = { text: string; inputTokens: number; outputTokens: number; ms: number; local?: boolean };
 
 /** Read-only web tools a call may opt into (AskOpts.web), approved by the owner. Nothing that runs commands, edits files or posts. */
 export const WEB_TOOLS = "WebSearch,WebFetch";
@@ -193,15 +195,43 @@ export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; image
 
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
 export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine, session }: AskOpts = {}): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane), web, mcp, onLine, session), signal);
+  const p = purpose ?? laneDefault(lane);
+  return withLocal(prompt, system, p, images.length, !!mcp, signal, timeoutMs, () => cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, p, web, mcp, onLine, session), signal));
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI.
  *  A pending prompt starts the CLI now and writes stdin when it resolves: its ~1 s boot overlaps the caller's prep. */
 export function askClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string, session?: CliSession): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane), false, undefined, undefined, session), signal);
+  const p = purpose ?? laneDefault(lane);
+  return withLocal(prompt, system, p, images.length, false, signal, timeoutMs, () => cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, p, false, undefined, undefined, session), signal));
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
+
+/** Offline brain: Ollama model name, "" = off. */
+export const LOCAL_MODEL = (process.env.ORBIT_LOCAL_MODEL ?? "").trim();
+
+/** Lanes that allow it (localAllowed) go to the local model while the usage hold is on, or when Claude fails because it's
+ *  unreachable or rate-limited. If the local model fails too, the original Claude error is what the caller sees. */
+async function withLocal(prompt: string | Promise<string>, system: string, purpose: string, images: number, mcp: boolean, signal: AbortSignal | undefined, timeoutMs: number | undefined, claude: () => Promise<ClaudeResult>): Promise<ClaudeResult> {
+  if (!localAllowed({ model: LOCAL_MODEL, purpose, images, mcp })) return claude();
+  if (usageHold()) return askLocal(prompt, system, signal, timeoutMs).catch(claude);
+  try { return await claude(); } catch (e) {
+    if (signal?.aborted || !claudeDown(e instanceof Error ? e.message : String(e))) throw e;
+    console.warn(`[orbit] Claude unreachable for ${purpose}; answering with the local brain (${LOCAL_MODEL})`);
+    return askLocal(prompt, system, signal, timeoutMs).catch(() => { throw e; });
+  }
+}
+
+/** One plain Ollama chat call (no tools, no streaming). */
+async function askLocal(prompt: string | Promise<string>, system: string, signal?: AbortSignal, timeoutMs = TIMEOUT_MS): Promise<ClaudeResult> {
+  const t0 = Date.now();
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ollamaRequest(LOCAL_MODEL, system, await prompt)),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`Local model (Ollama) answered ${res.status}`);
+  return { ...ollamaAnswer(await res.json()), ms: Date.now() - t0, local: true };
+}
 
 async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false, mcp?: McpAccess, onLine?: (line: string) => void, session?: CliSession): Promise<ClaudeResult> {
   if (typeof prompt !== "string") prompt.catch(() => {}); // observed now; its error is reported once the CLI is up
@@ -283,6 +313,7 @@ export function acceptReview(draft: string, revised: string): boolean {
 export async function reviewDraft(request: string, draft: string, context: string, opts: AskOpts & { onUsage?: (r: ClaudeResult) => unknown } = {}): Promise<{ text: string; reviewed: boolean }> {
   try {
     const r = await askClaude(`${context ? `CONTEXT (data the draft was built from):\n${context.slice(0, 40_000)}\n\n` : ""}REQUEST:\n${request}\n\nDRAFT:\n${draft}\n\nThe final revised answer:`, REVIEW_SYSTEM, opts);
+    if (r.local) return { text: draft, reviewed: false }; // a local model never rewrites Claude's draft
     await opts.onUsage?.(r);
     let t = r.text.trim();
     try { const j = JSON.parse(t.replace(/^```(?:json)?\s*|\s*```$/g, "")); if (typeof j?.final === "string") t = j.final.trim(); } catch { /* plain Markdown, as asked */ }

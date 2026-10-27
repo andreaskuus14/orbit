@@ -29,7 +29,7 @@ export function takeRate(hits: readonly number[], now: number, limit: number, wi
   return { ok: true, hits: [...live, now] };
 }
 
-export type RemoteAction = "status" | "approvals" | "approve" | "reject" | "stopAll" | "ask" | "habitDone" | "unsupported";
+export type RemoteAction = "status" | "approvals" | "approve" | "reject" | "stopAll" | "ask" | "brief" | "habitDone" | "unsupported";
 /** Command → what the server does. navigate would steer the PC screen, which the phone page doesn't offer. */
 export function actionFor(cmd: RemoteCommand): RemoteAction {
   switch (cmd.type) {
@@ -40,6 +40,7 @@ export function actionFor(cmd: RemoteCommand): RemoteAction {
     case "stopAll": return "stopAll";
     case "core.ask": return "ask";
     case "habit.done": return "habitDone";
+    case "brief": return "brief";
     default: return "unsupported";
   }
 }

@@ -210,7 +210,7 @@ export async function resumeGoals(sb: SupabaseClient, userId: string) {
   for (const r of data ?? []) void advance(sb, userId, r.id);
 }
 
-export type GoalAction = "approve" | "edit" | "redraft" | "ok" | "proposal" | "pause" | "resume" | "stop" | "continue" | "metric" | "delete";
+export type GoalAction = "approve" | "edit" | "redraft" | "ok" | "proposal" | "pause" | "resume" | "stop" | "continue" | "metric" | "delete" | "milestones" | "replan" | "phrase";
 
 /** The owner's clicks (POST /api/goals). Only here can a step be OK'd or a plan change approved. */
 export async function goalAction(sb: SupabaseClient, userId: string, id: string, action: GoalAction, body: Record<string, unknown>): Promise<{ row?: GoalRow; error?: string }> {
@@ -220,6 +220,7 @@ export async function goalAction(sb: SupabaseClient, userId: string, id: string,
     void draftPlan(sb, userId, id);
     return { row };
   }
+  if (action === "milestones" || action === "replan" || action === "phrase") return import("./goal-autopilot").then((a) => a.autopilotAction(sb, userId, id, action, body, mutate));
   if (action === "delete") {
     const row = await load(sb, id);
     if (!row) return { error: "Goal not found" };

@@ -1,7 +1,9 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RemoteCall } from "./RemoteCall";
+import { RemoteCar, readLater } from "./RemoteCar";
 import { VoiceMemo } from "./VoiceMemo";
+import { getLang, LangSwitch, useT } from "./i18n";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
@@ -18,6 +20,7 @@ function send(type: string, fields: object = {}, echo?: object, stream = false) 
 const errorOf = async (r: Response) => ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `Failed (${r.status})`;
 
 export function RemoteApp() {
+  const { t, tn } = useT();
   const [paired, setPaired] = useState<boolean | null>(null);
   const [off, setOff] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
@@ -27,17 +30,21 @@ export function RemoteApp() {
   const [noThumb, setNoThumb] = useState<Record<string, boolean>>({}); // thumbnails that failed to load
   const [habit, setHabit] = useState(""); // ?habit=<id> from a habit nudge: one-tap Done where the phone shows no notification actions
   useEffect(() => { setHabit(new URLSearchParams(location.search).get("habit") ?? ""); }, []);
+  const [car, setCar] = useState(false);
+  const [later, setLater] = useState<string[]>([]); // read aloud in car mode: approve on screen
+  useEffect(() => setLater(readLater()), []);
+  const getBrief = useCallback(async () => { const r = await send("brief"); return r.ok ? ((await r.json()) as { off?: boolean; greeting?: string; spoken?: string }) : null; }, []);
 
   const load = useCallback(async () => {
     const r = await send("status").catch(() => null);
-    if (!r) return setMsg({ ok: false, text: "Can't reach ORBIT: is the PC on and Tailscale connected?" });
+    if (!r) return setMsg({ ok: false, text: t("remote.unreachable") });
     if (r.status === 401) return setPaired(false);
     if (r.status === 503) { setOff(await errorOf(r)); return setPaired(false); }
     if (!r.ok) return setMsg({ ok: false, text: await errorOf(r) });
     setPaired(true); setStatus(await r.json());
     const a = await send("approval.list").catch(() => null);
     if (a?.ok) setItems(((await a.json()) as { items: Item[] }).items);
-  }, []);
+  }, [t]);
   useEffect(() => {
     void load();
     const h = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 20_000);
@@ -51,28 +58,30 @@ export function RemoteApp() {
     try {
       const r = await run();
       setMsg(r.ok ? { ok: true, text: ok(await r.json()) } : { ok: false, text: await errorOf(r) });
-    } catch { setMsg({ ok: false, text: "Network error" }); }
+    } catch { setMsg({ ok: false, text: t("remote.network") }); }
     setBusy("");
     void load();
   }
 
   const decide = (it: Item, approve: boolean) => {
-    const what = it.kind === "spend" ? `Spend ${it.credits} Higgsfield credits on “${it.title}”?` : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? `Email this exact message to ${it.to}?` : it.kind === "nego" || it.kind === "invoice" ? `Approve this message to “${it.kind === "invoice" ? it.buyer : it.title}”? You copy and send it yourself.` : `${approve ? "Approve" : "Reject"} “${it.title}”?${approve ? "" : " Its files are deleted."}`;
+    const what = it.kind === "spend" ? t("remote.confirmSpend", { n: it.credits ?? 0, title: it.title }) : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? t("remote.confirmSend", { to: it.to ?? "" }) : it.kind === "nego" || it.kind === "invoice" ? t("remote.confirmNego", { title: (it.kind === "invoice" ? it.buyer : it.title) ?? "" }) : t(approve ? "remote.confirmApprove" : "remote.confirmReject", { title: it.title });
     if (!confirm(what)) return;
-    void act(it.id, () => send(approve ? "approve" : "reject", { id: it.id }, { kind: it.kind, seen: it.seen, ...(it.credits !== undefined ? { credits: it.credits } : {}) }), (j) => j.message ?? "Done");
+    void act(it.id, () => send(approve ? "approve" : "reject", { id: it.id }, { kind: it.kind, seen: it.seen, ...(it.credits !== undefined ? { credits: it.credits } : {}) }), (j) => j.message ?? t("remote.done"));
   };
 
   const stopAll = () => { // ON only: resuming is done on the PC
-    if (!status || status.stop.on || !confirm("Stop all: pause agents, automations and goals now? Resuming is done on the PC.")) return;
-    void act("stop", () => send("stopAll", {}, { on: false }), () => "Stop-all is on: ORBIT paused");
+    if (!status || status.stop.on || !confirm(t("remote.stopConfirm"))) return;
+    void act("stop", () => send("stopAll", {}, { on: false }), () => t("remote.stopped"));
   };
 
-  if (paired === null) return <Shell><p className="muted text-sm">Connecting…</p></Shell>;
+  if (paired === null) return <Shell><p className="muted text-sm">{t("remote.connecting")}</p></Shell>;
   if (!paired) return <Shell><Pair off={off} onPaired={() => void load()} /></Shell>;
   const q = status?.queue;
   return (
     <Shell>
       {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
+      <button className="btn w-full text-lg" style={{ minHeight: 56 }} onClick={() => setCar(true)}>Car mode</button>
+      {car && <RemoteCar items={items} getBrief={getBrief} onLater={setLater} onExit={() => setCar(false)} />}
 
       {habit && (
         <section className="card space-y-2" aria-labelledby="r-habit">
@@ -85,34 +94,34 @@ export function RemoteApp() {
       )}
 
       <section className="card space-y-2" aria-labelledby="r-stop">
-        <h2 id="r-stop" className="text-sm font-semibold">Stop-all</h2>
-        <p className="muted text-sm">{status?.stop.on ? "ON: ORBIT is paused. Resume it from the PC." : "Off: ORBIT is running."}</p>
-        {!status?.stop.on && <button className="btn danger w-full" disabled={!!busy} onClick={stopAll} style={{ minHeight: 48 }}>Stop all</button>}
+        <h2 id="r-stop" className="text-sm font-semibold">{t("remote.stop")}</h2>
+        <p className="muted text-sm">{t(status?.stop.on ? "remote.stopOn" : "remote.stopOff")}</p>
+        {!status?.stop.on && <button className="btn danger w-full" disabled={!!busy} onClick={stopAll} style={{ minHeight: 48 }}>{t("remote.stopButton")}</button>}
       </section>
 
       <section className="space-y-2" aria-labelledby="r-appr">
-        <h2 id="r-appr" className="text-sm font-semibold">Waiting for you ({items.length})</h2>
-        {!items.length && <p className="muted text-sm">Nothing to approve.</p>}
+        <h2 id="r-appr" className="text-sm font-semibold">{t("remote.waiting", { n: items.length })}</h2>
+        {!items.length && <p className="muted text-sm">{t("remote.nothing")}</p>}
         {items.map((it) => {
           const blind = it.kind === "clip" && (!it.thumb || noThumb[it.id]); // he can't see it here: review on the PC
           return (
           <article key={it.id} className="card space-y-2">
-            <div className="text-sm font-semibold">{it.title}</div>
+            <div className="text-sm font-semibold">{it.title}{later.includes(it.id) && <span className="chip ml-2 text-xs">Review later</span>}</div>
             <div className="muted text-xs">{it.detail}</div>
-            {it.kind === "clip" && (blind ? <p className="muted text-sm">No preview: open on PC to review.</p>
-              : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={`Thumbnail of ${it.title}`} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} />)}
-            {it.kind === "spend" && <div className="text-sm">Quote: <b>{it.credits} credits</b></div>}
-            {it.kind === "nego" && <div className="text-xs">Plan: {it.strategy}</div>}
+            {it.kind === "clip" && (blind ? <p className="muted text-sm">{t("remote.noPreview")}</p>
+              : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={t("remote.thumbAlt", { title: it.title })} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} />)}
+            {it.kind === "spend" && <div className="text-sm">{t("remote.quote")} <b>{tn("remote.credits", it.credits ?? 0)}</b></div>}
+            {it.kind === "nego" && <div className="text-xs">{t("remote.plan")} {it.strategy}</div>}
             {it.kind === "invoice" && <div className="text-sm">{it.buyer} owes <b>{it.amount}</b> · {it.daysLate} day{it.daysLate === 1 ? "" : "s"} overdue</div>}
             {(it.kind === "send" || it.kind === "nego" || it.kind === "invoice") && <>
-              {it.to && <div className="text-sm">To: <b>{it.to}</b></div>}
+              {it.to && <div className="text-sm">{t("remote.to")} <b>{it.to}</b></div>}
               <pre className="field w-full whitespace-pre-wrap text-xs" style={{ fontFamily: "inherit", maxHeight: 260, overflow: "auto" }}>{it.message}</pre>
             </>}
             <div className="flex gap-2">
               <button className="btn flex-1" style={{ minHeight: 44 }} disabled={!!busy || blind} onClick={() => decide(it, true)}>
-                {busy === it.id ? "…" : it.kind === "spend" ? `Approve ${it.credits} credits` : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? "Approve & send" : "Approve"}
+                {busy === it.id ? "…" : it.kind === "spend" ? tn("remote.approveCredits", it.credits ?? 0) : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? t("remote.approveSend") : t("common.approve")}
               </button>
-              {it.kind === "clip" && <button className="chip" style={{ minHeight: 44 }} disabled={!!busy} onClick={() => decide(it, false)}>Reject</button>}
+              {it.kind === "clip" && <button className="chip" style={{ minHeight: 44 }} disabled={!!busy} onClick={() => decide(it, false)}>{t("common.reject")}</button>}
             </div>
           </article>
           );
@@ -120,11 +129,11 @@ export function RemoteApp() {
       </section>
 
       <section className="card space-y-1" aria-labelledby="r-queue">
-        <h2 id="r-queue" className="text-sm font-semibold">Studio queue</h2>
-        {q && <p className="muted text-sm">{q.ready} to review · {q.approved} approved, not yet published{q.publishing ? " · uploading now" : ""}{q.story ? " · AI story generating" : ""}</p>}
+        <h2 id="r-queue" className="text-sm font-semibold">{t("remote.queue")}</h2>
+        {q && <p className="muted text-sm">{t("remote.queueLine", { ready: q.ready, approved: q.approved })}{q.publishing ? t("remote.uploading") : ""}{q.story ? t("remote.story") : ""}</p>}
         {q?.active.length ? q.active.map((j) => (
           <div key={j.id} className="text-sm"><span className="font-semibold">{j.source}</span> <span className="muted">{j.step || j.status} {Math.round(j.progress * 100)}%</span></div>
-        )) : <p className="muted text-sm">No jobs running.</p>}
+        )) : <p className="muted text-sm">{t("remote.noJobs")}</p>}
       </section>
 
       <Place />
@@ -132,6 +141,7 @@ export function RemoteApp() {
       <RemoteCall />
       <Ask />
       <Notify />
+      <LangSwitch />
     </Shell>
   );
 }
@@ -167,6 +177,7 @@ function Place() {
 
 /** Web Push (6.3). iOS: only inside the Home Screen app (16.4+), and permission must be asked from a tap. */
 function Notify() {
+  const { t } = useT();
   const [info, setInfo] = useState<{ problem: string; publicKey: string | null; on: boolean } | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -200,14 +211,14 @@ function Notify() {
   }
   return (
     <section className="card space-y-2" aria-labelledby="r-notify">
-      <h2 id="r-notify" className="text-sm font-semibold">Notifications</h2>
-      {!supported ? <p className="muted text-sm">On iPhone (iOS 16.4+), open Remote from the Home Screen to turn notifications on.</p>
-        : !info ? <p className="muted text-sm">Checking…</p>
+      <h2 id="r-notify" className="text-sm font-semibold">{t("remote.notify")}</h2>
+      {!supported ? <p className="muted text-sm">{t("remote.notifyIos")}</p>
+        : !info ? <p className="muted text-sm">{t("remote.checking")}</p>
         : info.problem ? <p className="muted text-sm">{info.problem}</p>
         : <>
-          <p className="muted text-sm">Approvals waiting, Shorts going live, failed jobs and Stop-all. Only a short label, never the content. Quiet 23:00–08:00 except failures.</p>
-          {info.on ? <button className="chip" style={{ minHeight: 44 }} disabled={busy} onClick={disable}>Turn off on this phone</button>
-            : <button className="btn w-full" style={{ minHeight: 48 }} disabled={busy} onClick={enable}>{busy ? "…" : "Enable notifications"}</button>}
+          <p className="muted text-sm">{t("remote.notifyAbout")}</p>
+          {info.on ? <button className="chip" style={{ minHeight: 44 }} disabled={busy} onClick={disable}>{t("remote.notifyOff")}</button>
+            : <button className="btn w-full" style={{ minHeight: 48 }} disabled={busy} onClick={enable}>{busy ? "…" : t("remote.notifyOn")}</button>}
         </>}
       {note && <p className="muted text-sm" role="status">{note}</p>}
     </section>
@@ -215,15 +226,17 @@ function Notify() {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
+  const { t } = useT();
   return (
     <main className="mx-auto max-w-lg space-y-4 px-4" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
-      <h1 className="text-lg font-semibold tracking-wide" style={{ fontFamily: "var(--font-display)" }}>ORBITAL REMOTE</h1>
+      <h1 className="text-lg font-semibold tracking-wide" style={{ fontFamily: "var(--font-display)" }}>{t("remote.title")}</h1>
       {children}
     </main>
   );
 }
 
-function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
+/** Also used by /screen (screen: pairs as a read-only screen). */
+export function Pair({ off, onPaired, screen }: { off: string; onPaired: () => void; screen?: boolean }) {
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -231,7 +244,7 @@ function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setErr("");
-    const r = await fetch("/api/remote/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code.trim(), name: /iPhone/.test(navigator.userAgent) ? "iPhone" : "Phone" }) }).catch(() => null);
+    const r = await fetch("/api/remote/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code.trim(), ...(screen ? { name: "Screen", type: "screen" } : { name: /iPhone/.test(navigator.userAgent) ? "iPhone" : "Phone" }) }) }).catch(() => null);
     setBusy(false);
     if (r?.ok) return onPaired();
     setErr(r ? await errorOf(r) : "Network error");
@@ -239,7 +252,7 @@ function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
   return (
     <form onSubmit={submit} className="card space-y-3">
       <p className="text-sm">On the PC: Profile → <b>Pair phone</b>. Type the 6-digit code here within 2 minutes.</p>
-      <p className="muted text-xs">On iPhone, add this page to the Home Screen first and pair from there: the home-screen app keeps its own sign-in.</p>
+      <p className="muted text-xs">{screen ? "This pairs a read-only screen: it can look, never approve, stop or ask." : "On iPhone, add this page to the Home Screen first and pair from there: the home-screen app keeps its own sign-in."}</p>
       <input className="field w-full text-center text-2xl tracking-[0.4em]" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required aria-label="Pairing code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
       <button className="btn w-full" style={{ minHeight: 48 }} disabled={busy || code.length !== 6}>{busy ? "Pairing…" : "Pair"}</button>
       {err && <p className="error" role="alert">{err}</p>}
@@ -248,6 +261,7 @@ function Pair({ off, onPaired }: { off: string; onPaired: () => void }) {
 }
 
 function Ask() {
+  const { t } = useT();
   const [text, setText] = useState("");
   const [answer, setAnswer] = useState("");
   const [step, setStep] = useState("");
@@ -261,7 +275,7 @@ function Ask() {
     ac.current = new AbortController();
     try {
       const r = await fetch("/api/remote?stream=1", { method: "POST", headers: { "content-type": "application/json" }, signal: ac.current.signal,
-        body: JSON.stringify({ cmd: JSON.stringify({ type: "core.ask", nonce: nonce(), text: text.trim() }) }) });
+        body: JSON.stringify({ cmd: JSON.stringify({ type: "core.ask", nonce: nonce(), text: text.trim(), ...(getLang() === "et" ? { lang: "et" } : {}) }) }) });
       if (!r.ok || !r.body) throw new Error(await errorOf(r));
       const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
       let buf = "";
@@ -278,22 +292,22 @@ function Ask() {
           else if (ev.type === "reset") setAnswer("");
           else if (ev.type === "step") setStep(ev.label ?? "");
           else if (ev.type === "done") { setAnswer(ev.answer ?? ""); setStep(""); }
-          else if (ev.type === "error") setErr(ev.error ?? "CORE failed");
+          else if (ev.type === "error") setErr(ev.error ?? t("remote.coreFailed"));
         }
       }
       setText("");
     } catch (e2) {
-      if (!ac.current?.signal.aborted) setErr(e2 instanceof Error ? e2.message : "Failed");
+      if (!ac.current?.signal.aborted) setErr(e2 instanceof Error ? e2.message : t("remote.failed"));
     }
     setBusy(false); setStep("");
   }
   return (
     <form onSubmit={ask} className="card space-y-2" aria-labelledby="r-ask">
-      <h2 id="r-ask" className="text-sm font-semibold">Ask CORE</h2>
-      <textarea className="field h-24 w-full" maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask anything…" aria-label="Question for CORE" />
+      <h2 id="r-ask" className="text-sm font-semibold">{t("remote.ask")}</h2>
+      <textarea className="field h-24 w-full" maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} placeholder={t("remote.askPlaceholder")} aria-label={t("remote.askAria")} />
       <div className="flex gap-2">
-        <button className="btn flex-1" style={{ minHeight: 44 }} disabled={busy || !text.trim()}>{busy ? "Thinking…" : "Ask"}</button>
-        {busy && <button type="button" className="chip" onClick={() => ac.current?.abort()}>Stop</button>}
+        <button className="btn flex-1" style={{ minHeight: 44 }} disabled={busy || !text.trim()}>{busy ? t("remote.thinking") : t("remote.askButton")}</button>
+        {busy && <button type="button" className="chip" onClick={() => ac.current?.abort()}>{t("remote.askStop")}</button>}
       </div>
       {step && <p className="muted text-xs" aria-live="polite">{step}</p>}
       {answer && <div className="whitespace-pre-wrap text-sm" aria-live="polite">{answer}</div>}

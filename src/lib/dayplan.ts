@@ -50,6 +50,8 @@ async function gather(sb: SupabaseClient | null, userId: string | null, now: num
     items.push({ id: `goal:${g.id}`, title: step ? `${doc.title}: ${step.what}` : `${doc.title} (deadline ${doc.deadline})`, min: step?.status === "waiting" ? 15 : 45, flexible: true,
       ...(doc.deadline && { due: doc.deadline }), source: { kind: doc.deadline ? "deadline" : "goal", label: `Goal: ${doc.title}`, open: { goal: g.id } } });
   }
+  for (const b of await within(import("./school").then((x) => x.schoolToday(now))).catch(() => [])) // planned study blocks stay fixed
+    items.push({ id: `school:${b.start}`, title: `Study: ${b.title}`, min: minutes(b.end, b.start), flexible: false, fixed: { start: minutes(b.start, d0.getTime()), end: minutes(b.end, d0.getTime()) }, source: { kind: "deadline", label: "School planner", open: { panel: "life" } } });
   return [...items, ...commitmentItems(s.commitments)];
 }
 
