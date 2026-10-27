@@ -107,7 +107,7 @@ const UUID = "123e4567-e89b-42d3-a456-426614174000";
 test("parseCommand accepts every command type", () => {
   const c = new NonceCache();
   for (const panel of REMOTE_PANELS) assert.equal(parseCommand(cmd({ type: "navigate", panel }), c).ok, true);
-  for (const type of ["approval.list", "stopAll", "status"]) assert.equal(parseCommand(cmd({ type }), c).ok, true);
+  for (const type of ["approval.list", "stopAll", "status", "brief"]) assert.equal(parseCommand(cmd({ type }), c).ok, true);
   const ask = parseCommand(cmd({ type: "core.ask", text: "hi" }), c);
   assert.ok(ask.ok && ask.cmd.type === "core.ask" && ask.cmd.text === "hi");
   const rej = parseCommand(cmd({ type: "reject", id: UUID }), c);
