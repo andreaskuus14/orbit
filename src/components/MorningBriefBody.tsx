@@ -79,7 +79,7 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
         <div className="flex items-center justify-between gap-2">
           <h2 className="mb-hello">{lang === "et" ? `${t(greetKey(new Date().getHours()))}.` : b?.greeting ?? "Good morning."}</h2>
           <div className="flex gap-1">
-            <button className="chip" aria-pressed={planning} onClick={() => setPlanning((x) => !x)}>Plan my day</button>
+            <button className="chip" aria-pressed={planning} onClick={() => setPlanning((x) => !x)}>{t("brief.plan")}</button>
             {!muted && b && <button className="chip" onClick={() => { stop(); setMuted(true); }} aria-label={t("brief.muteAria")}>{t("brief.mute")}</button>}
             <button className="chip" onClick={close} aria-label={t("brief.skipAria")}>{t("brief.skip")}</button>
           </div>

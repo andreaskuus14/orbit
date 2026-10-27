@@ -106,6 +106,7 @@ function Approval({ pending, who, ready, onAct }: { pending: Pending[]; who: str
 
 /** A finished root task → a named recipe (same agent + request), re-runnable from Agents Station → Recipes. */
 function SaveRecipe({ task }: { task: Task }) {
+  const { t } = useT();
   const [name, setName] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const save = async () => {
@@ -114,11 +115,11 @@ function SaveRecipe({ task }: { task: Task }) {
   };
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-xs">
-      {name === null ? <button type="button" className="chip" onClick={() => { setMsg(null); setName(task.title.replace(/^⚙\s*/, "").slice(0, 60)); }}>📋 Save as recipe</button> : (
+      {name === null ? <button type="button" className="chip" onClick={() => { setMsg(null); setName(task.title.replace(/^⚙\s*/, "").slice(0, 60)); }}>{t("task.saveRecipe")}</button> : (
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void save(); }}>
-          <input className="field" aria-label="Recipe name" maxLength={60} required value={name} onChange={(e) => setName(e.target.value)} />
-          <button className="chip" disabled={!name.trim()}>Save</button>
-          <button type="button" className="chip" onClick={() => setName(null)}>Cancel</button>
+          <input className="field" aria-label={t("task.recipeName")} maxLength={60} required value={name} onChange={(e) => setName(e.target.value)} />
+          <button className="chip" disabled={!name.trim()}>{t("habit.save")}</button>
+          <button type="button" className="chip" onClick={() => setName(null)}>{t("common.cancel")}</button>
         </form>)}
       {msg && <span className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</span>}
     </div>
@@ -126,6 +127,7 @@ function SaveRecipe({ task }: { task: Task }) {
 }
 
 function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; openMemory: (id: string) => void }) {
+  const { t } = useT();
   const [data, setData] = useState<{ task: Task; children: Task[] } | null>(null);
   const [err, setErr] = useState("");
   const load = useCallback(() => api<{ task: Task; children: Task[] }>(`/api/tasks/${id}`).then(setData).catch((e) => setErr(e.message)), [id]);
@@ -142,20 +144,20 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
   async function act(action: string, target = id) {
     setErr("");
     try { await api(`/api/tasks/${target}`, { method: "POST", body: JSON.stringify({ action }) }); await load(); }
-    catch (e) { setErr(e instanceof Error ? e.message : "Failed"); }
+    catch (e) { setErr(e instanceof Error ? e.message : t("common.failed")); }
   }
 
-  if (!data) return <p className="muted">{err || "Loading…"}</p>;
+  if (!data) return <p className="muted">{err || t("common.loading")}</p>;
   const { task, children } = data;
   const st = STATUS[task.status];
   return (
     <div className="space-y-3">
-      <button className="link" onClick={onBack}>← All tasks</button>
+      <button className="link" onClick={onBack}>{t("task.back")}</button>
       <div>
         <div className="font-medium">{task.title}</div>
         <div className="text-xs"><span style={{ color: st.color }}>{st.label}</span><span className="muted"> · {task.agent} · {when(task.created_at)}</span></div>
       </div>
-      <details className="card text-sm"><summary className="cursor-pointer muted">Request</summary><p className="mt-2 whitespace-pre-wrap">{task.request}</p></details>
+      <details className="card text-sm"><summary className="cursor-pointer muted">{t("task.request")}</summary><p className="mt-2 whitespace-pre-wrap">{task.request}</p></details>
 
       {task.pending.some((p) => p.status === "pending") && task.status !== "done" && task.status !== "failed" && task.status !== "cancelled" && <Approval pending={task.pending} who={task.agent} ready={task.status === "awaiting_approval"} onAct={(a) => act(a)} />}
       {children.filter((c) => c.pending.some((p) => p.status === "pending") && c.status !== "done" && c.status !== "failed" && c.status !== "cancelled").map((c) => (
@@ -169,20 +171,20 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
       <ResultEvidence items={[task, ...children].flatMap((t) => t.pending.flatMap((p) => p.evidence ?? []))} openMemory={openMemory} />
       {task.error && <p className="error">{task.error}</p>}
       {(task.status === "failed" || task.status === "cancelled") && !task.parent_id && (canRetryTask([task, ...children].flatMap((t) => t.pending))
-        ? <button className="chip" onClick={() => act("retry")}>Retry</button>
-        : <p className="muted text-xs">This task has resolved actions. Keep their results and request only the unfinished work in a follow-up.</p>)}
-      {(task.status === "queued" || task.status === "running") && <button className="chip" onClick={() => act("cancel")}>Cancel task</button>}
+        ? <button className="chip" onClick={() => act("retry")}>{t("task.retry")}</button>
+        : <p className="muted text-xs">{t("task.noRetry")}</p>)}
+      {(task.status === "queued" || task.status === "running") && <button className="chip" onClick={() => act("cancel")}>{t("task.cancel")}</button>}
       {task.status === "done" && !task.parent_id && !task.title.startsWith("Team: ") && <SaveRecipe task={task} />}
 
       {!!children.length && (
         <div>
-          <h3 className="h3">Delegated</h3>
+          <h3 className="h3">{t("task.delegated")}</h3>
           <ul className="mt-1 space-y-2">
             {children.map((c) => (
               <li key={c.id} className="card text-sm">
                 <div><b>{c.agent}</b> · {c.title} · <span style={{ color: STATUS[c.status].color }}>{STATUS[c.status].label}</span>
-                  {c.status === "running" && <button className="chip ml-2" onClick={() => act("cancel", c.id)}>Cancel</button>}</div>
-                {c.result && <details className="mt-1"><summary className="cursor-pointer muted text-xs">result</summary><div className="mt-2"><Markdown text={c.result} openMemory={openMemory} /></div></details>}
+                  {c.status === "running" && <button className="chip ml-2" onClick={() => act("cancel", c.id)}>{t("common.cancel")}</button>}</div>
+                {c.result && <details className="mt-1"><summary className="cursor-pointer muted text-xs">{t("task.result")}</summary><div className="mt-2"><Markdown text={c.result} openMemory={openMemory} /></div></details>}
                 {c.error && <p className="error">{c.error}</p>}
               </li>
             ))}
@@ -191,7 +193,7 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
       )}
 
       <details open={task.status === "running"} className="text-xs">
-        <summary className="cursor-pointer muted">Execution trace ({task.trace.length} steps)</summary>
+        <summary className="cursor-pointer muted">{t("task.trace", { n: task.trace.length })}</summary>
         <ul className="mt-1 space-y-0.5">{task.trace.map((s, n) => <li key={n}>{s.ok ? "✓" : "✗"} <b>{s.step}</b> · {s.ms}ms · <span className="muted">{s.detail}</span></li>)}</ul>
       </details>
       {err && <p className="error">{err}</p>}
