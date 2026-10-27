@@ -37,6 +37,8 @@ export function pushNotify(kind: PushKind): void {
 /** Sends to every subscribed device (or just `deviceId`); a subscription the push service says is gone (404/410) is deleted. */
 export async function deliver(msg: PushMessage, deviceId?: string): Promise<number> {
   try {
+    // Time dilation: held till the focus block ends (urgent kinds pass). A push to one device is his own test click.
+    if (!deviceId && (await import("./focus")).heldForFocus(msg)) return 0;
     const pub = process.env.REMOTE_VAPID_PUBLIC!, priv = process.env.REMOTE_VAPID_PRIVATE!;
     const { listDevices, updateDevices } = await import("./remote"); // lazy: remote.ts imports the clip factory, which calls us
     const targets = (await listDevices()).filter((d) => d.push && (!deviceId || d.id === deviceId));
