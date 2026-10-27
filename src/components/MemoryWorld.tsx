@@ -11,6 +11,7 @@ import { useGlRecovery } from "./useGlRecovery";
 import type { MemoryPanel } from "./panels"; // passed in by Orbit: the public demo must not bundle panels (Supabase client)
 import { MemoryHygiene } from "./MemoryHygiene";
 import { beliefsPending } from "./BeliefsPanel";
+import { studyPending } from "./StudyCards";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
@@ -346,7 +347,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const q = useLeanQuality(quality);
   const [data, setData] = useState<MapData | null>(null);
   const [err, setErr] = useState("");
-  const [list, setList] = useState(() => !!List && (!!focusId || beliefsPending()));
+  const [list, setList] = useState(() => !!List && (!!focusId || beliefsPending() || studyPending()));
   const [query, setQuery] = useState("");
   const [hover, setHover] = useState<number | null>(null);
   const [sel, setSel] = useState<number | null>(null);
@@ -380,7 +381,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
     if (i !== undefined && data) { setSel(i); const m = data.items[i]; fly([m.x, m.y, m.z], 9); }
   }, [focusId, index, data]);
   useEffect(() => { // not gated on paused: this nav also opens MEMORY, and arrives before the world un-pauses
-    const h = (e: Event) => { if ((e as CustomEvent<NavTarget>).detail?.beliefs) setList(true); };
+    const h = (e: Event) => { const d = (e as CustomEvent<NavTarget>).detail; if (d?.beliefs || d?.study) setList(true); };
     addEventListener(NAV_EVENT, h);
     return () => removeEventListener(NAV_EVENT, h);
   }, []);

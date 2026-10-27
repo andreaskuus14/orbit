@@ -118,6 +118,16 @@ test("yesterday's Roblox session is one result line that opens GAME DEV", () => 
   assert.deepEqual(d.open, { panel: "creation" });
 });
 
+test("study cards due: one '3 minutes of cards' item that opens a MEMORY review; none when nothing is due", () => {
+  const it = briefItems(base({ study: 7 })).find((i) => i.kind === "study");
+  assert.equal(it?.id, "study:2026-10-25");
+  assert.equal(it?.title, "3 minutes of cards");
+  assert.deepEqual(it?.open, { panel: "memory", study: true });
+  assert.match(it!.say, /seven study cards due/);
+  assert.equal(briefItems(base({ study: 0 })).some((i) => i.kind === "study"), false);
+  assert.equal(briefItems(base({ study: 3, snoozed: ["study:2026-10-25"] })).some((i) => i.kind === "study"), false);
+});
+
 test("last night's dream question: a brief item, and the opener's one question when nothing waits on his OK", () => {
   const dream = { id: "deadline:n1:2026-10-30", question: "You said the pet sim update ships Friday, but there's been no dev session since Monday. Still Friday?" };
   const items = briefItems(base({ dream }));
