@@ -183,7 +183,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const active = !!data?.jobs.some((j) => isJobActive(j) || j.clips.some((c) => c.publish?.status === "uploading" && data.publishing === `${j.id}/${c.id}`)) || !!data?.downloads?.some((d) => d.status === "queued" || d.status === "downloading");
   useEffect(() => {
     if (!active || !visible) return;
-    const t = setInterval(() => void load(true), 2000);
+    const t = setInterval(() => { if (!document.hidden) void load(true); }, 2000);
     return () => clearInterval(t);
   }, [active, visible, load]);
 
@@ -536,7 +536,7 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout }: { visib
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!d?.running || !visible) return;
-    const t = setInterval(() => void load(), 3000);
+    const t = setInterval(() => { if (!document.hidden) void load(); }, 3000);
     return () => clearInterval(t);
   }, [d?.running, visible, load]);
   async function act(key: string, fn: () => Promise<void>) {
@@ -1465,7 +1465,7 @@ function ScheduleAll({ count, canUpload, onChange }: { count: number; canUpload:
   useEffect(() => { void api<Schedule>(`${API}/schedule`).then((s) => { setBatch(s.batch); if (s.batch?.running) setMine(true); }, () => {}); }, []);
   useEffect(() => {
     if (!batch?.running || paused) return;
-    const t = setInterval(() => void api<Schedule>(`${API}/schedule`).then((s) => { setBatch(s.batch); onChange(true); }, () => {}), 2000);
+    const t = setInterval(() => { if (!document.hidden) void api<Schedule>(`${API}/schedule`).then((s) => { setBatch(s.batch); onChange(true); }, () => {}); }, 2000);
     return () => clearInterval(t);
   }, [batch?.running, paused, onChange]);
   const start = async () => {

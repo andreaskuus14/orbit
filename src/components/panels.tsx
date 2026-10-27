@@ -415,7 +415,7 @@ function CoreSuggests({ tick }: { tick: number }) {
   const [busyKey, setBusyKey] = useState("");
   const [err, setErr] = useState("");
   const load = useCallback(() => { api<{ items: Suggestion[] }>("/api/insights").then((r) => setItems(r.items), () => {}); }, []);
-  useEffect(() => { load(); const t = setInterval(load, 60_000); return () => clearInterval(t); }, [load, tick]);
+  useEffect(() => { load(); const t = setInterval(() => { if (!document.hidden) load(); }, 60_000); return () => clearInterval(t); }, [load, tick]);
   const mark = (key: string, op: "dismiss" | "done") => api("/api/insights", { method: "POST", body: JSON.stringify({ key, op }) }).catch(() => {}).finally(load);
   const run = async (s: Suggestion, a: InsightAction) => {
     setBusyKey(s.key); setErr("");
@@ -452,7 +452,7 @@ function PlanCard({ tick }: { tick: number }) {
   const [err, setErr] = useState("");
   const active = plan?.status === "running" || plan?.status === "waiting";
   const load = useCallback(() => { api<{ plan: (Plan & { line: string }) | null }>("/api/plans").then((r) => setPlan(r.plan), () => {}); }, []);
-  useEffect(() => { load(); const t = setInterval(load, active ? 4000 : 30_000); return () => clearInterval(t); }, [load, active, tick]);
+  useEffect(() => { load(); const t = setInterval(() => { if (!document.hidden) load(); }, active ? 4000 : 30_000); return () => clearInterval(t); }, [load, active, tick]);
   const act = (op: "confirm" | "cancel") => {
     if (!plan) return;
     setErr("");

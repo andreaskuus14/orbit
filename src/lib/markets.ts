@@ -121,8 +121,7 @@ async function sync(checkAlerts: boolean) {
   const snap = await read(), today = dayKey();
   const all = [...snap.watchlist, ...snap.holdings.map((h) => h.ticker), ...snap.alerts.map((a) => a.ticker),
     ...Object.keys(snap.paper.positions), ...Object.keys(snap.bot.account.positions), "SPY"];
-  const quotes = await getQuotes(all);
-  const hist = await histories([...snap.watchlist, ...snap.alerts.map((a) => a.ticker)]);
+  const [quotes, hist] = await Promise.all([getQuotes(all), histories([...snap.watchlist, ...snap.alerts.map((a) => a.ticker)])]);
   const prices = Object.fromEntries(Object.entries(quotes).map(([t, q]) => [t, q.close]));
   const change = Object.fromEntries(Object.entries(quotes).map(([t, q]) => [t, dayChange(q, hist[t] ?? [])]));
   const data: Data = { quotes, hist, prices, change };

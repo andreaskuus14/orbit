@@ -35,8 +35,7 @@ const mine = async (userId: string) => (await load()).users[userId] ?? { cards: 
 
 /** Cards, today's queue (ids, in order), stats, and kept lessons not yet turned into a card. */
 export async function studyView(userId: string) {
-  const u = await mine(userId), d = today();
-  const kept = await import("./lessons").then((m) => m.lessonsView(userId)).then((v) => v.kept, () => []);
+  const [u, kept] = await Promise.all([mine(userId), import("./lessons").then((m) => m.lessonsView(userId)).then((v) => v.kept, () => [])]), d = today();
   const carded = new Set(u.cards.filter((c) => c.source === "lesson").map((c) => c.ref));
   return { cards: u.cards, queue: dueToday(u, d).map((c) => c.id), stats: stats(u, d),
     lessons: kept.filter((l) => !carded.has(l.id)).map((l) => ({ id: l.id, ...lessonCard(l) })) };
