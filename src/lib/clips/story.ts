@@ -23,7 +23,7 @@ import type { ClipJob } from "./types";
 
 const storiesDir = () => path.join(studioRoot(), "stories");
 const musicDir = () => path.join(studioRoot(), "music");
-const models = (): Models => ({
+export const models = (): Models => ({
   image: process.env.ORBIT_HIGGSFIELD_IMAGE_MODEL || "gpt_image_2_5",
   video: process.env.ORBIT_HIGGSFIELD_VIDEO_MODEL || "seedance_2_5",
   audio: process.env.ORBIT_HIGGSFIELD_AUDIO_MODEL || "seed_audio",
@@ -101,16 +101,23 @@ export async function runDraftTool(input: Record<string, unknown>, question: str
   }
 }
 
+/** A priced Higgsfield proposal in the AI Story queue (CORE's drafts, long-form visuals). Saved, then quoted (get_cost only, in the
+ *  background: it can take minutes). Nothing is generated before the owner's Approve click on it. `by` labels who drafted it. */
+export async function queueDraftAs(d: Draft, by: string): Promise<StoryJob> {
+  const now = new Date().toISOString();
+  const job: StoryJob = { v: 1, id: newId(), createdAt: now, updatedAt: now, status: "draft", step: `Drafted by ${by}: asking Higgsfield the price`,
+    opts: { idea: d.prompt, style: "", length: 0, voice: "none", motion: d.kind === "video" ? "video" : "stills" },
+    story: { title: `${by}: ${d.count}× ${d.kind}, ${d.prompt}`.slice(0, 100), hook: "", scenes: [] }, items: draftItems(d), warnings: [], draft: d };
+  await save(job);
+  void quoteStory(job).catch(() => {});
+  return job;
+}
+
 /** A draft in the AI Story queue, priced only (CORE's tool, or the owner's "Get Higgsfield quote" click in BUSINESS). Nothing is generated before Approve. */
 export async function queueDraft(input: Record<string, unknown>): Promise<Draft | string> {
   const d = validDraft(input, models());
   if (typeof d === "string") return d;
-  const now = new Date().toISOString();
-  const job: StoryJob = { v: 1, id: newId(), createdAt: now, updatedAt: now, status: "draft", step: "Drafted by CORE: asking Higgsfield the price",
-    opts: { idea: d.prompt, style: "", length: 0, voice: "none", motion: d.kind === "video" ? "video" : "stills" },
-    story: { title: `CORE: ${d.count}× ${d.kind}, ${d.prompt}`.slice(0, 100), hook: "", scenes: [] }, items: draftItems(d), warnings: [], draft: d };
-  await save(job);
-  void quoteStory(job).catch(() => {}); // get_cost only (hf-guard quote mode); can take minutes, so not inside CORE's turn
+  await queueDraftAs(d, "CORE");
   return d;
 }
 
