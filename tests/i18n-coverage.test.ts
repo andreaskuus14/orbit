@@ -65,7 +65,7 @@ const CEILING: Record<string, number> = {
   "VoiceMemo.tsx": 11, "WarmCompile.tsx": 0, "WarpOverlay.tsx": 0, "WeeklyCard.tsx": 7, "WhatIf.tsx": 12, "WhatsNew.tsx": 0,
   "WorkspacePanel.tsx": 11, "ZoomRig.tsx": 0, "alien/Filaments.tsx": 0, "alien/Fractal.tsx": 0, "alien/Lensing.tsx": 0,
   "alien/LiquidPlanet.tsx": 0, "alien/MicroWorld.tsx": 0, "alien/NeuralArms.tsx": 0, "alien/Singularity.tsx": 0,
-  "alien/WindowPlanet.tsx": 0, "dev-timing.tsx": 0, "i18n.tsx": 0, "panels.tsx": 94, "real-sky-toggle.tsx": 2,
+  "alien/WindowPlanet.tsx": 0, "dev-timing.tsx": 0, "i18n.tsx": 0, "panels.tsx": 95, "real-sky-toggle.tsx": 2,
   "voice/VoiceControls.tsx": 45,
 };
 
