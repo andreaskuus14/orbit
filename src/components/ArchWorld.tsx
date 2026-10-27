@@ -20,6 +20,8 @@ import { lessonTag } from "@/lib/arch-studio-pure";
 import { shadowOf } from "@/lib/arch-time-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
+import { PortfolioPanel } from "./PortfolioPanel";
+import { archCaption } from "@/lib/portfolio-pure";
 import { ArchPlans } from "./ArchPlans";
 import { ArchTimeMachine, SunShadow } from "./ArchTimeMachine";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
@@ -72,6 +74,12 @@ const download = (name: string, text: string, type: string) => {
   a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
+/** Hands the parent a "render now and give me the canvas" function: read right after a render, no preserveDrawingBuffer needed. */
+function Grab({ to }: { to: { current: (() => HTMLCanvasElement) | null } }) {
+  const { gl, scene, camera } = useThree();
+  useEffect(() => { to.current = () => { gl.render(scene, camera); return gl.domElement; }; return () => { to.current = null; }; }, [gl, scene, camera, to]);
+  return null;
+}
 let seq = Date.now();
 const newId = () => `p${(seq++).toString(36)}`;
 
@@ -244,6 +252,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   useEffect(() => () => worker.stop(), [worker]);
   const budget = splatBudget(qualityPreset.dpr);
   const bg = scan ? SCAN_BG : holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : BG;
+  const grab = useRef<(() => HTMLCanvasElement) | null>(null);
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -335,6 +344,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
       {!flat && (
         <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
         <WarmCompile world="arch" />
+        <Grab to={grab} />
         {quality === "auto" && <PerformanceMonitor onDecline={qualityPreset.onDecline} />}
           <color attach="background" args={[bg]} />
           <fog attach="fog" args={[bg, 60, 140]} />
@@ -477,6 +487,9 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
         <ArchStudio worker={worker} bump={bump} onScan={(s) => { setScan(s); setMeas(measureFrom(s)); setWalk(false); }}
           onScanNote={(id, note) => setMeas((m) => m && { ...m, noteId: id, note })} onTeach={(t) => void teach(t)}
           lesson={lesson ? { building: lesson.building, text: lesson.chapters.map((c) => `${c.title}: ${c.text}`).join("\n") } : null} lessonKey={lesson ? lessonTag(lesson.building) : ""} />
+
+        <PortfolioPanel grab={() => grab.current?.() ?? null}
+          caption={scan ? `Scan ${scan.name}` : lesson ? `Study model after ${lesson.building}` : archCaption({ parts: scene.parts, mode, sun: sun.on ? sun : null })} />
 
         <div className="card space-y-1.5">
           <div className="muted text-[10px] uppercase tracking-widest">Parts · click one in 3D or here</div>
