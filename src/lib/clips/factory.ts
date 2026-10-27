@@ -1,3 +1,4 @@
+import { RECAP_SOURCE } from "./publish-checks-pure";
 import { languageVerdict } from "./lang-pure";
 import { approvalGate, clipContent, contentHash } from "../approval-pure";
 import { spawn } from "node:child_process";
@@ -1046,6 +1047,7 @@ export const publishDone = () => S.pub?.done;
 /** Marks the clip "uploading" and uploads it in the background (one at a time). Call under withJobLock after checking the clip. */
 export async function startPublish(job: ClipJob, clip: Clip, file: string, video: VideoResource) {
   if (clip.retryOf && !retryConsent(clip)) throw new Error("Review and approve this exact retry before publishing");
+  if (job.source.startsWith(RECAP_SOURCE)) throw new Error("ORBIT's private daily recap is never posted");
   const gate = await approvalGate("studio.publish", clip.approvedHash, clipContent(clip)); // the one publish point: route, scheduleAll, autonomy
   if (gate) throw new Error(gate);
   const ctrl = new AbortController();

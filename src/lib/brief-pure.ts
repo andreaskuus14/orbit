@@ -24,6 +24,8 @@ export type BriefIn = {
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
+  recap?: { id: string }; // yesterday's private recap reel in STUDIO (clips/recap.ts)
+  goalRisk?: { id: string; title: string; say: string }; // a goal whose weekly milestones are at risk / behind (goal-autopilot.ts goalRisk)
   school?: { id: string; title: string; say: string; detail?: string }; // heavy week / today's study blocks / next deadline (school-pure schoolBrief)
   dream?: { id: string; question: string }; // last night's ONE question (dream-pure); his answer goes through CORE like any message
   idea?: { id: string; title: string; more: number }; // last night's dream-mode idea (dream-ideas-pure briefIdea)
@@ -93,6 +95,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
       detail: top ? plain(top.label) : undefined, open: top?.open && "task" in top.open ? { task: top.open.task } : { panel: "agents" } });
   }
 
+  if (x.goalRisk) add({ id: `goalrisk:${x.goalRisk.id}`, kind: "result", title: x.goalRisk.title, detail: "Weekly milestones", open: { goal: x.goalRisk.id }, say: x.goalRisk.say });
   if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });
 
   if (x.dream) add({ id: `dream:${x.dream.id}`, kind: "question", title: plain(x.dream.question), detail: "Answer in CORE or on the call", open: { panel: "core" }, say: plain(x.dream.question) });
@@ -129,6 +132,8 @@ export function briefItems(x: BriefIn): BriefItem[] {
     say: (x.replies.length === 1 ? `${short(rep.name, 6)} wrote back` : `${short(rep.name, 6)} and ${num(x.replies.length - 1)} other ${x.replies.length === 2 ? "client" : "clients"} wrote back`) + (x.echo?.reply ? `, ${x.echo.reply}.` : ".") });
 
   if (x.devSession) add({ id: `devsession:${x.devSession.id}`, kind: "result", title: x.devSession.title, detail: "GAME DEV session log", open: { panel: "creation" }, say: x.devSession.say });
+
+  if (x.recap) add({ id: `recap:${x.recap.id}`, kind: "result", title: "Yesterday in 25 seconds", detail: "Private recap in STUDIO, never posted", open: { panel: "studio", view: "review" }, say: "Yesterday in 25 seconds is ready in STUDIO, a private recap of my day, if you want a look." });
 
   const deal = x.deal;
   if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },
