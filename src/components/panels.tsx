@@ -30,6 +30,8 @@ import { ScreenLook, type LookAsk } from "./ScreenLook";
 import { parseLookRequest, robloxErrors, LUAU_FIX_EVENT, type Preset } from "@/lib/screen-look-pure";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
 import { EpisodesList } from "./EpisodesList";
+import { Rewind } from "./Rewind";
+import { LearnThis, StudyCards } from "./StudyCards";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
@@ -258,13 +260,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     }
   }, [busy, newProject, newChat, setChatId, chats.reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // While CORE is open: Ctrl/⌘+K focuses its input (capture phase + preventDefault, so Orbit's command-bar shortcut skips it)
-  // and Esc stops a streaming answer instead of closing the panel.
+  // While CORE is open: Esc stops a streaming answer instead of closing the panel. (Ctrl/⌘+K is the Warp palette.)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return; // VoiceControls already used this Esc (both listen in the capture phase)
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); inputRef.current?.focus(); }
-      else if (e.key === "Escape" && busy) { e.preventDefault(); e.stopPropagation(); abort.current?.abort(); stopSpeech(); }
+      if (e.key === "Escape" && busy) { e.preventDefault(); e.stopPropagation(); abort.current?.abort(); stopSpeech(); }
     };
     addEventListener("keydown", h, true);
     return () => removeEventListener("keydown", h, true);
@@ -323,6 +323,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           {i === msgs.length - 1 && lastQ.current && !busy && (
             <button type="button" className="chip" title="Ask the last question again" onClick={() => void send(lastQ.current)}>↻ Retry</button>
           )}
+          {m.trace?.some((x) => x.step === "local") && <span className="chip !py-0 !text-[10px]" title="Claude was unreachable, rate-limited or on hold, so this answer came from the local model on this PC (no tools)">local brain</span>}
           {m.model && <span className="muted ml-auto opacity-60" title={m.model === "fast" ? "Quick reply from the fast model" : m.model === "deep" ? (m.trace?.some((x) => x.step === "review") ? "Deep answer: planned, then self-checked by the strongest model" : "Deep answer from the strongest model") : "Answered by the main model"}>{m.model}</span>}
         </div>
       )}
@@ -573,12 +574,14 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
           onDone={(gone) => { if (gone) setOpen(null); void load(q); onChanged(); }} />
         {err && <p className="error">{err}</p>}
         <div className="flex gap-2"><button className="btn" onClick={saveEdit}>Save</button><button className="btn danger" onClick={remove}>Delete</button></div>
+        <LearnThis key={open.id} memory={open} />
       </div>
     );
   }
 
   return (
     <div className="space-y-5">
+      <StudyCards />
       <form onSubmit={capture} className="space-y-2">
         <h3 className="h3">Capture</h3>
         <textarea className="field h-24 w-full" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Anything worth remembering…" aria-label="Content" maxLength={200000} />
@@ -619,6 +622,8 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
           </ul>
         </div>
       )}
+
+      <Rewind onOpen={setFocus} />
 
       <div>
         <div className="flex items-center justify-between"><h3 className="h3">Memories</h3><span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>What ORBIT believes</button><a className="link text-xs" href="/api/export">Export JSON</a></span></div>

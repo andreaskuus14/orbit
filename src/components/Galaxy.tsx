@@ -39,10 +39,12 @@ import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
 import { standIn, WarmCompile, WarmIn } from "./WarmCompile";
+import { RealSky, useRealSkyPlace } from "./RealSky";
 import { dilationScale } from "@/lib/dilation-pure";
 import { newScale, renderDpr, scaleFloor, stepScale, type ScaleState } from "@/lib/render-scale-pure";
 import { perfMark } from "./PerfBeacon";
 import { perfCtx } from "./PerfBeacon";
+import { LivingEffects } from "./LivingEffects";
 import { InkGlyph } from "./InkGlyph";
 import { useT } from "./i18n";
 import { ET, translate, type Lang } from "@/lib/i18n-pure";
@@ -930,6 +932,7 @@ export default function Galaxy(props: GalaxyProps) {
   const [stop, setStop] = useState(-1);
   perfCtx.stop = stop;
   const story = useRef<Story>(newStory(intro));
+  const sky = useRealSkyPlace();
   const onIntroEnd = useCallback(() => setIntro(false), []);
   const sizes = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, planetSize(p)])), []);
   const { onSelect, selected } = props;
@@ -953,12 +956,14 @@ export default function Galaxy(props: GalaxyProps) {
         <ambientLight intensity={0.06} color="#9aa8c0" /> {/* low fill: the CORE is the sun, worlds get a real day and night side */}
         {level > 0 && <GalaxyVeil reduced={props.reduced} />}
         <NeuralArms count={armCount(level)} reduced={props.reduced} />
-        <Stars radius={110} depth={60} count={level === 0 || props.reduced ? Math.min(2000, q.stars) : 4500} factor={2.6} fade speed={props.reduced ? 0 : 0.15} />
+        <Stars radius={110} depth={60} count={Math.round((level === 0 || props.reduced ? Math.min(2000, q.stars) : 4500) * sky.stars)} factor={2.6} fade speed={props.reduced ? 0 : 0.15} />
+        <RealSky on={sky.on} lat={sky.lat} lon={sky.lon} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <Dust count={q.dust} reduced={props.reduced} feel={feel} />
         <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} aligned={props.selected === "core"} approval={!!props.ships?.tasks.some((t) => t.status === "awaiting_approval")} />
         <Filaments positions={positions} pulses={props.pulses} reduced={props.reduced} />
         <Beams positions={positions} pulses={props.pulses} reduced={props.reduced} />
+        <LivingEffects positions={positions} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
         <AsteroidBelt inner={5.5} outer={6.0} count={Math.round(900 * q.belt)} seed={3} reduced={props.reduced} />
         <AsteroidBelt inner={32} outer={34} count={Math.round(2200 * q.belt)} seed={9} reduced={props.reduced} thickness={0.6} />

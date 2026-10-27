@@ -38,6 +38,7 @@ import { StatusRail } from "./StatusRail";
 import { Ticker } from "./Ticker";
 import { WarpBurst, WarpOverlay } from "./WarpOverlay";
 import { AmbientOverlay, useAmbient } from "./AmbientOverlay";
+import { RealSkyToggle } from "./real-sky-toggle";
 import { sfx } from "./sfx";
 import { BootSequence } from "./BootSequence";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
@@ -59,6 +60,7 @@ import { useDragPanel } from "./useDragPanel";
 import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
 import { useT } from "./i18n";
+import { LIVING_EVENT } from "@/lib/living-events-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -339,6 +341,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "events", filter: `user_id=eq.${userId}` }, (payload) => {
         const e = payload.new as { type: string; planet: string };
         pulses.current[e.planet] = Date.now();
+        dispatchEvent(new CustomEvent(LIVING_EVENT, { detail: e })); // comet / aurora / flare / sunrise in the galaxy
         ambientEvent(e.type, (payload.new as { payload?: { status?: unknown } }).payload); // a soft chime from the planet
         if (e.type.startsWith("memory.")) void refreshCount();
         if (e.type === "core.started") setBusy(true);
@@ -365,7 +368,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return; // a widget (e.g. a chart's arrow-key scrub) already handled it
       if (document.querySelector("dialog[open], :popover-open")) return; // Esc there closes the overlay/menu, not the panel
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); cmdRef.current?.focus(); }
       // ← / → fly to the previous / next planet; Esc closes. Neither while typing (Esc in a form would lose the draft).
       const el = e.target as HTMLElement | null;
       // VIDEO/AUDIO: Chrome seeks a focused player with ←/→ after this handler sees the key.
@@ -580,7 +582,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       </header>
       {/* Native popover: light-dismiss and Esc for free, drawn in the top layer above every panel. */}
       <div id="hud-menu" popover="auto" className="glass hud-menu" aria-label={t("hud.more")}>
-        <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))}>{t("menu.search")} <kbd>Ctrl+P</kbd></button>
+        <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))}>{t("menu.search")} <kbd>Ctrl+K</kbd></button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => select("profile")}>{t("menu.profile")}</button>
         <div className="hud-menu-group" role="group" aria-label={t("menu.qualityGroup")}>
           <span className="muted">{t("menu.quality")}</span>
@@ -594,6 +596,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => living.setOpen(true)}>{t("menu.timeTravel")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, mission: true } }))}>{t("menu.mission")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(SHORTCUTS_EVENT))}>{t("menu.shortcuts")} <kbd>?</kbd></button>
+        <RealSkyToggle />
         <button className="hud-menu-item" aria-pressed={sfxOn} onClick={() => { sfx.set(!sfxOn); setSfxOn(!sfxOn); if (!sfxOn) sfx.tick(); }}>{t("menu.sounds", { state: t(sfxOn ? "common.on" : "common.off") })}</button>
         <AmbientSoundMenu />
         <button className="hud-menu-item" onClick={signOut} title={email}>{t("menu.signOut")}</button>
@@ -671,7 +674,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           </button>
           <input ref={cmdRef} className={"field w-full" + (voice.listening ? " voice-live" : "")} value={voice.listening ? voice.interim : cmd} onChange={(e) => setCmd(e.target.value)} maxLength={8000}
             readOnly={voice.listening}
-            placeholder={voice.listening ? "Listening… speak your question" : cmdMode === "ask" ? "Ask CORE…  (Ctrl/⌘ K · mic Ctrl+M)" : "Give your agents a task, e.g. research X and save a report"}
+            placeholder={voice.listening ? "Listening… speak your question" : cmdMode === "ask" ? "Ask CORE…  (mic Ctrl+M)" : "Give your agents a task, e.g. research X and save a report"}
             aria-label={voice.listening ? "Live voice transcript" : cmdMode === "ask" ? "Command bar: ask CORE" : "Command bar: give the agents a task"} />
           <VoiceControls voice={voice} />
         </div>

@@ -18,7 +18,7 @@ export default function CoreConfigPanel() {
     ["Tool loop", `${c.maxSteps} model steps (${c.maxSteps - 1} tools) · tool results cut at ${c.toolResultChars} chars`],
     ["Budget", `${c.turnBudgetS} s per turn · ${c.callTimeoutS} s per call · ${c.concurrency} CLIs at once`],
     ["History", `last ${c.historyFull} messages in full, older ones abbreviated`],
-    ["Session", `${c.sessionMode}: ${c.session}`], ["Tools", c.tools], ["Voice", c.voice],
+    ["Session", `${c.sessionMode}: ${c.session}`], ["Tools", c.tools], ["Voice", c.voice], ["Local brain", c.localBrain ?? "off"],
   ];
   return (
     <section aria-label="CORE config">
