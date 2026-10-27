@@ -51,3 +51,18 @@ export function pdfDoc(pages: PdfPage[], size: { w: number; h: number }, title =
   out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info 6 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Uint8Array.from(out, (ch) => ch.charCodeAt(0) & 0xff); // every char is one byte (pdfString keeps them < 256)
 }
+
+/** Greedy word wrap for the PDF fonts (~0.5em per char); long words are hard-broken. */
+export function pdfWrap(s: string, size: number, width: number): string[] {
+  const max = Math.max(10, Math.floor(width / (size * 0.5)));
+  const out: string[] = [];
+  let cur = "";
+  for (const w of s.split(/\s+/).filter(Boolean)) {
+    for (let word = w; word; ) {
+      const piece = word.slice(0, max); word = word.slice(max); // a 64-char hash still breaks somewhere
+      if (cur && cur.length + 1 + piece.length > max) { out.push(cur); cur = piece; } else cur = cur ? `${cur} ${piece}` : piece;
+    }
+  }
+  if (cur || !out.length) out.push(cur);
+  return out;
+}

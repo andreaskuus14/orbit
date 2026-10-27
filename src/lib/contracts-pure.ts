@@ -375,16 +375,5 @@ export function contractPdf(t: Template, c: Pick<Contract, "title">, v: Version,
 
 /** Lines that fit `width` points at `size` (Helvetica, average glyph ≈ 0.5 em).
  *  shortcut: average width, not per-glyph metrics; very wide (all-caps) lines can run a few points into the margin. Add an AFM width table if that shows. */
-export function pdfWrap(s: string, size: number, width: number): string[] {
-  const max = Math.max(10, Math.floor(width / (size * 0.5)));
-  const out: string[] = [];
-  let cur = "";
-  for (const w of s.split(/\s+/).filter(Boolean)) {
-    for (let word = w; word; ) {
-      const piece = word.slice(0, max); word = word.slice(max); // a 64-char hash still breaks somewhere
-      if (cur && cur.length + 1 + piece.length > max) { out.push(cur); cur = piece; } else cur = cur ? `${cur} ${piece}` : piece;
-    }
-  }
-  if (cur || !out.length) out.push(cur);
-  return out;
-}
+import { pdfWrap } from "./pdf-pure.ts";
+export { pdfWrap }; // moved: portfolio uses it without pulling BUSINESS into the browser bundle

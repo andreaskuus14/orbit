@@ -1,7 +1,6 @@
 // Portfolio builder (pure, tested in tests/portfolio.test.ts): his ARCH captures and picked STUDIO/game images become an
 // architecture-school portfolio, as an A4 landscape PDF and as one self-contained HTML page he uploads himself. ORBIT publishes nothing.
-import { pdfDoc, pdfImage, pdfText, type PdfJpeg, type PdfPage } from "./pdf-pure.ts";
-import { pdfWrap } from "./contracts-pure.ts";
+import { pdfDoc, pdfImage, pdfText, pdfWrap, type PdfJpeg, type PdfPage } from "./pdf-pure.ts";
 
 export const PROJECT_KINDS = ["arch", "studio", "game"] as const;
 export type ProjectKind = (typeof PROJECT_KINDS)[number];
