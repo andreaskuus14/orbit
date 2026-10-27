@@ -1,4 +1,4 @@
-# What ORBIT can do (October 2026)
+# What ORBIT can do (27 October 2026)
 
 One section per planet. Each lists what the newer features do, where to find them, and what ORBIT **never** does without your click.
 Older features are described in the [README](../README.md). Setup: [SETUP.md](SETUP.md). Safety rules: [SAFETY.md](SAFETY.md). Phone: [PHONE.md](PHONE.md).
@@ -13,6 +13,14 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 - **Your week.** Ask "what slipped?", "what did I get done?", "how did my week go?". Answers cite the goal, task or clip they come from. Also in Ctrl+P → *Your week*.
 - **Look at my screen.** Ctrl+Shift+L, the screen button next to CORE's input, or say "look at my screen …". You pick the window in the browser's own dialog; ORBIT takes **one** picture, stops capturing, and sends it with your question to CORE. The picture is not saved (only if you press *Save*). 🧩 *Roblox error* (next to it, and in GAME DEV) reads Studio's errors and links a fix checked against the official Roblox docs.
 - **Remembers moments.** CORE recalls a couple of past "episodes" (see MEMORY) and the lessons you kept (see Profile) when they fit.
+- **Missions:** a multi-step request becomes a mission with steps, receipts and checkpoints (AGENTS → Missions: pause, resume, retry, cancel).
+- **Plan my day:** a time-blocked plan for today plus a commitment inbox; in the evening, mark done or missed.
+- **Skills:** when you ask for the same multi-step thing 3+ times, ORBIT proposes a skill (AGENTS → Skills). Keep it, then say "run skill <name>: …".
+- **Argue the other side:** for big decisions (contracts, big Higgsfield spends, autonomy raises, negotiation offers, goal plans) ORBIT's "twin" (◐) lists 3 risks and the best alternative before you decide. It never blocks anything.
+- **Voice memos:** hold to record (CORE or phone). Whisper on the PC transcribes it and files it; *Change* or *Undo* if it filed it wrong. Tasks from memos wait for your *Start*.
+- **Offline brain:** if Claude is unreachable, chat and summaries fall back to a local Ollama model (no tools) when `ORBIT_LOCAL_MODEL` is set.
+- **Ctrl+K warp palette:** jump to any screen, search goals, approvals, people and prospects. It only opens screens; it never approves, sends or spends.
+- **Language:** English / Eesti switch in Profile (CORE answers in Estonian too).
 - **The singularity shows what CORE is doing:** breathing when idle, rings tighten when listening, faster swirl when thinking, a scanning beam for web search, amber pulse when waiting for your approval.
 - **Never without you:** CORE can't send, spend, sign or publish. Its only "outside" tools are *schedule clips you already approved* and *ask Higgsfield for a price* (no spending). Every tool call passes one safety check first ([SAFETY.md](SAFETY.md#core-tools)).
 
@@ -21,6 +29,12 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 - **Constellation:** every memory is a star; similar memories are linked by light that fades with age. A timeline replays how the web grew.
 - **Chronicle** (Chronicle mode): your life and work as a river of days, with moments, streaks and "firsts". Scrub it or press play. Private journal moments appear only if you tick *Include private* (on this device only).
 - **Episodes** (Episodes list, *Build now*): every night ORBIT turns calls, decisions, wins, setbacks and finished goals into short episode memories. Journal text is never used.
+- **Where it came from:** every memory and belief shows its source. *Why?*, *Remember*, *Correct*, *Forget* on each one. Things ORBIT only guessed stay "suggested" until you confirm them.
+- **Memory palace:** walk through your memories as rooms (WASD/arrows).
+- **People ring:** the people in your life as moons, with a timeline and a check-in draft (you send it yourself).
+- **Knowledge graph:** concept clusters and the bridges between them.
+- **Study cards:** spaced repetition (Again/Hard/Good/Easy); *Learn this* on a memory drafts a card. "3 minutes of cards" in the morning brief.
+- **Rewind:** ask "what happened last March?" and get facts for that time range.
 - **Tidy-up suggestions:** up to 3 a week (merge duplicates, retire old or contradicted beliefs). Nothing changes until you press *Accept*.
 - **Never without you:** nothing is merged, edited or deleted on its own.
 
@@ -33,6 +47,7 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 - **Sessions tab:** every Luau helper run, build, scan and playtest ORBIT does in Roblox Studio is logged as a session (closes after 30 idle minutes or *End*). Yesterday's session appears in the morning brief, and it can suggest a "Day N" Short idea.
 - **Backlog:** the bug tracker now holds bugs, features and polish with priority. Paste a list (or GitHub issues text) to import. Any item can become a Goal or open the Luau helper's Fix mode. Fix suggestions are checked against create.roblox.com pages and cite them.
 - **Personas tab (playtest):** 20 simulated player types "play" your pet sim overnight. A few real look-only Studio playtests (walk, look, read the console) plus one model walkthrough, scored into a funnel and suggested backlog items.
+- **Economy tab:** economy balancer, update-notes drafter, and economy personas that stress-test your prices.
 - **Never without you:** ORBIT never edits your place or scripts. Suggested backlog items only go in when you click *Add*.
 
 ## OPERATIONS
@@ -43,6 +58,9 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 
 - **Tonight tab (night shift):** queue things for tonight ("tonight, research …"). Each night (default 01:00–06:30 Tallinn time, only while you're idle) ORBIT works through your asks, one step of each goal plan you approved, BUSINESS follow-up drafts, Shorts prep up to review, the weekly niche scout, memory tidy-up suggestions, the health check and the persona playtest. It has a budget (max 40 Claude calls, 150 minutes).
 - **"While you slept"** card in the morning with one-tap approve/reject.
+- **Company tab:** a CEO planner splits a goal into 2–4 role steps (researcher, analyst, writer, ops) run as a team, with a budget per role; *🌙 Tonight* runs it in the night shift.
+- **Missions** and **Skills** tabs: see CORE above. **ORBIT's log**: its nightly diary of what it did and learned.
+- **Night shift v3:** learns which kinds of night work you approve and does more of those; also dreams up idea combinations (DREAMS list, keep/discard), makes a 25-second private recap reel, and runs the nightly encrypted backup.
 - **Ships:** running tasks fly across the galaxy as small ships; amber blink = waiting for you.
 - **Goals:** a goal can come from a GAME DEV backlog item or from the weekly review's *Add to next week*.
 - **Never without you:** the night shift never sends, publishes or spends. Everything with an outside effect waits in the morning for your click.
@@ -50,6 +68,9 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 ## LIFE
 
 - **Today in a minute** (Ctrl+Shift+E, or "today in a minute"): a short evening journal note, also offered once a day after the 19:00 briefing.
+- **School:** courses and deadlines; ORBIT plans study blocks backwards from each deadline and warns about overloaded weeks.
+- **Habits:** each habit gets its own time window and channel; nudges learn your timing, back off when ignored, and *Done* works from the push.
+- **Focus blocks (time dilation):** 25/50/90 minutes on one goal. The galaxy slows, pushes, calls and bell notices are held (urgent ones pass), and you get a summary at the end.
 - Journal entries are private: ORBIT never learns beliefs from them, CORE's memory search skips them, and no nightly job reads them.
 
 ## VAULT
@@ -58,17 +79,21 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 
 ## ANALYTICS
 
+- **Operator report:** weekly card of what ORBIT did on its own.
+- **Make ORBIT better:** once a week, up to 5 improvement tasks with evidence (in 🩺 Check ORBIT). ORBIT never changes its own code.
 - **Agent scorecard:** once a month ORBIT replays 10 fixed practice cases through the agents and grades them, with trend and worst case.
 - **Predictions:** before you decide on a clip, proposal, draft, tidy-up, niche or deal, ORBIT quietly guesses what you'll do and keeps score. The hint shows on the card. It never acts on a guess.
 - **PERF card:** frame rate and speed runs (open ORBIT with `?perfrun=1` or press Shift+Alt+P).
 
 ## STUDIO (YouTube)
 
-Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Calendar · Insights · Autopilot.
+Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Long-form · Calendar · Insights · Autopilot.
 
 - **Pipeline:** idea → script → clip/story → thumbnail + title → review → scheduled, with a weekly target (default 7).
 - **Shorts autopilot v2** (on the Pipeline board): picks the week's ideas, writes scripts and asks Higgsfield for prices overnight, then offers **one** morning button like "Approve 3 Shorts for 210 credits". *Plan + script now* runs it on demand.
 - **AI Story:** Claude writes a short story or a "talking drama" (fruit-head characters speaking their own lines); *Get cost* asks Higgsfield for the price; *Approve & generate (N credits)* is the only button that spends. Drama runs are two approvals: character pictures first, then the shots. Finished videos land in the normal review queue.
+- **Long-form:** topic → 8–12 minute plan (titles, hook, chapters with script and shots, thumbnail ideas, 3 Shorts cut-downs). Exports script, shot list and chapters. Visuals are only priced drafts in the AI Story queue.
+- **Daily recap reel:** a private 25-second video of ORBIT's day, made on the PC after the night shift.
 - **Title scorer:** ranks 2–5 titles against your own click-through history.
 - **Hook lab:** three alternative openings of a clip, ranked from your past results.
 - **Retention post-mortem:** 48 hours after a Short goes live, ORBIT shows where viewers left and proposes one rule. It enters your playbook only when you click *Add to playbook*.
@@ -93,8 +118,12 @@ Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Calendar · I
 - **Shop-in-a-box:** *Build shop* makes one static landing page + launch kit on your PC (preview only).
 - **Negotiation box** on a prospect: paste their reply; ORBIT classifies it and drafts a counter-offer that always stays between your floor and ceiling. *Approve* emails it (with Resend) or marks it for you to copy.
 - **Contracts:** drafted from vetted templates (service, purchase, sponsorship, NDA) on your click, with every change from the template shown. You *Sign*; *Approve & send* emails the signed PDF.
+- **Invoices and Money:** invoices with VAT and reference numbers, an owed dashboard, reminder drafts for overdue ones (approve to send), and a monthly profit & loss view with expenses and Estonian tax deadlines.
+- **Store launch package:** Shopify/WooCommerce CSV, Etsy text, prices from your margin, SEO, EU policy drafts and a 14-day plan. Image prompts only go to Higgsfield as a priced draft.
+- **Competitor watch:** weekly read-only report on up to 5 public competitor pages per kept niche (new products, price moves).
+- **What-if simulator:** drag ranges (clicks, conversion, costs) and see the chance of losing money. No model calls.
 - **AI visibility:** does Claude know your shop/game/channel, and what does the web say.
-- **Never without you:** ORBIT never sends an email unless you click (or you switch BUSINESS email to Auto). It **never signs** or sends a contract on its own, and there's no phone, voice or auto path for contracts. Shops are never deployed. Prices and promises always need you, even in Auto.
+- **Never without you:** invoice reminders go only on your click, like drafts. ORBIT never sends an email unless you click (or you switch BUSINESS email to Auto). It **never signs** or sends a contract on its own, and there's no phone, voice or auto path for contracts. Shops are never deployed. Prices and promises always need you, even in Auto.
 
 ## ARCH
 
@@ -102,6 +131,13 @@ Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Calendar · I
 - **Sketch critique:** photo of your sketch → feedback on proportion, circulation, light, structure, saved to MEMORY.
 - **Precedents:** "Teach me <building>" lessons, scans and critiques, all linked and searchable.
 - **Weekly digest** on Sunday evening (also a line in the weekly review).
+- **Floor-plan generator:** a brief → 3–5 scored layouts (with a stair core for several floors); pick one and it becomes the model.
+- **Structure coach:** checks each upper floor as timber joists or a concrete slab with the working shown, failing ones turn red (a teaching estimate, not engineering).
+- **Materials lab:** cost, embodied carbon and U-values, scheme A vs B.
+- **Daylight study:** sun hours per room. **Model city:** plot, setbacks, coverage, neighbours and their shadows.
+- **Time machine:** every change is saved; scrub back through versions and *Restore*.
+- **Studio crit:** one tutor critique per model version, from computed facts and a screenshot.
+- **Portfolio:** your ARCH captures and picked work as an A4 PDF and a static web page.
 - Holotable and first-person walk modes, sun study, windows/doors, quantities and cost export.
 
 ---
@@ -110,6 +146,7 @@ Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Calendar · I
 
 - **Good morning brief** (PC): on the first open after 06:00, a spoken 60-second brief (decisions waiting, night shift, calendar, "do this first", a result, a pattern). One-tap approve/open/snooze. Emails and spends only *open* so you read the exact thing first. Calendar titles and reminders are spoken only if you tick that box.
 - **Do this first:** one top card on the morning stack.
+- **Place and weather (opt-in):** Profile toggle. The phone can send a rough location (about 1 km) on *Update place*; the brief then adds a weather line and reminders tied to saved places. Off = the point is deleted.
 - **Weekly review** (Sunday evening): summary + one experiment; *Add to next week* turns it into a draft goal.
 
 ## Profile
@@ -117,9 +154,10 @@ Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Calendar · I
 - **Autonomy:** how much ORBIT may do on its own per area ([SAFETY.md](SAFETY.md#autonomy-levels)).
 - **Phone remote:** pair your iPhone, Shortcuts & Watch tokens ([PHONE.md](PHONE.md)).
 - **ORBIT's character:** sliders for warmth, humour, directness, length, plus the call voice. Honesty is fixed: ORBIT won't flatter you, will disagree once with a reason, and never claims to be human.
+- **Time capsule:** encrypted nightly backups of ORBIT's local folder into a folder you pick (external drive, OneDrive folder…), plus a restore wizard ([SETUP.md](SETUP.md#9-time-capsule-backups)).
 - **What I learned about you:** lessons ORBIT noticed from your own decisions. *Keep* or *Not true*. Kept ones shape CORE, the morning order, clip picking and the night shift.
 - 🩺 **Check ORBIT** (Ctrl+P → *Check ORBIT health*): setup check plus the nightly **HEALTH** card (problems from the logs, redacted, with *Copy for builder*). It never changes code.
 
 ## Phone
 
-Remote app, push notifications, voice calls ("ORBIT wants to talk"), Siri/Watch Shortcuts: all in [PHONE.md](PHONE.md).
+Remote app (home screen with a Needs-you stack), push notifications, voice calls ("ORBIT wants to talk"), car mode (big Talk button, spoken brief, no approvals while driving), Siri/Watch Shortcuts: [PHONE.md](PHONE.md). A tablet or second monitor can show a read-only mission control at `/screen` (paired like a phone, can't approve or stop anything).

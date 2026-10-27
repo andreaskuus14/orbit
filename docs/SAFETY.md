@@ -11,13 +11,15 @@ What ORBIT may do alone, what always waits for you, and where your data goes. Fe
 | **Sign** a contract | BUSINESS → Contracts → *Sign*, on the PC only | No phone, voice or auto path. ORBIT never signs |
 | **Publish** a Short | STUDIO review → *Approve*, then schedule | Another creator's clip needs "What I added" first |
 
-Approvals from the phone, a voice call or a Shortcut use the same checks as the PC button: only items already waiting, exactly as shown (a voice "yes" within a minute; a Shortcut needs a one-time 4-digit code and, for a spend, the exact credits). They can't start new sends, spends or jobs. Shortcuts never approve emails (read them in Remote). On a call, ORBIT can send a waiting BUSINESS email after it asks "Send the email to <recipient>, exactly as drafted?" and you say yes, so only say yes to a draft you have already read. Contracts are PC-only.
+Every approval is tied to a fingerprint (hash) of the exact content. Right before an email, spend, publish or signature goes out, ORBIT checks the fingerprint again: if anything changed since you approved it, it stops and asks again. This also covers invoice reminders.
+
+Approvals from the phone, a voice call or a Shortcut use the same checks as the PC button: only items already waiting, exactly as shown (a voice "yes" within a minute; a Shortcut needs a one-time 4-digit code and, for a spend, the exact credits). They can't start new sends, spends or jobs. Emails (drafts, negotiation replies, invoice reminders) are approved only on a screen where you can read them: BUSINESS on the PC or Remote. Voice calls and Shortcuts never send an email, and car mode approves nothing. Contracts are PC-only. The second screen at `/screen` is read-only.
 
 ORBIT never: buys anything, messages a seller, logs in to other sites, posts comments, deploys a shop, edits your Roblox place or ORBIT's own code. Web access is read-only.
 
 ### CORE tools
 
-Every CORE tool call passes one check first (`src/lib/policy-pure.ts`). Tools are tiered: read your data, read the public web, change your own data, act outside. The only "act outside" tools CORE has are *schedule clips you already approved* and *ask Higgsfield for a price* (it can't spend). Writes (save a memory, create a goal, queue tonight, add a wish…) only happen when your latest message asks for them, not because a web page, file or memory told it to. Unknown tools are refused.
+Every CORE tool call passes one check first (`src/lib/policy-pure.ts`). Tools are tiered: read your data, read the public web, change your own data, act outside. The only "act outside" tools CORE has are *schedule clips you already approved* and *ask Higgsfield for a price* (it can't spend). Writes (save a memory, create a goal, queue tonight, add a wish…) only happen when your latest message asks for them, not because a web page, file or memory told it to. Unknown tools are refused. Skills you kept are treated as untrusted text: they can't add tools, can't use send/spend tools, and every call still passes the same check. The Ctrl+K palette only opens screens. The twin (◐) only advises.
 
 ## 2. Autonomy levels
 
@@ -56,12 +58,19 @@ Turning it **off** is done on the PC only; the phone and Shortcuts can only turn
 - Calls: ORBIT never rings (also max 2 calls a day, an hour apart, and never under Stop-all).
 - Auto emails and Shorts: held; their 10-minute cancel window starts at 08:00.
 - Windows toasts from the news watcher: none.
+- Ambient sound plays quieter.
+
+A **focus block** (time dilation) works like short quiet hours: pushes, calls and bell notices are held until it ends (urgent ones pass).
 - The night shift works inside this time (default 01:00–06:30), but it never sends, publishes or spends.
 
 ## 5. Where your data goes
 
 **Stays on the PC**
 - Your voice: transcribed by Whisper on the PC and never saved. ORBIT's voice is made on the PC (Kokoro). The "orbital wake up" listener is offline.
+- Voice memos: transcribed on the PC.
+- Offline brain (`ORBIT_LOCAL_MODEL`): runs in Ollama on the PC.
+- Time capsule backups: encrypted, written only to the folder you picked; ORBIT uploads nothing.
+- Your place (opt-in): only the latest rough point is kept, in `place.json`; it never goes to a model, and turning the option off deletes it. The weather line sends Open-Meteo a point rounded to about 10 km.
 - Screenshots from *Look at my screen*: one frame, kept in memory for that one answer, not saved unless you press *Save*.
 - ORBIT's local state in `%LOCALAPPDATA%\orbit`: autonomy, Stop-all, lessons, predictions, negotiations, contracts, deals, health notes, paired phones and Shortcut tokens (stored only as signatures, never the token itself).
 - Memory search uses a free model on the PC, **unless** `VOYAGE_API_KEY` is set (then memory text goes to Voyage AI; set `ORBIT_EMBED=local` to stop that).
@@ -69,6 +78,7 @@ Turning it **off** is done on the PC only; the phone and Shortcuts can only turn
 **Never sent to an AI model**
 - Journal entries ("Today in a minute"): not mined for beliefs, lessons, episodes or the nightly memory tidy-up, and skipped by CORE's and agents' memory search. Chronicle shows private moments only when you switch them on, and never sends them to a model.
 - The only exception is you: if you ask CORE about your journal, it reads it for that answer, and then web search, news and agents are switched off for the rest of that answer.
+- Study cards and the memory palace leave journal entries out (the palace shows them only with the private toggle on).
 - Calendar titles and reminders reach the morning brief (and its one daily wording pass) only if you tick *Say calendar titles and reminders aloud*.
 
 **Never in a notification or log**

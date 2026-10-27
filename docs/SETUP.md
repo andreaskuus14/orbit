@@ -38,8 +38,10 @@ Supabase → your project → **SQL Editor**. Open each file from `supabase/migr
 | 16 | `0016_ledger.sql` | Event ledger links |
 | 17 | `0017_journal.sql` | "Today in a minute" journal entries |
 | 18 | `0018_episodes.sql` | Episodic memory |
+| 19 | `0019_memory_provenance.sql` | Where each memory came from, confirmed or suggested |
+| 20 | `0020_missions.sql` | Missions |
 
-Without 0017, evening notes refuse to save (your text stays in the box). Without 0018, episodes can't be saved. 0014–0018 are safe to run again; the others stop with an "already exists" error the second time.
+Without 0017, evening notes refuse to save (your text stays in the box). Without 0018, episodes can't be saved. 0014–0020 are safe to run again; the others stop with an "already exists" error the second time.
 
 Also in Supabase: **Authentication → URL Configuration** → add `http://localhost:3000/auth/callback` (and your Tailscale address, see [PHONE.md](PHONE.md)).
 
@@ -71,6 +73,11 @@ CORE uses your own Claude Code login, no API key. Install Claude Code and run `c
 | `ORBIT_MODEL_FAST` | Model for quick replies, notes, the brief polish | haiku |
 | `ORBIT_CLAUDE_BIN` | Path to `claude` if it's not on PATH | claude |
 | `ORBIT_CLAUDE_CONCURRENCY` | How many Claude calls may run at once | 3 |
+| `ORBIT_CORE_MAX_STEPS` | Model steps CORE may take per answer (2–12) | 8 |
+| `ORBIT_CORE_SESSION` | `resume` = one Claude session per CORE chat (faster follow-ups). Empty = each step starts fresh | off |
+| `ORBIT_LOCAL_MODEL` | Ollama model (e.g. `llama3.1:8b`) for chat and summaries when Claude is unreachable. No tools in that mode | off |
+
+If `ANTHROPIC_API_KEY` is set in your Windows environment, Claude Code bills that API key instead of your Claude login (DEV world → CORE config shows which).
 
 ### Memory search
 
@@ -105,6 +112,7 @@ No key in `.env.local`: Higgsfield runs through your own Claude Code connector (
 |------|---------------|---------|
 | `ORBIT_HIGGSFIELD_WEEKLY_CAP` | Max credits you can approve per week (weeks start Monday 00:00 Tallinn). `0` = no spending at all | 10 |
 | `ORBIT_HIGGSFIELD_IMAGE_MODEL`, `_VIDEO_MODEL`, `_AUDIO_MODEL` | Model ids | gpt_image_2_5 / seedance_2_5 / seed_audio |
+| `ORBIT_TWIN_SPEND_MIN` | Spends of at least this many credits get the twin's "case against" first | half the weekly cap |
 | `ORBIT_HIGGSFIELD_DRY_RUN` | `1` = fake Higgsfield (placeholder pictures, no credits, no network) | off |
 
 ### BUSINESS email (Resend)
@@ -188,4 +196,9 @@ Without these, nothing is ever emailed: you copy drafts and send them yourself.
 
 - `npm run app:install`: ORBIT icon on the Desktop and Start menu. `npm run app:autostart`: start the server when you sign in.
 - `npm run night:install`: a Scheduled Task that wakes the PC at 04:30 (change with `npm run night:install -- -At 03:00`) so night work can run. `npm run night:uninstall` removes it.
+- Offline brain: install Ollama (ollama.com), run `ollama pull llama3.1:8b`, set `ORBIT_LOCAL_MODEL=llama3.1:8b`, restart ORBIT.
 - `npm run wake:install`: an offline listener at sign-in; say "orbital wake up" and ORBIT opens with CORE greeting you. `npm run wake:uninstall` removes it.
+
+## 9. Time capsule (backups)
+
+Profile → **Time capsule**: pick a folder (an external drive or a OneDrive folder), choose a passphrase, done. Every night ORBIT writes an encrypted copy of its local folder there (14 nightly + 8 weekly kept); *Back up now* does it at once. **Write the passphrase down**: without it the backups can't be opened. To restore, use the restore wizard in the same place; it makes a safety backup first. This is separate from the weekly Supabase export (`ORBIT_BACKUP_DIR`).

@@ -107,7 +107,7 @@ Gmail, GitHub and Notion integrations; a knowledge-graph view; hardening and pub
 ## Setup
 Full guide with every setting: [docs/SETUP.md](docs/SETUP.md). What each planet does: [docs/FEATURES.md](docs/FEATURES.md). Safety rules: [docs/SAFETY.md](docs/SAFETY.md).
 
-1. **Supabase** (free tier): create a project. In *SQL Editor* run every file in `supabase/migrations` in number order, `0001` to `0018` (list and notes: [docs/SETUP.md](docs/SETUP.md#1-supabase-migrations-in-order)). In *Authentication → Providers → Email* keep email on and, since this is personal, turn **off** "Allow new users to sign up" after you have signed in once (or rely on `ORBIT_ALLOWED_EMAILS`). In *Authentication → URL Configuration* add `http://localhost:3000/auth/callback` to the redirect URLs.
+1. **Supabase** (free tier): create a project. In *SQL Editor* run every file in `supabase/migrations` in number order, `0001` to `0020` (list and notes: [docs/SETUP.md](docs/SETUP.md#1-supabase-migrations-in-order)). In *Authentication → Providers → Email* keep email on and, since this is personal, turn **off** "Allow new users to sign up" after you have signed in once (or rely on `ORBIT_ALLOWED_EMAILS`). In *Authentication → URL Configuration* add `http://localhost:3000/auth/callback` to the redirect URLs.
 2. **Claude Code**: install it and run `claude` once to sign in with your Claude account.
 3. **Configure**: `cp .env.example .env.local` and fill in the Supabase URL and anon key plus your email in `ORBIT_ALLOWED_EMAILS`. Add anything from [Needs configuration](#needs-configuration) you want.
 4. **Run** (Node 22.6+), in PowerShell or a terminal inside the `orbit` folder: `npm install`, then `npm run dev`, and open http://localhost:3000.
