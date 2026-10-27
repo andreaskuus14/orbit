@@ -105,8 +105,8 @@ function Help({ text }: { text: string }) {
   const id = useId();
   return (
     <>
-      {/* 24px hit target around a 16px circle; negative margin keeps the text line height */}
-      <button type="button" className="muted -my-1 inline-grid h-6 w-6 place-items-center rounded-full align-middle"
+      {/* 24px hit target (40px on touch) around a 16px circle; negative margin keeps the text line height */}
+      <button type="button" className="muted -my-1 inline-grid h-6 w-6 place-items-center rounded-full align-middle pointer-coarse:-m-2 pointer-coarse:h-10 pointer-coarse:w-10"
         title={text} aria-label="More info" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
         <span aria-hidden className="grid h-4 w-4 place-items-center rounded-full border border-white/20 text-[10px] leading-none">?</span>
       </button>
