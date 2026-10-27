@@ -11,7 +11,7 @@ import { useT } from "./i18n";
 type Nav = (t: NavTarget) => void;
 
 export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report: NightReport; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void; nav: Nav }) {
-  const { t } = useT();
+  const { t, tn } = useT();
   const [gone, setGone] = useState<Record<string, string>>({}); // item key → what happened to it here
   const [err, setErr] = useState("");
   const key = (i: NightItem) => `${i.kind}:${i.ref}`;
@@ -36,9 +36,9 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
   return (
     <div aria-label={t("night.slept")}>
       <b>🌙 {t("night.slept")}</b>{" "}
-      <span className="muted text-xs">{report.running ? t("night.working") : `${report.calls} Claude call${report.calls === 1 ? "" : "s"} · ${report.minutes} min${end ? ` · done ${end}` : ""}`}</span>
+      <span className="muted text-xs">{report.running ? t("night.working") : tn("night.calls", report.calls, { min: report.minutes }) + (end ? t("night.doneAt", { t: end }) : "")}</span>
       {err && <p className="error text-xs" role="alert">{err}</p>}
-      {report.why && <p className="muted text-xs">Why tonight's plan: {report.why}</p>}
+      {report.why && <p className="muted text-xs">{t("night.why", { why: report.why })}</p>}
       <ul className="since-list muted grid gap-1">
         {report.approvals.map((i) => (
           <li key={key(i)}>
@@ -59,8 +59,8 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
         {report.done.map((i) => <li key={key(i)}>{row(i, "✓")}</li>)}
         {report.failed.map((i) => <li key={key(i)} className="warn">{row(i, "⚠")}{i.why && <span className="text-xs"> · {i.why}</span>}</li>)}
         {report.company && <li className="text-xs">{report.company}</li>}
-        {report.invoices && <li className="warn">€ {report.invoices}: reminders in BUSINESS</li>}
-        {report.stopped && <li className="text-xs">{stoppedText(report.stopped)}{report.deferred ? ` · ${report.deferred} left for tonight` : ""}</li>}
+        {report.invoices && <li className="warn">{t("night.invoices", { x: report.invoices })}</li>}
+        {report.stopped && <li className="text-xs">{stoppedText(report.stopped)}{report.deferred ? t("night.deferred", { n: report.deferred }) : ""}</li>}
       </ul>
     </div>
   );
@@ -69,6 +69,7 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
 type View = { settings: NightSettings; tonight: TonightItem[]; running: boolean };
 
 export function TonightPanel() {
+  const { t } = useT();
   const [v, setV] = useState<View | null>(null);
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
@@ -77,41 +78,41 @@ export function TonightPanel() {
   const post = async (body: object) => {
     setErr("");
     try { setV(await api<View>("/api/night", { method: "POST", body: JSON.stringify(body) })); return true; }
-    catch (e) { setErr(e instanceof Error ? e.message : "Failed"); return false; }
+    catch (e) { setErr(e instanceof Error ? e.message : t("common.failed")); return false; }
   };
   const add = async (e: React.FormEvent) => { e.preventDefault(); if (text.trim() && (await post({ action: "add", text }))) setText(""); };
   const s = v?.settings;
   return (
-    <section className="grid gap-2 text-sm" aria-label="Night shift">
+    <section className="grid gap-2 text-sm" aria-label={t("night.aria")}>
       <p className="muted text-xs">
-        {s ? <>Night shift {s.enabled ? `runs ${s.from}-${s.until} (${s.tz}) while you're idle, up to ${s.maxCalls} Claude calls / ${s.maxMinutes} min. Nothing is sent, published or spent: results wait for you in the morning card.` : "is off."}</> : "Loading…"}
-        {v?.running && " Working now."}
+        {s ? (s.enabled ? t("night.runs", { from: s.from, until: s.until, tz: s.tz, calls: s.maxCalls, min: s.maxMinutes }) : t("night.off")) : t("common.loading")}
+        {v?.running && t("night.workingNow")}
       </p>
-      {s && <label className="muted flex items-center gap-2 text-xs"><input type="checkbox" checked={s.enabled} onChange={(e) => void post({ action: "settings", enabled: e.target.checked })} /> Run the night shift</label>}
+      {s && <label className="muted flex items-center gap-2 text-xs"><input type="checkbox" checked={s.enabled} onChange={(e) => void post({ action: "settings", enabled: e.target.checked })} /> {t("night.enable")}</label>}
       {s && (
-        <details className="muted text-xs"><summary>What ORBIT does on its own (learns from what you approve)</summary>
+        <details className="muted text-xs"><summary>{t("night.learnTitle")}</summary>
           {LEARN_KINDS.map((k) => (
             <label key={k} className="flex items-center justify-between gap-2">{NOUN[k]}
               <select className="field" value={s.pin?.[k] ?? "auto"} onChange={(e) => void post({ action: "settings", pin: { [k]: e.target.value } })}>
-                <option value="auto">Learn</option><option value="on">Always</option><option value="off">Never</option>
+                <option value="auto">{t("night.learn")}</option><option value="on">{t("night.always")}</option><option value="off">{t("night.never")}</option>
               </select>
             </label>
           ))}
         </details>
       )}
       <form onSubmit={add} className="flex gap-1.5">
-        <input className="field flex-1" value={text} maxLength={500} onChange={(e) => setText(e.target.value)} placeholder="Look into … tonight" aria-label="Add a task for tonight" />
-        <button className="chip" disabled={!text.trim()}>Add</button>
+        <input className="field flex-1" value={text} maxLength={500} onChange={(e) => setText(e.target.value)} placeholder={t("night.addPh")} aria-label={t("night.addAria")} />
+        <button className="chip" disabled={!text.trim()}>{t("common.add")}</button>
       </form>
       {err && <p className="error text-xs" role="alert">{err}</p>}
       <ul className="grid gap-1">
-        {v?.tonight.map((t) => (
-          <li key={t.id} className="flex items-center justify-between gap-2">
-            <span className="truncate">🌙 {t.text} <span className="muted text-xs">· {t.agent}{t.by === "core" ? " · via CORE" : ""}</span></span>
-            <button className="chip" onClick={() => void post({ action: "remove", id: t.id })} aria-label={`Remove ${t.text}`}>Remove</button>
+        {v?.tonight.map((it) => (
+          <li key={it.id} className="flex items-center justify-between gap-2">
+            <span className="truncate">🌙 {it.text} <span className="muted text-xs">· {it.agent}{it.by === "core" ? t("night.viaCore") : ""}</span></span>
+            <button className="chip" onClick={() => void post({ action: "remove", id: it.id })} aria-label={t("night.removeAria", { text: it.text })}>{t("common.remove")}</button>
           </li>
         ))}
-        {v && !v.tonight.length && <li className="muted text-xs">Nothing queued. Goal steps, follow-up drafts and Shorts packaging still run on their own.</li>}
+        {v && !v.tonight.length && <li className="muted text-xs">{t("night.empty")}</li>}
       </ul>
     </section>
   );

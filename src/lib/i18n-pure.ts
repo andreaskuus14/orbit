@@ -1,5 +1,5 @@
 // Tiny i18n: English is the source and the fallback, Estonian covers the most-seen surfaces (HUD, ⋯ menu, planets, morning
-// cards, approvals, Profile titles, the phone Remote). Hook + language switch: components/i18n.tsx. No dependency.
+// cards, approvals, Profile titles, the phone Remote, Life, Doctor/SYSTEM, night shift, rules, open loops). Hook + language switch: components/i18n.tsx. No dependency.
 import { PLANETS, type PlanetId } from "./planets.ts";
 
 export type Lang = "en" | "et";
@@ -105,6 +105,87 @@ const BASE = {
   "tour.title": "WHAT'S NEW", "tour.step": "{n} of {total}", "tour.chapters": "Tour chapters", "tour.showMe": "Show me",
   "tour.next": "Next", "tour.back": "Back", "tour.finish": "Finish", "tour.skip": "Skip for now",
   "tour.skipAria": "Skip the tour for now. Resume it from Ctrl+K: What's new tour", "tour.setup": "Set this up:", "tour.setupLink": "Setup steps",
+
+  "common.loading": "Loading…", "common.add": "Add", "common.remove": "Remove", "common.cancel": "Cancel", "common.copied": "Copied",
+
+  "overview.aria": "Planets", "overview.kicker": "ORBIT / YOUR WORKSPACE", "overview.title1": "A universe.", "overview.title2": "Yours to shape.",
+  "overview.lede": "Ask, create, remember. Pick a world to begin.", "overview.thinking": "Thinking…", "overview.lastFailed": "Last request failed",
+  "overview.pulseBusy": "Pulse is writing a briefing…", "overview.pulseFailed": "Last briefing failed", "overview.autoFailed": "An automation's last run failed",
+  "overview.running.one": "{n} agent task running…", "overview.running.other": "{n} agent tasks running…",
+  "sys.aria": "System status", "sys.title": "SYSTEM", "sys.thinking": "Thinking", "sys.ready": "Ready", "sys.agents": "Agents",
+  "sys.working": "{n} working", "sys.idle": "Idle", "sys.writing": "Writing", "sys.lastFailed": "Last failed", "sys.automations": "Automations",
+  "sys.attention": "Needs attention", "sys.ok": "OK", "sys.memories": "Memories", "sys.hfWeek": "{used} / {cap} cr this week",
+  "sys.check": "🩺 Check Orbital", "sys.keys": "← → FLY BETWEEN PLANETS · ? SHORTCUTS",
+  "cmd.workAria": "Continue my work", "cmd.closeWork": "Close work list", "cmd.tapToTalk": "Tap to talk",
+  "cmd.modeTitle": "Switch between asking CORE and giving the agents a task", "cmd.modeAria": "Mode: {mode}. Click to switch.",
+  "cmd.modeAsk": "ask CORE", "cmd.modeTask": "agent task", "cmd.ask": "Ask", "cmd.task": "Task",
+  "cmd.listening": "Listening… speak your question", "cmd.askPh": "Ask CORE…  (mic Ctrl+M)", "cmd.taskPh": "Give your agents a task, e.g. research X and save a report",
+  "cmd.liveAria": "Live voice transcript", "cmd.askAria": "Command bar: ask CORE", "cmd.taskAria": "Command bar: give the agents a task",
+
+  "brief.plan": "Plan my day",
+  "night.calls.one": "{n} Claude call · {min} min", "night.calls.other": "{n} Claude calls · {min} min", "night.doneAt": " · done {t}",
+  "night.why": "Why tonight's plan: {why}", "night.invoices": "€ {x}: reminders in BUSINESS", "night.deferred": " · {n} left for tonight",
+  "night.aria": "Night shift", "night.off": "Night shift is off.", "night.workingNow": " Working now.",
+  "night.runs": "Night shift runs {from}-{until} ({tz}) while you're idle, up to {calls} Claude calls / {min} min. Nothing is sent, published or spent: results wait for you in the morning card.",
+  "night.enable": "Run the night shift", "night.learnTitle": "What ORBIT does on its own (learns from what you approve)",
+  "night.learn": "Learn", "night.always": "Always", "night.never": "Never",
+  "night.addPh": "Look into … tonight", "night.addAria": "Add a task for tonight", "night.viaCore": " · via CORE", "night.removeAria": "Remove {text}",
+  "night.empty": "Nothing queued. Goal steps, follow-up drafts and Shorts packaging still run on their own.",
+
+  "task.back": "← All tasks", "task.request": "Request", "task.retry": "Retry", "task.cancel": "Cancel task", "task.delegated": "Delegated", "task.result": "result",
+  "task.noRetry": "This task has resolved actions. Keep their results and request only the unfinished work in a follow-up.",
+  "task.trace": "Execution trace ({n} steps)", "task.saveRecipe": "📋 Save as recipe", "task.recipeName": "Recipe name",
+
+  "doc.title": "ORBIT doctor", "doc.closeAria": "Close ORBIT doctor", "doc.checking": "Checking…", "doc.again": "Check again",
+  "doc.loading": "Checking everything (takes up to 10 seconds)…", "doc.whatToDo": "What to do:", "doc.ok": "OK", "doc.warn": "CHECK", "doc.fail": "PROBLEM",
+  "doc.selfTest": "Last self-test", "doc.afterRestart": "After the restart at {at}: {headline}", "doc.crashes": "Crashes since the boot before{exits}:",
+  "doc.unknownCause": "Cause not recognised. Ask Claude Code to look at orbit-server.log.", "doc.noCrashes": "No crashes since the boot before.",
+  "doc.checkedIn": "Checked in {s} s · {at}",
+  "sys.healthAria": "System health", "sys.card": "System", "sys.noIncidents": "No open incidents.",
+  "sys.incidents.one": "{n} open incident. Each one pushes to your phone once (not 23-08) and clears itself when fixed.",
+  "sys.incidents.other": "{n} open incidents. Each one pushes to your phone once (not 23-08) and clears itself when fixed.",
+  "sys.state.open": "OPEN", "sys.state.ack": "ACK", "sys.state.resolved": "RESOLVED", "sys.since": " · since {at}", "sys.fixed": ", fixed {at}",
+  "sys.ackAria": "Acknowledge: {title}", "sys.gotIt": "Got it", "sys.services": "Services", "sys.lastOk": " · last success {at}",
+  "sys.svc.down": "DOWN", "sys.svc.off": "OFF", "sys.failed7": "Failed in the last 7 days",
+  "sys.kind.task": "Agent tasks", "sys.kind.mission": "Missions", "sys.kind.night": "Night tasks", "sys.kind.clip": "Clip renders",
+  "sys.storage": "Storage (free space)", "sys.models": "Models and budgets",
+  "sys.m.ok": "available", "sys.m.failing": "last call failed", "sys.m.limited": "usage limit", "sys.m.unused": "not used",
+  "sys.mCalls": " · {n} calls in 7 days, last success {at}", "sys.local": "(Ollama, see Services)",
+  "sys.claude5h": "Claude, 5 hours:", "sys.claude7d": "Claude, 7 days:", "sys.weeklyHint": " · set ORBIT_CLAUDE_WEEKLY_CALLS for a weekly budget",
+  "sys.hf": "Higgsfield this week:", "sys.night": "Night budget:", "sys.nightOf": "· night of {night}", "sys.stopped": ", stopped: {why}", "sys.noRun": "no run yet",
+  "sys.u.calls": "calls", "sys.u.credits": "credits",
+  "health.title": "Health", "health.nightCheck": "Night check {at}. ", "health.runsAtNight": "Runs in the night shift. ",
+  "health.copyHint": "Copy an issue and paste it to Claude Code or Codex; ORBIT never changes its own code.", "health.none": "No open problems.",
+  "health.new": "NEW", "health.back": "BACK", "health.ongoing": "ONGOING", "health.meta": "{count}× · last {at} · severity {sev}",
+  "health.likely": "Likely: {cause}", "health.evidence": "Evidence", "health.copyAria": "Copy issue text for a builder: {title}", "health.copy": "Copy for builder",
+  "improve.title": "Make ORBIT better", "improve.week": "Week {week}. ", "improve.none": "No weak spots found this week.",
+  "improve.ranked": "ORBIT's weakest spots, ranked. Copy a brief for Claude Code or Codex; ORBIT never changes its own code.",
+  "improve.impact": "IMPACT {n}", "improve.evidence": "Evidence: {list}", "improve.copyAria": "Copy builder brief: {title}",
+  "improve.draftAria": "Draft a patch for review: {title}", "improve.draftTitle": "One Claude call drafts a diff + test. Saved locally, never applied.",
+  "improve.drafting": "Drafting…", "improve.draft": "Draft patch", "improve.saved": "Test: {test} · Saved (not applied):",
+  "improve.handoffAria": "Copy patch handoff for Claude Code: {title}", "improve.handoff": "Copy to Claude Code",
+
+  "loops.title": "Open loops", "loops.count": "{n} OPEN", "loops.empty": "Nothing left hanging.", "loops.snooze": "Snooze 3 days",
+  "loops.task": "Turn into task", "loops.scan": "Scan now",
+
+  "rules.when": "When", "rules.does": "Does", "rules.scope": "Scope", "rules.allowed": "Allowed", "rules.newAria": "New standing rule",
+  "rules.ph": "e.g. Every weekday 7:30 check deals", "rules.inputAria": "Rule in your own words", "rules.readBack": "Read it back",
+  "rules.confirmRule": "Confirm rule", "rules.notRight": "Not right", "rules.reword": "Not right? Reword it and read it back again. Nothing runs until you confirm.",
+  "rules.confirm": "Confirm", "rules.pause": "Pause", "rules.delete": "Delete", "rules.deleteAria": "Delete {name}", "rules.deleteConfirm": "Delete \"{name}\"?",
+  "rules.proposed": "Proposed by CORE: not active until you confirm", "rules.next": "Next: {at}", "rules.active": "Active",
+  "rules.last": "Last result ({at}):", "rules.agentTask": "agent task",
+  "rules.empty": "No standing rules yet. Write one above, or tell CORE (“every Sunday, prepare my weekly review”).",
+
+  "life.sections": "Life sections", "life.tab.Today": "Today", "life.tab.Habits": "Habits", "life.tab.Focus": "Focus", "life.tab.Reminders": "Reminders",
+  "life.tab.Journal": "Journal", "life.tab.School": "School", "life.noToday": "No habits today", "life.markDone": "mark done", "life.markUndone": "done, mark not done",
+  "life.streak": "Current streak", "life.noHabits": "No habits yet. Add one under Habits.", "life.todayLine": "Focus today: {min} min · {n} upcoming reminders",
+  "life.deleteHabit": "Delete “{name}” and its history?", "life.emoji": "Emoji (optional)", "life.habitPh": "New habit, e.g. Read 10 pages", "life.habitName": "Habit name",
+  "life.days": "Days", "life.max": "Maximum of 30 habits reached.", "life.everyDay": "Every day", "life.deleteAria": "Delete {name}",
+  "life.timerLen": "Timer length", "life.break": "Break", "life.start": "Start", "life.reset": "Reset", "life.focusToday": "Focus today:", "life.focusWeek": "· this week {min} min",
+  "life.remindPh": "Remind me to…", "life.remindText": "Reminder text", "life.remindAt": "Reminder date and time", "life.repeat": "Repeat",
+  "life.once": "Once", "life.weekdays": "Weekdays", "life.everyWeek": "Every week", "life.notify": "Enable desktop notifications", "life.done": " · done",
+  "life.deleteReminder": "Delete reminder {text}", "life.noReminders": "No upcoming reminders.", "life.saved": "Saved",
+  "life.journalPh": "How was today? (saves when you click away)", "life.reflect": "Reflect with CORE",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -119,6 +200,7 @@ export const EN = { ...BASE, ...Object.fromEntries(PLANETS.flatMap((p) => [[`pla
  *   memory (a saved item) = mälukirje · agent task = agendi ülesanne · automation = automatiseering · goal = eesmärk
  *   brief/briefing = ülevaade · morning brief = hommikuülevaade · clip = klipp · Short = Short · credit = krediit
  *   notification = teavitus · nudge (habit) = meeldetuletus · habit = harjumus · profile = profiil · CORE, ORBIT, Orbital, Pulse, Higgsfield = names, never translated
+ *   standing rule = püsireegel · night shift = öine vahetus · open loop = lahtine ots · incident = intsident · call (Claude) = päring
  * Counts: after a number other than 1 Estonian takes the partitive singular ("3 agenti"), so .one/.other is enough. */
 export const ET: Partial<Record<Key, string>> = {
   "common.close": "Sulge", "common.open": "Ava", "common.approve": "Kinnita", "common.reject": "Lükka tagasi",
@@ -233,6 +315,87 @@ export const ET: Partial<Record<Key, string>> = {
   "tour.title": "UUDISED", "tour.step": "{n}/{total}", "tour.chapters": "Tuuri peatükid", "tour.showMe": "Näita",
   "tour.next": "Edasi", "tour.back": "Tagasi", "tour.finish": "Valmis", "tour.skip": "Jäta praegu vahele",
   "tour.skipAria": "Jäta tuur praegu vahele. Jätka seda Ctrl+K kaudu: What's new tour", "tour.setup": "Seadista:", "tour.setupLink": "Seadistuse sammud",
+
+  "common.loading": "Laadin…", "common.add": "Lisa", "common.remove": "Eemalda", "common.cancel": "Tühista", "common.copied": "Kopeeritud",
+
+  "overview.aria": "Planeedid", "overview.kicker": "ORBIT / SINU TÖÖRUUM", "overview.title1": "Universum.", "overview.title2": "Sinu kujundada.",
+  "overview.lede": "Küsi, loo, jäta meelde. Vali alustuseks maailm.", "overview.thinking": "Mõtlen…", "overview.lastFailed": "Viimane päring ebaõnnestus",
+  "overview.pulseBusy": "Pulse kirjutab ülevaadet…", "overview.pulseFailed": "Viimane ülevaade ebaõnnestus", "overview.autoFailed": "Ühe automatiseeringu viimane käivitus ebaõnnestus",
+  "overview.running.one": "{n} agendi ülesanne käib…", "overview.running.other": "{n} agendi ülesannet käib…",
+  "sys.aria": "Süsteemi olek", "sys.title": "SÜSTEEM", "sys.thinking": "Mõtleb", "sys.ready": "Valmis", "sys.agents": "Agendid",
+  "sys.working": "{n} töös", "sys.idle": "Ootel", "sys.writing": "Kirjutab", "sys.lastFailed": "Viimane ebaõnnestus", "sys.automations": "Automatiseeringud",
+  "sys.attention": "Vajab tähelepanu", "sys.ok": "Korras", "sys.memories": "Mälukirjed", "sys.hfWeek": "{used} / {cap} krediiti sel nädalal",
+  "sys.check": "🩺 Kontrolli Orbitali", "sys.keys": "← → LENDA PLANEETIDE VAHEL · ? KIIRKLAHVID",
+  "cmd.workAria": "Jätka pooleliolevat tööd", "cmd.closeWork": "Sulge tööde loend", "cmd.tapToTalk": "Puuduta ja räägi",
+  "cmd.modeTitle": "Vali, kas küsid CORE'ilt või annad agentidele ülesande", "cmd.modeAria": "Režiim: {mode}. Klõpsa, et vahetada.",
+  "cmd.modeAsk": "küsi CORE'ilt", "cmd.modeTask": "agendi ülesanne", "cmd.ask": "Küsi", "cmd.task": "Ülesanne",
+  "cmd.listening": "Kuulan… ütle oma küsimus", "cmd.askPh": "Küsi CORE'ilt…  (mikrofon Ctrl+M)", "cmd.taskPh": "Anna agentidele ülesanne, nt uuri X-i ja salvesta aruanne",
+  "cmd.liveAria": "Kõne tekstina reaalajas", "cmd.askAria": "Käsurida: küsi CORE'ilt", "cmd.taskAria": "Käsurida: anna agentidele ülesanne",
+
+  "brief.plan": "Planeeri mu päev",
+  "night.calls.one": "{n} Claude'i päring · {min} min", "night.calls.other": "{n} Claude'i päringut · {min} min", "night.doneAt": " · valmis {t}",
+  "night.why": "Miks just selline öö plaan: {why}", "night.invoices": "€ {x}: meeldetuletused on ÄRI all", "night.deferred": " · {n} jäi tänaseks ööks",
+  "night.aria": "Öine vahetus", "night.off": "Öine vahetus on väljas.", "night.workingNow": " Töötab praegu.",
+  "night.runs": "Öine vahetus töötab {from}–{until} ({tz}), kui sa arvutit ei kasuta: kuni {calls} Claude'i päringut / {min} min. Midagi ei saadeta, avaldata ega kulutata: tulemused ootavad sind hommikukaardil.",
+  "night.enable": "Lülita öine vahetus sisse", "night.learnTitle": "Mida ORBIT teeb omal käel (õpib sellest, mida sa kinnitad)",
+  "night.learn": "Õpi", "night.always": "Alati", "night.never": "Mitte kunagi",
+  "night.addPh": "Uuri täna öösel …", "night.addAria": "Lisa ülesanne tänaseks ööks", "night.viaCore": " · CORE'i kaudu", "night.removeAria": "Eemalda: {text}",
+  "night.empty": "Järjekord on tühi. Eesmärkide sammud, järelkirjade mustandid ja Shortside pakendamine käivad ikka omasoodu.",
+
+  "task.back": "← Kõik ülesanded", "task.request": "Päring", "task.retry": "Proovi uuesti", "task.cancel": "Tühista ülesanne", "task.delegated": "Edasi antud", "task.result": "tulemus",
+  "task.noRetry": "Selle ülesande osa toiminguid on juba otsustatud. Jäta nende tulemused alles ja küsi lõpetamata osa uue ülesandena.",
+  "task.trace": "Täitmise logi ({n} sammu)", "task.saveRecipe": "📋 Salvesta retseptina", "task.recipeName": "Retsepti nimi",
+
+  "doc.title": "ORBITi arst", "doc.closeAria": "Sulge ORBITi arst", "doc.checking": "Kontrollin…", "doc.again": "Kontrolli uuesti",
+  "doc.loading": "Kontrollin kõike (võtab kuni 10 sekundit)…", "doc.whatToDo": "Mida teha:", "doc.ok": "KORRAS", "doc.warn": "KONTROLLI", "doc.fail": "PROBLEEM",
+  "doc.selfTest": "Viimane enesekontroll", "doc.afterRestart": "Pärast taaskäivitust {at}: {headline}", "doc.crashes": "Krahhid alates eelmisest käivitusest{exits}:",
+  "doc.unknownCause": "Põhjust ei tuvastatud. Palu Claude Code'il vaadata faili orbit-server.log.", "doc.noCrashes": "Alates eelmisest käivitusest krahhe pole.",
+  "doc.checkedIn": "Kontroll võttis {s} s · {at}",
+  "sys.healthAria": "Süsteemi tervis", "sys.card": "Süsteem", "sys.noIncidents": "Lahtisi intsidente pole.",
+  "sys.incidents.one": "{n} lahtine intsident. Iga intsident saadab telefoni ühe teavituse (mitte kell 23–08) ja kaob ise, kui viga on parandatud.",
+  "sys.incidents.other": "{n} lahtist intsidenti. Iga intsident saadab telefoni ühe teavituse (mitte kell 23–08) ja kaob ise, kui viga on parandatud.",
+  "sys.state.open": "LAHTI", "sys.state.ack": "TEADA", "sys.state.resolved": "LAHENDATUD", "sys.since": " · alates {at}", "sys.fixed": ", parandatud {at}",
+  "sys.ackAria": "Võta teadmiseks: {title}", "sys.gotIt": "Selge", "sys.services": "Teenused", "sys.lastOk": " · viimati korras {at}",
+  "sys.svc.down": "MAAS", "sys.svc.off": "VÄLJAS", "sys.failed7": "Viimase 7 päeva vead",
+  "sys.kind.task": "Agentide ülesanded", "sys.kind.mission": "Missioonid", "sys.kind.night": "Öised ülesanded", "sys.kind.clip": "Klippide renderdused",
+  "sys.storage": "Salvestusruum (vaba ruum)", "sys.models": "Mudelid ja eelarved",
+  "sys.m.ok": "saadaval", "sys.m.failing": "viimane päring ebaõnnestus", "sys.m.limited": "kasutuslimiit täis", "sys.m.unused": "pole kasutusel",
+  "sys.mCalls": " · {n} päringut 7 päevaga, viimati korras {at}", "sys.local": "(Ollama, vaata teenuseid)",
+  "sys.claude5h": "Claude, 5 tundi:", "sys.claude7d": "Claude, 7 päeva:", "sys.weeklyHint": " · nädalaeelarve jaoks määra ORBIT_CLAUDE_WEEKLY_CALLS",
+  "sys.hf": "Higgsfield sel nädalal:", "sys.night": "Öine eelarve:", "sys.nightOf": "· öö {night}", "sys.stopped": ", peatus: {why}", "sys.noRun": "pole veel käinud",
+  "sys.u.calls": "päringut", "sys.u.credits": "krediiti",
+  "health.title": "Tervis", "health.nightCheck": "Öine kontroll {at}. ", "health.runsAtNight": "Käib öise vahetuse ajal. ",
+  "health.copyHint": "Kopeeri probleem ja kleebi see Claude Code'ile või Codexile; ORBIT ei muuda kunagi ise oma koodi.", "health.none": "Lahtisi probleeme pole.",
+  "health.new": "UUS", "health.back": "TAGASI", "health.ongoing": "KESTAB", "health.meta": "{count}× · viimati {at} · raskusaste {sev}",
+  "health.likely": "Tõenäoline põhjus: {cause}", "health.evidence": "Tõendid", "health.copyAria": "Kopeeri probleemi tekst arendajale: {title}", "health.copy": "Kopeeri arendajale",
+  "improve.title": "Tee ORBIT paremaks", "improve.week": "Nädal {week}. ", "improve.none": "Sel nädalal nõrku kohti ei leitud.",
+  "improve.ranked": "ORBITi nõrgimad kohad pingereas. Kopeeri kirjeldus Claude Code'ile või Codexile; ORBIT ei muuda kunagi ise oma koodi.",
+  "improve.impact": "MÕJU {n}", "improve.evidence": "Tõendid: {list}", "improve.copyAria": "Kopeeri arendaja kirjeldus: {title}",
+  "improve.draftAria": "Koosta parandus ülevaatamiseks: {title}", "improve.draftTitle": "Üks Claude'i päring koostab muudatuse ja testi. Salvestatakse kohalikult, kunagi ei rakendata.",
+  "improve.drafting": "Koostan…", "improve.draft": "Koosta parandus", "improve.saved": "Test: {test} · Salvestatud (rakendamata):",
+  "improve.handoffAria": "Kopeeri parandus Claude Code'ile: {title}", "improve.handoff": "Kopeeri Claude Code'ile",
+
+  "loops.title": "Lahtised otsad", "loops.count": "{n} LAHTI", "loops.empty": "Midagi ei jäänud ripakile.", "loops.snooze": "Lükka 3 päeva edasi",
+  "loops.task": "Tee ülesandeks", "loops.scan": "Otsi kohe",
+
+  "rules.when": "Millal", "rules.does": "Mida teeb", "rules.scope": "Ulatus", "rules.allowed": "Lubatud", "rules.newAria": "Uus püsireegel",
+  "rules.ph": "nt Igal tööpäeval 7:30 vaata pakkumised üle", "rules.inputAria": "Reegel sinu enda sõnadega", "rules.readBack": "Loe ette, kuidas aru said",
+  "rules.confirmRule": "Kinnita reegel", "rules.notRight": "Pole õige", "rules.reword": "Pole õige? Sõnasta ümber ja lase uuesti ette lugeda. Midagi ei käivitu enne, kui kinnitad.",
+  "rules.confirm": "Kinnita", "rules.pause": "Peata", "rules.delete": "Kustuta", "rules.deleteAria": "Kustuta {name}", "rules.deleteConfirm": "Kas kustutada „{name}“?",
+  "rules.proposed": "CORE'i ettepanek: ei tööta enne, kui kinnitad", "rules.next": "Järgmine: {at}", "rules.active": "Töötab",
+  "rules.last": "Viimane tulemus ({at}):", "rules.agentTask": "agendi ülesanne",
+  "rules.empty": "Püsireegleid veel pole. Kirjuta üks ülal või ütle CORE'ile („igal pühapäeval valmista ette mu nädala ülevaade“).",
+
+  "life.sections": "Elu jaotised", "life.tab.Today": "Täna", "life.tab.Habits": "Harjumused", "life.tab.Focus": "Fookus", "life.tab.Reminders": "Meeldetuletused",
+  "life.tab.Journal": "Päevik", "life.tab.School": "Kool", "life.noToday": "Täna harjumusi pole", "life.markDone": "märgi tehtuks", "life.markUndone": "tehtud, märgi tegemata",
+  "life.streak": "Praegune jada", "life.noHabits": "Harjumusi veel pole. Lisa üks jaotises „Harjumused“.", "life.todayLine": "Fookus täna: {min} min · {n} tulevast meeldetuletust",
+  "life.deleteHabit": "Kas kustutada „{name}“ koos ajalooga?", "life.emoji": "Emoji (soovi korral)", "life.habitPh": "Uus harjumus, nt Loe 10 lehekülge", "life.habitName": "Harjumuse nimi",
+  "life.days": "Päevad", "life.max": "Harjumusi võib olla kuni 30.", "life.everyDay": "Iga päev", "life.deleteAria": "Kustuta {name}",
+  "life.timerLen": "Taimeri pikkus", "life.break": "Paus", "life.start": "Alusta", "life.reset": "Lähtesta", "life.focusToday": "Fookus täna:", "life.focusWeek": "· sel nädalal {min} min",
+  "life.remindPh": "Tuleta mulle meelde…", "life.remindText": "Meeldetuletuse tekst", "life.remindAt": "Meeldetuletuse kuupäev ja kellaaeg", "life.repeat": "Kordus",
+  "life.once": "Üks kord", "life.weekdays": "Tööpäeviti", "life.everyWeek": "Iga nädal", "life.notify": "Luba töölaua teavitused", "life.done": " · tehtud",
+  "life.deleteReminder": "Kustuta meeldetuletus {text}", "life.noReminders": "Tulevasi meeldetuletusi pole.", "life.saved": "Salvestatud",
+  "life.journalPh": "Kuidas tänane päev läks? (salvestub, kui mujale klõpsad)", "life.reflect": "Mõtiskle koos CORE'iga",
 };
 
 type Vars = Record<string, string | number>;
