@@ -7,11 +7,14 @@ import { askClaude, createBudget, emit, recordUsage } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { allows, autonomyLevels } from "./autonomy";
 import { nightOff } from "./autonomy-pure";
+import { planCompany, stepStatus } from "./company-pure";
 import { callsSince, lastCoreCallAt, usageHold } from "./usage-meter";
 import { today } from "./goals-pure";
+import { localDay } from "./morning-pure";
 import { FOLLOWUP_SYSTEM, dueFollowups, followupPrompt, type Prospect } from "./business-pure";
 import { scoutDue } from "./niche-pure";
-import { NIGHT_KINDS, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest, startBlock, tonightBlocked, wakePushDue,
+import { whyLine, type Learned } from "./night-learn-pure";
+import { NIGHT_KINDS, PERSONA_STUDIO_RUNS, addCompanyTonight, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest, startBlock, tonightBlocked, wakePushDue,
   type NightItem, type NightRun, type NightState, type NightTask, type NightUser } from "./night-pure";
 
 // Night shift runner (rules: night-pure.ts). Called every scheduler tick; starts at most one run at a time, in the night window,
@@ -75,8 +78,10 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
   if (!prev || prev.key !== key) await emit(sb, userId, "night.start", "core", { night: run.id });
   console.log("[orbit] night shift starting");
 
-  const { queue, deferred } = planNight(await planInput(sb, userId, st, run), s, used());
-  run.deferred = deferred;
+  await startQueuedCompany(sb, userId, run);
+  const learned = await (await import("./night-learn")).learnedPlan(sb, userId, s, key); // what he approved before reorders/fades ORBIT's own work
+  const { queue, deferred } = planNight(await planInput(sb, userId, st, run, learned), s, used());
+  run.deferred = deferred; run.why = whyLine(learned, queue.map((t) => t.kind), s.pin) || undefined;
   for (const t of queue) {
     if (ac.signal.aborted || stopAllOn()) { run.stopped = "stop-all"; break; }
     if (usageHold()) { run.stopped = "usage"; break; }
@@ -88,6 +93,9 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
     await save();
     await emit(sb, userId, "night.task", "core", { night: run.id, kind: t.kind, ref: t.ref.slice(0, 128), status: item.status });
   }
+  if (!run.stopped) await import("./clips/recap").then((r) => r.makeRecap(sb, userId, ac.signal)).catch((e) => console.error("[orbit] daily recap:", msg(e))); // local ffmpeg only, no model
+  // ORBIT's diary: one fast-model call if the night still has room, else the plain template (diary.ts)
+  await import("./diary").then((m) => m.writeDiary(sb, userId, run, !ac.signal.aborted && used().calls < s.maxCalls && inWindow(Date.now(), s), ac.signal)).catch(() => {});
   run.endedAt = new Date().toISOString();
   await save();
   const u = used();
@@ -95,7 +103,20 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
   console.log(`[orbit] night shift ${run.stopped ? `stopped (${run.stopped})` : "done"}: ${run.items.length} item(s), ${u.calls} Claude call(s)`);
 }
 
-async function planInput(sb: SupabaseClient, userId: string, st: NightState, run: NightRun) {
+/** Company goals queued "for tonight": created as company chains (rows only, no model call); planNight then runs their steps within budget. */
+async function startQueuedCompany(sb: SupabaseClient, userId: string, run: NightRun) {
+  const list = (await load()).users[userId]?.company ?? [];
+  if (!list.length || stopAllOn() || nightOff(autonomyLevels()).includes("company")) return;
+  const [{ createChain }, { planCompany }] = await Promise.all([import("./chains"), import("./company-pure")]);
+  for (const q of list) {
+    const plan = planCompany(q.goal);
+    const r = typeof plan === "string" ? { error: plan } : await createChain(sb, userId, { goal: plan.goal, steps: plan.steps }, undefined, false, true).catch((e) => ({ error: msg(e) }));
+    if ("error" in r) run.items.push({ kind: "company", ref: `start:${q.id}`, label: `Company: ${q.goal.slice(0, 100)}`, status: "failed", why: r.error.slice(0, 200), at: new Date().toISOString() });
+    await update((x) => { const u = user(x, userId); u.company = (u.company ?? []).filter((y) => y.id !== q.id); }); // failed ones too: reported, not retried every night
+  }
+}
+
+async function planInput(sb: SupabaseClient, userId: string, st: NightState, run: NightRun, learned: Learned) {
   const [goals, prospects, board] = await Promise.all([
     sb.from("goals").select("id, doc").eq("user_id", userId).in("status", ["approved", "running", "waiting"]).limit(30),
     sb.from("prospects").select("id, name, stage, updated_at, notes").eq("user_id", userId).eq("stage", "contacted").limit(300),
@@ -105,10 +126,15 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     tonight: st.users[userId]?.tonight ?? [], goals: (goals.data ?? []) as { id: string; doc: import("./goals-pure").Goal }[],
     followups: dueFollowups((prospects.data ?? []) as Prospect[], Date.now()), drafted: st.users[userId]?.drafted ?? {},
     nicheDue: !!board && !board.busy && scoutDue({ lastAttempt: board.lastAttempt ?? undefined, lastOk: board.lastOk ?? undefined }, Date.now()),
+    company: await import("./chains").then((c) => c.openCompanyChains(sb, userId), () => []),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
-    health: true,
-    handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: nightOff(autonomyLevels()),
-    boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({})),
+    rivals: await import("./rivals").then((r) => r.rivalsDue(), () => 0),
+    health: true, dream: true,
+    backup: await import("./capsule").then((m) => m.backupDue(), () => false),
+    personas: await import("./personas").then((m) => m.personasDue(userId), () => false),
+    handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: [...nightOff(autonomyLevels()), ...learned.drop],
+    boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({}) as Record<string, number>)
+      .then((b) => Object.fromEntries(NIGHT_KINDS.map((k) => [k, (b[k] ?? 1) * (learned.weight[k] ?? 1)]))),
   };
 }
 
@@ -148,9 +174,12 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     }
     case "clips": { // titles, descriptions and slots for rendered clips; publishing stays the owner's Approve click
       const [{ packageNow }, { listJobs }] = await Promise.all([import("./clips/autopilot"), import("./clips/factory")]);
+      // Shorts autopilot v2: the week's scripts + Higgsfield prices (get_cost only) → one morning "Approve N Shorts" batch.
+      const plan = await import("./clips/shorts-plan").then((m) => m.prepShorts(userId, signal)).catch((e) => { console.error("[orbit] shorts plan:", e); return null; });
       await packageNow();
       const ready = (await listJobs()).flatMap((j) => j.clips).filter((c) => c.status === "ready").length;
-      return ready ? { ...base, label: `${ready} Short${ready > 1 ? "s" : ""} ready for your review`, status: "approval", open: { panel: "studio" }, at: at() } : { ...base, status: "skipped", why: "No clips waiting", at: at() };
+      const label = [ready && `${ready} Short${ready > 1 ? "s" : ""} ready for your review`, plan?.batch.label].filter(Boolean).join(" · ");
+      return label ? { ...base, label, status: "approval", open: { panel: "studio" }, at: at() } : { ...base, status: "skipped", why: "No clips waiting", at: at() };
     }
     case "niche": {
       const n = await import("./niche");
@@ -159,6 +188,10 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
       const b = await n.nicheBoard();
       return b.lastOk && b.lastOk !== before ? { ...base, status: "done", label: "New BUSINESS niche ideas", open: { panel: "business" }, at: at() } : { ...base, status: b.lastError ? "failed" : "skipped", why: (b.lastError ?? "Not due").slice(0, 200), at: at() };
     }
+    case "rivals": { // read-only public pages, no model call; the report lives in BUSINESS → Niches
+      const { rivalsLine } = await import("./rivals-pure");
+      return { ...base, label: rivalsLine(await (await import("./rivals")).runRivals(signal)), status: "done", open: { panel: "business" }, at: at() };
+    }
     case "deals": { // read-only web hunt; a great deal pushes "Deal found" and may ring him after 08:00 (call-pure)
       const r = await (await import("./deals")).huntDeals(sb, userId, "background", { signal, max: t.calls });
       if (!r.wishes) return { ...base, status: "skipped", why: "No wish was due", at: at() };
@@ -166,11 +199,35 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     }
     case "health": { // reads logs and failures, writes notes for the Doctor panel; never touches code
       const r = await (await import("./health")).runHealth(sb, userId, signal);
+      await (await import("./self-improve")).maybeSelfImprove(sb, userId, signal); // weekly "Make ORBIT better" tasks (once per ISO week)
       return r.fresh ? { ...base, label: `Health check: ${r.fresh} new problem${r.fresh > 1 ? "s" : ""} (see the Doctor panel)`, status: "done", at: at() }
         : { ...base, status: "skipped", why: r.open ? `Nothing new; ${r.open} known problem${r.open > 1 ? "s" : ""} still open` : "Nothing broke", at: at() };
     }
+    case "company": { // one step of a company chain through the chain runner (role budget, approvals queue); never more than one per task
+      const chainId = t.ref.split(":")[0];
+      const r = await (await import("./chains")).drive(sb, userId, chainId, undefined, 1);
+      if (!r) return { ...base, status: "skipped", why: "Already running, or waiting for you", at: at() };
+      const st = stepStatus(r.status);
+      return { ...base, status: st, ...(st === "approval" ? { open: { task: r.taskId } } : { open: { panel: "agents" as const } }), at: at() };
+    }
+    case "dream": { // the morning brief asks it; nothing is edited, so it's never a "done" or an approval here
+      const ns = (await load()).settings, key = nightKey(Date.now(), ns), r = await (await import("./dream")).runDream(sb, userId, key, ns.tz, signal);
+      const d = await (await import("./dream-ideas")).runIdeas(sb, userId, key, signal).catch((e) => ({ n: 0, why: e instanceof Error ? e.message : String(e) })); // dream mode: idea combinations, one call
+      return { ...base, status: "skipped", why: `${r.dream ? "One question saved for the morning brief" : r.why}; ${d.n ? `${d.n} idea${d.n > 1 ? "s" : ""} in DREAMS` : `no ideas (${d.why})`}`, at: at() };
+    }
+    case "personas": { // look-only Studio runs + one walkthrough; backlog proposals wait for his Add click in GAME DEV → Personas
+      const { runPersonaPlaytest } = await import("./personas");
+      const r = await runPersonaPlaytest(sb, userId, { studioRuns: PERSONA_STUDIO_RUNS, day: nightKey(Date.now(), (await load()).settings), signal });
+      return { ...base, label: r.line, status: r.proposals.length ? "approval" : "done", ...(r.proposals.length ? { why: `${r.proposals.length} backlog proposal${r.proposals.length > 1 ? "s" : ""} in GAME DEV → Personas` } : {}), at: at() };
+    }
+    case "backup": { // time capsule (capsule.ts): local folder only; a failure (e.g. drive unplugged) shows as failed with the reason
+      const r = await (await import("./capsule")).runBackup();
+      const { fmtMB } = await import("./capsule-pure");
+      return { ...base, label: `Backup OK (${fmtMB(r.bytes)})`, status: "done", at: at() };
+    }
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions
+      await import("./memory-graph").then((m) => m.rebuildGraph(sb, userId)).catch((e) => console.error("[orbit] memory graph:", msg(e))); // local clusters for MEMORY; no model call
       const k = h.proposals.filter((p) => p.status === "pending").length;
       return k ? { ...base, label: `${k} memory tidy-up suggestion${k > 1 ? "s" : ""}`, status: "approval", open: { panel: "memory" }, at: at() } : { ...base, status: "skipped", why: "Nothing to tidy", at: at() };
     }
@@ -184,7 +241,13 @@ export async function getNightReport(sb: SupabaseClient, userId: string, now = D
   const st = await load(), run = st.users[userId]?.run;
   const ids = (run?.items ?? []).flatMap((i) => (i.open && "task" in i.open ? [i.open.task] : []));
   const { data } = ids.length ? await sb.from("tasks").select("id, status").eq("user_id", userId).in("id", ids) : { data: [] };
-  return nightReport(run, Object.fromEntries((data ?? []).map((t) => [t.id, t.status])), now, st.settings, nightRunning());
+  const r = nightReport(run, Object.fromEntries((data ?? []).map((t) => [t.id, t.status])), now, st.settings, nightRunning());
+  if (r) { // one line about money owed, when any invoice is overdue (invoices-pure overdueLine)
+    const [{ allInvoices }, { overdueLine }] = await Promise.all([import("./invoices"), import("./invoices-pure")]);
+    const line = overdueLine(await allInvoices(), localDay(new Date(now)));
+    if (line) r.invoices = line;
+  }
+  return r;
 }
 
 export async function nightView(sb: SupabaseClient, userId: string) {
@@ -194,6 +257,16 @@ export async function nightView(sb: SupabaseClient, userId: string) {
 
 export const addTonightItem = (userId: string, b: { text?: unknown; agent?: unknown }, by: "owner" | "core") =>
   update((s) => { const u = user(s, userId), r = addTonight(u.tonight, b, by, randomUUID(), Date.now()); if (typeof r === "string") return r; u.tonight = r; return ""; });
+/** AGENTS → Company "Tonight": queue a goal for the night shift to start (night.json, on this PC). */
+export const addCompanyTonightItem = (userId: string, goal: unknown) =>
+  update((s) => { const p = planCompany(goal), u = user(s, userId), r = addCompanyTonight(u.company ?? [], goal, typeof p === "string" ? p : "", randomUUID(), Date.now());
+    if (typeof r === "string") return r; u.company = r; return ""; });
+export const removeCompanyTonightItem = (userId: string, id: string) =>
+  update((s) => { const u = user(s, userId), n = (u.company ?? []).length; u.company = (u.company ?? []).filter((t) => t.id !== id); return n === u.company.length ? "Not queued for tonight" : ""; });
+export const companyTonight = async (userId: string) => (await load()).users[userId]?.company ?? [];
+/** In the night window (and the night shift on): company chains advance only through the night shift's budget. */
+export const nightOwnsCompany = async (now = Date.now()) => { const s = (await load()).settings; return s.enabled && allows("night-shift", "background").ok && inWindow(now, s); };
+
 export const removeTonightItem = (userId: string, id: string) =>
   update((s) => { const u = user(s, userId), n = u.tonight.length; u.tonight = u.tonight.filter((t) => t.id !== id); return n === u.tonight.length ? "Not on tonight's list" : ""; });
 export const setNightSettings = (b: Record<string, unknown>) =>

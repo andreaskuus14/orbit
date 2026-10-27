@@ -1,11 +1,16 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
 import VisibilityPanel from "./VisibilityPanel";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
-import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, type Find, type Lang, type Prospect, type Stage, type Template } from "@/lib/business-pure";
+import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, sendStamp, type Find, type Lang, type Prospect, type Stage, type Template } from "@/lib/business-pure";
 import { mapNodes, mapSummary } from "@/lib/business-map-pure";
 import { SIG_LABEL, scorecard, type Cell } from "@/lib/outreach-score-pure";
 import NicheCards from "./NicheCards";
+import InvoicesPanel from "./InvoicesPanel";
+import MoneyPanel from "./MoneyPanel";
+import ContractsPanel from "./ContractsPanel";
+import NegotiatorBox from "./NegotiatorBox";
 
 // Three.js loads after the drawer opens, so the list shows instantly.
 const BusinessMap = dynamic(() => import("./BusinessMap"), { ssr: false, loading: () => <div className="h-[260px] rounded-md border border-white/10" /> });
@@ -89,7 +94,12 @@ export default function BusinessPanel() {
 
       {st && <Scorecard ps={st.prospects} />}
 
+      {st && <ContractsPanel prospects={st.prospects} />}
+
       <NicheCards />
+
+      {st && <InvoicesPanel prospects={st.prospects} />}
+      <MoneyPanel />
 
       <VisibilityPanel />
 
@@ -207,6 +217,7 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
         <button className={`chip ${sure ? "error" : ""}`} disabled={any} onClick={() => (sure ? void act(`del:${p.id}`, { action: "delete", id: p.id }) : (setSure(true), setTimeout(() => setSure(false), 4000)))}>
           {sure ? "Really delete?" : "Delete"}</button>
       </div>
+      {p.stage !== "lead" && p.stage !== "lost" && <NegotiatorBox refKey={`prospect:${p.id}`} title={p.name} hint={p.fee ? { floor: p.fee, ceiling: p.fee } : undefined} />}
       {p.draft && (
         <div className="rounded-md border border-white/10 p-2">
           <p className="whitespace-pre-wrap select-all">{p.draft}</p>
@@ -214,10 +225,11 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
           <div className="mt-1 flex flex-wrap items-center gap-2"><button className="chip" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
             {canSend && to && p.stage === "lead" && (
               <button className={`chip ${sendSure ? "ok" : ""}`} disabled={any}
-                onClick={() => (sendSure ? (setSendSure(false), void act(`send:${p.id}`, { action: "send", id: p.id, seen: p.updated_at })) : (setSendSure(true), setTimeout(() => setSendSure(false), 5000)))}>
+                onClick={() => (sendSure ? (setSendSure(false), void sendStamp(p).then((seen) => act(`send:${p.id}`, { action: "send", id: p.id, seen }))) : (setSendSure(true), setTimeout(() => setSendSure(false), 5000)))}>
                 {busy === `send:${p.id}` ? "Sending…" : sendSure ? `Click again to send to ${to}` : "✉ Approve & send"}</button>)}
             {canSend && to && p.stage === "lead" && /https?:\/\/|www\./i.test(p.draft) && <span className="error text-[11px]">This draft contains a link: check it's one you meant to send.</span>}
-            <span className="muted text-[11px]">{canSend && to && p.stage === "lead" ? "Read it first: nothing is sent until you click twice." : canSend && p.stage === "lead" ? "To send from ORBIT, put one email address in Contact." : "Check it, then send it yourself."} Only say you tested their reply time if you really did.</span></div>
+            <span className="muted text-[11px]">{canSend && to && p.stage === "lead" ? "Read it first: nothing is sent until you click twice." : canSend && p.stage === "lead" ? "To send from ORBIT, put one email address in Contact." : "Check it, then send it yourself."} Only say you tested their reply time if you really did.</span>
+            {p.stage === "lead" && <OrbitThinks id={`draft:${p.id}`} />}</div>
         </div>
       )}
     </li>

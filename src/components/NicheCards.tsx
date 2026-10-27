@@ -1,6 +1,10 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
+import RivalsBox from "./RivalsBox";
+import WhatIf from "./WhatIf";
 import { useCallback, useEffect, useState } from "react";
 import { marginOf, type Kit, type Niche } from "@/lib/niche-pure";
+import LaunchPackage from "./LaunchPackage";
 
 // BUSINESS niche scout cards (weekly, or "Scout now") and shop-in-a-box. Everything stays on this PC: you publish a shop yourself.
 type Board = { niches: Niche[]; kits: Record<string, Kit | null>; lastOk: string | null; lastAttempt: string | null; lastError: string | null; busy: string | null; dir: string };
@@ -49,6 +53,7 @@ export default function NicheCards() {
 
 function Card({ n, kit, dir, busy, building, any, act }: { n: Niche; kit: Kit | null; dir: string; busy: string; building: boolean; any: boolean; act: (k: string, b: object) => Promise<void> }) {
   const [open, setOpen] = useState(false);
+  const [sim, setSim] = useState(false);
   const m = marginOf(n.margin);
   const sep = dir.includes("\\") ? "\\" : "/";
   return (
@@ -72,10 +77,14 @@ function Card({ n, kit, dir, busy, building, any, act }: { n: Niche; kit: Kit | 
       <div className="flex flex-wrap gap-1.5">
         {n.status !== "kept" && <button className="chip" disabled={any} onClick={() => void act(`keep:${n.id}`, { action: "keep", id: n.id })}>Keep</button>}
         <button className="chip" disabled={any} onClick={() => void act(`dismiss:${n.id}`, { action: "dismiss", id: n.id })}>Dismiss</button>
+        {n.status === "new" && <OrbitThinks id={`niche:${n.id}`} />}
         {n.status === "kept" && <button className="chip" disabled={any} onClick={() => void act(`build:${n.id}`, { action: "build", id: n.id })}>
           {building || busy === `build:${n.id}` ? "CORE is writing the shop…" : n.shopAt ? "Rebuild shop" : "Build shop"}</button>}
+        <button className="chip" aria-expanded={sim} onClick={() => setSim(!sim)}>{sim ? "Hide what-if" : "What if…"}</button>
         {kit && <button className="chip" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide shop" : "Show shop"}</button>}
       </div>
+      {n.status === "kept" && <RivalsBox id={n.id} />}
+      {sim && <WhatIf margin={n.margin} />}
       {kit && open && (
         <div className="space-y-2 rounded-md border border-white/10 p-2">
           <iframe title={`Preview of ${kit.brand}`} sandbox="" src={`/api/business/shop/${n.id}?v=${encodeURIComponent(n.shopAt ?? "")}`} className="h-[420px] w-full rounded bg-white" />
@@ -85,6 +94,7 @@ function Card({ n, kit, dir, busy, building, any, act }: { n: Niche; kit: Kit | 
           <details className="text-xs"><summary className="cursor-pointer"><b>Launch checklist</b> ({kit.checklist.length} steps)</summary><ol className="list-decimal pl-5">{kit.checklist.map((c) => <li key={c}>{c}</li>)}</ol></details>
           <details className="text-xs"><summary className="cursor-pointer"><b>Product descriptions</b></summary>
             {kit.products.map((p) => <p key={p.name} className="select-all"><b>{p.name}</b> ({eur(p.price)}): {p.description}</p>)}</details>
+          <LaunchPackage id={n.id} />
         </div>
       )}
     </li>

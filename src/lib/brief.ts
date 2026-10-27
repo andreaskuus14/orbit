@@ -7,7 +7,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { askClaude, FAST_MODEL, recordUsage } from "./claude";
 import { localDay } from "./morning-pure";
+import { placeLines } from "./place-pure";
+import { briefEcho } from "./episodes-pure";
 import { POLISH_SYSTEM, briefDecisions, briefOpener, cleanPolish, composeBrief, polishPrompt, type Brief } from "./brief-pure";
+import { briefContracts } from "./contracts-pure";
 
 type UserBrief = { life?: boolean; snoozed?: Record<string, string>; polish?: { day: string; base?: string; text?: string } }; // snoozed: id → until day
 type Store = { users: Record<string, UserBrief> };
@@ -40,7 +43,7 @@ async function replies(sb: SupabaseClient, now: number) {
 /** The deterministic brief for now (no AI call). */
 export async function composeToday(sb: SupabaseClient, userId: string, now = Date.now()): Promise<Brief> {
   const day = localDay(new Date(now)), hour = new Date(now).getHours();
-  const [u, m, rem, rep, les, dl, hl, ds] = await Promise.all([
+  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, dr, di, pl, study, sc, gr, rc, hw] = await Promise.all([
     load().then((s) => s.users[userId] ?? {}),
     import("./morning").then((x) => x.getMorning(sb, userId, now)),
     within(import("./remote").then((x) => x.pendingApprovals(sb))).catch(() => []),
@@ -49,14 +52,32 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     within(import("./deals").then((x) => x.freshDeals(now, DAY))).catch(() => null),
     within(Promise.all([import("./health"), import("./health-pure")]).then(async ([h, p]) => p.briefHealth(await h.healthIssues(), now))).catch(() => null),
     within(import("./dev-session").then((x) => x.yesterdaySession(userId, now))).catch(() => null),
+    within(import("./contracts").then((x) => x.listContracts())).catch(() => []),
+    within(import("./episodes").then((x) => x.listEpisodes(sb, userId, 100))).catch(() => []),
+    within(import("./dream").then((x) => x.dreamToday(userId, now))).catch(() => null),
+    within(Promise.all([import("./dream-ideas"), import("./dream-ideas-pure")]).then(async ([a, p]) => p.briefIdea((await a.ideasView(userId)).ideas, day))).catch(() => null),
+    import("./place").then((x) => x.readPlace()).catch(() => null), // opt-in; off → no place lines
+    within(import("./study").then((x) => x.dueCount(userId, now))).catch(() => 0),
+    within(import("./school").then((x) => x.schoolBriefLine(now))).catch(() => null),
+    within(import("./goal-autopilot").then((x) => x.goalRisk(sb, userId))).catch(() => null),
+    within(import("./clips/recap").then((x) => x.latestRecap(now))).catch(() => null),
+    within(import("./life").then((x) => x.lastHabitWeek())).catch(() => undefined),
   ]);
+  const weather = pl ? await within(import("./weather").then((x) => x.briefWeather(pl, now)), 6000).catch(() => null) : null; // no saved place → none
+  const inv = await within(import("./invoices").then((x) => x.allInvoices())).catch(() => []); // overdue reminders waiting for his approve
+  // contracts only open: he signs on the PC
+  const decisions = [...briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem), ...briefContracts(ct), ...(await import("./invoices-pure")).briefInvoices(inv, day)];
+  // Tasks and goals can only be approved on the PC; phone-remote items (clips, spends, emails) can be done from the phone.
+  const place = pl ? placeLines(pl, now, [...decisions.map((d) => d.title), ...(m.work?.items ?? []).map((w) => w.title), ...(m.hero ? [m.hero.title] : [])],
+    decisions.filter((d) => /^(task|goal):/.test(d.id)).length) : [];
   const deal = dl?.latest && dl.ids.length ? { id: dl.ids[dl.ids.length - 1], ...dl.latest } : undefined;
   const lesson = les.length ? les[Math.floor(now / DAY) % les.length] : undefined; // a different kept lesson each day
   return composeBrief({
     day, hour, life: !!u.life, morning: m,
-    decisions: briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem),
-    replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), lesson: lesson && { id: lesson.id, text: lesson.text },
-    snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
+    decisions, place, ...(weather && { weather }),
+    replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(dr && { dream: { id: dr.key, question: dr.question } }), ...(di && { idea: di }), ...(sc && { school: sc }), ...(gr && { goalRisk: gr }), ...(rc && { recap: rc }), lesson: lesson && { id: lesson.id, text: lesson.text }, study,
+    echo: { short: briefEcho(eps, "short", now, (m.studio?.yesterday ?? []).map((y) => y.title)), reply: briefEcho(eps, "reply", now, rep.map((r) => r.name)) },
+    habits: hw, snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
   });
 }
 
@@ -70,7 +91,7 @@ export async function getBrief(sb: SupabaseClient, userId: string, now = Date.no
   await update(userId, (x) => ({ ...x, polish: { day: b.day } })); // the day's one try is used before the call: a crash can't make it two
   let text = b.spoken;
   try {
-    const r = await askClaude(polishPrompt(b.spoken), POLISH_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 12_000, purpose: "brief.polish" });
+    const r = await askClaude(`${await import("./persona").then((m) => m.personaContext(userId, "brief"))}\n\n${polishPrompt(b.spoken)}`, POLISH_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 12_000, purpose: "brief.polish" });
     void recordUsage(sb, userId, "brief.polish", r, FAST_MODEL);
     text = cleanPolish(r.text, b.spoken);
   } catch (e) { console.error("[brief] polish:", e instanceof Error ? e.message : e); }

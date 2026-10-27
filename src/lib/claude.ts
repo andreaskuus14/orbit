@@ -1,12 +1,13 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.ts";
 import { streamJsonInput } from "./attach-pure.ts";
-import { recordCall } from "./usage-meter.ts";
+import { recordCall, usageHold } from "./usage-meter.ts";
 import { isLimitAnswer } from "./usage-meter-pure.ts";
+import { OLLAMA_URL, claudeDown, localAllowed, ollamaAnswer, ollamaRequest } from "./local-model-pure.ts";
 import { ledgerIssue } from "./ledger-pure.ts";
 import { adminClient } from "./supabase/admin.ts";
 
@@ -27,14 +28,14 @@ export const DEEP_MODEL = process.env.ORBIT_MODEL_DEEP || "opus";
  *  An older CLI without --effort fails the call, and CORE then redoes the step on the main model. */
 const effortEnv = process.env.ORBIT_DEEP_EFFORT ?? "high";
 export const DEEP_EFFORT = /^(low|medium|high|xhigh|max)$/.test(effortEnv) ? effortEnv : "";
-const TIMEOUT_MS = 120_000;
+export const TIMEOUT_MS = 120_000;
 const WIN = process.platform === "win32";
 const HINT = "Install Claude Code and run `claude` once to sign in (or set ORBIT_CLAUDE_BIN to its full path).";
 
 // At most 3 `claude` processes at once across the whole server; the rest queue in two lanes. Foreground (CORE chat,
 // voice) is served first and background (agents, automations, briefings, clips) may hold at most limit-1 slots, so a
 // chat never waits behind a pile of agent work. Kept on globalThis so dev hot reloads don't create a second limit.
-const MAX_CLI = Number(process.env.ORBIT_CLAUDE_CONCURRENCY) || 3;
+export const MAX_CLI = Number(process.env.ORBIT_CLAUDE_CONCURRENCY) || 3;
 const gl = globalThis as unknown as { __orbitClaudeLanes?: ReturnType<typeof createLaneLimiter> };
 const cliSlot = (gl.__orbitClaudeLanes ??= createLaneLimiter(MAX_CLI));
 
@@ -100,7 +101,8 @@ export function stoppedReport(headline: string, steps: { step: string; detail: s
   return `**${headline}.** ${done.length ? `Completed before stopping:\n${done.join("\n")}` : "Nothing was completed yet."}`;
 }
 
-export type ClaudeResult = { text: string; inputTokens: number; outputTokens: number; ms: number };
+/** local: answered by the offline brain (Ollama), not Claude: CORE shows a "local brain" badge. */
+export type ClaudeResult = { text: string; inputTokens: number; outputTokens: number; ms: number; local?: boolean };
 
 /** Read-only web tools a call may opt into (AskOpts.web), approved by the owner. Nothing that runs commands, edits files or posts. */
 export const WEB_TOOLS = "WebSearch,WebFetch";
@@ -109,8 +111,12 @@ export const WEB_TOOLS = "WebSearch,WebFetch";
 /** mcp: the call may use only these MCP tools (from the owner's own `claude mcp add` config), every call checked by the
  *  PreToolUse hook in `settings` (a settings JSON file). Built-in tools stay off. Used by the Higgsfield adapter (clips/higgsfield.ts). */
 export type McpAccess = { allow: string[]; settings: string };
+/** A persistent CLI session (ORBIT_CORE_SESSION=resume): the first call creates it with --session-id, later ones --resume it.
+ *  The CLI files sessions by working directory, so session calls all run in one fixed dir. */
+export type CliSession = { id: string; resume: boolean };
+const SESSION_DIR = join(tmpdir(), "orbit-core-sessions");
 
-async function prepare(system: string, format: string[], model = MODEL, effort = "", web = false, mcp?: McpAccess) {
+async function prepare(system: string, format: string[], model = MODEL, effort = "", web = false, mcp?: McpAccess, session?: CliSession) {
   if (!/^[\w.:-]+(?:\[1m\])?$/.test(model)) throw new Error("ORBIT_MODEL / ORBIT_MODEL_SMART / ORBIT_MODEL_FAST / ORBIT_MODEL_DEEP contains invalid characters");
   // The system prompt goes in a file and the user prompt on stdin, so no user text is ever on the command line.
   const dir = await mkdtemp(join(tmpdir(), "orbit-"));
@@ -119,11 +125,13 @@ async function prepare(system: string, format: string[], model = MODEL, effort =
   const q = (a: string) => (WIN ? `"${a}"` : a); // Windows needs a shell to run claude.cmd, so quote args there
   const tools = mcp ? ["--tools", q(""), "--allowedTools", q(mcp.allow.join(",")), "--permission-mode", "dontAsk", "--settings", q(mcp.settings)]
     : web ? ["--tools", q(WEB_TOOLS), "--allowedTools", q(WEB_TOOLS), "--permission-mode", "dontAsk"] : ["--tools", q("")];
-  const args = ["-p", ...format, ...tools, "--no-session-persistence",
+  if (session && !/^[0-9a-f-]{36}$/i.test(session.id)) throw new Error("Invalid CLI session id");
+  if (session) await mkdir(SESSION_DIR, { recursive: true });
+  const args = ["-p", ...format, ...tools, ...(session ? [session.resume ? "--resume" : "--session-id", session.id] : ["--no-session-persistence"]),
     // Ignore user-level plugins/hooks/skills and all MCP connectors (CORE gets no tools, or only the read-only web tools with `web`) but keep the login. Not --bare: it skips OAuth.
     // mcp: user settings are where `claude mcp add -s user` servers come from ("local" alone hides them, tested); the hook still gates every call.
     "--setting-sources", mcp ? "user" : "local", "--disable-slash-commands", ...(mcp ? [] : ["--strict-mcp-config"]), "--model", model, ...(effort ? ["--effort", effort] : []), "--system-prompt-file", q(sysFile)];
-  const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: process.env, cwd: dir, windowsHide: true };
+  const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: process.env, cwd: session ? SESSION_DIR : dir, windowsHide: true };
   // On Windows, claude may be claude.cmd, which needs a shell; pass one pre-quoted command string (args hold no user text).
   const start = () => (WIN ? spawn(`${q(CLAUDE_BIN)} ${args.join(" ")}`, { ...opts, shell: true }) : spawn(CLAUDE_BIN, args, opts));
   return { dir, start };
@@ -183,29 +191,57 @@ function takeSpare(system: string, model: string): Spare | null {
 
 /** purpose: what the call is for, for the usage meter (core, agent, goals, autopilot, clips, translate…); default by lane. */
 /** web: allow only WebSearch/WebFetch (read-only); web pages are untrusted, so that call's system prompt must say they are data. */
-export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean; mcp?: McpAccess; onLine?: (line: string) => void };
+export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean; mcp?: McpAccess; onLine?: (line: string) => void; session?: CliSession };
 
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
-export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine }: AskOpts = {}): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane), web, mcp, onLine), signal);
+export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine, session }: AskOpts = {}): Promise<ClaudeResult> {
+  const p = purpose ?? laneDefault(lane);
+  return withLocal(prompt, system, p, images.length, !!mcp, signal, timeoutMs, () => cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, p, web, mcp, onLine, session), signal));
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI.
  *  A pending prompt starts the CLI now and writes stdin when it resolves: its ~1 s boot overlaps the caller's prep. */
-export function askClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string): Promise<ClaudeResult> {
-  return cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, purpose ?? laneDefault(lane)), signal);
+export function askClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string, session?: CliSession): Promise<ClaudeResult> {
+  const p = purpose ?? laneDefault(lane);
+  return withLocal(prompt, system, p, images.length, false, signal, timeoutMs, () => cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, p, false, undefined, undefined, session), signal));
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
-async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false, mcp?: McpAccess, onLine?: (line: string) => void): Promise<ClaudeResult> {
+/** Offline brain: Ollama model name, "" = off. */
+export const LOCAL_MODEL = (process.env.ORBIT_LOCAL_MODEL ?? "").trim();
+
+/** Lanes that allow it (localAllowed) go to the local model while the usage hold is on, or when Claude fails because it's
+ *  unreachable or rate-limited. If the local model fails too, the original Claude error is what the caller sees. */
+async function withLocal(prompt: string | Promise<string>, system: string, purpose: string, images: number, mcp: boolean, signal: AbortSignal | undefined, timeoutMs: number | undefined, claude: () => Promise<ClaudeResult>): Promise<ClaudeResult> {
+  if (!localAllowed({ model: LOCAL_MODEL, purpose, images, mcp })) return claude();
+  if (usageHold()) return askLocal(prompt, system, signal, timeoutMs).catch(claude);
+  try { return await claude(); } catch (e) {
+    if (signal?.aborted || !claudeDown(e instanceof Error ? e.message : String(e))) throw e;
+    console.warn(`[orbit] Claude unreachable for ${purpose}; answering with the local brain (${LOCAL_MODEL})`);
+    return askLocal(prompt, system, signal, timeoutMs).catch(() => { throw e; });
+  }
+}
+
+/** One plain Ollama chat call (no tools, no streaming). */
+async function askLocal(prompt: string | Promise<string>, system: string, signal?: AbortSignal, timeoutMs = TIMEOUT_MS): Promise<ClaudeResult> {
+  const t0 = Date.now();
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ollamaRequest(LOCAL_MODEL, system, await prompt)),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`Local model (Ollama) answered ${res.status}`);
+  return { ...ollamaAnswer(await res.json()), ms: Date.now() - t0, local: true };
+}
+
+async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false, mcp?: McpAccess, onLine?: (line: string) => void, session?: CliSession): Promise<ClaudeResult> {
   if (typeof prompt !== "string") prompt.catch(() => {}); // observed now; its error is reported once the CLI is up
   signal?.throwIfAborted();
   const t0 = Date.now();
   // With images, stdin carries one stream-json user message (image blocks + text); tools stay disabled.
-  const spare = images.length || web || mcp || effort ? null : takeSpare(system, model ?? MODEL);
+  const spare = images.length || web || mcp || effort || session ? null : takeSpare(system, model ?? MODEL);
   const json = images.length > 0 || !!spare;
   const input = images.length ? ["--input-format", "stream-json"] : [];
-  const { dir, start } = spare ? { dir: spare.dir, start: () => spare.child } : await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model, effort, web, mcp);
+  const { dir, start } = spare ? { dir: spare.dir, start: () => spare.child } : await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model, effort, web, mcp, session);
   try {
     return await new Promise<ClaudeResult>((resolve, reject) => {
       const child = start();
@@ -277,6 +313,7 @@ export function acceptReview(draft: string, revised: string): boolean {
 export async function reviewDraft(request: string, draft: string, context: string, opts: AskOpts & { onUsage?: (r: ClaudeResult) => unknown } = {}): Promise<{ text: string; reviewed: boolean }> {
   try {
     const r = await askClaude(`${context ? `CONTEXT (data the draft was built from):\n${context.slice(0, 40_000)}\n\n` : ""}REQUEST:\n${request}\n\nDRAFT:\n${draft}\n\nThe final revised answer:`, REVIEW_SYSTEM, opts);
+    if (r.local) return { text: draft, reviewed: false }; // a local model never rewrites Claude's draft
     await opts.onUsage?.(r);
     let t = r.text.trim();
     try { const j = JSON.parse(t.replace(/^```(?:json)?\s*|\s*```$/g, "")); if (typeof j?.final === "string") t = j.final.trim(); } catch { /* plain Markdown, as asked */ }

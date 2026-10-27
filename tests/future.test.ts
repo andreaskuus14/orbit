@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CALL_START, decideCall, parseCallState } from "../src/lib/call-pure.ts";
+import { CALL_START, decideCall, parseCallState, voiceDecision, type CallItem } from "../src/lib/call-pure.ts";
 import { cleanFuture, fit, futureScript, futureWindow, goalPace, hasData, oneThing, pace, project, streak, weekly, type FutureIn } from "../src/lib/future-pure.ts";
 
 const NOW = Date.parse("2026-10-26T18:00:00Z"), DAY = 86_400_000;
@@ -101,4 +101,14 @@ test("monthly ring through decideCall: evening only, once a month, lowest priori
   assert.equal(decideCall(CALL_START, sig(at(19), { future: false })).ring, null); // no numbers, no call
   assert.equal(decideCall({ ...CALL_START, calls: 2, day: "2026-10-26" }, sig(at(19))).ring, null); // daily limit
   assert.equal(parseCallState(JSON.stringify(r.state)).futureMonth, "2026-10");
+  assert.equal(decideCall(CALL_START, sig(at(19), { focus: true })).ring, null); // focus block: waits
+  assert.equal(decideCall(CALL_START, sig(at(19), { contracts: ["c1"] })).ring?.reason, "contract"); // lowest priority
+  const st = parseCallState(JSON.stringify({ ...r.state, contracted: ["c1"] }));
+  assert.deepEqual([st.futureMonth, st.contracted], ["2026-10", ["c1"]]);
+});
+
+test("future-self call never approves by voice", () => {
+  const items: CallItem[] = [{ id: "x", kind: "send", title: "Kalev", seen: "1", to: "Kalev" }];
+  const d = voiceDecision(null, "approve the email", items, 0, true, "Not on this call.");
+  assert.ok(d && !d.act && !d.pending); assert.match(d!.say!, /^Not on this call\. .*on screen later/);
 });

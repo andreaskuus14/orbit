@@ -14,13 +14,17 @@ import { listDevices, ownerClient, pendingApprovals } from "./remote";
 import { decideApproval } from "./remote-act";
 import { deliver, pushProblem } from "./remote-push";
 import { pushLabel } from "./remote-push-pure";
+import { screenOnly } from "./remote-web-pure";
 import { readSleepReport } from "./sleep";
 import { stopAllOn } from "./stop-all";
+import { focusActive } from "./focus";
 import { localDay } from "./morning-pure";
 import { transcribeSpeech } from "./voice-asr";
 import { kokoroTts } from "./clips/story";
 import { encodeWav } from "./audio-pure";
 import { cleanWhisperText } from "@/components/voice/hear";
+import { getPersona, lastPersona } from "./persona";
+import { personaPrompt } from "./persona-pure";
 import {
   CALL, FILLERS, OPENER_SYSTEM, SUMMARY_SYSTEM, backchannel, callStyle, cleanOpener, decideCall, fallbackSummary, itemsKey, localParts, opener, openerPrompt, parseCallState,
   phraseKey, quickReply, takeSentences, transcriptText, voiceDecision, whenLabel,
@@ -28,7 +32,7 @@ import {
 } from "./call-pure";
 import { futureWindow, monthOf } from "./future-pure";
 
-type Session = { id: string; userId: string; sb: SupabaseClient; reason: CallReason; turns: CallTurn[]; pending: Pending | null; done: string[]; n: number; lastAt: number; busy?: AbortController; said: Set<string>; who?: string };
+type Session = { id: string; userId: string; sb: SupabaseClient; reason: CallReason; turns: CallTurn[]; pending: Pending | null; done: string[]; n: number; lastAt: number; busy?: AbortController; said: Set<string>; car?: boolean; who?: string };
 /** An opener made ahead (when ORBIT rings, or while the call screen is open): its text and its first sentence's audio. */
 type Voiced = { text: string; parts: string[]; audio: Promise<string | null>[] };
 type Pre = { reason: CallReason; at: number; key: Promise<string>; base: Promise<string>; voiced: Promise<Voiced>; who?: Promise<string> };
@@ -36,7 +40,7 @@ type G = { sessions: Map<string, Session>; ring: { reason: CallReason; at: numbe
 const g = globalThis as unknown as { __orbitCall?: G };
 const G: G = (g.__orbitCall ??= { sessions: new Map(), ring: null, checkedAt: 0, tts: Promise.resolve(), cache: new Map() });
 const RING_MS = 30 * 60_000; // a ring older than the push's TTL is just a normal call
-const VOICE = () => process.env.ORBIT_CALL_VOICE || "af_heart";
+const VOICE = () => lastPersona().voice || process.env.ORBIT_CALL_VOICE || "af_heart"; // Profile → ORBIT's character first
 
 // ---- State file: <data dir>/call.json (counters, first-seen times, check-in time; no content) ----
 const file = () => path.join(orbitDataDir(), "call.json");
@@ -70,10 +74,11 @@ export async function maybeCall(): Promise<void> {
     if (!dev) return;
     const sb = await ownerClient(dev.userId);
     const lp = localParts(now), st = await load(); // the future-self call needs numbers: gathered only inside its monthly window
-    const future = !stopAllOn() && futureWindow(st.futureMonth ?? "", lp.day, lp.h) && await import("./future").then((f) => f.futureReady(sb, dev.userId), () => false);
-    const [items, report, deals] = await Promise.all([pendingApprovals(sb), readSleepReport(dev.userId).catch(() => undefined), import("./deals").then((d) => d.freshDeals(now), () => ({ ids: [] }))]);
+    const future = !stopAllOn() && !focusActive(now) && futureWindow(st.futureMonth ?? "", lp.day, lp.h) && await import("./future").then((f) => f.futureReady(sb, dev.userId), () => false);
+    const [items, report, deals, contracts] = await Promise.all([pendingApprovals(sb).then((a) => a.filter((i) => !screenOnly(i.kind))), readSleepReport(dev.userId).catch(() => undefined), import("./deals").then((d) => d.freshDeals(now), () => ({ ids: [] })),
+      import("./contracts").then((c) => c.waitingContracts(now), () => [] as string[])]);
     let ring: ReturnType<typeof decideCall>["ring"] = null;
-    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids, future }); ring = r.ring; return r.state; });
+    await update((s) => { const r = decideCall(s, { now, stopAll: stopAllOn(), approvals: items.map((i) => i.id), nightReport: report?.day === localDay(new Date(now)), deals: deals.ids, contracts, focus: focusActive(now), future }); ring = r.ring; return r.state; });
     if (!ring) return;
     const { reason, things } = ring as NonNullable<typeof ring>;
     G.ring = { reason, at: now };
@@ -83,6 +88,16 @@ export async function maybeCall(): Promise<void> {
   } catch (e) {
     console.error("[call] ring check failed:", e instanceof Error ? e.message : e);
   }
+}
+
+/** He asked to be called (Shortcut "Call me"): ring the paired phone now; Answer then plays the opener made here.
+ *  Returns how many phones the push reached; 0 when push isn't set up or a call is already on. */
+export async function ringNow(sb: SupabaseClient, userId: string): Promise<number> {
+  if (G.sessions.size || pushProblem()) return 0;
+  const things = (await pendingApprovals(sb).catch(() => [])).length;
+  G.ring = { reason: "manual", at: Date.now() };
+  G.pre = prepareOpener(sb, userId, "manual");
+  return deliver(pushLabel("call", things));
 }
 
 // ---- Voice out: Kokoro on this PC, one sentence at a time, as a 16-bit WAV (base64) ----
@@ -101,8 +116,9 @@ function tts(text: string): Promise<string | null> {
 /** Load Kokoro and make the short fillers ahead of the first turn (cached for the life of the process). */
 export const warmVoice = () => { for (const t of FILLERS) if (!G.cache.has(t)) void tts(t); };
 
+// Negotiation replies (prices) and invoice reminders are approved on a screen where he reads them, never by voice.
 const toItems = (sb: SupabaseClient): Promise<CallItem[]> =>
-  pendingApprovals(sb).then((a) => a.map(({ id, kind, title, seen, credits, to, thumb }) => ({ id, kind, title, seen, credits, to, thumb })));
+  pendingApprovals(sb).then((a) => a.filter((i) => !screenOnly(i.kind)).map(({ id, kind, title, seen, credits, to, thumb }) => ({ id, kind, title, seen, credits, to, thumb })));
 
 // ---- Sessions ----
 function sweep() {
@@ -147,12 +163,12 @@ function prepareOpener(sb: SupabaseClient, userId: string, reason: CallReason): 
   const text = Promise.all([base, callNotes(sb, userId).catch(() => [])]).then(async ([b, notes]) => {
     if (!notes.length) return b;
     try {
-      const r = await askClaude(openerPrompt(b, notes), OPENER_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 20_000, purpose: "call.opener" });
+      const r = await askClaude(`${personaPrompt(await getPersona(userId), "opener")}\n\n${openerPrompt(b, notes)}`, OPENER_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 20_000, purpose: "call.opener" });
       void recordUsage(sb, userId, "call.opener", r, FAST_MODEL);
       return cleanOpener(r.text, b);
     } catch (e) { console.error("[call] opener:", e instanceof Error ? e.message : e); return b; }
   });
-  const voiced = text.then(voice);
+  const voiced = Promise.all([text, getPersona(userId)]).then(([t]) => voice(t)); // persona read first: its Kokoro voice says it
   voiced.then((v) => Promise.all(v.audio)).then(() => warmVoice(), () => {}); // fillers queue behind the opener's audio
   return { reason, at, key: items.then(itemsKey), base, voiced };
 }
@@ -168,7 +184,7 @@ const NDJSON = { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-C
 
 /** Pick up: NDJSON {type:"call",id,reason} then {type:"say",text,audio} per opener sentence, the first as soon as its audio is ready
  *  (made ahead when ORBIT rang). Spare Claude CLIs boot while ORBIT talks, so his first reply skips the CLI's start-up. */
-export async function startCall(sb: SupabaseClient, userId: string, want?: "future"): Promise<Response> {
+export async function startCall(sb: SupabaseClient, userId: string, car = false, want?: "future"): Promise<Response> {
   if (want && stopAllOn()) return Response.json({ error: "Stop-all is on: no calls until you turn it off" }, { status: 409 });
   for (const s of [...G.sessions.values()]) void endCall(s.userId, s.id); // one call at a time
   const t0 = Date.now();
@@ -176,7 +192,7 @@ export async function startCall(sb: SupabaseClient, userId: string, want?: "futu
   if (want) void update((s) => ({ ...s, futureMonth: monthOf(localParts(t0).day) })).catch(() => {}); // he asked: no monthly ring on top
   const pre = G.pre;
   G.ring = null; G.pre = undefined;
-  const items = await toItems(sb).catch(() => [] as CallItem[]);
+  const [items] = await Promise.all([toItems(sb).catch(() => [] as CallItem[]), getPersona(userId)]); // fresh persona: voice and call style
   let v: Voiced | null = null, ahead = false;
   if (pre && pre.reason === reason && t0 - pre.at < PRE_MS && (await pre.key) === itemsKey(items)) {
     v = await Promise.race([pre.voiced, wait(1500).then(() => null)]); // still personalising after 1.5 s: the plain one now
@@ -190,7 +206,7 @@ export async function startCall(sb: SupabaseClient, userId: string, want?: "futu
   }
   const { text, parts, audio } = v ?? voice(opener(reason, localParts(t0).h, items, await dealFor(reason)));
   const id = randomUUID();
-  const s: Session = { id, userId, sb, reason, turns: [{ role: "assistant", content: text }], pending: null, done: [], n: 0, lastAt: t0, said: new Set(parts.map(phraseKey)), who };
+  const s: Session = { id, userId, sb, reason, turns: [{ role: "assistant", content: text }], pending: null, done: [], n: 0, lastAt: t0, said: new Set(parts.map(phraseKey)), car, who };
   G.sessions.set(id, s);
   sweep();
   void emit(sb, userId, "call.started", "core", { callId: id, reason });
@@ -251,7 +267,7 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
         if (!heard.trim()) return;
         s.turns.push({ role: "user", content: heard });
         const items = await waiting;
-        const d = voiceDecision(s.pending, heard, items, Date.now());
+        const d = voiceDecision(s.pending, heard, items, Date.now(), s.car || s.reason === "future", s.reason === "future" ? "Not on this call." : undefined);
         const quick = d ? null : quickReply(heard, s.turns.findLast((t) => t.role === "assistant")?.content ?? "", s.said);
         if (d) {
           path = "approval";
@@ -279,7 +295,7 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
               const r = takeSentences(buf);
               buf = r.rest;
               r.done.forEach(sayNew);
-            }, ac.signal, () => { buf = ""; }, callStyle(items, s.who));
+            }, ac.signal, () => { buf = ""; }, callStyle(items, s.who)); // ORBIT's character comes with CORE's prompt (persona "call" surface)
             ms.core = Date.now() - t0;
             path = out.trace.some((x) => x.step === "reflex") ? "reflex" : out.model;
             const r = takeSentences(buf, true);

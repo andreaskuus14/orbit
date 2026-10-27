@@ -1,4 +1,5 @@
 "use client";
+import { OrbitThinks } from "./OrbitThinks";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CAM_NAME, CAPTION_STYLES, CHANNEL_LINK_MSG, LAYOUT_NAME, REJECT_REASONS, bytes, channelLink, isJobActive, layoutText, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
 import ReviewQueue from "./ReviewQueue";
@@ -10,6 +11,7 @@ import StoryPanel from "./StoryPanel";
 import EngageCard, { DescribeButton } from "./EngageCard";
 import StudioCalendar from "./StudioCalendar";
 import ShortsBoard from "./ShortsBoard";
+import LongformPanel from "./LongformPanel";
 import type { Open } from "@/lib/clips/pipeline-pure";
 import { devlogHashtags } from "@/lib/clips/devlog";
 import { HypeWave, ScoreRing, ScoreWhy } from "./HypeScore";
@@ -90,10 +92,10 @@ function Section({ title, children, right }: { title: string; children: ReactNod
 }
 const Skeleton = ({ h, reduced }: { h: number; reduced: boolean }) => <div aria-hidden className={`card ${reduced ? "" : "animate-pulse"}`} style={{ height: h, opacity: 0.6 }} />;
 
-type Tab = "pipeline" | "find" | "clips" | "story" | "calendar" | "insights" | "autopilot";
+type Tab = "pipeline" | "find" | "clips" | "story" | "longform" | "calendar" | "insights" | "autopilot";
 const TAB_KEY = "orbit.clipFactory.tab";
 const readTab = (): Tab | null => {
-  try { const t = localStorage.getItem(TAB_KEY); return t === "pipeline" || t === "find" || t === "clips" || t === "story" || t === "calendar" || t === "insights" || t === "autopilot" ? t : null; }
+  try { const t = localStorage.getItem(TAB_KEY); return t === "pipeline" || t === "find" || t === "clips" || t === "story" || t === "longform" || t === "calendar" || t === "insights" || t === "autopilot" ? t : null; }
   catch { return null; } // storage unavailable (or server render)
 };
 
@@ -306,7 +308,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
     : unpublished && yt?.configured ? <a className="btn" href="/api/studio/oauth/start">🔗 Connect YouTube to publish {unpublished} approved</a>
     : workText ? workNext
     : <button className="btn" onClick={() => { selectTab("find"); setScoutRun((n) => n + 1); }} aria-label="Find videos: run the video scout">🔭 Find videos</button>;
-  const tabs: [Tab, string][] = [["pipeline", "▦ Pipeline"], ["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["story", "✨ AI Story"], ["calendar", "📅 Calendar"], ["insights", "🧠 Insights"], ["autopilot", "🤖 Autopilot"]];
+  const tabs: [Tab, string][] = [["pipeline", "▦ Pipeline"], ["find", "🔭 Find videos"], ["clips", `🎬 Clips${fresh ? ` (${fresh} new)` : ""}`], ["story", "✨ AI Story"], ["longform", "🎞 Long-form"], ["calendar", "📅 Calendar"], ["insights", "🧠 Insights"], ["autopilot", "🤖 Autopilot"]];
   const onTabKey = (e: KeyboardEvent) => {
     const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (!d) return;
@@ -370,6 +372,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
           </div>
           <div id="cf-panel-autopilot" role="tabpanel" aria-labelledby="cf-tab-autopilot" hidden={shown !== "autopilot"}><AutopilotPanel active={shown === "autopilot"} onChanged={() => void load(true)} onOpenClip={openClip} onOpenFind={() => selectTab("find")} /></div>
           <div id="cf-panel-story" role="tabpanel" aria-labelledby="cf-tab-story" hidden={shown !== "story"}><StoryPanel active={shown === "story"} seed={storySeed} onOpenClip={openClip} onChanged={() => void load(true)} /></div>
+          <div id="cf-panel-longform" role="tabpanel" aria-labelledby="cf-tab-longform" hidden={shown !== "longform"}><LongformPanel active={shown === "longform"} onOpen={openStage} /></div>
           <div id="cf-panel-insights" role="tabpanel" aria-labelledby="cf-tab-insights" hidden={shown !== "insights"} className="space-y-3">
             <LearnedCard defaultOpen />
             <EngageCard />
@@ -1070,7 +1073,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
         <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2" aria-label={`Clips from ${job.source}`}>
           {clips.map((c) => (
             <li key={c.id} id={`cf-clip-${job.id}/${c.id}`} tabIndex={-1} className="rounded-xl focus:outline focus:outline-2 focus:outline-[#f43f5e]">
-              <ClipCard clip={c} reduced={reduced} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<Note k={`clip:${job.id}/${c.id}`} />}
+              <ClipCard clip={c} reduced={reduced} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<><Note k={`clip:${job.id}/${c.id}`} />{c.status === "ready" && <OrbitThinks id={`clip:${job.id}/${c.id}`} />}</>}
                 picks={(c.status === "ready" || c.status === "approved") && <>
                   <ClipPicks clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPick={(body) => void onPatch(c.id, body)}
                     onMore={() => void onTitles(c.id)} onReview={() => void onTitles(c.id, true)} moreBusy={!!busy[`titles:${job.id}/${c.id}`]} />

@@ -6,30 +6,42 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
 import { MAX, applyOps, boq, boqCsv, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
+import { coach, type FloorType } from "@/lib/arch-structure-pure";
 import { lessonNote, lessonScene, quizScore, type Lesson } from "@/lib/arch-lesson-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { buildFront, lidarDots, moveWalker, NO_FRONT, WALK, wallRects, walkStart, type Rect } from "@/lib/arch-walk-pure";
 import { splatBudget } from "@/lib/splat-pure";
 import { lessonTag } from "@/lib/arch-studio-pure";
+import { quizCards } from "@/lib/study-pure";
+import { shadowOf } from "@/lib/arch-time-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
+import { DaylightPanel, DaylightRooms, type Daylight } from "./ArchDaylight";
+import ArchCrit from "./ArchCrit";
+import { ArchMaterials } from "./ArchMaterials";
+import { PortfolioPanel } from "./PortfolioPanel";
+import { archCaption } from "@/lib/portfolio-pure";
+import { ArchPlans } from "./ArchPlans";
+import { ArchTimeMachine, SunShadow } from "./ArchTimeMachine";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
+import { SiteLayer, SitePanel } from "./ArchSite";
+import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
 
 const KEY = "orbit.arch.v1";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
-const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9", window: "#33475b", door: "#6b4f3a" };
+const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9", window: "#33475b", door: "#6b4f3a", stair: "#b08968" };
 const FACE_ROT = { n: Math.PI, s: 0, e: Math.PI / 2, w: -Math.PI / 2 }; // turns local +Z to face outward
 const GROUND: Record<Scene["plot"]["ground"], string> = { grass: "#c9d3bf", gravel: "#d9d6cf", forest: "#b9c6b0", sand: "#e6dcc6" };
-const BG = "#ebe7e0", GOLD = "#c9a24a";
+const BG = "#ebe7e0", GOLD = "#c9a24a", FAIL = "#dc2626"; // FAIL: structure coach says this member is too small
 const HOLO_C = { bg: "#020a10", table: "#04141c", rim: "#67e8f9", dot: "#22d3ee", edge: "#a5f3fc" }; // holotable mode
 const SCAN_BG = "#05080c"; // scans read best on near-black, like a dark studio
 const BP = { bg: "#0b2545", ground: "#0e2f56", fill: "#123a66", edge: "#e0f2fe", grid: ["#5b8bc4", "#1d4a7c"] as const }; // blueprint mode
-const SITE = { lat: 59.437, lon: 24.754, name: "Tallinn" }; // sun study location; shortcut: fixed site, add a picker if he studies other places
+const SITE = { lat: 59.437, lon: 24.754 }; // sun study default site (Tallinn); lat/long editable in the panel
 const TP = new THREE.Vector3(), TS = new THREE.Vector3(); // per-frame scratch
 const STEP_S = 0.45; // build animation: one part every 0.45 s, bottom to top
 
@@ -60,7 +72,7 @@ void main() {
 }`,
   transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
 });
-const load = (): { scene: Scene; prices: PriceItem[] } | null => { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
+const load = (): { scene: Scene; prices: PriceItem[]; site?: unknown } | null => { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
 const eur = (n: number) => n.toLocaleString("et-EE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const download = (name: string, text: string, type: string) => {
   const a = document.createElement("a");
@@ -68,11 +80,17 @@ const download = (name: string, text: string, type: string) => {
   a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
+/** Hands the parent a "render now and give me the canvas" function: read right after a render, no preserveDrawingBuffer needed. */
+function Grab({ to }: { to: { current: (() => HTMLCanvasElement) | null } }) {
+  const { gl, scene, camera } = useThree();
+  useEffect(() => { to.current = () => { gl.render(scene, camera); return gl.domElement; }; return () => { to.current = null; }; }, [gl, scene, camera, to]);
+  return null;
+}
 let seq = Date.now();
 const newId = () => `p${(seq++).toString(36)}`;
 
 /** One block that eases toward its target size/position each frame: edits glide instead of jumping. */
-function Block({ p, selected, onPick, reduced, appearAt, hidden, bp, holo, inside }: { p: Part; selected: boolean; onPick: () => void; reduced: boolean; appearAt: number; hidden: boolean; bp: boolean; holo: boolean; inside: boolean }) {
+function Block({ p, selected, onPick, reduced, appearAt, hidden, bp, holo, inside, fail }: { p: Part; selected: boolean; onPick: () => void; reduced: boolean; appearAt: number; hidden: boolean; bp: boolean; holo: boolean; inside: boolean; fail: boolean }) {
   const m = useRef<THREE.Mesh>(null);
   const target = useMemo(() => ({ pos: new THREE.Vector3(p.x, p.y + p.h / 2, p.z), scale: new THREE.Vector3(p.w, p.h, p.d) }), [p.x, p.y, p.z, p.w, p.d, p.h]);
   const [start] = useState(() => ({ pos: target.pos.clone(), scale: target.scale.clone() })); // set once: later changes glide in useFrame
@@ -90,8 +108,8 @@ function Block({ p, selected, onPick, reduced, appearAt, hidden, bp, holo, insid
       {p.kind === "roof" && p.h >= 0.5 ? <primitive object={GABLE} attach="geometry" /> : <boxGeometry args={[1, 1, 1]} />}
       {holo ? <primitive object={HOLO} attach="material" />
         // inside: walking, so the walls' inner faces show (a block is solid; its faces point outward)
-        : <meshStandardMaterial color={bp ? BP.fill : COLOR[p.kind]} roughness={0.9} transparent={bp} opacity={bp ? 0.35 : 1} depthWrite={!bp} side={inside ? THREE.DoubleSide : THREE.FrontSide} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.25 : 0} />}
-      <Edges threshold={20} color={selected ? GOLD : holo ? HOLO_C.edge : bp ? BP.edge : "#57534e"} />
+        : <meshStandardMaterial color={fail ? FAIL : bp ? BP.fill : COLOR[p.kind]} roughness={0.9} transparent={bp} opacity={bp ? 0.35 : 1} depthWrite={!bp} side={inside ? THREE.DoubleSide : THREE.FrontSide} emissive={selected ? GOLD : "#000"} emissiveIntensity={selected ? 0.25 : 0} />}
+      <Edges threshold={20} color={selected ? GOLD : fail ? FAIL : holo ? HOLO_C.edge : bp ? BP.edge : "#57534e"} />
     </mesh>
   );
 }
@@ -213,7 +231,15 @@ function Walker({ rects, plot, onExit }: { rects: Rect[]; plot: { w: number; d: 
 export default function ArchWorld({ onClose, reduced, flat, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */ }) {
   const qualityPreset = useLeanQuality(quality);
   const glr = useGlRecovery();
+  const r3f = useRef<RootState | null>(null);
+  // crit screenshot: render once and read the canvas in the same task (no preserveDrawingBuffer needed); stays on this PC until he clicks
+  const shoot = () => new Promise<{ blob: Blob; w: number; h: number } | null>((ok) => {
+    const s = r3f.current; if (!s) return ok(null);
+    s.gl.render(s.scene, s.camera); const c = s.gl.domElement;
+    c.toBlob((b) => ok(b && { blob: b, w: c.width, h: c.height }), "image/jpeg", 0.8);
+  });
   const [scene, setScene] = useState<Scene>(starterScene);
+  const [preview, setPreview] = useState<Scene | null>(null), view = preview ?? scene; // time machine: a past version shown in 3D
   const [prices, setPrices] = useState<PriceItem[]>(STARTER_PRICES);
   const [past, setPast] = useState<Scene[]>([]);
   const [sel, setSel] = useState<string | null>(null);
@@ -221,15 +247,19 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const [noRoof, setNoRoof] = useState(false), [spin, setSpin] = useState(false);
   const [mode, setMode] = useState<"model" | "bp" | "holo">("model"), bp = mode === "bp", holo = mode === "holo";
   const [walk, setWalk] = useState(false);
-  const [sun, setSun] = useState<{ on: boolean; date: string; hour: number }>(() => ({ on: false, date: new Date().toISOString().slice(0, 10), hour: 12 }));
+  const [dayOn, setDayOn] = useState(false), [daylight, setDaylight] = useState<Daylight | null>(null);
+  const [site, setSite] = useState<Site>(defaultSite); // model city (roadmap 3): plot, setbacks, north, neighbours; saved with the model
+  const [sc, setSc] = useState<{ on: boolean; type: FloorType; s: number }>({ on: false, type: "timber", s: 0.4 }); // structure coach
+  const [sun, setSun] = useState<{ on: boolean; date: string; hour: number; lat: number; lon: number }>(() => ({ ...SITE, on: false, date: new Date().toISOString().slice(0, 10), hour: 12 }));
   const sunAt = useMemo(() => { const d = new Date(`${sun.date}T00:00`); d.setMinutes(Math.round(sun.hour * 60)); return d; }, [sun.date, sun.hour]);
   const sunInfo = useMemo(() => {
     try {
-      const pos = sunPosition(SITE.lat, SITE.lon, sunAt), dir = sunDirection(SITE.lat, SITE.lon, sunAt), arc = dayArc(SITE.lat, SITE.lon, new Date(`${sun.date}T12:00Z`));
+      const pos = sunPosition(sun.lat, sun.lon, sunAt), dir = toModel(sunDirection(sun.lat, sun.lon, sunAt), site.north), arc = dayArc(sun.lat, sun.lon, new Date(`${sun.date}T12:00Z`));
       return { pos, dir, arc };
     } catch { return null; }
-  }, [sunAt, sun.date]);
-  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * 40, Math.max(0.5, sunInfo.dir.y * 40), sunInfo.dir.z * 40] : [-14, 22, 12];
+  }, [sunAt, sun.date, sun.lat, sun.lon, site.north]);
+  const SR = site.on ? 90 : 40; // the light (and its shadow box) reaches further when the neighbours are out
+  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-14, 22, 12];
   const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
   // ARCH studio (5.1–5.4): an open splat scan replaces the model in the canvas; the worker parses and depth-sorts it.
   const [scan, setScan] = useState<ScanData | null>(null), [flip, setFlip] = useState(false), [bump, setBump] = useState(0);
@@ -238,6 +268,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   useEffect(() => () => worker.stop(), [worker]);
   const budget = splatBudget(qualityPreset.dpr);
   const bg = scan ? SCAN_BG : holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : BG;
+  const grab = useRef<(() => HTMLCanvasElement) | null>(null);
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -252,9 +283,10 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
       setScene(s.scene);
       if (Array.isArray(s.prices)) setPrices(STARTER_PRICES.map((d) => { const x = s.prices.find((p) => p.key === d.key); return x && Number.isFinite(x.eur) ? { ...d, ...x } : d; }));
     }
+    if (s?.site) setSite({ ...readSite(s.site), on: false });
     setReady(true);
   }, []);
-  useEffect(() => { if (ready && !lesson) try { localStorage.setItem(KEY, JSON.stringify({ scene, prices })); } catch { /* private mode: the scene just isn't kept */ } }, [scene, prices, ready, lesson]);
+  useEffect(() => { if (ready && !lesson) try { localStorage.setItem(KEY, JSON.stringify({ scene, prices, site: { ...site, draft: null } })); } catch { /* private mode: the scene just isn't kept */ } }, [scene, prices, site, ready, lesson]);
 
   const sceneRef = useRef(scene);
   sceneRef.current = scene; // an AI reply applies to the scene as it is when it lands, not when it was asked
@@ -266,8 +298,10 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   // one straight wall across the middle of the first floor's shell, standing on its floor
   const addInterior = () => { if (shell) { apply([{ op: "add", kind: "wall", name: "Interior wall", x: shell.x, z: shell.z, w: Math.max(0.5, shell.w - 2 * RULES.wallThick), d: 0.2, h: shell.h, y: shell.y }]); } };
   const host = part?.kind === "wall" ? part : undefined;
-  const solid = useMemo(() => [...scene.parts].filter((p) => !isOpening(p.kind)).sort((a, b) => a.y - b.y), [scene.parts]);
+  const solid = useMemo(() => [...view.parts].filter((p) => !isOpening(p.kind)).sort((a, b) => a.y - b.y), [view.parts]);
   const rects = useMemo(() => wallRects(scene.parts), [scene.parts]);
+  const coachRows = useMemo(() => (sc.on ? coach(scene.parts, sc.type, sc.s) : []), [scene.parts, sc]);
+  const failing = useMemo(() => new Set(coachRows.filter((r) => !r.now.ok).map((r) => r.part.id)), [coachRows]);
   const plotWD = useMemo(() => ({ w: scene.plot.w, d: scene.plot.d }), [scene.plot.w, scene.plot.d]);
   // walking a scan: no walls, kept inside the scan's extent (+2 m)
   const noRects = useMemo<Rect[]>(() => [], []);
@@ -317,6 +351,11 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     setLessonMsg(r?.ok ? "Saved to MEMORY." : "Couldn't save the lesson.");
     if (r?.ok) setBump((b) => b + 1);
   }
+  async function studyQuiz() { // the quiz becomes study cards in MEMORY (spaced repetition)
+    if (!lesson) return;
+    const r = await fetch("/api/study", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", source: "arch", ref: lesson.building, cards: quizCards(lesson.quiz) }) }).catch(() => null);
+    setLessonMsg(r?.ok ? "Quiz added to your study cards in MEMORY." : "Couldn't add the study cards.");
+  }
   const focus = new Set(lesson && ch < lesson.chapters.length ? lesson.chapters[ch].focus : []);
 
   const field = (k: "w" | "d" | "h" | "x" | "z" | "off" | "sill", label: string) => part && <NumField key={`${part.id}-${k}-${part[k]}`} label={label} name={part.name} value={part[k] ?? 0} pos={k === "x" || k === "z" || k === "off"}
@@ -325,31 +364,35 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: bg }}>
       {!flat && (
-        <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
+        <Canvas key={glr.key} onCreated={(st) => { glr.onCreated(st); r3f.current = st; }} frameloop={paused ? "never" : "always"} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
         <WarmCompile world="arch" />
+        <Grab to={grab} />
         {quality === "auto" && <PerformanceMonitor onDecline={qualityPreset.onDecline} />}
           <color attach="background" args={[bg]} />
           <fog attach="fog" args={[bg, 60, 140]} />
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
-          <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} />
+          <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-SR} shadow-camera-right={SR} shadow-camera-top={SR} shadow-camera-bottom={-SR} shadow-camera-far={SR * 3} />
           {scan ? <SplatCloud scan={scan} worker={worker} cap={budget.cap} maxPx={budget.maxPx} flip={flip}>
             {meas && <MeasureLayer m={meas} set={setMeas} worker={worker} ext={Math.max(...scan.bounds.hi.map((h, i) => h - scan.bounds.lo[i]))} />}
           </SplatCloud> : <>
-          {holo ? <><HoloTable w={scene.plot.w} d={scene.plot.d} /><HoloClock solid={solid} t0={t0} reduced={reduced} /></> : <>
-            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[scene.plot.w, scene.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[scene.plot.ground]} roughness={1} /></mesh>
-            <gridHelper args={[Math.max(scene.plot.w, scene.plot.d), Math.max(scene.plot.w, scene.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
-            <ContactShadows position={[0, 0.01, 0]} scale={Math.max(scene.plot.w, scene.plot.d)} opacity={0.35} blur={2.5} far={12} />
-            <Blueprint parts={scene.parts} />
-            <Trees n={scene.plot.trees} w={scene.plot.w} d={scene.plot.d} />
+          {holo ? <><HoloTable w={view.plot.w} d={view.plot.d} /><HoloClock solid={solid} t0={t0} reduced={reduced} /></> : <>
+            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[view.plot.w, view.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[view.plot.ground]} roughness={1} /></mesh>
+            <gridHelper args={[Math.max(view.plot.w, view.plot.d), Math.max(view.plot.w, view.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
+            <ContactShadows position={[0, 0.01, 0]} scale={Math.max(view.plot.w, view.plot.d)} opacity={0.35} blur={2.5} far={12} />
+            <Blueprint parts={view.parts} />
+            <Trees n={view.plot.trees} w={view.plot.w} d={view.plot.d} />
+            {site.on && !lesson && <SiteLayer site={site} set={setSite} parts={scene.parts} />}
           </>}
           <BuildClock run={run} onStart={setT0} />
           {(() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
             return <>
-              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={noRoof && p.kind === "roof"} bp={bp} holo={holo} inside={walk} />)}
-              {scene.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
+              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={(noRoof || !!daylight) && p.kind === "roof"} bp={bp} holo={holo} inside={walk} fail={failing.has(p.id)} />)}
+              {view.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
                 appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} holo={holo} />)}
+              {daylight && !holo && <DaylightRooms d={daylight} />}
             </>; })()}
           </>}
+          {sun.on && sunInfo && !scan && !holo && <SunShadow scene={view} sun={{ ...sunInfo.pos, azimuthDeg: sunInfo.pos.azimuthDeg + site.north }} /* model bearing */ />}
           {walk && !paused && <Walker key={scan?.name ?? "model"} rects={scan ? noRects : rects} plot={scanPlot ?? plotWD} onExit={() => setWalk(false)} />}
           <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
         </Canvas>
@@ -387,6 +430,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
               <button className="chip" disabled={ch === 0} onClick={() => goTo(lesson, ch - 1)}>← Back</button>
               <button className="chip" disabled={ch >= lesson.chapters.length} onClick={() => goTo(lesson, ch + 1)}>{ch === lesson.chapters.length - 1 ? "Quiz →" : "Next →"}</button>
               <button className="chip" onClick={() => void saveLesson()}>Save lesson</button>
+              {lesson.quiz.length > 0 && <button className="chip" onClick={() => void studyQuiz()} title="Spaced repetition in MEMORY">Study the quiz</button>}
               <button className="chip" onClick={endLesson} title="Back to your own model">End lesson</button>
             </div>
             <p className="muted text-[11px]">Simplified massing, dimensions approximate. Check facts against a book before you cite them.</p>
@@ -406,16 +450,46 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
         {walk && <p className="muted text-xs" aria-live="polite">Walking at 1.6 m: WASD or arrow keys move, drag to look around, Esc or 🚶 Walk to go back. Walls stop you; doors let you through.</p>}
         {sun.on && (
           <div className="card space-y-1.5" aria-label="Sun study">
-            <div className="muted text-[10px] uppercase tracking-widest">Sun study · {SITE.name}</div>
+            <div className="muted text-[10px] uppercase tracking-widest">Sun study</div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <input className="field" type="date" value={sun.date} aria-label="Date" onChange={(e) => e.target.value && setSun((v) => ({ ...v, date: e.target.value }))} />
               {[["Jun 21", "-06-21"], ["Dec 21", "-12-21"]].map(([l, md]) => <button key={l} className="chip" onClick={() => setSun((v) => ({ ...v, date: v.date.slice(0, 4) + md }))}>{l}</button>)}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {(["lat", "lon"] as const).map((k) => <label key={k} className="flex items-center gap-1">{k === "lat" ? "Lat" : "Long"}
+                <input className="field w-20" type="number" step={0.001} min={k === "lat" ? -90 : -180} max={k === "lat" ? 90 : 180} defaultValue={sun[k]} aria-label={k === "lat" ? "Latitude" : "Longitude (east positive)"}
+                  onChange={(e) => { const v = Number(e.target.value); if (e.target.value && Math.abs(v) <= (k === "lat" ? 90 : 180)) setSun((s) => ({ ...s, [k]: v })); }} /></label>)}
             </div>
             <label className="flex items-center gap-2 text-xs"><span className="num w-12">{String(Math.floor(sun.hour)).padStart(2, "0")}:{String(Math.round((sun.hour % 1) * 60)).padStart(2, "0")}</span>
               <input className="flex-1" type="range" min={0} max={24} step={0.25} value={sun.hour} aria-label="Time of day" onChange={(e) => setSun((v) => ({ ...v, hour: Number(e.target.value) }))} /></label>
             {sunInfo && <p className="muted text-xs">
               {sunInfo.pos.elevationDeg < 0 ? "Sun below the horizon" : `Sun ${Math.round(sunInfo.pos.elevationDeg)}° high, from ${Math.round(sunInfo.pos.azimuthDeg)}° (0° = north)`}
-              {" · "}sunrise {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, sunset {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. The plot's −Z side faces north.</p>}
+              {" · "}sunrise {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, sunset {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. {site.north ? `True north is ${Math.round(site.north)}° clockwise from the plot's −Z side.` : "The plot's −Z side faces north."}
+              {((s) => s && ` Shadow of the ${Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10} m top: ${s.length.toFixed(1)} m toward ${Math.round(s.towardDeg)}° (orange line).`)(shadowOf(sunInfo.pos, solid.reduce((m, p) => Math.max(m, p.y + p.h), 0), 120))}</p>}
+          </div>
+        )}
+        {dayOn && <DaylightPanel parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} d={daylight} onChange={setDaylight} />}
+        {site.on && !lesson && !scan && <SitePanel site={site} set={setSite} parts={scene.parts} sun={sun.on && sunInfo ? sunInfo.dir : null} />}
+        {sc.on && (
+          <div className="card space-y-1.5" aria-label="Structure coach">
+            <div className="muted text-[10px] uppercase tracking-widest">Structure coach · upper floors</div>
+            <p className="text-xs font-semibold">Teaching estimate, not engineering: a structural engineer must check real designs.</p>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <select className="field" value={sc.type} aria-label="Floor type" onChange={(e) => setSc((v) => ({ ...v, type: e.target.value as FloorType }))}>
+                <option value="timber">Timber joists, C24</option><option value="concrete">Concrete slab, C25/30</option></select>
+              {sc.type === "timber" && <select className="field" value={sc.s} aria-label="Joist spacing" onChange={(e) => setSc((v) => ({ ...v, s: Number(e.target.value) }))}>
+                {[0.3, 0.4, 0.6, 1.2, 2.4].map((s) => <option key={s} value={s}>{s < 1 ? `joists @ ${s * 1000} mm` : `beam carrying ${s} m`}</option>)}</select>}
+              <span className="muted">Residential: 1.5 kN/m² imposed + self-weight + finishes</span>
+            </div>
+            {!coachRows.length && <p className="muted text-xs">No upper floor yet: the ground slab rests on the ground. Add a second floor to check one.</p>}
+            {coachRows.map((r) => <details key={r.part.id} open={r.part.id === sel || coachRows.length === 1} className="text-xs">
+              <summary className={r.now.ok ? "" : "font-semibold"} style={r.now.ok ? undefined : { color: FAIL }}>
+                {r.part.name}: span {r.span.toFixed(2)} m{r.walls.length ? ` (split by ${r.walls.length} interior wall${r.walls.length > 1 ? "s" : ""})` : ""}, modelled {r.now.size} → {r.now.ok ? "OK" : "too small"} ({Math.round(r.now.util * 100)} % used)</summary>
+              <pre className="whitespace-pre-wrap text-[11px] leading-snug">{r.now.steps.join("\n")}</pre>
+              <p>{r.best ? <>Smallest standard section that passes: <b>{r.best.size}</b> ({Math.round(r.best.util * 100)} % used). </> : "No standard section passes: shorten the span with a wall or beam underneath, or use glulam/steel. "}
+                {r.best && r.best.h !== Math.round(r.part.h * 1000) && <button className="chip" onClick={() => apply([{ op: "set", id: r.part.id, h: r.best!.h / 1000 }])}>Set floor depth to {r.best.h} mm</button>}</p>
+            </details>)}
+            <p className="muted text-[11px]">Simply supported, uniform load, span = shorter side less one wall, split by full-width interior walls under the slab (teaching estimate). Timber: EN 338 C24 f_m,k 24 N/mm², E_0,mean 11 000 N/mm², ρ_mean 420 kg/m³; EN 1995-1-1 k_mod 0.8, γ_M 1.3, k_def 0.6; limit L/300. Concrete: EN 1992-1-1 bending + span/depth (eq. 7.16). Shear, bearing, vibration and fire are not checked.</p>
           </div>
         )}
         <div className="flex flex-wrap gap-1.5">
@@ -426,6 +500,9 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <button className="chip" aria-pressed={holo} onClick={() => setMode((m) => (m === "holo" ? "model" : "holo"))} title="The building as a hologram on a holotable">Holo</button>
           <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title="Walk through at eye height: WASD or arrows, drag to look, Esc to exit">🚶 Walk</button>
           <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ Sun study</button>
+          <button className="chip" aria-pressed={dayOn} onClick={() => { setDayOn((v) => !v); setDaylight(null); }} title="Direct-sun hours and daylight per room, a teaching estimate">🌤 Daylight</button>
+          <button className="chip" aria-pressed={site.on} onClick={() => setSite((v) => ({ ...v, on: !v.on, draft: null }))} title="Put the building on a real plot among neighbours: setbacks, coverage, FAR, shadows">🏘 Site</button>
+          <button className="chip" aria-pressed={sc.on} onClick={() => setSc((v) => ({ ...v, on: !v.on }))} title="Check upper floors: bending and deflection, with the working">📐 Structure</button>
           <button className="chip" disabled={!past.length} onClick={undo}>↶ Undo</button>
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>Start over</button>
           <button className="chip" disabled={!shell} onClick={addInterior} title="A straight wall across the first floor; move or resize it with the numbers">+ Interior wall</button>
@@ -433,9 +510,16 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <button className="chip" onClick={() => download("arch-scene.json", JSON.stringify(scene, null, 2), "application/json")}>⬇ Scene JSON</button>
         </div>
 
+        <ArchPlans plot={scene.plot} onPick={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setRun((n) => n + 1); }} />
+        {ready && <ArchTimeMachine scene={scene} save={!lesson} onPreview={setPreview} onRestore={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); setScene(s); setSel(null); }} />}
+
         <ArchStudio worker={worker} bump={bump} onScan={(s) => { setScan(s); setMeas(measureFrom(s)); setWalk(false); }}
           onScanNote={(id, note) => setMeas((m) => m && { ...m, noteId: id, note })} onTeach={(t) => void teach(t)}
           lesson={lesson ? { building: lesson.building, text: lesson.chapters.map((c) => `${c.title}: ${c.text}`).join("\n") } : null} lessonKey={lesson ? lessonTag(lesson.building) : ""} />
+
+        <ArchCrit scene={scene} prices={prices} shoot={shoot} />
+        <PortfolioPanel grab={() => grab.current?.() ?? null}
+          caption={scan ? `Scan ${scan.name}` : lesson ? `Study model after ${lesson.building}` : archCaption({ parts: scene.parts, mode, sun: sun.on ? sun : null })} />
 
         <div className="card space-y-1.5">
           <div className="muted text-[10px] uppercase tracking-widest">Parts · click one in 3D or here</div>
@@ -468,6 +552,8 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           </tbody></table>
           <p className="muted text-[11px]">{prices.some((p) => !p.date) ? "Some prices are unverified starter estimates. " : ""}Hover a row for its price source. Window and door areas are taken off the walls. Labour and transport aren&apos;t counted yet.</p>
         </div>
+
+        <ArchMaterials q={q} />
 
         {tips.length > 0 && <div className="card space-y-1"><div className="muted text-[10px] uppercase tracking-widest">Bulk buying</div>{tips.map((t) => <p key={t} className="text-xs">• {t}</p>)}</div>}
         <p className="muted text-[11px]">A study tool: rules of thumb (rebar ~100 kg/m³, 300 mm block walls). Anything you build for real needs an engineer&apos;s sign-off.</p>

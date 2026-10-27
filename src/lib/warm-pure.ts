@@ -26,3 +26,9 @@ export function programLabel(name: string, cacheKey: string, fragment: string): 
   for (const m of fragment.matchAll(/uniform\s+\w+\s+(u[A-Z]\w*)/g)) if (!us.includes(m[1]) && us.push(m[1]) >= 3) break;
   return ([base, ...flags].join("+") + (us.length ? `(${us.join(",")})` : "")).slice(0, 80);
 }
+
+/** A stand-in's opacity `ms` into its crossfade of `fade` ms: 1 → 0, eased at both ends (no pop as it starts or ends). */
+export function standInAlpha(ms: number, fade: number): number {
+  const t = Math.min(1, Math.max(0, fade > 0 ? ms / fade : 1));
+  return 1 - t * t * (3 - 2 * t);
+}

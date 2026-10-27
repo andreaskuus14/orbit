@@ -1,7 +1,11 @@
 // LIFE workspace: pure date/streak/validation logic (shared by server, UI and tests; no node or next imports).
 // Days are local "YYYY-MM-DD" keys; day steps go through the Date constructor so DST never skips or repeats a day.
 
-export type Habit = { id: string; name: string; emoji: string; days: number[]; created: string; done: string[] };
+export type Habit = {
+  id: string; name: string; emoji: string; days: number[]; created: string; done: string[];
+  // Habit engine (habit-nudge-pure): window = minutes of the day, nudge absent = off, at = check-in minute per day, nudged = last nudge day.
+  window?: { from: number; to: number }; nudge?: "toast" | "push"; at?: Record<string, number>; nudged?: string; ignored?: number;
+};
 export const REPEATS = ["daily", "weekdays", "weekly"] as const;
 export type Repeat = (typeof REPEATS)[number];
 /** repeat absent = one-off (old data has none). A recurring reminder is one record whose `at` moves forward and never gets `fired`. */

@@ -9,15 +9,21 @@ import { adminClient } from "@/lib/supabase/admin";
 import { orbitDataDir } from "@/lib/data-dir";
 import { emit } from "@/lib/claude";
 import { makePairCode, NonceCache, verifyToken, type PairCode, type RemoteCommand } from "@/lib/remote-pure";
-import { approvalId, clipStamp, ledgerData, quoteStamp, REMOTE_COOKIE, secretProblem, takeRate, type Approval } from "@/lib/remote-web-pure";
+import { approvalId, clipStamp, ledgerData, REMOTE_COOKIE, secretProblem, takeRate, type Approval } from "@/lib/remote-web-pure";
 import { isAllowedEmail } from "@/lib/allow";
 import { listJobs } from "@/lib/clips/factory";
 import { listStories } from "@/lib/clips/story";
 import { approveProblem, quoteTotal } from "@/lib/clips/story-pure";
-import { emailIn } from "@/lib/business-pure";
+import { emailIn, sendStamp } from "@/lib/business-pure";
+import { contentHash, negoContent, spendContent } from "@/lib/approval-pure";
+import { waitingNegotiations } from "@/lib/negotiator";
+import { allInvoices } from "@/lib/invoices";
+import { remoteInvoices } from "@/lib/invoices-pure";
+import { localDay } from "@/lib/morning-pure";
 import type { PushSub } from "@/lib/remote-push-pure";
+import { deviceType } from "@/lib/screen-pure";
 
-export type Device = { id: string; name: string; userId: string; createdAt: string; push?: PushSub }; // push: its Web Push subscription (6.3)
+export type Device = { id: string; name: string; userId: string; createdAt: string; push?: PushSub; type?: "screen" }; // push: its Web Push subscription (6.3); type screen: read-only second screen
 type State = { pair?: PairCode & { userId: string }; nonces: NonceCache; hits: Map<string, number[]>; seen: Map<string, string>; chat: Map<string, { id: string; at: number }>;
   owner?: { userId: string; email: string; sb: SupabaseClient }; save?: Promise<unknown> };
 const g = globalThis as unknown as { __orbitRemote?: State };
@@ -55,15 +61,16 @@ export function rateOk(key: string, r: { limit: number; windowMs: number }) {
   return t.ok;
 }
 
-/** The paired device behind this request's cookie, or null (bad/expired token, or revoked device). */
-export async function deviceFromCookie(): Promise<Device | null> {
+/** The paired device behind this request's cookie, or null (bad/expired token, or revoked device).
+ *  A read-only screen counts as unpaired unless the route asks for it (readOnlyOk) and then checks scopeAllows itself. */
+export async function deviceFromCookie(readOnlyOk = false): Promise<Device | null> {
   const token = (await cookies()).get(REMOTE_COOKIE)?.value;
   if (!token) return null;
   const v = verifyToken(token, remoteSecret(), Date.now());
   if (!v.ok) return null;
   const d = (await listDevices()).find((x) => x.id === v.payload.deviceId) ?? null;
   if (d) S.seen.set(d.id, new Date().toISOString());
-  return d;
+  return d && (readOnlyOk || deviceType(d) === "phone") ? d : null;
 }
 
 /** A Supabase client signed in as the owner (RLS applies, as on the PC). Minted server-side with the service key: a magic-link
@@ -112,12 +119,24 @@ export async function pendingApprovals(sb: SupabaseClient): Promise<Approval[]> 
   const out: Approval[] = clips.map(({ thumbPath: _t, ...a }) => a);
   for (const s of stories) {
     const credits = quoteTotal(s.items);
-    if (s.quote && !approveProblem(s, credits)) out.push(item(`spend:${s.id}`, { kind: "spend", title: s.story.title, detail: `${s.draft ? "Higgsfield draft" : "AI Story"}: Higgsfield spend${s.quote.balance !== null ? ` (balance ${s.quote.balance})` : ""}`, credits, seen: quoteStamp(s.quote) }));
+    if (s.quote && !approveProblem(s, credits)) out.push(item(`spend:${s.id}`, { kind: "spend", title: s.story.title, detail: `${s.draft ? "Higgsfield draft" : "AI Story"}: Higgsfield spend${s.quote.balance !== null ? ` (balance ${s.quote.balance})` : ""}`, credits, seen: await contentHash(spendContent(s.quote.fingerprint, credits)) })); // the hash approving spends on
   }
   for (const p of prospects as { id: string; name: string; contact: string | null; draft: string | null; updated_at: string }[]) {
     const to = emailIn(p.contact ?? "");
-    if (to && p.draft?.trim()) out.push(item(`send:${p.id}`, { kind: "send", title: p.name, detail: "BUSINESS email", to, message: p.draft, seen: p.updated_at }));
+    if (to && p.draft?.trim()) out.push(item(`send:${p.id}`, { kind: "send", title: p.name, detail: "BUSINESS email", to, message: p.draft, seen: await sendStamp(p) })); // the hash of exactly what approving emails
   }
+  // Negotiator (B2): replies drafted inside his limits. `to` only when approving will email it (else he copies it to the seller himself).
+  const negos = await waitingNegotiations().catch(() => []);
+  const sellIds = negos.filter((n) => n.side === "sell").map((n) => n.ref.slice(9));
+  const contacts = sellIds.length && process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM
+    ? new Map(((await sb.from("prospects").select("id,contact").in("id", sellIds)).data ?? []).map((p: { id: string; contact: string | null }) => [p.id, emailIn(p.contact ?? "")]))
+    : new Map<string, string | null>();
+  for (const n of negos) {
+    const to = n.side === "sell" ? contacts.get(n.ref.slice(9)) ?? undefined : undefined;
+    out.push(item(`nego:${n.id}`, { kind: "nego", title: n.title, detail: n.side === "sell" ? "BUSINESS negotiation" : "Deal: message to the seller", strategy: n.draft!.strategy, message: n.draft!.text, seen: await contentHash(negoContent(n.id, n.draft!.text)), ...(to && { to }) }));
+  }
+  // Invoices (B6): overdue reminder drafts, approved through invoices.ts approveReminder (same guards as the PC click).
+  for (const { key, content, ...a } of remoteInvoices(await allInvoices(), localDay(new Date()), !!(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM))) out.push(item(key, { kind: "invoice", ...a, seen: await contentHash(content) }));
   return out;
 }
 

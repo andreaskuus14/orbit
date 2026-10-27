@@ -8,7 +8,7 @@ import { useThree, type RootState } from "@react-three/fiber";
 import { EffectComposer, type Pass } from "postprocessing";
 import { envReady } from "./alien/env";
 import { perfMark } from "./PerfBeacon";
-import { passesChanged, programLabel, skipFrame, slowest, type WarmState } from "@/lib/warm-pure";
+import { passesChanged, programLabel, skipFrame, slowest, standInAlpha, type WarmState } from "@/lib/warm-pure";
 
 type Frameloop = RootState["frameloop"];
 // Several warm-ups can overlap on one canvas (a part mounting late warms again): the loop resumes when the last one ends.
@@ -106,6 +106,65 @@ function timePrograms(gl: THREE.WebGLRenderer, since: Set<Prog>, t0: number) {
   });
 }
 
+/* First light: a material registered with a stand-in stays out of the start-up compile. The stand-in (a tiny program that
+   matches its colour and silhouette) draws in its place from the first frame; the real program compiles in parallel right
+   after, ahead of the background queue, and crossfades in (FADE ms) when it is ready. The galaxy's biggest programs (the
+   planet surface, the obsidian rings, the ringworld) no longer hold its first frame. */
+const standIns = new WeakMap<THREE.Material, THREE.Material>();
+/** `cheap` stands in for `heavy` at start-up. `cheap` must be transparent (its opacity fades it out); a ShaderMaterial also
+ *  gets an `opacity` uniform. Only read when a canvas starts: later mounts compile the usual way. */
+export function standIn(heavy: THREE.Material, cheap: THREE.Material) {
+  standIns.set(heavy, cheap);
+  heavy.addEventListener("dispose", () => cheap.dispose()); // lives as long as its heavy material
+}
+const FADE = 400;
+type Swap = { mesh: THREE.Mesh; heavy: THREE.Material; over: THREE.Mesh; done: boolean };
+/** Puts each stand-in on top of its mesh (a child sharing its geometry) and hides the heavy material. */
+function swapIn(scene: THREE.Object3D): Swap[] {
+  const out: Swap[] = [];
+  scene.traverse((o) => {
+    const mesh = o as THREE.Mesh, heavy = mesh.material as THREE.Material, cheap = mesh.isMesh && !Array.isArray(heavy) ? standIns.get(heavy) : undefined;
+    if (!cheap) return;
+    // shortcut: the stand-in keeps the geometry the mesh had at start (the planets' close-up LOD comes much later)
+    const over = new THREE.Mesh(mesh.geometry, cheap);
+    over.raycast = () => {}; over.frustumCulled = mesh.frustumCulled;
+    // it stands in for an opaque surface: first among the transparent, so rings and glows still draw over it; pulled a
+    // hair toward the camera, so it wins the depth test against the real surface during the crossfade
+    over.renderOrder = -1000; Object.assign(cheap, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
+    out.push({ mesh, heavy, over, done: false });
+  });
+  for (const s of out) { s.mesh.add(s.over); s.heavy.visible = false; }
+  return out;
+}
+const fadeTo = (m: THREE.Material, a: number) => { m.opacity = a; const o = (m as THREE.ShaderMaterial).uniforms?.opacity; if (o) o.value = a; };
+/** The heavy material draws again under its stand-in, which fades out and leaves. */
+function reveal(s: Swap, fade: boolean) {
+  if (s.done) return;
+  s.done = true; s.heavy.visible = true;
+  const cheap = s.over.material as THREE.Material, t0 = performance.now();
+  const step = () => {
+    const a = fade ? standInAlpha(performance.now() - t0, FADE) : 0;
+    fadeTo(cheap, a);
+    if (a > 0) requestAnimationFrame(step); else { s.mesh.remove(s.over); fadeTo(cheap, 1); }
+  };
+  step();
+}
+/** The reflection map bakes asynchronously; surfaces that use it switch programs when it lands. Waits for it, then for
+ *  them to apply it (a store update re-renders them synchronously), so the programs compiled next are the ones drawn. */
+async function afterEnv(gl: THREE.WebGLRenderer) {
+  const env = envReady(gl);
+  if (env) { await env; await tick(); await tick(); }
+}
+/** Compiles each heavy material in parallel (its mesh, lit by `scene`) and reveals it as soon as its own program is ready. */
+async function upgrade(gl: THREE.WebGLRenderer, swaps: Swap[], scene: THREE.Scene, camera: THREE.Camera, into: boolean, t0: number) {
+  await afterEnv(gl); // the heavy surfaces reflect it: compile the variant they will draw with
+  return Promise.all(swaps.map((s) => {
+    let p: Promise<unknown>;
+    try { p = compileAs(gl, s.mesh, camera, into, scene); } catch (e) { p = Promise.reject(e); }
+    return p.catch(() => {}).then(() => reveal(s, true)); // a failed compile still reveals: the real material is the truth
+  })).then(() => setTimeout(() => perfMark("full-detail", { programs: gl.info.programs?.length ?? -1, ms: Math.round(performance.now() - t0) }), FADE));
+}
+
 // Canvases that have drawn: only a canvas's first hold shows the veil (a later hold keeps its last image instead).
 const drawn = new WeakSet<THREE.WebGLRenderer>();
 
@@ -116,7 +175,7 @@ const drawn = new WeakSet<THREE.WebGLRenderer>();
 export function WarmCompile({ cap = 20_000, defer = false, onDone, onLater, world }: { cap?: number; defer?: boolean; onDone?: () => void; onLater?: () => void; world?: string } = {}) {
   const { gl, scene, camera, setFrameloop, frameloop, get } = useThree();
   useLayoutEffect(() => {
-    let alive = true, released = false;
+    let alive = true, released = false, undo = () => {};
     const h = holds.get(gl) ?? { n: 0, prev: frameloop };
     if (h.n++ === 0) h.prev = frameloop;
     holds.set(gl, h);
@@ -133,10 +192,11 @@ export function WarmCompile({ cap = 20_000, defer = false, onDone, onLater, worl
     };
     // one tick later: the world's children have mounted into the scene (and a composer, if any, has taken over drawing)
     const t = setTimeout(async () => {
-      // The reflection map bakes asynchronously; surfaces that use it switch programs when it lands. Wait for it, then for
-      // them to apply it (a store update re-renders them synchronously), so those programs are the ones compiled here.
-      const env = envReady(gl);
-      if (env) { await env; await tick(); await tick(); }
+      // shortcut: with stand-ins the start-up set skips the reflection map's bake (the env-mapped surfaces are all stand-ins
+      // in the galaxy, the only canvas with them); a canvas mixing stand-ins and other env-mapped surfaces must wait here.
+      let stands = false;
+      scene.traverse((o) => { stands ||= standIns.has((o as THREE.Mesh).material as THREE.Material); });
+      if (!stands) await afterEnv(gl);
       if (!alive) return;
       const t0 = performance.now(), had = new Set(programsOf(gl));
       // internal.priority > 0: a useFrame with priority took over drawing; here that is always the EffectComposer.
@@ -145,7 +205,14 @@ export function WarmCompile({ cap = 20_000, defer = false, onDone, onLater, worl
       // until their group is warmed, so a part shown early never compiles synchronously, it appears a moment later.
       const groups = defer ? splitHidden(scene) : [];
       groups.forEach((g) => g.only.forEach((m) => { m.visible = false; }));
-      const p = without(groups.map((g) => g.root), () => compileAs(gl, scene, camera, into));
+      let swaps: Swap[] = [];
+      const p = without(groups.map((g) => g.root), () => {
+        swaps = swapIn(scene);
+        // the heavy meshes wear their stand-in for the collect: three compiles hidden materials too
+        swaps.forEach((s) => { s.mesh.material = s.over.material; });
+        try { return compileAs(gl, scene, camera, into); } finally { swaps.forEach((s) => { s.mesh.material = s.heavy; }); }
+      });
+      undo = () => swaps.forEach((s) => reveal(s, false));
       // The composer's own shaders compile alongside, not in its first frames (it skipped up to 2 s, then compiled the rest
       // synchronously).
       const timed = timePrograms(gl, had, t0);
@@ -155,6 +222,12 @@ export function WarmCompile({ cap = 20_000, defer = false, onDone, onLater, worl
           if (!alive) return;
           const ms = Math.round(performance.now() - t0), programs = gl.info.programs?.length ?? -1;
           void timed.then((slow) => perfMark(world ? "world-compiled" : "warm-compiled", { world, programs, ms, slow }));
+          if (swaps.length) {
+            perfMark("first-light", { stand: swaps.length, ms });
+            const l = laterOf(gl);
+            l.q.unshift(() => upgrade(gl, swaps, scene, camera, into, t0)); // first in the queue, as the frames start
+            void pump(l); // already open when the cap released the canvas
+          }
           onDone?.(); release();
           if (!defer) return;
           const l = laterOf(gl);
@@ -165,7 +238,7 @@ export function WarmCompile({ cap = 20_000, defer = false, onDone, onLater, worl
       // A slow driver must not hold the canvas blank forever: after `cap` draw anyway.
       setTimeout(() => { if (alive) release(); }, cap);
     }, 0);
-    return () => { alive = false; clearTimeout(t); release(); };
+    return () => { alive = false; clearTimeout(t); undo(); release(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount
   }, []);
   return null;
