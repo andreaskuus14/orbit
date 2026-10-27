@@ -29,6 +29,7 @@ export type BriefIn = {
   school?: { id: string; title: string; say: string; detail?: string }; // heavy week / today's study blocks / next deadline (school-pure schoolBrief)
   dream?: { id: string; question: string }; // last night's ONE question (dream-pure); his answer goes through CORE like any message
   idea?: { id: string; title: string; more: number }; // last night's dream-mode idea (dream-ideas-pure briefIdea)
+  review?: { id: string; say: string }; // the weekly review call he didn't pick up (review-call-pure missedReviewLine)
   lesson?: { id: string; text: string }; snoozed: string[];
   study?: number; // study cards due today (study-pure dueToday)
   weather?: WeatherLine; // today's forecast for a saved place (weather.ts briefWeather)
@@ -95,6 +96,8 @@ export function briefItems(x: BriefIn): BriefItem[] {
     add({ id: `night:${n.key}`, kind: "night", say, title: `Night shift: ${n.done.length} done${n.failed.length ? `, ${n.failed.length} failed` : ""}`,
       detail: top ? plain(top.label) : undefined, open: top?.open && "task" in top.open ? { task: top.open.task } : { panel: "agents" } });
   }
+
+  if (x.review) add({ id: x.review.id, kind: "result", title: "Your weekly review", detail: "Missed call: tell ORBIT your top 3 for the week", say: x.review.say });
 
   if (x.goalRisk) add({ id: `goalrisk:${x.goalRisk.id}`, kind: "result", title: x.goalRisk.title, detail: "Weekly milestones", open: { goal: x.goalRisk.id }, say: x.goalRisk.say });
   if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });

@@ -8,15 +8,20 @@ import { futureWindow, monthOf } from "./future-pure.ts";
 
 // ---- When to ring ------------------------------------------------------------
 
-export type CallReason = "morning" | "urgent" | "deal" | "contract" | "blocked" | "checkin" | "future" | "manual";
+export type CallReason = "morning" | "urgent" | "deal" | "contract" | "blocked" | "checkin" | "review" | "future" | "manual";
 export const CALL = {
   maxPerDay: 2, minGapMs: 60 * 60_000, blockHours: 4, morningUntil: 11, checkinWindowMin: 120,
   idleEndMs: 10 * 60_000, urgentFreshMs: 2 * 3600_000, confirmMs: 60_000, maxTurns: 40,
 } as const;
 export const CALL_TZ = "Europe/Tallinn"; // same clock as push quiet hours (remote-push-pure)
 
-/** Persisted in <data dir>/call.json. seen: approval id → when ORBIT first saw it waiting; nagged: ids already rung about; dealt: great-deal offer ids already rung about. */
-export type CallState = { day: string; calls: number; lastAt: number; morningDay: string; checkinDay: string; checkin: string; seen: Record<string, number>; nagged: string[]; urgentAt: number; dealt: string[]; contracted?: string[]; futureMonth?: string };
+/** The weekly review call (Profile): off until he turns it on; day 0 = Sunday … 6 = Saturday; at "HH:MM" between 08:00 and 22:59. */
+export type ReviewSettings = { on: boolean; day: number; at: string };
+export const REVIEW_DEFAULT: ReviewSettings = { on: false, day: 0, at: "19:00" };
+/** Persisted in <data dir>/call.json. seen: approval id → when ORBIT first saw it waiting; nagged: ids already rung about; dealt: great-deal offer ids already rung about.
+ *  reviewDay: the local day the weekly review last rang (once, never retried); reviewAt: when it rang, cleared once he picks up (unanswered → next morning's brief). */
+export type CallState = { day: string; calls: number; lastAt: number; morningDay: string; checkinDay: string; checkin: string; seen: Record<string, number>; nagged: string[]; urgentAt: number; dealt: string[]; contracted?: string[];
+  futureMonth?: string; review?: ReviewSettings; reviewDay?: string; reviewAt?: number };
 export const CALL_START: CallState = { day: "", calls: 0, lastAt: 0, morningDay: "", checkinDay: "", checkin: "", seen: {}, nagged: [], urgentAt: 0, dealt: [] };
 /** deals: great deals the hunter found in the last 12 h (deals.ts freshDeals), offer ids only. contracts: contracts waiting for his signature (contracts-pure waitingIds). future: there are numbers for a future-self call. */
 export type CallSignals = { now: number; stopAll: boolean; approvals: string[]; nightReport: boolean; deals?: string[]; contracts?: string[]; focus?: boolean; future?: boolean }; // focus: a time-dilation block is running
@@ -24,6 +29,13 @@ export type Ring = { reason: Exclude<CallReason, "manual">; things: number };
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export const validCheckin = (v: unknown): v is string => v === "" || (typeof v === "string" && HHMM.test(v));
+/** Profile's weekly review settings, or null when invalid. Not in quiet hours: a 23:00 review would never ring. */
+export function validReview(v: unknown): ReviewSettings | null {
+  const o = v as Record<string, unknown> | null;
+  if (!o || typeof o !== "object" || typeof o.on !== "boolean" || !Number.isInteger(o.day) || (o.day as number) < 0 || (o.day as number) > 6) return null;
+  const m = typeof o.at === "string" ? HHMM.exec(o.at) : null;
+  return m && !quietHour(Number(m[1])) ? { on: o.on, day: o.day as number, at: o.at as string } : null;
+}
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const s = (v: unknown) => (typeof v === "string" ? v : "");
 
@@ -36,6 +48,7 @@ export function parseCallState(raw: string): CallState {
     checkin: validCheckin(o.checkin) ? o.checkin : "", seen, nagged: Array.isArray(o.nagged) ? o.nagged.filter((x): x is string => typeof x === "string") : [], urgentAt: num(o.urgentAt),
     dealt: Array.isArray(o.dealt) ? o.dealt.filter((x): x is string => typeof x === "string").slice(-50) : [],
     ...(Array.isArray(o.contracted) && { contracted: o.contracted.filter((x): x is string => typeof x === "string").slice(-50) }),
+    ...(validReview(o.review) && { review: validReview(o.review)! }), ...(s(o.reviewDay) && { reviewDay: s(o.reviewDay) }), ...(num(o.reviewAt) && { reviewAt: num(o.reviewAt) }),
     ...(s(o.futureMonth) ? { futureMonth: s(o.futureMonth) } : {}) };
 }
 
@@ -56,7 +69,10 @@ export function decideCall(prev: CallState, sig: CallSignals): { state: CallStat
   let st: CallState = { ...prev, seen, nagged: prev.nagged.filter((id) => waiting.has(id)) };
   if (st.day !== day) st = { ...st, day, calls: 0 };
   const none = { state: st, ring: null };
-  if (sig.stopAll || quietHour(h) || st.calls >= CALL.maxPerDay || now - st.lastAt < CALL.minGapMs) return none;
+  const rv = st.review, rvAt = rv?.on ? HHMM.exec(rv.at) : null, rvMin = rvAt ? Number(rvAt[1]) * 60 + Number(rvAt[2]) : -1;
+  // He picked this slot himself: the daily cap doesn't hide it (quiet hours, Stop-all and the hour gap still do).
+  const review = rvMin >= 0 && rv!.day === new Date(`${day}T12:00:00Z`).getUTCDay() && st.reviewDay !== day && min >= rvMin && min < rvMin + CALL.checkinWindowMin;
+  if (sig.stopAll || quietHour(h) || (st.calls >= CALL.maxPerDay && !review) || now - st.lastAt < CALL.minGapMs) return none;
 
   const urgent = st.urgentAt > st.lastAt && now - st.urgentAt < CALL.urgentFreshMs; // a failure from hours ago waits for the morning card
   if (sig.focus && !urgent) return none; // focus block: only an urgent call rings; the rest wait (nothing is used up)
@@ -68,6 +84,7 @@ export function decideCall(prev: CallState, sig: CallSignals): { state: CallStat
     : deals.length ? "deal"
     : contracts.length ? "contract"
     : sig.nightReport && sig.approvals.length && h < CALL.morningUntil && st.morningDay !== day ? "morning"
+    : review ? "review"
     : blocked.length ? "blocked"
     : ckMin >= 0 && st.checkinDay !== day && min >= ckMin && min < ckMin + CALL.checkinWindowMin ? "checkin"
     : sig.future && futureWindow(st.futureMonth ?? "", day, h) ? "future"
@@ -76,7 +93,8 @@ export function decideCall(prev: CallState, sig: CallSignals): { state: CallStat
   return {
     state: { ...st, calls: st.calls + 1, lastAt: now, nagged: [...st.nagged, ...blocked], dealt: [...st.dealt, ...deals].slice(-50),
       ...(reason === "contract" && { contracted: [...(st.contracted ?? []), ...contracts].slice(-50) }),
-      morningDay: reason === "morning" ? day : st.morningDay, checkinDay: reason === "checkin" ? day : st.checkinDay, futureMonth: reason === "future" ? monthOf(day) : st.futureMonth },
+      morningDay: reason === "morning" ? day : st.morningDay, checkinDay: reason === "checkin" ? day : st.checkinDay,
+      ...(reason === "review" && { reviewDay: day, reviewAt: now }), futureMonth: reason === "future" ? monthOf(day) : st.futureMonth },
     ring: { reason, things: sig.approvals.length + (urgent ? 1 : 0) + (reason === "deal" ? deals.length : reason === "contract" ? contracts.length : 0) },
   };
 }
@@ -101,6 +119,7 @@ export function opener(reason: CallReason, hour: number, items: Pick<CallItem, "
     case "contract": return `${hi}. A contract waits for your signature. I drafted it from your details; signing it is yours, on the PC. Want me to go over what's in it?`;
     case "urgent": return `${hi}, sorry to grab you. Something failed on the PC${n ? `, and ${need}` : ""}. Want me to walk you through it?`;
     case "blocked": return `${hi}, quick one. ${first[0].toUpperCase()}${first.slice(1)} has been waiting on you for a while. Got a sec for it?`;
+    case "review": return `${hi}, it's time for your weekly review. Got five minutes?`;
     case "future": return "Hey, it's you, from a year out. Well, a projection of you. Want to hear where this pace leads?";
     case "checkin": return n ? `${hi}, it's check-in time. ${need[0].toUpperCase()}${need.slice(1)}, nothing urgent. How's it going?` : `${hi}, just checking in. Nothing's waiting on you. How's it going?`;
     default: return n ? `Hey, I'm here. ${need[0].toUpperCase()}${need.slice(1)}, by the way. What's up?` : "Hey, I'm here. What's up?";

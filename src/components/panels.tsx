@@ -16,6 +16,7 @@ import { TimeCapsuleSection } from "./TimeCapsuleSection";
 import { PhonePairing } from "./PhonePairing";
 import { PlaceSection } from "./PlaceSection";
 import { AutonomySection } from "./AutonomySection";
+import { WeeklyReviewSetting } from "./RemoteCall";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
 import type { WriteEvidence } from "@/lib/completion-pure";
@@ -695,6 +696,7 @@ export function ProfilePanel() {
     <PasswordSection />
     <AutonomySection />
     <PhonePairing />
+    <WeeklyReviewSetting />
     <TimeCapsuleSection />
     <PlaceSection />
     <PersonaSection />
