@@ -166,6 +166,12 @@ test("planNight: the health check runs right after the tidy-up when asked, and o
   assert.equal(planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.some((t) => t.kind === "health"), false);
 });
 
+test("time capsule backup runs first when due, free of model calls", () => {
+  const { queue } = planNight(input({ backup: true }), S, { calls: 0, ms: 0 });
+  assert.deepEqual(queue[0], { kind: "backup", ref: "backup", label: "Time capsule backup", calls: 0, minutes: 2 });
+  assert.ok(!planNight(input({}), S, { calls: 0, ms: 0 }).queue.some((t) => t.kind === "backup"));
+});
+
 test("company chains: queued steps in order from the first not done, stop at a wait; budget, autonomy off and handled respected", () => {
   const c = { id: "c1", goal: "Company: Research X", steps: [{ status: "done", calls: 8 }, { status: "queued", calls: 7 }, { status: "queued" }] };
   assert.deepEqual(companySteps(c).map((t) => [t.ref, t.calls]), [["c1:1", 7], ["c1:2", 7]]);

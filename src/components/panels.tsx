@@ -12,6 +12,7 @@ import { CoreActivity } from "./CoreActivity";
 import { CoreWorkspace } from "./CoreWorkspace";
 import { cancelsJob, missionOf, turnArtifact } from "@/lib/core-workspace-pure";
 import { PasswordSection } from "./PasswordSection";
+import { TimeCapsuleSection } from "./TimeCapsuleSection";
 import { PhonePairing } from "./PhonePairing";
 import { PlaceSection } from "./PlaceSection";
 import { AutonomySection } from "./AutonomySection";
@@ -694,6 +695,7 @@ export function ProfilePanel() {
     <PasswordSection />
     <AutonomySection />
     <PhonePairing />
+    <TimeCapsuleSection />
     <PlaceSection />
     <PersonaSection />
     <PlaybookSection />
