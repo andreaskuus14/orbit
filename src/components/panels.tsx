@@ -38,6 +38,7 @@ import { AgentScorecard } from "./AgentScorecard";
 import { PredictionScore } from "./OrbitThinks";
 import { PerfRuns } from "./PerfRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
+import { getLang, LangSwitch, useT } from "./i18n";
 import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
 import { eventLabel } from "@/lib/event-label-pure";
@@ -191,7 +192,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     try {
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
+        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, lang: getLang(), screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
@@ -657,9 +658,10 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
 }
 
 /* ---------------- PROFILE ---------------- */
-const LIST_FIELDS = [["interests", "Interests"], ["projects", "Current projects"], ["goals", "Goals"], ["news_topics", "Preferred news topics"], ["research_priorities", "Research priorities"]] as const;
+const LIST_FIELDS = [["interests", "profile.interests"], ["projects", "profile.projects"], ["goals", "profile.goals"], ["news_topics", "profile.news_topics"], ["research_priorities", "profile.research_priorities"]] as const;
 
 export function ProfilePanel() {
+  const { t } = useT();
   const [p, setP] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   useEffect(() => {
@@ -671,19 +673,23 @@ export function ProfilePanel() {
   }, []);
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    try { await api("/api/profile", { method: "PUT", body: JSON.stringify(p) }); setMsg("Saved."); } catch (e2) { setMsg(e2 instanceof Error ? e2.message : "Could not save"); }
+    try { await api("/api/profile", { method: "PUT", body: JSON.stringify(p) }); setMsg(t("profile.saved")); } catch (e2) { setMsg(e2 instanceof Error ? e2.message : "Could not save"); }
   }
   return (
     <div className="space-y-6">
+    <section className="space-y-1">
+      <LangSwitch />
+      <p className="muted text-xs">{t("lang.hint")}</p>
+    </section>
     <form onSubmit={save} className="space-y-3">
-      <p className="muted text-sm">CORE reads this. Only what you write here is used; ORBIT never turns guesses into profile facts.</p>
-      <label className="block text-sm">Name<input className="field mt-1 w-full" value={p.display_name ?? ""} onChange={(e) => setP({ ...p, display_name: e.target.value })} /></label>
+      <p className="muted text-sm">{t("profile.intro")}</p>
+      <label className="block text-sm">{t("profile.name")}<input className="field mt-1 w-full" value={p.display_name ?? ""} onChange={(e) => setP({ ...p, display_name: e.target.value })} /></label>
       {LIST_FIELDS.map(([k, label]) => (
-        <label key={k} className="block text-sm">{label} <span className="muted">(comma separated)</span>
+        <label key={k} className="block text-sm">{t(label)} <span className="muted">{t("profile.comma")}</span>
           <input className="field mt-1 w-full" value={p[k] ?? ""} onChange={(e) => setP({ ...p, [k]: e.target.value })} /></label>
       ))}
-      <label className="block text-sm">How CORE should talk to you<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={1000} /></label>
-      <button className="btn">Save profile</button> {msg && <span className="muted text-sm">{msg}</span>}
+      <label className="block text-sm">{t("profile.talk")}<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={1000} /></label>
+      <button className="btn">{t("profile.save")}</button> {msg && <span className="muted text-sm">{msg}</span>}
     </form>
     <PasswordSection />
     <AutonomySection />
@@ -700,6 +706,7 @@ type PlaybookData = { available: boolean; message?: string; rules: string[]; ver
 const sourceLabel = (s: string) => (s.startsWith("user") ? "you" + (s === "user:clear" ? " (cleared)" : "") : s.startsWith("revert") ? `revert to ${s.slice(7)}` : "CORE");
 
 function PlaybookSection() {
+  const { t } = useT();
   const [d, setD] = useState<PlaybookData | null>(null);
   const [draft, setDraft] = useState<string[]>([]);
   const [add, setAdd] = useState("");
@@ -724,7 +731,7 @@ function PlaybookSection() {
   const dirty = !!d && JSON.stringify(draft) !== JSON.stringify(d.rules);
   return (
     <section className="space-y-2" aria-labelledby="playbook-h">
-      <h3 id="playbook-h" className="h3">How CORE has adapted</h3>
+      <h3 id="playbook-h" className="h3">{t("profile.playbook")}</h3>
       <p className="muted text-xs">CORE learns from your chats by saving memories and updating these rules. It doesn&apos;t retrain its underlying model. Rules can only be about answer style (length, tone, format, language), never tools, data, links or approvals, and you can edit or remove any of them.</p>
       {d && !d.available ? <p className="muted text-sm">{d.message}</p> : !d ? (!msg && <p className="muted text-sm">Loading…</p>) : (
         <>

@@ -11,6 +11,7 @@ import { automationDraft, automationSpec as toSpec, type AutomationAgent, type A
 import type { AutomationSpec } from "@/lib/pure";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import { canRetryTask } from "@/lib/completion-pure";
+import { useT } from "./i18n";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
 type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string; evidence?: WriteEvidence[] };
@@ -84,19 +85,20 @@ export function Markdown({ text, openMemory }: { text: string; openMemory?: (id:
 
 // ready: the server only accepts a decision once the task is "awaiting_approval"; while the agent still runs, actions queue up.
 function Approval({ pending, who, ready, onAct }: { pending: Pending[]; who: string; ready: boolean; onAct: (action: "approve" | "reject") => void }) {
+  const { t } = useT();
   return (
     <div className="card space-y-2 text-sm" style={{ borderColor: "#fbbf24" }}>
-      <b>{ready ? `${who} is waiting for your approval` : `${who} will ask for approval when it finishes`}</b>
+      <b>{t(ready ? "approval.waiting" : "approval.later", { who })}</b>
       {pending.filter((p) => p.status === "pending").map((p, i) => (
         <div key={i} className="text-xs">
           <b>{p.tool.replace(/_/g, " ")}</b>: {String(p.input.title ?? p.input.name ?? "")}
-          {typeof p.input.content === "string" && <details><summary className="cursor-pointer muted">preview</summary><p className="whitespace-pre-wrap">{p.input.content.slice(0, 2000)}</p></details>}
-          {typeof p.input.prompt === "string" && <details><summary className="cursor-pointer muted">what it will do</summary><p className="whitespace-pre-wrap">{p.input.prompt.slice(0, 2000)}</p></details>}
+          {typeof p.input.content === "string" && <details><summary className="cursor-pointer muted">{t("approval.preview")}</summary><p className="whitespace-pre-wrap">{p.input.content.slice(0, 2000)}</p></details>}
+          {typeof p.input.prompt === "string" && <details><summary className="cursor-pointer muted">{t("approval.what")}</summary><p className="whitespace-pre-wrap">{p.input.prompt.slice(0, 2000)}</p></details>}
           {typeof p.input.request === "string" && <p className="muted">{p.input.request.slice(0, 300)} → {String(p.input.agent ?? "nova")}</p>}
         </div>
       ))}
-      {ready ? <div className="flex gap-2"><button className="btn" onClick={() => onAct("approve")}>Approve</button><button className="btn danger" onClick={() => onAct("reject")}>Reject</button></div>
-        : <p className="muted text-xs" aria-live="polite">Still working… Approve and Reject appear when it's done.</p>}
+      {ready ? <div className="flex gap-2"><button className="btn" onClick={() => onAct("approve")}>{t("common.approve")}</button><button className="btn danger" onClick={() => onAct("reject")}>{t("common.reject")}</button></div>
+        : <p className="muted text-xs" aria-live="polite">{t("approval.working")}</p>}
     </div>
   );
 }

@@ -109,7 +109,11 @@ test("parseCommand accepts every command type", () => {
   for (const panel of REMOTE_PANELS) assert.equal(parseCommand(cmd({ type: "navigate", panel }), c).ok, true);
   for (const type of ["approval.list", "stopAll", "status", "brief"]) assert.equal(parseCommand(cmd({ type }), c).ok, true);
   const ask = parseCommand(cmd({ type: "core.ask", text: "hi" }), c);
-  assert.ok(ask.ok && ask.cmd.type === "core.ask" && ask.cmd.text === "hi");
+  assert.ok(ask.ok && ask.cmd.type === "core.ask" && ask.cmd.text === "hi" && !("lang" in ask.cmd));
+  const et = parseCommand(cmd({ type: "core.ask", text: "tere", lang: "et" }), c); // UI language switch: CORE answers in Estonian
+  assert.ok(et.ok && et.cmd.type === "core.ask" && et.cmd.lang === "et");
+  const en = parseCommand(cmd({ type: "core.ask", text: "hi", lang: "en" }), c);
+  assert.ok(en.ok && !("lang" in en.cmd));
   const rej = parseCommand(cmd({ type: "reject", id: UUID }), c);
   assert.ok(rej.ok && !("requiresOwnerConfirm" in rej.cmd));
 });
@@ -135,6 +139,7 @@ test("parseCommand rejects bad input", () => {
     [cmd({}), /unknown command/],
     [cmd({ type: "core.ask", text: "" }), /text required/],
     [cmd({ type: "core.ask", text: 5 }), /text required/],
+    [cmd({ type: "core.ask", text: "hi", lang: "de" }), /bad lang/],
     [cmd({ type: "core.ask", text: "a".repeat(MAX_ASK_CHARS + 1) }), /2000/],
     [cmd({ type: "approve", id: "not-a-uuid" }), /uuid/],
     [cmd({ type: "reject" }), /uuid/],

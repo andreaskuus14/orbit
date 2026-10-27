@@ -25,6 +25,7 @@ import { stopAllOn } from "./stop-all";
 import { decide, policyEvent } from "./policy-pure";
 import { logActivity } from "./activity";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
+import { CORE_LANG_RULE, type Lang } from "./i18n-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { MODULE_PRIVATE, MODULE_NAMES, modulePromptFor, MODULE_WRITES, isModuleTool, moduleStatus, runModuleTool } from "./core-modules";
 import { classifyReflex, clockReply, smallTalkReply, type Reflex } from "./reflex-pure";
@@ -107,7 +108,7 @@ ${facts || "(empty)"}`;
  * One CORE turn: retrieve relevant memories, ask Claude, return answer + citations + execution trace.
  * With onDelta, the answer text streams out as it is written (tool-call replies stream nothing); `signal` stops it.
  */
-export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", sessionKey?: string) {
+export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", sessionKey?: string, lang: Lang = "en") {
   const trace: TraceStep[] = [];
   const transcriptHolder = { text: "" };
   const question = typedText(history[history.length - 1].content); // attached file names never count as the user's words
@@ -218,7 +219,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       const last = step === MAX_STEPS - 1 || (step > 0 && deepLeft() < 90_000); // out of steps or turn time: answer now
       signal?.throwIfAborted();
       onStep?.("think", {});
-      const tail = `\n\n${typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you: only the FIRST paragraph of \"final\" is read aloud. Make it a 1-3 sentence conversational summary (no lists, headings or links). Brevity applies only to that summary, never to the work: do every step the request needs, and when it needs more (a plan, a draft, results, steps), put the complete result below the summary after a blank line; it stays on screen.\n\n" : ""}${tier === "deep" ? deepNote : ""}${(sess ? steps.slice(sessSeen) : steps).length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${(sess ? steps.slice(sessSeen) : steps).join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
+      const tail = `\n\n${CORE_LANG_RULE[lang]}${typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you: only the FIRST paragraph of \"final\" is read aloud. Make it a 1-3 sentence conversational summary (no lists, headings or links). Brevity applies only to that summary, never to the work: do every step the request needs, and when it needs more (a plan, a draft, results, steps), put the complete result below the summary after a blank line; it stays on screen.\n\n" : ""}${tier === "deep" ? deepNote : ""}${(sess ? steps.slice(sessSeen) : steps).length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${(sess ? steps.slice(sessSeen) : steps).join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
       const sessNow = sess, sentNow = sessSent;
       const ask = (prompt ? Promise.resolve(prompt) : prep.then((p) => (prompt = p))).then((p) => sessNow ? sessionInput(p, transcriptHolder.text, sessNow.resume, sentNow) + tail : p + tail);
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
