@@ -5,14 +5,16 @@ import { crossSiteBlocked } from "@/lib/csrf";
 import { publicOrigin } from "@/lib/origin-pure";
 
 // /w = workspace previews: the route checks the signed link + session itself (sandboxed pages' CSS/JS requests carry no cookies).
-// /remote + /api/remote = the paired-phone remote: its routes check their own device token (or, for /api/remote/owner, the session).
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health", "/w", "/remote", "/api/remote"];
+// /remote, /screen + /api/remote = the paired-phone remote and read-only screen: its routes check their own device token (or, for /api/remote/owner, the session).
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health", "/w", "/remote", "/screen", "/api/remote"];
 
 export async function middleware(request: NextRequest) {
   if (crossSiteBlocked(request.method, request.nextUrl.pathname, { secFetchSite: request.headers.get("sec-fetch-site"), origin: request.headers.get("origin"), host: request.headers.get("host"), forwardedHost: request.headers.get("x-forwarded-host") }))
     return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 });
   // Launcher / night run poll these; no session work. (busy checks its own Host header and returns only booleans.)
   if (request.nextUrl.pathname === "/api/health" || request.nextUrl.pathname === "/api/studio/busy") return NextResponse.next();
+  // Public demo: static fixture page, no session work (it never calls /api; its fetch guard answers from fixtures).
+  if (request.nextUrl.pathname === "/demo") return NextResponse.next();
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

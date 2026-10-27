@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   if (!c.sb) return c.res;
   const url = new URL(req.url), op = url.searchParams.get("op");
   try {
-    if (op === "start") return await startCall(c.sb, c.userId);
+    if (op === "start") return await startCall(c.sb, c.userId, url.searchParams.get("car") === "1");
     if (op === "settings") {
       const body = await req.json().catch(() => null) as { checkin?: unknown; review?: unknown } | null;
       if (body && "review" in body) { // Profile → weekly review call

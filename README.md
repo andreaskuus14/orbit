@@ -12,7 +12,7 @@ CORE runs on **Claude Code under your own Claude login**, so there is no API key
 - **MEMORY**: capture notes, ideas, decisions and links (pages are fetched and stored as text, with SSRF protection). Keyword search, optional semantic search, tags, edit, delete, JSON export. Similar memories are *suggested*; nothing links until you confirm.
 - **CORE**: searches your memory first, answers with numbered citations, shows an execution trace. Uses your profile (only what you typed).
 - **ANALYTICS**: real counts and recent events from your own data, plus a Claude usage meter (rolling 5-hour and 7-day windows, by purpose, with your own budget).
-- **Command bar** (Ctrl/⌘ K) sends a request to CORE.
+- **Command bar** sends a request to CORE. **Warp** (Ctrl/⌘ K) jumps anywhere, searches everything and runs quick actions.
 
 ## Phase 2: INTELLIGENCE
 - **Pulse** (news intelligence agent) fetches your feeds (topics become Google News search feeds; any RSS/Atom URL works), removes duplicates, groups headlines into events, counts independent outlets, and has Claude write a briefing that may only use those articles. Every claim cites real articles with links and timestamps; stories are marked *Confirmed* (2+ outlets) or *Single source*. Drafts without verifiable sources are discarded.
@@ -38,6 +38,9 @@ CORE runs on **Claude Code under your own Claude login**, so there is no API key
 - **Workspaces**: ask CORE to "build me a website" (or a script, a game) and it writes real files instead of pasting code, but only when your latest message asks for it. Files live on this PC in `<ORBIT data folder>\workspaces`, shown under **VAULT → Workspaces** (browse, read, open the preview, move to trash). The preview link is signed and offline (CDNs and external URLs are blocked). **Check before showing**: after writing a site ORBIT renders it headlessly at desktop and phone width (Chrome/Edge via `playwright-core`), collects errors, 404s, overflow, broken images and contrast problems, saves screenshots, and CORE fixes what it finds (up to 2 rounds) before giving you the link. No browser → static checks only.
 - **Hidden browser**: when a page needs JavaScript (or a plain download gets nothing readable), ORBIT opens it in a hidden copy of your installed Chrome/Edge (via `playwright-core`; nothing extra downloaded). Fresh profile every time, never logged in, images/media skipped, and requests to your own PC or home network are blocked. Set `ORBIT_BROWSER_PATH` to use a specific browser executable. Briefings don't use it (speed); CORE and agents do.
 - Still not readable: login-only pages and hard paywalls.
+
+## Offline brain (optional)
+When Claude is unreachable, rate-limited or the usage hold is on, CORE chat and background summaries can fall back to a local model on this PC; CORE marks those answers with a **local brain** badge, and the local model has no tools (plain answers only). Nothing that drafts an outgoing message ever uses it. To set it up on Windows: download the installer from [ollama.com/download](https://ollama.com/download) and run it (Ollama then runs in the tray and listens on http://127.0.0.1:11434), open PowerShell and run `ollama pull llama3.1:8b` (or another model that fits your GPU/RAM), then put `ORBIT_LOCAL_MODEL=llama3.1:8b` in `.env.local` and restart ORBIT. DEV world's Games tab shows whether Ollama is reachable and the model is pulled.
 
 ## Voice
 - **Push-to-talk**: the mic button in the command bar (or Ctrl+M); Esc cancels. Questions are transcribed by Chrome (fast; audio goes to Google) or **Local Whisper** on this PC (`/api/voice/transcribe`; the model downloads on first use).

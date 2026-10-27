@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { TwinCard } from "./TwinCard";
+import { contentHash, spendContent } from "@/lib/approval-pure";
 
 // Clip Factory → "AI Story": idea → Claude's script (editable) → Higgsfield price → Approve → Short in the review queue.
 // Server: /api/studio/clips/story (src/lib/clips/story.ts). Nothing is generated before the Approve click.
@@ -249,13 +251,14 @@ export default function StoryPanel({ active, seed, onOpenClip, onChanged }: { ac
           <div className="mt-2 flex flex-wrap gap-2">
             {(job.status !== "done" || draft || model) && !working && <button className="chip" onClick={() => void getCost()} disabled={!!busy}>{busy === "quote" || busy === "edit" ? "Asking Higgsfield…" : draft || model ? "Save & get cost" : castStep ? "💰 Get cost of the characters" : "💰 Get cost"}</button>}
             {job.status !== "done" && !working && priced && (
-              <button className="btn" disabled={!!busy || short} onClick={() => void act("approve", { action: "approve", id: job.id, credits: total })}>
+              <button className="btn" disabled={!!busy || short} onClick={() => void contentHash(spendContent(job.quote?.fingerprint ?? "", total)).then((seen) => act("approve", { action: "approve", id: job.id, credits: total, seen }))}>
                 {busy === "approve" ? "Starting…" : !total ? "✓ Resume (no new credits)" : castStep ? `✓ Approve characters (${total} credits)` : `✓ Approve & generate (${total} credits)`}
               </button>
             )}
             {castStep && !priced && <span className="muted self-center text-xs">Step 1 of 2: the character pictures (cheap). You'll see them before paying for the video shots.</span>}
             {job.status === "done" && job.clipJob && <button className="btn" onClick={() => onOpenClip(job.clipJob!, "clip-1")}>🎬 Open in Clips to review</button>}
           </div>
+          {job.status !== "done" && !working && priced && total > 0 && <TwinCard decision={{ kind: "spend", ref: job.id, title: job.draft ? `Higgsfield ${job.draft.count} ${job.draft.kind} draft` : `AI Story: ${job.story.title}`, detail: job.draft ? job.draft.prompt : job.opts.idea, credits: total }} />}
         </section>
       )}
     </div>

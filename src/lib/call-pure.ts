@@ -23,7 +23,7 @@ export type CallState = { day: string; calls: number; lastAt: number; morningDay
   review?: ReviewSettings; reviewDay?: string; reviewAt?: number };
 export const CALL_START: CallState = { day: "", calls: 0, lastAt: 0, morningDay: "", checkinDay: "", checkin: "", seen: {}, nagged: [], urgentAt: 0, dealt: [] };
 /** deals: great deals the hunter found in the last 12 h (deals.ts freshDeals), offer ids only. contracts: contracts waiting for his signature (contracts-pure waitingIds). */
-export type CallSignals = { now: number; stopAll: boolean; approvals: string[]; nightReport: boolean; deals?: string[]; contracts?: string[] };
+export type CallSignals = { now: number; stopAll: boolean; approvals: string[]; nightReport: boolean; deals?: string[]; contracts?: string[]; focus?: boolean }; // focus: a time-dilation block is running
 export type Ring = { reason: Exclude<CallReason, "manual">; things: number };
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -73,6 +73,7 @@ export function decideCall(prev: CallState, sig: CallSignals): { state: CallStat
   if (sig.stopAll || quietHour(h) || (st.calls >= CALL.maxPerDay && !review) || now - st.lastAt < CALL.minGapMs) return none;
 
   const urgent = st.urgentAt > st.lastAt && now - st.urgentAt < CALL.urgentFreshMs; // a failure from hours ago waits for the morning card
+  if (sig.focus && !urgent) return none; // focus block: only an urgent call rings; the rest wait (nothing is used up)
   const deals = (sig.deals ?? []).filter((id) => !st.dealt.includes(id)); // "an offer came in for something you wanted": once per deal
   const contracts = (sig.contracts ?? []).filter((id) => !(st.contracted ?? []).includes(id)); // "a contract waits for your signature": once per contract
   const blocked = sig.approvals.filter((id) => now - seen[id] >= CALL.blockHours * 3600_000 && !st.nagged.includes(id));
@@ -240,13 +241,16 @@ function resolve(t: string, items: CallItem[]): CallItem[] {
 
 const ask = (it: CallItem, action: "approve" | "reject") => action === "reject" ? `Reject the clip ${q(it.title)}? Its files get deleted. Say yes to confirm.`
   : it.kind === "clip" ? `Approve the clip ${q(it.title)}? Say yes to confirm.`
-  : it.kind === "spend" ? `Spend ${it.credits} Higgsfield credits on ${q(it.title)}? Say yes to confirm.`
-  : `Send the email to ${it.to ?? it.title}, exactly as drafted? Say yes to confirm.`;
+  : `Spend ${it.credits} Higgsfield credits on ${q(it.title)}? Say yes to confirm.`;
 
 /** null: not about approvals, CORE answers. Otherwise what to say, the next pending confirmation, and (only after an explicit
  *  yes to the exact item and version just asked about) the action, whose echo the server re-checks against what's waiting now. */
-export function voiceDecision(pending: Pending | null, text: string, items: CallItem[], now: number): Decision | null {
+export function voiceDecision(pending: Pending | null, text: string, items: CallItem[], now: number, car = false): Decision | null {
   const t = norm(text);
+  if (car) { // car mode: nothing is approved or rejected by voice; he does it on screen once stopped
+    if (ADVICE.test(t) || (!APPROVE.test(t) && !REJECT.test(t))) return null;
+    return { pending: null, say: items.length ? "Not while you're on the move. It stays marked for review, so approve it on screen later." : "There's nothing waiting for you right now." };
+  }
   if (pending) {
     const live = now - pending.at <= CALL.confirmMs;
     if (YES.test(t)) {
@@ -265,6 +269,8 @@ export function voiceDecision(pending: Pending | null, text: string, items: Call
   if (hits.length > 1) return { pending: null, say: `Which one? ${hits.slice(0, 3).map(describe).join(", or ")}?` };
   const it = hits[0];
   if (action === "reject" && it.kind !== "clip") return { pending: null, say: "I can only reject clips by voice. That one I'll just leave waiting." };
+  // AGENTS rule 6: an email goes out only after he has read that exact message, which a voice call can't show him.
+  if (action === "approve" && it.kind === "send") return { pending: null, say: `The email to ${it.to ?? it.title} needs you to read it first, so approve it on screen, in Remote or BUSINESS.` };
   if (action === "approve" && it.kind === "clip" && !it.thumb) return { pending: null, say: "That clip has no preview for the phone, so have a look at it on the PC first." };
   return { pending: { id: it.id, action, kind: it.kind, seen: it.seen, ...(it.credits !== undefined ? { credits: it.credits } : {}), at: now }, say: ask(it, action) };
 }

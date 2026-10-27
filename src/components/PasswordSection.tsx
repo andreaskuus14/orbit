@@ -1,10 +1,12 @@
 "use client";
 import { useState } from "react";
+import { useT } from "./i18n";
 import { createClient } from "@/lib/supabase/client";
 import { PASSWORD_MIN, passwordProblem } from "@/lib/password-pure";
 
 /** Profile: set or change the sign-in password, so a new browser needs no email link. */
 export function PasswordSection() {
+  const { t } = useT();
   const [pw, setPw] = useState("");
   const [confirm, setConfirm] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -22,7 +24,7 @@ export function PasswordSection() {
   }
   return (
     <form onSubmit={save} className="space-y-3" aria-labelledby="pw-title">
-      <h3 id="pw-title" className="text-sm font-semibold">Sign-in password</h3>
+      <h3 id="pw-title" className="text-sm font-semibold">{t("profile.password")}</h3>
       <p className="muted text-sm">Optional. With a password you can sign in on a new browser without waiting for an email link.</p>
       <label className="block text-sm">New password<input className="field mt-1 w-full" type="password" autoComplete="new-password" minLength={PASSWORD_MIN} maxLength={72} required value={pw} onChange={(e) => setPw(e.target.value)} /></label>
       <label className="block text-sm">Repeat it<input className="field mt-1 w-full" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label>

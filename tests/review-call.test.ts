@@ -25,6 +25,10 @@ test("weekly review rings once on his day and time, never retries", () => {
   // the daily cap doesn't hide the slot he picked
   assert.equal(decideCall({ ...on, day: "2026-10-25", calls: CALL.maxPerDay, lastAt: at(9) }, sig(at(19, 5))).ring?.reason, "review");
   assert.equal(decideCall(on, sig(at(21, 30))).ring, null); // past the window
+  // a focus block holds it (nothing used up); it rings once the block ends, still in the window
+  const held = decideCall(on, { ...sig(at(19, 5)), focus: true });
+  assert.equal(held.ring, null); assert.equal(held.state.reviewDay, undefined);
+  assert.equal(decideCall(held.state, sig(at(20, 0))).ring?.reason, "review");
 });
 
 test("review settings validate and survive the state file", () => {

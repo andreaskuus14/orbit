@@ -27,7 +27,7 @@ const ITEMS: { icon: string; title: string; text: string; go?: NavTarget; event?
   { icon: "🛠", title: "Devlog → Shorts", text: "Point OBS at the devlog folder; recordings become “Day N” Shorts in REVIEW.", go: { panel: "studio", view: "clips" } },
   { icon: "🌱", title: "LIFE", text: "Habits with streaks, reminders (also “every day at 9”), a focus timer and a journal. Say “start focus”.", go: { panel: "life" } },
   { icon: "🗄️", title: "VAULT", text: "Your private files on this PC: drop, preview, search inside, ask CORE.", go: { panel: "vault" } },
-  { icon: "⌕", title: "Search everything", text: "Ctrl+P: planets, actions, memories and files.", event: PALETTE_EVENT },
+  { icon: "⌕", title: "Search everything", text: "Ctrl+K: jump anywhere, search everything, quick actions.", event: PALETTE_EVENT },
   { icon: "📅", title: "STUDIO calendar", text: "Your week of Shorts and free slots, in Clip Factory → Calendar.", go: { panel: "studio", view: "clips" } },
   { icon: "🧠", title: "From your memory", text: "The morning briefing brings back what you saved a week, month or year ago." },
   { icon: "🔔", title: "Notifications", text: "The bell keeps STUDIO notes, reminders and agent results." },

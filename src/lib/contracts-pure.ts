@@ -3,6 +3,7 @@
 // UI: components/ContractsPanel.tsx. The model only fills fields and suggests clause wording; every change from the template
 // is shown. ORBIT NEVER signs: only the owner's own click on "Sign" moves a contract to "signed" (AGENTS.md rule 6).
 import { pdfDoc, pdfText, type PdfPage } from "./pdf-pure.ts";
+import { emailIn } from "./business-pure.ts";
 
 // ---- Templates -----------------------------------------------------------------
 
@@ -287,6 +288,11 @@ export function coverEmail(c: Pick<Contract, "title">, f: Fields): string {
   return `Hello ${f.partyName || ""},\n\nPlease find attached the ${c.title.toLowerCase()} as we agreed, signed by me. If everything is in order, please sign the last page and send a scan or photo back to me. If you would like to change anything, just reply to this email.\n\nBest regards,\n${f.ownerName || ""}`.replace("Hello ,", "Hello,");
 }
 export const coverSubject = (c: Pick<Contract, "title">, f: Fields) => `${c.title} for signature${f.ownerName ? ` (${f.ownerName})` : ""}`.replace(/[\r\n]+/g, " ").slice(0, 150);
+/** Exactly what "Approve & send" emails: its contentHash is the approval his click carries (approval-pure approvalGate). */
+export const contractSendContent = (c: Contract) => {
+  const f = current(c).fields;
+  return { to: emailIn(f.partyEmail ?? ""), subject: coverSubject(c, f), text: c.cover, pdf: c.signed?.hash ?? null };
+};
 
 // ---- The model's part: fill blanks, suggest clause wording --------------------------
 
@@ -369,16 +375,5 @@ export function contractPdf(t: Template, c: Pick<Contract, "title">, v: Version,
 
 /** Lines that fit `width` points at `size` (Helvetica, average glyph ≈ 0.5 em).
  *  shortcut: average width, not per-glyph metrics; very wide (all-caps) lines can run a few points into the margin. Add an AFM width table if that shows. */
-export function pdfWrap(s: string, size: number, width: number): string[] {
-  const max = Math.max(10, Math.floor(width / (size * 0.5)));
-  const out: string[] = [];
-  let cur = "";
-  for (const w of s.split(/\s+/).filter(Boolean)) {
-    for (let word = w; word; ) {
-      const piece = word.slice(0, max); word = word.slice(max); // a 64-char hash still breaks somewhere
-      if (cur && cur.length + 1 + piece.length > max) { out.push(cur); cur = piece; } else cur = cur ? `${cur} ${piece}` : piece;
-    }
-  }
-  if (cur || !out.length) out.push(cur);
-  return out;
-}
+import { pdfWrap } from "./pdf-pure.ts";
+export { pdfWrap }; // moved: portfolio uses it without pulling BUSINESS into the browser bundle

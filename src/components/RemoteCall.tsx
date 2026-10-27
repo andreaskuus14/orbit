@@ -11,6 +11,8 @@ import { CALL_ACTIVE } from "./voice/bus";
 type Line = { who: "orbit" | "you"; text: string };
 type Phase = "idle" | "ringing" | "connecting" | "live";
 const API = "/api/remote/talk";
+/** Car mode's Talk button: start a call now (dispatched inside the tap, so iOS still allows the mic and audio). */
+export const CAR_TALK = "orbit:car-talk";
 /** The PC's per-turn timings (ms since his audio arrived), as the latency line names them. */
 const STAGE: Record<string, string> = { asr: "heard", answer_text: "first words", core: "answer done", tts_first: "voice", first_audio: "first sound", answer_audio: "answer sound" };
 const b64ToBuf = (b: string) => Uint8Array.from(atob(b), (c) => c.charCodeAt(0)).buffer;
@@ -28,6 +30,7 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
   const [ptt, setPtt] = useState(false);
   const [lat, setLat] = useState("");
   const [err, setErr] = useState("");
+  const [car, setCar] = useState(false); // started from car mode: big type, no transcript list, no voice approvals (server side)
   const [live, setLive] = useState(false); // a call is on somewhere (e.g. the phone): this PC's "Hey Orbit" stays off
   const r = useRef({ ctx: null as AudioContext | null, stream: null as MediaStream | null, proc: null as ScriptProcessorNode | null, call: "", playAt: 0,
     sources: [] as AudioBufferSourceNode[], turn: null as AbortController | null, handsFree: true, ptt: false, seg: [] as Float32Array[], pre: [] as Float32Array[],
@@ -164,8 +167,15 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
     }
   }
 
-  async function answer() {
+  useEffect(() => {
+    const go = () => { if (phase === "idle" || phase === "ringing") void answer(true); };
+    addEventListener(CAR_TALK, go);
+    return () => removeEventListener(CAR_TALK, go);
+  });
+
+  async function answer(carMode = false) {
     const c = r.current;
+    setCar(carMode);
     setPhase("connecting"); setErr(""); setLines([]); setLat("");
     if (location.hash === "#r-call") history.replaceState(null, "", location.pathname);
     try {
@@ -180,7 +190,7 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
       src.connect(c.proc); c.proc.connect(c.ctx.destination); // outputs silence; it only runs while connected
       c.m = { ...MIC_START }; c.seg = []; c.pre = []; c.speech = false; c.firstPlay = 0; c.lagWhat = "spoke"; c.endedAt = performance.now(); // latency line: answer tap → ORBIT's voice
       const ac = (c.turn = new AbortController());
-      const res = await fetch(`${API}?op=start`, { method: "POST", signal: ac.signal });
+      const res = await fetch(`${API}?op=start${carMode ? "&car=1" : ""}`, { method: "POST", signal: ac.signal });
       if (!res.ok || !res.body) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "ORBIT couldn't start the call");
       await readEvents(res.body, ac.signal); // the first sentence plays while the rest is still being voiced
       if (c.turn === ac) c.turn = null;
@@ -221,15 +231,15 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
 
   if (!allowed) return null;
   if (phase === "idle") return compact ? null : (
-    <section className="card space-y-2" aria-labelledby="r-call">
-      <h2 id="r-call" className="text-sm font-semibold">Talk to ORBIT</h2>
+    <section className="rm-sec" aria-labelledby="r-call">
+      <h2 id="r-call" className="rm-label">Talk to ORBIT</h2>
       <p className="muted text-sm">ORBIT calls you when something needs you (max twice a day, never 23:00–08:00). Or call it now.</p>
       <button className="btn w-full" style={{ minHeight: 48 }} onClick={() => void answer()}>Call ORBIT</button>
       <label className="flex items-center justify-between gap-2 text-sm">
         <span className="muted">Daily check-in call</span>
         <input type="time" className="field" value={checkin} onChange={(e) => void saveCheckin(e.target.value)} aria-label="Daily check-in time" />
       </label>
-      {checkin && <button className="chip" onClick={() => void saveCheckin("")}>No check-in</button>}
+      {checkin && <button className="chip" style={{ minHeight: 44 }} onClick={() => void saveCheckin("")}>No check-in</button>}
       {err && <p className="error" role="alert">{err}</p>}
     </section>
   );
@@ -240,13 +250,19 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
       style={{ background: "radial-gradient(circle at 50% 30%, #0b2540 0%, var(--bg) 70%)", paddingTop: "max(2rem, env(safe-area-inset-top))", paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
       <div className="flex flex-col items-center gap-3 pt-6">
         <div aria-hidden className="rounded-full" style={{ width: 120, height: 120, border: "2px solid var(--cyan)", boxShadow: `0 0 ${state === "talking" && phase === "live" ? 60 : 20}px rgba(34,211,238,.5)`, transition: "box-shadow .3s" }} />
-        <p className="text-lg font-semibold" style={{ fontFamily: "var(--font-display)" }} aria-live="polite">{label}</p>
-        {lat && <p className="muted text-xs text-center">{lat}</p>}
+        <p className={`${car ? "text-3xl" : "text-lg"} font-semibold`} style={{ fontFamily: "var(--font-display)" }} aria-live="polite">{label}</p>
+        {lat && !car && <p className="muted text-xs text-center">{lat}</p>}
       </div>
+      {car ? ( // glanceable: only ORBIT's last line, in big type
+        <div className="w-full max-w-md overflow-hidden text-center text-2xl font-semibold" style={{ maxHeight: "40vh" }} aria-live="polite">
+          {err ? <p className="error" role="alert">{err}</p> : <p>{lines.findLast((l) => l.who === "orbit")?.text}</p>}
+        </div>
+      ) : (
       <div className="w-full max-w-md space-y-2 overflow-y-auto" style={{ maxHeight: "40vh" }} aria-live="polite">
         {lines.map((l, i) => <p key={i} className={`text-sm ${l.who === "you" ? "text-right muted" : ""}`}>{l.text}</p>)}
         {err && <p className="error text-sm" role="alert">{err}</p>}
       </div>
+      )}
       {phase === "ringing" ? (
         <div className="flex w-full max-w-md gap-3">
           <button className="chip flex-1" style={{ minHeight: 56 }} onClick={() => { setPhase("idle"); if (location.hash === "#r-call") history.replaceState(null, "", location.pathname); }}>Not now</button>
@@ -262,7 +278,7 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
             <button className="chip flex-1" style={{ minHeight: 48 }} aria-pressed={handsFree} onClick={() => { const v = !handsFree; r.current.handsFree = v; setHandsFree(v); if (v && r.current.speech) listenSpeech(); }}>
               Hands-free {handsFree ? "on" : "off"}
             </button>
-            <button className="btn danger flex-1" style={{ minHeight: 48 }} onClick={() => hangUp()}>Hang up</button>
+            <button className={`btn danger flex-1 ${car ? "text-2xl" : ""}`} style={{ minHeight: car ? 96 : 48 }} onClick={() => hangUp()}>Hang up</button>
           </div>
         </div>
       )}

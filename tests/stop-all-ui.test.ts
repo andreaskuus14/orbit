@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import * as i18n from "../src/lib/i18n-pure.ts";
 import * as stop from "../src/lib/stop-all-pure.ts";
 
 const require = createRequire(import.meta.url);
@@ -34,6 +35,7 @@ test("StopAll alone polls; HalEye receives initial, replayed, toggled and polled
         if (id.endsWith("notify-pure")) return { notify() {} };
         if (id.endsWith("interruption-pure")) return { RESOLVE_ALERT: "resolve" };
         if (id === "./nav-command") return { STOP_ALL_CHANGED: "changed", async changeStopAll(on: boolean) { serverOn = on; bus.dispatchEvent(new Event("changed")); } };
+        if (id === "./i18n") return { useT: () => ({ lang: "en", t: (k: any, v?: any) => i18n.translate("en", k, v) }) };
         if (id === "./voice/bus") return { loadVoiceSettings: () => ({ speak: true }) };
         return require(id);
       },
