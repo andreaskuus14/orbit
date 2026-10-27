@@ -21,7 +21,7 @@ function send(type: string, fields: object = {}, echo?: object, stream = false) 
 const errorOf = async (r: Response) => ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `Failed (${r.status})`;
 
 export function RemoteApp() {
-  const { t, tn } = useT();
+  const { t, lang } = useT();
   const [paired, setPaired] = useState<boolean | null>(null);
   const [off, setOff] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
@@ -87,16 +87,16 @@ export function RemoteApp() {
 
       {habit && (
         <section className="card space-y-2" aria-labelledby="r-habit">
-          <h2 id="r-habit" className="text-sm font-semibold">Habit time</h2>
+          <h2 id="r-habit" className="text-sm font-semibold">{t("habit.time")}</h2>
           <button className="btn w-full" style={{ minHeight: 48 }} disabled={!!busy}
-            onClick={() => void act("habit", () => send("habit.done", { id: habit }), (j) => { setHabit(""); history.replaceState(null, "", "/remote"); return j.message ?? "Done"; })}>
-            {busy === "habit" ? "…" : "Done"}
+            onClick={() => void act("habit", () => send("habit.done", { id: habit }), (j) => { setHabit(""); history.replaceState(null, "", "/remote"); return j.message ?? t("remote.done"); })}>
+            {busy === "habit" ? "…" : t("remote.done")}
           </button>
         </section>
       )}
 
       <section className="rm-hero" aria-labelledby="r-stop">
-        <p className="rm-status" style={{ color: paused ? "var(--rose)" : items.length ? "var(--amber)" : "var(--ink)" }} aria-live="polite">{headline(items.length, paused)}</p>
+        <p className="rm-status" style={{ color: paused ? "var(--rose)" : items.length ? "var(--amber)" : "var(--ink)" }} aria-live="polite">{headline(items.length, paused, lang)}</p>
         <div className="flex items-center justify-between gap-3">
           <h2 id="r-stop" className="muted text-sm">{t(paused ? "remote.stopOn" : "remote.stopOff")}</h2>
           {!paused && <button className="btn danger" disabled={!!busy} onClick={stopAll} style={{ minHeight: 44, minWidth: 104 }}>{t("remote.stopButton")}</button>}
@@ -183,7 +183,7 @@ function Notify() {
       const key = Uint8Array.from(atob(info!.publicKey!.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
       await (await reg.pushManager.getSubscription())?.unsubscribe(); // fresh each time: an old one may be tied to a previous key pair
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-      const r = await fetch("/api/remote/push", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sub.toJSON()) });
+      const r = await fetch("/api/remote/push", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...sub.toJSON(), lang: getLang() }) });
       if (!r.ok) throw new Error(await errorOf(r));
       setInfo({ ...info!, on: true });
       setNote(((await r.json()) as { sent?: boolean }).sent ? "On: a test notification is on its way." : "Saved, but the test notification didn't go through: check ORBIT's log on the PC.");

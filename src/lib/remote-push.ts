@@ -2,7 +2,7 @@
 // fail jobs or switch Stop-all on. Policy + crypto: remote-push-pure.ts. Subscriptions live on the paired device (remote.ts), so
 // revoking the phone deletes its subscription. Never throws into the caller.
 import { pushBody } from "./persona-pure";
-import { encryptPayload, flush, gate, pushLabel, vapidAuth, vapidProblem, type PushKind, type PushMessage, type Slot } from "./remote-push-pure";
+import { encryptPayload, flush, gate, pushFor, pushLabel, vapidAuth, vapidProblem, type PushKind, type PushMessage, type Slot } from "./remote-push-pure";
 
 const g = globalThis as unknown as { __orbitPush?: { slots: Map<PushKind, Slot>; timers: Set<PushKind> } };
 const P = (g.__orbitPush ??= { slots: new Map(), timers: new Set() });
@@ -50,7 +50,7 @@ export async function deliver(msg: PushMessage, deviceId?: string): Promise<numb
         method: "POST", signal: AbortSignal.timeout(15_000),
         headers: { Authorization: vapidAuth(sub.endpoint, pub, priv, subject(), Date.now()), "Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream",
           TTL: String(msg.tag === "failed" ? 86_400 : msg.tag === "call" ? 1800 : 4 * 3600), Urgency: msg.tag === "failed" || msg.tag === "stop" || msg.tag === "call" ? "high" : "normal" },
-        body: new Uint8Array(encryptPayload(Buffer.from(JSON.stringify(msg)), sub)),
+        body: new Uint8Array(encryptPayload(Buffer.from(JSON.stringify(pushFor(msg, d.lang))), sub)),
       }).catch((e) => { console.error("[remote] push:", e instanceof Error ? e.message : e); return null; });
       if (res?.ok) ok++;
       else if (res?.status === 404 || res?.status === 410) await updateDevices((ds) => ds.map((x) => (x.id === d.id && x.push?.endpoint === sub.endpoint ? { ...x, push: undefined } : x)));
