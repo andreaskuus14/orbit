@@ -105,7 +105,7 @@ When Claude is unreachable, rate-limited or the usage hold is on, CORE chat and 
 Gmail, GitHub and Notion integrations; a knowledge-graph view; hardening and public deployment. Files uploaded to MEMORY are not described automatically (images are stored, and their text is extracted only from documents); images attached in a CORE chat are seen by CORE. MEMORY uploads (PDF, Word .docx, text, Markdown, CSV, images, max 4 MB) are stored privately in the `vault` bucket; their text is extracted for search.
 
 ## Setup
-Full guide with every setting: [docs/SETUP.md](docs/SETUP.md). What each planet does: [docs/FEATURES.md](docs/FEATURES.md). Safety rules: [docs/SAFETY.md](docs/SAFETY.md).
+Full guide with every setting: [docs/SETUP.md](docs/SETUP.md). What each planet does: [docs/FEATURES.md](docs/FEATURES.md). Safety rules: [docs/SAFETY.md](docs/SAFETY.md). New since your last look: [docs/FEATURES.md → Since you were away](docs/FEATURES.md#since-you-were-away).
 
 1. **Supabase** (free tier): create a project. In *SQL Editor* run every file in `supabase/migrations` in number order, `0001` to `0020` (list and notes: [docs/SETUP.md](docs/SETUP.md#1-supabase-migrations-in-order)). In *Authentication → Providers → Email* keep email on and, since this is personal, turn **off** "Allow new users to sign up" after you have signed in once (or rely on `ORBIT_ALLOWED_EMAILS`). In *Authentication → URL Configuration* add `http://localhost:3000/auth/callback` to the redirect URLs.
 2. **Claude Code**: install it and run `claude` once to sign in with your Claude account.
@@ -128,6 +128,8 @@ Run `npm run app:install` once. It puts an **ORBIT** icon on your Desktop and in
 ## Tests
 - `npm test`: the unit tests in `tests/` (pure logic across ORBIT: search, citations, SSRF guard, voice, clips, goals, markets, Reach…) plus a **real** call through your Claude Code CLI (skipped if it isn't installed).
 - `npx tsc --noEmit -p .` (or `npm run typecheck`): type-check.
+- `npm run smoke`: browser smoke test of the pages that work without signing in (`/demo` and its worlds, `/remote`, `/screen`, `/login`) at desktop and phone sizes. Needs ORBIT running (or `SMOKE_BASE=<url>`) and Playwright's Chromium; read-only, exits 1 on any finding.
+- `npm test` also guards Estonian coverage (`tests/i18n-coverage.test.ts`: hard-coded English per component may only go down) and basic accessibility (`tests/a11y-static.test.ts`).
 - To check a production build, use `npm run app:rebuild`, not `npm run build` while ORBIT runs (it overwrites the running server's build).
 
 ## Layout

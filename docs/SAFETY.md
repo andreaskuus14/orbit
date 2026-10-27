@@ -17,6 +17,8 @@ Approvals from the phone, a voice call or a Shortcut use the same checks as the 
 
 ORBIT never: buys anything, messages a seller, logs in to other sites, posts comments, deploys a shop, edits your Roblox place or ORBIT's own code. Web access is read-only.
 
+Standing rules (AGENTS → Rules) and their *Run now* button start work only through the existing tasks, skills, missions and deal hunter, so every approval above still applies; Stop-all and the usage limit stop them, and event rules run at most 5 times a day. A *Draft patch* in Make ORBIT better is saved as a local file for you to review; it is never applied, committed or pushed, and a check refuses patches that touch safety code, AGENTS.md, REA, `.env` or CI.
+
 ### CORE tools
 
 Every CORE tool call passes one check first (`src/lib/policy-pure.ts`). Tools are tiered: read your data, read the public web, change your own data, act outside. The only "act outside" tools CORE has are *schedule clips you already approved* and *ask Higgsfield for a price* (it can't spend). Writes (save a memory, create a goal, queue tonight, add a wish…) only happen when your latest message asks for them, not because a web page, file or memory told it to. Unknown tools are refused. Skills you kept are treated as untrusted text: they can't add tools, can't use send/spend tools, and every call still passes the same check. The Ctrl+K palette only opens screens. The twin (◐) only advises.
@@ -72,7 +74,7 @@ A **focus block** (time dilation) works like short quiet hours: pushes, calls an
 - Time capsule backups: encrypted, written only to the folder you picked; ORBIT uploads nothing.
 - Your place (opt-in): only the latest rough point is kept, in `place.json`; it never goes to a model, and turning the option off deletes it. The weather line sends Open-Meteo a point rounded to about 10 km.
 - Screenshots from *Look at my screen*: one frame, kept in memory for that one answer, not saved unless you press *Save*.
-- ORBIT's local state in `%LOCALAPPDATA%\orbit`: autonomy, Stop-all, lessons, predictions, negotiations, contracts, deals, health notes, paired phones and Shortcut tokens (stored only as signatures, never the token itself).
+- ORBIT's local state in `%LOCALAPPDATA%\orbit`: autonomy, Stop-all, lessons, predictions, negotiations, contracts, deals, health notes, standing rules, open loops, system incidents, patch drafts, paired phones and Shortcut tokens (stored only as signatures, never the token itself).
 - Memory search uses a free model on the PC, **unless** `VOYAGE_API_KEY` is set (then memory text goes to Voyage AI; set `ORBIT_EMBED=local` to stop that).
 
 **Never sent to an AI model**
@@ -84,6 +86,7 @@ A **focus block** (time dilation) works like short quiet hours: pushes, calls an
 **Never in a notification or log**
 - Pushes carry only a fixed label ("New clip to review"), end-to-end encrypted; never titles, email text, recipients, journal or memories.
 - The event ledger stores ids and counts, never your questions, answers, prices or message text.
+- System incidents push one fixed label per incident (after two checks in a row), held through quiet hours.
 - Health-check evidence is redacted (keys, tokens, emails) before it is stored or sent to the model.
 
 **What does go out** (so there are no surprises): CORE, agents and nightly jobs send their prompts to Claude through your Claude Code login (Anthropic). Your memories, chats and tasks are stored in your Supabase project, and VAULT files get a cloud copy there. Web search runs as a separate call with only the search words, and is off when your files, private notes or journal are in the conversation.

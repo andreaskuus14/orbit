@@ -1,7 +1,8 @@
-# What ORBIT can do (27 October 2026)
+# What ORBIT can do (28 October 2026)
 
 One section per planet. Each lists what the newer features do, where to find them, and what ORBIT **never** does without your click.
 Older features are described in the [README](../README.md). Setup: [SETUP.md](SETUP.md). Safety rules: [SAFETY.md](SAFETY.md). Phone: [PHONE.md](PHONE.md).
+New since 27 October: [Since you were away](#since-you-were-away) at the end of this page.
 
 The short version of the rule: ORBIT may read, draft, plan and prepare on its own. Sending an email, spending credits, signing a contract and publishing a video each wait for your click (or, for email and publishing only, an Auto mode you switch on yourself: see [SAFETY.md](SAFETY.md)).
 
@@ -20,7 +21,8 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 - **Voice memos:** hold to record (CORE or phone). Whisper on the PC transcribes it and files it; *Change* or *Undo* if it filed it wrong. Tasks from memos wait for your *Start*.
 - **Offline brain:** if Claude is unreachable, chat and summaries fall back to a local Ollama model (no tools) when `ORBIT_LOCAL_MODEL` is set.
 - **Ctrl+K warp palette:** jump to any screen, search goals, approvals, people and prospects. It only opens screens; it never approves, sends or spends.
-- **Language:** English / Eesti switch in Profile (CORE answers in Estonian too).
+- **Language:** English / Eesti switch in Profile (CORE answers in Estonian too). The HUD, command bar, SYSTEM card, doctor, night shift, rules, open loops, LIFE, habit nudges and the phone Remote are now in Estonian as well.
+- **What's new tour:** opens once after an update with short steps per feature, *Show me* buttons and setup hints; progress is saved. Reopen it any time from Ctrl+K → *What's new tour*.
 - **The singularity shows what CORE is doing:** breathing when idle, rings tighten when listening, faster swirl when thinking, a scanning beam for web search, amber pulse when waiting for your approval.
 - **Never without you:** CORE can't send, spend, sign or publish. Its only "outside" tools are *schedule clips you already approved* and *ask Higgsfield for a price* (no spending). Every tool call passes one safety check first ([SAFETY.md](SAFETY.md#core-tools)).
 
@@ -62,6 +64,8 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 - **Missions** and **Skills** tabs: see CORE above. **ORBIT's log**: its nightly diary of what it did and learned.
 - **Night shift v3:** learns which kinds of night work you approve and does more of those; also dreams up idea combinations (DREAMS list, keep/discard), makes a 25-second private recap reel, and runs the nightly encrypted backup.
 - **Ships:** running tasks fly across the galaxy as small ships; amber blink = waiting for you.
+- **Rules tab (standing rules):** plain-language rules like "every weekday 7:30 check deals" or "when a client replies, draft a follow-up" (English and some Estonian). CORE can propose one when you ask; you confirm the parsed version here. Schedule rules and event rules (client replied, deal found, note saved, briefing ready) run only through the existing agent tasks, skills, missions, deal hunter and week facts, so every approval still applies. *Run now* tries a rule once; *Pause* is one tap. Event rules run at most 5 times a day; skipped events show on the card.
+- **Open loops** (in mission control, Ctrl+K or "mission control"): each night a rules-only scan (no model calls) lists things left hanging: promises you made in CORE or the commitment inbox, replies you're waiting on, stalled goals and missions (7 days), prospects past follow-up, drafts waiting 3+ days, overdue invoices, unsigned contracts. Each has evidence and one next step: *Close*, *Snooze 3 days* or *Turn into task* (adds it to today's plan). The morning brief gets one line. Journal and LIFE are never read.
 - **Goals:** a goal can come from a GAME DEV backlog item or from the weekly review's *Add to next week*.
 - **Never without you:** the night shift never sends, publishes or spends. Everything with an outside effect waits in the morning for your click.
 
@@ -80,7 +84,7 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 ## ANALYTICS
 
 - **Operator report:** weekly card of what ORBIT did on its own.
-- **Make ORBIT better:** once a week, up to 5 improvement tasks with evidence (in 🩺 Check ORBIT). ORBIT never changes its own code.
+- **Make ORBIT better:** once a week, up to 5 improvement tasks with evidence (in 🩺 Check ORBIT). *Draft patch* on a task makes one Claude call with up to 4 relevant files and saves a diff + test + reason as a local `.patch` file, with *Copy* for Claude Code. Drafts survive a reload. A safety check refuses patches that touch AGENTS.md, approvals/autonomy/Stop-all, REA, `.env` or CI, weaken tests or remove guards. Nothing is ever applied, committed or pushed.
 - **Agent scorecard:** once a month ORBIT replays 10 fixed practice cases through the agents and grades them, with trend and worst case.
 - **Predictions:** before you decide on a clip, proposal, draft, tidy-up, niche or deal, ORBIT quietly guesses what you'll do and keeps score. The hint shows on the card. It never acts on a guess.
 - **PERF card:** frame rate and speed runs (open ORBIT with `?perfrun=1` or press Shift+Alt+P).
@@ -134,6 +138,7 @@ Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Long-form · 
 - **Floor-plan generator:** a brief → 3–5 scored layouts (with a stair core for several floors); pick one and it becomes the model.
 - **Structure coach:** checks each upper floor as timber joists or a concrete slab with the working shown, failing ones turn red (a teaching estimate, not engineering).
 - **Materials lab:** cost, embodied carbon and U-values, scheme A vs B.
+- **Stairs:** upper floors get a stairwell opening above the stair core, and the cost list prices stairs per riser (starter 150 EUR/riser).
 - **Daylight study:** sun hours per room. **Model city:** plot, setbacks, coverage, neighbours and their shadows.
 - **Time machine:** every change is saved; scrub back through versions and *Restore*.
 - **Studio crit:** one tutor critique per model version, from computed facts and a screenshot.
@@ -157,7 +162,40 @@ Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Long-form · 
 - **Time capsule:** encrypted nightly backups of ORBIT's local folder into a folder you pick (external drive, OneDrive folder…), plus a restore wizard ([SETUP.md](SETUP.md#9-time-capsule-backups)).
 - **What I learned about you:** lessons ORBIT noticed from your own decisions. *Keep* or *Not true*. Kept ones shape CORE, the morning order, clip picking and the night shift.
 - 🩺 **Check ORBIT** (Ctrl+P → *Check ORBIT health*): setup check plus the nightly **HEALTH** card (problems from the logs, redacted, with *Copy for builder*). It never changes code.
+- **SYSTEM card** (in Check ORBIT): each service with its last success (Supabase, Claude CLI, Resend, Higgsfield, Ollama, phone push, calendar), failed tasks, missions, night tasks and clip renders over 7 days, free space for data/vault/studio/backup, models, Claude use over 5 hours and 7 days (set `ORBIT_CLAUDE_WEEKLY_CALLS` to see a weekly budget), the Higgsfield weekly cap and last night's budget. A check every 10 minutes keeps **incidents**: a problem seen twice in a row sends one fixed-label push (held through quiet hours) and resolves itself when fixed.
 
 ## Phone
 
-Remote app (home screen with a Needs-you stack), push notifications, voice calls ("ORBIT wants to talk"), car mode (big Talk button, spoken brief, no approvals while driving), Siri/Watch Shortcuts: [PHONE.md](PHONE.md). A tablet or second monitor can show a read-only mission control at `/screen` (paired like a phone, can't approve or stop anything).
+Remote app (home screen with a Needs-you stack), push notifications, voice calls ("ORBIT wants to talk"), car mode (big Talk button, spoken brief, no approvals while driving), Siri/Watch Shortcuts: [PHONE.md](PHONE.md). A tablet or second monitor can show a read-only mission control at `/screen` (paired like a phone, can't approve or stop anything). The Remote's *Night report* shows last night's titles and counts only (no drafts, amounts or links).
+
+---
+
+## Since you were away
+
+Built 27–28 October (PRs #234–#247, plus two branches waiting to merge).
+
+**New, and how to try each in one line**
+
+| What | Try it |
+|------|--------|
+| What's new tour | Open ORBIT; it starts by itself once. Later: Ctrl+K → *What's new tour*. |
+| Open loops | Say "mission control"; the *Open loops* list is there (*Scan now* if it's empty). |
+| Standing rules | Tell CORE "every weekday at 8, check my deals", confirm it in AGENTS → Rules, press *Run now*. |
+| System health + incidents | Ctrl+P → *Check ORBIT health*, look at the SYSTEM card. |
+| Patch drafts | In Check ORBIT → *Make ORBIT better*, press *Draft patch* on a task, then *Copy*. |
+| More Estonian | Profile → *Eesti*; the HUD, doctor, rules and loops follow. |
+| Phone night report | Open Remote on the phone in the morning: *Night report*. |
+| Stairwell openings | ARCH: generate a 2-floor plan and look at the upper slab and the cost list. |
+| Faster first load | Nothing to do: 3D and drawer panels, boot cards and the wake word now load only when needed. |
+| Accessibility | Dialogs take focus and close on Esc; news pins work by keyboard; brief and tour are announced to screen readers. |
+| Demo fixtures | Open `/demo`: STUDIO stats/clips, follows, place and ARCH studio/versions now show sample data. |
+| Smoke test | With ORBIT running: `npm run smoke` (browser pass over /demo, /remote, /screen, /login on desktop and phone sizes). |
+
+Builder-side checks added to `npm test`: an Estonian coverage ratchet (`tests/i18n-coverage.test.ts`: hard-coded English per component may only go down), static a11y lints (`tests/a11y-static.test.ts`: unnamed buttons, images without alt, unlabelled fields), and, once branch `route-guards` merges, `tests/route-guards.test.ts` (every API route must check sign-in and cross-site writes).
+
+**Needs your action**
+
+- **Optional:** set `ORBIT_CLAUDE_WEEKLY_CALLS` in `.env.local` (your weekly Claude budget in calls) so the SYSTEM card shows use against it ([SETUP.md](SETUP.md#claude-core)).
+- **Decide on the Agent SDK.** The study recommends moving CORE to the Claude Agent SDK step by step behind `ORBIT_CORE_ENGINE=sdk` (real tool-call ids, structured errors, parallel tools, built-in sessions and caching). Costs: about 320 MB more `node_modules`, and if ORBIT is ever shared or sold it must switch to an API key. Findings: `docs/AGENT-SDK.md` (branch `agent-sdk-doc`, waiting to merge); the prototype stays unmerged on `agent-sdk-study`. Say yes and it gets merged and tested once on the PC.
+- **Logo file:** `public/brand/orbit-mark.png` isn't in the repo. If your PC doesn't have it either, ORBIT shows a text mark instead; put a square PNG there (and commit it if you want it everywhere).
+- Nothing new in Supabase: no new migrations this round.
