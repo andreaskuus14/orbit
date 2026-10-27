@@ -24,7 +24,7 @@ function Card({ p }: { p: ParsedRule & Shown }) {
 }
 
 export function RulesView({ onOpenTask }: { onOpenTask: (id: string) => void }) {
-  const { t } = useT();
+  const { t, tn } = useT();
   const [list, setList] = useState<Row[]>([]);
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<(ParsedRule & Shown) | null>(null);
