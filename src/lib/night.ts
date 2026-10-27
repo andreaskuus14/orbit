@@ -124,6 +124,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     nicheDue: !!board && !board.busy && scoutDue({ lastAttempt: board.lastAttempt ?? undefined, lastOk: board.lastOk ?? undefined }, Date.now()),
     company: await import("./chains").then((c) => c.openCompanyChains(sb, userId), () => []),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
+    rivals: await import("./rivals").then((r) => r.rivalsDue(), () => 0),
     health: true, dream: true,
     personas: await import("./personas").then((m) => m.personasDue(userId), () => false),
     handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: nightOff(autonomyLevels()),
@@ -180,6 +181,10 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
       await n.maybeWeeklyScout();
       const b = await n.nicheBoard();
       return b.lastOk && b.lastOk !== before ? { ...base, status: "done", label: "New BUSINESS niche ideas", open: { panel: "business" }, at: at() } : { ...base, status: b.lastError ? "failed" : "skipped", why: (b.lastError ?? "Not due").slice(0, 200), at: at() };
+    }
+    case "rivals": { // read-only public pages, no model call; the report lives in BUSINESS → Niches
+      const { rivalsLine } = await import("./rivals-pure");
+      return { ...base, label: rivalsLine(await (await import("./rivals")).runRivals(signal)), status: "done", open: { panel: "business" }, at: at() };
     }
     case "deals": { // read-only web hunt; a great deal pushes "Deal found" and may ring him after 08:00 (call-pure)
       const r = await (await import("./deals")).huntDeals(sb, userId, "background", { signal, max: t.calls });
