@@ -1,6 +1,7 @@
 "use client";
 // CORE chat list + Projects, like the Claude app sidebar: a sheet over the CORE panel (works the same in the phone layout).
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useDialogFocus } from "./useDialogFocus";
 import { MAX_INSTRUCTIONS, MAX_PROJECT_NAME, MAX_TITLE, type Project } from "@/lib/core-chats-pure";
 
 export type ChatRow = { id: string; title: string; updated_at: string };
@@ -33,6 +34,8 @@ type Props = ReturnType<typeof useCoreChats> & {
 
 export function ChatSheet({ chats, projects, map, error, act, activeId, onOpen, onNew, onDeleted, onClose }: Props) {
   const [editing, setEditing] = useState<Project | "new" | null>(null);
+  const navRef = useRef<HTMLElement>(null);
+  useDialogFocus(navRef, true, onClose);
   const rename = (c: ChatRow) => {
     const t = prompt("Rename chat", c.title)?.trim();
     if (t && t !== c.title) void act({ action: "rename", id: c.id, title: t.slice(0, MAX_TITLE) });
@@ -52,7 +55,7 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, onOpen, 
   return (
     <>
       <button type="button" className="chat-sheet-backdrop" aria-label="Close chat list" onClick={onClose} />
-      <nav className="glass chat-sheet" aria-label="CORE chats">
+      <nav ref={navRef} tabIndex={-1} className="glass chat-sheet" aria-label="CORE chats">
         <div className="mb-2 flex items-center gap-2">
           <button type="button" className="btn flex-1" onClick={() => onNew(null)}>＋ New chat</button>
           <button type="button" className="chip" onClick={onClose} aria-label="Close chat list">Close</button>

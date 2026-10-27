@@ -20,7 +20,7 @@ export default function RivalsBox({ id }: { id: string }) {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!b?.busy) return;
-    const t = setInterval(() => void load(), 5000);
+    const t = setInterval(() => { if (!document.hidden) void load(); }, 5000);
     return () => clearInterval(t);
   }, [b?.busy, load]);
   const act = async (body: object) => { setErr(""); try { await call(body); setDraft(null); } catch (e) { setErr((e as Error).message); } await load(); };

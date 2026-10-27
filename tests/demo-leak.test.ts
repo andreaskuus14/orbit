@@ -73,6 +73,10 @@ test("runtime fetch guard: every /api path the demo code mentions is answered lo
   assert.deepEqual(sent, []);
   assert.ok(blocked.includes("POST https://evil.example/collect") && blocked.includes("POST /API/core"));
   assert.equal((await (await f("/api/memories/map")).json()).items.length, 36);
+  // A fixture keyed with a query answers only that exact query; the same path with another query stays refused.
+  const shorts = await f("/api/studio/analytics?results=1");
+  assert.equal(shorts.status, 200);
+  assert.ok(Array.isArray((await shorts.json()).shorts) && (await f("/api/studio/analytics?range=28")).status === 403);
   await f("/_next/static/chunk.js");
   assert.deepEqual(sent, ["/_next/static/chunk.js"], "same-origin static files still load");
 });

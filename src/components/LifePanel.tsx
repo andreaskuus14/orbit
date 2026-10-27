@@ -5,6 +5,7 @@ import { hhmm, nudgeMinute, windowLabel } from "@/lib/habit-nudge-pure";
 import type { LifeView } from "@/lib/nav-pure";
 import { FOCUS_TIMER_KEY, advanceFocusTimer, focusPhaseSeconds, restoreFocusTimer, type RestoredFocusTimer } from "@/lib/focus-timer-pure";
 import { VOICE_ASK } from "./voice/bus";
+import { useT } from "./i18n";
 import CalendarCard from "./CalendarCard";
 import SchoolPanel from "./SchoolPanel";
 
@@ -105,6 +106,7 @@ function Today({ st, act }: { st: LifeState; act: Act }) {
 }
 
 function Habits({ st, act }: { st: LifeState; act: Act }) {
+  const { t } = useT();
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("");
   const [days, setDays] = useState<number[]>(ALL_DAYS);
@@ -137,7 +139,7 @@ function Habits({ st, act }: { st: LifeState; act: Act }) {
               <span className="flex-1">
                 {h.emoji} {h.name}
                 <span className="muted block text-xs">{h.days.length === 7 ? "Every day" : h.days.map((d) => DAY_NAMES[d].slice(0, 3)).join(", ")} · 🔥{h.streak}
-                  {h.window && h.nudge && ` · nudge ~${hhmm(nudgeMinute(h, st.today)!)}`}</span>
+                  {h.window && h.nudge && t("habit.nudgeAt", { t: hhmm(nudgeMinute(h, st.today)!) })}</span>
               </span>
               <button className="chip" onClick={() => remove(h)} aria-label={`Delete ${h.name}`}>Delete</button>
             </div>
@@ -151,16 +153,17 @@ function Habits({ st, act }: { st: LifeState; act: Act }) {
 
 /** Habit engine: when (“evening 19–22”, “after lunch”, “on Mondays”) and how ORBIT nudges it. It learns the minute from his check-ins. */
 function NudgeEdit({ h, act }: { h: HabitView; act: Act }) {
+  const { t } = useT();
   const [when, setWhen] = useState(h.window ? windowLabel(h.window) : "");
   const [channel, setChannel] = useState<string>(h.nudge ?? "off");
   return (
     <form className="flex gap-1.5 text-xs" onSubmit={(e) => { e.preventDefault(); void act({ action: "nudge", id: h.id, when, channel }); }}>
       <input className="field flex-1" value={when} onChange={(e) => setWhen(e.target.value)} maxLength={60}
-        placeholder="When: evening 19–22, after lunch, on Mondays" aria-label={`When to nudge ${h.name}`} />
-      <select className="field" value={channel} onChange={(e) => setChannel(e.target.value)} aria-label={`How to nudge ${h.name}`}>
-        <option value="off">No nudge</option><option value="toast">In ORBIT</option><option value="push">Phone</option>
+        placeholder={t("habit.when")} aria-label={t("habit.whenAria", { name: h.name })} />
+      <select className="field" value={channel} onChange={(e) => setChannel(e.target.value)} aria-label={t("habit.howAria", { name: h.name })}>
+        <option value="off">{t("habit.off")}</option><option value="toast">{t("habit.toast")}</option><option value="push">{t("habit.push")}</option>
       </select>
-      <button className="chip">Save</button>
+      <button className="chip">{t("habit.save")}</button>
     </form>
   );
 }

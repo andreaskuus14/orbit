@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generatePlans, parseBrief, planScene, shared, stairDesign, straightFit, STARTER_BRIEF, withCore } from "../src/lib/arch-plan-pure.ts";
+import { generatePlans, parseBrief, planScene, shared, slabAround, stairDesign, straightFit, STARTER_BRIEF, withCore } from "../src/lib/arch-plan-pure.ts";
 import { boq } from "../src/lib/arch-pure.ts";
 import { wallRects } from "../src/lib/arch-walk-pure.ts";
 
@@ -69,6 +69,13 @@ test("planScene builds a valid ARCH model: doors where wishes are met, walls, ro
 /* Hand calc, storey 0.2 + 2.8 = 3.0 m: n = ⌈3000/190⌉ = 16 risers, R = 187.5 mm, G = 625 − 375 = 250 mm,
    2R + G = 625 ✓ (600–650). Straight run 15 × 0.25 = 3.75 m; dogleg flights of 8 risers: 7 × 0.25 + 1.0 landing = 2.75 m × 2.1 m.
    A 2.5 m straight run would squeeze G to 2500/15 = 167 mm: 2R + G = 542 < 600 → fails. */
+test("slabAround: four pieces round an inner hole, fewer at an edge", () => {
+  assert.equal(slabAround(10, 8, { x0: -1, x1: 1, z0: -1, z1: 1 }).length, 4);
+  const edge = slabAround(10, 8, { x0: -5, x1: -3, z0: -4, z1: -1 });
+  assert.deepEqual(edge.map((p) => p.side), ["east", "south"]);
+  assert.equal(edge.reduce((a, p) => a + p.w * p.d, 0), 80 - 6);
+});
+
 test("stair design follows 2R + G = 600–650 mm", () => {
   const s = stairDesign(3);
   assert.deepEqual([s.risers, s.R, s.G, s.rule, s.ok], [16, 187.5, 250, 625, true]);
@@ -98,4 +105,12 @@ test("multi-floor plans get a stair core aligned on every floor, next to the hal
   const doors = sc.parts.filter((p) => p.kind === "door" && /Landing 2/.test(p.name));
   assert.ok(doors.length >= 1);
   assert.equal(boq(sc.parts).roofM2, boq(sc.parts.filter((p) => p.kind !== "stair")).roofM2, "a stair is not counted as roof");
+  assert.equal(boq(sc.parts).risers, stairDesign(3).risers, "the stair is priced per riser");
+  // the upper slab has a stairwell over the stair: no floor-2 slab piece covers the stair's centre, and the pieces add up
+  const up = sc.parts.filter((p) => p.kind === "slab" && /^Floor 2/.test(p.name)), S = at(B.core!.stair[0]);
+  assert.ok(up.length >= 2);
+  assert.ok(!up.some((p) => Math.abs(st[0].x - p.x) < p.w / 2 && Math.abs(st[0].z - p.z) < p.d / 2), "stairwell is open");
+  const area = up.reduce((a, p) => a + p.w * p.d, 0);
+  assert.ok(Math.abs(area - (o.w * o.d - (S.x1 - S.x0) * (S.z1 - S.z0))) < 0.05);
+  assert.equal(sc.parts.filter((p) => p.kind === "slab" && /^Floor 1/.test(p.name)).length, 1, "ground slab stays whole");
 });

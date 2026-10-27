@@ -12,7 +12,7 @@ export const DEMO_ROUTES: Readonly<Record<string, string>> = {
   "GET /api/studio": "/api/studio",
   "GET /api/studio/clips": "/api/studio/clips",
   "GET /api/studio/clips/learn": "/api/studio/clips/learn",
-  "GET /api/studio/analytics": "/api/studio/analytics", // same answer for ?range=, &video= and ?results=1 (the guard ignores the query)
+  "GET /api/studio/analytics": "/api/studio/analytics", // same answer for every ?range= and &video= (only ?results=1 has its own exact entry below)
   "GET /api/studio/oauth/status": "/api/studio/oauth/status",
   "GET /api/studio/clips/inbox-auto": "/api/studio/clips/inbox-auto",
   "GET /api/studio/clips/schedule": "/api/studio/clips/schedule",
@@ -29,6 +29,7 @@ export const DEMO_ROUTES: Readonly<Record<string, string>> = {
   "GET /api/news/follows": "/api/news/follows",
   "GET /api/arch/studio": "/api/arch/studio",
   "GET /api/arch/versions": "/api/arch/versions",
+  "GET /api/studio/analytics?results=1": "/api/studio/analytics?results=1", // STUDIO's Last Shorts strip (an exact query is matched first)
   "POST /api/arch": "/api/arch", // ARCH's "build" answers with the canned garden plot: no model call
 };
 
@@ -42,9 +43,9 @@ export function guardFetch(data: DemoData, real: typeof fetch, origin: string, b
     const req = input instanceof Request ? input : null;
     const url = new URL(req ? req.url : String(input), origin);
     const method = (init?.method ?? req?.method ?? "GET").toUpperCase();
-    const key = `${method} ${url.pathname}`;
+    const key = `${method} ${url.pathname}`, exact = key + url.search;
     if (url.origin === origin && !/^\/api(\/|$)/i.test(url.pathname)) return real(input, init);
-    if (url.origin === origin && Object.hasOwn(data, key)) return json(structuredClone(data[key]));
+    if (url.origin === origin) for (const k of [exact, key]) if (Object.hasOwn(data, k)) return json(structuredClone(data[k]));
     blocked.push(url.origin === origin ? key : `${method} ${url.href}`);
     return json({ error: DEMO_NOTE }, 403);
   };

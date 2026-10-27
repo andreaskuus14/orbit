@@ -7,6 +7,10 @@ test("headline: paused wins, then count", () => {
   assert.equal(headline(0, false), "All quiet");
   assert.equal(headline(1, false), "1 thing needs you");
   assert.equal(headline(3, false), "3 things need you");
+  assert.equal(headline(0, true, "et"), "ORBIT on peatatud");
+  assert.equal(headline(0, false, "et"), "Kõik on rahulik");
+  assert.equal(headline(1, false, "et"), "1 asi ootab sind");
+  assert.equal(headline(4, false, "et"), "4 asja ootab sind");
 });
 
 test("biggestFirst: spend by credits, then send, nego, clip; stable; no mutation", () => {

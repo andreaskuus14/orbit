@@ -66,7 +66,7 @@ export default function StoryPanel({ active, seed, onOpenClip, onChanged }: { ac
   const working = !!job && busyStatus(job.status);
   useEffect(() => { // poll while a story is being made
     if (!active || !working) return;
-    const t = setInterval(() => void load(), 2500);
+    const t = setInterval(() => { if (!document.hidden) void load(); }, 2500);
     return () => clearInterval(t);
   }, [active, working, load]);
   const wasWorking = useRef(false); // finished → refresh Clip Factory so the new clip shows in Clips

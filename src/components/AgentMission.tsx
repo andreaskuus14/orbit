@@ -28,9 +28,11 @@ export function usePoll(fn: () => void, ms: number, enabled: boolean) {
   const paused = useWorldPaused(); // a kept-but-hidden world stops polling; it polls (and refreshes) again on return
   useEffect(() => {
     if (!enabled || paused) return;
+    const tick = () => { if (!document.hidden) fn(); }; // hidden tab: skip; refresh on return
     fn();
-    const h = setInterval(fn, ms);
-    return () => clearInterval(h);
+    const h = setInterval(tick, ms);
+    document.addEventListener("visibilitychange", tick);
+    return () => { clearInterval(h); document.removeEventListener("visibilitychange", tick); };
   }, [fn, ms, enabled, paused]);
 }
 

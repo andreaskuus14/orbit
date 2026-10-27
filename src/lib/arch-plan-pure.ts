@@ -206,6 +206,14 @@ export function generatePlans(brief: Brief, seed = 1): PlanOption[] {
   return out;
 }
 
+/** A w × d slab (centred on 0) with a stairwell hole → the pieces around it: west and east full depth, north and south between. */
+export function slabAround(w: number, d: number, h: Rect): { side: string; x: number; z: number; w: number; d: number }[] {
+  const X0 = -w / 2, X1 = w / 2, Z0 = -d / 2, Z1 = d / 2, x0 = Math.max(X0, h.x0), x1 = Math.min(X1, h.x1), z0 = Math.max(Z0, h.z0), z1 = Math.min(Z1, h.z1);
+  return ([["west", X0, x0, Z0, Z1], ["east", x1, X1, Z0, Z1], ["north", x0, x1, Z0, z0], ["south", x0, x1, z1, Z1]] as const)
+    .filter(([, a0, a1, b0, b1]) => a1 - a0 > EPS && b1 - b0 > EPS)
+    .map(([side, a0, a1, b0, b1]) => ({ side, x: r2((a0 + a1) / 2), z: r2((b0 + b1) / 2), w: r2(a1 - a0), d: r2(b1 - b0) }));
+}
+
 /** An option → an ARCH scene in the usual part format: per floor a slab, an outer shell and one straight wall per slicing
  *  cut; a door wherever a wish is met, the front door on the first floor's entrance/hall, a window on each room that wants
  *  daylight. Openings are fitted by fitOpenings, so they sit inside their wall like hand-made ones. */
@@ -218,7 +226,9 @@ export function planScene(brief: Brief, o: PlanOption): Scene {
   parts.push({ id: id(), kind: "foundation", name: "Strip foundation", x: 0, y: -0.8, z: 0, w, d, h: 0.8 });
   o.floors.forEach((fl, f) => {
     const y = f * H, shell = id();
-    parts.push({ id: id(), kind: "slab", name: `Floor ${f + 1} slab`, x: 0, y, z: 0, w, d, h: PLAN.slab });
+    const well = f > 0 && b.core && o.floors[f - 1].rooms.find((r) => r.i === b.core!.stair[f - 1])?.r; // the stair below comes up through here
+    if (!well) parts.push({ id: id(), kind: "slab", name: `Floor ${f + 1} slab`, x: 0, y, z: 0, w, d, h: PLAN.slab });
+    else for (const s of slabAround(w, d, well)) parts.push({ id: id(), kind: "slab", name: `Floor ${f + 1} slab (${s.side} of stairwell)`, x: s.x, y, z: s.z, w: s.w, d: s.d, h: PLAN.slab });
     parts.push({ id: shell, kind: "wall", name: `Walls, floor ${f + 1}`, x: 0, y: y + PLAN.slab, z: 0, w, d, h: PLAN.wallH });
     const wallOf = new Map<Cut, string>();
     for (const c of fl.cuts) {

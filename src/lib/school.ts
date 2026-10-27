@@ -35,8 +35,9 @@ function update<T>(fn: (s: SchoolStore) => T): Promise<T> {
 
 /** Calendar events (next 14 days, if connected) are busy time; the planner never puts study blocks on them. */
 async function busy(now: number): Promise<Busy[]> {
-  const ev = await import("./gcal").then((m) => m.calendarEvents(14, now)).catch(() => null);
-  const f = await import("./focus").then((m) => m.focusState().focus).catch(() => null); // a running focus block stays free of study blocks
+  const [ev, f] = await Promise.all([
+    import("./gcal").then((m) => m.calendarEvents(14, now)).catch(() => null),
+    import("./focus").then((m) => m.focusState().focus).catch(() => null)]); // f: a running focus block stays free of study blocks
   return [...(ev ?? []).filter((e) => !e.allDay).map((e) => ({ start: Date.parse(e.start), end: Date.parse(e.end) })), ...(f ? [{ start: f.startAt, end: f.endAt }] : [])].filter((b) => b.end > b.start);
 }
 

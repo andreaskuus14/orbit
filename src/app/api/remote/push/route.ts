@@ -1,6 +1,7 @@
 import { deviceFromCookie, rateOk, remoteProblem, updateDevices } from "@/lib/remote";
 import { RATE } from "@/lib/remote-web-pure";
 import { parseSubscription } from "@/lib/remote-push-pure";
+import { parseLang } from "@/lib/i18n-pure";
 import { deliver, pushProblem } from "@/lib/remote-push";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +37,8 @@ export async function POST(req: Request) {
   try { body = JSON.parse(raw); } catch { /* below */ }
   const p = parseSubscription(body);
   if (!p.ok) return fail(p.error);
-  await updateDevices((ds) => ds.map((d) => (d.id === device.id ? { ...d, push: p.sub } : d)));
+  const lang = parseLang((body as { lang?: unknown }).lang); // shortcut: set at subscribe time only; switching language later needs a re-enable
+  await updateDevices((ds) => ds.map((d) => (d.id === device.id ? { ...d, push: p.sub, lang } : d)));
   const sent = await deliver({ title: "Notifications are on", body: "ORBIT will tell you when something needs you.", url: "/remote", tag: "stop" }, device.id);
   return Response.json({ ok: true, sent: sent > 0 });
 }

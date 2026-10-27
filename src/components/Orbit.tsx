@@ -6,14 +6,10 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
-import { AnalyticsPanel, CorePanel, MemoryPanel, ProfilePanel } from "./panels";
-import { IntelligencePanel } from "./IntelligencePanel";
 import { WorldPaused } from "./world-paused";
-import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
 import { CALL_ACTIVE, VOICE_ASK, voiceContext } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
-import { RemoteCall } from "./RemoteCall";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { NAV_EVENT, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
 import { StudioNotifier } from "./StudioNotifier";
@@ -28,7 +24,6 @@ import { MorningCard } from "./MorningCard";
 import { MorningBrief } from "./MorningBrief";
 import { Herald } from "./Herald";
 import { WhatsNew } from "./WhatsNew";
-import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
 import { WeeklyCard } from "./WeeklyCard";
@@ -57,6 +52,7 @@ import type { ShipTask } from "@/lib/ships-pure";
 import { CursorRing } from "./CursorRing";
 import { MaskText } from "./MaskText";
 import { useDragPanel } from "./useDragPanel";
+import { useDialogFocus } from "./useDialogFocus";
 import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
 import { useT } from "./i18n";
@@ -78,6 +74,17 @@ const MarketsPanel = dynamic(() => import("./MarketsPanel"), { ssr: false });
 const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
 const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
+// Drawer panels load on first open (panels.tsx is preloaded at boot 3 so CORE still opens at once).
+const PanelLoading = () => <p className="text-xs opacity-60" role="status">Loading…</p>;
+const CorePanel = dynamic(() => import("./panels").then((m) => m.CorePanel), { ssr: false, loading: PanelLoading });
+const ProfilePanel = dynamic(() => import("./panels").then((m) => m.ProfilePanel), { ssr: false, loading: PanelLoading });
+const AnalyticsPanel = dynamic(() => import("./panels").then((m) => m.AnalyticsPanel), { ssr: false, loading: PanelLoading });
+const MemoryPanel = dynamic(() => import("./panels").then((m) => m.MemoryPanel), { ssr: false, loading: PanelLoading });
+const IntelligencePanel = dynamic(() => import("./IntelligencePanel").then((m) => m.IntelligencePanel), { ssr: false, loading: PanelLoading });
+const AgentsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.AgentsPanel), { ssr: false, loading: PanelLoading });
+const OperationsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.OperationsPanel), { ssr: false, loading: PanelLoading });
+const DoctorPanel = dynamic(() => import("./DoctorPanel").then((m) => m.DoctorPanel), { ssr: false });
+const RemoteCall = dynamic(() => import("./RemoteCall").then((m) => m.RemoteCall), { ssr: false });
 const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch", "memory"]; // full-screen worlds with their own side panel (no drawer)
 const VISITS = "orbit.world.visits";
 const KEEP: PanelId[] = ["intelligence", "studio", "creation", "agents", "arch", "memory"]; // kept mounted (hidden + paused) after the first visit; not THEATER: leaving must stop its video
@@ -107,6 +114,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const { t, tn } = useT();
   const sb = useMemo(() => createClient(), []);
   const boot = useBootBatch(3);
+  useEffect(() => { if (boot >= 3) void import("./panels"); }, [boot]); // warm the CORE drawer after first paint
   const [view, setView] = useState<"3d" | "2d" | null>(null); // null = still deciding: show the loader, never flash the 2D index
   const [reduced, setReduced] = useState(false);
   const [dilation, setDilation] = useState<{ startAt: number; endAt: number } | null>(null); // a time dilation focus block
@@ -419,7 +427,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       ]).then(([live, fin]) => { if (!off && live.data) setShipTasks([...live.data, ...(fin.data ?? [])].slice(0, 12) as ShipTask[]); });
     };
     load();
-    const t = setInterval(load, 20_000);
+    const t = setInterval(() => { if (!document.hidden) load(); }, 20_000);
     return () => { off = true; clearInterval(t); };
   }, [sb, runningTasks, view, covered]);
   useEffect(() => { // SYSTEM rail's Higgsfield readout, only while the rail is on screen
@@ -427,7 +435,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     let off = false;
     const load = () => void fetch("/api/higgsfield", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (!off && j && typeof j.used === "number") setHfWeek(j); }, () => {});
     load();
-    const t = setInterval(load, 60_000);
+    const t = setInterval(() => { if (!document.hidden) load(); }, 60_000);
     return () => { off = true; clearInterval(t); };
   }, [shown, view]);
   const openGoal = useCallback((id: string) => { setWorkOpen(false); setFocusGoal(id); setPanel("agents"); }, []);
@@ -518,6 +526,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   const docked = !!behind && WORLDS.includes(behind);
   const drawerDrag = useDragPanel<HTMLElement>(drawer && !docked ? `drawer:${drawer}` : null);
+  useDialogFocus(drawerDrag.ref, !!panel && !WORLDS.includes(panel)); // Esc is the window handler above
   const statusDrag = useDragPanel<HTMLElement>(!shown && view === "3d" ? "status" : null);
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
 
@@ -608,7 +617,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><MarketWatcher /><RemoteCall compact /></>}
 
       {drawer && !WORLDS.includes(drawer) && (
-        <aside ref={drawerDrag.ref} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
+        <aside ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
           aria-hidden={!panel || undefined} inert={!panel || undefined}>
           <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand text-base"><MaskText key={title} text={title} /></h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">

@@ -122,6 +122,10 @@ export function demoFor(endpoint: string, query: Query = {}): unknown {
     case "/api/studio/clips": return { root: "demo", tools: { ffmpeg: true, transcriber: true, ytdlp: true, missing: [] }, inbox: [{ name: "next-lantern.mp4", size: 24000000, mtime: DEMO_NOW }], jobs, downloads: [], quarantined: [], publishing: null };
     case "/api/studio/clips/learn/state": return learn; // raw validator input, not a live route
     case "/api/studio/clips/learn": return { ...insights(learn, jobs), study: null, model: null };
+    case "/api/studio/analytics": { // only ?results=1 (Last Shorts) is served; the analytics itself needs YouTube OAuth
+      const i = insights(learn, jobs);
+      return { shorts: i.lastShorts ?? [], checkedAt: learn.checkedAt, warnings: learn.warnings, postmortem: null };
+    }
     case "/api/agents": return { agents, tools: [{ name: "search_memories", description: "Search garden notes", approval: false }] };
     case "/api/tasks": return { tasks: tasks.filter((t) => (!q.get("agent") || t.agent === q.get("agent")) && (!q.get("project") || t.project_id === q.get("project"))).reverse() };
     case "/api/goals": return q.get("id") ? (q.get("id") === goalView.id ? goalView : { error: "Not found" }) : { goals: [goalView] };
