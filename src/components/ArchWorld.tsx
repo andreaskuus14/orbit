@@ -9,6 +9,7 @@ import { useLeanQuality } from "./useLeanQuality";
 import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
+import { useT } from "./i18n";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
 import { MAX, applyOps, boq, boqCsv, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
 import { coach, type FloorType } from "@/lib/arch-structure-pure";
@@ -230,6 +231,7 @@ function Walker({ rects, plot, onExit }: { rects: Rect[]; plot: { w: number; d: 
 
 export default function ArchWorld({ onClose, reduced, flat, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */ }) {
   const qualityPreset = useLeanQuality(quality);
+  const { t: tr, tn } = useT();
   const glr = useGlRecovery();
   const r3f = useRef<RootState | null>(null);
   // crit screenshot: render once and read the canvas in the same task (no preserveDrawingBuffer needed); stays on this PC until he clicks
@@ -362,7 +364,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     onCommit={(v) => apply([{ op: "set", id: part.id, [k]: v }])} />;
 
   return (
-    <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: bg }}>
+    <div role="region" className="absolute inset-0 globe-in" aria-label={tr("arch.region")} style={{ background: bg }}>
       {!flat && (
         <Canvas key={glr.key} onCreated={(st) => { glr.onCreated(st); r3f.current = st; }} frameloop={paused ? "never" : "always"} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
         <WarmCompile world="arch" />
@@ -398,61 +400,61 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
         </Canvas>
       )}
 
-      <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label="ARCH controls">
-        <h2 className="brand text-base">ARCH</h2>
+      <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={tr("arch.controls")}>
+        <h2 className="brand text-base">{"ARCH"}</h2>
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-          <input className="field flex-1" placeholder="Make the house 2 m longer · add a second floor · plot 40×30 with 12 trees" value={cmd} maxLength={500} onChange={(e) => setCmd(e.target.value)} aria-label="Tell CORE what to change" />
-          <button className="btn" disabled={busy || !cmd.trim()}>{busy ? "Working…" : "Do it"}</button>
+          <input className="field flex-1" placeholder={tr("arch.cmdPh")} value={cmd} maxLength={500} onChange={(e) => setCmd(e.target.value)} aria-label={tr("arch.cmd")} />
+          <button className="btn" disabled={busy || !cmd.trim()}>{tr(busy ? "arch.working" : "arch.doIt")}</button>
         </form>
         {msg && <p aria-live="polite">{msg}</p>}
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void teach(); }}>
-          <input className="field flex-1" placeholder="Villa Savoye · Farnsworth House · Fallingwater · Kumu" value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} aria-label="A building to learn about" />
-          <button className="btn" disabled={lessonBusy || !topic.trim()}>{lessonBusy ? "Writing…" : "📚 Teach me"}</button>
+          <input className="field flex-1" placeholder={tr("arch.topicPh")} value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} aria-label={tr("arch.topic")} />
+          <button className="btn" disabled={lessonBusy || !topic.trim()}>{lessonBusy ? tr("cf.writing") : `📚 ${tr("arch.teach")}`}</button>
         </form>
         {lessonMsg && <p aria-live="polite">{lessonMsg}</p>}
         {lesson && (
-          <div className="card space-y-2" aria-label={`Lesson: ${lesson.building}`}>
+          <div className="card space-y-2" aria-label={tr("arch.lessonAria", { name: lesson.building })}>
             <div className="muted text-[10px] uppercase tracking-widest">{lesson.building}{[lesson.architect, lesson.year, lesson.place].filter(Boolean).map((x) => ` · ${x}`).join("")}</div>
             {ch < lesson.chapters.length ? <div aria-live="polite">
               <div className="font-semibold">{ch + 1}/{lesson.chapters.length} · {lesson.chapters[ch].title}</div>
               <p className="text-xs">{lesson.chapters[ch].text}</p>
             </div> : <div className="space-y-2">
-              <div className="font-semibold">Quiz · {quizScore(lesson.quiz, answers)}/{lesson.quiz.length}</div>
-              {!lesson.quiz.length && <p className="muted text-xs">No quiz this time.</p>}
+              <div className="font-semibold">{tr("arch.quiz")} · {quizScore(lesson.quiz, answers)}/{lesson.quiz.length}</div>
+              {!lesson.quiz.length && <p className="muted text-xs">{tr("arch.noQuiz")}</p>}
               {lesson.quiz.map((q, i) => <div key={i} className="space-y-1">
                 <p className="text-xs">{q.q}</p>
                 <div className="flex flex-wrap gap-1">{q.options.map((o, k) => <button key={k} className={`chip${answers[i] !== null && k === q.answer ? " ok" : answers[i] === k ? " error" : ""}`} aria-pressed={answers[i] === k} disabled={answers[i] !== null}
                   onClick={() => setAnswers((a) => a.map((x, j) => (j === i ? k : x)))}>{o}</button>)}</div>
-                {answers[i] !== null && <p className="muted text-[11px]" aria-live="polite">{answers[i] === q.answer ? "Right. " : `No: ${q.options[q.answer]}. `}{q.why}</p>}
+                {answers[i] !== null && <p className="muted text-[11px]" aria-live="polite">{answers[i] === q.answer ? tr("arch.right") : tr("arch.wrong", { a: q.options[q.answer] })}{q.why}</p>}
               </div>)}
             </div>}
             <div className="flex flex-wrap gap-1.5">
-              <button className="chip" disabled={ch === 0} onClick={() => goTo(lesson, ch - 1)}>← Back</button>
-              <button className="chip" disabled={ch >= lesson.chapters.length} onClick={() => goTo(lesson, ch + 1)}>{ch === lesson.chapters.length - 1 ? "Quiz →" : "Next →"}</button>
-              <button className="chip" onClick={() => void saveLesson()}>Save lesson</button>
-              {lesson.quiz.length > 0 && <button className="chip" onClick={() => void studyQuiz()} title="Spaced repetition in MEMORY">Study the quiz</button>}
-              <button className="chip" onClick={endLesson} title="Back to your own model">End lesson</button>
+              <button className="chip" disabled={ch === 0} onClick={() => goTo(lesson, ch - 1)}>{tr("mem.back")}</button>
+              <button className="chip" disabled={ch >= lesson.chapters.length} onClick={() => goTo(lesson, ch + 1)}>{ch === lesson.chapters.length - 1 ? `${tr("arch.quiz")} →` : `${tr("arch.next")} →`}</button>
+              <button className="chip" onClick={() => void saveLesson()}>{tr("arch.saveLesson")}</button>
+              {lesson.quiz.length > 0 && <button className="chip" onClick={() => void studyQuiz()} title={tr("arch.studyTitle")}>{tr("arch.study")}</button>}
+              <button className="chip" onClick={endLesson} title={tr("arch.endTitle")}>{tr("arch.end")}</button>
             </div>
-            <p className="muted text-[11px]">Simplified massing, dimensions approximate. Check facts against a book before you cite them.</p>
+            <p className="muted text-[11px]">{tr("arch.simplified")}</p>
           </div>
         )}
         {scan && (
-          <div className="card space-y-1.5" aria-label="Open scan">
-            <div className="muted text-[10px] uppercase tracking-widest">Scan · {scan.name}</div>
-            <p className="text-xs">{Math.min(scan.count, budget.cap).toLocaleString("en")} of {scan.count.toLocaleString("en")} splats drawn at this quality{scan.count < scan.total ? ` (file had ${scan.total.toLocaleString("en")})` : ""}. Drag to orbit, scroll or pinch to zoom; 🚶 Walk to go inside.</p>
+          <div className="card space-y-1.5" aria-label={tr("arch.openScan")}>
+            <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.scan")} · {scan.name}</div>
+            <p className="text-xs">{tr("arch.splats", { n: Math.min(scan.count, budget.cap).toLocaleString("en"), total: scan.count.toLocaleString("en") })}{scan.count < scan.total ? tr("arch.fileHad", { n: scan.total.toLocaleString("en") }) : ""}{tr("arch.scanHint")}</p>
             <div className="flex flex-wrap gap-1.5">
-              <button className="chip" aria-pressed={flip} onClick={() => setFlip((v) => !v)} title="Some exports are upside down (y-down): turn the scan upright">↕ Flip upright</button>
-              <button className="chip" onClick={() => { setScan(null); setMeas(null); setWalk(false); }}>Close scan</button>
+              <button className="chip" aria-pressed={flip} onClick={() => setFlip((v) => !v)} title={tr("arch.flipTitle")}>↕ {tr("arch.flip")}</button>
+              <button className="chip" onClick={() => { setScan(null); setMeas(null); setWalk(false); }}>{tr("arch.closeScan")}</button>
             </div>
             {meas && <MeasurePanel m={meas} set={setMeas} onSaved={() => setBump((b) => b + 1)} />}
           </div>
         )}
-        {walk && <p className="muted text-xs" aria-live="polite">Walking at 1.6 m: WASD or arrow keys move, drag to look around, Esc or 🚶 Walk to go back. Walls stop you; doors let you through.</p>}
+        {walk && <p className="muted text-xs" aria-live="polite">{tr("arch.walking")}</p>}
         {sun.on && (
-          <div className="card space-y-1.5" aria-label="Sun study">
-            <div className="muted text-[10px] uppercase tracking-widest">Sun study</div>
+          <div className="card space-y-1.5" aria-label={tr("arch.sun")}>
+            <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.sun")}</div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <input className="field" type="date" value={sun.date} aria-label="Date" onChange={(e) => e.target.value && setSun((v) => ({ ...v, date: e.target.value }))} />
+              <input className="field" type="date" value={sun.date} aria-label={tr("arch.date")} onChange={(e) => e.target.value && setSun((v) => ({ ...v, date: e.target.value }))} />
               {[["Jun 21", "-06-21"], ["Dec 21", "-12-21"]].map(([l, md]) => <button key={l} className="chip" onClick={() => setSun((v) => ({ ...v, date: v.date.slice(0, 4) + md }))}>{l}</button>)}
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -461,53 +463,53 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
                   onChange={(e) => { const v = Number(e.target.value); if (e.target.value && Math.abs(v) <= (k === "lat" ? 90 : 180)) setSun((s) => ({ ...s, [k]: v })); }} /></label>)}
             </div>
             <label className="flex items-center gap-2 text-xs"><span className="num w-12">{String(Math.floor(sun.hour)).padStart(2, "0")}:{String(Math.round((sun.hour % 1) * 60)).padStart(2, "0")}</span>
-              <input className="flex-1" type="range" min={0} max={24} step={0.25} value={sun.hour} aria-label="Time of day" onChange={(e) => setSun((v) => ({ ...v, hour: Number(e.target.value) }))} /></label>
+              <input className="flex-1" type="range" min={0} max={24} step={0.25} value={sun.hour} aria-label={tr("arch.timeOfDay")} onChange={(e) => setSun((v) => ({ ...v, hour: Number(e.target.value) }))} /></label>
             {sunInfo && <p className="muted text-xs">
               {sunInfo.pos.elevationDeg < 0 ? "Sun below the horizon" : `Sun ${Math.round(sunInfo.pos.elevationDeg)}° high, from ${Math.round(sunInfo.pos.azimuthDeg)}° (0° = north)`}
-              {" · "}sunrise {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, sunset {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. {site.north ? `True north is ${Math.round(site.north)}° clockwise from the plot's −Z side.` : "The plot's −Z side faces north."}
+              {" · "}{tr("arch.sunrise")} {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, {tr("arch.sunset")} {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. {site.north ? `True north is ${Math.round(site.north)}° clockwise from the plot's −Z side.` : "The plot's −Z side faces north."}
               {((s) => s && ` Shadow of the ${Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10} m top: ${s.length.toFixed(1)} m toward ${Math.round(s.towardDeg)}° (orange line).`)(shadowOf(sunInfo.pos, solid.reduce((m, p) => Math.max(m, p.y + p.h), 0), 120))}</p>}
           </div>
         )}
         {dayOn && <DaylightPanel parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} d={daylight} onChange={setDaylight} />}
         {site.on && !lesson && !scan && <SitePanel site={site} set={setSite} parts={scene.parts} sun={sun.on && sunInfo ? sunInfo.dir : null} />}
         {sc.on && (
-          <div className="card space-y-1.5" aria-label="Structure coach">
-            <div className="muted text-[10px] uppercase tracking-widest">Structure coach · upper floors</div>
-            <p className="text-xs font-semibold">Teaching estimate, not engineering: a structural engineer must check real designs.</p>
+          <div className="card space-y-1.5" aria-label={tr("arch.coach")}>
+            <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.coachHead")}</div>
+            <p className="text-xs font-semibold">{tr("arch.coachWarn")}</p>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <select className="field" value={sc.type} aria-label="Floor type" onChange={(e) => setSc((v) => ({ ...v, type: e.target.value as FloorType }))}>
-                <option value="timber">Timber joists, C24</option><option value="concrete">Concrete slab, C25/30</option></select>
-              {sc.type === "timber" && <select className="field" value={sc.s} aria-label="Joist spacing" onChange={(e) => setSc((v) => ({ ...v, s: Number(e.target.value) }))}>
+              <select className="field" value={sc.type} aria-label={tr("arch.floorType")} onChange={(e) => setSc((v) => ({ ...v, type: e.target.value as FloorType }))}>
+                <option value="timber">{tr("arch.timber")}</option><option value="concrete">{tr("arch.concrete")}</option></select>
+              {sc.type === "timber" && <select className="field" value={sc.s} aria-label={tr("arch.spacing")} onChange={(e) => setSc((v) => ({ ...v, s: Number(e.target.value) }))}>
                 {[0.3, 0.4, 0.6, 1.2, 2.4].map((s) => <option key={s} value={s}>{s < 1 ? `joists @ ${s * 1000} mm` : `beam carrying ${s} m`}</option>)}</select>}
-              <span className="muted">Residential: 1.5 kN/m² imposed + self-weight + finishes</span>
+              <span className="muted">{tr("arch.load")}</span>
             </div>
-            {!coachRows.length && <p className="muted text-xs">No upper floor yet: the ground slab rests on the ground. Add a second floor to check one.</p>}
+            {!coachRows.length && <p className="muted text-xs">{tr("arch.noUpper")}</p>}
             {coachRows.map((r) => <details key={r.part.id} open={r.part.id === sel || coachRows.length === 1} className="text-xs">
               <summary className={r.now.ok ? "" : "font-semibold"} style={r.now.ok ? undefined : { color: FAIL }}>
-                {r.part.name}: span {r.span.toFixed(2)} m{r.walls.length ? ` (split by ${r.walls.length} interior wall${r.walls.length > 1 ? "s" : ""})` : ""}, modelled {r.now.size} → {r.now.ok ? "OK" : "too small"} ({Math.round(r.now.util * 100)} % used)</summary>
+                {tr("arch.span", { name: r.part.name, m: r.span.toFixed(2) })}{r.walls.length ? tn("arch.split", r.walls.length) : ""}{tr("arch.modelled", { size: r.now.size, verdict: tr(r.now.ok ? "arch.ok" : "arch.tooSmall"), pct: Math.round(r.now.util * 100) })}</summary>
               <pre className="whitespace-pre-wrap text-[11px] leading-snug">{r.now.steps.join("\n")}</pre>
-              <p>{r.best ? <>Smallest standard section that passes: <b>{r.best.size}</b> ({Math.round(r.best.util * 100)} % used). </> : "No standard section passes: shorten the span with a wall or beam underneath, or use glulam/steel. "}
-                {r.best && r.best.h !== Math.round(r.part.h * 1000) && <button className="chip" onClick={() => apply([{ op: "set", id: r.part.id, h: r.best!.h / 1000 }])}>Set floor depth to {r.best.h} mm</button>}</p>
+              <p>{r.best ? <>{tr("arch.smallest")} <b>{r.best.size}</b> {tr("arch.used", { pct: Math.round(r.best.util * 100) })} </> : tr("arch.noneFits")}
+                {r.best && r.best.h !== Math.round(r.part.h * 1000) && <button className="chip" onClick={() => apply([{ op: "set", id: r.part.id, h: r.best!.h / 1000 }])}>{tr("arch.setDepth", { mm: r.best.h })}</button>}</p>
             </details>)}
-            <p className="muted text-[11px]">Simply supported, uniform load, span = shorter side less one wall, split by full-width interior walls under the slab (teaching estimate). Timber: EN 338 C24 f_m,k 24 N/mm², E_0,mean 11 000 N/mm², ρ_mean 420 kg/m³; EN 1995-1-1 k_mod 0.8, γ_M 1.3, k_def 0.6; limit L/300. Concrete: EN 1992-1-1 bending + span/depth (eq. 7.16). Shear, bearing, vibration and fire are not checked.</p>
+            <p className="muted text-[11px]">{tr("arch.method")}</p>
           </div>
         )}
         <div className="flex flex-wrap gap-1.5">
-          <button className="chip" onClick={() => setRun((n) => n + 1)} title="Replay the assembly, bottom to top">▶ Build</button>
-          <button className="chip" aria-pressed={noRoof} onClick={() => setNoRoof((v) => !v)}>Hide roof</button>
-          <button className="chip" aria-pressed={spin} onClick={() => setSpin((v) => !v)}>Turntable</button>
-          <button className="chip" aria-pressed={bp} onClick={() => setMode((m) => (m === "bp" ? "model" : "bp"))}>Blueprint</button>
-          <button className="chip" aria-pressed={holo} onClick={() => setMode((m) => (m === "holo" ? "model" : "holo"))} title="The building as a hologram on a holotable">Holo</button>
-          <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title="Walk through at eye height: WASD or arrows, drag to look, Esc to exit">🚶 Walk</button>
-          <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ Sun study</button>
-          <button className="chip" aria-pressed={dayOn} onClick={() => { setDayOn((v) => !v); setDaylight(null); }} title="Direct-sun hours and daylight per room, a teaching estimate">🌤 Daylight</button>
-          <button className="chip" aria-pressed={site.on} onClick={() => setSite((v) => ({ ...v, on: !v.on, draft: null }))} title="Put the building on a real plot among neighbours: setbacks, coverage, FAR, shadows">🏘 Site</button>
-          <button className="chip" aria-pressed={sc.on} onClick={() => setSc((v) => ({ ...v, on: !v.on }))} title="Check upper floors: bending and deflection, with the working">📐 Structure</button>
-          <button className="chip" disabled={!past.length} onClick={undo}>↶ Undo</button>
-          <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>Start over</button>
-          <button className="chip" disabled={!shell} onClick={addInterior} title="A straight wall across the first floor; move or resize it with the numbers">+ Interior wall</button>
-          <button className="chip" onClick={() => download("arch-bill-of-quantities.csv", boqCsv(cost), "text/csv")}>⬇ BOQ CSV</button>
-          <button className="chip" onClick={() => download("arch-scene.json", JSON.stringify(scene, null, 2), "application/json")}>⬇ Scene JSON</button>
+          <button className="chip" onClick={() => setRun((n) => n + 1)} title={tr("arch.buildTitle")}>▶ {tr("arch.build")}</button>
+          <button className="chip" aria-pressed={noRoof} onClick={() => setNoRoof((v) => !v)}>{tr("arch.hideRoof")}</button>
+          <button className="chip" aria-pressed={spin} onClick={() => setSpin((v) => !v)}>{tr("arch.turntable")}</button>
+          <button className="chip" aria-pressed={bp} onClick={() => setMode((m) => (m === "bp" ? "model" : "bp"))}>{tr("arch.blueprint")}</button>
+          <button className="chip" aria-pressed={holo} onClick={() => setMode((m) => (m === "holo" ? "model" : "holo"))} title={tr("arch.holoTitle")}>{tr("arch.holo")}</button>
+          <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title={tr("arch.walkTitle")}>🚶 {tr("arch.walk")}</button>
+          <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ {tr("arch.sun")}</button>
+          <button className="chip" aria-pressed={dayOn} onClick={() => { setDayOn((v) => !v); setDaylight(null); }} title={tr("arch.dayTitle")}>🌤 {tr("arch.daylight")}</button>
+          <button className="chip" aria-pressed={site.on} onClick={() => setSite((v) => ({ ...v, on: !v.on, draft: null }))} title={tr("arch.siteTitle")}>🏘 {tr("arch.site")}</button>
+          <button className="chip" aria-pressed={sc.on} onClick={() => setSc((v) => ({ ...v, on: !v.on }))} title={tr("arch.structTitle")}>📐 {tr("arch.structure")}</button>
+          <button className="chip" disabled={!past.length} onClick={undo}>↶ {tr("arch.undo")}</button>
+          <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>{tr("arch.startOver")}</button>
+          <button className="chip" disabled={!shell} onClick={addInterior} title={tr("arch.wallTitle")}>+ {tr("arch.wall")}</button>
+          <button className="chip" onClick={() => download("arch-bill-of-quantities.csv", boqCsv(cost), "text/csv")}>⬇ {tr("arch.boqCsv")}</button>
+          <button className="chip" onClick={() => download("arch-scene.json", JSON.stringify(scene, null, 2), "application/json")}>⬇ {tr("arch.sceneJson")}</button>
         </div>
 
         <ArchPlans plot={scene.plot} onPick={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setRun((n) => n + 1); }} />
@@ -522,51 +524,52 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           caption={scan ? `Scan ${scan.name}` : lesson ? `Study model after ${lesson.building}` : archCaption({ parts: scene.parts, mode, sun: sun.on ? sun : null })} />
 
         <div className="card space-y-1.5">
-          <div className="muted text-[10px] uppercase tracking-widest">Parts · click one in 3D or here</div>
+          <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.parts")}</div>
           <ul className="space-y-0.5">{scene.parts.map((p) => (
             <li key={p.id}><button className="chip w-full justify-between text-left" aria-pressed={p.id === sel} onClick={() => setSel(p.id)}>
               <span>{p.name}</span><span className="muted num">{p.w}×{p.d}×{p.h} m</span></button></li>))}</ul>
           {part && <div className="flex flex-wrap items-center gap-2 pt-1">
             {isOpening(part.kind) ? <>{field("w", "W")}{field("h", "H")}{field("off", "Off")}{part.kind === "window" && field("sill", "Sill")}
-              <select className="field" value={part.face} aria-label={`${part.name} wall face`} onChange={(e) => apply([{ op: "set", id: part.id, face: e.target.value as "n" | "e" | "s" | "w" }])}>
-                {(["n", "e", "s", "w"] as const).map((f) => <option key={f} value={f}>{{ n: "North", e: "East", s: "South", w: "West" }[f]} face</option>)}</select></>
+              <select className="field" value={part.face} aria-label={tr("arch.faceAria", { name: part.name })} onChange={(e) => apply([{ op: "set", id: part.id, face: e.target.value as "n" | "e" | "s" | "w" }])}>
+                {(["n", "e", "s", "w"] as const).map((f) => <option key={f} value={f}>{tr(`arch.face.${f}`)}</option>)}</select></>
               : <>{field("w", "W")}{field("d", "D")}{field("h", "H")}{field("x", "X")}{field("z", "Z")}</>}
             {host && <>
-              <button className="chip" onClick={() => apply([{ op: "add", kind: "window", host: host.id, face: "s", w: 1.2 }])}>+ Window</button>
-              <button className="chip" onClick={() => apply([{ op: "add", kind: "door", host: host.id, face: "s", w: 0.9 }])}>+ Door</button></>}
-            <button className="chip error" onClick={() => { apply([{ op: "remove", id: part.id }]); setSel(null); }}>Remove</button>
-            {host && <span className="muted text-[11px]">Windows and doors added here go on the south face; pick one to change face or offset.</span>}</div>}
+              <button className="chip" onClick={() => apply([{ op: "add", kind: "window", host: host.id, face: "s", w: 1.2 }])}>+ {tr("arch.window")}</button>
+              <button className="chip" onClick={() => apply([{ op: "add", kind: "door", host: host.id, face: "s", w: 0.9 }])}>+ {tr("arch.door")}</button></>}
+            <button className="chip error" onClick={() => { apply([{ op: "remove", id: part.id }]); setSel(null); }}>{tr("common.remove")}</button>
+            {host && <span className="muted text-[11px]">{tr("arch.openingsHint")}</span>}</div>}
         </div>
 
         <div className="card space-y-1">
-          <div className="muted text-[10px] uppercase tracking-widest">Bill of quantities · from the geometry</div>
+          <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.boq")}</div>
           <table className="w-full text-xs"><tbody>
             {cost.lines.map((l) => (
               <tr key={l.key} title={`${l.source}${l.date ? ` · ${l.date}` : ""}`}>
                 <td>{l.label}</td><td className="num text-right">{l.qty} {l.unit}</td>
-                <td className="num text-right"><input className="field w-16 text-right" type="number" step={0.5} value={l.eur} aria-label={`${l.label} price per ${l.unit}`}
+                <td className="num text-right"><input className="field w-16 text-right" type="number" step={0.5} value={l.eur} aria-label={tr("arch.priceAria", { label: l.label, unit: l.unit })}
                   onChange={(e) => { const v = Number(e.target.value); if (v >= 0) setPrices((ps) => ps.map((x) => (x.key === l.key ? { ...x, eur: v, source: "your edit", date: new Date().toISOString().slice(0, 10) } : x))); }} /> €/{l.unit}</td>
                 <td className="num text-right">{eur(l.total)}</td>
               </tr>))}
-            <tr className="font-semibold"><td colSpan={3}>Total (materials, VAT excl.)</td><td className="num text-right">{eur(cost.total)}</td></tr>
+            <tr className="font-semibold"><td colSpan={3}>{tr("arch.total")}</td><td className="num text-right">{eur(cost.total)}</td></tr>
           </tbody></table>
-          <p className="muted text-[11px]">{prices.some((p) => !p.date) ? "Some prices are unverified starter estimates. " : ""}Hover a row for its price source. Window and door areas are taken off the walls. Labour and transport aren&apos;t counted yet.</p>
+          <p className="muted text-[11px]">{prices.some((p) => !p.date) ? tr("arch.unverified") : ""}{tr("arch.boqHint")}</p>
         </div>
 
         <ArchMaterials q={q} />
 
-        {tips.length > 0 && <div className="card space-y-1"><div className="muted text-[10px] uppercase tracking-widest">Bulk buying</div>{tips.map((t) => <p key={t} className="text-xs">• {t}</p>)}</div>}
-        <p className="muted text-[11px]">A study tool: rules of thumb (rebar ~100 kg/m³, 300 mm block walls). Anything you build for real needs an engineer&apos;s sign-off.</p>
+        {tips.length > 0 && <div className="card space-y-1"><div className="muted text-[10px] uppercase tracking-widest">{tr("arch.bulk")}</div>{tips.map((t) => <p key={t} className="text-xs">• {t}</p>)}</div>}
+        <p className="muted text-[11px]">{tr("arch.studyTool")}</p>
       </section>
 
       {walk && !flat && <WalkPad />}
-      <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+      <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>{tr("arch.backGalaxy")}</button>
     </div>
   );
 }
 
 /** Touch walking: hold an arrow to move (it presses the same keys Walker listens to); drag the view to look. */
 function WalkPad() {
+  const { t: tr } = useT();
   const key = (k: string, type: "keydown" | "keyup") => dispatchEvent(new KeyboardEvent(type, { key: k }));
   const pad = (k: string, label: string, cls: string) => (
     <button className={`chip ${cls}`} aria-label={`Walk ${k.replace("Arrow", "").toLowerCase()}`} style={{ touchAction: "none" }}
@@ -574,7 +577,7 @@ function WalkPad() {
       onContextMenu={(e) => e.preventDefault()}>{label}</button>
   );
   return (
-    <div className="absolute bottom-40 left-4 z-[15] grid grid-cols-3 gap-1 select-none" aria-label="Walk controls">
+    <div className="absolute bottom-40 left-4 z-[15] grid grid-cols-3 gap-1 select-none" aria-label={tr("arch.walkControls")}>
       {pad("ArrowUp", "▲", "col-start-2")}{pad("ArrowLeft", "◀", "col-start-1")}{pad("ArrowDown", "▼", "")}{pad("ArrowRight", "▶", "")}
     </div>
   );
