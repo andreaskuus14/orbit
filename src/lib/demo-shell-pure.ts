@@ -12,7 +12,7 @@ export const DEMO_ROUTES: Readonly<Record<string, string>> = {
   "GET /api/studio": "/api/studio",
   "GET /api/studio/clips": "/api/studio/clips",
   "GET /api/studio/clips/learn": "/api/studio/clips/learn",
-  "GET /api/studio/analytics": "/api/studio/analytics", // same answer for every ?range= and &video= (only ?results=1 has its own exact entry below)
+  "GET /api/studio/analytics": "/api/studio/analytics", // one fixture for every query: ?range=, &video= (Stats) and ?results=1 (Last Shorts)
   "GET /api/studio/oauth/status": "/api/studio/oauth/status",
   "GET /api/studio/clips/inbox-auto": "/api/studio/clips/inbox-auto",
   "GET /api/studio/clips/schedule": "/api/studio/clips/schedule",
@@ -29,7 +29,6 @@ export const DEMO_ROUTES: Readonly<Record<string, string>> = {
   "GET /api/news/follows": "/api/news/follows",
   "GET /api/arch/studio": "/api/arch/studio",
   "GET /api/arch/versions": "/api/arch/versions",
-  "GET /api/studio/analytics?results=1": "/api/studio/analytics?results=1", // STUDIO's Last Shorts strip (an exact query is matched first)
   "POST /api/arch": "/api/arch", // ARCH's "build" answers with the canned garden plot: no model call
 };
 
