@@ -29,6 +29,7 @@ import GameCopilot from "./GameCopilot";
 import GridCity from "./GridCity";
 import HivePanel from "./HivePanel";
 import DevSessions from "./DevSessions";
+import CoreConfigPanel from "./CoreConfigPanel";
 import { backlogGoal, fixContext, importDrafts, parseBacklog, sortBacklog } from "@/lib/backlog-pure";
 import {
   ART_KEYS, KINDS, PLATFORMS, PLAYABLE_IDS, PRIORITIES, SEVERITIES, STAGES, STATUSES, bugStats, isActive, qaPrompt, slugify, validateDevWorld,
@@ -174,7 +175,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
   const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "personas" | "economy" | "hive" | "grid" | "sessions">("games");
+  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "personas" | "economy" | "hive" | "grid" | "sessions" | "core">("games");
   const [fix, setFix] = useState<{ key: number; error: string } | undefined>(); // backlog → Code helper (Fix mode)
   const [rising, setRising] = useState(0); // bumped by a Herald trend card: Trend Radar opens on Rising
   useEffect(() => { if (tab !== "trends") setRising(0); }, [tab]); // leaving the radar ends the jump, so coming back opens it normally (runs before the mount check below, which may bump it)
@@ -284,7 +285,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Studio view">
           <button className="chip" aria-pressed={tab === "games"} onClick={() => setTab("games")}>🎮 Games</button>
           <button className="chip" aria-pressed={tab === "refs"} onClick={() => setTab("refs")} style={tab === "refs" ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>🎨 References</button>
-          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"], ["economy", "🪙 Economy"], ["hive", "🐝 Hive"], ["grid", "🟦 Grid"], ["sessions", "🕒 Sessions"]] as const).map(([k, label]) => (
+          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"], ["economy", "🪙 Economy"], ["hive", "🐝 Hive"], ["grid", "🟦 Grid"], ["sessions", "🕒 Sessions"], ["core", "⚙ CORE"]] as const).map(([k, label]) => (
             <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
           ))}
         </div>
@@ -301,6 +302,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {tab === "economy" && <GameCopilot world={world} gameId={selected} />}
         <div hidden={tab !== "code"}><CodeHelper prefill={fix} /></div>
         {tab === "sessions" && <DevSessions />}
+        {tab === "core" && <CoreConfigPanel />}
         {tab !== "games" ? null : !world ? (
           loadErr ? <><p className="error">{loadErr}</p><button className="chip mt-2" onClick={() => void load()}>Retry</button></> : <p className="muted">Loading studio…</p>
         ) : game ? (
