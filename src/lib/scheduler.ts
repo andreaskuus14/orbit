@@ -79,6 +79,8 @@ async function tick(sb: SupabaseClient) {
     if (!limited && allows("deals", "background").ok) void maybeDealHunt(sb, (users ?? []).map((u) => u.id));
     // Profile → Autonomy "auto with limits" (off by default: a no-op until the owner turns it on with the typed phrase).
     if (users?.[0]) await tickAutonomy(sb, users[0].id);
+    // System health (doctor's SYSTEM card): every 10 min, incidents open/resolve; one phone push per new one (quiet hours wait). Not awaited; never throws.
+    if (users?.[0]) void import("./system-health").then((m) => m.tickSystemHealth(sb, users[0].id));
     // Invoices: a phone push when an overdue reminder draft is waiting, once per invoice per week (quiet hours and Stop-all skip it).
     await import("./invoices").then((x) => x.pushInvoiceReminders(), () => {});
     // Monthly agent scorecard (ANALYTICS): not awaited, a run takes up to ~50 min; it re-checks Stop-all and usage itself.

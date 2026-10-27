@@ -263,6 +263,8 @@ export const addCompanyTonightItem = (userId: string, goal: unknown) =>
     if (typeof r === "string") return r; u.company = r; return ""; });
 export const removeCompanyTonightItem = (userId: string, id: string) =>
   update((s) => { const u = user(s, userId), n = (u.company ?? []).length; u.company = (u.company ?? []).filter((t) => t.id !== id); return n === u.company.length ? "Not queued for tonight" : ""; });
+/** Last night's run and the budget it ran under (System health's "night budget used"). */
+export const lastNightRun = async (userId: string) => { const s = await load(); return { run: s.users[userId]?.run ?? null, settings: s.settings }; };
 export const companyTonight = async (userId: string) => (await load()).users[userId]?.company ?? [];
 /** In the night window (and the night shift on): company chains advance only through the night shift's budget. */
 export const nightOwnsCompany = async (now = Date.now()) => { const s = (await load()).settings; return s.enabled && allows("night-shift", "background").ok && inWindow(now, s); };
