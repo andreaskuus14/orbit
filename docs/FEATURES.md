@@ -172,7 +172,7 @@ Remote app (home screen with a Needs-you stack), push notifications, voice calls
 
 ## Since you were away
 
-Built 27–28 October (PRs #234–#247, plus two branches waiting to merge).
+Built 27–28 October (PRs #234–#250).
 
 **New, and how to try each in one line**
 
@@ -191,11 +191,11 @@ Built 27–28 October (PRs #234–#247, plus two branches waiting to merge).
 | Demo fixtures | Open `/demo`: STUDIO stats/clips, follows, place and ARCH studio/versions now show sample data. |
 | Smoke test | With ORBIT running: `npm run smoke` (browser pass over /demo, /remote, /screen, /login on desktop and phone sizes). |
 
-Builder-side checks added to `npm test`: an Estonian coverage ratchet (`tests/i18n-coverage.test.ts`: hard-coded English per component may only go down), static a11y lints (`tests/a11y-static.test.ts`: unnamed buttons, images without alt, unlabelled fields), and, once branch `route-guards` merges, `tests/route-guards.test.ts` (every API route must check sign-in and cross-site writes).
+Builder-side checks added to `npm test`: an Estonian coverage ratchet (`tests/i18n-coverage.test.ts`: hard-coded English per component may only go down), static a11y lints (`tests/a11y-static.test.ts`: unnamed buttons, images without alt, unlabelled fields), and `tests/route-guards.test.ts` (every API route must check sign-in and cross-site writes).
 
 **Needs your action**
 
 - **Optional:** set `ORBIT_CLAUDE_WEEKLY_CALLS` in `.env.local` (your weekly Claude budget in calls) so the SYSTEM card shows use against it ([SETUP.md](SETUP.md#claude-core)).
-- **Decide on the Agent SDK.** The study recommends moving CORE to the Claude Agent SDK step by step behind `ORBIT_CORE_ENGINE=sdk` (real tool-call ids, structured errors, parallel tools, built-in sessions and caching). Costs: about 320 MB more `node_modules`, and if ORBIT is ever shared or sold it must switch to an API key. Findings: `docs/AGENT-SDK.md` (branch `agent-sdk-doc`, waiting to merge); the prototype stays unmerged on `agent-sdk-study`. Say yes and it gets merged and tested once on the PC.
+- **Decide on the Agent SDK.** The study recommends moving CORE to the Claude Agent SDK step by step behind `ORBIT_CORE_ENGINE=sdk` (real tool-call ids, structured errors, parallel tools, built-in sessions and caching). Costs: about 320 MB more `node_modules`, and if ORBIT is ever shared or sold it must switch to an API key. Findings: [docs/AGENT-SDK.md](AGENT-SDK.md); the prototype stays unmerged on `agent-sdk-study`. Say yes and it gets merged and tested once on the PC.
 - **Logo file:** `public/brand/orbit-mark.png` isn't in the repo. If your PC doesn't have it either, ORBIT shows a text mark instead; put a square PNG there (and commit it if you want it everywhere).
 - Nothing new in Supabase: no new migrations this round.
