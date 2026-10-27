@@ -6,14 +6,15 @@
 import { clean, nextMove, type Goal } from "./goals-pure.ts";
 import type { PushMessage } from "./remote-push-pure.ts";
 
-export type NightSettings = { enabled: boolean; from: string; until: string; tz: string; wake: string; maxCalls: number; maxMinutes: number; idleMin: number };
-export const NIGHT_DEFAULTS: NightSettings = { enabled: true, from: "01:00", until: "06:30", tz: "Europe/Tallinn", wake: "08:00", maxCalls: 40, maxMinutes: 150, idleMin: 30 };
+export type NightSettings = { enabled: boolean; from: string; until: string; tz: string; wake: string; maxCalls: number; maxMinutes: number; idleMin: number;
+  pin: Partial<Record<NightKind, "on" | "off">> }; // his overrides of the learned plan (night-learn-pure)
+export const NIGHT_DEFAULTS: NightSettings = { enabled: true, from: "01:00", until: "06:30", tz: "Europe/Tallinn", wake: "08:00", maxCalls: 40, maxMinutes: 150, idleMin: 30, pin: {} };
 export const TONIGHT_MAX = 10, TEXT_MAX = 500, MAX_GOALS = 3, MAX_RESEARCH = 4, MAX_FOLLOWUPS = 3;
 export const DRAFT_AGAIN_MS = 7 * 86_400_000; // a prospect gets at most one overnight follow-up draft a week
 export const PERSONA_STUDIO_RUNS = 2; // real look-only Studio playtests per night (each up to 4 minutes); the rest is simulated
 export const RESEARCH_AGENTS = ["atlas", "nova", "forge", "vector", "echo", "sentinel"];
 
-export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health", "personas", "dream", "company"] as const;
+export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health", "personas", "dream", "company", "rivals"] as const;
 export type NightKind = (typeof NIGHT_KINDS)[number];
 export const ITEM_STATUSES = ["done", "approval", "failed", "skipped"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -21,7 +22,7 @@ export type ItemStatus = (typeof ITEM_STATUSES)[number];
 export type NightTask = { kind: NightKind; ref: string; label: string; calls: number; minutes: number };
 export type Open = { task: string } | { goal: string; step?: number; stepId?: string } | { panel: "studio" | "business" | "memory" | "agents" | "markets" };
 export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string };
-export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string };
+export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string; why?: string };
 export type TonightItem = { id: string; text: string; agent: string; by: "owner" | "core"; at: string };
 // company: goals the owner queued from AGENTS → Company "for tonight"; the night shift starts them as company chains (company.ts).
 export type CompanyTonight = { id: string; goal: string; at: string };
@@ -46,6 +47,14 @@ export function patchNightSettings(b: Record<string, unknown>, cur: NightSetting
     const v = int(b[k], lo, hi);
     if (Number.isNaN(v)) return `${k} must be a whole number ${lo}-${hi}`;
     s[k] = v;
+  }
+  if (b.pin !== undefined) { // {kind: "on" | "off" | "auto"}; "auto" hands the kind back to the learning
+    if (!b.pin || typeof b.pin !== "object") return "pin must be {kind: on/off/auto}";
+    s.pin = { ...s.pin };
+    for (const [k, v] of Object.entries(b.pin)) {
+      if (!(NIGHT_KINDS as readonly string[]).includes(k) || !["on", "off", "auto"].includes(v as string)) return `pin: ${k} must be on, off or auto`;
+      if (v === "auto") delete s.pin[k as NightKind]; else s.pin[k as NightKind] = v as "on" | "off";
+    }
   }
   if (s.from === s.until) return "the night window needs a different start and end";
   return s;
@@ -157,13 +166,14 @@ export type PlanInput = {
   dream?: boolean; // dreaming (dream.ts): replay recent days, leave ONE question + dream-mode ideas for the morning brief; at most 3 fast-model calls
   health?: boolean; // run the self-healing check (health.ts) tonight: no code changes, at most 3 fast-model notes
   deals?: number; // wishes the deal hunter would cover now (deals.ts dueCount); one read-only web call each
+  rivals?: number; // competitor pages the weekly BUSINESS rivals watch would read now (rivals.ts rivalsDue); no model calls
   personas?: boolean; // persona playtest of the pet sim due (personas.ts): 1 walkthrough call + PERSONA_STUDIO_RUNS look-only Studio runs
   handled: string[]; // `${kind}:${ref}` already in this night's run (a continued run doesn't redo them)
   now: number;
   today: string; // goals' budget day (server-local, goals-pure today())
   off?: NightKind[]; // kinds Profile → Autonomy doesn't allow unattended (autonomy-pure nightOff; empty with the defaults)
   company?: OpenChain[]; // running company chains (chains.ts openCompanyChains): one night task per queued step, in order
-  boost?: Partial<Record<NightKind, number>>; // kept lessons' prior per kind (lessons.ts nightBoost, ~0.85–1.15); 1 when missing
+  boost?: Partial<Record<NightKind, number>>; // kept lessons' prior (lessons.ts nightBoost) × the learned value (night-learn-pure); 1 when missing
 };
 
 /** The night's queue in order (owner's asks, goal steps, follow-up drafts, deal hunt, Shorts packaging, niche scout, hygiene), trimmed to the
@@ -182,6 +192,7 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
     ...(i.deals ? [{ kind: "deals", ref: "deals", label: `Deal hunt for ${i.deals} wish${i.deals > 1 ? "es" : ""}`, calls: i.deals, minutes: 6 * i.deals } as NightTask] : []),
     ...(i.personas ? [{ kind: "personas", ref: "personas", label: "Persona playtest of the pet sim", calls: 1 + PERSONA_STUDIO_RUNS, minutes: 5 + 4 * PERSONA_STUDIO_RUNS } as NightTask] : []),
     { kind: "clips", ref: "clips", label: "Shorts packaging up to review", calls: 6, minutes: 10 } as NightTask,
+    ...(i.rivals ? [{ kind: "rivals", ref: "rivals", label: "Weekly BUSINESS competitor watch", calls: 0, minutes: 1 + Math.ceil(i.rivals / 2) } as NightTask] : []),
     ...(i.nicheDue ? [{ kind: "niche", ref: "niche", label: "Weekly BUSINESS niche scout", calls: 1, minutes: 10 } as NightTask] : []),
   ].filter((t) => !i.handled.includes(`${t.kind}:${t.ref}`) && !i.off?.includes(t.kind));
   // Kept lessons only reorder ORBIT's own work (so a tight budget defers what he cares less about); his asks, the free tidy-up, dreaming and the health check stay first.
@@ -217,7 +228,7 @@ export function goalOutcome(id: string, before: Goal, after: Goal | null): Pick<
 
 // ---- Morning report ----------------------------------------------------------
 
-export type NightReport = { invoices?: string; company?: string; key: string; startedAt: string; endedAt?: string; running: boolean; done: NightItem[]; approvals: NightItem[]; failed: NightItem[]; calls: number; minutes: number; stopped?: string; deferred: number };
+export type NightReport = { invoices?: string; company?: string; key: string; startedAt: string; endedAt?: string; running: boolean; done: NightItem[]; approvals: NightItem[]; failed: NightItem[]; calls: number; minutes: number; stopped?: string; deferred: number; why?: string };
 
 /** "While you slept": last night's run (only on the morning it ends), with approvals the owner already answered dropped.
  *  live: current status of each task the run linked to. */
@@ -229,7 +240,7 @@ export function nightReport(run: NightRun | undefined, live: Record<string, stri
   const co = items.filter((i) => i.kind === "company"), cd = co.filter((i) => i.status === "done").length, ca = co.filter((i) => i.status === "approval").length;
   return {
     ...(cd || ca ? { company: `Company: ${cd} step${cd === 1 ? "" : "s"} done, ${ca} waiting for you` } : {}),
-    key: run.key, startedAt: run.startedAt, endedAt: run.endedAt, running, calls: run.calls, minutes: Math.round(run.ms / 60_000), stopped: run.stopped, deferred: run.deferred ?? 0,
+    key: run.key, startedAt: run.startedAt, endedAt: run.endedAt, running, calls: run.calls, minutes: Math.round(run.ms / 60_000), stopped: run.stopped, deferred: run.deferred ?? 0, why: run.why,
     done: items.filter((i) => i.status === "done"), approvals: items.filter((i) => i.status === "approval"), failed: items.filter((i) => i.status === "failed"),
   };
 }
