@@ -96,13 +96,14 @@ export type RemoteCommand =
   | { type: "approve"; nonce: string; id: string; requiresOwnerConfirm: true }
   | { type: "reject"; nonce: string; id: string }
   | { type: "stopAll"; nonce: string }
-  | { type: "status"; nonce: string };
+  | { type: "status"; nonce: string }
+  | { type: "brief"; nonce: string };
 export type CommandResult = { ok: true; cmd: RemoteCommand } | { ok: false; error: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NONCE = /^[A-Za-z0-9_-]{16,64}$/;
 const FIELDS: Record<RemoteCommand["type"], string[]> = {
-  navigate: ["panel"], "core.ask": ["text"], "approval.list": [], approve: ["id"], reject: ["id"], stopAll: [], status: [],
+  navigate: ["panel"], "core.ask": ["text"], "approval.list": [], approve: ["id"], reject: ["id"], stopAll: [], status: [], brief: [],
 };
 
 /** Bounded LRU of seen nonces (oldest evicted first). */
@@ -152,7 +153,7 @@ export function parseCommand(json: unknown, nonces: NonceCache): CommandResult {
       cmd = type === "approve" ? { type, nonce, id: o.id.toLowerCase(), requiresOwnerConfirm: true } : { type, nonce, id: o.id.toLowerCase() };
       break;
     default:
-      cmd = { type: type as "approval.list" | "stopAll" | "status", nonce };
+      cmd = { type: type as "approval.list" | "stopAll" | "status" | "brief", nonce };
   }
   // Checked last so a rejected command does not burn its nonce, but before returning ok so a replay never passes.
   if (nonces.has(nonce)) return { ok: false, error: "replayed nonce" };
