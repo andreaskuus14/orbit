@@ -1,5 +1,6 @@
 "use client";
 import { OrbitThinks } from "./OrbitThinks";
+import RivalsBox from "./RivalsBox";
 import WhatIf from "./WhatIf";
 import { useCallback, useEffect, useState } from "react";
 import { marginOf, type Kit, type Niche } from "@/lib/niche-pure";
@@ -82,6 +83,7 @@ function Card({ n, kit, dir, busy, building, any, act }: { n: Niche; kit: Kit | 
         <button className="chip" aria-expanded={sim} onClick={() => setSim(!sim)}>{sim ? "Hide what-if" : "What if…"}</button>
         {kit && <button className="chip" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide shop" : "Show shop"}</button>}
       </div>
+      {n.status === "kept" && <RivalsBox id={n.id} />}
       {sim && <WhatIf margin={n.margin} />}
       {kit && open && (
         <div className="space-y-2 rounded-md border border-white/10 p-2">
