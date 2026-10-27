@@ -58,6 +58,7 @@ import { MaskText } from "./MaskText";
 import { useDragPanel } from "./useDragPanel";
 import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
+import { LIVING_EVENT } from "@/lib/living-events-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -337,6 +338,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "events", filter: `user_id=eq.${userId}` }, (payload) => {
         const e = payload.new as { type: string; planet: string };
         pulses.current[e.planet] = Date.now();
+        dispatchEvent(new CustomEvent(LIVING_EVENT, { detail: e })); // comet / aurora / flare / sunrise in the galaxy
         ambientEvent(e.type, (payload.new as { payload?: { status?: unknown } }).payload); // a soft chime from the planet
         if (e.type.startsWith("memory.")) void refreshCount();
         if (e.type === "core.started") setBusy(true);

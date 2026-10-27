@@ -43,6 +43,7 @@ import { dilationScale } from "@/lib/dilation-pure";
 import { newScale, renderDpr, scaleFloor, stepScale, type ScaleState } from "@/lib/render-scale-pure";
 import { perfMark } from "./PerfBeacon";
 import { perfCtx } from "./PerfBeacon";
+import { LivingEffects } from "./LivingEffects";
 import { InkGlyph } from "./InkGlyph";
 import { AlienScript } from "./AlienScript";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
@@ -956,6 +957,7 @@ export default function Galaxy(props: GalaxyProps) {
         <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} aligned={props.selected === "core"} approval={!!props.ships?.tasks.some((t) => t.status === "awaiting_approval")} />
         <Filaments positions={positions} pulses={props.pulses} reduced={props.reduced} />
         <Beams positions={positions} pulses={props.pulses} reduced={props.reduced} />
+        <LivingEffects positions={positions} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
         <AsteroidBelt inner={5.5} outer={6.0} count={Math.round(900 * q.belt)} seed={3} reduced={props.reduced} />
         <AsteroidBelt inner={32} outer={34} count={Math.round(2200 * q.belt)} seed={9} reduced={props.reduced} thickness={0.6} />
