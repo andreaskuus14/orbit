@@ -18,6 +18,8 @@ import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { centroid, isLearned, searchStars } from "@/lib/memory-world-pure";
 import { DAY, edgeBorn, edgeGlow } from "@/lib/memory-edges-pure";
 import { useAlienEnv } from "./alien/env";
+import { ClusterHalos, ClusterList } from "./MemoryClusters";
+import type { Graph } from "@/lib/memory-graph-pure";
 import { useMountLater, WarmCompile } from "./WarmCompile";
 import { smoothDampVec } from "@/lib/smooth-damp-pure";
 import { PeopleCanvas, PeoplePanel, usePeople } from "./PeopleRing";
@@ -26,7 +28,7 @@ import dynamic from "next/dynamic";
 const Chronicle = dynamic(() => import("./Chronicle"), { ssr: false }); // its own canvas, loaded only when he opens Chronicle
 
 type Star = { id: string; title: string; kind: string; tags: string[]; created_at: string; source: string | null; x: number; y: number; z: number };
-type MapData = { items: Star[]; links: { from: string; to: string }[]; edges?: [number, number, number][]; total: number };
+type MapData = { items: Star[]; links: { from: string; to: string }[]; edges?: [number, number, number][]; total: number; graph?: Graph | null };
 
 const BG = "#020308";
 const KIND_COLOR: Record<string, string> = {
@@ -440,6 +442,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           <Stars radius={120} depth={60} count={reduced ? 800 : Math.min(3000, q.stars)} factor={2.2} fade speed={reduced ? 0 : 0.2} />
           <FarRings reduced={reduced} />
           {data && <Constellation data={data} at={when} hi={hi} searching={!!query.trim()} reduced={reduced} lite={q.bloomScale === 0} onHover={setHover} onPick={open} />}
+          {data?.graph && !query.trim() && <ClusterHalos graph={data.graph} items={data.items} />}
           {label && (
             <Html position={[label.x, label.y, label.z]} style={{ pointerEvents: "none", transform: "translate(14px, -50%)" }} zIndexRange={[12, 0]}>
               <div className="memory-star-label"><b>{label.title}</b><span>{label.kind}{isLearned(label.source) ? " · learned by CORE" : ""}</span></div>
@@ -496,6 +499,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
               onChange={(e) => { setPlaying(false); const d = Number(e.target.value); setWhen(d >= spanDays ? null : span.t0 + d * DAY); }} />
             <button className="chip" onClick={() => { setPlaying(false); setWhen(null); }} disabled={when === null}>Now</button>
           </div>}
+          {data?.graph && <ClusterList graph={data.graph} items={data.items} onFly={fly} onSelect={(i) => { setSel(i); const m = data.items[i]; fly([m.x, m.y, m.z], 9); }} />}
           {kinds.length > 0 && <ul className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]" aria-label="Legend">
             {kinds.map((k) => <li key={k} className="muted flex items-center gap-1.5"><i aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 9, background: kindColor(k), boxShadow: `0 0 6px ${kindColor(k)}` }} />{k}</li>)}
             <li className="muted flex items-center gap-1.5"><i aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 9, border: "1px solid currentColor" }} />learned by CORE</li>
