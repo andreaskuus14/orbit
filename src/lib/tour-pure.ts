@@ -4,9 +4,7 @@
 import type { NavTarget } from "./nav-pure.ts";
 import type { Lang } from "./i18n-pure.ts";
 
-/** Bump with each round worth touring: a new key auto-opens the tour once more. */
-export const TOUR_KEY = "orbit.tour.2026-10-27";
-export const TOUR_EVENT = "orbit:tour"; // reopen (resume) the tour, e.g. from the Ctrl+K palette
+export { TOUR_KEY, TOUR_EVENT } from "./tour-key-pure.ts"; // bump TOUR_KEY there
 
 type Text = Record<Lang, string>;
 export type SetupId = "migrations" | "vapid" | "shortcuts" | "ollama" | "capsule" | "resend" | "twilio";
