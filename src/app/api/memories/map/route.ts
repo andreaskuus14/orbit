@@ -36,7 +36,8 @@ export async function GET() {
     const r2 = (n: number) => (Number.isFinite(n) ? Math.round(n * 100) / 100 : 0);
     const items = rows.map((r, i) => ({ id: r.id, title: r.title, kind: r.kind, tags: r.tags ?? [], created_at: r.created_at, source: r.source,
       x: r2(pts[i].x), y: r2(pts[i].y), z: r2(pts[i].z) }));
-    const body = { items, links, edges, total: count ?? 0 };
+    const graph = await import("@/lib/memory-graph").then((m) => m.getGraph(sb, user.id)).catch(() => null); // cluster halos + list; best-effort
+    const body = { items, links, edges, total: count ?? 0, graph };
     for (const [k] of cache) if (k.startsWith(`${user.id}:`)) cache.delete(k);
     cache.set(key, { at: Date.now(), body });
     return Response.json(body);
