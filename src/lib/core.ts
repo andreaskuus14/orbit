@@ -262,9 +262,11 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
         if (tier === "deep") trace.push({ step: "fallback", detail: `deep → main model (${String(e instanceof Error ? e.message : e).slice(0, 120)})`, ms: 0, ok: false });
         tier = "smart"; step--; continue;
       }
-      if (sess) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
-      await recordUsage(sb, userId, "core.chat", r, model);
-      const reply = parseAgentReply(r.text);
+      if (sess && !r.local) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
+      await recordUsage(sb, userId, "core.chat", r, r.local ? "local" : model);
+      // Offline brain (claude.ts): no tools, so its reply is always the answer; the "local" trace step shows the badge.
+      if (r.local && !trace.some((s) => s.step === "local")) trace.push({ step: "local", detail: "local brain: Claude was unreachable or on hold", ms: 0, ok: true });
+      const reply = r.local ? { thought: "", final: parseAgentReply(r.text).final ?? r.text } : parseAgentReply(r.text);
       // The deep plan stays private: the trace (shown in the UI) never carries it.
       const thought = tier === "deep" ? (reply.tool ? "planned privately" : "answering") : reply.thought || (reply.final !== undefined ? "answering" : "");
       trace.push({ step: "think", detail: `${model} · ${thought}`.slice(0, 200), ms: r.ms, ok: true });
