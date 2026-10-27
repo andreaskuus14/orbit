@@ -1,13 +1,14 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RemoteCall } from "./RemoteCall";
+import { NeedCard, RemoteGalaxy, type Item } from "./RemoteHome";
+import { biggestFirst, headline } from "@/lib/remote-ui-pure";
 import { RemoteCar, readLater } from "./RemoteCar";
 import { VoiceMemo } from "./VoiceMemo";
 import { getLang, LangSwitch, useT } from "./i18n";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
-type Item = { id: string; kind: "clip" | "spend" | "send" | "nego" | "invoice"; title: string; detail: string; seen: string; credits?: number; thumb?: boolean; to?: string; message?: string; strategy?: string; buyer?: string; amount?: string; daysLate?: number };
 type Status = { stop: { on: boolean; at: string }; queue: { active: { id: string; source: string; status: string; step: string; progress: number }[]; ready: number; approved: number; publishing: string | null; story: string | null } };
 
 const nonce = () => crypto.randomUUID();
@@ -77,9 +78,10 @@ export function RemoteApp() {
   if (paired === null) return <Shell><p className="muted text-sm">{t("remote.connecting")}</p></Shell>;
   if (!paired) return <Shell><Pair off={off} onPaired={() => void load()} /></Shell>;
   const q = status?.queue;
+  const paused = !!status?.stop.on;
   return (
     <Shell>
-      {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
+      <RemoteGalaxy need={items.length} jobs={q?.active.length ?? 0} paused={paused} />
       <button className="btn w-full text-lg" style={{ minHeight: 56 }} onClick={() => setCar(true)}>Car mode</button>
       {car && <RemoteCar items={items} getBrief={getBrief} onLater={setLater} onExit={() => setCar(false)} />}
 
@@ -93,43 +95,28 @@ export function RemoteApp() {
         </section>
       )}
 
-      <section className="card space-y-2" aria-labelledby="r-stop">
-        <h2 id="r-stop" className="text-sm font-semibold">{t("remote.stop")}</h2>
-        <p className="muted text-sm">{t(status?.stop.on ? "remote.stopOn" : "remote.stopOff")}</p>
-        {!status?.stop.on && <button className="btn danger w-full" disabled={!!busy} onClick={stopAll} style={{ minHeight: 48 }}>{t("remote.stopButton")}</button>}
+      <section className="rm-hero" aria-labelledby="r-stop">
+        <p className="rm-status" style={{ color: paused ? "var(--rose)" : items.length ? "var(--amber)" : "var(--ink)" }} aria-live="polite">{headline(items.length, paused)}</p>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="r-stop" className="muted text-sm">{t(paused ? "remote.stopOn" : "remote.stopOff")}</h2>
+          {!paused && <button className="btn danger" disabled={!!busy} onClick={stopAll} style={{ minHeight: 44, minWidth: 104 }}>{t("remote.stopButton")}</button>}
+        </div>
       </section>
 
-      <section className="space-y-2" aria-labelledby="r-appr">
-        <h2 id="r-appr" className="text-sm font-semibold">{t("remote.waiting", { n: items.length })}</h2>
+      {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
+
+      <section className="space-y-3" aria-labelledby="r-appr">
+        <h2 id="r-appr" className="rm-label">{t("remote.waiting", { n: items.length })}</h2>
         {!items.length && <p className="muted text-sm">{t("remote.nothing")}</p>}
-        {items.map((it) => {
-          const blind = it.kind === "clip" && (!it.thumb || noThumb[it.id]); // he can't see it here: review on the PC
-          return (
-          <article key={it.id} className="card space-y-2">
-            <div className="text-sm font-semibold">{it.title}{later.includes(it.id) && <span className="chip ml-2 text-xs">Review later</span>}</div>
-            <div className="muted text-xs">{it.detail}</div>
-            {it.kind === "clip" && (blind ? <p className="muted text-sm">{t("remote.noPreview")}</p>
-              : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={t("remote.thumbAlt", { title: it.title })} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} />)}
-            {it.kind === "spend" && <div className="text-sm">{t("remote.quote")} <b>{tn("remote.credits", it.credits ?? 0)}</b></div>}
-            {it.kind === "nego" && <div className="text-xs">{t("remote.plan")} {it.strategy}</div>}
-            {it.kind === "invoice" && <div className="text-sm">{it.buyer} owes <b>{it.amount}</b> · {it.daysLate} day{it.daysLate === 1 ? "" : "s"} overdue</div>}
-            {(it.kind === "send" || it.kind === "nego" || it.kind === "invoice") && <>
-              {it.to && <div className="text-sm">{t("remote.to")} <b>{it.to}</b></div>}
-              <pre className="field w-full whitespace-pre-wrap text-xs" style={{ fontFamily: "inherit", maxHeight: 260, overflow: "auto" }}>{it.message}</pre>
-            </>}
-            <div className="flex gap-2">
-              <button className="btn flex-1" style={{ minHeight: 44 }} disabled={!!busy || blind} onClick={() => decide(it, true)}>
-                {busy === it.id ? "…" : it.kind === "spend" ? tn("remote.approveCredits", it.credits ?? 0) : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? t("remote.approveSend") : t("common.approve")}
-              </button>
-              {it.kind === "clip" && <button className="chip" style={{ minHeight: 44 }} disabled={!!busy} onClick={() => decide(it, false)}>{t("common.reject")}</button>}
-            </div>
-          </article>
-          );
-        })}
+        {biggestFirst(items).map((it) => (
+          <NeedCard key={it.id} it={it} busy={busy} later={later.includes(it.id)} blind={it.kind === "clip" && (!it.thumb || !!noThumb[it.id])} // he can't see it here: review on the PC
+            onThumbError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} decide={decide} />
+        ))}
       </section>
 
-      <section className="card space-y-1" aria-labelledby="r-queue">
-        <h2 id="r-queue" className="text-sm font-semibold">{t("remote.queue")}</h2>
+      {/* Night report section slots in here once the remote API serves it. */}
+      <section className="rm-sec" aria-labelledby="r-queue">
+        <h2 id="r-queue" className="rm-label">{t("remote.queue")}</h2>
         {q && <p className="muted text-sm">{t("remote.queueLine", { ready: q.ready, approved: q.approved })}{q.publishing ? t("remote.uploading") : ""}{q.story ? t("remote.story") : ""}</p>}
         {q?.active.length ? q.active.map((j) => (
           <div key={j.id} className="text-sm"><span className="font-semibold">{j.source}</span> <span className="muted">{j.step || j.status} {Math.round(j.progress * 100)}%</span></div>
@@ -166,8 +153,8 @@ function Place() {
     { enableHighAccuracy: false, maximumAge: 10 * 60_000, timeout: 15_000 });
   }
   return (
-    <section className="card space-y-2" aria-labelledby="r-place">
-      <h2 id="r-place" className="text-sm font-semibold">Place</h2>
+    <section className="rm-sec" aria-labelledby="r-place">
+      <h2 id="r-place" className="rm-label">Place</h2>
       <p className="muted text-sm">Sends a rough location (about 1 km) to your PC for the morning brief. Only when you tap; the PC keeps just the latest one.</p>
       <button className="btn w-full" style={{ minHeight: 44 }} disabled={busy} onClick={update}>{busy ? "…" : "Update place"}</button>
       {note && <p className="muted text-sm" role="status">{note}</p>}
@@ -210,8 +197,8 @@ function Notify() {
     setInfo(info && { ...info, on: false }); setBusy(false);
   }
   return (
-    <section className="card space-y-2" aria-labelledby="r-notify">
-      <h2 id="r-notify" className="text-sm font-semibold">{t("remote.notify")}</h2>
+    <section className="rm-sec" aria-labelledby="r-notify">
+      <h2 id="r-notify" className="rm-label">{t("remote.notify")}</h2>
       {!supported ? <p className="muted text-sm">{t("remote.notifyIos")}</p>
         : !info ? <p className="muted text-sm">{t("remote.checking")}</p>
         : info.problem ? <p className="muted text-sm">{info.problem}</p>
@@ -228,8 +215,8 @@ function Notify() {
 function Shell({ children }: { children: React.ReactNode }) {
   const { t } = useT();
   return (
-    <main className="mx-auto max-w-lg space-y-4 px-4" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
-      <h1 className="text-lg font-semibold tracking-wide" style={{ fontFamily: "var(--font-display)" }}>{t("remote.title")}</h1>
+    <main className="rm-shell mx-auto max-w-lg space-y-4">
+      <h1 className="rm-title">{t("remote.title")}</h1>
       {children}
     </main>
   );
@@ -302,12 +289,12 @@ function Ask() {
     setBusy(false); setStep("");
   }
   return (
-    <form onSubmit={ask} className="card space-y-2" aria-labelledby="r-ask">
-      <h2 id="r-ask" className="text-sm font-semibold">{t("remote.ask")}</h2>
+    <form onSubmit={ask} className="rm-sec" aria-labelledby="r-ask">
+      <h2 id="r-ask" className="rm-label">{t("remote.ask")}</h2>
       <textarea className="field h-24 w-full" maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} placeholder={t("remote.askPlaceholder")} aria-label={t("remote.askAria")} />
       <div className="flex gap-2">
         <button className="btn flex-1" style={{ minHeight: 44 }} disabled={busy || !text.trim()}>{busy ? t("remote.thinking") : t("remote.askButton")}</button>
-        {busy && <button type="button" className="chip" onClick={() => ac.current?.abort()}>{t("remote.askStop")}</button>}
+        {busy && <button type="button" className="chip" style={{ minHeight: 44 }} onClick={() => ac.current?.abort()}>{t("remote.askStop")}</button>}
       </div>
       {step && <p className="muted text-xs" aria-live="polite">{step}</p>}
       {answer && <div className="whitespace-pre-wrap text-sm" aria-live="polite">{answer}</div>}

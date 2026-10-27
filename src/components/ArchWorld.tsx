@@ -21,6 +21,7 @@ import { quizCards } from "@/lib/study-pure";
 import { shadowOf } from "@/lib/arch-time-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
+import { DaylightPanel, DaylightRooms, type Daylight } from "./ArchDaylight";
 import ArchCrit from "./ArchCrit";
 import { ArchMaterials } from "./ArchMaterials";
 import { PortfolioPanel } from "./PortfolioPanel";
@@ -28,6 +29,8 @@ import { archCaption } from "@/lib/portfolio-pure";
 import { ArchPlans } from "./ArchPlans";
 import { ArchTimeMachine, SunShadow } from "./ArchTimeMachine";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
+import { SiteLayer, SitePanel } from "./ArchSite";
+import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
 
 const KEY = "orbit.arch.v1";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
@@ -69,7 +72,7 @@ void main() {
 }`,
   transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
 });
-const load = (): { scene: Scene; prices: PriceItem[] } | null => { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
+const load = (): { scene: Scene; prices: PriceItem[]; site?: unknown } | null => { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
 const eur = (n: number) => n.toLocaleString("et-EE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const download = (name: string, text: string, type: string) => {
   const a = document.createElement("a");
@@ -244,16 +247,19 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const [noRoof, setNoRoof] = useState(false), [spin, setSpin] = useState(false);
   const [mode, setMode] = useState<"model" | "bp" | "holo">("model"), bp = mode === "bp", holo = mode === "holo";
   const [walk, setWalk] = useState(false);
+  const [dayOn, setDayOn] = useState(false), [daylight, setDaylight] = useState<Daylight | null>(null);
+  const [site, setSite] = useState<Site>(defaultSite); // model city (roadmap 3): plot, setbacks, north, neighbours; saved with the model
   const [sc, setSc] = useState<{ on: boolean; type: FloorType; s: number }>({ on: false, type: "timber", s: 0.4 }); // structure coach
   const [sun, setSun] = useState<{ on: boolean; date: string; hour: number; lat: number; lon: number }>(() => ({ ...SITE, on: false, date: new Date().toISOString().slice(0, 10), hour: 12 }));
   const sunAt = useMemo(() => { const d = new Date(`${sun.date}T00:00`); d.setMinutes(Math.round(sun.hour * 60)); return d; }, [sun.date, sun.hour]);
   const sunInfo = useMemo(() => {
     try {
-      const pos = sunPosition(sun.lat, sun.lon, sunAt), dir = sunDirection(sun.lat, sun.lon, sunAt), arc = dayArc(sun.lat, sun.lon, new Date(`${sun.date}T12:00Z`));
+      const pos = sunPosition(sun.lat, sun.lon, sunAt), dir = toModel(sunDirection(sun.lat, sun.lon, sunAt), site.north), arc = dayArc(sun.lat, sun.lon, new Date(`${sun.date}T12:00Z`));
       return { pos, dir, arc };
     } catch { return null; }
-  }, [sunAt, sun.date, sun.lat, sun.lon]);
-  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * 40, Math.max(0.5, sunInfo.dir.y * 40), sunInfo.dir.z * 40] : [-14, 22, 12];
+  }, [sunAt, sun.date, sun.lat, sun.lon, site.north]);
+  const SR = site.on ? 90 : 40; // the light (and its shadow box) reaches further when the neighbours are out
+  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-14, 22, 12];
   const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
   // ARCH studio (5.1–5.4): an open splat scan replaces the model in the canvas; the worker parses and depth-sorts it.
   const [scan, setScan] = useState<ScanData | null>(null), [flip, setFlip] = useState(false), [bump, setBump] = useState(0);
@@ -277,9 +283,10 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
       setScene(s.scene);
       if (Array.isArray(s.prices)) setPrices(STARTER_PRICES.map((d) => { const x = s.prices.find((p) => p.key === d.key); return x && Number.isFinite(x.eur) ? { ...d, ...x } : d; }));
     }
+    if (s?.site) setSite({ ...readSite(s.site), on: false });
     setReady(true);
   }, []);
-  useEffect(() => { if (ready && !lesson) try { localStorage.setItem(KEY, JSON.stringify({ scene, prices })); } catch { /* private mode: the scene just isn't kept */ } }, [scene, prices, ready, lesson]);
+  useEffect(() => { if (ready && !lesson) try { localStorage.setItem(KEY, JSON.stringify({ scene, prices, site: { ...site, draft: null } })); } catch { /* private mode: the scene just isn't kept */ } }, [scene, prices, site, ready, lesson]);
 
   const sceneRef = useRef(scene);
   sceneRef.current = scene; // an AI reply applies to the scene as it is when it lands, not when it was asked
@@ -364,7 +371,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <color attach="background" args={[bg]} />
           <fog attach="fog" args={[bg, 60, 140]} />
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
-          <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-40} shadow-camera-right={40} shadow-camera-top={40} shadow-camera-bottom={-40} />
+          <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-SR} shadow-camera-right={SR} shadow-camera-top={SR} shadow-camera-bottom={-SR} shadow-camera-far={SR * 3} />
           {scan ? <SplatCloud scan={scan} worker={worker} cap={budget.cap} maxPx={budget.maxPx} flip={flip}>
             {meas && <MeasureLayer m={meas} set={setMeas} worker={worker} ext={Math.max(...scan.bounds.hi.map((h, i) => h - scan.bounds.lo[i]))} />}
           </SplatCloud> : <>
@@ -374,16 +381,18 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
             <ContactShadows position={[0, 0.01, 0]} scale={Math.max(view.plot.w, view.plot.d)} opacity={0.35} blur={2.5} far={12} />
             <Blueprint parts={view.parts} />
             <Trees n={view.plot.trees} w={view.plot.w} d={view.plot.d} />
+            {site.on && !lesson && <SiteLayer site={site} set={setSite} parts={scene.parts} />}
           </>}
           <BuildClock run={run} onStart={setT0} />
           {(() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
             return <>
-              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={noRoof && p.kind === "roof"} bp={bp} holo={holo} inside={walk} fail={failing.has(p.id)} />)}
+              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={(noRoof || !!daylight) && p.kind === "roof"} bp={bp} holo={holo} inside={walk} fail={failing.has(p.id)} />)}
               {view.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
                 appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} holo={holo} />)}
+              {daylight && !holo && <DaylightRooms d={daylight} />}
             </>; })()}
           </>}
-          {sun.on && sunInfo && !scan && !holo && <SunShadow scene={view} sun={sunInfo.pos} />}
+          {sun.on && sunInfo && !scan && !holo && <SunShadow scene={view} sun={{ ...sunInfo.pos, azimuthDeg: sunInfo.pos.azimuthDeg + site.north }} /* model bearing */ />}
           {walk && !paused && <Walker key={scan?.name ?? "model"} rects={scan ? noRects : rects} plot={scanPlot ?? plotWD} onExit={() => setWalk(false)} />}
           <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
         </Canvas>
@@ -455,10 +464,12 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
               <input className="flex-1" type="range" min={0} max={24} step={0.25} value={sun.hour} aria-label="Time of day" onChange={(e) => setSun((v) => ({ ...v, hour: Number(e.target.value) }))} /></label>
             {sunInfo && <p className="muted text-xs">
               {sunInfo.pos.elevationDeg < 0 ? "Sun below the horizon" : `Sun ${Math.round(sunInfo.pos.elevationDeg)}° high, from ${Math.round(sunInfo.pos.azimuthDeg)}° (0° = north)`}
-              {" · "}sunrise {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, sunset {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. The plot's −Z side faces north.
+              {" · "}sunrise {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, sunset {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. {site.north ? `True north is ${Math.round(site.north)}° clockwise from the plot's −Z side.` : "The plot's −Z side faces north."}
               {((s) => s && ` Shadow of the ${Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10} m top: ${s.length.toFixed(1)} m toward ${Math.round(s.towardDeg)}° (orange line).`)(shadowOf(sunInfo.pos, solid.reduce((m, p) => Math.max(m, p.y + p.h), 0), 120))}</p>}
           </div>
         )}
+        {dayOn && <DaylightPanel parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} d={daylight} onChange={setDaylight} />}
+        {site.on && !lesson && !scan && <SitePanel site={site} set={setSite} parts={scene.parts} sun={sun.on && sunInfo ? sunInfo.dir : null} />}
         {sc.on && (
           <div className="card space-y-1.5" aria-label="Structure coach">
             <div className="muted text-[10px] uppercase tracking-widest">Structure coach · upper floors</div>
@@ -489,6 +500,8 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <button className="chip" aria-pressed={holo} onClick={() => setMode((m) => (m === "holo" ? "model" : "holo"))} title="The building as a hologram on a holotable">Holo</button>
           <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title="Walk through at eye height: WASD or arrows, drag to look, Esc to exit">🚶 Walk</button>
           <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ Sun study</button>
+          <button className="chip" aria-pressed={dayOn} onClick={() => { setDayOn((v) => !v); setDaylight(null); }} title="Direct-sun hours and daylight per room, a teaching estimate">🌤 Daylight</button>
+          <button className="chip" aria-pressed={site.on} onClick={() => setSite((v) => ({ ...v, on: !v.on, draft: null }))} title="Put the building on a real plot among neighbours: setbacks, coverage, FAR, shadows">🏘 Site</button>
           <button className="chip" aria-pressed={sc.on} onClick={() => setSc((v) => ({ ...v, on: !v.on }))} title="Check upper floors: bending and deflection, with the working">📐 Structure</button>
           <button className="chip" disabled={!past.length} onClick={undo}>↶ Undo</button>
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>Start over</button>
