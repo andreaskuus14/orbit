@@ -1,10 +1,11 @@
 // Remote home screen wording and order (layout only: no I/O).
+import { plural, translate, type Lang } from "./i18n-pure.ts";
 
 /** The one big line at the top of the phone. */
-export function headline(waiting: number, paused: boolean): string {
-  if (paused) return "ORBIT is paused";
-  if (!waiting) return "All quiet";
-  return waiting === 1 ? "1 thing needs you" : `${waiting} things need you`;
+export function headline(waiting: number, paused: boolean, lang: Lang = "en"): string {
+  if (paused) return translate(lang, "remote.paused");
+  if (!waiting) return translate(lang, "remote.quiet");
+  return plural(lang, "remote.need", waiting);
 }
 
 // Money first (largest quote first), then messages that leave the house, then clips.

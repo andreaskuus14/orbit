@@ -105,8 +105,8 @@ function Help({ text }: { text: string }) {
   const id = useId();
   return (
     <>
-      {/* 24px hit target around a 16px circle; negative margin keeps the text line height */}
-      <button type="button" className="muted -my-1 inline-grid h-6 w-6 place-items-center rounded-full align-middle"
+      {/* 24px hit target (40px on touch) around a 16px circle; negative margin keeps the text line height */}
+      <button type="button" className="muted -my-1 inline-grid h-6 w-6 place-items-center rounded-full align-middle pointer-coarse:-m-2 pointer-coarse:h-10 pointer-coarse:w-10"
         title={text} aria-label="More info" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
         <span aria-hidden className="grid h-4 w-4 place-items-center rounded-full border border-white/20 text-[10px] leading-none">?</span>
       </button>
@@ -183,7 +183,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const active = !!data?.jobs.some((j) => isJobActive(j) || j.clips.some((c) => c.publish?.status === "uploading" && data.publishing === `${j.id}/${c.id}`)) || !!data?.downloads?.some((d) => d.status === "queued" || d.status === "downloading");
   useEffect(() => {
     if (!active || !visible) return;
-    const t = setInterval(() => void load(true), 2000);
+    const t = setInterval(() => { if (!document.hidden) void load(true); }, 2000);
     return () => clearInterval(t);
   }, [active, visible, load]);
 
@@ -536,7 +536,7 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout }: { visib
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!d?.running || !visible) return;
-    const t = setInterval(() => void load(), 3000);
+    const t = setInterval(() => { if (!document.hidden) void load(); }, 3000);
     return () => clearInterval(t);
   }, [d?.running, visible, load]);
   async function act(key: string, fn: () => Promise<void>) {
@@ -1465,7 +1465,7 @@ function ScheduleAll({ count, canUpload, onChange }: { count: number; canUpload:
   useEffect(() => { void api<Schedule>(`${API}/schedule`).then((s) => { setBatch(s.batch); if (s.batch?.running) setMine(true); }, () => {}); }, []);
   useEffect(() => {
     if (!batch?.running || paused) return;
-    const t = setInterval(() => void api<Schedule>(`${API}/schedule`).then((s) => { setBatch(s.batch); onChange(true); }, () => {}), 2000);
+    const t = setInterval(() => { if (!document.hidden) void api<Schedule>(`${API}/schedule`).then((s) => { setBatch(s.batch); onChange(true); }, () => {}); }, 2000);
     return () => clearInterval(t);
   }, [batch?.running, paused, onChange]);
   const start = async () => {

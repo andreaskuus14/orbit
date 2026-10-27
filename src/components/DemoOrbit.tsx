@@ -61,7 +61,7 @@ export default function DemoOrbit({ data, memoryCount }: { data: DemoData; memor
       {world === "memory" && <MemoryWorld reduced={reduced} quality="auto" onClose={close} focusId={null} onChanged={noop} />}
       {world === "arch" && <ArchWorld reduced={reduced} quality="auto" onClose={close} />}
 
-      <p className="glass muted absolute left-1/2 top-3 z-[40] -translate-x-1/2 rounded-full px-4 py-1.5 text-center text-xs" role="note">{DEMO_NOTE}</p>
+      <p className="glass muted absolute left-1/2 top-3 z-[40] -translate-x-1/2 rounded-full px-4 py-1.5 text-center text-xs max-sm:top-auto max-sm:bottom-[4.1rem] max-sm:whitespace-nowrap max-sm:py-1 max-sm:text-[10px]" role="note">{DEMO_NOTE}</p>
 
       {core && !world && (
         <section className="glass hud-panel absolute bottom-24 right-3 z-[30] flex max-h-[60dvh] w-[min(26rem,calc(100vw-1.5rem))] flex-col gap-2 overflow-y-auto p-3 text-sm" aria-label="CORE (scripted demo)">
@@ -76,12 +76,12 @@ export default function DemoOrbit({ data, memoryCount }: { data: DemoData; memor
         </section>
       )}
 
-      <nav className="glass absolute bottom-3 left-1/2 z-[40] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-2xl px-3 py-2" aria-label="Demo tour">
+      <nav className="glass absolute bottom-3 left-1/2 z-[40] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto whitespace-nowrap rounded-2xl px-3 py-2 [scrollbar-width:none]" aria-label="Demo tour">
         {world ? <button className="chip" onClick={close}>← Galaxy</button>
           : <button className="chip" aria-pressed={core} onClick={() => setCore((c) => !c)}>CORE</button>}
         {DEMO_WORLDS.map((w) => <button key={w} className="chip" aria-pressed={world === w} onClick={() => select(w)}>{LABEL[w]}</button>)}
       </nav>
-      {hint && !world && <p className="glass absolute bottom-16 left-1/2 z-[40] -translate-x-1/2 rounded-xl px-3 py-1.5 text-xs" role="status">{hint}</p>}
+      {hint && !world && <p className="glass absolute bottom-16 left-1/2 z-[40] -translate-x-1/2 rounded-xl px-3 py-1.5 text-xs max-sm:bottom-24" role="status">{hint}</p>}
     </main>
   );
 }

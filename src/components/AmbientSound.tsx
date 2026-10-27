@@ -1,16 +1,8 @@
 "use client";
-// React glue for the spatial ambient sound (spatial-audio.ts): the camera-following listener inside the galaxy Canvas,
-// the app-wide lifecycle, and the HUD menu controls.
+// React glue for the spatial ambient sound (spatial-audio.ts): the app-wide lifecycle and the HUD menu controls.
+// The camera-following listener lives in AmbientListener.tsx (inside the galaxy chunk), so this file stays free of three.js.
 import { useEffect, useState } from "react";
-import { useFrame } from "@react-three/fiber";
-import type * as THREE from "three";
-import { ambientEnabled, ambientVolume, applyMix, frameAmbient, resumeAmbient, setAmbient, setAmbientVolume } from "./spatial-audio";
-
-/** Inside the galaxy Canvas: listener = camera, panners = planets, every frame (no allocations). */
-export function AmbientListener({ positions }: { positions: Readonly<Record<string, THREE.Vector3>> }) {
-  useFrame(({ camera }) => frameAmbient(camera, positions));
-  return null;
-}
+import { ambientEnabled, ambientVolume, applyMix, resumeAmbient, setAmbient, setAmbientVolume } from "./spatial-audio";
 
 /** Once in the app: start on the first gesture (browsers block audio before one), silence hidden tabs, re-check quiet hours. */
 export function AmbientSound() {

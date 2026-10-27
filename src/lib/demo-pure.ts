@@ -11,6 +11,7 @@ import { progress, runsLeft } from "./goals-pure.ts";
 import { NOTE, STRATEGIES, valueHoldings } from "./markets-pure.ts";
 import { starterScene } from "./arch-pure.ts";
 import { usageSummary } from "./analytics-usage-pure.ts";
+import { latestPublished } from "./clips/engage-pure.ts";
 
 export const DEMO_NOW = "2026-10-23T12:00:00.000Z";
 export const DEMO_SEED = 73129;
@@ -160,6 +161,76 @@ export function demoFor(endpoint: string, query: Query = {}): unknown {
     case "/api/vault": return { files: [{ name: "lantern-sketches.txt", size: 1840, mtime: Date.parse(DEMO_NOW), type: "text", cloud: false }], cloudOnly: [], cloudError: null, usage: { bytes: 1840, count: 1 } };
     case "/api/arch": return { ops: [{ op: "plot", w: 24, d: 20, ground: "grass", trees: 8 }], say: "A garden plot for a small lantern pavilion." };
     case "/api/arch/scene": return starterScene(); // local scene input, not a live GET route
+    case "/api/studio/analytics": { // one fixture for every query: ?range=…&video=… (Stats) and ?results=1 (Last Shorts) read different keys
+      const daily = series(28, (i) => { const views = Math.round(260 + i * 9 + Math.sin(i / 3) * 60 + rand() * 40);
+        return { day: date(150 + i), views, watchMinutes: Math.round(views * 0.31), subsGained: Math.round(views / 90 + rand() * 2), subsLost: Math.round(rand() * 2) }; });
+      const sum = (k: "views" | "watchMinutes" | "subsGained" | "subsLost") => daily.reduce((s, d) => s + d[k], 0);
+      const totals = { views: sum("views"), watchMinutes: sum("watchMinutes"), avgViewSec: 19, subsGained: sum("subsGained"), subsLost: sum("subsLost"),
+        likes: Math.round(sum("views") * 0.06), comments: Math.round(sum("views") * 0.004), shares: Math.round(sum("views") * 0.003) };
+      const prev = Object.fromEntries(Object.entries(totals).map(([k, v]) => [k, Math.round(v * 0.82)])) as typeof totals;
+      const sh = Math.round(totals.views * 0.71), se = Math.round(totals.views * 0.12), su = Math.round(totals.views * 0.1);
+      return { connected: true, channelTitle: "Velquori Lantern Journal", range: { days: 28, start: date(150), end: date(177) }, totals, prevTotals: prev, daily,
+        traffic: [{ source: "SHORTS", label: "Shorts feed", views: sh }, { source: "YT_SEARCH", label: "YouTube search", views: se }, { source: "SUBSCRIBER", label: "Browse features", views: su },
+          { source: "EXT_URL", label: "External", views: totals.views - sh - se - su }],
+        countries: [["US", 0.31], ["GB", 0.14], ["DE", 0.11], ["CA", 0.09], ["JP", 0.07]].map(([country, f]) => ({ country, views: Math.round(totals.views * Number(f)) })),
+        topVideos: [...videos].sort((a, b) => b.views - a.views).slice(0, 5).map((v) => ({ id: v.id, views: v.views, watchMinutes: Math.round(v.views * 0.3), avgViewSec: 18 })),
+        retention: series(11, (i) => ({ t: i / 10, ratio: Math.round((i ? 0.92 - i * 0.045 : 1) * 100) / 100, relative: 0.5 + (i % 3) * 0.05 })),
+        engaged: { cur: Math.round(totals.views * 0.64), prev: Math.round(prev.views * 0.6) }, warnings: [], fetchedAt: DEMO_NOW,
+        shorts: insights(learn, jobs).lastShorts ?? [], checkedAt: DEMO_NOW, postmortem: null };
+    }
+    case "/api/studio/oauth/status": return { configured: true, connected: true, expired: false, canUpload: true, channelTitle: "Velquori Lantern Journal", connectedAt: time(0) };
+    case "/api/studio/clips/inbox-auto": return { enabled: false, options: { count: 3, maxSec: 45, captions: true, layout: "fit", camSide: "right", camSize: 0.3, jumpCuts: true,
+      zooms: true, language: "auto", coldOpen: false, progressBar: false, loopEnd: false, preset: "viral" } };
+    case "/api/studio/clips/schedule": return { settings: { timezone: "UTC", slots: ["12:00", "17:00"], perDay: 2 }, next: [1, 2, 3].map((d) => `${date(179 + d)}T12:00:00.000Z`), batch: null };
+    case "/api/studio/clips/devlog": return { enabled: false, days: {}, path: "demo/devlog" };
+    case "/api/studio/clips/scout": {
+      const watchlist = names.slice(0, 2).map((n, i) => ({ channelId: `UCdemo${i}`, title: `${n} Crafts`, autoClip: false }));
+      const picks = series(3, (i) => ({ videoId: `demoscout0${i}`, url: `https://example.invalid/watch/scout${i}`, title: `How the ${names[i + 2]} lantern frame was built`, channel: watchlist[i % 2].title,
+        channelId: watchlist[i % 2].channelId, durationSec: 900 + i * 300, publishedAt: time(178 - i), stats: { views: 4200 + i * 1800, likes: 260 + i * 90, comments: 31 + i * 7 },
+        score: 82 - i * 9, reason: "A clear build-and-reveal arc with a quotable moment", source: i ? "keyword" : "watchlist", status: "new" }));
+      return { scout: { watchlist, keywords: ["paper lanterns", "garden craft"], aiKeywords: [], nicheAuto: false, maxAgeHours: 72, creatorMaxAgeDays: 14, minMinutes: 8, dailyAuto: 0, runAt: 7, picks,
+        lastRun: { at: time(179), ok: true, warnings: [], candidates: 24, units: 310, ranker: "score", auto: 0, summary: "3 fresh picks from 24 candidates" } },
+        running: false, researching: false, configured: true, budget: 5000, usedToday: 310 };
+    }
+    case "/api/studio/clips/story": return { stories: [{ id: "demo-story-1", createdAt: time(176), status: "draft", step: "Script ready for review", warnings: [], items: [],
+      opts: { idea: "A lantern that only lights when someone is lost", style: "storybook", length: 30, voice: "calm", motion: "stills" },
+      story: { title: "The lantern that waits", hook: "Every night one lantern stays dark. Tonight it wakes.", scenes: [
+        { visual: "A dark garden path lined with paper lanterns", narration: "Every night, one lantern stays dark.", sec: 6, camera: "slow push in" },
+        { visual: "A small traveller stops beside the dark lantern", narration: "It waits for the one who has lost the way.", sec: 8, camera: "low angle" },
+        { visual: "The lantern glows and the path lights up ahead", narration: "Tonight, it wakes.", sec: 6, camera: "pull back wide" }] } }], running: null, dryRun: true };
+    case "/api/ideas": return { shown: [{ id: "idea-1", title: "Folding a lantern in 30 seconds", summary: "Speed-run the simplest frame from the notebook.", area: "studio", score: 78 },
+      { id: "idea-2", title: "Which lantern lasts the storm?", summary: "Three frames, one windy night, one winner.", area: "studio", score: 71 }] };
+    case "/api/studio/clips/engage": return { v: 1, fetchedAt: DEMO_NOW, shorts: latestPublished(jobs, Date.parse(DEMO_NOW), 3).map((s, i) => ({ ...s,
+      comments: [{ id: `demo-comment-${i}`, author: `${names[(i + 3) % 6]} Garden Club`, text: "What paper did you use for the frame?", likes: 4 + i, publishedAt: time(178) }] })) };
+    case "/api/studio/shorts-plan": return { target: 7, booked: 4, ready: 2, need: 1, running: null, planning: false, week: { used: 0, cap: 300 },
+      picks: [{ key: "pick-1", source: "radar", title: "Folding a lantern in 30 seconds", story: "demo-story-1", status: "draft", step: "Script ready for review" }],
+      batch: { items: [], credits: 0, label: "Nothing priced yet", held: 0 } };
+    case "/api/studio/longform": return { plans: [] };
+    case "/api/studio/autopilot": {
+      const stage = (i: number) => (i < 2 ? "published" : i < 3 ? "scheduled" : "found") as "published" | "scheduled" | "found";
+      const items = series(4, (i) => ({ videoId: `demoauto00${i}`, title: `${names[i]} builds a ${["tiny", "floating", "spiral", "folded"][i]} lantern`, channel: `${names[i % 2]} Crafts`,
+        auto: false, stage: stage(i), detail: stage(i) === "found" ? "Waiting for your Clip click" : "Short is live", clips: i < 3 ? [{ key: `auto-${i}`, title: `The ${["tiny", "floating", "spiral"][i]} lantern reveal`, stage: stage(i) }] : [] }));
+      return { settings: { auto: false, dailyDownloads: 1, options: { layout: "fit", camSide: "right", captions: true } }, today: { downloads: 0, scoutAuto: 0, cap: 1, left: 1 },
+        scout: { running: false, configured: true, usedToday: 310, budget: 5000, lastRun: { at: time(179), ok: true, summary: "3 fresh picks" }, creators: ["Velquori Crafts", "Nimbrelune Crafts"], keywords: ["paper lanterns"], runAt: 7 },
+        candidates: [{ videoId: "demoauto003", url: "https://example.invalid/watch/auto3", title: items[3].title, channel: items[3].channel, apScore: 74, why: ["Clear reveal at 2:10", "Creator's Shorts beat their usual"] }],
+        items, counts: { found: 1, clipping: 0, packaging: 0, waiting: 0, scheduled: 1, published: 2, failed: 0 }, proposals: {}, slots: [],
+        working: { n: 12, confidence: "early", findings: [{ text: "Clips under 35 s kept viewers longer." }], dims: { length: { "20-30": { n: 5, mult: 1.2 }, "40+": { n: 7, mult: 0.9 } } } } };
+    }
+    case "/api/git": return { env: [], saved: ["~/projects/lantern-maze"] };
+    case "/api/place": return { on: false, places: [] }; // RealSky keeps its default sky: the demo never has a location
+    case "/api/news/follows": {
+      const items = articles.slice(0, 3).map(({ title, url, source, published_at }) => ({ title, url, source, published_at, new: true }));
+      return { topics: [{ name: "Lantern gardens", at: DEMO_NOW, items }], countries: ["Finland", "Japan"], lastVisit: Date.parse(DEMO_NOW) - DAY };
+    }
+    case "/api/arch/studio": return { rows: [
+      { id: uuid(700), title: "Precedent: Lantern Pavilion", content: "Lesson: a light timber frame reads as a lantern at night when the roof floats above a band of glazing.", tags: ["arch", "lesson", "precedent:lantern-pavilion"], created_at: time(170), storage_path: null },
+      { id: uuid(701), title: "Critique: garden pavilion sketch", content: "Proportion: the roof overhang balances the low walls.\nLight: the north wall needs one high window.\nStructure: four corner posts carry the roof simply.", tags: ["arch", "critique", "precedent:lantern-pavilion"], created_at: time(174), storage_path: null },
+      { id: uuid(702), title: "Crit: pavilion v3", content: "Tutor: the 10 × 8 m plan is generous for one room; try 6 × 5 m and give the rest to the garden.\nCirculation is direct; the entrance could face the path.", tags: ["arch", "crit", "model:v3"], created_at: time(177), storage_path: null }],
+      digest: { week: "2026-W43", at: time(176), lessons: 1, critiques: 1, scans: 0, precedents: ["Lantern Pavilion"], weak: [{ aspect: "light", count: 2 }],
+        focus: "Bring daylight in from two sides before adding more rooms.", line: "1 lesson · 1 critique · focus: daylight" } };
+    case "/api/arch/versions": return { versions: [10, 8, 6].map((w, i) => { const s = starterScene();
+      s.parts = s.parts.map((p) => ({ ...p, w: p.kind === "roof" ? w + 1 : w, d: p.kind === "roof" ? w : w - 2 }));
+      return { at: time(172 + i * 3), scene: s }; }) };
     default: return undefined;
   }
 }
