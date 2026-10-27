@@ -90,6 +90,10 @@ const BASE = {
   "remote.checking": "Checking…",
   "remote.notifyAbout": "Approvals waiting, Shorts going live, failed jobs and Stop-all. Only a short label, never the content. Quiet 23:00–08:00 except failures.",
   "remote.notifyOff": "Turn off on this phone", "remote.notifyOn": "Enable notifications",
+
+  "tour.title": "WHAT'S NEW", "tour.step": "{n} of {total}", "tour.chapters": "Tour chapters", "tour.showMe": "Show me",
+  "tour.next": "Next", "tour.back": "Back", "tour.finish": "Finish", "tour.skip": "Skip for now",
+  "tour.skipAria": "Skip the tour for now. Resume it from Ctrl+K: What's new tour", "tour.setup": "Set this up:", "tour.setupLink": "Setup steps",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -203,6 +207,10 @@ export const ET: Partial<Record<Key, string>> = {
   "remote.checking": "Kontrollin…",
   "remote.notifyAbout": "Ootel kinnitused, avalikuks läinud Shortid, ebaõnnestunud tööd ja „Peata kõik“. Ainult lühike silt, mitte kunagi sisu. Kell 23–08 vaikne, välja arvatud vead.",
   "remote.notifyOff": "Lülita selles telefonis välja", "remote.notifyOn": "Lülita teavitused sisse",
+
+  "tour.title": "UUDISED", "tour.step": "{n}/{total}", "tour.chapters": "Tuuri peatükid", "tour.showMe": "Näita",
+  "tour.next": "Edasi", "tour.back": "Tagasi", "tour.finish": "Valmis", "tour.skip": "Jäta praegu vahele",
+  "tour.skipAria": "Jäta tuur praegu vahele. Jätka seda Ctrl+K kaudu: What's new tour", "tour.setup": "Seadista:", "tour.setupLink": "Seadistuse sammud",
 };
 
 type Vars = Record<string, string | number>;
