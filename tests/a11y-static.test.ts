@@ -1,4 +1,5 @@
-// Static a11y lint: every <button> needs a name (text child, aria-label/labelledby or title) and every <img> needs alt.
+// Static a11y lint: every <button> needs a name (text child, aria-label/labelledby or title), every <img> needs alt, and every
+// <input>/<textarea>/<select> needs a label (aria-label/labelledby, an id with a matching htmlFor, or a wrapping <label>).
 // Pure text scan of .tsx files, so it runs in plain node --test without a browser or a JSX parser.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -28,12 +29,24 @@ function hasText(children: string): boolean {
   return /[\p{L}\p{N}]/u.test(noTags);
 }
 
+// A form field is labelled by aria-label/labelledby, a spread, an id some htmlFor points at, or an open <label> around it.
+function fieldLabelled(src: string, i: number, attrs: string): boolean {
+  if (/\btype\s*=\s*["'](hidden|submit|button|reset)["']/.test(attrs)) return true; // hidden has no UI; the others are named by value
+  if (/\b(aria-label|aria-labelledby)\s*=|\{\s*\.\.\./.test(attrs)) return true;
+  const id = attrs.match(/\bid\s*=\s*("[^"]*"|\{[^}]*\})/);
+  if (id && src.includes(`htmlFor=${id[1]}`)) return true;
+  const before = src.slice(0, i);
+  return before.search(/<label\b(?![\s\S]*<label\b)/) > before.lastIndexOf("</label>");
+}
+
 export function lint(src: string): string[] {
   const out: string[] = [];
   const line = (i: number) => src.slice(0, i).split("\n").length;
-  for (const m of src.matchAll(/<(button|img)\b/g)) {
+  for (const m of src.matchAll(/<(button|img|input|textarea|select)\b/g)) {
     const i = m.index!;
+    if (/^\s*(\/\/|\*|\{?\/\*)/.test(src.slice(src.lastIndexOf("\n", i) + 1, i))) continue; // on a comment line (a URL's // mid-line does not count)
     const { attrs, end, selfClosing } = openTag(src, i);
+    if (m[1] !== "button" && m[1] !== "img") { if (!fieldLabelled(src, i, attrs)) out.push(`${line(i)}: <${m[1]}> without a label`); continue; }
     if (m[1] === "img") { if (!/\balt\s*=|\{\s*\.\.\./.test(attrs)) out.push(`${line(i)}: <img> without alt`); continue; }
     if (NAMED.test(attrs)) continue;
     const close = selfClosing ? end : src.indexOf("</button>", end);
@@ -57,9 +70,17 @@ test("lint catches unnamed buttons and alt-less images", () => {
   assert.deepEqual(lint(`<button>{t("go")}</button>`), []);
   assert.deepEqual(lint(`<img src={s} />`), ["1: <img> without alt"]);
   assert.deepEqual(lint(`<img src={s} alt="" />`), []);
+  assert.deepEqual(lint(`<input value={v} placeholder="Name" />`), ["1: <input> without a label"]);
+  assert.deepEqual(lint(`<textarea aria-label="Note" />`), []);
+  assert.deepEqual(lint(`<label>Name <input value={v} /></label>`), []);
+  assert.deepEqual(lint(`<label>A</label><select value={v} />`), ["1: <select> without a label"]);
+  assert.deepEqual(lint(`<label htmlFor="q">Q</label><input id="q" />`), []);
+  assert.deepEqual(lint(`<label htmlFor={id}>Q</label><input id={id} />`), []);
+  assert.deepEqual(lint(`<input type="hidden" name="x" />`), []);
+  assert.deepEqual(lint(`// run skill <name>: <input>`), []);
 });
 
-test("every .tsx button has a name and every img has alt", () => {
+test("every .tsx button has a name, every img has alt, every field has a label", () => {
   const bad = tsx("src").flatMap((f) => lint(readFileSync(f, "utf8")).map((e) => `${f}:${e}`)).filter((e) => !ALLOW.some((a) => e.startsWith(a)));
   assert.deepEqual(bad, []);
 });

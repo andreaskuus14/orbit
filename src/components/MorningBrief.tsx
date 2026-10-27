@@ -11,6 +11,7 @@ import { speakChunk, speechSettings, stop } from "./voice/speak";
 import { api } from "./AgentMission";
 import { DayPlan } from "./DayPlan";
 import { useT } from "./i18n";
+import { announce } from "./announce";
 import { greetKey } from "@/lib/i18n-pure";
 
 const KEY = "orbit.brief"; // the local day it was last shown
@@ -50,9 +51,10 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
     if (!b) return;
     const say = speechSettings().speak; // muted in Settings → shown only
     setMuted(!say);
+    announce(t("brief.ready"));
     if (say) for (const s of b.spoken.split(/(?<=[.!?])\s+/)) speakChunk(s); // one sentence per utterance: the next is made while one plays
     void fetch("/api/brief", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "shown", day: b.day, items: b.items.map((i) => i.id), spoken: say }) }).catch(() => {});
-  }, [b]);
+  }, [b]); // eslint-disable-line react-hooks/exhaustive-deps -- t: language is fixed while it is open
 
   useEffect(() => {
     if (!open) return;

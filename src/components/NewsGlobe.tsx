@@ -997,6 +997,11 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
     const href = (e.target as HTMLElement).closest("li")?.querySelector("a.link")?.getAttribute("href");
     return href ? topStories.find((s) => safeHref(s.url) === href) ?? null : null;
   };
+  const pinAt = (e: React.SyntheticEvent<HTMLElement>) => {
+    if ((e.target as HTMLElement).closest("a,button")) return; // article link / country tag keep their own job
+    const s = storyAt(e);
+    setPinStory((p) => (s && p?.url !== s.url ? s : null));
+  };
 
   const focus = useMemo(() => {
     const place = (name: string) => {
@@ -1124,20 +1129,17 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
               </ol>
             ) : (
               <>
-                <p className="muted mt-2 text-xs">Hover or click a story to light up the countries it mentions.</p>
+                <p className="muted mt-2 text-xs">Hover, click or press Enter on a story to light up the countries it mentions.</p>
                 {/* StoryCard renders the <li>; delegate hover/click from the list so it stays untouched. */}
                 <div className="mt-2"
                   onMouseOver={(e) => setHotStory(storyAt(e))} onFocus={(e) => setHotStory(storyAt(e))}
                   onMouseLeave={() => setHotStory(null)} onBlur={() => setHotStory(null)}
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest("a,button")) return; // article link / country tag keep their own job
-                    const s = storyAt(e);
-                    setPinStory((p) => (s && p?.url !== s.url ? s : null));
-                  }}>
+                  onClick={pinAt}
+                  onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && (e.target as HTMLElement).tagName === "LI") { e.preventDefault(); pinAt(e); } }}>
                   {storySections.map(([r, list]) => (
                     <div key={r} className="mt-2">
                       {storySections.length > 1 && <div className="dash-label px-1" style={{ color: REGION_COLOR[r] }}>{r.toUpperCase()}</div>}
-                      <ul className="mt-1 space-y-2 globe-stories">{list.map((s) => <StoryCard key={s.url} s={s} onCountry={setSelected} />)}</ul>
+                      <ul className="mt-1 space-y-2 globe-stories">{list.map((s) => <StoryCard key={s.url} s={s} onCountry={setSelected} pinned={pinStory?.url === s.url} />)}</ul>
                     </div>
                   ))}
                 </div>
