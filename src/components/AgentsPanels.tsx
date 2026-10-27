@@ -7,6 +7,7 @@ import { highlight } from "./Highlight";
 import { ActivityView } from "./ActivityView";
 import { ResultEvidence } from "./ResultEvidence";
 import { AutomationFields } from "./AutomationFields";
+import { RulesView } from "./RulesView";
 import { automationDraft, automationSpec as toSpec, type AutomationAgent, type AutomationDraft as Draft } from "@/lib/automation-edit-pure";
 import type { AutomationSpec } from "@/lib/pure";
 import type { WriteEvidence } from "@/lib/completion-pure";
@@ -208,7 +209,7 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
   const [form, setForm] = useState({ request: "", agent: "nova", project_id: "" });
   const [newProject, setNewProject] = useState("");
   const [filter, setFilter] = useState<string>("");
-  const [tab, setTab] = useState<"tasks" | "automations" | "activity">("tasks");
+  const [tab, setTab] = useState<"tasks" | "automations" | "rules" | "activity">("tasks");
   const [err, setErr] = useState("");
 
   const load = useCallback(async () => {
@@ -254,14 +255,15 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
 
   const tabs = (
     <div className="flex gap-1.5" role="tablist">
-      {(["tasks", "automations", "activity"] as const).map((t) => (
+      {(["tasks", "automations", "rules", "activity"] as const).map((t) => (
         <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
-          {t === "tasks" ? "Tasks & projects" : t === "automations" ? "Automations" : "Activity"}
+          {t === "tasks" ? "Tasks & projects" : t === "automations" ? "Automations" : t === "rules" ? "Rules" : "Activity"}
         </button>
       ))}
     </div>
   );
   if (tab === "activity") return <div className="space-y-4">{tabs}<ActivityView onOpenTask={setOpen} /></div>;
+  if (tab === "rules") return <div className="space-y-4">{tabs}<RulesView onOpenTask={setOpen} /></div>;
   if (tab === "automations") return <div className="space-y-4">{tabs}<AutomationsView agents={agents} onOpenTask={setOpen} /></div>;
 
   return (

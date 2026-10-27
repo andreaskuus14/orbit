@@ -39,6 +39,7 @@ async function tick(sb: SupabaseClient) {
     for (const { id } of users ?? []) {
       if (limited) continue;
       await runDueAutomations(sb, id).catch((e) => console.error("[orbit] scheduled automations failed:", e?.message ?? e));
+      if (id === users?.[0]?.id) await import("./rules").then((r) => r.tickRules(sb, [id])); // standing rules (Agents → Rules); never throws
       void kickQueue(sb, id); // tasks still queued after a restart (the in-process queue is gone) start again
       void nightOwnsCompany().then((night) => resumeChains(sb, id, night)).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
       void import("./missions").then((m) => m.resumeMissions(sb, id)).catch((e) => console.error("[orbit] missions resume failed:", e?.message ?? e));
