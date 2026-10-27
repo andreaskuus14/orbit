@@ -21,6 +21,7 @@ import { quizCards } from "@/lib/study-pure";
 import { shadowOf } from "@/lib/arch-time-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
+import { DaylightPanel, DaylightRooms, type Daylight } from "./ArchDaylight";
 import ArchCrit from "./ArchCrit";
 import { ArchMaterials } from "./ArchMaterials";
 import { PortfolioPanel } from "./PortfolioPanel";
@@ -246,6 +247,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const [noRoof, setNoRoof] = useState(false), [spin, setSpin] = useState(false);
   const [mode, setMode] = useState<"model" | "bp" | "holo">("model"), bp = mode === "bp", holo = mode === "holo";
   const [walk, setWalk] = useState(false);
+  const [dayOn, setDayOn] = useState(false), [daylight, setDaylight] = useState<Daylight | null>(null);
   const [site, setSite] = useState<Site>(defaultSite); // model city (roadmap 3): plot, setbacks, north, neighbours; saved with the model
   const [sc, setSc] = useState<{ on: boolean; type: FloorType; s: number }>({ on: false, type: "timber", s: 0.4 }); // structure coach
   const [sun, setSun] = useState<{ on: boolean; date: string; hour: number; lat: number; lon: number }>(() => ({ ...SITE, on: false, date: new Date().toISOString().slice(0, 10), hour: 12 }));
@@ -384,9 +386,10 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <BuildClock run={run} onStart={setT0} />
           {(() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
             return <>
-              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={noRoof && p.kind === "roof"} bp={bp} holo={holo} inside={walk} fail={failing.has(p.id)} />)}
+              {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={(noRoof || !!daylight) && p.kind === "roof"} bp={bp} holo={holo} inside={walk} fail={failing.has(p.id)} />)}
               {view.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
                 appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} holo={holo} />)}
+              {daylight && !holo && <DaylightRooms d={daylight} />}
             </>; })()}
           </>}
           {sun.on && sunInfo && !scan && !holo && <SunShadow scene={view} sun={{ ...sunInfo.pos, azimuthDeg: sunInfo.pos.azimuthDeg + site.north }} /* model bearing */ />}
@@ -465,6 +468,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
               {((s) => s && ` Shadow of the ${Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10} m top: ${s.length.toFixed(1)} m toward ${Math.round(s.towardDeg)}° (orange line).`)(shadowOf(sunInfo.pos, solid.reduce((m, p) => Math.max(m, p.y + p.h), 0), 120))}</p>}
           </div>
         )}
+        {dayOn && <DaylightPanel parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} d={daylight} onChange={setDaylight} />}
         {site.on && !lesson && !scan && <SitePanel site={site} set={setSite} parts={scene.parts} sun={sun.on && sunInfo ? sunInfo.dir : null} />}
         {sc.on && (
           <div className="card space-y-1.5" aria-label="Structure coach">
@@ -496,6 +500,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <button className="chip" aria-pressed={holo} onClick={() => setMode((m) => (m === "holo" ? "model" : "holo"))} title="The building as a hologram on a holotable">Holo</button>
           <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title="Walk through at eye height: WASD or arrows, drag to look, Esc to exit">🚶 Walk</button>
           <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ Sun study</button>
+          <button className="chip" aria-pressed={dayOn} onClick={() => { setDayOn((v) => !v); setDaylight(null); }} title="Direct-sun hours and daylight per room, a teaching estimate">🌤 Daylight</button>
           <button className="chip" aria-pressed={site.on} onClick={() => setSite((v) => ({ ...v, on: !v.on, draft: null }))} title="Put the building on a real plot among neighbours: setbacks, coverage, FAR, shadows">🏘 Site</button>
           <button className="chip" aria-pressed={sc.on} onClick={() => setSc((v) => ({ ...v, on: !v.on }))} title="Check upper floors: bending and deflection, with the working">📐 Structure</button>
           <button className="chip" disabled={!past.length} onClick={undo}>↶ Undo</button>
