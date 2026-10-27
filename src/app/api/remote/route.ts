@@ -7,6 +7,8 @@ import { switchStopAll } from "@/lib/stop-all-run";
 import { listJobs, publishingKey } from "@/lib/clips/factory";
 import { runningStory } from "@/lib/clips/story";
 import { coreTurn } from "@/lib/core-turn";
+import { getBrief } from "@/lib/brief";
+import { allows } from "@/lib/autonomy";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -100,6 +102,11 @@ export async function POST(req: Request) {
           { remote: true, onConversation: (id) => S.chat.set(device.id, { id, at: Date.now() }) });
         if (!res.ok) return done(hidden("core.ask", await res.text().catch(() => ""), res.status));
         return done(sanitizeStream(res));
+      }
+      case "brief": { // car mode reads it aloud: the same brief the PC shows (Profile → Autonomy: Off = none)
+        if (!allows("brief", "background", { stopAll: false }).ok) return done(Response.json({ off: true }));
+        const b = await getBrief(sb, device.userId);
+        return done(Response.json({ greeting: b.greeting, spoken: b.spoken }));
       }
       default:
         return done(fail("Not available from the phone"));
