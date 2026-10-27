@@ -105,7 +105,9 @@ When Claude is unreachable, rate-limited or the usage hold is on, CORE chat and 
 Gmail, GitHub and Notion integrations; a knowledge-graph view; hardening and public deployment. Files uploaded to MEMORY are not described automatically (images are stored, and their text is extracted only from documents); images attached in a CORE chat are seen by CORE. MEMORY uploads (PDF, Word .docx, text, Markdown, CSV, images, max 4 MB) are stored privately in the `vault` bucket; their text is extracted for search.
 
 ## Setup
-1. **Supabase** (free tier): create a project. In *SQL Editor* run, in this order: `supabase/migrations/0001_orbit_phase1.sql`, `0002_orbit_phase2_news.sql`, `0003_orbit_phase3_agents.sql`, `0004_orbit_automations.sql`, `0005_orbit_games.sql`, `0006_orbit_proposals.sql`, `0007_orbit_playbook.sql`, `0008_memory_facts.sql`, `0009_vault_cloud.sql` and `0010_goals.sql`. In *Authentication → Providers → Email* keep email on and, since this is personal, turn **off** "Allow new users to sign up" after you have signed in once (or rely on `ORBIT_ALLOWED_EMAILS`). In *Authentication → URL Configuration* add `http://localhost:3000/auth/callback` to the redirect URLs.
+Full guide with every setting: [docs/SETUP.md](docs/SETUP.md). What each planet does: [docs/FEATURES.md](docs/FEATURES.md). Safety rules: [docs/SAFETY.md](docs/SAFETY.md).
+
+1. **Supabase** (free tier): create a project. In *SQL Editor* run every file in `supabase/migrations` in number order, `0001` to `0020` (list and notes: [docs/SETUP.md](docs/SETUP.md#1-supabase-migrations-in-order)). In *Authentication → Providers → Email* keep email on and, since this is personal, turn **off** "Allow new users to sign up" after you have signed in once (or rely on `ORBIT_ALLOWED_EMAILS`). In *Authentication → URL Configuration* add `http://localhost:3000/auth/callback` to the redirect URLs.
 2. **Claude Code**: install it and run `claude` once to sign in with your Claude account.
 3. **Configure**: `cp .env.example .env.local` and fill in the Supabase URL and anon key plus your email in `ORBIT_ALLOWED_EMAILS`. Add anything from [Needs configuration](#needs-configuration) you want.
 4. **Run** (Node 22.6+), in PowerShell or a terminal inside the `orbit` folder: `npm install`, then `npm run dev`, and open http://localhost:3000.
@@ -120,7 +122,7 @@ Run `npm run app:install` once. It puts an **ORBIT** icon on your Desktop and in
 ## Important limits
 - ORBIT must run on the computer where Claude Code is installed and signed in. It does **not** work on Vercel or any server without your Claude login, and CORE only works while that computer is on. Scheduled/background jobs (Phase 2+) would stop when it sleeps. Moving to an always-on server later means switching `src/lib/claude.ts` to the paid Claude API.
 - This is meant for personal use. Check Anthropic's current terms before using a subscription login for anything beyond that.
-- Semantic search and link suggestions need `VOYAGE_API_KEY` (Voyage AI is Anthropic's recommended embeddings provider and is a separate paid service). Without it, search is keyword-only. The `memories.embedding` column is 1024 dimensions to match `voyage-4`.
+- Semantic search and link suggestions run on a free local model by default. `VOYAGE_API_KEY` switches them to Voyage AI (a separate paid service that then receives memory text) unless `ORBIT_EMBED=local`. The `memories.embedding` column is 1024 dimensions to match `voyage-4`.
 - Each Claude call (CORE and agents) is a fresh Claude Code process with its own tools and your connectors disabled; ORBIT runs the tools itself (memory, web pages, news, agents) and passes results back as data, never as instructions.
 
 ## Tests
