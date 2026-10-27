@@ -365,7 +365,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return; // a widget (e.g. a chart's arrow-key scrub) already handled it
       if (document.querySelector("dialog[open], :popover-open")) return; // Esc there closes the overlay/menu, not the panel
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); cmdRef.current?.focus(); }
       // ← / → fly to the previous / next planet; Esc closes. Neither while typing (Esc in a form would lose the draft).
       const el = e.target as HTMLElement | null;
       // VIDEO/AUDIO: Chrome seeks a focused player with ←/→ after this handler sees the key.
@@ -573,14 +572,14 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <NotificationCenter home={!shown && !approach && !gameOpen} />
           <StudioNotifier />
           <OrbitExplore selected={shown} onSelect={select} />
-          <button className="chip hud-search" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label="Search everything (Ctrl+P)" title="Search everything: planets, actions, memories, files (Ctrl+P)">⌕</button>
+          <button className="chip hud-search" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label="Warp: jump, search, act (Ctrl+K)" title="Warp: jump anywhere, search everything, quick actions (Ctrl+K)">⌕</button>
           <button className="chip" onClick={toggleView} title="Switch between the galaxy and the workspace index. Your choice is remembered.">{view === "3d" ? "Index" : "Galaxy"}</button>
           <button className="chip hud-more" popoverTarget="hud-menu" aria-label="More options" title="More: profile, 3D quality, shortcuts, sign out">⋯</button>
         </div>
       </header>
       {/* Native popover: light-dismiss and Esc for free, drawn in the top layer above every panel. */}
       <div id="hud-menu" popover="auto" className="glass hud-menu" aria-label="More options">
-        <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))}>Search everything <kbd>Ctrl+P</kbd></button>
+        <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))}>Warp: jump and search <kbd>Ctrl+K</kbd></button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => select("profile")}>Profile</button>
         <div className="hud-menu-group" role="group" aria-label="3D quality">
           <span className="muted">Quality</span>
@@ -671,7 +670,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           </button>
           <input ref={cmdRef} className={"field w-full" + (voice.listening ? " voice-live" : "")} value={voice.listening ? voice.interim : cmd} onChange={(e) => setCmd(e.target.value)} maxLength={8000}
             readOnly={voice.listening}
-            placeholder={voice.listening ? "Listening… speak your question" : cmdMode === "ask" ? "Ask CORE…  (Ctrl/⌘ K · mic Ctrl+M)" : "Give your agents a task, e.g. research X and save a report"}
+            placeholder={voice.listening ? "Listening… speak your question" : cmdMode === "ask" ? "Ask CORE…  (mic Ctrl+M)" : "Give your agents a task, e.g. research X and save a report"}
             aria-label={voice.listening ? "Live voice transcript" : cmdMode === "ask" ? "Command bar: ask CORE" : "Command bar: give the agents a task"} />
           <VoiceControls voice={voice} />
         </div>
