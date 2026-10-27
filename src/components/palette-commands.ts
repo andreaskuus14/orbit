@@ -9,6 +9,7 @@ import { SHORTCUTS_EVENT } from "./ShortcutsOverlay";
 import { TERMINAL_EVENT } from "@/lib/terminal-pure";
 import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT } from "@/lib/core-chats-pure";
 import { changeStopAll } from "./nav-command";
+import { TOUR_EVENT } from "@/lib/tour-pure";
 
 export type Command = { id: string; group: "Go to" | "Actions"; label: string; hint?: string; keywords?: string; run: () => void };
 
@@ -53,5 +54,6 @@ export const COMMANDS: Command[] = [
   act("morning", "Good morning briefing", () => nav({ panel: null, morning: true }), undefined, "brief daily"),
   act("beliefs", "What ORBIT believes about me", () => nav({ panel: "memory", beliefs: true }), undefined, "beliefs memory"),
   act("evening", "Today in a minute", () => nav({ panel: null, evening: true }), "Evening note (Ctrl/⌘ Shift E)", "evening capture journal log my day diary"),
+  act("tour", "What's new tour", () => { nav({ panel: null }); dispatchEvent(new Event(TOUR_EVENT)); }, "Resume the guided tour of new features", "whats new tour help features updates uudised"),
   act("reminder", "New reminder", () => nav({ panel: "life", life: "reminders" }), "LIFE", "remind me add"),
 ];
