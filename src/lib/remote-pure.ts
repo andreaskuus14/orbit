@@ -97,13 +97,14 @@ export type RemoteCommand =
   | { type: "reject"; nonce: string; id: string }
   | { type: "stopAll"; nonce: string }
   | { type: "status"; nonce: string }
-  | { type: "brief"; nonce: string };
+  | { type: "brief"; nonce: string }
+  | { type: "habit.done"; nonce: string; id: string }; // one-tap Done from a habit nudge: marks that LIFE habit done today
 export type CommandResult = { ok: true; cmd: RemoteCommand } | { ok: false; error: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NONCE = /^[A-Za-z0-9_-]{16,64}$/;
 const FIELDS: Record<RemoteCommand["type"], string[]> = {
-  navigate: ["panel"], "core.ask": ["text", "lang"], "approval.list": [], approve: ["id"], reject: ["id"], stopAll: [], status: [], brief: [],
+  navigate: ["panel"], "core.ask": ["text", "lang"], "approval.list": [], approve: ["id"], reject: ["id"], stopAll: [], status: [], brief: [], "habit.done": ["id"],
 };
 
 /** Bounded LRU of seen nonces (oldest evicted first). */
@@ -150,8 +151,9 @@ export function parseCommand(json: unknown, nonces: NonceCache): CommandResult {
       break;
     case "approve":
     case "reject":
+    case "habit.done":
       if (typeof o.id !== "string" || !UUID.test(o.id)) return { ok: false, error: "id must be a uuid" };
-      cmd = type === "approve" ? { type, nonce, id: o.id.toLowerCase(), requiresOwnerConfirm: true } : { type, nonce, id: o.id.toLowerCase() };
+      cmd = type === "approve" ? { type, nonce, id: o.id.toLowerCase(), requiresOwnerConfirm: true } : { type: type as "reject" | "habit.done", nonce, id: o.id.toLowerCase() };
       break;
     default:
       cmd = { type: type as "approval.list" | "stopAll" | "status" | "brief", nonce };

@@ -29,6 +29,8 @@ export function RemoteApp() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState("");
   const [noThumb, setNoThumb] = useState<Record<string, boolean>>({}); // thumbnails that failed to load
+  const [habit, setHabit] = useState(""); // ?habit=<id> from a habit nudge: one-tap Done where the phone shows no notification actions
+  useEffect(() => { setHabit(new URLSearchParams(location.search).get("habit") ?? ""); }, []);
   const [car, setCar] = useState(false);
   const [later, setLater] = useState<string[]>([]); // read aloud in car mode: approve on screen
   useEffect(() => setLater(readLater()), []);
@@ -82,6 +84,17 @@ export function RemoteApp() {
       <RemoteGalaxy need={items.length} jobs={q?.active.length ?? 0} paused={paused} />
       <button className="btn w-full text-lg" style={{ minHeight: 56 }} onClick={() => setCar(true)}>Car mode</button>
       {car && <RemoteCar items={items} getBrief={getBrief} onLater={setLater} onExit={() => setCar(false)} />}
+
+      {habit && (
+        <section className="card space-y-2" aria-labelledby="r-habit">
+          <h2 id="r-habit" className="text-sm font-semibold">Habit time</h2>
+          <button className="btn w-full" style={{ minHeight: 48 }} disabled={!!busy}
+            onClick={() => void act("habit", () => send("habit.done", { id: habit }), (j) => { setHabit(""); history.replaceState(null, "", "/remote"); return j.message ?? "Done"; })}>
+            {busy === "habit" ? "…" : "Done"}
+          </button>
+        </section>
+      )}
+
       <section className="rm-hero" aria-labelledby="r-stop">
         <p className="rm-status" style={{ color: paused ? "var(--rose)" : items.length ? "var(--amber)" : "var(--ink)" }} aria-live="polite">{headline(items.length, paused)}</p>
         <div className="flex items-center justify-between gap-3">
