@@ -140,6 +140,10 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
     if (out) { sendDelta?.(out.text); trace.push(...out.trace); ms.answer_eval = Date.now() - t0; logTiming(`reflex:week`); return out; }
   }
 
+  // "argue the other side": ORBIT twin's case against whatever the chat was about (twin.ts)
+  const twin = attach || project ? null : await import("./twin").then((m) => m.argueReflex(sb, userId, question, history, signal)).catch((e) => { if (signal?.aborted) throw e; console.error("[orbit] twin failed; taking the full path", e); return null; });
+  if (twin) { sendDelta?.(twin.text); trace.push(...twin.trace); logTiming("reflex:twin"); return twin; }
+
   let t = Date.now();
   let tier = attach ? "smart" as const : pickModel(question, [...history].reverse().find((h) => h.role === "assistant")?.content);
   if (typeof voice === "string" && tier === "deep") tier = "smart"; // phone call: no screen, the reply must start fast. On-screen voice keeps full depth (only its summary is spoken)
@@ -155,7 +159,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       at("playbook", getPlaybook(sb, userId)), // cached; null without the table
       at("summaries", sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).eq("kind", "conversation").eq("source", "core-summary").order("updated_at", { ascending: false }).limit(3)),
       at("chats", searchMemories(sb, question, 3, userId, { coreSummariesOnly: true }).catch(() => ({ results: [] }))),
-      at("facts", Promise.all([factsContext(sb, userId, question), import("./lessons").then((m) => m.lessonsContext(userId, question), () => ""), import("./episodes").then((m) => m.episodesContext(sb, userId, question), () => ""), import("./dream").then((m) => m.dreamContext(userId), () => "")]).then((xs) => xs.filter(Boolean).join("\n\n"))), // beliefs ("" until migration 0008) + kept lessons (lessons.ts) + two recalled episodes (episodes.ts) + this morning's dream question (dream.ts); never throws
+      at("facts", Promise.all([factsContext(sb, userId, question), import("./lessons").then((m) => m.lessonsContext(userId, question), () => ""), import("./episodes").then((m) => m.episodesContext(sb, userId, question), () => ""), import("./dream").then((m) => m.dreamContext(userId), () => ""), import("./memory-graph").then((m) => m.graphContext(), () => ""), import("./when").then((m) => m.rangeContext(sb, userId, question), () => ""), import("./diary").then((m) => m.diaryContext(userId, question), () => "")]).then((xs) => xs.filter(Boolean).join("\n\n"))), // beliefs ("" until migration 0008) + kept lessons (lessons.ts) + two recalled episodes (episodes.ts) + this morning's dream question (dream.ts); never throws
       at("modules", moduleStatus(sb, userId)), // one live line per module (core-modules.ts); never throws
       at("world", import("./world").then((m) => m.worldContext(sb, userId))), // goals, this week, commitments; "" on failure
       at("people", import("./people").then((m) => m.peopleContext(sb, userId, question), () => "")), // names + relation + last contact of people he mentions; "" otherwise
@@ -258,9 +262,11 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
         if (tier === "deep") trace.push({ step: "fallback", detail: `deep → main model (${String(e instanceof Error ? e.message : e).slice(0, 120)})`, ms: 0, ok: false });
         tier = "smart"; step--; continue;
       }
-      if (sess) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
-      await recordUsage(sb, userId, "core.chat", r, model);
-      const reply = parseAgentReply(r.text);
+      if (sess && !r.local) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
+      await recordUsage(sb, userId, "core.chat", r, r.local ? "local" : model);
+      // Offline brain (claude.ts): no tools, so its reply is always the answer; the "local" trace step shows the badge.
+      if (r.local && !trace.some((s) => s.step === "local")) trace.push({ step: "local", detail: "local brain: Claude was unreachable or on hold", ms: 0, ok: true });
+      const reply = r.local ? { thought: "", final: parseAgentReply(r.text).final ?? r.text } : parseAgentReply(r.text);
       // The deep plan stays private: the trace (shown in the UI) never carries it.
       const thought = tier === "deep" ? (reply.tool ? "planned privately" : "answering") : reply.thought || (reply.final !== undefined ? "answering" : "");
       trace.push({ step: "think", detail: `${model} · ${thought}`.slice(0, 200), ms: r.ms, ok: true });
