@@ -54,7 +54,7 @@ export function MorningBrief({ home, onOpenTask, onOpenGoal }: { home: boolean; 
     announce(t("brief.ready"));
     if (say) for (const s of b.spoken.split(/(?<=[.!?])\s+/)) speakChunk(s); // one sentence per utterance: the next is made while one plays
     void fetch("/api/brief", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "shown", day: b.day, items: b.items.map((i) => i.id), spoken: say }) }).catch(() => {});
-  }, [b]); // eslint-disable-line react-hooks/exhaustive-deps -- t: language is fixed while it is open
+  }, [b?.day, b?.spoken]); // eslint-disable-line react-hooks/exhaustive-deps -- once per loaded brief, not on the LIFE toggle (which only changes b.life); t is fixed while open
 
   useEffect(() => {
     if (!open) return;
