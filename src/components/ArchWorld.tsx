@@ -6,7 +6,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
@@ -21,6 +21,7 @@ import { quizCards } from "@/lib/study-pure";
 import { shadowOf } from "@/lib/arch-time-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
+import ArchCrit from "./ArchCrit";
 import { ArchMaterials } from "./ArchMaterials";
 import { PortfolioPanel } from "./PortfolioPanel";
 import { archCaption } from "@/lib/portfolio-pure";
@@ -227,6 +228,13 @@ function Walker({ rects, plot, onExit }: { rects: Rect[]; plot: { w: number; d: 
 export default function ArchWorld({ onClose, reduced, flat, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */ }) {
   const qualityPreset = useLeanQuality(quality);
   const glr = useGlRecovery();
+  const r3f = useRef<RootState | null>(null);
+  // crit screenshot: render once and read the canvas in the same task (no preserveDrawingBuffer needed); stays on this PC until he clicks
+  const shoot = () => new Promise<{ blob: Blob; w: number; h: number } | null>((ok) => {
+    const s = r3f.current; if (!s) return ok(null);
+    s.gl.render(s.scene, s.camera); const c = s.gl.domElement;
+    c.toBlob((b) => ok(b && { blob: b, w: c.width, h: c.height }), "image/jpeg", 0.8);
+  });
   const [scene, setScene] = useState<Scene>(starterScene);
   const [preview, setPreview] = useState<Scene | null>(null), view = preview ?? scene; // time machine: a past version shown in 3D
   const [prices, setPrices] = useState<PriceItem[]>(STARTER_PRICES);
@@ -349,7 +357,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="ARCH: architecture study workspace" style={{ background: bg }}>
       {!flat && (
-        <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
+        <Canvas key={glr.key} onCreated={(st) => { glr.onCreated(st); r3f.current = st; }} frameloop={paused ? "never" : "always"} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
         <WarmCompile world="arch" />
         <Grab to={grab} />
         {quality === "auto" && <PerformanceMonitor onDecline={qualityPreset.onDecline} />}
@@ -496,6 +504,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           onScanNote={(id, note) => setMeas((m) => m && { ...m, noteId: id, note })} onTeach={(t) => void teach(t)}
           lesson={lesson ? { building: lesson.building, text: lesson.chapters.map((c) => `${c.title}: ${c.text}`).join("\n") } : null} lessonKey={lesson ? lessonTag(lesson.building) : ""} />
 
+        <ArchCrit scene={scene} prices={prices} shoot={shoot} />
         <PortfolioPanel grab={() => grab.current?.() ?? null}
           caption={scan ? `Scan ${scan.name}` : lesson ? `Study model after ${lesson.building}` : archCaption({ parts: scene.parts, mode, sun: sun.on ? sun : null })} />
 
