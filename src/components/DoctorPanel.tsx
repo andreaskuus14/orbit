@@ -1,12 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Report, Status } from "@/lib/doctor-pure";
+import { headlineOf, type Report, type Status } from "@/lib/doctor-pure";
 import type { BootResult } from "@/lib/doctor-boot-pure";
 import { builderText, type Issue } from "@/lib/health-pure";
 import { builderBrief, type Improve } from "@/lib/self-improve-pure";
 import type { systemHealthView } from "@/lib/system-health";
-import type { SvcState } from "@/lib/system-health-pure";
+import { incidentTitle, type SvcState } from "@/lib/system-health-pure";
 import type { PatchResult } from "@/lib/self-improve-patch-pure";
+import { stoppedText } from "@/lib/night-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { useDialogFocus } from "./useDialogFocus";
 import { useT } from "./i18n";
@@ -27,7 +28,7 @@ const KIND_WORD = { task: "sys.kind.task", mission: "sys.kind.mission", night: "
 
 /** SYSTEM card (roadmap 9.5): services with last success, failed jobs (7 days), storage, models, budgets and incidents. Read-only but for "Got it". */
 function SystemCard({ sys, onAck }: { sys: System; onAck: (key: string) => void }) {
-  const { t, tn } = useT();
+  const { t, tn, tx, lang } = useT();
   const open = sys.incidents.filter((i) => i.state !== "resolved");
   return (
     <section className="mt-4 rounded-lg border border-white/10 p-2 text-sm" aria-label={t("sys.healthAria")}>
@@ -36,16 +37,16 @@ function SystemCard({ sys, onAck }: { sys: System; onAck: (key: string) => void 
       {sys.incidents.length > 0 && <ul className="mt-2 grid gap-1">
         {sys.incidents.map((i) => (
           <li key={i.key + i.opened} className="flex items-baseline justify-between gap-2 text-xs">
-            <span><b style={{ color: i.state === "resolved" ? "var(--mint)" : i.state === "ack" ? "var(--amber)" : "var(--rose)" }}>{t(`sys.state.${i.state}`)}</b> {i.title}
+            <span><b style={{ color: i.state === "resolved" ? "var(--mint)" : i.state === "ack" ? "var(--amber)" : "var(--rose)" }}>{t(`sys.state.${i.state}`)}</b> {incidentTitle(i, lang)}
               <span className="muted">{t("sys.since", { at: when(i.opened) })}{i.resolvedAt ? t("sys.fixed", { at: when(i.resolvedAt) }) : ""}</span></span>
-            {i.state === "open" && <button className="chip shrink-0" onClick={() => onAck(i.key)} aria-label={t("sys.ackAria", { title: i.title })}>{t("sys.gotIt")}</button>}
+            {i.state === "open" && <button className="chip shrink-0" onClick={() => onAck(i.key)} aria-label={t("sys.ackAria", { title: incidentTitle(i, lang) })}>{t("sys.gotIt")}</button>}
           </li>))}
       </ul>}
       <h3 className="mt-3 text-xs font-bold">{t("sys.services")}</h3>
       <ul className="grid gap-1">
         {sys.services.map((v) => (
           <li key={v.id} className="text-xs">
-            <span className="font-mono text-[10px] tracking-widest" style={{ color: COLOR[SVC[v.state]] }}>{t(SVC_WORD[v.state])}</span> <b>{v.label}</b>
+            <span className="font-mono text-[10px] tracking-widest" style={{ color: COLOR[SVC[v.state]] }}>{t(SVC_WORD[v.state])}</span> <b>{tx(`svc.${v.id}`, v.label)}</b>
             <span className="muted"> · {v.detail}{t("sys.lastOk", { at: when(v.lastOk) })}</span>
           </li>))}
       </ul>
@@ -57,7 +58,7 @@ function SystemCard({ sys, onAck }: { sys: System; onAck: (key: string) => void 
       </ul>
       <h3 className="mt-3 text-xs font-bold">{t("sys.storage")}</h3>
       <ul className="grid gap-1">
-        {sys.storage.map((d) => <li key={d.id} className="text-xs"><b style={{ color: COLOR[d.status] }}>{GBS(d.free)}</b> {d.label} <span className="muted break-all">· {d.dir}</span></li>)}
+        {sys.storage.map((d) => <li key={d.id} className="text-xs"><b style={{ color: COLOR[d.status] }}>{GBS(d.free)}</b> {tx(`disk.${d.id}`, d.label)} <span className="muted break-all">· {d.dir}</span></li>)}
       </ul>
       <h3 className="mt-3 text-xs font-bold">{t("sys.models")}</h3>
       <ul className="grid gap-1 text-xs">
@@ -67,7 +68,7 @@ function SystemCard({ sys, onAck }: { sys: System; onAck: (key: string) => void 
         <li><b>{t("sys.claude5h")}</b> {of(sys.usage.h5, t("sys.u.calls"))}{sys.usage.hold ? <span className="muted"> · {sys.usage.hold}</span> : null}</li>
         <li><b>{t("sys.claude7d")}</b> {of(sys.usage.d7, t("sys.u.calls"))}{!sys.usage.d7.cap && <span className="muted">{t("sys.weeklyHint")}</span>}</li>
         {sys.higgsfield && <li><b>{t("sys.hf")}</b> {of(sys.higgsfield, t("sys.u.credits"))}</li>}
-        <li><b>{t("sys.night")}</b> {sys.night ? <>{of(sys.night.calls, t("sys.u.calls"))}, {of(sys.night.minutes, "min")} <span className="muted">{t("sys.nightOf", { night: sys.night.night })}{sys.night.stopped ? t("sys.stopped", { why: sys.night.stopped }) : ""}</span></> : <span className="muted">{t("sys.noRun")}</span>}</li>
+        <li><b>{t("sys.night")}</b> {sys.night ? <>{of(sys.night.calls, t("sys.u.calls"))}, {of(sys.night.minutes, "min")} <span className="muted">{t("sys.nightOf", { night: sys.night.night })}{sys.night.stopped ? t("sys.stopped", { why: stoppedText(sys.night.stopped, lang) }) : ""}</span></> : <span className="muted">{t("sys.noRun")}</span>}</li>
       </ul>
     </section>
   );
@@ -158,7 +159,7 @@ function ImproveCard({ improve }: { improve: Improve }) {
 
 /** ORBIT doctor: runs /api/doctor and lists each check with what to do. speak = read the result aloud (opened by voice/command). */
 export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: boolean }) {
-  const { t } = useT();
+  const { t, tx, lang } = useT();
   const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null }) | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -202,12 +203,12 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
         {err ? <p className="error" role="alert">{err}</p>
           : !report ? <p className="muted text-sm">{t("doc.loading")}</p>
           : <>
-            <p className="mb-3 text-sm" style={{ color: COLOR[report.status] }}><b>{report.headline}</b></p>
+            <p className="mb-3 text-sm" style={{ color: COLOR[report.status] }}><b>{headlineOf(report.checks, lang)}</b></p>
             <ul className="grid gap-2">
               {report.checks.map((c) => (
                 <li key={c.id} className="rounded-lg border border-white/10 p-2 text-sm">
                   <div className="flex items-baseline justify-between gap-2">
-                    <b>{c.label}</b>
+                    <b>{tx(`check.${c.id}`, c.label)}</b>
                     <span className="shrink-0 font-mono text-[10px] tracking-widest" style={{ color: COLOR[c.status] }}>{t(WORD[c.status])}</span>
                   </div>
                   <p className="muted text-xs">{c.detail}</p>
@@ -221,7 +222,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
                 <b>{t("doc.selfTest")}</b>
                 <span className="shrink-0 font-mono text-[10px] tracking-widest" style={{ color: COLOR[report.boot.report.status] }}>{t(WORD[report.boot.report.status])}</span>
               </div>
-              <p className="muted text-xs">{t("doc.afterRestart", { at: new Date(report.boot.bootId).toLocaleString(), headline: report.boot.report.headline })}</p>
+              <p className="muted text-xs">{t("doc.afterRestart", { at: new Date(report.boot.bootId).toLocaleString(), headline: headlineOf(report.boot.report.checks, lang) })}</p>
               {report.boot.scan.crashes.length || report.boot.scan.exits.length ? <>
                 <p className="mt-2 text-xs"><b>{t("doc.crashes", { exits: report.boot.scan.exits.length ? ` (${report.boot.scan.exits.join(", ")})` : "" })}</b></p>
                 <ul className="mt-1 grid gap-1">

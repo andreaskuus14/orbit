@@ -4,14 +4,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./AgentMission";
 import { stoppedText, type NightItem, type NightReport, type NightSettings, type TonightItem } from "@/lib/night-pure";
-import { LEARN_KINDS, NOUN } from "@/lib/night-learn-pure";
+import { LEARN_KINDS } from "@/lib/night-learn-pure";
 import type { NavTarget } from "@/lib/nav-pure";
 import { useT } from "./i18n";
 
 type Nav = (t: NavTarget) => void;
 
 export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report: NightReport; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void; nav: Nav }) {
-  const { t, tn } = useT();
+  const { t, tn, lang } = useT();
   const [gone, setGone] = useState<Record<string, string>>({}); // item key → what happened to it here
   const [err, setErr] = useState("");
   const key = (i: NightItem) => `${i.kind}:${i.ref}`;
@@ -60,7 +60,7 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
         {report.failed.map((i) => <li key={key(i)} className="warn">{row(i, "⚠")}{i.why && <span className="text-xs"> · {i.why}</span>}</li>)}
         {report.company && <li className="text-xs">{report.company}</li>}
         {report.invoices && <li className="warn">{t("night.invoices", { x: report.invoices })}</li>}
-        {report.stopped && <li className="text-xs">{stoppedText(report.stopped)}{report.deferred ? t("night.deferred", { n: report.deferred }) : ""}</li>}
+        {report.stopped && <li className="text-xs">{stoppedText(report.stopped, lang)}{report.deferred ? t("night.deferred", { n: report.deferred }) : ""}</li>}
       </ul>
     </div>
   );
@@ -92,7 +92,7 @@ export function TonightPanel() {
       {s && (
         <details className="muted text-xs"><summary>{t("night.learnTitle")}</summary>
           {LEARN_KINDS.map((k) => (
-            <label key={k} className="flex items-center justify-between gap-2">{NOUN[k]}
+            <label key={k} className="flex items-center justify-between gap-2">{t(`night.noun.${k}`)}
               <select className="field" value={s.pin?.[k] ?? "auto"} onChange={(e) => void post({ action: "settings", pin: { [k]: e.target.value } })}>
                 <option value="auto">{t("night.learn")}</option><option value="on">{t("night.always")}</option><option value="off">{t("night.never")}</option>
               </select>

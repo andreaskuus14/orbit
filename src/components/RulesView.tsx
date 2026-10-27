@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./AgentMission";
 import { useWorldPaused } from "./world-paused";
-import { EVENT_RUNS_PER_DAY, type ParsedRule, type Rule } from "@/lib/rules-pure";
+import { EVENT_RUNS_PER_DAY, describeAction, describeTrigger, type ParsedRule, type Rule } from "@/lib/rules-pure";
 import { useT } from "./i18n";
 
 // Agents → Rules (roadmap 8.4): write a rule in plain words, read back what ORBIT understood, confirm. Pause is one tap.
@@ -12,11 +12,11 @@ const EXAMPLES = ["Prepare my weekly project review on Sunday", "Every weekday 7
 const at = (iso: string) => new Date(iso).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 function Card({ p }: { p: ParsedRule & Shown }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   return (
     <dl className="mt-1 grid gap-x-3 gap-y-0.5 text-xs" style={{ gridTemplateColumns: "auto 1fr" }}>
-      <dt className="muted">{t("rules.when")}</dt><dd>{p.when}</dd>
-      <dt className="muted">{t("rules.does")}</dt><dd>{p.what}</dd>
+      <dt className="muted">{t("rules.when")}</dt><dd>{describeTrigger(p.trigger, lang)}</dd>
+      <dt className="muted">{t("rules.does")}</dt><dd>{describeAction(p.action, lang)}</dd>
       <dt className="muted">{t("rules.scope")}</dt><dd>{p.scope}</dd>
       <dt className="muted">{t("rules.allowed")}</dt><dd>{p.permissions.join(" · ")}</dd>
     </dl>

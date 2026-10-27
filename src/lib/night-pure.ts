@@ -5,6 +5,7 @@
 // its existing owner-click approval. Budget: max Claude calls + minutes per night; usageHold and Stop-all end the run.
 import { clean, nextMove, type Goal } from "./goals-pure.ts";
 import type { PushMessage } from "./remote-push-pure.ts";
+import { translate, type Lang } from "./i18n-pure.ts";
 
 export type NightSettings = { enabled: boolean; from: string; until: string; tz: string; wake: string; maxCalls: number; maxMinutes: number; idleMin: number;
   pin: Partial<Record<NightKind, "on" | "off">> }; // his overrides of the learned plan (night-learn-pure)
@@ -255,6 +256,6 @@ export function nightPush(r: { done: number; approvals: number; failed: number }
   return { title, body: "See what ORBIT did while you slept.", url: "/remote#r-appr", tag: "night" };
 }
 
-/** Why a run stopped, in the owner's words. */
-export const stoppedText = (why?: string) =>
-  why === "stop-all" ? "Stopped by Stop-all" : why === "usage" ? "Paused to save your Claude budget" : why === "window" ? "The night window ended" : why === "budget" ? "Tonight's budget was used up" : why ? why : "";
+/** Why a run stopped, in the owner's words (stored as a code: stop-all / usage / window / budget). */
+export const stoppedText = (why?: string, lang: Lang = "en") =>
+  why === "stop-all" || why === "usage" || why === "window" || why === "budget" ? translate(lang, `night.stop.${why}`) : why ?? "";
