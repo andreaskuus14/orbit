@@ -24,7 +24,7 @@ async function store(s: Titles) {
 }
 const allTitles = (t: Titles) => Object.assign({}, ...Object.values(t.months).map((m) => m.titles)) as Record<string, string>;
 
-async function gather(sb: SupabaseClient, userId: string, includePrivate: boolean, now: number): Promise<ChronIn> {
+export async function gather(sb: SupabaseClient, userId: string, includePrivate: boolean, now: number): Promise<ChronIn> {
   const rows = <T>(p: PromiseLike<{ data: T[] | null }>) => Promise.resolve(p).then((r) => r.data ?? [], () => [] as T[]);
   let mem = sb.from("memories").select("id, title, kind, tags, source, created_at").eq("user_id", userId);
   if (!includePrivate) mem = mem.neq("kind", "journal"); // journal rows are not even read unless he asked for them
@@ -52,7 +52,14 @@ export async function getChronicle(sb: SupabaseClient, userId: string, includePr
 }
 
 /** Titles one finished month's arcs with the fast model, at most once per month (also when the call fails). */
+const G = globalThis as unknown as { __orbitChronTitling?: Set<string> };
 export async function titleMonth(sb: SupabaseClient, userId: string, month: string, now = Date.now()): Promise<Record<string, string>> {
+  const busy = (G.__orbitChronTitling ??= new Set());
+  if (busy.has(month)) return {}; // a second tab's request while the first is gathering: the file claim comes too late to stop it
+  busy.add(month);
+  try { return await titleOnce(sb, userId, month, now); } finally { busy.delete(month); }
+}
+async function titleOnce(sb: SupabaseClient, userId: string, month: string, now: number): Promise<Record<string, string>> {
   const t = await load();
   if (t.months[month] || stopAllOn() || usageHold()) return t.months[month]?.titles ?? {};
   const c = buildChronicle(await gather(sb, userId, false, now)); // never private: the prompt is built without journal rows at all

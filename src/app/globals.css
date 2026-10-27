@@ -765,3 +765,33 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .mb-icon { width: 1.6rem; text-align: center; font-size: 1.1rem; }
 @keyframes brief-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .morning-brief, .mb-item { animation: none; } }
+
+/* Warp command palette (CommandPalette.tsx): a violet-cyan rim, an alien caption, a short "jump" in. */
+.warp[open] { border-color: rgba(139, 92, 246, 0.45); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 0 1px rgba(34, 211, 238, 0.18), 0 0 42px rgba(139, 92, 246, 0.28), 0 18px 48px rgba(0, 0, 0, 0.5); animation: warp-in 0.28s var(--ease-glide, ease-out); }
+.warp-head { display: flex; align-items: center; justify-content: space-between; padding: 0 0.25rem 0.5rem; color: #a78bfa; }
+.warp-script { opacity: 0.7; }
+.warp-script path { stroke-dasharray: 1; animation: script-draw 0.9s ease-out both; }
+.warp-opt.is-on { background: linear-gradient(100deg, rgba(34, 211, 238, 0.16), rgba(139, 92, 246, 0.14)); box-shadow: inset 2px 0 0 var(--cyan); }
+@keyframes warp-in { from { opacity: 0; transform: scale(1.06) translateY(-6px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+@media (prefers-reduced-motion: reduce) { .warp[open], .warp-script path { animation: none; } }
+
+/* Phone remote (/remote): galaxy header, one big status line, "Needs you" stack, compact sections. */
+.rm-shell { padding: max(0.75rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); }
+.rm-title { font-family: var(--font-display); font-weight: 700; font-size: 0.78rem; letter-spacing: 0.42em; color: #a5f3fc; text-shadow: 0 0 12px rgba(34, 211, 238, 0.5); }
+.rm-galaxy { display: block; width: 100%; height: auto; max-height: 132px; margin-top: -0.25rem; }
+.rm-core { transform-origin: 180px 60px; animation: rm-pulse 4s ease-in-out infinite; }
+.rm-star { fill: #e6f1ff; animation: rm-twinkle 4s ease-in-out infinite; }
+@keyframes rm-pulse { 50% { transform: scale(1.18); opacity: 0.85; } }
+@keyframes rm-twinkle { 50% { opacity: 0.25; } }
+.rm-hero { padding-bottom: 0.9rem; border-bottom: 1px solid var(--line); }
+.rm-status { font-family: var(--font-display); font-weight: 700; font-size: clamp(1.9rem, 9vw, 2.4rem); line-height: 1.05; letter-spacing: 0.02em; margin-bottom: 0.35rem; }
+.rm-label { font-family: var(--font-display); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.24em; text-transform: uppercase; color: #a5f3fc; }
+.rm-need { display: flex; flex-direction: column; gap: 0.55rem; padding: 0.95rem; border-radius: 16px; background: rgba(8, 16, 34, 0.82); border: 1px solid rgba(251, 191, 36, 0.4); border-left-width: 4px; box-shadow: 0 0 22px rgba(251, 191, 36, 0.08); }
+.rm-need-clip { border-color: rgba(34, 211, 238, 0.4); box-shadow: none; }
+.rm-kind { font-family: var(--font-display); font-size: 0.72rem; letter-spacing: 0.28em; text-transform: uppercase; color: var(--amber); }
+.rm-need-clip .rm-kind { color: var(--cyan); }
+.rm-big { font-family: var(--font-display); font-weight: 700; font-size: 1.6rem; line-height: 1; color: var(--amber); }
+.rm-big small { font-size: 0.75rem; letter-spacing: 0.1em; color: var(--muted); }
+.rm-sec { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.85rem 0 0.25rem; border-top: 1px solid var(--line); }
+.rm-shell .muted { color: #a9bbd6; } /* a notch brighter than the desktop muted for outdoor contrast */
+@media (prefers-reduced-motion: reduce) { .rm-core, .rm-star { animation: none; } }

@@ -91,18 +91,20 @@ export const NONCE_CACHE_SIZE = 500;
 
 export type RemoteCommand =
   | { type: "navigate"; nonce: string; panel: RemotePanel }
-  | { type: "core.ask"; nonce: string; text: string }
+  | { type: "core.ask"; nonce: string; text: string; lang?: "et" }
   | { type: "approval.list"; nonce: string }
   | { type: "approve"; nonce: string; id: string; requiresOwnerConfirm: true }
   | { type: "reject"; nonce: string; id: string }
   | { type: "stopAll"; nonce: string }
-  | { type: "status"; nonce: string };
+  | { type: "status"; nonce: string }
+  | { type: "brief"; nonce: string }
+  | { type: "habit.done"; nonce: string; id: string }; // one-tap Done from a habit nudge: marks that LIFE habit done today
 export type CommandResult = { ok: true; cmd: RemoteCommand } | { ok: false; error: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NONCE = /^[A-Za-z0-9_-]{16,64}$/;
 const FIELDS: Record<RemoteCommand["type"], string[]> = {
-  navigate: ["panel"], "core.ask": ["text"], "approval.list": [], approve: ["id"], reject: ["id"], stopAll: [], status: [],
+  navigate: ["panel"], "core.ask": ["text", "lang"], "approval.list": [], approve: ["id"], reject: ["id"], stopAll: [], status: [], brief: [], "habit.done": ["id"],
 };
 
 /** Bounded LRU of seen nonces (oldest evicted first). */
@@ -144,15 +146,17 @@ export function parseCommand(json: unknown, nonces: NonceCache): CommandResult {
     case "core.ask":
       if (typeof o.text !== "string" || !o.text.trim()) return { ok: false, error: "text required" };
       if (o.text.length > MAX_ASK_CHARS) return { ok: false, error: `text over ${MAX_ASK_CHARS} chars` };
-      cmd = { type, nonce, text: o.text };
+      if (o.lang !== undefined && o.lang !== "en" && o.lang !== "et") return { ok: false, error: "bad lang" };
+      cmd = { type, nonce, text: o.text, ...(o.lang === "et" ? { lang: "et" as const } : {}) }; // et: CORE answers in Estonian
       break;
     case "approve":
     case "reject":
+    case "habit.done":
       if (typeof o.id !== "string" || !UUID.test(o.id)) return { ok: false, error: "id must be a uuid" };
-      cmd = type === "approve" ? { type, nonce, id: o.id.toLowerCase(), requiresOwnerConfirm: true } : { type, nonce, id: o.id.toLowerCase() };
+      cmd = type === "approve" ? { type, nonce, id: o.id.toLowerCase(), requiresOwnerConfirm: true } : { type: type as "reject" | "habit.done", nonce, id: o.id.toLowerCase() };
       break;
     default:
-      cmd = { type: type as "approval.list" | "stopAll" | "status", nonce };
+      cmd = { type: type as "approval.list" | "stopAll" | "status" | "brief", nonce };
   }
   // Checked last so a rejected command does not burn its nonce, but before returning ok so a replay never passes.
   if (nonces.has(nonce)) return { ok: false, error: "replayed nonce" };

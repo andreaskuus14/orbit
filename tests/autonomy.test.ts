@@ -37,10 +37,10 @@ test("defaults pin the night planner: same queue with the default off-list", () 
   const i: PlanInput = { tonight: [{ id: "t1", text: "x", agent: "atlas", by: "owner", at: "" }], goals: [], followups: [{ id: "p1", name: "Cafe" }], drafted: {}, nicheDue: true, deals: 2, health: true, handled: [], now: Date.parse("2026-07-02T22:30:00Z"), today: "2026-07-03" };
   assert.deepEqual(planNight({ ...i, off: nightOff(DEFAULT_LEVELS) }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }), planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }));
   const off = nightOff({ ...DEFAULT_LEVELS, research: "ask", "business-drafts": "off" });
-  assert.deepEqual(off.sort(), ["business", "niche", "research"]);
+  assert.deepEqual(off.sort(), ["business", "niche", "research", "rivals"]);
   assert.deepEqual(planNight({ ...i, off }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "health", "deals", "clips"]);
   assert.ok(planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.some((t) => t.kind === "health")); // the pin above includes the new health slot
-  assert.deepEqual(nightOff({ ...DEFAULT_LEVELS, "night-shift": "off" }), ["health", "personas"]); // health and the persona playtest belong to the night shift itself
+  assert.deepEqual(nightOff({ ...DEFAULT_LEVELS, "night-shift": "off" }), ["health", "personas", "backup"]); // health, the persona playtest and the time capsule belong to the night shift itself
 });
 
 test("Off refuses even the owner's ask; Ask stops unattended work only", () => {

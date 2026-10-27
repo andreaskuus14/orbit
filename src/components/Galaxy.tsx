@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { AmbientListener } from "./AmbientSound";
 import { useGlRecovery } from "./useGlRecovery";
 import { ZoomRig } from "./ZoomRig";
 import { voiceLevel } from "./voice/bus";
@@ -38,10 +39,15 @@ import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
 import { markPreload } from "./GalaxyLoader";
 import { standIn, WarmCompile, WarmIn } from "./WarmCompile";
+import { RealSky, useRealSkyPlace } from "./RealSky";
+import { dilationScale } from "@/lib/dilation-pure";
 import { newScale, renderDpr, scaleFloor, stepScale, type ScaleState } from "@/lib/render-scale-pure";
 import { perfMark } from "./PerfBeacon";
 import { perfCtx } from "./PerfBeacon";
+import { LivingEffects } from "./LivingEffects";
 import { InkGlyph } from "./InkGlyph";
+import { useT } from "./i18n";
+import { ET, translate, type Lang } from "@/lib/i18n-pure";
 import { AlienScript } from "./AlienScript";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
 
@@ -69,6 +75,7 @@ export type GalaxyProps = {
   onDiveCross?: () => void;  // the camera crossed the surface: mount the world now, it crossfades in
   onDiveCancel?: () => void; // the user grabbed the view mid-dive
   onIdle?: () => void;       // start-up and background shaders are compiled: a good moment for other idle work
+  dilation?: { startAt: number; endAt: number } | null; // time dilation focus block: the galaxy's clock runs slow
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -609,18 +616,19 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, l
 }
 
 const BODIES = ["core", ...PLANETS.map((p) => p.id)];
-const LABEL_W = BODIES.map((id) => (id === "core" ? 4 : PLANETS.find((p) => p.id === id)!.name.length) * 11 + 18); // px, 12px font at 0.3em tracking
+const LABEL_W = BODIES.map((id) => (id === "core" ? 4 : Math.max(PLANETS.find((p) => p.id === id)!.name.length, ET[`planet.${id as PlanetId}`]?.length ?? 0)) * 11 + 18); // px, 12px font at 0.3em tracking; the longer of the English and Estonian name
 
 /** Projects each body's position to screen space every frame and moves plain DOM labels there (no extra React roots).
  *  Also places the HUD's leader label beside the hovered planet and writes the focus coordinates (no allocations). */
-function LabelProjector({ positions, scales, labels, leaders, hover, selected, hud, story, reduced }: {
+function LabelProjector({ positions, scales, labels, leaders, hover, selected, hud, story, reduced, lang }: {
   positions: Positions; scales: Scales; labels: RefObject<Record<string, HTMLSpanElement | null>>; leaders: RefObject<Record<string, HTMLSpanElement | null>>;
-  hover: RefObject<PlanetId | null>; selected: PanelId | null; hud: RefObject<HudEls>; story: RefObject<Story>; reduced: boolean;
+  hover: RefObject<PlanetId | null>; selected: PanelId | null; hud: RefObject<HudEls>; story: RefObject<Story>; reduced: boolean; lang: Lang;
 }) {
   const v = useMemo(() => new THREE.Vector3(), []);
   const st = useRef({ t: 0, text: "" });
   const sc = useMemo(() => { const n = BODIES.length; const f = () => new Float64Array(n); return { x: f(), y: f(), prio: f(), vis: f(), alpha: f(), order: f(), ax: f(), ay: f(), ox: f(), oy: f(), la: f() }; }, []);
-  useFrame(({ camera, size, controls }, dt) => {
+  useFrame(({ camera, size, controls }, scaled) => {
+    const dt = realDt(scaled); // labels track the camera in real time, even dilated
     const els = labels.current;
     if (!els) return;
     const S = story.current, stopId = S.stop >= 0 ? PLANETS[S.stop].id : null, h0 = hover.current;
@@ -677,7 +685,7 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
       v.copy(positions[hp.id]).project(camera);
       if (v.z < 1) {
         const T = cursorTarget, dist = Math.max(0.1, camera.position.distanceTo(positions[hp.id]));
-        T.at = performance.now(); T.label = hp.name;
+        T.at = performance.now(); T.label = translate(lang, `planet.${hp.id}`);
         T.script = sc.alpha[BODIES.indexOf(hp.id)] > 0.3; // its own label already names it: the ring shows the script instead
         T.r = ((planetSize(hp) * (scales[hp.id] ?? 1)) / (dist * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)))) * (size.height / 2);
         T.x = ((v.x + 1) / 2) * size.width; T.y = ((1 - v.y) / 2) * size.height;
@@ -755,7 +763,8 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive }: {
     camera.updateProjectionMatrix();
   }, [panelOpen, size, camera]);
 
-  useFrame((_, dt) => {
+  useFrame((_, scaled) => {
+    const dt = realDt(scaled); // camera flights keep real time, even dilated
     if (!controls) return;
     if (story.current.owns) { flight.current = null; return; } // the intro / scroll journey is driving the camera
     const f = flight.current;
@@ -794,11 +803,32 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive }: {
 }
 
 /** Averages the frame rate over 0.5 s windows and asks for a cheaper/richer level (rules in lib/quality-pure). */
+/* Time dilation: the scene's clock (dt and elapsedTime for every useFrame) runs at dilationScale. One patch on the canvas's
+   clock, no shader changes; the frame loop and WarmCompile's hold are untouched. Reduced motion: no change (already still). */
+let frameScale = 1;
+/** This frame's real seconds, for what must not slow down: frame-rate monitors, camera flights, labels. */
+const realDt = (dt: number) => dt / frameScale;
+function Dilation({ span, reduced }: { span: GalaxyProps["dilation"]; reduced: boolean }) {
+  const clock = useThree((s) => s.clock);
+  const ref = useRef(span);
+  ref.current = span;
+  useEffect(() => {
+    clock.getDelta = function getDelta(this: THREE.Clock) {
+      const d = THREE.Clock.prototype.getDelta.call(this);
+      frameScale = reduced ? 1 : dilationScale(ref.current, Date.now());
+      this.elapsedTime -= d * (1 - frameScale);
+      return d * frameScale;
+    };
+    return () => { delete (clock as Partial<THREE.Clock>).getDelta; frameScale = 1; };
+  }, [clock, reduced]);
+  return null;
+}
+
 function QualityMonitor({ level, max, onLevel }: { level: QualityLevel; max: QualityLevel; onLevel: (l: QualityLevel) => void }) {
   const st = useRef({ warm: 0, frames: 0, t: 0, worst: 0, q: { level, low: 0, high: 0 } as QualityState });
   useEffect(() => { st.current.q = { ...st.current.q, level, low: 0, high: 0 }; st.current.warm = 0; }, [level]); // a level change hitches: re-warm
-  useFrame((_, dt) => {
-    const s = st.current;
+  useFrame((_, scaled) => {
+    const s = st.current, dt = realDt(scaled);
     if ((s.warm += dt) < 2) return; // first frames compile shaders and upload textures
     s.frames++; s.t += dt; s.worst = Math.max(s.worst, dt * 1000);
     if (s.t < 0.5) return;
@@ -826,8 +856,8 @@ function RenderScale({ max, onDpr }: { max: number; onDpr: (dpr: number) => void
   const size = useThree((s) => s.size);
   const st = useRef({ s: loadScale(), warm: 0, frames: 0, t: 0, worst: 0, low: 0, high: 0 });
   useEffect(() => { onDpr(renderDpr(size.width, size.height, devicePixelRatio, max, st.current.s.scale)); st.current.warm = 0; }, [size.width, size.height, max, onDpr]);
-  useFrame((_, dt) => {
-    const r = st.current;
+  useFrame((_, scaled) => {
+    const r = st.current, dt = realDt(scaled);
     if ((r.warm += dt) < 2) return; // start-up and every resize hitch: no evidence
     r.frames++; r.t += dt; r.worst = Math.max(r.worst, dt * 1000);
     if (r.t < 0.5) return;
@@ -847,6 +877,7 @@ function loadScale(): ScaleState { try { const v = Number(localStorage.getItem(S
 function saveScale(s: ScaleState) { try { localStorage.setItem(SCALE_KEY, String(s.scale)); } catch { /* storage off */ } }
 
 export default function Galaxy(props: GalaxyProps) {
+  const { t, lang } = useT();
   const positions = useMemo<Positions>(() => Object.fromEntries(PLANETS.map((p) => [p.id, new THREE.Vector3()])), []);
   const scales = useMemo<Scales>(() => Object.fromEntries(PLANETS.map((p) => [p.id, 1])), []);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
@@ -901,6 +932,7 @@ export default function Galaxy(props: GalaxyProps) {
   const [stop, setStop] = useState(-1);
   perfCtx.stop = stop;
   const story = useRef<Story>(newStory(intro));
+  const sky = useRealSkyPlace();
   const onIntroEnd = useCallback(() => setIntro(false), []);
   const sizes = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, planetSize(p)])), []);
   const { onSelect, selected } = props;
@@ -924,12 +956,14 @@ export default function Galaxy(props: GalaxyProps) {
         <ambientLight intensity={0.06} color="#9aa8c0" /> {/* low fill: the CORE is the sun, worlds get a real day and night side */}
         {level > 0 && <GalaxyVeil reduced={props.reduced} />}
         <NeuralArms count={armCount(level)} reduced={props.reduced} />
-        <Stars radius={110} depth={60} count={level === 0 || props.reduced ? Math.min(2000, q.stars) : 4500} factor={2.6} fade speed={props.reduced ? 0 : 0.15} />
+        <Stars radius={110} depth={60} count={Math.round((level === 0 || props.reduced ? Math.min(2000, q.stars) : 4500) * sky.stars)} factor={2.6} fade speed={props.reduced ? 0 : 0.15} />
+        <RealSky on={sky.on} lat={sky.lat} lon={sky.lon} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <Dust count={q.dust} reduced={props.reduced} feel={feel} />
         <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} aligned={props.selected === "core"} approval={!!props.ships?.tasks.some((t) => t.status === "awaiting_approval")} />
         <Filaments positions={positions} pulses={props.pulses} reduced={props.reduced} />
         <Beams positions={positions} pulses={props.pulses} reduced={props.reduced} />
+        <LivingEffects positions={positions} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
         <AsteroidBelt inner={5.5} outer={6.0} count={Math.round(900 * q.belt)} seed={3} reduced={props.reduced} />
         <AsteroidBelt inner={32} outer={34} count={Math.round(2200 * q.belt)} seed={9} reduced={props.reduced} thickness={0.6} />
@@ -953,12 +987,14 @@ export default function Galaxy(props: GalaxyProps) {
         <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} story={story} />
         <PointerFeel feel={feel} enabled={!props.reduced && !coarse && !staged} />
         <Parallax feel={feel} on={!props.reduced && !staged} /> {/* after every rig: it offsets the camera they placed */}
-        <LabelProjector positions={positions} scales={scales} labels={labels} leaders={leaders} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} />
+        <AmbientListener positions={positions} /> {/* after every rig: hears from where the camera ended up */}
+        <LabelProjector positions={positions} scales={scales} labels={labels} leaders={leaders} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} lang={lang} />
         {windows && <WindowPlanets hover={hover} dive={props.dive ?? null} positions={positions} sizes={sizes} scales={scales} />}
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
         {/* Shaders compile in parallel before the first frame. No 4 s release here: releasing mid-compile compiled the rest
             synchronously in one 14 s frame (owner's PC); the loader stays up instead. Hidden parts warm after the first frames. */}
         <WarmCompile cap={20_000} defer onDone={compiled} onLater={props.onIdle} />
+        <Dilation span={props.dilation} reduced={props.reduced} />
         <RenderScale max={dprMax} onDpr={setDpr} />
         <FirstFrames onReady={onReady} />
         {mode === "auto" && !staged && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
@@ -992,7 +1028,7 @@ export default function Galaxy(props: GalaxyProps) {
           {props.busy && <InkGlyph reduced={props.reduced} />}
         </span>
         {PLANETS.map((p) => ( // calm labels (c11): pearl, with a breath of the world's identity colour
-          <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>{p.name}<AlienScript text={p.name} className="planet-script" /></span>
+          <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>{t(`planet.${p.id}`)}<AlienScript text={p.name} className="planet-script" /></span>
         ))}
       </div>
       </div>

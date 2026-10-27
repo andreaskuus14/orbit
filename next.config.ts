@@ -29,5 +29,10 @@ const nextConfig: NextConfig = {
 // scripts/launch.ps1 builds into .next-build (ORBIT_DIST_DIR) and swaps it into .next only when the build succeeds.
 // The dev server gets its own folder so "npm run dev" never overwrites the production release.
 export default function config(phase: string): NextConfig {
+  // npm run demo:build runs this in a staging copy holding only the /demo route (scripts/demo-build.mjs): a static export.
+  if (process.env.ORBIT_DEMO_EXPORT === "1") {
+    const { headers: _, experimental: __, ...rest } = nextConfig;
+    return { ...rest, output: "export", images: { unoptimized: true } };
+  }
   return { ...nextConfig, distDir: process.env.ORBIT_DIST_DIR || (phase === PHASE_DEVELOPMENT_SERVER ? ".next-dev" : ".next") };
 }

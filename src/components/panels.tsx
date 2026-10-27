@@ -9,8 +9,12 @@ import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
 import { appendActivity } from "@/lib/core-activity-pure";
 import { CoreActivity } from "./CoreActivity";
+import { CoreWorkspace } from "./CoreWorkspace";
+import { cancelsJob, missionOf, turnArtifact } from "@/lib/core-workspace-pure";
 import { PasswordSection } from "./PasswordSection";
+import { TimeCapsuleSection } from "./TimeCapsuleSection";
 import { PhonePairing } from "./PhonePairing";
+import { PlaceSection } from "./PlaceSection";
 import { AutonomySection } from "./AutonomySection";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
@@ -22,16 +26,20 @@ import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { Markdown } from "./AgentsPanels";
 import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
+import { VoiceMemo } from "./VoiceMemo";
 import { ScreenLook, type LookAsk } from "./ScreenLook";
 import { parseLookRequest, robloxErrors, LUAU_FIX_EVENT, type Preset } from "@/lib/screen-look-pure";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
 import { EpisodesList } from "./EpisodesList";
+import { Rewind } from "./Rewind";
+import { LearnThis, StudyCards } from "./StudyCards";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
 import { PredictionScore } from "./OrbitThinks";
 import { PerfRuns } from "./PerfRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
+import { getLang, LangSwitch, useT } from "./i18n";
 import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
 import { eventLabel } from "@/lib/event-label-pure";
@@ -41,9 +49,10 @@ import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { CORE_BUSY } from "@/lib/interruption-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { isLearned } from "@/lib/memory-world-pure";
+import MemoryControls from "./MemoryControls";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
-type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string };
+type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
 type Cite = { id: string; title: string; kind: string };
 type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[] };
 type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[] };
@@ -74,6 +83,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => onSpeakingChange(setSpeaking), []);
   const [activity, setActivity] = useState<string[]>([]);
+  const [heard, setHeard] = useState(""); // last spoken question, shown as the voice transcript
   const [copied, setCopied] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const att = useAttachments(); // files for the next message (📎 / drop / paste)
@@ -155,8 +165,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     // Speak only answers to spoken questions; settings are re-read per chunk so toggling takes effect live.
     let myGen = speechGen(); // a later stop() (barge-in, Stop button) silences the rest of this answer
     const talk = fromVoice || takeVoiceAsked();
+    if (talk) setHeard(message);
     const say = (parts: string[]) => { if (talk && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
-    const voiceOut = sentenceStream();
+    const voiceOut = sentenceStream(true);
     const fly = (to: NavTarget) => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to }));
     const files = nav ? [] : att.take(); // pending attachments must not send a direct command to Claude
     setMsgs((m) => [...m, { role: "user", content: [message, files.length && `📎 ${files.map((f) => f.name).join(", ")}`].filter(Boolean).join("\n") }]);
@@ -182,7 +193,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     try {
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
+        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, lang: getLang(), screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
@@ -214,7 +225,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           finished = true;
           flush();
           // The final answer equals the streamed text up to citation markers (stripped for speech): speak only the tail.
-          say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? ""));
+          say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? "", true));
           setLive(null);
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model,
             chips: followUps(message, (ev.trace ?? []).map((s) => s.step)), lesson: ev.lesson, fixes: look === "roblox" ? robloxErrors(ev.answer ?? "") : undefined }]);
@@ -250,13 +261,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     }
   }, [busy, newProject, newChat, setChatId, chats.reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // While CORE is open: Ctrl/⌘+K focuses its input (capture phase + preventDefault, so Orbit's command-bar shortcut skips it)
-  // and Esc stops a streaming answer instead of closing the panel.
+  // While CORE is open: Esc stops a streaming answer instead of closing the panel. (Ctrl/⌘+K is the Warp palette.)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return; // VoiceControls already used this Esc (both listen in the capture phase)
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); inputRef.current?.focus(); }
-      else if (e.key === "Escape" && busy) { e.preventDefault(); e.stopPropagation(); abort.current?.abort(); stopSpeech(); }
+      if (e.key === "Escape" && busy) { e.preventDefault(); e.stopPropagation(); abort.current?.abort(); stopSpeech(); }
     };
     addEventListener("keydown", h, true);
     return () => removeEventListener("keydown", h, true);
@@ -270,8 +279,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     if (sentInitial.current === initial) return;
     sentInitial.current = initial;
     onConsumed();
-    // Busy: never drop the new question (e.g. a voice follow-up). Stop the running answer and send it once that settles.
-    if (busy) { queued.current = initial; abort.current?.abort(); }
+    // Busy: never drop the new question (e.g. a voice follow-up).
+    // A cancel stops the job; any other follow-up (talking over CORE included) waits for it to finish.
+    if (busy) { if (cancelsJob(initial)) { abort.current?.abort(); stopSpeech(); } else queued.current = initial; }
     else void send(initial);
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -314,6 +324,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           {i === msgs.length - 1 && lastQ.current && !busy && (
             <button type="button" className="chip" title="Ask the last question again" onClick={() => void send(lastQ.current)}>↻ Retry</button>
           )}
+          {m.trace?.some((x) => x.step === "local") && <span className="chip !py-0 !text-[10px]" title="Claude was unreachable, rate-limited or on hold, so this answer came from the local model on this PC (no tools)">local brain</span>}
           {m.model && <span className="muted ml-auto opacity-60" title={m.model === "fast" ? "Quick reply from the fast model" : m.model === "deep" ? (m.trace?.some((x) => x.step === "review") ? "Deep answer: planned, then self-checked by the strongest model" : "Deep answer from the strongest model") : "Answered by the main model"}>{m.model}</span>}
         </div>
       )}
@@ -341,8 +352,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     </div>
   )), [msgs, onOpenMemory, speaking, copied, busy, send, project, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const lastCore = [...msgs].reverse().find((m) => m.role === "assistant" && !m.error);
+  const artifact = useMemo(() => (lastCore ? turnArtifact(lastCore.content) : null), [lastCore]);
+  const mission = busy ? missionOf([], activity, true) : missionOf(lastCore?.trace, [], false, !!artifact) // while busy, the old turn's steps aren't this job's;
   return (
-    <div className="relative flex h-full flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+    <div className="core-ws">
+    <div className="relative flex h-full min-w-0 flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
       onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); void att.add(e.dataTransfer.files); } }}>
       <div className="mb-2 flex items-center gap-1.5 text-xs">
         <button type="button" className="chip" aria-expanded={sheet} onClick={() => setSheet((v) => !v)} title="Chats and projects">☰ Chats</button>
@@ -375,6 +390,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       </div>
       <AttachChips items={att.items} error={att.error} onRemove={att.remove} />
       <ScreenLook busy={busy} input={input} ask={lookAsk} onAsk={setLookAsk} run={async (file, text, preset) => { await att.add([file]); await send(text, false, preset); }} />
+      <VoiceMemo compact />
       <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
         <input ref={fileRef} type="file" multiple accept={ACCEPT} className="sr-only" tabIndex={-1} aria-hidden onChange={(e) => { if (e.target.files) void att.add(e.target.files); e.target.value = ""; }} />
         <button type="button" className="btn" title="Attach images or documents (or drop / paste them)" aria-label="Attach files" disabled={busy} onClick={() => fileRef.current?.click()}>📎</button>
@@ -386,6 +402,8 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
             ? <button type="button" className="btn" onClick={stopSpeech}>Stop</button>
             : <button className="btn" disabled={!input.trim() && !att.items.length}>Send</button>}
       </form>
+    </div>
+    <CoreWorkspace artifact={artifact} mission={mission} busy={busy} heard={heard} onAsk={(t) => void send(t)} />
     </div>
   );
 }
@@ -553,14 +571,18 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
         <textarea className="field h-56 w-full" value={open.content} onChange={(e) => setOpen({ ...open, content: e.target.value })} aria-label="Content" />
         <input className="field w-full" value={open.tags.join(", ")} onChange={(e) => setOpen({ ...open, tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })} placeholder="tags, comma separated" aria-label="Tags" />
         <p className="muted text-xs">{open.kind} · source: {open.source}{open.url && <> · <a className="link" href={open.url} target="_blank" rel="noreferrer noopener">open link</a></>}{open.storage_path && <> · <a className="link" href={`/api/memories/${open.id}/file`} target="_blank" rel="noreferrer">open file</a></>} · created {when(open.created_at)} · updated {when(open.updated_at)}</p>
+        <MemoryControls key={open.id} id={open.id} content={open.content} confirmation={open.confirmation} recheckAt={open.recheck_at} onOpen={setFocus}
+          onDone={(gone) => { if (gone) setOpen(null); void load(q); onChanged(); }} />
         {err && <p className="error">{err}</p>}
         <div className="flex gap-2"><button className="btn" onClick={saveEdit}>Save</button><button className="btn danger" onClick={remove}>Delete</button></div>
+        <LearnThis key={open.id} memory={open} />
       </div>
     );
   }
 
   return (
     <div className="space-y-5">
+      <StudyCards />
       <form onSubmit={capture} className="space-y-2">
         <h3 className="h3">Capture</h3>
         <textarea className="field h-24 w-full" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Anything worth remembering…" aria-label="Content" maxLength={200000} />
@@ -602,6 +624,8 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
         </div>
       )}
 
+      <Rewind onOpen={setFocus} />
+
       <div>
         <div className="flex items-center justify-between"><h3 className="h3">Memories</h3><span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>What ORBIT believes</button><a className="link text-xs" href="/api/export">Export JSON</a></span></div>
         <form className="my-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); void load(q.trim()); }}>
@@ -635,9 +659,10 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
 }
 
 /* ---------------- PROFILE ---------------- */
-const LIST_FIELDS = [["interests", "Interests"], ["projects", "Current projects"], ["goals", "Goals"], ["news_topics", "Preferred news topics"], ["research_priorities", "Research priorities"]] as const;
+const LIST_FIELDS = [["interests", "profile.interests"], ["projects", "profile.projects"], ["goals", "profile.goals"], ["news_topics", "profile.news_topics"], ["research_priorities", "profile.research_priorities"]] as const;
 
 export function ProfilePanel() {
+  const { t } = useT();
   const [p, setP] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   useEffect(() => {
@@ -649,23 +674,29 @@ export function ProfilePanel() {
   }, []);
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    try { await api("/api/profile", { method: "PUT", body: JSON.stringify(p) }); setMsg("Saved."); } catch (e2) { setMsg(e2 instanceof Error ? e2.message : "Could not save"); }
+    try { await api("/api/profile", { method: "PUT", body: JSON.stringify(p) }); setMsg(t("profile.saved")); } catch (e2) { setMsg(e2 instanceof Error ? e2.message : "Could not save"); }
   }
   return (
     <div className="space-y-6">
+    <section className="space-y-1">
+      <LangSwitch />
+      <p className="muted text-xs">{t("lang.hint")}</p>
+    </section>
     <form onSubmit={save} className="space-y-3">
-      <p className="muted text-sm">CORE reads this. Only what you write here is used; ORBIT never turns guesses into profile facts.</p>
-      <label className="block text-sm">Name<input className="field mt-1 w-full" value={p.display_name ?? ""} onChange={(e) => setP({ ...p, display_name: e.target.value })} /></label>
+      <p className="muted text-sm">{t("profile.intro")}</p>
+      <label className="block text-sm">{t("profile.name")}<input className="field mt-1 w-full" value={p.display_name ?? ""} onChange={(e) => setP({ ...p, display_name: e.target.value })} /></label>
       {LIST_FIELDS.map(([k, label]) => (
-        <label key={k} className="block text-sm">{label} <span className="muted">(comma separated)</span>
+        <label key={k} className="block text-sm">{t(label)} <span className="muted">{t("profile.comma")}</span>
           <input className="field mt-1 w-full" value={p[k] ?? ""} onChange={(e) => setP({ ...p, [k]: e.target.value })} /></label>
       ))}
-      <label className="block text-sm">How CORE should talk to you<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={1000} /></label>
-      <button className="btn">Save profile</button> {msg && <span className="muted text-sm">{msg}</span>}
+      <label className="block text-sm">{t("profile.talk")}<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={1000} /></label>
+      <button className="btn">{t("profile.save")}</button> {msg && <span className="muted text-sm">{msg}</span>}
     </form>
     <PasswordSection />
     <AutonomySection />
     <PhonePairing />
+    <TimeCapsuleSection />
+    <PlaceSection />
     <PersonaSection />
     <PlaybookSection />
     <LessonsSection />
@@ -677,6 +708,7 @@ type PlaybookData = { available: boolean; message?: string; rules: string[]; ver
 const sourceLabel = (s: string) => (s.startsWith("user") ? "you" + (s === "user:clear" ? " (cleared)" : "") : s.startsWith("revert") ? `revert to ${s.slice(7)}` : "CORE");
 
 function PlaybookSection() {
+  const { t } = useT();
   const [d, setD] = useState<PlaybookData | null>(null);
   const [draft, setDraft] = useState<string[]>([]);
   const [add, setAdd] = useState("");
@@ -701,7 +733,7 @@ function PlaybookSection() {
   const dirty = !!d && JSON.stringify(draft) !== JSON.stringify(d.rules);
   return (
     <section className="space-y-2" aria-labelledby="playbook-h">
-      <h3 id="playbook-h" className="h3">How CORE has adapted</h3>
+      <h3 id="playbook-h" className="h3">{t("profile.playbook")}</h3>
       <p className="muted text-xs">CORE learns from your chats by saving memories and updating these rules. It doesn&apos;t retrain its underlying model. Rules can only be about answer style (length, tone, format, language), never tools, data, links or approvals, and you can edit or remove any of them.</p>
       {d && !d.available ? <p className="muted text-sm">{d.message}</p> : !d ? (!msg && <p className="muted text-sm">Loading…</p>) : (
         <>

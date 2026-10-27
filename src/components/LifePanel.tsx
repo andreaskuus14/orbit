@@ -1,10 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, REPEAT_LABEL, isRepeat, type HabitView, type LifeState } from "@/lib/life-pure";
+import { hhmm, nudgeMinute, windowLabel } from "@/lib/habit-nudge-pure";
 import type { LifeView } from "@/lib/nav-pure";
 import { FOCUS_TIMER_KEY, advanceFocusTimer, focusPhaseSeconds, restoreFocusTimer, type RestoredFocusTimer } from "@/lib/focus-timer-pure";
 import { VOICE_ASK } from "./voice/bus";
 import CalendarCard from "./CalendarCard";
+import SchoolPanel from "./SchoolPanel";
 
 // LIFE workspace drawer: today's habits, habit list, focus timer, reminders, journal. All data via /api/life.
 
@@ -16,7 +18,7 @@ async function post<T = Record<string, unknown>>(body: object): Promise<T> {
 }
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const TABS = ["Today", "Habits", "Focus", "Reminders", "Journal"] as const;
+const TABS = ["Today", "Habits", "Focus", "Reminders", "Journal", "School"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_OF: Record<LifeView, Tab> = { today: "Today", habits: "Habits", focus: "Focus", reminders: "Reminders", journal: "Journal" };
 const longDate = (k: string) => new Date(`${k}T12:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
@@ -55,6 +57,7 @@ export default function LifePanel({ open }: { open?: { tab: LifeView; start?: tr
           {tab === "Focus" && <Focus st={st} reload={load} />}
           {tab === "Reminders" && <Reminders st={st} act={act} />}
           {tab === "Journal" && <Journal st={st} act={act} />}
+          {tab === "School" && <SchoolPanel />}
         </div>
       )}
     </div>
@@ -129,16 +132,36 @@ function Habits({ st, act }: { st: LifeState; act: Act }) {
       </form>
       <ul className="space-y-2">
         {st.habits.map((h) => (
-          <li key={h.id} className="card flex items-center gap-2 text-sm">
-            <span className="flex-1">
-              {h.emoji} {h.name}
-              <span className="muted block text-xs">{h.days.length === 7 ? "Every day" : h.days.map((d) => DAY_NAMES[d].slice(0, 3)).join(", ")} · 🔥{h.streak}</span>
-            </span>
-            <button className="chip" onClick={() => remove(h)} aria-label={`Delete ${h.name}`}>Delete</button>
+          <li key={h.id} className="card space-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="flex-1">
+                {h.emoji} {h.name}
+                <span className="muted block text-xs">{h.days.length === 7 ? "Every day" : h.days.map((d) => DAY_NAMES[d].slice(0, 3)).join(", ")} · 🔥{h.streak}
+                  {h.window && h.nudge && ` · nudge ~${hhmm(nudgeMinute(h, st.today)!)}`}</span>
+              </span>
+              <button className="chip" onClick={() => remove(h)} aria-label={`Delete ${h.name}`}>Delete</button>
+            </div>
+            <NudgeEdit key={`${h.window?.from}-${h.window?.to}-${h.nudge}`} h={h} act={act} />
           </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+/** Habit engine: when (“evening 19–22”, “after lunch”, “on Mondays”) and how ORBIT nudges it. It learns the minute from his check-ins. */
+function NudgeEdit({ h, act }: { h: HabitView; act: Act }) {
+  const [when, setWhen] = useState(h.window ? windowLabel(h.window) : "");
+  const [channel, setChannel] = useState<string>(h.nudge ?? "off");
+  return (
+    <form className="flex gap-1.5 text-xs" onSubmit={(e) => { e.preventDefault(); void act({ action: "nudge", id: h.id, when, channel }); }}>
+      <input className="field flex-1" value={when} onChange={(e) => setWhen(e.target.value)} maxLength={60}
+        placeholder="When: evening 19–22, after lunch, on Mondays" aria-label={`When to nudge ${h.name}`} />
+      <select className="field" value={channel} onChange={(e) => setChannel(e.target.value)} aria-label={`How to nudge ${h.name}`}>
+        <option value="off">No nudge</option><option value="toast">In ORBIT</option><option value="push">Phone</option>
+      </select>
+      <button className="chip">Save</button>
+    </form>
   );
 }
 
@@ -152,6 +175,7 @@ const timer = restored.timer;
 const phaseLen = (p: typeof timer.phase) => focusPhaseSeconds(timer.plan, p);
 function saveTimer() {
   try { localStorage.setItem(FOCUS_TIMER_KEY, JSON.stringify(timer)); } catch { /* storage unavailable: keep the in-memory timer */ }
+  post({ action: "timer", timer }).catch(() => {}); // for the read-only second screen
 }
 const timerListeners = new Set<(logged?: boolean) => void>();
 let timerTick: ReturnType<typeof setInterval> | null = null;

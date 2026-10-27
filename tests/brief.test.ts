@@ -117,3 +117,39 @@ test("yesterday's Roblox session is one result line that opens GAME DEV", () => 
   assert.equal(d.kind, "result");
   assert.deepEqual(d.open, { panel: "creation" });
 });
+
+test("school line sits after the calendar and opens LIFE", () => {
+  const items = briefItems(base({ school: { id: "school:2026-10-25", title: "School: 2 hours today", say: "For school, you've got 2 hours planned today, starting at 16:00." } }));
+  const k = items.findIndex((i) => i.kind === "school");
+  assert.equal(items[k - 1].kind, "calendar");
+  assert.deepEqual(items[k].open, { panel: "life" });
+  assert.equal(briefItems(base({ school: { id: "s1", title: "x", say: "y" }, snoozed: ["s1"] })).some((i) => i.kind === "school"), false);
+});
+
+test("study cards due: one '3 minutes of cards' item that opens a MEMORY review; none when nothing is due", () => {
+  const it = briefItems(base({ study: 7 })).find((i) => i.kind === "study");
+  assert.equal(it?.id, "study:2026-10-25");
+  assert.equal(it?.title, "3 minutes of cards");
+  assert.deepEqual(it?.open, { panel: "memory", study: true });
+  assert.match(it!.say, /seven study cards due/);
+  assert.equal(briefItems(base({ study: 0 })).some((i) => i.kind === "study"), false);
+  assert.equal(briefItems(base({ study: 3, snoozed: ["study:2026-10-25"] })).some((i) => i.kind === "study"), false);
+});
+
+test("last night's dream question: a brief item, and the opener's one question when nothing waits on his OK", () => {
+  const dream = { id: "deadline:n1:2026-10-30", question: "You said the pet sim update ships Friday, but there's been no dev session since Monday. Still Friday?" };
+  const items = briefItems(base({ dream }));
+  assert.equal(items.find((i) => i.kind === "question")?.say, dream.question);
+  assert.equal(briefOpener(composeBrief(base({ dream })), 8).endsWith("Want to go through it now?"), true, "decisions still come first");
+  const o = briefOpener(composeBrief(base({ dream, decisions: [] })), 8);
+  assert.ok(o.endsWith("Still Friday?"));
+  assert.equal((o.match(/\?/g) ?? []).length, 1);
+  assert.equal(cleanOpener(o, "fallback"), o);
+  assert.ok(!briefItems(base({ dream, snoozed: [`dream:${dream.id}`] })).some((i) => i.kind === "question"));
+});
+
+test("dream mode: one 'ORBIT dreamt' line", () => {
+  const it = briefItems(base({ idea: { id: "i1", title: "How light moves through a house", more: 2 } })).find((i) => i.id === "idea:i1");
+  assert.equal(it?.title, "ORBIT dreamt: How light moves through a house");
+  assert.equal(it?.detail, "In DREAMS under Goals (+2 more)");
+});

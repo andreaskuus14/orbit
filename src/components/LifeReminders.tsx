@@ -16,7 +16,9 @@ export default function LifeReminders() {
         const res = await fetch("/api/life?due=1");
         if (res.status === 401) wait = 300_000;
         else if (res.ok) {
-          const { due } = (await res.json()) as { due: Reminder[] };
+          const { due, habits } = (await res.json()) as { due: Reminder[]; habits?: { id: string; name: string; emoji: string; at: number }[] };
+          for (const h of habits ?? []) // habit engine: already claimed server side (habit-nudge.ts), one window gets each
+            notify({ key: `habit:${h.id}:${h.at}`, signal: "reminder", reason: `Habit time: ${h.name}`, title: "Habit time", body: `${h.emoji} ${h.name}`.trim(), kind: "life", nav: { panel: "life" } });
           for (const r of due ?? []) {
             // Mark fired first: if that fails we try again next poll instead of showing it twice.
             const ok = await fetch("/api/life", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fired", id: r.id }) })
