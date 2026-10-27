@@ -1,6 +1,8 @@
 // ORBIT doctor: pure verdicts and the plain-English summary. No I/O; tested in tests/doctor.test.ts.
 // Every check says ok/warn/fail plus one line on what to do. Never put a secret value in detail or fix.
 
+import { plural, translate, type Lang } from "./i18n-pure.ts";
+
 export type Status = "ok" | "warn" | "fail";
 export type Check = { id: string; label: string; status: Status; detail: string; fix?: string };
 export type Report = { status: Status; headline: string; speech: string; checks: Check[]; ms: number; at: string };
@@ -124,12 +126,18 @@ const rank: Record<Status, number> = { ok: 0, warn: 1, fail: 2 };
 /** Worst first, then the original order. */
 export const sortChecks = (cs: Check[]) => cs.map((c, i) => [c, i] as const).sort((a, b) => rank[b[0].status] - rank[a[0].status] || a[1] - b[1]).map(([c]) => c);
 
+/** "2 problems and 1 warning out of 12 checks." The server sends English; the client re-renders it from the checks in its language. */
+export function headlineOf(checks: Pick<Check, "status">[], lang: Lang = "en"): string {
+  const fails = checks.filter((c) => c.status === "fail").length, warns = checks.filter((c) => c.status === "warn").length;
+  if (!fails && !warns) return translate(lang, "doc.head.ok", { n: checks.length });
+  return [fails && plural(lang, "doc.head.problems", fails), warns && plural(lang, "doc.head.warnings", warns)].filter(Boolean).join(translate(lang, "doc.head.and"))
+    + translate(lang, "doc.head.outOf", { n: checks.length });
+}
+
 export function summarize(checks: Check[], ms: number, at = new Date().toISOString()): Report {
   const fails = checks.filter((c) => c.status === "fail"), warns = checks.filter((c) => c.status === "warn");
   const status: Status = fails.length ? "fail" : warns.length ? "warn" : "ok";
-  const n = (k: number, w: string) => `${k} ${w}${k === 1 ? "" : "s"}`;
-  const headline = status === "ok" ? `Everything is working (${checks.length} checks).`
-    : [fails.length && n(fails.length, "problem"), warns.length && n(warns.length, "warning")].filter(Boolean).join(" and ") + ` out of ${checks.length} checks.`;
+  const headline = headlineOf(checks);
   // Spoken: the headline, then the worst few with what to do (fix lines without commands read better aloud).
   const top = [...fails, ...warns].slice(0, 3).map((c) => `${c.label}: ${c.detail.split(". ")[0].replace(/\.$/, "")}.${c.fix ? ` ${c.fix}` : ""}`);
   const speech = status === "ok" ? "I checked everything. ORBIT is working fine." : [`I found ${headline.replace(/ out of.*/, "")}.`, ...top].join(" ");

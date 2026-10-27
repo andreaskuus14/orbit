@@ -187,6 +187,19 @@ const BASE = {
   "life.deleteReminder": "Delete reminder {text}", "life.noReminders": "No upcoming reminders.", "life.saved": "Saved",
   "life.journalPh": "How was today? (saves when you click away)", "life.reflect": "Reflect with CORE",
   "rules.runNow": "Run now", "rules.skipped.one": "{n} event skipped today (limit {max} runs a day)", "rules.skipped.other": "{n} events skipped today (limit {max} runs a day)",
+  "rules.ev.client.replied": "When a client replies", "rules.ev.deal.found": "When the deal hunter finds a deal", "rules.ev.memory.created": "When you save a note",
+  "rules.ev.briefing.ready": "When a news briefing is ready", "rules.everyDay": "Every day", "rules.everyWeekday": "Every weekday", "rules.weekends": "Weekends",
+  "rules.everyDays": "Every {days}", "rules.and": " and ", "rules.at": "{d} at {t}",
+  "rules.day.0": "Sunday", "rules.day.1": "Monday", "rules.day.2": "Tuesday", "rules.day.3": "Wednesday", "rules.day.4": "Thursday", "rules.day.5": "Friday", "rules.day.6": "Saturday",
+  "rules.act.deals": "Check the deal hunter's wishlist", "rules.act.week": "Prepare this week's review (facts from ORBIT)",
+  "rules.act.skill": "Run skill “{name}”{input}", "rules.act.mission": "Mission: {objective}",
+  "doc.head.ok": "Everything is working ({n} checks).", "doc.head.problems.one": "{n} problem", "doc.head.problems.other": "{n} problems",
+  "doc.head.warnings.one": "{n} warning", "doc.head.warnings.other": "{n} warnings", "doc.head.and": " and ", "doc.head.outOf": " out of {n} checks.",
+  "sys.inc.down": "{label} is down", "sys.inc.disk": "{label}: disk almost full", "sys.inc.limit": "Claude usage limit reached",
+  "night.stop.stop-all": "Stopped by Stop-all", "night.stop.usage": "Paused to save your Claude budget", "night.stop.window": "The night window ended",
+  "night.stop.budget": "Tonight's budget was used up",
+  "night.noun.goal": "goal steps", "night.noun.business": "business drafts", "night.noun.clips": "Shorts packaging", "night.noun.niche": "niche scouts",
+  "night.noun.deals": "deal hunts", "night.noun.personas": "persona playtests",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -397,6 +410,19 @@ export const ET: Partial<Record<Key, string>> = {
   "life.once": "Üks kord", "life.weekdays": "Tööpäeviti", "life.everyWeek": "Iga nädal", "life.notify": "Luba töölaua teavitused", "life.done": " · tehtud",
   "life.deleteReminder": "Kustuta meeldetuletus {text}", "life.noReminders": "Tulevasi meeldetuletusi pole.", "life.saved": "Salvestatud",
   "life.journalPh": "Kuidas tänane päev läks? (salvestub, kui mujale klõpsad)", "life.reflect": "Mõtiskle koos CORE'iga",
+  "rules.ev.client.replied": "Kui klient vastab", "rules.ev.deal.found": "Kui pakkumiste jahtija leiab pakkumise", "rules.ev.memory.created": "Kui salvestad märkme",
+  "rules.ev.briefing.ready": "Kui uudiste ülevaade on valmis", "rules.everyDay": "Iga päev", "rules.everyWeekday": "Igal tööpäeval", "rules.weekends": "Nädalavahetustel",
+  "rules.everyDays": "Igal {days}", "rules.and": " ja ", "rules.at": "{d} kell {t}",
+  "rules.day.0": "pühapäeval", "rules.day.1": "esmaspäeval", "rules.day.2": "teisipäeval", "rules.day.3": "kolmapäeval", "rules.day.4": "neljapäeval", "rules.day.5": "reedel", "rules.day.6": "laupäeval",
+  "rules.act.deals": "Vaata üle pakkumiste jahtija soovinimekiri", "rules.act.week": "Valmista ette selle nädala ülevaade (faktid ORBITist)",
+  "rules.act.skill": "Käivita oskus „{name}”{input}", "rules.act.mission": "Missioon: {objective}",
+  "doc.head.ok": "Kõik töötab ({n} kontrolli).", "doc.head.problems.one": "{n} probleem", "doc.head.problems.other": "{n} probleemi",
+  "doc.head.warnings.one": "{n} hoiatus", "doc.head.warnings.other": "{n} hoiatust", "doc.head.and": " ja ", "doc.head.outOf": " {n} kontrollist.",
+  "sys.inc.down": "{label} on maas", "sys.inc.disk": "{label}: ketas on peaaegu täis", "sys.inc.limit": "Claude'i kasutuslimiit on täis",
+  "night.stop.stop-all": "Peatati nupuga „Peata kõik“", "night.stop.usage": "Peatati, et säästa sinu Claude'i eelarvet", "night.stop.window": "Öine ajaaken sai läbi",
+  "night.stop.budget": "Tänase öö eelarve sai otsa",
+  "night.noun.goal": "eesmärkide sammud", "night.noun.business": "äri mustandid", "night.noun.clips": "Shortside pakendamine", "night.noun.niche": "nišiuuringud",
+  "night.noun.deals": "pakkumiste jaht", "night.noun.personas": "persona mängutestid",
   "rules.runNow": "Käivita kohe", "rules.skipped.one": "{n} sündmus jäeti täna vahele (piir {max} käivitust päevas)", "rules.skipped.other": "{n} sündmust jäeti täna vahele (piir {max} käivitust päevas)",
 };
 
@@ -413,6 +439,23 @@ type PluralBase = { [K in Key]: K extends `${infer B}.one` ? B : never }[Key];
 export function plural(lang: Lang, base: PluralBase, n: number, vars?: Vars): string {
   return translate(lang, `${base}.${Math.abs(n) === 1 ? "one" : "other"}` as Key, { ...vars, n });
 }
+
+/* Labels the server sends in English, keyed by the stable id it sends next to them (doctor check id, SYSTEM service/storage id).
+ * Not in BASE: the server's own English stays the source, tx() falls back to it. */
+const ET_SERVER: Record<string, string> = {
+  "check.models": "AI-mudelite nimed", "check.disk": "Vaba kettaruum", "check.env": "Seaded (.env.local)", "check.ytdlp": "Videote allalaadija (yt-dlp)",
+  "check.build": "Viimase uuenduse ehitamine", "check.launcher": "Serveri stabiilsus", "check.night": "Öine käivitus", "check.quota": "YouTube'i luure eelarve",
+  "check.life": "LIFE andmed (harjumused, meeldetuletused)", "check.vault": "VAULT (sinu failid)", "check.facts": "Uskumuste mälu",
+  "check.claude": "Claude (CORE'i taga olev AI)", "check.supabase": "Andmebaas (Supabase)", "check.ytkey": "YouTube'i API võti",
+  "check.oauth": "YouTube'i kanali ühendus", "check.ffmpeg": "Videotööriist (ffmpeg)", "check.whisper": "Kõnetuvastus (Whisper)",
+  "check.hyperframes": "Hyperframes (valikuline)", "check.wake": "Häälega äratamine („Orbital wake up“)", "check.allow": "Kes saab sisse logida",
+  "check.datadir": "ORBITi andmekaust", "check.workspaces": "Tööruumide kaust", "check.roblox": "Roblox Studio ühendus", "check.wakepid": "Äratuse kuulaja",
+  "svc.supabase": "Andmebaas (Supabase)", "svc.claude": "Claude CLI sisselogimine", "svc.resend": "E-kirjade saatmine (Resend)", "svc.higgsfield": "Higgsfield",
+  "svc.ollama": "Kohalik aju (Ollama)", "svc.push": "Telefoni teavitused", "svc.calendar": "Google'i kalender",
+  "disk.data": "ORBITi andmekaust", "disk.vault": "VAULT", "disk.studio": "STUDIO kaust", "disk.backup": "Varukoopiate kaust",
+};
+/** A server-sent English string by its stable key: Estonian when chosen and known, else the server's own text. */
+export const tx = (lang: Lang, key: string, en: string): string => (lang === "et" && ET_SERVER[key]) || en;
 
 /** Greeting for a local hour, same thresholds as morning-pure greeting(). */
 export const greetKey = (hour: number): Key => (hour < 12 ? "greet.morning" : hour < 18 ? "greet.afternoon" : "greet.evening");

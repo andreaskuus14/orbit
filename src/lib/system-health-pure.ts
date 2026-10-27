@@ -2,6 +2,7 @@
 // One view of services (with last success), failed jobs, storage, models and budgets, plus an incident model: each problem has a dedupe
 // key, is alerted once (after two checks in a row, outside quiet hours), can be acknowledged, and resolves by itself when it's gone.
 import { diskCheck, type Status } from "./doctor-pure.ts";
+import { translate, tx, type Lang } from "./i18n-pure.ts";
 
 export type SvcState = "ok" | "down" | "off"; // off = not set up / not used
 export type Probe = { id: string; label: string; state: SvcState; detail: string; okAt?: string | null }; // okAt: a success the probe knows of
@@ -62,10 +63,20 @@ const KEEP_RESOLVED_MS = WEEK;
 /** Current state → the problems worth an incident: services down, a drive under 5 GB, an active Claude usage limit. */
 export function problems(services: Svc[], storage: Storage[], limitUntil: number | null): Problem[] {
   return [
-    ...services.filter((s) => s.state === "down").map((s) => ({ key: `svc:${s.id}`, title: `${s.label} is down` })),
-    ...storage.filter((s) => s.status === "fail").map((s) => ({ key: `disk:${s.id}`, title: `${s.label}: disk almost full` })),
-    ...(limitUntil ? [{ key: "claude:limit", title: "Claude usage limit reached" }] : []),
+    ...services.filter((s) => s.state === "down").map((s) => ({ key: `svc:${s.id}`, title: translate("en", "sys.inc.down", { label: s.label }) })),
+    ...storage.filter((s) => s.status === "fail").map((s) => ({ key: `disk:${s.id}`, title: translate("en", "sys.inc.disk", { label: s.label }) })),
+    ...(limitUntil ? [{ key: "claude:limit", title: translate("en", "sys.inc.limit") }] : []),
   ];
+}
+
+/** An incident's title in the UI language, rebuilt from its key (svc:<id> / disk:<id> / claude:limit); the stored English title is the fallback. */
+export function incidentTitle(i: Problem, lang: Lang): string {
+  const [kind, id] = i.key.split(":");
+  if (lang === "en") return i.title;
+  if (i.key === "claude:limit") return translate(lang, "sys.inc.limit");
+  if (kind === "svc") return translate(lang, "sys.inc.down", { label: tx(lang, `svc.${id}`, i.title.replace(/ is down$/, "")) });
+  if (kind === "disk") return translate(lang, "sys.inc.disk", { label: tx(lang, `disk.${id}`, i.title.replace(/: disk almost full$/, "")) });
+  return i.title;
 }
 
 /** One check: problems still present stay one incident per key (dedupe), new ones open, missing ones resolve. Returns the incidents
