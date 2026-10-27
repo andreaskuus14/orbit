@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FOCUS_BLOCKS, GOAL_MAX, isFocusActive, ringLeft, type Focus, type FocusBlock, type FocusSummary } from "@/lib/dilation-pure";
 import { holdNotify, notify, type NotifyDetail } from "@/lib/notify-pure";
+import { useDialogFocus } from "./useDialogFocus";
 import type { PushKind } from "@/lib/remote-push-pure";
 
 type Span = { startAt: number; endAt: number } | null;
@@ -52,6 +53,8 @@ export function TimeDilation({ onSpan }: { onSpan: (s: Span) => void }) {
   }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const close = () => { void call({ action: "dismiss" }); held.forEach(notify); setHeld([]); }; // the summary is read: release the notices
+  const sumRef = useRef<HTMLElement>(null);
+  useDialogFocus(sumRef, !!summary, close);
   const ring = focus ? ringLeft(focus, now) : null;
 
   return (
@@ -89,7 +92,7 @@ export function TimeDilation({ onSpan }: { onSpan: (s: Span) => void }) {
         {error && <p className="px-2 pb-1 text-xs text-rose-300" role="alert">{error}</p>}
       </div>
       {summary && (
-        <section className="glass hud-panel fixed left-1/2 top-20 z-30 w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 p-4 text-sm" role="dialog" aria-labelledby="dilation-sum">
+        <section ref={sumRef} tabIndex={-1} className="glass hud-panel fixed left-1/2 top-20 z-30 w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 p-4 text-sm" role="dialog" aria-labelledby="dilation-sum">
           <h2 id="dilation-sum" className="text-xs tracking-[0.15em]">WHILE YOU WERE FOCUSED</h2>
           <p className="mt-1">{summary.actual} min on “{summary.goal}”</p>
           <h3 className="muted mt-3 text-xs">Agents</h3>

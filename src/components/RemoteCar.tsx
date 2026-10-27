@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LATER_KEY, briefSpeech, markLater, speechParts, waitingSpeech, type CarItem } from "@/lib/car-mode-pure";
 import { CAR_TALK } from "./RemoteCall";
+import { useDialogFocus } from "./useDialogFocus";
 
 type BriefReply = { off?: boolean; greeting?: string; spoken?: string } | null;
 
@@ -16,6 +17,8 @@ export function RemoteCar({ items, getBrief, onLater, onExit }: { items: CarItem
   const [line, setLine] = useState("Car mode");
   const [speaking, setSpeaking] = useState(false);
   const brief = useRef<Promise<BriefReply> | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  useDialogFocus(box, true, onExit);
 
   useEffect(() => {
     brief.current = getBrief().catch(() => null); // fetched ahead so the tap can speak at once
@@ -65,7 +68,7 @@ export function RemoteCar({ items, getBrief, onLater, onExit }: { items: CarItem
 
   const big = { borderRadius: 28, fontSize: 32, fontWeight: 700, border: "2px solid #333", background: "#111", color: "#fff" } as const;
   return (
-    <div role="dialog" aria-modal="true" aria-label="Car mode" className="fixed inset-0 z-[90] flex flex-col gap-3 px-4"
+    <div ref={box} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Car mode" className="fixed inset-0 z-[90] flex flex-col gap-3 px-4"
       style={{ background: "#000", color: "#fff", colorScheme: "dark", paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
       <p aria-live="polite" className="overflow-hidden text-center font-semibold" style={{ fontSize: 28, lineHeight: 1.25, height: "3.75em" }}>{line}</p>
       <button onClick={talk} style={{ ...big, flex: 2, fontSize: 64, background: "var(--cyan, #22d3ee)", color: "#000", border: "none" }}>Talk</button>
