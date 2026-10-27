@@ -6,7 +6,7 @@ import { createCipheriv, createECDH, createPrivateKey, hkdfSync, randomBytes, si
 
 // ---- What gets sent ---------------------------------------------------------
 
-export type PushKind = "clip" | "spend" | "send" | "scheduled" | "published" | "failed" | "stop" | "night" | "call" | "deal" | "auto" | "contract" | "invoice" | "habit";
+export type PushKind = "clip" | "spend" | "send" | "scheduled" | "published" | "failed" | "stop" | "night" | "call" | "deal" | "auto" | "contract" | "invoice" | "habit" | "health";
 export type PushMessage = { title: string; body: string; url: string; tag: PushKind; habit?: string }; // habit: id for the SW's one-tap Done
 export const PUSH_GAP_MS = 2 * 60_000;
 
@@ -25,6 +25,7 @@ export function pushLabel(kind: PushKind, n = 1): PushMessage {
     deal: ["Deal found", "Something on your wishlist is at a good price.", "r-call"], // deals.ts, outside quiet hours; never the item or price
     invoice: ["Invoice reminder ready", "Read it and approve it in Remote.", "r-appr"], // invoices.ts sends its own title (invoice number, days overdue)
     contract: [many ? `${n} contracts ready` : "Contract ready", "It waits for your signature in BUSINESS on the PC. Only you can sign it.", "r-appr"], // contracts.ts; never parties or prices
+    health: [many ? `${n} ORBIT problems need a look` : "An ORBIT problem needs a look", "See the doctor's System card on the PC.", "r-queue"], // system-health.ts: once per incident, never details
     habit: ["Habit time", "One of your habits is up. Tap Done when it's done.", "r-habit"], // habit-nudge.ts; never the habit's name
     auto: ["ORBIT acted on its own", "Auto with limits. See Profile → Autonomy.", "r-queue"], // autonomy.ts sends its own label (autoPush)
     call: ["ORBIT wants to talk", n === 0 ? "Got a minute?" : many ? `${n} things need you.` : "One thing needs you.", "r-call"], // rung by call.ts, its own limits
