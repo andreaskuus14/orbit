@@ -4,6 +4,7 @@ import { clipFile, getJob, isPublishing, publishingKey, saveJob, startClipQueue,
 import { isClipId, isJobId } from "@/lib/clips/pure";
 import { freeSlots } from "@/lib/clips/publish-schedule";
 import { cleanOriginal, originalityIssue } from "@/lib/clips/publish-checks-pure";
+import { retryProblem } from "@/lib/clips/handoff-pure";
 import { YT_UPLOAD_SCOPE, hasScopes, videoResource } from "@/lib/yt-analytics-pure";
 import { readStored } from "@/lib/yt-oauth";
 import { allows } from "@/lib/autonomy";
@@ -40,10 +41,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ job: st
     // "uploading" with nothing running = the final save failed (S.pub is only set under this lock), so the video may be on YouTube:
     // like "unknown", it must be checked (Check YouTube) before a retry. force = the owner explicitly uploads again anyway.
     if (st === "uploading" && !mine) {
-      clip.publish = { ...clip.publish!, status: "unknown", error: "Outcome unknown — check YouTube", at: new Date().toISOString() };
+      clip.publish = { ...clip.publish!, status: "unknown", error: "Outcome unknown — check YouTube", at: new Date().toISOString(), checkedAt: undefined };
       await saveJob(job);
     }
-    if (clip.publish?.status === "unknown" && !force) return Response.json({ error: "The last upload's outcome is unknown — check YouTube first", clip }, { status: 409 });
+    const unsure = retryProblem(clip.publish, force); // force only after a channel lookup ran
+    if (unsure) return Response.json({ error: unsure, clip }, { status: 409 });
     if ((st === "done" || st === "scheduled" || (st === "uploading" && mine)) && !force) return Response.json({ error: st === "uploading" ? "Already uploading" : st === "done" ? "Already published" : "Already scheduled" }, { status: 409 });
     if (isPublishing()) return Response.json({ error: "Another clip is uploading — try again when it's done" }, { status: 409 });
     if (meta.publishAt === "next") { // "Next best slot": picked here, under the lock, so two clips can't get the same one

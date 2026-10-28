@@ -1,8 +1,9 @@
 import { RECAP_SOURCE } from "./publish-checks-pure";
+import { destinationProblem, mediaProblem } from "./handoff-pure";
 import { languageVerdict } from "./lang-pure";
 import { approvalGate, clipContent, contentHash } from "../approval-pure";
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, mkdir, open, readdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
@@ -260,7 +261,10 @@ export async function updateClip(job: ClipJob, clip: Clip, patch: { status?: "ap
     if (changedRetry || patch.status === "rejected") { clip.retryApproved = undefined; if (clip.status === "approved") clip.status = "ready"; }
     if (patch.status === "approved") { clip.status = "approved"; clip.retryApproved = ownerRetryApproval ? { at: new Date().toISOString(), fingerprint: retryFingerprint(clip) } : undefined; }
   }
-  if (patch.status === "approved" && clip.status === "approved") clip.approvedHash = await contentHash(clipContent(clip)); // only an approve click stamps; later edits don't
+  if (patch.status === "approved" && clip.status === "approved") { // only an approve click stamps; later edits don't
+    clip.approvedHash = await contentHash(clipContent(clip));
+    clip.approvedMedia = await mediaHash(clip);
+  }
   job.updatedAt = new Date().toISOString();
   await saveJob(job);
 }
@@ -1038,6 +1042,13 @@ export function runYtdlp(exe: string, args: string[], signal: AbortSignal, onLin
 // ---- publish to YouTube ----
 
 export const clipFile = (clip: Clip) => (clip.video?.startsWith("clips/") ? resolveInside(clipsDir(), clip.video.slice(6)) : null);
+/** sha256 hex of a file, or undefined when it can't be read. */
+export const fileHash = (file: string) => new Promise<string | undefined>((resolve) => {
+  const h = createHash("sha256");
+  createReadStream(file).on("data", (c) => h.update(c)).on("end", () => resolve(h.digest("hex"))).on("error", () => resolve(undefined));
+});
+/** The bytes he reviews: stamped at approval (approvedMedia), compared again at upload (handoff-pure mediaProblem). */
+export const mediaHash = async (clip: Clip) => { const f = clipFile(clip); return f ? fileHash(f) : undefined; };
 export const isPublishing = () => !!S.pub;
 /** "<job>/<clip>" of the upload running now, or null: a clip saved as "uploading" that isn't this one is stale. */
 export const publishingKey = () => (S.pub ? `${S.pub.job}/${S.pub.clip}` : null);
@@ -1050,10 +1061,13 @@ export async function startPublish(job: ClipJob, clip: Clip, file: string, video
   if (job.source.startsWith(RECAP_SOURCE)) throw new Error("ORBIT's private daily recap is never posted");
   const gate = await approvalGate("studio.publish", clip.approvedHash, clipContent(clip)); // the one publish point: route, scheduleAll, autonomy
   if (gate) throw new Error(gate);
+  const media = await fileHash(file); // shortcut: hashed once before the upload reads it again; a swap in between would need a hashing read stream
+  const bad = mediaProblem(clip.approvedMedia, media);
+  if (bad) throw new Error(bad);
   const ctrl = new AbortController();
   S.pub = { job: job.id, clip: clip.id, ctrl, done: Promise.resolve() };
   const at = new Date().toISOString();
-  clip.publish = { status: "uploading", progress: 0, at, startedAt: at, title: video.snippet.title, ...(video.status.publishAt && { scheduledFor: video.status.publishAt }) };
+  clip.publish = { status: "uploading", progress: 0, at, startedAt: at, title: video.snippet.title, mediaHash: media, ...(video.status.publishAt && { scheduledFor: video.status.publishAt }) };
   job.updatedAt = clip.publish.at;
   try { await saveJob(job); } catch (e) { S.pub = undefined; throw e; }
   S.pub.done = runPublish(job.id, clip.id, file, video, ctrl).catch((e) => console.error("[orbit] publish error:", e?.message ?? e)).finally(() => { S.pub = undefined; });
@@ -1094,7 +1108,7 @@ async function checkYouTube(p: ClipPublish, clipTitle: string): Promise<Partial<
     const uploads = ch?.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
     if (typeof uploads !== "string") throw new Error("no uploads playlist");
     const list = await get(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,status&maxResults=10&playlistId=${encodeURIComponent(uploads)}`);
-    const r = reconcileOutcome(matchUpload(uploadsFrom(list), { title: p.title ?? clipTitle, since: p.startedAt ?? p.at }), p.privacy);
+    const r = { ...reconcileOutcome(matchUpload(uploadsFrom(list), { title: p.title ?? clipTitle, since: p.startedAt ?? p.at }), p.privacy), checkedAt: new Date().toISOString() };
     return r.status === "done" && p.scheduledFor ? { ...r, status: "scheduled" } : r;
   } catch (e) {
     const why = e instanceof OAuthError ? (e.message === "invalid_grant" ? "reconnect YouTube" : `sign-in failed: ${e.message}`) : e instanceof Error && e.name !== "TimeoutError" ? e.message : "network error";
@@ -1113,6 +1127,15 @@ export async function reconcilePublish(jobId: string, clipId: string): Promise<C
   }
   if (cur.publish?.status !== "unknown") return "There is no unknown upload to check";
   return setPublish(jobId, clipId, await checkYouTube(cur.publish, cur.title), "unknown"); // a parallel check may have settled it meanwhile
+}
+
+/** Read-only look at the uploaded video: "ok", or what differs from what was sent. Never fails the upload itself. */
+async function checkDestination(videoId: string, video: VideoResource, auth: Record<string, string>): Promise<string> {
+  try {
+    const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${videoId}`, { headers: auth, signal: AbortSignal.timeout(15_000), cache: "no-store" });
+    if (!r.ok) return `couldn't check (YouTube answered ${r.status})`;
+    return destinationProblem({ videoId, title: video.snippet.title, privacy: video.status.privacyStatus, publishAt: video.status.publishAt }, await r.json()) || "ok";
+  } catch { return "couldn't check (network error)"; }
 }
 
 class PublishError extends Error { constructor(msg: string, readonly unsure = false) { super(msg); } } // unsure: YouTube may have the video anyway
@@ -1157,6 +1180,7 @@ async function runPublish(jobId: string, clipId: string, file: string, video: Vi
     const privacy = json?.status?.privacyStatus;
     out = { status: video.status.publishAt ? "scheduled" : "done", progress: 1, videoId: id, url: `https://youtube.com/shorts/${id}`, error: undefined,
       privacy: video.status.publishAt ? `scheduled ${video.status.publishAt}` : typeof privacy === "string" ? privacy : video.status.privacyStatus };
+    out.destination = await checkDestination(id, video, auth);
   } catch (e) {
     // After the PUT started, a network error or odd reply doesn't mean YouTube lacks the video: check the channel instead of offering a retry.
     if (putStarted && (e instanceof PublishError ? e.unsure : !(e instanceof OAuthError)) && !S.deleted.has(jobId)) {
