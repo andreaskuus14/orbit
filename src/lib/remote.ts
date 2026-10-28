@@ -134,7 +134,7 @@ export async function pendingApprovals(sb: SupabaseClient): Promise<Approval[]> 
     : new Map<string, string | null>();
   for (const n of negos) {
     const to = n.side === "sell" ? contacts.get(n.ref.slice(9)) ?? undefined : undefined;
-    out.push(item(`nego:${n.id}`, { kind: "nego", title: n.title, detail: n.side === "sell" ? "BUSINESS negotiation" : "Deal: message to the seller", strategy: n.draft!.strategy, message: n.draft!.text, seen: await contentHash(negoContent(n.id, n.draft!.text)), ...(to && { to }) }));
+    out.push(item(`nego:${n.id}`, { kind: "nego", title: n.title, detail: n.side === "sell" ? "BUSINESS negotiation" : "Deal: message to the seller", strategy: n.draft!.strategy, message: n.draft!.text, seen: await contentHash(negoContent(n.id, n.draft!.text, to ?? null)), ...(to && { to }) }));
   }
   // Invoices (B6): overdue reminder drafts, approved through invoices.ts approveReminder (same guards as the PC click).
   for (const { key, content, ...a } of remoteInvoices(await allInvoices(), localDay(new Date()), !!(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM))) out.push(item(key, { kind: "invoice", ...a, seen: await contentHash(content) }));
