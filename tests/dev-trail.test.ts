@@ -34,3 +34,13 @@ test("trail goes observation → fix → evidence → version, and never calls a
   assert.match(done.steps.find((s) => s.kind === "fix")!.text, /ORBIT ei rakendanud/);
   for (const s of trailSteps(bug, t, S).steps) assert.ok(!/\bapplied\b/.test(s.text.replace(/not applied/g, "")));
 });
+
+test("validateDevWorld keeps trails, drops orphans and refuses a version without a reviewed fix", async () => {
+  const { SEED_WORLD, validateDevWorld } = await import("../src/lib/devworld-pure.ts");
+  const b = SEED_WORLD.bugs[0], fix = { text: "x", state: "proposed", at: "2026-10-02T00:00:00.000Z" };
+  const ok = validateDevWorld({ ...SEED_WORLD, trails: [{ bugId: b.id, sessionIds: ["s1"], fix }, { bugId: "gone", sessionIds: [] }] });
+  assert.ok(ok.ok && ok.world.trails?.length === 1);
+  const bad = validateDevWorld({ ...SEED_WORLD, trails: [{ bugId: b.id, sessionIds: [], fix, version: { name: "v1", at: fix.at } }] });
+  assert.ok(!bad.ok);
+  assert.ok(!validateDevWorld({ ...SEED_WORLD, trails: [{ bugId: b.id, sessionIds: [], fix: { ...fix, state: "applied" } }] }).ok);
+});

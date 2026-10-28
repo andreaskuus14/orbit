@@ -27,7 +27,12 @@ export type Bug = {
   id: string; game: string; title: string; detail: string; severity: Severity; status: Status; created: string; fixed?: string;
   kind?: Kind; priority?: Priority; goalId?: string; ref?: string; // ref: where it came from, e.g. a GitHub issue "#12"; goalId: the Goal made from it
 };
-export type DevWorld = { v: 1; games: Game[]; bugs: Bug[] };
+/** Dev trail (roadmap 39, logic in dev-trail-pure.ts): a backlog item's sessions, proposed fix and the version Andreas shipped.
+ *  Deliberately no "applied" fix state: ORBIT never edits the place. A version needs a reviewed fix. */
+export const FIX_STATES = ["proposed", "reviewed", "rejected"] as const;
+export type FixState = (typeof FIX_STATES)[number];
+export type Trail = { bugId: string; sessionIds: string[]; fix?: { text: string; state: FixState; at: string }; version?: { name: string; at: string; by: "owner" } };
+export type DevWorld = { v: 1; games: Game[]; bugs: Bug[]; trails?: Trail[] };
 
 export const MAX_GAMES = 30;
 export const MAX_BUGS = 500;
@@ -99,7 +104,23 @@ function parse(raw: unknown): DevWorld {
     if (ref) bug.ref = ref;
     bugs.push(bug);
   }
-  return { v: 1, games, bugs };
+  const trails: Trail[] = [];
+  for (const [i, t] of (Array.isArray(r.trails) ? r.trails : []).entries()) {
+    const at = `Trail ${i + 1}`;
+    if (!obj(t) || !Array.isArray(t.sessionIds)) return fail(`${at} is invalid`);
+    if (!bugs.some((b) => b.id === t.bugId) || trails.some((x) => x.bugId === t.bugId)) continue; // its item was deleted (or a duplicate): drop it
+    const trail: Trail = { bugId: t.bugId as string, sessionIds: t.sessionIds.filter((x): x is string => typeof x === "string" && /^[\w-]{1,64}$/.test(x)).slice(0, 20) };
+    if (t.fix != null) {
+      if (!obj(t.fix)) return fail(`${at}: invalid fix`);
+      trail.fix = { text: text(t.fix.text, 2000, `${at} fix`, true), state: oneOf(t.fix.state, FIX_STATES, `${at} fix state`), at: iso(t.fix.at, `${at} fix time`) };
+    }
+    if (t.version != null) {
+      if (!obj(t.version) || trail.fix?.state !== "reviewed") return fail(`${at}: a version needs a reviewed fix`);
+      trail.version = { name: text(t.version.name, 40, `${at} version`, true), at: iso(t.version.at, `${at} version time`), by: "owner" };
+    }
+    trails.push(trail);
+  }
+  return { v: 1, games, bugs, ...(trails.length && { trails }) };
 }
 
 /** A free slug for a new game's name ("Pet Sim" → "pet-sim", then "pet-sim-2", …). */

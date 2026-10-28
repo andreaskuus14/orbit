@@ -1,22 +1,24 @@
 // Roblox development continuity (roadmap 39), pure: one backlog item followed from observation → proposed fix → review →
 // test evidence → the version Andreas shipped. ORBIT never edits the place: a fix is only ever "proposed" or "reviewed";
 // only Andreas records the version he applied in Studio himself. Tested in tests/dev-trail.test.ts.
-import type { Bug } from "./devworld-pure.ts";
+import type { Bug, FixState, Trail } from "./devworld-pure.ts";
 import type { DevSession } from "./dev-session-pure.ts";
 import type { Lang } from "./i18n-pure.ts";
 
-export type FixState = "proposed" | "reviewed" | "rejected"; // deliberately no "applied"
-export type Trail = { bugId: string; sessionIds: string[]; fix?: { text: string; state: FixState; at: string }; version?: { name: string; at: string; by: "owner" } };
+export type { FixState, Trail };
 export type StepKind = "observed" | "session" | "fix" | "evidence" | "version";
 export type Step = { kind: StepKind; at: string; text: string; ok?: boolean };
 
+export const trailText = (lang: Lang) => T[lang];
 const T = {
   en: { observed: "Observed", session: "Studio session", fix: "Fix", evidence: "Test evidence", version: "Version",
     proposed: "proposed, not applied", reviewed: "reviewed by you, not applied by ORBIT", rejected: "rejected",
-    shipped: "you shipped it in", missing: "Next" , needFix: "propose a fix", needReview: "review the proposed fix", needTest: "playtest it in Studio", needVersion: "record the version you shipped" },
+    shipped: "you shipped it in", missing: "Next" , needFix: "propose a fix", needReview: "review the proposed fix", needTest: "playtest it in Studio", needVersion: "record the version you shipped",
+    trail: "Trail", link: "Link", fixPh: "The fix you or ORBIT suggested", saveFix: "Save as proposed", markReviewed: "Mark reviewed", reject: "Reject", versionPh: "Version you shipped (e.g. v1.4)", setV: "Set version", suggested: "Matching sessions" },
   et: { observed: "Märgatud", session: "Studio sessioon", fix: "Parandus", evidence: "Testi tõend", version: "Versioon",
     proposed: "ettepanek, pole rakendatud", reviewed: "sinu üle vaadatud, ORBIT ei rakendanud", rejected: "tagasi lükatud",
-    shipped: "avaldasid selle versioonis", missing: "Järgmine", needFix: "paku parandus", needReview: "vaata parandus üle", needTest: "mängi see Studios läbi", needVersion: "märgi avaldatud versioon" },
+    shipped: "avaldasid selle versioonis", missing: "Järgmine", needFix: "paku parandus", needReview: "vaata parandus üle", needTest: "mängi see Studios läbi", needVersion: "märgi avaldatud versioon",
+    trail: "Rada", link: "Seo", fixPh: "Sinu või ORBITi pakutud parandus", saveFix: "Salvesta ettepanekuna", markReviewed: "Märgi üle vaadatuks", reject: "Lükka tagasi", versionPh: "Avaldatud versioon (nt v1.4)", setV: "Märgi versioon", suggested: "Sobivad sessioonid" },
 } as const;
 
 const words = (s: string) => new Set(s.toLowerCase().match(/[a-zõäöü0-9]{4,}/g) ?? []);

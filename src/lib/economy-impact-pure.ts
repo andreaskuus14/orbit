@@ -17,11 +17,17 @@ const T = {
   en: { rate: "base coin rate", slots: "equip slots", egg: "egg", pet: "pet", added: "added", removed: "removed",
     calculated: "Calculated", simulated: "Simulated personas", playtest: "Your playtest",
     firstUpgrade: "Time to first egg (min)", lastEgg: "Free player: time to last reached egg (min)", coins30: "Coins after 30 min",
-    none: "No inputs changed", changed: "Changed inputs", calcFirst: "first egg price ÷ base rate", calcCoins: "base rate × 30 min, no pets" },
+    none: "No inputs changed", changed: "Changed inputs", calcFirst: "first egg price ÷ base rate", calcCoins: "base rate × 30 min, no pets",
+    walls: "Bottlenecks (simulated, free player)", before: "baseline", after: "proposed", sens: "Sensitivity: each change alone (simulated, Δ min first egg / last egg)",
+    compare: "Compare", baseline: "Baseline (your saved table)", proposedT: "Proposed table (edit values)", run: "Compare", addPt: "Add measurement", value: "Value",
+    intro: "Compare your current table with edited values. Nothing changes in Roblox: you edit prices in Studio yourself." },
   et: { rate: "põhi-mündimäär", slots: "varustuskohad", egg: "muna", pet: "lemmik", added: "lisatud", removed: "eemaldatud",
     calculated: "Arvutatud", simulated: "Simuleeritud personad", playtest: "Sinu mängutest",
     firstUpgrade: "Aeg esimese munani (min)", lastEgg: "Tasuta mängija: aeg viimase munani (min)", coins30: "Münte 30 min pärast",
-    none: "Sisendeid ei muudetud", changed: "Muudetud sisendid", calcFirst: "esimese muna hind ÷ põhimäär", calcCoins: "põhimäär × 30 min, lemmikuteta" },
+    none: "Sisendeid ei muudetud", changed: "Muudetud sisendid", calcFirst: "esimese muna hind ÷ põhimäär", calcCoins: "põhimäär × 30 min, lemmikuteta",
+    walls: "Kitsaskohad (simuleeritud, tasuta mängija)", before: "praegune", after: "ettepanek", sens: "Tundlikkus: iga muudatus eraldi (simuleeritud, Δ min esimene / viimane muna)",
+    compare: "Võrdle", baseline: "Praegune (salvestatud tabel)", proposedT: "Ettepaneku tabel (muuda väärtusi)", run: "Võrdle", addPt: "Lisa mõõtmine", value: "Väärtus",
+    intro: "Võrdle praegust tabelit muudetud väärtustega. Robloxis ei muutu midagi: hindu muudad Studios ise." },
 } as const;
 export const impactText = (lang: Lang) => T[lang];
 
@@ -88,5 +94,9 @@ export function impactLines(i: Impact, lang: Lang = "en"): string[] {
     const rows = i.rows.filter((r) => r.source === s);
     if (rows.length) out.push(`[${t[s]}]`, ...rows.map((r) => `  ${t[r.metric]}: ${r.base ?? "–"} → ${r.proposed ?? "–"}${r.note ? ` (${r.note})` : ""}`));
   }
+  out.push(`${t.walls}:`, ...i.bottlenecks.base.map((b) => `  ${t.before}: ${b}`), ...i.bottlenecks.proposed.map((b) => `  ${t.after}: ${b}`));
+  if (i.sensitivity.length) out.push(`${t.sens}:`, ...i.sensitivity.map((x) => `  ${x.input}: ${x.firstUpgrade ?? "–"} / ${x.lastEgg ?? "–"}`));
+  out.push(`${t.walls}:`, ...i.bottlenecks.base.map((b) => `  ${t.before}: ${b}`), ...i.bottlenecks.proposed.map((b) => `  ${t.after}: ${b}`));
+  if (i.sensitivity.length) out.push(`${t.sens}:`, ...i.sensitivity.map((x) => `  ${x.input}: ${x.firstUpgrade ?? "–"} / ${x.lastEgg ?? "–"}`));
   return out;
 }
