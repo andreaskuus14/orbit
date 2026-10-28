@@ -27,3 +27,7 @@ export function applyGuard(basis: Basis[], current: Record<string, string | null
   const why = c.map((x) => x.now === null ? `${x.ref} is gone or unreadable (planned on ${x.was})` : `${x.ref} changed after planning (${x.was} → ${x.now})`);
   return { ok: false, refresh: c.map((x) => x.ref), explain: `Not applied: this was based on an older version. ${why.join("; ")}. Refresh the plan against the current version, or confirm it still fits.` };
 }
+
+/** Defensive parse of a stored basis ([{ref, rev}]); anything else is dropped. */
+export const parseBasis = (v: unknown): Basis[] =>
+  (Array.isArray(v) ? v : []).filter((b): b is Basis => !!b && typeof b.ref === "string" && typeof b.rev === "string" && !!b.ref && !!b.rev).slice(0, 50);

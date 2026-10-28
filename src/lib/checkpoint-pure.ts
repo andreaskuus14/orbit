@@ -101,15 +101,17 @@ export function removeLine(cp: Checkpoint, id: string): boolean {
   return cp.lines.length < n;
 }
 
-type TraceLike = { step: string; detail: string; ok: boolean; evidence?: { kind: string; id: string; path?: string }[] };
+type TraceLike = { step: string; detail: string; ok: boolean; evidence?: { kind: string; id: string; path?: string; rev?: string }[] };
 /** Artifact versions from ORBIT's own write receipts this turn (workspace files, projects, a started mission); never from page text. */
 export function artifactsFromTrace(trace: TraceLike[]): CpDraft[] {
   const out: CpDraft[] = [];
   for (const t of trace) {
     if (!t.ok) continue;
     for (const e of t.evidence ?? []) if ((e.kind === "file" || e.kind === "project") && typeof e.id === "string") {
-      const ref = `${e.kind}:${e.path ?? e.id}`;
-      if (!out.some((o) => o.ref === ref)) out.push({ kind: "artifact", ref, text: `${e.kind} ${e.path ?? e.id}` });
+      const name = e.kind === "file" && e.path ? `${e.id}/${e.path}` : e.path ?? e.id; // file:<workspace>/<path>, what artifact-rev.ts resolves
+      const ref = `${e.kind}:${name}`;
+      const old = out.find((o) => o.ref === ref);
+      if (old) { if (e.rev) old.rev = e.rev; } else out.push({ kind: "artifact", ref, text: `${e.kind} ${name}`, ...(e.rev ? { rev: e.rev } : {}) });
     }
     const m = t.step === "start_mission" ? t.detail.match(/mission started \(id ([\w-]+)\)/) : null;
     if (m) out.push({ kind: "artifact", ref: `mission:${m[1]}`, text: `mission ${m[1]}` });
@@ -153,3 +155,6 @@ export function checkpointInput(i: Record<string, unknown>): CpDraft[] | string 
   ].filter((d) => d.text.trim());
   return drafts.length ? drafts : "Error: give at least one of constraints, success, decisions, blockers, artifacts or next";
 }
+
+/** The revisions this chat's work was based on (artifact lines with a rev): the basis for the apply guard. */
+export const checkpointBasis = (cp: Checkpoint) => cp.lines.flatMap((l) => (l.kind === "artifact" && l.ref && l.rev ? [{ ref: l.ref, rev: l.rev }] : []));
