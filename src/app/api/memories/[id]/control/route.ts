@@ -1,11 +1,12 @@
 // Memory controls (provenance-pure.ts): POST {action: "why" | "confirm" | "correct" | "forget", content?}.
 // why: the source chain. confirm ("Remember this"): mark confirmed. correct: new text, re-embed, and rewrite summaries
-// that quote the old text. forget: delete, and strip it from summaries that quote it. Owner's own click only.
+// that quote the old text; the old text is kept as a "superseded" copy, or with {scope: project} the original stays and a
+// scoped correction replaces it only in that project (memory-types-pure.ts). forget: delete, and strip it from summaries that quote it. Owner's own click only.
 import { requireUser } from "@/lib/supabase/server";
 import { emit } from "@/lib/claude";
 import { embed } from "@/lib/embeddings";
 import { str } from "@/lib/pure";
-import { correctionPlan, forgetPlan, isMissingColumn, PROVENANCE_COLUMNS, rewriteDerived, whySources, type MemRecord } from "@/lib/provenance-pure";
+import { correctionPlan, correctionRecords, forgetPlan, isMissingColumn, PROVENANCE_COLUMNS, rewriteDerived, whySources, type MemRecord } from "@/lib/provenance-pure";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -70,6 +71,13 @@ export async function POST(req: Request, { params }: Ctx) {
     if (body.action === "correct") {
       const content = str(body.content, 200_000, 1);
       if (!content) return Response.json({ error: "Bad content" }, { status: 400 });
+      const rec = correctionRecords(cur, content, typeof body.scope === "string" ? body.scope : null);
+      const ins: Record<string, unknown> = { ...rec.insert };
+      if (rec.scoped) { const e = await embed(`${cur.title}\n\n${rec.insert.content}`, "document"); ins.embedding = e ? JSON.stringify(e) : null; }
+      let r = await sb.from("memories").insert(ins);
+      if (isMissingColumn(r.error)) { delete ins.source_ref; delete ins.confirmation; r = await sb.from("memories").insert(ins); } // until 0019
+      if (r.error) throw new Error(r.error.message);
+      if (rec.scoped) { await emit(sb, user.id, "memory.updated", "memory", { id }); return Response.json({ ok: true, scoped: true, summariesUpdated: 0 }); }
       const plan = correctionPlan(id, content, kids);
       const e = await embed(`${cur.title}\n\n${plan.patch.content}`, "document");
       const patch: Record<string, unknown> = { ...plan.patch, embedding: e ? JSON.stringify(e) : null };
@@ -84,9 +92,10 @@ export async function POST(req: Request, { params }: Ctx) {
     if (body.action === "forget") {
       const plan = forgetPlan(id, kids);
       const updated = await rewrite(sb, kids, plan.rebuild, cur.content, "");
-      const { data, error } = await sb.from("memories").delete().eq("id", id).select("storage_path");
+      const { data, error } = await sb.from("memories").delete().in("id", plan.delete).select("storage_path");
       if (error) throw new Error(error.message);
-      if (data?.[0]?.storage_path) await sb.storage.from("vault").remove([data[0].storage_path]).catch(() => null);
+      const paths = (data ?? []).map((d) => d.storage_path).filter(Boolean);
+      if (paths.length) await sb.storage.from("vault").remove(paths).catch(() => null);
       await emit(sb, user.id, "memory.deleted", "memory", plan.audit); // audit keeps the id only, never the text
       return Response.json({ ok: true, summariesUpdated: updated });
     }

@@ -113,8 +113,20 @@ export function rememberRecord(text: string, sourceRef: string | null, now: numb
 }
 
 /** Records derived from `id` (consolidated notes tag their members' ids; episodes link via tags/source_ref). */
+const isHistory = (r: Pick<MemRecord, "tags">) => (r.tags ?? []).some((t) => t === "superseded" || t.startsWith("corrects:"));
 export const derivedFrom = (id: string, rows: Pick<MemRecord, "id" | "tags" | "source_ref">[]) =>
-  rows.filter((r) => r.id !== id && (r.source_ref === id || (r.tags ?? []).includes(id))).map((r) => r.id);
+  rows.filter((r) => r.id !== id && !isHistory(r) && (r.source_ref === id || (r.tags ?? []).includes(id))).map((r) => r.id);
+/** Its pre-correction copies and scoped corrections (memory-types-pure.ts): kept for "Why?", gone with it on Forget. */
+export const historyOf = (id: string, rows: Pick<MemRecord, "id" | "tags" | "source_ref">[]) =>
+  rows.filter((r) => r.id !== id && r.source_ref === id && isHistory(r)).map((r) => r.id);
+
+/** A correction keeps the old claim as history (never retrieved as current). With a project scope the original stays
+ *  true elsewhere and a scoped correction replaces it only inside that project. */
+export function correctionRecords(cur: Pick<MemRecord, "id" | "kind" | "title" | "content">, newContent: string, scope?: string | null) {
+  const project = scope?.replace(/\s+/g, " ").trim().slice(0, 80);
+  if (project) return { scoped: true, insert: { kind: cur.kind, title: cur.title, content: newContent.trim(), source: "owner", source_ref: cur.id, confirmation: "confirmed" as const, tags: [`corrects:${cur.id}`, `scope:${project}`] } };
+  return { scoped: false, insert: { kind: "note", title: `Before correction: ${cur.title}`.slice(0, 300), content: cur.content, source: "correction", source_ref: cur.id, confirmation: "suggested" as const, tags: ["superseded"] } };
+}
 
 /** "Correct this": patch the record (confirmed, re-embed), and mark summaries built from it for rebuild. */
 export function correctionPlan(id: string, newContent: string, rows: Pick<MemRecord, "id" | "tags" | "source_ref">[]) {
@@ -123,7 +135,7 @@ export function correctionPlan(id: string, newContent: string, rows: Pick<MemRec
 
 /** "Forget this": delete the record; derived summaries are rebuilt without it (not deleted: they hold other sources). Audit keeps ids only. */
 export function forgetPlan(id: string, rows: Pick<MemRecord, "id" | "tags" | "source_ref">[]) {
-  return { delete: [id], rebuild: derivedFrom(id, rows), audit: { action: "forget", id } };
+  return { delete: [id, ...historyOf(id, rows)], rebuild: derivedFrom(id, rows), audit: { action: "forget", id } };
 }
 
 // ---------- IO helpers (pure) ----------
