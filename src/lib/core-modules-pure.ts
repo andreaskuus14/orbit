@@ -74,6 +74,7 @@ export const MODULE_HINTS: Record<string, RegExp> = {
   NIGHT: hint("tonight|overnight|night|while i sleep", `${W}öö|magan`),
   DEALS: hint("wish|deal|buy|price|cheap|offer|€|eur|sale", `soovinimekir|soovin|${W}ost(?:a|an|u|ma)|hind|hinna|odav|soodus|pakkumi|allahind`),
   RULES: /\b(?:every|each|daily|weekly|weekdays?|whenever|when|rules?|iga|igal|kui|reegel|millal)\b|reegl|igapäev|iganädal|tööpäev|alati kui/i,
+  CHECKPOINT: hint("checkpoint|remember|keep in mind|next (?:step|action)|decid|constraint|continue", "jäta[^.?!]{0,30}meelde|meeles|jätka|järgmine samm|otsus|salvesta|pane kirja"),
   WEEK: hint("week(?!day)|slipp|late|get done|got done|did i|streak|wins?\\b|behind", "nädal|hilin|hilja|maha jä|mahajää|sain tehtud|tegin ära|seeria|järjest|saavutus|võit"),
 };
 export function selectModules<T extends ModuleSpec>(mods: T[], text: string): T[] {
@@ -82,6 +83,7 @@ export function selectModules<T extends ModuleSpec>(mods: T[], text: string): T[
 
 /** One line per keyword-gated module for the capability index (name: what it does). */
 export const MODULE_ABOUT: Record<string, string> = {
+  CHECKPOINT: "this chat's saved constraints, decisions, artifact versions and next action (save_checkpoint)",
   STUDIO: "YouTube Shorts clip channel: clips to review, scheduling, scout/niche, suggestions, multi-step clip jobs",
   LIFE: "habits, reminders, journal, calendar, day plan, git changes, his own files (vault)",
   REACH: "what's trending now on Reddit/Kick/Twitch/Bluesky, read a public page",

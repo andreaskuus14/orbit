@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { requireUser } from "@/lib/supabase/server";
 import { getChats, updateChats } from "@/lib/core-chats";
+import { updateCheckpoint } from "@/lib/checkpoint";
 import { coreSessionStore } from "@/lib/durable";
 import {
   MAX_CHATS, MAX_MESSAGES, MAX_TITLE, addPin, emptyChats, addProject, cleanName, deleteProject, forgetChat, isId, moveChat, removePin, updateProject,
@@ -55,6 +56,7 @@ export async function POST(req: Request) {
       if (error) return bad(error.message, 500);
       if (!data?.length) return bad("Chat not found", 404);
       await updateChats(user.id, (s) => forgetChat(s, b.id)).catch(() => {}); // chat is gone either way; parseChats can't resurrect it in the list
+      await updateCheckpoint(user.id, b.id, (cp) => { cp.lines = []; }).catch(() => {}); // its checkpoint goes with it
       coreSessionStore.delete(b.id); // its Claude session mapping goes with it
       return Response.json({ ok: true });
     }

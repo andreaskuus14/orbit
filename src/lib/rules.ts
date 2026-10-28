@@ -1,3 +1,4 @@
+import { foreground } from "./foreground-pure";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -158,6 +159,7 @@ export async function tickRules(sb: SupabaseClient, userIds: string[], now = new
     if (!active.some((r) => r.trigger.type === "event")) clearCursor("rules"); // nothing listens: start fresh when one appears
     const hits = active.some((r) => r.trigger.type === "event") ? await newEvents(sb) : [];
     for (const r of active) {
+      await foreground.idle(); // a live CORE turn goes first
       const t = r.trigger;
       if (t.type === "schedule") { if (ruleDue(t.schedule, r.lastRun, r.activeSince, now)) await fire(sb, owner, r, "schedule"); }
       else for (const h of hits) if (h.userId === owner && h.event === t.event) await fire(sb, owner, r, h.why, true);

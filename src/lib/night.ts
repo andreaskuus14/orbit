@@ -1,3 +1,4 @@
+import { foreground } from "./foreground-pure";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -88,6 +89,7 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
   for (const t of queue) {
     if (ac.signal.aborted || stopAllOn()) { run.stopped = "stop-all"; break; }
     if (usageHold()) { run.stopped = "usage"; break; }
+    await foreground.idle(); // a live CORE turn goes first; the night resumes at this item
     if (!inWindow(Date.now(), s)) { run.stopped = "window"; break; }
     if (!fits(t, used(), s)) { run.deferred = (run.deferred ?? 0) + 1; run.stopped = "budget"; continue; }
     const item = await runOne(sb, userId, t, ac.signal).catch((e): NightItem => ({ kind: t.kind, ref: t.ref, label: t.label, status: "failed", why: msg(e), at: new Date().toISOString() }));
