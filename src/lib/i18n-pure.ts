@@ -567,7 +567,7 @@ const BASE = {
   "voice.convHelp": "Ctrl+Shift+M, 💬 or “Orbit, let’s talk”. ORBIT then answers questions and requests without “Orbit” and ignores chatter; talk over it to interrupt. Ends on “stop” / “that’s all”, Esc, 💬, Stop-all or 60 s of silence (one-follow-up: after the follow-up).",
   "voice.openMic": "Open mic · {phase} — ✕ stop", "voice.phaseListening": "listening", "voice.phaseThinking": "thinking", "voice.phaseSpeaking": "speaking (talk to interrupt)",
   "needs.title": "Needs you", "needs.loading": "Looking for what needs you…", "needs.empty": "Nothing needs you right now.", "needs.loadFailed": "Couldn't load what needs you.",
-  "needs.kind.decide": "Decide", "needs.kind.unblock": "Unblock", "needs.kind.review": "Review result", "needs.accept": "Accept", "needs.more": "{n} more in Mission control and Continue my work.",
+  "needs.kind.decide": "Decide", "needs.kind.unblock": "Unblock", "needs.kind.review": "Review result", "needs.review": "Review", "needs.more": "{n} more in Mission control and Continue my work.",
   "needs.work": "Continue my work", "needs.mission": "Mission control", "needs.onPc": "On the PC",
 } as const;
 
@@ -587,7 +587,7 @@ export const EN = { ...BASE, ...Object.fromEntries(PLANETS.flatMap((p) => [[`pla
  * Counts: after a number other than 1 Estonian takes the partitive singular ("3 agenti"), so .one/.other is enough. */
 export const ET: Partial<Record<Key, string>> = {
   "needs.title": "Vajab sind", "needs.loading": "Otsin, mis sind vajab…", "needs.empty": "Praegu ei vaja miski sind.", "needs.loadFailed": "Ei saanud laadida, mis sind vajab.",
-  "needs.kind.decide": "Otsusta", "needs.kind.unblock": "Lahenda", "needs.kind.review": "Vaata tulemus üle", "needs.accept": "Nõustu", "needs.more": "Veel {n} missioonijuhtimises ja jätka-töö loendis.",
+  "needs.kind.decide": "Otsusta", "needs.kind.unblock": "Lahenda", "needs.kind.review": "Vaata tulemus üle", "needs.review": "Vaata üle", "needs.more": "Veel {n} missioonijuhtimises ja jätka-töö loendis.",
   "needs.work": "Jätka minu tööd", "needs.mission": "Missioonijuhtimine", "needs.onPc": "Arvutis",
   "common.close": "Sulge", "common.open": "Ava", "common.approve": "Kinnita", "common.reject": "Lükka tagasi",
   "common.approved": "Kinnitatud", "common.rejected": "Tagasi lükatud", "common.copy": "Kopeeri", "common.on": "sees", "common.off": "väljas",

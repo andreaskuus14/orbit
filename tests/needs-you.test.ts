@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { leadItems, morningPicks, needsYou, receiptOpen, recordRef, type NeedsIn } from "../src/lib/needs-you-pure.ts";
+import { leadItems, morningPicks, needsYou, receiptOpen, recordRef, reuse, type NeedsIn } from "../src/lib/needs-you-pure.ts";
 import { briefItems, type BriefIn } from "../src/lib/brief-pure.ts";
 import type { Loop } from "../src/lib/loops-pure.ts";
 
@@ -27,7 +27,7 @@ test("the same approval is one Decide card, not also a loop or a second decision
   const n = needsYou(x);
   assert.deepEqual(n.map((i) => [i.ref, i.kind]), [["prospect:p1", "decide"], ["invoice:i1", "decide"], ["task:t1", "decide"], ["promise:call mom", "unblock"]]);
   assert.equal(n[1].remote, "h2"); // the phone's card id survives
-  assert.deepEqual(n[2].act, { approve: { task: "t1" } });
+  assert.deepEqual(n[2].act, { open: { panel: "agents" } }); // never a one-tap approve: it opens where the content is
 });
 
 test("a more urgent kind replaces a less urgent one for the same record", () => {
@@ -44,7 +44,7 @@ test("ordering: Decide, Unblock, Review (newest first); waiting-approval mission
     incident: { id: "i9", title: "Crash in CORE" },
   });
   assert.deepEqual(n.map((i) => i.ref), ["trust:memory", "health:i9", "mission:m1", "task:b", "task:a"]);
-  assert.deepEqual(n[0].act, { trust: "memory" });
+  assert.deepEqual(n[0].act, { open: { panel: "profile" } });
   assert.equal(n[2].detail, "Need the price");
 });
 
@@ -87,4 +87,21 @@ test("Estonian labels for ORBIT's own lines", () => {
   const [t] = needsYou({ trust: [{ kind: "save_memory", area: "memory", from: "ask", to: "do", approved: 9, total: 10, streak: 9 }] }, "et");
   assert.match(t.title, /ORBIT võib memory/);
   assert.equal(t.detail, "Kinnitasid sel kuul 9/10");
+});
+
+test("Decide items never carry a one-tap approve, also in the brief lead", () => {
+  const n = needsYou({ decisions: [{ id: "task:t1", title: "Send it", what: "", open: { task: "t1" }, approve: { task: "t1" } }, { id: "goal:g1", title: "Step OK", what: "", open: { goal: "g1" }, approve: { goal: "g1", stepId: "s1" } }] });
+  assert.deepEqual(n.map((i) => i.act), [{ open: { task: "t1" } }, { open: { goal: "g1" } }]);
+  const [lead] = leadItems(morningPicks(n));
+  assert.equal(lead.approve, undefined);
+  assert.deepEqual(lead.open, { task: "t1" });
+});
+
+test("reuse: the cached inbox serves for 60 s, then it is gathered again", () => {
+  const c = { at: 1000, v: ["x"] };
+  assert.deepEqual(reuse(c, 1000), ["x"]);
+  assert.deepEqual(reuse(c, 60_999), ["x"]);
+  assert.equal(reuse(c, 61_000), undefined);
+  assert.equal(reuse(c, 999), undefined); // clock went back: refresh
+  assert.equal(reuse(undefined, 1000), undefined);
 });

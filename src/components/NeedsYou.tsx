@@ -1,12 +1,11 @@
 "use client";
 // "Needs you": the home HUD's main card. One deduplicated list (needs-you-pure) of decisions, blockers and finished results, each
-// with one action on its existing route. Polls /api/needs-you every 60 s while visible. Continue my work and Mission control stay one tap away.
+// with one action: open it where it is handled (Decide → "Review": the exact content and its Approve, never a one-tap approve here). Polls /api/needs-you every 60 s while visible. Continue my work and Mission control stay one tap away.
 import { useCallback, useEffect, useId, useState } from "react";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { MARKETS_TAB, type BriefOpen } from "@/lib/brief-pure";
 import type { Need } from "@/lib/needs-you-pure";
-import { api } from "./AgentMission";
 import { useT } from "./i18n";
 
 const SHOWN = 5;
@@ -31,8 +30,6 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
   const titleId = useId();
   const [items, setItems] = useState<Need[] | null>(null);
   const [err, setErr] = useState("");
-  const [done, setDone] = useState<Record<string, string>>({}); // ref → what happened here
-  const [busy, setBusy] = useState("");
 
   const load = useCallback(() => fetch(`/api/needs-you?lang=${lang}`, { cache: "no-store" }).then((r) => r.json())
     .then((j: { items?: Need[]; error?: string }) => { if (!j.items) throw new Error(j.error); setItems(j.items); setErr(""); })
@@ -43,19 +40,7 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
     return () => clearInterval(h);
   }, [load]);
 
-  const act = async (n: Need) => {
-    const a = n.act;
-    if ("open" in a) return openTarget(a.open, onOpenTask, onOpenGoal);
-    setBusy(n.ref); setErr("");
-    try {
-      if ("trust" in a) await api("/api/autonomy", { method: "POST", body: JSON.stringify({ action: "level", area: a.trust, level: "do" }) });
-      else if ("task" in a.approve) await api(`/api/tasks/${a.approve.task}`, { method: "POST", body: JSON.stringify({ action: "approve" }) });
-      else await api("/api/goals", { method: "POST", body: JSON.stringify({ action: "ok", id: a.approve.goal, step: a.approve.step, stepId: a.approve.stepId }) });
-      setDone((d) => ({ ...d, [n.ref]: t("common.approved") }));
-    } catch (e) { setErr(e instanceof Error ? e.message : t("common.failed")); }
-    finally { setBusy(""); }
-  };
-  const label = (n: Need) => "approve" in n.act ? t("common.approve") : "trust" in n.act ? t("needs.accept") : t("common.open");
+  const label = (n: Need) => t(n.kind === "decide" ? "needs.review" : "common.open"); // Decide opens the exact content and its Approve
   const list = items ?? [];
 
   return <section className="continue-work continue-work-float needs-you" aria-labelledby={titleId}>
@@ -69,8 +54,7 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
     {items && !items.length && <p className="muted">{t("needs.empty")}</p>}
     {!!list.length && <ul>{list.slice(0, SHOWN).map((n) => <li key={n.ref} data-status={n.kind === "decide" ? "awaiting_approval" : n.kind === "unblock" ? "failed" : "done"}>
       <span><small className="continue-kind">{t(`needs.kind.${n.kind}`)}</small><b>{n.title}</b>{n.detail && <small>{n.detail}</small>}</span>
-      {done[n.ref] ? <small>{done[n.ref]}</small>
-        : <button type="button" className="chip" disabled={!!busy} aria-label={`${label(n)}: ${n.title}`} onClick={() => void act(n)}>{busy === n.ref ? "…" : label(n)}</button>}
+      <button type="button" className="chip" aria-label={`${label(n)}: ${n.title}`} onClick={() => openTarget(n.act.open, onOpenTask, onOpenGoal)}>{label(n)}</button>
     </li>)}</ul>}
     {list.length > SHOWN && <p className="muted">{t("needs.more", { n: list.length - SHOWN })}</p>}
   </section>;

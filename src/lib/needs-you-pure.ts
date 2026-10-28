@@ -2,7 +2,7 @@
 // (approvals, mission blockers, open loops, "Which is right?", trust suggestions, system incidents, finished results), in three
 // kinds: Decide, Unblock, Review result. Each item has ONE action on an existing route. IO: needs-you.ts; route: /api/needs-you;
 // UI: NeedsYou.tsx (home HUD) and the phone's "Needs you" section. The morning brief leads with morningPicks() → leadItems().
-import type { BriefApprove, BriefItem, BriefOpen, Decision } from "./brief-pure";
+import type { BriefItem, BriefOpen, Decision } from "./brief-pure";
 import type { Loop } from "./loops-pure";
 import type { TrustSuggestion } from "./trust-pure";
 import type { WorkItem } from "./work-continuation-pure";
@@ -10,8 +10,9 @@ import type { WriteEvidence } from "./completion-pure";
 import type { Lang } from "./i18n-pure";
 
 export type NeedKind = "decide" | "unblock" | "review";
-/** approve: brief-pure's one-tap routes; trust: POST /api/autonomy {action:"level", area, level:"do"}; open: navigate (href = a result file). */
-export type NeedAct = { approve: BriefApprove } | { trust: string } | { open: BriefOpen };
+/** Always navigate (href = a checked result file). Never a one-tap approve: Decide items open where the exact content and its
+ *  Approve live (AGENTS.md rule 6). The phone's own approval cards, which show that exact content, stay the only one-tap path. */
+export type NeedAct = { open: BriefOpen };
 export type Need = { ref: string; kind: NeedKind; title: string; detail?: string; at?: string; act: NeedAct; remote?: string }; // remote: the phone approval id
 type NightItem = { label: string; open?: { task: string } | { goal: string } | { panel: string } };
 
@@ -60,8 +61,8 @@ export function needsYou(x: NeedsIn, lang: Lang = "en"): Need[] {
   const add = (n: Need) => { const o = by.get(n.ref); if (!o || RANK[n.kind] < RANK[o.kind]) by.set(n.ref, o ? { ...n, remote: n.remote ?? o.remote } : n); };
 
   for (const a of x.approvals ?? []) add({ ref: recordRef(a.key), kind: "decide", title: a.title, detail: a.detail, remote: a.id, act: { open: approvalOpen(a.key, a.detail) } });
-  for (const d of x.decisions ?? []) add({ ref: recordRef(d.id), kind: "decide", title: d.title, act: d.approve ? { approve: d.approve } : { open: d.open ?? { panel: "agents" } } });
-  for (const t of x.trust ?? []) add({ ref: `trust:${t.area}`, kind: "decide", title: s.trust(t.area), detail: s.trustD(t.approved, t.total), act: { trust: t.area } });
+  for (const d of x.decisions ?? []) add({ ref: recordRef(d.id), kind: "decide", title: d.title, act: { open: d.open ?? { panel: "agents" } } });
+  for (const t of x.trust ?? []) add({ ref: `trust:${t.area}`, kind: "decide", title: s.trust(t.area), detail: s.trustD(t.approved, t.total), act: { open: { panel: "profile" } } }); // Profile → Autonomy has Accept / Not now
   if (x.conflict) add({ ref: x.conflict.id, kind: "decide", title: x.conflict.title, act: { open: { panel: "memory" } } });
 
   if (x.incident) add({ ref: `health:${x.incident.id}`, kind: "unblock", title: x.incident.title, act: { open: { doctor: true } } });
@@ -87,7 +88,7 @@ function approvalOpen(key: string, detail = ""): BriefOpen {
 /** The morning's three: one finished artifact that has a link, one decision, one next action. Missing ones stay missing. */
 export function morningPicks(needs: Need[]): { artifact?: Need; decision?: Need; next?: Need } {
   return {
-    artifact: needs.find((n) => n.kind === "review" && "open" in n.act && "href" in n.act.open),
+    artifact: needs.find((n) => n.kind === "review" && "href" in n.act.open),
     decision: needs.find((n) => n.kind === "decide"),
     next: needs.find((n) => n.kind === "unblock"),
   };
@@ -98,9 +99,12 @@ export function leadItems(p: ReturnType<typeof morningPicks>): BriefItem[] {
   const out: BriefItem[] = [];
   const clean = (t: string) => t.replace(/[“”"]/g, "").replace(/\s+/g, " ").trim().slice(0, 90);
   const { artifact: a, decision: d, next: n } = p;
-  if (a && "open" in a.act) out.push({ id: `artifact:${a.ref}`, kind: "result", title: clean(a.title), detail: "Finished and checked: open it", open: a.act.open, say: `Finished and checked: ${clean(a.title)}. The link is on the card.` });
+  if (a) out.push({ id: `artifact:${a.ref}`, kind: "result", title: clean(a.title), detail: "Finished and checked: open it", open: a.act.open, say: `Finished and checked: ${clean(a.title)}. The link is on the card.` });
   if (d) out.push({ id: `decision:${d.remote && !d.ref.startsWith("invoice:") ? d.remote : d.ref}`, kind: "decision", title: clean(d.title), detail: "Needs your OK",
-    ...("approve" in d.act ? { approve: d.act.approve } : "open" in d.act ? { open: d.act.open } : { open: { panel: "profile" as const } }), say: `One decision for you: ${clean(d.title)}.` });
-  if (n && "open" in n.act) out.push({ id: `next:${n.ref}`, kind: "first", title: clean(n.title), detail: n.detail && clean(n.detail), open: n.act.open, say: `Next: ${clean(n.title)}.` });
+    open: d.act.open, say: `One decision for you: ${clean(d.title)}.` });
+  if (n) out.push({ id: `next:${n.ref}`, kind: "first", title: clean(n.title), detail: n.detail && clean(n.detail), open: n.act.open, say: `Next: ${clean(n.title)}.` });
   return out;
 }
+
+/** A cached result while it is younger than ttl (the phone polls every 20 s; the inbox is gathered at most once a minute). */
+export const reuse = <T>(c: { at: number; v: T } | undefined, now: number, ttl = 60_000): T | undefined => (c && now >= c.at && now - c.at < ttl ? c.v : undefined);

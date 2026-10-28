@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { localDay } from "./morning-pure";
 import { briefDecisions } from "./brief-pure";
 import { briefContracts } from "./contracts-pure";
-import { needsYou, type Need, type NeedsIn } from "./needs-you-pure";
+import { needsYou, reuse, type Need, type NeedsIn } from "./needs-you-pure";
 import type { Lang } from "./i18n-pure";
 
 const DAY = 86_400_000;
@@ -36,4 +36,15 @@ export async function gatherNeeds(sb: SupabaseClient, userId: string, now = Date
     decisions: [...briefDecisions(night?.approvals ?? [], work?.items ?? [], []), ...briefContracts(contracts), ...inv],
     work: work?.items, missions, loops, conflict, trust, incident, tasks,
   }, lang);
+}
+
+const cache = new Map<string, { at: number; v: Promise<Need[]> }>(); // user + lang → the last gather (the phone's 20 s poll)
+/** gatherNeeds at most once a minute per user and language; a failed gather is not kept. */
+export function cachedNeeds(sb: SupabaseClient, userId: string, lang: Lang, approvals?: NeedsIn["approvals"], now = Date.now()): Promise<Need[]> {
+  const key = `${userId}:${lang}`, hit = reuse(cache.get(key), now);
+  if (hit) return hit;
+  const v = gatherNeeds(sb, userId, now, lang, approvals);
+  cache.set(key, { at: now, v });
+  v.catch(() => cache.delete(key));
+  return v;
 }

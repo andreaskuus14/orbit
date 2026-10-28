@@ -12,7 +12,7 @@ import { deviceType, scopeAllows } from "@/lib/screen-pure";
 import { getBrief } from "@/lib/brief";
 import { allows } from "@/lib/autonomy";
 import { getNightReport } from "@/lib/night";
-import { gatherNeeds } from "@/lib/needs-you";
+import { cachedNeeds } from "@/lib/needs-you";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
       }
       case "approvals": { // inbox: the rest of Needs you (decisions, blockers, results), titles only; approvals stay the cards above
         const items = await pendingApprovals(sb);
-        const inbox = (await gatherNeeds(sb, device.userId, Date.now(), device.lang ?? "en", items).catch(() => [])).filter((n) => !n.remote).map(({ ref, kind, title, detail }) => ({ ref, kind, title, detail }));
+        const inbox = (await cachedNeeds(sb, device.userId, device.lang ?? "en", items).catch(() => [])).filter((n) => !n.remote).map(({ ref, kind, title, detail }) => ({ ref, kind, title, detail }));
         return done(Response.json({ items: items.map(({ key: _key, ...a }) => a), inbox }));
       }
       case "approve":
