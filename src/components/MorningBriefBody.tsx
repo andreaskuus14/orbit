@@ -3,12 +3,11 @@
 // that says the brief aloud (CORE's voice: Kokoro when picked in Settings, sentence by sentence) with one-tap actions per item.
 // Data: /api/brief (brief.ts). MorningBrief.tsx decides when it shows and loads this file then. Approve uses the same routes as NightShift.tsx; emails and spends only open (he approves them there).
 import { useEffect, useState } from "react";
-import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
-import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
-import { MARKETS_TAB, type Brief, type BriefItem } from "@/lib/brief-pure";
+import { type Brief, type BriefItem } from "@/lib/brief-pure";
 import { speakChunk, speechSettings, stop } from "./voice/speak";
 import { api } from "./AgentMission";
 import { DayPlan } from "./DayPlan";
+import { openTarget } from "./NeedsYou";
 import { useT } from "./i18n";
 import { announce } from "./announce";
 import { greetKey } from "@/lib/i18n-pure";
@@ -48,18 +47,9 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
   function close() { stop(); onClose(); }
   const post = (body: object) => api("/api/brief", { method: "POST", body: JSON.stringify(body) });
   const go = (i: BriefItem) => {
-    const o = i.open;
-    if (!o) return;
+    if (!i.open) return;
     close();
-    if ("task" in o) onOpenTask(o.task);
-    else if ("goal" in o) onOpenGoal(o.goal);
-    else if ("work" in o) (o.work.kind === "task" ? onOpenTask : onOpenGoal)(o.work.id);
-    else if ("memory" in o) dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id: o.memory } }));
-    else if ("study" in o) dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: "memory", study: true } }));
-    else if ("mission" in o) dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, mission: true } }));
-    else if ("doctor" in o) dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, doctor: true } }));
-    else if ("tab" in o) { try { sessionStorage.setItem(MARKETS_TAB, o.tab); } catch { /* opens on Watchlist */ } dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: o.panel } })); }
-    else dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: o.panel, ...(o.view && { view: o.view }) } }));
+    openTarget(i.open, onOpenTask, onOpenGoal);
   };
   const act = async (i: BriefItem, what: "approve" | "snooze") => {
     setErr("");
