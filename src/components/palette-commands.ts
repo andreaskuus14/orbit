@@ -32,7 +32,11 @@ export const COMMANDS: Command[] = [
   go("clips", "STUDIO · Clips", { panel: "studio", view: "clips" }, "Clip factory", "shorts youtube"),
   go("review", "STUDIO · Review queue", { panel: "studio", view: "review" }, "Review new clips", "youtube"),
   go("mission", "Mission control", { panel: null, mission: true }, "The bridge", "bridge overview status"),
-  go("work", "Continue my work", { panel: null, continueWork: true }, "Unfinished tasks", "resume unfinished"),
+  // Roadmap 34: the four names. Old words stay as keywords so muscle memory still finds them.
+  go("work", "Work", { panel: null, continueWork: true, workTab: "work" }, "Tasks, missions, chains, teams (Alt+W)", "continue my work resume unfinished pause tasks missions chains teams töö"),
+  go("routines", "Routines", { panel: null, continueWork: true, workTab: "routines" }, "Standing rules, automations, schedules", "rules automations schedules pause resume rutiinid"),
+  go("workflows", "Saved workflows", { panel: null, continueWork: true, workTab: "workflows" }, "Skills and recipes", "skills recipes run töövood"),
+  go("goals", "Goals", { panel: null, continueWork: true, workTab: "goals" }, "Goals and their steps", "goal autopilot eesmärgid"),
 
   act("newchat", "New chat", () => {
     try { localStorage.removeItem(ACTIVE_CHAT_KEY); } catch { /* private mode */ } // a CORE panel that mounts now starts empty
