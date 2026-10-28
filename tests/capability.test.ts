@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CAPS, blockedReason, startCheck, withHeadsUp, cantDo, capRow, coreNote, evaluate, guessLang, missingFor, routedModules, type Facts } from "../src/lib/capability-pure.ts";
+import { CAPS, blockedReason, startCheck, withHeadsUp, cantDo, capRow, coreNote, evaluate, guessLang, missingFor, type Facts } from "../src/lib/capability-pure.ts";
 
 const ALL_ENV = { YOUTUBE_API_KEY: "k", YOUTUBE_OAUTH_CLIENT_ID: "i", YOUTUBE_OAUTH_CLIENT_SECRET: "s", RESEND_API_KEY: "r", ORBIT_MAIL_FROM: "a@b", ORBIT_LOCAL_MODEL: "qwen" };
 const full: Facts = { checks: { claude: "ok", ytkey: "ok", ffmpeg: "ok", whisper: "warn" }, env: ALL_ENV, ytConnected: true, ytExpired: false, calendar: true, pushProblem: null, phones: 1 };
@@ -47,7 +47,6 @@ test("request intent → only the missing things it asks for (EN and ET alike)",
 
 test("CORE: routed modules add their missing capabilities", () => {
   const s = evaluate(bare);
-  assert.ok(routedModules("check my youtube channel").includes("STUDIO"));
   assert.deepEqual(missingFor("check my youtube channel", s, ["STUDIO"]).map((m) => m.id), ["youtube_stats", "youtube_upload"]);
   assert.equal(missingFor("hello", evaluate(full), ["STUDIO", "BUSINESS"]).length, 0);
 });

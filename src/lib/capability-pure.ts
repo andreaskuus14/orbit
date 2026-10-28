@@ -2,7 +2,6 @@
 // (the doctor's last checks, env names, local token files). Pure, client-safe; tested in tests/capability.test.ts. IO: capability.ts.
 // Used by CORE's prompt (missing things for the routed modules), mission/agent start (blocked up front) and the Doctor panel.
 import type { Lang } from "./i18n-pure.ts";
-import { MODULE_HINTS } from "./core-modules-pure.ts";
 
 export type Dep = "claude" | "youtube_key" | "youtube_oauth" | "resend" | "calendar" | "higgsfield" | "ollama" | "phone" | "ffmpeg" | "whisper";
 export type CapId = "think" | "youtube_stats" | "youtube_upload" | "clips" | "email_send" | "calendar" | "media" | "local_brain" | "phone" | "arch";
@@ -55,8 +54,6 @@ const missingOf = (caps: Cap[], s: DepState): Missing[] =>
 
 /** Everything ORBIT can't do right now (Doctor panel). */
 export const cantDo = (s: DepState) => missingOf(CAPS, s);
-/** CORE modules the keyword router sends this text to. */
-export const routedModules = (text: string) => Object.keys(MODULE_HINTS).filter((n) => MODULE_HINTS[n].test(text));
 /** Missing capabilities a request asks for (intent), plus — for CORE — those of its routed modules. "think" only by intent from tasks. */
 export function missingFor(text: string, s: DepState, modules: string[] = []): Missing[] {
   return missingOf(CAPS.filter((c) => c.intent.test(text) || c.modules.some((m) => modules.includes(m))), s);

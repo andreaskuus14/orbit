@@ -1,6 +1,7 @@
 import type { Check } from "./doctor-pure";
 import type { Lang } from "./i18n-pure";
-import { cantDo, coreNote, evaluate, guessLang, missingFor, routedModules, startCheck, type Facts } from "./capability-pure";
+import { MODULE_HINTS } from "./core-modules-pure";
+import { cantDo, coreNote, evaluate, guessLang, missingFor, startCheck, type Facts } from "./capability-pure";
 
 // "Check before promising", IO (rules: capability-pure.ts). No new probes: the doctor's last checks (remembered by runDoctor), env names,
 // and local connection files ORBIT already reads (YouTube/Calendar tokens, paired phones).
@@ -24,6 +25,8 @@ async function facts(checks?: Check[]): Promise<Facts> {
     pushProblem: push, phones: devices.filter((d) => d.push).length };
 }
 
+// Kept out of capability-pure: core-modules-pure pulls server code into the client DoctorPanel bundle.
+const routedModules = (text: string) => Object.keys(MODULE_HINTS).filter((n) => MODULE_HINTS[n].test(text));
 export const capabilityState = async (checks?: Check[]) => evaluate(await facts(checks));
 /** Doctor panel: every capability that's missing (the panel renders label/why/fix in its language). */
 export const cantDoNow = async (checks: Check[]) => cantDo(await capabilityState(checks));
