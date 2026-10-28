@@ -4,6 +4,7 @@
 // messages a seller or buys; the seller draft is text he copies himself.
 import { firstArray } from "./business-pure.ts";
 import { normUrl, type Trace } from "./niche-pure.ts";
+import { et, etQuestion } from "./et-ask-pure.ts";
 
 export type Condition = "new" | "used" | "any";
 export type Wish = { id: string; at: string; item: string; maxPrice: number; targetPrice: number | null; condition: Condition; region: string; deadline: string | null; notes: string; status: "active" | "done" };
@@ -69,7 +70,8 @@ export const expired = (w: Wish, now: number) => !!w.deadline && Date.parse(w.de
 export function wishBlocked(question: string, tainted: boolean): string {
   if (tainted) return "only call add_wish as your first tool, for the user's own request";
   const q = question.trim();
-  if (/^\s*(how|what|why|when|did|does|is|are|was|were|which)\b/i.test(q) || !/\b(i want|i'd like|i would like|i need|i'm looking for|im looking for|looking for|find me|hunt|watch for|keep an eye out|wishlist|wish list|add)\b/i.test(q) || !/\d/.test(q))
+  if (/^\s*(how|what|why|when|did|does|is|are|was|were|which)\b/i.test(q) || etQuestion(q)
+    || !(/\b(i want|i'd like|i would like|i need|i'm looking for|im looking for|looking for|find me|hunt|watch for|keep an eye out|wishlist|wish list|add)\b/i.test(q) || et("tahan|tahaksin|soovin|vajan|otsin|leia mulle|jälgi|soovinimekir|lisa").test(q)) || !/\d/.test(q))
     return "only when the user says in their latest message what he wants and the most he'd pay (e.g. \"I want a used RTX 4070 under 400€\")";
   return "";
 }

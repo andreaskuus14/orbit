@@ -49,6 +49,9 @@ const PAIRS: [string, string, string][] = [
   ["WEEK", "What slipped?", "Mis maha jäi?"],
   ["WEEK", "What's late?", "Mis on hiljaks jäänud?"],
   ["WEEK", "How is my streak?", "Kuidas mu seeria on?"],
+  ["CHECKPOINT", "Remember for this chat: no red", "Pea selle vestluse jaoks meeles: punast ei kasuta"],
+  ["CHECKPOINT", "Continue where I stopped", "Jätka sealt, kus pooleli jäin"],
+  ["CHECKPOINT", "Save a checkpoint with the next step", "Salvesta järgmine samm"],
 ];
 
 test("every keyword-gated module has ≥3 EN/ET pairs and a capability line", () => {

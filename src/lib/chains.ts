@@ -1,7 +1,9 @@
+import { foreground } from "./foreground-pure";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelTask, getAgent, kickQueue, runTask } from "./agents";
 import { stopAllOn } from "./stop-all";
 import { createBudget, emit } from "./claude";
+import { interruptedPatch } from "./completion-pure";
 import { COMPANY_PREFIX, resolvedStep, roleOf, stepStatus } from "./company-pure";
 import { CHAIN_TITLE, byStep, chainView, composeRequest, nextMove, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
 
@@ -125,11 +127,12 @@ async function finish(sb: SupabaseClient, id: string, status: string, result: st
 
 /** Wait for one of kickQueue's agent slots, run fn holding it, then free it. False (fn not run) when `signal` aborts first.
  *  Shared by team chains and goal steps (src/lib/goals.ts), so neither can push past MAX_RUNNING. */
-export async function withSlot(sb: SupabaseClient, userId: string, taskId: string, signal: AbortSignal, fn: () => Promise<unknown>): Promise<boolean> {
+// ready: re-checked once the slot is ours, right before fn (a pause/cancel during the wait must not start the step).
+export async function withSlot(sb: SupabaseClient, userId: string, taskId: string, signal: AbortSignal, fn: () => Promise<unknown>, ready?: () => Promise<boolean>): Promise<boolean> {
   while (slots().size >= MAX_RUNNING && !signal.aborted) await sleep(3000);
   if (signal.aborted) return false;
   slots().add(taskId); // claim the slot before any await, so kickQueue can't take it meanwhile
-  try { await fn(); return true; }
+  try { if (ready && !(await ready())) return false; await fn(); return true; }
   finally { slots().delete(taskId); void kickQueue(sb, userId); }
 }
 
@@ -144,6 +147,7 @@ export async function drive(sb: SupabaseClient, userId: string, id: string, gate
   live().set(id, ac);
   try {
     for (;;) {
+      if (gate) await foreground.idle(); // missions (gated drives) let a live CORE turn go first, then continue at this step
       const { data: p } = await sb.from("tasks").select(PARENT_COLS).eq("id", id).maybeSingle();
       const meta = p ? parseMeta(p.request) : null;
       if (!p || !meta || p.status !== "running") return last;
@@ -159,14 +163,20 @@ export async function drive(sb: SupabaseClient, userId: string, id: string, gate
       if (move.do === "busy") {
         // Not ours (we await our own steps): an approval executing in resolvePending, or orphaned by a restart.
         if (live().has(move.task.id) || Date.parse(move.task.started_at ?? "") > Date.now() - STALE_MS) return last;
-        await sb.from("tasks").update({ status: "failed", error: "Interrupted (ORBIT restarted)", finished_at: new Date().toISOString() }).eq("id", move.task.id).eq("status", "running");
+        const { data: t } = await sb.from("tasks").select("pending").eq("id", move.task.id).maybeSingle();
+        await sb.from("tasks").update(interruptedPatch(t?.pending, "Interrupted (ORBIT restarted)")).eq("id", move.task.id).eq("status", "running");
         continue;
       }
       if (gate && !(await gate())) return last;
       if (ran >= maxSteps) return last;
       ran++;
       // run: wait for a free agent slot (shared with kickQueue), then run the step like any task.
-      await withSlot(sb, userId, move.task.id, ac.signal, async () => {
+      const ready = async () => { // state may have changed while waiting for the slot: chain cancelled/finished, step taken, mission paused
+        const { data: now } = await sb.from("tasks").select("id, status").in("id", [id, move.task.id]);
+        const st = new Map((now ?? []).map((r) => [r.id, r.status]));
+        return st.get(id) === "running" && st.get(move.task.id) === "queued" && (!gate || (await gate()));
+      };
+      const started = await withSlot(sb, userId, move.task.id, ac.signal, async () => {
         if (move.prev) {
           const own = move.task.request.slice(0, meta.steps[move.k].len);
           await sb.from("tasks").update({ request: composeRequest(own, move.prev.agent, move.prev.result) }).eq("id", move.task.id).eq("status", "queued");
@@ -176,7 +186,8 @@ export async function drive(sb: SupabaseClient, userId: string, id: string, gate
         const r = await runTask(sb, userId, move.task.id, 0, st.calls ? createBudget(undefined, st.calls) : undefined, ac.signal);
         last = { taskId: move.task.id, status: r.status };
         if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: stepStatus(r.status) });
-      });
+      }, ready);
+      if (!started && !ac.signal.aborted) return last;
     }
   } catch (e) {
     console.error("[orbit] chain runner failed:", id, e instanceof Error ? e.message : e);

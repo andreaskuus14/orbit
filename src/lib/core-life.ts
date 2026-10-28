@@ -1,4 +1,5 @@
 // CORE's LIFE + VAULT tools. Changes (check a habit, add a habit, add a reminder) only happen as the user's own request:
+import { et, etQuestion, ET_NOT } from "./et-ask-pure.ts";
 // refused once any page, file, agent or studio output is in context, so injected text can't write to LIFE.
 export const LIFE_TOOLS = ["life_status", "life_check", "life_add_habit", "life_remind", "life_journal", "vault_search", "vault_read", "calendar_events", "git_summary", "plan_day"] as const;
 export type LifeTool = (typeof LIFE_TOOLS)[number];
@@ -12,11 +13,14 @@ export function lifeWriteBlocked(tool: LifeTool, question: string, tainted: bool
   if (tool !== "life_check" && tool !== "life_add_habit" && tool !== "life_remind") return null;
   if (tainted) return "LIFE changes only as your first tool, for the user's own request";
   const q = question.toLowerCase();
-  if (tool !== "life_check" && /\b(?:don'?t|do not|never|stop|cancel)\b/.test(q)) return "the user said not to; answer instead";
+  if (tool !== "life_check" && (/\b(?:don'?t|do not|never|stop|cancel)\b/.test(q) || ET_NOT.test(q))) return "the user said not to; answer instead";
   const asked = tool === "life_remind" ? /\bremind me (?:to|at|in|on|about|tomorrow|tonight|later|every)\b|\b(?:set|add|create|make) (?:a |an )?reminder\b/.test(q)
     : tool === "life_add_habit" ? /\bhabits?\b/.test(q) && /\b(?:add|new|track|start|create|make)\b/.test(q)
     : /\b(?:done|did|finished|completed|mark|tick|check(?:ed)? off|undo|not done)\b/.test(q) && !/^\s*(?:did|have|has|was|is|what|which|how)\b|\?\s*$/.test(q);
-  return asked ? null : "the user's latest message didn't ask for this LIFE change; answer instead";
+  const askedEt = tool === "life_remind" ? et("tuleta (?:mulle )?meelde|lisa meeldetuletus|sea meeldetuletus").test(q)
+    : tool === "life_add_habit" ? et("harjumus").test(q) && et("lisa|uus|uue|jälgi|alusta|loo").test(q)
+    : et("tehtud|tegin|sain valmis|märgi|linnuke|pole tehtud").test(q) && !etQuestion(q);
+  return asked || askedEt ? null : "the user's latest message didn't ask for this LIFE change; answer instead";
 }
 
 export async function runLifeTool(tool: LifeTool, input: Record<string, unknown>, question: string, tainted: boolean, ctx?: { sb: import("@supabase/supabase-js").SupabaseClient; userId: string }): Promise<string> {
