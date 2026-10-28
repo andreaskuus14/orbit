@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { getAgent, kickQueue } from "@/lib/agents";
 import { str } from "@/lib/pure";
+import { capabilityBlock } from "@/lib/capability";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 
@@ -37,6 +38,8 @@ export async function POST(req: Request) {
   const title = str(body.title, 200) || request.split("\n")[0].slice(0, 120);
   const project_id = typeof body.project_id === "string" && body.project_id ? body.project_id : null;
 
+  const blocked = await capabilityBlock(request, body.lang === "et" || body.lang === "en" ? body.lang : undefined); // check before promising
+  if (blocked) return Response.json({ error: blocked, blocked: true }, { status: 409 });
   const { data, error } = await sb.from("tasks").insert({ user_id: user.id, agent, title, request, project_id }).select(COLS).single();
   if (error) return Response.json({ error: error.message }, { status: 400 });
   void kickQueue(sb, user.id);

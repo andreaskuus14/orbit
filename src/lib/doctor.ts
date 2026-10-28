@@ -12,6 +12,7 @@ import { HF_INSTALL } from "./clips/hyperframes-pure";
 import { scoutView } from "./clips/scout";
 import { isMissingTable } from "./proactive-pure";
 import { usage, vaultDir } from "./vault";
+import { rememberChecks } from "./capability";
 import { MAX_FILES, MAX_TOTAL } from "./vault-pure";
 import { api } from "./youtube";
 import { oauthEnv, readStored, wasExpired } from "./yt-oauth";
@@ -200,5 +201,7 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
       ? check("allow", "Who can sign in", "ok", "Only the emails in ORBIT_ALLOWED_EMAILS")
       : check("allow", "Who can sign in", "warn", "ORBIT_ALLOWED_EMAILS is empty, so any account in your Supabase project can use ORBIT", "Add ORBIT_ALLOWED_EMAILS=your@email to .env.local and restart ORBIT")),
   ]);
-  return summarize(results.flat(), Date.now() - t0);
+  const r = summarize(results.flat(), Date.now() - t0);
+  rememberChecks(r.checks); // capability check (capability.ts) reads these instead of probing again
+  return r;
 }

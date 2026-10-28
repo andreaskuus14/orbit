@@ -5,6 +5,7 @@ import {
   acted, canDo, collectReceipts, deriveStatus, explain, logged, missionBlocked, newDoc, nextAction, onFailure, validateMission, LABEL,
   type MissionDoc, type MissionStatus, type OwnerAction,
 } from "./missions-pure";
+import { capabilityBlock } from "./capability";
 
 // MISSIONS runner (logic: missions-pure.ts). One row per mission in public.missions; its steps are an agent-team chain whose parent title
 // starts "Mission: " (so the Teams resume loop never drives it: only this file does, with the pause gate). reconcile() re-reads the chain
@@ -26,6 +27,9 @@ async function save(sb: SupabaseClient, row: Row, doc: MissionDoc): Promise<Row 
 export async function createMission(sb: SupabaseClient, userId: string, body: unknown): Promise<{ id: string } | { error: string }> {
   const m = validateMission(body);
   if (typeof m === "string") return { error: m };
+  const lang = (body as { lang?: unknown } | null)?.lang;
+  const blocked = await capabilityBlock([m.objective, ...m.steps.map((s) => s.request)].join("\n"), lang === "et" || lang === "en" ? lang : undefined);
+  if (blocked) return { error: blocked };
   const c = await createChain(sb, userId, { goal: m.objective, steps: m.steps }, MISSION_TITLE, false);
   if ("error" in c) return c;
   const { data, error } = await sb.from("missions").insert({ user_id: userId, chain_id: c.chainId, status: "queued", doc: newDoc(m.objective, m.constraints, now()) }).select(COLS).single();
