@@ -81,7 +81,7 @@ type FailedStep = { index: number; error?: string };
 export function onFailure(step: FailedStep, retries: Record<string, number>, acted = false): { do: "retry"; cls: FailureClass } | { do: "stop"; cls: FailureClass; status: "failed" | "waiting-input"; why: string } {
   const cls = classifyFailure(step.error);
   const n = retries[step.index] ?? 0;
-  if (acted) return { do: "stop", cls, status: "waiting-input", why: `Step ${step.index + 1} failed after an approved action already ran; check its result before retrying so nothing happens twice.` };
+  if (acted) return { do: "stop", cls, status: "waiting-input", why: `Step ${step.index + 1} failed after an approved action ran (or may have run); check its result before retrying so nothing happens twice.` };
   if (cls === "temporary" && n < MAX_RETRIES) return { do: "retry", cls };
   const why = `Step ${step.index + 1} hit ${FAILURE_TEXT[cls]}${cls === "temporary" ? ` and still failed after ${n} retries` : ""}: ${(step.error ?? "unknown error").slice(0, 200)}`;
   return { do: "stop", cls, status: cls === "permission" || cls === "invalid" ? "waiting-input" : "failed", why };
@@ -102,14 +102,13 @@ export function nextAction(status: MissionStatus, chain: Pick<ChainView, "steps"
 }
 
 type StepEvidence = { index: number; taskId: string | null; status: string; pending?: unknown };
-/** Receipts from what ORBIT verified: a done step's task row, plus each approved action's read-back evidence (also from a failed step: partial
- *  results are kept). Deduped by kind+ref. */
+/** Receipts from what ORBIT verified: each approved action's read-back evidence (also from a failed step: partial results are kept).
+ *  A step task merely finishing is not evidence (executed ≠ verified). Deduped by kind+ref. */
 export function collectReceipts(steps: StepEvidence[], have: Receipt[], at: string): Receipt[] {
   const seen = new Set(have.map((r) => `${r.kind}:${r.ref}`)), out: Receipt[] = [];
   const add = (r: Receipt) => { const k = `${r.kind}:${r.ref}`; if (!seen.has(k)) { seen.add(k); out.push(r); } };
   for (const s of steps) {
     if (!s.taskId) continue;
-    if (s.status === "done") add({ kind: "task", ref: s.taskId, step: s.index, check: "step task finished (status done in ORBIT's tasks table)", at });
     for (const p of Array.isArray(s.pending) ? s.pending : []) {
       const a = p as { status?: unknown; tool?: unknown; evidence?: unknown };
       if (a?.status !== "approved" || !Array.isArray(a.evidence)) continue;
@@ -120,6 +119,16 @@ export function collectReceipts(steps: StepEvidence[], have: Receipt[], at: stri
     }
   }
   return out;
+}
+
+/** Read-back receipts only: older docs also hold "step task finished" receipts from before executed/verified were split. */
+const checked = (rs: Receipt[]) => rs.filter((r) => r.check.includes("read back"));
+/** A step is verified only when ORBIT read back something it produced. */
+export const stepVerified = (receipts: Receipt[], step: number) => checked(receipts).some((r) => r.step === step);
+/** Status label: a completed mission is "Verified" only when every step has a read-back receipt; otherwise it says so. */
+export function missionLabel(status: MissionStatus, receipts: Receipt[], steps: number): string {
+  if (status !== "completed") return LABEL[status];
+  return steps > 0 && Array.from({ length: steps }, (_, k) => k).every((k) => stepVerified(receipts, k)) ? "Completed · verified" : "Completed · not verified";
 }
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().slice(0, max) : "");
@@ -143,8 +152,8 @@ export function newDoc(objective: string, constraints: string[], at: string): Mi
 /** Append a log line, keep the last 60. */
 export const logged = (doc: MissionDoc, at: string, text: string): MissionDoc => ({ ...doc, log: [...doc.log, { at, text }].slice(-60) });
 
-/** True when any approved action in a step's pending list already ran. */
-export const acted = (pending: unknown) => Array.isArray(pending) && pending.some((p) => (p as { status?: unknown })?.status === "approved");
+/** True when any approved action in a step's pending list ran, or may have run (an attempt without a receipt: "attempting"/"uncertain"). */
+export const acted = (pending: unknown) => Array.isArray(pending) && pending.some((p) => ["approved", "attempting", "uncertain"].includes((p as { status?: string })?.status ?? ""));
 
 /** CORE's start_mission only for the owner's own instruction in his latest message, never from page/tool/file content. */
 export function missionBlocked(question: string, tainted: boolean): string {

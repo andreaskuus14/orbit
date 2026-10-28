@@ -4,6 +4,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { kickQueue } from "./agents";
 import { orbitDataDir } from "./data-dir";
+import { claimEvents, clearCursor } from "./durable";
 import { stopAllOn } from "./stop-all";
 import { usageLimited } from "./usage-meter";
 import { addRule, countEventRun, parseRule, ruleBlocked, ruleDue, describeAction, describeTrigger, type Rule, type RuleEvent, type RuleResult } from "./rules-pure";
@@ -14,7 +15,7 @@ import { addRule, countEventRun, parseRule, ruleBlocked, ruleDue, describeAction
 
 type Store = { rules: Rule[] };
 const FILE = () => path.join(orbitDataDir(), "rules.json");
-const g = globalThis as unknown as { __orbitRules?: Promise<unknown>; __orbitRuleCursor?: number };
+const g = globalThis as unknown as { __orbitRules?: Promise<unknown> };
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300);
 
 async function load(): Promise<Store> {
@@ -131,18 +132,10 @@ type Hit = { userId: string; event: RuleEvent; why: string };
 
 /** New events since the last tick, from the existing events feed, as rule events. Own cursor (automations.ts has its own). */
 async function newEvents(sb: SupabaseClient): Promise<Hit[]> {
-  if (g.__orbitRuleCursor === undefined) { // start from "now": a restart never replays old events
-    const { data, error } = await sb.from("events").select("id").order("id", { ascending: false }).limit(1);
-    if (error) throw error;
-    g.__orbitRuleCursor = data?.[0]?.id ?? 0;
-    return [];
-  }
-  const { data, error } = await sb.from("events").select("id, user_id, type, payload").gt("id", g.__orbitRuleCursor)
-    .in("type", ["business.stage", "deal.found", "memory.created", "pulse.completed"]).order("id").limit(200);
-  if (error) throw error;
+  // Persisted cursor (durable.ts): events from downtime replay once (last 24 h, capped), never twice.
+  const data = await claimEvents(sb, "rules", ["business.stage", "deal.found", "memory.created", "pulse.completed"]);
   const out: Hit[] = [];
-  for (const e of data ?? []) {
-    g.__orbitRuleCursor = e.id;
+  for (const e of data) {
     const p = (e.payload ?? {}) as Record<string, string | undefined>;
     if (e.type === "business.stage" && p.to === "replied") {
       const { data: c } = await sb.from("prospects").select("name, kind, notes, draft").eq("id", p.prospect ?? "").eq("user_id", e.user_id).maybeSingle();
@@ -162,7 +155,7 @@ export async function tickRules(sb: SupabaseClient, userIds: string[], now = new
     const owner = userIds[0];
     if (!owner || stopAllOn()) return;
     const active = (await load()).rules.filter((r) => r.status === "active");
-    if (!active.some((r) => r.trigger.type === "event")) g.__orbitRuleCursor = undefined; // nothing listens: start fresh when one appears
+    if (!active.some((r) => r.trigger.type === "event")) clearCursor("rules"); // nothing listens: start fresh when one appears
     const hits = active.some((r) => r.trigger.type === "event") ? await newEvents(sb) : [];
     for (const r of active) {
       const t = r.trigger;
