@@ -176,6 +176,8 @@ const BASE = {
 
   "loops.title": "Open loops", "loops.count": "{n} OPEN", "loops.empty": "Nothing left hanging.", "loops.snooze": "Snooze 3 days",
   "loops.task": "Turn into task", "loops.scan": "Scan now",
+  "search.everything": "Search everything", "search.src.memory": "Memories", "search.src.journal": "Journal", "search.src.note": "Vault notes",
+  "search.src.file": "Files", "search.src.chat": "CORE chats", "search.src.task": "Tasks", "search.src.goal": "Goals",
   "ent.title": "Memory check · nothing changes until you answer", "ent.same": "Are these the same?", "ent.yes": "Yes, same", "ent.no": "No, different",
   "ent.which": "Which is right? {who}: {attr}", "ent.me": "you", "ent.pick": "This one", "ent.skip": "Skip",
   "ent.attr.birthday": "birthday", "ent.attr.employer": "workplace", "ent.attr.home": "home town",
@@ -749,6 +751,8 @@ export const ET: Partial<Record<Key, string>> = {
 
   "loops.title": "Lahtised otsad", "loops.count": "{n} LAHTI", "loops.empty": "Midagi ei jäänud ripakile.", "loops.snooze": "Lükka 3 päeva edasi",
   "loops.task": "Tee ülesandeks", "loops.scan": "Otsi kohe",
+  "search.everything": "Otsi kõikjalt", "search.src.memory": "Mälukirjed", "search.src.journal": "Päevik", "search.src.note": "VAULT märkmed",
+  "search.src.file": "VAULT failid", "search.src.chat": "CORE vestlused", "search.src.task": "Ülesanded", "search.src.goal": "Eesmärgid",
   "ent.title": "Mälu kontroll · midagi ei muutu enne sinu vastust", "ent.same": "Kas need on sama?", "ent.yes": "Jah, sama", "ent.no": "Ei, erinevad",
   "ent.which": "Kumb on õige? {who}: {attr}", "ent.me": "sina", "ent.pick": "See", "ent.skip": "Jäta vahele",
   "ent.attr.birthday": "sünnipäev", "ent.attr.employer": "töökoht", "ent.attr.home": "elukoht",
