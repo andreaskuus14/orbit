@@ -41,6 +41,10 @@ export function TimeCapsuleSection() {
   });
   const backupNow = () => run(async () => { const { backup } = await post({ action: "backup" }); await load(); return `Backup OK (${fmtMB(backup.bytes)}, ${backup.files} files${backup.skipped.length ? `; skipped over the size limit: ${backup.skipped.join(", ")}` : ""})`; });
   const preview = () => run(async () => { setPv(null); setPv((await post({ action: "preview", name: pick, passphrase: pass })).preview); });
+  const drill = () => run(async () => {
+    const { drill: d } = await post({ action: "drill", name: pick, passphrase: pass });
+    return d.ok ? `Drill passed: ${d.restored}/${d.expected} files restored and parsed from ${d.backup}.` : `Drill failed: ${d.error ?? d.bad?.join("; ")}`;
+  });
   const restore = () => run(async () => {
     if (!confirm(`Restore the backup from ${new Date(pv!.at).toLocaleString()}? ORBIT first saves a safety backup of how things are now.`)) return;
     const { restored } = await post({ action: "restore", name: pick, passphrase: pass });
@@ -78,6 +82,7 @@ export function TimeCapsuleSection() {
           </label>
           <label className="block">Passphrase<input type="password" autoComplete="current-password" className="field mt-1 w-full" value={pass} onChange={(e) => { setPass(e.target.value); setPv(null); }} /></label>
           <button className="chip" disabled={busy || !pick || !pass} onClick={() => void preview()}>Preview changes</button>
+          {" "}<button className="chip" disabled={busy || !pass} title="Restores into a temporary folder, checks every file, then deletes it. Your data isn't touched." onClick={() => void drill()}>Run restore drill</button>
           {pv && (
             <div className="space-y-1" aria-live="polite">
               <p>{pv.overwrite.length} file(s) go back to the backup&apos;s version, {pv.create.length} come back, {pv.same} unchanged. {pv.keep.length} newer file(s) not in the backup stay as they are.</p>
