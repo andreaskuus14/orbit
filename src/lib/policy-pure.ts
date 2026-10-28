@@ -60,6 +60,17 @@ export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_st
 const LINK_TOOLS = ["fetch_url", "read_news", "ask_agent", "reach_read"];
 const LEAK_TOOLS = ["ask_agent", "read_news", "web_search"];
 
+// Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
+const UNTRUSTED = ["fetch_url", "read_news", "web_search", "reach_read", "reach_trending", "ask_agent", "business_status"];
+const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
+/** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
+export function agentBlocked(question: string, agent: unknown, untrusted: boolean): string {
+  if (!untrusted) return "";
+  const name = typeof agent === "string" ? agent.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "") : "";
+  if (AGENT_ASK.test(question) || (name && new RegExp(`\\b${name}\\b`, "i").test(question))) return "";
+  return "after outside content (pages, news, mail, agent results), ask an agent only when the user asks for one in their latest message";
+}
+
 const called = (steps: string[], tools: string[]) => steps.some((s) => tools.some((t) => s.startsWith(`You called ${t} `)));
 const err = (s: string | null | undefined) => (s ? s.replace(/^Error: /, "") : "");
 
@@ -92,6 +103,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "queue_tonight") blocked = tonightBlocked(question, dataIn);
   else if (tool === "add_wish") blocked = wishBlocked(question, dataIn);
   else if (tool === "propose_rule") blocked = ruleBlocked(question, dataIn);
+  else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || called(ctx.steps, UNTRUSTED));
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
   if (blocked) return no(blocked);
   // shortcut: rea_analyze/rea_cancel keep their explicit-ask check inside REA code (not ported: REA files stay untouched).

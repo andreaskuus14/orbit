@@ -23,6 +23,8 @@ import { shadowOf } from "@/lib/arch-time-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
 import { DaylightPanel, DaylightRooms, type Daylight } from "./ArchDaylight";
+import { ArchEnergy } from "./ArchEnergy";
+import { toIfc } from "@/lib/arch-ifc-pure";
 import ArchCrit from "./ArchCrit";
 import { ArchMaterials } from "./ArchMaterials";
 import { PortfolioPanel } from "./PortfolioPanel";
@@ -471,6 +473,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           </div>
         )}
         {dayOn && <DaylightPanel parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} d={daylight} onChange={setDaylight} />}
+        {dayOn && <ArchEnergy parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} north={site.north} />}
         {site.on && !lesson && !scan && <SitePanel site={site} set={setSite} parts={scene.parts} sun={sun.on && sunInfo ? sunInfo.dir : null} />}
         {sc.on && (
           <div className="card space-y-1.5" aria-label={tr("arch.coach")}>
@@ -510,6 +513,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <button className="chip" disabled={!shell} onClick={addInterior} title={tr("arch.wallTitle")}>+ {tr("arch.wall")}</button>
           <button className="chip" onClick={() => download("arch-bill-of-quantities.csv", boqCsv(cost), "text/csv")}>⬇ {tr("arch.boqCsv")}</button>
           <button className="chip" onClick={() => download("arch-scene.json", JSON.stringify(scene, null, 2), "application/json")}>⬇ {tr("arch.sceneJson")}</button>
+          <button className="chip" onClick={() => download("arch-model.ifc", toIfc(scene, { site: { lat: sun.lat, lon: sun.lon } }), "application/x-step")} title={tr("arch.ifcTitle")}>⬇ {tr("arch.ifc")}</button>
         </div>
 
         <ArchPlans plot={scene.plot} onPick={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setRun((n) => n + 1); }} />
