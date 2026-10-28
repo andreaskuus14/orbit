@@ -36,6 +36,7 @@ import { recordCoreTurn } from "./perf-log";
 import { autonomyLevels } from "./autonomy";
 import { skillDenied } from "./skills-pure";
 import { maxSteps, fallbackNote, sessionInput } from "./core-capability-pure";
+import { CORE_ENGINE } from "./core-sdk-pure";
 import { randomUUID } from "node:crypto";
 import type { CliSession } from "./claude";
 
@@ -215,7 +216,9 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
   const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
   let answer = "";
   try {
-    for (let step = 0; step < MAX_STEPS; step++) {
+    // ORBIT_CORE_ENGINE=sdk: prototype turn through the Claude Agent SDK, same prompt and decide() gate (core-sdk.ts, docs/AGENT-SDK.md)
+    if (CORE_ENGINE === "sdk") answer = await (await import("./core-sdk")).sdkTurn({ sb, userId, system, prompt: `${(prompt = await prep)}\n\n${CORE_LANG_RULE[lang]}`, question, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort: tier === "deep" ? deepFlags.effort || undefined : undefined, maxTurns: MAX_STEPS, policy: () => ({ stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels() }), attachBlock: attach?.block ?? "", steps, trace, signal, onDelta: sendDelta, onReset, onStep });
+    else for (let step = 0; step < MAX_STEPS; step++) {
       const last = step === MAX_STEPS - 1 || (step > 0 && deepLeft() < 90_000); // out of steps or turn time: answer now
       signal?.throwIfAborted();
       onStep?.("think", {});
