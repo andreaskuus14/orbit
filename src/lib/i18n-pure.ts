@@ -529,6 +529,11 @@ const BASE = {
   "mk.botHint": "Simple transparent rules, not an AI making trades. Runs once a day while ORBIT is open, on your watchlist. Simulation / not financial advice.",
   "mk.strategy": "Bot strategy", "mk.strategyConfirm": "Changing the strategy restarts the bot's paper account. Continue?", "mk.off": "Off",
   "mk.botEquity": "Bot equity", "mk.spySame": "SPY over the same time", "mk.notYet": "not yet",
+
+  "voice.convStart": "Conversation mode: keep listening after each answer (Ctrl+Shift+M)", "voice.convEnd": "End conversation mode (Esc)",
+  "voice.convTitle": "Conversation mode (Ctrl+Shift+M, or say “Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Conversation mode needs hands-free on (voice settings)",
+  "voice.convHelp": "Ctrl+Shift+M, 💬 or “Orbit, let’s talk”. ORBIT then answers questions and requests without “Orbit” and ignores chatter; talk over it to interrupt. Ends on “stop” / “that’s all”, Esc, 💬, Stop-all or 60 s of silence (one-follow-up: after the follow-up).",
+  "voice.openMic": "Open mic · {phase} — ✕ stop", "voice.phaseListening": "listening", "voice.phaseThinking": "thinking", "voice.phaseSpeaking": "speaking (talk to interrupt)",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -1102,6 +1107,11 @@ export const ET: Partial<Record<Key, string>> = {
   "mk.botHint": "Lihtsad läbipaistvad reeglid, mitte tehisaru, kes tehinguid teeb. Töötab kord päevas, kui ORBIT on avatud, sinu jälgimisnimekirja peal. Simulatsioon / mitte finantsnõuanne.",
   "mk.strategy": "Roboti strateegia", "mk.strategyConfirm": "Strateegia muutmine alustab roboti paberkontot otsast. Jätkata?", "mk.off": "Väljas",
   "mk.botEquity": "Roboti konto väärtus", "mk.spySame": "SPY samal ajal", "mk.notYet": "veel mitte",
+
+  "voice.convStart": "Vestlusrežiim: kuula pärast iga vastust edasi (Ctrl+Shift+M)", "voice.convEnd": "Lõpeta vestlusrežiim (Esc)",
+  "voice.convTitle": "Vestlusrežiim (Ctrl+Shift+M või ütle „Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Vestlusrežiim vajab sisselülitatud käed-vaba kuulamist (hääle seaded)",
+  "voice.convHelp": "Ctrl+Shift+M, 💬 või „Orbit, let’s talk”. ORBIT vastab siis küsimustele ja palvetele ilma sõnata „Orbit” ning eirab muud juttu; katkestamiseks räägi lihtsalt peale. Lõpeb sõnadega „lõpeta” / „stop”, Esc, 💬, Peata kõik või 60 s vaikusega (üks jätkuküsimus: pärast seda).",
+  "voice.openMic": "Avatud mikrofon · {phase} — ✕ lõpeta", "voice.phaseListening": "kuulab", "voice.phaseThinking": "mõtleb", "voice.phaseSpeaking": "räägib (katkestamiseks räägi peale)",
 };
 
 type Vars = Record<string, string | number>;
