@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelChain, createChain, drive, getChain } from "./chains";
 import type { ChainView } from "./chains-pure";
 import {
-  acted, canDo, collectReceipts, deriveStatus, explain, logged, missionBlocked, newDoc, nextAction, onFailure, validateMission, LABEL,
+  acted, canDo, collectReceipts, deriveStatus, explain, logged, missionBlocked, missionLabel, newDoc, nextAction, onFailure, validateMission, LABEL,
   type MissionDoc, type MissionStatus, type OwnerAction,
 } from "./missions-pure";
 
@@ -71,7 +71,7 @@ async function finish(sb: SupabaseClient, userId: string, row: Row, doc: Mission
   if (status !== doc.status) doc = logged({ ...doc, status, ...(status === "running" || status === "completed" ? { blocker: undefined, failure: undefined } : {}) }, now(), explain(doc.status, status));
   const saved = doc === row.doc ? row : (await save(sb, row, doc)) ?? row;
   if ((status === "queued" || status === "running") && row.chain_id) void drive(sb, userId, row.chain_id, () => gate(sb, row.id));
-  return { ...saved, status, label: LABEL[status], next: nextAction(status, chain, doc.blocker), chain };
+  return { ...saved, status, label: missionLabel(status, doc.receipts, chain?.steps.length ?? 0), next: nextAction(status, chain, doc.blocker), chain };
 }
 
 /** The driver's pause/cancel check, read fresh before each step. */

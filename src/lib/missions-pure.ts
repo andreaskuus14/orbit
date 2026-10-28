@@ -102,14 +102,13 @@ export function nextAction(status: MissionStatus, chain: Pick<ChainView, "steps"
 }
 
 type StepEvidence = { index: number; taskId: string | null; status: string; pending?: unknown };
-/** Receipts from what ORBIT verified: a done step's task row, plus each approved action's read-back evidence (also from a failed step: partial
- *  results are kept). Deduped by kind+ref. */
+/** Receipts from what ORBIT verified: each approved action's read-back evidence (also from a failed step: partial results are kept).
+ *  A step task merely finishing is not evidence (executed ≠ verified). Deduped by kind+ref. */
 export function collectReceipts(steps: StepEvidence[], have: Receipt[], at: string): Receipt[] {
   const seen = new Set(have.map((r) => `${r.kind}:${r.ref}`)), out: Receipt[] = [];
   const add = (r: Receipt) => { const k = `${r.kind}:${r.ref}`; if (!seen.has(k)) { seen.add(k); out.push(r); } };
   for (const s of steps) {
     if (!s.taskId) continue;
-    if (s.status === "done") add({ kind: "task", ref: s.taskId, step: s.index, check: "step task finished (status done in ORBIT's tasks table)", at });
     for (const p of Array.isArray(s.pending) ? s.pending : []) {
       const a = p as { status?: unknown; tool?: unknown; evidence?: unknown };
       if (a?.status !== "approved" || !Array.isArray(a.evidence)) continue;
@@ -120,6 +119,16 @@ export function collectReceipts(steps: StepEvidence[], have: Receipt[], at: stri
     }
   }
   return out;
+}
+
+/** Read-back receipts only: older docs also hold "step task finished" receipts from before executed/verified were split. */
+const checked = (rs: Receipt[]) => rs.filter((r) => r.check.includes("read back"));
+/** A step is verified only when ORBIT read back something it produced. */
+export const stepVerified = (receipts: Receipt[], step: number) => checked(receipts).some((r) => r.step === step);
+/** Status label: a completed mission is "Verified" only when every step has a read-back receipt; otherwise it says so. */
+export function missionLabel(status: MissionStatus, receipts: Receipt[], steps: number): string {
+  if (status !== "completed") return LABEL[status];
+  return steps > 0 && Array.from({ length: steps }, (_, k) => k).every((k) => stepVerified(receipts, k)) ? "Completed · verified" : "Completed · not verified";
 }
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().slice(0, max) : "");
