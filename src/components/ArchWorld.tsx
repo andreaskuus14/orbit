@@ -29,6 +29,7 @@ import { PortfolioPanel } from "./PortfolioPanel";
 import { archCaption } from "@/lib/portfolio-pure";
 import { ArchPlans } from "./ArchPlans";
 import { ArchTimeMachine, SunShadow } from "./ArchTimeMachine";
+import { ArchPortfolio } from "./ArchPortfolio";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
 import { SiteLayer, SitePanel } from "./ArchSite";
 import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
@@ -522,6 +523,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
         <ArchCrit scene={scene} prices={prices} shoot={shoot} />
         <PortfolioPanel grab={() => grab.current?.() ?? null}
           caption={scan ? `Scan ${scan.name}` : lesson ? `Study model after ${lesson.building}` : archCaption({ parts: scene.parts, mode, sun: sun.on ? sun : null })} />
+        {ready && <ArchPortfolio grab={() => grab.current?.() ?? null} onPreview={setPreview} />}
 
         <div className="card space-y-1.5">
           <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.parts")}</div>
