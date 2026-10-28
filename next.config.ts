@@ -1,9 +1,14 @@
 import type { NextConfig } from "next";
 import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
+import { execSync } from "node:child_process";
+
+// Stamp the commit and build time into the build so the doctor can show what is actually running (no git → "unknown").
+const gitHead = (() => { try { return execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch { return "unknown"; } })();
 
 const nextConfig: NextConfig = {
   // Another package-lock.json in the home folder confuses Next; pin the project root.
   outputFileTracingRoot: __dirname,
+  env: { ORBIT_BUILD_COMMIT: gitHead, ORBIT_BUILD_TIME: new Date().toISOString() },
   devIndicators: false, // the dev "N" badge covered the System panel
   // Document parsers, ffmpeg binary and Whisper (native onnxruntime) run server-side only; keep them out of the bundler.
   serverExternalPackages: ["unpdf", "mammoth", "playwright-core", "ffmpeg-static", "@huggingface/transformers", "kokoro-js", "@anthropic-ai/claude-agent-sdk"], // kokoro-js: AI Story narration on the server; the SDK spawns its bundled native CLI
