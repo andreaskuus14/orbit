@@ -3,6 +3,7 @@
 // are the checkpoints (a done step is never rerun), the doc holds what the chain can't: constraints, receipts, decisions, blockers, retries.
 // Receipts are only things ORBIT itself checked (a task row, an action's read-back evidence, a file on disk) — never the model's word.
 import type { ChainView } from "./chains-pure.ts";
+import { DISPROVED_RULE, inferAcceptance, type Check } from "./mission-checks-pure.ts";
 
 export type MissionStatus = "queued" | "running" | "waiting-input" | "waiting-approval" | "paused" | "failed" | "completed" | "cancelled";
 export type FailureClass = "temporary" | "permission" | "invalid" | "unavailable" | "faulty";
@@ -11,6 +12,8 @@ export type MissionDoc = {
   v: 1; objective: string; constraints: string[]; status: MissionStatus;
   receipts: Receipt[]; decisions: { at: string; text: string }[]; blocker?: string; failure?: FailureClass;
   retries: Record<string, number>; log: { at: string; text: string }[];
+  // success definition + evidence (older docs lack these): acceptance at creation, deterministic checks, reviewed steps, estimate.
+  acceptance?: string; assumptions?: string[]; checks?: Check[]; reviewed?: number[]; verified?: boolean; effort?: { minutes: number; stops: string[] };
 };
 
 export const TERMINAL: MissionStatus[] = ["completed", "cancelled"];
@@ -102,14 +105,13 @@ export function nextAction(status: MissionStatus, chain: Pick<ChainView, "steps"
 }
 
 type StepEvidence = { index: number; taskId: string | null; status: string; pending?: unknown };
-/** Receipts from what ORBIT verified: a done step's task row, plus each approved action's read-back evidence (also from a failed step: partial
- *  results are kept). Deduped by kind+ref. */
+/** Receipts from what ORBIT verified: each approved action's read-back evidence (also from a failed step: partial results are kept).
+ *  A step task merely finishing is not evidence (executed ≠ verified). Deduped by kind+ref. */
 export function collectReceipts(steps: StepEvidence[], have: Receipt[], at: string): Receipt[] {
   const seen = new Set(have.map((r) => `${r.kind}:${r.ref}`)), out: Receipt[] = [];
   const add = (r: Receipt) => { const k = `${r.kind}:${r.ref}`; if (!seen.has(k)) { seen.add(k); out.push(r); } };
   for (const s of steps) {
     if (!s.taskId) continue;
-    if (s.status === "done") add({ kind: "task", ref: s.taskId, step: s.index, check: "step task finished (status done in ORBIT's tasks table)", at });
     for (const p of Array.isArray(s.pending) ? s.pending : []) {
       const a = p as { status?: unknown; tool?: unknown; evidence?: unknown };
       if (a?.status !== "approved" || !Array.isArray(a.evidence)) continue;
@@ -122,22 +124,36 @@ export function collectReceipts(steps: StepEvidence[], have: Receipt[], at: stri
   return out;
 }
 
-const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().slice(0, max) : "");
-/** POST/tool input → a new mission's objective + constraints + chain draft (steps checked again by validateChain), or why not. */
-export function validateMission(x: unknown): { objective: string; constraints: string[]; steps: { agent: string; request: string }[] } | string {
-  const o = (x && typeof x === "object" ? x : {}) as { objective?: unknown; constraints?: unknown; steps?: unknown };
-  const objective = str(o.objective, 300);
-  if (!objective) return "objective is required (1-300 characters)";
-  const constraints = (Array.isArray(o.constraints) ? o.constraints : typeof o.constraints === "string" ? [o.constraints] : []).map((c) => str(c, 200)).filter(Boolean).slice(0, 8);
-  if (!Array.isArray(o.steps)) return "steps must be a list of 2-5 steps";
-  // Constraints travel with every step's request, so an agent can't miss them.
-  const rule = constraints.length ? `\n\nMission constraints (must hold): ${constraints.join("; ")}` : "";
-  const steps = (o.steps as { agent?: unknown; request?: unknown }[]).map((s) => { const r = str(s?.request, 2000 - rule.length); return { agent: str(s?.agent, 40).toLowerCase(), request: r && r + rule }; });
-  return { objective, constraints, steps };
+/** Read-back receipts only: older docs also hold "step task finished" receipts from before executed/verified were split. */
+const checked = (rs: Receipt[]) => rs.filter((r) => r.check.includes("read back"));
+/** A step is verified only when ORBIT read back something it produced. */
+export const stepVerified = (receipts: Receipt[], step: number) => checked(receipts).some((r) => r.step === step);
+/** Status label: a completed mission is "Verified" only when every step has a read-back receipt; otherwise it says so. */
+export function missionLabel(status: MissionStatus, receipts: Receipt[], steps: number): string {
+  if (status !== "completed") return LABEL[status];
+  return steps > 0 && Array.from({ length: steps }, (_, k) => k).every((k) => stepVerified(receipts, k)) ? "Completed · verified" : "Completed · not verified";
 }
 
-export function newDoc(objective: string, constraints: string[], at: string): MissionDoc {
-  return { v: 1, objective, constraints, status: "queued", receipts: [], decisions: [], retries: {}, log: [{ at, text: explain("queued", "queued", "Mission created.") }] };
+const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().slice(0, max) : "");
+/** POST/tool input → a new mission's objective + constraints + chain draft (steps checked again by validateChain), or why not. */
+export function validateMission(x: unknown): { objective: string; constraints: string[]; acceptance: string; assumptions: string[]; steps: { agent: string; request: string }[] } | string {
+  const o = (x && typeof x === "object" ? x : {}) as { objective?: unknown; constraints?: unknown; acceptance?: unknown; assumptions?: unknown; steps?: unknown };
+  const objective = str(o.objective, 300);
+  if (!objective) return "objective is required (1-300 characters)";
+  const list = (v: unknown) => (Array.isArray(v) ? v : typeof v === "string" ? [v] : []).map((c) => str(c, 200)).filter(Boolean).slice(0, 8);
+  const constraints = list(o.constraints), assumptions = list(o.assumptions);
+  // Ask only when the objective doesn't say what "done" looks like.
+  const acceptance = str(o.acceptance, 300) || inferAcceptance(objective);
+  if (!acceptance) return "acceptance is required here: ask the user in one short question what result counts as done, then pass it as acceptance";
+  if (!Array.isArray(o.steps)) return "steps must be a list of 2-5 steps";
+  // Constraints, the success condition and assumptions travel with every step's request, so an agent can't miss them.
+  const rule = `${constraints.length ? `\n\nMission constraints (must hold): ${constraints.join("; ")}` : ""}\n\nMission is done when: ${acceptance}${assumptions.length ? `\nAssumptions: ${assumptions.join("; ")}${DISPROVED_RULE}` : ""}`;
+  const steps = (o.steps as { agent?: unknown; request?: unknown }[]).map((s) => { const r = str(s?.request, 2000 - rule.length); return { agent: str(s?.agent, 40).toLowerCase(), request: r && r + rule }; });
+  return { objective, constraints, acceptance, assumptions, steps };
+}
+
+export function newDoc(objective: string, constraints: string[], at: string, extra: Pick<MissionDoc, "acceptance" | "assumptions" | "effort"> = {}): MissionDoc {
+  return { v: 1, objective, constraints, ...extra, status: "queued", receipts: [], decisions: [], retries: {}, log: [{ at, text: explain("queued", "queued", "Mission created.") }] };
 }
 
 /** Append a log line, keep the last 60. */

@@ -7,6 +7,7 @@ import { clean, nextMove, type Goal } from "./goals-pure.ts";
 import type { PushMessage } from "./remote-push-pure.ts";
 import { translate, type Lang } from "./i18n-pure.ts";
 import type { Diff, Why } from "./night-plan-pure.ts";
+import { et, etQuestion } from "./et-ask-pure.ts";
 
 export type NightSettings = { enabled: boolean; from: string; until: string; tz: string; wake: string; maxCalls: number; maxMinutes: number; idleMin: number;
   pin: Partial<Record<NightKind, "on" | "off">> }; // his overrides of the learned plan (night-learn-pure)
@@ -103,7 +104,8 @@ export const researchRequest = (text: string) =>
 /** CORE's queue_tonight guard: only from the owner's own latest message, and only when he says tonight / overnight. */
 export function tonightBlocked(question: string, tainted: boolean): string {
   if (tainted) return "only call queue_tonight as your first tool, for the user's own request";
-  if (/^\s*(how|what|why|when|did|does|is|are|was|were)\b/i.test(question) || !/\b(tonight|overnight|over night|while i(?:'m| am)? (?:sleep|asleep|sleeping)|night shift)\b/i.test(question))
+  if (/^\s*(how|what|why|when|did|does|is|are|was|were)\b/i.test(question) || etQuestion(question)
+    || !(/\b(tonight|overnight|over night|while i(?:'m| am)? (?:sleep|asleep|sleeping)|night shift)\b/i.test(question) || et("täna öösel|öösel|ööseks|üleöö|kui ma magan|samal ajal kui ma magan|öövahetus").test(question)))
     return "only when the user asks in their latest message for something to be done tonight / overnight";
   return "";
 }

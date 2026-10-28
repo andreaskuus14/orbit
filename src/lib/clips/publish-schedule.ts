@@ -47,6 +47,7 @@ export async function scheduleAll(only?: string[], meta: Record<string, { publis
         await publishDone();
         r = await withJobLock(async () => {
           if (isPublishing()) return "busy";
+          if (stopAllOn()) return PAUSED_MSG; // turned on while we waited for the other upload: don't start ours
           const job = await getJob(jobId), clip = job?.clips.find((c) => c.id === clipId);
           if (!job || !clip || !eligible(clip)) return "skip"; // changed meanwhile (published, rejected, deleted)
           const file = clipFile(clip);

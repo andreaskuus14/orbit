@@ -27,8 +27,8 @@ const coreSrc = readFileSync("src/lib/core.ts", "utf8");
 test("tool parity: the SDK server registers exactly the tools core.ts's loop can dispatch", () => {
   // core.ts's own tools: its TOOLS prompt section and the names its dispatch (navigateTool / runCoreTool) handles
   const prompted = [...coreSrc.slice(coreSrc.indexOf("\nTOOLS:\n"), coreSrc.indexOf("User profile (stated")).matchAll(/^- (\w+) \{/gm)].map((m) => m[1]);
-  const dispatched = ["navigate", ...[...coreSrc.slice(coreSrc.indexOf("async function runCoreTool")).matchAll(/tool === "(\w+)"/g)].map((m) => m[1])];
-  assert.match(coreSrc, /const exec = [^\n]*tool === "navigate" \? navigateTool/); // exec: navigate, then modules, then runCoreTool
+  const dispatched = ["navigate", "read_more", ...[...coreSrc.slice(coreSrc.indexOf("async function runCoreTool")).matchAll(/tool === "(\w+)"/g)].map((m) => m[1])];
+  assert.match(coreSrc, /const execRaw = [^\n]*tool === "navigate" \? navigateTool[^\n]*\n\s*: tool === "read_more" \? clips\.read/); // exec: navigate, read_more, then modules, then runCoreTool
   assert.deepEqual([...CORE_BUILTINS].sort(), prompted.sort());
   assert.deepEqual([...CORE_BUILTINS].sort(), dispatched.sort());
   assert.ok(moduleTools.length > 30 && moduleTools.includes("goal_status") && moduleTools.includes("rea_cancel"));

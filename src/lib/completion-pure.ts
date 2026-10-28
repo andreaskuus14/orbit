@@ -1,4 +1,4 @@
-export type WriteEvidence = { kind: "memory" | "file" | "project" | "task" | "automation"; id: string; path?: string; bytes?: number };
+export type WriteEvidence = { kind: "memory" | "file" | "project" | "task" | "automation"; id: string; path?: string; bytes?: number; rev?: string };
 export type ActionResult = { status: string; note?: string; evidence?: WriteEvidence[] };
 export type Completion = { status: "done" | "failed" | "cancelled" | "awaiting_approval"; error: string | null };
 
@@ -18,6 +18,10 @@ export function matchesStored(expected: Record<string, unknown>, actual: Record<
   return !!actual && Object.entries(expected).every(([key, value]) => actual[key] === value);
 }
 
+/** Executed ≠ verified: "done" only says the task ran. Verified needs read-back evidence from an approved action (its own or a sub-task's). */
+export const taskVerified = (status: string, actions: ActionResult[]) => status === "done" && actions.some((a) => a?.status === "approved" && (a.evidence?.length ?? 0) > 0);
+export const doneLabel = (verified: boolean) => (verified ? "Verified" : "Done · not verified");
+
 /** Resetting resolved actions would discard receipts and may repeat an already-applied write. */
 export const canRetryTask = (actions: ActionResult[]) => actions.every((a) => a.status === "pending");
 
@@ -25,6 +29,8 @@ export const canRetryTask = (actions: ActionResult[]) => actions.every((a) => a.
 // An attempt found without a receipt (crash between the write and its record) becomes "uncertain": it may or may not have happened,
 // so it is never re-run automatically; the owner inspects it (task detail / mission panel show the note).
 export const attemptId = (taskId: string, index: number) => `${taskId}:${index}`;
+/** The tag an approved save_memory carries, so a rerun of the same attempt finds its memory instead of saving it again. */
+export const attemptTag = (attempt: string) => `attempt:${attempt}`;
 export const UNCERTAIN_NOTE = "Needs inspection: ORBIT stopped while running this approved action and has no receipt, so it can't tell whether it happened. Check its result before doing it again.";
 export const UNCERTAIN_ERROR = "Needs inspection: an approved action may or may not have happened (no receipt). Check its result before doing it again.";
 export const unsure = (actions: unknown) => Array.isArray(actions) && actions.some((a) => ["attempting", "uncertain"].includes((a as ActionResult)?.status));

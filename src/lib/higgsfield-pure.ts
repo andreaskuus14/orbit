@@ -2,6 +2,8 @@
 // A draft is an AI Story job with `draft` set: it is quoted and approved in the same Clip Factory → AI Story queue (story.ts),
 // so nothing is generated or spent before the owner's Approve click. Tested in tests/higgsfield.test.ts.
 import type { HfItem, Models } from "./clips/story-pure.ts";
+import { et, etQuestion, ET_NOT } from "./et-ask-pure.ts";
+const ASK_ET = et("(?:tee|genereeri|loo|joonista|maali|kujunda|renderda)[^.?!]{0,120}(?:pil[dt]|foto|video|joonistus|illustratsioon|taustapilt|higgsfield)");
 
 export const DRAFT_KINDS = ["image", "video"] as const;
 export const ASPECTS = ["9:16", "16:9", "1:1", "4:5", "3:4", "4:3"];
@@ -40,7 +42,7 @@ const NOT = /\b(don'?t|do not|never|no need to|stop)\b/i;
 /** Why higgsfield_draft may not run now, or "" when it may. `tainted`: page/file/agent/tool output is already in context. */
 export function draftBlocked(question: string, tainted: boolean): string {
   if (tainted) return "only call higgsfield_draft as your first tool, for the user's own request";
-  if (QUESTION.test(question) || NOT.test(question) || !ASK.test(question)) return "only when the user tells you to make pictures or videos in their latest message; ask them to say it (e.g. \"make 2 images of a fox in the snow\")";
+  if (QUESTION.test(question) || etQuestion(question) || NOT.test(question) || ET_NOT.test(question) || !(ASK.test(question) || ASK_ET.test(question))) return "only when the user tells you to make pictures or videos in their latest message; ask them to say it (e.g. \"make 2 images of a fox in the snow\")";
   return "";
 }
 

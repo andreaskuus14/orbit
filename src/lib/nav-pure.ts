@@ -3,6 +3,7 @@
 import { COUNTRIES, REGIONS, displayName } from "./geo.ts";
 import { WORLD } from "./countries-pure.ts";
 import { planetById, type PanelId } from "./planets.ts";
+import { WORK_TABS, workTabName, type WorkTab } from "./work-vocab-pure.ts";
 
 /** panel null = back to the galaxy. country is a world-atlas name (as NewsGlobe uses), region a REGIONS key.
  *  view "none" closes STUDIO's overlay, "review" opens the clip factory's review queue; search runs the globe's news search ("" clears search and selection);
@@ -15,7 +16,8 @@ export type NavTarget = {
   beliefs?: true; // beliefs: MEMORY opens "What ORBIT believes"
   study?: true; // study: MEMORY opens a study-cards review
   stopAll?: true; voice?: boolean; // direct actions: stay in the current world; voice sets output on/off
-  continueWork?: true; // open the unfinished-work list, without starting or resuming a task
+  continueWork?: true; // open the Work sheet, without starting or resuming a task
+  workTab?: WorkTab; // with continueWork: which of the four tabs (Work, Routines, Saved workflows, Goals)
   evening?: true; // open "Today in a minute" (EveningCapture.tsx) over whatever is on screen
   life?: LifeView; start?: true; // life: LIFE opens on that tab; start (with life "focus"): start the focus timer
 };
@@ -38,6 +40,7 @@ command({ weekly: true }, "weekly review, my week, how was my week, nädala üle
 command({ mission: true }, "mission control, bridge, the bridge, open mission control, open the bridge, missioonijuhtimine");
 command({ evening: true }, "today in a minute, evening capture, log my day, log today, päev minutiga");
 command({ continueWork: true }, "show my work, continue my work, näita minu tööd, jätka minu tööd");
+for (const w of WORK_TABS) command({ continueWork: true, workTab: w.id }, `${w.say}, ${w.sayEt}`);
 command({}, "back, galaxy, tagasi, galaktika");
 
 const PLACES: Record<string, NavTarget> = {};
@@ -182,6 +185,7 @@ export function parseNavCommand(text: string, ctx: { current?: PanelId | null } 
   if (!v) return null;
   const rest = s.slice(v[0].length).trim();
   if (!rest) return /back|return/.test(v[0]) ? { panel: null } : null; // "go back", "take me back"
+  if (INSTANT[rest]?.workTab) return { panel: null, ...INSTANT[rest] }; // "open routines", "show my goals"
   return findPlace(rest);
 }
 
@@ -203,7 +207,7 @@ export function validateNav(input: Record<string, unknown>): NavTarget | null {
 export function navLabel(t: NavTarget): string {
   if (t.stopAll) return "Stop-all";
   if (t.voice !== undefined) return "voice output";
-  if (t.continueWork) return "Continue my work";
+  if (t.continueWork) return t.workTab ? workTabName(t.workTab) : "Continue my work";
   if (t.evening) return "Today in a minute";
   if (t.mission) return "Mission control";
   if (t.morning) return "your morning briefing";
@@ -217,7 +221,7 @@ export function navLabel(t: NavTarget): string {
 export const navReply = (t: NavTarget) =>
   t.stopAll ? "Stop-all is on; background work is paused."
     : t.voice !== undefined ? (t.voice ? "Voice output on." : "Voice output muted.")
-    : t.continueWork ? "Here's your unfinished work."
+    : t.continueWork ? (t.workTab && t.workTab !== "work" ? `Here are your ${workTabName(t.workTab).toLowerCase()}.` : "Here's your unfinished work.")
     : t.evening ? "How was today? A minute is enough."
     : t.mission ? "Mission control is up."
     : t.morning ? "Here's your morning briefing."
