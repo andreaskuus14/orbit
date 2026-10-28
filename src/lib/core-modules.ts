@@ -111,7 +111,7 @@ const MODULES: CoreModule[] = [
   },
   {
     name: "CHECKPOINT", tools: ["save_checkpoint"], writes: ["save_checkpoint"],
-    prompt: "- save_checkpoint {\"constraints\"?: string[], \"decisions\"?: string[], \"artifacts\"?: [{\"id\": string, \"version\"?: number}], \"next\"?: string}: add to this chat's CHECKPOINT (his constraints, decisions, artifact versions and the single next action; it stays in every later turn). Only when the user asks you to remember or checkpoint something for this chat/mission in their latest message; use his own words. Lines like \"budget under 300 €\" or \"remember for this: …\" are captured from his message automatically, so call this only for what that misses (a decision summary, the next action, an artifact id). He edits or deletes lines on the Checkpoint card.",
+    prompt: "- save_checkpoint {\"constraints\"?: string[], \"success\"?: string[], \"decisions\"?: string[], \"blockers\"?: string[], \"artifacts\"?: [{\"id\": string, \"version\"?: number, \"rev\"?: string}], \"next\"?: string}: add to this chat's CHECKPOINT (his constraints, success criteria, decisions, blockers, artifact versions and the single next action; it stays in every later turn). Only when the user asks you to remember or checkpoint something for this chat/mission in their latest message; use his own words. Lines like \"budget under 300 €\" or \"remember for this: …\" are captured from his message automatically, so call this only for what that misses (a decision summary, the next action, an artifact id). He edits or deletes lines on the Checkpoint card.",
     run: async (_t, i, c) => (await import("./checkpoint")).runCheckpointTool(c.userId, c.chat, i, c.question),
   },
   {
