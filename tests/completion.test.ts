@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
+import * as completionPure from "../src/lib/completion-pure.ts";
 import { canRetryTask, completionState, matchesStored } from "../src/lib/completion-pure.ts";
 import { verifyRow } from "../src/lib/completion.ts";
 
@@ -49,7 +50,7 @@ function approvalHarness(rows: Record<string, unknown>[]) {
   } };
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL("../src/lib/agents.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  vm.runInNewContext(source, { exports, require: (name: string) => name === "./completion-pure" ? { completionState }
+  vm.runInNewContext(source, { exports, require: (name: string) => name === "./completion-pure" ? completionPure
     : name === "./memory" ? { KINDS: ["note"] } : name === "./claude" ? { emit: async () => {} } : {}, console });
   return { sb, db, resolve: exports.resolvePending, tools: exports.TOOLS };
 }

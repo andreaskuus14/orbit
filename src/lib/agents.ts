@@ -9,7 +9,7 @@ import { verifyAnswer, type Source } from "./verify";
 import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { completionState, type WriteEvidence } from "./completion-pure";
+import { attemptId, completionState, type WriteEvidence } from "./completion-pure";
 import { verifyRow } from "./completion";
 import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 
@@ -21,7 +21,7 @@ export type AgentDef = {
   slug: string; name: string; role: string; instructions: string; tools: string[]; builtin: boolean; color: string;
 };
 export type TraceStep = { step: string; detail: string; ms: number; ok: boolean };
-export type PendingAction = { tool: string; input: Record<string, unknown>; status: "pending" | "approved" | "rejected" | "failed"; note?: string; evidence?: WriteEvidence[] };
+export type PendingAction = { tool: string; input: Record<string, unknown>; status: "pending" | "attempting" | "approved" | "rejected" | "failed" | "uncertain"; note?: string; evidence?: WriteEvidence[]; attempt?: string };
 type Task = { id: string; agent: string; title: string; request: string; parent_id: string | null; project_id: string | null };
 // pages: full texts read during the task, reused by the verification stage.
 // budget/signal: shared by the whole task tree, so delegated sub-tasks spend the same budget and stop with their parent.
@@ -481,18 +481,26 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
   if (!claimed?.length) throw new ConflictError("This task's approval is already being handled");
   const ctx: Ctx = { sb, userId, task, depth: 0, pending: [], trace: [], pages: new Map() };
   const pending = task.pending as PendingAction[];
-  for (const p of pending) {
+  const record = async (msg: string) => {
+    const { error: persistErr } = await sb.from("tasks").update({ pending }).eq("user_id", userId).eq("id", taskId).eq("status", "running");
+    if (persistErr) throw new Error(msg);
+  };
+  for (const [k, p] of pending.entries()) {
     if (p.status !== "pending") continue;
     ctx.evidence = [];
     if (!approve) p.status = "rejected";
-    else try {
-      p.note = await TOOLS[p.tool].run(ctx, p.input);
-      if (p.note.trimStart().startsWith("Error:")) throw new Error(p.note);
-      p.status = "approved";
-      p.evidence = ctx.evidence;
-    } catch (e) { p.status = "failed"; p.note = e instanceof Error ? e.message : String(e); }
-    const { error: persistErr } = await sb.from("tasks").update({ pending }).eq("user_id", userId).eq("id", taskId).eq("status", "running");
-    if (persistErr) throw new Error("An action was handled but its record could not be saved. Inspect the result before retrying.");
+    else {
+      // The attempt is on record before the action runs: a crash before its receipt leaves "attempting" (→ uncertain), never a silent retry.
+      Object.assign(p, { status: "attempting", attempt: attemptId(taskId, k) });
+      await record("Couldn't record the action attempt, so it was not run. Try again.");
+      try {
+        p.note = await TOOLS[p.tool].run(ctx, p.input);
+        if (p.note.trimStart().startsWith("Error:")) throw new Error(p.note);
+        p.status = "approved";
+        p.evidence = ctx.evidence;
+      } catch (e) { p.status = "failed"; p.note = e instanceof Error ? e.message : String(e); }
+    }
+    await record("An action was handled but its record could not be saved. Inspect the result before retrying.");
   }
   const { data: children, error: childErr } = await sb.from("tasks").select("status").eq("user_id", userId).eq("parent_id", taskId);
   if (childErr) throw childErr;
