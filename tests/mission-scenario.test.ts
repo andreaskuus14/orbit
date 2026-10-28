@@ -12,6 +12,9 @@ import * as missionsPure from "../src/lib/missions-pure.ts";
 import * as taskClaimPure from "../src/lib/task-claim-pure.ts";
 import * as stopAllPure from "../src/lib/stop-all-pure.ts";
 import * as pure from "../src/lib/pure.ts";
+import * as foregroundPure from "../src/lib/foreground-pure.ts";
+import * as clipStorePure from "../src/lib/clip-store-pure.ts";
+import * as missionChecksPure from "../src/lib/mission-checks-pure.ts";
 import { MODULE_HINTS, selectModules } from "../src/lib/core-modules-pure.ts";
 
 // Phase 2 gate, end to end: the REAL runner files (agents.ts, chains.ts, missions.ts + completion-pure) on an in-memory Supabase.
@@ -21,9 +24,10 @@ process.env.ORBIT_DATA_DIR = mkdtempSync(path.join(os.tmpdir(), "orbit-scenario-
 const stopAll = await import("../src/lib/stop-all.ts"); // real Stop-all, off (file absent in the temp data dir)
 
 type Row = Record<string, any>;
+let DBG: Row | undefined;
 const until = async (cond: () => unknown, what: string) => {
   for (let i = 0; i < 1500; i++) { if (await cond()) return; await new Promise((r) => setTimeout(r, 2)); }
-  throw new Error(`timed out waiting: ${what}`);
+  throw new Error(`timed out waiting: ${what} ${JSON.stringify(DBG?.tables, (k, v) => (k === "trace" ? undefined : v)).slice(0, 3000)}`);
 };
 
 /** In-memory Supabase. Every query runs synchronously inside one exec(), so a conditional update is atomic (like Postgres). */
@@ -91,7 +95,7 @@ function model(w: World, p: { ctx: Row }, prompt: string) {
   const k = [2, 1, 0].find((i) => prompt.includes(`REQUEST:\n${w.req[i]}`));
   assert.ok(k !== undefined, "prompt names a known step");
   w.calls[k]++;
-  if (k === 0) { p.ctx.__orbitTaskQueue.add("other-1"); p.ctx.__orbitTaskQueue.add("other-2"); return { final: "Facts: A, B, C." }; } // other work fills both slots
+  if (k === 0) { p.ctx.__orbitTaskQueue.add("other-1"); p.ctx.__orbitTaskQueue.add("other-2"); return { final: "Facts gathered from the notes: A, B, C." }; } // other work fills both slots
   if (k === 1 && !prompt.includes("YOUR STEPS SO FAR")) { w.proposals++; return { tool: "fake_write", input: { path: "report.md", text: "Report: A, B, C." } }; }
   if (k === 1) return { final: "Report drafted; the file write waits for approval." };
   return { final: "Checked: report.md matches the facts." };
@@ -116,6 +120,10 @@ function boot(w: World) {
     "./claude": claude, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure,
     "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./pure": pure,
     "./memory": { KINDS: ["note"], createMemory: (_sb: unknown, userId: string, input: Row) => ctx.__memory({ ...input, user_id: userId }) }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
+    "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./mission-checks-pure": missionChecksPure,
+    "./capability": { capabilityStart: async () => ({ block: "", headsUp: "" }) },
+    // the fake tool's destination is the workspace: a file receipt reads back what actually landed
+    "./workspace": { readWsFile: async (_u: string, ref: string) => (w.dest.has(ref) ? { text: w.dest.get(ref), size: w.dest.get(ref)!.length } : null) },
     "./agents": p.agents, "./chains": p.chains,
   };
   for (const [f, out] of [["agents.ts", p.agents], ["chains.ts", p.chains], ["missions.ts", p.missions]] as const)
@@ -134,7 +142,7 @@ function boot(w: World) {
 type Proc = ReturnType<typeof boot>;
 
 async function scenario(req: string[], question: string, workers: 1 | 2) {
-  const w = world(req);
+  const w = world(req); DBG = w;
   const { sb } = w;
   const task = (k: number) => w.tables.tasks.filter((t) => t.parent_id)[k];
   const mission = () => w.tables.missions[0];
@@ -143,7 +151,7 @@ async function scenario(req: string[], question: string, workers: 1 | 2) {
 
   // 1. Start via CORE's tool, as the owner's own instruction. Step 1 runs; meanwhile other work takes both slots.
   const A = boot(w);
-  const out = await A.missions.runMissionTool(sb, "owner", "start_mission", { objective: "Report", steps: req.map((r) => ({ agent: "nova", request: r })) }, question, false);
+  const out = await A.missions.runMissionTool(sb, "owner", "start_mission", { objective: "Report", acceptance: 'report.md contains "A, B, C"', steps: req.map((r) => ({ agent: "nova", request: r })) }, question, false);
   assert.match(out, /^Done: mission started/);
   await until(() => task(0)?.status === "done" && A.ctx.__orbitChains.size === 1, "step 1 done, driver waiting for a slot");
   await new Promise((r) => setTimeout(r, 20));
@@ -213,6 +221,7 @@ async function scenario(req: string[], question: string, workers: 1 | 2) {
   // 7. Finish: step 3, then the mission completes. Final artifact, receipts and history.
   for (let i = 0; i < 5 && mission().status !== "completed"; i++) await tick(C);
   assert.equal(mission().status, "completed");
+  assert.equal(mission().doc.verified, true, JSON.stringify(mission().doc.checks)); // the acceptance check reads the file that actually landed
   const chain = w.tables.tasks.find((t) => !t.parent_id)!;
   assert.equal(chain.status, "done");
   assert.equal(chain.result, "Checked: report.md matches the facts.");
@@ -220,10 +229,10 @@ async function scenario(req: string[], question: string, workers: 1 | 2) {
   assert.deepEqual(w.calls.map((c) => c > 0), [true, true, true]);
   assert.equal(w.calls[0], 1, "step 1 never reran");
   const r = mission().doc.receipts;
-  assert.deepEqual(r.filter((x: Row) => x.kind === "task").map((x: Row) => x.step).sort(), [0, 1, 2]);
-  assert.deepEqual(r.filter((x: Row) => x.kind === "file").map((x: Row) => [x.ref, x.step, x.path]), [[attempt, 1, "report.md"]]);
+  assert.deepEqual(w.tables.tasks.filter((t) => t.parent_id).map((t) => t.status), ["done", "done", "done"]);
+  assert.deepEqual(r.map((x: Row) => [x.kind, x.ref, x.step, x.path]), [["file", attempt, 1, "report.md"]], "receipts: only the checked write (a finished step is not a receipt)");
   const log = mission().doc.log.map((l: Row) => l.text).join("\n");
-  for (const s of [/pause/i, /resum|running/i, /check its result before retrying/, /receipt/, /complete/i]) assert.match(log, s);
+  for (const s of [/pause/i, /resum|running/i, /check its result before retrying/, /receipt/, /Verified/, /complete/i]) assert.match(log, s);
   assert.match(mission().doc.decisions.map((d: Row) => d.text).join("\n"), /retry step 2/);
   return w;
 }
