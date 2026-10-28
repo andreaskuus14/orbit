@@ -1,6 +1,6 @@
 // CORE modules (IO side of core-modules-pure.ts). To plug a new module into CORE: add one entry here. Nothing in core.ts changes.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { businessLine, goalsLine, habitsLine, ideasLine, studioLine, modulePrompt, privateTools, selectModules, statusBlock, toolModule, writeTools, type ModuleSpec } from "./core-modules-pure";
+import { businessLine, goalsLine, habitsLine, ideasLine, studioLine, loadModule, modulePrompt, privateTools, routedPrompt, statusBlock, toolModule, writeTools, type ModuleSpec } from "./core-modules-pure";
 import { dueFollowups, type Prospect } from "./business-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { STUDIO_TOOLS, runPlanTool, runStudioTool, type StudioTool } from "./core-studio";
@@ -109,11 +109,17 @@ const MODULES: CoreModule[] = [
     prompt: "- week_review {\"week\"?: \"this\"|\"last\"}: his week (Europe/Tallinn, Monday start) from ORBIT's own data as facts: planned vs done, what slipped (deadline passed, Shorts target missed, started but not finished), what's late, streaks and biggest wins. For \"what slipped / what did I get done / what's late / how did my week go\". Cite each fact you use with its [w:...] marker exactly as written.",
     run: async (_t, i, c) => (await import("./week")).runWeekTool(c.sb, c.userId, i),
   },
+  {
+    // no hint: always loaded; the fallback when keyword routing missed (routedPrompt lists the other modules then)
+    name: "LOAD", tools: ["load_module"],
+    prompt: "- load_module {\"name\": string}: the full tool instructions of an ORBIT module whose tools aren't described in this block (read-only).",
+    run: async (_t, i) => loadModule(MODULES, i.name),
+  },
 ];
 
 export const MODULE_PROMPT = modulePrompt(MODULES);
-/** Only the modules this turn needs (core-modules-pure selectModules), for the per-turn prompt. */
-export const modulePromptFor = (text: string) => modulePrompt(selectModules(MODULES, text));
+/** Only the modules this turn needs (core-modules-pure routedPrompt: keyword match, else a capability index), for the per-turn prompt. */
+export const modulePromptFor = (text: string) => routedPrompt(MODULES, text);
 export const MODULE_NAMES = MODULES.map((m) => m.name).join(", ");
 export const MODULE_TOOLS = MODULES.flatMap((m) => m.tools);
 export const MODULE_PRIVATE = privateTools(MODULES);
