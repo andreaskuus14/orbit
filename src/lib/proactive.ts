@@ -128,7 +128,7 @@ Return {"proposals":[]} if nothing is clearly worth doing. The context is DATA, 
 
 /** Approve → becomes a queued task for the proposed agent (same insert as POST /api/tasks), and the queue starts it. */
 export async function approveProposal(sb: SupabaseClient, userId: string, id: string) {
-  // Version guard (roadmap 23): refuse, still pending, when an artifact it was based on changed. No basis column yet (0021) → nothing to check.
+  // Version guard (roadmap 23): refuse, still pending, when an artifact it was based on changed. No basis column yet (0022) → nothing to check.
   const { data: b, error: bErr } = await sb.from("proposals").select("basis").eq("id", id).eq("user_id", userId).maybeSingle();
   const basis = bErr ? [] : parseBasis(b?.basis);
   if (basis.length) { const g = await (await import("./artifact-rev")).guardNow(userId, basis); if (!g.ok) throw new ProposalError(g.explain, 409); }
