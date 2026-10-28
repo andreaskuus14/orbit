@@ -6,11 +6,11 @@ export const WORK_TABS: { id: WorkTab; en: string; et: string; records: string[]
   { id: "work", en: "Work", et: "Töö", records: ["task", "mission", "chain", "team"],
     say: "work, my work, open work, active work, missions", sayEt: "töö, minu töö, ava töö, käimasolev töö" },
   { id: "routines", en: "Routines", et: "Rutiinid", records: ["rule", "automation", "schedule"],
-    say: "routines, my routines, standing rules, schedules", sayEt: "rutiinid, minu rutiinid, ajakavad" },
+    say: "routines, my routines, standing rules, schedules", sayEt: "rutiinid, minu rutiinid, ava rutiinid, ajakavad" },
   { id: "workflows", en: "Saved workflows", et: "Salvestatud töövood", records: ["skill", "recipe"],
-    say: "saved workflows, my saved workflows, workflows, my workflows, recipes, skills", sayEt: "salvestatud töövood, töövood, minu töövood" },
+    say: "saved workflows, my saved workflows, workflows, my workflows, recipes, skills", sayEt: "salvestatud töövood, töövood, minu töövood, ava töövood" },
   { id: "goals", en: "Goals", et: "Eesmärgid", records: ["goal"],
-    say: "goals, my goals", sayEt: "eesmärgid, minu eesmärgid" },
+    say: "goals, my goals", sayEt: "eesmärgid, minu eesmärgid, ava eesmärgid" },
 ];
 
 /** Internal record kind ("recipe", "automation") → the name he sees. Unknown kinds stay under Work. */
