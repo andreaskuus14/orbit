@@ -12,7 +12,7 @@ import { REA_TOOLS } from "./rea-pure";
 type Base = { sb: SupabaseClient; userId: string };
 /** What a tool call sees. tainted: page/file/agent/tool output or attachments/pins are in context (core.ts's dataIn).
  *  pinned: attachments or pinned notes are in context; steps: this answer's tool results so far. */
-export type Ctx = Base & { question: string; tainted: boolean; pinned: boolean; steps: string[]; onEvidence: (e: WriteEvidence) => void };
+export type Ctx = Base & { chat?: string; question: string; tainted: boolean; pinned: boolean; steps: string[]; onEvidence: (e: WriteEvidence) => void };
 type CoreModule = ModuleSpec & { run: (tool: string, input: Record<string, unknown>, c: Ctx) => Promise<string>; status?: (c: Base) => Promise<string> };
 
 const prospects = async ({ sb }: Base) =>
@@ -108,6 +108,11 @@ const MODULES: CoreModule[] = [
     name: "WEEK", tools: ["week_review"], private: true,
     prompt: "- week_review {\"week\"?: \"this\"|\"last\"}: his week (Europe/Tallinn, Monday start) from ORBIT's own data as facts: planned vs done, what slipped (deadline passed, Shorts target missed, started but not finished), what's late, streaks and biggest wins. For \"what slipped / what did I get done / what's late / how did my week go\". Cite each fact you use with its [w:...] marker exactly as written.",
     run: async (_t, i, c) => (await import("./week")).runWeekTool(c.sb, c.userId, i),
+  },
+  {
+    name: "CHECKPOINT", tools: ["save_checkpoint"], writes: ["save_checkpoint"],
+    prompt: "- save_checkpoint {\"constraints\"?: string[], \"decisions\"?: string[], \"artifacts\"?: [{\"id\": string, \"version\"?: number}], \"next\"?: string}: add to this chat's CHECKPOINT (his constraints, decisions, artifact versions and the single next action; it stays in every later turn). Only when the user asks you to remember or checkpoint something for this chat/mission in their latest message; use his own words. Lines like \"budget under 300 €\" or \"remember for this: …\" are captured from his message automatically, so call this only for what that misses (a decision summary, the next action, an artifact id). He edits or deletes lines on the Checkpoint card.",
+    run: async (_t, i, c) => (await import("./checkpoint")).runCheckpointTool(c.userId, c.chat, i, c.question),
   },
   {
     // no hint: always loaded; the fallback when keyword routing missed (routedPrompt lists the other modules then)

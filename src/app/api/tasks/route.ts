@@ -1,6 +1,9 @@
 import { requireUser } from "@/lib/supabase/server";
 import { getAgent, kickQueue } from "@/lib/agents";
 import { str } from "@/lib/pure";
+import { capabilityStart } from "@/lib/capability";
+import { withHeadsUp } from "@/lib/capability-pure";
+import { interruptedPatch } from "@/lib/completion-pure";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 
@@ -13,8 +16,8 @@ export async function GET(req: Request) {
   // Tasks left "running" by a server restart can never finish: mark them failed so they don't look stuck.
   if (Date.now() - (swept.get(user.id) ?? 0) > 60_000) {
     swept.set(user.id, Date.now());
-    await sb.from("tasks").update({ status: "failed", error: "Interrupted (ORBIT restarted). Press Retry.", finished_at: new Date().toISOString() })
-      .eq("status", "running").lt("started_at", new Date(Date.now() - 20 * 60_000).toISOString());
+    const { data: stale } = await sb.from("tasks").select("id, pending").eq("status", "running").lt("started_at", new Date(Date.now() - 20 * 60_000).toISOString());
+    for (const t of stale ?? []) await sb.from("tasks").update(interruptedPatch(t.pending, "Interrupted (ORBIT restarted). Press Retry.")).eq("id", t.id).eq("status", "running");
   }
   const p = new URL(req.url).searchParams;
   let q = sb.from("tasks").select(COLS).is("parent_id", null).order("created_at", { ascending: false }).limit(60);
@@ -37,7 +40,10 @@ export async function POST(req: Request) {
   const title = str(body.title, 200) || request.split("\n")[0].slice(0, 120);
   const project_id = typeof body.project_id === "string" && body.project_id ? body.project_id : null;
 
-  const { data, error } = await sb.from("tasks").insert({ user_id: user.id, agent, title, request, project_id }).select(COLS).single();
+  // Check before promising: refuse only when Claude Code is known down; anything else missing goes on the task as a heads-up.
+  const cap = await capabilityStart(request, body.lang === "et" || body.lang === "en" ? body.lang : undefined);
+  if (cap.block) return Response.json({ error: cap.block }, { status: 503 });
+  const { data, error } = await sb.from("tasks").insert({ user_id: user.id, agent, project_id, ...withHeadsUp(title, request, cap.headsUp) }).select(COLS).single();
   if (error) return Response.json({ error: error.message }, { status: 400 });
   void kickQueue(sb, user.id);
   return Response.json({ task: data }, { status: 201 });

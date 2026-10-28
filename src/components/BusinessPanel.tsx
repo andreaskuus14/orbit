@@ -226,7 +226,7 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
             {canSend && to && p.stage === "lead" && (
               <button className={`chip ${sendSure ? "ok" : ""}`} disabled={any}
                 onClick={() => (sendSure ? (setSendSure(false), void sendStamp(p).then((seen) => act(`send:${p.id}`, { action: "send", id: p.id, seen }))) : (setSendSure(true), setTimeout(() => setSendSure(false), 5000)))}>
-                {busy === `send:${p.id}` ? "Sending…" : sendSure ? `Click again to send to ${to}` : "✉ Approve & send"}</button>)}
+                {busy === `send:${p.id}` ? "Sending…" : sendSure ? `Click again to send to ${to}` : `✉ Approve & send to ${to}`}</button>)}
             {canSend && to && p.stage === "lead" && /https?:\/\/|www\./i.test(p.draft) && <span className="error text-[11px]">This draft contains a link: check it's one you meant to send.</span>}
             <span className="muted text-[11px]">{canSend && to && p.stage === "lead" ? "Read it first: nothing is sent until you click twice." : canSend && p.stage === "lead" ? "To send from ORBIT, put one email address in Contact." : "Check it, then send it yourself."} Only say you tested their reply time if you really did.</span>
             {p.stage === "lead" && <OrbitThinks id={`draft:${p.id}`} />}</div>
