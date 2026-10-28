@@ -1,6 +1,7 @@
 // CORE's WORKSPACE tools: real files CORE builds (a website, a script) instead of pasting code into chat. Writes only happen as the
 // user's own request in their latest message, and not once page/file/agent output is in context (injected text can't plant files).
 import type { WriteEvidence } from "./completion-pure.ts";
+import { et, etQuestion, ET_NOT } from "./et-ask-pure.ts";
 export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create"] as const;
 export type WsTool = (typeof WS_TOOLS)[number];
 export const isWsTool = (t: string): t is WsTool => (WS_TOOLS as readonly string[]).includes(t);
@@ -15,12 +16,14 @@ export const wsTainted = (steps: string[]) => steps.some((s) => !/^You called (?
 export function wsWriteBlocked(question: string, tainted: boolean): string | null {
   if (tainted) return "workspace files change only for the user's own request, before any page, file or agent output is in context";
   const q = question.toLowerCase();
-  if (/\b(?:don'?t|do not|never|stop|cancel)\b/.test(q)) return "the user said not to; answer instead";
-  if (/^\s*(?:how|what|why|which|when|where|explain)\b/.test(q)) return "the user asked a question; answer it instead of writing files";
+  if (/\b(?:don'?t|do not|never|stop|cancel)\b/.test(q) || ET_NOT.test(q)) return "the user said not to; answer instead";
+  if (/^\s*(?:how|what|why|which|when|where|explain)\b/.test(q) || etQuestion(q) || /^\s*seleta/.test(q)) return "the user asked a question; answer it instead of writing files";
   const verb = /\b(?:build|make|create|write|edit|update|change|fix|save|add|generate|scaffold|code|put|redo|rewrite|tweak)\b/.test(q);
   // Bare "it/that/this" doesn't count ("make it so"): the message must name a file, site, page or workspace.
   const thing = /\b(?:site|website|web ?page|webpage|page|app|game|files?|html|css|js|javascript|script|landing|portfolio|workspace|folder|index|readme|luau?|python|prototype|demo)\b/.test(q);
-  return verb && thing ? null : "the user's latest message didn't ask to build or save files; answer instead";
+  const verbEt = et("ehita|tee |loo |kirjuta|muuda|paranda|salvesta|lisa|uuenda|genereeri").test(q);
+  const thingEt = et("veebileh|veebisait|leh[te]|lehekülg|äpp|rakendus|mäng|fail|tööruum|kaust|prototüüp|demo|html|skript").test(q);
+  return (verb || verbEt) && (thing || thingEt) ? null : "the user's latest message didn't ask to build or save files; answer instead";
 }
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
