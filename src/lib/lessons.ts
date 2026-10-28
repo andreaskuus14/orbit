@@ -110,7 +110,8 @@ export async function mineLessons(sb: SupabaseClient, userId: string, now = Date
   const soft = (name: string) => (e: unknown) => { console.warn(`[lessons] ${name} skipped:`, e instanceof Error ? e.message : e); return [] as Signal[]; };
   const parts = await Promise.all([eventSignals(sb, userId, since).catch(soft("events")), proposalSignals(sb, userId, since, now).catch(soft("proposals")),
     clipSignals().catch(soft("clips")), businessSignals(sb, userId, since).catch(soft("business")), nicheSignals().catch(soft("niches"))]);
-  const fresh = mine(parts.flat(), now);
+  const exp = await import("./clips/experiments").then((m) => m.experimentLessons(now)).catch((e) => { console.warn("[lessons] experiments skipped:", e instanceof Error ? e.message : e); return []; });
+  const fresh = [...mine(parts.flat(), now), ...exp]; // experiment lessons are proposals like the rest: kept only on his click
   try {
     return await update((s) => {
       const u = mineOf(s, userId), before = new Set(u.lessons.map((l) => l.id));

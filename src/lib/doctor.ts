@@ -1,7 +1,7 @@
 import { withYoutubeBudget } from "./youtube-quota";
 import { quotaSummary } from "./youtube-quota-pure";
-import { exec } from "node:child_process";
-import { access, readFile, stat, statfs, unlink, writeFile } from "node:fs/promises";
+import { exec, execFile } from "node:child_process";
+import { access, readdir, readFile, stat, statfs, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CLAUDE_BIN, MODEL, SMART_MODEL, FAST_MODEL, DEEP_MODEL } from "./claude";
@@ -12,13 +12,17 @@ import { HF_INSTALL } from "./clips/hyperframes-pure";
 import { scoutView } from "./clips/scout";
 import { isMissingTable } from "./proactive-pure";
 import { usage, vaultDir } from "./vault";
+import { rememberChecks } from "./capability";
 import { MAX_FILES, MAX_TOTAL } from "./vault-pure";
 import { api } from "./youtube";
 import { oauthEnv, readStored, wasExpired } from "./yt-oauth";
 import { YT_UPLOAD_SCOPE, hasScopes } from "./yt-analytics-pure";
 import {
   buildCheck, check, diskCheck, envCheck, factsCheck, launcherCheck, lifeCheck, modelCheck, nightCheck, quotaCheck, summarize, vaultCheck, ytdlpCheck, type Check, type Report,
+  latencyCheck,
 } from "./doctor-pure";
+import { coreTurns } from "./perf-log";
+import { MIGRATION_MARKERS, migrationCheck, versionCheck } from "./version-pure";
 
 // ORBIT doctor: runs every check in parallel, each with its own timeout, and returns plain-English verdicts (see doctor-pure.ts).
 // Nothing here returns a secret: env checks report names only, and error text from outside is never passed through raw.
@@ -175,6 +179,26 @@ const ENV_OPTIONAL = {
   YOUTUBE_OAUTH_CLIENT_SECRET: "channel connection", SUPABASE_SECRET_KEY: "briefings while the browser is closed",
 };
 
+const git = (...args: string[]) => new Promise<string | null>((r) => execFile("git", args, { cwd: root(), timeout: 4000, windowsHide: true }, (e, out) => r(e ? null : out.trim())));
+
+// Running = stamped into this build by next.config; checkout and origin/main are local git refs (no network fetch).
+async function runningVersion(): Promise<Check> {
+  const [head, main, status] = await Promise.all([git("rev-parse", "HEAD"), git("rev-parse", "origin/main"), git("status", "--porcelain", "--untracked-files=no")]);
+  return versionCheck({ running: process.env.ORBIT_BUILD_COMMIT || "unknown", builtAt: process.env.ORBIT_BUILD_TIME || "unknown", head, main, dirty: status === null ? null : status !== "" }, process.env);
+}
+
+// Read-only probes: a head select of the marker column; a "does not exist" error means that migration is missing.
+async function migrations(sb: SupabaseClient): Promise<Check> {
+  const files = await readdir(path.join(root(), "supabase", "migrations")).catch(() => [] as string[]);
+  const applied: Record<string, boolean> = {};
+  await Promise.all(Object.entries(MIGRATION_MARKERS).map(async ([id, m]) => {
+    const { error } = await sb.from(m.table).select(m.column ?? "*", { head: true }).limit(1).abortSignal(AbortSignal.timeout(5000));
+    if (!error) applied[id] = true;
+    else if (isMissingTable(error) || /column .* does not exist|42703/i.test(`${error.code} ${error.message}`)) applied[id] = false;
+  }));
+  return migrationCheck(files, applied);
+}
+
 /** All checks in parallel; worst case ~8 s (each guard's timeout). */
 export async function runDoctor(sb: SupabaseClient): Promise<Report> {
   const t0 = Date.now();
@@ -188,12 +212,15 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
     guard("tools", "Clip tools (ffmpeg, yt-dlp, Whisper)", toolChecks),
     guard("disk", "Free disk space", disk),
     guard("build", "Last update build", build),
+    guard("version", "Running version", runningVersion),
+    guard("migrations", "Database migrations", () => migrations(sb)),
     guard("launcher", "Server stability", async () => launcherCheck(await tail(path.join(root(), "orbit-launcher.log"), 50_000), new Date())),
     guard("night", "Overnight run", night),
     guard("life", "LIFE data (habits, reminders)", life),
     guard("vault", "VAULT (your files)", vault),
     guard("facts", "Belief memory", () => facts(sb)),
     guard("drill", "Last recovery drill", async () => import("./drill-pure.ts").then(async (m) => m.drillCheck(await import("./drill.ts").then((d) => d.lastDrill()), Date.now()))),
+    Promise.resolve(latencyCheck(coreTurns)),
     ...(WIN ? [guard("wake", "Voice wake-up", wake)] : []),
     Promise.resolve(envCheck(process.env, ENV_REQUIRED, ENV_OPTIONAL)),
     // Matters most once ORBIT is reachable from a phone (docs/PHONE.md): without it any account in the Supabase project gets in.
@@ -201,5 +228,7 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
       ? check("allow", "Who can sign in", "ok", "Only the emails in ORBIT_ALLOWED_EMAILS")
       : check("allow", "Who can sign in", "warn", "ORBIT_ALLOWED_EMAILS is empty, so any account in your Supabase project can use ORBIT", "Add ORBIT_ALLOWED_EMAILS=your@email to .env.local and restart ORBIT")),
   ]);
-  return summarize(results.flat(), Date.now() - t0);
+  const r = summarize(results.flat(), Date.now() - t0);
+  rememberChecks(r.checks); // capability check (capability.ts) reads these instead of probing again
+  return r;
 }

@@ -22,7 +22,7 @@ type Data = {
   "focus.session": { minutes: number };
   "notify.shown": { kind: string; title: string };
   "morning.thumb": { kind: CardKind; key: string; up: boolean };
-  "policy.decision": { tool: string; tier: "T0" | "T1" | "T2" | "T3"; verdict: "allow" | "refuse"; reason: string }; // no message text or LIFE data
+  "policy.decision": { tool: string; tier: "T0" | "T1" | "T2" | "T3"; verdict: "allow" | "refuse"; reason: string; turn?: string }; // no message text or LIFE data
   "morning.click": { source: Source; key: string };
   "morning.done": { source: Source; key: string };
   "journal.saved": { memoryId: string };
@@ -78,7 +78,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "focus.session": { minutes: (v) => typeof v === "number" && v > 0 && v <= 1440 },
   "notify.shown": { kind: id, title: name },
   "morning.thumb": { kind: oneOf(CARD_KINDS), key: id, up: bool },
-  "policy.decision": { tool: id, tier: oneOf(["T0", "T1", "T2", "T3"]), verdict: oneOf(["allow", "refuse"]), reason: str(300) },
+  "policy.decision": { tool: id, tier: oneOf(["T0", "T1", "T2", "T3"]), verdict: oneOf(["allow", "refuse"]), reason: str(300), turn: opt(id) },
   "morning.click": { source: oneOf(SOURCES), key: id },
   "morning.done": { source: oneOf(SOURCES), key: id },
   "journal.saved": { memoryId: id },

@@ -26,13 +26,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      # ponytail: the repo has no lockfile yet; use reproducible installs once one is committed.
-      - run: |
-          if [ -f package-lock.json ]; then
-            npm ci --no-audit --no-fund
-          else
-            npm install --no-audit --no-fund
-          fi
+          cache: npm
+          cache-dependency-path: package-lock.json
+      # Reproducible install from the committed lockfile; fails if package.json and the lockfile disagree.
+      - run: npm ci --no-audit --no-fund
       - run: npx tsc --noEmit -p .
       - run: npm test
       - run: npm run eval:ai

@@ -1,4 +1,6 @@
 // Dependency-free logic for CORE's self-learning (memory drafts, secret filter, reflection parsing, caps).
+import { et, } from "./et-ask-pure.ts";
+const REMEMBER_ET = et("jäta meelde|jäta see meelde|pea meeles|salvesta|märgi üles|kirjuta üles|ära unusta");
 // Unit-tested in tests/reflect.test.ts. Keep this file free of imports and non-erasable TS syntax.
 
 /** Kinds CORE may save by itself (a subset of KINDS in kinds.ts). */
@@ -102,7 +104,7 @@ const REMEMBER_RE = /\b(remember|save|saving|memori[sz]e|note (this|that|it|down
 const PREFERENCE_RE = /\b(don'?t|do not|stop|prefer\w*|always|never|shorter|longer|instead|please (be|use|answer|reply|write|keep)|too (long|short|verbose|wordy)|from now on|in (estonian|english|finnish|russian|german|bullets?|a table|short))\b/i;
 
 /** The user explicitly asked to save something. */
-export const asksToRemember = (msg: string) => REMEMBER_RE.test(msg);
+export const asksToRemember = (msg: string) => REMEMBER_RE.test(msg) || REMEMBER_ET.test(msg);
 /** The user stated a style preference or corrected CORE. */
 export const hasPreferenceSignal = (msg: string) => PREFERENCE_RE.test(msg);
 

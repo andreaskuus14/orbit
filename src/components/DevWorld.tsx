@@ -26,6 +26,7 @@ import TextureStudio from "./TextureStudio";
 import PlaytestBot from "./PlaytestBot";
 import PersonaPlaytest from "./PersonaPlaytest";
 import GameCopilot from "./GameCopilot";
+import DevTrail from "./DevTrail";
 import GridCity from "./GridCity";
 import HivePanel from "./HivePanel";
 import DevSessions from "./DevSessions";
@@ -500,6 +501,7 @@ function BugTracker({ game, world, commit, onFix }: { game: Game; world: World; 
               {b.goalId ? <span className="muted">🎯 Goal made</span>
                 : <button className="chip" disabled={!!goalBusy} onClick={() => void toGoal(b)}>{goalBusy === b.id ? "Creating…" : "→ Goal"}</button>}
               {game.platform === "roblox" && <button className="chip" onClick={() => onFix(fixContext(b))}>🩹 Suggest fix</button>}
+              <DevTrail bug={b} world={world} commit={commit} />
               <button className="chip ml-auto" aria-label={`Delete bug ${b.title}`}
                 onClick={() => { if (confirm(`Delete bug "${b.title}"?`)) commit({ ...world, bugs: world.bugs.filter((x) => x.id !== b.id) }); }}>Delete</button>
             </div>

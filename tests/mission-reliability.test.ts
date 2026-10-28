@@ -106,7 +106,7 @@ test("(c) crash after an approved write but before its receipt: recovery reports
   const { sb } = fakeDb({ tasks: [{ id: "step", user_id: "owner", parent_id: null, project_id: null, status: "awaiting_approval", agent: "nova", title: "t", request: "",
     pending: [{ tool: "save_memory", input: {}, status: "pending" }] }] });
   const tasks = () => (sb as any).from("tasks").select().eq("id", "step").maybeSingle().then((r: any) => r.data);
-  const { exports } = load("lib/agents.ts", { "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure, "./memory": { KINDS: ["note"] }, "./claude": { emit: async () => {} } });
+  const { exports } = load("lib/agents.ts", { "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure, "./memory": { KINDS: ["note"] }, "./claude": { emit: async () => {} }, "./stop-all": { stopAllOn: () => false } });
   let writesDone = 0;
   exports.TOOLS.save_memory.run = () => { writesDone++; return new Promise(() => {}); }; // the write happens, then the process dies (never returns)
   void exports.resolvePending(sb, "owner", "step", true);
@@ -137,7 +137,7 @@ test("(c) crash after an approved write but before its receipt: recovery reports
 test("successful approval saves the receipt over the attempt; no attempt → interruption stays a plain retryable failure", async () => {
   const { sb } = fakeDb({ tasks: [{ id: "x", user_id: "owner", parent_id: null, project_id: null, status: "awaiting_approval", agent: "nova", title: "t", request: "",
     pending: [{ tool: "save_memory", input: {}, status: "pending" }] }] });
-  const { exports } = load("lib/agents.ts", { "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure, "./memory": { KINDS: ["note"] }, "./claude": { emit: async () => {} } });
+  const { exports } = load("lib/agents.ts", { "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure, "./memory": { KINDS: ["note"] }, "./claude": { emit: async () => {} }, "./stop-all": { stopAllOn: () => false } });
   exports.TOOLS.save_memory.run = async (ctx: any) => { ctx.evidence.push({ kind: "memory", id: "m1" }); return "Saved"; };
   const pending = await exports.resolvePending(sb, "owner", "x", true);
   assert.deepEqual([pending[0].status, pending[0].attempt, pending[0].evidence[0].id], ["approved", "x:0", "m1"]);

@@ -156,22 +156,32 @@ export const contractNote = (n: Negotiation) => (n.state === "agreed" ? `Agreed 
 
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
+/** Who approving emails this draft to: a sell-side prospect's one Contact address when sending is set up; null = he copies it himself.
+ *  The approval hash binds it (negoContent), so the PC box and Remote show and hash the same value. */
+async function recipient(sb: SupabaseClient, n: Negotiation): Promise<{ to: string | null; name: string }> {
+  if (n.side !== "sell" || !process.env.RESEND_API_KEY || !process.env.ORBIT_MAIL_FROM) return { to: null, name: "" };
+  const { data: p } = await sb.from("prospects").select("name, contact").eq("id", n.ref.slice(9)).maybeSingle();
+  return { to: p ? emailIn(p.contact ?? "") : null, name: p?.name ?? "" };
+}
+/** Recipient per waiting draft, for the PC Negotiator box (it hashes what it shows). */
+export async function negoRecipients(sb: SupabaseClient, list: Negotiation[]): Promise<Record<string, string | null>> {
+  return Object.fromEntries(await Promise.all(list.filter((n) => n.draft).map(async (n) => [n.id, (await recipient(sb, n)).to] as const)));
+}
+
 /** His approve click (BUSINESS, morning brief or phone): `seen` must be the contentHash of the draft he read (negoContent). Emails a BUSINESS prospect when
  *  Resend is set up and Contact holds one address; otherwise records it as approved for him to copy. Never automatic. */
 export async function approveNegotiation(sb: SupabaseClient, userId: string, id: unknown, seen: unknown): Promise<Response> {
   if (stopAllOn()) return fail("Not now: Stop-all is on", 503);
   const n = (await load()).negotiations.find((x) => x.id === id);
-  const why = approveProblem(n, n?.draft?.at) || (await approvalGate("negotiator.approve", seen, negoContent(n!.id, n!.draft!.text))); // seen = hash of the draft he read
-  if (why || !n) return fail(why, why === "Not found" ? 404 : 409);
+  const problem = approveProblem(n, n?.draft?.at);
+  if (problem || !n) return fail(problem, problem === "Not found" ? 404 : 409);
   const version = n.draft!.at;
-  let to: string | null = null, subject = "";
+  const { to, name } = await recipient(sb, n);
+  const subject = to ? `Re: ${sendSubject(name, n.draft!.text)}` : "";
+  const why = await approvalGate("negotiator.approve", seen, negoContent(n.id, n.draft!.text, to)); // seen = hash of the draft AND recipient he read
+  if (why) return fail(why, 409);
   const key = process.env.RESEND_API_KEY, from = process.env.ORBIT_MAIL_FROM;
-  if (n.side === "sell" && key && from) {
-    const { data: p } = await sb.from("prospects").select("name, contact").eq("id", n.ref.slice(9)).maybeSingle();
-    to = p ? emailIn(p.contact ?? "") : null;
-    subject = p ? `Re: ${sendSubject(p.name, n.draft!.text)}` : "";
-    if (to) { const off = allows("business-send", "owner"); if (!off.ok) return fail(`Not sending: ${off.why}`, 503); }
-  }
+  if (to) { const off = allows("business-send", "owner"); if (!off.ok) return fail(`Not sending: ${off.why}`, 503); }
   // Claim first (the draft leaves the store), so a double tap can't send twice.
   const claimed = await update((s) => {
     const cur = s.negotiations.find((x) => x.id === n.id);

@@ -51,7 +51,7 @@ function approvalHarness(rows: Record<string, unknown>[]) {
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL("../src/lib/agents.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(source, { exports, require: (name: string) => name === "./completion-pure" ? completionPure
-    : name === "./memory" ? { KINDS: ["note"] } : name === "./claude" ? { emit: async () => {} } : {}, console, crypto });
+    : name === "./memory" ? { KINDS: ["note"] } : name === "./claude" ? { emit: async () => {} } : name === "./stop-all" ? { stopAllOn: () => false } : {}, console, crypto });
   return { sb, db, resolve: exports.resolvePending, tools: exports.TOOLS };
 }
 const task = (id: string, parent: string | null = null, status = "awaiting_approval", pending: unknown[] = []) => ({ id, user_id: "owner", parent_id: parent, project_id: null, status, agent: "nova", title: id, request: "", pending });
@@ -161,4 +161,15 @@ test("workspace writes are readable with the exact UTF-8 content and byte count"
     assert.ok(path.resolve(dir).startsWith(path.resolve(prefix)));
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("executed vs verified: a task without read-back evidence never shows verified", async () => {
+  const { taskVerified, doneLabel } = await import("../src/lib/completion-pure.ts");
+  assert.equal(taskVerified("done", []), false);
+  assert.equal(taskVerified("done", [{ status: "approved" }, { status: "approved", evidence: [] }]), false);
+  assert.equal(taskVerified("done", [{ status: "rejected", evidence: [{ kind: "memory", id: "m" }] }]), false);
+  assert.equal(taskVerified("failed", [{ status: "approved", evidence: [{ kind: "memory", id: "m" }] }]), false);
+  assert.equal(taskVerified("done", [{ status: "approved", evidence: [{ kind: "memory", id: "m" }] }]), true);
+  assert.equal(doneLabel(false), "Done · not verified");
+  assert.equal(doneLabel(true), "Verified");
 });

@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { MAX_CHANGES, MAX_TABLE, MAX_VOICE, SAMPLE_TABLE, SIM_DEFAULTS, SPENDERS, changesFromSessions, economyPlans, economyReport, fmtMin, parseEconomy, type EconomyReport } from "@/lib/economy-pure";
 import type { DevWorld as World } from "@/lib/devworld-pure";
 import { PINK } from "./RobloxBuild";
+import { useT } from "./i18n";
+import { compareEconomies, impactLines, impactText, type Metric, type Playtest } from "@/lib/economy-impact-pure";
 
 // GAME DEV → Economy: the game dev copilot. Balancer + economy personas run here in the browser (pure, seeded); the notes drafter is one
 // fast-model call on his click. Proposals only: nothing is changed in Studio or published to Roblox.
@@ -28,6 +30,17 @@ export default function GameCopilot({ world, gameId }: { world: World | null; ga
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
+  const { lang } = useT(), it = impactText(lang);
+  const [proposed, setProposed] = useState<string | null>(null); // null = Compare closed
+  const [pts, setPts] = useState<Playtest[]>([]);
+  const [pt, setPt] = useState<{ metric: Metric; side: "base" | "proposed"; value: string }>({ metric: "firstUpgrade", side: "base", value: "" });
+  const [impact, setImpact] = useState<string[]>([]);
+  const compare = () => {
+    const b = parseEconomy(saved?.table || table), p = parseEconomy(proposed ?? "");
+    const errs = [...b.errors.map((e) => `${it.baseline}: ${e}`), ...p.errors.map((e) => `${it.proposedT}: ${e}`)];
+    setErrors(errs);
+    setImpact(errs.length ? [] : impactLines(compareEconomies(b.economy, p.economy, pts, { ...SIM_DEFAULTS, players, seed }, lang), lang));
+  };
 
   useEffect(() => {
     fetch("/api/economy", { cache: "no-store" }).then((r) => r.json()).then((v: View) => { setSaved(v); setTable(v.table || SAMPLE_TABLE); setVoice(v.voice); },
@@ -110,6 +123,27 @@ export default function GameCopilot({ world, gameId }: { world: World | null; ga
           </div>
         </div>
       )}
+
+      <h3 className="brand mb-1 mt-4 text-sm" style={{ color: PINK }}>{it.compare}</h3>
+      <p className="muted text-xs">{it.intro}</p>
+      {proposed === null ? <button className="chip mt-1" onClick={() => setProposed(saved?.table || table)}>{it.compare}</button> : <>
+        <label className="mt-1 grid gap-1 text-xs">{it.proposedT}
+          <textarea className="field min-h-[7rem] w-full font-mono text-[11px]" maxLength={MAX_TABLE} value={proposed} onChange={(e) => setProposed(e.target.value)} spellCheck={false} />
+        </label>
+        <div className="mt-1 flex flex-wrap items-end gap-2 text-xs" role="group" aria-label={it.addPt}>
+          <select className="field py-1" aria-label={it.playtest} value={pt.metric} onChange={(e) => setPt({ ...pt, metric: e.target.value as Metric })}>
+            {(["firstUpgrade", "lastEgg", "coins30"] as Metric[]).map((m) => <option key={m} value={m}>{it[m]}</option>)}
+          </select>
+          <select className="field py-1" aria-label={it.compare} value={pt.side} onChange={(e) => setPt({ ...pt, side: e.target.value as "base" | "proposed" })}>
+            <option value="base">{it.before}</option><option value="proposed">{it.after}</option>
+          </select>
+          <label className="grid">{it.value}<input className="field w-24 py-1" type="number" min={0} value={pt.value} onChange={(e) => setPt({ ...pt, value: e.target.value })} /></label>
+          <button className="chip" disabled={!(Number(pt.value) >= 0) || pt.value === ""} onClick={() => { setPts([...pts.filter((x) => x.metric !== pt.metric || x.side !== pt.side), { metric: pt.metric, side: pt.side, value: Number(pt.value) }]); setPt({ ...pt, value: "" }); }}>{it.addPt}</button>
+          <button className="btn" style={{ background: `linear-gradient(90deg, ${PINK}, #db2777)` }} onClick={compare}>{it.run}</button>
+        </div>
+        {pts.length > 0 && <p className="muted mt-1 text-[11px]">{it.playtest}: {pts.map((x) => `${it[x.metric]} (${x.side === "base" ? it.before : it.after}) = ${x.value}`).join("; ")}</p>}
+        {impact.length > 0 && <pre aria-live="polite" className="mt-1 whitespace-pre-wrap text-[11px]">{impact.join("\n")}</pre>}
+      </>}
 
       <h3 className="brand mb-1 mt-4 text-sm" style={{ color: PINK }}>Update notes</h3>
       <p className="muted text-xs">Type what changed (one per line, like <code>+ added Ocean Egg</code>) or pull it from your Studio sessions. One quick model call drafts the notes; you post them yourself.</p>

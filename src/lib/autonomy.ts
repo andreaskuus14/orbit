@@ -130,7 +130,7 @@ async function publishCandidates(): Promise<Candidate[]> {
 }
 
 async function firePublish(p: { ref: string; seen: string }): Promise<Fired> {
-  const [{ getJob, saveJob, withJobLock }, { scheduleAll }, { originalityIssue }] = await Promise.all([import("./clips/factory"), import("./clips/publish-schedule"), import("./clips/publish-checks-pure")]);
+  const [{ getJob, saveJob, withJobLock, mediaHash }, { scheduleAll }, { originalityIssue }] = await Promise.all([import("./clips/factory"), import("./clips/publish-schedule"), import("./clips/publish-checks-pure")]);
   const [jobId, clipId] = p.ref.split("/");
   const approved = await withJobLock(async () => {
     const job = await getJob(jobId), clip = job?.clips.find((c) => c.id === clipId);
@@ -139,6 +139,7 @@ async function firePublish(p: { ref: string; seen: string }): Promise<Fired> {
     autoApprove(job, clip, Date.now());
     const { contentHash, clipContent } = await import("./approval-pure");
     clip.approvedHash = await contentHash(clipContent(clip)); // Autonomy: auto approves the media its checks just saw
+    clip.approvedMedia = await mediaHash(clip);
     await saveJob(job);
     return true;
   });
