@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { actMission, createMission, listMissions } from "@/lib/missions";
 
-/** The newest 20 missions, each reconciled with its chain (which also keeps them moving after approvals or a restart). */
+/** The newest 20 missions, each read together with its chain. A pure read: the scheduler tick and owner actions move them. */
 export async function GET() {
   const { sb, user, res } = await requireUser();
   if (res) return res;

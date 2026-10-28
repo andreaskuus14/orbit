@@ -143,6 +143,9 @@ const BASE = {
 
   "task.back": "← All tasks", "task.request": "Request", "task.retry": "Retry", "task.cancel": "Cancel task", "task.delegated": "Delegated", "task.result": "result",
   "task.noRetry": "This task has resolved actions. Keep their results and request only the unfinished work in a follow-up.",
+  "failrep.button": "Failure report", "failrep.title": "Failure report", "failrep.preview": "Report preview",
+  "failrep.hint": "Ids, version, model, tools, timings and error type from the trace. Keys and tokens are removed. Nothing is sent: copy or download it yourself.",
+  "failrep.personal": "Include personal content (request, answer, tool inputs and outputs)", "failrep.copied": "Copied", "failrep.download": "Download",
   "task.trace": "Execution trace ({n} steps)", "task.saveRecipe": "📋 Save as recipe", "task.recipeName": "Recipe name",
 
   "doc.title": "ORBIT doctor", "doc.closeAria": "Close ORBIT doctor", "doc.checking": "Checking…", "doc.again": "Check again",
@@ -566,6 +569,9 @@ const BASE = {
   "voice.convTitle": "Conversation mode (Ctrl+Shift+M, or say “Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Conversation mode needs hands-free on (voice settings)",
   "voice.convHelp": "Ctrl+Shift+M, 💬 or “Orbit, let’s talk”. ORBIT then answers questions and requests without “Orbit” and ignores chatter; talk over it to interrupt. Ends on “stop” / “that’s all”, Esc, 💬, Stop-all or 60 s of silence (one-follow-up: after the follow-up).",
   "voice.openMic": "Open mic · {phase} — ✕ stop", "voice.phaseListening": "listening", "voice.phaseThinking": "thinking", "voice.phaseSpeaking": "speaking (talk to interrupt)",
+  "needs.title": "Needs you", "needs.loading": "Looking for what needs you…", "needs.empty": "Nothing needs you right now.", "needs.loadFailed": "Couldn't load what needs you.",
+  "needs.kind.decide": "Decide", "needs.kind.unblock": "Unblock", "needs.kind.review": "Review result", "needs.review": "Review", "needs.more": "{n} more in Mission control and Continue my work.",
+  "needs.work": "Continue my work", "needs.mission": "Mission control", "needs.onPc": "On the PC",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -583,6 +589,9 @@ export const EN = { ...BASE, ...Object.fromEntries(PLANETS.flatMap((p) => [[`pla
  *   standing rule = püsireegel · night shift = öine vahetus · open loop = lahtine ots · incident = intsident · call (Claude) = päring
  * Counts: after a number other than 1 Estonian takes the partitive singular ("3 agenti"), so .one/.other is enough. */
 export const ET: Partial<Record<Key, string>> = {
+  "needs.title": "Vajab sind", "needs.loading": "Otsin, mis sind vajab…", "needs.empty": "Praegu ei vaja miski sind.", "needs.loadFailed": "Ei saanud laadida, mis sind vajab.",
+  "needs.kind.decide": "Otsusta", "needs.kind.unblock": "Lahenda", "needs.kind.review": "Vaata tulemus üle", "needs.review": "Vaata üle", "needs.more": "Veel {n} missioonijuhtimises ja jätka-töö loendis.",
+  "needs.work": "Jätka minu tööd", "needs.mission": "Missioonijuhtimine", "needs.onPc": "Arvutis",
   "common.close": "Sulge", "common.open": "Ava", "common.approve": "Kinnita", "common.reject": "Lükka tagasi",
   "common.approved": "Kinnitatud", "common.rejected": "Tagasi lükatud", "common.copy": "Kopeeri", "common.on": "sees", "common.off": "väljas",
   "common.failed": "See ei õnnestunud",
@@ -733,6 +742,9 @@ export const ET: Partial<Record<Key, string>> = {
 
   "task.back": "← Kõik ülesanded", "task.request": "Päring", "task.retry": "Proovi uuesti", "task.cancel": "Tühista ülesanne", "task.delegated": "Edasi antud", "task.result": "tulemus",
   "task.noRetry": "Selle ülesande osa toiminguid on juba otsustatud. Jäta nende tulemused alles ja küsi lõpetamata osa uue ülesandena.",
+  "failrep.button": "Vearaport", "failrep.title": "Vearaport", "failrep.preview": "Raporti eelvaade",
+  "failrep.hint": "Logist: id-d, versioon, mudel, tööriistad, ajad ja vea liik. Võtmed ja tokenid eemaldatakse. Midagi ei saadeta: kopeeri või laadi ise alla.",
+  "failrep.personal": "Lisa isiklik sisu (päring, vastus, tööriistade sisend ja väljund)", "failrep.copied": "Kopeeritud", "failrep.download": "Laadi alla",
   "task.trace": "Täitmise logi ({n} sammu)", "task.saveRecipe": "📋 Salvesta retseptina", "task.recipeName": "Retsepti nimi",
 
   "doc.title": "ORBITi arst", "doc.closeAria": "Sulge ORBITi arst", "doc.checking": "Kontrollin…", "doc.again": "Kontrolli uuesti",
