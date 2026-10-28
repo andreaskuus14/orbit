@@ -588,6 +588,7 @@ const BASE = {
   "needs.title": "Needs you", "needs.loading": "Looking for what needs you…", "needs.empty": "Nothing needs you right now.", "needs.loadFailed": "Couldn't load what needs you.",
   "needs.kind.decide": "Decide", "needs.kind.unblock": "Unblock", "needs.kind.review": "Review result", "needs.review": "Review", "needs.more": "{n} more in Mission control and Continue my work.",
   "needs.work": "Continue my work", "needs.mission": "Mission control", "needs.onPc": "On the PC",
+  "capsule.drill": "Run restore drill", "capsule.drillTitle": "Restores into a temporary folder, checks every file, then deletes it. Your data isn't touched.",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -1220,6 +1221,7 @@ export const ET: Partial<Record<Key, string>> = {
   "voice.convTitle": "Vestlusrežiim (Ctrl+Shift+M või ütle „Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Vestlusrežiim vajab sisselülitatud käed-vaba kuulamist (hääle seaded)",
   "voice.convHelp": "Ctrl+Shift+M, 💬 või „Orbit, let’s talk”. ORBIT vastab siis küsimustele ja palvetele ilma sõnata „Orbit” ning eirab muud juttu; katkestamiseks räägi lihtsalt peale. Lõpeb sõnadega „lõpeta” / „stop”, Esc, 💬, Peata kõik või 60 s vaikusega (üks jätkuküsimus: pärast seda).",
   "voice.openMic": "Avatud mikrofon · {phase} — ✕ lõpeta", "voice.phaseListening": "kuulab", "voice.phaseThinking": "mõtleb", "voice.phaseSpeaking": "räägib (katkestamiseks räägi peale)",
+  "capsule.drill": "Käivita taastamise harjutus", "capsule.drillTitle": "Taastab ajutisse kausta, kontrollib iga faili ja kustutab selle siis. Sinu andmeid ei puudutata.",
 };
 
 type Vars = Record<string, string | number>;
