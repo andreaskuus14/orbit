@@ -36,6 +36,7 @@ export async function POST(req: Request, { params }: Ctx) {
     if (action === "approve" || action === "reject") {
       const pending = await resolvePending(sb, user.id, id, action === "approve");
       void kickQueue(sb, user.id); // approved follow-up tasks start now
+      void import("@/lib/missions").then((m) => m.resumeMissions(sb, user.id)).catch(() => {}); // a mission waiting on this approval moves on now (reads never drive)
       return Response.json({ pending });
     }
     if (action === "retry") {

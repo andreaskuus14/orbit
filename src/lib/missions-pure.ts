@@ -81,7 +81,7 @@ type FailedStep = { index: number; error?: string };
 export function onFailure(step: FailedStep, retries: Record<string, number>, acted = false): { do: "retry"; cls: FailureClass } | { do: "stop"; cls: FailureClass; status: "failed" | "waiting-input"; why: string } {
   const cls = classifyFailure(step.error);
   const n = retries[step.index] ?? 0;
-  if (acted) return { do: "stop", cls, status: "waiting-input", why: `Step ${step.index + 1} failed after an approved action already ran; check its result before retrying so nothing happens twice.` };
+  if (acted) return { do: "stop", cls, status: "waiting-input", why: `Step ${step.index + 1} failed after an approved action ran (or may have run); check its result before retrying so nothing happens twice.` };
   if (cls === "temporary" && n < MAX_RETRIES) return { do: "retry", cls };
   const why = `Step ${step.index + 1} hit ${FAILURE_TEXT[cls]}${cls === "temporary" ? ` and still failed after ${n} retries` : ""}: ${(step.error ?? "unknown error").slice(0, 200)}`;
   return { do: "stop", cls, status: cls === "permission" || cls === "invalid" ? "waiting-input" : "failed", why };
@@ -143,8 +143,8 @@ export function newDoc(objective: string, constraints: string[], at: string): Mi
 /** Append a log line, keep the last 60. */
 export const logged = (doc: MissionDoc, at: string, text: string): MissionDoc => ({ ...doc, log: [...doc.log, { at, text }].slice(-60) });
 
-/** True when any approved action in a step's pending list already ran. */
-export const acted = (pending: unknown) => Array.isArray(pending) && pending.some((p) => (p as { status?: unknown })?.status === "approved");
+/** True when any approved action in a step's pending list ran, or may have run (an attempt without a receipt: "attempting"/"uncertain"). */
+export const acted = (pending: unknown) => Array.isArray(pending) && pending.some((p) => ["approved", "attempting", "uncertain"].includes((p as { status?: string })?.status ?? ""));
 
 /** CORE's start_mission only for the owner's own instruction in his latest message, never from page/tool/file content. */
 export function missionBlocked(question: string, tainted: boolean): string {
