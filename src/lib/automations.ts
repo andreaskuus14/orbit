@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { kickQueue } from "./agents";
 import { automationDue, type Schedule } from "./pure";
+import { claimEvents } from "./durable";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
 
@@ -41,22 +42,10 @@ export async function runDueAutomations(sb: SupabaseClient, userId: string, now 
   }
 }
 
-const g = globalThis as unknown as { __orbitEventCursor?: number };
-
 /** React to new events (all users): memory saved → memory.created automations; briefing done → briefing.ready. */
 export async function handleEvents(sb: SupabaseClient) {
-  if (g.__orbitEventCursor === undefined) {
-    // Start from "now" so a restart never replays old events.
-    const { data, error } = await sb.from("events").select("id").order("id", { ascending: false }).limit(1);
-    if (error) throw error; // a failed read must not start the cursor at 0 and replay every past event
-    g.__orbitEventCursor = data?.[0]?.id ?? 0;
-    return;
-  }
-  const { data: events, error } = await sb.from("events").select("id, user_id, type, payload")
-    .gt("id", g.__orbitEventCursor).in("type", ["memory.created", "pulse.completed"]).order("id").limit(200);
-  if (error) throw error;
-  for (const e of events ?? []) {
-    g.__orbitEventCursor = e.id;
+  // Persisted cursor (durable.ts): events from downtime replay once (last 24 h, capped), never twice.
+  for (const e of await claimEvents(sb, "automations", ["memory.created", "pulse.completed"])) {
     const p = (e.payload ?? {}) as { title?: string; kind?: string; source?: string };
     const event = e.type === "pulse.completed" ? "briefing.ready" : "memory.created";
     if (event === "memory.created" && !USER_SOURCES.includes(p.source ?? "")) continue;
