@@ -1,5 +1,7 @@
 # ORBIT — Your mind has a universe
 
+[![Checks](https://github.com/andreaskuus14/orbit/actions/workflows/checks.yml/badge.svg)](https://github.com/andreaskuus14/orbit/actions/workflows/checks.yml)
+
 A personal AI "second brain" in a 3D galaxy: CORE chat with memory, news briefings, agents, voice, life tools, a file vault, a YouTube Shorts studio and game-dev tools.
 CORE runs on **Claude Code under your own Claude login**, so there is no API key and no token bill.
 
@@ -130,6 +132,7 @@ Run `npm run app:install` once. It puts an **ORBIT** icon on your Desktop and in
 - `npx tsc --noEmit -p .` (or `npm run typecheck`): type-check.
 - `npm run smoke`: browser smoke test of the pages that work without signing in (`/demo` and its worlds, `/remote`, `/screen`, `/login`) at desktop and phone sizes. Needs ORBIT running (or `SMOKE_BASE=<url>`) and Playwright's Chromium; read-only, exits 1 on any finding.
 - `npm test` also guards Estonian coverage (`tests/i18n-coverage.test.ts`: hard-coded English per component may only go down) and basic accessibility (`tests/a11y-static.test.ts`).
+- CI: `.github/workflows/checks.yml` runs on every pull request and push to `main`: install, `tsc --noEmit -p .`, `npm test` and `next build` (dummy public Supabase URL/key, no secrets, read-only token). `ai-quality.yml` also runs `npm run eval:ai`.
 - To check a production build, use `npm run app:rebuild`, not `npm run build` while ORBIT runs (it overwrites the running server's build).
 
 ## Layout
