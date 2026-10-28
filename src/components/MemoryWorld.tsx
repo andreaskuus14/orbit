@@ -10,6 +10,7 @@ import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import type { MemoryPanel } from "./panels"; // passed in by Orbit: the public demo must not bundle panels (Supabase client)
 import { MemoryHygiene } from "./MemoryHygiene";
+import { MemoryEntities } from "./MemoryEntities";
 import { beliefsPending } from "./BeliefsPanel";
 import { studyPending } from "./StudyCards";
 import type { QualityMode } from "@/lib/quality-pure";
@@ -479,6 +480,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
         </div>
 
         {List && !peep && <MemoryHygiene onChanged={onChanged} />}
+        {List && !peep && <MemoryEntities />}
         {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && (river || hall) ? <div ref={setSlot} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}
             onChange={(e) => setQuery(e.target.value)} aria-label="Search memories in the constellation" />

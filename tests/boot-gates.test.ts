@@ -31,6 +31,8 @@ function run(path: string, stubs: (name: string) => any, globals: Record<string,
       if (name === "react/jsx-runtime") return require(name);
       // next/dynamic: a marker component that remembers which file it would load
       if (name === "next/dynamic") return { default: (load: Function) => Object.assign(() => null, { file: String(load) }) };
+      // components that call useT() get English, like the real hook with lang "en"
+      if (name === "./i18n" || name === "../i18n") return { useT: () => ({ lang: "en", t: (k: string) => k, tn: (k: string) => k }), getLang: () => "en" };
       return stubs(name) ?? new Proxy({}, { get: () => () => null });
     } });
   const render = (fn: Function, props: any) => { for (let k = 0; k < 4; k++) { cursor = 0; effects.length = 0; const out = fn(props); if (!effects.length) return out; effects.splice(0).forEach((e) => e()); } cursor = 0; return fn(props); };
