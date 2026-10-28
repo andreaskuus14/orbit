@@ -526,6 +526,10 @@ const BASE = {
   "mk.botHint": "Simple transparent rules, not an AI making trades. Runs once a day while ORBIT is open, on your watchlist. Simulation / not financial advice.",
   "mk.strategy": "Bot strategy", "mk.strategyConfirm": "Changing the strategy restarts the bot's paper account. Continue?", "mk.off": "Off",
   "mk.botEquity": "Bot equity", "mk.spySame": "SPY over the same time", "mk.notYet": "not yet",
+
+  "sf.hi": "Welcome back.", "sf.incident": "{t} needs a look.", "sf.meeting": "{t} starts in {n} min.", "sf.approval": "{t} has waited {n} h for your OK.",
+  "sf.loop": "Due today: {t}.", "sf.brief": "Your morning brief is ready.",
+  "sf.toggle": "ORBIT speaks first", "sf.hint": "When you come back after 20+ min, one short line about the most important thing. Max 4 a day, never 23–08.",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -1096,6 +1100,10 @@ export const ET: Partial<Record<Key, string>> = {
   "mk.botHint": "Lihtsad läbipaistvad reeglid, mitte tehisaru, kes tehinguid teeb. Töötab kord päevas, kui ORBIT on avatud, sinu jälgimisnimekirja peal. Simulatsioon / mitte finantsnõuanne.",
   "mk.strategy": "Roboti strateegia", "mk.strategyConfirm": "Strateegia muutmine alustab roboti paberkontot otsast. Jätkata?", "mk.off": "Väljas",
   "mk.botEquity": "Roboti konto väärtus", "mk.spySame": "SPY samal ajal", "mk.notYet": "veel mitte",
+
+  "sf.hi": "Tere tagasi.", "sf.incident": "{t} vajab tähelepanu.", "sf.meeting": "{t} algab {n} min pärast.", "sf.approval": "{t} ootab sinu kinnitust juba {n} h.",
+  "sf.loop": "Täna tähtaeg: {t}.", "sf.brief": "Sinu hommikune ülevaade on valmis.",
+  "sf.toggle": "ORBIT räägib esimesena", "sf.hint": "Kui tuled 20+ min pärast tagasi, üks lühike lause kõige tähtsamast. Kuni 4 korda päevas, mitte kell 23–08.",
 };
 
 type Vars = Record<string, string | number>;

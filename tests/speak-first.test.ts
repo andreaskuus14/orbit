@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SPEAK_FIRST, SPEAK_FIRST_START, decideMoment, parseSpeakFirst, type MomentSignals, type SpeakFirstState } from "../src/lib/speak-first-pure.ts";
+import { SPEAK_FIRST, SPEAK_FIRST_START, decideMoment, loopsDueToday, parseSpeakFirst, trackApprovals, type MomentSignals, type SpeakFirstState } from "../src/lib/speak-first-pure.ts";
 
 // 2026-10-26 is after the DST switch: Tallinn = UTC+2.
 const at = (h: number, m = 0, d = 26) => Date.UTC(2026, 9, d, h - 2, m);
@@ -104,4 +104,25 @@ test("Estonian lines", () => {
   assert.equal(m?.line, "Tere tagasi. Koosolek algab 10 min pärast.");
   const a = go(sig(now, { approvals: [{ id: "a", title: "Arve", since: now - 3 * 3600_000 }] }), SPEAK_FIRST_START, "et").moment;
   assert.equal(a?.line, "Tere tagasi. Arve ootab sinu kinnitust juba 3 h.");
+});
+
+test("loops due today: his confirmed commitments due today only", () => {
+  const inbox = [
+    { id: "1", text: "Send the plans", owner: "me" as const, due: "2026-10-26", status: "confirmed" as const },
+    { id: "2", text: "Tomorrow thing", owner: "me" as const, due: "2026-10-27", status: "confirmed" as const },
+    { id: "3", text: "Their reply", owner: "them" as const, due: "2026-10-26", status: "confirmed" as const },
+    { id: "4", text: "Unconfirmed", owner: "me" as const, due: "2026-10-26", status: "awaiting" as const },
+    { id: "5", text: "No day", owner: "me" as const, status: "confirmed" as const },
+  ];
+  assert.deepEqual(loopsDueToday(inbox, "2026-10-26"), [{ key: "commit:1", title: "Send the plans" }]);
+});
+
+test("approval wait is tracked from first sight; gone ones are dropped", () => {
+  const t0 = at(8);
+  const a = trackApprovals({}, [{ id: "a", title: "A" }], t0);
+  const b = trackApprovals({ ...a.seen, gone: 1 }, [{ id: "a", title: "A" }, { id: "b", title: "B" }], t0 + 3 * 3600_000);
+  assert.deepEqual(b.seen, { a: t0, b: t0 + 3 * 3600_000 });
+  assert.equal(b.approvals[0].since, t0);
+  assert.equal(parseSpeakFirst(JSON.stringify({ seen: { a: 5, bad: "x" } })).seen.a, 5);
+  assert.equal(parseSpeakFirst(JSON.stringify({ seen: { a: 5, bad: "x" } })).seen.bad, undefined);
 });

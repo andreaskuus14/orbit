@@ -6,6 +6,7 @@ import { getSpeechRecognition, VOICE_PAUSE, VOICE_RESUME, type VoiceInput } from
 import type { Wake } from "./WakeWord";
 import { enrollment, loadVoicePrint, saveVoicePrint, startVoiceSampler, type VoicePrint, type VoiceProfile } from "./voiceprint";
 import { warmNaturalVoice } from "./speak";
+import { SpeakFirstToggle } from "../SpeakFirst";
 
 // The wake-word listener (~40 KB with its helpers) loads only once hands-free is on.
 const WakeWord = dynamic(() => import("./WakeWord"), { ssr: false });
@@ -168,6 +169,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   const chromeOk = typeof window === "undefined" || !!getSpeechRecognition();
   const routeText = route === "whisper" ? "🎙 Local (Whisper on this PC)" : route === "chrome" ? "🎙 Chrome (audio sent to Google while listening)" : "🎙 Hands-free off";
   const talking = wake.conversation !== "idle";
+  useEffect(() => { voiceLevel.conversation = talking; return () => { voiceLevel.conversation = false; }; }, [talking]); // ORBIT speaks first stays quiet
   const [talkNote, setTalkNote] = useState(""); // screen readers hear start and end
   useEffect(() => { setTalkNote((n) => talking ? "Conversation mode started" : n ? "Conversation mode ended" : ""); }, [talking]);
   const setTalking = (on: boolean) => dispatchEvent(new CustomEvent(VOICE_CONVERSATION, { detail: { on } }));
@@ -240,6 +242,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           <VoiceMatch />
           <span className="voice-sub">Spoken answers</span>
           <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>
+          <SpeakFirstToggle />
           <label className="voice-col">Voice
             <select className="field" value={s.voiceURI ?? ""} onChange={(e) => { update({ voiceURI: e.target.value || null }); if (e.target.value.startsWith("kokoro:")) warmNaturalVoice(); }}>
               <option value="">Default</option>

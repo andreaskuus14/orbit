@@ -4,14 +4,16 @@
 // The same item is never raised twice in a day. Voice only when the voice "speak" setting is on; the line is shown either way.
 // No DOM, no Node APIs. Tested in tests/speak-first.test.ts.
 import { localParts, quietHour } from "./call-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import { translate, type Lang } from "./i18n-pure.ts";
+import type { Commitment } from "./dayplan-pure.ts";
 
 export const SPEAK_FIRST = { awayMs: 20 * 60_000, maxPerDay: 4, approvalMs: 2 * 3600_000, meetingMs: 30 * 60_000 } as const;
 export const SPEAK_FIRST_KEY = "orbit.speak-first.v1"; // localStorage: SpeakFirstState
 
-/** on: the Settings toggle (default on). day/count/said: today's lines and the item keys already raised today. */
-export type SpeakFirstState = { on: boolean; day: string; count: number; said: string[] };
-export const SPEAK_FIRST_START: SpeakFirstState = { on: true, day: "", count: 0, said: [] };
+/** on: the Settings toggle (default on). day/count/said: today's lines and the item keys already raised today.
+ *  seen: approval id → when this PC first saw it waiting (approvals carry no timestamp of their own). */
+export type SpeakFirstState = { on: boolean; day: string; count: number; said: string[]; seen: Record<string, number> };
+export const SPEAK_FIRST_START: SpeakFirstState = { on: true, day: "", count: 0, said: [], seen: {} };
 
 export function parseSpeakFirst(raw: string | null): SpeakFirstState {
   let o: Record<string, unknown> = {};
@@ -21,7 +23,14 @@ export function parseSpeakFirst(raw: string | null): SpeakFirstState {
     day: typeof o.day === "string" ? o.day : "",
     count: typeof o.count === "number" && Number.isFinite(o.count) ? o.count : 0,
     said: Array.isArray(o.said) ? o.said.filter((x): x is string => typeof x === "string").slice(-50) : [],
+    seen: o.seen && typeof o.seen === "object" ? Object.fromEntries(Object.entries(o.seen).filter(([, v]) => typeof v === "number" && Number.isFinite(v))) as Record<string, number> : {},
   };
+}
+
+/** Approvals waiting now → first-seen times (kept for ids still waiting, new ids start now) and the approvals with their since. */
+export function trackApprovals(seen: Record<string, number>, waiting: { id: string; title: string }[], now: number) {
+  const next = Object.fromEntries(waiting.map((a) => [a.id, seen[a.id] ?? now]));
+  return { seen: next, approvals: waiting.map((a) => ({ id: a.id, title: a.title, since: next[a.id] })) };
 }
 
 export type MomentKind = "incident" | "meeting" | "approval" | "loop" | "brief";
@@ -37,12 +46,6 @@ export type MomentSignals = {
 };
 export type Moment = { kind: MomentKind; key: string; line: string; voice: boolean };
 
-const T = {
-  en: { hi: "Welcome back.", incident: "{t} needs a look.", meeting: "{t} starts in {n} min.", approval: "{t} has waited {n} h for your OK.",
-    loop: "Due today: {t}.", brief: "Your morning brief is ready." },
-  et: { hi: "Tere tagasi.", incident: "{t} vajab tähelepanu.", meeting: "{t} algab {n} min pärast.", approval: "{t} ootab sinu kinnitust juba {n} h.",
-    loop: "Täna tähtaeg: {t}.", brief: "Sinu hommikune ülevaade on valmis." },
-} satisfies Record<Lang, Record<"hi" | MomentKind, string>>;
 const clip = (t: string) => { const s = t.replace(/[“”"]/g, "").replace(/\s+/g, " ").trim(); return s.length > 80 ? `${s.slice(0, 79)}…` : s; };
 
 /** One input event: the next state and the line to say, or null. Blocked moments use nothing up. */
@@ -63,15 +66,19 @@ export function decideMoment(prev: SpeakFirstState, sig: MomentSignals, lang: La
   const loop = sig.loopsToday?.find(fresh((l) => `loop:${l.key}`));
   const brief = sig.briefUnseen && !st.said.includes(`brief:${day}`);
 
-  const tx = T[lang];
+  const tx = (k: "sf.incident" | "sf.meeting" | "sf.approval" | "sf.loop" | "sf.brief", t = "", n = 0) => translate(lang, k, { t: clip(t), n });
   const pick: [MomentKind, string, string] | null =
-    inc ? ["incident", `inc:${inc.key}`, tx.incident.replace("{t}", clip(inc.title))]
-    : meet ? ["meeting", `meet:${meet.e.start}:${meet.e.title}`, tx.meeting.replace("{t}", clip(meet.e.title)).replace("{n}", String(Math.max(1, Math.round(meet.ms / 60_000))))]
-    : appr ? ["approval", `appr:${appr.id}`, tx.approval.replace("{t}", clip(appr.title)).replace("{n}", String(Math.floor((now - appr.since) / 3600_000)))]
-    : loop ? ["loop", `loop:${loop.key}`, tx.loop.replace("{t}", clip(loop.title))]
-    : brief ? ["brief", `brief:${day}`, tx.brief]
+    inc ? ["incident", `inc:${inc.key}`, tx("sf.incident", inc.title)]
+    : meet ? ["meeting", `meet:${meet.e.start}:${meet.e.title}`, tx("sf.meeting", meet.e.title, Math.max(1, Math.round(meet.ms / 60_000)))]
+    : appr ? ["approval", `appr:${appr.id}`, tx("sf.approval", appr.title, Math.floor((now - appr.since) / 3600_000))]
+    : loop ? ["loop", `loop:${loop.key}`, tx("sf.loop", loop.title)]
+    : brief ? ["brief", `brief:${day}`, tx("sf.brief")]
     : null;
   if (!pick) return none;
   const [kind, key, text] = pick;
-  return { state: { ...st, count: st.count + 1, said: [...st.said, key].slice(-50) }, moment: { kind, key, line: `${tx.hi} ${text}`, voice: sig.speak } };
+  return { state: { ...st, count: st.count + 1, said: [...st.said, key].slice(-50) }, moment: { kind, key, line: `${translate(lang, "sf.hi")} ${text}`, voice: sig.speak } };
 }
+
+/** Loops due today: his own confirmed commitment-inbox items whose due day is today (open loops only list them once overdue). */
+export const loopsDueToday = (inbox: Pick<Commitment, "id" | "text" | "owner" | "due" | "status">[], today: string) =>
+  inbox.filter((c) => c.status === "confirmed" && c.owner === "me" && c.due === today).map((c) => ({ key: `commit:${c.id}`, title: c.text }));
