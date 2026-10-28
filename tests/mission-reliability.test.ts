@@ -40,7 +40,7 @@ function fakeDb(tables: Record<string, Row[]>) {
 function load(file: string, mods: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const ctx: Record<string, any> = { exports, console, setTimeout, Date, require: (n: string) => mods[n] ?? {}, ...extra };
+  const ctx: Record<string, any> = { exports, console, setTimeout, AbortController, require: (n: string) => mods[n] ?? {}, ...extra };
   vm.runInNewContext(source, ctx);
   return { exports, ctx };
 }
@@ -61,7 +61,7 @@ test("(a) pause while waiting for a worker slot: freeing the slot does not start
   ctx.__orbitTaskQueue = new Set(["other-1", "other-2"]); // both slots busy
   let paused = false, gates = 0;
   const driving = exports.drive(sb, "owner", "chain", async () => { gates++; return !paused; });
-  while (gates === 0) await new Promise((r) => setTimeout(r, 10)); // passed the first pause check, now waiting for a slot
+  for (let i = 0; gates === 0 && i < 300; i++) await new Promise((r) => setTimeout(r, 10)); // passed the first pause check, now waiting for a slot
   paused = true;
   ctx.__orbitTaskQueue.clear(); // capacity frees up after the pause
   assert.equal(await driving, null);
