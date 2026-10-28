@@ -27,6 +27,7 @@ export type BriefIn = {
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
   recap?: { id: string }; // yesterday's private recap reel in STUDIO (clips/recap.ts)
   loops?: { id: string; title: string; say: string }; // open loops from last night's scan (loops.ts loopsBrief)
+  conflict?: { id: string; title: string; say: string }; // memories that disagree, "Which is right?" (entity-graph-pure contradictionBrief)
   goalRisk?: { id: string; title: string; say: string }; // a goal whose weekly milestones are at risk / behind (goal-autopilot.ts goalRisk)
   school?: { id: string; title: string; say: string; detail?: string }; // heavy week / today's study blocks / next deadline (school-pure schoolBrief)
   dream?: { id: string; question: string }; // last night's ONE question (dream-pure); his answer goes through CORE like any message
@@ -103,6 +104,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
 
   if (x.goalRisk) add({ id: `goalrisk:${x.goalRisk.id}`, kind: "result", title: x.goalRisk.title, detail: "Weekly milestones", open: { goal: x.goalRisk.id }, say: x.goalRisk.say });
   if (x.loops) add({ id: x.loops.id, kind: "result", title: x.loops.title, detail: "Mission control → Open loops", open: { mission: true }, say: x.loops.say });
+  if (x.conflict) add({ id: x.conflict.id, kind: "question", title: x.conflict.title, detail: "MEMORY → Which is right?", open: { panel: "memory" }, say: x.conflict.say });
   if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });
 
   if (x.dream) add({ id: `dream:${x.dream.id}`, kind: "question", title: plain(x.dream.question), detail: "Answer in CORE or on the call", open: { panel: "core" }, say: plain(x.dream.question) });

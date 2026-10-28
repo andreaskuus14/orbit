@@ -4,9 +4,8 @@ import { parseNavCommand } from "../../lib/nav-pure.ts";
 import type { PanelId } from "../../lib/planets.ts";
 import { isSleepCommand, normalizeTranscript } from "./wake.ts";
 
-export const SILENCE_MS = 30_000; // "one follow-up" mode: this long with nobody talking ends it
-export const IDLE_MS = 5 * 60_000; // "stay" mode (open mic): this long listening without asking ORBIT anything ends it
-export const CAP_MS = 30 * 60_000; // …and this long without a question ends it in any phase (a stuck "speaking" can't hold the mic)
+export const SILENCE_MS = 60_000; // listening this long with nobody talking ends it
+export const CAP_MS = 30 * 60_000; // this long without a question ends it in any phase (a TV talking or a stuck "speaking" can't hold the mic)
 export const THINK_MS = 45_000; // asked but ORBIT never spoke (speech off, error): go back to listening. CORE's first sentence can take 20+ s
 
 export type ConvPhase = "idle" | "listening" | "thinking" | "speaking";
@@ -17,21 +16,23 @@ export type Conv = { phase: ConvPhase; since: number; asked: number; persist: bo
 export type ConvEvent =
   | { type: "start"; persist: boolean } | { type: "stop" }
   | { type: "hearing" } // the user is talking (interim speech): keep the silence timer from firing
+  | { type: "barge" } // the owner talked over ORBIT (voice barge-in, after speech stopped): listen to him now
   | { type: "ask"; core?: boolean } // core false: answered by Orbit itself (navigation), no stream to wait for
   | { type: "done" } | { type: "speaking" } | { type: "spoke" } | { type: "tick" };
 
 /** idleSince: last start or question. `since` moves on every phase change (any speakChunk caller), so it can't time idleness. */
 export const IDLE: Conv = { phase: "idle", since: 0, asked: 0, persist: true, streams: 0, idleSince: 0 };
 
-/** idle → listening → thinking → speaking → listening …; back to listening only once the answer is done AND spoken.
- *  Ends on stop, the follow-up limit, 30 s of silence (one follow-up) or 5 min without a question (stay). */
+/** idle → listening → thinking → speaking → listening …; back to listening once the answer is done AND spoken, or at
+ *  once on a barge-in. Ends on stop, the follow-up limit, 60 s of silence or 30 min without a question. */
 export function convStep(s: Conv, e: ConvEvent, now: number): Conv {
   if (e.type === "start") return { phase: "listening", since: now, asked: 0, persist: e.persist, streams: 0, idleSince: now };
   if (s.phase === "idle") return s;
   switch (e.type) {
     case "stop": return IDLE;
-    // Stay mode ignores mere speech: a TV or other people talking must not hold the open mic forever.
-    case "hearing": return s.phase === "listening" && !s.persist ? { ...s, since: now } : s;
+    case "hearing": return s.phase === "listening" ? { ...s, since: now } : s;
+    // The interrupted answer may still stream (silenced): its late "done" only lowers the count.
+    case "barge": return s.phase === "speaking" || s.phase === "thinking" ? { ...s, phase: "listening", since: now } : s;
     case "ask": return { ...s, phase: "thinking", since: now, idleSince: now, asked: s.asked + 1, streams: s.streams + (e.core === false ? 0 : 1) };
     case "done": { // speaking: wait for "spoke"
       const t = { ...s, streams: Math.max(0, s.streams - 1) };
@@ -40,7 +41,7 @@ export function convStep(s: Conv, e: ConvEvent, now: number): Conv {
     case "speaking": return { ...s, phase: "speaking", since: now };
     case "spoke": return s.streams ? { ...s, phase: "thinking", since: now } : finished(s, now); // gap between streamed sentences
     case "tick":
-      if (s.persist ? now - s.idleSince >= CAP_MS || (s.phase === "listening" && now - s.idleSince >= IDLE_MS) : s.phase === "listening" && now - s.since >= SILENCE_MS) return IDLE;
+      if ((s.phase === "listening" && now - s.since >= SILENCE_MS) || now - s.idleSince >= CAP_MS) return IDLE;
       return s.phase === "thinking" && now - s.since >= THINK_MS ? { ...s, phase: "listening", since: now, streams: 0 } : s;
   }
 }
@@ -48,7 +49,7 @@ const finished = (s: Conv, now: number): Conv => !s.persist && s.asked >= 2 ? ID
 
 const ORBIT = String.raw`(?:(?:hey|ok|okay)[\s,]+)?(?:orbit[\s,.!]+)?`;
 const START = new RegExp(String.raw`^${ORBIT}(?:(?:let'?s|let us)\s+(?:just\s+)?(?:talk|chat|have a (?:chat|conversation)|keep talking)(?:\s+for a (?:bit|while))?|(?:start\s+|enter\s+|turn on\s+)?(?:conversation|talk|open mic) mode(?:\s+on)?|(?:stay|keep) listening|open mic)\W*$`, "i");
-const END = new RegExp(String.raw`^${ORBIT}(?:(?:no|yes|yeah|ok|okay|thanks|thank you)[\s,.!]+)*(?:bye bye|that'?s enough|that'?s all|that is all|that'?ll be all|that'?s it|we'?re done|stop listening|good ?bye|bye|end (?:the )?conversation|(?:stop|exit|end) (?:conversation|talk|open mic) mode|(?:conversation|talk) mode off|close (?:the )?mic)(?:[\s,.]+(?:orbit|thanks|thank you|for now|please))*\W*$`, "i");
+const END = new RegExp(String.raw`^${ORBIT}(?:(?:no|yes|yeah|ok|okay|thanks|thank you)[\s,.!]+)*(?:stop|lõpeta(?:me)?(?: vestlus)?|aitab küll|bye bye|that'?s enough|that'?s all|that is all|that'?ll be all|that'?s it|we'?re done|stop listening|good ?bye|bye|end (?:the )?conversation|(?:stop|exit|end) (?:conversation|talk|open mic) mode|(?:conversation|talk) mode off|close (?:the )?mic)(?:[\s,.]+(?:orbit|thanks|thank you|for now|please))*\W*$`, "i");
 export const isConversationStart = (text: string) => START.test(text.trim());
 /** Starts open mic? The whole utterance must be the phrase; without "Orbit" only the "let's just talk/chat" forms count
  *  (a TV saying "let's talk" mustn't open the mic). */

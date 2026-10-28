@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CAP_MS, convStep, IDLE, IDLE_MS, startsConversation, isAddressedToOrbit, isConversationEnd, isConversationStart, SILENCE_MS, THINK_MS, type Conv, type ConvEvent } from "../src/components/voice/conversation.ts";
+import { CAP_MS, convStep, IDLE, startsConversation, isAddressedToOrbit, isConversationEnd, isConversationStart, SILENCE_MS, THINK_MS, type Conv, type ConvEvent } from "../src/components/voice/conversation.ts";
 
 const run = (events: [ConvEvent, number][], s: Conv = IDLE) => events.reduce((c, [e, t]) => convStep(c, e, t), s);
 
@@ -20,32 +20,43 @@ test("conversation loops listening → thinking → speaking → listening", () 
 });
 
 test("idle ignores everything but start; stop ends", () => {
-  for (const type of ["ask", "speaking", "spoke", "tick", "hearing", "stop"] as const) assert.equal(convStep(IDLE, { type }, 5), IDLE);
+  for (const type of ["ask", "speaking", "spoke", "tick", "hearing", "stop", "barge"] as const) assert.equal(convStep(IDLE, { type }, 5), IDLE);
   assert.equal(run([[{ type: "start", persist: true }, 0], [{ type: "stop" }, 1]]).phase, "idle");
 });
 
-test("stay mode is open mic: ends after 5 min without a question; room talk doesn't keep it alive", () => {
+test("60 s of silence while listening ends it in either mode; talking or speaking keeps it alive", () => {
+  for (const persist of [true, false]) {
+    const s = convStep(IDLE, { type: "start", persist }, 0);
+    assert.equal(convStep(s, { type: "tick" }, SILENCE_MS - 1).phase, "listening");
+    assert.equal(convStep(s, { type: "tick" }, SILENCE_MS).phase, "idle");
+    assert.equal(run([[{ type: "hearing" }, 50_000], [{ type: "tick" }, SILENCE_MS + 1]], s).phase, "listening"); // mid-question
+    assert.equal(run([[{ type: "ask" }, 1], [{ type: "speaking" }, 2], [{ type: "tick" }, 99_000]], s).phase, "speaking"); // long answer
+    const answered = run([[{ type: "ask" }, 1], [{ type: "speaking" }, 2], [{ type: "done" }, 3], [{ type: "spoke" }, 50_000]], s);
+    assert.equal(convStep(answered, { type: "tick" }, 50_000 + SILENCE_MS - 1).phase, "listening"); // the clock starts when ORBIT stops
+  }
+});
+
+test("30 min without a question ends it in any phase (a TV talking, a stuck speaking)", () => {
   const s = convStep(IDLE, { type: "start", persist: true }, 0);
-  assert.equal(convStep(s, { type: "tick" }, IDLE_MS - 1).phase, "listening");
-  assert.equal(convStep(s, { type: "tick" }, IDLE_MS).phase, "idle");
-  assert.equal(run([[{ type: "hearing" }, IDLE_MS - 10], [{ type: "tick" }, IDLE_MS]], s).phase, "idle"); // a TV talking
-  const answered = run([[{ type: "ask" }, 60_000], [{ type: "speaking" }, 61_000], [{ type: "done" }, 62_000], [{ type: "spoke" }, 70_000]], s);
-  assert.equal(convStep(answered, { type: "tick" }, 60_000 + IDLE_MS - 1).phase, "listening"); // the clock restarts at each question
-  assert.equal(convStep(answered, { type: "tick" }, 60_000 + IDLE_MS).phase, "idle"); // …not when ORBIT finishes speaking
-  // Other speakers (nav replies, "I'm listening.") flip phases and reset `since`; they mustn't hold the mic open.
-  const chatter = run([[{ type: "speaking" }, IDLE_MS - 5], [{ type: "spoke" }, IDLE_MS - 1]], s);
-  assert.equal(convStep(chatter, { type: "tick" }, IDLE_MS).phase, "idle");
-  const stuck = run([[{ type: "ask" }, 0], [{ type: "speaking" }, 1]], s); // speaking that never ends
+  let tv = s;
+  for (let t = 30_000; t < CAP_MS; t += 30_000) tv = run([[{ type: "hearing" }, t], [{ type: "tick" }, t]], tv);
+  assert.equal(tv.phase, "listening");
+  assert.equal(convStep(tv, { type: "tick" }, CAP_MS).phase, "idle");
+  const stuck = run([[{ type: "ask" }, 0], [{ type: "speaking" }, 1]], s);
   assert.equal(convStep(stuck, { type: "tick" }, CAP_MS - 1).phase, "speaking");
   assert.equal(convStep(stuck, { type: "tick" }, CAP_MS).phase, "idle");
 });
 
-test("one-follow-up mode: 30 s of silence while listening ends it; talking or speaking keeps it alive", () => {
-  const s = convStep(IDLE, { type: "start", persist: false }, 0);
-  assert.equal(convStep(s, { type: "tick" }, SILENCE_MS - 1).phase, "listening");
-  assert.equal(convStep(s, { type: "tick" }, SILENCE_MS).phase, "idle");
-  assert.equal(run([[{ type: "hearing" }, 20_000], [{ type: "tick" }, SILENCE_MS + 1]], s).phase, "listening");
-  assert.equal(run([[{ type: "ask" }, 1], [{ type: "speaking" }, 2], [{ type: "tick" }, 99_000]], s).phase, "speaking"); // long answer
+test("barge-in: talking over ORBIT goes straight back to listening, even while CORE still streams", () => {
+  const speaking = run([[{ type: "start", persist: true }, 0], [{ type: "ask" }, 1], [{ type: "speaking" }, 2]]);
+  const cut = run([[{ type: "spoke" }, 3], [{ type: "barge" }, 3]], speaking); // stop() → spoke, then barge
+  assert.equal(cut.phase, "listening");
+  assert.equal(cut.streams, 1);
+  const next = run([[{ type: "ask" }, 4], [{ type: "done" }, 5]], cut); // the silenced stream ends after the new ask
+  assert.equal(next.phase, "thinking");
+  assert.equal(run([[{ type: "done" }, 6]], next).phase, "listening");
+  assert.equal(convStep(convStep(IDLE, { type: "start", persist: true }, 0), { type: "barge" }, 1).since, 0); // listening: no-op
+  assert.equal(convStep(IDLE, { type: "barge" }, 1), IDLE);
 });
 
 test("asked but never spoken (speech off) goes back to listening", () => {
@@ -67,9 +78,9 @@ test("start and end phrases", () => {
   assert.equal(startsConversation("let's just talk", false), true); // no "Orbit" needed with "just"
   assert.equal(startsConversation("let's talk", false), false); // a TV line
   assert.equal(startsConversation("Orbit, let's talk", true), true);
-  for (const t of ["That's all", "that's all, thanks", "Stop listening", "Goodbye", "bye", "Orbit, goodbye", "that's it for now", "end conversation", "we're done", "that'll be all", "bye bye", "that's enough", "no, that's all", "ok thanks, bye", "stop listening please"])
+  for (const t of ["That's all", "that's all, thanks", "Stop listening", "Goodbye", "bye", "Orbit, goodbye", "that's it for now", "end conversation", "we're done", "that'll be all", "bye bye", "that's enough", "no, that's all", "ok thanks, bye", "stop listening please", "stop", "Orbit, stop", "Stop.", "lõpeta", "Lõpeta!", "lõpetame", "lõpeta vestlus", "aitab küll"])
     assert.equal(isConversationEnd(t), true, t);
-  for (const t of ["is that all there is", "stop", "goodbye to summer"]) assert.equal(isConversationEnd(t), false, t);
+  for (const t of ["is that all there is", "stop talking", "stop the timer", "lõpeta see ülesanne", "goodbye to summer"]) assert.equal(isConversationEnd(t), false, t);
 });
 
 test("open mic answers what's meant for ORBIT and ignores filler and room talk", () => {

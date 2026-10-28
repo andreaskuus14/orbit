@@ -238,7 +238,8 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions
       await import("./memory-graph").then((m) => m.rebuildGraph(sb, userId)).catch((e) => console.error("[orbit] memory graph:", msg(e))); // local clusters for MEMORY; no model call
-      const k = h.proposals.filter((p) => p.status === "pending").length;
+      const e = await import("./entity-graph").then((m) => m.scanEntities(sb, userId)).catch((x) => { console.error("[orbit] entity graph:", msg(x)); return null; }); // rules only, no model; never journal
+      const k = h.proposals.filter((p) => p.status === "pending").length + (e ? e.merges + e.contradictions : 0);
       return k ? { ...base, label: `${k} memory tidy-up suggestion${k > 1 ? "s" : ""}`, status: "approval", open: { panel: "memory" }, at: at() } : { ...base, status: "skipped", why: "Nothing to tidy", at: at() };
     }
   }

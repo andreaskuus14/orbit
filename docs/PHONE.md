@@ -36,6 +36,12 @@ A light page for the phone that doesn't need the full galaxy or a Supabase sign-
 
 What the phone can do: approve or reject clips waiting in review (it shows each clip's thumbnail; a clip without one is approved on the PC), approve a Higgsfield spend at its exact quoted credits, approve & send a BUSINESS email draft (it shows the full message and recipient), turn Stop-all **on** (resuming is done on the PC), see the Studio queue, read last night's **Night report** (titles and counts only, money stripped from titles; no drafts, amounts or links), and ask CORE (its chats are titled "Phone: …"). It can only act on items already waiting for you, exactly as it showed them (a clip, quote or draft that changed since must be reloaded); it can't start spends, sends or jobs. Retry clips that replace a published Short are reviewed on the PC. Every phone command is logged to the ledger (type and result, never the text).
 
+### Offline
+
+Installed Remote (Home Screen app; on Android, the **Install** button in Remote) opens even when the PC or Tailscale is unreachable. It then shows the last synced Studio status, approvals waiting, Night report and car-mode brief, under an amber **Offline: last synced HH:MM** line. Approve, reject, Stop-all and Done are switched off while offline: they are never queued and only ever go to the PC live, with the exact item you see after it reloads. Ask CORE, calls, voice memos and thumbnails need the PC too.
+
+What's stored on the phone: only those last answers (and the Remote page itself), in Remote's own cache. Nothing else ORBIT serves is cached. If the phone is revoked (or `REMOTE_SECRET` changes), the cached copy is deleted the next time Remote reaches the PC.
+
 ### Notifications on the phone (iOS 16.4+)
 
 Remote can buzz your phone when something needs you: a new clip to review, a Higgsfield quote ready, a BUSINESS draft ready to send (only when email sending is set up), a Short scheduled or published, a clip job or AI Story failed, or Stop-all switched on.
