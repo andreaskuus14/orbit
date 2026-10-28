@@ -170,6 +170,9 @@ const BASE = {
 
   "loops.title": "Open loops", "loops.count": "{n} OPEN", "loops.empty": "Nothing left hanging.", "loops.snooze": "Snooze 3 days",
   "loops.task": "Turn into task", "loops.scan": "Scan now",
+  "ent.title": "Memory check · nothing changes until you answer", "ent.same": "Are these the same?", "ent.yes": "Yes, same", "ent.no": "No, different",
+  "ent.which": "Which is right? {who}: {attr}", "ent.me": "you", "ent.pick": "This one", "ent.skip": "Skip",
+  "ent.attr.birthday": "birthday", "ent.attr.employer": "workplace", "ent.attr.home": "home town",
 
   "rules.when": "When", "rules.does": "Does", "rules.scope": "Scope", "rules.allowed": "Allowed", "rules.newAria": "New standing rule",
   "rules.ph": "e.g. Every weekday 7:30 check deals", "rules.inputAria": "Rule in your own words", "rules.readBack": "Read it back",
@@ -728,6 +731,9 @@ export const ET: Partial<Record<Key, string>> = {
 
   "loops.title": "Lahtised otsad", "loops.count": "{n} LAHTI", "loops.empty": "Midagi ei jäänud ripakile.", "loops.snooze": "Lükka 3 päeva edasi",
   "loops.task": "Tee ülesandeks", "loops.scan": "Otsi kohe",
+  "ent.title": "Mälu kontroll · midagi ei muutu enne sinu vastust", "ent.same": "Kas need on sama?", "ent.yes": "Jah, sama", "ent.no": "Ei, erinevad",
+  "ent.which": "Kumb on õige? {who}: {attr}", "ent.me": "sina", "ent.pick": "See", "ent.skip": "Jäta vahele",
+  "ent.attr.birthday": "sünnipäev", "ent.attr.employer": "töökoht", "ent.attr.home": "elukoht",
 
   "rules.when": "Millal", "rules.does": "Mida teeb", "rules.scope": "Ulatus", "rules.allowed": "Lubatud", "rules.newAria": "Uus püsireegel",
   "rules.ph": "nt Igal tööpäeval 7:30 vaata pakkumised üle", "rules.inputAria": "Reegel sinu enda sõnadega", "rules.readBack": "Loe ette, kuidas aru said",
