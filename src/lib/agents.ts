@@ -27,7 +27,7 @@ type Task = { id: string; agent: string; title: string; request: string; parent_
 // pages: full texts read during the task, reused by the verification stage.
 // budget/signal: shared by the whole task tree, so delegated sub-tasks spend the same budget and stop with their parent.
 type Ctx = { sb: SupabaseClient; userId: string; task: Task; depth: number; pending: PendingAction[]; trace: TraceStep[]; pages: Map<string, Source>; budget?: Budget; signal?: AbortSignal;
-  priv?: boolean; links?: Set<string>; evidence?: WriteEvidence[] }; // receipts come only from successful read-back checks
+  priv?: boolean; links?: Set<string>; evidence?: WriteEvidence[]; attempt?: string }; // receipts come only from successful read-back checks; attempt: the approved action's stable id (an idempotency key for tools)
 
 const MAX_STEPS = 7;
 const MAX_DEPTH = 2;
@@ -523,6 +523,7 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
     else {
       // The attempt is on record before the action runs: a crash before its receipt leaves "attempting" (→ uncertain), never a silent retry.
       Object.assign(p, { status: "attempting", attempt: attemptId(taskId, k) });
+      ctx.attempt = p.attempt; // same id when the owner retries the step after an uncertain outcome, so a keyed write can't land twice
       await record("Couldn't record the action attempt, so it was not run. Try again.");
       try {
         p.note = await TOOLS[p.tool].run(ctx, p.input);
