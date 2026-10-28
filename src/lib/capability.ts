@@ -1,6 +1,6 @@
 import type { Check } from "./doctor-pure";
 import type { Lang } from "./i18n-pure";
-import { blockedReason, cantDo, coreNote, evaluate, guessLang, missingFor, routedModules, type Facts } from "./capability-pure";
+import { cantDo, coreNote, evaluate, guessLang, missingFor, routedModules, startCheck, type Facts } from "./capability-pure";
 
 // "Check before promising", IO (rules: capability-pure.ts). No new probes: the doctor's last checks (remembered by runDoctor), env names,
 // and local connection files ORBIT already reads (YouTube/Calendar tokens, paired phones).
@@ -29,8 +29,9 @@ export const capabilityState = async (checks?: Check[]) => evaluate(await facts(
 export const cantDoNow = async (checks: Check[]) => cantDo(await capabilityState(checks));
 /** CORE prompt line for this turn's text (request + CORE's last reply), or "". Never throws. */
 export const coreCapabilityNote = (text: string) => capabilityState().then((s) => coreNote(missingFor(text, s, routedModules(text))), () => "");
-/** Mission/agent start: the up-front refusal, or "" to go ahead. Never throws (a broken check never blocks). */
-export async function capabilityBlock(text: string, lang?: Lang): Promise<string> {
-  try { return blockedReason(missingFor(text, await capabilityState()), lang ?? guessLang(text)); }
-  catch { return ""; }
+/** Mission/agent start: block (only when Claude Code is known down) and a heads-up note for anything else missing.
+ *  Never throws (a broken check never blocks). */
+export async function capabilityStart(text: string, lang?: Lang): Promise<{ block: string; headsUp: string }> {
+  try { return startCheck(missingFor(text, await capabilityState()), lang ?? guessLang(text)); }
+  catch { return { block: "", headsUp: "" }; }
 }

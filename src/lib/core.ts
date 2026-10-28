@@ -36,6 +36,7 @@ import { recordCoreTurn } from "./perf-log";
 import { autonomyLevels } from "./autonomy";
 import { skillDenied } from "./skills-pure";
 import { maxSteps, fallbackNote, sessionInput } from "./core-capability-pure";
+import { withHeadsUp } from "./capability-pure";
 import { CORE_ENGINE } from "./core-sdk-pure";
 import { randomUUID } from "node:crypto";
 import type { CliSession } from "./claude";
@@ -476,14 +477,14 @@ async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, inp
     const request = typeof input.request === "string" ? input.request.trim().slice(0, 8000) : "";
     if (!request) return "Error: request is required";
     if (!(await getAgent(sb, agent, userId))) return `Error: unknown agent "${agent}"`;
-    const cap = await import("./capability").then((m) => m.capabilityBlock(request, "en")); // CORE replies in the owner's language itself
-    if (cap) return `Error: ${cap}`;
-    const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent, title: `CORE asked: ${request}`.slice(0, 200), request }).select("id").single();
+    const cap = await import("./capability").then((m) => m.capabilityStart(request, "en")); // CORE replies in the owner's language itself
+    if (cap.block) return `Error: ${cap.block}`;
+    const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent, ...withHeadsUp(`CORE asked: ${request}`, request, cap.headsUp) }).select("id").single();
     if (error) throw error;
     const out = await runTask(sb, userId, data.id, 1, undefined, signal); // CORE's Stop cancels this task and its sub-tasks
     if (out.status === "cancelled") { stopped.push(`${agent}: ${out.result ?? "Cancelled."}`); return `Error: ${agent} was cancelled`; }
     if (out.status === "failed") return `Error: ${agent} failed: ${out.error}${out.result ? `\n${out.result}` : ""}`;
-    return `${agent}'s result${out.status === "awaiting_approval" ? " (it also proposed actions the user can approve in OPERATIONS)" : ""}:\n${(out.result ?? "").slice(0, 8000)}`;
+    return `${cap.headsUp ? `${cap.headsUp}\n` : ""}${agent}'s result${out.status === "awaiting_approval" ? " (it also proposed actions the user can approve in OPERATIONS)" : ""}:\n${(out.result ?? "").slice(0, 8000)}`;
   }
   return `Error: unknown tool "${tool}"`;
 }

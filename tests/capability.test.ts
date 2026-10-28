@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CAPS, blockedReason, cantDo, capRow, coreNote, evaluate, guessLang, missingFor, routedModules, type Facts } from "../src/lib/capability-pure.ts";
+import { CAPS, blockedReason, startCheck, withHeadsUp, cantDo, capRow, coreNote, evaluate, guessLang, missingFor, routedModules, type Facts } from "../src/lib/capability-pure.ts";
 
 const ALL_ENV = { YOUTUBE_API_KEY: "k", YOUTUBE_OAUTH_CLIENT_ID: "i", YOUTUBE_OAUTH_CLIENT_SECRET: "s", RESEND_API_KEY: "r", ORBIT_MAIL_FROM: "a@b", ORBIT_LOCAL_MODEL: "qwen" };
 const full: Facts = { checks: { claude: "ok", ytkey: "ok", ffmpeg: "ok", whisper: "warn" }, env: ALL_ENV, ytConnected: true, ytExpired: false, calendar: true, pushProblem: null, phones: 1 };
@@ -65,4 +65,24 @@ test("texts: blocked reason and CORE note name the thing and the fix; empty when
 test("guessLang", () => {
   assert.equal(guessLang("tee mulle ülevaade"), "et");
   assert.equal(guessLang("make me a summary"), "en");
+});
+
+test("start: keyword-guessed needs never block; they become a heads-up on the task", () => {
+  const s = evaluate({ ...full, env: { ...ALL_ENV, RESEND_API_KEY: "" } });
+  const r = startCheck(missingFor("research X and send me an email", s), "en");
+  assert.equal(r.block, "");
+  assert.match(r.headsUp, /^Heads-up: email sending isn't set up, so the step that needs it will stop for you\. Fix: Add RESEND_API_KEY/);
+  assert.match(startCheck(missingFor("saada kliendile e-kiri", s), "et").headsUp, /^Teadmiseks: e-kirjade saatmine pole seadistatud.*RESEND_API_KEY/);
+  const t = withHeadsUp("Research X", "research X and send me an email", r.headsUp);
+  assert.ok(t.title.startsWith("⚠ ")); assert.ok(t.request.endsWith(r.headsUp));
+  assert.deepEqual(withHeadsUp("a", "b", ""), { title: "a", request: "b" });
+  assert.deepEqual(startCheck(missingFor("research X", evaluate(full)), "en"), { block: "", headsUp: "" });
+});
+
+test("start: only a known-down Claude Code refuses up front (unknown never does)", () => {
+  const down = evaluate({ ...full, checks: { claude: "fail" }, env: { ...ALL_ENV, RESEND_API_KEY: "" } });
+  const r = startCheck(missingFor("research X and send me an email", down), "en");
+  assert.match(r.block, /^Not started: .*Claude Code/);
+  assert.match(r.headsUp, /email sending/);
+  assert.equal(startCheck(missingFor("research X", evaluate({ ...full, checks: {} })), "en").block, "");
 });

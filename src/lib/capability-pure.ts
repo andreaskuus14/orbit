@@ -62,7 +62,7 @@ export function missingFor(text: string, s: DepState, modules: string[] = []): M
   return missingOf(CAPS.filter((c) => c.intent.test(text) || c.modules.some((m) => modules.includes(m))), s);
 }
 
-const T: Record<Lang, { cap: Record<CapId, string>; why: Record<Dep, string>; fix: Record<Dep, string>; blocked: string; title: string; none: string }> = {
+const T: Record<Lang, { cap: Record<CapId, string>; why: Record<Dep, string>; fix: Record<Dep, string>; blocked: string; heads: string; title: string; none: string }> = {
   en: {
     cap: { think: "Thinking (CORE, agents, missions)", youtube_stats: "YouTube stats and the Video Scout", youtube_upload: "Uploading and scheduling to YouTube", clips: "Cutting clips with captions",
       email_send: "Sending email (after your approval)", calendar: "Reading your Google Calendar", media: "Making images and video (Higgsfield)", local_brain: "Local brain (private offline model)",
@@ -78,7 +78,7 @@ const T: Record<Lang, { cap: Record<CapId, string>; why: Record<Dep, string>; fi
       ollama: "Install Ollama, pull a model, set ORBIT_LOCAL_MODEL in .env.local, then restart ORBIT.",
       phone: "Set REMOTE_VAPID_PUBLIC/_PRIVATE (docs/PHONE.md), then open Remote on the phone and turn notifications on.",
       ffmpeg: "In the ORBIT folder run: npm install (or set ORBIT_FFMPEG to ffmpeg.exe).", whisper: "In the ORBIT folder run: npm install." },
-    blocked: "Not started: ORBIT can't do this right now.", title: "What ORBIT can't do right now", none: "Nothing missing: every capability ORBIT checks is available.",
+    blocked: "Not started: ORBIT can't do this right now.", heads: "Heads-up: {what}, so the step that needs it will stop for you. Fix: {fix}", title: "What ORBIT can't do right now", none: "Nothing missing: every capability ORBIT checks is available.",
   },
   et: {
     cap: { think: "Mõtlemine (CORE, agendid, missioonid)", youtube_stats: "YouTube'i statistika ja videoskaut", youtube_upload: "YouTube'i üleslaadimine ja ajastamine", clips: "Klippide lõikamine subtiitritega",
@@ -95,7 +95,7 @@ const T: Record<Lang, { cap: Record<CapId, string>; why: Record<Dep, string>; fi
       ollama: "Paigalda Ollama, tõmba mudel, sea ORBIT_LOCAL_MODEL faili .env.local, siis taaskäivita ORBIT.",
       phone: "Sea REMOTE_VAPID_PUBLIC/_PRIVATE (docs/PHONE.md), siis ava telefonis Remote ja lülita teavitused sisse.",
       ffmpeg: "Käivita ORBIT-i kaustas: npm install (või sea ORBIT_FFMPEG ffmpeg.exe-le).", whisper: "Käivita ORBIT-i kaustas: npm install." },
-    blocked: "Ei alustatud: ORBIT ei saa seda praegu teha.", title: "Mida ORBIT praegu teha ei saa", none: "Midagi ei puudu: kõik ORBIT-i kontrollitavad võimed on olemas.",
+    blocked: "Ei alustatud: ORBIT ei saa seda praegu teha.", heads: "Teadmiseks: {what}, seega samm, mis seda vajab, peatub ja ootab sind. Parandus: {fix}", title: "Mida ORBIT praegu teha ei saa", none: "Midagi ei puudu: kõik ORBIT-i kontrollitavad võimed on olemas.",
   },
 };
 
@@ -109,6 +109,21 @@ export function blockedReason(missing: Missing[], lang: Lang): string {
   if (!missing.length) return "";
   return `${T[lang].blocked} ${missing.map((m) => { const r = capRow(m, lang); return `${r.label}: ${r.why}. ${r.fix}`; }).join(" ")}`;
 }
+
+/** Mission/agent start. Keyword-guessed needs never hard-block: only a known-down Claude Code (the engine itself) refuses up front;
+ *  anything else starts with a heads-up note on the task/mission. */
+export function startCheck(missing: Missing[], lang: Lang): { block: string; headsUp: string } {
+  const rest = missing.filter((m) => m.id !== "think");
+  const deps = [...new Set(rest.flatMap((m) => m.deps))];
+  return {
+    block: blockedReason(missing.filter((m) => m.id === "think"), lang),
+    headsUp: deps.length ? T[lang].heads.replace("{what}", deps.map((d) => T[lang].why[d]).join("; ")).replace("{fix}", deps.map((d) => T[lang].fix[d]).join(" ")) : "",
+  };
+}
+
+/** A task's title and request with the heads-up on them: "⚠ " on the title (visible in the task card), the note under the request (the agent sees it too). */
+export const withHeadsUp = (title: string, request: string, headsUp: string) =>
+  headsUp ? { title: `⚠ ${title}`.slice(0, 200), request: `${request}\n\n${headsUp}` } : { title: title.slice(0, 200), request };
 
 /** CORE prompt line: only the missing things, or "" (prompt text is English; CORE answers in the owner's language). */
 export function coreNote(missing: Missing[]): string {
