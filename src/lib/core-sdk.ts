@@ -14,7 +14,7 @@ import type { TraceStep } from "./core";
 
 type Turn = {
   sb: SupabaseClient; userId: string; system: string; prompt: string; model: string; effort?: string; maxTurns: number;
-  policy: () => Omit<PolicyCtx, "steps">; attachBlock: string; images?: PromptImage[]; steps: string[]; trace: TraceStep[]; signal?: AbortSignal;
+  policy: () => Omit<PolicyCtx, "steps">; attachBlock: string; images?: PromptImage[]; steps: string[]; trace: TraceStep[]; signal?: AbortSignal; turnId?: string;
   session?: CliSession; escalate?: boolean; // escalate: the fast model reached for a tool → stop, core.ts redoes the turn on the main model
   /** core.ts's dispatch for an allowed call (navigate / module / runCoreTool) and its eval/trace/activity record, shared with the CLI loop. */
   exec: (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[]) => Promise<string>;
@@ -35,8 +35,9 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
     const at = Date.now(), evidence: WriteEvidence[] = [];
     const { out, verdict } = await gated(name, input, t.policy, t.steps, () => t.exec(name, input, evidence), t.attachBlock);
     const row = policyEvent(name, verdict);
-    if (row) void emit(t.sb, t.userId, "policy.decision", "core", row);
+    if (row) void emit(t.sb, t.userId, "policy.decision", "core", { ...row, turn: t.turnId });
     t.record(name, input, out, evidence, Date.now() - at);
+    if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId };
     return toolResult(out);
   });
   const names = sdkTools(MODULE_TOOLS);

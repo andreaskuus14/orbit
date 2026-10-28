@@ -6,6 +6,7 @@ import { selfEvalView } from "@/lib/self-eval";
 import { ackSystemIncident, systemHealthView } from "@/lib/system-health";
 import { requireUser } from "@/lib/supabase/server";
 import { weeklyOutcomes, type OutcomeTask } from "@/lib/outcome-metrics-pure";
+import { cantDoNow } from "@/lib/capability";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,8 @@ export async function GET(req: Request) {
     .then(({ data }) => (data ? weeklyOutcomes(data as OutcomeTask[], Date.now()) : null), () => null);
   const [report, b, health, improve, system, selfEval, outcome] = await Promise.all([runDoctor(sb), boot, healthView().catch(() => null), improveView(sb, user.id).catch(() => null),
     systemHealthView(sb, user.id).catch(() => null), selfEvalView().catch(() => null), outcomes]);
-  return Response.json({ ...report, boot: b, health, improve, system, selfEval, outcome });
+  const cantDo = await cantDoNow(report.checks).catch(() => null);
+  return Response.json({ ...report, boot: b, health, improve, system, selfEval, outcome, cantDo });
 }
 
 // POST {ack: "<incident key>"}: the owner's "Got it" on a System health incident (no more pushes for it; it still clears by itself).

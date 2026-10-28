@@ -1,5 +1,6 @@
 // CORE's WORKSPACE tools: real files CORE builds (a website, a script) instead of pasting code into chat. Writes only happen as the
 // user's own request in their latest message, and not once page/file/agent output is in context (injected text can't plant files).
+import { fileRev, type Basis } from "./artifact-rev-pure.ts";
 import type { WriteEvidence } from "./completion-pure.ts";
 import { et, etQuestion, ET_NOT } from "./et-ask-pure.ts";
 export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create"] as const;
@@ -49,13 +50,14 @@ async function siteCheck(userId: string, slug: string, priorWrites: number): Pro
   }
 }
 
-export async function runWsTool(userId: string, tool: WsTool, input: Record<string, unknown>, question: string, tainted: boolean, priorWrites = 0, onEvidence?: (e: WriteEvidence) => void): Promise<string> {
+export async function runWsTool(userId: string, tool: WsTool, input: Record<string, unknown>, question: string, tainted: boolean, priorWrites = 0, onEvidence?: (e: WriteEvidence) => void, basis: Basis[] = [], touched: (path: string) => boolean = () => false): Promise<string> {
   if (tool === "ws_write" || tool === "ws_create") {
     const blocked = wsWriteBlocked(question, tainted);
     if (blocked) return `Error: ${blocked}`;
   }
   try {
     const ws = await import("./workspace.ts");
+    const { guardNow, sha256 } = await import("./artifact-rev.ts");
     const { slugify } = await import("./workspace-pure.ts");
     switch (tool) {
       case "ws_list": {
@@ -88,9 +90,13 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
         let failed = false;
         for (const f of files as { path?: unknown; content?: unknown }[]) {
           const p = typeof f?.path === "string" ? f.path.trim() : "";
+          // Version guard (roadmap 23): a file this chat's checkpoint pinned at a revision must not have changed since, unless read or written this answer.
+          const pinned = basis.filter((b) => b.ref === `file:${c.slug}/${p}`);
+          const g = pinned.length && !touched(p) ? await guardNow(userId, pinned) : { ok: true as const };
+          if (!g.ok) { failed = true; lines.push(`- ${p}: Error: ${g.explain} Read it with ws_read first, then rewrite from the current version or tell the user what changed.`); continue; }
           const r = await ws.writeWsFile(userId, c.slug, p, typeof f?.content === "string" ? f.content : "");
           if ("error" in r) failed = true;
-          else onEvidence?.({ kind: "file", id: c.slug, path: r.path, bytes: r.bytes });
+          else onEvidence?.({ kind: "file", id: c.slug, path: r.path, bytes: r.bytes, rev: fileRev(sha256(typeof f?.content === "string" ? f.content : ""), Date.now()) });
           lines.push("error" in r ? `- ${p || "(no path)"}: Error: ${r.error}` : `- ${r.path} ${r.created ? "created" : "updated"} (${kb(r.bytes)})`);
         }
         const hasIndex = (await ws.listFiles(userId, c.slug))?.some((f) => f.path === "index.html");

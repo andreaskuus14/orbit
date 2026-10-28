@@ -5,6 +5,7 @@ import { dueFollowups, type Prospect } from "./business-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { STUDIO_TOOLS, runPlanTool, runStudioTool, type StudioTool } from "./core-studio";
 import { LIFE_TOOLS, runLifeTool, type LifeTool } from "./core-life";
+import { checkpointBasis } from "./checkpoint-pure";
 import { WS_PROMPT, WS_TOOLS, runWsTool, wsTainted, type WsTool } from "./core-workspace";
 import { REA_PROMPT, runReaTool } from "./core-rea";
 import { REA_TOOLS } from "./rea-pure";
@@ -12,7 +13,7 @@ import { REA_TOOLS } from "./rea-pure";
 type Base = { sb: SupabaseClient; userId: string };
 /** What a tool call sees. tainted: page/file/agent/tool output or attachments/pins are in context (core.ts's dataIn).
  *  pinned: attachments or pinned notes are in context; steps: this answer's tool results so far. */
-export type Ctx = Base & { question: string; tainted: boolean; pinned: boolean; steps: string[]; onEvidence: (e: WriteEvidence) => void };
+export type Ctx = Base & { chat?: string; question: string; tainted: boolean; pinned: boolean; steps: string[]; onEvidence: (e: WriteEvidence) => void };
 type CoreModule = ModuleSpec & { run: (tool: string, input: Record<string, unknown>, c: Ctx) => Promise<string>; status?: (c: Base) => Promise<string> };
 
 const prospects = async ({ sb }: Base) =>
@@ -47,7 +48,9 @@ const MODULES: CoreModule[] = [
   {
     name: "WORKSPACE", tools: [...WS_TOOLS], writes: ["ws_write", "ws_create"], private: ["ws_read"], prompt: WS_PROMPT,
     // own taint rule: CORE's own earlier ws writes don't count; fix rounds = earlier successful ws_write calls in this answer
-    run: (t, i, c) => runWsTool(c.userId, t as WsTool, i, c.question, c.pinned || wsTainted(c.steps), c.steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length, c.onEvidence),
+    run: async (t, i, c) => runWsTool(c.userId, t as WsTool, i, c.question, c.pinned || wsTainted(c.steps), c.steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length, c.onEvidence,
+      t === "ws_write" && c.chat ? await import("./checkpoint").then(async (m) => checkpointBasis(await m.getCheckpoint(c.userId, c.chat!)), () => []) : [],
+      (p) => c.steps.some((s) => /^You called ws_(?:read|write)\b/.test(s) && s.split("\nRESULT:")[0].includes(JSON.stringify(p)))),
   },
   {
     name: "REA", tools: [...REA_TOOLS], private: ["rea_read"], prompt: REA_PROMPT,
@@ -108,6 +111,11 @@ const MODULES: CoreModule[] = [
     name: "WEEK", tools: ["week_review"], private: true,
     prompt: "- week_review {\"week\"?: \"this\"|\"last\"}: his week (Europe/Tallinn, Monday start) from ORBIT's own data as facts: planned vs done, what slipped (deadline passed, Shorts target missed, started but not finished), what's late, streaks and biggest wins. For \"what slipped / what did I get done / what's late / how did my week go\". Cite each fact you use with its [w:...] marker exactly as written.",
     run: async (_t, i, c) => (await import("./week")).runWeekTool(c.sb, c.userId, i),
+  },
+  {
+    name: "CHECKPOINT", tools: ["save_checkpoint"], writes: ["save_checkpoint"],
+    prompt: "- save_checkpoint {\"constraints\"?: string[], \"success\"?: string[], \"decisions\"?: string[], \"blockers\"?: string[], \"artifacts\"?: [{\"id\": string, \"version\"?: number, \"rev\"?: string}], \"next\"?: string}: add to this chat's CHECKPOINT (his constraints, success criteria, decisions, blockers, artifact versions and the single next action; it stays in every later turn). Only when the user asks you to remember or checkpoint something for this chat/mission in their latest message; use his own words. Lines like \"budget under 300 €\" or \"remember for this: …\" are captured from his message automatically, so call this only for what that misses (a decision summary, the next action, an artifact id). He edits or deletes lines on the Checkpoint card.",
+    run: async (_t, i, c) => (await import("./checkpoint")).runCheckpointTool(c.userId, c.chat, i, c.question),
   },
   {
     // no hint: always loaded; the fallback when keyword routing missed (routedPrompt lists the other modules then)

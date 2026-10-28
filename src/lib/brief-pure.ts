@@ -12,7 +12,7 @@ import type { WeatherLine } from "./weather-pure";
 export type BriefKind = "decision" | "night" | "health" | "calendar" | "school" | "weather" | "place" | "first" | "result" | "lesson" | "question" | "study";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
-export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true } | { panel: "memory"; study: true } | { mission: true };
+export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true } | { panel: "memory"; study: true } | { mission: true } | { href: string }; // href: a checked result file (needs-you-pure receiptOpen)
 export type BriefItem = { id: string; kind: BriefKind; say: string; title: string; detail?: string; open?: BriefOpen; approve?: BriefApprove };
 export type Brief = { day: string; greeting: string; items: BriefItem[]; spoken: string; polished?: boolean };
 
@@ -38,7 +38,8 @@ export type BriefIn = {
   weather?: WeatherLine; // today's forecast for a saved place (weather.ts briefWeather)
   place?: PlaceLine[]; // opt-in location lines (place-pure placeLines): only a saved place name, never coordinates
   habits?: { done: number; due: number }; // last week's habit check-ins, counts only (habit-nudge-pure habitWeek); said on Mondays
-  echo?: { short?: string | null; reply?: string | null }; // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
+  echo?: { short?: string | null; reply?: string | null };
+  lead?: BriefItem[]; // leads the brief: one finished artifact, one decision, one next action (needs-you-pure leadItems) // an earlier win of the same kind, "like when … in October" (episodes-pure briefEcho)
 };
 
 export const MAX_ITEMS = 6;
@@ -82,8 +83,9 @@ export function briefItems(x: BriefIn): BriefItem[] {
   const out: BriefItem[] = [];
   const snoozed = new Set(x.snoozed);
   const add = (it: BriefItem) => { if (!snoozed.has(it.id) && !out.some((o) => o.id === it.id)) out.push(it); };
+  (x.lead ?? []).forEach(add);
 
-  const ds = x.decisions.filter((d) => !snoozed.has(`decision:${d.id}`));
+  const ds = x.decisions.filter((d) => !snoozed.has(`decision:${d.id}`) && !out.some((o) => o.id === `decision:${d.id}`));
   ds.slice(0, 2).forEach((d, k) => add({
     id: `decision:${d.id}`, kind: "decision", title: d.title, detail: "Needs your OK", open: d.open, ...(d.approve && { approve: d.approve }),
     say: k ? `Then ${d.what}.` : ds.length === 1 ? `One thing needs your OK: ${d.what}.` : `${cap(num(ds.length))} things need your OK, starting with ${d.what}.`,

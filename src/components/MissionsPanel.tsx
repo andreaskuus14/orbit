@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import { api, usePoll } from "./AgentMission";
-import { canDo, type OwnerAction } from "@/lib/missions-pure";
+import { canDo, stepVerified, type OwnerAction } from "@/lib/missions-pure";
 import { timeAgo } from "@/lib/mission-pure";
 import type { MissionView } from "@/lib/missions";
 
@@ -39,7 +39,7 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
                       <button type="button" className="min-w-0 truncate text-left underline-offset-2 hover:underline" disabled={!s.taskId} onClick={() => s.taskId && onOpenTask?.(s.taskId)}>
                         {s.index + 1}. {s.agent}: {s.request.split("\n")[0]}
                       </button>
-                      <span className="muted shrink-0">{s.status.replace("_", " ")}</span>
+                      <span className="muted shrink-0">{s.status === "done" ? (stepVerified(m.doc.receipts, s.index) ? "verified" : "done · not verified") : s.status.replace("_", " ")}</span>
                     </li>
                   ))}
                 </ol>

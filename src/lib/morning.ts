@@ -8,6 +8,7 @@ import { pmMorning, postmortemProblem, type PostMortemState } from "./clips/post
 import { pickRecall, type Recall } from "./resurface-pure";
 import { getContinueWork } from "./work-continuation";
 import { dailyMission } from "./daily-mission-pure";
+import { taskVerified } from "./completion-pure";
 import { dueFollowups } from "./business-pure";
 import { readSleepReport } from "./sleep";
 import { alertText } from "./markets-pure";
@@ -48,12 +49,14 @@ async function intel(sb: SupabaseClient): Promise<MorningIntel> {
 async function agents(sb: SupabaseClient, now: number): Promise<MorningAgents> {
   const since = new Date(now - OVERNIGHT_MS).toISOString();
   const [tasks, props] = await Promise.all([
-    sb.from("tasks").select("title, status").is("parent_id", null).in("status", ["done", "failed"]).gte("finished_at", since).limit(50),
+    sb.from("tasks").select("title, status, pending").is("parent_id", null).in("status", ["done", "failed"]).gte("finished_at", since).limit(50),
     sb.from("proposals").select("title").eq("status", "pending").limit(20), // missing table (migration 0006) → just no proposals
   ]);
   if (tasks.error) throw new Error(tasks.error.message);
   const t = tasks.data ?? [];
-  return { done: t.filter((x) => x.status === "done").map((x) => x.title), failed: t.filter((x) => x.status === "failed").length, proposals: (props.data ?? []).map((p) => p.title) };
+  // shortcut: only the root task's own actions count as evidence (sub-task receipts are missed, so this undercounts); join children if it matters.
+  const verified = t.filter((x) => taskVerified(x.status, Array.isArray(x.pending) ? x.pending : [])).length;
+  return { done: t.filter((x) => x.status === "done").map((x) => x.title), failed: t.filter((x) => x.status === "failed").length, proposals: (props.data ?? []).map((p) => p.title), verified };
 }
 
 // shortcut: only the 500 newest memories older than 6 days are candidates, so older anniversaries are missed; add a date-filtered query if that matters.
