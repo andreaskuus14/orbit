@@ -27,7 +27,7 @@ const until = async (cond: () => unknown, what: string) => {
 };
 
 /** In-memory Supabase. Every query runs synchronously inside one exec(), so a conditional update is atomic (like Postgres). */
-function fakeDb() {
+function fakeDb(noAttemptCol = false) {
   const tables: Record<string, Row[]> = { tasks: [], missions: [] };
   let seq = 0;
   const DEFAULTS: Record<string, Row> = {
@@ -46,10 +46,11 @@ function fakeDb() {
   const sb = { from(table: string) {
     const rows = (tables[table] ??= []);
     const filters: ((r: Row) => boolean)[] = [];
-    let patch: Row | null = null, ins: Row[] | null = null, del = false;
+    let patch: Row | null = null, ins: Row[] | null = null, del = false, badCol = false;
     const q: any = {
       select() { return q; }, order() { return q; }, limit() { return q; },
-      eq(k: string, v: unknown) { filters.push((r) => r[k] === v); return q; },
+      eq(k: string, v: unknown) { badCol ||= noAttemptCol && k === "attempt_id"; filters.push((r) => r[k] === v); return q; },
+      contains(k: string, vs: unknown[]) { filters.push((r) => vs.every((v) => (r[k] ?? []).includes(v))); return q; },
       neq(k: string, v: unknown) { filters.push((r) => r[k] !== v); return q; },
       in(k: string, vs: unknown[]) { filters.push((r) => vs.includes(r[k])); return q; },
       is(k: string, v: unknown) { filters.push((r) => (r[k] ?? null) === v); return q; },
@@ -59,6 +60,7 @@ function fakeDb() {
       update(p: Row) { patch = p; return q; }, delete() { del = true; return q; },
       insert(x: Row | Row[]) { ins = (Array.isArray(x) ? x : [x]).map((r) => ({ ...DEFAULTS[table], id: `${table[0]}${++seq}`, created_at: new Date(Date.now() + seq).toISOString(), ...structuredClone(r) })); return q; },
       exec(single = false) {
+        if (badCol || (noAttemptCol && ins?.some((r) => "attempt_id" in r))) return { data: null, error: { code: "42703", message: "column attempt_id does not exist" } };
         if (ins) { rows.push(...ins); const out = structuredClone(ins); return { data: single ? out[0] : out, error: null }; }
         const hit = rows.filter((r) => filters.every((f) => f(r)));
         if (del) for (const r of hit) rows.splice(rows.indexOf(r), 1);
@@ -113,7 +115,7 @@ function boot(w: World) {
   const mods: Row = {
     "./claude": claude, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure,
     "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./pure": pure,
-    "./memory": { KINDS: ["note"] }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
+    "./memory": { KINDS: ["note"], createMemory: (_sb: unknown, userId: string, input: Row) => ctx.__memory({ ...input, user_id: userId }) }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
     "./agents": p.agents, "./chains": p.chains,
   };
   for (const [f, out] of [["agents.ts", p.agents], ["chains.ts", p.chains], ["missions.ts", p.missions]] as const)
@@ -245,4 +247,30 @@ test("mission gate with the request in Estonian (CORE routing keeps MISSIONS)", 
   assert.ok(picked.includes("WORKSPACE") && picked.includes("LIFE"), `Estonian hints route too: ${picked}`); // "kirjuta … fail"
   assert.equal(missionsPure.missionBlocked(q, false), "");
   await scenario(ET, q, 2);
+});
+
+test("approved write tools are idempotent on the attempt id: same attempt twice → one row, the receipt found again", async () => {
+  for (const noCol of [false, true]) {
+    const w = world(EN);
+    if (noCol) Object.assign(w, fakeDb(true));
+    const p = boot(w);
+    p.ctx.__memory = (row: Row) => w.sb.from("memories").insert(row).select("id").single().then((r: Row) => ({ memory: r.data }));
+    const cases: [string, string, Row][] = [
+      ["save_memory", "memories", { title: "T", content: "C", kind: "note", tags: ["x"] }],
+      ["create_project", "projects", { name: "P", description: "D" }],
+      ["add_task", "tasks", { title: "T", request: "R", agent: "nova" }],
+      ["propose_automation", "automations", { name: "A", trigger: "event", event: "briefing.ready", agent: "nova", prompt: "Do it" }],
+    ];
+    for (const [tool, table, input] of cases) {
+      const run = async (attempt: string) => { const c: Row = { sb: w.sb, userId: "owner", task: { agent: "nova", title: "t", project_id: null }, evidence: [], attempt }; const note = await p.agents.TOOLS[tool].run(c, input); return { note, id: c.evidence[0]?.id }; };
+      const a = await run("t1:0"), b = await run("t1:0"), other = await run("t2:0");
+      const rows = w.tables[table].filter((r) => r.user_id === "owner").length;
+      assert.ok(a.id, `${tool}: ${a.note}`);
+      if (noCol && table !== "memories") { assert.equal(rows, 3, `${tool}: without migration 0022 it still works (plain inserts)`); continue; }
+      assert.equal(rows, 2, `${tool}: one effect per attempt`);
+      assert.equal(b.id, a.id, `${tool}: the rerun returns the original receipt`);
+      assert.match(b.note, /Already done/);
+      assert.notEqual(other.id, a.id);
+    }
+  }
 });

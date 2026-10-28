@@ -25,6 +25,8 @@ export const canRetryTask = (actions: ActionResult[]) => actions.every((a) => a.
 // An attempt found without a receipt (crash between the write and its record) becomes "uncertain": it may or may not have happened,
 // so it is never re-run automatically; the owner inspects it (task detail / mission panel show the note).
 export const attemptId = (taskId: string, index: number) => `${taskId}:${index}`;
+/** The tag an approved save_memory carries, so a rerun of the same attempt finds its memory instead of saving it again. */
+export const attemptTag = (attempt: string) => `attempt:${attempt}`;
 export const UNCERTAIN_NOTE = "Needs inspection: ORBIT stopped while running this approved action and has no receipt, so it can't tell whether it happened. Check its result before doing it again.";
 export const UNCERTAIN_ERROR = "Needs inspection: an approved action may or may not have happened (no receipt). Check its result before doing it again.";
 export const unsure = (actions: unknown) => Array.isArray(actions) && actions.some((a) => ["attempting", "uncertain"].includes((a as ActionResult)?.status));

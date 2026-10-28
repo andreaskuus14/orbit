@@ -9,7 +9,7 @@ import { verifyAnswer, type Source } from "./verify";
 import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { attemptId, completionState, type WriteEvidence } from "./completion-pure";
+import { attemptId, attemptTag, completionState, type WriteEvidence } from "./completion-pure";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
 import { verifyRow } from "./completion";
 import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
@@ -36,6 +36,24 @@ const MAX_RUNNING = 2;
 /* ---------------- tools ---------------- */
 
 type Tool = { description: string; input: string; approval?: boolean; run: (ctx: Ctx, input: Record<string, unknown>) => Promise<string> };
+// Approved writes are idempotent on ctx.attempt (stable per approved action, the same when the owner retries the step after an
+// uncertain outcome): the row an earlier run of that attempt created is found and returned as the receipt instead of writing again.
+// Memories carry attemptTag in tags; projects/tasks/automations an attempt_id column (migration 0022; without it, plain inserts).
+async function landed(ctx: Ctx, table: string): Promise<string | null> {
+  if (!ctx.attempt) return null;
+  const q = ctx.sb.from(table).select("id").eq("user_id", ctx.userId);
+  const { data, error } = await (table === "memories" ? q.contains("tags", [attemptTag(ctx.attempt)]) : q.eq("attempt_id", ctx.attempt)).limit(1);
+  if (error) { if (missingOwnerColumn(error)) return null; throw error; } // same "column missing" codes as tasks.claimed_by
+  return (data?.[0]?.id as string | undefined) ?? null;
+}
+async function insertOnce(ctx: Ctx, table: string, row: Record<string, unknown>): Promise<string> {
+  let r = await ctx.sb.from(table).insert(ctx.attempt ? { ...row, attempt_id: ctx.attempt } : row).select("id").single();
+  if (r.error && ctx.attempt && missingOwnerColumn(r.error)) r = await ctx.sb.from(table).insert(row).select("id").single();
+  if (r.error) throw r.error;
+  return r.data.id as string;
+}
+const already = (what: string, id: string) => `Already done by this approved action earlier: ${what} ${id} (found by its attempt id); not done again.`;
+
 const s = (v: unknown, max = 500) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
 export const TOOLS: Record<string, Tool> = {
@@ -199,9 +217,12 @@ export const TOOLS: Record<string, Tool> = {
     approval: true,
     run: async (ctx, i) => {
       const { sb, userId, task } = ctx;
+      const prior = await landed(ctx, "memories");
+      if (prior) { ctx.evidence?.push({ kind: "memory", id: prior }); return already("memory", prior); }
       const kind = (KINDS as readonly string[]).includes(String(i.kind)) ? (i.kind as Kind) : "research";
       const { memory } = await createMemory(sb, userId, {
-        kind, title: s(i.title, 300) || task.title, content: s(i.content, 100_000), source: `agent:${task.agent}`, tags: cleanTags(i.tags),
+        kind, title: s(i.title, 300) || task.title, content: s(i.content, 100_000), source: `agent:${task.agent}`,
+        tags: [...cleanTags(i.tags), ...(ctx.attempt ? [attemptTag(ctx.attempt)] : [])],
       });
       ctx.evidence?.push({ kind: "memory", id: memory.id });
       return `Saved and read back memory ${memory.id}`;
@@ -214,11 +235,12 @@ export const TOOLS: Record<string, Tool> = {
     run: async (ctx, i) => {
       const { sb, userId } = ctx;
       const expected = { name: s(i.name, 120) || "New project", description: s(i.description, 2000) };
-      const { data, error } = await sb.from("projects").insert({ user_id: userId, ...expected }).select("id").single();
-      if (error) throw error;
-      await verifyRow(sb, userId, "projects", data.id, expected);
-      ctx.evidence?.push({ kind: "project", id: data.id });
-      return `Created and read back project ${data.id}`;
+      const prior = await landed(ctx, "projects");
+      if (prior) { ctx.evidence?.push({ kind: "project", id: prior }); return already("project", prior); }
+      const id = await insertOnce(ctx, "projects", { user_id: userId, ...expected });
+      await verifyRow(sb, userId, "projects", id, expected);
+      ctx.evidence?.push({ kind: "project", id });
+      return `Created and read back project ${id}`;
     },
   },
   add_task: {
@@ -229,13 +251,14 @@ export const TOOLS: Record<string, Tool> = {
       const { sb, userId, task } = ctx;
       const agent = s(i.agent, 40).toLowerCase() || "nova";
       if (!(await getAgent(sb, agent, userId))) return `Error: unknown agent "${agent}".`;
-      const { data, error } = await sb.from("tasks").insert({
+      const prior = await landed(ctx, "tasks");
+      if (prior) { ctx.evidence?.push({ kind: "task", id: prior }); return already("task", prior); }
+      const id = await insertOnce(ctx, "tasks", {
         user_id: userId, project_id: task.project_id, agent, title: s(i.title, 200) || "Task", request: s(i.request, 8000) || s(i.title, 200),
-      }).select("id").single();
-      if (error) throw error;
-      await verifyRow(sb, userId, "tasks", data.id, { agent, request: s(i.request, 8000) || s(i.title, 200) });
-      ctx.evidence?.push({ kind: "task", id: data.id });
-      return `Queued task ${data.id} for ${agent}.`;
+      });
+      await verifyRow(sb, userId, "tasks", id, { agent, request: s(i.request, 8000) || s(i.title, 200) });
+      ctx.evidence?.push({ kind: "task", id });
+      return `Queued task ${id} for ${agent}.`;
     },
   },
   list_automations: {
@@ -256,10 +279,11 @@ export const TOOLS: Record<string, Tool> = {
       const v = validateAutomation(i);
       if ("error" in v) return `Error: ${v.error}`;
       if (!(await getAgent(sb, v.spec.agent, userId))) return `Error: unknown agent "${v.spec.agent}".`;
-      const { data, error } = await sb.from("automations").insert({ ...v.spec, user_id: userId }).select("id").single();
-      if (error) throw error;
-      await verifyRow(sb, userId, "automations", data.id, { name: v.spec.name, agent: v.spec.agent, prompt: v.spec.prompt });
-      ctx.evidence?.push({ kind: "automation", id: data.id });
+      const prior = await landed(ctx, "automations");
+      if (prior) { ctx.evidence?.push({ kind: "automation", id: prior }); return already("automation", prior); }
+      const id = await insertOnce(ctx, "automations", { ...v.spec, user_id: userId });
+      await verifyRow(sb, userId, "automations", id, { name: v.spec.name, agent: v.spec.agent, prompt: v.spec.prompt });
+      ctx.evidence?.push({ kind: "automation", id });
       return `Created automation "${v.spec.name}" (${describeTrigger(v.spec)} → ${v.spec.agent}).`;
     },
   },
