@@ -53,6 +53,7 @@ Turning this on changes AGENTS.md rule 6 for that area; it is your decision only
 When on: running agent tasks, team chains and goal steps are cancelled; the night shift, niche scout, shop builds and deal hunts stop; queued Auto emails/Shorts are cancelled; no new work starts (scheduler, automations, proposals, autopilot, auto-clips); no email, contract or negotiation reply is sent; no credits are spent; ORBIT doesn't call you. A red "Paused" banner shows.
 Not stopped: a clip render or YouTube upload already under way finishes (killing it could leave broken files).
 Turning it **off** is done on the PC only; the phone and Shortcuts can only turn it on.
+Exact behaviour per runner (queued, running, waiting for approval or capacity, resume): [STOP-ALL.md](STOP-ALL.md).
 
 ## 4. Quiet hours: 23:00–08:00 (Tallinn time)
 
