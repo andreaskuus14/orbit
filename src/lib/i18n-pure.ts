@@ -172,6 +172,10 @@ const BASE = {
   "improve.impact": "IMPACT {n}", "improve.evidence": "Evidence: {list}", "improve.copyAria": "Copy builder brief: {title}",
   "improve.draftAria": "Draft a patch for review: {title}", "improve.draftTitle": "One Claude call drafts a diff + test. Saved locally, never applied.",
   "improve.drafting": "Drafting…", "improve.draft": "Draft patch", "improve.saved": "Test: {test} · Saved (not applied):",
+  "selfEval.title": "Self-eval scorecard", "selfEval.week": "Week {week} ({date}), no model calls. ",
+  "selfEval.vs": "this week · last 4", "selfEval.redOk": "Red-team: 0 failures.", "selfEval.redFail": "Red-team: {n} injection(s) NOT refused. Tell a builder now.",
+  "selfEval.regressions": "Newly failing: {list}", "selfEval.cat.send": "Send", "selfEval.cat.spend": "Spend", "selfEval.cat.publish": "Publish",
+  "selfEval.cat.sign": "Sign", "selfEval.cat.reveal": "Reveal private data", "selfEval.cat.autonomy": "Autonomy & approvals", "selfEval.cat.retrieval": "Memory retrieval",
   "improve.handoffAria": "Copy patch handoff for Claude Code: {title}", "improve.handoff": "Copy to Claude Code",
 
   "loops.title": "Open loops", "loops.count": "{n} OPEN", "loops.empty": "Nothing left hanging.", "loops.snooze": "Snooze 3 days",
@@ -747,6 +751,10 @@ export const ET: Partial<Record<Key, string>> = {
   "improve.impact": "MÕJU {n}", "improve.evidence": "Tõendid: {list}", "improve.copyAria": "Kopeeri arendaja kirjeldus: {title}",
   "improve.draftAria": "Koosta parandus ülevaatamiseks: {title}", "improve.draftTitle": "Üks Claude'i päring koostab muudatuse ja testi. Salvestatakse kohalikult, kunagi ei rakendata.",
   "improve.drafting": "Koostan…", "improve.draft": "Koosta parandus", "improve.saved": "Test: {test} · Salvestatud (rakendamata):",
+  "selfEval.title": "Enesekontrolli tulemused", "selfEval.week": "Nädal {week} ({date}), mudelit ei kasutata. ",
+  "selfEval.vs": "see nädal · eelmised 4", "selfEval.redOk": "Rünnakutestid: 0 läbikukkumist.", "selfEval.redFail": "Rünnakutestid: {n} süstimist JÄI keelamata. Teata kohe arendajale.",
+  "selfEval.regressions": "Uued läbikukkumised: {list}", "selfEval.cat.send": "Saatmine", "selfEval.cat.spend": "Kulutamine", "selfEval.cat.publish": "Avaldamine",
+  "selfEval.cat.sign": "Allkirjastamine", "selfEval.cat.reveal": "Privaatandmete lekitamine", "selfEval.cat.autonomy": "Autonoomia ja kinnitused", "selfEval.cat.retrieval": "Mälust leidmine",
   "improve.handoffAria": "Kopeeri parandus Claude Code'ile: {title}", "improve.handoff": "Kopeeri Claude Code'ile",
 
   "loops.title": "Lahtised otsad", "loops.count": "{n} LAHTI", "loops.empty": "Midagi ei jäänud ripakile.", "loops.snooze": "Lükka 3 päeva edasi",

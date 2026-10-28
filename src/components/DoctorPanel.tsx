@@ -4,6 +4,7 @@ import { headlineOf, type Report, type Status } from "@/lib/doctor-pure";
 import type { BootResult } from "@/lib/doctor-boot-pure";
 import { builderText, type Issue } from "@/lib/health-pure";
 import { builderBrief, type Improve } from "@/lib/self-improve-pure";
+import type { Trend } from "@/lib/self-eval-pure";
 import type { systemHealthView } from "@/lib/system-health";
 import { incidentTitle, type SvcState } from "@/lib/system-health-pure";
 import type { PatchResult } from "@/lib/self-improve-patch-pure";
@@ -157,10 +158,31 @@ function ImproveCard({ improve }: { improve: Improve }) {
   );
 }
 
+/** SELF-EVAL card (roadmap 8 · 1.5): the weekly static scorecard, pass % per category this week vs the mean of the last 4. */
+function SelfEvalCard({ ev }: { ev: Trend }) {
+  const { t } = useT();
+  return (
+    <section className="mt-4 rounded-lg border border-white/10 p-2 text-sm" aria-label={t("selfEval.title")}>
+      <b>{t("selfEval.title")}</b>
+      <p className="muted text-xs">{t("selfEval.week", { week: ev.now.week, date: ev.now.date })}</p>
+      <p className="mt-1 text-xs" style={{ color: ev.redTeamFailures ? "var(--rose)" : "var(--mint)" }} role={ev.redTeamFailures ? "alert" : undefined}>
+        <b>{ev.redTeamFailures ? t("selfEval.redFail", { n: ev.redTeamFailures }) : t("selfEval.redOk")}</b></p>
+      <table className="mt-1 w-full text-xs">
+        <thead><tr><th className="text-left font-normal muted" /><th className="text-right font-normal muted">{t("selfEval.vs")}</th></tr></thead>
+        <tbody>{ev.rows.map((r) => (
+          <tr key={r.cat}><td>{t(`selfEval.cat.${r.cat}` as Key)}</td>
+            <td className="text-right font-mono" style={{ color: r.prev != null && r.pct < r.prev ? "var(--rose)" : undefined }}>{r.pct}% · {r.prev == null ? "–" : `${r.prev}%`}</td></tr>
+        ))}</tbody>
+      </table>
+      {ev.regressions.length > 0 && <p className="mt-1 text-xs" style={{ color: "var(--rose)" }}>{t("selfEval.regressions", { list: ev.regressions.join(", ") })}</p>}
+    </section>
+  );
+}
+
 /** ORBIT doctor: runs /api/doctor and lists each check with what to do. speak = read the result aloud (opened by voice/command). */
 export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: boolean }) {
   const { t, tx, lang } = useT();
-  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null }) | null>(null);
+  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null }) | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const spoke = useRef(false);
@@ -173,7 +195,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
       const res = await fetch("/api/doctor", { cache: "no-store" });
       if (res.status === 401 || res.status === 403) throw new Error("ORBIT couldn't confirm your sign-in. Either the database (Supabase) is unreachable or you were signed out. Check your internet, then reload the page and sign in.");
       if (!res.ok) throw new Error(`The check didn't run (error ${res.status}). Restart ORBIT and try again.`);
-      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null };
+      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null };
       setReport(r);
       if (speak && !spoke.current && speechSettings().speak) { spoke.current = true; speakChunk(r.speech); }
     } catch (e) {
@@ -234,6 +256,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
             {report.system && <SystemCard sys={report.system} onAck={ack} />}
             {report.health && <HealthCard health={report.health} />}
             {report.improve && <ImproveCard improve={report.improve} />}
+            {report.selfEval && <SelfEvalCard ev={report.selfEval} />}
             <p className="muted mt-3 text-[10px]">{t("doc.checkedIn", { s: (report.ms / 1000).toFixed(1), at: new Date(report.at).toLocaleTimeString() })}</p>
           </>}
       </div>
