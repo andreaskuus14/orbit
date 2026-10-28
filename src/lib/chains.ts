@@ -129,7 +129,7 @@ async function finish(sb: SupabaseClient, id: string, status: string, result: st
 // ready: re-checked once the slot is ours, right before fn (a pause/cancel during the wait must not start the step).
 export async function withSlot(sb: SupabaseClient, userId: string, taskId: string, signal: AbortSignal, fn: () => Promise<unknown>, ready?: () => Promise<boolean>): Promise<boolean> {
   while (slots().size >= MAX_RUNNING && !signal.aborted) await sleep(3000);
-  if (signal.aborted) return false;
+  if (signal.aborted || stopAllOn()) return false; // Stop-all while waiting for capacity: the step stays queued; resumeChains runs it after Resume
   slots().add(taskId); // claim the slot before any await, so kickQueue can't take it meanwhile
   try { if (ready && !(await ready())) return false; await fn(); return true; }
   finally { slots().delete(taskId); void kickQueue(sb, userId); }
@@ -146,6 +146,7 @@ export async function drive(sb: SupabaseClient, userId: string, id: string, gate
   live().set(id, ac);
   try {
     for (;;) {
+      if (stopAllOn()) return last; // Stop-all (maybe set by another process): no next step; the chain stays "running" for resumeChains
       const { data: p } = await sb.from("tasks").select(PARENT_COLS).eq("id", id).maybeSingle();
       const meta = p ? parseMeta(p.request) : null;
       if (!p || !meta || p.status !== "running") return last;

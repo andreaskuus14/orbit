@@ -402,7 +402,9 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
   const system = systemPrompt(agent, today);
   const transcript: string[] = [];
   try {
+    const halt = () => { if (stopAllOn()) live.get(taskId)?.abort(); signal.throwIfAborted(); }; // Stop-all set by another process aborts here too
     for (let step = 0; step < MAX_STEPS; step++) {
+      halt();
       const forceFinal = step === MAX_STEPS - 1 || budget.used >= budget.calls - 1; // keep the last call for an answer
       const prompt = `TASK: ${task.title}\n\nREQUEST:\n${task.request}\n\n${transcript.length ? `YOUR STEPS SO FAR:\n${transcript.join("\n\n")}\n\n` : ""}${forceFinal ? "You are out of steps: reply now with \"final\"." : "Your next JSON reply:"}`;
       chargeCall(budget, signal);
@@ -446,6 +448,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         return { status, result, error: completion.error };
       }
 
+      halt(); // re-checked after the model call, right before the tool runs
       const tool = TOOLS[reply.tool];
       const t0 = Date.now();
       // Show the step as in progress right away (delegations can take minutes).
@@ -499,6 +502,7 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
   if (error) throw error;
   if (!task) throw new ConflictError("Task not found");
   if (task.status !== "awaiting_approval") throw new ConflictError("Nothing is waiting for approval on this task");
+  if (approve && stopAllOn()) throw new ConflictError(PAUSED_MSG); // the item stays waiting; approve it again after Resume
   // Claim the approval atomically (compare-and-swap on status): only one request wins, so a double click or a
   // retried request can never run the same action twice. A crash mid-way leaves it "running", which the task list
   // turns into "failed" after 20 min — never re-run, never shown as a success.
