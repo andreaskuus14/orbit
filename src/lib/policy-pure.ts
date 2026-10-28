@@ -14,6 +14,7 @@ import { tonightBlocked } from "./night-pure.ts";
 import { wishBlocked } from "./deals-pure.ts";
 import { ruleBlocked } from "./rules-pure.ts";
 import { autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
+import { et } from "./et-ask-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
 export type Decision = { allow: boolean; tier: Tier; reason: string };
@@ -67,11 +68,12 @@ const LEAK_TOOLS = ["ask_agent", "read_news", "web_search"];
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
 const UNTRUSTED = ["fetch_url", "read_news", "web_search", "reach_read", "reach_trending", "ask_agent", "business_status"];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
+const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
 export function agentBlocked(question: string, agent: unknown, untrusted: boolean): string {
   if (!untrusted) return "";
   const name = typeof agent === "string" ? agent.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "") : "";
-  if (AGENT_ASK.test(question) || (name && new RegExp(`\\b${name}\\b`, "i").test(question))) return "";
+  if (AGENT_ASK.test(question) || AGENT_ASK_ET.test(question) || (name && new RegExp(`\\b${name}\\b`, "i").test(question))) return "";
   return "after outside content (pages, news, mail, agent results), ask an agent only when the user asks for one in their latest message";
 }
 

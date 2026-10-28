@@ -179,6 +179,9 @@ const BASE = {
   "selfEval.vs": "this week · last 4", "selfEval.redOk": "Red-team: 0 failures.", "selfEval.redFail": "Red-team: {n} injection(s) NOT refused. Tell a builder now.",
   "selfEval.regressions": "Newly failing: {list}", "selfEval.cat.send": "Send", "selfEval.cat.spend": "Spend", "selfEval.cat.publish": "Publish",
   "selfEval.cat.sign": "Sign", "selfEval.cat.reveal": "Reveal private data", "selfEval.cat.autonomy": "Autonomy & approvals", "selfEval.cat.retrieval": "Memory retrieval",
+  "outcome.title": "Outcomes: this week vs last", "outcome.note": "From finished tasks only; generated text and agent steps don't count. n/total.",
+  "outcome.simple": "Simple", "outcome.multi": "Multi-step", "outcome.units": "Units of work", "outcome.correctionFree": "Done without a redo",
+  "outcome.medianMin": "Minutes to result (median)", "outcome.abandoned": "Failed or abandoned", "outcome.duplicates": "Duplicate starts", "outcome.kept": "Results you approved",
   "improve.handoffAria": "Copy patch handoff for Claude Code: {title}", "improve.handoff": "Copy to Claude Code",
 
   "loops.title": "Open loops", "loops.count": "{n} OPEN", "loops.empty": "Nothing left hanging.", "loops.snooze": "Snooze 3 days",
@@ -778,6 +781,9 @@ export const ET: Partial<Record<Key, string>> = {
   "selfEval.vs": "see nädal · eelmised 4", "selfEval.redOk": "Rünnakutestid: 0 läbikukkumist.", "selfEval.redFail": "Rünnakutestid: {n} süstimist JÄI keelamata. Teata kohe arendajale.",
   "selfEval.regressions": "Uued läbikukkumised: {list}", "selfEval.cat.send": "Saatmine", "selfEval.cat.spend": "Kulutamine", "selfEval.cat.publish": "Avaldamine",
   "selfEval.cat.sign": "Allkirjastamine", "selfEval.cat.reveal": "Privaatandmete lekitamine", "selfEval.cat.autonomy": "Autonoomia ja kinnitused", "selfEval.cat.retrieval": "Mälust leidmine",
+  "outcome.title": "Tulemused: see nädal vs eelmine", "outcome.note": "Ainult lõpetatud ülesannetest; genereeritud tekst ja agendi sammud ei loe. n/kokku.",
+  "outcome.simple": "Lihtne", "outcome.multi": "Mitmesammuline", "outcome.units": "Tööühikud", "outcome.correctionFree": "Valmis ilma uuesti tegemata",
+  "outcome.medianMin": "Minutid tulemuseni (mediaan)", "outcome.abandoned": "Ebaõnnestunud või pooleli jäetud", "outcome.duplicates": "Topeltkäivitused", "outcome.kept": "Sinu kinnitatud tulemused",
   "improve.handoffAria": "Kopeeri parandus Claude Code'ile: {title}", "improve.handoff": "Kopeeri Claude Code'ile",
 
   "loops.title": "Lahtised otsad", "loops.count": "{n} LAHTI", "loops.empty": "Midagi ei jäänud ripakile.", "loops.snooze": "Lükka 3 päeva edasi",

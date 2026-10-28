@@ -4,6 +4,8 @@
 // → waiting (an OK click, a task approval, a plan-change proposal or the daily budget) → … → done; paused / blocked / stopped on the side.
 // Goal text, step results and web content are DATA: prompts fence them and say so; nothing here ever approves a side effect itself.
 import type { Autopilot } from "./goal-autopilot-pure.ts";
+import { et, etQuestion, ET_NOT } from "./et-ask-pure.ts";
+const GOAL_ET = et("(?:sea|seada|loo|tee|lisa|alusta|pane)[^.?!]{0,40}(?:eesmär[kg]|sihtmär)");
 
 export type GoalStatus = "draft" | "approved" | "running" | "waiting" | "paused" | "blocked" | "done" | "stopped";
 export type MetricKind = "none" | "manual" | "steps" | "youtube_subscribers";
@@ -376,6 +378,7 @@ export function goalProblem(x: unknown): string {
 /** CORE's create_goal needs the user's own instruction in his latest message, before any tool result is in context (like plan_task). */
 export function createGoalBlocked(question: string, tainted: boolean): string {
   if (tainted) return "only call create_goal as your first tool, for the user's own request";
-  if (/\?\s*$|^\s*(how|what|why|when|did|does|is|are|can you tell)\b/i.test(question) || !/\b(set|create|make|add|start)\b[^.?!]{0,40}\bgoals?\b/i.test(question)) return "only when the user tells you to set a goal in their latest message";
+  if (/\?\s*$|^\s*(how|what|why|when|did|does|is|are|can you tell)\b/i.test(question) || etQuestion(question)
+    || !(/\b(set|create|make|add|start)\b[^.?!]{0,40}\bgoals?\b/i.test(question) || GOAL_ET.test(question))) return "only when the user tells you to set a goal in their latest message";
   return "";
 }
