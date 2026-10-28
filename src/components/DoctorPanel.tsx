@@ -5,6 +5,7 @@ import type { BootResult } from "@/lib/doctor-boot-pure";
 import { builderText, type Issue } from "@/lib/health-pure";
 import { builderBrief, type Improve } from "@/lib/self-improve-pure";
 import type { Trend } from "@/lib/self-eval-pure";
+import type { Outcomes, Rate, WeekOutcomes } from "@/lib/outcome-metrics-pure";
 import type { systemHealthView } from "@/lib/system-health";
 import { incidentTitle, type SvcState } from "@/lib/system-health-pure";
 import type { PatchResult } from "@/lib/self-improve-patch-pure";
@@ -179,10 +180,31 @@ function SelfEvalCard({ ev }: { ev: Trend }) {
   );
 }
 
+/** OUTCOMES card (roadmap 48 · 04): this week vs last, simple vs multi-step, every rate with its denominator. */
+function OutcomeCard({ o }: { o: { now: WeekOutcomes; prev: WeekOutcomes } }) {
+  const { t } = useT();
+  const rate = (x: Rate) => (x.of ? `${x.n}/${x.of}` : "–");
+  const rows: [Key, (w: Outcomes) => string][] = [["outcome.units", (w) => String(w.units)], ["outcome.correctionFree", (w) => rate(w.correctionFree)],
+    ["outcome.medianMin", (w) => (w.medianMin == null ? "–" : String(w.medianMin))], ["outcome.abandoned", (w) => rate(w.abandoned)],
+    ["outcome.duplicates", (w) => rate(w.duplicates)], ["outcome.kept", (w) => rate(w.kept)]];
+  return (
+    <section className="mt-4 rounded-lg border border-white/10 p-2 text-sm" aria-label={t("outcome.title")}>
+      <b>{t("outcome.title")}</b>
+      <p className="muted text-xs">{t("outcome.note")}</p>
+      {(["simple", "multi"] as const).map((k) => (
+        <table key={k} className="mt-1 w-full text-xs">
+          <thead><tr><th className="text-left font-normal">{t(`outcome.${k}`)}</th><th className="text-right font-normal muted">{o.now.week}</th><th className="text-right font-normal muted">{o.prev.week}</th></tr></thead>
+          <tbody>{rows.map(([label, f]) => <tr key={label}><td>{t(label)}</td><td className="text-right font-mono">{f(o.now[k])}</td><td className="text-right font-mono muted">{f(o.prev[k])}</td></tr>)}</tbody>
+        </table>
+      ))}
+    </section>
+  );
+}
+
 /** ORBIT doctor: runs /api/doctor and lists each check with what to do. speak = read the result aloud (opened by voice/command). */
 export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: boolean }) {
   const { t, tx, lang } = useT();
-  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null }) | null>(null);
+  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null; outcome?: { now: WeekOutcomes; prev: WeekOutcomes } | null }) | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const spoke = useRef(false);
@@ -195,7 +217,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
       const res = await fetch("/api/doctor", { cache: "no-store" });
       if (res.status === 401 || res.status === 403) throw new Error("ORBIT couldn't confirm your sign-in. Either the database (Supabase) is unreachable or you were signed out. Check your internet, then reload the page and sign in.");
       if (!res.ok) throw new Error(`The check didn't run (error ${res.status}). Restart ORBIT and try again.`);
-      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null };
+      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null; outcome?: { now: WeekOutcomes; prev: WeekOutcomes } | null };
       setReport(r);
       if (speak && !spoke.current && speechSettings().speak) { spoke.current = true; speakChunk(r.speech); }
     } catch (e) {
@@ -257,6 +279,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
             {report.health && <HealthCard health={report.health} />}
             {report.improve && <ImproveCard improve={report.improve} />}
             {report.selfEval && <SelfEvalCard ev={report.selfEval} />}
+            {report.outcome && <OutcomeCard o={report.outcome} />}
             <p className="muted mt-3 text-[10px]">{t("doc.checkedIn", { s: (report.ms / 1000).toFixed(1), at: new Date(report.at).toLocaleTimeString() })}</p>
           </>}
       </div>

@@ -5,6 +5,7 @@ import { improveView } from "@/lib/self-improve";
 import { selfEvalView } from "@/lib/self-eval";
 import { ackSystemIncident, systemHealthView } from "@/lib/system-health";
 import { requireUser } from "@/lib/supabase/server";
+import { weeklyOutcomes, type OutcomeTask } from "@/lib/outcome-metrics-pure";
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +22,12 @@ export async function GET(req: Request) {
   }
   const boot = bootSelfTest().catch(() => null);
   if (new URL(req.url).searchParams.get("boot")) return Response.json(await boot);
-  const [report, b, health, improve, system, selfEval] = await Promise.all([runDoctor(sb), boot, healthView().catch(() => null), improveView(sb, user.id).catch(() => null),
-    systemHealthView(sb, user.id).catch(() => null), selfEvalView().catch(() => null)]);
-  return Response.json({ ...report, boot: b, health, improve, system, selfEval });
+  const since = new Date(Date.now() - 15 * 86_400_000).toISOString(); // this + last ISO week, plus a day for redo/duplicate look-back
+  const outcomes = sb.from("tasks").select("id, parent_id, agent, title, status, pending, created_at, finished_at").eq("user_id", user.id).gte("created_at", since).limit(5000)
+    .then(({ data }) => (data ? weeklyOutcomes(data as OutcomeTask[], Date.now()) : null), () => null);
+  const [report, b, health, improve, system, selfEval, outcome] = await Promise.all([runDoctor(sb), boot, healthView().catch(() => null), improveView(sb, user.id).catch(() => null),
+    systemHealthView(sb, user.id).catch(() => null), selfEvalView().catch(() => null), outcomes]);
+  return Response.json({ ...report, boot: b, health, improve, system, selfEval, outcome });
 }
 
 // POST {ack: "<incident key>"}: the owner's "Got it" on a System health incident (no more pushes for it; it still clears by itself).
