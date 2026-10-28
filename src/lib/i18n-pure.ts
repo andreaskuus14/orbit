@@ -143,6 +143,9 @@ const BASE = {
 
   "task.back": "← All tasks", "task.request": "Request", "task.retry": "Retry", "task.cancel": "Cancel task", "task.delegated": "Delegated", "task.result": "result",
   "task.noRetry": "This task has resolved actions. Keep their results and request only the unfinished work in a follow-up.",
+  "failrep.button": "Failure report", "failrep.title": "Failure report", "failrep.preview": "Report preview",
+  "failrep.hint": "Ids, version, model, tools, timings and error type from the trace. Keys and tokens are removed. Nothing is sent: copy or download it yourself.",
+  "failrep.personal": "Include personal content (request, answer, tool inputs and outputs)", "failrep.copied": "Copied", "failrep.download": "Download",
   "task.trace": "Execution trace ({n} steps)", "task.saveRecipe": "📋 Save as recipe", "task.recipeName": "Recipe name",
 
   "doc.title": "ORBIT doctor", "doc.closeAria": "Close ORBIT doctor", "doc.checking": "Checking…", "doc.again": "Check again",
@@ -739,6 +742,9 @@ export const ET: Partial<Record<Key, string>> = {
 
   "task.back": "← Kõik ülesanded", "task.request": "Päring", "task.retry": "Proovi uuesti", "task.cancel": "Tühista ülesanne", "task.delegated": "Edasi antud", "task.result": "tulemus",
   "task.noRetry": "Selle ülesande osa toiminguid on juba otsustatud. Jäta nende tulemused alles ja küsi lõpetamata osa uue ülesandena.",
+  "failrep.button": "Vearaport", "failrep.title": "Vearaport", "failrep.preview": "Raporti eelvaade",
+  "failrep.hint": "Logist: id-d, versioon, mudel, tööriistad, ajad ja vea liik. Võtmed ja tokenid eemaldatakse. Midagi ei saadeta: kopeeri või laadi ise alla.",
+  "failrep.personal": "Lisa isiklik sisu (päring, vastus, tööriistade sisend ja väljund)", "failrep.copied": "Kopeeritud", "failrep.download": "Laadi alla",
   "task.trace": "Täitmise logi ({n} sammu)", "task.saveRecipe": "📋 Salvesta retseptina", "task.recipeName": "Retsepti nimi",
 
   "doc.title": "ORBITi arst", "doc.closeAria": "Sulge ORBITi arst", "doc.checking": "Kontrollin…", "doc.again": "Kontrolli uuesti",
