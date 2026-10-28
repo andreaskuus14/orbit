@@ -3,15 +3,7 @@ name: AI quality checks
 on:
   push:
     branches: [main]
-  pull_request:
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'evals/**'
-      - 'scripts/ai-scorecard.ts'
-      - 'package.json'
-      - 'tsconfig.json'
-      - '.github/workflows/ai-quality.yml'
+  pull_request: # every PR: typecheck, tests, AI evals, build
 
 permissions:
   contents: read
