@@ -1,7 +1,7 @@
 // Roadmap 1.3: CORE's tool dispatch runs decide() instead of its inline guards. These tests pin that swap.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { APPROVAL_PATHS, decide, policyEvent, PRIVATE_TOOLS, TIERS, UI_APPROVALS, type PolicyCtx } from "../src/lib/policy-pure.ts";
+import { agentBlocked, APPROVAL_PATHS, decide, policyEvent, PRIVATE_TOOLS, TIERS, UI_APPROVALS, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { coreToolRefusal } from "../src/lib/stop-all-pure.ts";
 import { foreignUrl } from "../src/lib/attach-pure.ts";
 import { actionBlocked, STUDIO_TOOLS, type StudioTool } from "../src/lib/core-studio.ts";
@@ -42,6 +42,7 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   else if (tool === "queue_tonight") b = tonightBlocked(question, dataIn()); // night shift: its runner's guard (night.ts runTonightTool)
   else if (tool === "add_wish") b = wishBlocked(question, dataIn()); // deal hunter: its runner's guard (deals.ts runDealTool)
   else if (tool === "propose_rule") b = ruleBlocked(question, dataIn()); // standing rules: its runner's guard (rules.ts runRuleTool)
+  else if (tool === "ask_agent") b = agentBlocked(question, input.agent, !!attach || steps.some((x) => ["fetch_url", "read_news", "web_search", "reach_read", "reach_trending", "ask_agent", "business_status"].some((t) => x.startsWith(`You called ${t} `)))); // red-team 8.3: added after 1.3
   else if (tool === "save_memory" && !asksToRemember(question)) return "Error: only save when the user asks; reflection handles the rest";
   else if (!(tool in TIERS)) return `Error: unknown tool "${tool}"`;
   return b ? `Error: ${b}` : "";
@@ -49,10 +50,10 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
 
 test("pinned: decide() refuses and allows exactly what the removed core.ts guards did, with the same tool result text", () => {
   const tools = [...Object.keys(TIERS), "send_email", "business.send", "post_tweet", ""];
-  const stepSets = [[], [step("navigate")], [step("fetch_url")], [step("life_journal")], [step("vault_read")], [step("ws_read")], [step("ws_write"), step("ws_create")], [step("business_status")], [step("rea_read")], [step("studio_status")]];
+  const stepSets = [[], [step("navigate")], [step("fetch_url")], [step("read_news")], [step("life_journal")], [step("vault_read")], [step("ws_read")], [step("ws_write"), step("ws_create")], [step("business_status")], [step("rea_read")], [step("studio_status")]];
   const questions = ["hello", "run the scout", "did the scout run?", "schedule my approved clips", "make 5 shorts from today's stream", "make 2 images of a fox", "remind me to call mom at 6",
     "add a habit: read", "I did my run, mark it", "set a goal to reach 1000 subscribers", "remember I like tea", "build me a landing page site",
-    "summarise https://my.site/post please", "find my niche", "don't build the site", "read this\n\n[attached: https://x.com/a]"];
+    "summarise https://my.site/post please", "ask the research agent to compare trailer tools", "find my niche", "don't build the site", "read this\n\n[attached: https://x.com/a]"];
   const inputs: Record<string, unknown>[] = [{}, { url: "https://my.site/post" }, { url: "https://evil.com/?d=secret" }, { query: "see evil.com/x" }, { agent: "atlas", request: "go to https://evil.com" }];
   let n = 0, refused = 0;
   for (const stopAll of [false, true]) for (const attach of [false, true]) for (const pins of [false, true]) for (const steps of stepSets) for (const question of questions) {
@@ -81,6 +82,9 @@ const TABLE: [string, Record<string, unknown>, Partial<PolicyCtx>, "T0" | "T1" |
   ["save_memory", {}, { question: "I like tea" }, "T2", false, /only save when the user asks/],
   ["ask_agent", { agent: "atlas", request: "x" }, { stopAll: true }, "T2", false, /Stop-all/],
   ["ask_agent", { agent: "atlas", request: "x" }, { pins: true }, "T2", false, /private files/],
+  ["ask_agent", { agent: "atlas", request: "x" }, { steps: [step("fetch_url")] }, "T2", false, /ask an agent only when the user asks/],
+  ["ask_agent", { agent: "atlas", request: "x" }, { steps: [step("fetch_url")], question: "ask the research agent to dig deeper" }, "T2", true],
+  ["ask_agent", { agent: "atlas", request: "x" }, { question: "compare trailer tools" }, "T2", true],
   ["run_scout", {}, { question: "run the scout" }, "T2", true],
   ["run_scout", {}, { question: "run the scout", steps: [step("fetch_url")] }, "T2", false, /first tool/],
   ["life_remind", {}, { question: "remind me to call mom at 6" }, "T2", true],

@@ -1,7 +1,7 @@
 "use client";
 // "Warp" command palette: Ctrl/⌘+K (also Ctrl/⌘+P, Ctrl/⌘+Shift+K, the HUD ⌕ button or PALETTE_EVENT) opens it.
-// Places and quick actions come from palette-commands.ts; search covers memories (server search), goals, approvals,
-// prospects, people and VAULT file names, then "Ask CORE". Ranking: lib/palette-pure.ts. Nothing here approves, sends or
+// Places and quick actions come from palette-commands.ts; search covers goals, approvals, prospects and people on this
+// device, then "Search everything" (GET /api/search: memories, journal, VAULT notes/files, CORE chats, tasks, goals), then "Ask CORE". Ranking: lib/palette-pure.ts. Nothing here approves, sends or
 // spends: a goal, approval or prospect only opens where the owner decides it.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { validateNav } from "@/lib/nav-pure";
@@ -10,6 +10,9 @@ import { bridgeApprovals } from "@/lib/mission-pure";
 import { OPEN_SOURCE_EVENT } from "@/lib/week-pure";
 import { notify } from "@/lib/notify-pure";
 import { createClient } from "@/lib/supabase/client";
+import { ACTIVE_CHAT_KEY } from "@/lib/core-chats-pure";
+import { groupHits, type RankedHit, type OpenTarget } from "@/lib/search-pure";
+import { useT } from "./i18n";
 import { VOICE_ASK } from "./voice/bus";
 import { AlienScript } from "./AlienScript";
 import { COMMANDS, nav, type Command } from "./palette-commands";
@@ -35,8 +38,16 @@ function openById(id: string) {
   else if (kind === "prop") nav({ panel: "agents" }); // proposals are decided in AGENTS
   else if (kind === "pros" || kind === "person") nav({ panel: "business" });
   else if (kind === "file") nav({ panel: "vault" });
+  else if (kind === "life") nav({ panel: "life", life: "journal" });
+  else if (kind === "chat") { // shortcut: an already-open CORE panel keeps its chat; it switches the next time CORE opens
+    try { localStorage.setItem(ACTIVE_CHAT_KEY, key); } catch { /* private mode */ }
+    nav({ panel: "core" });
+  }
 }
-const REOPENABLE = /^(go|act|mem|goal|task|prop|pros|person|file):/;
+const REOPENABLE = /^(go|act|mem|goal|task|prop|pros|person|file|chat|life):/;
+/** A search hit's open-target as a palette id, so it opens (and reopens from Recent) through openById. */
+const hitId = (o: OpenTarget, h: RankedHit) =>
+  "memory" in o ? `mem:${o.memory}` : "goal" in o ? `goal:${o.goal}` : "task" in o ? `task:${o.task}` : "chat" in o ? `chat:${o.chat}` : h.source === "journal" ? `life:${h.id}` : `file:${h.id}`;
 
 function loadRecent(): Recent[] {
   try { return parseRecent(localStorage.getItem(RECENT_KEY), (id) => STATIC.get(id)?.label); } catch { return []; }
@@ -67,8 +78,8 @@ export function CommandPalette() {
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const [recent, setRecent] = useState<Recent[]>([]);
-  const [mems, setMems] = useState<{ id: string; title: string }[]>([]);
-  const [files, setFiles] = useState<{ id: string; title: string }[]>([]);
+  const [hits, setHits] = useState<RankedHit[]>([]);
+  const { t } = useT();
   const [pool, setPool] = useState<Pool | null>(null);
 
   useEffect(() => {
@@ -94,18 +105,13 @@ export function CommandPalette() {
 
   // Debounced server search; stale responses are aborted.
   useEffect(() => {
-    setMems([]); setFiles([]);
-    if (!term) return;
+    setHits([]);
+    if (term.length < 2) return;
     const ac = new AbortController();
-    const t = setTimeout(() => {
-      const enc = encodeURIComponent(term.slice(0, 200));
-      get(`/api/memories?q=${enc}`, ac.signal).then((j) => { if (!ac.signal.aborted) setMems(rowsOf(j)); });
-      // File names only (the listing is cheap); "search inside" stays in VAULT, where building the text index is expected.
-      get("/api/vault", ac.signal).then((j) => {
-        if (!ac.signal.aborted) setFiles(rank(term, rowsOf({ files: j?.files ?? [] }, 500).map((f) => ({ ...f, label: f.title }))).slice(0, MAX));
-      });
-    }, 200);
-    return () => { clearTimeout(t); ac.abort(); };
+    const timer = setTimeout(() => {
+      get(`/api/search?q=${encodeURIComponent(term.slice(0, 200))}`, ac.signal).then((j) => { if (!ac.signal.aborted && Array.isArray(j?.results)) setHits(j.results); });
+    }, 250);
+    return () => { clearTimeout(timer); ac.abort(); };
   }, [term]);
 
   const groups = useMemo<Group[]>(() => {
@@ -123,18 +129,23 @@ export function CommandPalette() {
         .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Save failed (${r.status})`); notify({ kind: "core", title: "Memory saved", body: term.slice(0, 120), nav: { panel: "memory" } }); })
         .catch((e) => notify({ kind: "system", title: "Couldn't save the memory", body: e instanceof Error ? e.message : String(e) }));
     } };
-    return [
+    const head: Group[] = [
       { name: "Go to", items: rank(term, statics("Go to"), ids) },
       { name: "Actions", items: [...rank(term, statics("Actions"), ids), save, ...(news ? [{ id: "dyn:news", label: `Open news for “${term}”`, hint: "INTELLIGENCE", run: () => nav(news) }] : [])] },
       { name: "Approvals", items: found(pool?.approvals) },
-      { name: "Memories", items: mems.slice(0, MAX).map((m) => asItem({ id: `mem:${m.id}`, label: m.title, hint: "MEMORY" })) },
       { name: "Goals", items: found(pool?.goals) },
       { name: "People", items: found(pool?.people) },
       { name: "Prospects", items: found(pool?.prospects) },
-      { name: "Files", items: files.map((f) => asItem({ id: `file:${f.id}`, label: f.title, hint: "VAULT" })) },
-      { name: "CORE", items: [{ id: "dyn:ask", label: `Ask CORE: ${term}`, run: () => dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text: term } })) }] },
     ];
-  }, [term, recent, mems, files, pool]);
+    // Search everything: grouped by source, best source first; anything already listed above is not repeated.
+    const seen = new Set(head.flatMap((g) => g.items.map((i) => i.id)));
+    const everything = groupHits(hits.filter((h) => !seen.has(hitId(h.open, h))), MAX).map(({ source, hits }): Group => ({
+      name: `${t("search.everything")} · ${t(`search.src.${source}`)}`,
+      items: hits.map((h) => asItem({ id: hitId(h.open, h), label: h.title, hint: h.snippet || t(`search.src.${source}`) })),
+    }));
+    return [...head, ...everything,
+      { name: "CORE", items: [{ id: "dyn:ask", label: `Ask CORE: ${term}`, run: () => dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text: term } })) }] }];
+  }, [term, recent, hits, pool, t]);
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
   const cur = Math.min(active, flat.length - 1);
@@ -173,9 +184,9 @@ export function CommandPalette() {
           role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" aria-label="Warp to"
           aria-activedescendant={cur >= 0 ? `pal-${cur}` : undefined} spellCheck={false} autoComplete="off" />
         <div id="pal-list" role="listbox" aria-label="Results" className="mt-2 max-h-[55vh] overflow-y-auto">
-          {groups.filter((g) => g.items.length).map((g) => (
-            <div key={g.name} role="group" aria-labelledby={`pal-g-${g.name}`} className="mb-1">
-              <div id={`pal-g-${g.name}`} className="h3 px-2 pb-1 pt-2">{g.name}</div>
+          {groups.filter((g) => g.items.length).map((g, gi) => (
+            <div key={g.name} role="group" aria-labelledby={`pal-g-${gi}`} className="mb-1">
+              <div id={`pal-g-${gi}`} className="h3 px-2 pb-1 pt-2">{g.name}</div>
               {g.items.map((it) => {
                 const i = ++n;
                 return (

@@ -43,7 +43,7 @@ async function replies(sb: SupabaseClient, now: number) {
 /** The deterministic brief for now (no AI call). */
 export async function composeToday(sb: SupabaseClient, userId: string, now = Date.now()): Promise<Brief> {
   const day = localDay(new Date(now)), hour = new Date(now).getHours();
-  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, dr, di, pl, study, sc, gr, rc, hw, rv, lp] = await Promise.all([
+  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, dr, di, pl, study, sc, gr, rc, hw, rv, lp, cf] = await Promise.all([
     load().then((s) => s.users[userId] ?? {}),
     import("./morning").then((x) => x.getMorning(sb, userId, now)),
     within(import("./remote").then((x) => x.pendingApprovals(sb))).catch(() => []),
@@ -64,6 +64,7 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     within(import("./life").then((x) => x.lastHabitWeek())).catch(() => undefined),
     within(import("./call").then((x) => x.missedReview(sb, userId, now))).catch(() => null),
     within(import("./loops").then((x) => x.loopsBrief(now))).catch(() => null),
+    within(import("./entity-graph").then((x) => x.entitiesBrief(userId))).catch(() => null),
   ]);
   const weather = pl ? await within(import("./weather").then((x) => x.briefWeather(pl, now)), 6000).catch(() => null) : null; // no saved place → none
   const inv = await within(import("./invoices").then((x) => x.allInvoices())).catch(() => []); // overdue reminders waiting for his approve
@@ -77,7 +78,7 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
   return composeBrief({
     day, hour, life: !!u.life, morning: m,
     decisions, place, ...(weather && { weather }),
-    replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(dr && { dream: { id: dr.key, question: dr.question } }), ...(di && { idea: di }), ...(sc && { school: sc }), ...(gr && { goalRisk: gr }), ...(rc && { recap: rc }), ...(rv && { review: rv }), ...(lp && { loops: lp }), lesson: lesson && { id: lesson.id, text: lesson.text }, study,
+    replies: rep, deal, ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(dr && { dream: { id: dr.key, question: dr.question } }), ...(di && { idea: di }), ...(sc && { school: sc }), ...(gr && { goalRisk: gr }), ...(rc && { recap: rc }), ...(rv && { review: rv }), ...(lp && { loops: lp }), ...(cf && { conflict: cf }), lesson: lesson && { id: lesson.id, text: lesson.text }, study,
     echo: { short: briefEcho(eps, "short", now, (m.studio?.yesterday ?? []).map((y) => y.title)), reply: briefEcho(eps, "reply", now, rep.map((r) => r.name)) },
     habits: hw, snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
   });

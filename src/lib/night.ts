@@ -205,6 +205,7 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     case "health": { // reads logs and failures, writes notes for the Doctor panel; never touches code
       const r = await (await import("./health")).runHealth(sb, userId, signal);
       await (await import("./self-improve")).maybeSelfImprove(sb, userId, signal); // weekly "Make ORBIT better" tasks (once per ISO week)
+      await (await import("./self-eval")).maybeSelfEval(); // weekly static self-eval scorecard (red-team + retrieval fixtures, 0 model calls)
       return r.fresh ? { ...base, label: `Health check: ${r.fresh} new problem${r.fresh > 1 ? "s" : ""} (see the Doctor panel)`, status: "done", at: at() }
         : { ...base, status: "skipped", why: r.open ? `Nothing new; ${r.open} known problem${r.open > 1 ? "s" : ""} still open` : "Nothing broke", at: at() };
     }
@@ -237,7 +238,8 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions
       await import("./memory-graph").then((m) => m.rebuildGraph(sb, userId)).catch((e) => console.error("[orbit] memory graph:", msg(e))); // local clusters for MEMORY; no model call
-      const k = h.proposals.filter((p) => p.status === "pending").length;
+      const e = await import("./entity-graph").then((m) => m.scanEntities(sb, userId)).catch((x) => { console.error("[orbit] entity graph:", msg(x)); return null; }); // rules only, no model; never journal
+      const k = h.proposals.filter((p) => p.status === "pending").length + (e ? e.merges + e.contradictions : 0);
       return k ? { ...base, label: `${k} memory tidy-up suggestion${k > 1 ? "s" : ""}`, status: "approval", open: { panel: "memory" }, at: at() } : { ...base, status: "skipped", why: "Nothing to tidy", at: at() };
     }
   }
