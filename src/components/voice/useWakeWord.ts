@@ -5,11 +5,13 @@ import { alternatives, getSpeechRecognition, speechErrorMessage, VOICE_LISTEN, V
 import { extractWakeQuestion, isSleepCommand } from "./wake";
 import { correctTranscript, endpointDelay, finalJoiner, isEcho, mergeFinals, pickBestAlternative, shouldBargeIn, STOP_WORDS, turnWaitMs } from "./hear";
 import { startOrbitMic } from "./orbitmic";
+import { startBargeTap } from "./bargetap";
 import { isSpeaking, onSpeakingChange, speakChunk, speakingOrJustEnded, speechSettings, spokenText } from "./speak";
 import { convStep, IDLE, isAddressedToOrbit, isConversationEnd, startsConversation, type ConvEvent, type ConvPhase } from "./conversation";
 import { enrollment, loadVoicePrint, matchScore, matchThreshold, startVoiceSampler } from "./voiceprint";
 import { recordUtterance, transcribeAudio } from "./whisper";
 import { parseNavCommand } from "@/lib/nav-pure";
+import { STOP_ALL_EVENT, type StopAllDetail } from "@/lib/stop-all-pure";
 
 const AWAY_MS = 60_000; // window unfocused this long → stop listening
 const ARMED_MS = 12_000; // after a bare "Hey Orbit", how long the next utterance counts as the question (kept open while you talk)
@@ -42,6 +44,8 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
   const conv = useRef(IDLE);
   const [conversation, setConversation] = useState<ConvPhase>("idle");
   const convApply = (e: ConvEvent) => { conv.current = convStep(conv.current, e, Date.now()); setConversation(conv.current.phase); };
+  /** Voice barge-in: silence ORBIT (its stop() reports "spoke"), then listen to the owner even if CORE still streams. */
+  const barge = () => { dispatchEvent(new Event(VOICE_INTERRUPT)); convApply({ type: "barge" }); };
   const [note, setNote] = useState(""); // why open mic skipped an utterance, shown briefly
   const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const flashNote = (t: string) => { setNote(t); clearTimeout(noteTimer.current); noteTimer.current = setTimeout(() => setNote(""), 4000); };
@@ -65,6 +69,11 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
     return () => { s.stop(); sampler.current = null; };
   }, [talking, printOn, mode, visible, held, paused, inCall]);
   useEffect(() => { if (mode === "off" && conv.current.phase !== "idle") convApply({ type: "stop" }); }, [mode]); // hands-free off ends open mic
+  // Talking over ORBIT stops it (~200 ms) and is heard as the next question. ORBIT mic does this on its own stream.
+  useEffect(() => {
+    if (!talking || mode === "off" || mode === "orbit" || !visible || held || paused || inCall) return;
+    return startBargeTap(isSpeaking, barge);
+  }, [talking, mode, visible, held, paused, inCall]);
   /** Open mic with voice match on: does the utterance that just ended sound like the enrolled user? No data = can't tell = yes. */
   const soundsLikeMe = () => {
     const p = loadVoicePrint(), s = sampler.current;
@@ -88,7 +97,9 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
     const offSpeaking = onSpeakingChange((on) => convApply({ type: on ? "speaking" : "spoke" }));
     const done = () => convApply({ type: "done" });
     addEventListener(CORE_DONE, done);
-    return () => { removeEventListener(VOICE_CONVERSATION, toggle); removeEventListener(CORE_DONE, done); offSpeaking(); };
+    const stopAll = (e: Event) => { if ((e as CustomEvent<StopAllDetail>).detail?.on) convApply({ type: "stop" }); };
+    addEventListener(STOP_ALL_EVENT, stopAll);
+    return () => { removeEventListener(VOICE_CONVERSATION, toggle); removeEventListener(CORE_DONE, done); removeEventListener(STOP_ALL_EVENT, stopAll); offSpeaking(); };
   }, []);
   useEffect(() => { // silence / stuck-thinking timeouts
     if (conversation === "idle") return;
@@ -191,10 +202,10 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
       try {
         const m = await startOrbitMic({
           speaking: isSpeaking,
-          bargeOk: () => loadVoiceSettings().bargeByVoice,
+          bargeOk: () => loadVoiceSettings().bargeByVoice || conv.current.phase !== "idle", // conversation mode: always (echo-guarded)
           onSuspended: (s) => setError(s ? "Click or press a key anywhere to enable ORBIT mic." : ""),
           onStart: () => { talkingNow = true; clearTimeout(turn); uttStart.current = Date.now() - 300; if (open()) convApply({ type: "hearing" }); },
-          onBarge: () => dispatchEvent(new Event(VOICE_INTERRUPT)),
+          onBarge: barge,
           onSegment: (audio, { overOrbit, barged }) => {
             talkingNow = false; quietAt = Date.now();
             // Too short to send, or Whisper is behind (keep up to 3 while a conversation waits, else 2): drop it.
@@ -206,6 +217,8 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
               try {
                 const text = correctTranscript(await transcribeAudio(audio, signal, asrLang));
                 failures = 0; setError("");
+                // "stop" / "lõpeta" / "that's all" ends a conversation even said over ORBIT (not its own echo).
+                if (text && conv.current.phase !== "idle" && isConversationEnd(text) && !isEcho(text, spokenText())) { dispatchEvent(new Event(VOICE_INTERRUPT)); convApply({ type: "stop" }); return; }
                 // Said over ORBIT: without voice barge-in only "stop" / "Orbit, …" count (and interrupt now); the rest is
                 // most likely ORBIT's own voice. Either way never ORBIT's echo.
                 const b = overOrbit && !barged && text ? shouldBargeIn(text, spokenText()) : null;

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./AgentMission";
 import { stoppedText, type NightItem, type NightReport, type NightSettings, type TonightItem } from "@/lib/night-pure";
 import { LEARN_KINDS } from "@/lib/night-learn-pure";
+import { diffText, nightDiffLine, whyText } from "@/lib/night-plan-pure";
 import type { NavTarget } from "@/lib/nav-pure";
 import { useT } from "./i18n";
 
@@ -32,13 +33,19 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
   };
   const copy = (s: string) => { void navigator.clipboard?.writeText(s).catch(() => {}); };
   const end = report.endedAt ? new Date(report.endedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-  const row = (i: NightItem, icon: string) => <button className="text-left" onClick={() => open(i)} disabled={!i.open}>{icon} {i.label}</button>;
+  const row = (i: NightItem, icon: string) => <><button className="text-left" onClick={() => open(i)} disabled={!i.open}>{icon} {i.label}</button>{meta(i)}</>;
+  const meta = (i: NightItem) => { // night shift 2.0: why it was picked, and what changed (before → after)
+    const x = [i.pick && t("nightplan.whyTonight", { x: whyText(i.pick, lang) }), diffText(i.diff, lang)].filter(Boolean).join(" · ");
+    return x ? <span className="block text-xs">{x}</span> : null;
+  };
+  const diffLine = nightDiffLine([...report.done, ...report.approvals, ...report.failed], lang);
   return (
     <div aria-label={t("night.slept")}>
       <b>🌙 {t("night.slept")}</b>{" "}
       <span className="muted text-xs">{report.running ? t("night.working") : tn("night.calls", report.calls, { min: report.minutes }) + (end ? t("night.doneAt", { t: end }) : "")}</span>
       {err && <p className="error text-xs" role="alert">{err}</p>}
       {report.why && <p className="muted text-xs">{t("night.why", { why: report.why })}</p>}
+      {diffLine && <p className="muted text-xs">{diffLine}</p>}
       <ul className="since-list muted grid gap-1">
         {report.approvals.map((i) => (
           <li key={key(i)}>

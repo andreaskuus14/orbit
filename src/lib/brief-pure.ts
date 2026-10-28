@@ -3,6 +3,7 @@
 // and as the phone's morning-call opener (call.ts). Gathering + the once-a-day polish: brief.ts. No AI call in here.
 import type { Morning } from "./morning-pure";
 import { plain } from "./morning-pure.ts";
+import { nightDiffLine } from "./night-plan-pure.ts";
 import type { PanelId } from "./planets";
 import type { WorkItem } from "./work-continuation-pure";
 import type { PlaceLine } from "./place-pure";
@@ -96,7 +97,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
         + (n.failed.length ? ` ${cap(num(n.failed.length))} didn't work out, it's on the card.` : "")
       : `The night shift ran, but ${n.failed.length === 1 ? "the one thing I tried" : `all ${num(n.failed.length)} things`} didn't work out. Details are on the card.`;
     add({ id: `night:${n.key}`, kind: "night", say, title: `Night shift: ${n.done.length} done${n.failed.length ? `, ${n.failed.length} failed` : ""}`,
-      detail: top ? plain(top.label) : undefined, open: top?.open && "task" in top.open ? { task: top.open.task } : { panel: "agents" } });
+      detail: nightDiffLine([...n.done, ...n.approvals, ...n.failed]) || (top ? plain(top.label) : undefined), open: top?.open && "task" in top.open ? { task: top.open.task } : { panel: "agents" } });
   }
 
   if (x.review) add({ id: x.review.id, kind: "result", title: "Your weekly review", detail: "Missed call: tell ORBIT your top 3 for the week", say: x.review.say });
