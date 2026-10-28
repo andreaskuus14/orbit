@@ -4,7 +4,7 @@
 import { redact } from "./health-pure.ts";
 
 type Evidence = { kind: string; id: string; path?: string };
-export type ReportStep = { step: string; detail?: string; ms?: number; ok?: boolean; evidence?: Evidence[]; answerEval?: { pass?: boolean; flags?: string[] } };
+export type ReportStep = { step: string; detail?: string; ms?: number; ok?: boolean; evidence?: Evidence[]; policy?: { verdict?: string; turn?: string }; answerEval?: { pass?: boolean; flags?: string[] } };
 export type ReportInput = {
   kind: "turn" | "task" | "mission";
   id: string | null; // message/conversation id for a turn, task id for a task/mission
@@ -50,7 +50,9 @@ export function traceChain(trace: unknown, hasIntent: boolean): TraceChain {
   const all = steps(trace);
   const attempts = all.filter((s) => !META.has(s.step)).map((s, i): ChainLink => {
     const detail = String(s.detail ?? "");
-    const pol = s.ok === false && errorCategory(detail) === "policy" ? redact(detail.split("→").pop()!.trim()).slice(0, 160) : undefined;
+    // The runner's verdict flag when the trace has it (core.ts); word match only for traces written before the flag existed.
+    const flagged = s.policy?.verdict === "refuse" || (!s.policy && s.ok === false && errorCategory(detail) === "policy");
+    const pol = flagged ? redact(detail.split("→").pop()!.trim()).slice(0, 160) : undefined;
     return { attempt: i + 1, tool: s.step, ok: s.ok !== false, ms: typeof s.ms === "number" && s.ms > 0 ? Math.round(s.ms) : 0,
       receipts: (s.evidence ?? []).map((e) => `${e.kind}:${e.id}`), ...(pol ? { policy: pol } : {}) };
   });
@@ -76,9 +78,9 @@ export function buildFailureReport(input: ReportInput, includePersonal = false) 
     orbitFailureReport: 1,
     createdAt: input.at,
     kind: input.kind, id: input.id, status: input.status ?? null,
-    relatedIds: [...new Set((input.relatedIds ?? []).filter(Boolean))],
+    relatedIds: [...new Set([...(input.relatedIds ?? []), ...all.map((s) => s.policy?.turn ?? "")].filter(Boolean))], // turn ids match policy.decision ledger rows
     appVersion: input.appVersion ?? null, model: input.model ?? null,
-    errorCategory: errorCategory(failText),
+    errorCategory: all.some((s) => s.policy?.verdict === "refuse") ? "policy" as const : errorCategory(failText),
     error: input.error ? redact(input.error).slice(0, 500) : null,
     toolsOffered: input.toolsOffered ?? null,
     toolsCalled: chain.attempts.map(({ attempt, tool, ok, ms, receipts, policy }) => ({ attempt, tool, ok, ms, receipts, ...(policy ? { policy } : {}) })),

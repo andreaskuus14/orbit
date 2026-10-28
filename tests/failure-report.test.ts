@@ -51,3 +51,15 @@ test("bounded and categorised", () => {
   assert.equal(errorCategory(""), "unknown");
   assert.equal(reportFileName(r), "orbit-failure-turn-conv-1-2026-10-28.json");
 });
+
+test("policy verdict flag wins over words and links the turn id", () => {
+  const r = buildFailureReport({ ...base, error: null, trace: [
+    { step: "write_file", detail: "{} → Error: owner only", ok: false, policy: { verdict: "refuse", turn: "turn-9" } },
+    { step: "web_fetch", detail: "{} → Error: blocked page", ok: false, policy: undefined },
+  ] });
+  assert.deepEqual(r.policyDecisions.map((p) => p.tool), ["write_file", "web_fetch"]); // second: legacy word match
+  assert.ok(r.relatedIds.includes("turn-9"));
+  assert.equal(r.errorCategory, "policy");
+  const flaggedOk = buildFailureReport({ ...base, error: null, trace: [{ step: "x", detail: "denied", ok: false, policy: { verdict: "allow" } }] });
+  assert.equal(flaggedOk.policyDecisions.length, 0); // flag present and not a refusal: no word guessing
+});

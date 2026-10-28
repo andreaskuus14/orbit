@@ -48,7 +48,7 @@ export const SESSION_MODE = process.env.ORBIT_CORE_SESSION === "resume" ? "resum
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
 const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
 
-export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: AnswerEval & { ms: number } };
+export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: AnswerEval & { ms: number }; policy?: { verdict: "refuse"; turn: string } };
 export type Citation = { id: string; title: string; kind: string };
 export type Turn = { role: "user" | "assistant"; content: string };
 
@@ -110,6 +110,7 @@ ${facts || "(empty)"}`;
  */
 export async function runCore(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", sessionKey?: string, lang: Lang = "en") {
   const trace: TraceStep[] = [];
+  const turnId = crypto.randomUUID(); // links policy.decision ledger rows to this turn's trace (failure report)
   const transcriptHolder = { text: "" };
   const question = typedText(history[history.length - 1].content); // attached file names never count as the user's words
 
@@ -273,7 +274,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
         // A redo after tools already ran carries their results, so writes aren't repeated.
         const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote.replace(/"final"/g, "your answer")}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}`;
         try {
-          const r = await sdk.sdkTurn({ sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: MAX_STEPS, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", exec, record, onDelta: sendDelta, onReset, onStep });
+          const r = await sdk.sdkTurn({ sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: MAX_STEPS, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", turnId, exec, record, onDelta: sendDelta, onReset, onStep });
           if (r.escalated) { onReset?.(); tier = "smart"; continue; } // as the loop: a fast-model tool call is redone on the main model
           if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
           answer = r.text;
@@ -336,10 +337,11 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       // T3 only behind an owner approval path). T2/T3 verdicts go to the ledger: tool, tier, verdict, reason; never inputs.
       const verdict = skillDenied(reply.tool, attach?.block ?? "") ?? decide(reply.tool, reply.input ?? {}, { ...policyCtx(), steps });
       const policyRow = policyEvent(reply.tool, verdict);
-      if (policyRow) void emit(sb, userId, "policy.decision", "core", policyRow); // never throws
+      if (policyRow) void emit(sb, userId, "policy.decision", "core", { ...policyRow, turn: turnId }); // never throws
       try { out = !verdict.allow ? `Error: ${verdict.reason}` : await exec(reply.tool, reply.input ?? {}, evidence); }
       catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
       record(reply.tool, reply.input ?? {}, out, evidence, Date.now() - t);
+      if (!verdict.allow) trace.at(-1)!.policy = { verdict: "refuse", turn: turnId };
       steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${out.slice(0, 8000)}`);
     }
   } catch (e) {
