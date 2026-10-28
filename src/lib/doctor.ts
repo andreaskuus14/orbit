@@ -18,7 +18,9 @@ import { oauthEnv, readStored, wasExpired } from "./yt-oauth";
 import { YT_UPLOAD_SCOPE, hasScopes } from "./yt-analytics-pure";
 import {
   buildCheck, check, diskCheck, envCheck, factsCheck, launcherCheck, lifeCheck, modelCheck, nightCheck, quotaCheck, summarize, vaultCheck, ytdlpCheck, type Check, type Report,
+  latencyCheck,
 } from "./doctor-pure";
+import { coreTurns } from "./perf-log";
 
 // ORBIT doctor: runs every check in parallel, each with its own timeout, and returns plain-English verdicts (see doctor-pure.ts).
 // Nothing here returns a secret: env checks report names only, and error text from outside is never passed through raw.
@@ -193,6 +195,7 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
     guard("life", "LIFE data (habits, reminders)", life),
     guard("vault", "VAULT (your files)", vault),
     guard("facts", "Belief memory", () => facts(sb)),
+    Promise.resolve(latencyCheck(coreTurns)),
     ...(WIN ? [guard("wake", "Voice wake-up", wake)] : []),
     Promise.resolve(envCheck(process.env, ENV_REQUIRED, ENV_OPTIONAL)),
     // Matters most once ORBIT is reachable from a phone (docs/PHONE.md): without it any account in the Supabase project gets in.
