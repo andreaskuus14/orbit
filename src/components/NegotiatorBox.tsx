@@ -28,12 +28,14 @@ export default function NegotiatorBox({ refKey, title, hint }: { refKey: string;
   const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [to, setTo] = useState<string | null>(null); // who approving emails it to (server-resolved; hashed into the approval)
 
   const show = (x: Negotiation | null) => { setN(x); setText(x?.draft?.text ?? ""); setMean(false); };
   const load = useCallback(async () => {
-    const j = (await call()) as { negotiations: Negotiation[] };
+    const j = (await call()) as { negotiations: Negotiation[]; recipients?: Record<string, string | null> };
     const mine = j.negotiations.filter((x) => x.ref === refKey).sort((a, b) => a.updated.localeCompare(b.updated)).at(-1) ?? null;
     show(mine);
+    setTo((mine && j.recipients?.[mine.id]) ?? null);
     if (mine) setForm({ floor: String(mine.limits.floor), ceiling: String(mine.limits.ceiling), deadline: mine.limits.deadline ?? "", mustHaves: mine.limits.mustHaves.join("; "), walkAway: mine.limits.walkAway, stepPct: String(mine.limits.stepPct) });
   }, [refKey]);
   const act = async (key: string, body: object, after?: (j: { negotiation?: Negotiation; note?: string; message?: string }) => void) => {
@@ -96,13 +98,13 @@ export default function NegotiatorBox({ refKey, title, hint }: { refKey: string;
               <button className="chip" onClick={() => setText(d.text)}>Undo</button>
             </> : <>
               <button className={`chip ${sure ? "ok" : ""}`} disabled={any}
-                onClick={() => (sure ? (setSure(false), void contentHash(negoContent(n.id, d.text)).then((seen) => act("approve", { action: "approve", id: n.id, seen }))) : (setSure(true), setTimeout(() => setSure(false), 5000)))}>
+                onClick={() => (sure ? (setSure(false), void contentHash(negoContent(n.id, d.text, to)).then((seen) => act("approve", { action: "approve", id: n.id, seen }))) : (setSure(true), setTimeout(() => setSure(false), 5000)))}>
                 {busy === "approve" ? "…" : sure ? "Click again to approve" : "✓ Approve"}</button>
               <button className="chip" onClick={() => void navigator.clipboard?.writeText(d.text).catch(() => {})}>Copy</button>
             </>}
             {d.outside.length > 0 && <span className="error">Outside your limits: {d.outside.join(", ")} (your edit)</span>}
           </div>
-          <p className="muted">Approve emails it when Contact holds one email address and sending is set up; otherwise you copy it and send it yourself.</p>
+          <p className="muted">{to ? `Approve emails it to ${to}. If Contact changes, reload and approve again.` :"No email address to send to: approve, then copy it and send it yourself."}</p>
         </div>
       )}
       {n?.state === "talking" && <div className="flex gap-1.5"><button className="chip" disabled={any} onClick={() => void act("agreed", { action: "close", id: n.id, state: "agreed" })}>Mark agreed</button><button className="chip" disabled={any} onClick={() => void act("lost", { action: "close", id: n.id, state: "lost" })}>Mark lost</button></div>}

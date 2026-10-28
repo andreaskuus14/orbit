@@ -1,9 +1,11 @@
 // Entity graph + contradiction check (pure, tested in tests/entity-graph.test.ts). IO: entity-graph.ts; API: /api/memories/entities;
 // UI: MemoryEntities.tsx in the MEMORY panel; one brief line. Rules only, no model call. Journal (LIFE) memories are dropped here
-// even if a caller passes them. Merges are only ever SUGGESTED: claims group across names only after the owner confirms.
+// even if a caller passes them. Conflicts settle by memory-types-pure.ts weight before anything is asked. Merges are only ever SUGGESTED: claims group across names only after the owner confirms.
+
+import { currentOnly, resolveClaims, weight } from "./memory-types-pure.ts";
 
 export type EKind = "person" | "project" | "place";
-export type Src = { id: string; type: "memory" | "fact" | "person"; title: string; at: string };
+export type Src = { id: string; type: "memory" | "fact" | "person"; title: string; at: string; weight?: number }; // weight: memory-types-pure.ts
 export type Mention = { form: string; kind?: EKind; src: Src };
 export type Attr = "birthday" | "employer" | "home";
 export type Claim = { form: string; attr: Attr; value: string; norm: string; src: Src };
@@ -145,8 +147,8 @@ export function claimsIn(text: string, src: Src): Claim[] {
 }
 
 const NAME = /\b\p{Lu}[\p{Ll}'-]+(?:\s+\p{Lu}[\p{Ll}'-]+){1,2}\b/gu, EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
-export type MemIn = { id: string; kind: string; title: string; content: string; created_at: string };
-export type FactIn = { id: string; statement: string; status: string; created_at: string };
+export type MemIn = { id: string; kind: string; title: string; content: string; created_at: string; source?: string | null; confirmation?: string | null; tags?: string[] | null };
+export type FactIn = { id: string; statement: string; status: string; created_at: string; source?: string; supersedes?: string | null };
 export type PersonIn = { id: string; name: string; created_at: string };
 /** Never LIFE: journal entries are dropped here no matter who calls (defence in depth next to the query's own filter). */
 export const usable = (ms: MemIn[]) => ms.filter((m) => m.kind !== "journal");
@@ -155,15 +157,16 @@ export const usable = (ms: MemIn[]) => ms.filter((m) => m.kind !== "journal");
 export function gather(x: { memories: MemIn[]; facts: FactIn[]; people: PersonIn[] }): { mentions: Mention[]; claims: Claim[] } {
   const mentions: Mention[] = [], claims: Claim[] = [];
   for (const p of x.people) mentions.push({ form: p.name, kind: "person", src: { id: p.id, type: "person", title: p.name, at: p.created_at } });
-  for (const m of usable(x.memories)) {
-    const src: Src = { id: m.id, type: "memory", title: m.title.slice(0, 80), at: m.created_at };
+  // Corrected originals and history copies make no claims; expired temporary notes neither.
+  for (const m of currentOnly(usable(x.memories), { now: Date.now() })) {
+    const src: Src = { id: m.id, type: "memory", title: m.title.slice(0, 80), at: m.created_at, weight: weight(m) };
     const text = `${m.title}. ${m.content.slice(0, 8000)}`;
     if (m.kind === "project") mentions.push({ form: m.title.slice(0, 60), kind: "project", src });
     for (const f of text.match(NAME) ?? []) mentions.push({ form: f.replace(/['’]s$/, ""), src });
     for (const e of text.match(EMAIL) ?? []) mentions.push({ form: e, kind: "person", src });
     claims.push(...claimsIn(text, src));
   }
-  for (const f of x.facts.filter((f) => f.status === "current")) claims.push(...claimsIn(f.statement, { id: f.id, type: "fact", title: f.statement.slice(0, 80), at: f.created_at }));
+  for (const f of x.facts.filter((f) => f.status === "current")) claims.push(...claimsIn(f.statement, { id: f.id, type: "fact", title: f.statement.slice(0, 80), at: f.created_at, weight: weight({ ...f, source: f.source ?? "user_said" }) }));
   for (const c of claims) {
     if (c.form !== "me") mentions.push({ form: c.form, kind: "person", src: c.src });
     if (c.attr === "home") mentions.push({ form: c.value, kind: "place", src: c.src });
@@ -189,6 +192,8 @@ export function findContradictions(claims: Claim[], ents: ResolvedEntity[], d: E
     const opts: Contradiction["options"] = [];
     for (const c of [...g.cs].sort((a, b) => b.src.at.localeCompare(a.src.at))) if (!opts.some((o) => same(o.norm, c.norm))) opts.push({ norm: c.norm, value: c.value, src: c.src });
     if (opts.length < 2) continue;
+    // 26: correction > provenance > recency; only a real tie between his own statements is asked.
+    if (resolveClaims(opts.map((o) => ({ weight: o.src.weight ?? 3, at: o.src.at })))) continue;
     const key = `contra:${hash(`${gk}|${opts.map((o) => o.norm).sort().join("|")}`)}`;
     if (key in d.contra) continue;
     out.push({ key, entity: g.entity, attr: g.attr, options: opts.slice(0, 4), at: opts[0].src.at });

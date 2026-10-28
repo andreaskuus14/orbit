@@ -8,7 +8,7 @@ import { streamJsonInput } from "./attach-pure.ts";
 export const CORE_ENGINE = process.env.ORBIT_CORE_ENGINE === "sdk" ? "sdk" : "cli";
 export const SERVER = "orbit";
 /** core.ts's own tools (its TOOLS prompt section and runCoreTool/navigateTool); the rest are module tools (core-modules.ts). */
-export const CORE_BUILTINS = ["web_search", "fetch_url", "read_news", "ask_agent", "save_memory", "navigate"] as const;
+export const CORE_BUILTINS = ["web_search", "fetch_url", "read_news", "ask_agent", "save_memory", "navigate", "read_more"] as const;
 /** Every tool CORE's default loop can dispatch, in the order the SDK server registers them. */
 export const sdkTools = (moduleTools: readonly string[]) => [...new Set([...CORE_BUILTINS, ...moduleTools])];
 

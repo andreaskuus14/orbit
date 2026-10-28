@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { acted, canDo, classifyFailure, collectReceipts, deriveStatus, explain, missionBlocked, newDoc, nextAction, onFailure, validateMission, MAX_RETRIES } from "../src/lib/missions-pure.ts";
+import { acted, canDo, missionLabel, stepVerified, classifyFailure, collectReceipts, deriveStatus, explain, missionBlocked, newDoc, nextAction, onFailure, validateMission, MAX_RETRIES } from "../src/lib/missions-pure.ts";
 
 const chain = (status: "running" | "done" | "failed" | "waiting" | "cancelled", steps: string[]) =>
   ({ status, steps: steps.map((s, index) => ({ index, agent: "atlas", request: "r", taskId: `t${index}`, status: s as "queued" })) });
@@ -60,17 +60,23 @@ test("collectReceipts: only verified things, deduped, partial results kept", () 
     { index: 2, taskId: null, status: "queued" },
   ];
   const r = collectReceipts(steps, [], "2026-10-26T00:00:00Z");
-  assert.deepEqual(r.map((x) => `${x.kind}:${x.ref}`), ["task:t0", "memory:m1", "task:k2"]);
+  assert.deepEqual(r.map((x) => `${x.kind}:${x.ref}`), ["memory:m1", "task:k2"]); // a step task finishing is not evidence
   assert.equal(collectReceipts(steps, r, "x").length, 0);
 });
 
 test("validateMission: objective, constraints carried into every step", () => {
   assert.equal(typeof validateMission({}), "string");
   assert.equal(typeof validateMission({ objective: "x" }), "string");
-  const m = validateMission({ objective: "Ship it", constraints: ["no spending"], steps: [{ agent: "Atlas", request: "research" }, { agent: "nova", request: "" }] });
+  const m = validateMission({ objective: "Ship it", acceptance: "it is live", constraints: ["no spending"], steps: [{ agent: "Atlas", request: "research" }, { agent: "nova", request: "" }] });
   assert.ok(typeof m !== "string");
   assert.equal(m.steps[0].agent, "atlas");
   assert.match(m.steps[0].request, /constraints \(must hold\): no spending/);
+  assert.match(m.steps[0].request, /done when: it is live/);
+  assert.match(String(validateMission({ objective: "Ship it", steps: [] })), /acceptance is required/); // vague: ask
+  const r = validateMission({ objective: "Research EV prices", assumptions: ["prices fell"], steps: [] });
+  assert.ok(typeof r !== "string" && /cite sources/.test(r.acceptance));
+  const a = validateMission({ objective: "Research EV prices", assumptions: ["prices fell"], steps: [{ agent: "atlas", request: "go" }] });
+  assert.ok(typeof a !== "string" && /DISPROVED/.test(a.steps[0].request));
   assert.equal(m.steps[1].request, ""); // empty stays empty so validateChain still refuses it
   assert.equal(newDoc("o", [], "t").status, "queued");
 });
@@ -79,4 +85,17 @@ test("missionBlocked: owner's own instruction only", () => {
   assert.ok(missionBlocked("research X then write Y", true));
   assert.ok(missionBlocked("what is a mission?", false));
   assert.equal(missionBlocked("Research the market, then draft a plan", false), "");
+});
+
+test("executed vs verified: a completed mission is verified only when every step has a read-back receipt", () => {
+  const at = "2026-10-28T00:00:00Z";
+  const old = { kind: "task" as const, ref: "t0", step: 0, check: "step task finished (status done in ORBIT's tasks table)", at };
+  const rb = (step: number) => ({ kind: "memory" as const, ref: `m${step}`, step, check: "save_memory read back after your approval", at });
+  assert.equal(missionLabel("completed", [], 2), "Completed · not verified");
+  assert.equal(missionLabel("completed", [old], 1), "Completed · not verified"); // pre-split "done" receipts don't count
+  assert.equal(missionLabel("completed", [rb(0)], 2), "Completed · not verified");
+  assert.equal(missionLabel("completed", [rb(0), rb(1)], 2), "Completed · verified");
+  assert.equal(missionLabel("running", [rb(0)], 2), "Running");
+  assert.equal(stepVerified([old], 0), false);
+  assert.equal(stepVerified([rb(1)], 1), true);
 });

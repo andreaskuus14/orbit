@@ -2,6 +2,7 @@
 // CORE chat list + Projects, like the Claude app sidebar: a sheet over the CORE panel (works the same in the phone layout).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDialogFocus } from "./useDialogFocus";
+import { CheckpointCard } from "./CheckpointCard";
 import { MAX_INSTRUCTIONS, MAX_PROJECT_NAME, MAX_TITLE, type Project } from "@/lib/core-chats-pure";
 
 export type ChatRow = { id: string; title: string; updated_at: string };
@@ -61,6 +62,7 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, onOpen, 
           <button type="button" className="chip" onClick={onClose} aria-label="Close chat list">Close</button>
         </div>
         {error && <p className="error mb-2" role="alert">{error}</p>}
+        <CheckpointCard chatId={activeId} />
 
         <div className="mt-3 flex items-center justify-between"><span className="h3">Projects</span>
           <button type="button" className="chip px-2" aria-label="New project" title="New project" onClick={() => setEditing("new")}>＋</button></div>

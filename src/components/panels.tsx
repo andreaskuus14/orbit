@@ -41,6 +41,7 @@ import { PredictionScore } from "./OrbitThinks";
 import { PerfRuns } from "./PerfRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
 import { getLang, LangSwitch, useT } from "./i18n";
+import { FailureReport } from "./FailureReport";
 import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
 import { eventLabel } from "@/lib/event-label-pure";
@@ -55,7 +56,7 @@ import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechG
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
 type Cite = { id: string; title: string; kind: string };
-type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[] };
+type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: { pass: boolean; flags: string[] } };
 type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[] };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -351,8 +352,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           <ul className="mt-1 space-y-0.5">{m.trace.map((s, n) => <li key={n}>{s.ok ? "✓" : "✗"} <b>{s.step}</b> · {s.ms}ms · {s.detail}</li>)}</ul>
         </details>
       )}
+      {m.role === "assistant" && (m.error || m.trace?.some((s) => !s.ok || s.answerEval?.pass === false)) && (
+        <div className="mt-2"><FailureReport input={{ kind: "turn", id: chatId, relatedIds: chatId ? [chatId] : [], model: m.model ?? null, error: m.error ? m.content : null,
+          trace: m.trace ?? [], request: msgs[i - 1]?.role === "user" ? msgs[i - 1].content : "", answer: m.error ? "" : m.content }} /></div>
+      )}
     </div>
-  )), [msgs, onOpenMemory, speaking, copied, busy, send, project, pinned, tr]); // eslint-disable-line react-hooks/exhaustive-deps
+  )), [msgs, onOpenMemory, speaking, copied, busy, send, project, pinned, tr, chatId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lastCore = [...msgs].reverse().find((m) => m.role === "assistant" && !m.error);
   const artifact = useMemo(() => (lastCore ? turnArtifact(lastCore.content) : null), [lastCore]);

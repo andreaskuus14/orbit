@@ -50,6 +50,7 @@ import { useStageActive } from "./stage-slot";
 import { ContinueWork } from "./ContinueWork";
 import { WorkView } from "./WorkView";
 import type { WorkTab } from "@/lib/work-vocab-pure";
+import { NeedsYou } from "./NeedsYou";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { TimeTravel, useLivingUniverse } from "./TimeTravel";
 import type { ShipTask } from "@/lib/ships-pure";
@@ -653,7 +654,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <WhatsNew home={!shown && !approach} />
         <MorningBrief home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       </>}
-      {boot >= 2 && !shown && !approach && view === "3d" && <ContinueWork floating onOpenTask={openTask} onOpenGoal={openGoal} />}
+      {boot >= 2 && !shown && !approach && view === "3d" && <NeedsYou onOpenTask={openTask} onOpenGoal={openGoal} />}{/* Continue my work: the overview, its command and NeedsYou's link */}
       {boot >= 2 && !shown && !approach && <HalEye />}
       {!shown && view === "3d" && (
         <aside ref={statusDrag.ref} className="glass hud-panel status-hud" aria-label={t("sys.aria")}>

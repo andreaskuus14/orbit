@@ -14,7 +14,7 @@ export type StudioIn = {
 };
 export type MorningStudio = { ready: number; approved: number; today: string[]; yesterday: { title: string; views: number | null; videoId?: string }[]; scout: string; pausedUntil: string };
 export type MorningIntel = { title: string; at: string; headlines: string[] };
-export type MorningAgents = { done: string[]; failed: number; proposals: string[] };
+export type MorningAgents = { done: string[]; failed: number; proposals: string[]; verified?: number }; // verified: done with read-back evidence
 export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
 export type MorningCalendar = { connected: boolean; today: { time: string; title: string }[] }; // titles: calendar data (invites), plain text only
 export type Morning = {
@@ -100,7 +100,7 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
   }
   if (a) {
     if (a.proposals.length) must.push(`${n(a.proposals.length, "agent proposal")} ${a.proposals.length === 1 ? "is" : "are"} waiting for approval.`);
-    if (a.done.length) opt.push(`Overnight your agents finished ${n(a.done.length, "task")}${a.failed ? ` and ${a.failed} failed` : ""}.`);
+    if (a.done.length) opt.push(`Overnight your agents finished ${n(a.done.length, "task")}${a.verified !== undefined ? ` (${a.verified} verified)` : ""}${a.failed ? ` and ${a.failed} failed` : ""}.`);
     else if (a.failed) opt.push(`${n(a.failed, "agent task")} failed overnight.`);
   }
   const ev = m.calendar?.today ?? [];

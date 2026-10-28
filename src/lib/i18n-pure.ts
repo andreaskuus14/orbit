@@ -143,6 +143,9 @@ const BASE = {
 
   "task.back": "← All tasks", "task.request": "Request", "task.retry": "Retry", "task.cancel": "Cancel task", "task.delegated": "Delegated", "task.result": "result",
   "task.noRetry": "This task has resolved actions. Keep their results and request only the unfinished work in a follow-up.",
+  "failrep.button": "Failure report", "failrep.title": "Failure report", "failrep.preview": "Report preview",
+  "failrep.hint": "Ids, version, model, tools, timings and error type from the trace. Keys and tokens are removed. Nothing is sent: copy or download it yourself.",
+  "failrep.personal": "Include personal content (request, answer, tool inputs and outputs)", "failrep.copied": "Copied", "failrep.download": "Download",
   "task.trace": "Execution trace ({n} steps)", "task.saveRecipe": "📋 Save as recipe", "task.recipeName": "Recipe name",
 
   "doc.title": "ORBIT doctor", "doc.closeAria": "Close ORBIT doctor", "doc.checking": "Checking…", "doc.again": "Check again",
@@ -176,6 +179,9 @@ const BASE = {
   "selfEval.vs": "this week · last 4", "selfEval.redOk": "Red-team: 0 failures.", "selfEval.redFail": "Red-team: {n} injection(s) NOT refused. Tell a builder now.",
   "selfEval.regressions": "Newly failing: {list}", "selfEval.cat.send": "Send", "selfEval.cat.spend": "Spend", "selfEval.cat.publish": "Publish",
   "selfEval.cat.sign": "Sign", "selfEval.cat.reveal": "Reveal private data", "selfEval.cat.autonomy": "Autonomy & approvals", "selfEval.cat.retrieval": "Memory retrieval",
+  "outcome.title": "Outcomes: this week vs last", "outcome.note": "From finished tasks only; generated text and agent steps don't count. n/total.",
+  "outcome.simple": "Simple", "outcome.multi": "Multi-step", "outcome.units": "Units of work", "outcome.correctionFree": "Done without a redo",
+  "outcome.medianMin": "Minutes to result (median)", "outcome.abandoned": "Failed or abandoned", "outcome.duplicates": "Duplicate starts", "outcome.kept": "Results you approved",
   "improve.handoffAria": "Copy patch handoff for Claude Code: {title}", "improve.handoff": "Copy to Claude Code",
 
   "loops.title": "Open loops", "loops.count": "{n} OPEN", "loops.empty": "Nothing left hanging.", "loops.snooze": "Snooze 3 days",
@@ -210,6 +216,8 @@ const BASE = {
   "rules.everyDays": "Every {days}", "rules.and": " and ", "rules.at": "{d} at {t}",
   "rules.day.0": "Sunday", "rules.day.1": "Monday", "rules.day.2": "Tuesday", "rules.day.3": "Wednesday", "rules.day.4": "Thursday", "rules.day.5": "Friday", "rules.day.6": "Saturday",
   "rules.act.deals": "Check the deal hunter's wishlist", "rules.act.week": "Prepare this week's review (facts from ORBIT)",
+  "mission.doneWhen": "Done when: ", "mission.verified": "verified", "mission.notVerified": "not verified", "mission.effort": "About {n} min · stop conditions",
+  "mission.checks": "Checks ({ok}/{n} passed)", "mission.passed": "passed", "mission.failed": "failed", "mission.step": "step {n}:",
   "rules.act.skill": "Run skill “{name}”{input}", "rules.act.mission": "Mission: {objective}",
   "doc.head.ok": "Everything is working ({n} checks).", "doc.head.problems.one": "{n} problem", "doc.head.problems.other": "{n} problems",
   "doc.head.warnings.one": "{n} warning", "doc.head.warnings.other": "{n} warnings", "doc.head.and": " and ", "doc.head.outOf": " out of {n} checks.",
@@ -566,6 +574,9 @@ const BASE = {
   "voice.convTitle": "Conversation mode (Ctrl+Shift+M, or say “Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Conversation mode needs hands-free on (voice settings)",
   "voice.convHelp": "Ctrl+Shift+M, 💬 or “Orbit, let’s talk”. ORBIT then answers questions and requests without “Orbit” and ignores chatter; talk over it to interrupt. Ends on “stop” / “that’s all”, Esc, 💬, Stop-all or 60 s of silence (one-follow-up: after the follow-up).",
   "voice.openMic": "Open mic · {phase} — ✕ stop", "voice.phaseListening": "listening", "voice.phaseThinking": "thinking", "voice.phaseSpeaking": "speaking (talk to interrupt)",
+  "needs.title": "Needs you", "needs.loading": "Looking for what needs you…", "needs.empty": "Nothing needs you right now.", "needs.loadFailed": "Couldn't load what needs you.",
+  "needs.kind.decide": "Decide", "needs.kind.unblock": "Unblock", "needs.kind.review": "Review result", "needs.review": "Review", "needs.more": "{n} more in Mission control and Continue my work.",
+  "needs.work": "Continue my work", "needs.mission": "Mission control", "needs.onPc": "On the PC",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -583,6 +594,11 @@ export const EN = { ...BASE, ...Object.fromEntries(PLANETS.flatMap((p) => [[`pla
  *   standing rule = püsireegel · night shift = öine vahetus · open loop = lahtine ots · incident = intsident · call (Claude) = päring
  * Counts: after a number other than 1 Estonian takes the partitive singular ("3 agenti"), so .one/.other is enough. */
 export const ET: Partial<Record<Key, string>> = {
+  "mission.doneWhen": "Valmis, kui: ", "mission.verified": "kontrollitud", "mission.notVerified": "kontrollimata", "mission.effort": "Umbes {n} min · peatumistingimused",
+  "mission.checks": "Kontrollid ({ok}/{n} läbitud)", "mission.passed": "läbitud", "mission.failed": "ebaõnnestus", "mission.step": "samm {n}:",
+  "needs.title": "Vajab sind", "needs.loading": "Otsin, mis sind vajab…", "needs.empty": "Praegu ei vaja miski sind.", "needs.loadFailed": "Ei saanud laadida, mis sind vajab.",
+  "needs.kind.decide": "Otsusta", "needs.kind.unblock": "Lahenda", "needs.kind.review": "Vaata tulemus üle", "needs.review": "Vaata üle", "needs.more": "Veel {n} missioonijuhtimises ja jätka-töö loendis.",
+  "needs.work": "Jätka minu tööd", "needs.mission": "Missioonijuhtimine", "needs.onPc": "Arvutis",
   "common.close": "Sulge", "common.open": "Ava", "common.approve": "Kinnita", "common.reject": "Lükka tagasi",
   "common.approved": "Kinnitatud", "common.rejected": "Tagasi lükatud", "common.copy": "Kopeeri", "common.on": "sees", "common.off": "väljas",
   "common.failed": "See ei õnnestunud",
@@ -733,6 +749,9 @@ export const ET: Partial<Record<Key, string>> = {
 
   "task.back": "← Kõik ülesanded", "task.request": "Päring", "task.retry": "Proovi uuesti", "task.cancel": "Tühista ülesanne", "task.delegated": "Edasi antud", "task.result": "tulemus",
   "task.noRetry": "Selle ülesande osa toiminguid on juba otsustatud. Jäta nende tulemused alles ja küsi lõpetamata osa uue ülesandena.",
+  "failrep.button": "Vearaport", "failrep.title": "Vearaport", "failrep.preview": "Raporti eelvaade",
+  "failrep.hint": "Logist: id-d, versioon, mudel, tööriistad, ajad ja vea liik. Võtmed ja tokenid eemaldatakse. Midagi ei saadeta: kopeeri või laadi ise alla.",
+  "failrep.personal": "Lisa isiklik sisu (päring, vastus, tööriistade sisend ja väljund)", "failrep.copied": "Kopeeritud", "failrep.download": "Laadi alla",
   "task.trace": "Täitmise logi ({n} sammu)", "task.saveRecipe": "📋 Salvesta retseptina", "task.recipeName": "Retsepti nimi",
 
   "doc.title": "ORBITi arst", "doc.closeAria": "Sulge ORBITi arst", "doc.checking": "Kontrollin…", "doc.again": "Kontrolli uuesti",
@@ -766,6 +785,9 @@ export const ET: Partial<Record<Key, string>> = {
   "selfEval.vs": "see nädal · eelmised 4", "selfEval.redOk": "Rünnakutestid: 0 läbikukkumist.", "selfEval.redFail": "Rünnakutestid: {n} süstimist JÄI keelamata. Teata kohe arendajale.",
   "selfEval.regressions": "Uued läbikukkumised: {list}", "selfEval.cat.send": "Saatmine", "selfEval.cat.spend": "Kulutamine", "selfEval.cat.publish": "Avaldamine",
   "selfEval.cat.sign": "Allkirjastamine", "selfEval.cat.reveal": "Privaatandmete lekitamine", "selfEval.cat.autonomy": "Autonoomia ja kinnitused", "selfEval.cat.retrieval": "Mälust leidmine",
+  "outcome.title": "Tulemused: see nädal vs eelmine", "outcome.note": "Ainult lõpetatud ülesannetest; genereeritud tekst ja agendi sammud ei loe. n/kokku.",
+  "outcome.simple": "Lihtne", "outcome.multi": "Mitmesammuline", "outcome.units": "Tööühikud", "outcome.correctionFree": "Valmis ilma uuesti tegemata",
+  "outcome.medianMin": "Minutid tulemuseni (mediaan)", "outcome.abandoned": "Ebaõnnestunud või pooleli jäetud", "outcome.duplicates": "Topeltkäivitused", "outcome.kept": "Sinu kinnitatud tulemused",
   "improve.handoffAria": "Kopeeri parandus Claude Code'ile: {title}", "improve.handoff": "Kopeeri Claude Code'ile",
 
   "loops.title": "Lahtised otsad", "loops.count": "{n} LAHTI", "loops.empty": "Midagi ei jäänud ripakile.", "loops.snooze": "Lükka 3 päeva edasi",
