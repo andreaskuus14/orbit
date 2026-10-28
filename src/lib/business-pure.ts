@@ -110,7 +110,7 @@ export function parseFinds(answer: string): Find[] {
 /** The one email address in a contact field, or null (phones/addresses can't be emailed; two addresses = ambiguous). */
 export function emailIn(contact: string): string | null {
   const all = contact.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) ?? [];
-  return all.length === 1 ? all[0] : null;
+  return all.length === 1 ? all[0].toLowerCase() : null; // lowercase: approval hashes bind the recipient, case must not split it
 }
 const SUBJECT: Record<Lang, (n: string) => string> = {
   English: (n) => `A quick idea for ${n}`, Estonian: (n) => `Väike idee ${n} jaoks`, Russian: (n) => `Небольшая идея для ${n}`,
