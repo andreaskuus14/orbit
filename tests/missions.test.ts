@@ -67,10 +67,16 @@ test("collectReceipts: only verified things, deduped, partial results kept", () 
 test("validateMission: objective, constraints carried into every step", () => {
   assert.equal(typeof validateMission({}), "string");
   assert.equal(typeof validateMission({ objective: "x" }), "string");
-  const m = validateMission({ objective: "Ship it", constraints: ["no spending"], steps: [{ agent: "Atlas", request: "research" }, { agent: "nova", request: "" }] });
+  const m = validateMission({ objective: "Ship it", acceptance: "it is live", constraints: ["no spending"], steps: [{ agent: "Atlas", request: "research" }, { agent: "nova", request: "" }] });
   assert.ok(typeof m !== "string");
   assert.equal(m.steps[0].agent, "atlas");
   assert.match(m.steps[0].request, /constraints \(must hold\): no spending/);
+  assert.match(m.steps[0].request, /done when: it is live/);
+  assert.match(String(validateMission({ objective: "Ship it", steps: [] })), /acceptance is required/); // vague: ask
+  const r = validateMission({ objective: "Research EV prices", assumptions: ["prices fell"], steps: [] });
+  assert.ok(typeof r !== "string" && /cite sources/.test(r.acceptance));
+  const a = validateMission({ objective: "Research EV prices", assumptions: ["prices fell"], steps: [{ agent: "atlas", request: "go" }] });
+  assert.ok(typeof a !== "string" && /DISPROVED/.test(a.steps[0].request));
   assert.equal(m.steps[1].request, ""); // empty stays empty so validateChain still refuses it
   assert.equal(newDoc("o", [], "t").status, "queued");
 });

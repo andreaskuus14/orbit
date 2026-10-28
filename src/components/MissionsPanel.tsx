@@ -31,6 +31,13 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
                 <span className="shrink-0" style={{ color: TONE[m.status] ?? "var(--cyan)" }}>{m.label}</span>
               </div>
               <p><span className="muted">Next: </span>{m.next}</p>
+              {m.doc.acceptance && <p><span className="muted">Done when: </span>{m.doc.acceptance}{m.doc.verified !== undefined && <span style={{ color: m.doc.verified ? "var(--mint)" : "#fb7185" }}> — {m.doc.verified ? "verified" : "not verified"}</span>}</p>}
+              {m.doc.effort && <details><summary className="cursor-pointer muted">About {m.doc.effort.minutes} min · stop conditions</summary><ul className="mt-1 list-disc pl-4">{m.doc.effort.stops.map((x) => <li key={x}>{x}</li>)}</ul></details>}
+              {!!m.doc.checks?.length && (
+                <details><summary className="cursor-pointer">Checks ({m.doc.checks.filter((c) => c.ok).length}/{m.doc.checks.length} passed)</summary>
+                  <ul className="mt-1 space-y-0.5">{m.doc.checks.map((c, i) => <li key={i}><span style={{ color: c.ok ? "var(--mint)" : "#fb7185" }}>{c.ok ? "passed" : "failed"}</span> <span className="muted">step {c.step + 1}:</span> {c.what}</li>)}</ul>
+                </details>
+              )}
               {m.doc.constraints.length > 0 && <p className="muted">Constraints: {m.doc.constraints.join("; ")}</p>}
               {m.chain && (
                 <ol className="space-y-0.5">
