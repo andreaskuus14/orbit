@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BUILTIN_AGENTS, cancelTask, runTask } from "./agents";
 import { withSlot } from "./chains";
+import { interruptedPatch } from "./completion-pure";
 import { askClaude, createBudget, emit, recordUsage } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
@@ -177,8 +178,9 @@ async function sync(sb: SupabaseClient, userId: string, id: string, doc: Goal, i
   const { data: t } = taskId ? await sb.from("tasks").select("status, result, error, pending, started_at").eq("id", taskId).maybeSingle() : { data: null };
   // Orphaned by a restart: our own runs end within their 8-min budget, so "running" for 20+ min is dead (same rule as the tasks sweep).
   if (t?.status === "running" && Date.parse(t.started_at ?? "") < Date.now() - STALE_MS) {
-    const { data: hit } = await sb.from("tasks").update({ status: "failed", error: "Interrupted (ORBIT restarted)", finished_at: new Date().toISOString() }).eq("id", taskId!).eq("status", "running").select("id");
-    if (hit?.length) Object.assign(t, { status: "failed", error: "Interrupted (ORBIT restarted)" });
+    const patch = interruptedPatch(t.pending, "Interrupted (ORBIT restarted)");
+    const { data: hit } = await sb.from("tasks").update(patch).eq("id", taskId!).eq("status", "running").select("id");
+    if (hit?.length) Object.assign(t, patch);
   }
   let applied: ReturnType<typeof applyTask> = null;
   const r = await mutate(sb, id, (d) => { applied = applyTask(d, i, t ?? { status: "failed", error: "The step's task is gone" }); return applied ? "" : "same"; });

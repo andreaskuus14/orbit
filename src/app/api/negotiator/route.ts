@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError } from "@/lib/claude";
-import { approveNegotiation, closeNegotiation, contractNote, editNegotiation, listNegotiations, onReply, redraft, setLimits } from "@/lib/negotiator";
+import { approveNegotiation, closeNegotiation, contractNote, editNegotiation, listNegotiations, negoRecipients, onReply, redraft, setLimits } from "@/lib/negotiator";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +13,10 @@ const fail = (error: string, status = 400) => Response.json({ error }, { status 
 const out = (r: unknown) => (typeof r === "string" ? fail(r, r === "Not found" ? 404 : 400) : Response.json({ negotiation: r, note: contractNote(r as never) }));
 
 export async function GET() {
-  const { res } = await requireUser();
+  const { sb, res } = await requireUser();
   if (res) return res;
-  return Response.json({ negotiations: await listNegotiations() });
+  const negotiations = await listNegotiations();
+  return Response.json({ negotiations, recipients: await negoRecipients(sb, negotiations) }); // recipients: who approve emails each draft to (hashed into the approval)
 }
 
 export async function POST(req: Request) {

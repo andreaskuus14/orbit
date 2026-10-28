@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { getAgent, kickQueue } from "@/lib/agents";
 import { str } from "@/lib/pure";
+import { interruptedPatch } from "@/lib/completion-pure";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 
@@ -13,8 +14,8 @@ export async function GET(req: Request) {
   // Tasks left "running" by a server restart can never finish: mark them failed so they don't look stuck.
   if (Date.now() - (swept.get(user.id) ?? 0) > 60_000) {
     swept.set(user.id, Date.now());
-    await sb.from("tasks").update({ status: "failed", error: "Interrupted (ORBIT restarted). Press Retry.", finished_at: new Date().toISOString() })
-      .eq("status", "running").lt("started_at", new Date(Date.now() - 20 * 60_000).toISOString());
+    const { data: stale } = await sb.from("tasks").select("id, pending").eq("status", "running").lt("started_at", new Date(Date.now() - 20 * 60_000).toISOString());
+    for (const t of stale ?? []) await sb.from("tasks").update(interruptedPatch(t.pending, "Interrupted (ORBIT restarted). Press Retry.")).eq("id", t.id).eq("status", "running");
   }
   const p = new URL(req.url).searchParams;
   let q = sb.from("tasks").select(COLS).is("parent_id", null).order("created_at", { ascending: false }).limit(60);

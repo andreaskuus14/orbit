@@ -38,8 +38,8 @@ export async function contentHash(content: unknown): Promise<string> {
 // The exact content each approval covers (both sides build it the same way; business/contracts have their own in their -pure files).
 /** Higgsfield spend: the script+options fingerprint the quote priced and the credits he approves. */
 export const spendContent = (fingerprint: string, credits: number) => ({ fingerprint, credits });
-/** Negotiator reply: the draft text. shortcut: the recipient comes from the prospect's Contact at send time, not hashed; hash it once the PC view shows it. */
-export const negoContent = (id: string, text: string) => ({ id, text });
+/** Negotiator reply: the draft text and who approving emails it to (null = he copies it himself). A changed recipient needs a fresh approval. */
+export const negoContent = (id: string, text: string, to: string | null) => ({ id, text, to: to ? to.trim().toLowerCase() : null });
 /** Clip publish: the media he approved (video, thumbnail, cut). The title/description come from the publish click itself. */
 export const clipContent = (c: { video?: string; thumb?: string; start: number; end: number }) => ({ video: c.video ?? "", thumb: c.thumb ?? "", start: c.start, end: c.end });
 
