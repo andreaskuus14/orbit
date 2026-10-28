@@ -216,6 +216,8 @@ const BASE = {
   "rules.everyDays": "Every {days}", "rules.and": " and ", "rules.at": "{d} at {t}",
   "rules.day.0": "Sunday", "rules.day.1": "Monday", "rules.day.2": "Tuesday", "rules.day.3": "Wednesday", "rules.day.4": "Thursday", "rules.day.5": "Friday", "rules.day.6": "Saturday",
   "rules.act.deals": "Check the deal hunter's wishlist", "rules.act.week": "Prepare this week's review (facts from ORBIT)",
+  "mission.doneWhen": "Done when: ", "mission.verified": "verified", "mission.notVerified": "not verified", "mission.effort": "About {n} min · stop conditions",
+  "mission.checks": "Checks ({ok}/{n} passed)", "mission.passed": "passed", "mission.failed": "failed", "mission.step": "step {n}:",
   "rules.act.skill": "Run skill “{name}”{input}", "rules.act.mission": "Mission: {objective}",
   "doc.head.ok": "Everything is working ({n} checks).", "doc.head.problems.one": "{n} problem", "doc.head.problems.other": "{n} problems",
   "doc.head.warnings.one": "{n} warning", "doc.head.warnings.other": "{n} warnings", "doc.head.and": " and ", "doc.head.outOf": " out of {n} checks.",
@@ -592,6 +594,8 @@ export const EN = { ...BASE, ...Object.fromEntries(PLANETS.flatMap((p) => [[`pla
  *   standing rule = püsireegel · night shift = öine vahetus · open loop = lahtine ots · incident = intsident · call (Claude) = päring
  * Counts: after a number other than 1 Estonian takes the partitive singular ("3 agenti"), so .one/.other is enough. */
 export const ET: Partial<Record<Key, string>> = {
+  "mission.doneWhen": "Valmis, kui: ", "mission.verified": "kontrollitud", "mission.notVerified": "kontrollimata", "mission.effort": "Umbes {n} min · peatumistingimused",
+  "mission.checks": "Kontrollid ({ok}/{n} läbitud)", "mission.passed": "läbitud", "mission.failed": "ebaõnnestus", "mission.step": "samm {n}:",
   "needs.title": "Vajab sind", "needs.loading": "Otsin, mis sind vajab…", "needs.empty": "Praegu ei vaja miski sind.", "needs.loadFailed": "Ei saanud laadida, mis sind vajab.",
   "needs.kind.decide": "Otsusta", "needs.kind.unblock": "Lahenda", "needs.kind.review": "Vaata tulemus üle", "needs.review": "Vaata üle", "needs.more": "Veel {n} missioonijuhtimises ja jätka-töö loendis.",
   "needs.work": "Jätka minu tööd", "needs.mission": "Missioonijuhtimine", "needs.onPc": "Arvutis",

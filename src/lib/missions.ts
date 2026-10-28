@@ -1,9 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelChain, createChain, drive, getChain } from "./chains";
-import type { ChainView } from "./chains-pure";
+import { parseMeta, type ChainView } from "./chains-pure";
+import { checkContains, checkFile, checkResearch, expected, plan, reviewStep, type Check } from "./mission-checks-pure";
+import { readWsFile } from "./workspace";
 import {
   acted, canDo, collectReceipts, deriveStatus, explain, logged, missionBlocked, missionLabel, newDoc, nextAction, onFailure, validateMission, LABEL,
-  type MissionDoc, type MissionStatus, type OwnerAction,
+  type MissionDoc, type MissionStatus, type OwnerAction, MAX_RETRIES,
 } from "./missions-pure";
 import { capabilityStart } from "./capability";
 
@@ -34,7 +36,8 @@ export async function createMission(sb: SupabaseClient, userId: string, body: un
   if (cap.block) return { error: cap.block }; // only when Claude Code itself is known down
   const c = await createChain(sb, userId, { goal: m.objective, steps: m.steps }, MISSION_TITLE, false);
   if ("error" in c) return c;
-  const { data, error } = await sb.from("missions").insert({ user_id: userId, chain_id: c.chainId, status: "queued", doc: cap.headsUp ? logged(newDoc(m.objective, m.constraints, now()), now(), cap.headsUp) : newDoc(m.objective, m.constraints, now()) }).select(COLS).single();
+  const fresh = () => newDoc(m.objective, m.constraints, now(), { acceptance: m.acceptance, assumptions: m.assumptions, effort: plan(m.steps, MAX_RETRIES) });
+  const { data, error } = await sb.from("missions").insert({ user_id: userId, chain_id: c.chainId, status: "queued", doc: cap.headsUp ? logged(fresh(), now(), cap.headsUp) : fresh() }).select(COLS).single();
   if (error) { await cancelChain(sb, c.chainId); return { error: error.message }; }
   await reconcile(sb, userId, data as Row);
   return { id: data.id };
@@ -53,11 +56,12 @@ export async function reconcile(sb: SupabaseClient, userId: string, row: Row, ad
   let doc = row.doc;
   const at = now();
   if (chain) {
-    const { data: kids } = await sb.from("tasks").select("id, status, pending").eq("parent_id", row.chain_id!);
+    const { data: kids } = await sb.from("tasks").select("id, status, pending, trace, result").eq("parent_id", row.chain_id!);
     const pend = new Map((kids ?? []).map((k) => [k.id as string, k.pending]));
     const steps = chain.steps.map((s) => ({ index: s.index, taskId: s.taskId, status: s.status, pending: s.taskId ? pend.get(s.taskId) : undefined }));
     const fresh = collectReceipts(steps, doc.receipts, at);
     if (fresh.length) doc = logged({ ...doc, receipts: [...doc.receipts, ...fresh] }, at, `${fresh.length} new receipt(s) recorded.`);
+    if (advance) doc = await examine(sb, userId, row.chain_id!, chain, new Map((kids ?? []).map((k) => [k.id as string, { trace: k.trace, result: (k.result as string | null) ?? "" }])), doc, at);
     const bad = chain.steps.find((s) => s.status === "failed" || s.status === "cancelled");
     if (chain.status === "failed" && bad?.taskId && doc.status !== "failed" && doc.status !== "waiting-input" && doc.status !== "cancelled") {
       const f = onFailure(bad, doc.retries, acted(pend.get(bad.taskId)));
@@ -73,19 +77,72 @@ export async function reconcile(sb: SupabaseClient, userId: string, row: Row, ad
   return finish(sb, userId, row, doc, chain, advance);
 }
 
+/** Deterministic checks on each newly finished step, then review it before the next step runs (gate → reconcile → here).
+ *  Stop pauses the mission with the reason; revise adds a note to the next queued step. When the chain is done, sets doc.verified. */
+async function examine(sb: SupabaseClient, userId: string, chainId: string, chain: ChainView, kids: Map<string, { trace: unknown; result: string }>, doc: MissionDoc, at: string): Promise<MissionDoc> {
+  const reviewed = new Set(doc.reviewed ?? []);
+  for (const s of chain.steps) {
+    if (s.status !== "done" || reviewed.has(s.index) || TERMINAL_OR_PAUSED.includes(doc.status)) continue;
+    const checks: Check[] = [], kid = kids.get(s.taskId ?? ""), result = kid?.result || s.result || "";
+    for (const r of doc.receipts.filter((r) => r.step === s.index && r.kind === "file" && r.path)) {
+      const f = await readWsFile(userId, r.ref, r.path!);
+      checks.push(f ? checkFile(r.path!, f.text, s.index) : { step: s.index, ok: false, what: `${r.path} can't be read back` });
+    }
+    // Approved-action receipts only exist after completion.ts read the destination back and it matched (matchesStored).
+    if (doc.receipts.some((r) => r.step === s.index && r.kind !== "task")) checks.push({ step: s.index, ok: true, what: "destination read back matches the approved action" });
+    if (s.agent === "atlas" || /\]\(https?:/.test(result)) {
+      const tr = kid?.trace;
+      checks.push(checkResearch(result, Array.isArray(tr) ? tr.filter((t) => t?.ok !== false).map((t) => String(t?.detail ?? "")) : [], s.index));
+    }
+    const r = reviewStep(s.index, result, s.index ? kids.get(chain.steps[s.index - 1].taskId ?? "")?.result ?? null : null, checks);
+    doc = { ...doc, checks: [...(doc.checks ?? []), ...checks].slice(-40), reviewed: [...reviewed.add(s.index)] };
+    if (checks.length) doc = logged(doc, at, `Step ${s.index + 1} checks: ${checks.map((c) => `${c.ok ? "✓" : "✗"} ${c.what}`).join("; ").slice(0, 300)}`);
+    const next = chain.steps[s.index + 1];
+    if (r.do === "stop" && next) doc = logged({ ...doc, status: "paused", blocker: r.why, decisions: [...doc.decisions, { at, text: r.why }] }, at, r.why);
+    else if (r.do === "revise" && next?.taskId && next.status === "queued") {
+      const { data: t } = await sb.from("tasks").select("request").eq("id", next.taskId).eq("status", "queued").maybeSingle();
+      const { data: p } = await sb.from("tasks").select("request").eq("id", chainId).maybeSingle();
+      const meta = parseMeta(p?.request ?? null);
+      if (t && meta?.steps[next.index]) {
+        // The driver keeps only the first `len` chars of a step's own request, so the note must extend len too.
+        const own = String(t.request).slice(0, meta.steps[next.index].len) + r.note;
+        meta.steps[next.index].len = own.length;
+        await sb.from("tasks").update({ request: own }).eq("id", next.taskId).eq("status", "queued");
+        await sb.from("tasks").update({ request: JSON.stringify(meta) }).eq("id", chainId);
+        doc = logged(doc, at, `Step ${next.index + 1} revised: ${r.note.trim().slice(0, 200)}`);
+      }
+    }
+  }
+  if (chain.status === "done" && doc.verified === undefined && chain.steps.every((s) => reviewed.has(s.index))) {
+    const want = expected(doc.acceptance ?? "");
+    const last = chain.steps[chain.steps.length - 1];
+    let checks = doc.checks ?? [];
+    if (want.length) {
+      const files = await Promise.all(doc.receipts.filter((r) => r.kind === "file" && r.path).map((r) => readWsFile(userId, r.ref, r.path!)));
+      checks = [...checks, checkContains("final output", [kids.get(last.taskId ?? "")?.result ?? "", ...files.map((f) => f?.text ?? "")].join("\n"), want, last.index)];
+    }
+    const verified = checks.length > 0 && checks.every((c) => c.ok);
+    doc = logged({ ...doc, checks, verified }, at, verified ? `Verified: ${checks.length} check(s) passed against "${doc.acceptance}".` : checks.length ? "Finished, but not verified: a check failed (see checks)." : "Finished, but nothing checkable was produced, so it is not verified.");
+  }
+  return doc;
+}
+const TERMINAL_OR_PAUSED: MissionStatus[] = ["paused", "cancelled", "completed"];
+
 async function finish(sb: SupabaseClient, userId: string, row: Row, doc: MissionDoc, chain: ChainView | null, advance = true): Promise<MissionView> {
   const status = deriveStatus(doc, chain);
   if (status !== doc.status) doc = logged({ ...doc, status, ...(status === "running" || status === "completed" ? { blocker: undefined, failure: undefined } : {}) }, now(), explain(doc.status, status));
   if (!advance) return { ...row, doc, status, label: LABEL[status], next: nextAction(status, chain, doc.blocker), chain };
   const saved = doc === row.doc ? row : (await save(sb, row, doc)) ?? row;
-  if ((status === "queued" || status === "running") && row.chain_id) void drive(sb, userId, row.chain_id, () => gate(sb, row.id));
+  if ((status === "queued" || status === "running") && row.chain_id) void drive(sb, userId, row.chain_id, () => gate(sb, userId, row.id));
   return { ...saved, status, label: missionLabel(status, doc.receipts, chain?.steps.length ?? 0), next: nextAction(status, chain, doc.blocker), chain };
 }
 
-/** The driver's pause/cancel check, read fresh before each step. */
-async function gate(sb: SupabaseClient, id: string) {
-  const { data } = await sb.from("missions").select("status").eq("id", id).maybeSingle();
-  return !!data && data.status !== "paused" && data.status !== "cancelled";
+/** The driver's check before each step: reconcile first (checks + review of the step just finished may pause it), then pause/cancel. */
+async function gate(sb: SupabaseClient, userId: string, id: string) {
+  const { data } = await sb.from("missions").select(COLS).eq("id", id).maybeSingle();
+  if (!data) return false;
+  const v = await reconcile(sb, userId, data as Row); // its drive() call is a no-op: this chain is already being driven
+  return v.status !== "paused" && v.status !== "cancelled";
 }
 
 export async function listMissions(sb: SupabaseClient, userId: string): Promise<MissionView[]> {
@@ -124,7 +181,7 @@ export async function actMission(sb: SupabaseClient, userId: string, id: string,
   return reconcile(sb, userId, saved);
 }
 
-const line = (m: MissionView) => `- ${m.doc.objective} — ${m.label}; ${m.chain?.steps.filter((s) => s.status === "done").length ?? 0}/${m.chain?.steps.length ?? 0} steps, ${m.doc.receipts.length} receipt(s). Next: ${m.next}`;
+const line = (m: MissionView) => `- ${m.doc.objective} — ${m.label}; ${m.chain?.steps.filter((s) => s.status === "done").length ?? 0}/${m.chain?.steps.length ?? 0} steps, ${m.doc.receipts.length} receipt(s)${m.doc.verified === undefined ? "" : m.doc.verified ? ", verified" : ", NOT verified"}. Done when: ${m.doc.acceptance ?? "not set"}. Next: ${m.next}`;
 
 /** CORE tools: mission_status {} and start_mission {objective, constraints?, steps}. */
 export async function runMissionTool(sb: SupabaseClient, userId: string, tool: "mission_status" | "start_mission", input: Record<string, unknown>, question: string, tainted: boolean): Promise<string> {

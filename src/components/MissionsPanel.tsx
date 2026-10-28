@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { api, usePoll } from "./AgentMission";
 import { canDo, stepVerified, type OwnerAction } from "@/lib/missions-pure";
 import { timeAgo } from "@/lib/mission-pure";
+import { useT } from "./i18n";
 import type { MissionView } from "@/lib/missions";
 
 // MISSIONS: CORE's multi-step jobs. State, the one next action, steps, receipts (what ORBIT verified) and the plain-language log.
@@ -14,6 +15,7 @@ const TONE: Record<string, string> = { completed: "var(--mint)", failed: "#fb718
 export default function MissionsPanel({ visible, onOpenTask }: { visible: boolean; onOpenTask?: (id: string) => void }) {
   const [list, setList] = useState<MissionView[] | null>(null);
   const [err, setErr] = useState("");
+  const { t } = useT();
   const load = useCallback(() => { api<{ missions: MissionView[] }>("/api/missions").then((r) => { setList(r.missions); setErr(""); }, (e) => setErr(e.message)); }, []);
   usePoll(load, 5_000, visible);
   const act = (id: string, action: OwnerAction) => api("/api/missions", { method: "POST", body: JSON.stringify({ id, action }) }).then(load, (e) => setErr(e.message));
@@ -31,6 +33,13 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
                 <span className="shrink-0" style={{ color: TONE[m.status] ?? "var(--cyan)" }}>{m.label}</span>
               </div>
               <p><span className="muted">Next: </span>{m.next}</p>
+              {m.doc.acceptance && <p><span className="muted">{t("mission.doneWhen")}</span>{m.doc.acceptance}{m.doc.verified !== undefined && <span style={{ color: m.doc.verified ? "var(--mint)" : "#fb7185" }}> — {t(m.doc.verified ? "mission.verified" : "mission.notVerified")}</span>}</p>}
+              {m.doc.effort && <details><summary className="cursor-pointer muted">{t("mission.effort", { n: m.doc.effort.minutes })}</summary><ul className="mt-1 list-disc pl-4">{m.doc.effort.stops.map((x) => <li key={x}>{x}</li>)}</ul></details>}
+              {!!m.doc.checks?.length && (
+                <details><summary className="cursor-pointer">{t("mission.checks", { ok: m.doc.checks.filter((c) => c.ok).length, n: m.doc.checks.length })}</summary>
+                  <ul className="mt-1 space-y-0.5">{m.doc.checks.map((c, i) => <li key={i}><span style={{ color: c.ok ? "var(--mint)" : "#fb7185" }}>{t(c.ok ? "mission.passed" : "mission.failed")}</span> <span className="muted">{t("mission.step", { n: c.step + 1 })}</span> {c.what}</li>)}</ul>
+                </details>
+              )}
               {m.doc.constraints.length > 0 && <p className="muted">Constraints: {m.doc.constraints.join("; ")}</p>}
               {m.chain && (
                 <ol className="space-y-0.5">
