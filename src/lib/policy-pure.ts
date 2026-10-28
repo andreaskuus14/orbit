@@ -26,6 +26,7 @@ export const TIERS: Record<string, Tier> = {
   studio_status: "T0", learned: "T0", suggestions: "T0",
   life_status: "T0", life_journal: "T0", vault_search: "T0", vault_read: "T0", calendar_events: "T0", plan_day: "T0", git_summary: "T0",
   ws_list: "T0", ws_read: "T0", rea_status: "T0", rea_read: "T0", week_review: "T0", wishlist: "T0",
+  load_module: "T1", // returns a module's own instruction text (core-modules-pure loadModule)
   web_search: "T1", fetch_url: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1",
   save_memory: "T2", ask_agent: "T2", create_goal: "T2", start_mission: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
   propose_rule: "T2", // saves a standing rule as proposed; nothing runs until the owner's Confirm click in Agents → Rules

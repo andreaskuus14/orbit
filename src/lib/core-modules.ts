@@ -1,6 +1,6 @@
 // CORE modules (IO side of core-modules-pure.ts). To plug a new module into CORE: add one entry here. Nothing in core.ts changes.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { businessLine, goalsLine, habitsLine, ideasLine, studioLine, modulePrompt, privateTools, selectModules, statusBlock, toolModule, writeTools, type ModuleSpec } from "./core-modules-pure";
+import { businessLine, goalsLine, habitsLine, ideasLine, studioLine, loadModule, modulePrompt, privateTools, routedPrompt, statusBlock, toolModule, writeTools, type ModuleSpec } from "./core-modules-pure";
 import { dueFollowups, type Prospect } from "./business-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { STUDIO_TOOLS, runPlanTool, runStudioTool, type StudioTool } from "./core-studio";
@@ -114,11 +114,17 @@ const MODULES: CoreModule[] = [
     prompt: "- save_checkpoint {\"constraints\"?: string[], \"decisions\"?: string[], \"artifacts\"?: [{\"id\": string, \"version\"?: number}], \"next\"?: string}: add to this chat's CHECKPOINT (his constraints, decisions, artifact versions and the single next action; it stays in every later turn). Only when the user asks you to remember or checkpoint something for this chat/mission in their latest message; use his own words. Lines like \"budget under 300 €\" or \"remember for this: …\" are captured from his message automatically, so call this only for what that misses (a decision summary, the next action, an artifact id). He edits or deletes lines on the Checkpoint card.",
     run: async (_t, i, c) => (await import("./checkpoint")).runCheckpointTool(c.userId, c.chat, i, c.question),
   },
+  {
+    // no hint: always loaded; the fallback when keyword routing missed (routedPrompt lists the other modules then)
+    name: "LOAD", tools: ["load_module"],
+    prompt: "- load_module {\"name\": string}: the full tool instructions of an ORBIT module whose tools aren't described in this block (read-only).",
+    run: async (_t, i) => loadModule(MODULES, i.name),
+  },
 ];
 
 export const MODULE_PROMPT = modulePrompt(MODULES);
-/** Only the modules this turn needs (core-modules-pure selectModules), for the per-turn prompt. */
-export const modulePromptFor = (text: string) => modulePrompt(selectModules(MODULES, text));
+/** Only the modules this turn needs (core-modules-pure routedPrompt: keyword match, else a capability index), for the per-turn prompt. */
+export const modulePromptFor = (text: string) => routedPrompt(MODULES, text);
 export const MODULE_NAMES = MODULES.map((m) => m.name).join(", ");
 export const MODULE_TOOLS = MODULES.flatMap((m) => m.tools);
 export const MODULE_PRIVATE = privateTools(MODULES);

@@ -2,13 +2,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelChain, createChain, drive, getChain } from "./chains";
 import type { ChainView } from "./chains-pure";
 import {
-  acted, canDo, collectReceipts, deriveStatus, explain, logged, missionBlocked, newDoc, nextAction, onFailure, validateMission, LABEL,
+  acted, canDo, collectReceipts, deriveStatus, explain, logged, missionBlocked, missionLabel, newDoc, nextAction, onFailure, validateMission, LABEL,
   type MissionDoc, type MissionStatus, type OwnerAction,
 } from "./missions-pure";
 
 // MISSIONS runner (logic: missions-pure.ts). One row per mission in public.missions; its steps are an agent-team chain whose parent title
 // starts "Mission: " (so the Teams resume loop never drives it: only this file does, with the pause gate). reconcile() re-reads the chain
 // from the database before every move, so after a restart it continues from the last finished step and never reruns one.
+// Reads (listMissions: panel GET, CORE mission_status) never advance: only the scheduler tick (resumeMissions) and the owner's
+// start/resume/approve actions save, requeue or drive.
 
 export const MISSION_TITLE = "Mission: ";
 type Row = { id: string; chain_id: string | null; version: number; doc: MissionDoc; created_at: string };
@@ -40,8 +42,9 @@ async function requeue(sb: SupabaseClient, chainId: string, taskId: string) {
   await sb.from("tasks").update({ status: "running", error: null, result: null, finished_at: null }).eq("id", chainId).eq("status", "failed");
 }
 
-/** Bring a mission's record in line with its chain: receipts, failure handling/retries, status + log; then keep it driving. */
-export async function reconcile(sb: SupabaseClient, userId: string, row: Row): Promise<MissionView> {
+/** Bring a mission's record in line with its chain: receipts, failure handling/retries, status + log; then keep it driving.
+ *  advance false: the same view computed in memory only (no save, requeue or drive). */
+export async function reconcile(sb: SupabaseClient, userId: string, row: Row, advance = true): Promise<MissionView> {
   const chain = row.chain_id ? await getChain(sb, userId, row.chain_id, false) : null;
   let doc = row.doc;
   const at = now();
@@ -54,24 +57,25 @@ export async function reconcile(sb: SupabaseClient, userId: string, row: Row): P
     const bad = chain.steps.find((s) => s.status === "failed" || s.status === "cancelled");
     if (chain.status === "failed" && bad?.taskId && doc.status !== "failed" && doc.status !== "waiting-input" && doc.status !== "cancelled") {
       const f = onFailure(bad, doc.retries, acted(pend.get(bad.taskId)));
-      if (f.do === "retry") {
+      if (f.do === "retry" && advance) {
         await requeue(sb, row.chain_id!, bad.taskId);
         doc = logged({ ...doc, status: "running", retries: { ...doc.retries, [bad.index]: (doc.retries[bad.index] ?? 0) + 1 } }, at, `Step ${bad.index + 1} hit a temporary problem; retrying (${(doc.retries[bad.index] ?? 0) + 1}).`);
         const again = await getChain(sb, userId, row.chain_id!, false);
         return finish(sb, userId, row, doc, again);
       }
-      doc = logged({ ...doc, status: f.status, blocker: f.why, failure: f.cls }, at, explain(doc.status, f.status, f.why));
+      if (f.do === "stop") doc = logged({ ...doc, status: f.status, blocker: f.why, failure: f.cls }, at, explain(doc.status, f.status, f.why));
     }
   }
-  return finish(sb, userId, row, doc, chain);
+  return finish(sb, userId, row, doc, chain, advance);
 }
 
-async function finish(sb: SupabaseClient, userId: string, row: Row, doc: MissionDoc, chain: ChainView | null): Promise<MissionView> {
+async function finish(sb: SupabaseClient, userId: string, row: Row, doc: MissionDoc, chain: ChainView | null, advance = true): Promise<MissionView> {
   const status = deriveStatus(doc, chain);
   if (status !== doc.status) doc = logged({ ...doc, status, ...(status === "running" || status === "completed" ? { blocker: undefined, failure: undefined } : {}) }, now(), explain(doc.status, status));
+  if (!advance) return { ...row, doc, status, label: LABEL[status], next: nextAction(status, chain, doc.blocker), chain };
   const saved = doc === row.doc ? row : (await save(sb, row, doc)) ?? row;
   if ((status === "queued" || status === "running") && row.chain_id) void drive(sb, userId, row.chain_id, () => gate(sb, row.id));
-  return { ...saved, status, label: LABEL[status], next: nextAction(status, chain, doc.blocker), chain };
+  return { ...saved, status, label: missionLabel(status, doc.receipts, chain?.steps.length ?? 0), next: nextAction(status, chain, doc.blocker), chain };
 }
 
 /** The driver's pause/cancel check, read fresh before each step. */
@@ -83,7 +87,7 @@ async function gate(sb: SupabaseClient, id: string) {
 export async function listMissions(sb: SupabaseClient, userId: string): Promise<MissionView[]> {
   const { data, error } = await sb.from("missions").select(COLS).eq("user_id", userId).order("created_at", { ascending: false }).limit(20);
   if (error) throw error;
-  return Promise.all((data as Row[]).map((r) => reconcile(sb, userId, r)));
+  return Promise.all((data as Row[]).map((r) => reconcile(sb, userId, r, false))); // a pure read: never saves or drives
 }
 
 /** Scheduler tick: keep this user's open missions moving (after approvals and restarts). */
