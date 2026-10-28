@@ -166,7 +166,7 @@ function Detail({ c, canSend, busy, act }: { c: Contract; canSend: boolean; busy
             <textarea className="field w-full" rows={6} aria-label="Email to the other party" maxLength={4000} value={cover} onChange={(e) => setCover(e.target.value)} onBlur={() => { if (cover !== c.cover) void act("cover", { action: "cover", id: c.id, text: cover }); }} />
             <div className="flex flex-wrap items-center gap-1.5">
               {canSend && to ? <button className={`chip ${sure === "send" ? "ok" : ""}`} disabled={!!busy || cover !== c.cover} onClick={() => twice("send", () => void contentHash(contractSendContent(c)).then((seen) => act("send", { action: "send", id: c.id, seen })))}>
-                {busy === "send" ? "Sending…" : sure === "send" ? `Click again to email the signed PDF to ${to}` : "✉ Approve & send"}</button>
+                {busy === "send" ? "Sending…" : sure === "send" ? `Click again to email the signed PDF to ${to}` : `✉ Approve & send to ${to}`}</button>
                 : <span className="muted">{to ? "Sending from ORBIT isn't set up: download the PDF and email it yourself." : "Add the other party's email to send it from ORBIT, or email the PDF yourself."}</span>}
               <button className="chip" disabled={!!busy} onClick={() => twice("unsign", () => void act("unsign", { action: "unsign", id: c.id }))}>{sure === "unsign" ? "Click again to take your signature back" : "Take signature back"}</button>
             </div></>)}

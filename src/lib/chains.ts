@@ -1,3 +1,4 @@
+import { foreground } from "./foreground-pure";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelTask, getAgent, kickQueue, runTask } from "./agents";
 import { stopAllOn } from "./stop-all";
@@ -146,6 +147,7 @@ export async function drive(sb: SupabaseClient, userId: string, id: string, gate
   live().set(id, ac);
   try {
     for (;;) {
+      if (gate) await foreground.idle(); // missions (gated drives) let a live CORE turn go first, then continue at this step
       if (stopAllOn()) return last; // Stop-all (maybe set by another process): no next step; the chain stays "running" for resumeChains
       const { data: p } = await sb.from("tasks").select(PARENT_COLS).eq("id", id).maybeSingle();
       const meta = p ? parseMeta(p.request) : null;

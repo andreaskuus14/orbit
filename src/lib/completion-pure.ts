@@ -1,4 +1,4 @@
-export type WriteEvidence = { kind: "memory" | "file" | "project" | "task" | "automation"; id: string; path?: string; bytes?: number };
+export type WriteEvidence = { kind: "memory" | "file" | "project" | "task" | "automation"; id: string; path?: string; bytes?: number; rev?: string };
 export type ActionResult = { status: string; note?: string; evidence?: WriteEvidence[] };
 export type Completion = { status: "done" | "failed" | "cancelled" | "awaiting_approval"; error: string | null };
 
@@ -17,6 +17,10 @@ export function completionState(actions: ActionResult[], children: { status: str
 export function matchesStored(expected: Record<string, unknown>, actual: Record<string, unknown> | null): boolean {
   return !!actual && Object.entries(expected).every(([key, value]) => actual[key] === value);
 }
+
+/** Executed ≠ verified: "done" only says the task ran. Verified needs read-back evidence from an approved action (its own or a sub-task's). */
+export const taskVerified = (status: string, actions: ActionResult[]) => status === "done" && actions.some((a) => a?.status === "approved" && (a.evidence?.length ?? 0) > 0);
+export const doneLabel = (verified: boolean) => (verified ? "Verified" : "Done · not verified");
 
 /** Resetting resolved actions would discard receipts and may repeat an already-applied write. */
 export const canRetryTask = (actions: ActionResult[]) => actions.every((a) => a.status === "pending");

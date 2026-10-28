@@ -143,3 +143,15 @@ export function summarize(checks: Check[], ms: number, at = new Date().toISOStri
   const speech = status === "ok" ? "I checked everything. ORBIT is working fine." : [`I found ${headline.replace(/ out of.*/, "")}.`, ...top].join(" ");
   return { status, headline, speech, checks: sortChecks(checks), ms, at };
 }
+
+/** Roadmap 21: foreground CORE latency (start → first token, total) over the last turns since the server started.
+ *  Informational only: numeric targets wait for measurements on the actual PC. */
+export function latencyCheck(turns: { ms: Record<string, number> }[], last = 50): Check {
+  const L = "CORE response time";
+  const recent = turns.slice(-last);
+  const mid = (k: string) => { const s = recent.map((t) => t.ms[k]).filter(Number.isFinite).sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
+  if (!recent.length) return check("latency", L, "ok", "No CORE turns since ORBIT started");
+  const first = mid("first_token"), total = mid("total");
+  const sec = (v: number | null) => (v === null ? "n/a" : `${(v / 1000).toFixed(1)} s`);
+  return check("latency", L, "ok", `Median of last ${recent.length} turns: first words ${sec(first)}, full answer ${sec(total)}`);
+}

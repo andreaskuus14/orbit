@@ -11,8 +11,9 @@ import { RulesView } from "./RulesView";
 import { automationDraft, automationSpec as toSpec, type AutomationAgent, type AutomationDraft as Draft } from "@/lib/automation-edit-pure";
 import type { AutomationSpec } from "@/lib/pure";
 import type { WriteEvidence } from "@/lib/completion-pure";
-import { canRetryTask } from "@/lib/completion-pure";
+import { canRetryTask, doneLabel, taskVerified } from "@/lib/completion-pure";
 import { useT } from "./i18n";
+import { FailureReport } from "./FailureReport";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
 type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string; evidence?: WriteEvidence[] };
@@ -151,12 +152,13 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
   if (!data) return <p className="muted">{err || t("common.loading")}</p>;
   const { task, children } = data;
   const st = STATUS[task.status];
+  const stLabel = task.status === "done" ? doneLabel(taskVerified(task.status, [task, ...children].flatMap((x) => x.pending))) : st.label; // executed ≠ verified
   return (
     <div className="space-y-3">
       <button className="link" onClick={onBack}>{t("task.back")}</button>
       <div>
         <div className="font-medium">{task.title}</div>
-        <div className="text-xs"><span style={{ color: st.color }}>{st.label}</span><span className="muted"> · {task.agent} · {when(task.created_at)}</span></div>
+        <div className="text-xs"><span style={{ color: st.color }}>{stLabel}</span><span className="muted"> · {task.agent} · {when(task.created_at)}</span></div>
       </div>
       <details className="card text-sm"><summary className="cursor-pointer muted">{t("task.request")}</summary><p className="mt-2 whitespace-pre-wrap">{task.request}</p></details>
 
@@ -175,6 +177,11 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
         ? <button className="chip" onClick={() => act("retry")}>{t("task.retry")}</button>
         : <p className="muted text-xs">{t("task.noRetry")}</p>)}
       {(task.status === "queued" || task.status === "running") && <button className="chip" onClick={() => act("cancel")}>{t("task.cancel")}</button>}
+      {(task.status === "failed" || children.some((c) => c.status === "failed")) && (
+        <FailureReport input={{ kind: children.length ? "mission" : "task", id: task.id, status: task.status, relatedIds: [task.parent_id ?? "", ...children.map((c) => c.id)],
+          error: [task.error, ...children.map((c) => c.error)].filter(Boolean).join("\n") || null,
+          trace: [...task.trace, ...children.flatMap((c) => c.trace)], request: task.request, answer: task.result ?? "" }} />
+      )}
       {task.status === "done" && !task.parent_id && !task.title.startsWith("Team: ") && <SaveRecipe task={task} />}
 
       {!!children.length && (
@@ -183,7 +190,7 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
           <ul className="mt-1 space-y-2">
             {children.map((c) => (
               <li key={c.id} className="card text-sm">
-                <div><b>{c.agent}</b> · {c.title} · <span style={{ color: STATUS[c.status].color }}>{STATUS[c.status].label}</span>
+                <div><b>{c.agent}</b> · {c.title} · <span style={{ color: STATUS[c.status].color }}>{c.status === "done" ? doneLabel(taskVerified(c.status, c.pending)) : STATUS[c.status].label}</span>
                   {c.status === "running" && <button className="chip ml-2" onClick={() => act("cancel", c.id)}>{t("common.cancel")}</button>}</div>
                 {c.result && <details className="mt-1"><summary className="cursor-pointer muted text-xs">{t("task.result")}</summary><div className="mt-2"><Markdown text={c.result} openMemory={openMemory} /></div></details>}
                 {c.error && <p className="error">{c.error}</p>}

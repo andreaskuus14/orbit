@@ -162,3 +162,14 @@ test("workspace writes are readable with the exact UTF-8 content and byte count"
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("executed vs verified: a task without read-back evidence never shows verified", async () => {
+  const { taskVerified, doneLabel } = await import("../src/lib/completion-pure.ts");
+  assert.equal(taskVerified("done", []), false);
+  assert.equal(taskVerified("done", [{ status: "approved" }, { status: "approved", evidence: [] }]), false);
+  assert.equal(taskVerified("done", [{ status: "rejected", evidence: [{ kind: "memory", id: "m" }] }]), false);
+  assert.equal(taskVerified("failed", [{ status: "approved", evidence: [{ kind: "memory", id: "m" }] }]), false);
+  assert.equal(taskVerified("done", [{ status: "approved", evidence: [{ kind: "memory", id: "m" }] }]), true);
+  assert.equal(doneLabel(false), "Done · not verified");
+  assert.equal(doneLabel(true), "Verified");
+});
