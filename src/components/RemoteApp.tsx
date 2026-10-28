@@ -28,6 +28,7 @@ export function RemoteApp() {
   const [off, setOff] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  const [inbox, setInbox] = useState<{ ref: string; kind: "decide" | "unblock" | "review"; title: string; detail?: string }[]>([]); // the rest of Needs you: shown, acted on at the PC
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [offline, setOffline] = useState(""); // "HH:MM" of the cached copy the service worker served; "" = live
   const [busy, setBusy] = useState("");
@@ -48,7 +49,7 @@ export function RemoteApp() {
     setPaired(true); setStatus(await r.json());
     setOffline(r.headers.has("x-orbit-offline") ? syncedAt(r.headers.get("x-orbit-offline")) || "?" : "");
     const a = await send("approval.list").catch(() => null);
-    if (a?.ok) setItems(((await a.json()) as { items: Item[] }).items);
+    if (a?.ok) { const j = (await a.json()) as { items: Item[]; inbox?: typeof inbox }; setItems(j.items); setInbox(j.inbox ?? []); }
   }, [t]);
   useEffect(() => {
     void load();
@@ -113,12 +114,16 @@ export function RemoteApp() {
       {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
 
       <section className="space-y-3" aria-labelledby="r-appr">
-        <h2 id="r-appr" className="rm-label">{t("remote.waiting", { n: items.length })}</h2>
-        {!items.length && <p className="muted text-sm">{t("remote.nothing")}</p>}
+        <h2 id="r-appr" className="rm-label">{t("needs.title")} ({items.length + inbox.length})</h2>
+        {!items.length && !inbox.length && <p className="muted text-sm">{t("needs.empty")}</p>}
         {biggestFirst(items).map((it) => (
           <NeedCard key={it.id} it={it} busy={offline ? "offline" : busy /* any busy value disables Approve/Reject */} later={later.includes(it.id)} blind={it.kind === "clip" && (!it.thumb || !!noThumb[it.id])} // he can't see it here: review on the PC
             onThumbError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} decide={decide} />
         ))}
+        {!!inbox.length && <ul className="space-y-2 text-sm">{inbox.map((n) => (
+          <li key={n.ref} className="card"><span className="rm-kind">{t(`needs.kind.${n.kind}`)}</span> · <span className="muted text-xs">{t("needs.onPc")}</span>
+            <div className="font-semibold leading-snug">{n.title}</div>{n.detail && <div className="muted text-xs">{n.detail}</div>}</li>
+        ))}</ul>}
       </section>
 
       <Night />
