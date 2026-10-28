@@ -9,6 +9,7 @@ export type Clip = { id: string; start: number; end: number; title: string; hook
   retryOf?: { clipId: string; videoId: string; title: string };
   retryApproved?: { at: string; fingerprint: string };
   approvedHash?: string; // contentHash(clipContent) when it was approved: publishing needs the same media (approval-pure)
+  approvedMedia?: string; // sha256 of the video file he approved: the uploaded file must hash the same (handoff-pure mediaProblem)
   flopRetry?: { at: string; clipId?: string; error?: string; privateAt?: string; restoredAt?: string; privacyPending?: boolean };
   status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; // video/thumb = paths relative to the studio root, "/" separators
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; // owner's picks: choosing one sets title / thumb (thumbOptions: same path form as thumb)
@@ -20,7 +21,8 @@ export type Clip = { id: string; start: number; end: number; title: string; hook
 // unknown: the upload may or may not have reached YouTube; checked against the channel's uploads before a retry is offered.
 // scheduled: on YouTube as private, YouTube makes it public at scheduledFor (ISO; also set while uploading/unknown when one was asked for).
 export type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string;
-  startedAt?: string; title?: string; scheduledFor?: string }; // what was sent and when: matched against the channel's uploads
+  startedAt?: string; title?: string; scheduledFor?: string; // what was sent and when: matched against the channel's uploads
+  mediaHash?: string; checkedAt?: string; destination?: string }; // sha256 of the file sent; last channel lookup; post-upload check ("ok" or what differs)
 export type CaptionStyle = "karaoke" | "classic" | "none";
 // layout follow: crop tracks the action (reframe.ts). camSide tl/tr/bl/br: split with a corner cam box (camSize = box width / frame width) on top.
 export type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: "left" | "right" | "tl" | "tr" | "bl" | "br"; camSize?: number; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean;

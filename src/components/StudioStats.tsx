@@ -4,6 +4,7 @@ import { coach, type Finding } from "@/lib/studio-coach-pure";
 import { useT } from "./i18n";
 import { channelHealth, postedThisWeek, type Health, type Light } from "@/lib/studio-health-pure";
 import type { Accuracy, Forecast, Hint } from "@/lib/clips/forecast-pure";
+import type { ExperimentsView } from "@/lib/clips/experiments";
 import type { Key } from "@/lib/i18n-pure";
 import { FEW_VIEWS, areaPath, compact, delta, linePath, mmss, niceTicks, tooFewToCompare, toPoints, type Box } from "@/lib/chart-pure";
 
@@ -524,6 +525,7 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
           </section>
 
           {!vid && <Forecasts />}
+          {!vid && <Experiments />}
 
           <button className="chip" aria-expanded={full} onClick={() => setFull((f) => !f)}>{full ? `▴ ${tr("ss.simple")}` : `▾ ${tr("ss.full")}`}</button>
 
@@ -598,6 +600,51 @@ function Forecasts() {
         </li>))}</ul>
         : <p className="muted text-xs">{tr(d.history ? "fc.none" : "fc.needHistory")}</p>}
       <p className="muted mt-2 text-[11px]">{d.accuracy ? tr("fc.acc", { n: d.accuracy.n, err: d.accuracy.medianErrPct, inside: d.accuracy.inRange }) : tr("fc.accNone")}</p>
+    </Section>
+  );
+}
+
+type ExpData = ExperimentsView;
+/** Shorts experiments (clips/experiments-pure.ts): hypothesis on one published Short, verdict vs comparable Shorts, baseline shown. */
+function Experiments() {
+  const { t: tr } = useT();
+  const [d, setD] = useState<ExpData | null>(null);
+  const [f, setF] = useState({ key: "", hypothesis: "", lesson: "" });
+  const [err, setErr] = useState("");
+  const load = useCallback(() => {
+    fetch("/api/studio/experiments", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j: ExpData | null) => { if (Array.isArray(j?.items)) setD(j); }).catch(() => {});
+  }, []);
+  useEffect(load, [load]);
+  const send = async (init: RequestInit, q = "") => {
+    setErr("");
+    const r = await fetch(`/api/studio/experiments${q}`, init).catch(() => null), j = await r?.json().catch(() => null);
+    if (!r?.ok) return setErr(j?.error ?? tr("common.failed"));
+    setF({ key: "", hypothesis: "", lesson: "" }); load();
+  };
+  if (!d) return null;
+  const [jobId, clipId] = f.key.split("/");
+  return (
+    <Section title={tr("exp.title")}>
+      {d.items.length ? <ul className="space-y-2 text-xs">{d.items.map((e) => (
+        <li key={e.id}>
+          <p><b>{e.hypothesis}</b> <span className="muted">· {e.title}</span></p>
+          <p>{tr(e.key as Key, e.vars)}</p>
+          {e.baseline !== undefined && <p className="muted num">{tr("exp.base", { views: compact(e.views ?? 0), base: compact(e.baseline), n: e.n ?? 0, kind: tr(e.likeForLike ? "exp.like" : "exp.any") })}</p>}
+          {e.forecast && <p className="muted num">{tr("fc.line", { p50: compact(e.forecast.p50), lo: compact(e.forecast.lo), hi: compact(e.forecast.hi) })}</p>}
+          <p className="muted text-[11px]">{tr("exp.lessonIs", { lesson: e.lesson })}{e.version ? ` · ${e.version.videoId} · ${e.version.mediaHash.slice(0, 10)}` : ""}{" "}
+            <button className="underline" onClick={() => void send({ method: "DELETE" }, `?id=${e.id}`)}>{tr("exp.remove")}</button></p>
+        </li>))}</ul> : <p className="muted text-xs">{tr("exp.none")}</p>}
+      {d.clips.length > 0 && <form className="mt-2 space-y-1 text-xs" onSubmit={(ev) => { ev.preventDefault(); void send({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobId, clipId, hypothesis: f.hypothesis, lesson: f.lesson }) }); }}>
+        <select className="field w-full" aria-label={tr("exp.pick")} value={f.key} onChange={(ev) => setF({ ...f, key: ev.target.value })}>
+          <option value="">{tr("exp.pick")}</option>
+          {d.clips.map((c) => <option key={`${c.jobId}/${c.clipId}`} value={`${c.jobId}/${c.clipId}`}>{c.title}</option>)}
+        </select>
+        <input className="field w-full" maxLength={180} placeholder={tr("exp.hypothesis")} aria-label={tr("exp.hypothesis")} value={f.hypothesis} onChange={(ev) => setF({ ...f, hypothesis: ev.target.value })} />
+        <input className="field w-full" maxLength={180} placeholder={tr("exp.lesson")} aria-label={tr("exp.lesson")} value={f.lesson} onChange={(ev) => setF({ ...f, lesson: ev.target.value })} />
+        <button className="chip" disabled={!f.key || !f.hypothesis.trim() || !f.lesson.trim()}>{tr("exp.add")}</button>
+      </form>}
+      {err && <p className="text-xs text-red-400" role="alert">{err}</p>}
+      <p className="muted mt-2 text-[11px]">{tr("exp.rule")}</p>
     </Section>
   );
 }
