@@ -6,6 +6,7 @@
 import { clean, nextMove, type Goal } from "./goals-pure.ts";
 import type { PushMessage } from "./remote-push-pure.ts";
 import { translate, type Lang } from "./i18n-pure.ts";
+import type { Diff, Why } from "./night-plan-pure.ts";
 
 export type NightSettings = { enabled: boolean; from: string; until: string; tz: string; wake: string; maxCalls: number; maxMinutes: number; idleMin: number;
   pin: Partial<Record<NightKind, "on" | "off">> }; // his overrides of the learned plan (night-learn-pure)
@@ -22,7 +23,8 @@ export type ItemStatus = (typeof ITEM_STATUSES)[number];
 // calls/minutes: the estimate the planner budgets with (the runner measures what was really used).
 export type NightTask = { kind: NightKind; ref: string; label: string; calls: number; minutes: number };
 export type Open = { task: string } | { goal: string; step?: number; stepId?: string } | { panel: "studio" | "business" | "memory" | "agents" | "markets" };
-export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string };
+export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string;
+  pick?: Why; diff?: Diff }; // night-plan-pure: why tonight, and the counts it changed (before → after)
 export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string; why?: string };
 export type TonightItem = { id: string; text: string; agent: string; by: "owner" | "core"; at: string };
 // company: goals the owner queued from AGENTS → Company "for tonight"; the night shift starts them as company chains (company.ts).

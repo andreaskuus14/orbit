@@ -53,9 +53,10 @@ export type DoneAuto = { area: AutoArea; ref: string; at: string }; // every att
 // cancelled: what he cancelled (or Stop-all dropped): never picked again until that version (draft / video+title+description) changes.
 export type Cancelled = { area: AutoArea; ref: string; seen: string };
 // since: when each area was switched to auto; only drafts/clips made after it qualify (no back-catalogue blast). Missing = nothing qualifies.
-export type AutonomyState = { levels: Levels; limits: Limits; pending: Pending[]; done: DoneAuto[]; cancelled: Cancelled[]; since: Partial<Record<AutoArea, string>> };
+// snooze: trust-ladder suggestions he answered "Not now" (trust-pure), area → until (ISO).
+export type AutonomyState = { levels: Levels; limits: Limits; pending: Pending[]; done: DoneAuto[]; cancelled: Cancelled[]; since: Partial<Record<AutoArea, string>>; snooze: Partial<Record<Area, string>> };
 export const CANCELLED_MAX = 500;
-export const autonomyDefaults = (): AutonomyState => ({ levels: { ...DEFAULT_LEVELS }, limits: { ...LIMIT_DEFAULTS }, pending: [], done: [], cancelled: [], since: {} });
+export const autonomyDefaults = (): AutonomyState => ({ levels: { ...DEFAULT_LEVELS }, limits: { ...LIMIT_DEFAULTS }, pending: [], done: [], cancelled: [], since: {}, snooze: {} });
 const isAuto = (a: unknown): a is AutoArea => a === "business-send" || a === "studio-publish";
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
@@ -78,6 +79,7 @@ export function parseAutonomy(text: string): AutonomyState {
     if (Array.isArray(j.done)) s.done = j.done.filter((d: Record<string, unknown>) => isObj(d) && isAuto(d.area) && str(d.ref) && str(d.at)) as DoneAuto[];
     if (Array.isArray(j.cancelled)) s.cancelled = j.cancelled.filter((d: Record<string, unknown>) => isObj(d) && isAuto(d.area) && str(d.ref) && typeof d.seen === "string").slice(-CANCELLED_MAX) as Cancelled[];
     if (isObj(j.since)) for (const a of ["business-send", "studio-publish"] as const) if (!Number.isNaN(Date.parse(j.since[a] as string))) s.since[a] = j.since[a] as string;
+    if (isObj(j.snooze)) for (const a of AREAS) if (!Number.isNaN(Date.parse(j.snooze[a] as string))) s.snooze[a] = j.snooze[a] as string;
   } catch { /* defaults */ }
   return s;
 }
