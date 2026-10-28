@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { MAX_TEXT, type CpKind, type CpLine } from "@/lib/checkpoint-pure";
 
-const LABEL: Record<CpKind, string> = { constraint: "Constraint", decision: "Decision", artifact: "Artifact", next: "Next" };
+const LABEL: Record<CpKind, string> = { constraint: "Constraint", success: "Success", decision: "Decision", artifact: "Artifact", blocker: "Blocker", next: "Next" };
 
 export function CheckpointCard({ chatId }: { chatId: string | null }) {
   const [lines, setLines] = useState<CpLine[]>([]);

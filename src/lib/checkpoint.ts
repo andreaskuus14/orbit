@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir";
+import { projectRecord, projectRecordPrompt } from "./project-record-pure";
 import { addLines, checkpointBlocked, checkpointInput, extractCheckpoint, artifactsFromTrace, parseCheckpoint, type Checkpoint, type CpDraft, type CpLine } from "./checkpoint-pure";
 
 // Work checkpoints (logic: checkpoint-pure.ts), stored locally in <ORBIT data dir>/checkpoints.json: user id → chat id → checkpoint.
@@ -64,4 +65,10 @@ export async function runCheckpointTool(userId: string, chatId: string | undefin
   if (typeof drafts === "string") return drafts;
   const { out } = await add(userId, chatId, drafts, "core");
   return out.length ? `Saved to this chat's checkpoint: ${out.map((l) => `${l.kind}: ${l.text}`).join("; ")}. He can edit or delete lines on the Checkpoint card in the chat list.` : "Already in this chat's checkpoint; nothing changed.";
+}
+
+/** The chat's project record (project-record-pure.ts): its other chats' checkpoints, merged at read time. "" outside a project. */
+export async function projectRecordFor(userId: string, chatId: string): Promise<string> {
+  const [{ getChats }, all] = await Promise.all([import("./core-chats"), readAll()]);
+  return projectRecordPrompt(projectRecord(await getChats(userId), chatId, all[userId] ?? {}));
 }

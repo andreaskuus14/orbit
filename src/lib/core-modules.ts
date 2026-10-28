@@ -5,6 +5,7 @@ import { dueFollowups, type Prospect } from "./business-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { STUDIO_TOOLS, runPlanTool, runStudioTool, type StudioTool } from "./core-studio";
 import { LIFE_TOOLS, runLifeTool, type LifeTool } from "./core-life";
+import { checkpointBasis } from "./checkpoint-pure";
 import { WS_PROMPT, WS_TOOLS, runWsTool, wsTainted, type WsTool } from "./core-workspace";
 import { REA_PROMPT, runReaTool } from "./core-rea";
 import { REA_TOOLS } from "./rea-pure";
@@ -47,7 +48,9 @@ const MODULES: CoreModule[] = [
   {
     name: "WORKSPACE", tools: [...WS_TOOLS], writes: ["ws_write", "ws_create"], private: ["ws_read"], prompt: WS_PROMPT,
     // own taint rule: CORE's own earlier ws writes don't count; fix rounds = earlier successful ws_write calls in this answer
-    run: (t, i, c) => runWsTool(c.userId, t as WsTool, i, c.question, c.pinned || wsTainted(c.steps), c.steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length, c.onEvidence),
+    run: async (t, i, c) => runWsTool(c.userId, t as WsTool, i, c.question, c.pinned || wsTainted(c.steps), c.steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length, c.onEvidence,
+      t === "ws_write" && c.chat ? await import("./checkpoint").then(async (m) => checkpointBasis(await m.getCheckpoint(c.userId, c.chat!)), () => []) : [],
+      (p) => c.steps.some((s) => /^You called ws_(?:read|write)\b/.test(s) && s.split("\nRESULT:")[0].includes(JSON.stringify(p)))),
   },
   {
     name: "REA", tools: [...REA_TOOLS], private: ["rea_read"], prompt: REA_PROMPT,
@@ -111,7 +114,7 @@ const MODULES: CoreModule[] = [
   },
   {
     name: "CHECKPOINT", tools: ["save_checkpoint"], writes: ["save_checkpoint"],
-    prompt: "- save_checkpoint {\"constraints\"?: string[], \"decisions\"?: string[], \"artifacts\"?: [{\"id\": string, \"version\"?: number}], \"next\"?: string}: add to this chat's CHECKPOINT (his constraints, decisions, artifact versions and the single next action; it stays in every later turn). Only when the user asks you to remember or checkpoint something for this chat/mission in their latest message; use his own words. Lines like \"budget under 300 €\" or \"remember for this: …\" are captured from his message automatically, so call this only for what that misses (a decision summary, the next action, an artifact id). He edits or deletes lines on the Checkpoint card.",
+    prompt: "- save_checkpoint {\"constraints\"?: string[], \"success\"?: string[], \"decisions\"?: string[], \"blockers\"?: string[], \"artifacts\"?: [{\"id\": string, \"version\"?: number, \"rev\"?: string}], \"next\"?: string}: add to this chat's CHECKPOINT (his constraints, success criteria, decisions, blockers, artifact versions and the single next action; it stays in every later turn). Only when the user asks you to remember or checkpoint something for this chat/mission in their latest message; use his own words. Lines like \"budget under 300 €\" or \"remember for this: …\" are captured from his message automatically, so call this only for what that misses (a decision summary, the next action, an artifact id). He edits or deletes lines on the Checkpoint card.",
     run: async (_t, i, c) => (await import("./checkpoint")).runCheckpointTool(c.userId, c.chat, i, c.question),
   },
   {

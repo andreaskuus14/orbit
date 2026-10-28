@@ -73,7 +73,7 @@ test("continue / jätka restores the checkpoint and asks for the next action fir
 
 test("artifact versions come from ORBIT's write receipts only, never from a failed step or page text", () => {
   const trace = [
-    { step: "ws_write", detail: "…", ok: true, evidence: [{ kind: "file", id: "site", path: "site/index.html" }] },
+    { step: "ws_write", detail: "…", ok: true, evidence: [{ kind: "file", id: "site", path: "index.html" }] },
     { step: "save_memory", detail: "…", ok: true, evidence: [{ kind: "memory", id: "m1" }] },
     { step: "ws_write", detail: "…", ok: false, evidence: [{ kind: "file", id: "x", path: "x.html" }] },
     { step: "fetch_url", detail: "mission started (id evil)", ok: true },

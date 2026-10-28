@@ -4,16 +4,17 @@
 // Missions keep their own checkpoint in the mission doc (constraints, decisions, receipts, nextAction in missions-pure.ts).
 import { escapeTags } from "./core-chats-pure.ts";
 
-export type CpKind = "constraint" | "decision" | "artifact" | "next";
+export type CpKind = "constraint" | "success" | "decision" | "artifact" | "blocker" | "next";
 /** by: owner = his own words (rules or edit), core = save_checkpoint, orbit = a write receipt. topic: a newer line on the same topic replaces the old one. */
-export type CpLine = { id: string; kind: CpKind; text: string; at: string; by: "owner" | "core" | "orbit"; topic?: string; ref?: string; v?: number };
+export type CpLine = { id: string; kind: CpKind; text: string; at: string; by: "owner" | "core" | "orbit"; topic?: string; ref?: string; v?: number; rev?: string };
+// rev: the exact artifact revision (artifact-rev-pure.ts) the line was based on, when known.
 export type Checkpoint = { lines: CpLine[] };
-export type CpDraft = Pick<CpLine, "kind" | "text"> & Partial<Pick<CpLine, "topic" | "ref" | "v">>;
+export type CpDraft = Pick<CpLine, "kind" | "text"> & Partial<Pick<CpLine, "topic" | "ref" | "v" | "rev">>;
 
 export const MAX_LINES = 40;
 export const MAX_TEXT = 200;
-const KINDS: CpKind[] = ["constraint", "decision", "artifact", "next"];
-const DROP_ORDER: CpKind[] = ["artifact", "decision", "constraint"]; // when full, constraints go last
+export const KINDS: CpKind[] = ["constraint", "success", "decision", "artifact", "blocker", "next"];
+const DROP_ORDER: CpKind[] = ["artifact", "decision", "blocker", "success", "constraint"]; // when full, constraints go last
 
 const L = String.raw`[\p{L}\p{N}]`;
 /** Word-bounded alternation that also works for õäöü (JS \b is ASCII-only). */
@@ -75,10 +76,10 @@ export function addLines(cp: Checkpoint, drafts: CpDraft[], by: CpLine["by"], no
     if (!text || !KINDS.includes(d.kind)) continue;
     if (d.kind === "artifact" && d.ref) {
       const old = cp.lines.find((l) => l.kind === "artifact" && l.ref === d.ref);
-      if (old) { old.v = d.v ?? (old.v ?? 1) + 1; old.text = text; old.at = now; changed.push(old); continue; }
+      if (old) { old.v = d.v ?? (old.v ?? 1) + 1; if (d.rev) old.rev = d.rev; old.text = text; old.at = now; changed.push(old); continue; }
     } else if (cp.lines.some((l) => l.kind === d.kind && l.text.toLowerCase() === text.toLowerCase())) continue;
     cp.lines = cp.lines.filter((l) => !(d.kind === "next" && l.kind === "next") && !(d.topic && l.topic === d.topic && l.kind === d.kind));
-    const line: CpLine = { id: newId(), kind: d.kind, text, at: now, by, ...(d.topic ? { topic: d.topic } : {}), ...(d.ref ? { ref: d.ref, v: d.v ?? 1 } : {}) };
+    const line: CpLine = { id: newId(), kind: d.kind, text, at: now, by, ...(d.topic ? { topic: d.topic } : {}), ...(d.ref ? { ref: d.ref, v: d.v ?? 1, ...(d.rev ? { rev: d.rev } : {}) } : {}) };
     cp.lines.push(line);
     changed.push(line);
   }
@@ -100,15 +101,17 @@ export function removeLine(cp: Checkpoint, id: string): boolean {
   return cp.lines.length < n;
 }
 
-type TraceLike = { step: string; detail: string; ok: boolean; evidence?: { kind: string; id: string; path?: string }[] };
+type TraceLike = { step: string; detail: string; ok: boolean; evidence?: { kind: string; id: string; path?: string; rev?: string }[] };
 /** Artifact versions from ORBIT's own write receipts this turn (workspace files, projects, a started mission); never from page text. */
 export function artifactsFromTrace(trace: TraceLike[]): CpDraft[] {
   const out: CpDraft[] = [];
   for (const t of trace) {
     if (!t.ok) continue;
     for (const e of t.evidence ?? []) if ((e.kind === "file" || e.kind === "project") && typeof e.id === "string") {
-      const ref = `${e.kind}:${e.path ?? e.id}`;
-      if (!out.some((o) => o.ref === ref)) out.push({ kind: "artifact", ref, text: `${e.kind} ${e.path ?? e.id}` });
+      const name = e.kind === "file" && e.path ? `${e.id}/${e.path}` : e.path ?? e.id; // file:<workspace>/<path>, what artifact-rev.ts resolves
+      const ref = `${e.kind}:${name}`;
+      const old = out.find((o) => o.ref === ref);
+      if (old) { if (e.rev) old.rev = e.rev; } else out.push({ kind: "artifact", ref, text: `${e.kind} ${name}`, ...(e.rev ? { rev: e.rev } : {}) });
     }
     const m = t.step === "start_mission" ? t.detail.match(/mission started \(id ([\w-]+)\)/) : null;
     if (m) out.push({ kind: "artifact", ref: `mission:${m[1]}`, text: `mission ${m[1]}` });
@@ -116,14 +119,14 @@ export function artifactsFromTrace(trace: TraceLike[]): CpDraft[] {
   return out;
 }
 
-const HEAD: Record<CpKind, string> = { constraint: "Constraints (hold until he changes them)", decision: "Decisions", artifact: "Artifacts (latest version)", next: "Next action" };
+export const HEAD: Record<CpKind, string> = { constraint: "Constraints (hold until he changes them)", success: "Success criteria", decision: "Decisions", artifact: "Artifacts (latest version)", blocker: "Blockers", next: "Next action" };
 
 /** CORE's prompt block: verbatim lines, apart from the sampled history. "" when empty. */
 export function checkpointPrompt(cp: Checkpoint, continuing = false): string {
   if (!cp.lines.length) return "";
   const body = KINDS.map((k) => {
     const ls = cp.lines.filter((l) => l.kind === k);
-    return ls.length ? `${HEAD[k]}:\n${ls.map((l) => `- ${escapeTags(l.text)}${l.v ? ` (v${l.v})` : ""} [${l.by === "owner" ? "his words" : l.by === "core" ? "saved by you" : "ORBIT receipt"}, ${l.at.slice(0, 10)}]`).join("\n")}` : "";
+    return ls.length ? `${HEAD[k]}:\n${ls.map((l) => `- ${escapeTags(l.text)}${l.v ? ` (v${l.v})` : ""}${l.rev ? ` rev ${escapeTags(l.rev)}` : ""} [${l.by === "owner" ? "his words" : l.by === "core" ? "saved by you" : "ORBIT receipt"}, ${l.at.slice(0, 10)}]`).join("\n")}` : "";
   }).filter(Boolean).join("\n");
   const cont = continuing
     ? `\nThe user asked to continue where he stopped: restore from this checkpoint. Start by stating the next action in one sentence${cp.lines.some((l) => l.ref?.startsWith("mission:")) ? " (for a mission, call mission_status for its next action)" : ""}, then carry on with it; anything that sends, publishes or spends still waits for his approval.\n`
@@ -137,16 +140,21 @@ export function parseCheckpoint(v: unknown): Checkpoint {
   return { lines: lines.filter((l) => l && typeof l.id === "string" && typeof l.text === "string" && KINDS.includes(l.kind) && typeof l.at === "string").slice(-MAX_LINES) };
 }
 
-/** save_checkpoint input → drafts, or an error. {constraints?, decisions?: string[], artifacts?: [{id, version?}], next?: string} */
+/** save_checkpoint input → drafts, or an error. {constraints?, success?, decisions?, blockers?: string[], artifacts?: [{id, version?, rev?}], next?: string} */
 export function checkpointInput(i: Record<string, unknown>): CpDraft[] | string {
   const list = (x: unknown) => (Array.isArray(x) ? x : typeof x === "string" ? [x] : []).filter((s): s is string => typeof s === "string").slice(0, 8);
   const arts = (Array.isArray(i.artifacts) ? i.artifacts : []).slice(0, 8).flatMap((a: { id?: unknown; version?: unknown }) =>
-    a && typeof a.id === "string" && a.id.trim() ? [{ kind: "artifact" as const, ref: a.id.trim().slice(0, 120), text: a.id.trim(), ...(Number.isInteger(a.version) && (a.version as number) > 0 ? { v: a.version as number } : {}) }] : []);
+    a && typeof a.id === "string" && a.id.trim() ? [{ ...(typeof (a as { rev?: unknown }).rev === "string" && (a as { rev: string }).rev.trim() ? { rev: (a as { rev: string }).rev.trim().slice(0, 120) } : {}), kind: "artifact" as const, ref: a.id.trim().slice(0, 120), text: a.id.trim(), ...(Number.isInteger(a.version) && (a.version as number) > 0 ? { v: a.version as number } : {}) }] : []);
   const drafts: CpDraft[] = [
     ...list(i.constraints).map((text) => ({ kind: "constraint" as const, text })),
+    ...list(i.success).map((text) => ({ kind: "success" as const, text })),
     ...list(i.decisions).map((text) => ({ kind: "decision" as const, text })),
+    ...list(i.blockers).map((text) => ({ kind: "blocker" as const, text })),
     ...arts,
     ...(typeof i.next === "string" ? [{ kind: "next" as const, text: i.next }] : []),
   ].filter((d) => d.text.trim());
-  return drafts.length ? drafts : "Error: give at least one of constraints, decisions, artifacts or next";
+  return drafts.length ? drafts : "Error: give at least one of constraints, success, decisions, blockers, artifacts or next";
 }
+
+/** The revisions this chat's work was based on (artifact lines with a rev): the basis for the apply guard. */
+export const checkpointBasis = (cp: Checkpoint) => cp.lines.flatMap((l) => (l.kind === "artifact" && l.ref && l.rev ? [{ ref: l.ref, rev: l.rev }] : []));
