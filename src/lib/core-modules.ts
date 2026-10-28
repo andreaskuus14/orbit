@@ -115,6 +115,7 @@ export const MODULE_PROMPT = modulePrompt(MODULES);
 /** Only the modules this turn needs (core-modules-pure selectModules), for the per-turn prompt. */
 export const modulePromptFor = (text: string) => modulePrompt(selectModules(MODULES, text));
 export const MODULE_NAMES = MODULES.map((m) => m.name).join(", ");
+export const MODULE_TOOLS = MODULES.flatMap((m) => m.tools);
 export const MODULE_PRIVATE = privateTools(MODULES);
 export const MODULE_WRITES = writeTools(MODULES);
 export const isModuleTool = (tool: string) => !!toolModule(MODULES, tool);
