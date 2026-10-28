@@ -7,6 +7,7 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
+import { WINDOW_DAYS, snoozeTrust, taskDecisions, type TrustDecision } from "./trust-pure";
 import { stopAllOn } from "./stop-all";
 import { emit } from "./claude";
 import { DONE_KEEP_MS, UNDO_MS, autoApprove, autoClock, cancelPending, clipVersion, sendOutcome, undoAutoApprove, type Fired, autoPush, autonomyAllows, quietAuto, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
@@ -51,6 +52,17 @@ export async function setAreaLevel(sb: SupabaseClient, userId: string, area: unk
 export const setLimits = (b: Record<string, unknown>) => update((s) => { const l = patchLimits(b, s.limits); return typeof l === "string" ? l : { ...s, limits: l }; });
 /** His Cancel: that version is never queued again (a new draft / changed clip may be). */
 export const cancelAuto = (id: unknown) => update((s) => (s.pending.some((p) => p.id === id) ? cancelPending(s, (p) => p.id !== id) : "Already gone (sent, or cancelled)"));
+/** Trust ladder: his "Not now" on a suggestion (rules: trust-pure.ts). */
+export const snoozeArea = (area: unknown) => update((s) => snoozeTrust(s, area, Date.now()));
+/** The last WINDOW_DAYS of his decisions: agent tasks' approve/reject (tasks.pending) and memory merge/retract accepts (ledger). */
+export async function trustHistory(sb: SupabaseClient, userId: string): Promise<TrustDecision[]> {
+  const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
+  const [tasks, hyg] = await Promise.all([
+    sb.from("tasks").select("pending, finished_at").eq("user_id", userId).gte("finished_at", since).limit(1000),
+    sb.from("events").select("created_at, payload").eq("user_id", userId).eq("type", "memory.hygiene").gte("created_at", since).limit(1000),
+  ]);
+  return [...taskDecisions(tasks.data ?? []), ...(hyg.data ?? []).map((e) => ({ kind: "memory.hygiene", at: e.created_at, approved: (e.payload as { decision?: string })?.decision === "accepted" }))];
+}
 /** Stop-all: every queued auto action is cancelled the same way, so Resume doesn't re-queue them. */
 export const clearAutoQueue = () => (autonomyState().pending.length ? update((s) => cancelPending(s, () => false)).catch(() => {}) : Promise.resolve());
 

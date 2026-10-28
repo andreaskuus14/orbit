@@ -68,6 +68,9 @@ const BASE = {
   "profile.news_topics": "Preferred news topics", "profile.research_priorities": "Research priorities", "profile.comma": "(comma separated)",
   "profile.talk": "How CORE should talk to you", "profile.save": "Save profile", "profile.saved": "Saved.",
   "profile.password": "Sign-in password", "profile.autonomy": "Autonomy", "profile.phone": "Phone remote",
+  "trust.title": "Suggestions from your approvals", "trust.line": "You approved {approved} of {total} {kind} this month. Let ORBIT do these on its own?",
+  "trust.change": "{area}: Ask → Do & report. Nothing is sent, published or spent without your click.", "trust.accept": "Accept", "trust.later": "Not now",
+  "trust.kind.save_memory": "memory saves", "trust.kind.memory.hygiene": "memory merge and retract suggestions", "trust.kind.add_task": "follow-up agent tasks",
   "profile.persona": "ORBIT's character", "profile.playbook": "How CORE has adapted", "profile.lessons": "What I learned about you",
 
   "remote.title": "ORBITAL REMOTE", "remote.connecting": "Connecting…", "remote.unreachable": "Can't reach ORBIT: is the PC on and Tailscale connected?",
@@ -618,6 +621,9 @@ export const ET: Partial<Record<Key, string>> = {
   "profile.news_topics": "Eelistatud uudisteemad", "profile.research_priorities": "Uurimise prioriteedid", "profile.comma": "(komadega eraldatud)",
   "profile.talk": "Kuidas CORE peaks sinuga rääkima", "profile.save": "Salvesta profiil", "profile.saved": "Salvestatud.",
   "profile.password": "Sisselogimise parool", "profile.autonomy": "Iseseisvus", "profile.phone": "Telefonipult",
+  "trust.title": "Soovitused sinu kinnituste põhjal", "trust.line": "Sel kuul kinnitasid {total}-st {approved} ({kind}). Kas ORBIT võib neid edaspidi ise teha?",
+  "trust.change": "{area}: Küsi → Tee ja teata. Midagi ei saadeta, avaldata ega kulutata ilma sinu klõpsuta.", "trust.accept": "Nõustu", "trust.later": "Mitte praegu",
+  "trust.kind.save_memory": "mälukirjete salvestamine", "trust.kind.memory.hygiene": "mälukirjete ühendamise ja tagasivõtmise soovitused", "trust.kind.add_task": "agendi järelülesanded",
   "profile.persona": "ORBITi iseloom", "profile.playbook": "Kuidas CORE on kohanenud", "profile.lessons": "Mida ma sinust õppisin",
 
   "remote.title": "ORBITALI PULT", "remote.connecting": "Ühendan…", "remote.unreachable": "ORBIT ei vasta: kas arvuti on sees ja Tailscale ühendatud?",
