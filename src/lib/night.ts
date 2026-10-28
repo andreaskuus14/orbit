@@ -14,7 +14,8 @@ import { localDay } from "./morning-pure";
 import { FOLLOWUP_SYSTEM, dueFollowups, followupPrompt, type Prospect } from "./business-pure";
 import { scoutDue } from "./niche-pure";
 import { whyLine, type Learned } from "./night-learn-pure";
-import { NIGHT_KINDS, PERSONA_STUDIO_RUNS, addCompanyTonight, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, planNight, researchRequest, startBlock, tonightBlocked, wakePushDue,
+import { planTonight, snapDiff } from "./night-plan-pure";
+import { NIGHT_KINDS, PERSONA_STUDIO_RUNS, addCompanyTonight, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, researchRequest, startBlock, tonightBlocked, wakePushDue,
   type NightItem, type NightRun, type NightState, type NightTask, type NightUser } from "./night-pure";
 
 // Night shift runner (rules: night-pure.ts). Called every scheduler tick; starts at most one run at a time, in the night window,
@@ -80,7 +81,9 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
 
   await startQueuedCompany(sb, userId, run);
   const learned = await (await import("./night-learn")).learnedPlan(sb, userId, s, key); // what he approved before reorders/fades ORBIT's own work
-  const { queue, deferred } = planNight(await planInput(sb, userId, st, run, learned), s, used());
+  const { nightSignals, snapshot } = await import("./night-plan");
+  const { queue, deferred } = planTonight(await planInput(sb, userId, st, run, learned), s, used(), await nightSignals(sb, userId));
+  let snap = await snapshot(sb, userId); // morning diff: counts before → after each item
   run.deferred = deferred; run.why = whyLine(learned, queue.map((t) => t.kind), s.pin) || undefined;
   for (const t of queue) {
     if (ac.signal.aborted || stopAllOn()) { run.stopped = "stop-all"; break; }
@@ -89,7 +92,9 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
     if (!fits(t, used(), s)) { run.deferred = (run.deferred ?? 0) + 1; run.stopped = "budget"; continue; }
     const item = await runOne(sb, userId, t, ac.signal).catch((e): NightItem => ({ kind: t.kind, ref: t.ref, label: t.label, status: "failed", why: msg(e), at: new Date().toISOString() }));
     if (ac.signal.aborted && item.status !== "done") { run.stopped = "stop-all"; break; } // cut off midway: not reported as a failure, retried on Resume
-    run.items.push(item);
+    const after = await snapshot(sb, userId);
+    run.items.push({ ...item, pick: t.why, diff: snapDiff(snap, after, item) });
+    snap = after;
     await save();
     await emit(sb, userId, "night.task", "core", { night: run.id, kind: t.kind, ref: t.ref.slice(0, 128), status: item.status });
   }
@@ -232,7 +237,8 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
     case "hygiene": {
       const h = await (await import("./memory-hygiene")).getHygiene(sb, userId); // no model call: this week's merge/retract suggestions
       await import("./memory-graph").then((m) => m.rebuildGraph(sb, userId)).catch((e) => console.error("[orbit] memory graph:", msg(e))); // local clusters for MEMORY; no model call
-      const k = h.proposals.filter((p) => p.status === "pending").length;
+      const e = await import("./entity-graph").then((m) => m.scanEntities(sb, userId)).catch((x) => { console.error("[orbit] entity graph:", msg(x)); return null; }); // rules only, no model; never journal
+      const k = h.proposals.filter((p) => p.status === "pending").length + (e ? e.merges + e.contradictions : 0);
       return k ? { ...base, label: `${k} memory tidy-up suggestion${k > 1 ? "s" : ""}`, status: "approval", open: { panel: "memory" }, at: at() } : { ...base, status: "skipped", why: "Nothing to tidy", at: at() };
     }
   }

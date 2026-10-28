@@ -36,6 +36,7 @@
     "node": ">=22.6"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.296",
     "@huggingface/transformers": "^3.7.0",
     "@react-three/drei": "^10.7.0",
     "@react-three/fiber": "^9.3.0",
@@ -53,7 +54,8 @@
     "sharp": "^0.34.3",
     "three": "^0.180.0",
     "unpdf": "^1.0.0",
-    "world-atlas": "^2.0.2"
+    "world-atlas": "^2.0.2",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",

@@ -1,7 +1,5 @@
 # CORE on the Claude Agent SDK: evaluation and prototype
 
-> Status: findings only. The prototype adapter lives on branch `agent-sdk-study` (not merged: it adds the SDK dependency, ~320 MB on Windows). Merge it when you decide to try `ORBIT_CORE_ENGINE=sdk`.
-
 Roadmap §1.1, the item left open in `docs/CORE-CAPABILITY.md`. Branch `agent-sdk-study`.
 
 **Recommendation: yes, move CORE to the SDK, one step at a time, behind `ORBIT_CORE_ENGINE=sdk`.** It fixes the problems CORE-CAPABILITY.md lists: tool calls get real ids, errors are structured, parallel tool calls work, sessions and prompt caching come built in, and text streams without parsing a JSON envelope. It uses the same Claude login as `claude -p`. The costs are about 320 MB more in `node_modules` and one licensing caveat, covered in point 1 below. Before making it the default, test it once on the Windows PC (see the end of this doc).

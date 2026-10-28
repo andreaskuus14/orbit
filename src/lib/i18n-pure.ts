@@ -68,6 +68,9 @@ const BASE = {
   "profile.news_topics": "Preferred news topics", "profile.research_priorities": "Research priorities", "profile.comma": "(comma separated)",
   "profile.talk": "How CORE should talk to you", "profile.save": "Save profile", "profile.saved": "Saved.",
   "profile.password": "Sign-in password", "profile.autonomy": "Autonomy", "profile.phone": "Phone remote",
+  "trust.title": "Suggestions from your approvals", "trust.line": "You approved {approved} of {total} {kind} this month. Let ORBIT do these on its own?",
+  "trust.change": "{area}: Ask → Do & report. Nothing is sent, published or spent without your click.", "trust.accept": "Accept", "trust.later": "Not now",
+  "trust.kind.save_memory": "memory saves", "trust.kind.memory.hygiene": "memory merge and retract suggestions", "trust.kind.add_task": "follow-up agent tasks",
   "profile.persona": "ORBIT's character", "profile.playbook": "How CORE has adapted", "profile.lessons": "What I learned about you",
 
   "remote.title": "ORBITAL REMOTE", "remote.connecting": "Connecting…", "remote.unreachable": "Can't reach ORBIT: is the PC on and Tailscale connected?",
@@ -167,6 +170,9 @@ const BASE = {
 
   "loops.title": "Open loops", "loops.count": "{n} OPEN", "loops.empty": "Nothing left hanging.", "loops.snooze": "Snooze 3 days",
   "loops.task": "Turn into task", "loops.scan": "Scan now",
+  "ent.title": "Memory check · nothing changes until you answer", "ent.same": "Are these the same?", "ent.yes": "Yes, same", "ent.no": "No, different",
+  "ent.which": "Which is right? {who}: {attr}", "ent.me": "you", "ent.pick": "This one", "ent.skip": "Skip",
+  "ent.attr.birthday": "birthday", "ent.attr.employer": "workplace", "ent.attr.home": "home town",
 
   "rules.when": "When", "rules.does": "Does", "rules.scope": "Scope", "rules.allowed": "Allowed", "rules.newAria": "New standing rule",
   "rules.ph": "e.g. Every weekday 7:30 check deals", "rules.inputAria": "Rule in your own words", "rules.readBack": "Read it back",
@@ -200,6 +206,11 @@ const BASE = {
   "night.stop.budget": "Tonight's budget was used up",
   "night.noun.goal": "goal steps", "night.noun.business": "business drafts", "night.noun.clips": "Shorts packaging", "night.noun.niche": "niche scouts",
   "night.noun.deals": "deal hunts", "night.noun.personas": "persona playtests",
+  "nightplan.why.house": "Nightly upkeep", "nightplan.why.ask": "You asked for this", "nightplan.why.askOld": "You asked {d} days ago",
+  "nightplan.why.due": "Due on its own schedule", "nightplan.why.pinned": "You set this to Always", "nightplan.why.learned": "You approved most of these lately",
+  "nightplan.why.stalled": "Stalled for {d} days", "nightplan.why.deadline": "Deadline in {d} days", "nightplan.why.noReply": "No reply for {d} days",
+  "nightplan.why.rule": "Your rule “{name}” runs soon", "nightplan.whyTonight": "Why tonight: {x}", "nightplan.overnight": "Overnight: {x}",
+  "nightplan.k.drafts": "drafts waiting", "nightplan.k.tasks": "tasks done", "nightplan.k.steps": "goal steps", "nightplan.k.memories": "memories", "nightplan.k.loops": "open loops",
 
   "ops.memory": "memory", "ops.tab.tasks": "Tasks & projects", "ops.tab.automations": "Automations", "ops.tab.rules": "Rules",
   "ops.tab.activity": "Activity", "ops.newTask": "New task",
@@ -524,6 +535,11 @@ const BASE = {
   "mk.botHint": "Simple transparent rules, not an AI making trades. Runs once a day while ORBIT is open, on your watchlist. Simulation / not financial advice.",
   "mk.strategy": "Bot strategy", "mk.strategyConfirm": "Changing the strategy restarts the bot's paper account. Continue?", "mk.off": "Off",
   "mk.botEquity": "Bot equity", "mk.spySame": "SPY over the same time", "mk.notYet": "not yet",
+
+  "voice.convStart": "Conversation mode: keep listening after each answer (Ctrl+Shift+M)", "voice.convEnd": "End conversation mode (Esc)",
+  "voice.convTitle": "Conversation mode (Ctrl+Shift+M, or say “Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Conversation mode needs hands-free on (voice settings)",
+  "voice.convHelp": "Ctrl+Shift+M, 💬 or “Orbit, let’s talk”. ORBIT then answers questions and requests without “Orbit” and ignores chatter; talk over it to interrupt. Ends on “stop” / “that’s all”, Esc, 💬, Stop-all or 60 s of silence (one-follow-up: after the follow-up).",
+  "voice.openMic": "Open mic · {phase} — ✕ stop", "voice.phaseListening": "listening", "voice.phaseThinking": "thinking", "voice.phaseSpeaking": "speaking (talk to interrupt)",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -616,6 +632,9 @@ export const ET: Partial<Record<Key, string>> = {
   "profile.news_topics": "Eelistatud uudisteemad", "profile.research_priorities": "Uurimise prioriteedid", "profile.comma": "(komadega eraldatud)",
   "profile.talk": "Kuidas CORE peaks sinuga rääkima", "profile.save": "Salvesta profiil", "profile.saved": "Salvestatud.",
   "profile.password": "Sisselogimise parool", "profile.autonomy": "Iseseisvus", "profile.phone": "Telefonipult",
+  "trust.title": "Soovitused sinu kinnituste põhjal", "trust.line": "Sel kuul kinnitasid {total}-st {approved} ({kind}). Kas ORBIT võib neid edaspidi ise teha?",
+  "trust.change": "{area}: Küsi → Tee ja teata. Midagi ei saadeta, avaldata ega kulutata ilma sinu klõpsuta.", "trust.accept": "Nõustu", "trust.later": "Mitte praegu",
+  "trust.kind.save_memory": "mälukirjete salvestamine", "trust.kind.memory.hygiene": "mälukirjete ühendamise ja tagasivõtmise soovitused", "trust.kind.add_task": "agendi järelülesanded",
   "profile.persona": "ORBITi iseloom", "profile.playbook": "Kuidas CORE on kohanenud", "profile.lessons": "Mida ma sinust õppisin",
 
   "remote.title": "ORBITALI PULT", "remote.connecting": "Ühendan…", "remote.unreachable": "ORBIT ei vasta: kas arvuti on sees ja Tailscale ühendatud?",
@@ -715,6 +734,9 @@ export const ET: Partial<Record<Key, string>> = {
 
   "loops.title": "Lahtised otsad", "loops.count": "{n} LAHTI", "loops.empty": "Midagi ei jäänud ripakile.", "loops.snooze": "Lükka 3 päeva edasi",
   "loops.task": "Tee ülesandeks", "loops.scan": "Otsi kohe",
+  "ent.title": "Mälu kontroll · midagi ei muutu enne sinu vastust", "ent.same": "Kas need on sama?", "ent.yes": "Jah, sama", "ent.no": "Ei, erinevad",
+  "ent.which": "Kumb on õige? {who}: {attr}", "ent.me": "sina", "ent.pick": "See", "ent.skip": "Jäta vahele",
+  "ent.attr.birthday": "sünnipäev", "ent.attr.employer": "töökoht", "ent.attr.home": "elukoht",
 
   "rules.when": "Millal", "rules.does": "Mida teeb", "rules.scope": "Ulatus", "rules.allowed": "Lubatud", "rules.newAria": "Uus püsireegel",
   "rules.ph": "nt Igal tööpäeval 7:30 vaata pakkumised üle", "rules.inputAria": "Reegel sinu enda sõnadega", "rules.readBack": "Loe ette, kuidas aru said",
@@ -747,6 +769,11 @@ export const ET: Partial<Record<Key, string>> = {
   "night.stop.budget": "Tänase öö eelarve sai otsa",
   "night.noun.goal": "eesmärkide sammud", "night.noun.business": "äri mustandid", "night.noun.clips": "Shortside pakendamine", "night.noun.niche": "nišiuuringud",
   "night.noun.deals": "pakkumiste jaht", "night.noun.personas": "persona mängutestid",
+  "nightplan.why.house": "Igaöine hooldus", "nightplan.why.ask": "Sa palusid seda", "nightplan.why.askOld": "Sa palusid seda {d} päeva tagasi",
+  "nightplan.why.due": "Ajakava järgi käes", "nightplan.why.pinned": "Sa panid selle olekusse Alati", "nightplan.why.learned": "Viimasel ajal kinnitasid enamiku neist",
+  "nightplan.why.stalled": "Seisnud {d} päeva", "nightplan.why.deadline": "Tähtaeg {d} päeva pärast", "nightplan.why.noReply": "Vastust pole {d} päeva",
+  "nightplan.why.rule": "Sinu reegel „{name}“ käivitub varsti", "nightplan.whyTonight": "Miks täna öösel: {x}", "nightplan.overnight": "Öösel: {x}",
+  "nightplan.k.drafts": "ootel mustandid", "nightplan.k.tasks": "tehtud ülesanded", "nightplan.k.steps": "eesmärkide sammud", "nightplan.k.memories": "mälestused", "nightplan.k.loops": "lahtised otsad",
   "rules.runNow": "Käivita kohe", "rules.skipped.one": "{n} sündmus jäeti täna vahele (piir {max} käivitust päevas)", "rules.skipped.other": "{n} sündmust jäeti täna vahele (piir {max} käivitust päevas)",
 
   "ops.memory": "mälukirje", "ops.tab.tasks": "Ülesanded ja projektid", "ops.tab.automations": "Automatiseeringud", "ops.tab.rules": "Reeglid",
@@ -1092,6 +1119,11 @@ export const ET: Partial<Record<Key, string>> = {
   "mk.botHint": "Lihtsad läbipaistvad reeglid, mitte tehisaru, kes tehinguid teeb. Töötab kord päevas, kui ORBIT on avatud, sinu jälgimisnimekirja peal. Simulatsioon / mitte finantsnõuanne.",
   "mk.strategy": "Roboti strateegia", "mk.strategyConfirm": "Strateegia muutmine alustab roboti paberkontot otsast. Jätkata?", "mk.off": "Väljas",
   "mk.botEquity": "Roboti konto väärtus", "mk.spySame": "SPY samal ajal", "mk.notYet": "veel mitte",
+
+  "voice.convStart": "Vestlusrežiim: kuula pärast iga vastust edasi (Ctrl+Shift+M)", "voice.convEnd": "Lõpeta vestlusrežiim (Esc)",
+  "voice.convTitle": "Vestlusrežiim (Ctrl+Shift+M või ütle „Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Vestlusrežiim vajab sisselülitatud käed-vaba kuulamist (hääle seaded)",
+  "voice.convHelp": "Ctrl+Shift+M, 💬 või „Orbit, let’s talk”. ORBIT vastab siis küsimustele ja palvetele ilma sõnata „Orbit” ning eirab muud juttu; katkestamiseks räägi lihtsalt peale. Lõpeb sõnadega „lõpeta” / „stop”, Esc, 💬, Peata kõik või 60 s vaikusega (üks jätkuküsimus: pärast seda).",
+  "voice.openMic": "Avatud mikrofon · {phase} — ✕ lõpeta", "voice.phaseListening": "kuulab", "voice.phaseThinking": "mõtleb", "voice.phaseSpeaking": "räägib (katkestamiseks räägi peale)",
 };
 
 type Vars = Record<string, string | number>;
