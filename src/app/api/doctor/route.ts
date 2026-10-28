@@ -2,6 +2,7 @@ import { disk, runDoctor } from "@/lib/doctor";
 import { bootSelfTest } from "@/lib/doctor-boot";
 import { healthView } from "@/lib/health";
 import { improveView } from "@/lib/self-improve";
+import { selfEvalView } from "@/lib/self-eval";
 import { ackSystemIncident, systemHealthView } from "@/lib/system-health";
 import { requireUser } from "@/lib/supabase/server";
 
@@ -20,9 +21,9 @@ export async function GET(req: Request) {
   }
   const boot = bootSelfTest().catch(() => null);
   if (new URL(req.url).searchParams.get("boot")) return Response.json(await boot);
-  const [report, b, health, improve, system] = await Promise.all([runDoctor(sb), boot, healthView().catch(() => null), improveView(sb, user.id).catch(() => null),
-    systemHealthView(sb, user.id).catch(() => null)]);
-  return Response.json({ ...report, boot: b, health, improve, system });
+  const [report, b, health, improve, system, selfEval] = await Promise.all([runDoctor(sb), boot, healthView().catch(() => null), improveView(sb, user.id).catch(() => null),
+    systemHealthView(sb, user.id).catch(() => null), selfEvalView().catch(() => null)]);
+  return Response.json({ ...report, boot: b, health, improve, system, selfEval });
 }
 
 // POST {ack: "<incident key>"}: the owner's "Got it" on a System health incident (no more pushes for it; it still clears by itself).
