@@ -40,12 +40,11 @@ import { withHeadsUp } from "./capability-pure";
 import { CORE_ENGINE } from "./core-sdk-pure";
 import { randomUUID } from "node:crypto";
 import type { CliSession } from "./claude";
+import { coreSessionStore as coreSessions } from "./durable";
 
 /** ORBIT_CORE_SESSION=resume: one persistent Claude CLI session per CORE conversation, so follow-ups and tool results stay in it.
- *  shortcut: kept in memory, so a server restart starts fresh sessions (the stateless prompt still carries the history). */
+ *  The chat → session map survives restarts (durable.ts); a failed resume still drops it and falls back to stateless. */
 export const SESSION_MODE = process.env.ORBIT_CORE_SESSION === "resume" ? "resume" : "off";
-const SG = globalThis as unknown as { __orbitCoreSessions?: Map<string, CliSession> };
-const coreSessions = (SG.__orbitCoreSessions ??= new Map());
 
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
 const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
