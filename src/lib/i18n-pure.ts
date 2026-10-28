@@ -167,6 +167,8 @@ const BASE = {
 
   "loops.title": "Open loops", "loops.count": "{n} OPEN", "loops.empty": "Nothing left hanging.", "loops.snooze": "Snooze 3 days",
   "loops.task": "Turn into task", "loops.scan": "Scan now",
+  "search.everything": "Search everything", "search.src.memory": "Memories", "search.src.journal": "Journal", "search.src.note": "Vault notes",
+  "search.src.file": "Files", "search.src.chat": "CORE chats", "search.src.task": "Tasks", "search.src.goal": "Goals",
 
   "rules.when": "When", "rules.does": "Does", "rules.scope": "Scope", "rules.allowed": "Allowed", "rules.newAria": "New standing rule",
   "rules.ph": "e.g. Every weekday 7:30 check deals", "rules.inputAria": "Rule in your own words", "rules.readBack": "Read it back",
@@ -717,6 +719,8 @@ export const ET: Partial<Record<Key, string>> = {
 
   "loops.title": "Lahtised otsad", "loops.count": "{n} LAHTI", "loops.empty": "Midagi ei jäänud ripakile.", "loops.snooze": "Lükka 3 päeva edasi",
   "loops.task": "Tee ülesandeks", "loops.scan": "Otsi kohe",
+  "search.everything": "Otsi kõikjalt", "search.src.memory": "Mälukirjed", "search.src.journal": "Päevik", "search.src.note": "VAULT märkmed",
+  "search.src.file": "VAULT failid", "search.src.chat": "CORE vestlused", "search.src.task": "Ülesanded", "search.src.goal": "Eesmärgid",
 
   "rules.when": "Millal", "rules.does": "Mida teeb", "rules.scope": "Ulatus", "rules.allowed": "Lubatud", "rules.newAria": "Uus püsireegel",
   "rules.ph": "nt Igal tööpäeval 7:30 vaata pakkumised üle", "rules.inputAria": "Reegel sinu enda sõnadega", "rules.readBack": "Loe ette, kuidas aru said",
