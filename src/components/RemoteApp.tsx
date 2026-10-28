@@ -7,6 +7,7 @@ import { RemoteCar, readLater } from "./RemoteCar";
 import { VoiceMemo } from "./VoiceMemo";
 import { getLang, LangSwitch, useT } from "./i18n";
 import type { PhoneNight } from "@/lib/remote-web-pure";
+import { syncedAt } from "@/lib/remote-offline-pure";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
@@ -28,6 +29,7 @@ export function RemoteApp() {
   const [status, setStatus] = useState<Status | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [offline, setOffline] = useState(""); // "HH:MM" of the cached copy the service worker served; "" = live
   const [busy, setBusy] = useState("");
   const [noThumb, setNoThumb] = useState<Record<string, boolean>>({}); // thumbnails that failed to load
   const [habit, setHabit] = useState(""); // ?habit=<id> from a habit nudge: one-tap Done where the phone shows no notification actions
@@ -44,6 +46,7 @@ export function RemoteApp() {
     if (r.status === 503) { setOff(await errorOf(r)); return setPaired(false); }
     if (!r.ok) return setMsg({ ok: false, text: await errorOf(r) });
     setPaired(true); setStatus(await r.json());
+    setOffline(r.headers.has("x-orbit-offline") ? syncedAt(r.headers.get("x-orbit-offline")) || "?" : "");
     const a = await send("approval.list").catch(() => null);
     if (a?.ok) setItems(((await a.json()) as { items: Item[] }).items);
   }, [t]);
@@ -54,8 +57,10 @@ export function RemoteApp() {
     document.addEventListener("visibilitychange", vis);
     return () => { clearInterval(h); document.removeEventListener("visibilitychange", vis); };
   }, [load]);
+  useEffect(() => { void navigator.serviceWorker?.register("/remote/sw.js", { scope: "/remote" }).catch(() => {}); }, []); // offline shell + last data
 
   async function act(key: string, run: () => Promise<Response>, ok: (j: { message?: string }) => string) {
+    if (offline) return setMsg({ ok: false, text: t("remote.offlineAct") }); // never queued: approvals need a live, fresh request
     setBusy(key); setMsg(null);
     try {
       const r = await run();
@@ -89,7 +94,7 @@ export function RemoteApp() {
       {habit && (
         <section className="card space-y-2" aria-labelledby="r-habit">
           <h2 id="r-habit" className="text-sm font-semibold">{t("habit.time")}</h2>
-          <button className="btn w-full" style={{ minHeight: 48 }} disabled={!!busy}
+          <button className="btn w-full" style={{ minHeight: 48 }} disabled={!!busy || !!offline}
             onClick={() => void act("habit", () => send("habit.done", { id: habit }), (j) => { setHabit(""); history.replaceState(null, "", "/remote"); return j.message ?? t("remote.done"); })}>
             {busy === "habit" ? "…" : t("remote.done")}
           </button>
@@ -100,17 +105,18 @@ export function RemoteApp() {
         <p className="rm-status" style={{ color: paused ? "var(--rose)" : items.length ? "var(--amber)" : "var(--ink)" }} aria-live="polite">{headline(items.length, paused, lang)}</p>
         <div className="flex items-center justify-between gap-3">
           <h2 id="r-stop" className="muted text-sm">{t(paused ? "remote.stopOn" : "remote.stopOff")}</h2>
-          {!paused && <button className="btn danger" disabled={!!busy} onClick={stopAll} style={{ minHeight: 44, minWidth: 104 }}>{t("remote.stopButton")}</button>}
+          {!paused && <button className="btn danger" disabled={!!busy || !!offline} onClick={stopAll} style={{ minHeight: 44, minWidth: 104 }}>{t("remote.stopButton")}</button>}
         </div>
       </section>
 
+      {offline && <p className="rm-offline" role="status">{t("remote.offline", { time: offline })}</p>}
       {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
 
       <section className="space-y-3" aria-labelledby="r-appr">
         <h2 id="r-appr" className="rm-label">{t("remote.waiting", { n: items.length })}</h2>
         {!items.length && <p className="muted text-sm">{t("remote.nothing")}</p>}
         {biggestFirst(items).map((it) => (
-          <NeedCard key={it.id} it={it} busy={busy} later={later.includes(it.id)} blind={it.kind === "clip" && (!it.thumb || !!noThumb[it.id])} // he can't see it here: review on the PC
+          <NeedCard key={it.id} it={it} busy={offline ? "offline" : busy /* any busy value disables Approve/Reject */} later={later.includes(it.id)} blind={it.kind === "clip" && (!it.thumb || !!noThumb[it.id])} // he can't see it here: review on the PC
             onThumbError={() => setNoThumb((m) => ({ ...m, [it.id]: true }))} decide={decide} />
         ))}
       </section>
@@ -129,6 +135,7 @@ export function RemoteApp() {
       <RemoteCall />
       <Ask />
       <Notify />
+      <Install />
       <LangSwitch />
     </Shell>
   );
@@ -225,6 +232,27 @@ function Notify() {
             : <button className="btn w-full" style={{ minHeight: 48 }} disabled={busy} onClick={enable}>{busy ? "…" : t("remote.notifyOn")}</button>}
         </>}
       {note && <p className="muted text-sm" role="status">{note}</p>}
+    </section>
+  );
+}
+
+/** Install hint while Remote runs in a browser tab: Android/Chrome gets a real Install button, iPhone the Share steps. */
+function Install() {
+  const { t } = useT();
+  const [show, setShow] = useState(false);
+  const [prompt, setPrompt] = useState<(Event & { prompt: () => Promise<void> }) | null>(null);
+  useEffect(() => {
+    setShow(!matchMedia("(display-mode: standalone)").matches && !(navigator as { standalone?: boolean }).standalone);
+    const keep = (e: Event) => { e.preventDefault(); setPrompt(e as Event & { prompt: () => Promise<void> }); };
+    window.addEventListener("beforeinstallprompt", keep);
+    return () => window.removeEventListener("beforeinstallprompt", keep);
+  }, []);
+  if (!show) return null;
+  return (
+    <section className="rm-sec" aria-labelledby="r-install">
+      <h2 id="r-install" className="rm-label">{t("remote.install")}</h2>
+      <p className="muted text-sm">{t(prompt ? "remote.installAbout" : "remote.installIos")}</p>
+      {prompt && <button className="btn w-full" style={{ minHeight: 48 }} onClick={() => void prompt.prompt().then(() => setPrompt(null))}>{t("remote.installButton")}</button>}
     </section>
   );
 }
