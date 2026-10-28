@@ -9,6 +9,7 @@ const GROUPS: [string, [string, string][]][] = [
   ["Everywhere", [
     ["Ctrl/⌘ K (or P)", "Warp: jump to any place, search memories, goals, approvals, people, files; quick actions"],
     ["Ctrl M", "Start / stop voice input"],
+    ["Alt W", "Work: tasks, routines, saved workflows, goals (skips the galaxy)"],
     ["Ctrl/⌘ Shift E", "Today in a minute: a short evening note"],
     ["Esc (CORE answering)", "Stop the answer"],
     ["↑ (empty CORE input)", "Bring back your last question"],

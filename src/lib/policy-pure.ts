@@ -8,11 +8,13 @@ import { LIFE_TOOLS, lifeWriteBlocked, type LifeTool } from "./core-life.ts";
 import { WS_TOOLS, wsTainted, wsWriteBlocked } from "./core-workspace.ts";
 import { createGoalBlocked } from "./goals-pure.ts";
 import { asksToRemember } from "./reflect-pure.ts";
+import { checkpointBlocked } from "./checkpoint-pure.ts";
 import { draftBlocked } from "./higgsfield-pure.ts";
 import { tonightBlocked } from "./night-pure.ts";
 import { wishBlocked } from "./deals-pure.ts";
 import { ruleBlocked } from "./rules-pure.ts";
 import { autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
+import { et } from "./et-ask-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
 export type Decision = { allow: boolean; tier: Tier; reason: string };
@@ -26,10 +28,12 @@ export const TIERS: Record<string, Tier> = {
   life_status: "T0", life_journal: "T0", vault_search: "T0", vault_read: "T0", calendar_events: "T0", plan_day: "T0", git_summary: "T0",
   ws_list: "T0", ws_read: "T0", rea_status: "T0", rea_read: "T0", week_review: "T0", wishlist: "T0",
   load_module: "T1", // returns a module's own instruction text (core-modules-pure loadModule)
+  read_more: "T1", // rereads a clipped result already in this turn (clip-store-pure)
   web_search: "T1", fetch_url: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1",
   save_memory: "T2", ask_agent: "T2", create_goal: "T2", start_mission: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
   propose_rule: "T2", // saves a standing rule as proposed; nothing runs until the owner's Confirm click in Agents → Rules
   add_wish: "T2", // adds to his own wishlist; the hunter only reads public pages, and nothing is bought or sent by ORBIT
+  save_checkpoint: "T2", // his own chat checkpoint (local file); every line can be edited or deleted on the Checkpoint card
   queue_tonight: "T2", // adds to the night shift's own queue; the night run's outside effects still wait for owner approvals
   life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", rea_analyze: "T2", rea_cancel: "T2",
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
@@ -64,11 +68,12 @@ const LEAK_TOOLS = ["ask_agent", "read_news", "web_search"];
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
 const UNTRUSTED = ["fetch_url", "read_news", "web_search", "reach_read", "reach_trending", "ask_agent", "business_status"];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
+const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
 export function agentBlocked(question: string, agent: unknown, untrusted: boolean): string {
   if (!untrusted) return "";
   const name = typeof agent === "string" ? agent.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "") : "";
-  if (AGENT_ASK.test(question) || (name && new RegExp(`\\b${name}\\b`, "i").test(question))) return "";
+  if (AGENT_ASK.test(question) || AGENT_ASK_ET.test(question) || (name && new RegExp(`\\b${name}\\b`, "i").test(question))) return "";
   return "after outside content (pages, news, mail, agent results), ask an agent only when the user asks for one in their latest message";
 }
 
@@ -105,6 +110,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "add_wish") blocked = wishBlocked(question, dataIn);
   else if (tool === "propose_rule") blocked = ruleBlocked(question, dataIn);
   else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || called(ctx.steps, UNTRUSTED));
+  else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
   if (blocked) return no(blocked);
   // shortcut: rea_analyze/rea_cancel keep their explicit-ask check inside REA code (not ported: REA files stay untouched).
