@@ -4,8 +4,9 @@
 const L = "(?<![\\p{L}\\d])";
 /** Wrap alternatives with Estonian-safe word starts (no end edge: Estonian adds case endings). */
 export const et = (src: string) => new RegExp(`${L}(?:${src})`, "iu");
-/** A question, not an order ("Kas …", "Mis …", "Kuidas …"). */
+/** A question, not an order ("Kas …", "Mis …", "Kuidas …"). A polite ask ("kas sa saad/saaksid/võiksid …") is an order, like "can you …?".
+ *  A trailing "?" alone doesn't count (each English guard decides that for itself). */
 export const ET_QUESTION = et("(?:hei\\s+orbit\\W*)?(?:kas|mis|miks|kuidas|millal|milline|millised|kes|kus|palju)(?![\\p{L}])");
-export const etQuestion = (q: string) => /\?\s*$/.test(q) || new RegExp(`^\\s*${ET_QUESTION.source}`, "iu").test(q);
+export const etQuestion = (q: string) => !/^\s*(?:hei\s+orbit\W*)?kas (?:sa |te )?(?:saad|saaksid|saate|saaksite|võid|võiksid|võite|võiksite|palun)/iu.test(q) && new RegExp(`^\\s*${ET_QUESTION.source}`, "iu").test(q);
 /** "don't / never / stop / cancel". */
 export const ET_NOT = et("ära |ärge |ärgu |mitte |kunagi |lõpeta|tühista|katkesta");
