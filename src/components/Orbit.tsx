@@ -48,6 +48,8 @@ import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
 import { markOpen } from "./dev-mark";
 import { useStageActive } from "./stage-slot";
 import { ContinueWork } from "./ContinueWork";
+import { WorkView } from "./WorkView";
+import type { WorkTab } from "@/lib/work-vocab-pure";
 import { NeedsYou } from "./NeedsYou";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { TimeTravel, useLivingUniverse } from "./TimeTravel";
@@ -139,7 +141,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [cmdMode, setCmdMode] = useState<"ask" | "task">("ask");
   const [cmdErr, setCmdErr] = useState("");
   const [cmdReply, setCmdReply] = useState("");
-  const [workOpen, setWorkOpen] = useState(false);
+  const [workOpen, setWorkOpen] = useState<WorkTab | false>(false);
   useEffect(() => {
     const reply = (e: Event) => { setCmdErr(""); setCmdReply((e as CustomEvent<string>).detail); };
     addEventListener(COMMAND_REPLY_EVENT, reply);
@@ -385,6 +387,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       // VIDEO/AUDIO: Chrome seeks a focused player with ←/→ after this handler sees the key.
       const typing = !!el && (/^(INPUT|TEXTAREA|SELECT|VIDEO|AUDIO)$/.test(el.tagName) || el.isContentEditable);
       const inWorld = !!el?.closest?.(".studio, [role=region]"); // arrows inside a world's panels are for its controls
+      // Fast path (roadmap 37): Alt+W opens Work without the galaxy. Plain W is taken (ARCH walk, review keys); e.code so macOS Option still works.
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyW") { e.preventDefault(); setWorkOpen("work"); return; }
       if (e.key === "Escape" && !typing) { setPanel(null); setApproach(null); setDive(null); }
       if (!typing && !inWorld && !e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
         setPanel((cur) => {
@@ -464,7 +468,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => {
     const onNav = (e: Event) => {
       const t = (e as CustomEvent<NavTarget>).detail;
-      if (t.continueWork) { setWorkOpen(true); return; }
+      if (t.continueWork) { setWorkOpen(t.workTab ?? "work"); return; }
       setWorkOpen(false);
       if (t.zoom) return; // ZoomRig in the canvas on screen handles it
       if (t.mission) return; // MissionControl opens itself over whatever is on screen
@@ -588,6 +592,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <StudioNotifier />
           <OrbitExplore selected={shown} onSelect={select} />
           <button className="chip hud-search" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label={t("hud.search")} title={t("hud.searchTitle")}>⌕</button>
+          <button className="chip" onClick={() => setWorkOpen("work")} aria-keyshortcuts="Alt+W" title={t("hud.workTitle")}>{t("hud.work")}</button>
           <button className="chip" onClick={toggleView} title={t("hud.viewTitle")}>{t(view === "3d" ? "hud.index" : "hud.galaxy")}</button>
           <button className="chip hud-more" popoverTarget="hud-menu" aria-label={t("hud.more")} title={t("hud.moreTitle")}>⋯</button>
         </div>
@@ -670,7 +675,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {workOpen && <aside aria-label={t("cmd.workAria")} className="glass work-sheet fixed inset-x-4 top-24 bottom-28 z-50 mx-auto max-w-2xl overflow-y-auto p-4"
         onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setWorkOpen(false); cmdRef.current?.focus(); } }}>
         <button type="button" className="chip mb-2" autoFocus onClick={() => { setWorkOpen(false); cmdRef.current?.focus(); }}>{t("cmd.closeWork")}</button>
-        <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />
+        <WorkView tab={workOpen} onTab={setWorkOpen} onOpenTask={openTask} onOpenGoal={openGoal} />
       </aside>}
 
       {tapToTalk && !voice.listening && (
