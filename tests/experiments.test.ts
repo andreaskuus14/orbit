@@ -77,3 +77,14 @@ test("handoff: destination check compares what YouTube has with what was sent", 
   assert.equal(destinationProblem(sched, item({ privacyStatus: "private", publishAt: "2026-10-30T18:00:00.000Z" })), "");
   assert.match(destinationProblem(sched, item({ privacyStatus: "private" })), /schedule/);
 });
+
+test("store: add validates text, needs a published hashed clip, one experiment per Short", async () => {
+  const { addExperiment, emptyExperiments, experimentsProblem } = await import("../src/lib/clips/experiments-pure.ts");
+  const b = { hypothesis: " cold <open> ", lesson: "Cold opens win", jobId: "j", clipId: "x0" };
+  const s = addExperiment(emptyExperiments(), b, jobs(1), "e1", "2026-10-28T00:00:00Z");
+  assert.ok(typeof s !== "string" && s.items[0].hypothesis === "cold open");
+  assert.equal(experimentsProblem(s), "");
+  assert.match(addExperiment(s as never, b, jobs(1), "e2", "") as string, /already/);
+  assert.match(addExperiment(emptyExperiments(), b, jobs(1, { mediaHash: undefined }), "e2", "") as string, /published/);
+  assert.match(addExperiment(emptyExperiments(), { ...b, lesson: "" }, jobs(1), "e2", "") as string, /characters/);
+});

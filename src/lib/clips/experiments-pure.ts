@@ -70,3 +70,25 @@ export function lessonsFrom(exps: Experiment[], results: Result[], now: number):
     support: g.ok.length + g.no, confidence: Math.round((g.ok.length / (g.ok.length + g.no)) * 100) / 100,
     evidence: g.ok.map((r) => r.version!.videoId).slice(0, 8), at: new Date(now).toISOString() }));
 }
+
+// ---- store (<studio>/experiments.json; I/O in experiments.ts) ----
+export const EXP_MAX = 100, TEXT_MAX = 180;
+export type ExpState = { v: 1; items: Experiment[] };
+export const emptyExperiments = (): ExpState => ({ v: 1, items: [] });
+const isStr = (x: unknown): x is string => typeof x === "string";
+const clean = (x: unknown) => (isStr(x) ? x.replace(/[<>\p{Cc}]/gu, " ").replace(/\s+/g, " ").trim() : "");
+export const experimentsProblem = (x: unknown): string => {
+  const s = x as ExpState;
+  return s && s.v === 1 && Array.isArray(s.items) && s.items.every((e) => e && [e.id, e.hypothesis, e.lesson, e.jobId, e.clipId, e.at].every(isStr)) ? "" : "not an experiments file";
+};
+
+/** His "add experiment" → the new state, or a message for a 400. Only a published clip with a media hash can be tested. */
+export function addExperiment(s: ExpState, b: Record<string, unknown>, jobs: Pick<ClipJob, "id" | "clips">[], id: string, at: string): ExpState | string {
+  const hypothesis = clean(b.hypothesis), lesson = clean(b.lesson);
+  if (!hypothesis || hypothesis.length > TEXT_MAX || !lesson || lesson.length > TEXT_MAX) return `hypothesis and lesson must be 1-${TEXT_MAX} characters`;
+  if (!isStr(b.jobId) || !isStr(b.clipId)) return "jobId and clipId required";
+  const e: Experiment = { id, hypothesis, lesson, jobId: b.jobId, clipId: b.clipId, at };
+  if (!versionOf(e, jobs)) return "Only a published clip (with its media hash) can be an experiment";
+  if (s.items.some((x) => x.jobId === e.jobId && x.clipId === e.clipId)) return "This Short already has an experiment";
+  return { v: 1, items: [e, ...s.items].slice(0, EXP_MAX) };
+}

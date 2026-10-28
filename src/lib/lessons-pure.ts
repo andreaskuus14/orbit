@@ -37,6 +37,7 @@ type Tpl = { planet: string; yes?: (l: string) => string; no?: (l: string) => st
 const CLIP: Tpl = { planet: "studio", yes: (l) => `He usually approves ${l}; prefer them when picking clips`, no: (l) => `He usually rejects ${l}; avoid them when picking clips` };
 export const AREAS: Record<string, Tpl> = {
   ...Object.fromEntries(["hookStyle", "hookLen", "length", "layout", "captions", "creator", "kind"].map((d) => [`clip.${d}`, CLIP])),
+  "clip.experiment": { planet: "studio", tags: () => ["shorts", "experiment"] }, // proposed by clips/experiments-pure lessonsFrom, never mined from signals
   "clip.reason": { planet: "studio", share: (l) => `When he rejects a clip it's usually “${l}”${REASON_ADVICE[l] ? `: ${REASON_ADVICE[l]}` : ""}` },
   "proposal.agent": { planet: "agents", tags: () => ["agents"], yes: (l) => `He usually approves proposals from ${l}`, no: (l) => `He usually dismisses or ignores proposals from ${l}; propose less from it` },
   "proposal.kind": { planet: "agents", tags: () => ["agents"], yes: (l) => `He usually approves ${l} proposals`, no: (l) => `He rarely acts on ${l} proposals` },
