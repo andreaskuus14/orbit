@@ -143,3 +143,5 @@ export async function tickSystemHealth(sb: SupabaseClient, userId: string) {
 
 /** The owner's "Got it" on an incident. */
 export const ackSystemIncident = (key: string) => update((st) => { st.incidents = ackIncident(st.incidents, key); return ""; });
+/** Open (not acknowledged) incidents from the last check, without probing anything (ORBIT speaks first). */
+export const openIncidents = async () => (await load()).incidents.filter((i) => i.state === "open");

@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voiceLevel, whisperLang, VOICE_ASK, VOICE_CONVERSATION, type HandsFree, type VoiceSettings } from "./bus";
+import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voiceLevel, whisperLang, VOICE_ASK, VOICE_CONVERSATION, VOICE_INTERRUPT, type HandsFree, type VoiceSettings } from "./bus";
+import { useT } from "../i18n";
 import { getSpeechRecognition, VOICE_PAUSE, VOICE_RESUME, type VoiceInput } from "./useVoiceInput";
 import type { Wake } from "./WakeWord";
 import { enrollment, loadVoicePrint, saveVoicePrint, startVoiceSampler, type VoicePrint, type VoiceProfile } from "./voiceprint";
 import { warmNaturalVoice } from "./speak";
+import { SpeakFirstToggle } from "../SpeakFirst";
 
 // The wake-word listener (~40 KB with its helpers) loads only once hands-free is on.
 const WakeWord = dynamic(() => import("./WakeWord"), { ssr: false });
@@ -68,6 +70,7 @@ function sortVoices(all: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
 
 /** Mic button, voice settings popover and the "Hey Orbit" indicator for the command bar. */
 export function VoiceControls({ voice }: { voice: VoiceInput }) {
+  const { t } = useT();
   const [s, setS] = useState<VoiceSettings>(DEFAULT_VOICE);
   const [ready, setReady] = useState(false); // stored settings loaded; until then hands-free stays off (never start Chrome by default)
   const [open, setOpen] = useState(false);
@@ -142,18 +145,26 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
     return () => { cancelAnimationFrame(raf); micRef.current?.style.setProperty("--lvl", "0"); if (micRef.current) delete micRef.current.dataset.mic; };
   }, [voice.listening, live]);
 
-  // Ctrl+M toggles the mic; Escape closes the popover or cancels listening before Orbit's Escape closes the panel.
+  // Ctrl+M toggles the mic, Ctrl+Shift+M conversation mode; Escape closes the popover, cancels listening or ends the
+  // conversation before Orbit's Escape closes the panel.
   const { listening, toggle, cancel } = voice;
+  const talking = wake.conversation !== "idle";
+  const setTalking = (on: boolean) => dispatchEvent(new CustomEvent(VOICE_CONVERSATION, { detail: { on } }));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); toggle(); return; }
+      if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        if (!e.shiftKey) toggle(); else if (talking || loadVoiceSettings().handsFree !== "off") setTalking(!talking);
+        return;
+      }
       if (e.key !== "Escape" || e.defaultPrevented) return; // preventDefault: one Esc does one thing (CorePanel checks it too)
       if (open) { e.preventDefault(); e.stopPropagation(); setOpen(false); gearRef.current?.focus(); }
       else if (listening) { e.preventDefault(); e.stopPropagation(); cancel(); }
+      else if (talking) { e.preventDefault(); e.stopPropagation(); dispatchEvent(new Event(VOICE_INTERRUPT)); setTalking(false); }
     };
     addEventListener("keydown", onKey, true);
     return () => removeEventListener("keydown", onKey, true);
-  }, [open, listening, toggle, cancel]);
+  }, [open, listening, toggle, cancel, talking]);
 
   useEffect(() => {
     if (!open) return;
@@ -167,10 +178,9 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
 
   const chromeOk = typeof window === "undefined" || !!getSpeechRecognition();
   const routeText = route === "whisper" ? "🎙 Local (Whisper on this PC)" : route === "chrome" ? "🎙 Chrome (audio sent to Google while listening)" : "🎙 Hands-free off";
-  const talking = wake.conversation !== "idle";
+  useEffect(() => { voiceLevel.conversation = talking; return () => { voiceLevel.conversation = false; }; }, [talking]); // ORBIT speaks first stays quiet
   const [talkNote, setTalkNote] = useState(""); // screen readers hear start and end
   useEffect(() => { setTalkNote((n) => talking ? "Conversation mode started" : n ? "Conversation mode ended" : ""); }, [talking]);
-  const setTalking = (on: boolean) => dispatchEvent(new CustomEvent(VOICE_CONVERSATION, { detail: { on } }));
   const micLabel = !voice.supported ? "Voice input isn't supported in this browser" : listening ? "Stop listening (Esc cancels)" : "Ask by voice (Ctrl+M)";
 
   return (
@@ -184,8 +194,8 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
         </svg>
       </button>
       <button type="button" className="chip voice-gear" onClick={() => setTalking(!talking)} aria-pressed={talking}
-        disabled={s.handsFree === "off" && !talking} aria-label={talking ? "End conversation mode" : "Conversation mode: keep listening after each answer"}
-        title={s.handsFree === "off" ? "Conversation mode needs hands-free on (voice settings)" : talking ? "End conversation mode" : "Conversation mode (or say “Orbit, let’s talk”)"}>
+        disabled={s.handsFree === "off" && !talking} aria-label={talking ? t("voice.convEnd") : t("voice.convStart")}
+        title={s.handsFree === "off" ? t("voice.convNeedsHandsFree") : talking ? t("voice.convEnd") : t("voice.convTitle")}>
         <span aria-hidden="true">💬</span>
       </button>
       <button type="button" className="chip voice-gear" onClick={() => update({ speak: !s.speak })} aria-pressed={s.speak}
@@ -235,11 +245,12 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
               <option value="stay">Stays on until I say stop</option>
               <option value="once">One follow-up only</option>
             </select>
-            <span className="muted text-[10px]">Say &ldquo;let&rsquo;s just talk&rdquo;. ORBIT then answers questions and requests without &ldquo;Orbit&rdquo; and ignores chatter; it pauses while it speaks. Ends on &ldquo;that&rsquo;s all&rdquo; / &ldquo;stop listening&rdquo;, 💬, or 5 min without a question (one-follow-up: 30 s of silence).</span>
+            <span className="muted text-[10px]">{t("voice.convHelp")}</span>
           </label>
           <VoiceMatch />
           <span className="voice-sub">Spoken answers</span>
           <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>
+          <SpeakFirstToggle />
           <label className="voice-col">Voice
             <select className="field" value={s.voiceURI ?? ""} onChange={(e) => { update({ voiceURI: e.target.value || null }); if (e.target.value.startsWith("kokoro:")) warmNaturalVoice(); }}>
               <option value="">Default</option>
@@ -265,9 +276,9 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
       )}
       <span className="sr-only" role="status" aria-live="polite">{talkNote}</span>
       {talking ? (
-        <button type="button" className="voice-wake armed" onClick={() => setTalking(false)} title="Click to end conversation mode">
+        <button type="button" className="voice-wake armed" onClick={() => setTalking(false)} title={t("voice.convEnd")}>
           <span className="voice-dot" aria-hidden="true" />
-          Open mic · {wake.conversation === "listening" ? "listening" : wake.conversation === "thinking" ? "thinking" : "speaking (mic paused)"} — ✕ stop
+          {t("voice.openMic", { phase: t(wake.conversation === "listening" ? "voice.phaseListening" : wake.conversation === "thinking" ? "voice.phaseThinking" : "voice.phaseSpeaking") })}
         </button>
       ) : (wake.state !== "off" || wake.error) && (
         <span className={"voice-wake" + (wake.state === "armed" ? " armed" : "") + (wake.error ? " bad" : "")} role="status"

@@ -6,8 +6,10 @@ import { changeStopAll } from "./nav-command";
 import { TwinCard } from "./TwinCard";
 import { KIND_LABEL, type TwinKind } from "@/lib/twin-pure";
 import { PredictionEligible } from "./OrbitThinks";
+import type { TrustSuggestion } from "@/lib/trust-pure";
+import type { Key } from "@/lib/i18n-pure";
 
-type View = { levels: Levels; limits: Limits; pending: Pending[]; today: { at: string; area: Area; action: string; ref: string }[]; stopAll: boolean; push: string | null };
+type View = { levels: Levels; limits: Limits; pending: Pending[]; today: { at: string; area: Area; action: string; ref: string }[]; stopAll: boolean; push: string | null; trust?: TrustSuggestion[] };
 
 /** Profile → Autonomy: per-area level, limits for auto, today's auto actions (ledger), queued ones with Cancel, and Pause all (= Stop-all). */
 export function AutonomySection() {
@@ -57,6 +59,21 @@ export function AutonomySection() {
         {(["off", "ask", "do", "auto"] as const).map((l) => <div key={l}><dt className="inline font-semibold">{LEVEL_TEXT[l].label}: </dt><dd className="inline">{LEVEL_TEXT[l].means}</dd></div>)}
       </dl>
       {v?.push && <p className="muted text-xs">Auto with limits can't be turned on yet: it needs phone pushes so you hear about every action ({v.push}). Pair your phone below and set up pushes (docs/PHONE.md).</p>}
+      {!!v?.trust?.length && (
+        <div className="space-y-2" role="region" aria-labelledby="trust-title">
+          <h4 id="trust-title" className="text-xs font-semibold">{t("trust.title")}</h4>
+          {v.trust.map((s) => (
+            <div key={s.area} className="space-y-1 text-sm">
+              <p>{t("trust.line", { approved: s.approved, total: s.total, kind: t(`trust.kind.${s.kind}` as Key) })}</p>
+              <p className="muted text-xs">{t("trust.change", { area: AREA_INFO[s.area].label })}</p>
+              <span className="flex gap-1">
+                <button className="btn" onClick={() => pick(s.area, s.to)}>{t("trust.accept")}</button>
+                <button className="chip" onClick={() => void call({ action: "snooze", area: s.area })}>{t("trust.later")}</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {v && (
         <ul className="space-y-2">
           {AREAS.map((a) => (
