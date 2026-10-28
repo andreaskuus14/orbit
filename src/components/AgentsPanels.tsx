@@ -13,6 +13,7 @@ import type { AutomationSpec } from "@/lib/pure";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import { canRetryTask } from "@/lib/completion-pure";
 import { useT } from "./i18n";
+import { FailureReport } from "./FailureReport";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
 type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string; evidence?: WriteEvidence[] };
@@ -175,6 +176,11 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
         ? <button className="chip" onClick={() => act("retry")}>{t("task.retry")}</button>
         : <p className="muted text-xs">{t("task.noRetry")}</p>)}
       {(task.status === "queued" || task.status === "running") && <button className="chip" onClick={() => act("cancel")}>{t("task.cancel")}</button>}
+      {(task.status === "failed" || children.some((c) => c.status === "failed")) && (
+        <FailureReport input={{ kind: children.length ? "mission" : "task", id: task.id, status: task.status, relatedIds: [task.parent_id ?? "", ...children.map((c) => c.id)],
+          error: [task.error, ...children.map((c) => c.error)].filter(Boolean).join("\n") || null,
+          trace: [...task.trace, ...children.flatMap((c) => c.trace)], request: task.request, answer: task.result ?? "" }} />
+      )}
       {task.status === "done" && !task.parent_id && !task.title.startsWith("Team: ") && <SaveRecipe task={task} />}
 
       {!!children.length && (
