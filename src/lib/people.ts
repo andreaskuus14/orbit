@@ -52,6 +52,7 @@ export function editPerson(id: string, fn: (p: Person) => void): Promise<Person 
 export const patchPerson = (id: string, patch: Partial<PersonInput>) => editPerson(id, (p) => Object.assign(p, patch));
 export const logContact = (id: string, e: LogEntry) => editPerson(id, (p) => { p.log = [e, ...p.log].slice(0, 200); });
 export const deletePerson = (id: string) => update((s) => { const n = s.people.length; s.people = s.people.filter((p) => p.id !== id); return s.people.length < n; });
+export const localPeople = async () => (await read()).people;
 export const getPerson = async (id: string) => (await read()).people.find((p) => p.id === id) ?? null;
 
 type ProspectRow = { id: string; name: string; stage: Stage; notes: string | null; created_at: string };
