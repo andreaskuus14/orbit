@@ -14,6 +14,14 @@
   --amber: #fbbf24;
   --rose: #fb7185;
   --mint: #6ee7b7;
+  /* Holo theme (tests/holo-contrast checks text tokens on these): panel tint, top sheen, chromatic rim, corner brackets */
+  --holo-tint: rgba(6, 12, 28, 0.72);
+  --holo-sheen: rgba(255, 255, 255, 0.05);
+  --holo-muted: #a3b5d0; /* --muted and --rose a notch brighter inside holo glass, to stay AA over bright patches of the galaxy */
+  --holo-rose: #fda4af;
+  --holo-edge-a: rgba(34, 211, 238, 0.42);
+  --holo-edge-b: rgba(232, 121, 249, 0.3);
+  --holo-bracket: rgba(125, 233, 255, 0.75);
   --font-display: var(--font-rajdhani), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", Consolas, monospace;
   /* The house glide (expDamp in lib/smooth-damp-pure) sampled for CSS: 1 - e^(-5t), normalised. No overshoot. */
@@ -57,6 +65,61 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.13); border-radius: 20px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(125, 211, 252, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.25), 0 18px 48px rgba(0, 0, 0, 0.5);
 }
+/* ---------- Holo HUD theme (default on; <html data-holo="off"> from the ⋯ menu turns it off) ----------
+   :where() keeps these at single-class weight and they sit right after .glass, so every later override
+   (STUDIO's calm glass, the docked drawer, the warp dialog) still wins. */
+:where(:root:not([data-holo="off"])) .glass {
+  --muted: var(--holo-muted); --rose: var(--holo-rose);
+  background:
+    linear-gradient(100deg, rgba(34, 211, 238, 0.09), transparent 16% 84%, rgba(232, 121, 249, 0.07)),
+    radial-gradient(120% 70% at 12% 0%, var(--holo-sheen), transparent 55%),
+    linear-gradient(0deg, rgba(120, 230, 255, 0.07), transparent 35%),
+    var(--holo-tint);
+  border-color: rgba(125, 233, 255, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 1px 0 0 var(--holo-edge-a), inset -1px 0 0 var(--holo-edge-b),
+    -1px 0 10px -2px var(--holo-edge-a), 1px 0 10px -2px var(--holo-edge-b), 0 0 0 1px rgba(0, 0, 0, 0.3),
+    0 10px 20px rgba(0, 0, 0, 0.35), 0 28px 70px rgba(0, 0, 0, 0.55);
+}
+/* Corner brackets as background layers (they stay put while a scrolling panel scrolls), inset from the rounded corners. */
+:where(:root:not([data-holo="off"])) :is(.drawer, .hud-panel) {
+  --b: linear-gradient(var(--holo-bracket), var(--holo-bracket));
+  background:
+    var(--b) left 9px top 9px / 14px 1.5px no-repeat, var(--b) left 9px top 9px / 1.5px 14px no-repeat,
+    var(--b) right 9px top 9px / 14px 1.5px no-repeat, var(--b) right 9px top 9px / 1.5px 14px no-repeat,
+    var(--b) left 9px bottom 9px / 14px 1.5px no-repeat, var(--b) left 9px bottom 9px / 1.5px 14px no-repeat,
+    var(--b) right 9px bottom 9px / 14px 1.5px no-repeat, var(--b) right 9px bottom 9px / 1.5px 14px no-repeat,
+    linear-gradient(100deg, rgba(34, 211, 238, 0.09), transparent 16% 84%, rgba(232, 121, 249, 0.07)),
+    radial-gradient(120% 70% at 12% 0%, var(--holo-sheen), transparent 55%),
+    var(--holo-tint);
+}
+/* Boot shimmer: one light sweep when a panel opens. Scan line: a faint band drifting down the drawer. */
+:where(:root:not([data-holo="off"])) :is(.drawer:not(.drawer-out), .world-panel, .whats-new)::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 1;
+  background: linear-gradient(105deg, transparent 35%, rgba(165, 243, 252, 0.16) 48%, rgba(232, 121, 249, 0.1) 52%, transparent 65%) no-repeat;
+  background-size: 250% 100%; background-position: 130% 0; opacity: 0;
+  animation: holo-boot 0.9s var(--ease-glide) 0.15s;
+}
+:where(:root:not([data-holo="off"])) .drawer { overflow: clip; }
+:where(:root:not([data-holo="off"])) .drawer:not(.drawer-out)::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 5rem; pointer-events: none; z-index: 1;
+  background: linear-gradient(transparent, rgba(125, 233, 255, 0.05) 45%, rgba(125, 233, 255, 0.09) 50%, transparent);
+  animation: holo-scan 7s linear infinite;
+}
+@keyframes holo-boot { 0% { opacity: 1; background-position: 130% 0; } 100% { opacity: 1; background-position: -30% 0; } }
+@keyframes holo-scan { from { transform: translateY(-5rem); } to { transform: translateY(100vh); } }
+/* Glowing focus rings: the existing 2px cyan outline stays, a halo is added. */
+:where(:root:not([data-holo="off"])) :is(.field, .btn, .chip, .card, .planet-card, .logo, .hud-row, .hud-menu-item):focus-visible {
+  outline: 2px solid var(--cyan); outline-offset: 2px; box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.18), 0 0 18px rgba(34, 211, 238, 0.55);
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(:root:not([data-holo="off"])) :is(.drawer:not(.drawer-out), .world-panel, .whats-new)::before, :where(:root:not([data-holo="off"])) .drawer::after { animation: none; display: none; }
+}
+/* Asked for more contrast: drop the decoration, make the glass nearly opaque. */
+@media (prefers-contrast: more) {
+  :root { --holo-tint: rgba(4, 8, 20, 0.94); --holo-sheen: transparent; }
+  :where(:root:not([data-holo="off"])) :is(.drawer:not(.drawer-out), .world-panel, .whats-new)::before, :where(:root:not([data-holo="off"])) .drawer::after { display: none; }
+}
+
 .drawer { position: absolute; z-index: 20; top: 4.5rem; right: 0.75rem; bottom: 5.5rem; width: min(30rem, calc(100vw - 1.5rem)); padding: 1rem; display: flex; flex-direction: column; animation: slide-in 0.45s var(--ease-glide); }
 .drawer h2.brand { font-size: 1rem; }
 .drawer > .overflow-y-auto { overflow-x: hidden; }
@@ -793,5 +856,6 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .rm-big { font-family: var(--font-display); font-weight: 700; font-size: 1.6rem; line-height: 1; color: var(--amber); }
 .rm-big small { font-size: 0.75rem; letter-spacing: 0.1em; color: var(--muted); }
 .rm-sec { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.85rem 0 0.25rem; border-top: 1px solid var(--line); }
+.rm-offline { border: 1px solid var(--amber); color: var(--amber); border-radius: 10px; padding: 0.6rem 0.75rem; font-size: 0.875rem; font-weight: 600; }
 .rm-shell .muted { color: #a9bbd6; } /* a notch brighter than the desktop muted for outdoor contrast */
 @media (prefers-reduced-motion: reduce) { .rm-core, .rm-star { animation: none; } }

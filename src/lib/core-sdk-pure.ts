@@ -3,12 +3,14 @@
 import { decide, type Decision, type PolicyCtx } from "./policy-pure.ts";
 import { skillDenied } from "./skills-pure.ts";
 import type { StreamResult } from "./streamjson.ts";
+import { streamJsonInput } from "./attach-pure.ts";
 
 export const CORE_ENGINE = process.env.ORBIT_CORE_ENGINE === "sdk" ? "sdk" : "cli";
 export const SERVER = "orbit";
-/** The prototype's tools: read-only (T0/T1). shortcut: 3 of CORE's tools, add the rest once the SDK path is chosen. */
-export const SDK_TOOLS = ["fetch_url", "read_news", "goal_status"] as const;
-export type SdkTool = (typeof SDK_TOOLS)[number];
+/** core.ts's own tools (its TOOLS prompt section and runCoreTool/navigateTool); the rest are module tools (core-modules.ts). */
+export const CORE_BUILTINS = ["web_search", "fetch_url", "read_news", "ask_agent", "save_memory", "navigate"] as const;
+/** Every tool CORE's default loop can dispatch, in the order the SDK server registers them. */
+export const sdkTools = (moduleTools: readonly string[]) => [...new Set([...CORE_BUILTINS, ...moduleTools])];
 
 const PREFIX = `mcp__${SERVER}__`;
 export const sdkName = (tool: string) => PREFIX + tool;
@@ -49,7 +51,7 @@ export function nativeSystem(system: string): string {
 }
 
 /** query() options: no built-in tools, no settings/CLAUDE.md/MCP from disk, only our server, and nothing runs unless allowed here. */
-export function sdkOptions(o: { model: string; system: string; server: unknown; maxTurns: number; cwd: string; effort?: string }) {
+export function sdkOptions(o: { model: string; system: string; server: unknown; tools: readonly string[]; maxTurns: number; cwd: string; effort?: string; session?: { id: string; resume: boolean } }) {
   return {
     model: o.model,
     systemPrompt: nativeSystem(o.system),
@@ -57,15 +59,33 @@ export function sdkOptions(o: { model: string; system: string; server: unknown; 
     mcpServers: { [SERVER]: o.server },
     strictMcpConfig: true,
     settingSources: [] as never[], // isolation: the owner's ~/.claude hooks, plugins and CLAUDE.md stay out
-    allowedTools: SDK_TOOLS.map(sdkName), // our tools need no prompt: decide() inside each handler is the gate
+    allowedTools: o.tools.map(sdkName), // our tools need no prompt: decide() inside each handler is the gate
     permissionMode: "dontAsk" as const, // anything else is denied, never classifier-approved
-    persistSession: false, // stateless like the CLI path; resume is evaluated in docs/AGENT-SDK.md
+    ...sdkSession(o.session),
     includePartialMessages: true,
     maxTurns: o.maxTurns,
     cwd: o.cwd,
     ...(o.effort ? { effort: o.effort } : {}),
   };
 }
+
+/** ORBIT's per-chat CliSession (ORBIT_CORE_SESSION=resume) → query() options: a new chat starts the SDK session under ORBIT's
+ *  own UUID, later turns resume it. No session: stateless, nothing written to ~/.claude/projects. */
+export const sdkSession = (s?: { id: string; resume: boolean }) =>
+  !s ? { persistSession: false } : s.resume ? { resume: s.id, persistSession: true } : { sessionId: s.id, persistSession: true };
+
+/** The turn's prompt with attached images, as the one SDK user message (the same blocks the CLI path sends on stdin). */
+export const userMessage = (prompt: string, images: { type: string; data: Uint8Array }[]) =>
+  ({ ...JSON.parse(streamJsonInput(prompt, images)), parent_tool_use_id: null }) as { type: "user"; message: { role: "user"; content: unknown[] }; parent_tool_use_id: null };
+
+// SDK assistant error codes → words core-capability-pure's describeFailure already recognises, so the owner gets the same messages.
+const ERROR_WORDS: Record<string, string> = {
+  rate_limit: "usage limit reached", billing_error: "usage limit reached",
+  authentication_failed: "authentication failed", oauth_org_not_allowed: "authentication failed (organization not allowed)", account_on_hold: "authentication failed (account on hold)",
+};
+/** The Error message for a failed SDK turn: the API error code in plain words, then what the SDK said. */
+export const sdkFailure = (code: string | undefined, said: string[]) =>
+  [code ? (ERROR_WORDS[code] ?? code) : "", ...said].filter(Boolean).join(": ") || "agent sdk error";
 
 type Msg = {
   type?: string; subtype?: string; result?: unknown; is_error?: boolean; errors?: string[]; num_turns?: number; total_cost_usd?: number;
@@ -75,7 +95,8 @@ type Msg = {
 };
 
 /** One SDK message → a streamed text delta, the auth seen at start-up, or the turn's result (StreamResult, like the CLI path). */
-export function readMessage(m: Msg): { delta?: string; init?: { apiKeySource: string; model: string; sessionId: string }; result?: StreamResult & { errors: string[] } } | null {
+export function readMessage(m: Msg): { delta?: string; error?: string; init?: { apiKeySource: string; model: string; sessionId: string }; result?: StreamResult & { errors: string[] } } | null {
+  if (m.type === "assistant" && m.error) return { error: m.error };
   if (m.type === "stream_event" && !m.parent_tool_use_id && m.event?.type === "content_block_delta" && m.event.delta?.type === "text_delta" && typeof m.event.delta.text === "string")
     return { delta: m.event.delta.text };
   if (m.type === "system" && m.subtype === "init") return { init: { apiKeySource: m.apiKeySource ?? "", model: m.model ?? "", sessionId: m.session_id ?? "" } };

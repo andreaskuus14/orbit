@@ -85,15 +85,16 @@ The session id arrives on every message (`session_id`). A resumed session also k
 | `package.json` | `@anthropic-ai/claude-agent-sdk` **0.3.296** and `zod` **4.6.7** (a peer of the SDK; both exact and over 2 weeks old). No lockfile in the repo, so install resolves fresh. A scratch install worked (63 MB JS plus the platform binary) |
 | `next.config.ts` | SDK added to `serverExternalPackages` (it resolves and spawns its native binary) |
 
-**Not in the prototype yet:**
+**Parity with the `claude -p` path (roadmap 8, item 1.2):**
 
-- The other CORE tools (web_search, ask_agent, save_memory, navigate, module writes). The model is told only the offered tools exist.
-- Images in attachments: these need the `AsyncIterable<SDKUserMessage>` prompt.
-- The voice tail.
-- The deep self-review pass.
-- The deep → main fallback.
-- Session resume.
-- Mapping SDK error subtypes into `describeFailure`. Today they surface as `error_max_turns: …` text.
+- **Every CORE tool** is registered: `sdkTools(MODULE_TOOLS)` = core.ts's own six (`CORE_BUILTINS`) plus every module tool from `core-modules.ts`. A test checks the list against core.ts's TOOLS prompt and dispatch, the module lists and `TIERS` (none missing, none extra). Inputs pass through (`z.looseObject`): the prompt documents them and each runner validates them, as on the CLI path.
+- Each handler runs core.ts's own `exec` (navigate / module / runCoreTool) and `record` (eval row, trace row with evidence, activity log) behind `gated()` (skillDenied + decide, serial, step record) and `policyEvent`. Approvals are untouched.
+- **Sessions:** with `ORBIT_CORE_SESSION=resume`, ORBIT's chat id keeps its `CliSession`: the first turn starts the SDK session as `sessionId` (ORBIT's UUID), later turns `resume` it (`sdkSession`). A failed resume drops it and redoes the turn statelessly, with the same trace note.
+- **Images** go as one streaming-input `SDKUserMessage` (`userMessage`, the same blocks as the CLI's stdin). **Voice tail** and language rule are appended as on the CLI path.
+- **Errors:** the SDK's assistant error codes (`rate_limit`, `authentication_failed`, …) become words `describeFailure` already knows (`sdkFailure`), so the owner sees the same usage-limit / login messages.
+- **Fallbacks and review:** the CLI path's `recover` (session → stateless, `--effort` dropped, fast/deep → main model) and deep self-review are shared closures in core.ts. A fast-model tool call stops the SDK turn and redoes it on the main model. A redo after tools ran carries their results, so writes aren't repeated.
+
+**Gaps left:** no per-step "answer now" on the last step (`maxTurns` ends the turn with `error_max_turns` instead); the deep time budget isn't enforced inside an SDK turn (only before it); the deep "plan in thought" note is JSON-specific and not sent (effort is); the local offline brain isn't used; `warmCore` doesn't pre-warm SDK processes; the image prompt (streaming input) and resume are untested live.
 
 ## Next steps
 
