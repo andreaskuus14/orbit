@@ -104,7 +104,7 @@ export default function NegotiatorBox({ refKey, title, hint }: { refKey: string;
             </>}
             {d.outside.length > 0 && <span className="error">Outside your limits: {d.outside.join(", ")} (your edit)</span>}
           </div>
-          <p className="muted">{to ? <>Approve emails it to <b>{to}</b>. If Contact changes, reload and approve again.</> : "No email address to send to: approve, then copy it and send it yourself."}</p>
+          <p className="muted">{to ? `Approve emails it to ${to}. If Contact changes, reload and approve again.` :"No email address to send to: approve, then copy it and send it yourself."}</p>
         </div>
       )}
       {n?.state === "talking" && <div className="flex gap-1.5"><button className="chip" disabled={any} onClick={() => void act("agreed", { action: "close", id: n.id, state: "agreed" })}>Mark agreed</button><button className="chip" disabled={any} onClick={() => void act("lost", { action: "close", id: n.id, state: "lost" })}>Mark lost</button></div>}
