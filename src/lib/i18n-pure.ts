@@ -134,6 +134,8 @@ const BASE = {
   "brief.plan": "Plan my day",
   "night.calls.one": "{n} Claude call · {min} min", "night.calls.other": "{n} Claude calls · {min} min", "night.doneAt": " · done {t}",
   "night.why": "Why tonight's plan: {why}", "night.invoices": "€ {x}: reminders in BUSINESS", "night.deferred": " · {n} left for tonight",
+  "dayplan.overload": "Overloaded: {demand} min of tasks, today's cap {cap} min, {free} min free. Drop or move something.",
+  "dayplan.capped": "Kept free on purpose (over today's {cap} min cap): {list}", "dayplan.carried": "Carried from an earlier day: {list}",
   "night.aria": "Night shift", "night.off": "Night shift is off.", "night.workingNow": " Working now.",
   "night.runs": "Night shift runs {from}-{until} ({tz}) while you're idle, up to {calls} Claude calls / {min} min. Nothing is sent, published or spent: results wait for you in the morning card.",
   "night.enable": "Run the night shift", "night.learnTitle": "What ORBIT does on its own (learns from what you approve)",
@@ -586,6 +588,7 @@ const BASE = {
   "needs.title": "Needs you", "needs.loading": "Looking for what needs you…", "needs.empty": "Nothing needs you right now.", "needs.loadFailed": "Couldn't load what needs you.",
   "needs.kind.decide": "Decide", "needs.kind.unblock": "Unblock", "needs.kind.review": "Review result", "needs.review": "Review", "needs.more": "{n} more in Mission control and Continue my work.",
   "needs.work": "Continue my work", "needs.mission": "Mission control", "needs.onPc": "On the PC",
+  "capsule.drill": "Run restore drill", "capsule.drillTitle": "Restores into a temporary folder, checks every file, then deletes it. Your data isn't touched.",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -611,6 +614,8 @@ export const ET: Partial<Record<Key, string>> = {
   "common.close": "Sulge", "common.open": "Ava", "common.approve": "Kinnita", "common.reject": "Lükka tagasi",
   "common.approved": "Kinnitatud", "common.rejected": "Tagasi lükatud", "common.copy": "Kopeeri", "common.on": "sees", "common.off": "väljas",
   "common.failed": "See ei õnnestunud",
+  "dayplan.overload": "Ülekoormus: {demand} min ülesandeid, tänane piir {cap} min, vaba {free} min. Jäta midagi ära või lükka edasi.",
+  "dayplan.capped": "Meelega vabaks jäetud (üle tänase {cap} min piiri): {list}", "dayplan.carried": "Varasemast päevast üle kantud: {list}",
 
   "lang.title": "Keel", "lang.hint": "Menüüd, kaardid ja nupud. CORE vastab samas keeles.",
 
@@ -1216,6 +1221,7 @@ export const ET: Partial<Record<Key, string>> = {
   "voice.convTitle": "Vestlusrežiim (Ctrl+Shift+M või ütle „Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Vestlusrežiim vajab sisselülitatud käed-vaba kuulamist (hääle seaded)",
   "voice.convHelp": "Ctrl+Shift+M, 💬 või „Orbit, let’s talk”. ORBIT vastab siis küsimustele ja palvetele ilma sõnata „Orbit” ning eirab muud juttu; katkestamiseks räägi lihtsalt peale. Lõpeb sõnadega „lõpeta” / „stop”, Esc, 💬, Peata kõik või 60 s vaikusega (üks jätkuküsimus: pärast seda).",
   "voice.openMic": "Avatud mikrofon · {phase} — ✕ lõpeta", "voice.phaseListening": "kuulab", "voice.phaseThinking": "mõtleb", "voice.phaseSpeaking": "räägib (katkestamiseks räägi peale)",
+  "capsule.drill": "Käivita taastamise harjutus", "capsule.drillTitle": "Taastab ajutisse kausta, kontrollib iga faili ja kustutab selle siis. Sinu andmeid ei puudutata.",
 };
 
 type Vars = Record<string, string | number>;
@@ -1241,7 +1247,7 @@ const ET_SERVER: Record<string, string> = {
   "check.claude": "Claude (CORE'i taga olev AI)", "check.supabase": "Andmebaas (Supabase)", "check.ytkey": "YouTube'i API võti",
   "check.oauth": "YouTube'i kanali ühendus", "check.ffmpeg": "Videotööriist (ffmpeg)", "check.whisper": "Kõnetuvastus (Whisper)",
   "check.hyperframes": "Hyperframes (valikuline)", "check.wake": "Häälega äratamine („Orbital wake up“)", "check.allow": "Kes saab sisse logida",
-  "check.datadir": "ORBITi andmekaust", "check.workspaces": "Tööruumide kaust", "check.roblox": "Roblox Studio ühendus", "check.wakepid": "Äratuse kuulaja",
+  "check.datadir": "ORBITi andmekaust", "check.workspaces": "Tööruumide kaust", "check.roblox": "Roblox Studio ühendus", "check.wakepid": "Äratuse kuulaja", "check.drill": "Taastamise harjutus",
   "svc.supabase": "Andmebaas (Supabase)", "svc.claude": "Claude CLI sisselogimine", "svc.resend": "E-kirjade saatmine (Resend)", "svc.higgsfield": "Higgsfield",
   "svc.ollama": "Kohalik aju (Ollama)", "svc.push": "Telefoni teavitused", "svc.calendar": "Google'i kalender",
   "disk.data": "ORBITi andmekaust", "disk.vault": "VAULT", "disk.studio": "STUDIO kaust", "disk.backup": "Varukoopiate kaust",

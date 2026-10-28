@@ -60,3 +60,45 @@ test("commitments are inferred as awaiting and need his confirm before planning"
   assert.deepEqual(inferCommitments("I need to call the bank", { kind: "note" }, now)[0].missing, ["deadline"]);
   assert.equal(dueFrom("on 2026-11-03", now), "2026-11-03");
 });
+
+// ── Capacity (roadmap 42) ──
+import { capacity, carryForward, dayStat, planText, type Block, type DayPlan } from "../src/lib/dayplan-pure.ts";
+
+test("capacity: never fills every free hour; the cap holds back the rest and flags overload", () => {
+  const items = Array.from({ length: 6 }, (_, i) => task(`t${i}`, 120));
+  const p = buildPlan(items, { day: "2026-10-28", now: 8 * 60, personal: null, maxPlanned: 6 * 60 });
+  assert.equal(p.load!.plannedMin, 360);
+  assert.equal(p.unplaced.filter((u) => u.why === "cap").length, 3);
+  assert.equal(p.load!.overload, true);
+  const light = buildPlan([task("a", 60)], { day: "2026-10-28", now: 8 * 60 });
+  assert.equal(light.load!.overload, false); assert.equal(light.load!.capMin, 360); // default 6 h
+});
+
+test("capacity: overload when fixed commitments leave less free time than the tasks need", () => {
+  const meeting: PlanItem = { id: "m", title: "School", min: 0, flexible: false, fixed: { start: 8 * 60, end: 21 * 60 }, source: { kind: "calendar", label: "cal" } };
+  const p = buildPlan([meeting, task("a", 90)], { day: "2026-10-28", now: 8 * 60, personal: null });
+  assert.equal(p.load!.freeMin, 60); assert.equal(p.load!.overload, true);
+  assert.equal(p.unplaced[0].why, "time");
+  assert.match(planText(p), /Overloaded: 90 min of tasks/);
+});
+
+test("capacity: completion history lowers the cap to what he really finishes (needs 3 days)", () => {
+  const h = (d: string, planned: number, done: number) => ({ day: d, plannedMin: planned, doneMin: done });
+  assert.equal(capacity(360, [h("a", 300, 100), h("b", 300, 100)]), 360);
+  assert.equal(capacity(360, [h("a", 300, 120), h("b", 300, 120), h("c", 300, 120)]), 150);
+  assert.equal(capacity(360, [h("a", 300, 0), h("b", 300, 0), h("c", 300, 0)]), 60); // floor
+  assert.equal(capacity(360, [h("a", 400, 400), h("b", 400, 400), h("c", 400, 400)]), 360); // never above his limit
+});
+
+test("carry forward: unfinished accepted work comes back explicitly, first, and isn't planned twice", () => {
+  const blk = (id: string, done: boolean, kind: "goal" | "approval" = "goal"): Block => ({ id, title: id, start: 600, end: 660, flexible: true, done, source: { kind, label: "x" } });
+  const prev: DayPlan = { day: "2026-10-27", accepted: "2026-10-27T07:00:00Z", unplaced: [], blocks: [blk("done", true), blk("left", false), blk("goal:1", false), blk("ap:1", false, "approval")] };
+  assert.deepEqual(dayStat(prev), { day: "2026-10-27", plannedMin: 240, doneMin: 60 });
+  const items = carryForward([task("goal:1", 45), task("new", 30)], prev, "2026-10-28");
+  assert.deepEqual(items.map((i) => [i.id, i.carried ?? null]), [["goal:1", "2026-10-27"], ["new", null], ["left", "2026-10-27"]]);
+  const p = buildPlan(items, { day: "2026-10-28", now: 8 * 60 });
+  assert.deepEqual(p.carried, ["goal:1", "left"]);
+  assert.deepEqual(p.blocks.filter((b) => b.flexible).slice(0, 2).map((b) => b.id).sort(), ["goal:1", "left"]); // overdue → first
+  assert.match(planText(p), /Carried from earlier: goal:1, left/);
+  assert.equal(carryForward(items, { ...prev, accepted: undefined }, "2026-10-28"), items); // not accepted → nothing promised
+});

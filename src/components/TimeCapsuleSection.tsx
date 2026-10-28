@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "./i18n";
 // Not imported from capsule-pure: that file pulls node:crypto into the browser bundle.
 const MIN_PASSPHRASE = 10; // = capsule-pure MIN_PASSPHRASE (the server enforces it)
 const fmtMB = (b: number) => (b < 1048576 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${Math.round(b / 1048576)} MB`);
@@ -17,6 +18,7 @@ async function post(body: object) {
 
 /** Profile → Time capsule: setup (folder, size limit, passphrase once), Back up now, and the restore wizard (pick → passphrase → preview → restore). */
 export function TimeCapsuleSection() {
+  const { t } = useT();
   const [v, setV] = useState<View | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,6 +43,10 @@ export function TimeCapsuleSection() {
   });
   const backupNow = () => run(async () => { const { backup } = await post({ action: "backup" }); await load(); return `Backup OK (${fmtMB(backup.bytes)}, ${backup.files} files${backup.skipped.length ? `; skipped over the size limit: ${backup.skipped.join(", ")}` : ""})`; });
   const preview = () => run(async () => { setPv(null); setPv((await post({ action: "preview", name: pick, passphrase: pass })).preview); });
+  const drill = () => run(async () => {
+    const { drill: d } = await post({ action: "drill", name: pick, passphrase: pass });
+    return d.ok ? `Drill passed: ${d.restored}/${d.expected} files restored and parsed from ${d.backup}.` : `Drill failed: ${d.error ?? d.bad?.join("; ")}`;
+  });
   const restore = () => run(async () => {
     if (!confirm(`Restore the backup from ${new Date(pv!.at).toLocaleString()}? ORBIT first saves a safety backup of how things are now.`)) return;
     const { restored } = await post({ action: "restore", name: pick, passphrase: pass });
@@ -78,6 +84,7 @@ export function TimeCapsuleSection() {
           </label>
           <label className="block">Passphrase<input type="password" autoComplete="current-password" className="field mt-1 w-full" value={pass} onChange={(e) => { setPass(e.target.value); setPv(null); }} /></label>
           <button className="chip" disabled={busy || !pick || !pass} onClick={() => void preview()}>Preview changes</button>
+          {" "}<button className="chip" disabled={busy || !pass} title={t("capsule.drillTitle")} onClick={() => void drill()}>{t("capsule.drill")}</button>
           {pv && (
             <div className="space-y-1" aria-live="polite">
               <p>{pv.overwrite.length} file(s) go back to the backup&apos;s version, {pv.create.length} come back, {pv.same} unchanged. {pv.keep.length} newer file(s) not in the backup stay as they are.</p>

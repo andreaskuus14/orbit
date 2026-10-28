@@ -4,11 +4,13 @@
 import { useEffect, useState } from "react";
 import { hhmm, todayList, type Commitment, type DayPlan as Plan } from "@/lib/dayplan-pure";
 import { api } from "./AgentMission";
+import { useT } from "./i18n";
 
 type Got = { plan: Plan; commitments: Commitment[] };
 const post = (body: object) => api<{ result: unknown }>("/api/dayplan", { method: "POST", body: JSON.stringify(body) });
 
 export function DayPlan({ onOpen }: { onOpen: (open: unknown) => void }) {
+  const { t } = useT();
   const [g, setG] = useState<Got | null>(null);
   const [err, setErr] = useState("");
   const [drag, setDrag] = useState<string | null>(null);
@@ -36,7 +38,10 @@ export function DayPlan({ onOpen }: { onOpen: (open: unknown) => void }) {
           </li>
         ))}
       </ul>
-      {p.unplaced.length > 0 && <p className="muted text-xs">Didn&apos;t fit today: {p.unplaced.map((u) => u.title).join(", ")}</p>}
+      {p.load?.overload && <p className="text-xs" role="status">{t("dayplan.overload", { demand: p.load.demandMin, cap: p.load.capMin, free: p.load.freeMin })}</p>}
+      {p.carried?.length ? <p className="muted text-xs">{t("dayplan.carried", { list: p.carried.join(", ") })}</p> : null}
+      {p.unplaced.some((u) => u.why === "cap") && <p className="muted text-xs">{t("dayplan.capped", { cap: p.load?.capMin ?? 0, list: p.unplaced.filter((u) => u.why === "cap").map((u) => u.title).join(", ") })}</p>}
+      {p.unplaced.some((u) => u.why !== "cap") && <p className="muted text-xs">Didn&apos;t fit today: {p.unplaced.filter((u) => u.why !== "cap").map((u) => u.title).join(", ")}</p>}
       <div className="flex gap-1">
         {!accepted && <button className="btn" onClick={() => void run({ accept: true })}>Accept as today&apos;s list</button>}
         <button className="chip" onClick={() => void load(true)}>Re-plan</button>

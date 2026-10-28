@@ -16,7 +16,9 @@ const g = globalThis as unknown as { __orbitCapsule?: Promise<unknown> };
 const serial = <T>(fn: () => Promise<T>): Promise<T> => { const p = (g.__orbitCapsule ?? Promise.resolve()).catch(() => {}).then(fn); g.__orbitCapsule = p; return p; };
 
 async function loadCfg(): Promise<Config | null> {
-  const j = JSON.parse(await readFile(cfgFile(), "utf8").catch(() => "null")) as Config | null;
+  let j: Config | null;
+  try { j = JSON.parse(await readFile(cfgFile(), "utf8").catch(() => "null")); }
+  catch { throw new Error(`${CONFIG_FILE} is damaged: set the time capsule up again (old backups still open with their own passphrase)`); }
   return j?.dir && j.ring?.wrapped ? j : null;
 }
 async function atomicWrite(file: string, data: string | Buffer) {
@@ -105,7 +107,8 @@ export async function setupCapsule(b: Record<string, unknown>): Promise<string |
   return null;
 }
 
-async function openNamed(name: unknown, pass: unknown) {
+/** Opens one backup in memory (no writes). Also used by the recovery drill. */
+export async function openBackup(name: unknown, pass: unknown) {
   const c = await loadCfg();
   if (!c) throw new Error("Time capsule isn't set up");
   if (typeof name !== "string" || !parseName(name)) throw new Error("Pick a backup");
@@ -116,14 +119,14 @@ async function openNamed(name: unknown, pass: unknown) {
 
 /** What restoring `name` would change (no writes). */
 export async function previewRestore(name: unknown, pass: unknown) {
-  const { c, header, files } = await openNamed(name, pass);
+  const { c, header, files } = await openBackup(name, pass);
   const now = (await currentFiles(Infinity, c.dir)).files;
   return { at: header.at, ...diffManifests(manifest(now), manifest(files)) };
 }
 
 /** Restores `name` over the data dir after a pre-restore safety backup. Files not in the backup are left alone. */
 export const restoreCapsule = (name: unknown, pass: unknown) => serial(async () => {
-  const { c, files } = await openNamed(name, pass);
+  const { c, files } = await openBackup(name, pass);
   const safety = await writeCapsule(c, "pre-restore");
   const root = path.resolve(orbitDataDir());
   for (const f of files) {

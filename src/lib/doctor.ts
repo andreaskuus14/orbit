@@ -219,6 +219,7 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
     guard("life", "LIFE data (habits, reminders)", life),
     guard("vault", "VAULT (your files)", vault),
     guard("facts", "Belief memory", () => facts(sb)),
+    guard("drill", "Last recovery drill", async () => import("./drill-pure.ts").then(async (m) => m.drillCheck(await import("./drill.ts").then((d) => d.lastDrill()), Date.now()))),
     Promise.resolve(latencyCheck(coreTurns)),
     ...(WIN ? [guard("wake", "Voice wake-up", wake)] : []),
     Promise.resolve(envCheck(process.env, ENV_REQUIRED, ENV_OPTIONAL)),

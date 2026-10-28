@@ -6,9 +6,9 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { localDay } from "./morning-pure";
-import { acceptPlan, buildPlan, commitmentItems, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure";
+import { acceptPlan, buildPlan, carryForward, commitmentItems, dayStat, type DayStat, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure";
 
-type Store = { plan?: DayPlan; order?: string[]; commitments: Commitment[] };
+type Store = { plan?: DayPlan; prev?: DayPlan; order?: string[]; commitments: Commitment[]; history?: DayStat[] };
 const file = () => path.join(orbitDataDir(), "dayplan.json");
 const load = async (): Promise<Store> => { try { const j = JSON.parse(await readFile(file(), "utf8")); return { ...j, commitments: Array.isArray(j?.commitments) ? j.commitments : [] }; } catch { return { commitments: [] }; } };
 let saving: Promise<unknown> = Promise.resolve();
@@ -61,8 +61,12 @@ export async function planDay(sb: SupabaseClient | null, userId: string | null, 
   const s = await load();
   if (!opts.fresh && s.plan?.day === day && s.plan.accepted) return s.plan;
   const order = s.plan?.day === day ? s.order ?? [] : [];
-  const plan = buildPlan(await gather(sb, userId, now), { day, now: d.getHours() * 60 + d.getMinutes() }, order);
-  await update((x) => { x.plan = plan; x.order = order; });
+  const newDay = !!s.plan && s.plan.day !== day, prev = newDay ? s.plan : s.prev, stat = newDay ? dayStat(s.plan!) : null;
+  const history = [...(s.history ?? []), ...(stat ? [stat] : [])].slice(-14);
+  const max = Number(process.env.ORBIT_MAX_PLANNED_HOURS);
+  const plan = buildPlan(carryForward(await gather(sb, userId, now), prev, day), { day, now: d.getHours() * 60 + d.getMinutes(), history,
+    ...(max > 0 && max <= 16 && { maxPlanned: Math.round(max * 60) }) }, order);
+  await update((x) => { x.plan = plan; x.order = order; x.prev = prev; x.history = history; });
   return plan;
 }
 
