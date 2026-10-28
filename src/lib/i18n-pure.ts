@@ -68,6 +68,9 @@ const BASE = {
   "profile.news_topics": "Preferred news topics", "profile.research_priorities": "Research priorities", "profile.comma": "(comma separated)",
   "profile.talk": "How CORE should talk to you", "profile.save": "Save profile", "profile.saved": "Saved.",
   "profile.password": "Sign-in password", "profile.autonomy": "Autonomy", "profile.phone": "Phone remote",
+  "trust.title": "Suggestions from your approvals", "trust.line": "You approved {approved} of {total} {kind} this month. Let ORBIT do these on its own?",
+  "trust.change": "{area}: Ask → Do & report. Nothing is sent, published or spent without your click.", "trust.accept": "Accept", "trust.later": "Not now",
+  "trust.kind.save_memory": "memory saves", "trust.kind.memory.hygiene": "memory merge and retract suggestions", "trust.kind.add_task": "follow-up agent tasks",
   "profile.persona": "ORBIT's character", "profile.playbook": "How CORE has adapted", "profile.lessons": "What I learned about you",
 
   "remote.title": "ORBITAL REMOTE", "remote.connecting": "Connecting…", "remote.unreachable": "Can't reach ORBIT: is the PC on and Tailscale connected?",
@@ -200,6 +203,11 @@ const BASE = {
   "night.stop.budget": "Tonight's budget was used up",
   "night.noun.goal": "goal steps", "night.noun.business": "business drafts", "night.noun.clips": "Shorts packaging", "night.noun.niche": "niche scouts",
   "night.noun.deals": "deal hunts", "night.noun.personas": "persona playtests",
+  "nightplan.why.house": "Nightly upkeep", "nightplan.why.ask": "You asked for this", "nightplan.why.askOld": "You asked {d} days ago",
+  "nightplan.why.due": "Due on its own schedule", "nightplan.why.pinned": "You set this to Always", "nightplan.why.learned": "You approved most of these lately",
+  "nightplan.why.stalled": "Stalled for {d} days", "nightplan.why.deadline": "Deadline in {d} days", "nightplan.why.noReply": "No reply for {d} days",
+  "nightplan.why.rule": "Your rule “{name}” runs soon", "nightplan.whyTonight": "Why tonight: {x}", "nightplan.overnight": "Overnight: {x}",
+  "nightplan.k.drafts": "drafts waiting", "nightplan.k.tasks": "tasks done", "nightplan.k.steps": "goal steps", "nightplan.k.memories": "memories", "nightplan.k.loops": "open loops",
 
   "ops.memory": "memory", "ops.tab.tasks": "Tasks & projects", "ops.tab.automations": "Automations", "ops.tab.rules": "Rules",
   "ops.tab.activity": "Activity", "ops.newTask": "New task",
@@ -618,6 +626,9 @@ export const ET: Partial<Record<Key, string>> = {
   "profile.news_topics": "Eelistatud uudisteemad", "profile.research_priorities": "Uurimise prioriteedid", "profile.comma": "(komadega eraldatud)",
   "profile.talk": "Kuidas CORE peaks sinuga rääkima", "profile.save": "Salvesta profiil", "profile.saved": "Salvestatud.",
   "profile.password": "Sisselogimise parool", "profile.autonomy": "Iseseisvus", "profile.phone": "Telefonipult",
+  "trust.title": "Soovitused sinu kinnituste põhjal", "trust.line": "Sel kuul kinnitasid {total}-st {approved} ({kind}). Kas ORBIT võib neid edaspidi ise teha?",
+  "trust.change": "{area}: Küsi → Tee ja teata. Midagi ei saadeta, avaldata ega kulutata ilma sinu klõpsuta.", "trust.accept": "Nõustu", "trust.later": "Mitte praegu",
+  "trust.kind.save_memory": "mälukirjete salvestamine", "trust.kind.memory.hygiene": "mälukirjete ühendamise ja tagasivõtmise soovitused", "trust.kind.add_task": "agendi järelülesanded",
   "profile.persona": "ORBITi iseloom", "profile.playbook": "Kuidas CORE on kohanenud", "profile.lessons": "Mida ma sinust õppisin",
 
   "remote.title": "ORBITALI PULT", "remote.connecting": "Ühendan…", "remote.unreachable": "ORBIT ei vasta: kas arvuti on sees ja Tailscale ühendatud?",
@@ -749,6 +760,11 @@ export const ET: Partial<Record<Key, string>> = {
   "night.stop.budget": "Tänase öö eelarve sai otsa",
   "night.noun.goal": "eesmärkide sammud", "night.noun.business": "äri mustandid", "night.noun.clips": "Shortside pakendamine", "night.noun.niche": "nišiuuringud",
   "night.noun.deals": "pakkumiste jaht", "night.noun.personas": "persona mängutestid",
+  "nightplan.why.house": "Igaöine hooldus", "nightplan.why.ask": "Sa palusid seda", "nightplan.why.askOld": "Sa palusid seda {d} päeva tagasi",
+  "nightplan.why.due": "Ajakava järgi käes", "nightplan.why.pinned": "Sa panid selle olekusse Alati", "nightplan.why.learned": "Viimasel ajal kinnitasid enamiku neist",
+  "nightplan.why.stalled": "Seisnud {d} päeva", "nightplan.why.deadline": "Tähtaeg {d} päeva pärast", "nightplan.why.noReply": "Vastust pole {d} päeva",
+  "nightplan.why.rule": "Sinu reegel „{name}“ käivitub varsti", "nightplan.whyTonight": "Miks täna öösel: {x}", "nightplan.overnight": "Öösel: {x}",
+  "nightplan.k.drafts": "ootel mustandid", "nightplan.k.tasks": "tehtud ülesanded", "nightplan.k.steps": "eesmärkide sammud", "nightplan.k.memories": "mälestused", "nightplan.k.loops": "lahtised otsad",
   "rules.runNow": "Käivita kohe", "rules.skipped.one": "{n} sündmus jäeti täna vahele (piir {max} käivitust päevas)", "rules.skipped.other": "{n} sündmust jäeti täna vahele (piir {max} käivitust päevas)",
 
   "ops.memory": "mälukirje", "ops.tab.tasks": "Ülesanded ja projektid", "ops.tab.automations": "Automatiseeringud", "ops.tab.rules": "Reeglid",
