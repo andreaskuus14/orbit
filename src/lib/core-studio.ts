@@ -1,6 +1,13 @@
 import type { ClipJob, Download } from "./clips/types";
 import type { Batch } from "./clips/publish-schedule";
 import type { Insights } from "./clips/learn-pure";
+import { et, etQuestion } from "./et-ask-pure.ts";
+const RUN_ET = "(?:käivita|alusta|tee|värskenda|korda)\\s+(?:uus\\s+|uuesti\\s+)?";
+const ACTION_ET = {
+  run_scout: et(`${RUN_ET}skaut`), run_niche: et(`${RUN_ET}niš|leia (?:mulle )?(?:uus )?niš`),
+  schedule_approved: et("ajasta (?:minu|kõik|need|nad|kinnitatud|heakskiidetud)"),
+  plan_task: et("(?:tee|loo|lõika|renderda)[^.?!]{0,80}(?:klipp|klippe|klipi|lühivideo|shorts)"),
+};
 
 // CORE's STUDIO tools: run the clip channel by voice. The clip modules are imported lazily so the pure parts here
 // (formatter, action guard) load in tests without the server-side factory.
@@ -23,7 +30,7 @@ const ACTION_WORDS: Record<"run_scout" | "run_niche" | "schedule_approved" | "pl
 export function actionBlocked(tool: StudioTool | "plan_task", question: string, tainted: boolean): string {
   if (!(tool in ACTION_WORDS)) return "";
   if (tainted) return "only call studio actions as your first tool (navigate aside), for the user's own request";
-  if (QUESTION.test(question) || !ACTION_WORDS[tool as keyof typeof ACTION_WORDS].test(question)) return "only when the user tells you to do it in their latest message; ask them to say it (e.g. \"run the scout\", \"schedule my approved clips\")";
+  if (QUESTION.test(question) || etQuestion(question) || !(ACTION_WORDS[tool as keyof typeof ACTION_WORDS].test(question) || ACTION_ET[tool as keyof typeof ACTION_ET].test(question))) return "only when the user tells you to do it in their latest message; ask them to say it (e.g. \"run the scout\", \"schedule my approved clips\")";
   return "";
 }
 
