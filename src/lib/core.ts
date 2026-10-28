@@ -215,14 +215,79 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
   const deepNote = 'DEEP MODE (a hard request): write "thought" before "final" and in it privately plan first — the steps, the constraints, what could go wrong (it is never shown). Then give a complete, well-structured, correct "final".\n\n';
   const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
   let answer = "";
+  const voiceNote = typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you: only the FIRST paragraph of \"final\" is read aloud. Make it a 1-3 sentence conversational summary (no lists, headings or links). Brevity applies only to that summary, never to the work: do every step the request needs, and when it needs more (a plan, a draft, results, steps), put the complete result below the summary after a blank line; it stays on screen.\n\n" : "";
+  const policyCtx = () => ({ stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels() });
+  // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
+  const exec = async (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[]) => tool === "navigate" ? navigateTool(input, onNavigate)
+    // module tools (core-modules.ts) keep their own explicit-ask guards as a second check
+    : isModuleTool(tool) ? await runModuleTool(tool, input, { sb, userId, question, tainted: dataIn(), pinned: !!attach || pinsIn, steps, onEvidence: (e) => evidence.push(e) })
+    : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e));
+  const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number) => {
+    evalTools.push({ tool, input, output: out.slice(0, 8000), evidence });
+    trace.push({ step: tool, detail: `${JSON.stringify(input).slice(0, 140)} → ${out.slice(0, 140)}`, ms, ok: !out.startsWith("Error:"), ...(evidence.length ? { evidence } : {}) });
+    if (LOGGED.includes(tool) && !out.startsWith("Error:")) logActivity({ area: "core", title: `CORE ${tool}: ${activityLine(tool, out)}` }); // no inputs: memory / reminder / file text stays out of the log
+  };
+  // A failed model call: true = redo it (session dropped, --effort dropped, or fast/deep → main model); throws when there is no fallback.
+  const recover = (e: unknown, effort?: string) => {
+    if (signal?.aborted) throw e; // a Stop still ends the turn
+    if (sess) {
+      // Session failed (expired, lost, unsupported): drop it and redo this step statelessly, with a visible note.
+      if (sessionKey) coreSessions.delete(sessionKey);
+      sess = null; onReset?.();
+      trace.push({ step: "fallback", detail: `session → stateless (${String(e instanceof Error ? e.message : e).slice(0, 120)})`, ms: 0, ok: false });
+      return true;
+    }
+    if (tier === "smart") throw e;
+    onReset?.();
+    if (tier === "deep" && effort && /effort/i.test(e instanceof Error ? e.message : String(e))) {
+      // An older CLI without --effort: drop the flag for good and retry this step once on the deep model.
+      deepFlags.effort = "";
+      trace.push({ step: "fallback", detail: "--effort not supported by this Claude Code; retrying without it", ms: 0, ok: false });
+      return true;
+    }
+    // Fast/deep model unavailable or failed: redo this step on the main model.
+    if (tier === "deep") trace.push({ step: "fallback", detail: `deep → main model (${String(e instanceof Error ? e.message : e).slice(0, 120)})`, ms: 0, ok: false });
+    tier = "smart"; return true;
+  };
+  // Deep: one self-check pass on the same context, with no tools: it can only rewrite the draft.
+  const review = async () => {
+    if (tier !== "deep" || !answer || deepLeft() <= 45_000) return;
+    onReset?.(); // the streamed draft clears; the checked answer arrives with "done"
+    onStep?.("review", {});
+    t = Date.now();
+    // Tool results first, so the review's context cap cuts memories rather than fresh results.
+    const ctxText = `${steps.length ? `TOOL RESULTS:\n${steps.join("\n\n")}\n\n` : ""}${prompt}`;
+    const rv = await reviewDraft(question, answer, ctxText, { lane: "foreground", signal, model: DEEP_MODEL, timeoutMs: Math.min(120_000, deepLeft() - 10_000), onUsage: (rr) => recordUsage(sb, userId, "core.review", rr, DEEP_MODEL) });
+    answer = rv.text;
+    if (rv.reviewed) trace.push({ step: "review", detail: `${DEEP_MODEL} · self-checked`, ms: Date.now() - t, ok: true });
+  };
   try {
-    // ORBIT_CORE_ENGINE=sdk: prototype turn through the Claude Agent SDK, same prompt and decide() gate (core-sdk.ts, docs/AGENT-SDK.md)
-    if (CORE_ENGINE === "sdk") answer = await (await import("./core-sdk")).sdkTurn({ sb, userId, system, prompt: `${(prompt = await prep)}\n\n${CORE_LANG_RULE[lang]}`, question, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort: tier === "deep" ? deepFlags.effort || undefined : undefined, maxTurns: MAX_STEPS, policy: () => ({ stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels() }), attachBlock: attach?.block ?? "", steps, trace, signal, onDelta: sendDelta, onReset, onStep });
+    // ORBIT_CORE_ENGINE=sdk: the turn runs through the Claude Agent SDK with every CORE tool behind the same decide() gate (core-sdk.ts, docs/AGENT-SDK.md)
+    if (CORE_ENGINE === "sdk") {
+      const sdk = await import("./core-sdk");
+      prompt = await prep;
+      for (;;) {
+        signal?.throwIfAborted();
+        onStep?.("think", {});
+        if (tier === "deep" && deepLeft() - 60_000 < 30_000) { tier = "smart"; trace.push({ step: "fallback", detail: "deep → main model (time limit)", ms: 0, ok: false }); }
+        const effort = tier === "deep" ? deepFlags.effort || undefined : undefined;
+        // A redo after tools already ran carries their results, so writes aren't repeated.
+        const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote.replace(/"final"/g, "your answer")}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}`;
+        try {
+          const r = await sdk.sdkTurn({ sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: MAX_STEPS, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", exec, record, onDelta: sendDelta, onReset, onStep });
+          if (r.escalated) { onReset?.(); tier = "smart"; continue; } // as the loop: a fast-model tool call is redone on the main model
+          if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
+          answer = r.text;
+          break;
+        } catch (e) { recover(e, effort); }
+      }
+      await review();
+    }
     else for (let step = 0; step < MAX_STEPS; step++) {
       const last = step === MAX_STEPS - 1 || (step > 0 && deepLeft() < 90_000); // out of steps or turn time: answer now
       signal?.throwIfAborted();
       onStep?.("think", {});
-      const tail = `\n\n${CORE_LANG_RULE[lang]}${typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you: only the FIRST paragraph of \"final\" is read aloud. Make it a 1-3 sentence conversational summary (no lists, headings or links). Brevity applies only to that summary, never to the work: do every step the request needs, and when it needs more (a plan, a draft, results, steps), put the complete result below the summary after a blank line; it stays on screen.\n\n" : ""}${tier === "deep" ? deepNote : ""}${(sess ? steps.slice(sessSeen) : steps).length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${(sess ? steps.slice(sessSeen) : steps).join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
+      const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote}${tier === "deep" ? deepNote : ""}${(sess ? steps.slice(sessSeen) : steps).length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${(sess ? steps.slice(sessSeen) : steps).join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
       const sessNow = sess, sentNow = sessSent;
       const ask = (prompt ? Promise.resolve(prompt) : prep.then((p) => (prompt = p))).then((p) => sessNow ? sessionInput(p, transcriptHolder.text, sessNow.resume, sentNow) + tail : p + tail);
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
@@ -245,27 +310,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       } else {
         r = await askClaude(ask, system, { lane: "foreground", signal, model, images: attach?.images, effort, timeoutMs, session: sess ?? undefined });
       }
-      } catch (e) {
-        if (signal?.aborted) throw e; // a Stop still ends the turn
-        if (sess) {
-          // Session failed (expired, lost, unsupported): drop it and redo this step statelessly, with a visible note.
-          if (sessionKey) coreSessions.delete(sessionKey);
-          sess = null; onReset?.();
-          trace.push({ step: "fallback", detail: `session → stateless (${String(e instanceof Error ? e.message : e).slice(0, 120)})`, ms: 0, ok: false });
-          step--; continue;
-        }
-        if (tier === "smart") throw e;
-        onReset?.();
-        if (tier === "deep" && effort && /effort/i.test(e instanceof Error ? e.message : String(e))) {
-          // An older CLI without --effort: drop the flag for good and retry this step once on the deep model.
-          deepFlags.effort = "";
-          trace.push({ step: "fallback", detail: "--effort not supported by this Claude Code; retrying without it", ms: 0, ok: false });
-          step--; continue;
-        }
-        // Fast/deep model unavailable or failed: redo this step on the main model.
-        if (tier === "deep") trace.push({ step: "fallback", detail: `deep → main model (${String(e instanceof Error ? e.message : e).slice(0, 120)})`, ms: 0, ok: false });
-        tier = "smart"; step--; continue;
-      }
+      } catch (e) { recover(e, effort); step--; continue; }
       if (sess && !r.local) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
       await recordUsage(sb, userId, "core.chat", r, r.local ? "local" : model);
       // Offline brain (claude.ts): no tools, so its reply is always the answer; the "local" trace step shows the badge.
@@ -279,17 +324,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
         answer = reply.final ?? (reply.tool ? "" : r.text); // a tool call on the last step is never shown as the answer
         // Deep: unparsed JSON (e.g. a cut-off envelope holding the private plan) shows only its decoded "final", if any.
         if (tier === "deep" && answer === r.text && /^\s*[{`]/.test(r.text)) answer = partialAnswer(r.text) ?? "";
-        if (tier === "deep" && answer && deepLeft() > 45_000) {
-          // One self-check pass on the same context, with no tools: it can only rewrite the draft.
-          onReset?.(); // the streamed draft clears; the checked answer arrives with "done"
-          onStep?.("review", {});
-          t = Date.now();
-          // Tool results first, so the review's context cap cuts memories rather than fresh results.
-          const ctxText = `${steps.length ? `TOOL RESULTS:\n${steps.join("\n\n")}\n\n` : ""}${prompt}`;
-          const rv = await reviewDraft(question, answer, ctxText, { lane: "foreground", signal, model: DEEP_MODEL, timeoutMs: Math.min(120_000, deepLeft() - 10_000), onUsage: (rr) => recordUsage(sb, userId, "core.review", rr, DEEP_MODEL) });
-          answer = rv.text;
-          if (rv.reviewed) trace.push({ step: "review", detail: `${DEEP_MODEL} · self-checked`, ms: Date.now() - t, ok: true });
-        }
+        await review();
         break;
       }
 
@@ -300,17 +335,12 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
       const evidence: WriteEvidence[] = [];
       // Every tool call passes policy first (policy-pure.ts: Stop-all, navigate-first, attachment/private/link taint, explicit asks,
       // T3 only behind an owner approval path). T2/T3 verdicts go to the ledger: tool, tier, verdict, reason; never inputs.
-      const verdict = skillDenied(reply.tool, attach?.block ?? "") ?? decide(reply.tool, reply.input ?? {}, { stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, steps, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels() });
+      const verdict = skillDenied(reply.tool, attach?.block ?? "") ?? decide(reply.tool, reply.input ?? {}, { ...policyCtx(), steps });
       const policyRow = policyEvent(reply.tool, verdict);
       if (policyRow) void emit(sb, userId, "policy.decision", "core", policyRow); // never throws
-      try { out = !verdict.allow ? `Error: ${verdict.reason}` : (reply.tool === "navigate" ? navigateTool(reply.input ?? {}, onNavigate)
-        // module tools (core-modules.ts) keep their own explicit-ask guards as a second check
-        : isModuleTool(reply.tool) ? await runModuleTool(reply.tool, reply.input ?? {}, { sb, userId, question, tainted: dataIn(), pinned: !!attach || pinsIn, steps, onEvidence: (e) => evidence.push(e) })
-        : await runCoreTool(sb, userId, reply.tool, reply.input ?? {}, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e))); }
+      try { out = !verdict.allow ? `Error: ${verdict.reason}` : await exec(reply.tool, reply.input ?? {}, evidence); }
       catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
-      evalTools.push({ tool: reply.tool, input: reply.input ?? {}, output: out.slice(0, 8000), evidence });
-      trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 140)} → ${out.slice(0, 140)}`, ms: Date.now() - t, ok: !out.startsWith("Error:"), ...(evidence.length ? { evidence } : {}) });
-      if (LOGGED.includes(reply.tool) && !out.startsWith("Error:")) logActivity({ area: "core", title: `CORE ${reply.tool}: ${activityLine(reply.tool, out)}` }); // no inputs: memory / reminder / file text stays out of the log
+      record(reply.tool, reply.input ?? {}, out, evidence, Date.now() - t);
       steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${out.slice(0, 8000)}`);
     }
   } catch (e) {

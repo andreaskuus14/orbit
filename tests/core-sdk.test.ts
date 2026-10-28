@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { authMode, gated, serial, nativeSystem, orbitName, readMessage, sdkName, sdkOptions, stepLine, toolResult, SDK_TOOLS } from "../src/lib/core-sdk-pure.ts";
+import { readFileSync } from "node:fs";
+import { authMode, gated, serial, nativeSystem, orbitName, readMessage, sdkFailure, sdkName, sdkOptions, sdkSession, sdkTools, stepLine, toolResult, userMessage, CORE_BUILTINS } from "../src/lib/core-sdk-pure.ts";
 import { TIERS, type PolicyCtx } from "../src/lib/policy-pure.ts";
+import { describeFailure } from "../src/lib/core-capability-pure.ts";
+import { STUDIO_TOOLS } from "../src/lib/core-studio.ts";
+import { LIFE_TOOLS } from "../src/lib/core-life.ts";
+import { WS_TOOLS } from "../src/lib/core-workspace.ts";
+import { REA_TOOLS } from "../src/lib/rea-pure.ts";
 
 const base = (o: Partial<PolicyCtx> = {}) => () => ({ stopAll: false, attach: false, pins: false, question: "news about estonia", ...o });
 
@@ -12,8 +18,64 @@ test("tool names round-trip through the SDK's mcp__orbit__ prefix; built-ins and
   assert.equal(orbitName("mcp__other__read_news"), null);
 });
 
-test("the prototype's tools are all read-only (T0/T1)", () => {
-  for (const t of SDK_TOOLS) assert.match(TIERS[t], /^T[01]$/, t);
+// core-modules.ts can't load under node --test, so its MODULES tool lists are read from source (spreads resolved from the pure lists).
+const SPREADS: Record<string, readonly string[]> = { STUDIO_TOOLS, LIFE_TOOLS, WS_TOOLS, REA_TOOLS };
+const moduleTools = [...readFileSync("src/lib/core-modules.ts", "utf8").matchAll(/\btools: \[([^\]]*)\]/g)].flatMap((m) =>
+  m[1].split(",").map((x) => x.trim()).filter(Boolean).flatMap((x) => (x.startsWith("...") ? [...SPREADS[x.slice(3)]] : [JSON.parse(x) as string])));
+const coreSrc = readFileSync("src/lib/core.ts", "utf8");
+
+test("tool parity: the SDK server registers exactly the tools core.ts's loop can dispatch", () => {
+  // core.ts's own tools: its TOOLS prompt section and the names its dispatch (navigateTool / runCoreTool) handles
+  const prompted = [...coreSrc.slice(coreSrc.indexOf("\nTOOLS:\n"), coreSrc.indexOf("User profile (stated")).matchAll(/^- (\w+) \{/gm)].map((m) => m[1]);
+  const dispatched = ["navigate", ...[...coreSrc.slice(coreSrc.indexOf("async function runCoreTool")).matchAll(/tool === "(\w+)"/g)].map((m) => m[1])];
+  assert.match(coreSrc, /const exec = [^\n]*tool === "navigate" \? navigateTool/); // exec: navigate, then modules, then runCoreTool
+  assert.deepEqual([...CORE_BUILTINS].sort(), prompted.sort());
+  assert.deepEqual([...CORE_BUILTINS].sort(), dispatched.sort());
+  assert.ok(moduleTools.length > 30 && moduleTools.includes("goal_status") && moduleTools.includes("rea_cancel"));
+  const tools = sdkTools(moduleTools);
+  assert.deepEqual([...tools].sort(), [...new Set([...CORE_BUILTINS, ...moduleTools])].sort()); // every CORE tool, none extra
+  assert.deepEqual([...tools].sort(), Object.keys(TIERS).sort()); // and exactly the tools decide() has a tier for
+  assert.deepEqual(sdkOptions({ model: "m", system: "s", server: {}, tools, maxTurns: 8, cwd: "/" }).allowedTools, tools.map(sdkName));
+});
+
+test("gated: a consequential tool runs only on the user's own ask, and never under Stop-all", async () => {
+  let ran = 0;
+  const run = async () => { ran++; return "Goal drafted."; };
+  const steps: string[] = [];
+  assert.match((await gated("create_goal", { title: "1000 subs" }, base({ question: "how are my goals?" }), steps, run)).out, /^Error: /);
+  assert.match((await gated("schedule_approved", {}, base({ question: "what's new?" }), steps, run)).out, /^Error: /);
+  assert.match((await gated("create_goal", { title: "1000 subs" }, base({ question: "set a goal to reach 1000 subscribers", stopAll: true }), [], run)).out, /^Error: /);
+  assert.equal(ran, 0);
+  const ok = await gated("create_goal", { title: "1000 subs" }, base({ question: "set a goal to reach 1000 subscribers" }), [], run);
+  assert.equal(ok.out, "Goal drafted.");
+  assert.equal(ok.verdict.tier, "T2");
+  assert.equal(ran, 1);
+});
+
+test("errors: SDK failures read as the same plain messages as the CLI path", () => {
+  assert.deepEqual(readMessage({ type: "assistant", error: "rate_limit" }), { error: "rate_limit" });
+  assert.match(describeFailure(sdkFailure("rate_limit", ["error_during_execution", "resets 5pm"])), /^Claude usage limit reached, so CORE could not answer\. resets 5pm/);
+  assert.match(describeFailure(sdkFailure("authentication_failed", ["error_during_execution"])), /^Claude login expired or missing/);
+  assert.match(describeFailure(sdkFailure("oauth_org_not_allowed", [])), /^Claude login expired or missing/);
+  assert.match(describeFailure(sdkFailure(undefined, ["You've hit your limit · resets 3am"])), /^Claude usage limit reached/);
+  assert.equal(sdkFailure(undefined, ["error_max_turns", ""]), "error_max_turns");
+  assert.equal(sdkFailure(undefined, []), "agent sdk error");
+});
+
+test("sessions: ORBIT's chat session maps to sessionId on the first turn and resume after", () => {
+  assert.deepEqual(sdkSession(), { persistSession: false });
+  assert.deepEqual(sdkSession({ id: "u-1", resume: false }), { sessionId: "u-1", persistSession: true });
+  assert.deepEqual(sdkSession({ id: "u-1", resume: true }), { resume: "u-1", persistSession: true });
+  const o = sdkOptions({ model: "m", system: "s", server: {}, tools: [], maxTurns: 8, cwd: "/", session: { id: "u-1", resume: true } });
+  assert.equal(o.resume, "u-1");
+  assert.equal("sessionId" in o, false);
+});
+
+test("images: one SDK user message with the image blocks before the text, as the CLI path sends", () => {
+  const m = userMessage("what is this?", [{ type: "image/png", data: new Uint8Array([1, 2]) }]);
+  assert.equal(m.type, "user");
+  assert.equal(m.parent_tool_use_id, null);
+  assert.deepEqual(m.message.content, [{ type: "image", source: { type: "base64", media_type: "image/png", data: "AQI=" } }, { type: "text", text: "what is this?" }]);
 });
 
 test("tool results: Error: text becomes isError, long output is capped like core.ts", () => {
@@ -63,16 +125,16 @@ test("nativeSystem swaps the JSON envelope for native tool calls and keeps the r
 });
 
 test("sdkOptions: no built-in tools, no settings from disk, only our server, deny anything not pre-approved", () => {
-  const o = sdkOptions({ model: "sonnet", system: "s", server: { x: 1 }, maxTurns: 8, cwd: "/tmp/x" });
+  const o = sdkOptions({ model: "sonnet", system: "s", server: { x: 1 }, tools: ["fetch_url"], maxTurns: 8, cwd: "/tmp/x" });
   assert.deepEqual(o.tools, []);
   assert.deepEqual(o.settingSources, []);
   assert.equal(o.strictMcpConfig, true);
   assert.deepEqual(Object.keys(o.mcpServers), ["orbit"]);
   assert.equal(o.permissionMode, "dontAsk");
-  assert.deepEqual(o.allowedTools, SDK_TOOLS.map(sdkName));
+  assert.deepEqual(o.allowedTools, ["mcp__orbit__fetch_url"]);
   assert.equal(o.persistSession, false);
   assert.equal("effort" in o, false);
-  assert.equal(sdkOptions({ model: "opus", system: "s", server: {}, maxTurns: 8, cwd: "/", effort: "high" }).effort, "high");
+  assert.equal(sdkOptions({ model: "opus", system: "s", server: {}, tools: [], maxTurns: 8, cwd: "/", effort: "high" }).effort, "high");
 });
 
 test("readMessage: top-level text deltas stream; subagent deltas and other events don't", () => {
