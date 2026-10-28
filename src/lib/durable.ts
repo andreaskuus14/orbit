@@ -4,7 +4,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CliSession } from "./claude";
 import { orbitDataDir } from "./data-dir.ts";
-import { REPLAY_MAX, capSessions, liveSession, parseCursors, parseSessions, replaySince, takeNew, type Cursors, type StoredSession } from "./durable-pure.ts";
+import { TICK_MAX, capSessions, liveSession, parseCursors, parseSessions, replaySince, takeNew, type Cursors, type StoredSession } from "./durable-pure.ts";
 
 // Small state that must survive a restart (review finding 6), in <ORBIT data dir>:
 // core-sessions.json (CORE chat id → Claude CLI session) and event-cursors.json (events-feed consumer → last processed id).
@@ -67,7 +67,7 @@ async function setCursor(consumer: string, id: number) {
 export type EventRow = { id: number; user_id: string; type: string; payload: unknown };
 
 /** New events of `types` for one consumer, each returned once across restarts. First run ever starts at the newest event;
- *  after downtime it replays from the saved cursor, but only the last 24 h and the newest REPLAY_MAX of them.
+ *  after downtime it replays from the saved cursor, but only the last 24 h. At most TICK_MAX per call, oldest first.
  *  The cursor is saved before the caller acts, so a crash mid-batch skips those events rather than running them twice. */
 export async function claimEvents(sb: SupabaseClient, consumer: string, types: string[], now = Date.now()): Promise<EventRow[]> {
   const cur = getCursor(consumer);
@@ -77,9 +77,8 @@ export async function claimEvents(sb: SupabaseClient, consumer: string, types: s
     await setCursor(consumer, data?.[0]?.id ?? 0);
     return [];
   }
-  // Newest first so the cap keeps the most recent; takeNew puts them back in order.
   const { data, error } = await sb.from("events").select("id, user_id, type, payload").gt("id", cur).in("type", types)
-    .gte("created_at", replaySince(now)).order("id", { ascending: false }).limit(REPLAY_MAX);
+    .gte("created_at", replaySince(now)).order("id").limit(TICK_MAX);
   if (error) throw error;
   const { fresh, next } = takeNew(cur, (data ?? []) as EventRow[]);
   if (next !== cur) await setCursor(consumer, next);

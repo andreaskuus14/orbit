@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { MAX_SESSIONS, REPLAY_MAX, REPLAY_WINDOW, SESSION_MAX_AGE, capSessions, liveSession, parseCursors, parseSessions, takeNew } from "../src/lib/durable-pure.ts";
+import { MAX_SESSIONS, REPLAY_WINDOW, TICK_MAX, SESSION_MAX_AGE, capSessions, liveSession, parseCursors, parseSessions, takeNew } from "../src/lib/durable-pure.ts";
 
 process.env.ORBIT_DATA_DIR = await mkdtemp(path.join(tmpdir(), "orbit-durable-"));
 const { coreSessionStore, claimEvents, clearCursor, getCursor } = await import("../src/lib/durable.ts");
@@ -50,13 +50,14 @@ test("parseCursors drops bad values", () => {
   assert.deepEqual(parseCursors(null), {});
 });
 
-test("takeNew: drops processed and duplicate ids, orders, caps to the newest", () => {
+test("takeNew: drops processed and duplicate ids, orders, takes the oldest up to the cap", () => {
   const r = takeNew(10, [{ id: 13 }, { id: 9 }, { id: 11 }, { id: 13 }, { id: 10 }]);
   assert.deepEqual(r.fresh.map((e) => e.id), [11, 13]);
   assert.equal(r.next, 13);
   assert.deepEqual(takeNew(10, []), { fresh: [], next: 10 });
   const capped = takeNew(0, Array.from({ length: 20 }, (_, i) => ({ id: i + 1 })), 5);
-  assert.deepEqual(capped.fresh.map((e) => e.id), [16, 17, 18, 19, 20]);
+  assert.deepEqual(capped.fresh.map((e) => e.id), [1, 2, 3, 4, 5]);
+  assert.equal(capped.next, 5); // the rest carries to the next call
 });
 
 // A tiny stand-in for the Supabase query builder over an in-memory events table.
@@ -69,7 +70,7 @@ function fakeSb(rows: Ev[]) {
       gt: (_c: string, v: number) => { out = out.filter((r) => r.id > v); return b; },
       gte: (_c: string, v: string) => { out = out.filter((r) => r.created_at >= v); return b; },
       in: (_c: string, v: string[]) => { out = out.filter((r) => v.includes(r.type)); return b; },
-      order: (_c: string, o: { ascending: boolean }) => { out.sort((a, z) => (o.ascending ? a.id - z.id : z.id - a.id)); return b; },
+      order: (_c: string, o?: { ascending: boolean }) => { out.sort((a, z) => (o?.ascending ?? true ? a.id - z.id : z.id - a.id)); return b; },
       limit: (k: number) => { n = k; return b; },
       then: (ok: (v: { data: Ev[]; error: null }) => unknown) => Promise.resolve({ data: out.slice(0, n), error: null }).then(ok),
     };
@@ -96,17 +97,31 @@ test("events during downtime are processed exactly once, across restarts", async
   assert.equal(saved.t1, 7);
 });
 
-test("replay is capped to the last 24 h and the newest REPLAY_MAX events", async () => {
+test("a busy tick never drops events: 700 at once are handled over 4 ticks, none twice", async () => {
   const rows = [ev(1)];
   const sb = fakeSb(rows);
   await claimEvents(sb, "t2", ["memory.created"], NOW);
-  rows.push(ev(2, REPLAY_WINDOW + 1000)); // older than the window: stale, skipped
-  for (let i = 3; i < 3 + REPLAY_MAX + 50; i++) rows.push(ev(i));
+  for (let i = 2; i < 702; i++) rows.push(ev(i));
+  const seen: number[] = []; let ticks = 0;
+  for (;;) {
+    const got = await claimEvents(sb, "t2", ["memory.created"], NOW);
+    if (!got.length) break;
+    assert.ok(got.length <= TICK_MAX);
+    seen.push(...got.map((e) => e.id)); ticks++;
+    if (ticks === 2) await restart(); // a restart mid-backlog carries on from the saved cursor
+  }
+  assert.equal(ticks, 4);
+  assert.deepEqual(seen, Array.from({ length: 700 }, (_, i) => i + 2));
+});
+
+test("downtime replay is bounded to the last 24 h", async () => {
+  const rows = [ev(1)];
+  const sb = fakeSb(rows);
+  await claimEvents(sb, "t4", ["memory.created"], NOW);
+  rows.push(ev(2, REPLAY_WINDOW + 1000), ev(3, REPLAY_WINDOW + 10), ev(4)); // two older than the window: stale, skipped
   await restart();
-  const got = await claimEvents(sb, "t2", ["memory.created"], NOW);
-  assert.equal(got.length, REPLAY_MAX);
-  assert.equal(got[0].id, 3 + 50);
-  assert.equal(got.at(-1)!.id, 2 + REPLAY_MAX + 50);
+  assert.deepEqual((await claimEvents(sb, "t4", ["memory.created"], NOW)).map((e) => e.id), [4]);
+  assert.deepEqual(await claimEvents(sb, "t4", ["memory.created"], NOW), []);
 });
 
 test("clearCursor: a consumer with no listeners restarts from the newest event", async () => {

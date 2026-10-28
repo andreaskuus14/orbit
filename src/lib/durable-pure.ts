@@ -32,7 +32,7 @@ export const liveSession = (m: Record<string, StoredSession>, key: string, now: 
 
 /** Event consumers' positions in the events feed: consumer name → last processed event id. Ids only grow, so the id is the dedupe. */
 export type Cursors = Record<string, number>;
-export const REPLAY_MAX = 500;
+export const TICK_MAX = 200; // events per tick; the rest carry to the next tick
 export const REPLAY_WINDOW = 86_400_000; // 24 h: older missed events are stale, not worth acting on
 
 export function parseCursors(raw: unknown): Cursors {
@@ -45,9 +45,10 @@ export function parseCursors(raw: unknown): Cursors {
 /** Oldest created_at a restart replays from (ISO). */
 export const replaySince = (now: number) => new Date(now - REPLAY_WINDOW).toISOString();
 
-/** Rows read after `cursor` (any order, maybe overlapping or repeated) → the ones not yet processed, oldest first, capped to the
- *  newest `max`, plus the cursor to save BEFORE acting on them (a crash mid-action then skips that batch, never repeats it). */
-export function takeNew<T extends { id: number }>(cursor: number, rows: T[], max = REPLAY_MAX): { fresh: T[]; next: number } {
-  const fresh = [...new Map(rows.filter((r) => r.id > cursor).map((r) => [r.id, r])).values()].sort((a, b) => a.id - b.id).slice(-max);
+/** Rows read after `cursor` (any order, maybe overlapping or repeated) → the oldest `max` not yet processed, in order, plus the
+ *  cursor to save BEFORE acting on them: it stops at the last one taken, so the remainder comes next tick
+ *  (a crash mid-action skips that batch, never repeats it). */
+export function takeNew<T extends { id: number }>(cursor: number, rows: T[], max = TICK_MAX): { fresh: T[]; next: number } {
+  const fresh = [...new Map(rows.filter((r) => r.id > cursor).map((r) => [r.id, r])).values()].sort((a, b) => a.id - b.id).slice(0, max);
   return { fresh, next: fresh.length ? fresh[fresh.length - 1].id : cursor };
 }
