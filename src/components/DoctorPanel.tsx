@@ -7,6 +7,7 @@ import { builderBrief, type Improve } from "@/lib/self-improve-pure";
 import type { Trend } from "@/lib/self-eval-pure";
 import type { systemHealthView } from "@/lib/system-health";
 import { incidentTitle, type SvcState } from "@/lib/system-health-pure";
+import { capNone, capRow, capTitle, type Missing } from "@/lib/capability-pure";
 import type { PatchResult } from "@/lib/self-improve-patch-pure";
 import { stoppedText } from "@/lib/night-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
@@ -182,7 +183,7 @@ function SelfEvalCard({ ev }: { ev: Trend }) {
 /** ORBIT doctor: runs /api/doctor and lists each check with what to do. speak = read the result aloud (opened by voice/command). */
 export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: boolean }) {
   const { t, tx, lang } = useT();
-  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null }) | null>(null);
+  const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null; cantDo?: Missing[] | null }) | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const spoke = useRef(false);
@@ -195,7 +196,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
       const res = await fetch("/api/doctor", { cache: "no-store" });
       if (res.status === 401 || res.status === 403) throw new Error("ORBIT couldn't confirm your sign-in. Either the database (Supabase) is unreachable or you were signed out. Check your internet, then reload the page and sign in.");
       if (!res.ok) throw new Error(`The check didn't run (error ${res.status}). Restart ORBIT and try again.`);
-      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null };
+      const r = (await res.json()) as Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null; cantDo?: Missing[] | null };
       setReport(r);
       if (speak && !spoke.current && speechSettings().speak) { spoke.current = true; speakChunk(r.speech); }
     } catch (e) {
@@ -226,6 +227,12 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
           : !report ? <p className="muted text-sm">{t("doc.loading")}</p>
           : <>
             <p className="mb-3 text-sm" style={{ color: COLOR[report.status] }}><b>{headlineOf(report.checks, lang)}</b></p>
+            {report.cantDo && <section className="mb-3 rounded-lg border border-white/10 p-2 text-sm" aria-label={capTitle(lang)}>
+              <b>{capTitle(lang)}</b>
+              {!report.cantDo.length ? <p className="muted text-xs">{capNone(lang)}</p> : <ul className="mt-1 grid gap-1">
+                {report.cantDo.map((m) => { const r = capRow(m, lang); return <li key={m.id} className="text-xs"><b style={{ color: COLOR.warn }}>{r.label}</b>: {r.why}. <span className="muted">{r.fix}</span></li>; })}
+              </ul>}
+            </section>}
             <ul className="grid gap-2">
               {report.checks.map((c) => (
                 <li key={c.id} className="rounded-lg border border-white/10 p-2 text-sm">
