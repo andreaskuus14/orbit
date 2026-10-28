@@ -5,6 +5,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
+import { isMissingColumn } from "./provenance-pure";
 import { listFacts, FactsMissing } from "./facts";
 import {
   contradictionBrief, decideEntity, emptyDecisions, findContradictions, gather, mergeSuggestions, resolveEntities, usable,
@@ -31,16 +32,22 @@ function update<T>(userId: string, fn: (u: UserEnt) => T): Promise<T> {
   return p;
 }
 
+/** With provenance (migration 0019) when applied, so conflicts settle by type; plain rows until then. */
+async function memRows(sb: SupabaseClient, userId: string) {
+  const q = (cols: string) => sb.from("memories").select(cols).eq("user_id", userId).neq("kind", "journal").order("created_at", { ascending: false }).limit(LIMIT);
+  const r = await q("id, kind, title, content, created_at, source, tags, confirmation");
+  return isMissingColumn(r.error) ? q("id, kind, title, content, created_at, source, tags") : r;
+}
+
 /** Recompute suggestions and questions from memories (never journal), current beliefs and his People list. */
 export async function scanEntities(sb: SupabaseClient, userId: string): Promise<{ merges: number; contradictions: number }> {
   const [mem, facts, people] = await Promise.all([
-    sb.from("memories").select("id, kind, title, content, created_at").eq("user_id", userId).neq("kind", "journal")
-      .order("created_at", { ascending: false }).limit(LIMIT),
+    memRows(sb, userId),
     listFacts(sb, userId).catch((e) => { if (e instanceof FactsMissing) return []; throw e; }),
     import("./people").then((m) => m.localPeople(), () => []),
   ]);
   if (mem.error) throw mem.error;
-  const memories = usable(((mem.data ?? []) as MemIn[]).map((m) => ({ ...m, title: String(m.title ?? ""), content: String(m.content ?? "") })));
+  const memories = usable(((mem.data ?? []) as unknown as MemIn[]).map((m) => ({ ...m, title: String(m.title ?? ""), content: String(m.content ?? "") })));
   const { mentions, claims } = gather({ memories, facts, people });
   return update(userId, (u) => {
     const ents = resolveEntities(mentions, u.decisions);
