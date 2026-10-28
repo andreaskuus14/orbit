@@ -23,6 +23,7 @@ import { OPEN_SOURCE_EVENT, citeTarget, type WeekCite } from "@/lib/week-pure";
 import { MorningCard } from "./MorningCard";
 import { MorningBrief } from "./MorningBrief";
 import { Herald } from "./Herald";
+import { SpeakFirst } from "./SpeakFirst";
 import { WhatsNew } from "./WhatsNew";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
@@ -643,6 +644,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <WeeklyCard home={!shown && !approach} />
         <EveningCapture />
         <Herald home={!shown && !approach && !gameOpen} coreBusy={busy} />
+        <SpeakFirst />
         <WhatsNew home={!shown && !approach} />
         <MorningBrief home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       </>}

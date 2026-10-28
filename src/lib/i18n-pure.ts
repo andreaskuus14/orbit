@@ -542,6 +542,9 @@ const BASE = {
   "mk.strategy": "Bot strategy", "mk.strategyConfirm": "Changing the strategy restarts the bot's paper account. Continue?", "mk.off": "Off",
   "mk.botEquity": "Bot equity", "mk.spySame": "SPY over the same time", "mk.notYet": "not yet",
 
+  "sf.hi": "Welcome back.", "sf.incident": "{t} needs a look.", "sf.meeting": "{t} starts in {n} min.", "sf.approval": "{t} has waited {n} h for your OK.",
+  "sf.loop": "Due today: {t}.", "sf.brief": "Your morning brief is ready.",
+  "sf.toggle": "ORBIT speaks first", "sf.hint": "When you come back after 20+ min, one short line about the most important thing. Max 4 a day, never 23–08.",
   "voice.convStart": "Conversation mode: keep listening after each answer (Ctrl+Shift+M)", "voice.convEnd": "End conversation mode (Esc)",
   "voice.convTitle": "Conversation mode (Ctrl+Shift+M, or say “Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Conversation mode needs hands-free on (voice settings)",
   "voice.convHelp": "Ctrl+Shift+M, 💬 or “Orbit, let’s talk”. ORBIT then answers questions and requests without “Orbit” and ignores chatter; talk over it to interrupt. Ends on “stop” / “that’s all”, Esc, 💬, Stop-all or 60 s of silence (one-follow-up: after the follow-up).",
@@ -1132,6 +1135,9 @@ export const ET: Partial<Record<Key, string>> = {
   "mk.strategy": "Roboti strateegia", "mk.strategyConfirm": "Strateegia muutmine alustab roboti paberkontot otsast. Jätkata?", "mk.off": "Väljas",
   "mk.botEquity": "Roboti konto väärtus", "mk.spySame": "SPY samal ajal", "mk.notYet": "veel mitte",
 
+  "sf.hi": "Tere tagasi.", "sf.incident": "{t} vajab tähelepanu.", "sf.meeting": "{t} algab {n} min pärast.", "sf.approval": "{t} ootab sinu kinnitust juba {n} h.",
+  "sf.loop": "Täna tähtaeg: {t}.", "sf.brief": "Sinu hommikune ülevaade on valmis.",
+  "sf.toggle": "ORBIT räägib esimesena", "sf.hint": "Kui tuled 20+ min pärast tagasi, üks lühike lause kõige tähtsamast. Kuni 4 korda päevas, mitte kell 23–08.",
   "voice.convStart": "Vestlusrežiim: kuula pärast iga vastust edasi (Ctrl+Shift+M)", "voice.convEnd": "Lõpeta vestlusrežiim (Esc)",
   "voice.convTitle": "Vestlusrežiim (Ctrl+Shift+M või ütle „Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Vestlusrežiim vajab sisselülitatud käed-vaba kuulamist (hääle seaded)",
   "voice.convHelp": "Ctrl+Shift+M, 💬 või „Orbit, let’s talk”. ORBIT vastab siis küsimustele ja palvetele ilma sõnata „Orbit” ning eirab muud juttu; katkestamiseks räägi lihtsalt peale. Lõpeb sõnadega „lõpeta” / „stop”, Esc, 💬, Peata kõik või 60 s vaikusega (üks jätkuküsimus: pärast seda).",
