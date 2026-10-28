@@ -42,7 +42,8 @@ test("contracts, negotiator, Higgsfield spend and clip publish: changed content 
   const cases: [string, unknown, unknown[]][] = [
     ["contracts.send", contractSendContent(c), [contractSendContent({ ...c, cover: "Hi!" } as C), contractSendContent({ ...c, signed: { hash: "pdf2" } } as C),
       contractSendContent({ ...c, versions: [{ fields: { partyEmail: "evil@x.ee", ownerName: "Andreas" } }] } as unknown as C)]],
-    ["negotiator.approve", negoContent("n1", "We can do 900."), [negoContent("n1", "We can do 800."), negoContent("n2", "We can do 900.")]],
+    ["negotiator.approve", negoContent("n1", "We can do 900.", "a@acme.ee"), [negoContent("n1", "We can do 800.", "a@acme.ee"), negoContent("n2", "We can do 900.", "a@acme.ee"),
+      negoContent("n1", "We can do 900.", "evil@x.ee"), negoContent("n1", "We can do 900.", null)]], // recipient is part of what he approved
     ["story.approve", spendContent("fp1", 40), [spendContent("fp1", 41), spendContent("fp2", 40)]],
     ["studio.publish", clipContent({ video: "clips/a.mp4", thumb: "clips/a.jpg", start: 1, end: 30 }), [clipContent({ video: "clips/b.mp4", thumb: "clips/a.jpg", start: 1, end: 30 }), clipContent({ video: "clips/a.mp4", thumb: "clips/a.jpg", start: 1, end: 31 })]],
   ];
@@ -52,4 +53,25 @@ test("contracts, negotiator, Higgsfield spend and clip publish: changed content 
     assert.match(await approvalGate(action, undefined, v1), /approval/, action); // e.g. an approved clip from before this change
     for (const v2 of changed) assert.match(await approvalGate(action, ok, v2), /changed/, action);
   }
+});
+
+test("recipient-bound: changing the recipient after approval refuses; same recipient (any case) + same message passes", async () => {
+  const { negoContent } = await import("../src/lib/approval-pure.ts");
+  const { contractSendContent } = await import("../src/lib/contracts-pure.ts");
+  const { reminderContent } = await import("../src/lib/invoices-pure.ts");
+  const nego = await contentHash(negoContent("n1", "We can do 900.", "Anna@Acme.ee"));
+  assert.equal(await approvalGate("negotiator.approve", nego, negoContent("n1", "We can do 900.", "anna@acme.ee")), "");
+  assert.match(await approvalGate("negotiator.approve", nego, negoContent("n1", "We can do 900.", "bob@acme.ee")), /changed/);
+  const biz = await sendStamp({ name: "Acme", contact: "Anna@ACME.ee", draft: "Hi" });
+  assert.equal(await approvalGate("business.send", biz, sendContent({ name: "Acme", contact: "tel 555, anna@acme.ee", draft: "Hi" })), "");
+  assert.match(await approvalGate("business.send", biz, sendContent({ name: "Acme", contact: "bob@acme.ee", draft: "Hi" })), /changed/);
+  assert.equal(sendContent({ name: "A", contact: "X@Y.EE", draft: "" }).to, "x@y.ee");
+  const inv = { buyer: { email: "pay@acme.ee" }, reminder: { subject: "Reminder", text: "Please pay", at: "t" } } as never;
+  const remind = await contentHash(reminderContent(inv));
+  assert.match(await approvalGate("invoices.remind", remind, reminderContent({ ...(inv as object), buyer: { email: "other@acme.ee" } } as never)), /changed/);
+  type C = Parameters<typeof contractSendContent>[0];
+  const c = (email: string) => ({ title: "Service", cover: "Hi", signed: { hash: "pdf1" }, versions: [{ fields: { partyEmail: email } }] }) as unknown as C;
+  const sent = await contentHash(contractSendContent(c("p@x.ee")));
+  assert.equal(await approvalGate("contracts.send", sent, contractSendContent(c("P@X.EE"))), "");
+  assert.match(await approvalGate("contracts.send", sent, contractSendContent(c("q@x.ee"))), /changed/);
 });

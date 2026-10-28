@@ -155,7 +155,7 @@ function Row({ i, today, open, toggle, busy, act }: { i: Invoice; today: string;
               )}
               {i.reminder && (
                 <div className="space-y-1 rounded-md border border-amber-400/40 p-2">
-                  <p><b>{i.reminder.subject}</b> → {i.buyer.email || "no email: you'll copy it"}</p>
+                  <p><b>{i.reminder.subject}</b> → {reminderContent(i).to || "no email: you'll copy it"}</p>
                   <p className="whitespace-pre-wrap">{i.reminder.text}</p>
                   <div className="flex gap-1.5">
                     <button className={`chip ${sure ? "ok" : ""}`} disabled={any}
