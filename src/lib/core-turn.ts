@@ -13,6 +13,8 @@ import { chatProjectContext, updateChats } from "@/lib/core-chats";
 import { describeFailure } from "@/lib/core-capability-pure";
 import { MAX_MESSAGES, chatTitle, isId, moveChat } from "@/lib/core-chats-pure";
 import { parseLang } from "@/lib/i18n-pure";
+import { noteOwnerTurn, noteReceipts } from "@/lib/checkpoint";
+import { checkpointPrompt, isContinue } from "@/lib/checkpoint-pure";
 
 // One CORE chat turn (moved out of /api/core so the phone remote runs the exact same path). body: {message, attachments?, voice?,
 // conversationId?, projectId?, lang?}; ?stream=1 on req answers as NDJSON. opts.remote marks a turn asked from the paired phone.
@@ -57,9 +59,11 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
   // Shared by both response styles: answer, then save it once at the end.
   const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void) => {
     // Older turns supply a compact recap and their saved attachments; only the latest nine stay in full.
-    const [{ data: prior, error: priorError }, project] = await Promise.all([
+    // The chat's checkpoint (constraints from his own typed words, decisions, artifacts, next action) rides apart from the sampled history.
+    const [{ data: prior, error: priorError }, project, checkpoint] = await Promise.all([
       sb.from("messages").select("id, role, content, attachment_text").eq("conversation_id", cid).order("created_at", { ascending: false }).limit(MAX_MESSAGES),
       chatProjectContext(userId, cid),
+      noteOwnerTurn(userId, cid, message).catch((e) => { console.error("[orbit] checkpoint failed:", e instanceof Error ? e.message : e); return null; }),
     ]);
     if (priorError) throw priorError;
     const history = ((prior ?? []) as (ContextTurn & { id: string })[]).reverse();
@@ -74,8 +78,9 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
     } : attach;
     const withSkill = skill ? { block: skill + "\n\n" + (contextAttach?.block ?? ""), images: contextAttach?.images ?? [] } : contextAttach;
     const t0 = Date.now();
-    const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, project.text, project.tainted, project.memoryProject, cid, lang);
+    const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, (checkpoint ? checkpointPrompt(checkpoint, isContinue(message)) : "") + project.text, project.tainted, project.memoryProject, cid, lang);
     await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
+    void noteReceipts(userId, cid, out.trace).catch(() => {}); // artifact versions from ORBIT's own write receipts
     await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
     await emit(sb, userId, "core.completed", "core", { conversationId: cid });
     // counts only, never message text: tools = steps that ran a tool (not CORE's own memory search, thinking, review, fallbacks or reflexes)

@@ -222,7 +222,7 @@ export async function runCore(sb: SupabaseClient, userId: string, history: Turn[
   // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
   const exec = async (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[]) => tool === "navigate" ? navigateTool(input, onNavigate)
     // module tools (core-modules.ts) keep their own explicit-ask guards as a second check
-    : isModuleTool(tool) ? await runModuleTool(tool, input, { sb, userId, question, tainted: dataIn(), pinned: !!attach || pinsIn, steps, onEvidence: (e) => evidence.push(e) })
+    : isModuleTool(tool) ? await runModuleTool(tool, input, { sb, userId, chat: sessionKey, question, tainted: dataIn(), pinned: !!attach || pinsIn, steps, onEvidence: (e) => evidence.push(e) })
     : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e));
   const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number) => {
     evalTools.push({ tool, input, output: out.slice(0, 8000), evidence });

@@ -8,6 +8,7 @@ import { LIFE_TOOLS, lifeWriteBlocked, type LifeTool } from "./core-life.ts";
 import { WS_TOOLS, wsTainted, wsWriteBlocked } from "./core-workspace.ts";
 import { createGoalBlocked } from "./goals-pure.ts";
 import { asksToRemember } from "./reflect-pure.ts";
+import { checkpointBlocked } from "./checkpoint-pure.ts";
 import { draftBlocked } from "./higgsfield-pure.ts";
 import { tonightBlocked } from "./night-pure.ts";
 import { wishBlocked } from "./deals-pure.ts";
@@ -30,6 +31,7 @@ export const TIERS: Record<string, Tier> = {
   save_memory: "T2", ask_agent: "T2", create_goal: "T2", start_mission: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
   propose_rule: "T2", // saves a standing rule as proposed; nothing runs until the owner's Confirm click in Agents → Rules
   add_wish: "T2", // adds to his own wishlist; the hunter only reads public pages, and nothing is bought or sent by ORBIT
+  save_checkpoint: "T2", // his own chat checkpoint (local file); every line can be edited or deleted on the Checkpoint card
   queue_tonight: "T2", // adds to the night shift's own queue; the night run's outside effects still wait for owner approvals
   life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", rea_analyze: "T2", rea_cancel: "T2",
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
@@ -105,6 +107,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "add_wish") blocked = wishBlocked(question, dataIn);
   else if (tool === "propose_rule") blocked = ruleBlocked(question, dataIn);
   else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || called(ctx.steps, UNTRUSTED));
+  else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
   if (blocked) return no(blocked);
   // shortcut: rea_analyze/rea_cancel keep their explicit-ask check inside REA code (not ported: REA files stay untouched).

@@ -13,7 +13,7 @@ export const EFFECTS: Record<string, Effect> = {
   ws_list: "read", ws_read: "read", rea_status: "read", rea_read: "read", week_review: "read", wishlist: "read",
   load_module: "read", web_search: "read", fetch_url: "read", read_news: "read", reach_trending: "read", reach_read: "read",
   // CORE tools: changes to his own data only
-  save_memory: "reversible", ask_agent: "reversible", create_goal: "reversible", plan_task: "reversible", run_scout: "reversible", run_niche: "reversible",
+  save_memory: "reversible", save_checkpoint: "reversible", ask_agent: "reversible", create_goal: "reversible", plan_task: "reversible", run_scout: "reversible", run_niche: "reversible",
   add_wish: "reversible", propose_rule: "reversible", queue_tonight: "reversible", life_check: "reversible", life_add_habit: "reversible", life_remind: "reversible",
   ws_write: "reversible", ws_create: "reversible", rea_analyze: "reversible", rea_cancel: "reversible",
   higgsfield_draft: "reversible", // quote only; the spend is story.approve
