@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
-import { completionState } from "../src/lib/completion-pure.ts";
+import * as completionPure from "../src/lib/completion-pure.ts";
 import * as pure from "../src/lib/pure.ts";
 import * as claim from "../src/lib/task-claim-pure.ts";
 import { PAUSED_MSG } from "../src/lib/stop-all-pure.ts";
@@ -67,7 +67,7 @@ function fakeDb(rows: Record<string, unknown>[]) {
 
 function agentsWith(stop: { on: boolean }, askClaude: (...a: unknown[]) => Promise<unknown>) {
   return load("agents.ts", {
-    "./stop-all": { stopAllOn: () => stop.on }, "./stop-all-pure": { PAUSED_MSG }, "./completion-pure": { completionState },
+    "./stop-all": { stopAllOn: () => stop.on }, "./stop-all-pure": { PAUSED_MSG }, "./completion-pure": completionPure,
     "./task-claim-pure": claim, "./pure": pure, "./memory": { KINDS: ["note"] },
     "./claude": { askClaude, emit: async () => {}, recordUsage: async () => {}, chargeCall: (_b: unknown, s: AbortSignal) => s.throwIfAborted(),
       createBudget: () => ({ signal: new AbortController().signal, calls: 12, used: 0, minutes: 8, deadline: Date.now() + 1e6 }),
