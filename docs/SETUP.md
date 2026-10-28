@@ -75,6 +75,7 @@ CORE uses your own Claude Code login, no API key. Install Claude Code and run `c
 | `ORBIT_CLAUDE_CONCURRENCY` | How many Claude calls may run at once | 3 |
 | `ORBIT_CORE_MAX_STEPS` | Model steps CORE may take per answer (2–12) | 8 |
 | `ORBIT_CORE_SESSION` | `resume` = one Claude session per CORE chat (faster follow-ups). Empty = each step starts fresh | off |
+| `ORBIT_CLAUDE_WEEKLY_CALLS` | Your own weekly Claude budget in calls; the doctor's SYSTEM card shows 7-day use against it | off |
 | `ORBIT_LOCAL_MODEL` | Ollama model (e.g. `llama3.1:8b`) for chat and summaries when Claude is unreachable. No tools in that mode | off |
 
 If `ANTHROPIC_API_KEY` is set in your Windows environment, Claude Code bills that API key instead of your Claude login (DEV world → CORE config shows which).

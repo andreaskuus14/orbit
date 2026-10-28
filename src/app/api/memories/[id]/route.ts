@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
+import { crossSiteBlocked } from "@/lib/csrf";
 import { emit } from "@/lib/claude";
 import { embed } from "@/lib/embeddings";
 import { MEMORY_COLUMNS } from "@/lib/memory";
@@ -22,6 +23,8 @@ export async function GET(_: Request, { params }: Ctx) {
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
+  const h = req.headers; // the middleware matcher skips paths ending in .png etc., so check here too
+  if (crossSiteBlocked("PATCH", "/api/memories", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const { id } = await params;
@@ -47,7 +50,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
   return Response.json({ memory: data });
 }
 
-export async function DELETE(_: Request, { params }: Ctx) {
+export async function DELETE(req: Request, { params }: Ctx) {
+  const h = req.headers; // the middleware matcher skips paths ending in .png etc., so check here too
+  if (crossSiteBlocked("DELETE", "/api/memories", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const { id } = await params;

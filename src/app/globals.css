@@ -601,8 +601,8 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
 
 /* Touch screens: finger-sized targets. */
 @media (pointer: coarse) {
-  .chip, .hud-menu-item { min-height: 40px; }
-  .hud-more { min-width: 40px; }
+  .chip, .hud-menu-item, .btn, .hud-row, button.link, .studio-hot { min-height: 40px; }
+  .hud-more, .chip, .studio-modes > .studio-refresh { min-width: 40px; }
 }
 
 /* Phones, both orientations. --hdr / --bar (header and command-bar heights) are set per orientation below. */

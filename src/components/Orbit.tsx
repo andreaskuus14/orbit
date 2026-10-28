@@ -6,14 +6,10 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
-import { AnalyticsPanel, CorePanel, MemoryPanel, ProfilePanel } from "./panels";
-import { IntelligencePanel } from "./IntelligencePanel";
 import { WorldPaused } from "./world-paused";
-import { AgentsPanel, OperationsPanel } from "./AgentsPanels";
 import { CALL_ACTIVE, VOICE_ASK, voiceContext } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
-import { RemoteCall } from "./RemoteCall";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { NAV_EVENT, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
 import { StudioNotifier } from "./StudioNotifier";
@@ -28,7 +24,6 @@ import { MorningCard } from "./MorningCard";
 import { MorningBrief } from "./MorningBrief";
 import { Herald } from "./Herald";
 import { WhatsNew } from "./WhatsNew";
-import { DoctorPanel } from "./DoctorPanel";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
 import { WeeklyCard } from "./WeeklyCard";
@@ -57,10 +52,12 @@ import type { ShipTask } from "@/lib/ships-pure";
 import { CursorRing } from "./CursorRing";
 import { MaskText } from "./MaskText";
 import { useDragPanel } from "./useDragPanel";
+import { useDialogFocus } from "./useDialogFocus";
 import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
 import { useT } from "./i18n";
 import { LIVING_EVENT } from "@/lib/living-events-pure";
+import { BrandMark } from "./BrandMark";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -78,6 +75,17 @@ const MarketsPanel = dynamic(() => import("./MarketsPanel"), { ssr: false });
 const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
 const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
+// Drawer panels load on first open (panels.tsx is preloaded at boot 3 so CORE still opens at once).
+const PanelLoading = () => <p className="text-xs opacity-60" role="status">{useT().t("common.loading")}</p>;
+const CorePanel = dynamic(() => import("./panels").then((m) => m.CorePanel), { ssr: false, loading: PanelLoading });
+const ProfilePanel = dynamic(() => import("./panels").then((m) => m.ProfilePanel), { ssr: false, loading: PanelLoading });
+const AnalyticsPanel = dynamic(() => import("./panels").then((m) => m.AnalyticsPanel), { ssr: false, loading: PanelLoading });
+const MemoryPanel = dynamic(() => import("./panels").then((m) => m.MemoryPanel), { ssr: false, loading: PanelLoading });
+const IntelligencePanel = dynamic(() => import("./IntelligencePanel").then((m) => m.IntelligencePanel), { ssr: false, loading: PanelLoading });
+const AgentsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.AgentsPanel), { ssr: false, loading: PanelLoading });
+const OperationsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.OperationsPanel), { ssr: false, loading: PanelLoading });
+const DoctorPanel = dynamic(() => import("./DoctorPanel").then((m) => m.DoctorPanel), { ssr: false });
+const RemoteCall = dynamic(() => import("./RemoteCall").then((m) => m.RemoteCall), { ssr: false });
 const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch", "memory"]; // full-screen worlds with their own side panel (no drawer)
 const VISITS = "orbit.world.visits";
 const KEEP: PanelId[] = ["intelligence", "studio", "creation", "agents", "arch", "memory"]; // kept mounted (hidden + paused) after the first visit; not THEATER: leaving must stop its video
@@ -107,6 +115,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const { t, tn } = useT();
   const sb = useMemo(() => createClient(), []);
   const boot = useBootBatch(3);
+  useEffect(() => { if (boot >= 3) void import("./panels"); }, [boot]); // warm the CORE drawer after first paint
   const [view, setView] = useState<"3d" | "2d" | null>(null); // null = still deciding: show the loader, never flash the 2D index
   const [reduced, setReduced] = useState(false);
   const [dilation, setDilation] = useState<{ startAt: number; endAt: number } | null>(null); // a time dilation focus block
@@ -419,7 +428,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       ]).then(([live, fin]) => { if (!off && live.data) setShipTasks([...live.data, ...(fin.data ?? [])].slice(0, 12) as ShipTask[]); });
     };
     load();
-    const t = setInterval(load, 20_000);
+    const t = setInterval(() => { if (!document.hidden) load(); }, 20_000);
     return () => { off = true; clearInterval(t); };
   }, [sb, runningTasks, view, covered]);
   useEffect(() => { // SYSTEM rail's Higgsfield readout, only while the rail is on screen
@@ -427,7 +436,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     let off = false;
     const load = () => void fetch("/api/higgsfield", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (!off && j && typeof j.used === "number") setHfWeek(j); }, () => {});
     load();
-    const t = setInterval(load, 60_000);
+    const t = setInterval(() => { if (!document.hidden) load(); }, 60_000);
     return () => { off = true; clearInterval(t); };
   }, [shown, view]);
   const openGoal = useCallback((id: string) => { setWorkOpen(false); setFocusGoal(id); setPanel("agents"); }, []);
@@ -518,6 +527,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   const docked = !!behind && WORLDS.includes(behind);
   const drawerDrag = useDragPanel<HTMLElement>(drawer && !docked ? `drawer:${drawer}` : null);
+  useDialogFocus(drawerDrag.ref, !!panel && !WORLDS.includes(panel)); // Esc is the window handler above
   const statusDrag = useDragPanel<HTMLElement>(!shown && view === "3d" ? "status" : null);
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
 
@@ -546,16 +556,16 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {shown && KEEP.includes(shown) && at(shown) ? null : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
-        <nav aria-label="Planets" className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
-          <div className="overview-heading"><p>ORBIT / YOUR WORKSPACE</p><h1>A universe.<br />Yours to shape.</h1><span>Ask, create, remember. Pick a world to begin.</span></div>
+        <nav aria-label={t("overview.aria")} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
+          <div className="overview-heading"><p>{t("overview.kicker")}</p><h1>{t("overview.title1")}<br />{t("overview.title2")}</h1><span>{t("overview.lede")}</span></div>
           {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}
           <ul className="overview-worlds">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
-              <b>CORE</b><span className="muted text-sm">{busy ? "Thinking…" : warning ? "Last request failed" : t("overview.core")}</span></button></li>
+              <b>CORE</b><span className="muted text-sm">{busy ? t("overview.thinking") : warning ? t("overview.lastFailed") : t("overview.core")}</span></button></li>
             {PLANETS.map((p) => (
               <li key={p.id}><button className="planet-card" onPointerEnter={() => warmWorld(p.id)} onFocus={() => warmWorld(p.id)} onClick={() => select(p.id)} style={{ borderColor: p.color }}>
                 <b style={{ color: p.color }}>{t(`planet.${p.id}`)}</b>
-                <span className="muted text-sm">{p.id === "memory" ? tn("overview.memories", memoryCount) : p.id === "intelligence" && pulseBusy ? "Pulse is writing a briefing…" : p.id === "intelligence" && pulseFailed ? "Last briefing failed" : p.id === "operations" && automationFailing ? "An automation's last run failed" : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? `${runningTasks.length} agent task${runningTasks.length > 1 ? "s" : ""} running…` : t(`planet.${p.id}.blurb`)}</span></button></li>
+                <span className="muted text-sm">{p.id === "memory" ? tn("overview.memories", memoryCount) : p.id === "intelligence" && pulseBusy ? t("overview.pulseBusy") : p.id === "intelligence" && pulseFailed ? t("overview.pulseFailed") : p.id === "operations" && automationFailing ? t("overview.autoFailed") : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? tn("overview.running", runningTasks.length) : t(`planet.${p.id}.blurb`)}</span></button></li>
             ))}
           </ul>
         </nav>
@@ -563,8 +573,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
       <header className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-4 py-3">
         <button className="logo" onClick={closeWorld} aria-label={t("hud.home")}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/orbit-mark.png" alt="" width={40} height={40} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          <BrandMark size={40} />
           <span><span className="brand block">Orbital</span><span className="muted block text-[10px] tracking-[0.2em]">{t("hud.tagline")}</span></span>
         </button>
         <div className="hud-bar-top">
@@ -608,7 +617,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><MarketWatcher /><RemoteCall compact /></>}
 
       {drawer && !WORLDS.includes(drawer) && (
-        <aside ref={drawerDrag.ref} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
+        <aside ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
           aria-hidden={!panel || undefined} inert={!panel || undefined}>
           <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand text-base"><MaskText key={title} text={title} /></h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -638,44 +647,44 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {boot >= 2 && !shown && !approach && view === "3d" && <ContinueWork floating onOpenTask={openTask} onOpenGoal={openGoal} />}
       {boot >= 2 && !shown && !approach && <HalEye />}
       {!shown && view === "3d" && (
-        <aside ref={statusDrag.ref} className="glass hud-panel status-hud" aria-label="System status">
-          <div className="hud-title drag-handle" {...statusDrag.handle}>SYSTEM</div>
+        <aside ref={statusDrag.ref} className="glass hud-panel status-hud" aria-label={t("sys.aria")}>
+          <div className="hud-title drag-handle" {...statusDrag.handle}>{t("sys.title")}</div>
           <StatusRail items={[
-            { label: "CORE", value: busy ? "Thinking" : warning ? "Last request failed" : "Ready", tone: warning ? "bad" : "ok", busy },
-            { label: "Agents", value: runningTasks.length ? `${runningTasks.length} working` : "Idle", tone: "ok", busy: runningTasks.length > 0 },
-            { label: "Pulse", value: pulseBusy ? "Writing" : pulseFailed ? "Last failed" : "Idle", tone: pulseFailed ? "bad" : "ok", busy: pulseBusy },
-            { label: "Automations", value: automationFailing ? "Needs attention" : "OK", tone: automationFailing ? "bad" : "ok" },
-            { label: "Memories", value: String(memoryCount), tone: "ok" },
-            ...(hfWeek ? [{ label: "Higgsfield", value: `${hfWeek.used} / ${hfWeek.cap} cr this week`, tone: hfWeek.used >= hfWeek.cap ? "bad" as const : hfWeek.used >= hfWeek.cap * 0.8 ? "warn" as const : "ok" as const }] : []),
+            { label: "CORE", value: busy ? t("sys.thinking") : warning ? t("overview.lastFailed") : t("sys.ready"), tone: warning ? "bad" : "ok", busy },
+            { label: t("sys.agents"), value: runningTasks.length ? t("sys.working", { n: runningTasks.length }) : t("sys.idle"), tone: "ok", busy: runningTasks.length > 0 },
+            { label: "Pulse", value: pulseBusy ? t("sys.writing") : pulseFailed ? t("sys.lastFailed") : t("sys.idle"), tone: pulseFailed ? "bad" : "ok", busy: pulseBusy },
+            { label: t("sys.automations"), value: automationFailing ? t("sys.attention") : t("sys.ok"), tone: automationFailing ? "bad" : "ok" },
+            { label: t("sys.memories"), value: String(memoryCount), tone: "ok" },
+            ...(hfWeek ? [{ label: "Higgsfield", value: t("sys.hfWeek", { used: hfWeek.used, cap: hfWeek.cap }), tone: hfWeek.used >= hfWeek.cap ? "bad" as const : hfWeek.used >= hfWeek.cap * 0.8 ? "warn" as const : "ok" as const }] : []),
           ]} />
-          <button className="chip mt-2" onClick={() => setDoctor("click")}>🩺 Check Orbital</button>
-          <p className="muted mt-2 text-[10px] tracking-wider">← → FLY BETWEEN PLANETS · ? SHORTCUTS</p>
+          <button className="chip mt-2" onClick={() => setDoctor("click")}>{t("sys.check")}</button>
+          <p className="muted mt-2 text-[10px] tracking-wider">{t("sys.keys")}</p>
         </aside>
       )}
       {doctor && <DoctorPanel key={doctor} speak={doctor === "nav"} onClose={() => setDoctor(null)} />}
-      {workOpen && <aside aria-label="Continue my work" className="glass work-sheet fixed inset-x-4 top-24 bottom-28 z-50 mx-auto max-w-2xl overflow-y-auto p-4"
+      {workOpen && <aside aria-label={t("cmd.workAria")} className="glass work-sheet fixed inset-x-4 top-24 bottom-28 z-50 mx-auto max-w-2xl overflow-y-auto p-4"
         onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setWorkOpen(false); cmdRef.current?.focus(); } }}>
-        <button type="button" className="chip mb-2" autoFocus onClick={() => { setWorkOpen(false); cmdRef.current?.focus(); }}>Close work list</button>
+        <button type="button" className="chip mb-2" autoFocus onClick={() => { setWorkOpen(false); cmdRef.current?.focus(); }}>{t("cmd.closeWork")}</button>
         <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />
       </aside>}
 
       {tapToTalk && !voice.listening && (
         <button type="button" className="chip fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 px-10 py-6 text-xl"
           onClick={() => { setTapToTalk(false); voice.start(); }} autoFocus>
-          Tap to talk
+          {t("cmd.tapToTalk")}
         </button>
       )}
 
       <form onSubmit={runCommand} className="glass cmdbar">
         <div className="flex gap-2">
-          <button type="button" className="chip shrink-0" onClick={switchMode} title="Switch between asking CORE and giving the agents a task"
-            aria-label={`Mode: ${cmdMode === "ask" ? "ask CORE" : "agent task"}. Click to switch.`}>
-            {cmdMode === "ask" ? "Ask" : "Task"}
+          <button type="button" className="chip shrink-0" onClick={switchMode} title={t("cmd.modeTitle")}
+            aria-label={t("cmd.modeAria", { mode: t(cmdMode === "ask" ? "cmd.modeAsk" : "cmd.modeTask") })}>
+            {t(cmdMode === "ask" ? "cmd.ask" : "cmd.task")}
           </button>
           <input ref={cmdRef} className={"field w-full" + (voice.listening ? " voice-live" : "")} value={voice.listening ? voice.interim : cmd} onChange={(e) => setCmd(e.target.value)} maxLength={8000}
             readOnly={voice.listening}
-            placeholder={voice.listening ? "Listening… speak your question" : cmdMode === "ask" ? "Ask CORE…  (mic Ctrl+M)" : "Give your agents a task, e.g. research X and save a report"}
-            aria-label={voice.listening ? "Live voice transcript" : cmdMode === "ask" ? "Command bar: ask CORE" : "Command bar: give the agents a task"} />
+            placeholder={t(voice.listening ? "cmd.listening" : cmdMode === "ask" ? "cmd.askPh" : "cmd.taskPh")}
+            aria-label={t(voice.listening ? "cmd.liveAria" : cmdMode === "ask" ? "cmd.askAria" : "cmd.taskAria")} />
           <VoiceControls voice={voice} />
         </div>
         {(cmdErr || voice.error) && <p className="error mt-1 px-1" role="alert">{cmdErr || voice.error}</p>}

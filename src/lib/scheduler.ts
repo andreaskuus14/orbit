@@ -39,6 +39,7 @@ async function tick(sb: SupabaseClient) {
     for (const { id } of users ?? []) {
       if (limited) continue;
       await runDueAutomations(sb, id).catch((e) => console.error("[orbit] scheduled automations failed:", e?.message ?? e));
+      if (id === users?.[0]?.id) await import("./rules").then((r) => r.tickRules(sb, [id])); // standing rules (Agents → Rules); never throws
       void kickQueue(sb, id); // tasks still queued after a restart (the in-process queue is gone) start again
       void nightOwnsCompany().then((night) => resumeChains(sb, id, night)).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
       void import("./missions").then((m) => m.resumeMissions(sb, id)).catch((e) => console.error("[orbit] missions resume failed:", e?.message ?? e));
@@ -79,6 +80,8 @@ async function tick(sb: SupabaseClient) {
     if (!limited && allows("deals", "background").ok) void maybeDealHunt(sb, (users ?? []).map((u) => u.id));
     // Profile → Autonomy "auto with limits" (off by default: a no-op until the owner turns it on with the typed phrase).
     if (users?.[0]) await tickAutonomy(sb, users[0].id);
+    // System health (doctor's SYSTEM card): every 10 min, incidents open/resolve; one phone push per new one (quiet hours wait). Not awaited; never throws.
+    if (users?.[0]) void import("./system-health").then((m) => m.tickSystemHealth(sb, users[0].id));
     // Invoices: a phone push when an overdue reminder draft is waiting, once per invoice per week (quiet hours and Stop-all skip it).
     await import("./invoices").then((x) => x.pushInvoiceReminders(), () => {});
     // Monthly agent scorecard (ANALYTICS): not awaited, a run takes up to ~50 min; it re-checks Stop-all and usage itself.

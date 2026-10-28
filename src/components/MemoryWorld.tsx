@@ -1,7 +1,7 @@
 "use client";
 // MEMORY world: every memory is a star. Positions come from /api/memories/map (server-side layout from embeddings),
 // links are faint threads, CORE-learned memories carry a ring. The list drawer lives on as "List view" in the side panel.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type RootState, type ThreeEvent } from "@react-three/fiber";
 import { Html, OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
@@ -341,7 +341,7 @@ function Fly({ goal, reduced }: { goal: { at: [number, number, number]; dist: nu
 
 export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", focusId, onChanged, paused = false, List }: {
   onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; focusId: string | null; onChanged: () => void; paused?: boolean /* kept mounted but hidden */;
-  List?: typeof MemoryPanel; // absent = read-only demo: constellation only, no list or hygiene
+  List?: ComponentType<ComponentProps<typeof MemoryPanel>>; // absent = read-only demo: constellation only, no list or hygiene
 }) {
   const glr = useGlRecovery();
   const later = useMountLater(); // the panel paints first; the WebGL context and scene come in the next task

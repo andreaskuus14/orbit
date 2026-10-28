@@ -148,14 +148,15 @@ export const RULES = {
   stripWidth: 0.5, // strip foundation width under load-bearing walls
   blockFace: 0.6 * 0.2, // 600 × 200 mm block face, m²
   roofPitchFactor: 1.15, // pitched roof area vs footprint
+  riserMaxMm: 190, // same as STAIR.maxR in arch-plan-pure: a stair part of height h has ceil(h / 190 mm) risers
 };
 /** wallM2 = net wall face (openings off), slabM2 = all slab plan area, windowM2 = glazed area: the areas the materials lab prices. */
-export type Boq = { concreteM3: number; rebarT: number; blocks: number; wallM3: number; roofM2: number; windows: number; doors: number; wallM2: number; slabM2: number; windowM2: number };
+export type Boq = { concreteM3: number; rebarT: number; blocks: number; wallM3: number; roofM2: number; windows: number; doors: number; risers: number; wallM2: number; slabM2: number; windowM2: number };
 
 /** Walls: a block is the outer shell (a thin one is one straight wall); foundations are strips; slabs are solid.
  *  Windows and doors are cut out of their wall's face and volume and counted per piece. */
 export function boq(parts: Part[]): Boq {
-  let concreteM3 = 0, wallM3 = 0, wallFace = 0, roofM2 = 0, windows = 0, doors = 0, slabM2 = 0, windowM2 = 0;
+  let concreteM3 = 0, wallM3 = 0, wallFace = 0, roofM2 = 0, windows = 0, doors = 0, risers = 0, slabM2 = 0, windowM2 = 0;
   for (const p of parts) {
     if (p.kind === "slab") { concreteM3 += p.w * p.d * p.h; slabM2 += p.w * p.d; }
     else if (p.kind === "foundation") { // a strip under the outer walls; a narrow block is a single strip or pad
@@ -170,9 +171,10 @@ export function boq(parts: Part[]): Boq {
       if (isStraightWall(p)) { wallFace += Math.max(p.w, p.d) * p.h; wallM3 += p.w * p.d * p.h; } // one straight wall
       else { const perim = 2 * (p.w + p.d) - 4 * RULES.wallThick; wallFace += perim * p.h; wallM3 += perim * p.h * RULES.wallThick; } // outer shell
     }
-    else if (p.kind === "roof") roofM2 += p.w * p.d * RULES.roofPitchFactor; // shortcut: stairs are not priced yet
+    else if (p.kind === "roof") roofM2 += p.w * p.d * RULES.roofPitchFactor;
+    else if (p.kind === "stair") risers += Math.ceil(r2((p.h * 1000) / RULES.riserMaxMm));
   }
-  return { concreteM3: r2(concreteM3), rebarT: r2((concreteM3 * RULES.rebarKgPerM3) / 1000), blocks: Math.max(0, Math.ceil(r2(wallFace) / RULES.blockFace)), wallM3: Math.max(0, r2(wallM3)), roofM2: r2(roofM2), windows, doors, wallM2: Math.max(0, r2(wallFace)), slabM2: r2(slabM2), windowM2: r2(windowM2) };
+  return { concreteM3: r2(concreteM3), rebarT: r2((concreteM3 * RULES.rebarKgPerM3) / 1000), blocks: Math.max(0, Math.ceil(r2(wallFace) / RULES.blockFace)), wallM3: Math.max(0, r2(wallM3)), roofM2: r2(roofM2), windows, doors, risers, wallM2: Math.max(0, r2(wallFace)), slabM2: r2(slabM2), windowM2: r2(windowM2) };
 }
 
 /** Unit prices in EUR (VAT excluded). source + date are shown next to every price so it can be checked. */
@@ -184,6 +186,7 @@ export const STARTER_PRICES: PriceItem[] = [
   { key: "roofM2", label: "Roof (steel sheet + battens)", unit: "m²", eur: 28, source: "starter estimate, unverified: press Check live prices", date: "" },
   { key: "windows", label: "Window, PVC triple-glazed (~1.2×1.2 m)", unit: "pc", eur: 350, source: "starter estimate, unverified: press Check live prices", date: "" },
   { key: "doors", label: "Exterior door, insulated", unit: "pc", eur: 900, source: "starter estimate, unverified: press Check live prices", date: "" },
+  { key: "risers", label: "Stair, timber dogleg (treads, stringers, handrail)", unit: "riser", eur: 150, source: "starter estimate, unverified (~2 400 € for a 16-riser house stair): press Check live prices", date: "" },
 ];
 
 export function costLines(q: Boq, prices: PriceItem[]) {

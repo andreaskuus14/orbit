@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as focus from "../src/lib/focus-timer-pure.ts";
+import { translate } from "../src/lib/i18n-pure.ts";
 
 const require = createRequire(import.meta.url);
 const code = ts.transpileModule(readFileSync(new URL("../src/components/LifePanel.tsx", import.meta.url), "utf8")
@@ -41,6 +42,7 @@ function browser(raw: string | null, now = 1_000_000) {
         if (id.endsWith("focus-timer-pure")) return focus;
         if (id.endsWith("life-pure")) return { ALL_DAYS: [] };
         if (id.endsWith("habit-nudge-pure")) return {};
+        if (id === "./i18n") return { useT: () => ({ t: (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate("en", k, v) }) };
         if (id === "./voice/bus" || id === "./CalendarCard" || id === "./SchoolPanel") return {};
         return require(id);
       },

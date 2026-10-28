@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NonceCache, parseCommand } from "../src/lib/remote-pure.ts";
-import { actionFor, approvalId, clipStamp, cookieOptions, deviceName, echoProblem, ledgerData, parseEcho, quoteStamp, screenOnly, secretProblem, stopProblem, takeRate, type Approval } from "../src/lib/remote-web-pure.ts";
+import { actionFor, approvalId, nightForPhone, clipStamp, cookieOptions, deviceName, echoProblem, ledgerData, parseEcho, quoteStamp, screenOnly, secretProblem, stopProblem, takeRate, type Approval } from "../src/lib/remote-web-pure.ts";
 
 const SECRET = "k".repeat(32);
 const cmd = (o: object) => {
@@ -41,6 +41,7 @@ test("actionFor: every command type maps; navigate is not offered", () => {
   assert.equal(actionFor(cmd({ type: "stopAll" })), "stopAll");
   assert.equal(actionFor(cmd({ type: "core.ask", text: "hi" })), "ask");
   assert.equal(actionFor(cmd({ type: "brief" })), "brief");
+  assert.equal(actionFor(cmd({ type: "night" })), "night");
   assert.equal(actionFor(cmd({ type: "navigate", panel: "studio" })), "unsupported");
 });
 
@@ -143,4 +144,19 @@ test("invoice approvals: echoed with their exact version, approve-only, screen-o
   assert.notEqual(echoProblem(item, { kind: "send", seen: "v1" }, "approve"), "");
   assert.notEqual(echoProblem(item, { kind: "invoice", seen: "v1" }, "reject"), "");
   assert.deepEqual((["clip", "spend", "send", "nego", "invoice"] as const).filter(screenOnly), ["nego", "invoice"]);
+});
+
+test("nightForPhone: titles and counts only, money stripped, no drafts or reasons", () => {
+  assert.equal(nightForPhone(null), null);
+  const it = (label: string, status: "done" | "approval" | "failed", extra = {}) => ({ kind: "research" as const, ref: "r", label, status, at: "", ...extra });
+  const done = Array.from({ length: 10 }, (_, i) => it(`Research ${i}`, "done", { draft: "secret body", why: "because", open: { task: "t" } }));
+  const r = nightForPhone({ key: "2026-10-27", startedAt: "", running: false, calls: 9, minutes: 40, deferred: 2, invoices: "Acme owes €1 200", company: "Company: 1 step done",
+    done, approvals: [it("Follow-up for Acme: quote €4 500", "approval", { draft: "Hi Acme, ..." })], failed: [it("Deal hunt", "failed", { why: "timeout" })], stopped: "budget" })!;
+  assert.deepEqual(r.counts, { done: 10, approvals: 1, failed: 1 });
+  assert.equal(r.done.length, 8);
+  assert.equal(r.done[0], "Research 0");
+  assert.doesNotMatch(r.approvals[0], /4 500|€/);
+  assert.equal(r.stopped, "Tonight's budget was used up");
+  assert.deepEqual(Object.keys(r).sort(), ["approvals", "counts", "done", "failed", "running", "stopped"]);
+  assert.doesNotMatch(JSON.stringify(r), /secret|because|Hi Acme|timeout|1 200|Company/);
 });

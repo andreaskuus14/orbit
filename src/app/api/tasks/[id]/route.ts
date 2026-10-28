@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
+import { crossSiteBlocked } from "@/lib/csrf";
 import { ConflictError, cancelTask, kickQueue, resolvePending } from "@/lib/agents";
 import { cancelChain } from "@/lib/chains";
 import { CHAIN_TITLE } from "@/lib/chains-pure";
@@ -25,6 +26,8 @@ export async function GET(_: Request, { params }: Ctx) {
 
 /** approve | reject (pending actions), retry (failed/cancelled), cancel (queued or running, with its sub-tasks). */
 export async function POST(req: Request, { params }: Ctx) {
+  const h = req.headers; // the middleware matcher skips paths ending in .png etc., so check here too
+  if (crossSiteBlocked("POST", "/api/tasks", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const { id } = await params;

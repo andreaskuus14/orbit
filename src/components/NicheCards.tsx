@@ -26,7 +26,7 @@ export default function NicheCards() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { // a scout run takes minutes: refresh until it's done
     if (!b?.busy) return;
-    const t = setInterval(() => void load(), 5000);
+    const t = setInterval(() => { if (!document.hidden) void load(); }, 5000);
     return () => clearInterval(t);
   }, [b?.busy, load]);
   const act = async (key: string, body: object) => {

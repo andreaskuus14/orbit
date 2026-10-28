@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { BrandMark } from "@/components/BrandMark";
 
 const ERRORS: Record<string, string> = {
   not_allowed: "That email isn't on this Orbital's allowlist.",
@@ -37,8 +38,7 @@ export default function Login() {
     <main className="grid min-h-dvh place-items-center px-4">
       <form onSubmit={submit} className="glass w-full max-w-sm space-y-4 p-6">
         <div className="flex flex-col items-center gap-2 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/orbit-mark.png" alt="" width={96} height={96} className="rounded-2xl shadow-[0_0_40px_rgba(34,211,238,0.35)]" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          <BrandMark size={96} className="rounded-2xl shadow-[0_0_40px_rgba(34,211,238,0.35)]" />
           <div className="brand text-2xl">Orbital</div><p className="muted text-sm">Your mind has a universe.</p>
         </div>
         {state === "sent" ? (

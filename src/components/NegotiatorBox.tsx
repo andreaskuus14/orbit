@@ -76,7 +76,7 @@ export default function NegotiatorBox({ refKey, title, hint }: { refKey: string;
       )}
       {n?.state === "talking" && (
         <div className="space-y-1">
-          <textarea className="field w-full" rows={2} placeholder="Paste their reply here" maxLength={3000} value={reply} onChange={(e) => setReply(e.target.value)} />
+          <textarea className="field w-full" rows={2} aria-label="Their reply" placeholder="Paste their reply here" maxLength={3000} value={reply} onChange={(e) => setReply(e.target.value)} />
           <div className="flex flex-wrap items-center gap-1.5">
             <select className="chip" aria-label="Their intent" value={intent} onChange={(e) => setIntent(e.target.value as Intent | "auto")}><option value="auto">Intent: ORBIT reads it</option>{INTENTS.map((i) => <option key={i} value={i}>Intent: {i}</option>)}</select>
             <select className="chip" aria-label="Message language" value={lang} onChange={(e) => setLang(e.target.value)}>{LANGS.map((l) => <option key={l}>{l}</option>)}</select>

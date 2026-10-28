@@ -12,6 +12,23 @@ export const DEMO_ROUTES: Readonly<Record<string, string>> = {
   "GET /api/studio": "/api/studio",
   "GET /api/studio/clips": "/api/studio/clips",
   "GET /api/studio/clips/learn": "/api/studio/clips/learn",
+  "GET /api/studio/analytics": "/api/studio/analytics", // one fixture for every query: ?range=, &video= (Stats) and ?results=1 (Last Shorts)
+  "GET /api/studio/oauth/status": "/api/studio/oauth/status",
+  "GET /api/studio/clips/inbox-auto": "/api/studio/clips/inbox-auto",
+  "GET /api/studio/clips/schedule": "/api/studio/clips/schedule",
+  "GET /api/studio/clips/devlog": "/api/studio/clips/devlog",
+  "GET /api/studio/clips/scout": "/api/studio/clips/scout",
+  "GET /api/studio/clips/story": "/api/studio/clips/story",
+  "GET /api/studio/clips/engage": "/api/studio/clips/engage",
+  "GET /api/studio/shorts-plan": "/api/studio/shorts-plan",
+  "GET /api/studio/longform": "/api/studio/longform",
+  "GET /api/studio/autopilot": "/api/studio/autopilot",
+  "GET /api/ideas": "/api/ideas",
+  "GET /api/git": "/api/git",
+  "GET /api/place": "/api/place",
+  "GET /api/news/follows": "/api/news/follows",
+  "GET /api/arch/studio": "/api/arch/studio",
+  "GET /api/arch/versions": "/api/arch/versions",
   "POST /api/arch": "/api/arch", // ARCH's "build" answers with the canned garden plot: no model call
 };
 
@@ -25,9 +42,9 @@ export function guardFetch(data: DemoData, real: typeof fetch, origin: string, b
     const req = input instanceof Request ? input : null;
     const url = new URL(req ? req.url : String(input), origin);
     const method = (init?.method ?? req?.method ?? "GET").toUpperCase();
-    const key = `${method} ${url.pathname}`;
+    const key = `${method} ${url.pathname}`, exact = key + url.search;
     if (url.origin === origin && !/^\/api(\/|$)/i.test(url.pathname)) return real(input, init);
-    if (url.origin === origin && Object.hasOwn(data, key)) return json(structuredClone(data[key]));
+    if (url.origin === origin) for (const k of [exact, key]) if (Object.hasOwn(data, k)) return json(structuredClone(data[k]));
     blocked.push(url.origin === origin ? key : `${method} ${url.href}`);
     return json({ error: DEMO_NOTE }, 403);
   };

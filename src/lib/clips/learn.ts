@@ -108,9 +108,10 @@ export function startResultsLoop() {
 /** Plain-text brief of the owner's taste for clip-picking prompts (≤ NOTES_MAX chars, "" with no data). Cached 1 min: a job asks up to 3 times. */
 export async function tasteNotes(): Promise<string> {
   if (L.notes && Date.now() - L.notes.at < 60_000) return L.notes.text;
-  const s = await load(); // prefsHint: UTC is fine, it leaves posting hours out
-  const viral = await import("./study").then((m) => m.playbookNotes(), () => ""); // viral-study playbook (study.ts)
-  const kept = await import("../lessons").then((m) => m.keptLessonsText("studio"), () => ""); // lessons he kept about his clip reviews (lessons.ts)
+  const [s, viral, kept] = await Promise.all([
+    load(), // prefsHint: UTC is fine, it leaves posting hours out
+    import("./study").then((m) => m.playbookNotes(), () => ""), // viral-study playbook (study.ts)
+    import("../lessons").then((m) => m.keptLessonsText("studio"), () => "")]); // lessons he kept about his clip reviews (lessons.ts)
   const text = [kept && `Lessons he confirmed: ${kept}`, formatTaste(insights(s, await listJobs())), viral, prefsHint(learnPrefs(Object.values(s.clips), "UTC", "")), avoidHint((await loadIssues()).counts)].filter(Boolean).join("\n").slice(0, NOTES_MAX);
   L.notes = { at: Date.now(), text };
   return text;
