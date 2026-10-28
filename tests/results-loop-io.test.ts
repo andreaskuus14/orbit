@@ -121,6 +121,7 @@ test("results endpoint remains authenticated and leaves the regular Analytics pa
     if (name.endsWith("supabase/server")) return { requireUser: async () => authorized ? {} : { res: new Response("Unauthorized", { status: 401 }) } };
     if (name.endsWith("clips/learn")) return { learnView: async () => { resultCalls++; return { lastShorts: [], checkedAt: "now", warnings: [] }; } };
     if (name.endsWith("clips/postmortem")) return { postmortemView: async () => null };
+    if (name.endsWith("clips/forecast")) return { forecastView: async () => ({ forecasts: [] }) };
     if (name.endsWith("yt-analytics")) return { getAnalytics: async () => { analyticsCalls++; return { connected: false, reason: "not_connected" }; } };
     if (name.endsWith("yt-analytics-pure")) return { parseRange: () => 28, isVideoId: () => true };
     throw new Error(name);

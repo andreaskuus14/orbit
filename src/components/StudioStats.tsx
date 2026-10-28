@@ -3,6 +3,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type Keyboard
 import { coach, type Finding } from "@/lib/studio-coach-pure";
 import { useT } from "./i18n";
 import { channelHealth, postedThisWeek, type Health, type Light } from "@/lib/studio-health-pure";
+import type { Accuracy, Forecast, Hint } from "@/lib/clips/forecast-pure";
+import type { Key } from "@/lib/i18n-pure";
 import { FEW_VIEWS, areaPath, compact, delta, linePath, mmss, niceTicks, tooFewToCompare, toPoints, type Box } from "@/lib/chart-pure";
 
 // STUDIO stats: YouTube Analytics dashboard drawn over the left of the 3D world. Hand-written SVG charts.
@@ -521,6 +523,8 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
             ) : <p className="muted text-xs">{tr("ss.noDaily")}</p>}
           </section>
 
+          {!vid && <Forecasts />}
+
           <button className="chip" aria-expanded={full} onClick={() => setFull((f) => !f)}>{full ? `▴ ${tr("ss.simple")}` : `▾ ${tr("ss.full")}`}</button>
 
           {full && <div className="grid gap-3 @2xl:grid-cols-2">
@@ -565,6 +569,36 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
         </div>
       )}
     </div>
+  );
+}
+
+type ForecastData = { items: (Forecast & { hint: Hint | null })[]; accuracy: Accuracy | null; history: number };
+/** 7-day forecast per recent Short (clips/forecast-pure.ts): estimate, 80% range, one "next time" hint, and how past forecasts did. */
+function Forecasts() {
+  const { t: tr } = useT();
+  const [d, setD] = useState<ForecastData | null>(null);
+  useEffect(() => {
+    let on = true;
+    fetch("/api/studio/analytics?forecast=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((j: ForecastData | null) => { if (on && Array.isArray(j?.items)) setD(j); }).catch(() => {}); // optional extra: quiet on failure
+    return () => { on = false; };
+  }, []);
+  if (!d) return null;
+  const lab = (dim: string, l: string) => (dim === "hookStyle" ? tr(`fc.hs.${l}` as Key) : l);
+  const hint = (h: Hint) => h.key === "keep" ? tr("fc.hint.keep", { dim: tr(`fc.dim.${h.vars.dim}` as Key), label: lab(String(h.vars.dim), String(h.vars.label)) })
+    : tr(`fc.hint.${h.key}`, h.key.startsWith("hook") && h.key !== "hookLen" ? { now: lab("hookStyle", String(h.vars.now)), to: lab("hookStyle", String(h.vars.to)) } : h.vars);
+  return (
+    <Section title={tr("fc.title")}>
+      {d.items.length ? <ul className="space-y-2 text-xs">{d.items.map((f) => (
+        <li key={f.videoId}>
+          <a className="line-clamp-1 underline" href={`https://youtube.com/shorts/${f.videoId}`} target="_blank" rel="noreferrer">{f.title}</a>
+          <p className="num"><b>{tr("fc.line", { p50: compact(f.p50), lo: compact(f.lo), hi: compact(f.hi) })}</b>{" "}
+            <span className="muted">{tr("fc.from", { views: compact(f.views), h: f.ageH })}{f.method === "nn" ? ` · ${tr("fc.rough")}` : ""}</span></p>
+          {f.hint && <p><b>{tr("fc.next")}</b> {hint(f.hint)}</p>}
+        </li>))}</ul>
+        : <p className="muted text-xs">{tr(d.history ? "fc.none" : "fc.needHistory")}</p>}
+      <p className="muted mt-2 text-[11px]">{d.accuracy ? tr("fc.acc", { n: d.accuracy.n, err: d.accuracy.medianErrPct, inside: d.accuracy.inRange }) : tr("fc.accNone")}</p>
+    </Section>
   );
 }
 
