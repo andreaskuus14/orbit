@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, recordUsage, emit } from "./claude";
 import { createMemory, findSimilar } from "./memory";
+import { scopeTags } from "./memory-types-pure";
 import { embed } from "./embeddings";
 import { getPlaybook, applyPlaybookEdits } from "./playbook";
 import { parseReflection, allowedSaves, summaryDue, normTitle, shouldReflect, hasPreferenceSignal, type MemoryDraft } from "./reflect-pure";
@@ -107,7 +108,7 @@ async function reflect(sb: SupabaseClient, userId: string, conversationId: strin
   let saved = 0;
   for (const draft of out.memories) {
     try {
-      const res = await saveCoreMemory(sb, userId, draft, "core-auto", titles);
+      const res = await saveCoreMemory(sb, userId, { ...draft, tags: scopeTags(`${draft.title}\n${draft.content}`, draft.tags, { chat: conversationId }) }, "core-auto", titles);
       if (!res.duplicate) { saved++; titles.unshift(res.title); }
     } catch (e) { console.error("[orbit] reflection save failed", e); }
   }

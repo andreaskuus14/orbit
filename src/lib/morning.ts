@@ -6,6 +6,7 @@ import { scoutView } from "./clips/scout";
 import { learnProblem, type LearnState } from "./clips/learn-pure";
 import { pmMorning, postmortemProblem, type PostMortemState } from "./clips/postmortem-pure";
 import { pickRecall, type Recall } from "./resurface-pure";
+import { isCurrent } from "./memory-types-pure";
 import { getContinueWork } from "./work-continuation";
 import { dailyMission } from "./daily-mission-pure";
 import { taskVerified } from "./completion-pure";
@@ -61,10 +62,10 @@ async function agents(sb: SupabaseClient, now: number): Promise<MorningAgents> {
 
 // shortcut: only the 500 newest memories older than 6 days are candidates, so older anniversaries are missed; add a date-filtered query if that matters.
 async function recall(sb: SupabaseClient, now: number, tz: string): Promise<Recall[]> {
-  const { data, error } = await sb.from("memories").select("id, title, kind, created_at").not("kind", "in", "(conversation,journal)") // journal entries are LIFE: never resurfaced
+  const { data, error } = await sb.from("memories").select("id, title, kind, created_at, tags, content").not("kind", "in", "(conversation,journal)") // journal entries are LIFE: never resurfaced
     .lt("created_at", new Date(now - 6 * 86_400_000).toISOString()).order("created_at", { ascending: false }).limit(500);
   if (error) throw new Error(error.message);
-  return pickRecall(data ?? [], now, tz);
+  return pickRecall((data ?? []).filter((m) => isCurrent(m, { now })), now, tz); // no lapsed, chat- or project-scoped instructions in the brief
 }
 
 /** "Since you left": each source on its own timeout; a failing one just counts as nothing new. */

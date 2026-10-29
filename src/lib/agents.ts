@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClipStore } from "./clip-store-pure";
+import { isCurrent } from "./memory-types-pure";
 import { askClaude, recordUsage, emit, reviewDraft, MODEL, createBudget, chargeCall, stopKind, stoppedReport, BudgetError, type Budget } from "./claude";
 import { createMemory, searchMemories, fetchPage, safeFetch, MEMORY_COLUMNS, KINDS, type Kind } from "./memory";
 import { runPulse, topicFeedUrl } from "./pulse";
@@ -75,7 +76,7 @@ export const TOOLS: Record<string, Tool> = {
     run: async ({ sb, userId }) => {
       const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).neq("kind", "journal").order("created_at", { ascending: false }).limit(12);
       if (error) throw error;
-      return (data ?? []).map((m) => `[m:${m.id}] (${m.kind}, ${m.created_at.slice(0, 10)}) ${m.title}: ${String(m.content).slice(0, 200)}`).join("\n") || "No memories yet.";
+      return (data ?? []).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => `[m:${m.id}] (${m.kind}, ${m.created_at.slice(0, 10)}) ${m.title}: ${String(m.content).slice(0, 200)}`).join("\n") || "No memories yet."; // agents run outside any chat: no chat-scoped ones
     },
   },
   news_search: {
