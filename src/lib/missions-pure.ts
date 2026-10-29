@@ -3,7 +3,7 @@
 // are the checkpoints (a done step is never rerun), the doc holds what the chain can't: constraints, receipts, decisions, blockers, retries.
 // Receipts are only things ORBIT itself checked (a task row, an action's read-back evidence, a file on disk) — never the model's word.
 import type { ChainView } from "./chains-pure.ts";
-import { DISPROVED_RULE, inferAcceptance, type Check } from "./mission-checks-pure.ts";
+import { DISPROVED_RULE, inferAcceptance, type Check, type Evidence } from "./mission-checks-pure.ts";
 
 export type MissionStatus = "queued" | "running" | "waiting-input" | "waiting-approval" | "paused" | "failed" | "completed" | "cancelled";
 export type FailureClass = "temporary" | "permission" | "invalid" | "unavailable" | "faulty";
@@ -13,7 +13,7 @@ export type MissionDoc = {
   receipts: Receipt[]; decisions: { at: string; text: string }[]; blocker?: string; failure?: FailureClass;
   retries: Record<string, number>; log: { at: string; text: string }[];
   // success definition + evidence (older docs lack these): acceptance at creation, deterministic checks, reviewed steps, estimate.
-  acceptance?: string; assumptions?: string[]; checks?: Check[]; reviewed?: number[]; verified?: boolean; effort?: { minutes: number; stops: string[] };
+  acceptance?: string; assumptions?: string[]; checks?: Check[]; reviewed?: number[]; verified?: boolean; evidence?: Evidence; effort?: { minutes: number; stops: string[] };
 };
 
 export const TERMINAL: MissionStatus[] = ["completed", "cancelled"];
