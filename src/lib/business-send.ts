@@ -1,8 +1,8 @@
+import { authorizeApproval } from "@/lib/authority";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emit } from "@/lib/claude";
 import { stopAllOn } from "@/lib/stop-all";
 import { sendContent } from "@/lib/business-pure";
-import { approvalGate } from "@/lib/approval-pure";
 import { allows } from "@/lib/autonomy";
 
 const COLS = "*";
@@ -27,7 +27,7 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
   const stamp = new Date().toISOString();
   // Claim before sending: only a business still "To contact" is emailed, once.
   // seen: the hash of the exact email the owner read; any change since (draft, address, name) needs a fresh approval.
-  const gate = await approvalGate("business.send", seen, mail);
+  const gate = await authorizeApproval("business.send", seen, mail);
   if (gate) return fail(gate, 409);
   const { data: claimed, error: claimErr } = await sb.from("prospects").update({ stage: "contacted", updated_at: stamp }).eq("id", id).eq("stage", "lead").eq("updated_at", p.updated_at).select("id");
   if (claimErr) return fail(claimErr.message, 500);

@@ -1,3 +1,4 @@
+import { authorizeApproval } from "./authority";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -7,7 +8,6 @@ import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
 import { allows } from "./autonomy";
 import { emailIn } from "./business-pure";
-import { approvalGate } from "./approval-pure";
 import { resendMail } from "./business-send";
 import { localDay } from "./morning-pure";
 import {
@@ -145,7 +145,7 @@ const fail = (error: string, status = 400) => Response.json({ error }, { status 
 export async function approveReminder(sb: SupabaseClient, userId: string, id: unknown, seen: unknown): Promise<Response> {
   if (stopAllOn()) return fail("Not now: Stop-all is on", 503);
   const day = today(), s0 = await load(), i0 = s0.invoices.find((x) => x.id === id);
-  const why = approveProblem(i0, day) || (await approvalGate("invoices.remind", seen, reminderContent(i0!)));
+  const why = approveProblem(i0, day) || (await authorizeApproval("invoices.remind", seen, reminderContent(i0!)));
   if (why || !i0) return fail(why, why === "Not found" ? 404 : 409);
   const to = process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM ? emailIn(i0.buyer.email) : null;
   if (to) { const a = allows("business-send", "owner"); if (!a.ok) return fail(`Not sending: ${a.why}`, 503); }

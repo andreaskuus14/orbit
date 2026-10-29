@@ -1,5 +1,6 @@
+import { authorizeApproval } from "../authority";
 import { randomBytes } from "node:crypto";
-import { approvalGate, spendContent } from "../approval-pure";
+import { spendContent } from "../approval-pure";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { MODEL, askClaude, emitAsOwner } from "../claude";
@@ -171,7 +172,7 @@ export async function quoteStory(job: StoryJob, signal?: AbortSignal): Promise<S
 
 /** The owner's click on "Approve & generate (N credits)": the only way anything gets generated. */
 export async function approveStory(job: StoryJob, credits: unknown, seen: unknown): Promise<StoryJob | string> {
-  const why = approveProblem(job, credits) || (await approvalGate("story.approve", seen, spendContent(job.quote!.fingerprint, quoteTotal(job.items)))); // seen = hash of the quote he read
+  const why = approveProblem(job, credits) || (await authorizeApproval("story.approve", seen, spendContent(job.quote!.fingerprint, quoteTotal(job.items)))); // seen = hash of the quote he read
   if (why) return why;
   if (stopAllOn()) return PAUSED_MSG;
   const off = (await import("../autonomy")).allows("higgsfield-spend", "owner"); // Profile → Autonomy: Off refuses the spend click too

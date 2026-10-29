@@ -1,3 +1,4 @@
+import { authorizeApproval } from "./authority";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -8,7 +9,7 @@ import { stopAllOn } from "./stop-all";
 import { usageHold } from "./usage-meter";
 import { allows } from "./autonomy";
 import { emailIn, sendSubject, LANGS } from "./business-pure";
-import { approvalGate, negoContent } from "./approval-pure";
+import { negoContent } from "./approval-pure";
 import {
   NEGO_SYSTEM, addReply, applyApproval, approveProblem, editDraft, makeDraft, negoPrompt, newNegotiation, parseLimits, replan, refSide, waiting,
   type Negotiation, type Plan, type Turn,
@@ -178,7 +179,7 @@ export async function approveNegotiation(sb: SupabaseClient, userId: string, id:
   const version = n.draft!.at;
   const { to, name } = await recipient(sb, n);
   const subject = to ? `Re: ${sendSubject(name, n.draft!.text)}` : "";
-  const why = await approvalGate("negotiator.approve", seen, negoContent(n.id, n.draft!.text, to)); // seen = hash of the draft AND recipient he read
+  const why = await authorizeApproval("negotiator.approve", seen, negoContent(n.id, n.draft!.text, to)); // seen = hash of the draft AND recipient he read
   if (why) return fail(why, 409);
   const key = process.env.RESEND_API_KEY, from = process.env.ORBIT_MAIL_FROM;
   if (to) { const off = allows("business-send", "owner"); if (!off.ok) return fail(`Not sending: ${off.why}`, 503); }

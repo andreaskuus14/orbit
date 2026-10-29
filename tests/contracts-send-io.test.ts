@@ -26,6 +26,7 @@ async function load(vault: object) {
     fetch: async (...a: unknown[]) => { sends.push(a); return new Response("{}"); },
     require: (name: string) => {
       if (name.endsWith("approval-pure")) return approval;
+      if (name.endsWith("/authority")) return { authorizeApproval: approval.approvalGate };
       if (name === "node:crypto") return crypto;
       if (name === "node:fs/promises") return fsp;
       if (name === "node:path") return { default: path };

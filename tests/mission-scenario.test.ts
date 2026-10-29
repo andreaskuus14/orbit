@@ -124,7 +124,7 @@ function boot(w: World, missing = new Set<string>()) {
     askClaude: async (prompt: string) => ({ text: JSON.stringify(model(w, p, prompt)), ms: 1 }),
   };
   const mods: Row = {
-    "./claude": claude, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure,
+    "./claude": claude, "./authority": { authorizeAction: async () => ({ ok: true }) }, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure,
     "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./pure": pure,
     "./memory": { KINDS: ["note"], createMemory: (_sb: unknown, userId: string, input: Row) => ctx.__memory({ ...input, user_id: userId }) }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
     "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./mission-checks-pure": missionChecksPure,

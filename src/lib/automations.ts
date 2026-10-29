@@ -3,6 +3,7 @@ import { kickQueue } from "./agents";
 import { automationDue, type Schedule } from "./pure";
 import { ackEvent, claimEvents, type EventRow } from "./durable";
 import { stopAllOn } from "./stop-all";
+import { authorizeAction } from "./authority";
 import { PAUSED_MSG } from "./stop-all-pure";
 
 // Automation engine. Each automation run becomes an ordinary agent task (traceable, retryable, approvals intact).
@@ -20,6 +21,8 @@ const USER_SOURCES = ["capture", "upload", "url", "core"];
 /** Queue one run of an automation as an agent task and start it. */
 export async function startAutomation(sb: SupabaseClient, a: Automation, trigger: string, key?: string) {
   if (stopAllOn()) throw new Error(PAUSED_MSG);
+  const auth = await authorizeAction("automations.start", { entry: "automation", workflow: `automation:${a.id}`, ownerClick: trigger === "run manually" });
+  if (!auth.ok) throw new Error(auth.why);
   const request = `${a.prompt}\n\n(Automation "${a.name}", triggered: ${trigger}.)${key ? ` [${key}]` : ""}`;
   if (key) { // idempotency: an event replayed after a crash finds the task it already created
     const { data: had, error } = await sb.from("tasks").select("id").eq("user_id", a.user_id).eq("automation_id", a.id).like("request", `%[${key}]`).limit(1);
