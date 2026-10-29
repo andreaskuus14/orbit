@@ -151,7 +151,7 @@ const BASE = {
   "task.trace": "Execution trace ({n} steps)", "task.saveRecipe": "📋 Save as recipe", "task.recipeName": "Recipe name",
 
   "doc.title": "ORBIT doctor", "doc.closeAria": "Close ORBIT doctor", "doc.checking": "Checking…", "doc.again": "Check again",
-  "doc.loading": "Checking everything (takes up to 10 seconds)…", "doc.whatToDo": "What to do:", "doc.ok": "OK", "doc.warn": "CHECK", "doc.fail": "PROBLEM",
+  "doc.loading": "Checking everything (takes up to 10 seconds)…", "doc.whatToDo": "What to do:", "doc.retry": "Retry", "doc.ok": "OK", "doc.warn": "CHECK", "doc.fail": "PROBLEM",
   "doc.selfTest": "Last self-test", "doc.afterRestart": "After the restart at {at}: {headline}", "doc.crashes": "Crashes since the boot before{exits}:",
   "doc.unknownCause": "Cause not recognised. Ask Claude Code to look at orbit-server.log.", "doc.noCrashes": "No crashes since the boot before.",
   "doc.checkedIn": "Checked in {s} s · {at}",
@@ -769,7 +769,7 @@ export const ET: Partial<Record<Key, string>> = {
   "task.trace": "Täitmise logi ({n} sammu)", "task.saveRecipe": "📋 Salvesta retseptina", "task.recipeName": "Retsepti nimi",
 
   "doc.title": "ORBITi arst", "doc.closeAria": "Sulge ORBITi arst", "doc.checking": "Kontrollin…", "doc.again": "Kontrolli uuesti",
-  "doc.loading": "Kontrollin kõike (võtab kuni 10 sekundit)…", "doc.whatToDo": "Mida teha:", "doc.ok": "KORRAS", "doc.warn": "KONTROLLI", "doc.fail": "PROBLEEM",
+  "doc.loading": "Kontrollin kõike (võtab kuni 10 sekundit)…", "doc.whatToDo": "Mida teha:", "doc.retry": "Proovi uuesti", "doc.ok": "KORRAS", "doc.warn": "KONTROLLI", "doc.fail": "PROBLEEM",
   "doc.selfTest": "Viimane enesekontroll", "doc.afterRestart": "Pärast taaskäivitust {at}: {headline}", "doc.crashes": "Krahhid alates eelmisest käivitusest{exits}:",
   "doc.unknownCause": "Põhjust ei tuvastatud. Palu Claude Code'il vaadata faili orbit-server.log.", "doc.noCrashes": "Alates eelmisest käivitusest krahhe pole.",
   "doc.checkedIn": "Kontroll võttis {s} s · {at}",
@@ -1247,7 +1247,7 @@ const ET_SERVER: Record<string, string> = {
   "check.claude": "Claude (CORE'i taga olev AI)", "check.supabase": "Andmebaas (Supabase)", "check.ytkey": "YouTube'i API võti",
   "check.oauth": "YouTube'i kanali ühendus", "check.ffmpeg": "Videotööriist (ffmpeg)", "check.whisper": "Kõnetuvastus (Whisper)",
   "check.hyperframes": "Hyperframes (valikuline)", "check.wake": "Häälega äratamine („Orbital wake up“)", "check.allow": "Kes saab sisse logida",
-  "check.datadir": "ORBITi andmekaust", "check.workspaces": "Tööruumide kaust", "check.roblox": "Roblox Studio ühendus", "check.wakepid": "Äratuse kuulaja", "check.drill": "Taastamise harjutus",
+  "check.datadir": "ORBITi andmekaust", "check.workspaces": "Tööruumide kaust", "check.roblox": "Roblox Studio ühendus", "check.wakepid": "Äratuse kuulaja", "check.drill": "Taastamise harjutus", "check.durable": "Salvestatud olek ja sündmused",
   "svc.supabase": "Andmebaas (Supabase)", "svc.claude": "Claude CLI sisselogimine", "svc.resend": "E-kirjade saatmine (Resend)", "svc.higgsfield": "Higgsfield",
   "svc.ollama": "Kohalik aju (Ollama)", "svc.push": "Telefoni teavitused", "svc.calendar": "Google'i kalender",
   "disk.data": "ORBITi andmekaust", "disk.vault": "VAULT", "disk.studio": "STUDIO kaust", "disk.backup": "Varukoopiate kaust",

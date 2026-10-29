@@ -131,8 +131,8 @@ test("downtime replay is bounded to the last 24 h, and the skipped ones are coun
 test("ackTrack: the cursor stops below the oldest unacknowledged event", () => {
   let t: Track = { ...emptyTrack(), inflight: { "3": 1, "5": 1, "8": 1 } }, c = 2;
   ({ cursor: c, track: t } = ackTrack(c, t, 5)); assert.equal(c, 2); assert.deepEqual(t.done, [5]);
-  ({ cursor: c, track: t } = ackTrack(c, t, 3)); assert.equal(c, 5); assert.deepEqual(t.done, []);
-  ({ cursor: c, track: t } = ackTrack(c, t, 8)); assert.equal(c, 8);
+  ({ cursor: c, track: t } = ackTrack(c, t, 3)); assert.equal(c, 5); assert.deepEqual(t.done, [5, 3]); // kept until the new cursor is saved
+  ({ cursor: c, track: t } = ackTrack(c, t, 8)); assert.equal(c, 8); assert.deepEqual(t.done, [8]);
 });
 
 test("crash after take, before act: the event is handled exactly once after restart", async () => {

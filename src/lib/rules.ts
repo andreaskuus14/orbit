@@ -5,7 +5,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { kickQueue } from "./agents";
 import { orbitDataDir } from "./data-dir";
-import { ackEvent, claimEvents, clearCursor } from "./durable";
+import { ackEvent, claimEvents, clearCursor, noteWrite } from "./durable";
 import { stopAllOn } from "./stop-all";
 import { usageLimited } from "./usage-meter";
 import { addRule, countEventRun, parseRule, ruleBlocked, ruleDue, describeAction, describeTrigger, type Rule, type RuleEvent, type RuleResult } from "./rules-pure";
@@ -37,7 +37,7 @@ function update<T>(fn: (s: Store) => T): Promise<T> {
     await writeFile(FILE() + ".tmp", JSON.stringify(s, null, 1));
     await rename(FILE() + ".tmp", FILE());
     return out;
-  });
+  }).then((r) => { noteWrite("rules.json"); return r; }, (e) => { noteWrite("rules.json", e); throw e; }); // Doctor / Needs-you name it
   g.__orbitRules = p;
   return p;
 }

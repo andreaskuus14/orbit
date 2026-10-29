@@ -265,6 +265,9 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
                   <p className="muted text-xs">{c.detail}</p>
                   {c.fix && c.status !== "ok" && <p className="mt-1 text-xs"><b>{t("doc.whatToDo")}</b> {c.fix}</p>}
                   {c.fix && c.status === "ok" && <p className="muted mt-1 text-[11px]">{c.fix}</p>}
+                  {c.retry?.map((r) => <p key={r.key} className="mt-1 flex items-center justify-between gap-2 text-xs"><span>{r.label}</span>
+                    <button className="btn shrink-0" onClick={() => void fetch("/api/doctor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retry: r.key }) })
+                      .then((x) => { if (x.ok) setReport((p) => p && { ...p, checks: p.checks.map((k) => (k.id === c.id ? { ...k, retry: k.retry?.filter((y) => y.key !== r.key) } : k)) }); }, () => {})}>{t("doc.retry")}</button></p>)}
                 </li>
               ))}
             </ul>

@@ -4,7 +4,7 @@
 import { plural, translate, type Lang } from "./i18n-pure.ts";
 
 export type Status = "ok" | "warn" | "fail";
-export type Check = { id: string; label: string; status: Status; detail: string; fix?: string };
+export type Check = { id: string; label: string; status: Status; detail: string; fix?: string; retry?: { key: string; label: string }[] }; // retry: dead-letter events (durable-pure durableCheck)
 export type Report = { status: Status; headline: string; speech: string; checks: Check[]; ms: number; at: string };
 
 const GB = 1024 ** 3;

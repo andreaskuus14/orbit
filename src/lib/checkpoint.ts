@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir";
+import { noteWrite } from "./durable";
 import { projectRecord, projectRecordPrompt } from "./project-record-pure";
 import { addLines, checkpointBlocked, checkpointInput, extractCheckpoint, artifactsFromTrace, parseCheckpoint, type Checkpoint, type CpDraft, type CpLine } from "./checkpoint-pure";
 
@@ -36,7 +37,7 @@ export function updateCheckpoint<T>(userId: string, chatId: string, fn: (cp: Che
     await writeFile(file() + ".tmp", JSON.stringify(all, null, 2));
     await rename(file() + ".tmp", file());
     return { out, cp };
-  });
+  }).then((r) => { noteWrite("checkpoints.json"); return r; }, (e) => { noteWrite("checkpoints.json", e); throw e; }); // Doctor / Needs-you name it
   g.__orbitCheckpoints = p;
   return p;
 }
