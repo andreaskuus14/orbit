@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelChain, createChain, drive, getChain } from "./chains";
 import { parseMeta, type ChainView } from "./chains-pure";
-import { checkContains, checkFile, checkResearch, expected, plan, reviewStep, type Check } from "./mission-checks-pure";
+import { checkContains, checkFile, checkPdf, checkResearch, evidenceLevels, evidenceLine, expected, fetchedFromTrace, plan, reviewStep, type Check } from "./mission-checks-pure";
 import { readWsFile } from "./workspace";
 import {
   acted, canDo, collectReceipts, deriveStatus, explain, logged, missionBlocked, missionLabel, newDoc, nextAction, onFailure, validateMission, LABEL,
@@ -88,13 +88,12 @@ async function examine(sb: SupabaseClient, userId: string, chainId: string, chai
     const checks: Check[] = [], kid = kids.get(s.taskId ?? ""), result = kid?.result || s.result || "";
     for (const r of doc.receipts.filter((r) => r.step === s.index && r.kind === "file" && r.path)) {
       const f = await readWsFile(userId, r.ref, r.path!);
-      checks.push(f ? checkFile(r.path!, f.text, s.index) : { step: s.index, ok: false, what: `${r.path} can't be read back` });
+      checks.push(!f ? { step: s.index, ok: false, kind: "readBack", what: `${r.path} can't be read back` } : /\.pdf$/i.test(r.path!) ? await checkPdf(r.path!, f.bytes, s.index) : checkFile(r.path!, f.text, s.index));
     }
     // Approved-action receipts only exist after completion.ts read the destination back and it matched (matchesStored).
-    if (doc.receipts.some((r) => r.step === s.index && r.kind !== "task")) checks.push({ step: s.index, ok: true, what: "destination read back matches the approved action" });
+    if (doc.receipts.some((r) => r.step === s.index && r.kind !== "task")) checks.push({ step: s.index, ok: true, kind: "readBack", what: "destination read back matches the approved action" });
     if (s.agent === "atlas" || /\]\(https?:/.test(result)) {
-      const tr = kid?.trace;
-      checks.push(checkResearch(result, Array.isArray(tr) ? tr.filter((t) => t?.ok !== false).map((t) => String(t?.detail ?? "")) : [], s.index));
+      checks.push(...checkResearch(result, fetchedFromTrace(kid?.trace), s.index));
     }
     const r = reviewStep(s.index, result, s.index ? kids.get(chain.steps[s.index - 1].taskId ?? "")?.result ?? null : null, checks);
     doc = { ...doc, checks: [...(doc.checks ?? []), ...checks].slice(-40), reviewed: [...reviewed.add(s.index)] };
@@ -123,8 +122,10 @@ async function examine(sb: SupabaseClient, userId: string, chainId: string, chai
       const files = await Promise.all(doc.receipts.filter((r) => r.kind === "file" && r.path).map((r) => readWsFile(userId, r.ref, r.path!)));
       checks = [...checks, checkContains("final output", [kids.get(last.taskId ?? "")?.result ?? "", ...files.map((f) => f?.text ?? "")].join("\n"), want, last.index)];
     }
-    const verified = checks.length > 0 && checks.every((c) => c.ok);
-    doc = logged({ ...doc, checks, verified }, at, verified ? `Verified: ${checks.length} check(s) passed against "${doc.acceptance}".` : checks.length ? "Finished, but not verified: a check failed (see checks)." : "Finished, but nothing checkable was produced, so it is not verified.");
+    // D01: "verified" (kept for older readers) now needs no failed check AND the requirements actually checked; the log names each category.
+    const evidence = evidenceLevels(true, checks);
+    const verified = checks.every((c) => c.ok) && evidence.requirements === "yes";
+    doc = logged({ ...doc, checks, verified, evidence }, at, `${verified ? "Verified" : "Finished, not verified"}: ${evidenceLine(evidence)}.`);
   }
   return doc;
 }
@@ -183,7 +184,7 @@ export async function actMission(sb: SupabaseClient, userId: string, id: string,
   return reconcile(sb, userId, saved);
 }
 
-const line = (m: MissionView) => `- ${m.doc.objective} — ${m.label}; ${m.chain?.steps.filter((s) => s.status === "done").length ?? 0}/${m.chain?.steps.length ?? 0} steps, ${m.doc.receipts.length} receipt(s)${m.doc.verified === undefined ? "" : m.doc.verified ? ", verified" : ", NOT verified"}. Done when: ${m.doc.acceptance ?? "not set"}. Next: ${m.next}`;
+const line = (m: MissionView) => `- ${m.doc.objective} — ${m.label}; ${m.chain?.steps.filter((s) => s.status === "done").length ?? 0}/${m.chain?.steps.length ?? 0} steps, ${m.doc.receipts.length} receipt(s)${m.doc.verified === undefined ? "" : m.doc.verified ? ", verified" : ", NOT verified"}${m.doc.evidence ? ` (${evidenceLine(m.doc.evidence)})` : ""}. Done when: ${m.doc.acceptance ?? "not set"}. Next: ${m.next}`;
 
 /** CORE tools: mission_status {} and start_mission {objective, constraints?, steps}. */
 export async function runMissionTool(sb: SupabaseClient, userId: string, tool: "mission_status" | "start_mission", input: Record<string, unknown>, question: string, tainted: boolean): Promise<string> {

@@ -10,7 +10,7 @@ import { pickModel } from "./core-ui";
 import { partialAnswer } from "./streamjson";
 import { searchMemories, MEMORY_COLUMNS } from "./memory";
 import { compactContext, controlHint } from "./provenance-pure";
-import { typeLabel } from "./memory-types-pure";
+import { isCurrent, scopeTags, typeLabel } from "./memory-types-pure";
 import { selectPassages } from "./passages";
 import { parseCitations, parseAgentReply } from "./pure";
 import { TOOLS, getAgent, runTask, BUILTIN_AGENTS } from "./agents";
@@ -23,7 +23,8 @@ import { asksWhatToDo } from "./insights-pure";
 import { escapeTags } from "./core-chats-pure";
 import { olderTurnsSummary, selectChatSummaries } from "./core-context-pure";
 import { stopAllOn } from "./stop-all";
-import { decide, policyEvent } from "./policy-pure";
+import { carriesPrivate, decide, policyEvent } from "./policy-pure";
+import { turnSignal } from "./session-bound-pure";
 import { logActivity } from "./activity";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import { CORE_LANG_RULE, type Lang } from "./i18n-pure";
@@ -43,7 +44,7 @@ import { withHeadsUp } from "./capability-pure";
 import { CORE_ENGINE } from "./core-sdk-pure";
 import { randomUUID } from "node:crypto";
 import type { CliSession } from "./claude";
-import { coreSessionStore as coreSessions } from "./durable";
+import { coreSessionStore as coreSessions, coreTaintStore as coreTaint } from "./durable";
 
 /** ORBIT_CORE_SESSION=resume: one persistent Claude CLI session per CORE conversation, so follow-ups and tool results stay in it.
  *  The chat → session map survives restarts (durable.ts); a failed resume still drops it and falls back to stateless. */
@@ -115,9 +116,15 @@ ${facts || "(empty)"}`;
  * With onDelta, the answer text streams out as it is written (tool-call replies stream nothing); `signal` stops it.
  */
 /** A CORE turn is foreground: background loops pause at their checkpoints while it runs (foreground-pure.ts). */
+/** Every turn has an elapsed-time deadline (B04): it aborts the CLI/SDK call, tools, agent tasks and fallbacks through one signal. */
+export const TURN_MS = 285_000; // inside the CORE route's 300 s maxDuration
 export async function runCore(...a: Parameters<typeof coreTurn>) {
   const leave = foreground.enter();
-  try { return await coreTurn(...a); } finally { leave(); }
+  const d = turnSignal(a[4], TURN_MS);
+  a[4] = d.signal;
+  try { d.signal.throwIfAborted(); return await coreTurn(...a); }
+  catch (e) { throw d.timedOut() ? new CoreStopped(e instanceof CoreStopped ? e.completed : "", (d.signal.reason as Error).message) : e; }
+  finally { d.clear(); leave(); }
 }
 
 async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", sessionKey?: string, lang: Lang = "en") {
@@ -169,7 +176,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   // Every lookup runs in parallel while step 0's CLI is already booting: the finished prompt becomes its stdin.
   const prep = (async () => {
     const [found, playbook, { data: summaries }, relevantChats, known, live, world, people] = await Promise.all([
-      at("memory", searchMemories(sb, question, 8, userId, { projectName: memoryProject, exact: true })),
+      at("memory", searchMemories(sb, question, 8, userId, { projectName: memoryProject, chatId: sessionKey, exact: true })),
       at("playbook", getPlaybook(sb, userId)), // cached; null without the table
       at("summaries", sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).eq("kind", "conversation").eq("source", "core-summary").order("updated_at", { ascending: false }).limit(3)),
       at("chats", searchMemories(sb, question, 3, userId, { coreSummariesOnly: true }).catch(() => ({ results: [] }))),
@@ -187,7 +194,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       results = data ?? [];
       mode = "recent";
     }
-    results = await import("./memory-types").then((m) => m.currentMemories(sb, userId, results, memoryProject)).catch(() => results); // 24–25: expired, out-of-scope and corrected memories never reach CORE as current
+    results = await import("./memory-types").then((m) => m.currentMemories(sb, userId, results, memoryProject, sessionKey)).catch(() => results.filter((m) => isCurrent(m, { now: Date.now(), project: memoryProject, chat: sessionKey }))); // 24–25: expired, out-of-scope (other chat/project) and corrected memories never reach CORE as current; fails closed
     trace.push({ step: "search_memory", detail: `${results.length} found (${mode}${mode !== "recent" && memoryProject ? ", project hints considered" : ""})`, ms: Date.now() - t, ok: true });
     evalTools.push({ tool: "search_memory", input: {}, output: "", evidence: [] });
     const recentChats = selectChatSummaries(relevantChats.results, summaries ?? []).filter((s) => !results.some((m) => m.id === s.id));
@@ -231,7 +238,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
   let answer = "";
   const voiceNote = typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you: only the FIRST paragraph of \"final\" is read aloud. Make it a 1-3 sentence conversational summary (no lists, headings or links). Brevity applies only to that summary, never to the work: do every step the request needs, and when it needs more (a plan, a draft, results, steps), put the complete result below the summary after a blank line; it stays on screen.\n\n" : "";
-  const policyCtx = () => ({ stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels() });
+  const carried = !!sessionKey && coreTaint.has(sessionKey); // private data from an earlier turn is still in this chat (C03)
+  const policyCtx = () => ({ stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried });
   // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
   // Results over the step limit are clipped with a read_more pointer; the full text lives in this per-turn store (roadmap 20).
   const clips = createClipStore();
@@ -240,7 +248,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     : tool === "read_more" ? clips.read(input)
     // module tools (core-modules.ts) keep their own explicit-ask guards as a second check
     : isModuleTool(tool) ? await runModuleTool(tool, input, { sb, userId, chat: sessionKey, question, tainted: dataIn(), pinned: !!attach || pinsIn, steps, onEvidence: (e) => evidence.push(e) })
-    : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e));
+    : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e), { chat: sessionKey, project: memoryProject });
   const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number) => {
     evalTools.push({ tool, input, output: out.slice(0, 8000), evidence });
     trace.push({ step: tool, detail: `${JSON.stringify(input).slice(0, 140)} → ${out.slice(0, 140)}`, ms, ok: !out.startsWith("Error:"), ...(evidence.length ? { evidence } : {}) });
@@ -366,6 +374,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   } catch (e) {
     if (signal?.aborted && stopped.length) throw new CoreStopped(stopped.join("\n\n"));
     throw e;
+  } finally {
+    if (sessionKey && !carried && carriesPrivate({ ...policyCtx(), steps })) coreTaint.mark(sessionKey); // also when stopped mid-turn
   }
 
   inspectAnswer(question, answer, trace, playbookRules, evalTools);
@@ -454,7 +464,7 @@ function localNow(d = new Date()): string {
 
 /** Thrown when Stop also cancelled agent tasks: `completed` says what they had finished, for the saved chat. */
 export class CoreStopped extends DOMException {
-  constructor(readonly completed: string) { super("CORE was stopped", "AbortError"); }
+  constructor(readonly completed: string, message = "CORE was stopped") { super(message, "AbortError"); }
 }
 
 // Only the user's request may move the screen: decide() allows navigate only as the turn's first tool call, before any page,
@@ -469,7 +479,7 @@ function navigateTool(input: Record<string, unknown>, onNavigate?: (to: NavTarge
 
 /** CORE's tools: the agents' page and news readers, plus handing a whole job to an agent (a normal, visible task). */
 /** timeLeft: ms this turn can still spend on a slow tool (web_search) and leave room for the answer step. */
-async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, input: Record<string, unknown>, question: string, signal?: AbortSignal, stopped: string[] = [], timeLeft = 150_000, onEvidence?: (e: WriteEvidence) => void): Promise<string> {
+async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, input: Record<string, unknown>, question: string, signal?: AbortSignal, stopped: string[] = [], timeLeft = 150_000, onEvidence?: (e: WriteEvidence) => void, here: { chat?: string; project?: string } = {}): Promise<string> {
   const ctx = { sb, userId, task: { id: "", agent: "core", title: "", request: "", parent_id: null, project_id: null }, depth: 1, pending: [], trace: [], pages: new Map() };
   if (tool === "fetch_url" || tool === "read_news") return TOOLS[tool].run(ctx, input);
   if (tool === "web_search") {
@@ -485,7 +495,7 @@ async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, inp
     if ((await coreSavesToday(sb, userId)) >= PER_DAY) return `Error: daily limit of ${PER_DAY} CORE memory saves reached; ask the user to save it in MEMORY`;
     const v = validateMemory(input);
     if ("error" in v) return `Error: ${v.error}`;
-    const r = await saveCoreMemory(sb, userId, v.draft, "core");
+    const r = await saveCoreMemory(sb, userId, { ...v.draft, tags: scopeTags(`${v.draft.title}\n${v.draft.content}`, v.draft.tags, here) }, "core"); // "in this chat"/"selles vestluses" stays in this chat
     if (!r.duplicate) onEvidence?.({ kind: "memory", id: r.id }); // a receipt means something new was saved
     return r.duplicate ? `Already in memory: "${r.title}"${r.id ? ` [m:${r.id}]` : ""}; nothing saved.` : `Saved memory "${r.title}" [m:${r.id}].`;
   }

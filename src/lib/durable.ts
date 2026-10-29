@@ -10,7 +10,7 @@ import { TICK_MAX, ackTrack, type Dead, capSessions, emptyTrack, liveSession, pa
 // core-sessions.json (CORE chat id → Claude CLI session) and event-cursors.json (events-feed consumer → last processed id).
 // Both are rebuildable: an unreadable file starts empty (sessions fall back to stateless; consumers restart from "now").
 
-const g = globalThis as unknown as { __orbitDurable?: { sessions?: Record<string, StoredSession>; cursors?: Cursors; tracks?: Record<string, Track>; fails?: Record<string, { at: string; error: string }>; chain: Promise<unknown> } };
+const g = globalThis as unknown as { __orbitDurable?: { sessions?: Record<string, StoredSession>; taint?: Record<string, StoredSession>; taintBroken?: boolean; cursors?: Cursors; tracks?: Record<string, Track>; fails?: Record<string, { at: string; error: string }>; chain: Promise<unknown> } };
 const S = (g.__orbitDurable ??= { chain: Promise.resolve() });
 const file = (name: string) => path.join(orbitDataDir(), name);
 
@@ -38,7 +38,7 @@ function save(name: string, data: unknown): Promise<void> {
   }).then(() => noteWrite(name), (e) => {
     console.error(`[orbit] could not save ${name}:`, e instanceof Error ? e.message : e);
     noteWrite(name, e);
-    if (name !== "core-sessions.json") { S.cursors = undefined; S.tracks = undefined; }
+    if (name.startsWith("event-")) { S.cursors = undefined; S.tracks = undefined; }
     throw e;
   });
   S.chain = p;
@@ -62,6 +62,30 @@ export const coreSessionStore = {
     if (!(key in sessions())) return;
     delete S.sessions![key];
     bg(save("core-sessions.json", S.sessions));
+  },
+};
+
+// core-taint.json: chats whose context held private data (C03). Apart from the session map: a dropped/expired session must not
+// clear it (the stateless transcript still carries earlier answers). Never capped: an evicted chat would silently get web tools back.
+// Fail closed: a file that exists but can't be read or parsed taints every chat and is left as is (not overwritten) for Doctor.
+function taint() {
+  if (S.taint) return S.taint;
+  try { S.taint = parseSessions(JSON.parse(readFileSync(file("core-taint.json"), "utf8")), Infinity); }
+  catch (e) { S.taint = {}; if ((e as NodeJS.ErrnoException).code !== "ENOENT") S.taintBroken = true; }
+  return S.taint;
+}
+/** core-taint.json exists but is unreadable: every chat counts as tainted until it is fixed or deleted (Doctor shows it). */
+export const taintBroken = () => (taint(), !!S.taintBroken);
+export const coreTaintStore = {
+  has: (key: string) => taintBroken() || key in taint(),
+  mark(key: string) {
+    S.taint = { ...taint(), [key]: { id: "private", at: Date.now() } };
+    if (!S.taintBroken) bg(save("core-taint.json", S.taint)); // a failed save is noted; the mark stays in memory (fail closed)
+  },
+  delete(key: string) {
+    if (!(key in taint())) return;
+    delete S.taint![key];
+    if (!S.taintBroken) bg(save("core-taint.json", S.taint)); // a failed save is noted; the mark stays in memory (fail closed)
   },
 };
 

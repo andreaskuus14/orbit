@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { api, usePoll } from "./AgentMission";
 import { canDo, stepVerified, type OwnerAction } from "@/lib/missions-pure";
 import { timeAgo } from "@/lib/mission-pure";
+import { evidenceLine } from "@/lib/mission-checks-pure";
 import { useT } from "./i18n";
 import type { MissionView } from "@/lib/missions";
 
@@ -34,6 +35,7 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
               </div>
               <p><span className="muted">Next: </span>{m.next}</p>
               {m.doc.acceptance && <p><span className="muted">{t("mission.doneWhen")}</span>{m.doc.acceptance}{m.doc.verified !== undefined && <span style={{ color: m.doc.verified ? "var(--mint)" : "#fb7185" }}> — {t(m.doc.verified ? "mission.verified" : "mission.notVerified")}</span>}</p>}
+              {m.doc.evidence && <p className="muted text-[11px]">{evidenceLine(m.doc.evidence)}</p>}
               {m.doc.effort && <details><summary className="cursor-pointer muted">{t("mission.effort", { n: m.doc.effort.minutes })}</summary><ul className="mt-1 list-disc pl-4">{m.doc.effort.stops.map((x) => <li key={x}>{x}</li>)}</ul></details>}
               {!!m.doc.checks?.length && (
                 <details><summary className="cursor-pointer">{t("mission.checks", { ok: m.doc.checks.filter((c) => c.ok).length, n: m.doc.checks.length })}</summary>

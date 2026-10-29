@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { askClaude, emit, FAST_MODEL, recordUsage } from "./claude";
 import { readSince } from "./doctor-boot";
-import { eventGaps } from "./durable";
+import { eventGaps, taintBroken } from "./durable";
 import type { Mark } from "./doctor-boot-pure";
 import { failedCallsSince, usageHold, usageView } from "./usage-meter";
 import { coreStats, rollupScenes } from "./perf-pure";
@@ -73,6 +73,7 @@ async function jobSamples(sb: SupabaseClient, userId: string, since: string): Pr
   }
   for (const g of eventGaps()) if ((g.skipped || g.gaveUp) && g.skippedAt && g.skippedAt > since)
     out.push({ source: "job", area: "system", at: g.skippedAt, line: `${g.skipped} events skipped after long downtime, ${g.gaveUp} given up after crashing twice (${g.consumer})` });
+  if (taintBroken()) out.push({ source: "job", area: "core", line: "core-taint.json (in the ORBIT data folder) is unreadable: every CORE chat is treated as holding private data, so web search, news and agents stay off in chats. Fix or delete the file and restart" });
   const u = usageView();
   if (u.limit) out.push({ source: "usage", area: "core", line: `Claude usage limit reached: background work paused until ${new Date(u.limit.until).toISOString()}` });
   for (const c of failedCallsSince(Date.parse(since))) out.push({ source: "usage", at: new Date(c.at).toISOString(), line: `Claude call failed (${c.purpose})` });

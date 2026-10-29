@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClipStore } from "./clip-store-pure";
+import { isCurrent, scopeTags } from "./memory-types-pure";
 import { askClaude, recordUsage, emit, reviewDraft, MODEL, createBudget, chargeCall, stopKind, stoppedReport, BudgetError, type Budget } from "./claude";
 import { createMemory, searchMemories, fetchPage, safeFetch, MEMORY_COLUMNS, KINDS, type Kind } from "./memory";
 import { runPulse, topicFeedUrl } from "./pulse";
@@ -7,6 +8,7 @@ import { localNews, readArticle } from "./news";
 import { findCountry } from "./countries-pure";
 import { displayName } from "./geo";
 import { verifyAnswer, type Source } from "./verify";
+import { EVIDENCE_CHARS } from "./mission-checks-pure";
 import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
@@ -23,7 +25,7 @@ import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQ
 export type AgentDef = {
   slug: string; name: string; role: string; instructions: string; tools: string[]; builtin: boolean; color: string;
 };
-export type TraceStep = { step: string; detail: string; ms: number; ok: boolean };
+export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; url?: string; at?: string; evidence?: string }; // url/at/evidence: step "source", a page actually read (full URL, not the 160-char detail)
 export type PendingAction = { tool: string; input: Record<string, unknown>; status: "pending" | "attempting" | "approved" | "rejected" | "failed" | "uncertain"; note?: string; evidence?: WriteEvidence[]; attempt?: string };
 type Task = { id: string; agent: string; title: string; request: string; parent_id: string | null; project_id: string | null };
 // pages: full texts read during the task, reused by the verification stage.
@@ -75,7 +77,7 @@ export const TOOLS: Record<string, Tool> = {
     run: async ({ sb, userId }) => {
       const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).neq("kind", "journal").order("created_at", { ascending: false }).limit(12);
       if (error) throw error;
-      return (data ?? []).map((m) => `[m:${m.id}] (${m.kind}, ${m.created_at.slice(0, 10)}) ${m.title}: ${String(m.content).slice(0, 200)}`).join("\n") || "No memories yet.";
+      return (data ?? []).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => `[m:${m.id}] (${m.kind}, ${m.created_at.slice(0, 10)}) ${m.title}: ${String(m.content).slice(0, 200)}`).join("\n") || "No memories yet."; // agents run outside any chat: no chat-scoped ones
     },
   },
   news_search: {
@@ -225,7 +227,7 @@ export const TOOLS: Record<string, Tool> = {
       const kind = (KINDS as readonly string[]).includes(String(i.kind)) ? (i.kind as Kind) : "research";
       const { memory } = await createMemory(sb, userId, {
         kind, title: s(i.title, 300) || task.title, content: s(i.content, 100_000), source: `agent:${task.agent}`,
-        tags: [...cleanTags(i.tags), ...(ctx.attempt ? [attemptTag(ctx.attempt)] : [])],
+        tags: [...scopeTags(`${s(i.title, 300)}\n${s(i.content, 100_000)}`, cleanTags(i.tags), {}), ...(ctx.attempt ? [attemptTag(ctx.attempt)] : [])], // no forged chat:/until:/revoked; chat wording from an agent has no chat: eligible nowhere
       });
       ctx.evidence?.push({ kind: "memory", id: memory.id });
       return `Saved and read back memory ${memory.id}`;
@@ -494,6 +496,8 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         try { out = await tool.run(ctx, reply.input ?? {}); }
         catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
         noteToolResult(ctx, reply.tool, out);
+        const had = new Set(trace.filter((t) => t.step === "source").map((t) => t.url));
+        for (const p of ctx.pages.values()) if (!had.has(p.url)) trace.push({ step: "source", detail: p.url.slice(0, 300), ms: 0, ok: true, url: p.url, at: new Date().toISOString(), evidence: (p.text ?? "").slice(0, EVIDENCE_CHARS) });
       }
       trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 160)} → ${out.slice(0, 160)}`, ms: Date.now() - t0, ok: !out.startsWith("Error:") });
       transcript.push(`STEP ${step + 1}: you called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 500)}\nRESULT:\n${clips.clip(out).slice(0, 6000)}`);

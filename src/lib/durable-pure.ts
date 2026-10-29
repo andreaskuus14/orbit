@@ -8,14 +8,14 @@ export const SESSION_MAX_AGE = 30 * 86_400_000; // older CLI sessions are likely
 const okId = (v: unknown): v is string => typeof v === "string" && /^[\w-]{1,80}$/.test(v);
 
 /** Untrusted file → valid entries only (bad shapes dropped), newest MAX_SESSIONS kept. */
-export function parseSessions(raw: unknown): Record<string, StoredSession> {
+export function parseSessions(raw: unknown, max = MAX_SESSIONS): Record<string, StoredSession> {
   const out: Record<string, StoredSession> = {};
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     const s = v as Partial<StoredSession> | null;
     if (okId(k) && s && okId(s.id) && typeof s.at === "number" && Number.isFinite(s.at)) out[k] = { id: s.id, at: s.at };
   }
-  return capSessions(out);
+  return capSessions(out, max);
 }
 
 export function capSessions(m: Record<string, StoredSession>, max = MAX_SESSIONS): Record<string, StoredSession> {

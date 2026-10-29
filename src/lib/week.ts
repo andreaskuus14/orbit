@@ -1,6 +1,7 @@
 // Ask-my-week IO: gathers the week (RLS-scoped, stored data only, all in parallel) for week-pure.ts. A failing source counts as
 // nothing rather than failing the answer. Journal entries: only the ledger's "journal.saved" events are read, never memory text.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isCurrent } from "./memory-types-pure";
 import { fromRows, type EventRow } from "./ledger-pure";
 import { BUFFER_TARGET } from "./clips/autopilot-pure";
 import { citeWeek, weekAnswer, weekFacts, weekToolText, weekWindow, type Week, type WeekClip, type WeekCite, type WeekIntent } from "./week-pure";
@@ -19,7 +20,7 @@ export async function gatherWeekFacts(sb: SupabaseClient, userId: string, weeksA
     rows<{ id: string; title: string; status: string; created_at: string; finished_at: string | null }>(sb.from("tasks").select("id, title, status, created_at, finished_at")
       .eq("user_id", userId).is("parent_id", null).or(`created_at.gte.${since},finished_at.gte.${since},status.eq.awaiting_approval`).lt("created_at", until).limit(400)),
     import("./clips/factory").then((f) => f.listJobs(), () => []),
-    rows<{ id: string; title: string; created_at: string }>(sb.from("memories").select("id, title, created_at").eq("user_id", userId).neq("kind", "journal")
+    rows<{ id: string; title: string; created_at: string; kind: string; content: string; tags: string[] }>(sb.from("memories").select("id, title, created_at, kind, content, tags").eq("user_id", userId).neq("kind", "journal")
       .gte("created_at", since).lt("created_at", until).order("created_at", { ascending: false }).limit(50)),
     import("./life").then((l) => l.getLife(), () => null),
   ]);
@@ -29,7 +30,7 @@ export async function gatherWeekFacts(sb: SupabaseClient, userId: string, weeksA
     approvedAt: j.feedback?.filter((f) => f.clipId === c.id && f.action === "approved").at(-1)?.at,
   })));
   return weekFacts({
-    now, weeksAgo, events: fromRows(events), tasks, clips, memories, shortsTarget: BUFFER_TARGET, // a Short a day (autopilot's 7-Short buffer)
+    now, weeksAgo, events: fromRows(events), tasks, clips, memories: memories.filter((m) => isCurrent(m, { now })), shortsTarget: BUFFER_TARGET, // a Short a day (autopilot's 7-Short buffer)
     goals: goals.map((r) => ({ id: r.id, title: r.doc.title, status: r.doc.status, deadline: r.doc.deadline, updatedAt: r.updated_at, steps: r.doc.steps.map((s) => ({ id: s.id, what: s.what, status: s.status, taskId: s.taskId })) })),
     habits: (life?.habits ?? []).map((h) => ({ name: h.name, streak: h.streak })),
   });
