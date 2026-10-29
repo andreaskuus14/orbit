@@ -1,4 +1,5 @@
 import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { isCurrent } from "./memory-types-pure";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
@@ -13,10 +14,10 @@ const LIMIT = 500; // shortcut: newest 500 memories only (the silhouette pass is
 export const loadGraph = async (): Promise<Graph | null> => parseGraph(await readFile(file(), "utf8").catch(() => ""));
 
 export async function rebuildGraph(sb: SupabaseClient, userId: string): Promise<Graph> {
-  const { data, error } = await sb.from("memories").select("id, title, content, tags, embedding").eq("user_id", userId)
+  const { data, error } = await sb.from("memories").select("id, kind, title, content, tags, embedding, created_at").eq("user_id", userId)
     .neq("kind", "journal").order("created_at", { ascending: false }).limit(LIMIT);
   if (error) throw error;
-  const g = buildGraph((data ?? []).map((m) => ({ id: m.id, title: m.title ?? "", content: String(m.content ?? ""), tags: (m.tags ?? []) as string[], embedding: parseVec(m.embedding) })), new Date().toISOString());
+  const g = buildGraph((data ?? []).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => ({ id: m.id, title: m.title ?? "", content: String(m.content ?? ""), tags: (m.tags ?? []) as string[], embedding: parseVec(m.embedding) })), new Date().toISOString());
   await mkdir(path.dirname(file()), { recursive: true });
   await writeFile(file() + ".tmp", JSON.stringify(g));
   await rename(file() + ".tmp", file());

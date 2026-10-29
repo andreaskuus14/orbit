@@ -10,7 +10,7 @@ import { pickModel } from "./core-ui";
 import { partialAnswer } from "./streamjson";
 import { searchMemories, MEMORY_COLUMNS } from "./memory";
 import { compactContext, controlHint } from "./provenance-pure";
-import { typeLabel } from "./memory-types-pure";
+import { isCurrent, scopeTags, typeLabel } from "./memory-types-pure";
 import { selectPassages } from "./passages";
 import { parseCitations, parseAgentReply } from "./pure";
 import { TOOLS, getAgent, runTask, BUILTIN_AGENTS } from "./agents";
@@ -176,7 +176,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   // Every lookup runs in parallel while step 0's CLI is already booting: the finished prompt becomes its stdin.
   const prep = (async () => {
     const [found, playbook, { data: summaries }, relevantChats, known, live, world, people] = await Promise.all([
-      at("memory", searchMemories(sb, question, 8, userId, { projectName: memoryProject, exact: true })),
+      at("memory", searchMemories(sb, question, 8, userId, { projectName: memoryProject, chatId: sessionKey, exact: true })),
       at("playbook", getPlaybook(sb, userId)), // cached; null without the table
       at("summaries", sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).eq("kind", "conversation").eq("source", "core-summary").order("updated_at", { ascending: false }).limit(3)),
       at("chats", searchMemories(sb, question, 3, userId, { coreSummariesOnly: true }).catch(() => ({ results: [] }))),
@@ -194,7 +194,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       results = data ?? [];
       mode = "recent";
     }
-    results = await import("./memory-types").then((m) => m.currentMemories(sb, userId, results, memoryProject)).catch(() => results); // 24–25: expired, out-of-scope and corrected memories never reach CORE as current
+    results = await import("./memory-types").then((m) => m.currentMemories(sb, userId, results, memoryProject, sessionKey)).catch(() => results.filter((m) => isCurrent(m, { now: Date.now(), project: memoryProject, chat: sessionKey }))); // 24–25: expired, out-of-scope (other chat/project) and corrected memories never reach CORE as current; fails closed
     trace.push({ step: "search_memory", detail: `${results.length} found (${mode}${mode !== "recent" && memoryProject ? ", project hints considered" : ""})`, ms: Date.now() - t, ok: true });
     evalTools.push({ tool: "search_memory", input: {}, output: "", evidence: [] });
     const recentChats = selectChatSummaries(relevantChats.results, summaries ?? []).filter((s) => !results.some((m) => m.id === s.id));
@@ -248,7 +248,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     : tool === "read_more" ? clips.read(input)
     // module tools (core-modules.ts) keep their own explicit-ask guards as a second check
     : isModuleTool(tool) ? await runModuleTool(tool, input, { sb, userId, chat: sessionKey, question, tainted: dataIn(), pinned: !!attach || pinsIn, steps, onEvidence: (e) => evidence.push(e) })
-    : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e));
+    : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e), { chat: sessionKey, project: memoryProject });
   const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number) => {
     evalTools.push({ tool, input, output: out.slice(0, 8000), evidence });
     trace.push({ step: tool, detail: `${JSON.stringify(input).slice(0, 140)} → ${out.slice(0, 140)}`, ms, ok: !out.startsWith("Error:"), ...(evidence.length ? { evidence } : {}) });
@@ -479,7 +479,7 @@ function navigateTool(input: Record<string, unknown>, onNavigate?: (to: NavTarge
 
 /** CORE's tools: the agents' page and news readers, plus handing a whole job to an agent (a normal, visible task). */
 /** timeLeft: ms this turn can still spend on a slow tool (web_search) and leave room for the answer step. */
-async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, input: Record<string, unknown>, question: string, signal?: AbortSignal, stopped: string[] = [], timeLeft = 150_000, onEvidence?: (e: WriteEvidence) => void): Promise<string> {
+async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, input: Record<string, unknown>, question: string, signal?: AbortSignal, stopped: string[] = [], timeLeft = 150_000, onEvidence?: (e: WriteEvidence) => void, here: { chat?: string; project?: string } = {}): Promise<string> {
   const ctx = { sb, userId, task: { id: "", agent: "core", title: "", request: "", parent_id: null, project_id: null }, depth: 1, pending: [], trace: [], pages: new Map() };
   if (tool === "fetch_url" || tool === "read_news") return TOOLS[tool].run(ctx, input);
   if (tool === "web_search") {
@@ -495,7 +495,7 @@ async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, inp
     if ((await coreSavesToday(sb, userId)) >= PER_DAY) return `Error: daily limit of ${PER_DAY} CORE memory saves reached; ask the user to save it in MEMORY`;
     const v = validateMemory(input);
     if ("error" in v) return `Error: ${v.error}`;
-    const r = await saveCoreMemory(sb, userId, v.draft, "core");
+    const r = await saveCoreMemory(sb, userId, { ...v.draft, tags: scopeTags(`${v.draft.title}\n${v.draft.content}`, v.draft.tags, here) }, "core"); // "in this chat"/"selles vestluses" stays in this chat
     if (!r.duplicate) onEvidence?.({ kind: "memory", id: r.id }); // a receipt means something new was saved
     return r.duplicate ? `Already in memory: "${r.title}"${r.id ? ` [m:${r.id}]` : ""}; nothing saved.` : `Saved memory "${r.title}" [m:${r.id}].`;
   }

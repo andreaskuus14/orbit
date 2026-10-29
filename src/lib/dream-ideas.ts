@@ -2,6 +2,7 @@
 // One fast-model call a night at most, gated by Stop-all and the usage hold. Ideas land in DREAMS (GoalsPanel): keep / discard /
 // turn into a goal draft. State: <ORBIT data dir>/dream-ideas.json per user: the list and the keep/discard tally per category.
 import { randomUUID } from "node:crypto";
+import { isCurrent } from "./memory-types-pure";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -46,7 +47,7 @@ export async function runIdeas(sb: SupabaseClient, userId: string, day: string, 
     sb.from("goals").select("id, status, doc, updated_at").eq("user_id", userId).limit(50)
       .then((r) => (r.data ?? []).map((x): IGoal => ({ id: x.id, status: String(x.status ?? x.doc?.status ?? ""), title: String(x.doc?.title ?? ""), updated_at: x.updated_at }))),
     sb.from("memories").select("id, kind, title, content, created_at, tags").eq("user_id", userId).in("kind", NOTE_KINDS).gte("created_at", since)
-      .order("created_at", { ascending: false }).limit(50).then((r) => (r.data ?? []) as DNote[]),
+      .order("created_at", { ascending: false }).limit(50).then((r) => (r.data ?? []).filter((m) => isCurrent(m, { now: Date.now() })) as DNote[]),
     import("./niche").then((m) => m.nicheBoard()).then((b) => b.niches as INiche[], () => []),
   ]);
   const src = pickSources({ goals, notes, niches, now: Date.now() });

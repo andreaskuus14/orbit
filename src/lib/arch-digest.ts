@@ -1,4 +1,5 @@
 import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { isCurrent } from "./memory-types-pure";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, recordUsage, FAST_MODEL } from "./claude";
@@ -34,10 +35,10 @@ export async function maybeArchDigest(sb: SupabaseClient, userIds: string[], now
     await store(state);
     const since = new Date(now.getTime() - 7 * 86_400_000).toISOString();
     for (const id of userIds) {
-      const { data, error } = await sb.from("memories").select("id, title, content, tags, created_at").eq("user_id", id).contains("tags", ["arch"])
+      const { data, error } = await sb.from("memories").select("id, kind, title, content, tags, created_at").eq("user_id", id).contains("tags", ["arch"])
         .neq("kind", "journal").gte("created_at", since).order("created_at", { ascending: false }).limit(200);
       if (error) { console.error("[orbit] arch digest failed:", error.message); continue; }
-      const s = digestStats(data ?? []);
+      const s = digestStats((data ?? []).filter((m) => isCurrent(m, { now: Date.now() })));
       let ai = null;
       if (s.list.length && !usageHold()) { // held near the usage budget: the digest still comes, with a focus from the numbers
         const r = await askClaude(digestPrompt(s.list), DIGEST_SYSTEM, { lane: "background", model: FAST_MODEL, purpose: "arch.digest" }).catch(() => null);

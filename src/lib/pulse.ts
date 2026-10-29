@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isCurrent } from "./memory-types-pure";
 import { askClaude, recordUsage, emit, MODEL } from "./claude";
 import { createMemory, safeFetch } from "./memory";
 import { parseFeed, normalizeUrl, clusterArticles, parseCitations, numberCitations, type BriefingKind } from "./pure";
@@ -205,13 +206,13 @@ export async function runPulse(sb: SupabaseClient, userId: string, kind: PulseKi
 
     const { data: profile } = await sb.from("profiles").select("interests, projects, goals, news_topics").eq("id", userId).maybeSingle();
     const daySince = new Date(Date.now() - (kind === "weekly" ? 168 : 24) * 3600_000).toISOString();
-    const { data: recentMemories } = await sb.from("memories").select("title, kind").eq("user_id", userId).neq("source", "pulse").gte("created_at", daySince).limit(15);
+    const { data: recentMemories } = await sb.from("memories").select("title, kind, content, tags, created_at").eq("user_id", userId).neq("source", "pulse").gte("created_at", daySince).limit(15);
     const context = [
       profile?.interests?.length && `Interests: ${profile.interests.join(", ")}`,
       profile?.projects?.length && `Projects: ${profile.projects.join(", ")}`,
       profile?.goals?.length && `Goals: ${profile.goals.join(", ")}`,
       profile?.news_topics?.length && `News topics: ${profile.news_topics.join(", ")}`,
-      (kind === "evening" || kind === "weekly") && recentMemories?.length && `Saved in ORBIT recently (do not cite these): ${recentMemories.map((m) => m.title).join("; ")}`,
+      (kind === "evening" || kind === "weekly") && recentMemories?.length && `Saved in ORBIT recently (do not cite these): ${recentMemories.filter((m) => isCurrent(m, { now: Date.now() })).map((m) => m.title).join("; ")}`,
     ].filter(Boolean).join("\n");
 
     const prompt = `USER CONTEXT:\n${context || "(no profile yet)"}\n\nNEWS EVENTS (newest ${WINDOW_HOURS[kind]}h, grouped):\n${events.join("\n\n")}`;

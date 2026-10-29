@@ -3,6 +3,7 @@
 // and the memory note when the call ends. Audio is only ever in memory for one request; the call transcript lives in this
 // process until the call ends, then only the summary note is saved. Rules: call-pure.ts; route: /api/remote/talk.
 import { randomUUID } from "node:crypto";
+import { isCurrent } from "./memory-types-pure";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -148,11 +149,11 @@ function sweep() {
 
 /** Earlier call notes from the last 6 days, newest first, with when they were ("yesterday"). */
 async function callNotes(sb: SupabaseClient, userId: string): Promise<{ when: string; text: string }[]> {
-  const { data, error } = await sb.from("memories").select("content, created_at").eq("user_id", userId).eq("kind", "conversation")
+  const { data, error } = await sb.from("memories").select("kind, content, tags, created_at").eq("user_id", userId).eq("kind", "conversation")
     .eq("source", "core-summary").contains("tags", ["call"]).order("created_at", { ascending: false }).limit(2);
   if (error) throw error;
   const today = localParts(Date.now()).day;
-  return (data ?? []).flatMap((m) => { const when = whenLabel(localParts(Date.parse(m.created_at)).day, today); return when ? [{ when, text: String(m.content) }] : []; });
+  return (data ?? []).filter((m) => isCurrent(m, { now: Date.now() })).flatMap((m) => { const when = whenLabel(localParts(Date.parse(m.created_at)).day, today); return when ? [{ when, text: String(m.content) }] : []; });
 }
 
 const PRE_MS = RING_MS;

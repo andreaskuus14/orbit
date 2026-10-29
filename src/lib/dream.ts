@@ -3,6 +3,7 @@
 // rules' wording on any failure). The one question is stored for the morning brief, the morning call opener and CORE's context that day.
 // State: <ORBIT data dir>/dream.json, per user the last question and which keys were asked when (keys only, no note text).
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { isCurrent } from "./memory-types-pure";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
@@ -28,7 +29,7 @@ export async function runDream(sb: SupabaseClient, userId: string, day: string, 
   const [facts, notes, goals, dev, st] = await Promise.all([
     sb.from("memory_facts").select("id, statement, created_at").eq("user_id", userId).eq("status", "current").limit(500).then((r) => r.data ?? []), // no table yet → none
     sb.from("memories").select("id, kind, title, content, created_at, tags").eq("user_id", userId).in("kind", NOTE_KINDS).gte("created_at", since)
-      .order("created_at", { ascending: false }).limit(300).then((r) => (r.data ?? []) as DNote[]),
+      .order("created_at", { ascending: false }).limit(300).then((r) => (r.data ?? []).filter((m) => isCurrent(m, { now: Date.now() })) as DNote[]),
     sb.from("goals").select("id, doc, updated_at").eq("user_id", userId).limit(50)
       .then((r) => (r.data ?? []).map((g): DGoal => ({ id: g.id, title: String(g.doc?.title ?? ""), updated_at: g.updated_at }))),
     import("./dev-session").then((d) => d.listDevSessions(sb, userId)).then((x) => x.map((s) => s.last), () => []),
