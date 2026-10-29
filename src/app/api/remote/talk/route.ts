@@ -59,11 +59,12 @@ export async function POST(req: Request) {
     if (!call) return fail("That call has ended", 404);
     if (op === "end") return Response.json(await endCall(c.userId, call.id));
     if (op !== "turn") return fail("Unknown op");
+    const rq = url.searchParams.get("req"), requestId = rq && /^[\w-]{16,64}$/.test(rq) ? rq : undefined; // same on a network retry
 
     if ((req.headers.get("content-type") ?? "").startsWith("application/json")) {
       const body = await req.json().catch(() => null) as { text?: unknown } | null;
       if (!body || typeof body.text !== "string" || body.text.length > MAX_ASK_CHARS) return fail("text required");
-      return callTurn(call, { text: body.text }, req.signal);
+      return callTurn(call, { text: body.text }, req.signal, requestId);
     }
     const len = Number(req.headers.get("content-length") ?? NaN); // the call screen always sends a sized body
     if (!(len > 0)) return fail("Content-Length required", 411);
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
       console.error("[call] whisper load failed:", e instanceof Error ? e.message : e);
       return fail("Local Whisper isn't available on the PC", 503, { fallback: "speech" }); // the call screen switches to on-device recognition
     }
-    return callTurn(call, { audio: d.audio }, req.signal);
+    return callTurn(call, { audio: d.audio }, req.signal, requestId);
   } catch (e) {
     console.error(`[call] ${op}:`, e instanceof Error ? e.message : e);
     return fail("Something went wrong on the PC: check ORBIT there", 500);

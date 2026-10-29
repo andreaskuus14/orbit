@@ -10,7 +10,7 @@ import { TICK_MAX, ackTrack, capSessions, emptyTrack, liveSession, parseCursors,
 // core-sessions.json (CORE chat id → Claude CLI session) and event-cursors.json (events-feed consumer → last processed id).
 // Both are rebuildable: an unreadable file starts empty (sessions fall back to stateless; consumers restart from "now").
 
-const g = globalThis as unknown as { __orbitDurable?: { sessions?: Record<string, StoredSession>; cursors?: Cursors; tracks?: Record<string, Track>; chain: Promise<unknown> } };
+const g = globalThis as unknown as { __orbitDurable?: { sessions?: Record<string, StoredSession>; taint?: Record<string, StoredSession>; taintBroken?: boolean; cursors?: Cursors; tracks?: Record<string, Track>; chain: Promise<unknown> } };
 const S = (g.__orbitDurable ??= { chain: Promise.resolve() });
 const file = (name: string) => path.join(orbitDataDir(), name);
 
@@ -46,6 +46,30 @@ export const coreSessionStore = {
     if (!(key in sessions())) return;
     delete S.sessions![key];
     void save("core-sessions.json", S.sessions);
+  },
+};
+
+// core-taint.json: chats whose context held private data (C03). Apart from the session map: a dropped/expired session must not
+// clear it (the stateless transcript still carries earlier answers). Never capped: an evicted chat would silently get web tools back.
+// Fail closed: a file that exists but can't be read or parsed taints every chat and is left as is (not overwritten) for Doctor.
+function taint() {
+  if (S.taint) return S.taint;
+  try { S.taint = parseSessions(JSON.parse(readFileSync(file("core-taint.json"), "utf8")), Infinity); }
+  catch (e) { S.taint = {}; if ((e as NodeJS.ErrnoException).code !== "ENOENT") S.taintBroken = true; }
+  return S.taint;
+}
+/** core-taint.json exists but is unreadable: every chat counts as tainted until it is fixed or deleted (Doctor shows it). */
+export const taintBroken = () => (taint(), !!S.taintBroken);
+export const coreTaintStore = {
+  has: (key: string) => taintBroken() || key in taint(),
+  mark(key: string) {
+    S.taint = { ...taint(), [key]: { id: "private", at: Date.now() } };
+    if (!S.taintBroken) void save("core-taint.json", S.taint);
+  },
+  delete(key: string) {
+    if (!(key in taint())) return;
+    delete S.taint![key];
+    if (!S.taintBroken) void save("core-taint.json", S.taint);
   },
 };
 
