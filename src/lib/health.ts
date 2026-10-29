@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { askClaude, emit, FAST_MODEL, recordUsage } from "./claude";
 import { readSince } from "./doctor-boot";
+import { eventGaps } from "./durable";
 import type { Mark } from "./doctor-boot-pure";
 import { failedCallsSince, usageHold, usageView } from "./usage-meter";
 import { coreStats, rollupScenes } from "./perf-pure";
@@ -70,6 +71,8 @@ async function jobSamples(sb: SupabaseClient, userId: string, since: string): Pr
     else if (e.type === "goal.step" && p.status === "failed") out.push({ source: "ledger", area: "agents", at, line: "goal step failed" });
     else if (e.type === "tool.call" && p.ok === false) out.push({ source: "ledger", area: "core", at, line: `tool ${String(p.tool)} call failed` });
   }
+  for (const g of eventGaps()) if ((g.skipped || g.gaveUp) && g.skippedAt && g.skippedAt > since)
+    out.push({ source: "job", area: "system", at: g.skippedAt, line: `${g.skipped} events skipped after long downtime, ${g.gaveUp} given up after crashing twice (${g.consumer})` });
   const u = usageView();
   if (u.limit) out.push({ source: "usage", area: "core", line: `Claude usage limit reached: background work paused until ${new Date(u.limit.until).toISOString()}` });
   for (const c of failedCallsSince(Date.parse(since))) out.push({ source: "usage", at: new Date(c.at).toISOString(), line: `Claude call failed (${c.purpose})` });

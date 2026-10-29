@@ -52,3 +52,46 @@ export function takeNew<T extends { id: number }>(cursor: number, rows: T[], max
   const fresh = [...new Map(rows.filter((r) => r.id > cursor).map((r) => [r.id, r])).values()].sort((a, b) => a.id - b.id).slice(0, max);
   return { fresh, next: fresh.length ? fresh[fresh.length - 1].id : cursor };
 }
+
+/** Per-consumer processing state (review: the cursor used to move before acting, so a crash skipped events).
+ *  inflight: taken but not acknowledged (id → attempts); done: acknowledged ids above the cursor (out of order);
+ *  skipped/gaveUp: counts surfaced in Doctor instead of silent drops (skippedAt: the last time either grew). */
+export type Track = { inflight: Record<string, number>; done: number[]; skipped: number; skippedAt?: string; gaveUp: number };
+export const MAX_ATTEMPTS = 2; // the first try + one retry after a crash
+export const emptyTrack = (): Track => ({ inflight: {}, done: [], skipped: 0, gaveUp: 0 });
+
+export function parseTracks(raw: unknown): Record<string, Track> {
+  const out: Record<string, Track> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  const n = (v: unknown) => (Number.isSafeInteger(v) && (v as number) >= 0 ? (v as number) : 0);
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const t = (v ?? {}) as Partial<Track>, inflight: Record<string, number> = {};
+    for (const [id, a] of Object.entries(t.inflight && typeof t.inflight === "object" ? t.inflight : {})) if (/^\d+$/.test(id) && n(a)) inflight[id] = n(a);
+    out[k] = { inflight, done: Array.isArray(t.done) ? t.done.filter((x) => Number.isSafeInteger(x)) : [], skipped: n(t.skipped), gaveUp: n(t.gaveUp),
+      ...(typeof t.skippedAt === "string" ? { skippedAt: t.skippedAt } : {}) };
+  }
+  return out;
+}
+
+/** Rows read after `cursor` → what to act on now (oldest first, ≤ max, attempts bumped) and what to acknowledge unacted:
+ *  rows older than the replay window (counted as skipped) and rows that already failed MAX_ATTEMPTS times (counted as gaveUp). */
+export function planTake<T extends { id: number; created_at?: string }>(cursor: number, rows: T[], t: Track, now: number, max = TICK_MAX) {
+  const { fresh } = takeNew(cursor, rows.filter((r) => !t.done.includes(r.id)), max);
+  const since = replaySince(now), track: Track = { ...t, inflight: { ...t.inflight } }, act: T[] = [], drop: number[] = [];
+  for (const r of fresh) {
+    const tries = track.inflight[r.id] ?? 0;
+    if (r.created_at && new Date(r.created_at).toISOString() < since) { drop.push(r.id); track.skipped++; track.skippedAt = new Date(now).toISOString(); }
+    else if (tries >= MAX_ATTEMPTS) { drop.push(r.id); track.gaveUp++; track.skippedAt = new Date(now).toISOString(); }
+    else { track.inflight[r.id] = tries + 1; act.push(r); }
+  }
+  return { act, drop, track };
+}
+
+/** Acknowledge `id`: the cursor moves past the contiguous acknowledged prefix (never past an unacknowledged event). */
+export function ackTrack(cursor: number, t: Track, id: number): { cursor: number; track: Track } {
+  const inflight = { ...t.inflight }; delete inflight[id];
+  const done = [...new Set([...t.done, id])], open = Object.keys(inflight).map(Number);
+  const low = open.length ? Math.min(...open) : Infinity;
+  const next = Math.max(cursor, ...done.filter((d) => d < low));
+  return { cursor: next, track: { ...t, inflight, done: done.filter((d) => d > next) } };
+}

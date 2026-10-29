@@ -25,6 +25,7 @@ export type Rule = ParsedRule & {
   id: string; text: string; status: "proposed" | "active" | "paused"; by: "owner" | "core";
   created: string; activeSince: string | null; lastRun: string | null; last: RuleResult | null;
   today?: DayCount; // event rules only: runs and skipped events on this PC's local day
+  seen?: string[]; // event rules only: recent `event:rules:<id>` keys already run, so a replay after a crash never runs twice
 };
 
 const L = "(?<![\\p{L}\\d])", R = "(?![\\p{L}\\d])"; // word edges that also work for õ/ä/ö/ü (JS \b is ASCII-only)
