@@ -20,7 +20,9 @@ export type Tier = "T0" | "T1" | "T2" | "T3";
 export type Decision = { allow: boolean; tier: Tier; reason: string };
 /** stopAll: Stop-all switch; attach: files attached this turn; pins: pinned project notes in context;
  *  steps: this answer's tool results so far, in core.ts's "You called <tool> <json>\nRESULT:\n..." form; question: latest user message. */
-export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[]; autonomy?: Partial<Levels> };
+export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[]; autonomy?: Partial<Levels>;
+  /** an earlier turn of this chat had private data in context (journal/LIFE, attachments, pins): it is still in the session (C03) */
+  carried?: boolean };
 
 export const TIERS: Record<string, Tier> = {
   navigate: "T0", goal_status: "T0", mission_status: "T0", business_status: "T0", ideas_list: "T0",
@@ -80,13 +82,16 @@ export function agentBlocked(question: string, agent: unknown, untrusted: boolea
 const called = (steps: string[], tools: string[]) => steps.some((s) => tools.some((t) => s.startsWith(`You called ${t} `)));
 const err = (s: string | null | undefined) => (s ? s.replace(/^Error: /, "") : "");
 
+/** This turn put private data in context: the chat stays tainted on later turns (core.ts saves it in coreTaintStore). */
+export const carriesPrivate = (ctx: PolicyCtx) => ctx.attach || ctx.pins || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]);
+
 export function decide(tool: string, input: Record<string, unknown> | undefined, ctx: PolicyCtx): Decision {
   const tier = TIERS[tool] ?? "T3"; // unknown = fail closed
   const no = (reason: string): Decision => ({ allow: false, tier, reason });
   if (!(tool in TIERS)) return no(`unknown tool "${tool}"`);
   const question = typedText(ctx.question); // core.ts:95 attached file names never count as the user's words
   const dataIn = ctx.attach || ctx.pins || ctx.steps.some((s) => !s.startsWith("You called navigate")); // core.ts:139
-  const privateIn = called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]); // core.ts:146; CORE passes its live MODULE_PRIVATE
+  const privateIn = !!ctx.carried || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]); // core.ts:146; CORE passes its live MODULE_PRIVATE
 
   const stop = err(coreToolRefusal(ctx.stopAll, tool)); // core.ts:218
   if (stop) return no(stop);

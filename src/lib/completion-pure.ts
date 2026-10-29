@@ -20,7 +20,8 @@ export function matchesStored(expected: Record<string, unknown>, actual: Record<
 
 /** Executed ≠ verified: "done" only says the task ran. Verified needs read-back evidence from an approved action (its own or a sub-task's). */
 export const taskVerified = (status: string, actions: ActionResult[]) => status === "done" && actions.some((a) => a?.status === "approved" && (a.evidence?.length ?? 0) > 0);
-export const doneLabel = (verified: boolean) => (verified ? "Verified" : "Done · not verified");
+/** D01: name what was checked, not a blanket "Verified". Tasks only prove execution and read-back of approved writes. */
+export const doneLabel = (readBack: boolean) => (readBack ? "Done · executed, read back" : "Done · executed, not read back");
 
 /** Resetting resolved actions would discard receipts and may repeat an already-applied write. */
 export const canRetryTask = (actions: ActionResult[]) => actions.every((a) => a.status === "pending");

@@ -35,7 +35,7 @@ import { REVIEW_START, missedReviewDue, missedReviewLine, priorityGoal, reviewOp
 
 import { futureWindow, monthOf } from "./future-pure";
 
-type Session = { id: string; userId: string; sb: SupabaseClient; reason: CallReason; turns: CallTurn[]; pending: Pending | null; done: string[]; n: number; lastAt: number; busy?: AbortController; said: Set<string>; car?: boolean; who?: string; review?: { flow: ReviewFlow; summary: ReviewSummary } };
+type Session = { id: string; userId: string; sb: SupabaseClient; reason: CallReason; turns: CallTurn[]; pending: Pending | null; done: string[]; n: number; lastAt: number; busy?: AbortController; said: Set<string>; car?: boolean; who?: string; review?: { flow: ReviewFlow; summary: ReviewSummary }; seen?: string[]; replied?: { id: string; said: string[] } };
 /** An opener made ahead (when ORBIT rings, or while the call screen is open): its text and its first sentence's audio. */
 type Voiced = { text: string; parts: string[]; audio: Promise<string | null>[] };
 type Pre = { reason: CallReason; at: number; key: Promise<string>; base: Promise<string>; voiced: Promise<Voiced>; who?: Promise<string>; summary?: Promise<ReviewSummary> };
@@ -257,8 +257,15 @@ export const callLive = () => G.sessions.size > 0;
 export const getCall = (userId: string, id: string) => { const s = G.sessions.get(id); return s && s.userId === userId ? s : null; };
 
 /** One turn as NDJSON: {type:"heard",text} {type:"say",text,audio}* {type:"done",ms} | {type:"error",error}. Aborting (barge-in) stops CORE. */
-export function callTurn(s: Session, input: { audio?: Float32Array; text?: string }, signal: AbortSignal): Response {
+export function callTurn(s: Session, input: { audio?: Float32Array; text?: string }, signal: AbortSignal, requestId?: string): Response {
   const enc = new TextEncoder();
+  // A network retry of a turn already taken (same requestId): never run it twice (a voice "yes" approves once). Replays the
+  // finished reply's text, or nothing while the first try is still running. Doesn't barge in on it either.
+  if (requestId && s.seen?.includes(requestId)) {
+    const said = s.replied?.id === requestId ? s.replied.said : [];
+    return new Response([...said.map((text) => ({ type: "say", text })), { type: "done", duplicate: true }].map((e) => JSON.stringify(e) + "\n").join(""), { headers: NDJSON });
+  }
+  if (requestId) { (s.seen ??= []).push(requestId); s.seen.splice(0, s.seen.length - 20); }
   const t0 = Date.now(), ms: Record<string, number> = {};
   const body = new ReadableStream<Uint8Array>({
     async start(ctrl) {
@@ -346,6 +353,7 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
         if (!ac.signal.aborted) { console.error("[call] turn:", e instanceof Error ? e.message : e); send({ type: "error", error: "I lost that one. Say it again?" }); }
       } finally {
         if (spoken.length) s.turns.push({ role: "assistant", content: spoken.join(" ") + (ac.signal.aborted ? " (he cut in here)" : "") });
+        if (requestId) s.replied = { id: requestId, said: spoken };
         if (s.turns.length > CALL.maxTurns * 2) s.turns.splice(1, s.turns.length - CALL.maxTurns * 2); // keep the opener
         s.n++; s.lastAt = Date.now();
         if (s.busy === ac) s.busy = undefined;

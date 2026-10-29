@@ -23,7 +23,8 @@ import { asksWhatToDo } from "./insights-pure";
 import { escapeTags } from "./core-chats-pure";
 import { olderTurnsSummary, selectChatSummaries } from "./core-context-pure";
 import { stopAllOn } from "./stop-all";
-import { decide, policyEvent } from "./policy-pure";
+import { carriesPrivate, decide, policyEvent } from "./policy-pure";
+import { turnSignal } from "./session-bound-pure";
 import { logActivity } from "./activity";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import { CORE_LANG_RULE, type Lang } from "./i18n-pure";
@@ -43,7 +44,7 @@ import { withHeadsUp } from "./capability-pure";
 import { CORE_ENGINE } from "./core-sdk-pure";
 import { randomUUID } from "node:crypto";
 import type { CliSession } from "./claude";
-import { coreSessionStore as coreSessions } from "./durable";
+import { coreSessionStore as coreSessions, coreTaintStore as coreTaint } from "./durable";
 
 /** ORBIT_CORE_SESSION=resume: one persistent Claude CLI session per CORE conversation, so follow-ups and tool results stay in it.
  *  The chat → session map survives restarts (durable.ts); a failed resume still drops it and falls back to stateless. */
@@ -115,9 +116,15 @@ ${facts || "(empty)"}`;
  * With onDelta, the answer text streams out as it is written (tool-call replies stream nothing); `signal` stops it.
  */
 /** A CORE turn is foreground: background loops pause at their checkpoints while it runs (foreground-pure.ts). */
+/** Every turn has an elapsed-time deadline (B04): it aborts the CLI/SDK call, tools, agent tasks and fallbacks through one signal. */
+export const TURN_MS = 285_000; // inside the CORE route's 300 s maxDuration
 export async function runCore(...a: Parameters<typeof coreTurn>) {
   const leave = foreground.enter();
-  try { return await coreTurn(...a); } finally { leave(); }
+  const d = turnSignal(a[4], TURN_MS);
+  a[4] = d.signal;
+  try { d.signal.throwIfAborted(); return await coreTurn(...a); }
+  catch (e) { throw d.timedOut() ? new CoreStopped(e instanceof CoreStopped ? e.completed : "", (d.signal.reason as Error).message) : e; }
+  finally { d.clear(); leave(); }
 }
 
 async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", sessionKey?: string, lang: Lang = "en") {
@@ -231,7 +238,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
   let answer = "";
   const voiceNote = typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you: only the FIRST paragraph of \"final\" is read aloud. Make it a 1-3 sentence conversational summary (no lists, headings or links). Brevity applies only to that summary, never to the work: do every step the request needs, and when it needs more (a plan, a draft, results, steps), put the complete result below the summary after a blank line; it stays on screen.\n\n" : "";
-  const policyCtx = () => ({ stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels() });
+  const carried = !!sessionKey && coreTaint.has(sessionKey); // private data from an earlier turn is still in this chat (C03)
+  const policyCtx = () => ({ stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried });
   // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
   // Results over the step limit are clipped with a read_more pointer; the full text lives in this per-turn store (roadmap 20).
   const clips = createClipStore();
@@ -366,6 +374,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   } catch (e) {
     if (signal?.aborted && stopped.length) throw new CoreStopped(stopped.join("\n\n"));
     throw e;
+  } finally {
+    if (sessionKey && !carried && carriesPrivate({ ...policyCtx(), steps })) coreTaint.mark(sessionKey); // also when stopped mid-turn
   }
 
   inspectAnswer(question, answer, trace, playbookRules, evalTools);
@@ -454,7 +464,7 @@ function localNow(d = new Date()): string {
 
 /** Thrown when Stop also cancelled agent tasks: `completed` says what they had finished, for the saved chat. */
 export class CoreStopped extends DOMException {
-  constructor(readonly completed: string) { super("CORE was stopped", "AbortError"); }
+  constructor(readonly completed: string, message = "CORE was stopped") { super(message, "AbortError"); }
 }
 
 // Only the user's request may move the screen: decide() allows navigate only as the turn's first tool call, before any page,
