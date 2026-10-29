@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { MODULE_TOOLS } from "./core-modules";
 import { emit, recordUsage, type CliSession, type PromptImage } from "./claude";
+import { authorizeTool } from "./authority";
 import { policyEvent, TIERS, type PolicyCtx } from "./policy-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { authMode, gated, readMessage, sdkFailure, sdkOptions, sdkTools, serial, toolResult, userMessage, SERVER } from "./core-sdk-pure";
@@ -33,7 +34,7 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
     if (t.escalate) { escalated = true; abortController.abort(); return toolResult("Error: stopped"); }
     t.onReset?.(); t.onStep?.(name, input); // text before a tool call is not the answer (as in core.ts)
     const at = Date.now(), evidence: WriteEvidence[] = [];
-    const { out, verdict } = await gated(name, input, t.policy, t.steps, () => t.exec(name, input, evidence), t.attachBlock);
+    const { out, verdict } = await gated(name, input, t.policy, t.steps, () => t.exec(name, input, evidence), t.attachBlock, authorizeTool);
     const row = policyEvent(name, verdict);
     if (row) void emit(t.sb, t.userId, "policy.decision", "core", { ...row, turn: t.turnId });
     t.record(name, input, out, evidence, Date.now() - at);

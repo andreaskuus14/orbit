@@ -26,8 +26,8 @@ export const toolResult = (out: string) => ({ content: [{ type: "text" as const,
 
 /** Every SDK tool call passes skillDenied() and decide() first, exactly as core.ts's loop does; a refusal never runs the tool.
  *  ctx is read per call so a Stop-all flipped mid-turn applies to the next tool. attachBlock: the turn's attachment text (skill limits). */
-export async function gated(tool: string, input: Record<string, unknown>, ctx: () => Omit<PolicyCtx, "steps">, steps: string[], run: () => Promise<string>, attachBlock = ""): Promise<{ out: string; verdict: Decision }> {
-  const verdict = skillDenied(tool, attachBlock) ?? decide(tool, input, { ...ctx(), steps });
+export async function gated(tool: string, input: Record<string, unknown>, ctx: () => Omit<PolicyCtx, "steps">, steps: string[], run: () => Promise<string>, attachBlock = "", bound: (tool: string, d: Decision) => Decision = (_t, d) => d): Promise<{ out: string; verdict: Decision }> {
+  const verdict = bound(tool, skillDenied(tool, attachBlock) ?? decide(tool, input, { ...ctx(), steps })); // bound: authority.ts authorizeTool (one action boundary)
   let out: string;
   try { out = verdict.allow ? await run() : `Error: ${verdict.reason}`; }
   catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }

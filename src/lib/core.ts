@@ -24,6 +24,7 @@ import { escapeTags } from "./core-chats-pure";
 import { olderTurnsSummary, selectChatSummaries } from "./core-context-pure";
 import { stopAllOn } from "./stop-all";
 import { carriesPrivate, decide, policyEvent } from "./policy-pure";
+import { authorizeTool } from "./authority";
 import { turnSignal } from "./session-bound-pure";
 import { logActivity } from "./activity";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
@@ -362,7 +363,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       const evidence: WriteEvidence[] = [];
       // Every tool call passes policy first (policy-pure.ts: Stop-all, navigate-first, attachment/private/link taint, explicit asks,
       // T3 only behind an owner approval path). T2/T3 verdicts go to the ledger: tool, tier, verdict, reason; never inputs.
-      const verdict = skillDenied(reply.tool, attach?.block ?? "") ?? decide(reply.tool, reply.input ?? {}, { ...policyCtx(), steps });
+      const verdict = authorizeTool(reply.tool, skillDenied(reply.tool, attach?.block ?? "") ?? decide(reply.tool, reply.input ?? {}, { ...policyCtx(), steps }));
       const policyRow = policyEvent(reply.tool, verdict);
       if (policyRow) void emit(sb, userId, "policy.decision", "core", { ...policyRow, turn: turnId }); // never throws
       try { out = !verdict.allow ? `Error: ${verdict.reason}` : await exec(reply.tool, reply.input ?? {}, evidence); }

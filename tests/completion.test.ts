@@ -58,7 +58,7 @@ function approvalHarness(rows: Record<string, unknown>[], missing = new Set<stri
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL("../src/lib/agents.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(source, { exports, require: (name: string) => name === "./completion-pure" ? completionPure
-    : name === "./memory" ? { KINDS: ["note"] } : name === "./claude" ? { emit: async () => {} } : name === "./stop-all" ? { stopAllOn: () => false } : name === "./migration-guard" ? guard(missing) : {}, console, crypto });
+    : name === "./memory" ? { KINDS: ["note"] } : name === "./claude" ? { emit: async () => {} } : name === "./stop-all" ? { stopAllOn: () => false } : name === "./authority" ? { authorizeAction: async () => ({ ok: true }) } : name === "./migration-guard" ? guard(missing) : {}, console, crypto });
   return { sb, db, resolve: exports.resolvePending, tools: exports.TOOLS };
 }
 const task = (id: string, parent: string | null = null, status = "awaiting_approval", pending: unknown[] = []) => ({ id, user_id: "owner", parent_id: parent, project_id: null, status, agent: "nova", title: id, request: "", pending });

@@ -1,6 +1,7 @@
 // BUSINESS → Contracts store and actions (rules: contracts-pure.ts). <ORBIT data dir>/contracts.json; signed PDFs go to VAULT.
 // ORBIT drafts only on his click (autonomy area "contracts": Off/Ask). Signing, sending and "countersigned" each need his own click
 // in the PC's BUSINESS drawer; there is no phone, voice or auto path to any of them (AGENTS.md rule 6). Ledger: ids only.
+import { authorizeApproval } from "./authority";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -12,7 +13,6 @@ import { usageHold } from "./usage-meter";
 import { allows } from "./autonomy";
 import { pushNotify } from "./remote-push";
 import { emailIn } from "./business-pure";
-import { approvalGate } from "./approval-pure";
 import {
   FILL_SYSTEM, STATUSES, contractText, MAX_COMMENTS, MAX_CONTRACTS, MAX_VERSIONS, TEMPLATES, cleanFields, contractPdf, coverEmail, coverSubject, current, fillPrompt, isTemplateId,
   makeVersion, mergeFields, missing, overridesOf, parseFill, parseSignature, sha256Hex, transition, waitingIds,
@@ -180,7 +180,7 @@ export async function sendContract(sb: SupabaseClient, userId: string, id: unkno
   const stamp = new Date().toISOString();
   const c = await update(async (list) => { // claim signed → sent first: one email even on a double click
     const c = find(list, id);
-    const gate = await approvalGate("contracts.send", seen, contractSendContent(c));
+    const gate = await authorizeApproval("contracts.send", seen, contractSendContent(c));
     if (gate) throw new ContractError(gate, 409);
     if (!c.signed || c.signed.hash !== current(c).hash) throw new ContractError("Sign this version first", 409);
     const to = emailIn(current(c).fields.partyEmail ?? "");

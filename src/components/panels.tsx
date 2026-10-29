@@ -16,6 +16,7 @@ import { TimeCapsuleSection } from "./TimeCapsuleSection";
 import { PhonePairing } from "./PhonePairing";
 import { PlaceSection } from "./PlaceSection";
 import { AutonomySection } from "./AutonomySection";
+import { AuthoritySection } from "./AuthoritySection";
 import { WeeklyReviewSetting } from "./RemoteCall";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
@@ -704,6 +705,7 @@ export function ProfilePanel() {
     </form>
     <PasswordSection />
     <AutonomySection />
+    <AuthoritySection />
     <PhonePairing />
     <WeeklyReviewSetting />
     <TimeCapsuleSection />

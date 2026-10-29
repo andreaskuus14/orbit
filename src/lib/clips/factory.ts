@@ -1,7 +1,8 @@
+import { authorizeApproval } from "../authority";
 import { RECAP_SOURCE } from "./publish-checks-pure";
 import { destinationProblem, mediaProblem } from "./handoff-pure";
 import { languageVerdict } from "./lang-pure";
-import { approvalGate, clipContent, contentHash } from "../approval-pure";
+import { clipContent, contentHash } from "../approval-pure";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -1059,7 +1060,7 @@ export const publishDone = () => S.pub?.done;
 export async function startPublish(job: ClipJob, clip: Clip, file: string, video: VideoResource) {
   if (clip.retryOf && !retryConsent(clip)) throw new Error("Review and approve this exact retry before publishing");
   if (job.source.startsWith(RECAP_SOURCE)) throw new Error("ORBIT's private daily recap is never posted");
-  const gate = await approvalGate("studio.publish", clip.approvedHash, clipContent(clip)); // the one publish point: route, scheduleAll, autonomy
+  const gate = await authorizeApproval("studio.publish", clip.approvedHash, clipContent(clip)); // the one publish point: route, scheduleAll, autonomy
   if (gate) throw new Error(gate);
   const media = await fileHash(file); // shortcut: hashed once before the upload reads it again; a swap in between would need a hashing read stream
   const bad = mediaProblem(clip.approvedMedia, media);

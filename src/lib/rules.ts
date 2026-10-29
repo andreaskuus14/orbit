@@ -7,6 +7,7 @@ import { kickQueue } from "./agents";
 import { orbitDataDir } from "./data-dir";
 import { ackEvent, claimEvents, clearCursor, noteWrite } from "./durable";
 import { stopAllOn } from "./stop-all";
+import { authorizeAction } from "./authority";
 import { usageLimited } from "./usage-meter";
 import { addRule, countEventRun, parseRule, ruleBlocked, ruleDue, describeAction, describeTrigger, type Rule, type RuleEvent, type RuleResult } from "./rules-pure";
 
@@ -110,6 +111,8 @@ async function runRule(sb: SupabaseClient, userId: string, r: Rule, why: string,
 /** Start one run; null = started, else why not. `event` runs count against the daily cap (countEventRun). */
 async function fire(sb: SupabaseClient, userId: string, r: Rule, why: string, event = false, key?: string): Promise<string | null> {
   if (stopAllOn()) return "Stop-all is on";
+  const auth = await authorizeAction("rules.run", { entry: "rule", workflow: `rule:${r.id}`, ownerClick: why.startsWith("run now") });
+  if (!auth.ok) return auth.why;
   // Mark the slot first: a crash or failed start never repeats every minute. A pause that landed meanwhile wins.
   const whyNot = await update((s) => {
     const x = s.rules.find((y) => y.id === r.id);

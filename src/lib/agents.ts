@@ -11,6 +11,7 @@ import { verifyAnswer, type Source } from "./verify";
 import { EVIDENCE_CHARS } from "./mission-checks-pure";
 import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
+import { authorizeAction } from "./authority";
 import { PAUSED_MSG } from "./stop-all-pure";
 import { attemptId, attemptTag, completionState, type WriteEvidence } from "./completion-pure";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
@@ -563,6 +564,8 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
       ctx.attempt = p.attempt; // same id when the owner retries the step after an uncertain outcome, so a keyed write can't land twice
       await record("Couldn't record the action attempt, so it was not run. Try again.");
       try {
+        const auth = await authorizeAction(p.tool, { entry: "agent", ownerClick: true }); // his approve click; unknown/consequential tools refused
+        if (!auth.ok) throw new Error(auth.why);
         p.note = await TOOLS[p.tool].run(ctx, p.input);
         if (p.note.trimStart().startsWith("Error:")) throw new Error(p.note);
         p.status = "approved";

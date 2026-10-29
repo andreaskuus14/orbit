@@ -68,7 +68,7 @@ function fakeDb(rows: Record<string, unknown>[]) {
 
 function agentsWith(stop: { on: boolean }, askClaude: (...a: unknown[]) => Promise<unknown>) {
   return load("agents.ts", {
-    "./stop-all": { stopAllOn: () => stop.on }, "./stop-all-pure": { PAUSED_MSG }, "./completion-pure": completionPure, "./clip-store-pure": clipStorePure,
+    "./authority": { authorizeAction: async () => ({ ok: true }) }, "./stop-all": { stopAllOn: () => stop.on }, "./stop-all-pure": { PAUSED_MSG }, "./completion-pure": completionPure, "./clip-store-pure": clipStorePure,
     "./task-claim-pure": claim, "./pure": pure, "./memory": { KINDS: ["note"] },
     "./migration-guard": { MigrationBlocked: class extends Error {}, requireMigration: async () => {}, refuse: () => new Error("missing") },
     "./claude": { askClaude, emit: async () => {}, recordUsage: async () => {}, chargeCall: (_b: unknown, s: AbortSignal) => s.throwIfAborted(),
