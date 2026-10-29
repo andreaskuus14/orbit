@@ -14,7 +14,9 @@ import * as stopAllPure from "../src/lib/stop-all-pure.ts";
 import * as pure from "../src/lib/pure.ts";
 import * as foregroundPure from "../src/lib/foreground-pure.ts";
 import * as clipStorePure from "../src/lib/clip-store-pure.ts";
+import * as memoryTypesPure from "../src/lib/memory-types-pure.ts";
 import * as missionChecksPure from "../src/lib/mission-checks-pure.ts";
+import * as researchPilotPure from "../src/lib/research-pilot-pure.ts";
 import { blockedMsg, type GuardedId } from "../src/lib/version-pure.ts";
 import { MODULE_HINTS, selectModules } from "../src/lib/core-modules-pure.ts";
 
@@ -125,9 +127,9 @@ function boot(w: World, missing = new Set<string>()) {
   };
   const mods: Row = {
     "./claude": claude, "./authority": { authorizeAction: async () => ({ ok: true }) }, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure,
-    "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./pure": pure,
+    "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./durable": { noteWrite: () => {} }, "./pure": pure,
     "./memory": { KINDS: ["note"], createMemory: (_sb: unknown, userId: string, input: Row) => ctx.__memory({ ...input, user_id: userId }) }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
-    "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./mission-checks-pure": missionChecksPure,
+    "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./memory-types-pure": memoryTypesPure, "./mission-checks-pure": missionChecksPure, "./research-pilot-pure": researchPilotPure,
     "./capability": { capabilityStart: async () => ({ block: "", headsUp: "" }) },
     // the fake tool's destination is the workspace: a file receipt reads back what actually landed
     "./workspace": { readWsFile: async (_u: string, ref: string) => (w.dest.has(ref) ? { text: w.dest.get(ref), size: w.dest.get(ref)!.length } : null) },

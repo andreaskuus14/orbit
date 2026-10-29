@@ -12,8 +12,10 @@ export default function RecipesPanel({ onOpenTask }: { onOpenTask?: (id: string)
   const load = useCallback(() => fetch("/api/recipes", { cache: "no-store" }).then((r) => r.json()).then((j) => setList(j.recipes ?? []), () => setMsg({ ok: false, text: "Couldn't load recipes" })), []);
   useEffect(() => { void load(); }, [load]);
   const run = async (r: Recipe) => {
+    const topic = r.contract ? window.prompt(`${r.name}: what should ORBIT research?`)?.trim() : undefined; // saved workflow: one topic in
+    if (r.contract && !topic) return;
     setBusy(r.id); setMsg(null);
-    try { setMsg({ ok: true, text: await startRecipe(r) }); } catch (e) { setMsg({ ok: false, text: (e as Error).message }); } finally { setBusy(""); }
+    try { setMsg({ ok: true, text: await startRecipe(r, topic) }); } catch (e) { setMsg({ ok: false, text: (e as Error).message }); } finally { setBusy(""); }
   };
   const del = async (r: Recipe) => {
     if (sure !== r.id) { setSure(r.id); setTimeout(() => setSure(""), 4000); return; }
@@ -31,10 +33,10 @@ export default function RecipesPanel({ onOpenTask }: { onOpenTask?: (id: string)
       {list && !list.length && <p className="muted">No recipes yet.</p>}
       <ul className="space-y-1.5">{list?.map((r) => (
         <li key={r.id} className="card flex items-start justify-between gap-2">
-          <div className="min-w-0"><b>{r.name}</b> <span className="muted text-xs">· {r.agent}</span><p className="muted text-xs line-clamp-2">{r.request}</p></div>
+          <div className="min-w-0"><b>{r.name}</b> <span className="muted text-xs">· {r.agent}</span><p className="muted text-xs line-clamp-2">{r.contract ? `${r.contract.outcome} · ${r.contract.mode} mode` : r.request}</p></div>
           <div className="flex shrink-0 gap-1">
             <button type="button" className="chip" disabled={!!busy} onClick={() => void run(r)} aria-label={`Run recipe ${r.name}`}>{busy === r.id ? "Starting…" : "▶ Run"}</button>
-            <button type="button" className={`chip ${sure === r.id ? "error" : ""}`} disabled={!!busy} onClick={() => void del(r)} aria-label={`Delete recipe ${r.name}`}>{sure === r.id ? "Really?" : "Delete"}</button>
+            {!r.contract && <button type="button" className={`chip ${sure === r.id ? "error" : ""}`} disabled={!!busy} onClick={() => void del(r)} aria-label={`Delete recipe ${r.name}`}>{sure === r.id ? "Really?" : "Delete"}</button>}
           </div>
         </li>))}</ul>
     </div>

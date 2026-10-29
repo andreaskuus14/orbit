@@ -1,5 +1,7 @@
 // Agent recipes: a finished agent setup (agent + request) saved under a name, re-run as a normal agent task.
-export type Recipe = { id: string; name: string; agent: string; request: string; created_at: string };
+// A recipe with a contract is a saved workflow (A02): it launches as a mission (missions.ts) carrying these operating rules.
+export type Contract = { outcome: string; acceptance: string; scope: string; mode: "observe" | "prepare" | "operate"; budget: { minutes: number; calls: number }; stops: string[] };
+export type Recipe = { id: string; name: string; agent: string; request: string; created_at: string; workflow?: string; contract?: Contract };
 export const NAME_MAX = 60, REQUEST_MAX = 8000, RECIPES_MAX = 100;
 
 const clean = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim().slice(0, max) : "");

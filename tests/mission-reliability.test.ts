@@ -87,7 +87,7 @@ test("(b) reading missions (panel GET, CORE mission_status) never calls the driv
   };
   const { exports } = load("lib/missions.ts", {
     "./chains": { getChain: async (_sb: unknown, _u: unknown, _id: unknown, resume: unknown) => { resumeFlag = resume; return chain(); }, drive: async () => { drives++; return null; }, cancelChain: async () => false, createChain: async () => ({}) },
-    "./missions-pure": missionsPure,
+    "./missions-pure": missionsPure, "./durable": { noteWrite: () => {} },
   });
   const ms = await exports.listMissions(sb, "owner");
   assert.equal(ms.length, 1);

@@ -184,7 +184,7 @@ export async function drive(sb: SupabaseClient, userId: string, id: string, gate
         }
         const st = meta.steps[move.k], role = meta.company ? roleOf(st.agent) : null; // company runs log ids/roles only to the ledger
         if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: "started" });
-        const r = await runTask(sb, userId, move.task.id, 0, st.calls ? createBudget(undefined, st.calls) : undefined, ac.signal);
+        const r = await runTask(sb, userId, move.task.id, 0, st.calls || st.minutes ? createBudget(st.minutes ? st.minutes * 60_000 : undefined, st.calls) : undefined, ac.signal, { tools: st.tools, priv: st.priv });
         last = { taskId: move.task.id, status: r.status };
         if (r.status === "blocked") { blocked = true; return; } // 0021 missing: the step stays queued, the drive stops (not failed)
         if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: stepStatus(r.status) });

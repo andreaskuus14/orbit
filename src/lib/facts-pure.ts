@@ -95,6 +95,7 @@ export function extractFacts(text: string, opts: { attachments?: boolean; origin
   }
   for (const sentence of sentences) {
     if (sentence.length > 240 || looksSecret(sentence) || isSensitive(sentence)) continue;
+    if (temporaryOf(sentence, new Date(0).toISOString())?.kind === "chat") continue; // facts have no chat id: a chat-only instruction is never a global belief
     let c = one(sentence.trim());
     // A temporary instruction gets its own subject (never supersedes the durable preference) and keeps its time cue.
     if (c && temporaryOf(sentence, new Date(0).toISOString())) c = { ...c, subject: `${c.subject} (for now)`, statement: sentence.trim().replace(/[\s,;:.!]+$/, "").slice(0, 200) };

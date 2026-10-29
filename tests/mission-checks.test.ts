@@ -29,10 +29,10 @@ test("checkContains / checkTests", () => {
 });
 
 test("checkResearch: uncited or unfetched sources fail", () => {
-  const trace = ['fetch_url {"url":"https://example.com/a"} → ok', "read_news → reuters.com: ..."];
-  assert.ok(checkResearch("Fact [A](https://example.com/a) and [R](https://www.reuters.com/x)", trace).ok);
-  assert.ok(!checkResearch("Fact with no source.", trace).ok);
-  assert.match(checkResearch("Fact [F](https://fake.org/made-up)", trace).what, /never fetched/);
+  const fetched = [{ url: "https://example.com/a", at: "t", evidence: "Fact one about apples" }];
+  assert.ok(checkResearch("Fact one about apples [A](https://example.com/a)", fetched).every((c) => c.ok));
+  assert.ok(!checkResearch("Fact with no source.", fetched)[0].ok);
+  assert.match(checkResearch("Fact [F](https://fake.org/made-up)", fetched)[0].what, /never fetched/);
 });
 
 test("reviewStep: disproved assumption and loops stop, failed check revises", () => {

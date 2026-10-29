@@ -175,7 +175,8 @@ test("workspace writes are readable with the exact UTF-8 content and byte count"
     assert.ok(!("error" in r));
     if ("error" in r) return;
     assert.equal(r.bytes, Buffer.byteLength(content));
-    assert.deepEqual(await ws.readWsFile(uid, "proof", r.path), { text: content, size: r.bytes });
+    const back = await ws.readWsFile(uid, "proof", r.path);
+    assert.deepEqual({ text: back?.text, size: back?.size, bytes: Buffer.from(back!.bytes).toString("utf8") }, { text: content, size: r.bytes, bytes: content });
   } finally {
     if (previous === undefined) delete process.env.ORBIT_DATA_DIR; else process.env.ORBIT_DATA_DIR = previous;
     assert.ok(path.resolve(dir).startsWith(path.resolve(prefix)));
@@ -190,6 +191,6 @@ test("executed vs verified: a task without read-back evidence never shows verifi
   assert.equal(taskVerified("done", [{ status: "rejected", evidence: [{ kind: "memory", id: "m" }] }]), false);
   assert.equal(taskVerified("failed", [{ status: "approved", evidence: [{ kind: "memory", id: "m" }] }]), false);
   assert.equal(taskVerified("done", [{ status: "approved", evidence: [{ kind: "memory", id: "m" }] }]), true);
-  assert.equal(doneLabel(false), "Done · not verified");
-  assert.equal(doneLabel(true), "Verified");
+  assert.equal(doneLabel(false), "Done · executed, not read back");
+  assert.equal(doneLabel(true), "Done · executed, read back");
 });

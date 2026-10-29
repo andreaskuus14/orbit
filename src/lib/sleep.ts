@@ -1,4 +1,5 @@
 import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { isCurrent } from "./memory-types-pure";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, recordUsage, emit, FAST_MODEL } from "./claude";
@@ -70,14 +71,14 @@ type Ask = (prompt: string, system: string, userId: string, purpose: string) => 
 /** (1) Near-duplicate memories → one new "consolidated" note linked to its members. Nothing is edited or deleted. */
 async function consolidate(sb: SupabaseClient, userId: string, ask: Ask): Promise<number> {
   const [{ data, error }, prev] = await Promise.all([
-    sb.from("memories").select("id, title, content, embedding").eq("user_id", userId).not("kind", "in", "(conversation,journal,episode)").neq("source", "core-sleep") // journals never go to a model
+    sb.from("memories").select("id, kind, title, content, tags, created_at, embedding").eq("user_id", userId).not("kind", "in", "(conversation,journal,episode)").neq("source", "core-sleep") // journals never go to a model
       .order("created_at", { ascending: false }).limit(300), // shortcut: only the newest 300 are compared; page through if older dupes matter
     sb.from("memories").select("tags").eq("user_id", userId).eq("source", "core-sleep").limit(1000),
   ]);
   if (error) throw error;
   if (prev.error) throw prev.error; // else already-merged groups would be merged again
   const done = new Set((prev.data ?? []).flatMap((m) => m.tags as string[]));
-  const mems: Mem[] = (data ?? []).map((m) => ({ id: m.id, title: m.title, content: String(m.content).slice(0, 600), embedding: parseVec(m.embedding) }));
+  const mems: Mem[] = (data ?? []).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => ({ id: m.id, title: m.title, content: String(m.content).slice(0, 600), embedding: parseVec(m.embedding) }));
   const groups = dupGroups(mems, done);
   if (!groups.length) return 0;
   const text = await ask(groups.map((g, i) => `<group ${i}>\n${g.map((m) => `<note>\n${m.title}\n${m.content}\n</note>`).join("\n")}\n</group>`).join("\n") + "\nYour JSON reply:", CONSOLIDATE, userId, "core.sleep.consolidate");

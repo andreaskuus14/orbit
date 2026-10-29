@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isCurrent } from "./memory-types-pure";
 import { orbitDataDir } from "./data-dir";
 import { createMemory, searchMemories, MEMORY_COLUMNS } from "./memory";
 import { stopAllOn } from "./stop-all";
@@ -45,7 +46,7 @@ export async function buildNow(sb: SupabaseClient, userId: string, now = Date.no
   ]);
   const haveKeys = new Set(have.flatMap((m) => (m.tags as string[]).filter((t) => t.startsWith("ep:")).map((t) => t.slice(3))));
   const eps = buildEpisodes({
-    memories: memories as never, events: fromRows(events as EventRow[]), proposals: proposals as never, goals: goals as never,
+    memories: (memories as Parameters<typeof isCurrent>[0][]).filter((m) => isCurrent(m, { now })) as never, events: fromRows(events as EventRow[]), proposals: proposals as never, goals: goals as never,
     clipDecisions: clips.decisions.filter((d) => Date.parse(d.at) >= now - LOOKBACK), clipTitles: clips.titles,
     prospects: Object.fromEntries((prospects as { id: string; name: string }[]).map((p) => [p.id, p.name])),
   }, haveKeys);

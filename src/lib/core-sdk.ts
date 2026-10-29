@@ -50,6 +50,7 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
   const cwd = join(tmpdir(), "orbit-core-sdk"); // empty folder: no project CLAUDE.md or .claude/ is picked up; fixed, so sessions resume
   await mkdir(cwd, { recursive: true });
   t.signal?.addEventListener("abort", () => abortController.abort(), { once: true });
+  if (t.signal?.aborted) abortController.abort(); // aborted (Stop or turn deadline) during the import/mkdir above: never start the query
   const started = Date.now();
   const prompt = t.images?.length ? (async function* () { yield userMessage(t.prompt, t.images!); })() : t.prompt;
   let answer = "", sessionId = "", apiError: string | undefined;
