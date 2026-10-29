@@ -149,7 +149,7 @@ export function createWorkspace(uid: string, name: string): Promise<{ slug: stri
 }
 
 /** File text, or null when it's missing / not an allowed path. */
-export async function readWsFile(uid: string, slug: string, rel: string): Promise<{ text: string; size: number } | null> {
+export async function readWsFile(uid: string, slug: string, rel: string): Promise<{ text: string; size: number; bytes: Uint8Array } | null> {
   const c = checkPath(rel);
   if ("error" in c) return null;
   try {
@@ -157,7 +157,7 @@ export async function readWsFile(uid: string, slug: string, rel: string): Promis
     const full = dir && (await inside(dir, c.path));
     if (!full || !(await lstat(full)).isFile()) return null;
     const buf = await readFile(full);
-    return { text: buf.toString("utf8"), size: buf.length };
+    return { text: buf.toString("utf8"), size: buf.length, bytes: buf };
   } catch { return null; }
 }
 

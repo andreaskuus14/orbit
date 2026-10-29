@@ -7,6 +7,7 @@ import { localNews, readArticle } from "./news";
 import { findCountry } from "./countries-pure";
 import { displayName } from "./geo";
 import { verifyAnswer, type Source } from "./verify";
+import { EVIDENCE_CHARS } from "./mission-checks-pure";
 import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
@@ -23,7 +24,7 @@ import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQ
 export type AgentDef = {
   slug: string; name: string; role: string; instructions: string; tools: string[]; builtin: boolean; color: string;
 };
-export type TraceStep = { step: string; detail: string; ms: number; ok: boolean };
+export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; url?: string; at?: string; evidence?: string }; // url/at/evidence: step "source", a page actually read (full URL, not the 160-char detail)
 export type PendingAction = { tool: string; input: Record<string, unknown>; status: "pending" | "attempting" | "approved" | "rejected" | "failed" | "uncertain"; note?: string; evidence?: WriteEvidence[]; attempt?: string };
 type Task = { id: string; agent: string; title: string; request: string; parent_id: string | null; project_id: string | null };
 // pages: full texts read during the task, reused by the verification stage.
@@ -494,6 +495,8 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         try { out = await tool.run(ctx, reply.input ?? {}); }
         catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
         noteToolResult(ctx, reply.tool, out);
+        const had = new Set(trace.filter((t) => t.step === "source").map((t) => t.url));
+        for (const p of ctx.pages.values()) if (!had.has(p.url)) trace.push({ step: "source", detail: p.url.slice(0, 300), ms: 0, ok: true, url: p.url, at: new Date().toISOString(), evidence: (p.text ?? "").slice(0, EVIDENCE_CHARS) });
       }
       trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 160)} → ${out.slice(0, 160)}`, ms: Date.now() - t0, ok: !out.startsWith("Error:") });
       transcript.push(`STEP ${step + 1}: you called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 500)}\nRESULT:\n${clips.clip(out).slice(0, 6000)}`);
