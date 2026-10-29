@@ -34,6 +34,14 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
               </div>
               <p><span className="muted">Next: </span>{m.next}</p>
               {m.doc.acceptance && <p><span className="muted">{t("mission.doneWhen")}</span>{m.doc.acceptance}{m.doc.verified !== undefined && <span style={{ color: m.doc.verified ? "var(--mint)" : "#fb7185" }}> — {t(m.doc.verified ? "mission.verified" : "mission.notVerified")}</span>}</p>}
+              {m.doc.artifact && <p><span className="muted">{t("mission.report")}</span><span className="num">{m.doc.artifact.slug}/{m.doc.artifact.path}</span>{m.doc.next && <> · <span className="muted">{t("mission.then")}</span>{m.doc.next}</>}</p>}
+              {m.doc.metrics && (
+                <p className="muted">
+                  {t("mission.run", { mode: m.doc.contract?.mode ?? "", n: m.doc.metrics.interventions })}{m.doc.metrics.minutes !== undefined && t("mission.minutes", { n: m.doc.metrics.minutes })}{m.doc.metrics.accepted !== undefined && t(m.doc.metrics.accepted ? "mission.accepted" : "mission.notAccepted")}
+                  {t("mission.byHand")}<input type="number" min={0} max={1440} aria-label={t("mission.byHandLabel")} className="w-14 bg-transparent" defaultValue={m.doc.metrics.humanMinutes ?? ""}
+                    onBlur={(e) => e.target.value !== "" && api("/api/missions", { method: "POST", body: JSON.stringify({ id: m.id, action: "baseline", minutes: Number(e.target.value) }) }).then(load, (er) => setErr(er.message))} />
+                </p>
+              )}
               {m.doc.effort && <details><summary className="cursor-pointer muted">{t("mission.effort", { n: m.doc.effort.minutes })}</summary><ul className="mt-1 list-disc pl-4">{m.doc.effort.stops.map((x) => <li key={x}>{x}</li>)}</ul></details>}
               {!!m.doc.checks?.length && (
                 <details><summary className="cursor-pointer">{t("mission.checks", { ok: m.doc.checks.filter((c) => c.ok).length, n: m.doc.checks.length })}</summary>

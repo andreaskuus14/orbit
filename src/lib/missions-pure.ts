@@ -4,6 +4,8 @@
 // Receipts are only things ORBIT itself checked (a task row, an action's read-back evidence, a file on disk) — never the model's word.
 import type { ChainView } from "./chains-pure.ts";
 import { DISPROVED_RULE, inferAcceptance, type Check } from "./mission-checks-pure.ts";
+import type { Contract } from "./recipes-pure.ts";
+import type { RunMetrics } from "./research-pilot-pure.ts";
 
 export type MissionStatus = "queued" | "running" | "waiting-input" | "waiting-approval" | "paused" | "failed" | "completed" | "cancelled";
 export type FailureClass = "temporary" | "permission" | "invalid" | "unavailable" | "faulty";
@@ -14,6 +16,8 @@ export type MissionDoc = {
   retries: Record<string, number>; log: { at: string; text: string }[];
   // success definition + evidence (older docs lack these): acceptance at creation, deterministic checks, reviewed steps, estimate.
   acceptance?: string; assumptions?: string[]; checks?: Check[]; reviewed?: number[]; verified?: boolean; effort?: { minutes: number; stops: string[] };
+  // saved-workflow runs (A02/G01): which workflow, its contract, the artifact it wrote, the next action it recorded, run metrics.
+  workflow?: string; contract?: Contract; artifact?: { slug: string; path: string }; next?: string; metrics?: RunMetrics;
 };
 
 export const TERMINAL: MissionStatus[] = ["completed", "cancelled"];
@@ -152,7 +156,7 @@ export function validateMission(x: unknown): { objective: string; constraints: s
   return { objective, constraints, acceptance, assumptions, steps };
 }
 
-export function newDoc(objective: string, constraints: string[], at: string, extra: Pick<MissionDoc, "acceptance" | "assumptions" | "effort"> = {}): MissionDoc {
+export function newDoc(objective: string, constraints: string[], at: string, extra: Partial<Pick<MissionDoc, "acceptance" | "assumptions" | "effort" | "workflow" | "contract" | "metrics">> = {}): MissionDoc {
   return { v: 1, objective, constraints, ...extra, status: "queued", receipts: [], decisions: [], retries: {}, log: [{ at, text: explain("queued", "queued", "Mission created.") }] };
 }
 

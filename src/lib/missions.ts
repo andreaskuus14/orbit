@@ -2,7 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelChain, createChain, drive, getChain } from "./chains";
 import { parseMeta, type ChainView } from "./chains-pure";
 import { checkContains, checkFile, checkResearch, expected, plan, reviewStep, type Check } from "./mission-checks-pure";
-import { readWsFile } from "./workspace";
+import { createWorkspace, readWsFile, writeWsFile } from "./workspace";
+import { baselineMinutes, checkReport, closeMetrics, fetchedUrls, section, PILOT_CONTRACT, RESEARCH_PILOT } from "./research-pilot-pure";
 import {
   acted, canDo, collectReceipts, deriveStatus, explain, logged, missionBlocked, missionLabel, newDoc, nextAction, onFailure, validateMission, LABEL,
   type MissionDoc, type MissionStatus, type OwnerAction, MAX_RETRIES,
@@ -36,7 +37,9 @@ export async function createMission(sb: SupabaseClient, userId: string, body: un
   if (cap.block) return { error: cap.block }; // only when Claude Code itself is known down
   const c = await createChain(sb, userId, { goal: m.objective, steps: m.steps }, MISSION_TITLE, false);
   if ("error" in c) return c;
-  const fresh = () => newDoc(m.objective, m.constraints, now(), { acceptance: m.acceptance, assumptions: m.assumptions, effort: plan(m.steps, MAX_RETRIES) });
+  // Saved workflow: the contract is the server's own constant, never taken from the request body.
+  const wf = (body as { workflow?: unknown } | null)?.workflow === RESEARCH_PILOT ? { workflow: RESEARCH_PILOT, contract: PILOT_CONTRACT, metrics: { startedAt: now(), interventions: 0 } } : {};
+  const fresh = () => newDoc(m.objective, m.constraints, now(), { acceptance: m.acceptance, assumptions: m.assumptions, effort: plan(m.steps, MAX_RETRIES), ...wf });
   const { data, error } = await sb.from("missions").insert({ user_id: userId, chain_id: c.chainId, status: "queued", doc: cap.headsUp ? logged(fresh(), now(), cap.headsUp) : fresh() }).select(COLS).single();
   if (error) { await cancelChain(sb, c.chainId); return { error: error.message }; }
   await reconcile(sb, userId, data as Row);
@@ -90,7 +93,7 @@ async function examine(sb: SupabaseClient, userId: string, chainId: string, chai
     }
     // Approved-action receipts only exist after completion.ts read the destination back and it matched (matchesStored).
     if (doc.receipts.some((r) => r.step === s.index && r.kind !== "task")) checks.push({ step: s.index, ok: true, what: "destination read back matches the approved action" });
-    if (s.agent === "atlas" || /\]\(https?:/.test(result)) {
+    if (s.agent === "atlas" || (/\]\(https?:/.test(result) && !doc.workflow)) { // a pilot's report cites earlier steps' reads: pilotFinal checks those exactly
       const tr = kid?.trace;
       checks.push(checkResearch(result, Array.isArray(tr) ? tr.filter((t) => t?.ok !== false).map((t) => String(t?.detail ?? "")) : [], s.index));
     }
@@ -114,6 +117,7 @@ async function examine(sb: SupabaseClient, userId: string, chainId: string, chai
     }
   }
   if (chain.status === "done" && doc.verified === undefined && chain.steps.every((s) => reviewed.has(s.index))) {
+    if (doc.workflow === RESEARCH_PILOT) doc = await pilotFinal(userId, chainId, chain, kids, doc, at);
     const want = expected(doc.acceptance ?? "");
     const last = chain.steps[chain.steps.length - 1];
     let checks = doc.checks ?? [];
@@ -122,10 +126,42 @@ async function examine(sb: SupabaseClient, userId: string, chainId: string, chai
       checks = [...checks, checkContains("final output", [kids.get(last.taskId ?? "")?.result ?? "", ...files.map((f) => f?.text ?? "")].join("\n"), want, last.index)];
     }
     const verified = checks.length > 0 && checks.every((c) => c.ok);
+    if (doc.metrics) doc = { ...doc, metrics: closeMetrics(doc.metrics, verified, at) };
     doc = logged({ ...doc, checks, verified }, at, verified ? `Verified: ${checks.length} check(s) passed against "${doc.acceptance}".` : checks.length ? "Finished, but not verified: a check failed (see checks)." : "Finished, but nothing checkable was produced, so it is not verified.");
   }
   return doc;
 }
+/** G01: write the last step's report to the research workspace, read it back, check exact sources + sections, record the next action.
+ *  Idempotent: the path is fixed per chain, so a restart before the save rewrites the same file. */
+async function pilotFinal(userId: string, chainId: string, chain: ChainView, kids: Map<string, { trace: unknown; result: string }>, doc: MissionDoc, at: string): Promise<MissionDoc> {
+  const last = chain.steps[chain.steps.length - 1], report = kids.get(last.taskId ?? "")?.result || last.result || "";
+  const fetched = chain.steps.flatMap((s) => { const tr = kids.get(s.taskId ?? "")?.trace; return Array.isArray(tr) ? fetchedUrls(tr) : []; });
+  const checks = checkReport(report, fetched, last.index);
+  const ws = await createWorkspace(userId, "research");
+  const file = `reports/${chainId.slice(0, 12)}.md`;
+  const w = "error" in ws ? ws : await writeWsFile(userId, ws.slug, file, report);
+  const back = "error" in ws ? null : await readWsFile(userId, ws.slug, file);
+  const opens = !("error" in w) && back?.text === report;
+  checks.push({ step: last.index, ok: opens, what: opens ? `${file} written and opens` : `report file not written: ${"error" in w ? w.error : "read-back differs"}` });
+  const receipts = [...doc.receipts];
+  if (opens && !("error" in ws)) receipts.push({ kind: "file", ref: ws.slug, path: file, step: last.index, check: "report written and read back", at });
+  if (checks[0].ok) for (const s of chain.steps.slice(0, -1)) receipts.push({ kind: "task", ref: s.taskId ?? "", step: s.index, check: "cited sources read back from this mission's own fetches", at });
+  const next = section(report, "Next action").split("\n")[0].slice(0, 300) || undefined;
+  return logged({ ...doc, receipts, checks: [...(doc.checks ?? []), ...checks].slice(-40), next, ...(opens && !("error" in ws) ? { artifact: { slug: ws.slug, path: file } } : {}) }, at,
+    `Report ${opens ? `saved to ${file}` : "not saved"}; ${checks.filter((c) => c.ok).length}/${checks.length} pilot checks passed.${next ? ` Next: ${next}` : ""}`);
+}
+
+/** Owner-entered baseline: how many minutes this work takes him by hand. */
+export async function setBaseline(sb: SupabaseClient, userId: string, id: string, minutes: unknown): Promise<MissionView | { error: string }> {
+  const n = baselineMinutes(minutes);
+  if (typeof n === "string") return { error: n };
+  const { data } = await sb.from("missions").select(COLS).eq("id", id).maybeSingle();
+  if (!data || !(data as Row).doc.metrics) return { error: "Not a workflow run" };
+  const row = data as Row;
+  const saved = await save(sb, row, { ...row.doc, metrics: { ...row.doc.metrics!, humanMinutes: n } });
+  return saved ? reconcile(sb, userId, saved, false) : { error: "The mission changed meanwhile; refresh and try again" };
+}
+
 const TERMINAL_OR_PAUSED: MissionStatus[] = ["paused", "cancelled", "completed"];
 
 async function finish(sb: SupabaseClient, userId: string, row: Row, doc: MissionDoc, chain: ChainView | null, advance = true): Promise<MissionView> {
@@ -164,7 +200,7 @@ export async function actMission(sb: SupabaseClient, userId: string, id: string,
   const row = data as Row;
   const cur = await reconcile(sb, userId, row);
   if (!canDo(action, cur.status)) return { error: `Can't ${action} a mission that is ${LABEL[cur.status].toLowerCase()}` };
-  const at = now(), base = { ...cur.doc };
+  const at = now(), base = { ...cur.doc, ...(cur.doc.metrics ? { metrics: { ...cur.doc.metrics, interventions: cur.doc.metrics.interventions + 1 } } : {}) };
   let doc: MissionDoc;
   if (action === "pause") doc = logged({ ...base, status: "paused" }, at, explain(cur.status, "paused"));
   else if (action === "resume") doc = logged({ ...base, status: "running" }, at, explain("paused", "running"));

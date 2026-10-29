@@ -495,7 +495,9 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
         noteToolResult(ctx, reply.tool, out);
       }
-      trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 160)} → ${out.slice(0, 160)}`, ms: Date.now() - t0, ok: !out.startsWith("Error:") });
+      // fetch_url keeps its URLs whole (requested + "URL:" header) so a citation can be matched exactly (research-pilot-pure fetchedUrls).
+      const full = reply.tool === "fetch_url" && !out.startsWith("Error:");
+      trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, full ? 2100 : 160)} → ${full ? out.split("\n\n")[0].slice(0, 2400) : out.slice(0, 160)}`, ms: Date.now() - t0, ok: !out.startsWith("Error:") });
       transcript.push(`STEP ${step + 1}: you called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 500)}\nRESULT:\n${clips.clip(out).slice(0, 6000)}`);
       await save({}); // live trace for the UI
     }
