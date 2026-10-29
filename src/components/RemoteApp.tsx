@@ -310,9 +310,11 @@ function Ask() {
     if (!text.trim() || busy) return;
     setBusy(true); setAnswer(""); setErr(""); setStep("");
     ac.current = new AbortController();
+    const requestId = nonce(); // one per question: a network retry reuses it, so CORE answers once
+    const post = () => fetch("/api/remote?stream=1", { method: "POST", headers: { "content-type": "application/json" }, signal: ac.current!.signal,
+      body: JSON.stringify({ cmd: JSON.stringify({ type: "core.ask", nonce: nonce(), requestId, text: text.trim(), ...(getLang() === "et" ? { lang: "et" } : {}) }) }) });
     try {
-      const r = await fetch("/api/remote?stream=1", { method: "POST", headers: { "content-type": "application/json" }, signal: ac.current.signal,
-        body: JSON.stringify({ cmd: JSON.stringify({ type: "core.ask", nonce: nonce(), text: text.trim(), ...(getLang() === "et" ? { lang: "et" } : {}) }) }) });
+      const r = await post().catch((e) => { if (ac.current?.signal.aborted) throw e; return post(); }); // one retry on a dropped connection
       if (!r.ok || !r.body) throw new Error(await errorOf(r));
       const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
       let buf = "";

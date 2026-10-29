@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chatQueue, onceById, turnSignal } from "../src/lib/session-bound-pure.ts";
@@ -69,6 +69,24 @@ test("coreTaintStore: the trust state survives a restart and goes with the chat"
   assert.equal(coreTaintStore.has("chat-1"), false);
 });
 
+test("coreTaintStore: never evicts a tainted chat; an unreadable file fails closed and is not overwritten", async () => {
+  const { coreTaintStore, taintBroken } = await import("../src/lib/durable.ts");
+  const { MAX_SESSIONS } = await import("../src/lib/durable-pure.ts");
+  const G = globalThis as unknown as { __orbitDurable: { taint?: unknown; taintBroken?: boolean; chain: Promise<unknown> } };
+  for (let i = 0; i <= MAX_SESSIONS + 5; i++) coreTaintStore.mark(`c${i}`);
+  await G.__orbitDurable.chain; G.__orbitDurable.taint = undefined;
+  assert.equal(coreTaintStore.has("c0"), true, "the oldest tainted chat survives past the session cap");
+  const f = path.join(process.env.ORBIT_DATA_DIR!, "core-taint.json");
+  await writeFile(f, "{not json");
+  G.__orbitDurable.taint = undefined;
+  assert.equal(coreTaintStore.has("never-seen"), true);
+  assert.equal(taintBroken(), true);
+  coreTaintStore.mark("x"); coreTaintStore.delete("c0");
+  await G.__orbitDurable.chain;
+  assert.equal(await readFile(f, "utf8"), "{not json");
+  G.__orbitDurable.taintBroken = false; G.__orbitDurable.taint = undefined;
+});
+
 // (3) a stalled SDK/CLI call: the turn's own deadline aborts it.
 test("turnSignal: aborts at the deadline, follows the caller's abort, reports which", async () => {
   const d = turnSignal(undefined, 10);
@@ -83,4 +101,15 @@ test("turnSignal: aborts at the deadline, follows the caller's abort, reports wh
   e.clear();
   const pre = new AbortController(); pre.abort();
   assert.equal(turnSignal(pre.signal, 10_000).signal.aborted, true, "an already-aborted request is aborted before any work");
+});
+
+test("phone core.ask carries an optional requestId (same on retry, fresh nonce) and rejects a malformed one", async () => {
+  const { parseCommand, NonceCache } = await import("../src/lib/remote-pure.ts");
+  const nc = new NonceCache(), rid = "r".repeat(20);
+  const one = (nonce: string, requestId?: unknown) => parseCommand(JSON.stringify({ type: "core.ask", nonce, text: "hi", requestId }), nc);
+  const a = one("a".repeat(20), rid), b = one("b".repeat(20), rid);
+  assert.ok(a.ok && b.ok);
+  assert.equal(a.ok && (a.cmd as { requestId?: string }).requestId, rid);
+  assert.equal(one("c".repeat(20), "bad id!").ok, false);
+  assert.equal(one("d".repeat(20)).ok, true, "older phones without a requestId still work");
 });

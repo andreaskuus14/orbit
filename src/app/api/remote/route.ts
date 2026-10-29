@@ -105,8 +105,8 @@ export async function POST(req: Request) {
       }
       case "ask": {
         if (!rateOk(`ask:${device.id}`, RATE.ask)) return done(fail("Too many questions: wait a minute", 429));
-        const { text, lang } = cmd as { text: string; lang?: "et" };
-        const res = await coreTurn(req, sb, device.userId, { message: text, conversationId: remoteChat(device.id), lang },
+        const { text, lang, requestId } = cmd as { text: string; lang?: "et"; requestId?: string };
+        const res = await coreTurn(req, sb, device.userId, { message: text, conversationId: remoteChat(device.id), lang, requestId },
           { remote: true, onConversation: (id) => S.chat.set(device.id, { id, at: Date.now() }) });
         if (!res.ok) return done(hidden("core.ask", await res.text().catch(() => ""), res.status));
         return done(sanitizeStream(res));
