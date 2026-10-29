@@ -220,6 +220,8 @@ const BASE = {
   "rules.act.deals": "Check the deal hunter's wishlist", "rules.act.week": "Prepare this week's review (facts from ORBIT)",
   "mission.doneWhen": "Done when: ", "mission.verified": "verified", "mission.notVerified": "not verified", "mission.effort": "About {n} min · stop conditions",
   "mission.checks": "Checks ({ok}/{n} passed)", "mission.passed": "passed", "mission.failed": "failed", "mission.step": "step {n}:",
+  "mission.report": "Report: ", "mission.then": "then: ", "mission.run": "{mode} mode · {n} intervention(s)", "mission.minutes": " · {n} min",
+  "mission.accepted": " · accepted", "mission.notAccepted": " · not accepted", "mission.byHand": " · by hand (min): ", "mission.byHandLabel": "Minutes this takes you by hand",
   "rules.act.skill": "Run skill “{name}”{input}", "rules.act.mission": "Mission: {objective}",
   "doc.head.ok": "Everything is working ({n} checks).", "doc.head.problems.one": "{n} problem", "doc.head.problems.other": "{n} problems",
   "doc.head.warnings.one": "{n} warning", "doc.head.warnings.other": "{n} warnings", "doc.head.and": " and ", "doc.head.outOf": " out of {n} checks.",
@@ -608,6 +610,8 @@ export const EN = { ...BASE, ...Object.fromEntries(PLANETS.flatMap((p) => [[`pla
 export const ET: Partial<Record<Key, string>> = {
   "mission.doneWhen": "Valmis, kui: ", "mission.verified": "kontrollitud", "mission.notVerified": "kontrollimata", "mission.effort": "Umbes {n} min · peatumistingimused",
   "mission.checks": "Kontrollid ({ok}/{n} läbitud)", "mission.passed": "läbitud", "mission.failed": "ebaõnnestus", "mission.step": "samm {n}:",
+  "mission.report": "Aruanne: ", "mission.then": "edasi: ", "mission.run": "{mode} režiim · {n} sekkumist", "mission.minutes": " · {n} min",
+  "mission.accepted": " · vastu võetud", "mission.notAccepted": " · vastu võtmata", "mission.byHand": " · käsitsi (min): ", "mission.byHandLabel": "Mitu minutit see sul käsitsi võtab",
   "needs.title": "Vajab sind", "needs.loading": "Otsin, mis sind vajab…", "needs.empty": "Praegu ei vaja miski sind.", "needs.loadFailed": "Ei saanud laadida, mis sind vajab.",
   "needs.kind.decide": "Otsusta", "needs.kind.unblock": "Lahenda", "needs.kind.review": "Vaata tulemus üle", "needs.review": "Vaata üle", "needs.more": "Veel {n} missioonijuhtimises ja jätka-töö loendis.",
   "needs.work": "Jätka minu tööd", "needs.mission": "Missioonijuhtimine", "needs.onPc": "Arvutis",
