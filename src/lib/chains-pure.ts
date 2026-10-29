@@ -5,8 +5,11 @@
 // (tasks.request is capped at 8000 chars, so the step texts live in the children, not in the parent's JSON.)
 
 // calls: optional per-step Claude-call cap (a company role's budget, company-pure.ts); company: started by the AGENTS company planner.
-export type Draft = { goal: string; steps: { agent: string; request: string; calls?: number }[] };
-export type ChainMeta = { chain: 1; goal: string; steps: { agent: string; len: number; calls?: number }[]; company?: 1 };
+// Step limits (saved workflows, research-pilot-pure.ts): minutes (time budget), tools (allow-list ∩ the agent's tools), priv (fetch_url only
+// opens links the search tools returned). Each can only narrow what the step may do.
+export type Limits = { calls?: number; minutes?: number; tools?: string[]; priv?: true };
+export type Draft = { goal: string; steps: ({ agent: string; request: string } & Limits)[] };
+export type ChainMeta = { chain: 1; goal: string; steps: ({ agent: string; len: number } & Limits)[]; company?: 1 };
 export type StepStatus = "queued" | "running" | "done" | "failed" | "awaiting_approval" | "cancelled";
 export type ChainStatus = "running" | "done" | "failed" | "waiting" | "cancelled";
 export type ChildRow = { id: string; agent: string; title: string; request: string; status: string; result: string | null; error: string | null; started_at?: string | null };
@@ -31,13 +34,16 @@ export function validateChain(x: unknown): Draft | string {
     const request = s(raw?.request, 2000);
     if (!request) return `step ${i + 1}: request must be 1-2000 characters`;
     if (raw.calls !== undefined && !(Number.isInteger(raw.calls) && (raw.calls as number) >= 1 && (raw.calls as number) <= 12)) return `step ${i + 1}: calls must be 1-12`;
-    steps.push({ agent, request, ...(raw.calls !== undefined ? { calls: raw.calls as number } : {}) });
+    if (raw.minutes !== undefined && !(Number.isInteger(raw.minutes) && (raw.minutes as number) >= 1 && (raw.minutes as number) <= 15)) return `step ${i + 1}: minutes must be 1-15`;
+    if (raw.tools !== undefined && !(Array.isArray(raw.tools) && raw.tools.length <= 20 && raw.tools.every((t) => typeof t === "string" && /^[a-z_]{1,40}$/.test(t)))) return `step ${i + 1}: tools must be a list of tool names`;
+    steps.push({ agent, request, ...(raw.calls !== undefined ? { calls: raw.calls as number } : {}), ...(raw.minutes !== undefined ? { minutes: raw.minutes as number } : {}),
+      ...(raw.tools !== undefined ? { tools: raw.tools as string[] } : {}), ...(raw.priv === true ? { priv: true as const } : {}) });
   }
   return { goal, steps };
 }
 
 export const toMeta = (d: Draft, company = false): ChainMeta => ({ chain: 1, goal: d.goal,
-  steps: d.steps.map((x) => ({ agent: x.agent, len: x.request.length, ...(x.calls ? { calls: x.calls } : {}) })), ...(company ? { company: 1 as const } : {}) });
+  steps: d.steps.map(({ request, ...x }) => ({ ...x, len: request.length })), ...(company ? { company: 1 as const } : {}) });
 
 export function parseMeta(request: string | null): ChainMeta | null {
   try {
