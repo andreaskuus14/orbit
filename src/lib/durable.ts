@@ -10,7 +10,7 @@ import { TICK_MAX, ackTrack, capSessions, emptyTrack, liveSession, parseCursors,
 // core-sessions.json (CORE chat id → Claude CLI session) and event-cursors.json (events-feed consumer → last processed id).
 // Both are rebuildable: an unreadable file starts empty (sessions fall back to stateless; consumers restart from "now").
 
-const g = globalThis as unknown as { __orbitDurable?: { sessions?: Record<string, StoredSession>; cursors?: Cursors; tracks?: Record<string, Track>; chain: Promise<unknown> } };
+const g = globalThis as unknown as { __orbitDurable?: { sessions?: Record<string, StoredSession>; taint?: Record<string, StoredSession>; cursors?: Cursors; tracks?: Record<string, Track>; chain: Promise<unknown> } };
 const S = (g.__orbitDurable ??= { chain: Promise.resolve() });
 const file = (name: string) => path.join(orbitDataDir(), name);
 
@@ -46,6 +46,22 @@ export const coreSessionStore = {
     if (!(key in sessions())) return;
     delete S.sessions![key];
     void save("core-sessions.json", S.sessions);
+  },
+};
+
+// core-taint.json: chats whose context held private data (C03). Apart from the session map: a dropped/expired session must not
+// clear it (the stateless transcript still carries earlier answers). shortcut: capped like sessions (newest 200), raise if chats grow.
+const taint = () => (S.taint ??= load("core-taint.json", parseSessions));
+export const coreTaintStore = {
+  has: (key: string) => key in taint(),
+  mark(key: string) {
+    S.taint = capSessions({ ...taint(), [key]: { id: "private", at: Date.now() } });
+    void save("core-taint.json", S.taint);
+  },
+  delete(key: string) {
+    if (!(key in taint())) return;
+    delete S.taint![key];
+    void save("core-taint.json", S.taint);
   },
 };
 

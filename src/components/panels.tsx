@@ -196,7 +196,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     try {
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, lang: getLang(), screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
+        body: JSON.stringify({ message, requestId: crypto.randomUUID(), conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, lang: getLang(), screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
