@@ -145,8 +145,13 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
   };
 }
 
-async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: AbortSignal): Promise<NightItem> {
+/** Exported for tests. */
+export async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: AbortSignal): Promise<NightItem> {
   const at = () => new Date().toISOString(), base = { kind: t.kind, ref: t.ref, label: t.label };
+  if (t.kind === "research" || t.kind === "goal" || t.kind === "company") { // agent work: deferred (kept for next time) while 0021 is missing
+    const blocked = await (await import("./migration-guard")).requireMigration(sb, "0021").then(() => null, (e: Error) => e.message);
+    if (blocked) return { ...base, status: "failed", why: blocked, at: at() };
+  }
   switch (t.kind) {
     case "research": {
       const st = await load(), item = st.users[userId]?.tonight.find((x) => x.id === t.ref);
@@ -157,6 +162,7 @@ async function runOne(sb: SupabaseClient, userId: string, t: NightTask, signal: 
       const { runTask } = await import("./agents");
       const r = await runTask(sb, userId, task.id, 0, createBudget(10 * 60_000, t.calls), signal);
       if (r.status === "cancelled") return { ...base, status: "failed", why: "Stopped", at: at() }; // stays on tonight's list
+      if (r.status === "blocked") { await sb.from("tasks").update({ status: "cancelled", error: r.error, finished_at: at() }).eq("id", task.id).eq("status", "queued"); return { ...base, status: "failed", why: String(r.error), at: at() }; } // deferred: stays on tonight's list
       await update((x) => { const u = user(x, userId); u.tonight = u.tonight.filter((y) => y.id !== item.id); });
       return { ...base, status: r.status === "done" ? "done" : r.status === "awaiting_approval" ? "approval" : "failed", ...(r.error ? { why: String(r.error).slice(0, 200) } : {}), open: { task: task.id }, at: at() };
     }

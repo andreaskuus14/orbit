@@ -10,7 +10,23 @@ export const MIGRATION_MARKERS: Record<string, { table: string; column?: string 
   "0013": { table: "messages", column: "attachment_text" }, "0015": { table: "prospects", column: "template" },
   "0016": { table: "events", column: "caused_by" }, "0019": { table: "memory_facts", column: "recheck_at" },
   "0020": { table: "missions" }, "0021": { table: "tasks", column: "claimed_by" },
+  "0022": { table: "proposals", column: "basis" }, "0023": { table: "tasks", column: "attempt_id" },
 };
+
+/** Migrations the code refuses to run without (no weaker fallback): id → file and the work it guards. */
+export const GUARDED = {
+  "0021": { file: "0021_task_claim", what: "run agent tasks" },
+  "0022": { file: "0022_proposal_basis", what: "approve suggestions" },
+  "0023": { file: "0023_attempt_ids", what: "run approved actions" },
+} as const;
+export type GuardedId = keyof typeof GUARDED;
+export const blockedMsg = (id: GuardedId) =>
+  `ORBIT needs database update ${GUARDED[id].file} before it can ${GUARDED[id].what} safely — open Doctor → Database migrations`;
+/** The Needs-you "Unblock" item for confirmed-missing guarded migrations (one item, oldest named first). */
+export function migrationNeed(missing: string[]): { id: string; title: string } | null {
+  const ids = (Object.keys(GUARDED) as GuardedId[]).filter((id) => missing.includes(id));
+  return ids.length ? { id: `migrations:${ids.join(",")}`, title: blockedMsg(ids[0]) } : null;
+}
 
 /** Experimental switches worth seeing at a glance; only names and short values, never secrets. */
 export const EXPERIMENTAL_ENV = ["ORBIT_CORE_ENGINE", "ORBIT_CORE_SESSION", "ORBIT_CORE_MAX_STEPS", "ORBIT_HIGGSFIELD_DRY_RUN", "ORBIT_REA_ENABLED", "ORBIT_LOCAL_MODEL"];
@@ -32,12 +48,13 @@ export function versionCheck(r: Refs, env: Record<string, string | undefined>): 
 /** files: migration filenames on disk; applied: prefix → true/false from probes (absent = could not be probed). */
 export function migrationCheck(files: string[], applied: Record<string, boolean>): Check {
   const L = "Database migrations";
-  const ids = files.filter((f) => /^\d{4}_.*\.sql$/.test(f)).map((f) => f.slice(0, 4)).sort();
-  const missing = ids.filter((id) => applied[id] === false);
+  const sql = files.filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
+  const ids = sql.map((f) => f.slice(0, 4));
+  const missing = sql.filter((f) => applied[f.slice(0, 4)] === false).map((f) => `supabase/migrations/${f}`); // the exact files to apply
   const unchecked = ids.filter((id) => !(id in applied));
   const ok = ids.length - missing.length - unchecked.length;
   const tail = unchecked.length ? `; ${unchecked.join(", ")} can't be checked without writing` : "";
   if (missing.length) return check("migrations", L, "fail", `${missing.length} of ${ids.length} migrations not applied: ${missing.join(", ")}${tail}`,
-    "Run the missing files from supabase/migrations in the Supabase SQL editor, oldest first.");
+    "Run the missing files in the Supabase SQL editor, oldest first (docs/MIGRATIONS.md).");
   return check("migrations", L, "ok", `${ok} of ${ids.length} confirmed applied${tail}`);
 }

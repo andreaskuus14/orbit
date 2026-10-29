@@ -140,7 +140,7 @@ export async function withSlot(sb: SupabaseClient, userId: string, taskId: strin
  *  gate: MISSIONS pause, checked before each step.
  *  Idempotent: one driver per chain. Returns the last step it ran and runTask's status, or null when it ran none. */
 export async function drive(sb: SupabaseClient, userId: string, id: string, gate?: () => Promise<boolean>, maxSteps = Infinity): Promise<{ taskId: string; status: string } | null> {
-  let last: { taskId: string; status: string } | null = null, ran = 0;
+  let last: { taskId: string; status: string } | null = null, ran = 0, blocked = false;
   if (driving.has(id) || stopAllOn()) return last; // Stop-all: no driver; the chain row stays "running" and resumeChains drives it after Resume
   driving.add(id);
   const ac = new AbortController();
@@ -186,9 +186,10 @@ export async function drive(sb: SupabaseClient, userId: string, id: string, gate
         if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: "started" });
         const r = await runTask(sb, userId, move.task.id, 0, st.calls ? createBudget(undefined, st.calls) : undefined, ac.signal);
         last = { taskId: move.task.id, status: r.status };
+        if (r.status === "blocked") { blocked = true; return; } // 0021 missing: the step stays queued, the drive stops (not failed)
         if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: stepStatus(r.status) });
       }, ready);
-      if (!started && !ac.signal.aborted) return last;
+      if ((!started && !ac.signal.aborted) || blocked) return last;
     }
   } catch (e) {
     console.error("[orbit] chain runner failed:", id, e instanceof Error ? e.message : e);

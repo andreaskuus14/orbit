@@ -70,6 +70,10 @@ export async function runScorecard(sb: SupabaseClient, userId: string, trigger: 
         const actions = ((row?.pending ?? []) as { tool: string }[]).map((p) => p.tool);
         await rejectProposals(sb, userId, task.id);
         result.answer = (out.result ?? out.error ?? "").slice(0, ANSWER_CAP);
+        if (out.status === "blocked") { // never ran; cancel the case's row so kickQueue doesn't run it later
+          await sb.from("tasks").update({ status: "cancelled", error: out.error, finished_at: new Date().toISOString() }).eq("id", task.id).eq("status", "queued");
+          result.reason = out.error ?? "Blocked"; continue;
+        }
         if (out.status === "cancelled" || blocked(trigger === "monthly")) { result.reason = "Stopped before judging"; continue; }
         result.actions = actions;
         const cur: JudgeAnswer = { text: result.answer, status: out.status, actions };
