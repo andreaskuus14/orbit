@@ -115,9 +115,11 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
     c.firstPlay = 0; c.lagWhat = "replied";
     setState("thinking"); setErr("");
     try {
-      const res = await fetch(`${API}?op=turn&call=${c.call}`, "audio" in body
+      const id = crypto.randomUUID(); // one per turn: the retry below reuses it, so the PC runs the turn once
+      const post = () => fetch(`${API}?op=turn&call=${c.call}&req=${id}`, "audio" in body
         ? { method: "POST", headers: { "content-type": "audio/wav" }, body: encodeWav(body.audio) as Uint8Array<ArrayBuffer>, signal: ac.signal }
         : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
+      const res = await post().catch((e) => { if (ac.signal.aborted) throw e; return post(); }); // one retry on a dropped connection
       if (!res.ok || !res.body) {
         const j = (await res.json().catch(() => ({}))) as { error?: string; fallback?: string };
         if (j.fallback === "speech" && SpeechRec()) { c.speech = true; setErr("Local Whisper is off: using this device's speech recognition."); return listenSpeech(); }
