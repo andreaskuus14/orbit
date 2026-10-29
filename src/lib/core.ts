@@ -499,6 +499,7 @@ async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, inp
     const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent, ...withHeadsUp(`CORE asked: ${request}`, request, cap.headsUp) }).select("id").single();
     if (error) throw error;
     const out = await runTask(sb, userId, data.id, 1, undefined, signal); // CORE's Stop cancels this task and its sub-tasks
+    if (out.status === "blocked") return `Error: ${out.error}`; // a missing database update: say exactly which
     if (out.status === "cancelled") { stopped.push(`${agent}: ${out.result ?? "Cancelled."}`); return `Error: ${agent} was cancelled`; }
     if (out.status === "failed") return `Error: ${agent} failed: ${out.error}${out.result ? `\n${out.result}` : ""}`;
     return `${cap.headsUp ? `${cap.headsUp}\n` : ""}${agent}'s result${out.status === "awaiting_approval" ? " (it also proposed actions the user can approve in OPERATIONS)" : ""}:\n${out.result ?? ""}`; // exec clips it with a read_more pointer

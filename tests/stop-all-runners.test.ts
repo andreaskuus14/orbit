@@ -70,7 +70,7 @@ function agentsWith(stop: { on: boolean }, askClaude: (...a: unknown[]) => Promi
   return load("agents.ts", {
     "./stop-all": { stopAllOn: () => stop.on }, "./stop-all-pure": { PAUSED_MSG }, "./completion-pure": completionPure, "./clip-store-pure": clipStorePure,
     "./task-claim-pure": claim, "./pure": pure, "./memory": { KINDS: ["note"] },
-    "./migration-guard": { requireMigration: async () => {}, refuse: () => new Error("missing") },
+    "./migration-guard": { MigrationBlocked: class extends Error {}, requireMigration: async () => {}, refuse: () => new Error("missing") },
     "./claude": { askClaude, emit: async () => {}, recordUsage: async () => {}, chargeCall: (_b: unknown, s: AbortSignal) => s.throwIfAborted(),
       createBudget: () => ({ signal: new AbortController().signal, calls: 12, used: 0, minutes: 8, deadline: Date.now() + 1e6 }),
       stopKind: (_b: unknown, s: AbortSignal) => (s.aborted ? "cancelled" : null), stoppedReport: (h: string) => h, BudgetError: class extends Error {} },

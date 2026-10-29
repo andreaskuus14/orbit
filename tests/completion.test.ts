@@ -27,9 +27,11 @@ test("completion includes failed/rejected actions and delegated outcomes, while 
 
 // Execute the actual approval handler, replacing only its platform/AI imports.
 // The CommonJS transpile uses the existing TypeScript dependency; no server or Claude call is involved.
+class MigrationBlocked extends Error {}
 const guard = (missing: Set<string>) => ({ // migration-guard stub: the real refusal message for a missing guarded migration
-  requireMigration: async (_sb: unknown, id: GuardedId) => { if (missing.has(id)) throw new Error(blockedMsg(id)); },
-  refuse: (id: GuardedId) => new Error(blockedMsg(id)),
+  MigrationBlocked,
+  requireMigration: async (_sb: unknown, id: GuardedId) => { if (missing.has(id)) throw new MigrationBlocked(blockedMsg(id)); },
+  refuse: (id: GuardedId) => new MigrationBlocked(blockedMsg(id)),
 });
 function approvalHarness(rows: Record<string, unknown>[], missing = new Set<string>()) {
   const db = rows.map((r) => structuredClone(r));

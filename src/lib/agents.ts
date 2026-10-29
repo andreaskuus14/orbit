@@ -12,7 +12,7 @@ import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
 import { attemptId, attemptTag, completionState, type WriteEvidence } from "./completion-pure";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
-import { refuse, requireMigration } from "./migration-guard";
+import { MigrationBlocked, refuse, requireMigration } from "./migration-guard";
 import { verifyRow } from "./completion";
 import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 
@@ -395,7 +395,15 @@ export async function runTask(sb: SupabaseClient, userId: string, taskId: string
 
 async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, depth: number, budget: Budget, signal: AbortSignal) {
   // Refuse tasks this worker doesn't own: claimed elsewhere, cancelled, or finished. A cancel stays cancelled.
-  if (!await claimTask(sb, taskId, handoff.delete(taskId) ? "handoff" : "any")) return { status: "cancelled", result: null, error: "Claimed by another run" };
+  let claimed: boolean;
+  try { claimed = await claimTask(sb, taskId, handoff.delete(taskId) ? "handoff" : "any"); }
+  catch (e) {
+    if (!(e instanceof MigrationBlocked)) throw e;
+    // 0021 missing: nothing ran. Back to queued (callers that insert "running" rows included); never failed.
+    await sb.from("tasks").update({ status: "queued", started_at: null }).eq("id", taskId).eq("status", "running");
+    return { status: "blocked", result: null, error: e.message };
+  }
+  if (!claimed) return { status: "cancelled", result: null, error: "Claimed by another run" };
   const { data: task, error } = await sb.from("tasks").select("id, agent, title, request, parent_id, project_id, status").eq("id", taskId).single();
   if (error) throw error;
   const trace: TraceStep[] = [];

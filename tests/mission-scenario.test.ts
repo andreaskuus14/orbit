@@ -32,9 +32,11 @@ const until = async (cond: () => unknown, what: string) => {
 };
 
 /** In-memory Supabase. Every query runs synchronously inside one exec(), so a conditional update is atomic (like Postgres). */
+class MigrationBlocked extends Error {}
 const guard = (missing: Set<string>) => ({ // migration-guard stub: the real refusal message for a missing guarded migration
-  requireMigration: async (_sb: unknown, id: GuardedId) => { if (missing.has(id)) throw new Error(blockedMsg(id)); },
-  refuse: (id: GuardedId) => new Error(blockedMsg(id)),
+  MigrationBlocked,
+  requireMigration: async (_sb: unknown, id: GuardedId) => { if (missing.has(id)) throw new MigrationBlocked(blockedMsg(id)); },
+  refuse: (id: GuardedId) => new MigrationBlocked(blockedMsg(id)),
 });
 function fakeDb(noAttemptCol = false) {
   const tables: Record<string, Row[]> = { tasks: [], missions: [] };
@@ -110,7 +112,7 @@ const SRC: Record<string, string> = {};
 const src = (f: string) => (SRC[f] ??= ts.transpileModule(readFileSync(new URL(`../src/lib/${f}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText);
 
 /** One ORBIT server process: agents.ts, chains.ts and missions.ts loaded fresh into one context (shared globalThis, like one Node process). */
-function boot(w: World) {
+function boot(w: World, missing = new Set<string>()) {
   const ctx: Row = { console, crypto, AbortController, AbortSignal, structuredClone, setTimeout: (f: () => void, ms: number) => setTimeout(f, Math.min(ms, 2)) };
   vm.createContext(ctx);
   const p = { ctx, agents: {} as Row, chains: {} as Row, missions: {} as Row };
@@ -129,7 +131,7 @@ function boot(w: World) {
     "./capability": { capabilityStart: async () => ({ block: "", headsUp: "" }) },
     // the fake tool's destination is the workspace: a file receipt reads back what actually landed
     "./workspace": { readWsFile: async (_u: string, ref: string) => (w.dest.has(ref) ? { text: w.dest.get(ref), size: w.dest.get(ref)!.length } : null) },
-    "./agents": p.agents, "./chains": p.chains, "./migration-guard": guard(new Set()),
+    "./agents": p.agents, "./chains": p.chains, "./migration-guard": guard(missing),
   };
   for (const [f, out] of [["agents.ts", p.agents], ["chains.ts", p.chains], ["missions.ts", p.missions]] as const)
     vm.runInContext(`(function (exports, require) {${src(f)}\n})`, ctx)(out, (n: string) => mods[n] ?? {});
@@ -292,4 +294,16 @@ test("approved write tools are idempotent on the attempt id: same attempt twice 
       assert.notEqual(other.id, a.id);
     }
   }
+});
+
+test("chain with 0021 missing: the drive stops, the step stays queued (not failed), the chain isn't failed", async () => {
+  const w = world(EN);
+  const A = boot(w, new Set(["0021"]));
+  const out = await A.missions.runMissionTool(w.sb, "owner", "start_mission", { objective: "Report", acceptance: 'report.md contains "A, B, C"', steps: EN.map((r) => ({ agent: "nova", request: r })) }, "start a mission", false);
+  assert.match(out, /^Done: mission started/);
+  await until(() => !A.ctx.__orbitChains?.size, "driver stopped");
+  const steps = w.tables.tasks.filter((t) => t.parent_id);
+  assert.equal(steps[0].status, "queued");
+  assert.equal(w.tables.tasks.find((t) => !t.parent_id)!.status, "running");
+  assert.equal(w.calls[0], 0, "no model call");
 });

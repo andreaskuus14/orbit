@@ -50,7 +50,7 @@ import * as proactivePure from "../src/lib/proactive-pure.ts";
 import * as completionPure from "../src/lib/completion-pure.ts";
 import * as clipStorePure from "../src/lib/clip-store-pure.ts";
 import * as pure from "../src/lib/pure.ts";
-const stub = (missing: string[]) => ({ requireMigration: async (_sb: unknown, id: "0021" | "0022" | "0023") => { if (missing.includes(id)) throw new MigrationBlocked(blockedMsg(id)); }, refuse: (id: "0021") => new MigrationBlocked(blockedMsg(id)) });
+const stub = (missing: string[]) => ({ MigrationBlocked, requireMigration: async (_sb: unknown, id: "0021" | "0022" | "0023") => { if (missing.includes(id)) throw new MigrationBlocked(blockedMsg(id)); }, refuse: (id: "0021") => new MigrationBlocked(blockedMsg(id)) });
 function load(file: string, deps: Record<string, unknown>) {
   const exports: Record<string, any> = {};
   const src = ts.transpileModule(readFileSync(new URL(`../src/lib/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -83,7 +83,9 @@ test("task claiming refuses while 0021 is missing: the task stays queued (not fa
   const a = load("agents.ts", { "./task-claim-pure": claimPure, "./completion-pure": completionPure, "./clip-store-pure": clipStorePure, "./pure": pure, "./memory": { KINDS: ["note"] }, "./claude": { createBudget: () => ({ signal: new AbortController().signal }) }, "./stop-all": { stopAllOn: () => false }, "./migration-guard": stub(["0021"]) });
   await a.kickQueue(rowsDb({ tasks }), "owner");
   assert.equal(tasks[0].status, "queued");
-  await assert.rejects(a.runTask(rowsDb({ tasks }), "owner", "t1"), (e: Error) => e.message === blockedMsg("0021"));
+  const r = await a.runTask(rowsDb({ tasks }), "owner", "t1");
+  assert.equal(r.status, "blocked");
+  assert.equal(r.error, blockedMsg("0021"));
   assert.equal(tasks[0].status, "queued");
 });
 
@@ -101,4 +103,17 @@ test("proposal approval refuses while 0022 is missing (stays pending) and approv
   await ok.p.approveProposal(ok.sb, "owner", "p1");
   assert.equal(ok.tables.proposals[0].status, "approved");
   assert.equal(ok.tables.tasks.length, 1);
+});
+
+test("night: research, goal and company items are deferred with the message while 0021 is missing", async () => {
+  const touched: string[] = [];
+  const n = load("night.ts", { "./migration-guard": stub(["0021"]),
+    "./goals": new Proxy({}, { get: (_t, k) => { touched.push(`goals.${String(k)}`); return undefined; } }),
+    "./chains": new Proxy({}, { get: (_t, k) => { touched.push(`chains.${String(k)}`); return undefined; } }) });
+  for (const kind of ["research", "goal", "company"]) {
+    const r = await n.runOne(rowsDb({ tasks: [] }), "owner", { kind, ref: "x:1", label: "L" }, new AbortController().signal);
+    assert.equal(r.status, "failed", kind);
+    assert.equal(r.why, blockedMsg("0021"), kind);
+  }
+  assert.deepEqual(touched.filter((k) => !k.endsWith("then")), [], "no goal advanced, no chain driven");
 });
