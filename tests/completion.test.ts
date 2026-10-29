@@ -8,6 +8,7 @@ import path from "node:path";
 import ts from "typescript";
 import * as completionPure from "../src/lib/completion-pure.ts";
 import { canRetryTask, completionState, matchesStored } from "../src/lib/completion-pure.ts";
+import { blockedMsg, type GuardedId } from "../src/lib/version-pure.ts";
 import { verifyRow } from "../src/lib/completion.ts";
 
 test("completion includes failed/rejected actions and delegated outcomes, while pending work stays pending", () => {
@@ -26,7 +27,13 @@ test("completion includes failed/rejected actions and delegated outcomes, while 
 
 // Execute the actual approval handler, replacing only its platform/AI imports.
 // The CommonJS transpile uses the existing TypeScript dependency; no server or Claude call is involved.
-function approvalHarness(rows: Record<string, unknown>[]) {
+class MigrationBlocked extends Error {}
+const guard = (missing: Set<string>) => ({ // migration-guard stub: the real refusal message for a missing guarded migration
+  MigrationBlocked,
+  requireMigration: async (_sb: unknown, id: GuardedId) => { if (missing.has(id)) throw new MigrationBlocked(blockedMsg(id)); },
+  refuse: (id: GuardedId) => new MigrationBlocked(blockedMsg(id)),
+});
+function approvalHarness(rows: Record<string, unknown>[], missing = new Set<string>()) {
   const db = rows.map((r) => structuredClone(r));
   const sb = { from(table: string) {
     assert.equal(table, "tasks");
@@ -51,7 +58,7 @@ function approvalHarness(rows: Record<string, unknown>[]) {
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL("../src/lib/agents.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(source, { exports, require: (name: string) => name === "./completion-pure" ? completionPure
-    : name === "./memory" ? { KINDS: ["note"] } : name === "./claude" ? { emit: async () => {} } : name === "./stop-all" ? { stopAllOn: () => false } : {}, console, crypto });
+    : name === "./memory" ? { KINDS: ["note"] } : name === "./claude" ? { emit: async () => {} } : name === "./stop-all" ? { stopAllOn: () => false } : name === "./migration-guard" ? guard(missing) : {}, console, crypto });
   return { sb, db, resolve: exports.resolvePending, tools: exports.TOOLS };
 }
 const task = (id: string, parent: string | null = null, status = "awaiting_approval", pending: unknown[] = []) => ({ id, user_id: "owner", parent_id: parent, project_id: null, status, agent: "nova", title: id, request: "", pending });
@@ -69,6 +76,19 @@ test("actual approval flow treats an Error string as failure, preserves successf
   assert.equal((child.pending as any[])[1].status, "failed");
   assert.equal(h.db.find((r) => r.id === "parent")!.status, "failed");
   await assert.rejects(() => h.resolve(h.sb, "owner", "child", true), /Nothing is waiting/);
+});
+
+test("approval of a keyed write refuses while 0023_attempt_ids is missing (stays pending) and runs once it is applied", async () => {
+  const rows = [task("t", null, "awaiting_approval", [{ tool: "add_task", input: {}, status: "pending" }])];
+  const blocked = approvalHarness(rows, new Set(["0023"]));
+  blocked.tools.add_task.run = () => { throw new Error("Must not execute"); };
+  await assert.rejects(() => blocked.resolve(blocked.sb, "owner", "t", true), (e: Error) => e.message === blockedMsg("0023"));
+  assert.equal(blocked.db[0].status, "awaiting_approval");
+  assert.equal((blocked.db[0].pending as any[])[0].status, "pending");
+  const ok = approvalHarness(rows);
+  ok.tools.add_task.run = async () => "Added";
+  await ok.resolve(ok.sb, "owner", "t", true);
+  assert.equal((ok.db[0].pending as any[])[0].status, "approved");
 });
 
 test("actual rejection runs no tool, never completes a parent, and leaves running siblings unsettled", async () => {

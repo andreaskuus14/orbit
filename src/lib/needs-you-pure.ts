@@ -24,6 +24,7 @@ export type NeedsIn = {
   loops?: Loop[];
   conflict?: { id: string; title: string } | null; // entity-graph-pure contradictionBrief
   trust?: TrustSuggestion[];
+  migration?: { id: string; title: string } | null; // version-pure migrationNeed: a guarded migration is missing
   incident?: { id: string; title: string } | null; // health-pure briefHealth (new/regressed, serious, last 24 h)
   night?: { done: NightItem[]; failed: NightItem[]; endedAt?: string } | null;
   tasks?: { id: string; title: string; finished_at: string | null; pending?: unknown }[]; // finished top-level tasks of the last day
@@ -65,6 +66,7 @@ export function needsYou(x: NeedsIn, lang: Lang = "en"): Need[] {
   for (const t of x.trust ?? []) add({ ref: `trust:${t.area}`, kind: "decide", title: s.trust(t.area), detail: s.trustD(t.approved, t.total), act: { open: { panel: "profile" } } }); // Profile → Autonomy has Accept / Not now
   if (x.conflict) add({ ref: x.conflict.id, kind: "decide", title: x.conflict.title, act: { open: { panel: "memory" } } });
 
+  if (x.migration) add({ ref: x.migration.id, kind: "unblock", title: x.migration.title, act: { open: { doctor: true } } });
   if (x.incident) add({ ref: `health:${x.incident.id}`, kind: "unblock", title: x.incident.title, act: { open: { doctor: true } } });
   for (const m of x.missions ?? []) if (m.status === "waiting-input" || m.status === "failed") // waiting-approval: its task is already a Decide item
     add({ ref: `mission:${m.id}`, kind: "unblock", title: s.mission + m.objective.slice(0, 90), detail: m.blocker, at: m.updated_at, act: { open: { panel: "agents" } } });

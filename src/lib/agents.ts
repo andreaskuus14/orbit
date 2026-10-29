@@ -12,6 +12,7 @@ import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
 import { attemptId, attemptTag, completionState, type WriteEvidence } from "./completion-pure";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
+import { MigrationBlocked, refuse, requireMigration } from "./migration-guard";
 import { verifyRow } from "./completion";
 import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 
@@ -39,20 +40,21 @@ const MAX_RUNNING = 2;
 type Tool = { description: string; input: string; approval?: boolean; run: (ctx: Ctx, input: Record<string, unknown>) => Promise<string> };
 // Approved writes are idempotent on ctx.attempt (stable per approved action, the same when the owner retries the step after an
 // uncertain outcome): the row an earlier run of that attempt created is found and returned as the receipt instead of writing again.
-// Memories carry attemptTag in tags; projects/tasks/automations an attempt_id column (migration 0022; without it, plain inserts).
+// Memories carry attemptTag in tags; projects/tasks/automations an attempt_id column (migration 0023; without it resolvePending refuses).
 async function landed(ctx: Ctx, table: string): Promise<string | null> {
   if (!ctx.attempt) return null;
   const q = ctx.sb.from(table).select("id").eq("user_id", ctx.userId);
   const { data, error } = await (table === "memories" ? q.contains("tags", [attemptTag(ctx.attempt)]) : q.eq("attempt_id", ctx.attempt)).limit(1);
-  if (error) { if (missingOwnerColumn(error)) return null; throw error; } // same "column missing" codes as tasks.claimed_by
+  if (error) throw missingColumn(error, "attempt_id") ? refuse("0023") : error;
   return (data?.[0]?.id as string | undefined) ?? null;
 }
 async function insertOnce(ctx: Ctx, table: string, row: Record<string, unknown>): Promise<string> {
-  let r = await ctx.sb.from(table).insert(ctx.attempt ? { ...row, attempt_id: ctx.attempt } : row).select("id").single();
-  if (r.error && ctx.attempt && missingOwnerColumn(r.error)) r = await ctx.sb.from(table).insert(row).select("id").single();
-  if (r.error) throw r.error;
+  const r = await ctx.sb.from(table).insert(ctx.attempt ? { ...row, attempt_id: ctx.attempt } : row).select("id").single();
+  if (r.error) throw missingColumn(r.error, "attempt_id") ? refuse("0023") : r.error;
   return r.data.id as string;
 }
+const KEYED = new Set(["create_project", "add_task", "propose_automation"]); // tools whose idempotency needs the attempt_id column
+const missingColumn = (e: { code?: string; message?: string }, col: string) => e.code === "42703" || e.code === "PGRST204" || (e.message ?? "").includes(col);
 const already = (what: string, id: string) => `Already done by this approved action earlier: ${what} ${id} (found by its attempt id); not done again.`;
 
 const s = (v: unknown, max = 500) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -361,28 +363,19 @@ const isResearch = (a: AgentDef) => a.slug === "atlas" || (!a.builtin && a.tools
 const g = globalThis as unknown as { __orbitTaskQueue?: Set<string>; __orbitLiveTasks?: Map<string, AbortController>; __orbitWorker?: string };
 const live = (g.__orbitLiveTasks ??= new Map());
 const WORKER = (g.__orbitWorker ??= crypto.randomUUID()); // this process: the owner recorded in tasks.claimed_by
-let ownerCol = true; // false until migration 0021 adds tasks.claimed_by: claims then fall back to status alone
 const handoff = new Set<string>(); // claimed by kickQueue here, not yet picked up by runTaskInner
 
 /** The one atomic claim (conditional update returning the row): true only for the caller whose update changed it.
  *  "queued": kickQueue. "handoff": confirm kickQueue's claim (still ours, not cancelled). "any": see claimable(). */
 async function claimTask(sb: SupabaseClient, taskId: string, from: "queued" | "handoff" | "any") {
   const now = Date.now();
-  const run = (owner: boolean) => {
-    let q = sb.from("tasks").update({ status: "running", started_at: new Date(now).toISOString(), error: null, ...(owner ? { claimed_by: WORKER } : {}) }).eq("id", taskId);
-    if (from === "queued") q = q.eq("status", "queued");
-    else if (from === "handoff") q = owner ? q.eq("status", "running").eq("claimed_by", WORKER) : q.eq("status", "running");
-    else q = owner ? q.or(claimFilter(now)) : q.in("status", ["queued", "running"]);
-    return q.select("id");
-  };
-  if (ownerCol) {
-    const { data, error } = await run(true);
-    if (!missingOwnerColumn(error)) { if (error) throw error; return !!data?.length; }
-    ownerCol = false;
-    console.warn("[orbit] tasks.claimed_by is missing: apply supabase/migrations/0021_task_claim.sql (task claims fall back to status only)");
-  }
-  const { data, error } = await run(false);
-  if (error) throw error;
+  await requireMigration(sb, "0021"); // no status-only fallback: without claimed_by the task stays queued
+  let q = sb.from("tasks").update({ status: "running", started_at: new Date(now).toISOString(), error: null, claimed_by: WORKER }).eq("id", taskId);
+  if (from === "queued") q = q.eq("status", "queued");
+  else if (from === "handoff") q = q.eq("status", "running").eq("claimed_by", WORKER);
+  else q = q.or(claimFilter(now));
+  const { data, error } = await q.select("id");
+  if (error) throw missingOwnerColumn(error) ? refuse("0021") : error;
   return !!data?.length;
 }
 
@@ -402,7 +395,15 @@ export async function runTask(sb: SupabaseClient, userId: string, taskId: string
 
 async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, depth: number, budget: Budget, signal: AbortSignal) {
   // Refuse tasks this worker doesn't own: claimed elsewhere, cancelled, or finished. A cancel stays cancelled.
-  if (!await claimTask(sb, taskId, handoff.delete(taskId) ? "handoff" : "any")) return { status: "cancelled", result: null, error: "Claimed by another run" };
+  let claimed: boolean;
+  try { claimed = await claimTask(sb, taskId, handoff.delete(taskId) ? "handoff" : "any"); }
+  catch (e) {
+    if (!(e instanceof MigrationBlocked)) throw e;
+    // 0021 missing: nothing ran. Back to queued (callers that insert "running" rows included); never failed.
+    await sb.from("tasks").update({ status: "queued", started_at: null }).eq("id", taskId).eq("status", "running");
+    return { status: "blocked", result: null, error: e.message };
+  }
+  if (!claimed) return { status: "cancelled", result: null, error: "Claimed by another run" };
   const { data: task, error } = await sb.from("tasks").select("id, agent, title, request, parent_id, project_id, status").eq("id", taskId).single();
   if (error) throw error;
   const trace: TraceStep[] = [];
@@ -410,7 +411,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
   // Never overwrite a cancel (e.g. one marked by cancelTask's fallback) with a later save.
   const save = async (patch: Record<string, unknown>) => {
     let q = sb.from("tasks").update({ ...patch, trace, pending }).eq("user_id", userId).eq("id", taskId).neq("status", "cancelled");
-    if (ownerCol) q = q.eq("claimed_by", WORKER); // a worker whose lease was reclaimed stops writing
+    q = q.eq("claimed_by", WORKER); // a worker whose lease was reclaimed stops writing
     const { error } = await q;
     if (error) throw error;
   };
@@ -531,6 +532,8 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
   if (!task) throw new ConflictError("Task not found");
   if (task.status !== "awaiting_approval") throw new ConflictError("Nothing is waiting for approval on this task");
   if (approve && stopAllOn()) throw new ConflictError(PAUSED_MSG); // the item stays waiting; approve it again after Resume
+  if (approve && (task.pending as PendingAction[]).some((p) => p.status === "pending" && KEYED.has(p.tool)))
+    await requireMigration(sb, "0023").catch((e) => { throw new ConflictError(e.message); }); // stays pending until 0023 is applied
   // Claim the approval atomically (compare-and-swap on status): only one request wins, so a double click or a
   // retried request can never run the same action twice. A crash mid-way leaves it "running", which the task list
   // turns into "failed" after 20 min — never re-run, never shown as a success.

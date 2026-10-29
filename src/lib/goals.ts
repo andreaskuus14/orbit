@@ -157,10 +157,12 @@ export async function advance(sb: SupabaseClient, userId: string, id: string, ma
       const st = await mutate(sb, id, (d) => startStep(d, move.i, task.id, s.id));
       if ("error" in st) { await sb.from("tasks").update({ status: "cancelled", finished_at: new Date().toISOString() }).eq("id", task.id); return; }
       // The reflection after the step is one of the step's AI calls: the agent gets callsPerStep - 1.
-      const ran = await withSlot(sb, userId, task.id, ac.signal, () => { me.inSlot = true; return runTask(sb, userId, task.id, 0, createBudget(8 * 60_000, fresh.budget.callsPerStep - 1), ac.signal); });
+      const out: { r?: Awaited<ReturnType<typeof runTask>> } = {};
+      const ran = await withSlot(sb, userId, task.id, ac.signal, async () => { me.inSlot = true; out.r = await runTask(sb, userId, task.id, 0, createBudget(8 * 60_000, fresh.budget.callsPerStep - 1), ac.signal); });
       me.inSlot = false;
-      if (!ran) { // paused or stopped while waiting for a slot: the step never ran
-        await sb.from("tasks").update({ status: "cancelled", finished_at: new Date().toISOString() }).eq("id", task.id).eq("status", "running");
+      if (out.r?.status === "blocked") console.warn("[orbit] goal step deferred:", out.r.error); // Needs-you shows the Unblock item
+      if (!ran || out.r?.status === "blocked") { // never ran (paused, stopped, or a missing database update): deferred, not failed // paused or stopped while waiting for a slot: the step never ran
+        await sb.from("tasks").update({ status: "cancelled", finished_at: new Date().toISOString() }).eq("id", task.id).in("status", ["running", "queued"]); // queued: a blocked run; kickQueue must not pick it up
         await mutate(sb, id, (d) => (unstartStep(d, move.i, task.id) ? "" : "no"));
         return;
       }
