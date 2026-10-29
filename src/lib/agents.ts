@@ -7,6 +7,7 @@ import { localNews, readArticle } from "./news";
 import { findCountry } from "./countries-pure";
 import { displayName } from "./geo";
 import { verifyAnswer, type Source } from "./verify";
+import { EVIDENCE_CHARS } from "./mission-checks-pure";
 import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
@@ -23,7 +24,7 @@ import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQ
 export type AgentDef = {
   slug: string; name: string; role: string; instructions: string; tools: string[]; builtin: boolean; color: string;
 };
-export type TraceStep = { step: string; detail: string; ms: number; ok: boolean };
+export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; url?: string; at?: string; evidence?: string }; // url/at/evidence: step "source", a page actually read (full URL, not the 160-char detail)
 export type PendingAction = { tool: string; input: Record<string, unknown>; status: "pending" | "attempting" | "approved" | "rejected" | "failed" | "uncertain"; note?: string; evidence?: WriteEvidence[]; attempt?: string };
 type Task = { id: string; agent: string; title: string; request: string; parent_id: string | null; project_id: string | null };
 // pages: full texts read during the task, reused by the verification stage.
@@ -381,7 +382,8 @@ async function claimTask(sb: SupabaseClient, taskId: string, from: "queued" | "h
 
 /** Run one task to completion (or to awaiting_approval). Delegated sub-tasks run inline via the delegate tool.
  *  Stops early, reporting what it finished, when `parentSignal` aborts, cancelTask is called or the budget runs out. */
-export async function runTask(sb: SupabaseClient, userId: string, taskId: string, depth = 0, budget = createBudget(), parentSignal?: AbortSignal) {
+/** limits (a chain step's, chains-pure Limits): tools narrows the agent's tool list; priv marks the task as holding private context. */
+export async function runTask(sb: SupabaseClient, userId: string, taskId: string, depth = 0, budget = createBudget(), parentSignal?: AbortSignal, limits: { tools?: string[]; priv?: boolean } = {}) {
   if (stopAllOn()) { // Stop-all: never start; the row is closed so it can't sit "running" forever
     await sb.from("tasks").update({ status: "cancelled", error: PAUSED_MSG, finished_at: new Date().toISOString() }).eq("id", taskId).in("status", ["queued", "running"]);
     return { status: "cancelled", result: null, error: PAUSED_MSG };
@@ -389,11 +391,11 @@ export async function runTask(sb: SupabaseClient, userId: string, taskId: string
   if (live.has(taskId)) return { status: "cancelled", result: null, error: "Already running" }; // never twice in one process
   const ac = new AbortController();
   live.set(taskId, ac);
-  try { return await runTaskInner(sb, userId, taskId, depth, budget, AbortSignal.any([ac.signal, budget.signal, ...(parentSignal ? [parentSignal] : [])])); }
+  try { return await runTaskInner(sb, userId, taskId, depth, budget, AbortSignal.any([ac.signal, budget.signal, ...(parentSignal ? [parentSignal] : [])]), limits); }
   finally { live.delete(taskId); }
 }
 
-async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, depth: number, budget: Budget, signal: AbortSignal) {
+async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, depth: number, budget: Budget, signal: AbortSignal, limits: { tools?: string[]; priv?: boolean }) {
   // Refuse tasks this worker doesn't own: claimed elsewhere, cancelled, or finished. A cancel stays cancelled.
   let claimed: boolean;
   try { claimed = await claimTask(sb, taskId, handoff.delete(taskId) ? "handoff" : "any"); }
@@ -416,7 +418,8 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
     if (error) throw error;
   };
 
-  const agent = await getAgent(sb, task.agent, userId);
+  const found = await getAgent(sb, task.agent, userId);
+  const agent = found && limits.tools ? { ...found, tools: found.tools.filter((t) => limits.tools!.includes(t)) } : found;
   if (!agent) {
     await sb.from("tasks").update({ status: "failed", error: `Unknown agent "${task.agent}"`, finished_at: new Date().toISOString() }).eq("id", taskId);
     return { status: "failed", result: null, error: `Unknown agent "${task.agent}"` };
@@ -424,7 +427,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
 
   await emit(sb, userId, "agent.started", "agents", { agent: agent.slug, taskId, title: task.title });
 
-  const ctx: Ctx = { sb, userId, task, depth, pending, trace, pages: new Map(), budget, signal };
+  const ctx: Ctx = { sb, userId, task, depth, pending, trace, pages: new Map(), budget, signal, ...(limits.priv ? { priv: true } : {}) };
   const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const system = systemPrompt(agent, today);
   const transcript: string[] = [];
@@ -494,10 +497,10 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         try { out = await tool.run(ctx, reply.input ?? {}); }
         catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
         noteToolResult(ctx, reply.tool, out);
+        const had = new Set(trace.filter((t) => t.step === "source").map((t) => t.url));
+        for (const p of ctx.pages.values()) if (!had.has(p.url)) trace.push({ step: "source", detail: p.url.slice(0, 300), ms: 0, ok: true, url: p.url, at: new Date().toISOString(), evidence: (p.text ?? "").slice(0, EVIDENCE_CHARS) });
       }
-      // fetch_url keeps its URLs whole (requested + "URL:" header) so a citation can be matched exactly (research-pilot-pure fetchedUrls).
-      const full = reply.tool === "fetch_url" && !out.startsWith("Error:");
-      trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, full ? 2100 : 160)} → ${full ? out.split("\n\n")[0].slice(0, 2400) : out.slice(0, 160)}`, ms: Date.now() - t0, ok: !out.startsWith("Error:") });
+      trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 160)} → ${out.slice(0, 160)}`, ms: Date.now() - t0, ok: !out.startsWith("Error:") });
       transcript.push(`STEP ${step + 1}: you called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 500)}\nRESULT:\n${clips.clip(out).slice(0, 6000)}`);
       await save({}); // live trace for the UI
     }

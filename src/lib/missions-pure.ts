@@ -2,8 +2,8 @@
 // A mission is one authoritative record (public.missions, `doc` below) around an agent-team chain (chains-pure.ts): the chain's step tasks
 // are the checkpoints (a done step is never rerun), the doc holds what the chain can't: constraints, receipts, decisions, blockers, retries.
 // Receipts are only things ORBIT itself checked (a task row, an action's read-back evidence, a file on disk) — never the model's word.
-import type { ChainView } from "./chains-pure.ts";
-import { DISPROVED_RULE, inferAcceptance, type Check } from "./mission-checks-pure.ts";
+import type { ChainView, Limits } from "./chains-pure.ts";
+import { DISPROVED_RULE, inferAcceptance, type Check, type Evidence } from "./mission-checks-pure.ts";
 import type { Contract } from "./recipes-pure.ts";
 import type { RunMetrics } from "./research-pilot-pure.ts";
 
@@ -15,9 +15,10 @@ export type MissionDoc = {
   receipts: Receipt[]; decisions: { at: string; text: string }[]; blocker?: string; failure?: FailureClass;
   retries: Record<string, number>; log: { at: string; text: string }[];
   // success definition + evidence (older docs lack these): acceptance at creation, deterministic checks, reviewed steps, estimate.
-  acceptance?: string; assumptions?: string[]; checks?: Check[]; reviewed?: number[]; verified?: boolean; effort?: { minutes: number; stops: string[] };
+  acceptance?: string; assumptions?: string[]; checks?: Check[]; reviewed?: number[]; verified?: boolean; evidence?: Evidence; effort?: { minutes: number; stops: string[] };
   // saved-workflow runs (A02/G01): which workflow, its contract, the artifact it wrote, the next action it recorded, run metrics.
   workflow?: string; contract?: Contract; artifact?: { slug: string; path: string }; next?: string; metrics?: RunMetrics;
+  hold?: { check: string; options: string[] }; // Exception hold: a finished workflow whose acceptance check failed waits for the owner
 };
 
 export const TERMINAL: MissionStatus[] = ["completed", "cancelled"];
@@ -28,11 +29,12 @@ export const LABEL: Record<MissionStatus, string> = {
 };
 
 /** Which owner actions are allowed from each state. Everything else is driven by the chain's own progress. */
-const MOVES: Record<"pause" | "resume" | "cancel" | "retry", MissionStatus[]> = {
+const MOVES: Record<"pause" | "resume" | "cancel" | "retry" | "accept", MissionStatus[]> = {
   pause: ["queued", "running", "waiting-approval"],
   resume: ["paused"],
   cancel: ["queued", "running", "waiting-input", "waiting-approval", "paused", "failed"],
   retry: ["failed", "waiting-input"],
+  accept: ["waiting-input"], // only with a hold (actMission checks): close as completed, not verified
 };
 export type OwnerAction = keyof typeof MOVES;
 export const canDo = (a: OwnerAction, s: MissionStatus) => MOVES[a].includes(s);
@@ -56,11 +58,11 @@ export const FAILURE_TEXT: Record<FailureClass, string> = {
 };
 
 /** Mission state from the stored doc + the chain's live view. The chain is the truth for progress; the doc for owner choices. */
-export function deriveStatus(doc: Pick<MissionDoc, "status">, chain: Pick<ChainView, "status" | "steps"> | null): MissionStatus {
+export function deriveStatus(doc: Pick<MissionDoc, "status" | "hold">, chain: Pick<ChainView, "status" | "steps"> | null): MissionStatus {
   if (doc.status === "cancelled" || doc.status === "completed") return doc.status;
   if (!chain) return "failed";
   if (chain.status === "cancelled") return "cancelled";
-  if (chain.status === "done") return "completed";
+  if (chain.status === "done") return doc.hold ? "waiting-input" : "completed";
   if (chain.status === "failed") return doc.status === "waiting-input" ? "waiting-input" : "failed";
   if (doc.status === "paused") return "paused";
   if (chain.status === "waiting") return "waiting-approval";
@@ -140,7 +142,7 @@ export function missionLabel(status: MissionStatus, receipts: Receipt[], steps: 
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().slice(0, max) : "");
 /** POST/tool input → a new mission's objective + constraints + chain draft (steps checked again by validateChain), or why not. */
-export function validateMission(x: unknown): { objective: string; constraints: string[]; acceptance: string; assumptions: string[]; steps: { agent: string; request: string }[] } | string {
+export function validateMission(x: unknown): { objective: string; constraints: string[]; acceptance: string; assumptions: string[]; steps: ({ agent: string; request: string } & Limits)[] } | string {
   const o = (x && typeof x === "object" ? x : {}) as { objective?: unknown; constraints?: unknown; acceptance?: unknown; assumptions?: unknown; steps?: unknown };
   const objective = str(o.objective, 300);
   if (!objective) return "objective is required (1-300 characters)";
@@ -152,7 +154,8 @@ export function validateMission(x: unknown): { objective: string; constraints: s
   if (!Array.isArray(o.steps)) return "steps must be a list of 2-5 steps";
   // Constraints, the success condition and assumptions travel with every step's request, so an agent can't miss them.
   const rule = `${constraints.length ? `\n\nMission constraints (must hold): ${constraints.join("; ")}` : ""}\n\nMission is done when: ${acceptance}${assumptions.length ? `\nAssumptions: ${assumptions.join("; ")}${DISPROVED_RULE}` : ""}`;
-  const steps = (o.steps as { agent?: unknown; request?: unknown }[]).map((s) => { const r = str(s?.request, 2000 - rule.length); return { agent: str(s?.agent, 40).toLowerCase(), request: r && r + rule }; });
+  // Step limits (calls/minutes/tools/priv) pass through untouched; validateChain checks them and they can only narrow a step.
+  const steps = (o.steps as ({ agent?: unknown; request?: unknown } & Limits)[]).map(({ agent, request, ...lim }) => { const r = str(request, 2000 - rule.length); return { ...lim, agent: str(agent, 40).toLowerCase(), request: r && r + rule }; });
   return { objective, constraints, acceptance, assumptions, steps };
 }
 

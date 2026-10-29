@@ -27,7 +27,7 @@ export async function POST(req: Request) {
       return "error" in r ? Response.json(r, { status: 400 }) : Response.json(r);
     }
     if (body?.action !== undefined) {
-      if (!["pause", "resume", "cancel", "retry"].includes(body.action) || typeof body.id !== "string") return Response.json({ error: "Unknown action" }, { status: 400 });
+      if (!["pause", "resume", "cancel", "retry", "accept"].includes(body.action) || typeof body.id !== "string") return Response.json({ error: "Unknown action" }, { status: 400 });
       const r = await actMission(sb, user.id, body.id, body.action);
       return "error" in r ? Response.json(r, { status: 400 }) : Response.json(r);
     }

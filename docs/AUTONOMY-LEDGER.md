@@ -8,7 +8,7 @@ Update a row when its evidence changes; don't upgrade a status without a pointer
 | Item | Status | Rev | Evidence / gap |
 |---|---|---|---|
 | A01 Inventory + pilot | in progress | research-pilot | Pilot chosen: G01 (roadmap default). Owner-entered manual-minutes baseline per run exists; no workflow inventory yet |
-| A02 Workflow contracts | verified in fixtures | research-pilot | `Contract` on recipes (`recipes-pure.ts`), carried into `MissionDoc.contract`; `tests/research-pilot.test.ts`. Budget is recorded, enforced only by the existing per-task budget |
+| A02 Workflow contracts | verified in fixtures | research-pilot | `Contract` on recipes (`recipes-pure.ts`), carried into `MissionDoc.contract`; `tests/research-pilot.test.ts`. Contract budget enforced per step via chain-step `minutes`/`calls` → `createBudget` |
 | A03 Standing grants | not started | 7294a89 | `autonomy-pure.ts`, `trust-pure.ts` are levels, not scoped grants |
 | A04 One action boundary | in progress | 7294a89 | Approval gate in `agents.ts`; `policy-pure.ts`. Not all entry points proven equivalent |
 | A05 Capability inventory | implemented | 7294a89 | `capability.ts`, `doctor.ts`, `version-pure.ts`; "verified" vs "configured" split not complete |
@@ -26,7 +26,7 @@ Update a row when its evidence changes; don't upgrade a status without a pointer
 | C05 Decisions beyond regex | in progress | 7294a89 | Editable checkpoint lines; capture still regex-based |
 | C06 Session lifecycle / engine parity | not started | 7294a89 | Needs the actual PC |
 | D01 Validity vs correctness | in progress | 7294a89 | Missions split executed vs read-back receipts (`missions-pure.ts`); broader categories not done |
-| D02 Exact research evidence | in progress | research-pilot | Pilot checks cited URLs against this mission's own successful `fetch_url` reads, exact URL (`checkReport`). Generic `checkResearch` still host-matches; claim support not checked |
+| D02 Exact research evidence | verified in fixtures | main + research-pilot | `fetchedFromTrace`/`normUrl` source records (verification-correctness); pilot `checkReport` uses them across all steps |
 | D03 Artifact validation | in progress | research-pilot | Pilot: report written, read back byte-equal, sections parsed. PDF/CSV checks in `mission-checks-pure.ts` remain weak |
 | D04 Real test/deploy evidence | not started | 7294a89 | `checkTests` accepts zero tests |
 | D05 Adversarial cases | in progress | 7294a89 | `real-requests-pure.ts` fixtures; planted false-success only in pilot test |
@@ -38,12 +38,12 @@ Update a row when its evidence changes; don't upgrade a status without a pointer
 | E05 Service limits in planning | in progress | 7294a89 | `usage-meter.ts`, capacity-aware planning |
 | E06 Continuous operation | not started | — | Host availability unknown |
 | F01 One command surface | implemented | 7294a89 | `WorkView.tsx`; pilot launches from a typed request and Work → Workflows |
-| F02 Resolvable exceptions | in progress | 7294a89 | Mission blocker + next action; no options/recommendation shape |
+| F02 Resolvable exceptions | in progress | research-pilot | Workflow missions hold on a failed acceptance check with the exact check + options (retry report / accept / cancel); not yet for other missions |
 | F03 Needs-you inbox | implemented | 7294a89 | `needs-you.ts`; dedup/snooze not checked here |
 | F04 Result-focused brief | in progress | 7294a89 | `brief.ts` |
 | F05 Visible authority + revocation | in progress | 7294a89 | Stop-all (`docs/STOP-ALL.md`); no grant view (needs A03) |
 | F06 Learn preferences | not started | — | |
-| G01 Research-to-deliverable pilot | verified in fixtures | research-pilot | `research-pilot-pure.ts` + `missions.ts pilotFinal`; e2e on real runner with fake model/fetch, restart mid-step, unreadable source (`tests/research-pilot.test.ts`). 0 live runs of the 20 suggested |
+| G01 Research-to-deliverable pilot | verified in fixtures | research-pilot | `research-pilot-pure.ts` + `missions.ts pilotFinal`; e2e on real runner with fake model/fetch, restart mid-step, unreadable source, private-context refusal, tool allow-list, exception hold → accept/retry (`tests/research-pilot.test.ts`). 0 live runs of the 20 suggested |
 | G02 Roblox operator | not started | — | |
 | G03 Content operator | not started | — | |
 | G04 Daily planning operator | in progress | 7294a89 | `plans.ts`, daily plan |

@@ -3,13 +3,14 @@ import { useCallback, useState } from "react";
 import { api, usePoll } from "./AgentMission";
 import { canDo, stepVerified, type OwnerAction } from "@/lib/missions-pure";
 import { timeAgo } from "@/lib/mission-pure";
+import { evidenceLine } from "@/lib/mission-checks-pure";
 import { useT } from "./i18n";
 import type { MissionView } from "@/lib/missions";
 
 // MISSIONS: CORE's multi-step jobs. State, the one next action, steps, receipts (what ORBIT verified) and the plain-language log.
 // Approvals are not here: an action waiting for approval is approved in the step's task, as before. Text is untrusted: React text only.
 
-const ACTIONS: OwnerAction[] = ["pause", "resume", "retry", "cancel"];
+const ACTIONS: OwnerAction[] = ["pause", "resume", "retry", "accept", "cancel"];
 const TONE: Record<string, string> = { completed: "var(--mint)", failed: "#fb7185", "waiting-input": "#fbbf24", "waiting-approval": "#fbbf24", paused: "var(--muted)" };
 
 export default function MissionsPanel({ visible, onOpenTask }: { visible: boolean; onOpenTask?: (id: string) => void }) {
@@ -42,6 +43,7 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
                     onBlur={(e) => e.target.value !== "" && api("/api/missions", { method: "POST", body: JSON.stringify({ id: m.id, action: "baseline", minutes: Number(e.target.value) }) }).then(load, (er) => setErr(er.message))} />
                 </p>
               )}
+              {m.doc.evidence && <p className="muted text-[11px]">{evidenceLine(m.doc.evidence)}</p>}
               {m.doc.effort && <details><summary className="cursor-pointer muted">{t("mission.effort", { n: m.doc.effort.minutes })}</summary><ul className="mt-1 list-disc pl-4">{m.doc.effort.stops.map((x) => <li key={x}>{x}</li>)}</ul></details>}
               {!!m.doc.checks?.length && (
                 <details><summary className="cursor-pointer">{t("mission.checks", { ok: m.doc.checks.filter((c) => c.ok).length, n: m.doc.checks.length })}</summary>
@@ -72,7 +74,7 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
                 <ul className="mt-1 space-y-0.5">{m.doc.log.slice(-12).map((l, i) => <li key={i}><span className="muted">{timeAgo(l.at)}</span> {l.text}</li>)}</ul>
               </details>
               <div className="flex flex-wrap gap-1.5">
-                {ACTIONS.filter((a) => canDo(a, m.status)).map((a) => <button key={a} type="button" className="chip" onClick={() => act(m.id, a)}>{a[0].toUpperCase() + a.slice(1)}</button>)}
+                {ACTIONS.filter((a) => canDo(a, m.status) && (a !== "accept" || !!m.doc.hold)).map((a) => <button key={a} type="button" className="chip" onClick={() => act(m.id, a)}>{a[0].toUpperCase() + a.slice(1)}</button>)}
               </div>
             </li>
           ))}
