@@ -15,6 +15,7 @@ import * as pure from "../src/lib/pure.ts";
 import * as foregroundPure from "../src/lib/foreground-pure.ts";
 import * as clipStorePure from "../src/lib/clip-store-pure.ts";
 import * as missionChecksPure from "../src/lib/mission-checks-pure.ts";
+import { blockedMsg, type GuardedId } from "../src/lib/version-pure.ts";
 import { MODULE_HINTS, selectModules } from "../src/lib/core-modules-pure.ts";
 
 // Phase 2 gate, end to end: the REAL runner files (agents.ts, chains.ts, missions.ts + completion-pure) on an in-memory Supabase.
@@ -31,6 +32,10 @@ const until = async (cond: () => unknown, what: string) => {
 };
 
 /** In-memory Supabase. Every query runs synchronously inside one exec(), so a conditional update is atomic (like Postgres). */
+const guard = (missing: Set<string>) => ({ // migration-guard stub: the real refusal message for a missing guarded migration
+  requireMigration: async (_sb: unknown, id: GuardedId) => { if (missing.has(id)) throw new Error(blockedMsg(id)); },
+  refuse: (id: GuardedId) => new Error(blockedMsg(id)),
+});
 function fakeDb(noAttemptCol = false) {
   const tables: Record<string, Row[]> = { tasks: [], missions: [] };
   let seq = 0;
@@ -124,7 +129,7 @@ function boot(w: World) {
     "./capability": { capabilityStart: async () => ({ block: "", headsUp: "" }) },
     // the fake tool's destination is the workspace: a file receipt reads back what actually landed
     "./workspace": { readWsFile: async (_u: string, ref: string) => (w.dest.has(ref) ? { text: w.dest.get(ref), size: w.dest.get(ref)!.length } : null) },
-    "./agents": p.agents, "./chains": p.chains,
+    "./agents": p.agents, "./chains": p.chains, "./migration-guard": guard(new Set()),
   };
   for (const [f, out] of [["agents.ts", p.agents], ["chains.ts", p.chains], ["missions.ts", p.missions]] as const)
     vm.runInContext(`(function (exports, require) {${src(f)}\n})`, ctx)(out, (n: string) => mods[n] ?? {});
@@ -272,10 +277,15 @@ test("approved write tools are idempotent on the attempt id: same attempt twice 
     ];
     for (const [tool, table, input] of cases) {
       const run = async (attempt: string) => { const c: Row = { sb: w.sb, userId: "owner", task: { agent: "nova", title: "t", project_id: null }, evidence: [], attempt }; const note = await p.agents.TOOLS[tool].run(c, input); return { note, id: c.evidence[0]?.id }; };
+      if (noCol && table !== "memories") { // without migration 0023: refused with the exact file, nothing written
+        const before = (w.tables[table] ?? []).length;
+        await assert.rejects(run("t1:0"), (e: Error) => e.message === blockedMsg("0023"), tool);
+        assert.equal((w.tables[table] ?? []).length, before, `${tool}: nothing written`);
+        continue;
+      }
       const a = await run("t1:0"), b = await run("t1:0"), other = await run("t2:0");
       const rows = w.tables[table].filter((r) => r.user_id === "owner").length;
       assert.ok(a.id, `${tool}: ${a.note}`);
-      if (noCol && table !== "memories") { assert.equal(rows, 3, `${tool}: without migration 0022 it still works (plain inserts)`); continue; }
       assert.equal(rows, 2, `${tool}: one effect per attempt`);
       assert.equal(b.id, a.id, `${tool}: the rerun returns the original receipt`);
       assert.match(b.note, /Already done/);

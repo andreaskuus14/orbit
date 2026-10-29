@@ -22,7 +22,7 @@ import {
   latencyCheck,
 } from "./doctor-pure";
 import { coreTurns } from "./perf-log";
-import { MIGRATION_MARKERS, migrationCheck, versionCheck } from "./version-pure";
+import { migrationCheck, versionCheck } from "./version-pure";
 
 // ORBIT doctor: runs every check in parallel, each with its own timeout, and returns plain-English verdicts (see doctor-pure.ts).
 // Nothing here returns a secret: env checks report names only, and error text from outside is never passed through raw.
@@ -187,15 +187,10 @@ async function runningVersion(): Promise<Check> {
   return versionCheck({ running: process.env.ORBIT_BUILD_COMMIT || "unknown", builtAt: process.env.ORBIT_BUILD_TIME || "unknown", head, main, dirty: status === null ? null : status !== "" }, process.env);
 }
 
-// Read-only probes: a head select of the marker column; a "does not exist" error means that migration is missing.
+// Read-only probes (migration-guard): a "does not exist" error means that migration is missing.
 async function migrations(sb: SupabaseClient): Promise<Check> {
   const files = await readdir(path.join(root(), "supabase", "migrations")).catch(() => [] as string[]);
-  const applied: Record<string, boolean> = {};
-  await Promise.all(Object.entries(MIGRATION_MARKERS).map(async ([id, m]) => {
-    const { error } = await sb.from(m.table).select(m.column ?? "*", { head: true }).limit(1).abortSignal(AbortSignal.timeout(5000));
-    if (!error) applied[id] = true;
-    else if (isMissingTable(error) || /column .* does not exist|42703/i.test(`${error.code} ${error.message}`)) applied[id] = false;
-  }));
+  const applied = await (await import("./migration-guard")).probeMarkers(sb);
   return migrationCheck(files, applied);
 }
 
