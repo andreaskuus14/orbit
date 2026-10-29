@@ -169,7 +169,7 @@ function boot(w: World) {
   };
   const mods: Row = {
     "./claude": claude, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure,
-    "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./pure": pure, "./research-pilot-pure": pilot,
+    "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./durable": { noteWrite: () => {} }, "./pure": pure, "./research-pilot-pure": pilot,
     "./memory": { KINDS: ["note"] }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
     "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./mission-checks-pure": missionChecksPure,
     "./capability": { capabilityStart: async () => ({ block: "", headsUp: "" }) }, "./workspace": ws,
