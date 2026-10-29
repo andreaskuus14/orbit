@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClipStore } from "./clip-store-pure";
-import { isCurrent } from "./memory-types-pure";
+import { isCurrent, scopeTags } from "./memory-types-pure";
 import { askClaude, recordUsage, emit, reviewDraft, MODEL, createBudget, chargeCall, stopKind, stoppedReport, BudgetError, type Budget } from "./claude";
 import { createMemory, searchMemories, fetchPage, safeFetch, MEMORY_COLUMNS, KINDS, type Kind } from "./memory";
 import { runPulse, topicFeedUrl } from "./pulse";
@@ -226,7 +226,7 @@ export const TOOLS: Record<string, Tool> = {
       const kind = (KINDS as readonly string[]).includes(String(i.kind)) ? (i.kind as Kind) : "research";
       const { memory } = await createMemory(sb, userId, {
         kind, title: s(i.title, 300) || task.title, content: s(i.content, 100_000), source: `agent:${task.agent}`,
-        tags: [...cleanTags(i.tags), ...(ctx.attempt ? [attemptTag(ctx.attempt)] : [])],
+        tags: [...scopeTags(`${s(i.title, 300)}\n${s(i.content, 100_000)}`, cleanTags(i.tags), {}), ...(ctx.attempt ? [attemptTag(ctx.attempt)] : [])], // no forged chat:/until:/revoked; chat wording from an agent has no chat: eligible nowhere
       });
       ctx.evidence?.push({ kind: "memory", id: memory.id });
       return `Saved and read back memory ${memory.id}`;

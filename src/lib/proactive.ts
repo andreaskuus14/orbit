@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isCurrent } from "./memory-types-pure";
 import { askClaude, recordUsage, emit } from "./claude";
 import { BUILTIN_AGENTS, getAgent, kickQueue } from "./agents";
 import { stopAllOn } from "./stop-all";
@@ -70,7 +71,7 @@ export async function generateProposals(sb: SupabaseClient, userId: string) {
       sb.from("articles").select("title, source, topic").eq("user_id", userId).gte("fetched_at", since2).order("published_at", { ascending: false, nullsFirst: false }).limit(15),
       sb.from("briefings").select("title, content, created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       sb.from("tasks").select("title, agent, status, error, created_at").eq("user_id", userId).is("parent_id", null).order("created_at", { ascending: false }).limit(25),
-      sb.from("memories").select("title, kind, created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(8),
+      sb.from("memories").select("title, kind, content, tags, created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(8),
       sb.from("events").select("type").eq("user_id", userId).gte("created_at", since2).limit(300),
     ]);
     const taskRows = tasks.data ?? [];
@@ -90,7 +91,7 @@ export async function generateProposals(sb: SupabaseClient, userId: string) {
       `RECENT HEADLINES (48 h):\n${line((articles.data ?? []).map((a) => `${a.title} — ${a.source ?? "?"}${a.topic ? ` [${a.topic}]` : ""}`))}`,
       `OPEN OR FAILED TASKS:\n${line(open.map((t) => `${t.title} (${t.agent}, ${t.status}${t.error ? `: ${String(t.error).slice(0, 80)}` : ""})`))}`,
       `RECENTLY DONE TASKS:\n${line(done.map((t) => `${t.title} (${t.agent})`))}`,
-      `RECENT MEMORIES:\n${line((memories.data ?? []).map((m) => `${m.title} (${m.kind}, ${m.created_at.slice(0, 10)})`))}`,
+      `RECENT MEMORIES:\n${line((memories.data ?? []).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => `${m.title} (${m.kind}, ${m.created_at.slice(0, 10)})`))}`,
       `ACTIVITY (48 h): ${eventCounts || "none"}`,
       `ALREADY SUGGESTED RECENTLY (don't repeat):\n${line((prior ?? []).map((x) => `${x.title} (${x.status})`))}`,
     ].join("\n\n");
