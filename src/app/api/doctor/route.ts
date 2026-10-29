@@ -33,10 +33,16 @@ export async function GET(req: Request) {
 }
 
 // POST {ack: "<incident key>"}: the owner's "Got it" on a System health incident (no more pushes for it; it still clears by itself).
+// POST {retry: "<consumer>:<event id>"}: his Retry on a dead-letter event (Saved state & events check).
 export async function POST(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
-  const b = (await req.json().catch(() => null)) as { ack?: unknown } | null;
+  const b = (await req.json().catch(() => null)) as { ack?: unknown; retry?: unknown } | null;
+  if (typeof b?.retry === "string") {
+    const m = /^([\w-]{1,40}):(\d{1,15})$/.exec(b.retry);
+    const ok = m ? await (await import("@/lib/durable")).retryEvent(m[1], Number(m[2])) : false;
+    return ok ? Response.json({ ok: true }) : Response.json({ error: "Not a given-up event" }, { status: 400 });
+  }
   if (typeof b?.ack !== "string" || !b.ack || b.ack.length > 100) return Response.json({ error: "ack: incident key required" }, { status: 400 });
   await ackSystemIncident(b.ack);
   return Response.json({ ok: true });

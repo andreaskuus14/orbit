@@ -9,6 +9,7 @@ import {
   type MissionDoc, type MissionStatus, type OwnerAction, MAX_RETRIES,
 } from "./missions-pure";
 import { capabilityStart } from "./capability";
+import { noteWrite } from "./durable";
 
 // MISSIONS runner (logic: missions-pure.ts). One row per mission in public.missions; its steps are an agent-team chain whose parent title
 // starts "Mission: " (so the Teams resume loop never drives it: only this file does, with the pause gate). reconcile() re-reads the chain
@@ -23,8 +24,9 @@ const COLS = "id, chain_id, version, doc, created_at";
 const now = () => new Date().toISOString();
 
 async function save(sb: SupabaseClient, row: Row, doc: MissionDoc): Promise<Row | null> {
-  const { data } = await sb.from("missions").update({ doc, status: doc.status, version: row.version + 1, updated_at: now() })
+  const { data, error } = await sb.from("missions").update({ doc, status: doc.status, version: row.version + 1, updated_at: now() })
     .eq("id", row.id).eq("version", row.version).select(COLS).maybeSingle(); // compare-and-swap: a concurrent change wins, we re-read next time
+  noteWrite("missions doc", error ? error.message : undefined); // a failed save is named in Doctor / Needs-you (callers already treat null as not saved)
   return (data as Row | null) ?? null;
 }
 

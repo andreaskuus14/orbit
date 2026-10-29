@@ -25,6 +25,7 @@ export type NeedsIn = {
   conflict?: { id: string; title: string } | null; // entity-graph-pure contradictionBrief
   trust?: TrustSuggestion[];
   migration?: { id: string; title: string } | null; // version-pure migrationNeed: a guarded migration is missing
+  durable?: { id: string; title: string } | null; // durable-pure durableCheck: a failed state write or a given-up event
   incident?: { id: string; title: string } | null; // health-pure briefHealth (new/regressed, serious, last 24 h)
   night?: { done: NightItem[]; failed: NightItem[]; endedAt?: string } | null;
   tasks?: { id: string; title: string; finished_at: string | null; pending?: unknown }[]; // finished top-level tasks of the last day
@@ -67,6 +68,7 @@ export function needsYou(x: NeedsIn, lang: Lang = "en"): Need[] {
   if (x.conflict) add({ ref: x.conflict.id, kind: "decide", title: x.conflict.title, act: { open: { panel: "memory" } } });
 
   if (x.migration) add({ ref: x.migration.id, kind: "unblock", title: x.migration.title, act: { open: { doctor: true } } });
+  if (x.durable) add({ ref: x.durable.id, kind: "unblock", title: x.durable.title, act: { open: { doctor: true } } });
   if (x.incident) add({ ref: `health:${x.incident.id}`, kind: "unblock", title: x.incident.title, act: { open: { doctor: true } } });
   for (const m of x.missions ?? []) if (m.status === "waiting-input" || m.status === "failed") // waiting-approval: its task is already a Decide item
     add({ ref: `mission:${m.id}`, kind: "unblock", title: s.mission + m.objective.slice(0, 90), detail: m.blocker, at: m.updated_at, act: { open: { panel: "agents" } } });
