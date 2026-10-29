@@ -71,9 +71,14 @@ export function actRule(id: string, action: "confirm" | "pause" | "resume" | "de
 }
 
 /** One run through an existing runner. Never throws. */
-async function runRule(sb: SupabaseClient, userId: string, r: Rule, why: string): Promise<RuleResult> {
-  const at = new Date().toISOString(), a = r.action, note = `\n\n(Standing rule "${r.name}", triggered: ${why}.)`;
+async function runRule(sb: SupabaseClient, userId: string, r: Rule, why: string, key?: string): Promise<RuleResult> {
+  const at = new Date().toISOString(), a = r.action, note = `\n\n(Standing rule "${r.name}", triggered: ${why}.)${key ? ` [${key}]` : ""}`;
   try {
+    if (key && a.kind !== "orbit") { // idempotency: a replayed event finds the task (or mission step) it already created
+      const { data: had, error } = await sb.from("tasks").select("id").eq("user_id", userId).like("request", `%[${key}]`).limit(1);
+      if (error) throw error;
+      if (had?.length) return { at, ok: true, text: "Already started", taskId: had[0].id as string };
+    }
     if (a.kind === "orbit" && a.id === "deals") {
       const x = await (await import("./deals")).huntDeals(sb, userId, "background", { all: true });
       return { at, ok: true, text: `${x.wishes} wish${x.wishes === 1 ? "" : "es"} checked, ${x.offers} offers, ${x.great} great deal${x.great === 1 ? "" : "s"}` };
@@ -109,15 +114,22 @@ async function fire(sb: SupabaseClient, userId: string, r: Rule, why: string, ev
   const whyNot = await update((s) => {
     const x = s.rules.find((y) => y.id === r.id);
     if (x?.status !== "active") return "Rule is not active";
-    if (key && x.seen?.includes(key)) return "Already handled"; // idempotency: a retried event finds the run it already started
+    if (key && x.seen?.includes(key)) return "Already handled";
     if (event) { const c = countEventRun(x.today, new Date()); x.today = c.count; if (!c.ok) return "Daily event limit reached"; }
-    if (key) x.seen = [...(x.seen ?? []), key].slice(-100);
+    if (key && r.action.kind === "orbit") x.seen = [...(x.seen ?? []), key].slice(-100); // no task to find later: mark up front
     x.lastRun = new Date().toISOString(); return null;
   });
   if (whyNot) return whyNot;
   console.log(`[orbit] rule "${r.name}" starting (${why.slice(0, 60)})`);
-  // not awaited: a deal hunt takes minutes and must not hold up the scheduler tick
-  void runRule(sb, userId, r, why).then((res) => update((s) => { const x = s.rules.find((y) => y.id === r.id); if (x) x.last = res; })).catch((e) => console.error("[orbit] rule result not saved:", msg(e)));
+  const done = (res: RuleResult) => update((s) => {
+    const x = s.rules.find((y) => y.id === r.id);
+    if (!x) return;
+    x.last = res;
+    if (key && res.ok && r.action.kind !== "orbit") x.seen = [...(x.seen ?? []), key].slice(-100); // only once the task/mission exists
+  });
+  // An event's task/mission is created before tickRules acknowledges the event; a deal hunt / week run takes minutes, not awaited.
+  const run = runRule(sb, userId, r, why, key).then(done).catch((e) => console.error("[orbit] rule result not saved:", msg(e)));
+  if (key && r.action.kind !== "orbit") await run;
   return null;
 }
 

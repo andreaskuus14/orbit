@@ -55,7 +55,7 @@ export function takeNew<T extends { id: number }>(cursor: number, rows: T[], max
 
 /** Per-consumer processing state (review: the cursor used to move before acting, so a crash skipped events).
  *  inflight: taken but not acknowledged (id → attempts); done: acknowledged ids above the cursor (out of order);
- *  skipped/gaveUp: counts surfaced in Doctor instead of silent drops. */
+ *  skipped/gaveUp: counts surfaced in Doctor instead of silent drops (skippedAt: the last time either grew). */
 export type Track = { inflight: Record<string, number>; done: number[]; skipped: number; skippedAt?: string; gaveUp: number };
 export const MAX_ATTEMPTS = 2; // the first try + one retry after a crash
 export const emptyTrack = (): Track => ({ inflight: {}, done: [], skipped: 0, gaveUp: 0 });
@@ -81,7 +81,7 @@ export function planTake<T extends { id: number; created_at?: string }>(cursor: 
   for (const r of fresh) {
     const tries = track.inflight[r.id] ?? 0;
     if (r.created_at && new Date(r.created_at).toISOString() < since) { drop.push(r.id); track.skipped++; track.skippedAt = new Date(now).toISOString(); }
-    else if (tries >= MAX_ATTEMPTS) { drop.push(r.id); track.gaveUp++; }
+    else if (tries >= MAX_ATTEMPTS) { drop.push(r.id); track.gaveUp++; track.skippedAt = new Date(now).toISOString(); }
     else { track.inflight[r.id] = tries + 1; act.push(r); }
   }
   return { act, drop, track };
