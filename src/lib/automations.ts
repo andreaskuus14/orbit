@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { kickQueue } from "./agents";
 import { automationDue, type Schedule } from "./pure";
-import { claimEvents } from "./durable";
+import { ackEvent, claimEvents, type EventRow } from "./durable";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
 
@@ -18,9 +18,14 @@ const COLS = "id, user_id, name, trigger, schedule, event, kind_filter, agent, p
 const USER_SOURCES = ["capture", "upload", "url", "core"];
 
 /** Queue one run of an automation as an agent task and start it. */
-export async function startAutomation(sb: SupabaseClient, a: Automation, trigger: string) {
+export async function startAutomation(sb: SupabaseClient, a: Automation, trigger: string, key?: string) {
   if (stopAllOn()) throw new Error(PAUSED_MSG);
-  const request = `${a.prompt}\n\n(Automation "${a.name}", triggered: ${trigger}.)`;
+  const request = `${a.prompt}\n\n(Automation "${a.name}", triggered: ${trigger}.)${key ? ` [${key}]` : ""}`;
+  if (key) { // idempotency: an event replayed after a crash finds the task it already created
+    const { data: had, error } = await sb.from("tasks").select("id").eq("user_id", a.user_id).eq("automation_id", a.id).like("request", `%[${key}]`).limit(1);
+    if (error) throw error;
+    if (had?.length) return had[0].id as string;
+  }
   const { data, error } = await sb.from("tasks").insert({
     user_id: a.user_id, agent: a.agent, title: `⚙ ${a.name}`.slice(0, 200), request, automation_id: a.id,
   }).select("id").single();
@@ -44,18 +49,23 @@ export async function runDueAutomations(sb: SupabaseClient, userId: string, now 
 
 /** React to new events (all users): memory saved → memory.created automations; briefing done → briefing.ready. */
 export async function handleEvents(sb: SupabaseClient) {
-  // Persisted cursor (durable.ts): events from downtime replay once (last 24 h, capped), never twice.
+  // durable.ts: acknowledged after its automations started; a crash replays it once and startAutomation dedupes on the key.
   for (const e of await claimEvents(sb, "automations", ["memory.created", "pulse.completed"])) {
-    const p = (e.payload ?? {}) as { title?: string; kind?: string; source?: string };
-    const event = e.type === "pulse.completed" ? "briefing.ready" : "memory.created";
-    if (event === "memory.created" && !USER_SOURCES.includes(p.source ?? "")) continue;
-    const { data: autos } = await sb.from("automations").select(COLS).eq("user_id", e.user_id).eq("enabled", true).eq("trigger", "event").eq("event", event);
-    for (const a of (autos ?? []) as Automation[]) {
-      if (a.kind_filter && a.kind_filter !== p.kind) continue;
-      const what = event === "briefing.ready" ? "a new news briefing was saved to memory (find it with search_memory, newest first)"
-        : `the user just saved a ${p.kind ?? "memory"} titled "${p.title ?? ""}" (read it with search_memory using that title)`;
-      console.log(`[orbit] automation "${a.name}" starting (${event})`);
-      await startAutomation(sb, a, what).catch((err) => console.error(`[orbit] automation "${a.name}" failed to start:`, err?.message ?? err));
-    }
+    await handleEvent(sb, e);
+    await ackEvent("automations", e.id);
+  }
+}
+
+async function handleEvent(sb: SupabaseClient, e: EventRow) {
+  const p = (e.payload ?? {}) as { title?: string; kind?: string; source?: string };
+  const event = e.type === "pulse.completed" ? "briefing.ready" : "memory.created";
+  if (event === "memory.created" && !USER_SOURCES.includes(p.source ?? "")) return;
+  const { data: autos } = await sb.from("automations").select(COLS).eq("user_id", e.user_id).eq("enabled", true).eq("trigger", "event").eq("event", event);
+  for (const a of (autos ?? []) as Automation[]) {
+    if (a.kind_filter && a.kind_filter !== p.kind) continue;
+    const what = event === "briefing.ready" ? "a new news briefing was saved to memory (find it with search_memory, newest first)"
+      : `the user just saved a ${p.kind ?? "memory"} titled "${p.title ?? ""}" (read it with search_memory using that title)`;
+    console.log(`[orbit] automation "${a.name}" starting (${event})`);
+    await startAutomation(sb, a, what, `event:automations:${e.id}:${a.id}`).catch((err) => console.error(`[orbit] automation "${a.name}" failed to start:`, err?.message ?? err));
   }
 }

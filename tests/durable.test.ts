@@ -3,13 +3,15 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { MAX_SESSIONS, REPLAY_WINDOW, TICK_MAX, SESSION_MAX_AGE, capSessions, liveSession, parseCursors, parseSessions, takeNew } from "../src/lib/durable-pure.ts";
+import { MAX_SESSIONS, REPLAY_WINDOW, TICK_MAX, SESSION_MAX_AGE, ackTrack, capSessions, emptyTrack, liveSession, parseCursors, parseSessions, takeNew, type Track } from "../src/lib/durable-pure.ts";
 
 process.env.ORBIT_DATA_DIR = await mkdtemp(path.join(tmpdir(), "orbit-durable-"));
-const { coreSessionStore, claimEvents, clearCursor, getCursor } = await import("../src/lib/durable.ts");
-const G = globalThis as unknown as { __orbitDurable: { sessions?: unknown; cursors?: unknown; chain: Promise<unknown> } };
+const { coreSessionStore, claimEvents: claimRaw, ackEvent, clearCursor, eventGaps, getCursor } = await import("../src/lib/durable.ts");
+/** take + act (nothing) + acknowledge, the way a consumer that finishes its work uses it. */
+const claimEvents = async (...a: Parameters<typeof claimRaw>) => { const got = await claimRaw(...a); for (const e of got) await ackEvent(a[1], e.id); return got; };
+const G = globalThis as unknown as { __orbitDurable: { sessions?: unknown; cursors?: unknown; tracks?: unknown; chain: Promise<unknown> } };
 /** Simulated server restart: wait for pending writes, then drop everything held in memory. */
-const restart = async () => { await G.__orbitDurable.chain; G.__orbitDurable.sessions = undefined; G.__orbitDurable.cursors = undefined; };
+const restart = async () => { await G.__orbitDurable.chain; G.__orbitDurable.sessions = undefined; G.__orbitDurable.cursors = undefined; G.__orbitDurable.tracks = undefined; };
 
 test("parseSessions keeps valid entries only and caps to the newest", () => {
   const m = parseSessions({ a: { id: "s-1", at: 5 }, "bad key!": { id: "s", at: 1 }, b: { id: 7, at: 1 }, c: { id: "s-3" }, d: null });
@@ -114,7 +116,7 @@ test("a busy tick never drops events: 700 at once are handled over 4 ticks, none
   assert.deepEqual(seen, Array.from({ length: 700 }, (_, i) => i + 2));
 });
 
-test("downtime replay is bounded to the last 24 h", async () => {
+test("downtime replay is bounded to the last 24 h, and the skipped ones are counted for Doctor", async () => {
   const rows = [ev(1)];
   const sb = fakeSb(rows);
   await claimEvents(sb, "t4", ["memory.created"], NOW);
@@ -122,6 +124,55 @@ test("downtime replay is bounded to the last 24 h", async () => {
   await restart();
   assert.deepEqual((await claimEvents(sb, "t4", ["memory.created"], NOW)).map((e) => e.id), [4]);
   assert.deepEqual(await claimEvents(sb, "t4", ["memory.created"], NOW), []);
+  assert.equal(eventGaps().find((g) => g.consumer === "t4")?.skipped, 2);
+  assert.equal(getCursor("t4"), 4);
+});
+
+test("ackTrack: the cursor stops below the oldest unacknowledged event", () => {
+  let t: Track = { ...emptyTrack(), inflight: { "3": 1, "5": 1, "8": 1 } }, c = 2;
+  ({ cursor: c, track: t } = ackTrack(c, t, 5)); assert.equal(c, 2); assert.deepEqual(t.done, [5]);
+  ({ cursor: c, track: t } = ackTrack(c, t, 3)); assert.equal(c, 5); assert.deepEqual(t.done, []);
+  ({ cursor: c, track: t } = ackTrack(c, t, 8)); assert.equal(c, 8);
+});
+
+test("crash after take, before act: the event is handled exactly once after restart", async () => {
+  const rows = [ev(1)]; const sb = fakeSb(rows);
+  await claimRaw(sb, "c1", ["memory.created"], NOW);
+  rows.push(ev(2), ev(3));
+  assert.deepEqual((await claimRaw(sb, "c1", ["memory.created"], NOW)).map((e) => e.id), [2, 3]);
+  await ackEvent("c1", 2); // 3 taken, never acted on: crash
+  await restart();
+  const acted: number[] = [];
+  for (let i = 0; i < 3; i++) for (const e of await claimRaw(sb, "c1", ["memory.created"], NOW)) { acted.push(e.id); await ackEvent("c1", e.id); }
+  assert.deepEqual(acted, [3]);
+  assert.equal(getCursor("c1"), 3);
+});
+
+test("crash after act, before ack: the retry's idempotency key prevents a duplicate; a second crash gives up", async () => {
+  const rows = [ev(1)]; const sb = fakeSb(rows);
+  const created = new Set<string>(); // stands in for tasks keyed by event:<consumer>:<id>
+  const act = (id: number) => created.add(`event:c2:${id}`);
+  await claimRaw(sb, "c2", ["memory.created"], NOW);
+  rows.push(ev(2));
+  for (const e of await claimRaw(sb, "c2", ["memory.created"], NOW)) act(e.id); // acted, crash before ack
+  await restart();
+  const again = await claimRaw(sb, "c2", ["memory.created"], NOW);
+  assert.deepEqual(again.map((e) => e.id), [2]); // retried once
+  for (const e of again) act(e.id); // finds the existing key
+  assert.equal(created.size, 1);
+  await restart(); // crashed again before ack
+  assert.deepEqual(await claimRaw(sb, "c2", ["memory.created"], NOW), []);
+  assert.equal(eventGaps().find((g) => g.consumer === "c2")?.gaveUp, 1);
+  assert.equal(getCursor("c2"), 2);
+});
+
+test("a >24 h backlog bigger than one page is counted in one tick, not acted on", async () => {
+  const rows = [ev(1)]; const sb = fakeSb(rows);
+  await claimRaw(sb, "c3", ["memory.created"], NOW);
+  for (let i = 2; i < 2 + TICK_MAX * 3; i++) rows.push(ev(i, REPLAY_WINDOW * 2));
+  rows.push(ev(10_000));
+  assert.deepEqual((await claimEvents(sb, "c3", ["memory.created"], NOW)).map((e) => e.id), [10_000]);
+  assert.equal(eventGaps().find((g) => g.consumer === "c3")?.skipped, TICK_MAX * 3);
 });
 
 test("clearCursor: a consumer with no listeners restarts from the newest event", async () => {

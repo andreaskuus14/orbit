@@ -4,13 +4,13 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CliSession } from "./claude";
 import { orbitDataDir } from "./data-dir.ts";
-import { TICK_MAX, capSessions, liveSession, parseCursors, parseSessions, replaySince, takeNew, type Cursors, type StoredSession } from "./durable-pure.ts";
+import { TICK_MAX, ackTrack, capSessions, emptyTrack, liveSession, parseCursors, parseSessions, parseTracks, planTake, type Cursors, type StoredSession, type Track } from "./durable-pure.ts";
 
 // Small state that must survive a restart (review finding 6), in <ORBIT data dir>:
 // core-sessions.json (CORE chat id → Claude CLI session) and event-cursors.json (events-feed consumer → last processed id).
 // Both are rebuildable: an unreadable file starts empty (sessions fall back to stateless; consumers restart from "now").
 
-const g = globalThis as unknown as { __orbitDurable?: { sessions?: Record<string, StoredSession>; cursors?: Cursors; chain: Promise<unknown> } };
+const g = globalThis as unknown as { __orbitDurable?: { sessions?: Record<string, StoredSession>; cursors?: Cursors; tracks?: Record<string, Track>; chain: Promise<unknown> } };
 const S = (g.__orbitDurable ??= { chain: Promise.resolve() });
 const file = (name: string) => path.join(orbitDataDir(), name);
 
@@ -64,23 +64,46 @@ async function setCursor(consumer: string, id: number) {
   await save("event-cursors.json", S.cursors);
 }
 
-export type EventRow = { id: number; user_id: string; type: string; payload: unknown };
+// event-track.json: per consumer, events taken but not yet acknowledged, plus skipped/given-up counts for Doctor.
+const tracks = () => (S.tracks ??= load("event-track.json", parseTracks));
+const track = (consumer: string) => tracks()[consumer] ?? emptyTrack();
+async function setTrack(consumer: string, t: Track) {
+  S.tracks = { ...tracks(), [consumer]: t };
+  await save("event-track.json", S.tracks);
+}
+/** Skipped (older than the replay window) and given-up (crashed twice) counts per consumer, for Doctor. */
+export const eventGaps = () => Object.entries(tracks()).map(([consumer, t]) => ({ consumer, skipped: t.skipped, skippedAt: t.skippedAt, gaveUp: t.gaveUp }));
 
-/** New events of `types` for one consumer, each returned once across restarts. First run ever starts at the newest event;
- *  after downtime it replays from the saved cursor, but only the last 24 h. At most TICK_MAX per call, oldest first.
- *  The cursor is saved before the caller acts, so a crash mid-batch skips those events rather than running them twice. */
+export type EventRow = { id: number; user_id: string; type: string; payload: unknown; created_at?: string };
+
+/** The consumer has acted on event `id` (or chose to ignore it). Track is saved first, so a crash between the two writes only re-reads
+ *  an already-acknowledged id, which `done` filters out. */
+export async function ackEvent(consumer: string, id: number) {
+  const r = ackTrack(getCursor(consumer) ?? 0, track(consumer), id);
+  await setTrack(consumer, r.track);
+  if (r.cursor !== getCursor(consumer)) await setCursor(consumer, r.cursor);
+}
+
+/** Events of `types` for one consumer, oldest first, at most TICK_MAX. Each is marked "processing" (saved) before it is returned;
+ *  the caller acts, then calls ackEvent. One left unacknowledged by a crash comes back once more (its action must be idempotent on
+ *  `event:<consumer>:<id>`); a second crash gives up on it. First run ever starts at the newest event. Events older than 24 h are
+ *  not acted on but counted (eventGaps → Doctor). */
 export async function claimEvents(sb: SupabaseClient, consumer: string, types: string[], now = Date.now()): Promise<EventRow[]> {
-  const cur = getCursor(consumer);
-  if (cur === undefined) {
+  if (getCursor(consumer) === undefined) {
     const { data, error } = await sb.from("events").select("id").order("id", { ascending: false }).limit(1);
     if (error) throw error; // a failed read must not start the cursor at 0 and replay every past event
     await setCursor(consumer, data?.[0]?.id ?? 0);
     return [];
   }
-  const { data, error } = await sb.from("events").select("id, user_id, type, payload").gt("id", cur).in("type", types)
-    .gte("created_at", replaySince(now)).order("id").limit(TICK_MAX);
-  if (error) throw error;
-  const { fresh, next } = takeNew(cur, (data ?? []) as EventRow[]);
-  if (next !== cur) await setCursor(consumer, next);
-  return fresh;
+  for (let page = 0; page < 50; page++) { // a long-downtime backlog is counted and passed in pages, not one tick per 200
+    const cur = getCursor(consumer)!;
+    const { data, error } = await sb.from("events").select("id, user_id, type, payload, created_at").gt("id", cur).in("type", types)
+      .order("id").limit(TICK_MAX + track(consumer).done.length);
+    if (error) throw error;
+    const rows = (data ?? []) as EventRow[], plan = planTake(cur, rows, track(consumer), now);
+    await setTrack(consumer, plan.track);
+    for (const id of plan.drop) await ackEvent(consumer, id);
+    if (plan.act.length || !plan.drop.length) return plan.act;
+  }
+  return [];
 }
