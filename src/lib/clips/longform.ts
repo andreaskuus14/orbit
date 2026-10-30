@@ -4,7 +4,7 @@ import path from "node:path";
 import { MODEL, askClaude } from "../claude";
 import { stopAllOn } from "../stop-all";
 import { PAUSED_MSG } from "../stop-all-pure";
-import { usageHold } from "../usage-meter";
+import { usageHardHold } from "../usage-meter";
 import { validDraft } from "../higgsfield-pure";
 import { readState, saveState, studioRoot } from "./factory";
 import { models, queueDraftAs } from "./story";
@@ -31,7 +31,7 @@ export async function writeLong(topicIn: unknown, minutesIn: unknown, signal?: A
   const topic = typeof topicIn === "string" ? topicIn.replace(/\s+/g, " ").trim() : "";
   if (topic.length < 3 || topic.length > 500) return "topic must be 3-500 characters";
   const minutes = Math.min(LF_MAX, Math.max(LF_MIN, Math.round(Number(minutesIn) || 10)));
-  const held = stopAllOn() ? PAUSED_MSG : usageHold();
+  const held = stopAllOn() ? PAUSED_MSG : usageHardHold();
   if (held) return held;
   if (g.__orbitLongBusy) return "Already writing a long-form plan; wait for it";
   g.__orbitLongBusy = true;

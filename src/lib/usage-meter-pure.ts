@@ -46,9 +46,13 @@ export function usageLevel(m: Meter, now: number) {
 /** "15:00", or "Mon 15:00" when it's more than 20 h away. */
 const when = (t: number, now: number) => new Date(t).toLocaleString([], { ...(t - now > 20 * 3_600_000 ? { weekday: "short" as const } : {}), hour: "2-digit", minute: "2-digit" });
 
-/** Why background lanes should wait right now, or "" when they may run. CORE chat never asks. */
+/** Only the real provider limit: what owner clicks (foreground) check. The soft budget never blocks the owner. */
+export const hardHoldReason = (m: Meter, now: number): string => (m.limit && m.limit.until > now ? `Claude usage limit reached until ${when(m.limit.until, now)}` : "");
+
+/** Why background lanes should wait right now (provider limit or the owner's soft budget), or "" when they may run. */
 export function holdReason(m: Meter, now: number): string {
-  if (m.limit && m.limit.until > now) return `Claude usage limit reached until ${when(m.limit.until, now)}`;
+  const hard = hardHoldReason(m, now);
+  if (hard) return hard;
   const l = usageLevel(m, now);
   return l.heavy ? `Heavy use: ${l.pct}% of your 5-hour budget (${m.settings.calls5h} calls${m.settings.tokens5h ? ` / ${m.settings.tokens5h.toLocaleString()} tokens` : ""})` : "";
 }

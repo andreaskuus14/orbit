@@ -9,7 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, emit, recordUsage, MODEL } from "./claude";
 import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
-import { usageHold } from "./usage-meter";
+import { usageHardHold } from "./usage-meter";
 import { allows } from "./autonomy";
 import { pushNotify } from "./remote-push";
 import { emailIn } from "./business-pure";
@@ -79,7 +79,7 @@ export async function createContract(sb: SupabaseClient, userId: string, b: Reco
   let fields = mergeFields(cleanFields(t, known.fields), cleanFields(t, b.fields, false));
   let overrides: Record<string, Override> = {}, by: "owner" | "orbit" = "owner";
   if (b.ai === true) {
-    const held = stopAllOn() ? "Stop-all is on" : usageHold();
+    const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
     if (held) throw new ContractError(`Not drafting right now: ${held}`, 503);
     const r = await askClaude(fillPrompt(t, fields, known.context), FILL_SYSTEM, { lane: "foreground", purpose: "business.contract", timeoutMs: 120_000, signal });
     void recordUsage(sb, userId, "business.contract", r, MODEL);

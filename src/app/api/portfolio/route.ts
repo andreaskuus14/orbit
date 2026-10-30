@@ -3,7 +3,7 @@ import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
 import { orbitDataDir } from "@/lib/data-dir";
 import { BusyError, FAST_MODEL, askClaude, recordUsage } from "@/lib/claude";
-import { usageHold } from "@/lib/usage-meter";
+import { usageHardHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { DRAFT_SYSTEM, cleanDraft, draftPrompt, emptyPortfolio, parseDraftInput, parsePortfolio } from "@/lib/portfolio-pure";
 
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   const b = await req.json().catch(() => null) as { project?: unknown } | null;
   const d = parseDraftInput(b?.project); // titles, captions and his notes only: pictures never go to the model
   if (!d) return fail("Give the project a title first");
-  const held = stopAllOn() ? "Stop-all is on" : usageHold();
+  const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
   if (held) return fail(`Not right now: ${held}`, 503);
   try {
     const r = await askClaude(draftPrompt(d), DRAFT_SYSTEM,

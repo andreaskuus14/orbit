@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
-import { usageHold } from "@/lib/usage-meter";
+import { usageHardHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { CHECKIN_SYSTEM, checkinPrompt, validateLog, validatePerson, type PersonInput } from "@/lib/people-pure";
 import { addPerson, deletePerson, editPerson, getPerson, listPeople, logContact, patchPerson, personTimeline } from "@/lib/people";
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
       }
       case "delete": return (await deletePerson(id)) ? Response.json({ ok: true }) : fail("Not found", 404);
       case "checkin": {
-        const held = stopAllOn() ? "Stop-all is on" : usageHold();
+        const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
         if (held) return fail(`Not drafting right now: ${held}`, 503);
         const p = await getPerson(id);
         if (!p) return fail("Not found", 404);

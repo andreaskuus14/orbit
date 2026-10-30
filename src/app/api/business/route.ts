@@ -2,7 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude, emit } from "@/lib/claude";
-import { usageHold } from "@/lib/usage-meter";
+import { pastBudget, usageHardHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { sendDraft } from "@/lib/business-send";
 import { pushNotify } from "@/lib/remote-push";
@@ -44,12 +44,12 @@ export async function POST(req: Request) {
   if (b.action === "find") {
     const query = typeof b.query === "string" ? b.query.trim() : "";
     if (!query) return fail("Say what to look for, e.g. cake shops in Tallinn");
-    const held = stopAllOn() ? "Stop-all is on" : usageHold();
+    const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
     if (held) return fail(`Not searching right now: ${held}`, 503);
     try {
       const r = await askClaude(findPrompt(query), FIND_SYSTEM, { lane: "foreground", purpose: "business.find", timeoutMs: 180_000, web: true, signal: req.signal });
       const finds = parseFinds(r.text);
-      return finds.length ? Response.json({ finds }) : fail("CORE found nothing usable; try other words", 502);
+      return finds.length ? Response.json({ finds, pastBudget: pastBudget() }) : fail("CORE found nothing usable; try other words", 502);
     } catch (e) {
       if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
       return fail(`Couldn't search: ${e instanceof Error ? e.message : "unknown error"}`, 502);
@@ -93,7 +93,7 @@ export async function POST(req: Request) {
       return error ? fail(error.message, 500) : Response.json({ ok: true });
     }
     case "research": {
-      const held = stopAllOn() ? "Stop-all is on" : usageHold();
+      const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
       if (held) return fail(`Not researching right now: ${held}`, 503);
       const { data: p, error } = await sb.from("prospects").select("name,kind,contact,notes").eq("id", b.id as string).maybeSingle();
       if (error) return fail(error.message, 500);
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
     case "draft": {
       const followup = b.action === "followup";
       const lang = (LANGS as readonly string[]).includes(b.lang as string) ? (b.lang as Lang) : "English";
-      const held = stopAllOn() ? "Stop-all is on" : usageHold();
+      const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
       if (held) return fail(`Not drafting right now: ${held}`, 503);
       const { data: p, error } = await sb.from("prospects").select("name,kind,notes,draft,stage,updated_at").eq("id", b.id as string).maybeSingle();
       if (error) return fail(error.message, 500);

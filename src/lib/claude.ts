@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.ts";
 import { streamJsonInput } from "./attach-pure.ts";
-import { recordCall, usageHold } from "./usage-meter.ts";
+import { recordCall, usageHoldFor } from "./usage-meter.ts";
 import { isLimitAnswer } from "./usage-meter-pure.ts";
 import { OLLAMA_URL, claudeDown, localAllowed, ollamaAnswer, ollamaRequest } from "./local-model-pure.ts";
 import { ledgerIssue } from "./ledger-pure.ts";
@@ -196,25 +196,26 @@ export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; image
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
 export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine, session }: AskOpts = {}): Promise<ClaudeResult> {
   const p = purpose ?? laneDefault(lane);
-  return withLocal(prompt, system, p, images.length, !!mcp, signal, timeoutMs, () => cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, p, web, mcp, onLine, session), signal));
+  return withLocal(lane, prompt, system, p, images.length, !!mcp, signal, timeoutMs, () => cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, p, web, mcp, onLine, session), signal));
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI.
  *  A pending prompt starts the CLI now and writes stdin when it resolves: its ~1 s boot overlaps the caller's prep. */
 export function askClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string, session?: CliSession): Promise<ClaudeResult> {
   const p = purpose ?? laneDefault(lane);
-  return withLocal(prompt, system, p, images.length, false, signal, timeoutMs, () => cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, p, false, undefined, undefined, session), signal));
+  return withLocal(lane, prompt, system, p, images.length, false, signal, timeoutMs, () => cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, p, false, undefined, undefined, session), signal));
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
 /** Offline brain: Ollama model name, "" = off. */
 export const LOCAL_MODEL = (process.env.ORBIT_LOCAL_MODEL ?? "").trim();
 
-/** Lanes that allow it (localAllowed) go to the local model while the usage hold is on, or when Claude fails because it's
+/** Lanes that allow it (localAllowed) go to the local model while the usage hold for their lane is on (foreground: only the real limit), or when Claude fails because it's
  *  unreachable or rate-limited. If the local model fails too, the original Claude error is what the caller sees. */
-async function withLocal(prompt: string | Promise<string>, system: string, purpose: string, images: number, mcp: boolean, signal: AbortSignal | undefined, timeoutMs: number | undefined, claude: () => Promise<ClaudeResult>): Promise<ClaudeResult> {
+async function withLocal(lane: Lane, prompt: string | Promise<string>, system: string, purpose: string, images: number, mcp: boolean, signal: AbortSignal | undefined, timeoutMs: number | undefined, claude: () => Promise<ClaudeResult>): Promise<ClaudeResult> {
   if (!localAllowed({ model: LOCAL_MODEL, purpose, images, mcp })) return claude();
-  if (usageHold()) return askLocal(prompt, system, signal, timeoutMs).catch(claude);
+  // background lanes go local under the soft budget too; foreground (owner) only when the real limit is hit
+  if (usageHoldFor(lane)) { if (lane === "foreground") console.warn(`[orbit] Claude limit reached; ${purpose} answered by the local brain (${LOCAL_MODEL})`); return askLocal(prompt, system, signal, timeoutMs).catch(claude); }
   try { return await claude(); } catch (e) {
     if (signal?.aborted || !claudeDown(e instanceof Error ? e.message : String(e))) throw e;
     console.warn(`[orbit] Claude unreachable for ${purpose}; answering with the local brain (${LOCAL_MODEL})`);

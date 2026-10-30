@@ -6,7 +6,7 @@ import { askClaude, emit, recordUsage, MODEL, type Lane } from "./claude";
 import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { usageHold } from "./usage-meter";
+import { usageHoldFor } from "./usage-meter";
 import { localDay } from "./morning-pure";
 import { pushLabel, quietAt } from "./remote-push-pure";
 import { newTrace, traceLine } from "./niche-pure";
@@ -51,7 +51,7 @@ function update<T>(fn: (s: Store) => T): Promise<T> {
   return p;
 }
 
-const held = () => (stopAllOn() ? PAUSED_MSG : usageHold());
+const held = (lane: Lane = "background") => (stopAllOn() ? PAUSED_MSG : usageHoldFor(lane));
 /** Stop-all: cancel the running hunt. */
 export function abortDealHunt() { D.ac?.abort(); }
 
@@ -94,7 +94,7 @@ export const dismissOffer = (wishId: string, offerId: string) =>
 
 /** One hunt over the due wishes (or all active ones with `all`), up to the daily cap. Returns counts; never runs twice at once. */
 export async function huntDeals(sb: SupabaseClient, userId: string, lane: Lane, opts: { all?: boolean; signal?: AbortSignal; max?: number } = {}): Promise<{ wishes: number; offers: number; great: number }> {
-  const h = held();
+  const h = held(lane);
   if (h) throw new Error(h);
   if (D.busy) throw new Error("The deal hunter is already working");
   D.busy = true;
@@ -108,7 +108,7 @@ export async function huntDeals(sb: SupabaseClient, userId: string, lane: Lane, 
     if (!left) throw new Error("Today's deal-hunt budget is used up; it continues tomorrow");
     const todo = dueWishes(s.wishes, opts.all ? {} : s.hunted, now, Math.min(left, opts.max ?? 3));
     for (const w of todo) {
-      if (signal.aborted || held()) break;
+      if (signal.aborted || held(lane)) break;
       const trace = newTrace(), at = new Date().toISOString();
       await update((x) => { if (x.day !== day) { x.day = day; x.calls = 0; } x.calls = (x.calls ?? 0) + 1; x.hunted[w.id] = at; x.lastHunt = at; });
       try {
