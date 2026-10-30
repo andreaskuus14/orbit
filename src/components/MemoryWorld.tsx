@@ -479,8 +479,8 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           </div>}
         </div>
 
-        {List && !peep && <MemoryHygiene onChanged={onChanged} />}
-        {List && !peep && <MemoryEntities />}
+        {List && !peep && !list && !flat && <MemoryHygiene onChanged={onChanged} />}{/* in List view these live under Review */}
+        {List && !peep && !list && !flat && <MemoryEntities />}
         {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && (river || hall) ? <div ref={setSlot} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}
             onChange={(e) => setQuery(e.target.value)} aria-label="Search memories in the constellation" />
