@@ -11,6 +11,9 @@ import InvoicesPanel from "./InvoicesPanel";
 import MoneyPanel from "./MoneyPanel";
 import ContractsPanel from "./ContractsPanel";
 import NegotiatorBox from "./NegotiatorBox";
+import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
+import { useT } from "./i18n";
+import { todayQueue } from "@/lib/workspace-pure";
 
 // Three.js loads after the drawer opens, so the list shows instantly.
 const BusinessMap = dynamic(() => import("./BusinessMap"), { ssr: false, loading: () => <div className="h-[260px] rounded-md border border-white/10" /> });
@@ -36,6 +39,9 @@ export default function BusinessPanel() {
   const [filter, setFilter] = useState<Stage | "all" | "followup">("all");
   const [showMap, setShowMap] = useState<boolean | null>(null); // null = default: map when there are businesses
   const [lit, setLit] = useState("");
+  const { t } = useT();
+  const views = (["today", "pipeline", "client", "money", "setup"] as const).map((id) => ({ id, label: t(`bizws.${id}`), secondary: id === "setup" }));
+  const [view, setView] = useWorkspaceView("business", views);
 
   const load = useCallback(() => call("GET").then((j: State) => { setSt(j); setErr(""); }, (e: Error) => setErr(e.message)), []);
   useEffect(() => { void load(); }, [load]);
@@ -49,67 +55,83 @@ export default function BusinessPanel() {
   const nodes = mapNodes(st?.prospects ?? [], due);
   const mapOn = showMap ?? nodes.length > 0;
   const pick = (id: string) => {
-    setFilter("all"); setLit(id);
+    setView("client"); setFilter("all"); setLit(id);
     setTimeout(() => document.getElementById(`biz-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
     setTimeout(() => setLit((l) => (l === id ? "" : l)), 2500);
   };
+  const addNew = () => { setView("pipeline"); setTimeout(() => (document.querySelector("#biz-add input") as HTMLInputElement | null)?.focus(), 50); };
   const shown = st?.prospects.filter((p) => filter === "all" || (filter === "followup" ? due.has(p.id) : p.stage === filter)) ?? [];
+  const queue = todayQueue(st?.prospects ?? [], Date.now());
   return (
-    <div className="space-y-3 text-sm">
-      <p className="muted">First product: <b>Lead Follow-up Autopilot</b>. Every website enquiry gets a drafted reply in under a minute; the business owner taps Send or Reject in Telegram.
-        Code and setup: <code>services/lead-followup</code>. Win 3 free pilots before charging.</p>
-
-      {st && (
-        <div className="grid grid-cols-3 gap-2" aria-label="Pipeline summary">
-          <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">In pipeline</div><div className="num text-xl font-semibold">{st.funnel.total - st.funnel.counts.lost}</div></div>
-          <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">Pilots</div><div className="num text-xl font-semibold">{st.funnel.counts.pilot}</div></div>
-          <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">Per month</div><div className="num text-xl font-semibold">{euro(st.funnel.monthly)}</div></div>
-        </div>
-      )}
-
-      {st && (
-        <div className="space-y-1.5">
-          <div className="flex gap-1" role="group" aria-label="Pipeline view">
-            <button className="chip" aria-pressed={mapOn} onClick={() => setShowMap(true)}>Map</button>
-            <button className="chip" aria-pressed={!mapOn} onClick={() => setShowMap(false)}>List</button>
-          </div>
-          {mapOn && <><div aria-hidden="true"><BusinessMap nodes={nodes} onPick={pick} /></div><p className="sr-only">{mapSummary(nodes)}</p></>}
-        </div>
-      )}
-
-      <FindNearby busy={busy} setBusy={setBusy} setErr={setErr} names={new Set(st?.prospects.map((p) => p.name.toLowerCase()))}
-        onAdd={(f) => act(`add:${f.name}`, { action: "add", name: f.name, kind: f.kind, contact: f.contact, notes: f.why && `Found on the web (unchecked): ${f.why}` })} />
-
-      <AddForm busy={busy === "add"} onAdd={(b) => act("add", { action: "add", ...b })} />
-
+    <WorkspaceFrame planet="business" title={t("planet.business")} views={views} view={view} onView={setView}
+      context={st && t("bizws.context", { n: st.funnel.total - st.funnel.counts.lost, m: euro(st.funnel.monthly) })}
+      action={<button className="chip" onClick={addNew}>{t("bizws.add")}</button>}>
       {err && <p className="error" role="alert">{err}</p>}
+      {!st && !err && <p className="muted">Loading…</p>}
 
-      {st && (
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by stage">
-          <button className="chip" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All {st.funnel.total}</button>
-          <button className="chip" aria-pressed={filter === "followup"} onClick={() => setFilter("followup")}>Follow up due {due.size}</button>
-          {STAGES.map((s) => <button key={s} className="chip" aria-pressed={filter === s} onClick={() => setFilter(s)}>{STAGE_LABEL[s]} {st.funnel.counts[s]}</button>)}
-        </div>
+      {view === "today" && st && (
+        <section className="space-y-2" aria-label={t("bizws.today")}>
+          {queue.length ? (
+            <ol className="space-y-1.5">
+              {queue.map((q) => (
+                <li key={`${q.kind}:${q.id}`} className="card !p-2.5 flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate"><b>{q.name}</b> <span className="muted">· {t(`bizws.q.${q.kind}`)}</span></span>
+                  <button className="chip shrink-0" onClick={() => pick(q.id)}>{t("common.open")}</button>
+                </li>
+              ))}
+            </ol>
+          ) : <p className="muted">{t("bizws.empty")}</p>}
+        </section>
       )}
 
-      {st && <Scorecard ps={st.prospects} />}
+      {view === "pipeline" && st && (
+        <>
+          <div className="grid grid-cols-3 gap-2" aria-label="Pipeline summary">
+            <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">In pipeline</div><div className="num text-xl font-semibold">{st.funnel.total - st.funnel.counts.lost}</div></div>
+            <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">Pilots</div><div className="num text-xl font-semibold">{st.funnel.counts.pilot}</div></div>
+            <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">Per month</div><div className="num text-xl font-semibold">{euro(st.funnel.monthly)}</div></div>
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex gap-1" role="group" aria-label="Pipeline view">
+              <button className="chip" aria-pressed={mapOn} onClick={() => setShowMap(true)}>Map</button>
+              <button className="chip" aria-pressed={!mapOn} onClick={() => setShowMap(false)}>List</button>
+            </div>
+            {mapOn && <><div aria-hidden="true"><BusinessMap nodes={nodes} onPick={pick} /></div><p className="sr-only">{mapSummary(nodes)}</p></>}
+            {!mapOn && <button className="chip" onClick={() => setView("client")}>{t("bizws.allClients")}</button>}
+          </div>
+          <FindNearby busy={busy} setBusy={setBusy} setErr={setErr} names={new Set(st.prospects.map((p) => p.name.toLowerCase()))}
+            onAdd={(f) => act(`add:${f.name}`, { action: "add", name: f.name, kind: f.kind, contact: f.contact, notes: f.why && `Found on the web (unchecked): ${f.why}` })} />
+          <div id="biz-add"><AddForm busy={busy === "add"} onAdd={(b) => act("add", { action: "add", ...b })} /></div>
+          <Scorecard ps={st.prospects} />
+          <VisibilityPanel />
+        </>
+      )}
 
-      {st && <ContractsPanel prospects={st.prospects} />}
+      {view === "client" && st && (
+        <>
+          <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by stage">
+            <button className="chip" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All {st.funnel.total}</button>
+            <button className="chip" aria-pressed={filter === "followup"} onClick={() => setFilter("followup")}>Follow up due {due.size}</button>
+            {STAGES.map((s) => <button key={s} className="chip" aria-pressed={filter === s} onClick={() => setFilter(s)}>{STAGE_LABEL[s]} {st.funnel.counts[s]}</button>)}
+          </div>
+          {!st.prospects.length && <p className="muted">No businesses yet. Add one you could walk into or call this week: a bakery that takes cake orders, a cleaning or renovation firm, a salon.</p>}
+          <ul className="space-y-2">
+            {shown.map((p) => <Row key={p.id} p={p} lit={lit === p.id} due={due.has(p.id)} busy={busy} act={act} canSend={!!st.canSend} />)}
+          </ul>
+          <ContractsPanel prospects={st.prospects} />
+        </>
+      )}
 
-      <NicheCards />
+      {view === "money" && <>{st && <InvoicesPanel prospects={st.prospects} />}<MoneyPanel /></>}
 
-      {st && <InvoicesPanel prospects={st.prospects} />}
-      <MoneyPanel />
-
-      <VisibilityPanel />
-
-      {!st && !err && <p className="muted">Loading…</p>}
-      {st && !st.prospects.length && <p className="muted">No businesses yet. Add one you could walk into or call this week: a bakery that takes cake orders, a cleaning or renovation firm, a salon.</p>}
-
-      <ul className="space-y-2">
-        {shown.map((p) => <Row key={p.id} p={p} lit={lit === p.id} due={due.has(p.id)} busy={busy} act={act} canSend={!!st?.canSend} />)}
-      </ul>
-    </div>
+      {view === "setup" && (
+        <>
+          <p className="muted">First product: <b>Lead Follow-up Autopilot</b>. Every website enquiry gets a drafted reply in under a minute; the business owner taps Send or Reject in Telegram.
+            Code and setup: <code>services/lead-followup</code>. Win 3 free pilots before charging.</p>
+          <NicheCards />
+        </>
+      )}
+    </WorkspaceFrame>
   );
 }
 
