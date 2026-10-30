@@ -1,9 +1,10 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import type { Draft, Proposal, Skill } from "@/lib/skills-pure";
+import type { Draft, Proposal, Skill, Version } from "@/lib/skills-pure";
+import { useT } from "./i18n";
 
 // Agents Station → Skills: what ORBIT noticed he asks CORE for again and again (Keep / Dismiss), and his kept skills
-// (edit = new version, roll back, delete). Run one in CORE: "run skill <name>: <input>".
+// (edit = candidate version; card + eval + promote, roll back, delete — AGT04). Run one in CORE: "run skill <name>: <input>".
 type View = { skills: Skill[]; proposals: Proposal[] };
 const currentVersion = (s: Skill) => s.versions.find((v) => v.v === s.current) ?? s.versions[s.versions.length - 1]; // skills-pure's, without its server imports
 
@@ -66,19 +67,55 @@ export default function SkillsPanel() {
           <li key={s.id} className="card">
             <b>{c.name}</b> <span className="muted text-xs">· v{c.v} · {c.tools.join(", ")}</span>
             <p className="muted text-xs line-clamp-2">{c.instruction}</p>
-            {open === `edit:${s.id}` ? <DraftForm d={c} busy={!!busy} label="Save new version" onCancel={() => setOpen("")} onSave={(d) => void post({ action: "edit", id: s.id, ...d }, "Saved as a new version.")} /> : (
+            {open === `edit:${s.id}` ? <DraftForm d={c} busy={!!busy} label="Save new version" onCancel={() => setOpen("")} onSave={(d) => void post({ action: "edit", id: s.id, ...d }, "Saved as a candidate version. Fill in its card, eval it, then promote.")} /> : (
               <div className="mt-1 flex flex-wrap gap-1">
                 <button type="button" className="chip" disabled={!!busy} onClick={() => setOpen(`edit:${s.id}`)}>Edit</button>
-                <button type="button" className="chip" disabled={!!busy || s.versions.length < 2} onClick={() => setOpen(open === `hist:${s.id}` ? "" : `hist:${s.id}`)} aria-expanded={open === `hist:${s.id}`}>History ({s.versions.length})</button>
+                <button type="button" className="chip" disabled={!!busy} onClick={() => setOpen(open === `hist:${s.id}` ? "" : `hist:${s.id}`)} aria-expanded={open === `hist:${s.id}`}>History ({s.versions.length})</button>
                 <button type="button" className={`chip ${sure === s.id ? "error" : ""}`} disabled={!!busy} onClick={() => del(s)} aria-label={`Delete skill ${c.name}`}>{sure === s.id ? "Really?" : "Delete"}</button>
               </div>)}
             {open === `hist:${s.id}` && <ul className="mt-1 space-y-1">{[...s.versions].reverse().map((x) => (
-              <li key={x.v} className="flex items-start justify-between gap-2 text-xs">
-                <span className="min-w-0"><b>v{x.v}</b> <span className="muted">{x.note} · {x.at.slice(0, 10)}</span> {x.name}: {x.instruction}</span>
-                {x.v !== s.current && <button type="button" className="chip shrink-0" disabled={!!busy} onClick={() => void post({ action: "rollback", id: s.id, v: x.v }, `Rolled back to v${x.v}.`)}>Roll back</button>}
+              <li key={x.v} className="space-y-0.5 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="min-w-0"><b>v{x.v}</b> <span className="muted">{x.note} · {x.at.slice(0, 10)}</span> {x.name}: {x.instruction}</span>
+                  {x.v < s.current && <button type="button" className="chip shrink-0" disabled={!!busy} onClick={() => void post({ action: "rollback", id: s.id, v: x.v }, `Rolled back to v${x.v}.`)}>Roll back</button>}
+                </div>
+                <VersionMeta s={s} x={x} busy={!!busy} post={post} />
               </li>))}</ul>}
           </li>);
       })}</ul>
+    </div>
+  );
+}
+
+/** AGT04: a version's card (owner, inputs, examples, limits), his eval of it, runs on it, and promote for a candidate. */
+function VersionMeta({ s, x, busy, post }: { s: Skill; x: Version; busy: boolean; post: (b: Record<string, unknown>, ok?: string) => Promise<void> }) {
+  const { t } = useT();
+  const [edit, setEdit] = useState(false);
+  const [note, setNote] = useState("");
+  const [f, setF] = useState({ owner: x.card?.owner ?? "", inputs: x.card?.inputs ?? "", examples: (x.card?.examples ?? [x.example].filter(Boolean)).join("\n"), limits: x.card?.limits ?? "" });
+  const runs = (s.runs ?? []).filter((r) => r.v === x.v).length, cur = x.v === s.current;
+  return (
+    <div className="muted space-y-0.5 pl-3">
+      <p>{cur ? t("sk.current") : x.v > s.current ? t("sk.candidate") : t("sk.older")} · {t("sk.runs", { n: runs })}
+        {x.eval ? ` · ${t(x.eval.pass ? "sk.evalPass" : "sk.evalFail", { d: x.eval.at.slice(0, 10) })}${x.eval.note ? `: ${x.eval.note}` : ""}` : ` · ${t("sk.noEval")}`}</p>
+      {x.card ? <p>{t("sk.cardLine", { o: x.card.owner, i: x.card.inputs, l: x.card.limits, n: x.card.examples.length })}</p> : <p>{t("sk.noCard")}</p>}
+      {edit ? (
+        <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); void post({ action: "card", id: s.id, v: x.v, ...f }, t("sk.saved")).then(() => setEdit(false)); }}>
+          <input className="field w-full" maxLength={60} placeholder={t("sk.owner")} aria-label={t("sk.owner")} value={f.owner} onChange={(e) => setF({ ...f, owner: e.target.value })} />
+          <input className="field w-full" maxLength={300} placeholder={t("sk.inputs")} aria-label={t("sk.inputs")} value={f.inputs} onChange={(e) => setF({ ...f, inputs: e.target.value })} />
+          <textarea className="field w-full" rows={2} placeholder={t("sk.examples")} aria-label={t("sk.examples")} value={f.examples} onChange={(e) => setF({ ...f, examples: e.target.value })} />
+          <input className="field w-full" maxLength={300} placeholder={t("sk.limits")} aria-label={t("sk.limits")} value={f.limits} onChange={(e) => setF({ ...f, limits: e.target.value })} />
+          <button className="chip" disabled={busy}>{t("sk.saveCard")}</button>
+        </form>
+      ) : (
+        <div className="flex flex-wrap items-center gap-1">
+          <button type="button" className="chip" disabled={busy} onClick={() => setEdit(true)}>{t("sk.editCard")}</button>
+          <input className="field min-w-0 flex-1" maxLength={300} placeholder={t("sk.evalNote", { n: x.name, v: x.v })} aria-label={t("sk.evalNoteAria")} value={note} onChange={(e) => setNote(e.target.value)} />
+          <button type="button" className="chip" disabled={busy} onClick={() => void post({ action: "eval", id: s.id, v: x.v, pass: true, note })}>{t("sk.pass")}</button>
+          <button type="button" className="chip" disabled={busy} onClick={() => void post({ action: "eval", id: s.id, v: x.v, pass: false, note })}>{t("sk.fail")}</button>
+          {x.v > s.current && <button type="button" className="chip" disabled={busy || !x.card || !x.eval?.pass} onClick={() => void post({ action: "promote", id: s.id, v: x.v }, t("sk.promoted", { v: x.v }))}>{t("sk.promote")}</button>}
+        </div>
+      )}
     </div>
   );
 }

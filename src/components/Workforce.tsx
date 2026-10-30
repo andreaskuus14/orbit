@@ -1,12 +1,15 @@
 "use client";
-// AGENTS workforce views (AGT01 capability cards, AGT05 night shift plan + planned-vs-produced). Rules: lib/roster-pure.ts.
+// AGENTS workforce views (AGT01 capability cards, AGT05 night shift plan + planned-vs-produced, AGT07 scorecards, AGT02 routing). Rules: lib/roster-pure.ts.
 // AGENTS configures the workforce; running, approving and editing tasks happens in OPERATIONS (deep links, deeplink-pure.ts).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./AgentMission";
 import { useT } from "./i18n";
 import { capRow, type DepState } from "@/lib/capability-pure";
 import { linkToHash } from "@/lib/deeplink-pure";
-import { nightBudget, nightCompare, workerCard, type Outcome, type Planned } from "@/lib/roster-pure";
+import { MIN_SAMPLE, nightBudget, nightCompare, routes, scorecards, workerCard, type Outcome, type Planned } from "@/lib/roster-pure";
+import { pct, units, type Rate } from "@/lib/analytics-outcomes-pure";
+import { useOutcomeData } from "./AnalyticsOutcomes";
+import type { Key } from "@/lib/i18n-pure";
 import type { NightRun, NightSettings } from "@/lib/night-pure";
 import type { NightPick } from "@/lib/night-plan-pure";
 
@@ -79,6 +82,38 @@ export function NightPlan() {
           ))}</ul>
         </div>
       )}
+    </section>
+  );
+}
+
+/** AGT07 + AGT02: per worker and task class, measured on finished tasks (last 30 days), each rate with its sample size;
+ *  the suggested route per class keeps the usual worker unless another clearly does better on enough tasks. */
+export function Scorecards() {
+  const { t } = useT();
+  const { d, err } = useOutcomeData(30);
+  if (err) return <p className="error text-xs" role="alert">{err}</p>;
+  if (!d) return <p className="muted text-xs">{t("common.loading")}</p>;
+  const cards = scorecards(units(d.rows, d.chains)), rs = routes(cards);
+  const r = (x: Rate) => (pct(x) === null ? "–" : `${pct(x)}% (${x.n}/${x.of})`);
+  return (
+    <section className="card space-y-2 text-xs" aria-label={t("agt.sc.title")}>
+      <div className="hud-title text-[0.7rem]">{t("agt.sc.title")}</div>
+      <p className="muted">{t("agt.sc.note", { min: MIN_SAMPLE })}</p>
+      {!cards.length ? <p className="muted">{t("ana.noTasks")}</p> : (
+        <div className="overflow-x-auto"><table className="w-full">
+          <thead><tr><th className="text-left">{t("agt.sc.worker")}</th><th className="text-left">{t("ana.type")}</th><th className="text-right">n</th>
+            <th className="text-right">{t("ana.r.success")}</th><th className="text-right">{t("ana.autonomous")}</th><th className="text-right">{t("ana.rework")}</th>
+            <th className="text-right">{t("ana.intervention")}</th><th className="text-right">{t("agt.sc.minutes")}</th><th className="text-right">{t("ana.costCol")}</th></tr></thead>
+          <tbody>{cards.map((c) => (
+            <tr key={`${c.agent}|${c.cls}`} className={c.enough ? "" : "muted"}><td>{c.agent}</td><td>{t(`ana.wf.${c.cls}` as Key)}</td><td className="text-right num">{c.n}</td>
+              <td className="text-right num">{r(c.success)}</td><td className="text-right num">{r(c.verified)}</td><td className="text-right num">{r(c.rework)}</td>
+              <td className="text-right num">{r(c.intervention)}</td><td className="text-right num">{c.minutes ?? "–"}{c.timed < c.n && <span className="muted"> ({c.timed}/{c.n})</span>}</td>
+              <td className="text-right muted">{t("agt.sc.costNone", { n: c.n })}</td></tr>
+          ))}</tbody>
+        </table></div>
+      )}
+      {!!rs.length && <ul className="space-y-0.5">{rs.map((x) => <li key={x.cls}><b>{t(`ana.wf.${x.cls}` as Key)}</b> → {x.agent ?? "–"} <span className="muted">· {t(x.why, x.vars)}</span></li>)}</ul>}
+      <p className="muted">{t("agt.sc.routeNote")}</p>
     </section>
   );
 }
