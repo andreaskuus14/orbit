@@ -2,7 +2,7 @@
 // ARCH planet: a study workspace for small buildings. Blocks in metres on a plot; edit by typing to CORE or directly with the numbers.
 // Quantities and euros are computed in arch-pure.ts from the geometry, never by the AI. Learning tool, not certification.
 import { WarmCompile } from "./WarmCompile";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import * as THREE from "three";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
@@ -35,6 +35,7 @@ import { ArchPortfolio } from "./ArchPortfolio";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
 import { SiteLayer, SitePanel } from "./ArchSite";
 import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
+import { canRetry, pickNewer, saveStep, staleCheck, type Saved } from "@/lib/arch-save-pure";
 
 const KEY = "orbit.arch.v1";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
@@ -76,7 +77,7 @@ void main() {
 }`,
   transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
 });
-const load = (): { scene: Scene; prices: PriceItem[]; site?: unknown } | null => { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
+const load = (): { rev?: number; scene: Scene; prices: PriceItem[]; site?: unknown } | null => { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
 const eur = (n: number) => n.toLocaleString("et-EE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const download = (name: string, text: string, type: string) => {
   const a = document.createElement("a");
@@ -282,19 +283,60 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const [topic, setTopic] = useState(""), [lessonBusy, setLessonBusy] = useState(false), [lessonMsg, setLessonMsg] = useState("");
   const ownScene = useRef<Scene | null>(null);
   const [ready, setReady] = useState(false); // state, not a ref: the save effect must not run with the starter scene before the load lands
+  const revRef = useRef(0), lastSaved = useRef<Scene | null>(null); // ARC01: every scene/prices/site change bumps the revision
+  const [save, dispatchSave] = useReducer(saveStep, { status: "idle", rev: 0 });
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
-    const s = load();
+    let alive = true;
+    (async () => {
+    const local = load();
+    const srv = await fetch("/api/arch/scene").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (!alive) return;
+    const s = pickNewer(local && { ...local, rev: local.rev ?? 0 }, srv?.saved ?? null) as (Saved & { prices?: PriceItem[] }) | null;
+    if (s && s !== local && local) try { localStorage.setItem(KEY + ".bak", JSON.stringify(local)); } catch { /* backup is best effort */ } // keep the older local copy recoverable
+    revRef.current = Math.max(local?.rev ?? 0, srv?.saved?.rev ?? 0);
     if (s?.scene?.parts) {
       setScene(s.scene);
-      if (Array.isArray(s.prices)) setPrices(STARTER_PRICES.map((d) => { const x = s.prices.find((p) => p.key === d.key); return x && Number.isFinite(x.eur) ? { ...d, ...x } : d; }));
+      const ps = s.prices; if (Array.isArray(ps)) setPrices(STARTER_PRICES.map((d) => { const x = ps.find((p) => p.key === d.key); return x && Number.isFinite(x.eur) ? { ...d, ...x } : d; }));
     }
     if (s?.site) setSite({ ...readSite(s.site), on: false });
     setReady(true);
+    })();
+    return () => { alive = false; };
   }, []);
-  useEffect(() => { if (ready && !lesson) try { localStorage.setItem(KEY, JSON.stringify({ scene, prices, site: { ...site, draft: null } })); } catch { /* private mode: the scene just isn't kept */ } }, [scene, prices, site, ready, lesson]);
+  const backup = (data: unknown) => { try { localStorage.setItem(KEY + ".bak", JSON.stringify(data)); } catch { /* best effort */ } };
+  async function resolveConflict(keepMine: boolean) {
+    const srv = await fetch("/api/arch/scene").then((r) => (r.ok ? r.json() : null)).catch(() => null), other = srv?.saved as (Saved & { prices?: PriceItem[] }) | null;
+    if (!other?.scene?.parts) return dispatchSave({ type: "fail", rev: revRef.current });
+    if (keepMine) { backup(other); revRef.current = Math.max(revRef.current, other.rev); setRetry((n) => n + 1); return; } // effect bumps past the server rev
+    backup(load());
+    revRef.current = other.rev; lastSaved.current = null; // no bump: the reload re-saves exactly other.rev
+    setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = other.scene; setScene(other.scene); setSel(null);
+    if (Array.isArray(other.prices)) setPrices(other.prices);
+    if (other.site) setSite({ ...readSite(other.site), on: false });
+  }
+  useEffect(() => {
+    if (!ready || lesson) return;
+    if (lastSaved.current) revRef.current++; // the first run after load is the loaded state itself
+    lastSaved.current = scene;
+    const rev = revRef.current, data = { rev, scene, prices, site: { ...site, draft: null } };
+    let localOk = true;
+    try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { localOk = false; } // local backup first, always
+    dispatchSave({ type: "start", rev });
+    const t = setTimeout(async () => {
+      const r = await fetch("/api/arch/scene", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }).catch(() => null);
+      const j = await r?.json().catch(() => ({}));
+      if (r?.ok) dispatchSave({ type: "ok", rev });
+      else if (r?.status === 409) dispatchSave({ type: "conflict", rev, serverRev: j?.rev ?? 0, error: j?.error }); // newer copy elsewhere: he chooses, never a silent overwrite
+      else if (localOk && (!r || r.status === 401 || r.status === 403)) dispatchSave({ type: "local", rev });
+      else dispatchSave({ type: "fail", rev, error: j?.error ?? (localOk ? undefined : "localStorage") });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [scene, prices, site, ready, lesson, retry]);
 
   const sceneRef = useRef(scene);
   sceneRef.current = scene; // an AI reply applies to the scene as it is when it lands, not when it was asked
+  const [conflict, setConflict] = useState<{ ops: Op[]; say: string } | null>(null); // ARC02: stale AI reply, he decides
   const apply = (ops: Op[]) => { const cur = sceneRef.current, r = applyOps(cur, ops, newId); sceneRef.current = r.scene; setPast((p) => [...p.slice(-30), cur]); setScene(r.scene); return r.moved; };
   const undo = () => setPast((p) => { if (p.length) setScene(p[p.length - 1]); return p.slice(0, -1); });
   const q = boq(scene.parts), cost = costLines(q, prices), tips = bulkTips(q);
@@ -315,10 +357,12 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   async function send() {
     if (!cmd.trim() || busy) return;
     setBusy(true); setMsg("");
+    const base = sceneRef.current, baseRev = revRef.current;
     try {
-      const r = await fetch("/api/arch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scene, command: cmd }) });
+      const r = await fetch("/api/arch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scene: base, rev: baseRev, command: cmd }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `Failed (${r.status})`);
+      if (staleCheck(base, baseRev, sceneRef.current, revRef.current, j.ops as Op[]) === "conflict") { setConflict({ ops: j.ops, say: j.say || "" }); setCmd(""); return; }
       const moved = apply(j.ops as Op[]);
       setMsg(`${j.say || "Done."}${moved.length ? ` Moved ${moved.length} part${moved.length === 1 ? "" : "s"} above to keep it stacked.` : ""}`);
       setCmd("");
@@ -410,6 +454,13 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <button className="btn" disabled={busy || !cmd.trim()}>{tr(busy ? "arch.working" : "arch.doIt")}</button>
         </form>
         {msg && <p aria-live="polite">{msg}</p>}
+        {conflict && (
+          <div role="alert" className="flex flex-wrap items-center gap-2">
+            <span>{tr("arch.conflict")}</span>
+            <button className="chip" onClick={() => { apply(conflict.ops); setMsg(conflict.say); setConflict(null); }}>{tr("arch.conflictApply")}</button>
+            <button className="chip" onClick={() => setConflict(null)}>{tr("arch.conflictDrop")}</button>
+          </div>
+        )}
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void teach(); }}>
           <input className="field flex-1" placeholder={tr("arch.topicPh")} value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} aria-label={tr("arch.topic")} />
           <button className="btn" disabled={lessonBusy || !topic.trim()}>{lessonBusy ? tr("cf.writing") : `📚 ${tr("arch.teach")}`}</button>
@@ -510,6 +561,16 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <button className="chip" aria-pressed={site.on} onClick={() => setSite((v) => ({ ...v, on: !v.on, draft: null }))} title={tr("arch.siteTitle")}>🏘 {tr("arch.site")}</button>
           <button className="chip" aria-pressed={sc.on} onClick={() => setSc((v) => ({ ...v, on: !v.on }))} title={tr("arch.structTitle")}>📐 {tr("arch.structure")}</button>
           <button className="chip" disabled={!past.length} onClick={undo}>↶ {tr("arch.undo")}</button>
+          {save.status !== "idle" && !lesson && (
+            <span className="chip" role="status" title={save.error}>
+              {tr(`arch.save.${save.status}`)}
+              {canRetry(save) && <button className="ml-1 underline" onClick={() => setRetry((n) => n + 1)}>{tr("arch.save.retry")}</button>}
+              {save.status === "conflict" && <>
+                <button className="ml-1 underline" onClick={() => resolveConflict(false)}>{tr("arch.save.loadNewer")}</button>
+                <button className="ml-1 underline" onClick={() => resolveConflict(true)}>{tr("arch.save.keepMine")}</button>
+              </>}
+            </span>
+          )}
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>{tr("arch.startOver")}</button>
           <button className="chip" disabled={!shell} onClick={addInterior} title={tr("arch.wallTitle")}>+ {tr("arch.wall")}</button>
           <button className="chip" onClick={() => download("arch-bill-of-quantities.csv", boqCsv(cost), "text/csv")}>⬇ {tr("arch.boqCsv")}</button>
