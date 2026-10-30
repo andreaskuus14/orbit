@@ -1,7 +1,7 @@
 "use client";
 // ARCH time machine: scrub the model's saved versions (kept in the data dir by /api/arch/versions) and restore one,
 // plus the sun study's shadow marker in the 3D view. Math in arch-time-pure.ts.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Line } from "@react-three/drei";
 import { shadowOf, type Snapshot } from "@/lib/arch-time-pure";
 import type { Scene } from "@/lib/arch-pure";
@@ -13,10 +13,15 @@ export function ArchTimeMachine({ scene, save, onPreview, onRestore }: { scene: 
   const [versions, setVersions] = useState<Snapshot[]>([]);
   const [i, setI] = useState<number | null>(null); // null = live model
   const [err, setErr] = useState("");
+  const opened = useRef<string | null>(null); // the scene as ARCH opened: a version is only recorded once it changes
   useEffect(() => { fetch("/api/arch/versions").then((r) => r.json()).then((j) => Array.isArray(j.versions) && setVersions(j.versions)).catch(() => setErr("History unavailable")); }, []);
   useEffect(() => {
     if (!save || i !== null) return;
+    const now = JSON.stringify(scene);
+    if (opened.current === null) opened.current = now;
     const t = setTimeout(() => {
+      if (now === opened.current) return; // opened, no edit (or edited back): nothing to record
+      opened.current = now;
       fetch("/api/arch/versions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scene }) })
         .then((r) => r.json()).then((j) => { if (Array.isArray(j.versions)) { setVersions(j.versions); setErr(""); } else setErr(j.error ?? "Couldn't save the version"); })
         .catch(() => setErr("Couldn't save the version"));

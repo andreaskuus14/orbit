@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { pollMs } from "@/lib/poll-pure";
 import { concat, downsample, encodeWav, rms, zcr, MIC_START, type Mic } from "@/lib/audio-pure";
 import { CALL_VAD, callVad, endSilenceMs, worthSending } from "@/lib/call-pure";
 import { MIC } from "./voice/voiceprint";
@@ -50,7 +51,7 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
   }, []);
   useEffect(() => {
     void poll();
-    const t = setInterval(() => { if (document.visibilityState === "visible") void poll(); }, compact ? 30_000 : 20_000);
+    const t = setInterval(() => { if (document.visibilityState === "visible") void poll(); }, compact ? pollMs(30_000) : 20_000); // compact = the always-mounted desktop listener: status-rate
     const hash = () => { if (location.hash === "#r-call") void poll(); };
     addEventListener("hashchange", hash);
     return () => { clearInterval(t); removeEventListener("hashchange", hash); };

@@ -5,11 +5,13 @@ import { changeStopAll, STOP_ALL_CHANGED } from "./nav-command";
 import { RESOLVE_ALERT, type Signal } from "@/lib/interruption-pure";
 import { STOP_ALL_EVENT, STOP_ALL_REQUEST_EVENT, type StopAllDetail } from "@/lib/stop-all-pure";
 import { useT } from "./i18n";
+import { usePoll } from "./use-poll";
 
 type Status = { stop: { on: boolean; at: string }; hold: string; limit: { until: number; at: number } | null; host?: string | null };
 const SEEN_KEY = "orbit.limitSeen";
 
 /** 🛑 Stop-all in the top HUD (with a confirm), the red "Paused" banner while it's on, and a bell note when Claude's usage limit is hit. */
+const STOP_EVENTS = [STOP_ALL_CHANGED];
 export function StopAll() {
   const { t } = useT();
   const [s, setS] = useState<Status | null>(null);
@@ -43,14 +45,11 @@ export function StopAll() {
     }
   }, [broadcast]);
   useEffect(() => {
-    void load();
-    const h = setInterval(() => void load(), 30_000);
-    const refresh = () => void load();
     const replay = () => { if (known.current) broadcast(known.current.on); };
-    addEventListener(STOP_ALL_CHANGED, refresh);
     addEventListener(STOP_ALL_REQUEST_EVENT, replay);
-    return () => { clearInterval(h); removeEventListener(STOP_ALL_CHANGED, refresh); removeEventListener(STOP_ALL_REQUEST_EVENT, replay); };
-  }, [load, broadcast]);
+    return () => removeEventListener(STOP_ALL_REQUEST_EVENT, replay);
+  }, [broadcast]);
+  usePoll(load, 30_000, true, STOP_EVENTS); // safety switch: 30 s, not the 60 s status floor
 
   async function toggle(on: boolean) {
     if (on && !confirm(t("stop.confirm"))) return;

@@ -3,6 +3,7 @@ import { useMountLater, WarmCompile } from "./WarmCompile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
+import { useT } from "./i18n";
 import { useGlRecovery } from "./useGlRecovery";
 import { worldQuality, type QualityMode } from "@/lib/quality-pure";
 import { FrameMark } from "./dev-timing";
@@ -870,6 +871,12 @@ const WINDOWS = [{ h: 24, label: "24h" }, { h: 72, label: "3d" }, { h: 168, labe
 
 /** focus: a country or region from CORE navigation; a new object flies there with the same camera moves as a click.
  *  focus.search runs that search as if typed; "" clears search and selection (the whole world). */
+/** V06: the panel and story list are live before the globe's texture is ready; say so instead of an empty sky. */
+function GlobeLoading() {
+  const { t } = useT();
+  return <p role="status" className="muted pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 text-xs">{t("intel.globeLoading")}</p>;
+}
+
 export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode; paused?: boolean }) {
   const q = worldQuality(quality);
   const glr = useGlRecovery();
@@ -1063,6 +1070,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         </EffectComposer>
         {process.env.NODE_ENV === "development" && <FrameMark name="intelligence" />}
       </Canvas>}
+      {!(ready && later) && <GlobeLoading />}
 
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {top.map((h) => (

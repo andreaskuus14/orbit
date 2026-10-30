@@ -1,5 +1,4 @@
 "use client";
-import { useWorldPaused } from "./world-paused";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Task } from "./AgentsPanels";
 import { AgentStatsCard } from "./AgentStatsCard";
@@ -27,18 +26,8 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 
-/** Visible-tab polling: runs fn now and every ms while enabled. */
-export function usePoll(fn: () => void, ms: number, enabled: boolean) {
-  const paused = useWorldPaused(); // a kept-but-hidden world stops polling; it polls (and refreshes) again on return
-  useEffect(() => {
-    if (!enabled || paused) return;
-    const tick = () => { if (!document.hidden) fn(); }; // hidden tab: skip; refresh on return
-    fn();
-    const h = setInterval(tick, ms);
-    document.addEventListener("visibilitychange", tick);
-    return () => { clearInterval(h); document.removeEventListener("visibilitychange", tick); };
-  }, [fn, ms, enabled, paused]);
-}
+import { usePoll } from "./use-poll";
+export { usePoll }; // shared poller (hidden tab, kept-but-hidden world, focus refresh)
 
 export function StatusPill({ status }: { status: string }) {
   if (isWorkStatus(status)) return <span className="pill inline-flex shrink-0"><OpsStatus raw={status} /></span>; // shared vocabulary for tasks, steps, chains

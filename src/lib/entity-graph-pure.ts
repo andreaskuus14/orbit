@@ -1,17 +1,24 @@
 // Entity graph + contradiction check (pure, tested in tests/entity-graph.test.ts). IO: entity-graph.ts; API: /api/memories/entities;
-// UI: MemoryEntities.tsx in the MEMORY panel; one brief line. Rules only, no model call. Journal (LIFE) memories are dropped here
+// UI: the MEMORY review queue (memory-review-pure.ts); one brief line. Rules only, no model call. Journal (LIFE) memories are dropped here
 // even if a caller passes them. Conflicts settle by memory-types-pure.ts weight before anything is asked. Merges are only ever SUGGESTED: claims group across names only after the owner confirms.
 
 import { currentOnly, resolveClaims, weight } from "./memory-types-pure.ts";
 
-export type EKind = "person" | "project" | "place";
+export type EKind = "person" | "project" | "place" | "org";
 export type Src = { id: string; type: "memory" | "fact" | "person"; title: string; at: string; weight?: number }; // weight: memory-types-pure.ts
-export type Mention = { form: string; kind?: EKind; src: Src };
+export type Mention = { form: string; kind?: EKind; src: Src; ids?: string[] }; // ids: stable "namespace:value", e.g. "domain:nytimes.com"
 export type Attr = "birthday" | "employer" | "home";
 export type Claim = { form: string; attr: Attr; value: string; norm: string; src: Src };
-export type MergeSuggestion = { key: string; keys: string[]; forms: string[]; kind: EKind; confidence: number };
+/** Why two names were linked: a name rule (exact/email/first/initial/middle/acronym) or a shared stable id ("id"). */
+export type Ev = { code: "exact" | "email" | "first" | "initial" | "middle" | "acronym" | "id"; a: string; b: string };
+export type Cls = "duplicate" | "revision" | "continuation" | "contradiction";
+export type Side = { form: string; srcs: Pick<Src, "title" | "at" | "type">[]; facts: { attr: Attr; value: string; at: string; conflict: boolean }[] };
+/** relation "same": one thing under several names; "related": something links them (shared id, an acronym) but names do not prove it. */
+export type MergeSuggestion = { key: string; keys: string[]; forms: string[]; kind: EKind; confidence: number;
+  relation?: "same" | "related"; evidence?: Ev[]; sides?: Side[]; cls?: Cls; keep?: { name: string; facts: { attr: Attr; value: string }[]; ask: Attr[] } };
+export type MergeHist = { key: string; keys: string[]; forms: string[]; act: "same" | "different" | "undo"; at: string };
 export type Contradiction = { key: string; entity: string; attr: Attr; options: { norm: string; value: string; src: Src }[] };
-export type EntityDecisions = { same: string[][]; different: string[]; contra: Record<string, string> }; // same: confirmed form-key groups; different: rejected pair keys
+export type EntityDecisions = { same: string[][]; different: string[]; contra: Record<string, string>; history?: MergeHist[] }; // same: confirmed form-key groups; different: rejected pair keys (never suggested again)
 
 export const LINK = 0.75, SUGGEST = 0.8, MAX_SHOWN = 3;
 const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase();
@@ -28,67 +35,127 @@ export function hash(s: string): string {
   return (h >>> 0).toString(16).padStart(8, "0");
 }
 
-/** How sure two surface forms name the same thing (0–1). `firsts`: how many multi-word names start with each first token. */
-export function linkScore(a: string, b: string, firsts: Map<string, number>): number {
-  const ta = tokens(a), tb = tokens(b), email = isEmail(a) || isEmail(b);
-  if (!ta.length || !tb.length) return 0;
-  if (ta.join(" ") === tb.join(" ")) return email ? 0.95 : 1;
+const ART = new Set(["the", "a", "an"]);
+const core = (t: string[]) => (t.length > 1 && ART.has(t[0]) ? t.slice(1) : t);
+/** Organisation-looking names: "The Seattle Times" is an org, so "Seattle" (a place) never joins it as a first name. */
+export const ORG = /\b(?:times|news|post|journal|herald|tribune|gazette|daily|bank|university|ministry|inc|ltd|llc|corp|company|group|agency|media|foundation)\b/;
+function link(a: string, b: string, firsts: Map<string, number>): [number, Ev["code"] | null] {
+  const ta = core(tokens(a)), tb = core(tokens(b)), email = isEmail(a) || isEmail(b);
+  if (!ta.length || !tb.length) return [0, null];
+  if (ta.join(" ") === tb.join(" ")) return email ? [0.95, "email"] : [1, "exact"];
   const [s, l] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
-  if (s.length === 1 && l.length >= 2) return l[0] === s[0] && s[0].length >= 3 ? (firsts.get(s[0]) === 1 ? (email ? 0.8 : 0.85) : 0.4) : 0;
-  if (s.length === l.length && s.every((t, i) => t === l[i] || (Math.min(t.length, l[i].length) === 1 && t[0] === l[i][0]))) return 0.75; // "M. Tamm"
-  if (s.length >= 2 && s[0] === l[0] && s[s.length - 1] === l[l.length - 1]) return 0.8; // "Mart Tamm" / "Mart Juhan Tamm"
-  return 0;
+  // "NYT" / "The New York Times": an acronym alone is only related; a shared stable id makes it the same.
+  if (s.length === 1 && l.length >= 2 && s[0].length >= 2 && s[0] === l.map((t) => t[0]).join("")) return [0.6, "acronym"];
+  if (s.length === 1 && l.length >= 2) return l[0] === s[0] && s[0].length >= 3 && !ORG.test(l.join(" ")) ? (firsts.get(s[0]) === 1 ? [email ? 0.8 : 0.85, "first"] : [0.4, "first"]) : [0, null];
+  if (s.length === l.length && s.every((t, i) => t === l[i] || (Math.min(t.length, l[i].length) === 1 && t[0] === l[i][0]))) return [0.75, "initial"]; // "M. Tamm"
+  // Middle name only ("Mart Tamm" / "Mart Juhan Tamm"). Equal lengths never: "The Moscow Times" / "The Seattle Times" share only a shell.
+  if (s.length >= 2 && s.length < l.length && s[0] === l[0] && s[s.length - 1] === l[l.length - 1]) return [0.8, "middle"];
+  return [0, null];
+}
+/** How sure two surface forms name the same thing (0–1). `firsts`: how many multi-word names start with each first token. */
+export const linkScore = (a: string, b: string, firsts: Map<string, number>) => link(a, b, firsts)[0];
+/** Stable ids: "conflict" when a namespace both carry has no shared value (different domains block any suggestion). */
+export function idRel(a: Iterable<string>, b: Iterable<string>): { rel: "conflict" | "match" | "none"; shared?: string } {
+  const A = [...a], B = new Set(b), shared = A.find((x) => B.has(x));
+  if (shared) return { rel: "match", shared };
+  const ns = (x: string) => x.split(":")[0], nb = new Set([...B].map(ns));
+  return A.some((x) => nb.has(ns(x))) ? { rel: "conflict" } : { rel: "none" };
 }
 
-type Node = { key: string; forms: Set<string>; kinds: Set<EKind>; srcs: Src[] };
+type Node = { key: string; forms: Set<string>; kinds: Set<EKind>; srcs: Src[]; ids: Set<string> };
 /** Clusters of surface forms (union-find, strongest links first). Confirmed groups join at 1; rejected pairs never join. */
-export function resolveEntities(mentions: Mention[], d: EntityDecisions, maxNodes = 800) {
+export const resolveEntities = (mentions: Mention[], d: EntityDecisions, maxNodes = 800) => resolveGraph(mentions, d, maxNodes).ents;
+/** resolveEntities plus "related" pairs: linked by something, but not enough to call them the same. */
+export function resolveGraph(mentions: Mention[], d: EntityDecisions, maxNodes = 800) {
   const nodes = new Map<string, Node>();
   for (const m of mentions) {
     const k = formKey(m.form);
     if (k.length < 2) continue;
-    const n = nodes.get(k) ?? (nodes.size < maxNodes ? { key: k, forms: new Set<string>(), kinds: new Set<EKind>(), srcs: [] } : null);
+    const n = nodes.get(k) ?? (nodes.size < maxNodes ? { key: k, forms: new Set<string>(), kinds: new Set<EKind>(), srcs: [], ids: new Set<string>() } : null);
     if (!n) continue;
-    n.forms.add(m.form.trim()); if (m.kind) n.kinds.add(m.kind); n.srcs.push(m.src); nodes.set(k, n);
+    n.forms.add(m.form.trim()); if (m.kind) n.kinds.add(m.kind); n.srcs.push(m.src); m.ids?.forEach((i) => n.ids.add(i.toLowerCase())); nodes.set(k, n);
   }
+  for (const n of nodes.values()) if (!n.kinds.size && ORG.test(n.key)) n.kinds.add("org");
   const list = [...nodes.values()], firsts = new Map<string, number>();
   for (const n of list) { const t = tokens(n.key); if (t.length >= 2 && !isEmail(n.key)) firsts.set(t[0], (firsts.get(t[0]) ?? 0) + 1); }
-  const parent = new Map(list.map((n) => [n.key, n.key])), conf = new Map(list.map((n) => [n.key, 1]));
+  const parent = new Map(list.map((n) => [n.key, n.key])), conf = new Map(list.map((n) => [n.key, 1])), evs = new Map<string, Ev[]>();
   const find = (k: string): string => { const p = parent.get(k)!; if (p === k) return k; const r = find(p); parent.set(k, r); return r; };
   const confirmed = new Set<string>();
-  const union = (a: string, b: string, w: number) => { const ra = find(a), rb = find(b); if (ra === rb) return; parent.set(rb, ra); conf.set(ra, Math.min(conf.get(ra)!, conf.get(rb)!, w)); };
+  const union = (a: string, b: string, w: number, ev: Ev[] = []) => { const ra = find(a), rb = find(b); if (ra === rb) return; parent.set(rb, ra); conf.set(ra, Math.min(conf.get(ra)!, conf.get(rb)!, w)); evs.set(ra, [...(evs.get(ra) ?? []), ...(evs.get(rb) ?? []), ...ev]); };
   for (const g of d.same) { const ks = g.filter((k) => nodes.has(k)); ks.slice(1).forEach((k) => union(ks[0], k, 1)); ks.forEach((k) => confirmed.add(k)); }
-  const no = new Set(d.different), edges: [string, string, number][] = [];
+  const no = new Set(d.different), edges: [string, string, number, Ev[]][] = [], near: [string, string, number, Ev[]][] = [];
   for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
     const a = list[i], b = list[j];
     if (a.kinds.size && b.kinds.size && ![...a.kinds].some((k) => b.kinds.has(k))) continue; // a person never merges into a project
     if (no.has(pairKey(a.key, b.key))) continue;
-    const w = linkScore(a.key, b.key, firsts);
-    if (w >= LINK) edges.push([a.key, b.key, w]);
+    const id = idRel(a.ids, b.ids);
+    if (id.rel === "conflict") continue; // different domains: never even suggested
+    let [w, code] = link(a.key, b.key, firsts);
+    const ev: Ev[] = code && w >= 0.5 ? [{ code, a: [...a.forms][0], b: [...b.forms][0] }] : [];
+    if (id.rel === "match") { ev.push({ code: "id", a: [...a.forms][0], b: id.shared! }); w = w >= 0.5 ? Math.max(w, 0.9) : 0.6; } // renamed org: related only
+    if (w >= LINK) edges.push([a.key, b.key, w, ev]); else if (w >= 0.5) near.push([a.key, b.key, w, ev]);
   }
-  for (const [a, b, w] of edges.sort((x, y) => y[2] - x[2])) {
+  const ids = (ns: Node[]) => ns.flatMap((n) => [...n.ids]);
+  for (const [a, b, w, ev] of edges.sort((x, y) => y[2] - x[2])) {
     const ra = find(a), rb = find(b);
-    // A rejected pair blocks the whole chain: never join two clusters that hold a pair he said were different.
+    // A rejected pair or conflicting ids block the whole chain: never join two clusters that hold a pair he said were different.
     const ca = list.filter((n) => find(n.key) === ra), cb = list.filter((n) => find(n.key) === rb);
-    if (ca.some((x) => cb.some((y) => no.has(pairKey(x.key, y.key))))) continue;
-    union(a, b, w);
+    if (ca.some((x) => cb.some((y) => no.has(pairKey(x.key, y.key)))) || idRel(ids(ca), ids(cb)).rel === "conflict") continue;
+    union(a, b, w, ev);
   }
   const groups = new Map<string, Node[]>();
   for (const n of list) { const r = find(n.key); groups.set(r, [...(groups.get(r) ?? []), n]); }
-  return [...groups.entries()].map(([root, ns]) => ({
+  const ents = [...groups.entries()].map(([root, ns]) => ({
     root, keys: ns.map((n) => n.key), forms: ns.flatMap((n) => [...n.forms]),
     kind: (ns.flatMap((n) => [...n.kinds])[0] ?? "person") as EKind,
     confidence: ns.every((n) => confirmed.has(n.key)) ? 1 : conf.get(root)!,
     confirmed: ns.every((n) => confirmed.has(n.key)),
+    evidence: evs.get(root) ?? [], parts: ns.map((n) => ({ key: n.key, forms: [...n.forms], srcs: n.srcs })),
   }));
+  const node = (k: string) => nodes.get(k)!, kindOf = (n: Node) => ([...n.kinds][0] ?? "person") as EKind;
+  const related = near.filter(([a, b]) => find(a) !== find(b)).map(([a, b, w, ev]) => ({
+    root: a, keys: [a, b], forms: [...node(a).forms, ...node(b).forms], kind: kindOf(node(a)), confidence: w, confirmed: false, evidence: ev,
+    parts: [a, b].map((k) => ({ key: k, forms: [...node(k).forms], srcs: node(k).srcs })),
+  }));
+  return { ents, related };
 }
 export type ResolvedEntity = ReturnType<typeof resolveEntities>[number];
 
-/** Clusters worth asking about: 2+ different names, not yet confirmed, confident enough. Best first, at most `max`. */
-export function mergeSuggestions(ents: ResolvedEntity[], max = MAX_SHOWN): MergeSuggestion[] {
-  return ents.filter((e) => e.keys.length >= 2 && !e.confirmed && e.confidence >= SUGGEST)
-    .sort((a, b) => b.confidence - a.confidence || b.keys.length - a.keys.length)
-    .slice(0, max).map((e) => ({ key: `same:${hash([...e.keys].sort().join("|"))}`, keys: e.keys, forms: [...new Set(e.forms)].slice(0, 6), kind: e.kind, confidence: e.confidence }));
+/** Clusters worth asking about: 2+ different names, not yet confirmed, confident enough ("same"), then "related" pairs.
+ *  Best first, at most `max`. Each carries the evidence, both sides' sources and facts, and the class of difference. Never auto-merged. */
+export function mergeSuggestions(ents: ResolvedEntity[], max = MAX_SHOWN, x: { related?: ResolvedEntity[]; claims?: Claim[] } = {}): MergeSuggestion[] {
+  const same = ents.filter((e) => e.keys.length >= 2 && !e.confirmed && e.confidence >= SUGGEST).map((e) => ({ e, relation: "same" as const }));
+  const rel = (x.related ?? []).map((e) => ({ e, relation: "related" as const }));
+  return [...same.sort((a, b) => b.e.confidence - a.e.confidence || b.e.keys.length - a.e.keys.length), ...rel.sort((a, b) => b.e.confidence - a.e.confidence)]
+    .slice(0, max).map(({ e, relation }) => ({ key: `same:${hash([...e.keys].sort().join("|"))}`, keys: e.keys, forms: [...new Set(e.forms)].slice(0, 6), kind: e.kind,
+      confidence: e.confidence, relation, evidence: e.evidence.slice(0, 6), ...compareSides(e.parts, x.claims ?? []) }));
+}
+
+/** V05: what each side says before anything is proposed — sources, dates, facts (changed ones flagged), the class and the kept result. */
+export function compareSides(parts: { key: string; forms: string[]; srcs: Src[] }[], claims: Claim[]): Pick<MergeSuggestion, "sides" | "cls" | "keep"> {
+  const per = parts.slice(0, 4).map((p) => {
+    const cs = claims.filter((c) => c.form !== "me" && formKey(c.form) === p.key).sort((a, b) => b.src.at.localeCompare(a.src.at));
+    const facts = new Map<Attr, Claim>(); for (const c of cs) if (!facts.has(c.attr)) facts.set(c.attr, c); // newest per attribute
+    return { p, facts };
+  });
+  const attrs = [...new Set(per.flatMap((s) => [...s.facts.keys()]))];
+  let cls: Cls = "duplicate";
+  const keep: { attr: Attr; value: string }[] = [], ask: Attr[] = [], changed = new Set<Attr>();
+  for (const attr of attrs) {
+    const cs = per.map((s) => s.facts.get(attr)).filter((c): c is Claim => !!c);
+    const opts = cs.filter((c, i) => !cs.slice(0, i).some((o) => same(o.norm, c.norm)));
+    if (cs.length < per.length && cls === "duplicate") cls = "continuation"; // one side adds a fact the other lacks
+    if (opts.length < 2) { keep.push({ attr, value: opts[0].value }); continue; }
+    changed.add(attr);
+    const win = resolveClaims(opts.map((c) => ({ weight: c.src.weight ?? 3, at: c.src.at, c })));
+    if (win) { keep.push({ attr, value: win.c.value }); if (cls !== "contradiction") cls = "revision"; } else { ask.push(attr); cls = "contradiction"; }
+  }
+  const forms = parts.flatMap((p) => p.forms), name = forms.filter((f) => !isEmail(f)).sort((a, b) => b.length - a.length)[0] ?? forms[0] ?? "";
+  return {
+    cls, keep: { name, facts: keep, ask },
+    sides: per.map(({ p, facts }) => ({ form: p.forms[0] ?? p.key, srcs: [...p.srcs].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 3).map(({ title, at, type }) => ({ title, at, type })),
+      facts: [...facts.values()].map((c) => ({ attr: c.attr, value: c.value, at: c.src.at, conflict: changed.has(c.attr) })) })),
+  };
 }
 
 // ---- claims ("Mart's birthday is 3 May", "Mart works at Bolt", "I live in Tartu") ------------------------------------------
@@ -146,6 +213,8 @@ export function claimsIn(text: string, src: Src): Claim[] {
   return out;
 }
 
+/** "The New York Times (nytimes.com)" / "NYT (https://www.nytimes.com/…)": a name with its stable domain. */
+const NAMED_DOMAIN = /\b((?:\p{Lu}[\p{Ll}'-]+\s+){0,4}\p{Lu}[\p{Ll}'-]+|\p{Lu}{2,6})\s*\((?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)[^)]*\)/gu;
 const NAME = /\b\p{Lu}[\p{Ll}'-]+(?:\s+\p{Lu}[\p{Ll}'-]+){1,2}\b/gu, EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 export type MemIn = { id: string; kind: string; title: string; content: string; created_at: string; source?: string | null; confirmation?: string | null; tags?: string[] | null };
 export type FactIn = { id: string; statement: string; status: string; created_at: string; source?: string; supersedes?: string | null };
@@ -164,6 +233,7 @@ export function gather(x: { memories: MemIn[]; facts: FactIn[]; people: PersonIn
     if (m.kind === "project") mentions.push({ form: m.title.slice(0, 60), kind: "project", src });
     for (const f of text.match(NAME) ?? []) mentions.push({ form: f.replace(/['’]s$/, ""), src });
     for (const e of text.match(EMAIL) ?? []) mentions.push({ form: e, kind: "person", src });
+    for (const [, f, dom] of text.matchAll(NAMED_DOMAIN)) mentions.push({ form: f, kind: "org", src, ids: [`domain:${dom.toLowerCase()}`] });
     claims.push(...claimsIn(text, src));
   }
   for (const f of x.facts.filter((f) => f.status === "current")) claims.push(...claimsIn(f.statement, { id: f.id, type: "fact", title: f.statement.slice(0, 80), at: f.created_at, weight: weight({ ...f, source: f.source ?? "user_said" }) }));
@@ -202,12 +272,20 @@ export function findContradictions(claims: Claim[], ents: ResolvedEntity[], d: E
 }
 
 /** The owner's click. "same"/"different" on a merge suggestion; a chosen norm or "skip" on a contradiction. State or why not. */
-export function decideEntity(d: EntityDecisions, s: { merges: MergeSuggestion[]; contradictions: Contradiction[] }, key: string, choice: string): EntityDecisions | string {
+export function decideEntity(d: EntityDecisions, s: { merges: MergeSuggestion[]; contradictions: Contradiction[] }, key: string, choice: string, at = new Date().toISOString()): EntityDecisions | string {
+  const hist = (h: Omit<MergeHist, "at">) => [...(d.history ?? []), { ...h, at }].slice(-200);
+  if (choice === "undo") { // undo a confirmed merge: both names stand alone again; claims regroup on the next scan (no record was ever edited)
+    const h = undoable(d).find((x) => x.key === key);
+    if (!h) return "Nothing to undo";
+    // shortcut: drops these names from whatever confirmed group holds them now, so a later merge that grew the group loses them too.
+    return { ...d, same: d.same.map((g) => g.filter((k) => !h.keys.includes(k))).filter((g) => g.length >= 2), history: hist({ key, keys: h.keys, forms: h.forms, act: "undo" }) };
+  }
   const m = s.merges.find((x) => x.key === key);
   if (m) {
-    const keys = m.keys;
-    if (choice === "same") return { ...d, same: [...d.same.filter((g) => !g.some((k) => keys.includes(k))), [...new Set([...d.same.filter((g) => g.some((k) => keys.includes(k))).flat(), ...keys])]].slice(-500) };
-    if (choice === "different") return { ...d, different: [...new Set([...d.different, ...keys.flatMap((a, i) => keys.slice(i + 1).map((b) => pairKey(a, b)))])].slice(-2000) };
+    const keys = m.keys, h = { key, keys, forms: m.forms };
+    if (choice === "same") return { ...d, history: hist({ ...h, act: "same" }), same: [...d.same.filter((g) => !g.some((k) => keys.includes(k))), [...new Set([...d.same.filter((g) => g.some((k) => keys.includes(k))).flat(), ...keys])]].slice(-500) };
+    // Rejected = never suggested again; Undo does not exist for it, so a rejection stays rejected.
+    if (choice === "different") return { ...d, history: hist({ ...h, act: "different" }), different: [...new Set([...d.different, ...keys.flatMap((a, i) => keys.slice(i + 1).map((b) => pairKey(a, b)))])].slice(-2000) };
     return "Choose same or different";
   }
   const c = s.contradictions.find((x) => x.key === key);
@@ -216,7 +294,16 @@ export function decideEntity(d: EntityDecisions, s: { merges: MergeSuggestion[];
   return { ...d, contra: { ...d.contra, [key]: choice } };
 }
 
-export const emptyDecisions = (): EntityDecisions => ({ same: [], different: [], contra: {} });
+export const emptyDecisions = (): EntityDecisions => ({ same: [], different: [], contra: {}, history: [] });
+/** Confirmed merges that can still be undone, newest first. */
+export function undoable(d: EntityDecisions, max = 5): MergeHist[] {
+  const out: MergeHist[] = [], done = new Set<string>();
+  for (const h of [...(d.history ?? [])].reverse()) {
+    if (h.act === "undo") done.add(h.key);
+    else if (h.act === "same" && !done.has(h.key)) { out.push(h); done.add(h.key); }
+  }
+  return out.slice(0, max);
+}
 const ATTR_SAY: Record<Attr, string> = { birthday: "birthday", employer: "workplace", home: "home town" };
 /** The one brief line when memories disagree. */
 export function contradictionBrief(cs: Contradiction[]): { id: string; title: string; say: string } | null {

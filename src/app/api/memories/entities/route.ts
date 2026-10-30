@@ -12,7 +12,7 @@ export async function GET() {
   catch (e) { console.error("[entities] failed", e); return Response.json({ error: "Could not check memory for conflicts" }, { status: 500 }); }
 }
 
-/** POST {key, choice}: "same"|"different" for a merge, an answer's norm or "skip" for a question. Changes no memory or person. */
+/** POST {key, choice}: "same"|"different" (= never suggest again)|"undo" for a merge, an answer's norm or "skip" for a question. Changes no memory or person. */
 export async function POST(req: Request) {
   const { user, sb, res } = await requireUser();
   if (res) return res;
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   if (!key || !choice) return Response.json({ error: "key and choice are required" }, { status: 400 });
   const err = await decideEntityKey(user.id, key, choice);
   if (err) return Response.json({ error: err }, { status: 409 });
-  if (choice === "same") await scanEntities(sb, user.id).catch((e) => console.error("[entities] rescan", e)); // merged names can now show a question
+  if (choice === "same" || choice === "undo") await scanEntities(sb, user.id).catch((e) => console.error("[entities] rescan", e)); // merged names can now show a question
   await emit(sb, user.id, "memory.entity", "memory", { kind: key.split(":")[0], key }); // ids only, never the answer
   return Response.json({ ok: true });
 }

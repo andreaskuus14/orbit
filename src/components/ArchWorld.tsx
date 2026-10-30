@@ -286,7 +286,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const [topic, setTopic] = useState(""), [lessonBusy, setLessonBusy] = useState(false), [lessonMsg, setLessonMsg] = useState("");
   const ownScene = useRef<Scene | null>(null);
   const [ready, setReady] = useState(false); // state, not a ref: the save effect must not run with the starter scene before the load lands
-  const revRef = useRef(0), lastSaved = useRef<Scene | null>(null); // ARC01: every scene/prices/site change bumps the revision
+  const revRef = useRef(0), lastSaved = useRef<Scene | null>(null), inSync = useRef(false); // ARC01: every scene/prices/site change bumps the revision
   const [save, dispatchSave] = useReducer(saveStep, { status: "idle", rev: 0 });
   const [retry, setRetry] = useState(0);
   const [variants, setVariants] = useState<Variant[]>([]); // ARC06: saved with the model
@@ -300,6 +300,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     const s = pickNewer(local && { ...local, rev: local.rev ?? 0 }, srv?.saved ?? null) as (Saved & { prices?: PriceItem[] }) | null;
     if (s && s !== local && local) try { localStorage.setItem(KEY + ".bak", JSON.stringify(local)); } catch { /* backup is best effort */ } // keep the older local copy recoverable
     revRef.current = Math.max(local?.rev ?? 0, srv?.saved?.rev ?? 0);
+    inSync.current = !s || (!!srv?.saved && s === srv.saved); // opened what the server has: no save until an edit
     if (s?.scene?.parts) {
       setScene(s.scene);
       const ps = s.prices; if (Array.isArray(ps)) setPrices(STARTER_PRICES.map((d) => { const x = ps.find((p) => p.key === d.key); return x && (x.eur === null || Number.isFinite(x.eur)) ? { ...d, ...x } : d; }));
@@ -324,6 +325,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   useEffect(() => {
     if (!ready || lesson) return;
     if (lastSaved.current) revRef.current++; // the first run after load is the loaded state itself
+    else if (inSync.current) { inSync.current = false; lastSaved.current = scene; return; } // opening ARCH writes nothing
     lastSaved.current = scene;
     const rev = revRef.current, data = { rev, scene, prices, site: { ...site, draft: null }, variants };
     let localOk = true;

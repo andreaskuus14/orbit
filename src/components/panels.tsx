@@ -21,6 +21,7 @@ import { AuthoritySection } from "./AuthoritySection";
 import { WeeklyReviewSetting } from "./RemoteCall";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
+import { DeliverableCards } from "./DeliverableCards";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
 import type { Plan } from "@/lib/plans-pure";
@@ -59,7 +60,6 @@ import MemoryControls from "./MemoryControls";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { DupPreview, MemoryInspector, MemoryProjects, MemoryReview, MemorySearch, PeopleView } from "./MemoryWorkspace";
 import { isProvTag, type DupChoice } from "@/lib/memory-capture-pure";
-import { MemoryEntities } from "./MemoryEntities";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
@@ -352,7 +352,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       )}
       {m.lesson && <LessonChip lesson={m.lesson} />}
       {!!m.trace?.length && (
-        <ResultEvidence items={m.trace.flatMap((s) => s.evidence ?? [])} openMemory={onOpenMemory} />
+        <><DeliverableCards items={m.trace.flatMap((s) => s.evidence ?? [])} /><ResultEvidence items={m.trace.flatMap((s) => s.evidence ?? [])} openMemory={onOpenMemory} /></>
       )}
       {!!m.trace?.length && (
         <details className="mt-2 text-xs muted">
@@ -669,7 +669,6 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
       {view === "review" && <>
         <StudyCards />
         <MemoryReview onChanged={onChanged} />
-        <MemoryEntities />
         {!!suggested.length && (
           <div>
             <h3 className="h3">{tr("mem.suggested")}</h3>

@@ -45,7 +45,7 @@ export function TimeDilation({ onSpan }: { onSpan: (s: Span) => void }) {
   };
 
   // State on load and every minute (another window may start or end a block); a 1 s tick only while one runs.
-  useEffect(() => { void call(); const t = setInterval(() => void call(), 60_000); return () => { clearInterval(t); holdNotify(false).forEach(notify); onSpan(null); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void call(); const t = setInterval(() => { if (!document.hidden) void call(); }, 60_000); return () => { clearInterval(t); holdNotify(false).forEach(notify); onSpan(null); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!focus) return;
     const t = setInterval(() => { const n = Date.now(); setNow(n); if (n >= focus.endAt) void call(); }, 1000);

@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { pollMs } from "@/lib/poll-pure";
+import { usePoll } from "./use-poll";
 import type { RivalReport } from "@/lib/rivals-pure";
 
 // BUSINESS → Niches: a kept niche's competitor links (≤5) and the weekly Rivals report. ORBIT only reads those public pages.
@@ -18,11 +20,7 @@ export default function RivalsBox({ id }: { id: string }) {
   const [err, setErr] = useState("");
   const load = useCallback(() => call().then((j: Board) => { setB(j); setErr(""); }, (e: Error) => setErr(e.message)), []);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    if (!b?.busy) return;
-    const t = setInterval(() => { if (!document.hidden) void load(); }, 5000);
-    return () => clearInterval(t);
-  }, [b?.busy, load]);
+  usePoll(load, pollMs(5000, "live"), !!b?.busy); // a scout/hunt runs minutes: refresh until done, only while on screen
   const act = async (body: object) => { setErr(""); try { await call(body); setDraft(null); } catch (e) { setErr((e as Error).message); } await load(); };
   const urls = b?.urls[id] ?? [], r = b?.reports[id];
   return (

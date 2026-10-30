@@ -1,7 +1,9 @@
 "use client";
 // "Needs you": the home HUD's main card. One deduplicated list (needs-you-pure) of decisions, blockers and finished results, each
 // with one action: open it where it is handled (Decide → "Review": the exact content and its Approve, never a one-tap approve here). Polls /api/needs-you every 60 s while visible. Continue my work and Mission control stay one tap away.
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useId, useState } from "react";
+import { pollMs } from "@/lib/poll-pure";
+import { usePoll } from "./use-poll";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { MARKETS_TAB, type BriefOpen } from "@/lib/brief-pure";
@@ -36,11 +38,8 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
   const load = useCallback(() => fetch(`/api/needs-you?lang=${lang}`, { cache: "no-store" }).then((r) => r.json())
     .then((j: { items?: Need[]; error?: string }) => { if (!j.items) throw new Error(j.error); setItems(j.items); setErr(""); })
     .catch(() => setErr(t("needs.loadFailed"))), [lang, t]);
-  useEffect(() => {
-    void load();
-    const h = setInterval(() => { if (!document.hidden) void load(); }, 60_000);
-    return () => clearInterval(h);
-  }, [load]);
+  const poll = useCallback(() => void load(), [load]);
+  usePoll(poll, pollMs(60_000));
 
   const doSnooze = (e: React.FormEvent) => {
     e.preventDefault();

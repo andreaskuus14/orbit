@@ -48,3 +48,10 @@ export function missionOf(trace: Step[] = [], activity: string[] = [], busy = fa
 
 /** A voice follow-up that arrives mid-job only cancels it when it says so; anything else waits its turn. */
 export const cancelsJob = (text: string) => /^\s*(?:(?:ok(?:ay)?|hey|orbit|core)[,\s]+)*(?:stop|cancel|abort|never ?mind|forget (?:it|that))\b/i.test(text);
+
+/** Deliverable cards for a turn: the workspace files it wrote, one per file (the last write wins), in write order. */
+export function deliverables(evidence: WriteEvidence[]): (WriteEvidence & { path: string })[] {
+  const by = new Map<string, WriteEvidence & { path: string }>();
+  for (const e of evidence) if (e.kind === "file" && e.path) { by.delete(`${e.id}/${e.path}`); by.set(`${e.id}/${e.path}`, { ...e, path: e.path }); }
+  return [...by.values()];
+}

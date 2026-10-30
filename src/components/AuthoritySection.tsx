@@ -1,5 +1,7 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { pollMs } from "@/lib/poll-pure";
+import { usePoll } from "./use-poll";
 import { MODES, MODE_TEXT, grantLive, type AuthorityState, type Grant, type Mode } from "@/lib/authority-pure";
 import { changeStopAll } from "./nav-command";
 
@@ -24,7 +26,8 @@ export function AuthoritySection() {
     const j = r && (await r.json().catch(() => null));
     if (r?.ok && j) setV(j); else setErr(j?.error ?? "Couldn't load Authority");
   }, []);
-  useEffect(() => { void call(); const h = setInterval(() => void call(), 30_000); return () => clearInterval(h); }, [call]);
+  const poll = useCallback(() => void call(), [call]);
+  usePoll(poll, pollMs(30_000));
 
   async function stopAll() {
     if (!confirm("Stop everything? Running work stops and nothing runs on its own until you resume on the PC.")) return;
