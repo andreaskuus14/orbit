@@ -3,10 +3,11 @@ import { normalizeUrl } from "@/lib/pure";
 import { createMemory } from "@/lib/memory";
 import { follow } from "@/lib/follows";
 import { readIntel, updateIntel } from "@/lib/news-intel";
-import { clusterEvents, cleanPrefs, developments, eventKey, eventRev, excluded, independentSources, LIMIT, storyPayload, titleKey, whyThis, type Art } from "@/lib/news-intel-pure";
+import { FEEDBACK_MAX, clusterEvents, cleanPrefs, matchesPrefs, rankingGate, type Vote, developments, eventKey, eventRev, excluded, independentSources, LIMIT, storyPayload, titleKey, whyThis, type Art } from "@/lib/news-intel-pure";
 
 // INTELLIGENCE → Today / Following / Sources (INT01-07). GET: developments since the last acknowledged revision per topic, the
-// owner's preferences and per-feed health. POST {action}: "prefs", "less" (less like this), "ack" (mark seen), "story" (note/watch/task).
+// owner's preferences and per-feed health. POST {action}: "prefs", "less" (less like this), "ack" (mark seen), "story" (note/watch/task),
+// "feedback" (INT08 story vote; ranking changes only after a held-out check, see rankingGate).
 
 export async function GET() {
   const { sb, res } = await requireUser();
@@ -30,7 +31,8 @@ export async function GET() {
   }).sort((a, b) => b.items.length - a.items.length);
   const { data: feeds } = await sb.from("feeds").select("id, enabled");
   const health = Object.fromEntries((feeds ?? []).map((f) => [f.id, { ...store.health[f.id], disabled: !f.enabled }]));
-  return Response.json({ prefs: store.prefs, topics, health, done: Object.keys(store.done) });
+  const fb = Object.values(store.feedback);
+  return Response.json({ prefs: store.prefs, topics, health, done: Object.keys(store.done), votes: Object.fromEntries(fb.map((f) => [f.key, f.vote])), gate: rankingGate(fb) });
 }
 
 export async function POST(req: Request) {
@@ -65,5 +67,15 @@ export async function POST(req: Request) {
     await updateIntel((s) => { s.done[key] = new Date().toISOString(); });
     return Response.json({ ok: true });
   }
-  return Response.json({ error: 'action must be "prefs", "less", "ack" or "story"' }, { status: 400 });
+  if (b.action === "feedback") {
+    const key = String(b.key ?? "").slice(0, 2000), title = String(b.title ?? "").slice(0, 300), vote = b.vote as Vote, sources = Number(b.sources);
+    if (!key || !title || !["useful", "not_useful", "wrong"].includes(vote) || !Number.isInteger(sources) || sources < 0 || sources > 1000) return Response.json({ error: "Missing story or vote" }, { status: 400 });
+    await updateIntel((s) => {
+      s.feedback[key] = { key, title, vote, at: new Date().toISOString(), sources, matched: matchesPrefs(title, s.prefs) };
+      const all = Object.values(s.feedback).sort((x, y) => y.at.localeCompare(x.at)); // keep the newest FEEDBACK_MAX
+      if (all.length > FEEDBACK_MAX) s.feedback = Object.fromEntries(all.slice(0, FEEDBACK_MAX).map((f) => [f.key, f]));
+    });
+    return Response.json({ ok: true });
+  }
+  return Response.json({ error: 'action must be "prefs", "less", "ack", "story" or "feedback"' }, { status: 400 });
 }

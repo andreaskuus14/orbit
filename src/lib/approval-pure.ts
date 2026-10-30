@@ -17,6 +17,7 @@ export const EFFECTS: Record<string, Effect> = {
   add_wish: "reversible", propose_rule: "reversible", queue_tonight: "reversible", life_check: "reversible", life_add_habit: "reversible", life_remind: "reversible",
   ws_write: "reversible", ws_create: "reversible", ws_fetch_image: "reversible", ws_run: "reversible", ws_stop: "reversible", rea_analyze: "reversible", rea_cancel: "reversible",
   higgsfield_draft: "reversible", // quote only; the spend is story.approve
+  ws_inspire_image: "reversible", // reference words + a quoted draft; the spend is story.approve
   schedule_approved: "publish", // uploads only clips already approved by his click (status "approved")
   // owner-click actions
   "business.send": "outward-send", "contracts.send": "outward-send", "negotiator.approve": "outward-send", "invoices.remind": "outward-send",

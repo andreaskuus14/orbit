@@ -1,10 +1,11 @@
 "use client";
-// ANALYTICS Outcomes / Reliability / Time & cost views (ANA01/03/04/05). Logic: lib/analytics-outcomes-pure.ts.
+// ANALYTICS Outcomes / Reliability / Time & cost views (ANA01/03/04/05), time saved (ANA02), experiments (ANA07), weekly queue (ANA08). Logic: lib/analytics-outcomes-pure.ts.
 // Every headline number opens its records; unknown stays "unknown".
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { linkToHash } from "@/lib/deeplink-pure";
 import { METRICS, outcomeRates, pct, reliability, timeAndCost, units, worstFailure, type MetricId, type Rate, type TaskRow, type UsageCostRow } from "@/lib/analytics-outcomes-pure";
+import { EXP_METRICS, MIN_EXP, experimentResult, improvementQueue, isoWeek, timeSaved, type Calibration, type ExpMetric, type Experiment, type Improvement } from "@/lib/analytics-improve-pure";
 import { useT } from "./i18n";
 import type { Key } from "@/lib/i18n-pure";
 
@@ -80,7 +81,8 @@ export function OutcomesView({ days }: { days: number }) {
       <RateCard id="autonomous" r={o.autonomous} rows={d.rows} label={t("ana.autonomous")} />
       <RateCard id="intervention" r={o.intervention} rows={d.rows} label={t("ana.intervention")} />
       <RateCard id="rework" r={o.rework} rows={d.rows} label={t("ana.rework")} />
-    </div></>; }}</Wrap>;
+    </div>
+    <TimeSaved us={units(d.rows, d.chains)} /></>; }}</Wrap>;
 }
 
 const RCOLS = ["success", "recovery", "timeout", "stale", "duplicate", "verifyFail"] as const;
@@ -95,7 +97,8 @@ export function ReliabilityView({ days }: { days: number }) {
         {RCOLS.map((c) => { const p = pct(r[c]); return <td key={c} className="text-right num" title={t("ana.of", { n: r[c].n, of: r[c].of })}>
           {p == null ? "–" : <details><summary className="link">{p}% <span className="muted">({r[c].of})</span></summary><Records ids={r[c].ids.length ? r[c].ids : r[c].all} rows={d.rows} /></details>}</td>; })}</tr>)}</tbody>
     </table>
-    <p className="muted text-xs">{t("ana.relNote")}</p></>; }}</Wrap>;
+    <p className="muted text-xs">{t("ana.relNote")}</p>
+    <Improve us={us} /></>; }}</Wrap>;
 }
 
 export function TimeCostView({ days }: { days: number }) {
@@ -118,4 +121,88 @@ export function TimeCostView({ days }: { days: number }) {
         {!c.projects.length && <tr><td colSpan={4} className="muted">{t("ana.noTasks")}</td></tr>}</tbody>
     </table>
     <ul className="muted text-xs list-disc pl-4">{c.gaps.map((g) => <li key={g}>{t(g as Key)}</li>)}</ul></>; }}</Wrap>;
+}
+
+type Ana = { calibration: Calibration; experiments: Experiment[]; queued: Record<string, string> };
+function useAna() {
+  const [a, setA] = useState<Ana | null>(null);
+  const [err, setErr] = useState("");
+  const call = useCallback(async (body?: object) => {
+    try {
+      const r = await fetch("/api/analytics", body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Failed (${r.status})`);
+      setA(j); setErr("");
+    } catch (e) { setErr((e as Error).message); }
+  }, []);
+  useEffect(() => { void call(); }, [call]);
+  return { a, err, call };
+}
+type Units = ReturnType<typeof units>;
+const WF = ["single", "chain", "goal", "mission"] as const;
+
+/** ANA02: his own minutes per task type and per touch → an estimate, never a measurement. */
+function TimeSaved({ us }: { us: Units }) {
+  const { t } = useT(); const { a, err, call } = useAna();
+  const [f, setF] = useState<Record<string, string> | null>(null);
+  if (err) return <p className="error text-xs" role="alert">{err}</p>;
+  if (!a) return null;
+  const c = a.calibration, r = timeSaved(us, c);
+  const form = f ?? { ...Object.fromEntries(WF.map((w) => [w, String(c.manual[w] ?? "")])), touch: String(c.touch ?? "") };
+  const n = (v: string) => (v.trim() === "" ? undefined : Number(v));
+  return (
+    <div className="card space-y-1 text-xs">
+      <div className="text-2xl">{r ? t("ana.ts.value", { h: (r.minutes / 60).toFixed(1) }) : t("ana.unknown")}</div>
+      <div className="muted">{t("ana.ts.label")}</div>
+      {r && <ul>{r.rows.map((x) => <li key={x.type}>{t(`ana.wf.${x.type}` as Key)}: {x.gross === null ? t("ana.ts.noCal") : t("ana.ts.row", { a: x.accepted, m: x.manual ?? 0, g: x.gross, s: x.supervision, k: x.touches })}</li>)}</ul>}
+      {r && !!r.uncalibrated.length && <p style={{ color: "#fbbf24" }}>{t("ana.ts.missing", { t: r.uncalibrated.map((w) => t(`ana.wf.${w}` as Key)).join(", ") })}</p>}
+      <details><summary className="link">{t("ana.ts.calibrate")}{c.at ? ` · ${c.at.slice(0, 10)}` : ""}</summary>
+        <form className="mt-1 grid grid-cols-2 gap-1" onSubmit={(e) => { e.preventDefault(); void call({ action: "calibrate", manual: Object.fromEntries(WF.map((w) => [w, n(form[w])])), touch: n(form.touch) }).then(() => setF(null)); }}>
+          {WF.map((w) => <label key={w}>{t("ana.ts.manual", { w: t(`ana.wf.${w}` as Key) })}<input className="field w-full" type="number" min="0" max="1440" value={form[w]} onChange={(e) => setF({ ...form, [w]: e.target.value })} /></label>)}
+          <label>{t("ana.ts.touch")}<input className="field w-full" type="number" min="0" max="1440" value={form.touch} onChange={(e) => setF({ ...form, touch: e.target.value })} /></label>
+          <button className="btn self-end">{t("habit.save")}</button>
+        </form>
+      </details>
+    </div>
+  );
+}
+
+/** ANA07 experiments (before/after, not controlled) + ANA08 this week's improvement queue → scoped OPERATIONS proposals. */
+function Improve({ us }: { us: Units }) {
+  const { t } = useT(); const { a, err, call } = useAna();
+  const [f, setF] = useState<{ name: string; change: string; metric: ExpMetric }>({ name: "", change: "", metric: "success" });
+  if (err) return <p className="error text-xs" role="alert">{err}</p>;
+  if (!a) return null;
+  const week = isoWeek(new Date()), queue: Improvement[] = improvementQueue(us, week), now = Date.now();
+  return (
+    <>
+      <div className="card space-y-1 text-xs">
+        <b className="text-sm">{t("ana.q.title", { w: week })}</b>
+        <p className="muted">{t("ana.q.note")}</p>
+        {!queue.length ? <p className="muted">{t("ana.q.none")}</p> : <ul className="space-y-1">{queue.map((i) => (
+          <li key={i.key}><b>{i.title}</b><br /><span className="muted">{i.objective} · {t("ana.q.done", { a: i.acceptance })}</span>
+            <div>{a.queued[i.key] ? <span className="muted">{t("ana.q.sent", { d: a.queued[i.key].slice(0, 10) })}</span>
+              : <button className="chip" onClick={() => void call({ action: "queue", item: i })}>{t("ana.q.send")}</button>}</div></li>
+        ))}</ul>}
+      </div>
+      <div className="card space-y-1 text-xs">
+        <b className="text-sm">{t("ana.x.title")}</b>
+        <p className="muted">{t("ana.x.note")}</p>
+        <form className="grid gap-1" onSubmit={(e) => { e.preventDefault(); void call({ action: "experiment", ...f }).then(() => setF({ ...f, name: "", change: "" })); }}>
+          <input className="field" maxLength={80} placeholder={t("ana.x.name")} aria-label={t("ana.x.name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+          <input className="field" maxLength={300} placeholder={t("ana.x.change")} aria-label={t("ana.x.change")} value={f.change} onChange={(e) => setF({ ...f, change: e.target.value })} />
+          <div className="flex gap-1"><select className="field flex-1" aria-label={t("ana.x.metric")} value={f.metric} onChange={(e) => setF({ ...f, metric: e.target.value as ExpMetric })}>
+            {EXP_METRICS.map((m) => <option key={m} value={m}>{METRICS[m].name}</option>)}</select>
+            <button className="btn" disabled={!f.name.trim() || !f.change.trim()}>{t("ana.x.start")}</button></div>
+        </form>
+        <ul className="space-y-1">{a.experiments.map((e) => { const r = experimentResult(e, us, now); return (
+          <li key={e.id}><b>{e.name}</b> <span className="muted">· {e.change} · {METRICS[e.metric].name} · {e.start.slice(0, 10)}{e.end ? ` → ${e.end.slice(0, 10)}` : ""}</span><br />
+            {t("ana.x.result", { b: r.before.pct ?? "–", bn: r.before.of, a: r.after.pct ?? "–", an: r.after.of, d: r.days })}{" "}
+            <span className={r.enough ? "" : "muted"}>{r.enough ? t("ana.x.diff", { d: `${r.diff! > 0 ? "+" : ""}${r.diff}` }) : t("ana.x.few", { n: MIN_EXP })}</span>
+            {e.decision ? <span className="muted"> · {t(`ana.x.dec.${e.decision}` as Key)}</span> : (
+              <span className="ml-1 inline-flex gap-1">{(["keep", "revert", "inconclusive"] as const).map((dcs) => <button key={dcs} className="chip" onClick={() => void call({ action: "endExperiment", id: e.id, decision: dcs })}>{t(`ana.x.dec.${dcs}` as Key)}</button>)}</span>)}
+          </li>); })}</ul>
+      </div>
+    </>
+  );
 }

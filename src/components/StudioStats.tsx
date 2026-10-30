@@ -609,7 +609,7 @@ type ExpData = ExperimentsView;
 function Experiments() {
   const { t: tr } = useT();
   const [d, setD] = useState<ExpData | null>(null);
-  const [f, setF] = useState({ key: "", hypothesis: "", lesson: "" });
+  const [f, setF] = useState({ key: "", hypothesis: "", lesson: "", variant: "", window: "72h" });
   const [err, setErr] = useState("");
   const load = useCallback(() => {
     fetch("/api/studio/experiments", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j: ExpData | null) => { if (Array.isArray(j?.items)) setD(j); }).catch(() => {});
@@ -619,10 +619,11 @@ function Experiments() {
     setErr("");
     const r = await fetch(`/api/studio/experiments${q}`, init).catch(() => null), j = await r?.json().catch(() => null);
     if (!r?.ok) return setErr(j?.error ?? tr("common.failed"));
-    setF({ key: "", hypothesis: "", lesson: "" }); load();
+    setF({ key: "", hypothesis: "", lesson: "", variant: "", window: "72h" }); load();
   };
   if (!d) return null;
-  const [jobId, clipId] = f.key.split("/");
+  const [jobId, clipId] = f.key.split("/"), [vJob, vClip] = f.variant.split("/");
+  const titleOf = (a: { jobId: string; clipId: string }) => d.clips.find((c) => c.jobId === a.jobId && c.clipId === a.clipId)?.title ?? d.items.find((e) => e.jobId === a.jobId && e.clipId === a.clipId)?.title ?? a.clipId;
   return (
     <Section title={tr("exp.title")}>
       {d.items.length ? <ul className="space-y-2 text-xs">{d.items.map((e) => (
@@ -630,15 +631,26 @@ function Experiments() {
           <p><b>{e.hypothesis}</b> <span className="muted">· {e.title}</span></p>
           <p>{tr(e.key as Key, e.vars)}</p>
           {e.baseline !== undefined && <p className="muted num">{tr("exp.base", { views: compact(e.views ?? 0), base: compact(e.baseline), n: e.n ?? 0, kind: tr(e.likeForLike ? "exp.like" : "exp.any") })}</p>}
+          {e.compare && <div className="muted num">
+            <p>{tr(`exp.cmp.${e.compare.status}` as const, { window: e.compare.window, ratio: e.compare.ratio ?? "" })}</p>
+            <ul>{e.compare.arms.map((a, i) => <li key={`${a.jobId}/${a.clipId}`}>{a.views === undefined ? tr("exp.cmp.armWaiting", { title: i ? titleOf(a) : e.title, window: e.compare!.window })
+              : tr("exp.cmp.arm", { title: i ? titleOf(a) : e.title, views: compact(a.views), at: (a.readAt ?? "").slice(0, 10) })}</li>)}</ul></div>}
+          {e.verdict === "not-supported" && <p className="muted text-[11px]">{tr("exp.kept")}</p>}
           {e.forecast && <p className="muted num">{tr("fc.line", { p50: compact(e.forecast.p50), lo: compact(e.forecast.lo), hi: compact(e.forecast.hi) })}</p>}
           <p className="muted text-[11px]">{tr("exp.lessonIs", { lesson: e.lesson })}{e.version ? ` · ${e.version.videoId} · ${e.version.mediaHash.slice(0, 10)}` : ""}{" "}
             <button className="underline" onClick={() => void send({ method: "DELETE" }, `?id=${e.id}`)}>{tr("exp.remove")}</button></p>
         </li>))}</ul> : <p className="muted text-xs">{tr("exp.none")}</p>}
-      {d.clips.length > 0 && <form className="mt-2 space-y-1 text-xs" onSubmit={(ev) => { ev.preventDefault(); void send({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobId, clipId, hypothesis: f.hypothesis, lesson: f.lesson }) }); }}>
+      {d.clips.length > 0 && <form className="mt-2 space-y-1 text-xs" onSubmit={(ev) => { ev.preventDefault(); void send({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobId, clipId, hypothesis: f.hypothesis, lesson: f.lesson, window: f.window, ...(f.variant && { variants: [{ jobId: vJob, clipId: vClip }] }) }) }); }}>
         <select className="field w-full" aria-label={tr("exp.pick")} value={f.key} onChange={(ev) => setF({ ...f, key: ev.target.value })}>
           <option value="">{tr("exp.pick")}</option>
           {d.clips.map((c) => <option key={`${c.jobId}/${c.clipId}`} value={`${c.jobId}/${c.clipId}`}>{c.title}</option>)}
         </select>
+        <select className="field w-full" aria-label={tr("exp.variant")} value={f.variant} onChange={(ev) => setF({ ...f, variant: ev.target.value })}>
+          <option value="">{tr("exp.variant")}</option>
+          {d.clips.filter((c) => `${c.jobId}/${c.clipId}` !== f.key).map((c) => <option key={`${c.jobId}/${c.clipId}`} value={`${c.jobId}/${c.clipId}`}>{c.title}</option>)}
+        </select>
+        <label className="flex items-center gap-1.5">{tr("exp.window")} <select className="field" value={f.window} onChange={(ev) => setF({ ...f, window: ev.target.value })}>
+          {["24h", "48h", "72h", "7d"].map((w) => <option key={w} value={w}>{w}</option>)}</select></label>
         <input className="field w-full" maxLength={180} placeholder={tr("exp.hypothesis")} aria-label={tr("exp.hypothesis")} value={f.hypothesis} onChange={(ev) => setF({ ...f, hypothesis: ev.target.value })} />
         <input className="field w-full" maxLength={180} placeholder={tr("exp.lesson")} aria-label={tr("exp.lesson")} value={f.lesson} onChange={(ev) => setF({ ...f, lesson: ev.target.value })} />
         <button className="chip" disabled={!f.key || !f.hypothesis.trim() || !f.lesson.trim()}>{tr("exp.add")}</button>
