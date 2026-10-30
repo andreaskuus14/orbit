@@ -117,3 +117,37 @@ test("Estonian deadlines: KMD by the 20th, FIE and OÜ calendars, weekends and h
   assert.match(ou.title, /2026/);
   assert.ok(deadlines({ ...emptyStore().settings, form: "OÜ" }, "2027-06-01", 40).every((d) => d.source.startsWith("https://")));
 });
+
+test("BUS06 refunds lower income and output VAT in the month paid back, and show in the CSV", () => {
+  const i = inv({ refunds: [{ day: "2026-11-02", cents: 62_00, note: "partial", at: "" }] }); // gross 124.00, VAT 24.00
+  const x: Inputs = { invoices: [i], store: store({ settings: { vatRegistered: true } as Store["settings"] }), credits: [] };
+  const oct = pnl(x, "2026-10") as Pnl, nov = pnl(x, "2026-11") as Pnl;
+  assert.equal(oct.sum.income, 100_00);
+  assert.equal(nov.sum.income, -50_00); assert.equal(nov.sum.outVat, -12_00);
+  assert.match(toCsv(x, nov), /2026-11-02,refund,2026-001,Cake Shop: partial,-50\.00,-12\.00,-62\.00/);
+});
+
+test("BUS06 money split: each bucket has its records, pipeline is never in kept cash, digest line uses the same numbers", async () => {
+  const { moneySplit, moneyLine } = await import("../src/lib/money-pure.ts");
+  const today = "2026-10-26";
+  const invoices = [
+    inv({ id: "a", paidAt: "2026-10-05", refunds: [{ day: "2026-10-10", cents: 24_00, note: "", at: "" }] }), // paid 124.00
+    inv({ id: "b", number: "2026-002", status: "sent", paidAt: null, due: "2026-10-01" }), // overdue 124.00
+    inv({ id: "c", number: "2026-003", status: "sent", paidAt: null, due: "2026-11-30" }),
+    inv({ id: "d", number: "2026-004", paidAt: "2026-08-01" }), // outside the window
+    inv({ id: "e", number: "2026-005", status: "draft", paidAt: null }),
+  ];
+  const clients = [{ id: "p1", name: "Cake", stage: "paying", fee: 150 }, { id: "p2", name: "Salon", stage: "pilot", fee: 99 }, { id: "p3", name: "X", stage: "lead", fee: 500 }];
+  const s = moneySplit({ invoices, expenses: [exp({ day: "2026-10-20" }), exp({ id: "old", day: "2026-01-01" })], clients }, today);
+  assert.deepEqual([s.expected.cents, s.pipeline.cents, s.invoiced.cents, s.overdue.cents, s.paid.cents, s.refunds.cents, s.expenses.cents, s.drafts],
+    [150_00, 99_00, 248_00, 124_00, 124_00, 24_00, 12_40, 1]);
+  assert.equal(s.kept, 124_00 - 24_00 - 12_40);
+  assert.deepEqual(s.overdue.items.map((i) => i.id), ["b"]);
+  assert.deepEqual(s.expenses.items.map((i) => i.id), ["e1"]);
+  const line = moneyLine(s, "1 invoice overdue: €124.00");
+  assert.match(line, /€124\.00 paid in, €24\.00 refunded, €12\.40 spent/);
+  assert.match(line, /€248\.00 invoiced, not paid yet · 1 invoice overdue/);
+  assert.match(line, /€150\.00\/month expected from clients \(not cash\)/);
+  assert.doesNotMatch(line, /99/); // pipeline stays out of the digest
+  assert.equal(moneyLine(moneySplit({ invoices: [], expenses: [], clients: [] }, today)), "");
+});

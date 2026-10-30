@@ -175,7 +175,7 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
       if (error) throw error;
       return import("./prospect-crm").then((c) => c.withTouch(data ?? [])).then((ps) => dueFollowups(ps, now));
     }))]);
-  const invP = within(import("./invoices").then(async (x) => (await import("./invoices-pure")).overdueLine(await x.allInvoices(), today))).catch(() => ""); // "2 invoices overdue: …"
+  const invP = within(import("./money").then((x) => x.digestMoney(sb, now))).catch(() => ""); // money-pure moneyLine: same split as BUSINESS → Money
   const nightP = within(import("./night").then((x) => x.getNightReport(sb, userId, now))).catch(() => null); // a failure just drops the section
   const [th, al, ids, cl, dw, dl, ar] = await cardSources;
   const life = ok(l), rec = ok(r), since = ok(sn) as MorningSince | undefined, work = ok(w), st = ok(s), due = ok(bf);

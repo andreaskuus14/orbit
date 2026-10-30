@@ -11,7 +11,7 @@ import { emailIn } from "./business-pure";
 import { resendMail } from "./business-send";
 import { localDay } from "./morning-pure";
 import {
-  approveProblem, reminderContent, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus,
+  approveProblem, reminderContent, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus, addRefund, dropRefund,
   type From, type Invoice, type Seller,
 } from "./invoices-pure";
 
@@ -108,6 +108,9 @@ export async function changeStatus(sb: SupabaseClient, userId: string, b: Record
   if (typeof r !== "string") void emit(sb, userId, "invoice.status", "business", { invoice: r.id, to: r.status });
   return r;
 }
+
+/** His refund record on a paid invoice (BUS06): {action:"refund", id, amount, day?, note?} or {action:"unrefund", id}. Nothing is paid by ORBIT. */
+export const refundInvoice = (b: Record<string, unknown>) => change(b.id, (i) => (b.action === "unrefund" ? dropRefund(i, Date.now()) : addRefund(i, b, Date.now())));
 
 export const draftReminder = (b: Record<string, unknown>) => change(b.id, (i, s) => {
   const r = reminderDraft(i, s.seller, b.lang, today(), Date.now());

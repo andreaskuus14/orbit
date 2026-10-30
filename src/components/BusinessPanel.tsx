@@ -6,7 +6,10 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, sendStamp, type Find, type Lang, type Prospect, type Stage, type Template } from "@/lib/business-pure";
 import { mapNodes, mapSummary } from "@/lib/business-map-pure";
-import { SIG_LABEL, scorecard, type Cell } from "@/lib/outreach-score-pure";
+import { SIG_LABEL, WINDOWS, conversion, lostReasons, nextExperiment, scorecard, stalled, windowed, MIN_N, type Cell, type LRow } from "@/lib/outreach-score-pure";
+import { LOST_REASONS } from "@/lib/prospect-crm-pure";
+import { euro as euroCents } from "@/lib/invoices-pure";
+import type { Bucket, Split } from "@/lib/money-pure";
 import NicheCards from "./NicheCards";
 import InvoicesPanel from "./InvoicesPanel";
 import MoneyPanel from "./MoneyPanel";
@@ -126,7 +129,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
         </>
       )}
 
-      {view === "money" && <>{st && <InvoicesPanel prospects={st.prospects} />}<MoneyPanel /></>}
+      {view === "money" && <><MoneySplit />{st && <InvoicesPanel prospects={st.prospects} />}<MoneyPanel /></>}
 
       {view === "setup" && (
         <>
@@ -140,8 +143,11 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
 }
 
 function Scorecard({ ps }: { ps: Prospect[] }) {
-  const sc = scorecard(ps);
-  if (!sc.segments.some((r) => r.sent)) return null;
+  const { t } = useT();
+  const [days, setDays] = useState<number>(90);
+  const now = Date.now(), rows = windowed(ps as LRow[], days, now), sc = scorecard(rows);
+  if (!scorecard(ps).segments.some((r) => r.sent)) return null;
+  const w = days ? t(`biz.conv.w${days}` as "biz.conv.w30") : t("biz.conv.w0");
   const table = (label: string, head: string, rows: Cell[]) => (
     <table className="w-full text-xs" aria-label={label}>
       <thead className="muted text-left"><tr><th>{head}</th><th className="text-right">Sent</th><th className="text-right">Replied</th><th className="text-right">Rate</th><th className="text-right" title="95% range: where the true rate probably is">Range</th><th className="pl-2">Hint</th></tr></thead>
@@ -149,12 +155,63 @@ function Scorecard({ ps }: { ps: Prospect[] }) {
         <td className="num text-right muted">{r.sent ? `${r.low}–${r.high}%` : "–"}</td><td className={`pl-2 ${r.sig === "better" ? "ok" : r.sig === "worse" ? "error" : "muted"} !text-xs`}>{r.sent ? SIG_LABEL[r.sig] : ""}</td></tr>)}</tbody>
     </table>
   );
+  const steps = conversion(rows, now), lost = lostReasons(rows), stuck = stalled(ps as LRow[], now), exp = nextExperiment(rows, now);
+  const label = (s: string) => STAGE_LABEL[s as Stage] ?? s;
+  const cell = exp?.angle && sc.angles.find((a) => a.key === exp.angle);
   return (
     <section className="card space-y-2" aria-label="Outreach scorecard">
-      <h3 className="text-[11px] uppercase tracking-widest muted">Outreach scorecard</h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-[11px] uppercase tracking-widest muted">Outreach scorecard</h3>
+        <span className="flex gap-1" role="group" aria-label={t("biz.conv.window")}>{WINDOWS.map((d) => <button key={d} className="chip" aria-pressed={days === d} onClick={() => setDays(d)}>{t(`biz.conv.w${d}` as "biz.conv.w30")}</button>)}</span>
+      </div>
       {sc.angles.some((r) => r.sent) && table("Reply rate per message angle", "Angle", sc.angles)}
-      {table("Reply rate per business type", "Business type", sc.segments)}
-      {sc.next && <p className="text-xs">Next angle to try: <b>{sc.next.angle}</b> <span className="muted">· {sc.next.why}. Pick it in a draft's Angle menu; sending stays your click.</span></p>}
+      {sc.segments.length > 0 && table("Reply rate per business type", "Business type", sc.segments)}
+      <table className="w-full text-xs" aria-label={t("biz.conv.title")}>
+        <thead className="muted text-left"><tr><th>{t("biz.conv.step")}</th><th className="text-right">{t("biz.conv.n")}</th><th className="text-right">{t("biz.conv.k")}</th><th className="text-right">{t("biz.conv.rate")}</th><th className="text-right">{t("biz.conv.range")}</th><th className="text-right">{t("biz.conv.open")}</th></tr></thead>
+        <tbody>{steps.map((s) => <tr key={s.from}><td>{label(s.from)} → {label(s.to)}</td><td className="num text-right">{s.n}</td><td className="num text-right">{s.k}</td><td className="num text-right">{s.n ? `${s.rate}%` : "–"}</td>
+          <td className="num text-right muted">{s.n ? `${s.low}–${s.high}%` : "–"}</td><td className="num text-right muted">{s.open}</td></tr>)}</tbody>
+      </table>
+      {lost.length > 0 && <p className="text-xs"><span className="muted">{t("biz.conv.lost")}:</span> {lost.map((l) => `${t(`biz.lost.${l.reason}` as "biz.lost.price")} ${l.n} (${Object.entries(l.after).map(([s, n]) => `${t("biz.conv.after", { s: label(s) })} ${n}`).join(", ")})`).join(" · ")}</p>}
+      {stuck.length > 0 && <p className="text-xs"><span className="muted">{t("biz.conv.stalled")}:</span> {stuck.slice(0, 6).map((x) => `${x.name} · ${label(x.stage)} · ${t("biz.conv.days", { d: x.days })}`).join(" · ")}</p>}
+      {exp && (
+        <div className="rounded-md border border-white/10 p-2 text-xs space-y-0.5">
+          <p className="font-semibold">{t("biz.exp.title", { n: MIN_N })}</p>
+          <p>{t(`biz.exp.${exp.kind}` as "biz.exp.few", { n: MIN_N, angle: exp.angle ?? "", k: cell ? cell.replied : 0, s: exp.kind === "stalled" ? exp.stalledN ?? 0 : cell ? cell.sent : 0, from: exp.step ? label(exp.step.from) : "", r: exp.reasonN ?? 0 })}</p>
+          {exp.step && <p className="muted">{t("biz.exp.basis", { from: label(exp.step.from), to: label(exp.step.to), k: exp.step.k, n: exp.step.n, rate: exp.step.rate, low: exp.step.low, high: exp.step.high, w })}</p>}
+          <p className="muted">{t("biz.exp.manual")}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** BUS06: the money split. Expected and pipeline are never cash; each total opens the records behind it. */
+function MoneySplit() {
+  const { t } = useT();
+  const [s, setS] = useState<Split | null>(null);
+  const [open, setOpen] = useState("");
+  const [err, setErr] = useState("");
+  useEffect(() => { fetch("/api/business/money?split=1", { cache: "no-store" }).then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`); setS(j); }).catch((e: Error) => setErr(e.message)); }, []);
+  if (err) return <StateNote state="failed" what={err} />;
+  if (!s) return null;
+  const cards: [string, Bucket, boolean][] = [["expected", s.expected, false], ["pipeline", s.pipeline, false], ["invoiced", s.invoiced, true], ["overdue", s.overdue, true], ["paid", s.paid, true], ["refunds", s.refunds, true], ["expenses", s.expenses, true]];
+  const shown = cards.find(([k]) => k === open)?.[1];
+  return (
+    <section className="card space-y-2" aria-label={t("biz.split.title", { d: s.days })}>
+      <h3 className="text-[11px] uppercase tracking-widest muted">{t("biz.split.title", { d: s.days })}</h3>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {cards.map(([k, b, cash]) => (
+          <button key={k} className={`card !p-2 text-left ${cash ? "" : "border-dashed opacity-80"}`} aria-pressed={open === k} onClick={() => setOpen(open === k ? "" : k)}>
+            <div className="muted text-[10px] uppercase tracking-widest">{t(`biz.split.${k}` as "biz.split.paid")}</div>
+            <div className={`num text-lg font-semibold ${!cash ? "muted" : k === "overdue" && b.cents ? "warn" : ""}`}>{euroCents(b.cents)}</div>
+            {!cash && <div className="muted text-[10px]">{t("biz.split.notCash")}</div>}
+          </button>))}
+        <div className="card !p-2"><div className="muted text-[10px] uppercase tracking-widest">{t("biz.split.kept")}</div><div className={`num text-lg font-semibold ${s.kept < 0 ? "warn" : ""}`}>{euroCents(s.kept)}</div></div>
+      </div>
+      {shown ? (shown.items.length
+        ? <ul className="text-xs space-y-0.5">{shown.items.map((i, k) => <li key={`${i.id}:${k}`} className="flex justify-between gap-2"><span className="min-w-0 truncate">{i.label}</span><span className="num">{euroCents(i.cents)}</span></li>)}</ul>
+        : <p className="muted text-xs">{t("biz.split.none")}</p>)
+        : <p className="muted text-xs">{t("biz.split.hint")}{s.drafts ? ` ${t("biz.split.drafts", { n: s.drafts })}` : ""}</p>}
     </section>
   );
 }
@@ -255,6 +312,10 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
           <input className="field w-24" inputMode="decimal" value={fee} disabled={any} onChange={(e) => setFee(e.target.value)} onBlur={() => { if (Number(fee || 0) !== p.fee) void update({ fee: fee || 0 }); }} />
         </label>
       )}
+      {p.stage === "lost" && (
+        <label className="flex items-center gap-1.5 text-xs"><span className="muted">{t("biz.lost.reason")}</span>
+          <select className="chip" value={p.crm?.lost?.reason ?? ""} disabled={any} onChange={(e) => void act(`lost:${p.id}`, { action: "lost", id: p.id, reason: e.target.value || null })}>
+            <option value="">{t("biz.lost.unknown")}</option>{LOST_REASONS.map((r) => <option key={r} value={r}>{t(`biz.lost.${r}` as "biz.lost.price")}</option>)}</select></label>)}
       {unverified && <p className="text-xs"><span className="error">{t("biz.crm.web")}</span> <button className="chip" disabled={any} onClick={() => void act(`verify:${p.id}`, { action: "verify", id: p.id })}>{t("biz.crm.verify")}</button></p>}
       {p.stage === "paying" && p.crm?.opsProject && <p className="text-xs muted">✓ {t("biz.crm.delivery")}</p>}
       <Timeline p={p} busy={busy} act={act} />

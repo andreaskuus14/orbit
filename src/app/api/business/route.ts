@@ -7,7 +7,7 @@ import { stopAllOn } from "@/lib/stop-all";
 import { sendDraft } from "@/lib/business-send";
 import { pushNotify } from "@/lib/remote-push";
 import { crmOf, loadCrm, logEvent, updateCrm } from "@/lib/prospect-crm";
-import { claimProblem, deliveryPlan, duplicateOf, EVENT_KINDS, newCrm, touch, type EventKind } from "@/lib/prospect-crm-pure";
+import { claimProblem, deliveryPlan, duplicateOf, EVENT_KINDS, LOST_REASONS, newCrm, touch, type EventKind, type LostReason } from "@/lib/prospect-crm-pure";
 import { FOLLOWUP_SYSTEM, followupPrompt, FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, RESEARCH_SYSTEM, findPrompt, funnel, isTemplate, outreachPrompt, parseDraft, parseFinds, researchPrompt, trimDossier, validatePatch, validateProspect, withDossier, type Lang, type Prospect } from "@/lib/business-pure";
 
 export const dynamic = "force-dynamic";
@@ -157,7 +157,14 @@ export async function POST(req: Request) {
       await updateCrm((s) => { const c = crmOf(s, p); s[p.id] = { ...c, events: [...c.events, { at, kind, ...(typeof b.text === "string" && b.text.trim() && { text: b.text.trim().slice(0, 300) }) }].sort((x, y) => Date.parse(x.at) - Date.parse(y.at)).slice(-200) }; });
       return Response.json({ ok: true });
     }
-    default: return fail("action must be find, research, send, verify, log, add, update, draft, followup or delete");
+    case "lost": { // BUS08: his reason a business said no (or went quiet); null clears it
+      if (b.reason !== null && !LOST_REASONS.includes(b.reason as LostReason)) return fail(`reason must be one of ${LOST_REASONS.join(", ")}`);
+      const { data: p } = await sb.from("prospects").select("id,name,contact,notes").eq("id", b.id as string).maybeSingle();
+      if (!p) return fail("Not found", 404);
+      await updateCrm((s) => { const c = crmOf(s, p); s[p.id] = { ...c, lost: b.reason ? { reason: b.reason as LostReason, at: new Date().toISOString() } : undefined }; });
+      return Response.json({ ok: true });
+    }
+    default: return fail("action must be find, research, send, verify, log, lost, add, update, draft, followup or delete");
   }
 }
 
@@ -165,6 +172,8 @@ export async function POST(req: Request) {
 async function linkDelivery(sb: SupabaseClient, userId: string, p: Prospect) {
   const has = crmOf(await loadCrm(), p).opsProject;
   if (has) return;
-  const { data } = await sb.from("projects").insert({ user_id: userId, ...deliveryPlan(p) }).select("id").single();
+  const { agreedFor, agreedLine } = await import("@/lib/contracts-pure");
+  const agreed = agreedFor(await (await import("@/lib/contracts")).listContracts().catch(() => []), p.id);
+  const { data } = await sb.from("projects").insert({ user_id: userId, ...deliveryPlan(p, agreed ? agreedLine(agreed) : undefined) }).select("id").single();
   if (data?.id) await updateCrm((s) => { s[p.id] = { ...crmOf(s, p), opsProject: data.id }; });
 }

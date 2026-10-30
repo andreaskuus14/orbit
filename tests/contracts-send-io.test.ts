@@ -11,6 +11,7 @@ import ts from "typescript";
 import * as approval from "../src/lib/approval-pure.ts";
 import * as pure from "../src/lib/contracts-pure.ts";
 import * as biz from "../src/lib/business-pure.ts";
+import * as crmPure from "../src/lib/prospect-crm-pure.ts";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/lib/contracts.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 
@@ -32,6 +33,7 @@ async function load(vault: object) {
       if (name === "node:path") return { default: path };
       if (name.endsWith("contracts-pure")) return pure;
       if (name.endsWith("business-pure")) return biz;
+      if (name.endsWith("prospect-crm-pure")) return crmPure;
       if (name.endsWith("/data-dir")) return { orbitDataDir: () => dir };
       if (name.endsWith("/claude")) return { askClaude: () => { throw new Error("no"); }, emit: async () => {}, recordUsage: async () => {}, MODEL: "m" };
       if (name.endsWith("/stop-all")) return { stopAllOn: () => false };

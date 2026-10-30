@@ -24,14 +24,18 @@ export type Invoice = {
   reminder: Reminder | null; // the draft waiting for his approval
   reminded: { at: string; via: "email" | "copy" | "unknown" }[];
   pushedAt?: string; // last phone push about its waiting reminder (once a week at most)
+  refunds?: Refund[]; // money he paid back on a paid invoice (BUS06); counted on its own day, never hidden in "paid"
   created: string; updated: string;
 };
+export type Refund = { day: string; cents: number; note: string; at: string }; // cents: gross (with VAT), as he paid it back
 
 const clean = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim().slice(0, max) : "");
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const isDay = (v: unknown): v is string => typeof v === "string" && DAY_RE.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
 export const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+/** The one money window (BUS06): day falls in the last `days` days up to today. Invoices, Money and the digests all use it. */
+export const inLast = (day: string, today: string, days: number) => { const d = daysBetween(day, today); return d >= 0 && d <= days; };
 
 /** "12,50" / "€12.5" / 12.5 → 1250 cents, or NaN. */
 export function toCents(v: unknown): number {
@@ -166,7 +170,7 @@ export function setStatus(i: Invoice, to: unknown, now: number, s: Seller | null
   const at = new Date(now).toISOString();
   if (to === "sent") {
     if (i.status === "draft") { const why = readyProblem(i, s); if (why) return why; return { ...i, status: "sent", sentAt: at, updated: at }; }
-    if (i.status === "paid") return { ...i, status: "sent", paidAt: null, updated: at };
+    if (i.status === "paid") return i.refunds?.length ? "It has refunds on record: remove them first" : { ...i, status: "sent", paidAt: null, updated: at };
     return "It's already marked sent";
   }
   if (to === "paid") {
@@ -182,18 +186,38 @@ export function setStatus(i: Invoice, to: unknown, now: number, s: Seller | null
   return "Status must be sent, paid or draft";
 }
 
+// ---- Refunds (BUS06) -------------------------------------------------------------
+
+export const MAX_REFUNDS = 20;
+export const refunded = (i: Pick<Invoice, "refunds">) => (i.refunds ?? []).reduce((a, r) => a + r.cents, 0);
+/** His record of money paid back on a paid invoice: at most what is left of its total, on or after the paid day. */
+export function addRefund(i: Invoice, b: Record<string, unknown>, now: number): Invoice | string {
+  if (i.status !== "paid" || !i.paidAt) return "Only a paid invoice can have a refund";
+  const at = new Date(now).toISOString(), day = b.day === undefined || b.day === "" ? at.slice(0, 10) : b.day;
+  if (!isDay(day)) return "Refund date must be YYYY-MM-DD";
+  if (day < i.paidAt) return "A refund can't be before the invoice was paid";
+  const cents = toCents(b.amount), left = totals(i).gross - refunded(i);
+  if (!(cents > 0 && cents <= left)) return `Refund must be a sum between €0.01 and ${euro(left)}`;
+  if ((i.refunds ?? []).length >= MAX_REFUNDS) return "Too many refunds on one invoice";
+  return { ...i, refunds: [...(i.refunds ?? []), { day, cents, note: clean(b.note, 200), at }], updated: at };
+}
+/** Takes back his last refund record (a slip of the finger). */
+export const dropRefund = (i: Invoice, now: number): Invoice | string =>
+  i.refunds?.length ? { ...i, refunds: i.refunds.slice(0, -1), updated: new Date(now).toISOString() } : "No refund to remove";
+
 // ---- Who owes what ----------------------------------------------------------------
 
 export type Owed = { buyer: string; open: number; overdue: number; count: number; oldestDue: string };
-export type Dashboard = { open: number; overdue: number; paid30: number; drafts: number; byBuyer: Owed[] };
-/** Totals in cents: unpaid sent invoices per buyer (most overdue first), plus what came in over the last 30 days. */
+export type Dashboard = { open: number; overdue: number; paid30: number; refunds30: number; drafts: number; byBuyer: Owed[] };
+/** Totals in cents: unpaid sent invoices per buyer (most overdue first), plus what came in (paid30) and went back (refunds30) over the last 30 days. */
 export function dashboard(list: Invoice[], today: string): Dashboard {
   const by = new Map<string, Owed>();
-  let open = 0, overdue = 0, paid30 = 0, drafts = 0;
+  let open = 0, overdue = 0, paid30 = 0, refunds30 = 0, drafts = 0;
   for (const i of list) {
     const g = totals(i).gross;
+    for (const r of i.refunds ?? []) if (inLast(r.day, today, 30)) refunds30 += r.cents;
     if (i.status === "draft") { drafts++; continue; }
-    if (i.status === "paid") { if (i.paidAt && daysBetween(i.paidAt, today) <= 30) paid30 += g; continue; }
+    if (i.status === "paid") { if (i.paidAt && inLast(i.paidAt, today, 30)) paid30 += g; continue; }
     const key = i.buyer.name.toLowerCase(), o = by.get(key) ?? { buyer: i.buyer.name, open: 0, overdue: 0, count: 0, oldestDue: i.due };
     o.open += g; o.count++; open += g;
     if (isOverdue(i, today)) { o.overdue += g; overdue += g; }
@@ -201,7 +225,7 @@ export function dashboard(list: Invoice[], today: string): Dashboard {
     by.set(key, o);
   }
   const byBuyer = [...by.values()].sort((a, b) => b.overdue - a.overdue || a.oldestDue.localeCompare(b.oldestDue));
-  return { open, overdue, paid30, drafts, byBuyer };
+  return { open, overdue, paid30, refunds30, drafts, byBuyer };
 }
 
 // ---- Reminders (drafts only) --------------------------------------------------------

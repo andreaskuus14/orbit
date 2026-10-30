@@ -133,3 +133,36 @@ test("waiting contracts: review only, after the wait; brief items open BUSINESS"
   assert.equal(b[0].id, "contract:a");
   assert.match(b[0].what, /Rullimeister, waiting for your signature/);
 });
+
+test("BUS07 proposals: a changed scope is a visible revision; the accepted version is what delivery points to", async () => {
+  const { revision, agreedFor, withAgreed, agreedLine } = await import("../src/lib/contracts-pure.ts");
+  const t = TEMPLATES.proposal, f: Fields = { ...cleanFields(t, {}), ownerName: "Andreas", partyName: "Cake OÜ", scope: "Enquiry autopilot for the website form", startDate: "1 Nov", endDate: "15 Nov", price: "150", validUntil: "10 Nov" };
+  assert.equal(missing(t, f).length, 0);
+  const v1 = await makeVersion(t, "Proposal", f, {}, 1, "owner", "2026-10-26T10:00:00Z");
+  const v2 = await makeVersion(t, "Proposal", { ...f, scope: f.scope + " and email" }, {}, 2, "owner", "2026-10-27T10:00:00Z");
+  const r = revision(t, v1, v2);
+  assert.ok(r.scope); assert.deepEqual(r.fields.map((x) => x.key), ["scope"]);
+  assert.ok(r.clauses.some((c) => c.id === "scope" && c.pieces.some((p) => p.op === "add" && /email/.test(p.text))));
+  const v3 = await makeVersion(t, "Proposal", { ...f, scope: f.scope + " and email", partyEmail: "a@b.ee" }, {}, 3, "owner", "2026-10-27T11:00:00Z");
+  assert.equal(revision(t, v2, v3).scope, false); // an email address isn't a scope change
+  const c = { id: "c1", title: "Proposal", template: "proposal" as const, status: "countersigned" as Status, at: "", updatedAt: "", source: { kind: "prospect" as const, id: "p1", label: "Cake" },
+    versions: [v1, v2], comments: [], cover: "", signed: { n: 2, hash: v2.hash, at: "", kind: "typed" as const, pdf: "p.pdf", pdfSha: "", pdfId: "vid1" }, countersigned: { at: "2026-10-28T09:00:00Z", note: "" } };
+  const a = agreedFor([c, { ...c, id: "c0", status: "sent" }], "p1")!;
+  assert.equal(a.n, 2); assert.equal(a.href, "/api/vault?file=vid1&raw=1");
+  assert.equal(agreedFor([c], "p2"), null);
+  const d = withAgreed("Delivery plan for Cake.\n1. Kick-off", a);
+  assert.equal(d.split("\n")[1], agreedLine(a));
+  assert.equal(withAgreed(d, { ...a, n: 3 }).split("\n").filter((l) => l.startsWith("Agreed: ")).length, 1);
+});
+
+test("BUS07/BUS04: a proposal's cover email (EN and ET) claims no earlier talk or agreement; the old 'as we agreed' wording would be caught", async () => {
+  const { coverEmail } = await import("../src/lib/contracts-pure.ts");
+  const { claimProblem } = await import("../src/lib/prospect-crm-pure.ts");
+  const f: Fields = { ownerName: "Andreas", partyName: "Cake OÜ" };
+  const en = coverEmail({ title: "Proposal", template: "proposal" }, f), et = coverEmail({ title: "Proposal", template: "proposal" }, f, "Estonian");
+  assert.match(en, /Here's the proposal for Cake OÜ/); assert.match(en, /happy to adjust the scope/);
+  assert.match(et, /^Tere, Cake OÜ!/); assert.match(et, /Mahtu saab hea meelega muuta/);
+  assert.equal(claimProblem(en, []), ""); assert.equal(claimProblem(et, []), "");
+  assert.match(claimProblem(coverEmail({ title: "Service Agreement" }, f), []), /as we agreed/i); // contracts need a logged call or reply
+  assert.equal(claimProblem(coverEmail({ title: "Service Agreement" }, f), [{ at: "2026-10-01T00:00:00Z", kind: "call" }]), "");
+});

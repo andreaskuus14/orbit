@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { allInvoices } from "./invoices";
 import { localDay } from "./morning-pure";
 import { meterCalls } from "./usage-meter";
 import {
-  RECEIPT_TYPES, deadlines, emptyStore, foldApi, parseExpense, patchSettings, pnl, receiptName, setVatPaid, toCsv, type Inputs, type Store,
+  RECEIPT_TYPES, deadlines, emptyStore, foldApi, moneyLine, moneySplit, type Client, parseExpense, patchSettings, pnl, receiptName, setVatPaid, toCsv, type Inputs, type Store,
 } from "./money-pure";
 
 // Money view store and IO (rules: money-pure.ts): <ORBIT data dir>/money.json (settings, expenses, VAT he paid, ORBIT's API spend
@@ -52,6 +53,22 @@ export async function moneyView(period: string) {
   if (typeof p === "string") return p;
   return { pnl: p, settings: x.store.settings, expenses: [...x.store.expenses].sort((a, b) => b.day.localeCompare(a.day)), deadlines: deadlines(x.store.settings, today), today };
 }
+
+/** Clients with a fee (BUSINESS prospects, RLS-scoped); [] when the table can't be read, so money still shows. */
+async function clients(sb: SupabaseClient): Promise<Client[]> {
+  const { data, error } = await sb.from("prospects").select("id,name,stage,fee").in("stage", ["replied", "pilot", "paying"]).limit(500);
+  return error ? [] : (data ?? []).map((c) => ({ ...c, fee: Number(c.fee) || 0 }));
+}
+async function split(sb: SupabaseClient, now: number) {
+  const today = localDay(new Date(now));
+  const [invoices, store, cs] = await Promise.all([allInvoices(), load().catch(() => emptyStore()), clients(sb)]);
+  return { s: moneySplit({ invoices, expenses: store.expenses, clients: cs }, today), invoices, today };
+}
+/** BUS06: expected, pipeline, invoiced, paid, refunds and expenses, each with the records behind it. */
+export const splitView = (sb: SupabaseClient, now = Date.now()) => split(sb, now).then((r) => r.s);
+/** The morning card's and night report's money line; same definitions as splitView. Never throws. */
+export const digestMoney = (sb: SupabaseClient, now = Date.now()) =>
+  Promise.all([split(sb, now), import("./invoices-pure")]).then(([r, ip]) => moneyLine(r.s, ip.overdueLine(r.invoices, r.today)), () => "");
 
 export async function moneyCsv(period: string): Promise<string> {
   const x = await inputs(), p = pnl(x, period);

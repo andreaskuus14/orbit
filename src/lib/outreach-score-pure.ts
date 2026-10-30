@@ -56,3 +56,71 @@ export function nextAngle(angles: Cell[]): { angle: Template; why: string } | nu
 }
 
 export const SIG_LABEL: Record<Sig, string> = { few: "too few to tell", better: "likely better (p<0.05)", worse: "likely worse (p<0.05)", same: "could be chance" };
+
+// ---- Conversion learning (BUS08): every step of the funnel with its sample size and window, why deals were lost or
+// stalled, and one next experiment aimed at the weakest step. Built from the stages, timeline and lost reasons he logged.
+
+const ORDER = ["lead", "contacted", "replied", "pilot", "paying"] as const;
+const DAY = 86_400_000;
+type Ev = { at: string; kind: string; text?: string };
+export type LRow = Row & { id: string; name: string; updated_at: string; crm?: { events: Ev[]; lost?: { reason: string } }; touch?: { last: string } | null };
+/** Days without real contact after which an open deal counts as stalled (and as decided, not won, in conversion). */
+export const STALL_DAYS: Record<"contacted" | "replied" | "pilot", number> = { contacted: 14, replied: 10, pilot: 30 };
+export const WINDOWS = [30, 90, 0] as const; // days; 0 = all time
+
+/** How far it got: its stage, or the furthest stage in its timeline (a lost business keeps that; lost counts as at least sent). */
+export function reached(p: LRow): number {
+  const ev = p.crm?.events ?? [];
+  const r = Math.max(ORDER.indexOf(p.stage as (typeof ORDER)[number]), ...ev.map((e) => (e.kind === "stage" ? ORDER.indexOf(e.text as (typeof ORDER)[number]) : e.kind === "reply" ? 2 : e.kind === "sent" ? 1 : -1)));
+  return p.stage === "lost" ? Math.max(1, r) : r;
+}
+/** When the first message went out: the first logged send, else the last update of a business past "To contact". */
+export const sentAt = (p: LRow) => p.crm?.events.find((e) => e.kind === "sent")?.at ?? (p.stage !== "lead" ? p.updated_at : null);
+export const windowed = (ps: LRow[], days: number, now: number) => (days ? ps.filter((p) => { const a = sentAt(p); return !!a && now - Date.parse(a) <= days * DAY; }) : ps);
+
+export type Stall = { id: string; name: string; stage: keyof typeof STALL_DAYS; days: number };
+export function stalled(ps: LRow[], now: number): Stall[] {
+  return ps.flatMap((p) => {
+    if (!(p.stage in STALL_DAYS)) return [];
+    const days = Math.floor((now - Date.parse(p.touch?.last ?? p.updated_at)) / DAY), stage = p.stage as Stall["stage"];
+    return days >= STALL_DAYS[stage] ? [{ id: p.id, name: p.name, stage, days }] : [];
+  }).sort((a, b) => b.days - a.days);
+}
+
+export type Step = { from: string; to: string; n: number; k: number; rate: number; low: number; high: number; open: number };
+/** Each step: of those that reached `from` and are decided (moved on, lost, or stalled), how many reached `to`. Still-open ones are counted apart. */
+export function conversion(ps: LRow[], now: number): Step[] {
+  const stuck = new Set(stalled(ps, now).map((s) => s.id));
+  return ([[1, 2], [2, 3], [3, 4]] as const).map(([a, b]) => {
+    const at = ps.filter((p) => reached(p) >= a), won = at.filter((p) => reached(p) >= b);
+    const decided = at.filter((p) => reached(p) >= b || p.stage === "lost" || stuck.has(p.id)), [low, high] = wilson(won.length, decided.length);
+    return { from: ORDER[a], to: ORDER[b], n: decided.length, k: won.length, rate: decided.length ? pct(won.length / decided.length) : 0, low, high, open: at.length - decided.length };
+  });
+}
+
+export type Lost = { reason: string; n: number; after: Record<string, number> };
+/** Lost businesses by his reason ("unknown" when he gave none) and the stage they had reached. */
+export function lostReasons(ps: LRow[]): Lost[] {
+  const m = new Map<string, Lost>();
+  for (const p of ps.filter((x) => x.stage === "lost")) {
+    const reason = p.crm?.lost?.reason ?? "unknown", l = m.get(reason) ?? { reason, n: 0, after: {} }, st = ORDER[reached(p)];
+    l.n++; l.after[st] = (l.after[st] ?? 0) + 1; m.set(reason, l);
+  }
+  return [...m.values()].sort((a, b) => b.n - a.n);
+}
+
+/** One experiment for the next MIN_N businesses, aimed at the weakest decided step (lowest rate among steps with MIN_N outcomes).
+ *  kind picks the wording (UI strings biz.exp.*): "few" = not enough outcomes yet, "angle" = test a first-message angle,
+ *  a lost reason = answer that reason, "stalled" = pilots/replies going quiet, "unknown" = log reasons first. */
+export type Experiment = { kind: string; step: Step | null; angle?: Template; why?: string; reason?: string; reasonN?: number; stalledN?: number };
+export function nextExperiment(ps: LRow[], now: number): Experiment | null {
+  const steps = conversion(ps, now), ok = steps.filter((s) => s.n >= MIN_N);
+  const na = nextAngle(scorecard(ps).angles);
+  if (!ok.length) return { kind: "few", step: steps[0], ...(na && { angle: na.angle, why: na.why }) };
+  const w = [...ok].sort((a, b) => a.rate - b.rate || b.n - a.n)[0];
+  if (w.from === "contacted") return na ? { kind: "angle", step: w, angle: na.angle, why: na.why } : null;
+  const top = lostReasons(ps).map((l) => ({ reason: l.reason, n: l.after[w.from] ?? 0 })).filter((l) => l.n).sort((a, b) => b.n - a.n)[0];
+  const stalledN = stalled(ps, now).filter((s) => s.stage === w.from).length;
+  if (top && top.reason !== "unknown") return { kind: top.reason, step: w, reason: top.reason, reasonN: top.n, stalledN };
+  return stalledN ? { kind: "stalled", step: w, stalledN } : { kind: "unknown", step: w, reasonN: top?.n ?? 0 };
+}
