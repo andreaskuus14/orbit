@@ -1,4 +1,5 @@
-// Pure helpers for CORE chat: fast-model routing, live step labels and follow-up chips. No imports: loads in tests and the browser.
+// Pure helpers for CORE chat: fast-model routing, live step labels and follow-up chips. Pure imports only: loads in tests and the browser.
+import { progressLabel } from "./long-work-pure.ts";
 
 const AGENTS = "nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa";
 // Anything that needs memories, tools or real thinking stays on the main model.
@@ -33,7 +34,7 @@ export function stepLabel(tool: string, input: Record<string, unknown> = {}): st
     rea_status: "Checking project analysis…", rea_analyze: "Starting project analysis…", rea_read: "Reading analysis evidence…", rea_cancel: "Stopping analysis…",
     suggestions: "Checking what needs attention…", plan_task: "Starting the plan…", create_goal: "Setting up the goal…", goal_status: "Checking your goals…", wishlist: "Checking your wishlist…", add_wish: "Adding to your wishlist…", propose_rule: "Writing up the rule…", review: "Double-checking the answer…",
   };
-  return labels[tool] ?? "Working…";
+  return labels[tool] ?? progressLabel(tool, input) ?? "Working…";
 }
 
 /** 2-3 follow-up chips from the tools used (first match wins) or the question; [] when nothing fits. */
