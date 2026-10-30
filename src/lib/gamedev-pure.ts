@@ -5,13 +5,13 @@ import type { Bug, DevWorld, Game, Trail } from "./devworld-pure.ts";
 /* ---------- shared validation ---------- */
 class Bad extends Error {}
 export const isBad = (e: unknown): e is Error => e instanceof Bad;
-const no = (m: string): never => { throw new Bad(m); };
-const rec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
-const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+export const no = (m: string): never => { throw new Bad(m); };
+export const rec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+export const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const ID = /^[\w-]{1,64}$/;
 const id = (v: unknown, at: string) => (typeof v === "string" && ID.test(v) ? v : no(`${at}: invalid id`));
 const one = <T extends string>(v: unknown, list: readonly T[], at: string): T => (list.includes(v as T) ? (v as T) : no(`${at} must be one of ${list.join(", ")}`));
-const when = (v: unknown, at: string) => { const t = typeof v === "string" ? Date.parse(v) : NaN; return Number.isFinite(t) ? new Date(t).toISOString() : no(`${at} must be a date`); };
+export const when = (v: unknown, at: string) => { const t = typeof v === "string" ? Date.parse(v) : NaN; return Number.isFinite(t) ? new Date(t).toISOString() : no(`${at} must be a date`); };
 
 /* ---------- DEV01 project contract ---------- */
 export const CONTRACT_FIELDS = ["engine", "repo", "controls", "art", "build", "milestone"] as const;
