@@ -44,6 +44,8 @@ function browser(raw: string | null, now = 1_000_000) {
         if (id.endsWith("habit-nudge-pure")) return {};
         if (id === "./i18n") return { useT: () => ({ t: (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate("en", k, v) }) };
         if (id === "./voice/bus" || id === "./CalendarCard" || id === "./SchoolPanel") return {};
+        if (id.endsWith("dayplan-pure") || id.endsWith("life-plan-pure")) return {};
+        if (id === "./WorkspaceFrame") return { default: () => null, useWorkspaceView: () => ["today", () => {}] };
         return require(id);
       },
     });

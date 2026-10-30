@@ -26,12 +26,12 @@ test("expired focus logs once then starts a full break at restore time, even aft
     const result = restore(expired);
     assert.equal(result.expired, true);
     assert.equal(result.completedMinutes, plan);
-    assert.deepEqual(result.timer, { plan, phase: "break", left: plan / 5 * 60, endAt: now + plan / 5 * 60_000 });
+    assert.deepEqual(result.timer, { plan, phase: "break", left: plan / 5 * 60, endAt: now + plan / 5 * 60_000, at: now });
     // Saving the transition before the POST makes a second reload and the next tick non-logging.
     assert.equal(restore(result.timer).completedMinutes, 0);
     assert.equal(advanceFocusTimer(result.timer, now + 500).completedMinutes, 0);
     const breakEnd = restore(result.timer, result.timer.endAt);
-    assert.deepEqual(breakEnd, { timer: { plan, phase: "focus", endAt: 0, left: plan * 60 }, expired: true, completedMinutes: 0 });
+    assert.deepEqual(breakEnd, { timer: { plan, phase: "focus", endAt: 0, left: plan * 60, at: result.timer.endAt }, expired: true, completedMinutes: 0 });
     assert.equal(restore(breakEnd.timer, now + 172_800_000).completedMinutes, 0);
   }
 });

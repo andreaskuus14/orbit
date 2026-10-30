@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
-import { accept, captureCommitments, commitments, decide, movePlan, planDay, review, setDone } from "@/lib/dayplan";
+import { accept, addTask, adjust, captureCommitments, commitments, decide, movePlan, planDay, review, setDone } from "@/lib/dayplan";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   }
 }
 
-/** { move: id, before: id|null } · { accept: true } · { done: id, value: boolean } · { capture: text } · { commitment: id, ok: boolean, due? } */
+/** { move: id, before: id|null } · { accept: true } · { overrun: id, min } · { task: text } · { done: id, value: boolean } · { capture: text } · { commitment: id, ok: boolean, due? } */
 export async function POST(req: Request) {
   const h = req.headers;
   if (crossSiteBlocked("POST", "/api/dayplan", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
@@ -27,6 +27,11 @@ export async function POST(req: Request) {
   const str = (v: unknown) => (typeof v === "string" && v.length <= 200 ? v : null);
   const out = (r: unknown) => (typeof r === "string" ? Response.json({ error: r }, { status: 400 }) : Response.json({ ok: true, result: r }));
   if (str(b?.move)) return out(await movePlan(sb, user.id, str(b!.move)!, str(b!.before)));
+  if (str(b?.overrun) && Number.isInteger(b!.min)) return out(await adjust(str(b!.overrun)!, b!.min as number));
+  if (typeof b?.task === "string" && b.task.trim() && b.task.length <= 200) {
+    const min = Number(b.min), rank = Number(b.rank), due = typeof b.due === "string" && /^\d{4}-\d\d-\d\d$/.test(b.due) ? b.due : undefined;
+    return out(await addTask(b.task.trim(), { kind: "typed" }, { ...(min >= 10 && min <= 240 && { min: Math.round(min) }), ...(rank >= 1 && rank <= 3 && { rank: Math.round(rank) * 10 }), ...(due && { due }) }));
+  }
   if (b?.accept === true) return out(await accept());
   if (str(b?.done)) return out(await setDone(str(b!.done)!, b!.value !== false));
   if (typeof b?.capture === "string" && b.capture.trim() && b.capture.length <= 5000) return out(await captureCommitments(b.capture, { kind: "typed" }));

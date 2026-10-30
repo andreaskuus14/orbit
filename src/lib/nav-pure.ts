@@ -23,7 +23,7 @@ export type NavTarget = {
   open?: { kind: LinkKind; id: string }; // a record on that planet (deeplink-pure.ts): selects exactly that row
   life?: LifeView; start?: true; // life: LIFE opens on that tab; start (with life "focus"): start the focus timer
 };
-export type LifeView = "today" | "habits" | "focus" | "reminders" | "journal";
+export type LifeView = "today" | "capture" | "review" | "habits" | "focus" | "reminders" | "journal";
 export const NAV_EVENT = "orbit:navigate"; // detail: NavTarget
 /** "local news" means this country. */
 export const LOCAL_COUNTRY = "Estonia";
