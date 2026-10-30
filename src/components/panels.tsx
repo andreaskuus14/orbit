@@ -38,6 +38,7 @@ import { LearnThis, StudyCards } from "./StudyCards";
 import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
+import { OutcomesView, ReliabilityView, TimeCostView } from "./AnalyticsOutcomes";
 import { PredictionScore } from "./OrbitThinks";
 import { PerfRuns } from "./PerfRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
@@ -823,6 +824,8 @@ export function AnalyticsPanel() {
   const { t: tr } = useT();
   const sb = useMemo(() => createClient(), []);
   const [days, setDays] = useState<UsageDays>(7);
+  const views = [{ id: "outcomes", label: tr("ana.views.outcomes") }, { id: "reliability", label: tr("ana.views.reliability") }, { id: "cost", label: tr("ana.views.cost") }, { id: "perf", label: tr("ana.views.perf") }] as const;
+  const [view, setView] = useWorkspaceView("analytics", views);
   const [s, setS] = useState<{ memories: number; messages: number; calls: number; tokens: number; usage: UsageTotal[]; events: { type: string; created_at: string }[] } | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
@@ -842,10 +845,11 @@ export function AnalyticsPanel() {
     return () => { active = false; };
   }, [sb, days]);
   const stat = (n: number | string, l: string) => <div className="card"><div className="text-2xl">{n}</div><div className="muted text-xs">{l}</div></div>;
+  const period = <div className="flex gap-2" role="group" aria-label={tr("an.period")}>{([7, 30] as const).map((d) => <button key={d} className="chip" aria-pressed={days === d} onClick={() => setDays(d)}>{tr("an.lastDays", { n: d })}</button>)}</div>;
   return (
-    <div className="space-y-4">
-      <div className="flex gap-2" role="group" aria-label={tr("an.period")}>{([7, 30] as const).map((d) => <button key={d} className="chip" aria-pressed={days === d} onClick={() => setDays(d)}>{tr("an.lastDays", { n: d })}</button>)}</div>
-      {err ? <p className="error" role="alert">{err}</p> : !s ? <p className="muted" role="status">{tr("common.loading")}</p> : <>
+    <WorkspaceFrame planet="analytics" title={tr("planet.analytics")} context={tr("ana.context")} action={period} views={views} view={view} onView={setView}>
+      {view === "outcomes" ? <OutcomesView days={days} /> : view === "reliability" ? <ReliabilityView days={days} /> : view === "cost" ? <TimeCostView days={days} /> :
+      err ? <p className="error" role="alert">{err}</p> : !s ? <p className="muted" role="status">{tr("common.loading")}</p> : <>
       <div className="grid grid-cols-2 gap-2">{stat(s.memories, tr("an.memories"))}{stat(s.messages, tr("an.messages"))}{stat(s.calls, tr("an.calls", { n: days }))}{stat(s.tokens.toLocaleString(), tr("an.tokens", { n: days }))}</div>
       <table className="w-full text-xs" aria-label={tr("an.tableAria", { n: days })}>
         <thead><tr><th className="text-left">{tr("an.model")}</th><th className="text-right">{tr("an.callsCol")}</th><th className="text-right">{tr("an.tokensCol")}</th></tr></thead>
@@ -860,6 +864,6 @@ export function AnalyticsPanel() {
       <h3 className="h3">{tr("an.recent")}</h3>
       <ul className="space-y-1 text-sm">{s.events.map((e, i) => { const event = eventLabel(e.type); return <li key={i}><span aria-hidden="true">{event.icon}</span> <b>{event.label}</b> <span className="muted">{when(e.created_at)}</span></li>; })}{!s.events.length && <li className="muted">{tr("an.nothing")}</li>}</ul>
       </>}
-    </div>
+    </WorkspaceFrame>
   );
 }
