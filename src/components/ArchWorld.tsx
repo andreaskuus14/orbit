@@ -11,7 +11,7 @@ import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "
 import { useGlRecovery } from "./useGlRecovery";
 import { useT } from "./i18n";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
-import { COST_ASSUMPTIONS, COST_EXCLUDED, MAX, applyOps, boq, boqCsv, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
+import { COST_ASSUMPTIONS, COST_EXCLUDED, MAX, applyOps, boq, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
 import { coach, type FloorType } from "@/lib/arch-structure-pure";
 import { lessonNote, lessonScene, quizScore, type Lesson } from "@/lib/arch-lesson-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
@@ -24,7 +24,10 @@ import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
 import { DaylightPanel, DaylightRooms, type Daylight } from "./ArchDaylight";
 import { ArchEnergy } from "./ArchEnergy";
-import { toIfc } from "@/lib/arch-ifc-pure";
+import { buildExports, EXPORT_LIMITS } from "@/lib/arch-export-pure";
+import { openingIssue, parseDim, showDim, snapCentre, snapGrid } from "@/lib/arch-snap-pure";
+import { addVariant, compare, readVariants, type Comparison, type Variant } from "@/lib/arch-variants-pure";
+import { cleanInputs } from "@/lib/arch-energy-pure";
 import ArchCrit from "./ArchCrit";
 import { ArchMaterials } from "./ArchMaterials";
 import { PortfolioPanel } from "./PortfolioPanel";
@@ -286,6 +289,8 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const revRef = useRef(0), lastSaved = useRef<Scene | null>(null); // ARC01: every scene/prices/site change bumps the revision
   const [save, dispatchSave] = useReducer(saveStep, { status: "idle", rev: 0 });
   const [retry, setRetry] = useState(0);
+  const [variants, setVariants] = useState<Variant[]>([]); // ARC06: saved with the model
+  const [snapStep, setSnapStep] = useState(0.1); // ARC03: 0 = free; otherwise grid step (m) + edge snapping
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -300,6 +305,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
       const ps = s.prices; if (Array.isArray(ps)) setPrices(STARTER_PRICES.map((d) => { const x = ps.find((p) => p.key === d.key); return x && (x.eur === null || Number.isFinite(x.eur)) ? { ...d, ...x } : d; }));
     }
     if (s?.site) setSite({ ...readSite(s.site), on: false });
+    setVariants(readVariants((s as { variants?: unknown } | null)?.variants));
     setReady(true);
     })();
     return () => { alive = false; };
@@ -319,7 +325,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     if (!ready || lesson) return;
     if (lastSaved.current) revRef.current++; // the first run after load is the loaded state itself
     lastSaved.current = scene;
-    const rev = revRef.current, data = { rev, scene, prices, site: { ...site, draft: null } };
+    const rev = revRef.current, data = { rev, scene, prices, site: { ...site, draft: null }, variants };
     let localOk = true;
     try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { localOk = false; } // local backup first, always
     dispatchSave({ type: "start", rev });
@@ -332,7 +338,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
       else dispatchSave({ type: "fail", rev, error: j?.error ?? (localOk ? undefined : "localStorage") });
     }, 800);
     return () => clearTimeout(t);
-  }, [scene, prices, site, ready, lesson, retry]);
+  }, [scene, prices, site, variants, ready, lesson, retry]);
 
   const sceneRef = useRef(scene);
   sceneRef.current = scene; // an AI reply applies to the scene as it is when it lands, not when it was asked
@@ -408,7 +414,15 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const focus = new Set(lesson && ch < lesson.chapters.length ? lesson.chapters[ch].focus : []);
 
   const field = (k: "w" | "d" | "h" | "x" | "z" | "off" | "sill", label: string) => part && <NumField key={`${part.id}-${k}-${part[k]}`} label={label} name={part.name} value={part[k] ?? 0} pos={k === "x" || k === "z" || k === "off"}
-    onCommit={(v) => apply([{ op: "set", id: part.id, [k]: v }])} />;
+    onCommit={(raw) => {
+      const sn = k === "x" || k === "z" ? snapCentre(part, k, raw, scene.parts, snapStep) : { v: snapGrid(raw, snapStep), to: null }, v = snapStep ? sn.v : raw;
+      const bad = isOpening(part.kind) ? openingIssue({ ...part, [k]: v }, scene.parts.find((w) => w.id === part.host)) : null;
+      setMsg(bad ? tr("arch.openingBad", { why: bad }) : sn.to && snapStep ? tr("arch.snappedTo", { name: sn.to }) : "");
+      apply([{ op: "set", id: part.id, [k]: v }]); // an opening that doesn't fit is clamped into its wall by fitOpening
+    }} />;
+  const cost0 = useMemo(() => costLines(boq(scene.parts), prices, scene.parts), [scene.parts, prices]);
+  const exportsList = useMemo(() => buildExports(scene, cost0, { lat: sun.lat, lon: sun.lon }), [scene, cost0, sun.lat, sun.lon]); // ARC07
+  const badOpenings = scene.parts.filter((o) => isOpening(o.kind) && openingIssue(o, scene.parts.find((w) => w.id === o.host)));
 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={tr("arch.region")} style={{ background: bg }}>
@@ -573,10 +587,27 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           )}
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>{tr("arch.startOver")}</button>
           <button className="chip" disabled={!shell} onClick={addInterior} title={tr("arch.wallTitle")}>+ {tr("arch.wall")}</button>
-          <button className="chip" onClick={() => download("arch-bill-of-quantities.csv", boqCsv(cost), "text/csv")}>⬇ {tr("arch.boqCsv")}</button>
-          <button className="chip" onClick={() => download("arch-scene.json", JSON.stringify(scene, null, 2), "application/json")}>⬇ {tr("arch.sceneJson")}</button>
-          <button className="chip" onClick={() => download("arch-model.ifc", toIfc(scene, { site: { lat: sun.lat, lon: sun.lon } }), "application/x-step")} title={tr("arch.ifcTitle")}>⬇ {tr("arch.ifc")}</button>
         </div>
+
+        <div className="card space-y-1.5" aria-label={tr("arch.exports")}>
+          <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.exports")}</div>
+          {exportsList.map((x) => {
+            const label = tr(x.format === "csv" ? "arch.boqCsv" : x.format === "json" ? "arch.sceneJson" : "arch.ifc");
+            return <div key={x.format} className="text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <button className="chip" disabled={!x.ok} onClick={() => download(x.file, x.text, x.type)} title={x.format === "ifc" ? tr("arch.ifcTitle") : undefined}>⬇ {label}</button>
+                <span className={x.ok ? "muted" : "error"} role="status">{x.ok ? tr("arch.exportReady") : tr("arch.exportFailed", { n: x.checks.filter((c) => !c.ok).length })}</span>
+              </div>
+              <details><summary className="cursor-pointer muted">{tr("arch.exportChecks")}</summary>
+                <ul className="muted pl-4">{x.checks.map((c) => <li key={c.name}>{c.ok ? "✓" : "✗"} {c.name}{c.detail ? `: ${c.detail}` : ""}</li>)}</ul>
+                <p className="muted text-[11px]">{EXPORT_LIMITS[x.format]}</p></details>
+            </div>;
+          })}
+          <p className="muted text-[11px]">{tr("arch.exportHow")}</p>
+        </div>
+
+        <ArchVariants variants={variants} setVariants={setVariants} scene={scene} rev={save.rev} prices={prices} site={{ lat: sun.lat, lon: sun.lon }} north={site.north}
+          onChoose={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); }} />
 
         <ArchPlans plot={scene.plot} onPick={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setRun((n) => n + 1); }} />
         {ready && <ArchTimeMachine scene={scene} save={!lesson} onPreview={setPreview} onRestore={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); setScene(s); setSel(null); }} />}
@@ -595,6 +626,10 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <ul className="space-y-0.5">{scene.parts.map((p) => (
             <li key={p.id}><button className="chip w-full justify-between text-left" aria-pressed={p.id === sel} onClick={() => setSel(p.id)}>
               <span>{p.name}</span><span className="muted num">{p.w}×{p.d}×{p.h} m</span></button></li>))}</ul>
+          <label className="flex items-center gap-2 text-xs">{tr("arch.snap")}
+            <select className="field" value={snapStep} onChange={(e) => setSnapStep(Number(e.target.value))}>
+              <option value={0}>{tr("arch.snapOff")}</option>{[0.05, 0.1, 0.5, 1].map((s) => <option key={s} value={s}>{tr("arch.snapStep", { m: s })}</option>)}</select></label>
+          {badOpenings.length > 0 && <p className="error text-xs" role="alert">{tr("arch.openingsOutside", { names: badOpenings.map((o) => o.name).join(", ") })}</p>}
           {part && <div className="flex flex-wrap items-center gap-2 pt-1">
             {isOpening(part.kind) ? <>{field("w", "W")}{field("h", "H")}{field("off", "Off")}{part.kind === "window" && field("sill", "Sill")}
               <select className="field" value={part.face} aria-label={tr("arch.faceAria", { name: part.name })} onChange={(e) => apply([{ op: "set", id: part.id, face: e.target.value as "n" | "e" | "s" | "w" }])}>
@@ -660,15 +695,70 @@ function WalkPad() {
 function NumField({ label, name, value, pos, onCommit }: { label: string; name: string; value: number; pos: boolean; onCommit: (v: number) => void }) {
   const [txt, setTxt] = useState(String(value));
   const commit = () => {
-    const v = Number(txt.replace(",", "."));
-    if (txt.trim() === "" || !Number.isFinite(v)) return setTxt(String(value));
+    const v = parseDim(txt); // typed exact values: "2.4", "240 cm", "2400 mm"
+    if (v === null) return setTxt(String(value));
     const c = pos ? Math.max(-MAX.plot, Math.min(MAX.plot, v)) : Math.max(0.05, Math.min(MAX.size, v));
     if (c !== value) onCommit(c); else setTxt(String(value));
   };
   return (
     <label className="flex items-center gap-1 text-xs"><span className="muted w-4">{label}</span>
       <input className="field w-16" inputMode="decimal" value={txt} aria-label={`${name} ${label} in metres`} onChange={(e) => setTxt(e.target.value)}
-        onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} />
+        onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} title={showDim(value)} /><span className="muted">m</span>
     </label>
+  );
+}
+
+const vid = () => `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+/** ARC06: named variants from a saved revision, compared with shared inputs; choosing one keeps the current model as a variant (and undo). */
+function ArchVariants({ variants, setVariants, scene, rev, prices, site, north, onChoose }: { variants: Variant[]; setVariants: (f: (v: Variant[]) => Variant[]) => void; scene: Scene; rev: number;
+  prices: PriceItem[]; site: { lat: number; lon: number }; north: number; onChoose: (s: Scene) => void }) {
+  const { t: tr } = useT();
+  const [name, setName] = useState(""), [a, setA] = useState("current"), [b, setB] = useState(""), [energy, setEnergy] = useState(true);
+  const [res, setRes] = useState<Comparison | null>(null), [busy, setBusy] = useState(false);
+  useEffect(() => setRes(null), [a, b, scene, prices, energy]);
+  const pick = (id: string) => (id === "current" ? scene : variants.find((v) => v.id === id)?.scene);
+  const run = () => {
+    const sa = pick(a), sb = pick(b); if (!sa || !sb) return;
+    setBusy(true);
+    setTimeout(() => { // shared inputs: the same prices, site, north and energy assumptions for both sides
+      let inp = null; try { inp = energy ? cleanInputs(JSON.parse(localStorage.getItem("orbit.arch.energy.v1") ?? "null")) : null; } catch { inp = energy ? cleanInputs(null) : null; }
+      setRes(compare(sa, sb, { prices, site, north, energy: inp })); setBusy(false);
+    }, 0);
+  };
+  const opt = () => <><option value="current">{tr("arch.varCurrent")}</option>{variants.map((v) => <option key={v.id} value={v.id}>{v.name} · r{v.rev}</option>)}</>;
+  const sg = (n: number, unit = "") => `${n > 0 ? "+" : ""}${Math.round(n * 10) / 10}${unit}`;
+  const rows: [string, (m: Comparison["a"]) => string, number | null][] = res ? [
+    [tr("arch.varArea"), (m) => `${m.area} m²`, res.total.area], [tr("arch.varCost"), (m) => eur(m.cost), res.total.cost], [tr("arch.varUnknown"), (m) => String(m.unknown), res.total.unknown],
+    [tr("arch.varKwh"), (m) => (m.kWh === null ? "—" : `${m.kWh}`), res.total.kWh], [tr("arch.varSun"), (m) => (m.sunDec === null ? "—" : `${m.sunDec} h`), res.b.sunDec !== null && res.a.sunDec !== null ? res.b.sunDec - res.a.sunDec : null]] : [];
+  return (
+    <div className="card space-y-1.5" aria-label={tr("arch.var")}>
+      <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.var")}</div>
+      <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); setVariants((l) => addVariant(l, name, rev, scene, vid())); setName(""); }}>
+        <input className="field flex-1" value={name} maxLength={60} placeholder={tr("arch.varNamePh")} aria-label={tr("arch.varName")} onChange={(e) => setName(e.target.value)} />
+        <button className="chip">{tr("arch.varSave", { rev })}</button>
+      </form>
+      {variants.map((v) => <div key={v.id} className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="font-semibold">{v.name}</span><span className="muted num">r{v.rev} · {v.scene.parts.length} {tr("arch.parts").toLowerCase()}</span>
+        <button className="chip" onClick={() => { setVariants((l) => addVariant(l, tr("arch.varBefore", { name: v.name }), rev, scene, vid())); onChoose(structuredClone(v.scene)); }} title={tr("arch.varChooseTitle")}>{tr("arch.varChoose")}</button>
+        <button className="chip error" onClick={() => setVariants((l) => l.filter((x) => x.id !== v.id))}>{tr("common.remove")}</button>
+      </div>)}
+      {variants.length > 0 && <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <select className="field" value={a} aria-label="A" onChange={(e) => setA(e.target.value)}>{opt()}</select>
+        <span>vs</span>
+        <select className="field" value={b} aria-label="B" onChange={(e) => setB(e.target.value)}><option value="">—</option>{opt()}</select>
+        <label className="flex items-center gap-1"><input type="checkbox" checked={energy} onChange={(e) => setEnergy(e.target.checked)} />{tr("arch.varEnergy")}</label>
+        <button className="chip" disabled={!b || a === b || busy} onClick={run}>{busy ? tr("arch.working") : tr("arch.varCompare")}</button>
+      </div>}
+      {res && <>
+        <table className="w-full text-xs"><thead><tr><th /><th className="text-right">A</th><th className="text-right">B</th><th className="text-right">Δ</th></tr></thead><tbody>
+          {rows.map(([l, f, d]) => <tr key={l}><td>{l}</td><td className="num text-right">{f(res.a)}</td><td className="num text-right">{f(res.b)}</td><td className="num text-right">{d === null ? "—" : sg(d)}</td></tr>)}
+        </tbody></table>
+        <div className="text-xs font-semibold">{tr("arch.varWhy")}</div>
+        {!res.changes.length && <p className="muted text-xs">{tr("arch.varSame")}</p>}
+        <ul className="text-xs">{res.changes.map((c) => <li key={c.id}>{tr(`arch.varCh.${c.type}`)} <b>{c.name}</b>{c.fields.length ? ` (${c.fields.join(", ")})` : ""}: {sg(c.delta.area, " m²")}, {sg(c.delta.cost, " €")}{c.delta.unknown ? `, ${sg(c.delta.unknown)} ${tr("arch.varUnknown").toLowerCase()}` : ""}{c.delta.kWh !== null ? `, ${sg(c.delta.kWh, " kWh")}` : ""}</li>)}
+          {(res.rest.area || res.rest.cost || res.rest.unknown || res.rest.kWh) ? <li className="muted">{tr("arch.varRest")}: {sg(res.rest.area, " m²")}, {sg(res.rest.cost, " €")}{res.rest.kWh !== null ? `, ${sg(res.rest.kWh, " kWh")}` : ""}</li> : null}</ul>
+      </>}
+      <p className="muted text-[11px]">{tr("arch.varNote")}</p>
+    </div>
   );
 }

@@ -39,7 +39,7 @@ export async function POST(req: Request) {
   const run = chain.then(async () => {
     const s = await load(), cur = s.users[user.id];
     if (!acceptSave(cur, body.rev)) return { stale: cur?.rev ?? 0 };
-    s.users[user.id] = { rev: body.rev as number, scene: body.scene!, prices: body.prices, site: body.site, at: new Date().toISOString() };
+    s.users[user.id] = { rev: body.rev as number, scene: body.scene!, prices: body.prices, site: body.site, variants: body.variants, at: new Date().toISOString() };
     await store(s);
     return { rev: body.rev as number };
   });
