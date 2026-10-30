@@ -147,9 +147,10 @@ export async function signContract(sb: SupabaseClient, userId: string, id: unkno
     const at = new Date().toISOString(), t = TEMPLATES[c.template];
     if (await sha256Hex(contractText(t, c.title, v.fields, v.clauses)) !== v.hash) throw new ContractError("This version's text doesn't match its fingerprint: edit it once to make a fresh version", 409);
     const pdf = contractPdf(t, c, v, sig, at);
-    const { saveUpload, listVault } = await import("./vault");
+    const { saveUpload, listVault, readMeta } = await import("./vault");
     const name = await saveUpload(new File([pdf as BlobPart], `${c.title} - ${v.fields.partyName ?? ""} - v${v.n} signed ${at.slice(0, 10)}.pdf`, { type: "application/pdf" }), { taken: (await listVault()).map((f) => f.name) });
-    c.signed = { n: v.n, hash: v.hash, at, kind: sig.kind, pdf: name, pdfSha: await sha256Hex(pdf) };
+    const pdfId = Object.values((await readMeta().catch(() => null))?.files ?? {}).find((f) => f.name === name)?.id;
+    c.signed = { n: v.n, hash: v.hash, at, kind: sig.kind, pdf: name, pdfSha: await sha256Hex(pdf), ...(pdfId && { pdfId }) };
     setStatus(c, to, at);
     return c;
   });

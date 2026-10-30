@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NOT_LEGAL_ADVICE, STATUS_LABEL, TEMPLATES, TEMPLATE_IDS, changed, contractSendContent, current, diffWords, missing, type Contract, type Fields, type Signature, type TemplateId, type VClause, type Version } from "@/lib/contracts-pure";
+import { NOT_LEGAL_ADVICE, STATUS_LABEL, signedHref, TEMPLATES, TEMPLATE_IDS, changed, contractSendContent, current, diffWords, missing, type Contract, type Fields, type Signature, type TemplateId, type VClause, type Version } from "@/lib/contracts-pure";
 import { emailIn, type Prospect } from "@/lib/business-pure";
 import { contentHash } from "@/lib/approval-pure";
 
@@ -161,7 +161,7 @@ function Detail({ c, canSend, busy, act }: { c: Contract; canSend: boolean; busy
 
       {c.signed && (
         <div className="space-y-1.5 text-xs">
-          <p>Signed by you on {c.signed.at.slice(0, 16).replace("T", " ")} UTC (v{c.signed.n}). <a className="underline" href={`/api/vault?file=${encodeURIComponent(c.signed.pdf)}&raw=1`} target="_blank" rel="noreferrer">Open the signed PDF</a> <span className="muted">(in VAULT; print it for the other party to sign and return)</span></p>
+          <p>Signed by you on {c.signed.at.slice(0, 16).replace("T", " ")} UTC (v{c.signed.n}). <a className="underline" href={signedHref(c.signed)} target="_blank" rel="noreferrer">Open the signed PDF</a> <span className="muted">(in VAULT; print it for the other party to sign and return)</span></p>
           {c.status === "signed" && (<>
             <textarea className="field w-full" rows={6} aria-label="Email to the other party" maxLength={4000} value={cover} onChange={(e) => setCover(e.target.value)} onBlur={() => { if (cover !== c.cover) void act("cover", { action: "cover", id: c.id, text: cover }); }} />
             <div className="flex flex-wrap items-center gap-1.5">

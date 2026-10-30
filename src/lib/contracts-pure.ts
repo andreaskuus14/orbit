@@ -252,7 +252,7 @@ export function transition(from: Status, ev: Event, actor: Actor, complete = tru
 // ---- The contract record ---------------------------------------------------------
 
 export type Signature = { kind: "typed"; name: string } | { kind: "drawn"; strokes: number[][] };
-export type Signed = { n: number; hash: string; at: string; kind: Signature["kind"]; pdf: string; pdfSha: string };
+export type Signed = { n: number; hash: string; at: string; kind: Signature["kind"]; pdf: string; pdfSha: string; /** VAULT stable file id (vault-meta), survives renames. */ pdfId?: string };
 export type Comment = { at: string; n: number; text: string };
 export type Contract = {
   id: string; title: string; template: TemplateId; status: Status; at: string; updatedAt: string; reviewAt?: string;
@@ -377,3 +377,6 @@ export function contractPdf(t: Template, c: Pick<Contract, "title">, v: Version,
  *  shortcut: average width, not per-glyph metrics; very wide (all-caps) lines can run a few points into the margin. Add an AFM width table if that shows. */
 import { pdfWrap } from "./pdf-pure.ts";
 export { pdfWrap }; // moved: portfolio uses it without pulling BUSINESS into the browser bundle
+
+/** The VAULT link for a signed contract: by stable id when known (renames keep working), else by the name it was saved under. */
+export const signedHref = (s: Pick<Signed, "pdf" | "pdfId">) => `/api/vault?file=${encodeURIComponent(s.pdfId ?? s.pdf)}&raw=1`;
