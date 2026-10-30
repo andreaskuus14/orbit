@@ -502,7 +502,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       <pointLight position={[-5, -1, -4]} intensity={30} color="#8b5cf6" distance={20} />
       <Planet reduced={reduced} />
       <WarmIn> {/* these arrive with the channel data, after the warm-up */}
-        {live && <Hologram text={`${compactNumber(live.channel.subs)} SUBSCRIBERS`} position={[0, PLANET_R + 2.6, 0]} size={0.3} color="#7df9ff" reduced={reduced} />}
+        {live && mode === "channel" && <Hologram text={`${compactNumber(live.channel.subs)} SUBSCRIBERS`} position={[0, PLANET_R + 2.6, 0]} size={0.3} color="#7df9ff" reduced={reduced} />}
         {live && views28 !== null && <Hologram text={`${compactNumber(views28)} VIEWS · 28 DAYS`} position={[0, PLANET_R + 2.2, 0]} size={0.18} color="#c4b5fd" reduced={reduced} />}
         {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
       </WarmIn>
