@@ -1,13 +1,15 @@
 // Activity log: pure parts (JSONL parse/trim, rows → items, merge), tested in tests/activity.test.ts.
 import { PLANETS } from "./planets.ts";
+import { isOpsTool, OP_ID, receiptId } from "./core-operator-pure.ts";
 
 // Server glue: activity.ts (append-only JSONL for events with no other record); API: /api/activity; UI: ActivityView (OPERATIONS).
 
 export const ACT_AREAS = ["agents", "chains", "goals", "automations", "autopilot", "clips", "core", "operator", "system"] as const;
 export type ActArea = (typeof ACT_AREAS)[number];
 export type ActLink = { task?: string; panel?: string };
-/** How to reverse an autonomous action: delete the memory it saved, or rename a VAULT file back (`to` = its old name). */
-export type ActUndo = { kind: "memory"; id: string } | { kind: "vault-rename"; id: string; to: string };
+/** How to reverse an autonomous action: delete the memory it saved, rename a VAULT file back (`to` = its old name), or put back
+ *  an ORGANIZE write's saved before-state (`op`: core-operator.ts undoOp). */
+export type ActUndo = { kind: "memory"; id: string } | { kind: "vault-rename"; id: string; to: string } | { kind: "op"; id: string };
 /** undid: the undoKey() of the action this line reversed. */
 export type ActItem = { at: string; area: ActArea; title: string; detail?: string; link?: ActLink; undo?: ActUndo; undid?: string };
 export const ACT_MAX = 5000; // lines kept in activity.jsonl
@@ -98,12 +100,15 @@ export function cleanUndo(u: unknown): ActUndo | undefined {
   const { kind, id, to } = u as Record<string, unknown>;
   if (typeof id !== "string" || !id.trim() || id.length > 300) return undefined;
   if (kind === "memory" && /^[\w-]{1,64}$/.test(id)) return { kind, id };
+  if (kind === "op" && OP_ID.test(id)) return { kind, id };
   if (kind === "vault-rename" && typeof to === "string" && to.trim() && to.length <= 300) return { kind, id, to };
   return undefined;
 }
 export const undoKey = (u: ActUndo) => `${u.kind}:${u.id}${u.kind === "vault-rename" ? `>${u.to}` : ""}`;
-/** CORE write → its undo (only save_memory's own "Saved memory … [m:<id>]" receipt; duplicates saved nothing). */
+/** CORE write → its undo (save_memory's own "Saved memory … [m:<id>]" receipt, duplicates saved nothing; an ORGANIZE "Done: … [op:<id>]"). */
 export const undoOf = (tool: string, out: string): { undo?: ActUndo } => {
+  const op = isOpsTool(tool) && out.startsWith("Done:") ? receiptId(out.split("\n")[0]) : undefined;
+  if (op) return { undo: { kind: "op", id: op } };
   const id = tool === "save_memory" && out.startsWith("Saved memory") ? out.match(/\[m:([\w-]{1,64})\]/)?.[1] : undefined;
   return id ? { undo: { kind: "memory", id } } : {};
 };

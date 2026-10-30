@@ -2,7 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agentBlocked, APPROVAL_PATHS, decide, policyEvent, PRIVATE_TOOLS, TIERS, UI_APPROVALS, type PolicyCtx } from "../src/lib/policy-pure.ts";
-import { coreToolRefusal } from "../src/lib/stop-all-pure.ts";
+import { coreToolRefusal, PAUSED_MSG } from "../src/lib/stop-all-pure.ts";
+import { isOpsTool, opsBlocked } from "../src/lib/core-operator-pure.ts";
 import { outboundLeak, outgoing } from "../src/lib/outbound-pure.ts";
 import { actionBlocked, STUDIO_TOOLS, type StudioTool } from "../src/lib/core-studio.ts";
 import { LIFE_TOOLS, lifeWriteBlocked, type LifeTool } from "../src/lib/core-life.ts";
@@ -45,6 +46,7 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   else if (tool === "propose_rule") b = ruleBlocked(question, dataIn()); // standing rules: its runner's guard (rules.ts runRuleTool)
   else if (tool === "ask_agent") b = agentBlocked(question, input.agent, !!attach || steps.some((x) => ["fetch_url", "read_news", "web_search", "ws_fetch_image", "reach_read", "reach_trending", "ask_agent", "business_status"].some((t) => x.startsWith(`You called ${t} `)))); // red-team 8.3: added after 1.3
   else if (tool === "save_checkpoint") b = checkpointBlocked(question); // chat checkpoint: its runner's guard (checkpoint.ts runCheckpointTool)
+  else if (isOpsTool(tool)) b = c.stopAll ? PAUSED_MSG : opsBlocked(tool, question, dataIn(), input); // ORGANIZE (operator category B): its runner's guard (core-operator.ts)
   else if (tool === "save_memory" && !asksToRemember(question)) return "Error: only save when the user asks; reflection handles the rest";
   else if (!(tool in TIERS)) return `Error: unknown tool "${tool}"`;
   return b ? `Error: ${b}` : "";

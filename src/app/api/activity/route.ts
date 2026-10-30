@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { logActivity, readActivity } from "@/lib/activity";
 import { emit } from "@/lib/claude";
 import { cloudMove, cloudOnlyNames, renameFile, VaultError } from "@/lib/vault";
+import { undoOp } from "@/lib/core-operator";
 import { ACT_AREAS, cleanUndo, undoKey, withOpenUndo, autopilotItems, clipItems, goalItems, mergeActivity, taskItems } from "@/lib/activity-pure";
 import { listJobs, readState, studioRoot } from "@/lib/clips/factory";
 
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
   if (res) return res;
   const b = (await req.json().catch(() => null)) as { undo?: unknown; area?: unknown } | null;
   const u = cleanUndo(b?.undo);
-  if (!u) return Response.json({ error: "Expected { undo: { kind: 'memory', id } | { kind: 'vault-rename', id, to } }" }, { status: 400 });
+  if (!u) return Response.json({ error: "Expected { undo: { kind: 'memory', id } | { kind: 'vault-rename', id, to } | { kind: 'op', id } }" }, { status: 400 });
   const area = b?.area === "core" || b?.area === "system" ? b.area : "operator"; // same area as the original line, so the filter hides its Undo
   try {
     if (u.kind === "memory") {
@@ -44,6 +45,8 @@ export async function POST(req: Request) {
       if (data[0].storage_path) await sb.storage.from("vault").remove([data[0].storage_path]).then(({ error: e }) => e && console.error("[orbit] undo: memory deleted but its file was not", e));
       await emit(sb, user.id, "memory.deleted", "memory", { id: u.id });
       logActivity({ area, title: "Undone: memory deleted", undid: undoKey(u) });
+    } else if (u.kind === "op") { // ORGANIZE write (vault_move/rename, lead_update, life_plan, automation_create/pause): its saved before-state
+      logActivity({ area, title: await undoOp(sb, user.id, u.id), undid: undoKey(u) });
     } else {
       const name = await renameFile(u.id, u.to, await cloudOnlyNames(sb, user.id));
       const cloud = name === u.id ? "ok" : await cloudMove(sb, user.id, u.id, name);

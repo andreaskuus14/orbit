@@ -4,10 +4,10 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { orbitDataDir } from "./data-dir";
-import { adjustPlan } from "./life-plan-pure";
-import { localDay } from "./morning-pure";
-import { acceptPlan, approvalItems, buildPlan, carryForward, commitmentItems, dayStat, type DayStat, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure";
+import { orbitDataDir } from "./data-dir.ts";
+import { adjustPlan } from "./life-plan-pure.ts";
+import { localDay } from "./morning-pure.ts";
+import { acceptPlan, approvalItems, buildPlan, carryForward, commitmentItems, dayStat, type DayStat, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure.ts";
 
 type Store = { plan?: DayPlan; prev?: DayPlan; order?: string[]; commitments: Commitment[]; history?: DayStat[] };
 const file = () => path.join(orbitDataDir(), "dayplan.json");
@@ -92,6 +92,12 @@ export const adjust = (id: string, extra: number) => update((s) => {
   return r;
 });
 export const accept = () => update((s) => (s.plan ? (s.plan = acceptPlan(s.plan, new Date().toISOString())) : "No plan yet"));
+/** Operator undo (core-operator.ts): put back the plan as it was, only if nobody changed it since (`now` = what the operator left). */
+export const restorePlan = (before: DayPlan | null, now: DayPlan) => update((s) => {
+  if (JSON.stringify(s.plan ?? null) !== JSON.stringify(now)) return "Today's plan changed since; adjust it in the morning brief";
+  if (before) s.plan = before; else delete s.plan;
+  return "";
+});
 export const setDone = (id: string, done: boolean) => update((s) => {
   if (!s.plan) return "No plan yet";
   const r = markDone(s.plan, id, done);

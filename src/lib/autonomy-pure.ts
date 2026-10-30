@@ -30,7 +30,7 @@ export const AREA_INFO: Record<Area, { label: string; levels: readonly Level[]; 
   contracts: { label: "Contracts", levels: ["off", "ask"], def: "ask", what: "Drafting contracts from a prospect or deal for your review. Only you sign and send them" },
   // Operator mode (AGENTS.md rule 6, owner-granted 2026-10-30): standing grants for whole categories, on by default; "ask" = the old per-action asks.
   "operator-build": { label: "Operator: research & build", levels: ["off", "ask", "do"], def: "do", what: "CORE starts agents, missions, goals and night-shift jobs on its own while pursuing your goal (logged in OPERATIONS → Activity)" },
-  "operator-organize": { label: "Operator: organize my data", levels: ["off", "ask", "do"], def: "do", what: "CORE saves and tags memories on its own (logged with Undo in OPERATIONS → Activity). Nothing is sent, published or spent" },
+  "operator-organize": { label: "Operator: organize my data", levels: ["off", "ask", "do"], def: "do", what: "CORE saves memories, renames and trashes VAULT files, updates BUSINESS lead records, accepts or adjusts today's plan and creates or pauses automations on its own (logged with Undo in OPERATIONS → Activity). Nothing is sent, published or spent" },
 };
 export const LEVEL_TEXT: Record<Level, { label: string; means: string }> = {
   off: { label: "Off", means: "ORBIT never does this, not even when you ask." },
