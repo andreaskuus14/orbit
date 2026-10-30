@@ -34,6 +34,7 @@ import DevSessions from "./DevSessions";
 import CoreConfigPanel from "./CoreConfigPanel";
 import WorkspaceFrame from "./WorkspaceFrame";
 import { useT } from "./i18n";
+import { pickState, type PickState } from "@/lib/panel-states-pure";
 import { AssetRegister, ContractCard, EvidenceLog, ReleasePanel, WorkStepsLine } from "./GameDevViews";
 import { contractBrief } from "@/lib/gamedev-pure";
 import { backlogGoal, fixContext, importDrafts, parseBacklog, sortBacklog } from "@/lib/backlog-pure";
@@ -307,7 +308,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
 
       <section className="glass hud-panel world-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
         aria-label="Game studio">
-        <WorkspaceFrame planet="creation" title={game ? `${t("gd.title")} · ${game.name}` : t("gd.title")} view={view} onView={(v) => setTab(VIEWS[v][0][0])}
+        <WorkspaceFrame planet="creation" title={`${t("gd.title")} · ${game?.name ?? t("gd.noGame")}`} view={view} onView={(v) => setTab(VIEWS[v][0][0])}
           views={VIEW_IDS.map((v) => ({ id: v, label: t(`gd.v.${v}`), secondary: v !== "projects" && !game }))}
           context={game ? contractBrief(game) : t("gd.ctxNone", { n: games.length, b: bugs.filter(isActive).length })}>
         {VIEWS[view].length > 1 && (
@@ -317,7 +318,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
             ))}
           </div>
         )}
-        {needsGame && <p className="muted">{t("gd.pick")}</p>}
+        {needsGame && <GamePicker state={pickState({ loaded: !!world, loadErr, games, selected })} games={games} retry={() => void load()} onPick={setSelected} />}
         {tab === "games" && <LocalBrainLine />}
         <div hidden={tab !== "refs" || needsGame}><RefBoard /></div>
         {tab === "sounds" && !needsGame && <SoundFinder />}
@@ -377,6 +378,21 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
       {/* Portal: like GameLab, so no ancestor's backdrop-filter traps the full-screen game. */}
       {Game && createPortal(<Game onExit={() => setPlaying(null)} />, document.body)}
     </div>
+  );
+}
+
+/** V08: pick the game right where a per-game view needs one; the current view stays open. Switching remounts game-keyed drafts. */
+function GamePicker({ state, games, retry, onPick }: { state: PickState; games: Game[]; retry: () => void; onPick: (id: string) => void }) {
+  const { t } = useT();
+  if (state === "loading" || state === "failed") return <StateNote state={state} action={{ label: t("state.retry"), run: retry }} />;
+  if (state === "empty") return <p className="muted">{t("gd.pickNone")}</p>;
+  return (
+    <label className="block text-sm">{t(state === "unavailable" ? "gd.pickGone" : "gd.pickHere")}
+      <select className="field mt-1 w-full" aria-label={t("gd.pickLabel")} value="" onChange={(e) => e.target.value && onPick(e.target.value)}>
+        <option value="">{t("gd.pickChoose")}</option>
+        {games.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+      </select>
+    </label>
   );
 }
 
