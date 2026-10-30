@@ -3,7 +3,9 @@
 // streak and recall stats, a typed deck, cards from kept lessons, and "Learn this" drafts from one memory that he keeps or edits.
 import { useCallback, useEffect, useState } from "react";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
-import { SESSION, type Card, type Draft } from "@/lib/study-pure";
+import { SESSION, type Card, type Draft, type Review } from "@/lib/study-pure";
+import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
+import { useT } from "./i18n";
 import { api } from "./AgentMission";
 
 // The brief's "3 minutes of cards" may fire before MEMORY mounts: remember it until StudyCards takes it.
@@ -11,10 +13,34 @@ let requested = false;
 if (typeof window !== "undefined") addEventListener(NAV_EVENT, (e) => { if ((e as CustomEvent<NavTarget>).detail?.study) requested = true; });
 export const studyPending = () => requested;
 
-type View = { cards: Card[]; queue: string[]; stats: { total: number; due: number; streak: number; reviewedToday: number; retention: number | null; learned: number };
+type View = { cards: Card[]; log?: Review[]; queue: string[]; stats: { total: number; due: number; streak: number; reviewedToday: number; retention: number | null; learned: number };
   lessons: (Draft & { id: string })[] };
 const GRADES = [["Again", 1], ["Hard", 2], ["Good", 3], ["Easy", 4]] as const;
 const post = (body: object) => api<View>("/api/study", { method: "POST", body: JSON.stringify(body) });
+
+/** MEM07: where the answer came from (opens the memory) and whether that source was corrected since. */
+function SourceLink({ c }: { c: Card }) {
+  const { t } = useT();
+  return <>
+    {c.source === "memory" && c.ref && <button className="link text-xs" onClick={() => dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id: c.ref } }))}>{t("study.source")}</button>}
+    {c.sourceChanged && <span className="warn text-xs" title={t("study.changedHint")}> · {t("study.changed", { d: c.sourceChanged })}</span>}
+  </>;
+}
+
+/** MEM07: earlier versions of a card and its self-ratings, newest first. */
+function CardHistory({ c, log }: { c: Card; log: Review[] }) {
+  const { t } = useT();
+  const mine = log.filter((r) => r.card === c.id).reverse();
+  if (!mine.length && !c.history?.length) return null;
+  return (
+    <details className="ml-2 text-[11px]"><summary className="muted cursor-pointer">{t("study.history", { n: mine.length })}</summary>
+      <ul className="muted">
+        {mine.slice(0, 20).map((r, i) => <li key={i}>{r.day} · {GRADES[r.grade - 1][0]}</li>)}
+        {[...(c.history ?? [])].reverse().map((h, i) => <li key={`h${i}`}>{h.day} · {t(h.why === "source" ? "study.before.source" : "study.before.edit")}: {h.front} :: {h.back}</li>)}
+      </ul>
+    </details>
+  );
+}
 
 /** Editable drafts: he keeps or drops each one, or keeps them all. */
 function Drafts({ drafts, onKeep, onDone }: { drafts: Draft[]; onKeep: (d: Draft[]) => Promise<void>; onDone: () => void }) {
@@ -112,6 +138,7 @@ export function StudyCards() {
             <p className="font-medium">{card.front}</p>
             {flipped ? <>
               <p className="whitespace-pre-wrap border-t border-white/10 pt-2 text-sm">{card.back}</p>
+              <SourceLink c={card} />
               <div className="flex flex-wrap gap-1">{GRADES.map(([label, g]) => <button key={g} className="chip" onClick={() => void grade(g)} aria-keyshortcuts={String(g)}>{label} <span className="muted">{g}</span></button>)}</div>
             </> : <button className="btn" onClick={() => setFlipped(true)} aria-keyshortcuts="Space">Show answer <span className="muted text-xs">Space</span></button>}
           </div>
@@ -147,12 +174,13 @@ export function StudyCards() {
                 <button className="chip ml-1" onClick={() => setEdit(null)}>Cancel</button>
               </li>
             ) : (
-              <li key={c.id} className="flex items-center gap-2 text-xs">
+              <li key={c.id} className="text-xs"><div className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate" title={c.back}>{c.front}</span>
+                <SourceLink c={c} />
                 <span className="muted num shrink-0">{c.source} · due {c.due}</span>
                 <button className="link" onClick={() => setEdit(c)}>Edit</button>
                 <button className="link" onClick={() => { if (confirm("Delete this card?")) void act({ action: "delete", id: c.id }); }}>Delete</button>
-              </li>
+              </div><CardHistory c={c} log={v.log ?? []} /></li>
             ))}
           </ul>
         </details>

@@ -11,6 +11,7 @@ const OWNER_ONLY = new Set([
   "src/app/api/memories/map/route.ts", "src/app/api/memories/reembed/route.ts", // owner's library, map, re-embedding
   "src/app/api/arch/crit/route.ts", "src/app/api/arch/studio/route.ts", "src/lib/study.ts", // one memory the owner picked; owner's studio list
   "src/lib/chronicle.ts", "src/lib/memory-hygiene.ts", "src/lib/reflect.ts", // owner timeline; owner's dedupe suggestions; title dedupe
+  "src/lib/memory-pack.ts", // filtered by packable() in memory-pack-pure.ts (currentOnly + project/chat/journal guard)
   "src/app/api/search/route.ts", // owner's own search (includeJournal: unfiltered by design)
 ]);
 const walk = (d: string): string[] => readdirSync(d).flatMap((f) => { const p = path.join(d, f); return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(f) ? [p] : []; });

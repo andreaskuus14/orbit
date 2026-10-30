@@ -86,6 +86,7 @@ export async function POST(req: Request, { params }: Ctx) {
       if (error) throw new Error(error.message);
       const updated = await rewrite(sb, kids, plan.rebuild, cur.content, plan.patch.content);
       await emit(sb, user.id, "memory.updated", "memory", { id });
+      await import("@/lib/study").then((m) => m.markSourceCorrected(user.id, id)); // MEM07: its study cards keep history, flagged to recheck
       return Response.json({ ok: true, summariesUpdated: updated });
     }
 

@@ -7,7 +7,9 @@ export const SOURCES = ["lesson", "arch", "memory", "deck"] as const;
 export type CardSource = (typeof SOURCES)[number];
 export type Grade = 1 | 2 | 3 | 4; // Again, Hard, Good, Easy
 export type Draft = { front: string; back: string };
-export type Card = Draft & { id: string; source: CardSource; ref?: string; created: string; due: string; interval: number; ease: number; reps: number; lapses: number };
+export type Card = Draft & { id: string; source: CardSource; ref?: string; created: string; due: string; interval: number; ease: number; reps: number; lapses: number;
+  history?: Past[]; sourceChanged?: string }; // MEM07: earlier versions (own edits, source corrections); the day its source was corrected, until he rechecks it
+export type Past = Draft & { day: string; why: "edit" | "source" };
 export type Review = { card: string; day: string; grade: Grade; mature: boolean }; // mature: the card had a 1+ day interval before this review
 export type UserStudy = { cards: Card[]; log: Review[] };
 export type Store = { v: 1; users: Record<string, UserStudy> };
@@ -126,6 +128,31 @@ export function parseDrafts(text: string): Draft[] {
     return Array.isArray(j?.cards) ? j.cards.flatMap((c) => { const d = cleanDraft(c); return d ? [d] : []; }).slice(0, MAX.drafts) : [];
   } catch { return []; }
 }
+
+const HISTORY = 10;
+/** His edit: the previous version goes to the card's history, the schedule and review log stay. Clears a "source changed" mark. */
+export function editCard(u: UserStudy, id: string, d: Draft, today: string): boolean {
+  const c = u.cards.find((x) => x.id === id), ok = cleanDraft(d);
+  if (!c || !ok) return false;
+  if (ok.front !== c.front || ok.back !== c.back) c.history = [...(c.history ?? []), { front: c.front, back: c.back, day: today, why: "edit" as const }].slice(-HISTORY);
+  Object.assign(c, ok);
+  delete c.sourceChanged;
+  return true;
+}
+
+/** The memory a card came from was corrected: the card keeps its schedule and reviews, snapshots its current text into history,
+ *  and is marked so he can recheck it against the corrected source. Returns how many cards were marked. */
+export function sourceCorrected(u: UserStudy, ref: string, today: string): number {
+  let n = 0;
+  for (const c of u.cards) if (c.ref === ref) {
+    c.history = [...(c.history ?? []), { front: c.front, back: c.back, day: today, why: "source" as const }].slice(-HISTORY);
+    c.sourceChanged = today; n++;
+  }
+  return n;
+}
+
+/** One card's review history, newest first. */
+export const cardLog = (u: UserStudy, id: string) => u.log.filter((r) => r.card === id).reverse();
 
 /** Only non-journal memories may be studied (journal entries are LIFE: never sent to a model). */
 export const studyable = (m: { kind: string; tags?: string[] | null }) => m.kind !== "journal" && !(m.tags ?? []).includes("journal");

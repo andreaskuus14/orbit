@@ -11,6 +11,7 @@ import { mergedContent } from "@/lib/memory-hygiene-pure";
 import type { Decision, RItem } from "@/lib/memory-review-pure";
 import type { Dup, DupChoice } from "@/lib/memory-capture-pure";
 import { OrbitThinks } from "./OrbitThinks";
+import { SECTIONS, type Pack } from "@/lib/memory-pack-pure";
 
 const TYPES: MemoryType[] = ["preference", "fact", "temporary", "observation", "inferred", "superseded"];
 const day = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
@@ -60,8 +61,39 @@ export function MemoryProjects<T extends Mem>({ items, row }: { items: T[]; row:
   if (!groups.length) return <p className="muted">{t("memws.noProjects")}</p>;
   return <div className="space-y-3">{groups.map((g) => (
     <details key={g.name} className="space-y-2"><summary className="h3 cursor-pointer">{g.name} <span className="muted text-xs">{g.items.length}</span></summary>
+      <HandoverPack project={g.name} />
       <ul className="space-y-2">{(g.items as T[]).map((m) => <li key={m.id}>{row(m)}</li>)}</ul></details>
   ))}</div>;
+}
+
+type PackView = { saved: Pack | null; current: Pack; outdatedSince: string | null };
+/** MEM08: the project's handover pack, its saved revision and whether linked memories changed since. Built on open only. */
+function HandoverPack({ project }: { project: string }) {
+  const { t } = useT();
+  const [v, setV] = useState<PackView | null>(null);
+  const [err, setErr] = useState("");
+  const q = `/api/memories/pack?project=${encodeURIComponent(project)}`;
+  const run = (p: Promise<PackView>) => p.then((x) => { setV(x); setErr(""); }, (e: Error) => setErr(e.message));
+  return (
+    <details className="card space-y-2 text-xs" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && !v) void run(call(q)); }}>
+      <summary className="cursor-pointer"><b>{t("pack.open")}</b>{v && <span className="muted"> · {v.saved ? t("pack.rev", { n: v.saved.rev }) : t("pack.unsaved")}</span>}
+        {v?.outdatedSince && <span className="warn"> · {t("pack.outdated", { d: day(v.outdatedSince) })}</span>}</summary>
+      {err && <p className="error" role="alert">{err}</p>}
+      {v && <>
+        <p className="muted">{t("pack.guard")}</p>
+        {!v.current.sources.length ? <p className="muted">{t("pack.empty")}</p> : <>
+          {SECTIONS.map((s) => !!v.current[s].length && <div key={s}><b>{t(`pack.s.${s}` as Key)}</b>
+            <ul>{v.current[s].map((l) => <li key={l.id} className="line-clamp-2">· {l.text}</li>)}</ul></div>)}
+          {!!v.current.files.length && <div><b>{t("pack.files")}</b><ul>{v.current.files.map((f) => <li key={f.vault} className="num">· vault:{f.vault}</li>)}</ul></div>}
+        </>}
+        {v.saved && v.saved.hash !== v.current.hash && <p className="warn">{t("pack.changed", { n: v.saved.rev })}</p>}
+        <div className="flex flex-wrap gap-2">
+          <button className="btn" disabled={!v.current.sources.length || v.saved?.hash === v.current.hash} onClick={() => run(call("/api/memories/pack", { method: "POST", body: JSON.stringify({ project }) }))}>{t("pack.save")}</button>
+          <a className="chip" href={`${q}&format=md`} download>{t("pack.export")}</a>
+        </div>
+      </>}
+    </details>
+  );
 }
 
 /** Where a memory came from and how far to trust it. Unknown or no-longer-stored sources are said out loud. */
