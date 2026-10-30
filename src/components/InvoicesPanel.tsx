@@ -189,7 +189,7 @@ function Refunds({ i, today, busy, act }: { i: Invoice; today: string; busy: boo
       <div className="flex flex-wrap items-center gap-1.5">
         {left > 0 && <>
           <input className="field w-28" inputMode="decimal" aria-label={t("inv.refundAmount")} placeholder={t("inv.refundAmount")} value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
-          <input className="field" type="date" aria-label="Refund date" value={f.day} onChange={(e) => setF({ ...f, day: e.target.value })} />
+          <input className="field" type="date" aria-label={t("inv.refundDay")} value={f.day} onChange={(e) => setF({ ...f, day: e.target.value })} />
           <input className="field w-40" aria-label={t("inv.refundNote")} placeholder={t("inv.refundNote")} maxLength={200} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
           <button className="chip" disabled={busy || !f.amount.trim()} onClick={() => void act(`refund:${i.id}`, { action: "refund", id: i.id, ...f }, () => setF({ amount: "", day: today, note: "" }))}>{t("inv.refund")}</button>
         </>}
