@@ -1,6 +1,6 @@
 "use client";
 // Planet workspace frame (G01): header (planet name, one line of context, one primary action), a tab row of views, then the
-// chosen view. The last view per planet is remembered on this device. Pure rules: lib/planet-view-pure.ts.
+// chosen view. Inside a drawer the shell already shows the planet name, so CSS hides this title (.drawer .ws-title). The last view per planet is remembered on this device. Pure rules: lib/planet-view-pure.ts.
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { pickView, viewKey } from "@/lib/view-key-pure";
 import { withView } from "@/lib/deeplink-pure";
@@ -32,11 +32,11 @@ export default function WorkspaceFrame<V extends string>({ planet, title, contex
   };
   return (
     <div className="space-y-3 text-sm">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0"><h2 className="text-[11px] uppercase tracking-widest muted">{title}</h2>{context && <div className="muted text-[12px]">{context}</div>}</div>
+      <header className="ws-head flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0"><h2 className="ws-title text-[11px] uppercase tracking-widest muted">{title}</h2>{context && <div className="ws-ctx muted text-[12px]">{context}</div>}</div>
         {action}
       </header>
-      <div role="tablist" aria-label={title} className="ws-tabs flex flex-wrap gap-1.5">
+      <div role="tablist" aria-label={title} className="ws-tabs flex gap-1.5">
         {views.map((v, i) => (
           <button key={v.id} id={`${planet}-tab-${v.id}`} role="tab" aria-selected={view === v.id} aria-controls={`${planet}-tabpanel`} tabIndex={view === v.id ? 0 : -1}
             className={`chip ${v.secondary ? "muted" : ""}`} style={view === v.id ? { borderColor: "var(--cyan)" } : undefined} onClick={() => onView(v.id)} onKeyDown={(e) => move(e, i)}>

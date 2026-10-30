@@ -69,7 +69,7 @@ test("WakeWord reports the hook's state and resets to off when unmounted", () =>
   assert.equal(got.at(-1), null);
 });
 
-test("WhatsNew gate: body only when the tour is unseen (same rule as parseProgress) or reopened", () => {
+test("WhatsNew gate: body always mounts (it shows only new steps, startup-pure newSince); reopen flips to the full tour", () => {
   const gate = (stored: Record<string, string>) => {
     const c = run("WhatsNew.tsx", (n) => n.endsWith("tour-key-pure") ? { TOUR_KEY, TOUR_EVENT: tour.TOUR_EVENT } : undefined, { localStorage: storage(stored) });
     return { c, out: () => c.render(c.exports.WhatsNew, { home: true }) };
@@ -80,7 +80,7 @@ test("WhatsNew gate: body only when the tour is unseen (same rule as parseProgre
     assert.equal(find(out(), "WhatsNewBody").props.reopen, false, String(raw));
   }
   const seen = gate({ [TOUR_KEY]: JSON.stringify({ at: "x", seen: [], closed: true, done: true }) });
-  assert.equal(seen.out(), null);
+  assert.equal(find(seen.out(), "WhatsNewBody").props.reopen, false);
   seen.c.bus.dispatchEvent(new Event(tour.TOUR_EVENT));
   assert.equal(find(seen.out(), "WhatsNewBody").props.reopen, true);
 });

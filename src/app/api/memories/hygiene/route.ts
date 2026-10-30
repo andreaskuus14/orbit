@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const body = Object(await req.json().catch(() => ({})));
-  const key = typeof body.key === "string" && /^(merge|retract|infer|belief|stale):[0-9a-f:-]{36,80}$/i.test(body.key) ? body.key : null;
+  const key = typeof body.key === "string" && /^(?:(?:merge|retract|infer|belief|stale):[0-9a-f:-]{36,80}|(?:same|contra):[0-9a-f]{8})$/i.test(body.key) ? body.key : null;
   if (!key || !DECISIONS.includes(body.decision)) return Response.json({ error: "key and decision are required" }, { status: 400 });
   await decideHygiene(user.id, key, body.decision);
   await emit(sb, user.id, "memory.hygiene", "memory", { action: key.split(":")[0], decision: body.decision, key });

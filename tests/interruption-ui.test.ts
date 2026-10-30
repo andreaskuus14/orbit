@@ -58,6 +58,7 @@ function ui(component = "Herald", options: { voice?: boolean; hidden?: boolean; 
     if (name.endsWith("interruption-store")) return store;
     if (name.endsWith("/Herald")) return { HeraldToggle: () => null };
     if (name.endsWith("/AlertWatch")) return { AlertWatch: () => null };
+    if (name.endsWith("/startup-store")) return { want() {}, wantingNow: () => [], useWanting: () => [] };
     if (name.endsWith("/sfx")) return { sfx: { chime: () => {}, tick: () => {}, open: () => {}, close: () => {}, whoosh: () => {} } };
     if (name.endsWith("nav-pure")) return { NAV_EVENT: "orbit:navigate" };
     if (name.endsWith("focus-timer-pure")) return { FOCUS_TIMER_KEY: "orbit.focus-timer.v1" };

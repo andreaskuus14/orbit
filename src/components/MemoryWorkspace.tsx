@@ -148,7 +148,12 @@ const fact = (body: object) => call("/api/facts", { method: "POST", body: JSON.s
 /** Runs the owner's decision on the record it belongs to; history is never lost (Correct keeps the original as history). */
 async function apply(it: RItem, d: Decision, text: string) {
   const [a, b] = it.items, k = it.kind;
-  if (d === "accepted") {
+  if (it.target === "entity" && d !== "snoozed") // recorded by the entity check itself; it drops the item from its list
+    return void await call("/api/memories/entities", { method: "POST", body: JSON.stringify({ key: it.key, choice: text || (d === "accepted" ? "same" : k === "entity-same" ? "different" : "skip") }) });
+  if (d === "accepted" && (k === "rerun" || k === "version")) { // archive the older one: out of retrieval, kept as history
+    const y = await call(`/api/memories/${b.id}`);
+    await call(`/api/memories/${b.id}`, { method: "PATCH", body: JSON.stringify({ tags: [...(y.memory.tags ?? []), "superseded"] }) });
+  } else if (d === "accepted") {
     if (k === "merge") {
       const [x, y] = await Promise.all([call(`/api/memories/${a.id}`), call(`/api/memories/${b.id}`)]);
       const content = mergedContent(String(x.memory.content ?? ""), String(y.memory.content ?? ""));
@@ -169,6 +174,26 @@ async function apply(it: RItem, d: Decision, text: string) {
   }
   if (d === "dismissed" && k === "inferred-belief") await fact({ action: "wrong", id: a.id }); // a discarded guess stops being believed (history kept)
   await call("/api/memories/hygiene", { method: "POST", body: JSON.stringify({ key: it.key, decision: d }) });
+}
+
+/** V05: why it was proposed, what each side says (changed facts flagged), the class and what a merge would keep. */
+function MergeDetail({ m }: { m: NonNullable<RItem["merge"]> }) {
+  const { t } = useT();
+  return (
+    <div className="space-y-1 text-xs">
+      {m.cls && <span className="chip text-[10px]">{t(`ent.cls.${m.cls}` as Key)}</span>}
+      {!!m.evidence?.length && <ul className="muted text-[11px]" aria-label={t("ent.why")}>{m.evidence.map((e, i) => <li key={i}>{t(`ent.ev.${e.code}` as Key, { a: e.a, b: e.b })}</li>)}</ul>}
+      {m.sides && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{m.sides.map((sd, i) => (
+        <div key={i} className="min-w-0">
+          <b className="truncate block">{sd.form}</b>
+          {sd.srcs.map((x, j) => <div key={j} className="muted truncate">{x.title} · {x.at.slice(0, 10)}</div>)}
+          {sd.facts.map((f) => <div key={f.attr} className={f.conflict ? "error" : undefined}>{t(`ent.attr.${f.attr}` as Key)}: {f.value} <span className="muted">· {f.at.slice(0, 10)}</span></div>)}
+          {!sd.facts.length && <div className="muted">{t("ent.noFacts")}</div>}
+        </div>))}</div>}
+      {m.keep && <p><span className="muted">{t("ent.keep")}</span> <b>{m.keep.name}</b>{m.keep.facts.map((f) => ` · ${t(`ent.attr.${f.attr}` as Key)}: ${f.value}`).join("")}
+        {m.keep.ask.map((a) => <span key={a} className="error"> · {t(`ent.attr.${a}` as Key)}: {t("ent.youChoose")}</span>)}</p>}
+    </div>
+  );
 }
 
 /** MEM05: the one review queue (top 5): merges, guesses, contradictions and stale project knowledge. */
@@ -194,9 +219,11 @@ export function MemoryReview({ onChanged }: { onChanged: () => void }) {
       {err && <p className="error" role="alert">{err}</p>}
       <ul className="space-y-3">{(list ?? []).map((it) => (
         <li key={it.key} className="space-y-1">
-          <b>{t(`memrev.k.${it.kind}` as Key)}</b>
-          <ul className="text-xs">{it.items.map((x) => <li key={x.id} className="line-clamp-2">· {x.subject ? `${x.subject}: ${x.text}` : x.title}</li>)}</ul>
-          {fix?.key === it.key ? (
+          <b>{it.merge?.relation === "related" ? t("ent.related") : it.kind === "entity-which" ? t("ent.which", { who: it.who === "me" ? t("ent.me") : it.who ?? "", attr: t(`ent.attr.${it.attr}` as Key) }) : t(`memrev.k.${it.kind}` as Key)}</b>
+          <ul className="text-xs">{it.items.map((x) => <li key={x.id} className="line-clamp-2">· {x.subject ? `${x.subject}: ${x.text}` : x.title}
+            {it.kind === "entity-which" && <button className="chip ml-2" onClick={() => act(it, "accepted", x.id)} disabled={!!busy} aria-label={`${t("ent.pick")}: ${x.text}`}>{t("ent.pick")}</button>}</li>)}</ul>
+          {it.merge && <MergeDetail m={it.merge} />}
+          {it.kind === "entity-merged" ? <button className="chip" onClick={() => act(it, "accepted", "undo")} disabled={!!busy}>{busy === it.key ? t("memrev.working") : t("ent.undo")}</button> : fix?.key === it.key ? (
             <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); if (fix.text.trim()) void act(it, "corrected", fix.text.trim()); }}>
               <textarea className="field h-24 w-full" value={fix.text} onChange={(e) => setFix({ ...fix, text: e.target.value })} aria-label={t("memrev.correct")} />
               <p className="muted text-[11px]">{t("memrev.history")}</p>
@@ -204,10 +231,10 @@ export function MemoryReview({ onChanged }: { onChanged: () => void }) {
             </form>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <button className="btn" onClick={() => act(it, "accepted")} disabled={!!busy}>{busy === it.key ? t("memrev.working") : t(`memrev.accept.${it.target === "fact" && it.kind !== "inferred-belief" ? "retract" : it.kind === "merge" ? "merge" : "keep"}` as Key)}</button>
-              <button className="chip" onClick={() => setFix({ key: it.key, text: it.kind === "merge" ? mergedContent(it.items[0].text, it.items[1]?.text ?? "") ?? it.items[0].text : it.items[0].text })} disabled={!!busy}>{t("memrev.correct")}</button>
+              {it.kind !== "entity-which" && <button className="btn" onClick={() => act(it, "accepted")} disabled={!!busy}>{busy === it.key ? t("memrev.working") : it.kind === "entity-same" ? t("ent.yes") : t(`memrev.accept.${it.target === "fact" && it.kind !== "inferred-belief" ? "retract" : it.kind === "merge" ? "merge" : it.kind === "rerun" || it.kind === "version" ? "newest" : "keep"}` as Key)}</button>}
+              {it.target !== "entity" && it.kind !== "rerun" && it.kind !== "version" && <button className="chip" onClick={() => setFix({ key: it.key, text: it.kind === "merge" ? mergedContent(it.items[0].text, it.items[1]?.text ?? "") ?? it.items[0].text : it.items[0].text })} disabled={!!busy}>{t("memrev.correct")}</button>}
               <button className="chip" onClick={() => act(it, "snoozed")} disabled={!!busy}>{t("memrev.snooze")}</button>
-              <button className="chip" onClick={() => act(it, "dismissed")} disabled={!!busy}>{t("memrev.discard")}</button>
+              <button className="chip" onClick={() => act(it, "dismissed")} disabled={!!busy}>{t(it.kind === "entity-same" ? "ent.no" : it.kind === "entity-which" ? "ent.skip" : "memrev.discard")}</button>
               <OrbitThinks id={`hygiene:${it.key}`} />
             </div>
           )}

@@ -14,13 +14,14 @@ import { useT } from "./i18n";
 import { loadJudgment, saveJudgment } from "./interruption-store";
 import { speakChunk, speechSettings, speakingOrJustEnded } from "./voice/speak";
 import { inboxOffer } from "@/lib/herald-watch-pure";
+import { want, wantingNow } from "./startup-store";
 
 const MUTE_EVENT = "orbit:herald-mute";
 const load = () => { try { return parseHerald(localStorage.getItem(HERALD_KEY), Date.now()); } catch { return parseHerald(null, Date.now()); } };
 const save = (s: HeraldState) => { try { localStorage.setItem(HERALD_KEY, JSON.stringify(s)); } catch { /* storage unavailable: a card may repeat after reload */ } };
 const getJson = (u: string) => fetch(u, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const morningDay = (): string | null => { try { return JSON.parse(localStorage.getItem("orbit.morning") || "{}")?.day ?? null; } catch { return null; } }; // MorningCard's saved day
-const MIN = 60_000, COLLAPSE_MS = 12_000;
+const MIN = 60_000, COLLAPSE_MS = 12_000, PILL_MS = 72_000; // card 12 s, then a pill for a minute, then only the bell
 const EVERY = { clips: 10 * MIN, briefs: 15 * MIN, trends: 45 * MIN, inbox: 10 * MIN }; // trends: server caches 30 min; inbox: the server's niche scan (src/lib/herald-watch.ts) does the YouTube calls
 type Notice = NotifyDetail & { key: string };
 type Shown = HeraldCard & { at: number; open: boolean; notice: Notice };
@@ -73,7 +74,7 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
     }
     const waiting = gather.current ? queue.current.filter((n) => classify(n, loadJudgment()) !== "URGENT") : [];
     const r = selectInterruptions(loadJudgment(), queue.current.filter((n) => !waiting.includes(n)), now, {
-      focus: focusRunning(get(FOCUS_TIMER_KEY), now), theater: a.theater,
+      focus: focusRunning(get(FOCUS_TIMER_KEY), now), theater: a.theater, startup: wantingNow().some((s) => s !== "alert"),
       visible: document.visibilityState === "visible", worldOpen: !homeRef.current,
       coreBusy: a.coreBusy || a.localBusy || speakingOrJustEnded(2000), lastTyped: a.lastTyped,
       popupsOff: legacy.mute || legacy.snooze > Date.now(),
@@ -168,17 +169,21 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
     };
   }, [offer, pump]);
 
-  // Collapse to a pill after 12 s, but never while the pointer or keyboard is on the stack.
+  // Collapse to a pill after 12 s (urgent ones leave: the red chip has them), drop the pill a minute later, but never while the pointer or keyboard is on the stack.
   useEffect(() => {
-    if (!cards.some((c) => c.open)) return;
+    if (!cards.length) return;
     const h = setInterval(() => {
       if (hover.current) return;
       const now = Date.now();
-      setCards((cs) => (cs.some((c) => c.open && now - c.at > COLLAPSE_MS) ? cs.map((c) => (c.open && now - c.at > COLLAPSE_MS ? { ...c, open: false } : c)) : cs));
+      setCards((cs) => (cs.some((c) => !c.open && now - c.at > PILL_MS) ? cs.filter((c) => c.open || now - c.at <= PILL_MS) : cs)); // a pill leaves too; the bell keeps it
+      const late = (c: Shown) => c.open && now - c.at > COLLAPSE_MS;
+      // An urgent card leaves instead of becoming a pill: the header's red-alert chip is its persistent entry.
+      setCards((cs) => (cs.some(late) ? cs.flatMap((c) => (!late(c) ? [c] : classify(c.notice, loadJudgment()) === "URGENT" ? [] : [{ ...c, open: false }])) : cs));
     }, 1000);
     return () => clearInterval(h);
   }, [cards]);
   useEffect(() => { if (cards.length < MAX_ON_SCREEN) pump(); }, [cards.length, pump]); // room freed: show what waited
+  useEffect(() => want("alert", cards.some((c) => c.open && classify(c.notice, loadJudgment()) === "URGENT")), [cards]); // startup-pure: alert goes first
 
   useEffect(() => {
     const f = () => { if (load().mute) { setCards([]); queue.current = []; } };
