@@ -9,7 +9,7 @@ import { LIFE_TOOLS } from "../src/lib/core-life.ts";
 import { WS_TOOLS } from "../src/lib/core-workspace.ts";
 import { REA_TOOLS } from "../src/lib/rea-pure.ts";
 
-const base = (o: Partial<PolicyCtx> = {}) => () => ({ stopAll: false, attach: false, pins: false, question: "news about estonia", ...o });
+const base = (o: Partial<PolicyCtx> = {}) => () => ({ stopAll: false, attach: false, pins: false, question: "news about estonia", autonomy: { "operator-build": "ask" as const, "operator-organize": "ask" as const }, ...o }); // per-action ask path (operator grants off)
 
 test("tool names round-trip through the SDK's mcp__orbit__ prefix; built-ins and other servers aren't ours", () => {
   assert.equal(sdkName("fetch_url"), "mcp__orbit__fetch_url");

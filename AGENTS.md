@@ -7,5 +7,14 @@ ORBIT is Andreas's personal AI OS (Next.js 15, React 19, R3F, Supabase). The liv
 3. Do not edit REA files (the owner's reverse-engineering tool and `src/app/api/rea/`). Change code around them.
 4. Before a PR: `npm run gate` must pass (`tsc --noEmit -p .`, `npm test`, the synthetic AI eval `npm run eval:ai`, then `next build`).
 5. Pure logic lives in `*-pure.ts` files with tests in `tests/`.
-6. Read-only access to outside platforms: no posting, logins or cookies. The one exception: ORBIT may send a message
-   (e.g. a BUSINESS email) only after the owner approves that exact message with his own click; never automatically.
+6. Operator mode (standing grants, owner-granted 2026-10-30). ORBIT acts as an operator, not an assistant that asks. Without
+   a per-action confirmation it may:
+   A) research and build: search the web, open public pages, write workspace files, run agents, create tasks, missions and
+      goals, and edit its own workspaces;
+   B) organize the owner's data: save, merge and tag memories, move and rename VAULT files, update BUSINESS lead records
+      (records only), plan LIFE, and create and schedule automations.
+   The owner can switch each category off in Profile → Autonomy. Reading the public web is allowed, but outbound requests
+   must never carry private data. Every autonomous action is logged in OPERATIONS → Activity, with Undo where possible, and
+   Stop-all halts everything. Outside effects that send, publish, upload or spend (messages, emails, posts, uploads,
+   purchases, credits) still run only after the owner approves that exact item with his own click; never automatically.
+   Never log in to outside platforms or use their cookies. Journal/LIFE text never goes to a model or out of ORBIT.

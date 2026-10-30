@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { VaultError, cloudList, cloudOnlyNames, cloudMove, cloudPut, cloudRemove, deleteFile, listDetailed, listTrash, markSync, previewText, purgeTrash, readStream, renameFile, restoreFromCloud, restoreTrash, saveUpload, searchVaultInfo, syncToCloud, usage } from "@/lib/vault";
+import { logActivity } from "@/lib/activity";
 import { MAX_FILE, mergeCloud, serveHeaders } from "@/lib/vault-pure";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +86,7 @@ export async function POST(req: Request) {
     if (body?.action !== "rename" || typeof body.to !== "string" || !body.to.trim()) return Response.json({ error: "Expected { action: 'rename' | 'sync' | 'restore', … }" }, { status: 400 });
     const from = body.name as string; // validated by renameFile
     const name = await renameFile(body.name, body.to, await cloudOnlyNames(sb, user.id));
+    if (name !== from) logActivity({ area: "system", title: `VAULT "${from}" renamed to "${name}"`, undo: { kind: "vault-rename", id: name, to: from } });
     return Response.json({ name, cloud: name === from ? "ok" : await cloudMove(sb, user.id, from, name) });
   } catch (e) { return fail(e); }
 }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { decide, PRIVATE_TOOLS, TIERS, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { STARTS_WORK } from "../src/lib/stop-all-pure.ts";
 
-const ctx = (o: Partial<PolicyCtx> = {}): PolicyCtx => ({ stopAll: false, attach: false, pins: false, steps: [], question: "hello", ...o });
+const ctx = (o: Partial<PolicyCtx> = {}): PolicyCtx => ({ stopAll: false, attach: false, pins: false, steps: [], question: "hello", autonomy: { "operator-build": "ask", "operator-organize": "ask" }, ...o }); // per-action ask path; operator grants: tests/operator.test.ts
 const step = (tool: string, input: object = {}, result = "ok") => `You called ${tool} ${JSON.stringify(input)}\nRESULT:\n${result}`;
 const ok = (tool: string, input: object, c: PolicyCtx) => decide(tool, input as Record<string, unknown>, c).allow;
 

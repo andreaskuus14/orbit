@@ -88,6 +88,7 @@ const BASE = {
   "profile.password": "Sign-in password", "profile.autonomy": "Autonomy", "profile.phone": "Phone remote",
   "trust.title": "Suggestions from your approvals", "trust.line": "You approved {approved} of {total} {kind} this month. Let ORBIT do these on its own?",
   "trust.change": "{area}: Ask → Do & report. Nothing is sent, published or spent without your click.", "trust.accept": "Accept", "trust.later": "Not now",
+  "act.undo": "Undo", "act.undoing": "Undoing…", "act.operator": "Operator",
   "trust.kind.save_memory": "memory saves", "trust.kind.memory.hygiene": "memory merge and retract suggestions", "trust.kind.add_task": "follow-up agent tasks",
   "profile.persona": "ORBIT's character", "profile.playbook": "How CORE has adapted", "profile.lessons": "What I learned about you",
 
@@ -881,6 +882,7 @@ export const ET: Partial<Record<Key, string>> = {
   "profile.password": "Sisselogimise parool", "profile.autonomy": "Iseseisvus", "profile.phone": "Telefonipult",
   "trust.title": "Soovitused sinu kinnituste põhjal", "trust.line": "Sel kuul kinnitasid {total}-st {approved} ({kind}). Kas ORBIT võib neid edaspidi ise teha?",
   "trust.change": "{area}: Küsi → Tee ja teata. Midagi ei saadeta, avaldata ega kulutata ilma sinu klõpsuta.", "trust.accept": "Nõustu", "trust.later": "Mitte praegu",
+  "act.undo": "Võta tagasi", "act.undoing": "Võtan tagasi…", "act.operator": "Operaator",
   "trust.kind.save_memory": "mälukirjete salvestamine", "trust.kind.memory.hygiene": "mälukirjete ühendamise ja tagasivõtmise soovitused", "trust.kind.add_task": "agendi järelülesanded",
   "profile.persona": "ORBITi iseloom", "profile.playbook": "Kuidas CORE on kohanenud", "profile.lessons": "Mida ma sinust õppisin",
 

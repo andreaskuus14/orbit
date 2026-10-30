@@ -6,7 +6,7 @@
 import { localClock, type NightKind } from "./night-pure.ts";
 import type { PushMessage } from "./remote-push-pure.ts";
 
-export const AREAS = ["research", "brief", "memory", "studio-prepare", "studio-publish", "business-drafts", "business-send", "higgsfield-spend", "goals", "night-shift", "deals", "calls", "contracts"] as const;
+export const AREAS = ["research", "brief", "memory", "studio-prepare", "studio-publish", "business-drafts", "business-send", "higgsfield-spend", "goals", "night-shift", "deals", "calls", "contracts", "operator-build", "operator-organize"] as const;
 export type Area = (typeof AREAS)[number];
 export const LEVELS = ["off", "ask", "do", "auto"] as const;
 export type Level = (typeof LEVELS)[number];
@@ -28,6 +28,9 @@ export const AREA_INFO: Record<Area, { label: string; levels: readonly Level[]; 
   calls: { label: "Calls", levels: ["off", "do"], def: "do", what: "Ringing your phone when something needs you" },
   // Never "do" or "auto": ORBIT drafts a contract only when he asks, and NEVER signs or sends one (contracts-pure transition()).
   contracts: { label: "Contracts", levels: ["off", "ask"], def: "ask", what: "Drafting contracts from a prospect or deal for your review. Only you sign and send them" },
+  // Operator mode (AGENTS.md rule 6, owner-granted 2026-10-30): standing grants for whole categories, on by default; "ask" = the old per-action asks.
+  "operator-build": { label: "Operator: research & build", levels: ["off", "ask", "do"], def: "do", what: "CORE starts agents, missions, goals and night-shift jobs on its own while pursuing your goal (logged in OPERATIONS → Activity)" },
+  "operator-organize": { label: "Operator: organize my data", levels: ["off", "ask", "do"], def: "do", what: "CORE saves and tags memories on its own (logged with Undo in OPERATIONS → Activity). Nothing is sent, published or spent" },
 };
 export const LEVEL_TEXT: Record<Level, { label: string; means: string }> = {
   off: { label: "Off", means: "ORBIT never does this, not even when you ask." },
