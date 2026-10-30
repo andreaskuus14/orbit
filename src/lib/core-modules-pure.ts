@@ -67,7 +67,7 @@ export const MODULE_HINTS: Record<string, RegExp> = {
   REACH: hint("trend|viral|reddit|kick|twitch|bluesky|bsky|exploding|blowing up|livestreamfail|lsf", "viraal|plahvat"),
   WORKSPACE: hint("workspace|build|make|create|website|page|file|code|html|preview|ws_|\\bapps?\\b",
     `tööruum|ehita|${W}tee${E}|${W}loo |veebileh|veebisait|${W}leh[te]|äpp|rakendus|fail|${W}kood|eelvaade`),
-  BUSINESS: hint("business|client|lead|prospect|follow.?up|pipeline|customer", `${W}äri|klien|kliend|müügitoru|järelkontakt|huvilis`),
+  BUSINESS: hint("business|client|lead|prospect|follow.?up|pipeline|customer|compan", `${W}äri|ettevõt|firma|klien|kliend|müügitoru|järelkontakt|huvilis`),
   IDEAS: hint("idea", "ide[ei]"),
   HIGGSFIELD: hint("image|picture|photo|video|generat|higgsfield|render|draw", "pil[td]|foto|genere|joonist"),
   GOALS: hint("goal|target|subscriber|milestone|deadline|progress", "eesmär[kg]|sihtmär|tellija|verstapost|tähta[ej]|edenemi|edusamm"),
