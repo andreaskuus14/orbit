@@ -7,7 +7,8 @@ import { askClaude, recordUsage, FAST_MODEL } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { usageHold } from "./usage-meter";
 import { DRAFT_SYSTEM, PROPOSALS_KEPT, PROPOSED_MAX, SKILLS_MAX, addVersion, currentVersion, detectRepeats, draftFromCandidate, draftPrompt, findSkill, isKnown,
-  parseModelDraft, parseRunSkill, parseStore, rollback, skillPrompt, uniqueName, usagesFromMessages, validateDraft, type Skill, type Store } from "./skills-pure";
+  parseModelDraft, parseRunSkill, parseStore, rollback, skillPrompt, uniqueName, usagesFromMessages, validateDraft, type Skill, type Store,
+  cleanCard, logRun, pickVersion, promote, recordEval, setCard, splitVersion } from "./skills-pure";
 
 // Skill forge I/O (logic: skills-pure.ts). State: <ORBIT data dir>/skills.json (local, single owner, like recipes).
 // A scan reads his own CORE turns (messages + traces); at most one fast-model call per scan names the newest proposal.
@@ -91,7 +92,7 @@ export function decideProposal(id: string, decision: "keep" | "dismiss", edits?:
   });
 }
 
-/** His edit → a new version. */
+/** His edit → a new candidate version (AGT04): the current one keeps running until he promotes the candidate. */
 export function editSkill(id: string, body: unknown): Promise<string | null> {
   return update((s) => {
     const i = s.skills.findIndex((k) => k.id === id);
@@ -99,7 +100,7 @@ export function editSkill(id: string, body: unknown): Promise<string | null> {
     const d = validateDraft(body);
     if (typeof d === "string") return d;
     if (s.skills.some((k) => k.id !== id && currentVersion(k).name === d.name)) return `A skill named "${d.name}" already exists`;
-    s.skills[i] = addVersion(s.skills[i], d, "edited", new Date().toISOString());
+    s.skills[i] = addVersion(s.skills[i], d, "edited", new Date().toISOString(), true);
     return null;
   });
 }
@@ -117,6 +118,21 @@ export function rollbackSkill(id: string, v: number): Promise<string | null> {
   });
 }
 
+/** AGT04: version card, eval result, promote. Each returns an error text or null. */
+function mutate(id: string, f: (k: Skill) => Skill | string): Promise<string | null> {
+  return update((s) => {
+    const i = s.skills.findIndex((k) => k.id === id);
+    if (i < 0) return "Skill not found";
+    const r = f(s.skills[i]);
+    if (typeof r === "string") return r;
+    s.skills[i] = r;
+    return null;
+  });
+}
+export const cardSkill = (id: string, v: number, body: unknown) => { const c = cleanCard(body); return typeof c === "string" ? Promise.resolve(c) : mutate(id, (k) => setCard(k, v, c)); };
+export const evalSkill = (id: string, v: number, pass: boolean, note: string) => mutate(id, (k) => recordEval(k, v, pass, note, new Date().toISOString()));
+export const promoteSkill = (id: string, v: number) => mutate(id, (k) => promote(k, v));
+
 export function deleteSkill(id: string): Promise<boolean> {
   return update((s) => { const n = s.skills.length; s.skills = s.skills.filter((k: Skill) => k.id !== id); return s.skills.length < n; });
 }
@@ -126,7 +142,12 @@ export async function skillTurn(text: string): Promise<string | null> {
   const cmd = parseRunSkill(text);
   if (!cmd) return null;
   try {
-    const k = findSkill(cmd.name, (await load()).skills);
-    return typeof k === "string" ? `(Note from ORBIT: ${k})` : skillPrompt(currentVersion(k), cmd.input);
+    const want = splitVersion(cmd.name); // "name v2" tries that version
+    const k = findSkill(want.name, (await load()).skills);
+    if (typeof k === "string") return `(Note from ORBIT: ${k})`;
+    const ver = pickVersion(k, want.v);
+    if (typeof ver === "string") return `(Note from ORBIT: ${ver})`;
+    await mutate(k.id, (x) => logRun(x, ver.v, new Date().toISOString())); // the run keeps the version it ran
+    return skillPrompt(ver, cmd.input);
   } catch (e) { console.warn("[skills] run:", e instanceof Error ? e.message : e); return null; }
 }

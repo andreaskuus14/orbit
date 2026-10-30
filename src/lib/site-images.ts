@@ -62,7 +62,7 @@ export async function fetchImage(input: Record<string, unknown>, question: strin
     if (!ownerSupplied(url, question)) return "Error: a direct url is allowed only when the user gave that exact link in his message; search with a query instead (licensed sources only)";
     cands = [{ url, title: purpose || "Image", author: "Supplied by the owner", license: { label: "owner-supplied", attribution: false }, source: url, via: "Owner-supplied" }];
   } else cands = await searchImages(query, f);
-  if (!cands.length) return `No licensed image found for "${query}". Draw an inline SVG illustration instead.`;
+  if (!cands.length) return `No licensed image found for "${query}". Try ws_inspire_image (an original picture generated from your own brief, after the owner approves), or draw an inline SVG illustration.`;
   const tried: string[] = [];
   for (const c of cands.slice(0, 4)) {
     let data: Uint8Array | string;
@@ -83,5 +83,5 @@ export async function fetchImage(input: Record<string, unknown>, question: strin
     const foot = attributionLine([...credits.filter((x) => x.path !== path), entry]);
     return `Done: saved ${path} (${Math.round(w.bytes / 1024)} KB, ${c.license.label}, ${c.via}). Use it as <img src="${path}" alt="…"> (relative to index.html). Credit recorded in assets/CREDITS.md.${foot ? `\nThe license requires credit: put this line in the site footer: ${foot}` : ""}`;
   }
-  return `No usable licensed image for "${query || url}" (${tried.slice(0, 3).join("; ")}). Draw an inline SVG illustration instead.`;
+  return `No usable licensed image for "${query || url}" (${tried.slice(0, 3).join("; ")}). Try ws_inspire_image (an original picture generated from your own brief, after the owner approves), or draw an inline SVG illustration.`;
 }

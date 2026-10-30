@@ -11,8 +11,12 @@ export type Draft = { name: string; instruction: string; tools: string[]; exampl
 export type Usage = { id: string; request: string; tools: string[]; at: string }; // one CORE turn: his words + the tools it called, in order
 export type Candidate = { tools: string[]; requests: string[]; evidence: string[]; words: string[] };
 export type Proposal = Draft & { id: string; support: number; evidence: string[]; at: string; status: "proposed" | "kept" | "dismissed" };
-export type Version = Draft & { v: number; at: string; note: string };
-export type Skill = { id: string; current: number; versions: Version[]; created_at: string };
+/** AGT04 version card: who owns it, what input it expects, worked examples, what it must not be used for. */
+export type Card = { owner: string; inputs: string; examples: string[]; limits: string };
+export type Eval = { at: string; pass: boolean; note: string };
+export type Version = Draft & { v: number; at: string; note: string; card?: Card; eval?: Eval };
+export type Run = { at: string; v: number };
+export type Skill = { id: string; current: number; versions: Version[]; created_at: string; runs?: Run[] };
 export type Store = { v: 1; skills: Skill[]; proposals: Proposal[]; scannedAt?: string };
 
 export const MIN_REPEATS = 3, MAX_TOOLS = 5, MAX_VERSIONS = 20, SKILLS_MAX = 50, PROPOSED_MAX = 5, PROPOSALS_KEPT = 200, EVIDENCE_MAX = 20;
@@ -113,11 +117,45 @@ export function parseModelDraft(text: string, fallback: Draft): Draft {
 
 export const currentVersion = (s: Skill) => s.versions.find((v) => v.v === s.current) ?? s.versions[s.versions.length - 1];
 
-/** A new version (edit, or rollback = a copy of an old one); history keeps the last MAX_VERSIONS. */
-export function addVersion(s: Skill, d: Draft, note: string, at: string): Skill {
-  const v = Math.max(0, ...s.versions.map((x) => x.v)) + 1;
-  return { ...s, current: v, versions: [...s.versions, { ...d, v, at, note }].slice(-MAX_VERSIONS) };
+/** A new version (edit, or rollback = a copy of an old one); history keeps the last MAX_VERSIONS plus the current one.
+ *  stage: the new version is a candidate; the current one keeps running until the candidate passes its eval and is promoted. */
+export function addVersion(s: Skill, d: Draft, note: string, at: string, stage = false): Skill {
+  const v = Math.max(0, ...s.versions.map((x) => x.v)) + 1, current = stage ? s.current : v;
+  const all = [...s.versions, { ...d, v, at, note, card: currentVersion(s)?.card }];
+  return { ...s, current, versions: all.filter((x, i) => i >= all.length - MAX_VERSIONS || x.v === current) };
 }
+
+export const MAX_RUNS = 100;
+/** Version card fields, checked; examples one per line. */
+export function cleanCard(x: unknown): Card | string {
+  const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
+  const owner = clean(o.owner, 60) || "owner", inputs = clean(o.inputs, 300), limits = clean(o.limits, 300);
+  const examples = (Array.isArray(o.examples) ? o.examples : String(o.examples ?? "").split("\n")).map((e) => clean(e, 300)).filter(Boolean).slice(0, 5);
+  if (!inputs || !limits || !examples.length) return "A version card needs inputs, at least one example and its limits";
+  return { owner, inputs, examples, limits };
+}
+const withVersion = (s: Skill, v: number, f: (x: Version) => Version): Skill | string =>
+  s.versions.some((x) => x.v === v) ? { ...s, versions: s.versions.map((x) => (x.v === v ? f(x) : x)) } : "No such version";
+export const setCard = (s: Skill, v: number, card: Card) => withVersion(s, v, (x) => ({ ...x, card }));
+/** His eval of a version (he ran it on its examples): pass/fail with a note. Changing the version afterwards isn't possible. */
+export const recordEval = (s: Skill, v: number, pass: boolean, note: string, at: string) => withVersion(s, v, (x) => ({ ...x, eval: { at, pass, note: clean(note, 300) } }));
+/** Make a candidate current: only with a card and a passing eval. Rollback stays the quick way back to a known version. */
+export function promote(s: Skill, v: number): Skill | string {
+  const x = s.versions.find((y) => y.v === v);
+  if (!x) return "No such version";
+  if (v === s.current) return "That is already the current version";
+  if (!x.card) return "Fill in the version card first";
+  if (!x.eval?.pass) return "Record a passing eval first";
+  return { ...s, current: v };
+}
+/** "weekly-check v2" → that version (to try a candidate); plain name → the current one. */
+export function pickVersion(s: Skill, v?: number): Version | string {
+  return v === undefined ? currentVersion(s) : s.versions.find((x) => x.v === v) ?? `No version v${v}`;
+}
+export const splitVersion = (name: string): { name: string; v?: number } => { const m = name.match(/^(.*?)\s+v(\d{1,4})$/i); return m ? { name: m[1], v: Number(m[2]) } : { name }; };
+/** Each run records the version it ran, so results stay tied to the text that produced them. */
+export const logRun = (s: Skill, v: number, at: string): Skill => ({ ...s, runs: [{ at, v }, ...(s.runs ?? [])].slice(0, MAX_RUNS) });
+export const runsByVersion = (s: Skill) => (s.runs ?? []).reduce<Record<number, number>>((m, r) => ({ ...m, [r.v]: (m[r.v] ?? 0) + 1 }), {});
 export function rollback(s: Skill, v: number, at: string): Skill | string {
   const old = s.versions.find((x) => x.v === v);
   if (!old) return "No such version";

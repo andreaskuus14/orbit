@@ -7,9 +7,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { adjustPlan } from "./life-plan-pure";
 import { localDay } from "./morning-pure";
-import { acceptPlan, approvalItems, buildPlan, carryForward, commitmentItems, dayStat, type DayStat, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure";
+import { acceptPlan, applyDeferrals, defer, deferUntil, type Deferred, approvalItems, buildPlan, carryForward, commitmentItems, dayStat, type DayStat, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure";
 
-type Store = { plan?: DayPlan; prev?: DayPlan; order?: string[]; commitments: Commitment[]; history?: DayStat[] };
+type Store = { plan?: DayPlan; prev?: DayPlan; order?: string[]; commitments: Commitment[]; history?: DayStat[]; deferred?: Deferred[] };
 const file = () => path.join(orbitDataDir(), "dayplan.json");
 const load = async (): Promise<Store> => { try { const j = JSON.parse(await readFile(file(), "utf8")); return { ...j, commitments: Array.isArray(j?.commitments) ? j.commitments : [] }; } catch { return { commitments: [] }; } };
 let saving: Promise<unknown> = Promise.resolve();
@@ -65,13 +65,29 @@ export async function planDay(sb: SupabaseClient | null, userId: string | null, 
   const newDay = !!s.plan && s.plan.day !== day, prev = newDay ? s.plan : s.prev, stat = newDay ? dayStat(s.plan!) : null;
   const history = [...(s.history ?? []), ...(stat ? [stat] : [])].slice(-14);
   const max = Number(process.env.ORBIT_MAX_PLANNED_HOURS);
-  const plan = buildPlan(carryForward(await gather(sb, userId, now), prev, day), { day, now: d.getHours() * 60 + d.getMinutes(), history,
+  const plan = buildPlan(applyDeferrals(carryForward(await gather(sb, userId, now), prev, day), s.deferred ?? [], day), { day, now: d.getHours() * 60 + d.getMinutes(), history,
     ...(max > 0 && max <= 16 && { maxPlanned: Math.round(max * 60) }) }, order);
   await update((x) => { x.plan = plan; x.order = order; x.prev = prev; x.history = history; });
   return plan;
 }
 
 export const currentPlan = async () => (await load()).plan ?? null;
+/** For the weekly review: finished days (planned vs done) and what he deferred. */
+export const planHistory = async () => { const s = await load(); return { history: s.history ?? [], deferred: s.deferred ?? [] }; };
+
+/** LIF13 "Not today": the item stays out of plans until tomorrow or next Monday (also a re-captured copy with the same title). */
+export async function deferBlock(sb: SupabaseClient | null, userId: string | null, id: string, when: "tomorrow" | "week"): Promise<DayPlan | string> {
+  const s = await load(), b = s.plan?.blocks.find((x) => x.id === id && x.flexible) ?? s.plan?.unplaced.find((x) => x.id === id);
+  if (!s.plan || !b) return "No such task in today's plan";
+  const day = s.plan.day;
+  const accepted = !!s.plan.accepted;
+  const plan = await update((x) => {
+    x.deferred = defer(x.deferred ?? [], b, deferUntil(day, when), new Date().toISOString());
+    if (accepted && x.plan) x.plan = { ...x.plan, blocks: x.plan.blocks.filter((y) => y.id !== id), unplaced: x.plan.unplaced.filter((y) => y.id !== id) }; // keeps his done marks
+    return x.plan!;
+  });
+  return accepted ? plan : planDay(sb, userId, { fresh: true });
+}
 
 /** Drag: move one flexible task before another (or to the end), then re-place. */
 export async function movePlan(sb: SupabaseClient | null, userId: string | null, id: string, beforeId: string | null): Promise<DayPlan | string> {

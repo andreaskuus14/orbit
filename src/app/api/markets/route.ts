@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { addAlert, analyze, firedAlerts, getMarkets, paperOrder, removeAlert, removeHolding, resetPaper, setHolding, setStrategy, unwatch, watch } from "@/lib/markets";
+import { addAlert, addJournal, analyze, reviewJournal, studyStrategy, firedAlerts, getMarkets, paperOrder, removeAlert, removeHolding, resetPaper, setHolding, setStrategy, unwatch, watch } from "@/lib/markets";
 import { STRATEGIES, alertError, cleanTicker, type AlertKind, type Strategy } from "@/lib/markets-pure";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 // MARKETS workspace (tracking, education and PAPER trading only — no broker, no real money).
 // GET → full state (also runs the daily paper-bot step).
 // POST { action: "alerts" } → { fired: [{ id, ticker, text }] } (marks them fired today; POST so the CSRF guard covers it).
-// POST { action: alerts|watch|unwatch|holding|removeHolding|addAlert|removeAlert|order|resetPaper|strategy|analyze, ... }.
+// POST { action: alerts|watch|unwatch|holding|removeHolding|addAlert|removeAlert|order|resetPaper|strategy|analyze|study|journal|review, ... }.
 
 export async function GET(req: Request) {
   const { res } = await requireUser();
@@ -48,6 +48,10 @@ export async function POST(req: Request) {
     case "strategy":
       return typeof b.strategy === "string" && Object.hasOwn(STRATEGIES, b.strategy) ? out(await setStrategy(b.strategy as Strategy)) : bad("Unknown strategy");
     case "analyze": return needT() ?? out(await analyze(sb, user.id, t!));
+    case "study":
+      return typeof b.strategy === "string" && Object.hasOwn(STRATEGIES, b.strategy) ? out(await studyStrategy(b.strategy as Strategy)) : bad("Unknown strategy");
+    case "journal": return out(await addJournal(b));
+    case "review": return typeof b.id === "string" && b.id.length <= 80 ? out(await reviewJournal(b.id, b)) : bad("Missing id");
     case "alerts":
       try { return Response.json({ fired: await firedAlerts() }); } catch (e) { return Response.json({ error: (e as Error).message }, { status: 500 }); }
     default: return bad("Unknown action");

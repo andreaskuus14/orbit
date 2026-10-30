@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { listJobs, readState, saveState, studioRoot } from "./factory";
 import { emptyLearn, learnProblem, type LearnState } from "./learn-pure";
-import { addExperiment, emptyExperiments, experimentsProblem, judge, lessonsFrom, versionOf, type ExpState, type Experiment, type Result } from "./experiments-pure";
+import { addExperiment, compareArms, emptyExperiments, experimentsProblem, judge, lessonsFrom, removalProblem, versionOf, type Comparison, type ExpState, type Experiment, type Result } from "./experiments-pure";
 
 // Shorts experiments (STUDIO Stats): <studio>/experiments.json. Reads learn.json and the clip jobs; never touches YouTube.
 
@@ -18,7 +18,7 @@ function update(fn: (s: ExpState) => Promise<ExpState | string>): Promise<ExpSta
   return p;
 }
 
-export type ExperimentsView = { items: (Experiment & Result & { title: string })[]; clips: { jobId: string; clipId: string; title: string }[] };
+export type ExperimentsView = { items: (Experiment & Result & { title: string; compare?: Comparison })[]; clips: { jobId: string; clipId: string; title: string }[] };
 
 export async function experimentsView(): Promise<ExperimentsView> {
   const [s, jobs, rs] = await Promise.all([load(), listJobs(), recs()]);
@@ -26,11 +26,17 @@ export async function experimentsView(): Promise<ExperimentsView> {
   const used = new Set(s.items.map((e) => `${e.jobId}/${e.clipId}`));
   const clips = jobs.flatMap((j) => j.clips.filter((c) => !used.has(`${j.id}/${c.id}`) && versionOf({ jobId: j.id, clipId: c.id } as Experiment, [j]))
     .map((c) => ({ jobId: j.id, clipId: c.id, title: c.title }))).slice(0, 50);
-  return { items: s.items.map((e) => ({ ...e, ...judge(e, jobs, rs), title: title(e) })), clips };
+  return { items: s.items.map((e) => ({ ...e, ...judge(e, jobs, rs), title: title(e), ...(e.variants?.length && { compare: compareArms(e, jobs, rs) }) })), clips };
 }
 
 export const addExp = async (b: Record<string, unknown>) => { const jobs = await listJobs(); return update(async (s) => addExperiment(s, b, jobs, randomBytes(6).toString("hex"), new Date().toISOString())); };
-export const removeExp = (id: string) => update(async (s) => (s.items.some((e) => e.id === id) ? { v: 1, items: s.items.filter((e) => e.id !== id) } : "Experiment not found"));
+export const removeExp = async (id: string) => {
+  const [jobs, rs] = await Promise.all([listJobs(), recs()]);
+  return update(async (s) => {
+    const e = s.items.find((x) => x.id === id);
+    return !e ? "Experiment not found" : removalProblem(judge(e, jobs, rs)) || { v: 1, items: s.items.filter((x) => x.id !== id) };
+  });
+};
 
 /** Proposed lessons from experiments, for the nightly lessons reconcile (lessons.ts). */
 export async function experimentLessons(now: number) {

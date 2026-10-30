@@ -1,7 +1,7 @@
 // Habit engine (roadmap 3): when to nudge a LIFE habit. Pure; tested in tests/habit-nudge.test.ts. No model calls: LIFE data stays local.
 // Timing: median of his own check-in minutes inside the habit's window (same weekday when there are 2+, else all), nudge 10 min before.
 // Back-off: after 2 ignored nudges in a row, one try a week until he checks it in again. Quiet hours/focus/Stop-all are the caller's ctx.
-import { addDays, weekStart, weekday, type Habit } from "./life-pure.ts";
+import { addDays, dueToday, scheduledOn, weekStart, weekday, type Habit } from "./life-pure.ts";
 
 export type HabitWindow = { from: number; to: number }; // minutes of the local day, from < to
 export const NUDGE_CHANNELS = ["off", "toast", "push"] as const;
@@ -60,7 +60,7 @@ export type NudgeCtx = { quiet: boolean; focus: boolean; stop: boolean };
 /** Nudge this habit now? Scheduled today, not done, not nudged yet today, inside [nudge minute, window end), not backed off. */
 export function shouldNudge(h: Habit, day: string, min: number, ctx: NudgeCtx): boolean {
   if (!h.nudge || !h.window || ctx.quiet || ctx.focus || ctx.stop) return false;
-  if (!h.days.includes(weekday(day)) || h.done.includes(day) || h.nudged === day) return false;
+  if (!dueToday(h, day) || h.done.includes(day) || h.nudged === day) return false; // paused / rest day / weekly target met: no nudge
   const at = nudgeMinute(h, day)!;
   return min >= at && min < h.window.to && !backedOff(h, day);
 }
@@ -73,12 +73,12 @@ export function recordAt(at: Record<string, number> | undefined, day: string, mi
 }
 
 /** Last full week (Mon–Sun before today's week): check-ins done vs. scheduled, counts only. */
-export function habitWeek(habits: Pick<Habit, "days" | "done" | "created">[], today: string): { done: number; due: number } {
+export function habitWeek(habits: Pick<Habit, "days" | "done" | "created" | "pauses" | "rest">[], today: string): { done: number; due: number } {
   const start = addDays(weekStart(today), -7);
   let done = 0, due = 0;
   for (let i = 0; i < 7; i++) {
     const k = addDays(start, i);
-    for (const h of habits) if (h.days.includes(weekday(k)) && k >= h.created) { due++; if (h.done.includes(k)) done++; }
+    for (const h of habits) if (scheduledOn(h, k) && k >= h.created) { due++; if (h.done.includes(k)) done++; }
   }
   return { done, due };
 }
