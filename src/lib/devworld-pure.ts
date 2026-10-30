@@ -1,6 +1,7 @@
 // CREATION → Game-dev world: the owner's games and their bug trackers, stored as one game_saves row (game = "devworld").
 // Dependency-free so the API, the UI and tests/devworld.test.ts share it. Keep free of imports and non-erasable TS syntax.
 
+import { cleanAsset, cleanContract, cleanEvidence, cleanRelease, isBad, type Asset, type Contract, type Evidence, type Release } from "./gamedev-pure.ts";
 export const PLATFORMS = ["roblox", "web", "other"] as const;
 export const STAGES = ["idea", "prototype", "alpha", "beta", "live"] as const;
 export const SEVERITIES = ["crash", "major", "minor", "polish"] as const;
@@ -22,6 +23,7 @@ export type Priority = (typeof PRIORITIES)[number];
 export type Game = {
   id: string; name: string; platform: Platform; stage: Stage; pitch: string; notes: string;
   art?: (typeof ART_KEYS)[number]; playable?: (typeof PLAYABLE_IDS)[number];
+  contract?: Contract; // DEV01: engine, repo/place, controls, art rules, current build, milestone
 };
 export type Bug = {
   id: string; game: string; title: string; detail: string; severity: Severity; status: Status; created: string; fixed?: string;
@@ -32,7 +34,7 @@ export type Bug = {
 export const FIX_STATES = ["proposed", "reviewed", "rejected"] as const;
 export type FixState = (typeof FIX_STATES)[number];
 export type Trail = { bugId: string; sessionIds: string[]; fix?: { text: string; state: FixState; at: string }; version?: { name: string; at: string; by: "owner" } };
-export type DevWorld = { v: 1; games: Game[]; bugs: Bug[]; trails?: Trail[] };
+export type DevWorld = { v: 1; games: Game[]; bugs: Bug[]; trails?: Trail[]; evidence?: Evidence[]; assets?: Asset[]; releases?: Release[] };
 
 export const MAX_GAMES = 30;
 export const MAX_BUGS = 500;
@@ -59,7 +61,7 @@ function iso(v: unknown, field: string): string {
 /** Strict check at the trust boundary: unknown enums, duplicate ids and orphan bugs are rejected; text is trimmed and capped. */
 export function validateDevWorld(raw: unknown): { ok: true; world: DevWorld } | { ok: false; error: string } {
   try { return { ok: true, world: parse(raw) }; }
-  catch (e) { if (e instanceof Invalid) return { ok: false, error: e.message }; throw e; }
+  catch (e) { if (e instanceof Invalid || isBad(e)) return { ok: false, error: e.message }; throw e; }
 }
 function parse(raw: unknown): DevWorld {
   if (!obj(raw) || raw.v !== 1) fail("Unknown dev world format");
@@ -81,6 +83,8 @@ function parse(raw: unknown): DevWorld {
     };
     if (g.art != null) game.art = oneOf(g.art, ART_KEYS, `${at} art`);
     if (g.playable != null) game.playable = oneOf(g.playable, PLAYABLE_IDS, `${at} playable`);
+    const contract = cleanContract(g.contract, at);
+    if (contract) game.contract = contract;
     games.push(game);
   }
 
@@ -120,7 +124,13 @@ function parse(raw: unknown): DevWorld {
     }
     trails.push(trail);
   }
-  return { v: 1, games, bugs, ...(trails.length && { trails }) };
+  const gameIds = new Set(games.map((g) => g.id)), bugIds = new Set(bugs.map((b) => b.id));
+  const list = (v: unknown, max: number, what: string) => { const a = Array.isArray(v) ? v : []; if (a.length > max) fail(`At most ${max} ${what}`); return a; };
+  const evidence = list(r.evidence, 300, "test results").flatMap((e, i) => cleanEvidence(e, `Result ${i + 1}`, gameIds, bugIds) ?? []);
+  const assets = list(r.assets, 300, "assets").flatMap((a, i) => cleanAsset(a, `Asset ${i + 1}`, gameIds) ?? []);
+  const evIds = new Set(evidence.map((e) => e.id));
+  const releases = list(r.releases, 50, "releases").flatMap((x, i) => cleanRelease(x, `Release ${i + 1}`, gameIds, evIds) ?? []);
+  return { v: 1, games, bugs, ...(trails.length && { trails }), ...(evidence.length && { evidence }), ...(assets.length && { assets }), ...(releases.length && { releases }) };
 }
 
 /** A free slug for a new game's name ("Pet Sim" → "pet-sim", then "pet-sim-2", …). */
