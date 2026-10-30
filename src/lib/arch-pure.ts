@@ -70,6 +70,8 @@ export function parseOps(text: string): Op[] {
 const top = (p: Part) => p.y + p.h;
 const overlapsXZ = (a: Part, b: Part) => Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.z - b.z) < (a.d + b.d) / 2;
 const r2 = (n: number) => Math.round(n * 100) / 100;
+/** ARC03: geometry is stored to the millimetre, so repeated nudges and save/reopen never accumulate float drift. */
+export const mm = (n: number) => Math.round(n * 1000) / 1000 + 0; // + 0 turns -0 into 0
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 /** A thin block is one straight wall; anything wider is the outer shell of a floor. */
 export const isStraightWall = (p: Part) => Math.min(p.w, p.d) <= 2 * RULES.wallThick;
@@ -104,7 +106,7 @@ export function applyOps(scene: Scene, ops: Op[], newId: () => string): { scene:
   const resize = (p: Part, next: Partial<Part>) => {
     if (p.kind === "foundation" && next.h !== undefined && next.y === undefined) next.y = -next.h; // foundations grow down, not up
     const oldTop = top(p), oldP = { ...p };
-    Object.assign(p, Object.fromEntries(Object.entries({ ...next, w: clampSize(next.w), d: clampSize(next.d), h: clampSize(next.h) }).filter(([, v]) => v !== undefined)));
+    Object.assign(p, Object.fromEntries(Object.entries({ ...next, w: clampSize(next.w), d: clampSize(next.d), h: clampSize(next.h) }).filter(([, v]) => v !== undefined).map(([k, v]) => [k, typeof v === "number" ? mm(v) : v])));
     const dy = top(p) - oldTop;
     if (!isOpening(p.kind) && Math.abs(dy) > 1e-9) shiftAbove(oldP, oldTop, dy, p.id);
   };
@@ -125,7 +127,7 @@ export function applyOps(scene: Scene, ops: Op[], newId: () => string): { scene:
       const under = parts.filter((q) => q.kind !== "roof" && !isOpening(q.kind) && !(inner && q.kind === "wall") && overlapsXZ(q, probe)).reduce((m, q) => Math.max(m, top(q)), 0);
       const y = o.y ?? (o.kind === "foundation" ? -o.h : under);
       if (o.y === undefined && !inner && o.kind !== "foundation" && o.kind !== "roof") shiftAbove({ ...probe, id: "", kind: o.kind, name: "", y, h: o.h }, y, o.h, "");
-      parts.push({ id: newId(), kind: o.kind, name: o.name ?? o.kind, x: o.x ?? 0, z: o.z ?? 0, y, w: o.w, d: o.d, h: o.h });
+      parts.push({ id: newId(), kind: o.kind, name: o.name ?? o.kind, x: mm(o.x ?? 0), z: mm(o.z ?? 0), y: mm(y), w: mm(o.w), d: mm(o.d), h: mm(o.h) });
     } else {
       const p = parts.find((q) => q.id === o.id);
       if (!p) continue;

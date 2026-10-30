@@ -126,3 +126,15 @@ test("ARC04: cost lines show waste, derivation and source elements; unknown pric
   const noWaste = costLines(q, STARTER_PRICES.map((p) => ({ ...p, waste: 0 })), s.parts);
   assert.ok(noWaste.total < c.total);
 });
+
+test("ARC03: no geometric drift after many nudges and a save/reopen round trip", () => {
+  let s = starterScene();
+  const at = () => s.parts.find((q) => q.id === "p3")!;
+  for (let i = 0; i < 30; i++) s = applyOps(s, [{ op: "set", id: "p3", x: at().x + 0.1, w: at().w + 0.001 }], id).scene;
+  for (let i = 0; i < 30; i++) s = applyOps(s, [{ op: "set", id: "p3", x: at().x - 0.1, w: at().w - 0.001 }], id).scene;
+  const back = JSON.parse(JSON.stringify(s)) as typeof s, start = starterScene().parts.find((q) => q.id === "p3")!;
+  assert.equal(back.parts.find((q) => q.id === "p3")!.x, start.x);
+  assert.equal(back.parts.find((q) => q.id === "p3")!.w, start.w);
+  assert.deepEqual(back, s);
+  assert.equal(applyOps(s, [{ op: "set", id: "p3", x: 1.23456 }], id).scene.parts.find((q) => q.id === "p3")!.x, 1.235);
+});
