@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applyOps, starterScene, type Op } from "../src/lib/arch-pure.ts";
 import { daylightPlan } from "../src/lib/arch-daylight-pure.ts";
-import { ENERGY, energyStudy, exteriorLength } from "../src/lib/arch-energy-pure.ts";
+import { ENERGY, ENERGY_INPUTS, cleanInputs, energyStudy, exteriorLength } from "../src/lib/arch-energy-pure.ts";
 
 const TALLINN = { lat: 59.437, lon: 24.754 };
 const build = (ops: Op[]) => { let n = 0; return applyOps(starterScene(), ops, () => `x${++n}`).scene.parts; };
@@ -45,4 +45,17 @@ test("two floors: roof loss only upstairs, ground loss only downstairs", () => {
   assert.equal(rows.length, 2);
   assert.ok(Math.abs(lo.hWK - hi.hWK - (ENERGY.u.floor - ENERGY.u.roof) * lo.area) < 0.5, `${lo.hWK} / ${hi.hWK}`);
   assert.deepEqual(energyStudy([], TALLINN), []);
+});
+
+test("ARC05: editable assumptions change the result predictably", () => {
+  const base = energyStudy(split, TALLINN), b0 = base[1];
+  const dd = energyStudy(split, TALLINN, 0, { ...ENERGY_INPUTS, degreeDays: ENERGY.degreeDays * 1.5 })[1];
+  assert.ok(Math.abs(dd.kWh - 1.5 * b0.kWh) <= 1, `${dd.kWh} vs 1.5×${b0.kWh}`); // kWh ∝ degree-days
+  assert.equal(dd.peakW, b0.peakW);
+  const cold = energyStudy(split, TALLINN, 0, { ...ENERGY_INPUTS, design: ENERGY.design - 10 })[1];
+  assert.ok(Math.abs(cold.peakW - b0.peakW - b0.hWK * 10) <= 1, "peak grows by H × 10 K");
+  const leaky = energyStudy(split, TALLINN, 0, { ...ENERGY_INPUTS, uWall: ENERGY.u.wall * 2 })[1];
+  assert.ok(leaky.hWK > b0.hWK && leaky.sunDec === b0.sunDec);
+  assert.equal(cleanInputs({ degreeDays: -5, year: "x", ach: 1 }).degreeDays, ENERGY.degreeDays); // junk falls back
+  assert.equal(cleanInputs({ ach: 1 }).ach, 1);
 });

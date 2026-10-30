@@ -47,13 +47,13 @@ test("boq, cost and bulk tips come from geometry", () => {
   assert.equal(boq([{ id: "w", kind: "wall", name: "", x: 0, y: 0, z: 0, w: 5, d: 0.3, h: 2 }]).blocks, Math.ceil(10 / 0.12)); // straight wall: 5 m × 2 m
   assert.ok(q.blocks > 0 && q.roofM2 > 0);
   const c = costLines(q, STARTER_PRICES);
-  assert.equal(c.total, c.lines.reduce((s, l) => s + l.total, 0));
+  assert.equal(c.total, c.lines.reduce((s, l) => s + (l.total ?? 0), 0));
   const tips = bulkTips({ concreteM3: 13.5, rebarT: 0.5, blocks: 0, wallM3: 0, roofM2: 0, windows: 0, doors: 0, risers: 0, wallM2: 0, slabM2: 0, windowM2: 0 });
   assert.ok(tips.some((t) => t.includes("15 m³")) && tips.some((t) => t.includes("spare")) && tips.some((t) => t.includes("Rebar")));
   const stair = { id: "s", kind: "stair" as const, name: "", x: 0, y: 0.2, z: 0, w: 2, d: 3, h: 3 };
   assert.equal(boq([stair]).risers, 16); // 3 m / 190 mm
   const sl = costLines(boq([stair]), STARTER_PRICES).lines.find((l) => l.key === "risers")!;
-  assert.equal(sl.total, 16 * sl.eur);
+  assert.equal(sl.total, 16 * sl.eur!);
   assert.match(sl.source, /starter estimate/);
   assert.deepEqual(bulkTips({ concreteM3: 0, rebarT: 0, blocks: 0, wallM3: 0, roofM2: 0, windows: 0, doors: 0, risers: 0, wallM2: 0, slabM2: 0, windowM2: 0 }), []);
 });
@@ -105,8 +105,36 @@ test("boq takes openings off the walls and counts them; interior walls stand on 
   assert.equal(c.lines.find((l) => l.key === "windows")!.total, 350);
   const csv = boqCsv(c).trim().split("\n");
   assert.equal(csv.length, c.lines.length + 2);
-  assert.ok(csv[0].startsWith("Item,Qty") && csv.at(-1)!.includes(String(c.total)) && csv.some((l) => l.includes('"Window, PVC')));
+  assert.ok(csv[0].startsWith("Item,Net qty") && csv.at(-1)!.includes(String(c.total)) && csv.some((l) => l.includes('"Window, PVC')));
   const inner = applyOps(starterScene(), [{ op: "add", kind: "wall", w: 9.4, d: 0.2, h: 2.8 }], id).scene;
   assert.equal(last(inner).y, 0.2);
   assert.equal(inner.parts.find((p) => p.id === "p4")!.y, 3); // the roof doesn't move
+});
+
+test("ARC04: cost lines show waste, derivation and source elements; unknown price is not 0", () => {
+  const s = starterScene(), q = boq(s.parts);
+  const c = costLines(q, STARTER_PRICES, s.parts), conc = c.lines.find((l) => l.key === "concreteM3")!;
+  assert.equal(conc.waste, 0.05);
+  assert.ok(Math.abs(conc.buy - q.concreteM3 * 1.05) < 0.01 && conc.total === Math.round(conc.buy * 110));
+  assert.ok(conc.from.length > 0 && conc.how.includes("slabs"));
+  assert.deepEqual(c.unknown, []);
+  const unk = costLines(q, STARTER_PRICES.map((p) => (p.key === "concreteM3" ? { ...p, eur: null } : p)), s.parts);
+  assert.equal(unk.lines.find((l) => l.key === "concreteM3")!.total, null);
+  assert.equal(unk.total, c.total - conc.total!);
+  assert.deepEqual(unk.unknown, [conc.label]);
+  assert.match(boqCsv(unk), /unknown/);
+  const noWaste = costLines(q, STARTER_PRICES.map((p) => ({ ...p, waste: 0 })), s.parts);
+  assert.ok(noWaste.total < c.total);
+});
+
+test("ARC03: no geometric drift after many nudges and a save/reopen round trip", () => {
+  let s = starterScene();
+  const at = () => s.parts.find((q) => q.id === "p3")!;
+  for (let i = 0; i < 30; i++) s = applyOps(s, [{ op: "set", id: "p3", x: at().x + 0.1, w: at().w + 0.001 }], id).scene;
+  for (let i = 0; i < 30; i++) s = applyOps(s, [{ op: "set", id: "p3", x: at().x - 0.1, w: at().w - 0.001 }], id).scene;
+  const back = JSON.parse(JSON.stringify(s)) as typeof s, start = starterScene().parts.find((q) => q.id === "p3")!;
+  assert.equal(back.parts.find((q) => q.id === "p3")!.x, start.x);
+  assert.equal(back.parts.find((q) => q.id === "p3")!.w, start.w);
+  assert.deepEqual(back, s);
+  assert.equal(applyOps(s, [{ op: "set", id: "p3", x: 1.23456 }], id).scene.parts.find((q) => q.id === "p3")!.x, 1.235);
 });
