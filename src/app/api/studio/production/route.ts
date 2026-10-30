@@ -1,8 +1,10 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
-import { checkClipMedia, getJob, listJobs, saveJob, startClipQueue, withJobLock } from "@/lib/clips/factory";
+import { checkClipMedia, getJob, listJobs, readState, saveJob, startClipQueue, studioRoot, withJobLock } from "@/lib/clips/factory";
+import { emptyLearn, learnProblem, type LearnState } from "@/lib/clips/learn-pure";
+import { liveIds, outcomeOf, type Outcome } from "@/lib/clips/depth-pure";
 import { isClipId, isJobId } from "@/lib/clips/pure";
-import { cleanRights, productionRecords } from "@/lib/clips/production-pure";
+import { cleanRights, productionRecords, recordId } from "@/lib/clips/production-pure";
 
 // STUDIO production records (production-pure.ts): GET = one record per clip; PATCH { job, rights } = the source's permission basis;
 // POST { job, clip } = run the technical media check on the render now. None of these approve or publish anything.
@@ -12,8 +14,12 @@ const blocked = (req: Request, m: string) => { const h = req.headers;
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  const [jobs, stories] = await Promise.all([listJobs(), import("@/lib/clips/story").then((m) => m.listStories(), () => [])]);
-  return Response.json({ records: productionRecords(jobs, stories), jobs }); // jobs: for the pipeline board and the calendar
+  const [jobs, stories, learn] = await Promise.all([listJobs(), import("@/lib/clips/story").then((m) => m.listStories(), () => []),
+    readState<LearnState>(studioRoot(), "learn", learnProblem).catch(() => null)]);
+  const recs = Object.values((learn ?? emptyLearn()).clips), outcomes: Record<string, Outcome> = {};
+  for (const j of jobs) for (const c of j.clips) { const o = outcomeOf(c, recs); if (o) outcomes[recordId(j.id, c.id)] = o; }
+  // jobs: for the pipeline board and the calendar; live: video ids seen public (confirms a scheduled Short); outcomes: STU06
+  return Response.json({ records: productionRecords(jobs, stories), jobs, live: [...liveIds(recs)], outcomes });
 }
 
 export async function PATCH(req: Request) {

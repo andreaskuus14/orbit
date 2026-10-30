@@ -9,7 +9,7 @@ import type { PublishSettings } from "@/lib/clips/schedule";
 type Job = Parameters<typeof weekCalendar>[0][number];
 const API = "/api/studio/clips";
 const media = (p: string) => `${API}/media?f=${encodeURIComponent(p)}`;
-const LABEL: Record<CalStatus, string> = { scheduled: "🕒 Scheduled", published: "✓ Published", failed: "⚠ Failed", pending: "⏳ Uploading" };
+const LABEL: Record<CalStatus, string> = { scheduled: "🕒 Scheduled", due: "🕒 Due: not confirmed live", published: "✓ Published", failed: "⚠ Failed", pending: "⏳ Uploading" };
 const TONE: Partial<Record<CalStatus, { borderColor: string; color: string }>> = { published: { borderColor: "#ff8fab", color: "#ffd6e0" }, failed: { borderColor: "#fb7185", color: "#fda4af" } };
 
 export default function StudioCalendar({ jobs, waiting, scheduleAll, onOpen }: {
