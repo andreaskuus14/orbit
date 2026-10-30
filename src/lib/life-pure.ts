@@ -1,6 +1,9 @@
 // LIFE workspace: pure date/streak/validation logic (shared by server, UI and tests; no node or next imports).
 // Days are local "YYYY-MM-DD" keys; day steps go through the Date constructor so DST never skips or repeats a day.
 
+import type { FocusTimer } from "./focus-timer-pure.ts";
+import { reviewState } from "./reminders-pure.ts";
+
 export type Habit = {
   id: string; name: string; emoji: string; days: number[]; created: string; done: string[];
   // Habit engine (habit-nudge-pure): window = minutes of the day, nudge absent = off, at = check-in minute per day, nudged = last nudge day.
@@ -9,13 +12,17 @@ export type Habit = {
 export const REPEATS = ["daily", "weekdays", "weekly"] as const;
 export type Repeat = (typeof REPEATS)[number];
 /** repeat absent = one-off (old data has none). A recurring reminder is one record whose `at` moves forward and never gets `fired`. */
-export type Reminder = { id: string; text: string; at: string; fired?: string; repeat?: Repeat; time?: string }; // time: "HH:MM" wall clock of a repeating one
-export type LifeStore = { habits: Habit[]; reminders: Reminder[]; focus: Record<string, number>; journal: Record<string, string> };
+// time: "HH:MM" Europe/Tallinn wall clock of a repeating one; last: the last notice shown (missed = ORBIT was off); ack: he saw it
+export type Reminder = { id: string; text: string; at: string; fired?: string; repeat?: Repeat; time?: string; last?: { at: string; missed: boolean }; ack?: string };
+/** work: focus minutes actually worked per task and day (LIF05); timer: the live focus timer, shared across his devices. */
+export type WorkLog = { day: string; task: string; min: number };
+export type LifeStore = { habits: Habit[]; reminders: Reminder[]; focus: Record<string, number>; journal: Record<string, string>; work?: WorkLog[]; timer?: FocusTimer };
 export type DayDot = { date: string; scheduled: boolean; done: boolean };
 export type HabitView = Habit & { streak: number; week: DayDot[]; doneToday: boolean; scheduledToday: boolean };
 export type LifeState = {
   today: string; habits: HabitView[]; reminders: Reminder[];
   focus: { today: number; week: number }; journal: { date: string; text: string }[];
+  work: WorkLog[]; timer: FocusTimer | null; review: ReturnType<typeof reviewState>;
 };
 
 export const MAX_HABITS = 30, MAX_OPEN_REMINDERS = 100, MAX_NAME = 60, MAX_REMINDER = 140, MAX_JOURNAL = 2000, MAX_FOCUS_MIN = 180;
@@ -87,21 +94,6 @@ export function reminderTimeError(iso: unknown, now: number): string | null {
 export const isRepeat = (v: unknown): v is Repeat => (REPEATS as readonly unknown[]).includes(v);
 export const REPEAT_LABEL: Record<Repeat, string> = { daily: "every day", weekdays: "weekdays", weekly: "every week" };
 
-/** Next occurrence strictly after `now`, at the same local wall-clock time as `atIso` (DST-safe: built from local Date fields).
- *  A reminder missed for days jumps straight to the next future slot instead of firing a burst. */
-/** time ("HH:MM", stored when created) keeps the wall-clock time: otherwise a DST-skipped 02:30 that JS turned into 03:30 would stay 03:30. */
-export function nextOccurrence(atIso: string, repeat: Repeat, now: number, time?: string): string {
-  const b = new Date(atIso);
-  const hm = /^(\d{2}):(\d{2})$/.exec(time ?? "");
-  const h = hm ? Number(hm[1]) : b.getHours(), mi = hm ? Number(hm[2]) : b.getMinutes(), sec = hm ? 0 : b.getSeconds();
-  const step = repeat === "weekly" ? 7 : 1;
-  for (let k = step; k <= 800; k += step) { // 800 days covers the 1-year scheduling cap plus a long absence
-    const d = new Date(b.getFullYear(), b.getMonth(), b.getDate() + k, h, mi, sec);
-    if (repeat === "weekdays" && (d.getDay() === 0 || d.getDay() === 6)) continue;
-    if (d.getTime() > now) return d.toISOString();
-  }
-  return new Date(now + DAY_MS).toISOString(); // unreachable in practice (absent > 2 years)
-}
 export const dueReminders = (rs: Reminder[], now: number) => rs.filter((r) => !r.fired && Date.parse(r.at) <= now);
 /** Upcoming plus anything from the last day, soonest first. */
 export const visibleReminders = (rs: Reminder[], now: number) =>
@@ -117,6 +109,7 @@ export function view(s: LifeStore, now: number): LifeState {
     habits: s.habits.map((h) => ({ ...h, streak: streak(h, today), week: last7(h, today), doneToday: h.done.includes(today), scheduledToday: h.days.includes(weekday(today)) })),
     reminders: visibleReminders(s.reminders, now),
     focus: { today: s.focus[today] ?? 0, week: Object.entries(s.focus).filter(([k]) => k >= ws && k <= today).reduce((a, [, m]) => a + m, 0) },
+    work: (s.work ?? []).filter((w) => w.day === today), timer: s.timer ?? null, review: reviewState(s.reminders, now),
     journal: [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(today, -i)).map((date) => ({ date, text: s.journal[date] ?? "" })),
   };
 }
@@ -137,20 +130,4 @@ export function summaryText(st: LifeState, now: number): string {
   ];
   const out = lines.filter(Boolean).join(" ");
   return out.length > 600 ? out.slice(0, 599) + "…" : out;
-}
-
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-/** Journal entries of the last `days` days (today included), newest first, as "YYYY-MM-DD (Weekday): text", whole entries up to `max` chars. */
-export function journalText(journal: Record<string, string>, today: string, days: number, max = 8000): string {
-  const out: string[] = [];
-  let len = 0;
-  for (let i = 0; i < days; i++) {
-    const date = addDays(today, -i), text = journal[date]?.trim();
-    if (!text) continue;
-    const line = `${date} (${WEEKDAYS[weekday(date)]}): ${text}`;
-    if (len + line.length > max) { out.push("(older entries omitted)"); break; }
-    out.push(line);
-    len += line.length + 1;
-  }
-  return out.join("\n");
 }

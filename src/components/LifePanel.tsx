@@ -3,13 +3,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, REPEAT_LABEL, isRepeat, type HabitView, type LifeState } from "@/lib/life-pure";
 import { hhmm, nudgeMinute, windowLabel } from "@/lib/habit-nudge-pure";
 import type { LifeView } from "@/lib/nav-pure";
-import { FOCUS_TIMER_KEY, advanceFocusTimer, focusPhaseSeconds, restoreFocusTimer, type RestoredFocusTimer } from "@/lib/focus-timer-pure";
-import { VOICE_ASK } from "./voice/bus";
+import { FOCUS_TIMER_KEY, advanceFocusTimer, focusPhaseSeconds, pickTimer, restoreFocusTimer, workedMinutes, type FocusTimer, type RestoredFocusTimer } from "@/lib/focus-timer-pure";
+import { hhmm as clock, type DayPlan } from "@/lib/dayplan-pure";
+import { nextAction, whyKey } from "@/lib/life-plan-pure";
 import { useT } from "./i18n";
+import WorkspaceFrame, { useWorkspaceView, type View } from "./WorkspaceFrame";
 import CalendarCard from "./CalendarCard";
 import SchoolPanel from "./SchoolPanel";
 
-// LIFE workspace drawer: today's habits, habit list, focus timer, reminders, journal. All data via /api/life.
+// LIFE workspace: Today (plan timeline + next action), Capture (tasks, reminders), Review, then Habits/Focus/Journal/School.
+// Data via /api/life and the existing day planner (/api/dayplan). Journal text stays on this device's ORBIT: never sent to a model.
 
 async function post<T = Record<string, unknown>>(body: object): Promise<T> {
   const res = await fetch("/api/life", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -19,50 +22,64 @@ async function post<T = Record<string, unknown>>(body: object): Promise<T> {
 }
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const TABS = ["Today", "Habits", "Focus", "Reminders", "Journal", "School"] as const;
-type Tab = (typeof TABS)[number];
-const TAB_OF: Record<LifeView, Tab> = { today: "Today", habits: "Habits", focus: "Focus", reminders: "Reminders", journal: "Journal" };
+type Tab = "today" | "capture" | "review" | "habits" | "focus" | "journal" | "school";
+const TAB_OF: Record<LifeView, Tab> = { today: "today", capture: "capture", review: "review", habits: "habits", focus: "focus", reminders: "capture", journal: "journal" };
 const longDate = (k: string) => new Date(`${k}T12:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
 
 /** open: a voice/palette request (new object per command), so it applies again even while the drawer is open. */
 export default function LifePanel({ open }: { open?: { tab: LifeView; start?: true } | null }) {
   const { t: tr } = useT();
-  const [tab, setTab] = useState<Tab>("Today");
-  useEffect(() => { if (!open) return; setTab(TAB_OF[open.tab]); if (open.start) startTimer(); }, [open]);
+  const views: View<Tab>[] = [
+    { id: "today", label: tr("life.tab.Today") }, { id: "capture", label: tr("life.tab.Capture") }, { id: "review", label: tr("life.tab.Review") },
+    { id: "habits", label: tr("life.tab.Habits"), secondary: true }, { id: "focus", label: tr("life.tab.Focus"), secondary: true },
+    { id: "journal", label: tr("life.tab.Journal"), secondary: true }, { id: "school", label: tr("life.tab.School"), secondary: true },
+  ];
+  const [tab, setTab] = useWorkspaceView<Tab>("life", views);
+  useEffect(() => { if (!open) return; setTab(TAB_OF[open.tab]); if (open.start) startTimer(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const [st, setSt] = useState<LifeState | null>(null);
+  const [plan, setPlan] = useState<{ plan: DayPlan; review: { text: string } | null } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/life");
+      const [res, pr] = await Promise.all([fetch("/api/life"), fetch("/api/dayplan").catch(() => null)]);
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
       setSt(json as LifeState); setErr(null);
+      adoptTimer((json as LifeState).timer);
+      if (pr?.ok) setPlan(await pr.json());
     } catch (e) { setErr((e as Error).message); }
   }, []);
   useEffect(() => { void load(); }, [load]);
   const act = useCallback(async (body: object) => {
     try { const r = await post(body); setErr(null); await load(); return r; } catch (e) { setErr((e as Error).message); return null; }
   }, [load]);
+  const planAct = useCallback(async (body: object) => {
+    try {
+      const res = await fetch("/api/dayplan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+      setErr(null); await load(); return json.result as unknown;
+    } catch (e) { setErr((e as Error).message); return null; }
+  }, [load]);
+  const replan = useCallback(async () => { const r = await fetch("/api/dayplan?fresh=1").catch(() => null); if (r?.ok) setPlan(await r.json()); }, []);
+  const focusOn = (task: string) => { timer.task = task; startTimer(); setTab("focus"); };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={tr("life.sections")}>
-        {TABS.map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>{tr(`life.tab.${t}`)}</button>
-        ))}
-      </div>
+    <WorkspaceFrame planet="life" title={tr("planet.life")} views={views} view={tab} onView={setTab}
+      context={st && tr("life.ctx", { date: longDate(st.today), min: st.focus.today })}
+      action={tab === "today" ? <button className="chip" onClick={replan}>{tr("life.replan")}</button> : undefined}>
       {err && <p className="error" role="alert">{err}</p>}
-      {!st ? (!err && <p className="muted text-sm">{tr("common.loading")}</p>) : (
-        <div role="tabpanel" aria-label={tr(`life.tab.${tab}`)}>
-          {tab === "Today" && <Today st={st} act={act} />}
-          {tab === "Habits" && <Habits st={st} act={act} />}
-          {tab === "Focus" && <Focus st={st} reload={load} />}
-          {tab === "Reminders" && <Reminders st={st} act={act} />}
-          {tab === "Journal" && <Journal st={st} act={act} />}
-          {tab === "School" && <SchoolPanel />}
-        </div>
-      )}
-    </div>
+      {!st ? (!err && <p className="muted text-sm">{tr("common.loading")}</p>) : <>
+        {tab === "today" && <Today st={st} act={act} plan={plan?.plan ?? null} planAct={planAct} focusOn={focusOn} />}
+        {tab === "capture" && <Capture st={st} act={act} planAct={planAct} />}
+        {tab === "review" && <Review st={st} act={act} review={plan?.review ?? null} />}
+        {tab === "habits" && <Habits st={st} act={act} />}
+        {tab === "focus" && <Focus st={st} reload={load} />}
+        {tab === "journal" && <Journal st={st} act={act} />}
+        {tab === "school" && <SchoolPanel />}
+      </>}
+    </WorkspaceFrame>
   );
 }
 
@@ -79,16 +96,53 @@ function Dots({ h }: { h: HabitView }) {
   );
 }
 
-function Today({ st, act }: { st: LifeState; act: Act }) {
+type PlanAct = (body: object) => Promise<unknown>;
+
+function Today({ st, act, plan, planAct, focusOn }: { st: LifeState; act: Act; plan: DayPlan | null; planAct: PlanAct; focusOn: (task: string) => void }) {
   const { t } = useT();
+  const [note, setNote] = useState<string | null>(null);
   const todays = st.habits.filter((h) => h.scheduledToday);
-  const done = todays.filter((h) => h.doneToday).length;
+  const next = nextAction(plan, nowMin());
+  const overrun = async (id: string, title: string) => {
+    const r = (await planAct({ overrun: id, min: 15 })) as { moved: string[]; dropped: string[] } | null;
+    if (r) setNote(`${title}: ${t("life.adjusted", { moved: r.moved.length, dropped: r.dropped.length })}`);
+  };
   return (
     <div className="space-y-3">
-      <div className="card flex items-baseline justify-between gap-2">
-        <b>{longDate(st.today)}</b>
-        <span className="muted text-sm">{todays.length ? t("morning.missionDone", { done, total: todays.length }) : t("life.noToday")}</span>
+      <div className="card space-y-1" aria-live="polite">
+        <div className="muted text-[11px] uppercase tracking-widest">{t("life.next")}</div>
+        {next ? <>
+          <b className="block">{next.block.title}</b>
+          <span className="muted text-xs">{next.now ? t("life.nextNow", { t: clock(next.block.end) }) : t("life.nextAt", { t: clock(next.block.start) })} · {next.block.source.label}</span>
+          <div className="flex gap-1.5 pt-1">
+            <button className="btn" onClick={() => focusOn(next.block.title)}>{t("life.focusOn")}</button>
+            {next.now && <button className="chip" aria-label={t("life.overrunAria", { title: next.block.title })} onClick={() => overrun(next.block.id, next.block.title)}>{t("life.overrun")}</button>}
+          </div>
+        </> : <p className="muted text-sm">{t("life.nothingNext")}</p>}
+        {note && <p className="muted text-xs">{note}</p>}
       </div>
+      {plan && (
+        <section className="card space-y-2" aria-label={t("life.plan")}>
+          <div className="flex items-baseline justify-between gap-2">
+            <b>{t("life.plan")}</b>
+            {!plan.accepted && <button className="chip" onClick={() => planAct({ accept: true })}>{t("life.accept")}</button>}
+          </div>
+          {plan.load && <p className="muted text-xs">{t("life.load", { planned: plan.load.plannedMin, cap: plan.load.capMin, free: plan.load.freeMin })}</p>}
+          <ol className="space-y-1 text-sm">
+            {plan.blocks.map((b) => (
+              <li key={b.id} className="flex gap-2" style={b.flexible ? undefined : { opacity: 0.75 }}>
+                <span className="font-mono text-xs muted w-24 shrink-0">{clock(b.start)}–{clock(b.end)}</span>
+                <span className="flex-1">{b.done ? "✓ " : ""}{b.title}</span>
+                <span className="muted text-xs">{t(b.flexible ? "life.suggested" : "life.fixed")}</span>
+              </li>
+            ))}
+          </ol>
+          {plan.unplaced.length > 0 && <>
+            <div className="muted text-[11px] uppercase tracking-widest pt-1">{t("life.unscheduled")}</div>
+            <ul className="space-y-1 text-sm">{plan.unplaced.map((u) => <li key={u.id}>{u.title} <span className="muted text-xs">· {t(whyKey(u))}</span></li>)}</ul>
+          </>}
+        </section>
+      )}
       <ul className="space-y-2">
         {todays.map((h) => (
           <li key={h.id} className="card flex items-center gap-3 text-sm">
@@ -103,6 +157,58 @@ function Today({ st, act }: { st: LifeState; act: Act }) {
       </ul>
       <CalendarCard />
       <p className="muted text-xs">{t("life.todayLine", { min: st.focus.today, n: st.reminders.filter((r) => !r.fired).length })}</p>
+    </div>
+  );
+}
+
+function Capture({ st, act, planAct }: { st: LifeState; act: Act; planAct: PlanAct }) {
+  const { t } = useT();
+  const [task, setTask] = useState(""), [min, setMin] = useState("30"), [rank, setRank] = useState("2"), [due, setDue] = useState("");
+  const [ok, setOk] = useState(false);
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!task.trim()) return;
+    if (await planAct({ task, min: Number(min), rank: Number(rank), ...(due && { due }) })) { setTask(""); setDue(""); setOk(true); }
+  };
+  return (
+    <div className="space-y-3">
+      <form onSubmit={add} className="card space-y-2" aria-label={t("life.task")}>
+        <input className="field w-full" value={task} onChange={(e) => { setTask(e.target.value); setOk(false); }} placeholder={t("life.taskPh")} aria-label={t("life.task")} maxLength={200} required />
+        <div className="flex flex-wrap gap-2">
+          <input className="field w-20" type="number" min={10} max={240} step={5} value={min} onChange={(e) => setMin(e.target.value)} aria-label={t("life.estimate")} />
+          <select className="field" value={rank} onChange={(e) => setRank(e.target.value)} aria-label={t("life.priority")}>
+            <option value="1">{t("life.prio1")}</option><option value="2">{t("life.prio2")}</option><option value="3">{t("life.prio3")}</option>
+          </select>
+          <input className="field" type="date" value={due} onChange={(e) => setDue(e.target.value)} aria-label={t("life.due")} />
+          <button className="btn ml-auto" disabled={!task.trim()}>{t("common.add")}</button>
+        </div>
+        {ok && <p className="muted text-xs" role="status">{t("life.taskAdded")}</p>}
+      </form>
+      <Reminders st={st} act={act} />
+    </div>
+  );
+}
+
+function Review({ st, act, review }: { st: LifeState; act: Act; review: { text: string } | null }) {
+  const { t } = useT();
+  const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Tallinn" });
+  return (
+    <div className="space-y-3">
+      <section className="card space-y-1"><b>{t("life.reviewDay")}</b><p className="text-sm">{review?.text ?? <span className="muted">{t("life.notAccepted")}</span>}</p></section>
+      <ul className="space-y-2">
+        {st.review.unacked.map((r) => (
+          <li key={r.id} className="card flex items-center gap-2 text-sm">
+            <span className="flex-1">{r.text}<span className="muted block text-xs">{when(r.at)}{r.missed ? ` · ${t("life.missed")}` : ""}</span></span>
+            <button className="chip" onClick={() => act({ action: "ack", id: r.id })} aria-label={t("life.ackAria", { text: r.text })}>{t("life.ack")}</button>
+          </li>
+        ))}
+        {st.review.overdue.map((r) => <li key={r.id} className="card text-sm">{r.text}<span className="muted block text-xs">{when(r.at)} · {t("life.overdue")}</span></li>)}
+        {!st.review.unacked.length && !st.review.overdue.length && <li className="muted text-sm">{t("life.nothingToAck")}</li>}
+      </ul>
+      <section className="card space-y-1 text-sm">
+        <b>{t("life.worked")}</b>
+        {st.work.length ? st.work.map((w) => <div key={w.task} className="flex justify-between"><span>{w.task}</span><span className="muted">{t("life.min", { n: w.min })}</span></div>) : <p className="muted">{t("life.noWork")}</p>}
+      </section>
     </div>
   );
 }
@@ -179,6 +285,7 @@ const restored = restoreFocusTimer(readTimer(), Date.now());
 const timer = restored.timer;
 const phaseLen = (p: typeof timer.phase) => focusPhaseSeconds(timer.plan, p);
 function saveTimer() {
+  timer.at = Date.now();
   try { localStorage.setItem(FOCUS_TIMER_KEY, JSON.stringify(timer)); } catch { /* storage unavailable: keep the in-memory timer */ }
   post({ action: "timer", timer }).catch(() => {}); // for the read-only second screen
 }
@@ -190,7 +297,7 @@ function applyTimer(result: RestoredFocusTimer) {
   saveTimer(); // Claim completion before posting: another reload must not log the same focus twice.
   if (result.expired) {
     beep();
-    if (result.completedMinutes) post({ action: "focus", minutes: result.completedMinutes }).then(() => timerListeners.forEach((f) => f(true)), () => {});
+    if (result.completedMinutes) post({ action: "focus", minutes: result.completedMinutes, ...(timer.task && { task: timer.task }) }).then(() => timerListeners.forEach((f) => f(true)), () => {});
   }
 }
 /** Tells the galaxy (ambient focus mode) whether a focus session is running; only on change. */
@@ -209,6 +316,16 @@ function ensureTick() {
     if (!timer.endAt && timerTick) { clearInterval(timerTick); timerTick = null; }
     timerListeners.forEach((f) => f());
   }, 500);
+}
+
+/** Device switch (LIF05): the server's copy wins when it changed later than this device's; never re-saved, so it can't loop. */
+function adoptTimer(remote: FocusTimer | null) {
+  const pick = pickTimer(timer, remote);
+  if (pick === timer) return;
+  Object.assign(timer, pick); if (!pick.task) delete timer.task;
+  try { localStorage.setItem(FOCUS_TIMER_KEY, JSON.stringify(timer)); } catch { /* in memory only */ }
+  focusSignal(); if (timer.endAt) ensureTick();
+  timerListeners.forEach((f) => f());
 }
 
 /** The Start button's logic; a running timer is left alone. */
@@ -257,6 +374,11 @@ function Focus({ st, reload }: { st: LifeState; reload: () => Promise<void> }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const start = () => { startTimer(); rerender(); };
   const pause = () => { timer.left = left; timer.endAt = 0; saveTimer(); focusSignal(); rerender(); };
+  const stop = () => { // logs the minutes actually worked on this session's task, then resets
+    const m = workedMinutes(timer, Date.now());
+    if (m >= 1) post({ action: "focus", minutes: m, ...(timer.task && { task: timer.task }) }).then(() => reloadRef.current(), () => {});
+    reset();
+  };
   const reset = (plan = timer.plan) => { timer.plan = plan; timer.phase = "focus"; timer.endAt = 0; timer.left = len("focus"); saveTimer(); focusSignal(); rerender(); };
   const mmss = `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`;
   return (
@@ -267,10 +389,13 @@ function Focus({ st, reload }: { st: LifeState; reload: () => Promise<void> }) {
             <button key={p} className="chip" aria-pressed={timer.plan === p} onClick={() => reset(p)}>{p}/{p / 5}</button>
           ))}
         </div>
+        <input className="field w-full text-center" value={timer.task ?? ""} maxLength={120} aria-label={t("life.focusTask")} placeholder={t("life.focusTaskPh")}
+          onChange={(e) => { if (e.target.value) timer.task = e.target.value; else delete timer.task; rerender(); }} onBlur={saveTimer} />
         <div className="muted text-xs uppercase tracking-widest">{t(timer.phase === "focus" ? "life.tab.Focus" : "life.break")}</div>
         <div className="brand font-mono text-5xl" role="timer" aria-live="off">{mmss}</div>
         <div className="flex justify-center gap-2">
           {running ? <button className="btn" onClick={pause}>{t("rules.pause")}</button> : <button className="btn" onClick={start}>{t("life.start")}</button>}
+          {timer.phase === "focus" && workedMinutes(timer, Date.now()) >= 1 && <button className="chip" onClick={stop}>{t("life.stop")}</button>}
           <button className="chip" onClick={() => reset()}>{t("life.reset")}</button>
         </div>
       </div>
@@ -289,7 +414,7 @@ function Reminders({ st, act }: { st: LifeState; act: Act }) {
   useEffect(() => { if (typeof Notification !== "undefined") setPerm(Notification.permission); }, []);
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
-    const d = new Date(at); // datetime-local is local time without zone
+    const d = new Date(at); // datetime-local is this device's local time; the server keeps its Europe/Tallinn wall clock
     if (!text.trim() || isNaN(d.getTime())) return;
     if (await act({ action: "addReminder", text, at: d.toISOString(), ...(repeat ? { repeat } : {}) })) { setText(""); setAt(""); setRepeat(""); }
   };
@@ -305,6 +430,7 @@ function Reminders({ st, act }: { st: LifeState; act: Act }) {
           <button className="btn" disabled={!text.trim() || !at}>{t("common.add")}</button>
         </div>
       </form>
+      <p className="muted text-xs">{t("life.tz")}</p>
       {perm === "default" && (
         <button className="chip" onClick={async () => setPerm(await Notification.requestPermission())}>{t("life.notify")}</button>
       )}
@@ -313,7 +439,7 @@ function Reminders({ st, act }: { st: LifeState; act: Act }) {
           <li key={r.id} className="card flex items-center gap-2 text-sm">
             <span className="flex-1">
               {r.text}
-              <span className="muted block text-xs">{new Date(r.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}{r.fired ? t("life.done") : ""}{isRepeat(r.repeat) ? ` · ↻ ${REPEAT_LABEL[r.repeat]}` : ""}</span>
+              <span className="muted block text-xs">{new Date(r.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Tallinn" })}{r.fired ? t("life.done") : ""}{isRepeat(r.repeat) ? ` · ↻ ${REPEAT_LABEL[r.repeat]}` : ""}</span>
             </span>
             <button className="chip" onClick={() => act({ action: "removeReminder", id: r.id })} aria-label={t("life.deleteReminder", { text: r.text })}>{t("rules.delete")}</button>
           </li>
@@ -354,8 +480,7 @@ function Journal({ st, act }: { st: LifeState; act: Act }) {
           </li>
         ))}
       </ul>
-      {st.journal.filter((j) => j.text.trim()).length >= 2 && (
-        <button className="btn" onClick={async () => { if (!(await save())) return; dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text: "Read my journal from the last 7 days and reflect: patterns, wins, and one suggestion for next week." } })); }}>{t("life.reflect")}</button>)}
+      <p className="muted text-xs">{t("life.journalPrivate")}</p>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 // Offline public-demo fixtures only. No route wiring, owner data, clock, network or global random state.
+import { reviewState } from "./reminders-pure.ts";
 import { layout, type MapItem } from "./memory-map-pure.ts";
 import { hotspots } from "./geo.ts";
 import { funnel, STAGES, type Prospect } from "./business-pure.ts";
@@ -79,7 +80,8 @@ export function demoFor(endpoint: string, query: Query = {}): unknown {
     days: [0, 1, 2, 3, 4, 5, 6], created: date(0), done: series(180, (d) => d).filter((d) => d > 165 || rand() < 0.35 + d / 300).map(date) }));
   const life: LifeState = { today: date(179), habits: habits.map((h) => ({ ...h, streak: streak(h, date(179)), week: last7(h, date(179)), doneToday: true, scheduledToday: true })),
     reminders: [{ id: "reminder-1", text: "Review the lantern sketches", at: time(180) }], focus: { today: 75, week: 375 },
-    journal: [{ date: date(179), text: "The garden has become a daily practice. Today the smallest frame finally held its shape." }] };
+    journal: [{ date: date(179), text: "The garden has become a daily practice. Today the smallest frame finally held its shape." }],
+    work: [], timer: null, review: reviewState([{ id: "reminder-1", text: "Review the lantern sketches", at: time(180) }], Date.parse(DEMO_NOW)) };
   const articles = ["Estonia", "Finland", "Japan", "Canada"].flatMap((country, i) => series(3, (j) => ({
     title: `${country}: ${names[i]} opens fictional lantern garden ${j + 1}`, summary: "A fictional community craft experiment grows with daily practice.",
     url: `https://example.invalid/garden/${i}/${j}`, source: "Quenlori Dispatch", published_at: new Date(Date.parse(DEMO_NOW) - (i * 3 + j) * 3600_000).toISOString() })));

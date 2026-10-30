@@ -4,11 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import {
   MAX_HABITS, MAX_JOURNAL, MAX_OPEN_REMINDERS, MAX_REMINDER, addDays, cleanDays, cleanEmoji, cleanName, dateKey, dueReminders,
-  emptyStore, isDateKey, isRepeat, nextOccurrence, journalText, matchHabit, pruneReminders, reminderTimeError, streak, summaryText, view,
+  emptyStore, isDateKey, isRepeat, matchHabit, pruneReminders, reminderTimeError, streak, summaryText, view,
   type Habit, type LifeState, type LifeStore, type Reminder, type Repeat,
 } from "./life-pure";
 import { habitWeek, isChannel, parseWindow, recordAt, shouldNudge, ignoredRun, type NudgeCtx } from "./habit-nudge-pure";
-import type { FocusTimer } from "./focus-timer-pure";
+import { restoreFocusTimer, type FocusTimer } from "./focus-timer-pure";
+import { claim, wallTime, type Notice } from "./reminders-pure";
 
 // LIFE workspace (habits, focus, reminders, journal), stored locally in <ORBIT data dir>/life.json like follows.json.
 
@@ -16,7 +17,8 @@ export type { LifeState, Habit, Reminder };
 
 // The focus timer lives in the PC browser; it reports each change here (memory only) so the read-only /screen can show it.
 const lf = globalThis as unknown as { __orbitFocus?: FocusTimer };
-export const setLiveFocus = (t: FocusTimer) => { lf.__orbitFocus = t; };
+/** Also kept in life.json so another device (or a restart) picks the running session up (LIF05). */
+export const setLiveFocus = (t: FocusTimer) => { lf.__orbitFocus = t; return update((s) => { if ((s.timer?.at ?? 0) <= (t.at ?? 0)) s.timer = t; }); };
 export const liveFocus = () => lf.__orbitFocus ?? null;
 
 const file = () => {
@@ -34,6 +36,8 @@ async function read(): Promise<LifeStore> {
       habits: Array.isArray(s.habits) ? s.habits.filter((h: Habit) => h && typeof h.id === "string" && typeof h.name === "string" && Array.isArray(h.days) && Array.isArray(h.done)) : e.habits,
       reminders: Array.isArray(s.reminders) ? s.reminders.filter((r: Reminder) => r && typeof r.id === "string" && typeof r.text === "string" && typeof r.at === "string") : e.reminders,
       focus: s.focus && typeof s.focus === "object" ? s.focus : e.focus, journal: s.journal && typeof s.journal === "object" ? s.journal : e.journal,
+      work: Array.isArray(s.work) ? s.work.filter((w: { task?: unknown; min?: unknown }) => w && typeof w.task === "string" && Number.isInteger(w.min)) : [],
+      ...(s.timer && { timer: restoreFocusTimer(JSON.stringify(s.timer), 0).timer }),
     };
   } catch (e) {
     // Only a missing file means empty; a locked/corrupt file must never be overwritten.
@@ -59,8 +63,6 @@ const today = () => dateKey(new Date());
 export async function getLife(): Promise<LifeState> { return view(await read(), Date.now()); }
 /** The raw stored LIFE data (full journal and focus history), for exports and backups. */
 export const exportLife = (): Promise<LifeStore> => read();
-/** The last `days` days of journal entries as plain text, newest first ("" when none). */
-export const journalDigest = async (days: number): Promise<string> => journalText((await read()).journal, today(), days);
 
 export async function addHabit(name: string, emoji?: string, days?: number[]): Promise<{ habit: Habit } | { error: string }> {
   const n = cleanName(name), e = cleanEmoji(emoji), d = cleanDays(days);
@@ -131,7 +133,7 @@ export async function addReminder(text: string, atIso: string, repeat?: Repeat):
   return update((s) => {
     if (s.reminders.filter((r) => !r.fired).length >= MAX_OPEN_REMINDERS) return { error: `Up to ${MAX_OPEN_REMINDERS} open reminders` };
     const d = new Date(atIso);
-    const reminder: Reminder = { id: randomUUID(), text: tx, at: d.toISOString(), ...(repeat ? { repeat, time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` } : {}) };
+    const reminder: Reminder = { id: randomUUID(), text: tx, at: d.toISOString(), ...(repeat ? { repeat, time: wallTime(d.getTime()) } : {}) };
     s.reminders.push(reminder);
     return { reminder };
   });
@@ -139,20 +141,21 @@ export async function addReminder(text: string, atIso: string, repeat?: Repeat):
 export async function removeReminder(id: string): Promise<boolean> {
   return update((s) => { const before = s.reminders.length; s.reminders = s.reminders.filter((r) => r.id !== id); return s.reminders.length < before; });
 }
-export async function markFired(id: string): Promise<boolean> {
-  return update((s) => {
-    const r = s.reminders.find((x) => x.id === id), now = Date.now();
-    // false when another window already showed it (one-off already fired, or the recurring one already moved forward)
-    if (!r || r.fired || Date.parse(r.at) > now) return false;
-    if (isRepeat(r.repeat)) r.at = nextOccurrence(r.at, r.repeat, now, r.time);
-    else r.fired = new Date(now).toISOString();
-    return true;
-  });
+/** Claims the due occurrence; null when another window (or an earlier run) already showed it. */
+export async function markFired(id: string): Promise<Notice | null> {
+  return update((s) => { const r = s.reminders.find((x) => x.id === id); return r && (!r.repeat || isRepeat(r.repeat)) ? claim(r, Date.now()) : null; });
+}
+export async function ackReminder(id: string): Promise<boolean> {
+  return update((s) => { const r = s.reminders.find((x) => x.id === id); if (!r?.last) return false; r.ack = new Date().toISOString(); return true; });
 }
 export async function getDue(): Promise<Reminder[]> { return dueReminders((await read()).reminders, Date.now()); }
 
-export async function logFocus(minutes: number): Promise<number> {
-  return update((s) => { const t = today(); s.focus[t] = (s.focus[t] ?? 0) + minutes; return s.focus[t]; });
+export async function logFocus(minutes: number, task?: string): Promise<number> {
+  return update((s) => {
+    const t = today(); s.focus[t] = (s.focus[t] ?? 0) + minutes;
+    if (task) { const w = (s.work ??= []).find((x) => x.day === t && x.task === task); if (w) w.min += minutes; else s.work.push({ day: t, task, min: minutes }); s.work = s.work.slice(-500); }
+    return s.focus[t];
+  });
 }
 export async function saveJournal(text: string, date?: string): Promise<{ ok: true } | { error: string }> {
   const t = today(), day = date ?? t;

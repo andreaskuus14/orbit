@@ -5,6 +5,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
+import { adjustPlan } from "./life-plan-pure";
 import { localDay } from "./morning-pure";
 import { acceptPlan, buildPlan, carryForward, commitmentItems, dayStat, type DayStat, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure";
 
@@ -83,6 +84,13 @@ export async function movePlan(sb: SupabaseClient | null, userId: string | null,
   return planDay(sb, userId, { fresh: true });
 }
 
+/** LIF02: a block ran over (or he changed it): the smallest shift of later flexible blocks; fixed ones never move. */
+export const adjust = (id: string, extra: number) => update((s) => {
+  if (!s.plan) return "No plan yet";
+  const r = adjustPlan(s.plan, id, extra);
+  if (typeof r !== "string") s.plan = r.plan;
+  return r;
+});
 export const accept = () => update((s) => (s.plan ? (s.plan = acceptPlan(s.plan, new Date().toISOString())) : "No plan yet"));
 export const setDone = (id: string, done: boolean) => update((s) => {
   if (!s.plan) return "No plan yet";
@@ -102,8 +110,8 @@ export const captureCommitments = (text: string, source: { kind: string; ref?: s
   return found;
 });
 /** His own confirmed task (e.g. an open loop he turned into one): goes straight into "Plan my day". */
-export const addTask = (text: string, source: { kind: string; ref?: string }) => update((s) => {
-  const c: Commitment = { id: `c-${Date.now().toString(36)}-t`, text: text.slice(0, 200), owner: "me", missing: [], status: "confirmed", source, at: new Date().toISOString() };
+export const addTask = (text: string, source: { kind: string; ref?: string }, est?: { min?: number; rank?: number; due?: string }) => update((s) => {
+  const c: Commitment = { id: `c-${Date.now().toString(36)}-t`, text: text.slice(0, 200), owner: "me", missing: [], status: "confirmed", source, at: new Date().toISOString(), ...est };
   s.commitments = [c, ...s.commitments].slice(0, 200);
   return c;
 });

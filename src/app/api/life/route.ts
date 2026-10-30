@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { emit } from "@/lib/claude";
-import { addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal, setHabitNudge, setLiveFocus } from "@/lib/life";
+import { ackReminder, addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal, setHabitNudge, setLiveFocus } from "@/lib/life";
 import { takeHabitToasts } from "@/lib/habit-nudge";
 import { restoreFocusTimer } from "@/lib/focus-timer-pure";
 import { MAX_FOCUS_MIN, isRepeat } from "@/lib/life-pure";
@@ -59,16 +59,21 @@ export async function POST(req: Request) {
     case "removeReminder":
       return id ? Response.json({ removed: await removeReminder(id) }) : bad("Missing id");
     case "fired":
-      return id ? Response.json({ ok: await markFired(id) }) : bad("Missing id");
+      if (!id) return bad("Missing id");
+      { const notice = await markFired(id); return Response.json({ ok: !!notice, notice }); }
+    case "ack":
+      return id ? Response.json({ ok: await ackReminder(id) }) : bad("Missing id");
     case "focus": {
       const m = b.minutes;
       if (!Number.isInteger(m) || m < 1 || m > MAX_FOCUS_MIN) return bad(`Minutes must be 1–${MAX_FOCUS_MIN}`);
-      const today = await logFocus(m);
+      const task = b.task === undefined ? undefined : str(b.task, 120);
+      if (task === null) return bad("Invalid task");
+      const today = await logFocus(m, task?.trim() || undefined);
       await emit(sb, user.id, "focus.session", "life", { minutes: m });
       return Response.json({ today });
     }
     case "timer": // the PC's live focus timer, for /screen; anything invalid becomes a paused timer
-      setLiveFocus(restoreFocusTimer(JSON.stringify(b.timer ?? null), Date.now()).timer);
+      await setLiveFocus(restoreFocusTimer(JSON.stringify(b.timer ?? null), Date.now()).timer);
       return Response.json({ ok: true });
     case "journal": {
       const text = str(b.text, 2000);

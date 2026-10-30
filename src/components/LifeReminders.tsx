@@ -25,9 +25,9 @@ export default function LifeReminders() {
           for (const r of due ?? []) {
             // Mark fired first: if that fails we try again next poll instead of showing it twice.
             const ok = await fetch("/api/life", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fired", id: r.id }) })
-              .then(async (x) => x.ok && (await x.json()).ok === true).catch(() => false); // false: another ORBIT window already showed it
+              .then(async (x) => (x.ok ? ((await x.json()).notice as { missed: boolean } | null) : null)).catch(() => null); // null: another ORBIT window already showed it
             if (!ok || !alive) continue;
-            notify({ key: `reminder:${r.id}:${r.at}`, signal: "reminder", reason: `Your reminder is due: ${r.text}`, title: "Reminder", body: r.text, kind: "life", nav: { panel: "life" } });
+            notify({ key: `reminder:${r.id}:${r.at}`, signal: "reminder", reason: `Your reminder is due: ${r.text}`, title: translate(lang, ok.missed ? "life.missedNotice" : "life.notice"), body: r.text, kind: "life", nav: { panel: "life", life: "review" } });
           }
         }
       } catch { /* offline: try again later */ }

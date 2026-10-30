@@ -132,7 +132,7 @@ export function eveningReport(p: DayPlan | null, now: number): { done: Block[]; 
 }
 
 // ── Commitment inbox ─────────────────────────────────────────────────────────────────────────────────────────────
-export type Commitment = { id: string; text: string; owner: "me" | "them"; due?: string; missing: string[]; status: "awaiting" | "confirmed" | "dismissed"; source: { kind: string; ref?: string }; at: string };
+export type Commitment = { id: string; text: string; owner: "me" | "them"; due?: string; missing: string[]; status: "awaiting" | "confirmed" | "dismissed"; source: { kind: string; ref?: string }; at: string; min?: number; rank?: number };
 
 const PROMISE = /\b(i(?:'ll| will| shall)|i(?:'m| am) going to|i promise(?:d)?|i need to|i have to|i must|remind me to|let me)\b\s+(.{3,140}?)(?:[.!?\n]|$)/gi;
 const THEIRS = /\b(you(?:'ll| will)|(?:he|she|they)(?:'ll| will))\s+(.{3,140}?)(?:[.!?\n]|$)/gi;
@@ -177,7 +177,7 @@ export function decideCommitment(list: Commitment[], id: string, ok: boolean, du
 
 /** Only his own confirmed, still-relevant commitments go into the planner (as flexible 30-min tasks). */
 export const commitmentItems = (list: Commitment[]): PlanItem[] => list.filter((c) => c.status === "confirmed" && c.owner === "me")
-  .map((c) => ({ id: c.id, title: c.text, min: 30, flexible: true, ...(c.due && { due: c.due }), source: { kind: "commitment", label: "Commitment inbox", open: { panel: "life" } } }));
+  .map((c) => ({ id: c.id, title: c.text, min: c.min ?? 30, flexible: true, ...(c.rank && { rank: c.rank }), ...(c.due && { due: c.due }), source: { kind: "commitment", label: "Commitment inbox", open: { panel: "life" } } }));
 
 /** CORE's answer text for "plan my day". */
 export function planText(p: DayPlan): string {
