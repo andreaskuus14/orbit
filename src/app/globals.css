@@ -859,3 +859,6 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .rm-offline { border: 1px solid var(--amber); color: var(--amber); border-radius: 10px; padding: 0.6rem 0.75rem; font-size: 0.875rem; font-weight: 600; }
 .rm-shell .muted { color: #a9bbd6; } /* a notch brighter than the desktop muted for outdoor contrast */
 @media (prefers-reduced-motion: reduce) { .rm-core, .rm-star { animation: none; } }
+/* G05: workspace tabs and primary actions reach 44px on phones; G04 shared state line. */
+@media (max-width: 640px), (pointer: coarse) { .ws-tabs [role="tab"], .state-note .chip { min-height: 44px; min-width: 44px; } }
+.state-note { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }

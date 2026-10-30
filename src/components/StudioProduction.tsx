@@ -2,6 +2,7 @@
 // STUDIO production workspace (STU01-04): Ideas, Production, Review, Calendar, Results over one record per clip (production-pure.ts).
 // Approving and publishing stay in the Clip Factory clip card (the owner's click on the exact revision); this view never uploads.
 import { useCallback, useEffect, useState } from "react";
+import StateNote from "./StateNote";
 import WorkspaceFrame, { useWorkspaceView, type View } from "./WorkspaceFrame";
 import ShortsBoard from "./ShortsBoard";
 import StudioCalendar from "./StudioCalendar";
@@ -36,8 +37,8 @@ export default function StudioProduction({ reduced, review, onReview, onOpenClip
     <section className="glass hud-panel h-full overflow-y-auto p-4" aria-label={t("sp.title")}>
       <WorkspaceFrame planet="studio" title={t("sp.title")} context={data ? t("sp.context", { n: data.records.length, ready }) : undefined}
         action={<button className="chip" onClick={onOpenClips}>{t("sp.openClips")}</button>} views={views} view={view} onView={setView}>
-        {err && <p className="error" role="alert">{err}</p>}
-        {!data && !err && <p className="muted">{t("sp.loading")}</p>}
+        {err ? <StateNote state="failed" what={err} kept={data ? t("state.keptScreen") : undefined} action={{ label: t("state.retry"), run: () => void load() }} />
+        : !data && <StateNote state="loading" action={{ label: t("state.retry"), run: () => void load() }}>{t("sp.loading")}</StateNote>}
         {data && view === "ideas" && <ShortsBoard jobs={data.jobs} active reduced={reduced} onOpen={onOpenClips}
           onPickTitle={async () => { onOpenClips(); return false; }} onMoreTitles={async () => { onOpenClips(); return false; }} />}
         {data && view === "production" && <RecordList records={data.records.filter((r) => !r.result)} onOpen={open} empty={t("sp.none")} />}

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import StateNote from "./StateNote";
 import { MARKETS_TAB } from "@/lib/brief-pure";
 import type { Analysis, getMarkets } from "@/lib/markets";
 import { NOTE, sparkPath, type Point, type Strategy } from "@/lib/markets-pure";
@@ -52,8 +53,9 @@ export default function MarketsPanel() {
 
   return (
     <WorkspaceFrame planet="markets" title={tr("mk.sections")} context={tr("mk.context")} views={views} view={tab} onView={setTab}>
-      {err && <p className="error" role="alert">{err}</p>}
-      {!st ? (!err && <p className="muted text-sm">{tr("common.loading")}</p>) : (
+      {err ? <StateNote state="failed" what={err} kept={st ? tr("state.keptScreen") : undefined} action={{ label: tr("state.retry"), run: () => void load() }} />
+        : !st && <StateNote state="loading" action={{ label: tr("state.retry"), run: () => void load() }} />}
+      {st && (
         <>
           {tab === "Watchlist" && <Watchlist st={st} act={act} />}
           {tab === "Portfolio" && <Portfolio st={st} act={act} />}
