@@ -7,7 +7,7 @@ import * as pure from "../src/lib/business-pure.ts";
 import * as crmPure from "../src/lib/prospect-crm-pure.ts";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/app/api/business/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", stage = "contacted", draft = "Tere! Pakun tasuta pilooti.", noTemplateColumn = false) {
+function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", stage = "contacted", draft = "Tere! Pakun tasuta pilooti.", noTemplateColumn = false, heavy = false) {
   const row = { id: "11111111-1111-1111-1111-111111111111", name: "Bakery", kind: "cakes", notes: "", draft, stage, updated_at: "2026-10-01T00:00:00Z" };
   const writes: object[] = [], asks: any[] = [];
   const sb = { from: () => {
@@ -27,7 +27,7 @@ function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", 
       if (name.endsWith("supabase/server")) return { requireUser: async () => ({ sb }) };
       if (name.endsWith("/csrf")) return { crossSiteBlocked: () => false };
       if (name.endsWith("/claude")) return { BusyError: class extends Error {}, askClaude: async (...args: any[]) => { asks.push(args); return { text: answer }; } };
-      if (name.endsWith("usage-meter")) return { usageHold: () => null };
+      if (name.endsWith("usage-meter")) return { usageHold: () => (heavy ? "Heavy use: 119% of your 5-hour budget (150 calls)" : ""), usageHardHold: () => "", pastBudget: () => heavy };
       if (name.endsWith("stop-all")) return { stopAllOn: () => false };
       if (name.endsWith("remote-push")) return { pushNotify: () => {} };
       if (name.endsWith("prospect-crm-pure")) return crmPure;
@@ -83,4 +83,14 @@ test("draft API tags a lead with the angle, and still saves untagged before migr
   assert.equal((await b.post({ action: "draft", lang: "Estonian", angle: "speed" })).status, 200);
   assert.equal(b.row.draft, "Tere!");
   assert.equal((b.row as any).template, undefined);
+});
+
+test("find API proceeds on the owner's click at 119% of the soft budget, with a non-blocking note", async () => {
+  const a = api(JSON.stringify([{ name: "Cake Shop", kind: "cakes", contact: "x@y.ee", why: "near" }]), "contacted", "", false, true);
+  const res = await a.post({ action: "find", query: "cake shops in Tallinn" });
+  assert.equal(res.status, 200);
+  const j = await res.json();
+  assert.equal(j.finds[0].name, "Cake Shop");
+  assert.equal(j.pastBudget, true);
+  assert.equal(a.asks[0][2].lane, "foreground");
 });

@@ -28,7 +28,7 @@ function radar(options: { source?: string; advanceAfterCaptions?: boolean } = {}
       if (name.endsWith("/claude")) return { askClaude: async (...args: any[]) => { asks.push(args); return { text: '[{"title":"New idea","area":"core","score":90}]' }; } };
       if (name.endsWith("/stop-all")) return { stopAllOn: () => false };
       if (name.endsWith("/stop-all-pure")) return {};
-      if (name.endsWith("/usage-meter")) return { usageHold: () => null };
+      if (name.endsWith("/usage-meter")) return { usageHold: () => null, usageHardHold: () => "", pastBudget: () => false };
       if (name.endsWith("/clips/pure")) return { ytdlpError: (s: string) => s };
       if (name.endsWith("/clips/factory")) return {
         studioRoot: () => "/test-store", readState: async () => saved, saveState: async (_kind: string, _path: string, data: any) => { writes.push(data); saved = data; },
