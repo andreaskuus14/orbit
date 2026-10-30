@@ -31,6 +31,10 @@ import GridCity from "./GridCity";
 import HivePanel from "./HivePanel";
 import DevSessions from "./DevSessions";
 import CoreConfigPanel from "./CoreConfigPanel";
+import WorkspaceFrame from "./WorkspaceFrame";
+import { useT } from "./i18n";
+import { AssetRegister, ContractCard, EvidenceLog, ReleasePanel, WorkStepsLine } from "./GameDevViews";
+import { contractBrief } from "@/lib/gamedev-pure";
 import { backlogGoal, fixContext, importDrafts, parseBacklog, sortBacklog } from "@/lib/backlog-pure";
 import {
   ART_KEYS, KINDS, PLATFORMS, PLAYABLE_IDS, PRIORITIES, SEVERITIES, STAGES, STATUSES, bugStats, isActive, qaPrompt, slugify, validateDevWorld,
@@ -45,6 +49,19 @@ const PLATFORM_COLOR: Record<Platform, string> = { roblox: "#60a5fa", web: "#c08
 const STAGE_SIZE: Record<Stage, number> = { idea: 0.18, prototype: 0.24, alpha: 0.3, beta: 0.36, live: 0.42 };
 const SEVERITY_COLOR: Record<Severity, string> = { crash: "#ff4d6d", major: "#ef4444", minor: "#f59e0b", polish: "#94a3b8" };
 const MAX_PARTICLES = 300;
+// Projects → one game's Overview / Build / Test / Assets / Release. Each specialist tool lives in one view; per-game views need a selected game.
+const VIEWS = {
+  projects: [["games", "🎮 Games"], ["trends", "📈 Trends"], ["hive", "🐝 Hive"], ["sessions", "🕒 Sessions"], ["core", "⚙ CORE"]],
+  overview: [["detail", "🎯 Game"], ["economy", "🪙 Economy"]],
+  build: [["scene", "🏗 Scene"], ["code", "📝 Code"], ["grid", "🟦 Grid"]],
+  test: [["evidence", "🧾 Results"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"]],
+  assets: [["register", "📦 Register"], ["refs", "🎨 References"], ["textures", "🧱 Textures"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"]],
+  release: [["release", "🚀 Package"]],
+} as const;
+type ViewId = keyof typeof VIEWS;
+type Tool = (typeof VIEWS)[ViewId][number][0];
+const VIEW_IDS = Object.keys(VIEWS) as ViewId[];
+const viewOf = (tool: Tool) => VIEW_IDS.find((v) => VIEWS[v].some(([k]) => k === tool))!;
 const orbitR = (i: number) => 2.3 + i * 0.75;
 
 /** Where game i is at time t (written into `out`). */
@@ -176,7 +193,8 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
   const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [tab, setTab] = useState<"games" | "refs" | "scene" | "textures" | "code" | "sounds" | "thumbs" | "trends" | "playtest" | "personas" | "economy" | "hive" | "grid" | "sessions" | "core">("games");
+  const { t } = useT();
+  const [tab, setTab] = useState<Tool>("games");
   const [fix, setFix] = useState<{ key: number; error: string } | undefined>(); // backlog → Code helper (Fix mode)
   const [rising, setRising] = useState(0); // bumped by a Herald trend card: Trend Radar opens on Rising
   useEffect(() => { if (tab !== "trends") setRising(0); }, [tab]); // leaving the radar ends the jump, so coming back opens it normally (runs before the mount check below, which may bump it)
@@ -245,6 +263,11 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const games = useMemo(() => world?.games ?? [], [world]);
   const bugs = useMemo(() => world?.bugs ?? [], [world]);
   const game = games.find((g) => g.id === selected) ?? null;
+  const view = viewOf(tab);
+  const needsGame = view !== "projects" && !game && tab !== "code"; // the Luau helper also takes screen-look errors with no game picked
+  const gk = game?.id ?? ""; // game-scoped tools remount on a game switch, so no tool keeps the previous game's context
+  const lastGk = useRef(gk);
+  useEffect(() => { if (lastGk.current !== gk) { lastGk.current = gk; setFix(undefined); } }, [gk]); // a fix prompt never follows you to another game
   const hovered = games.find((g) => g.id === hover.id);
   const Game = playing ? GAME_COMPONENTS[playing] : null;
   const far = Math.max(9, orbitR(games.length) * 1.5);
@@ -260,7 +283,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <ambientLight intensity={0.35} />
         <ForgeStar reduced={reduced} />
         {games.map((g, i) => <OrbitPath key={`p-${g.id}`} r={orbitR(i)} />)}
-        {games.map((g, i) => <Island key={g.id} game={g} i={i} selected={g.id === selected} reduced={reduced} onPick={(id) => { setSelected(id); setTab("games"); }} onHover={onHover} />)}
+        {games.map((g, i) => <Island key={g.id} game={g} i={i} selected={g.id === selected} reduced={reduced} onPick={(id) => { setSelected(id); setTab("detail"); }} onHover={onHover} />)}
         <BugSwarm games={games} bugs={bugs} reduced={reduced} />
         <OrbitControls makeDefault enablePan={false} minDistance={3} maxDistance={far * 2} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Rig />
@@ -283,34 +306,44 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
 
       <section className="glass hud-panel world-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
         aria-label="Game studio">
-        <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Studio view">
-          <button className="chip" aria-pressed={tab === "games"} onClick={() => setTab("games")}>🎮 Games</button>
-          <button className="chip" aria-pressed={tab === "refs"} onClick={() => setTab("refs")} style={tab === "refs" ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>🎨 References</button>
-          {([["scene", "🏗 Build"], ["textures", "🧱 Textures"], ["code", "📝 Code"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["trends", "📈 Trends"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"], ["economy", "🪙 Economy"], ["hive", "🐝 Hive"], ["grid", "🟦 Grid"], ["sessions", "🕒 Sessions"], ["core", "⚙ CORE"]] as const).map(([k, label]) => (
-            <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
-          ))}
-        </div>
+        <WorkspaceFrame planet="creation" title={game ? `${t("gd.title")} · ${game.name}` : t("gd.title")} view={view} onView={(v) => setTab(VIEWS[v][0][0])}
+          views={VIEW_IDS.map((v) => ({ id: v, label: t(`gd.v.${v}`), secondary: v !== "projects" && !game }))}
+          context={game ? contractBrief(game) : t("gd.ctxNone", { n: games.length, b: bugs.filter(isActive).length })}>
+        {VIEWS[view].length > 1 && (
+          <div className="flex flex-wrap gap-1" role="group" aria-label={t(`gd.v.${view}`)}>
+            {VIEWS[view].map(([k, label]) => (
+              <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
+            ))}
+          </div>
+        )}
+        {needsGame && <p className="muted">{t("gd.pick")}</p>}
         {tab === "games" && <LocalBrainLine />}
-        <div hidden={tab !== "refs"}><RefBoard /></div>
-        {tab === "sounds" && <SoundFinder />}
-        <div hidden={tab !== "thumbs"}><ThumbMaker /></div>
+        <div hidden={tab !== "refs" || needsGame}><RefBoard /></div>
+        {tab === "sounds" && !needsGame && <SoundFinder />}
+        <div hidden={tab !== "thumbs" || needsGame}><ThumbMaker /></div>
         {tab === "trends" && <TrendRadar openRising={rising} />}
-        {tab === "grid" && <GridCity />}
+        {tab === "grid" && !needsGame && <GridCity key={gk} />}
         <div hidden={tab !== "hive"}><HivePanel /></div>
-        {tab === "scene" && <ScenePlanner />}
-        {tab === "textures" && <TextureStudio />}
-        <div hidden={tab !== "playtest"}><PlaytestBot world={world} commit={commit} gameId={selected} /></div>
-        {tab === "personas" && <PersonaPlaytest world={world} commit={commit} gameId={selected} />}
-        {tab === "economy" && <GameCopilot world={world} gameId={selected} />}
-        <div hidden={tab !== "code"}><CodeHelper prefill={fix} /></div>
+        {tab === "scene" && !needsGame && <ScenePlanner key={gk} />}
+        {tab === "textures" && !needsGame && <TextureStudio />}
+        <div hidden={tab !== "playtest" || needsGame}>
+          <p className="muted mb-1 text-xs">{t("gd.k.runtime")}: {t("gd.runtimeNote")}</p>
+          <PlaytestBot key={gk} world={world} commit={commit} gameId={selected} />
+        </div>
+        {tab === "personas" && !needsGame && <><p className="muted text-xs">{t("gd.k.simulated")}: {t("gd.simNote")}</p><PersonaPlaytest key={gk} world={world} commit={commit} gameId={selected} /></>}
+        {tab === "economy" && !needsGame && <GameCopilot key={gk} world={world} gameId={selected} />}
+        <div hidden={tab !== "code" || needsGame}><CodeHelper key={gk} prefill={fix} /></div>
         {tab === "sessions" && <DevSessions />}
         {tab === "core" && <CoreConfigPanel />}
-        {tab !== "games" ? null : !world ? (
+        {world && game && tab === "evidence" && <EvidenceLog key={gk} game={game} world={world} commit={commit} />}
+        {world && game && tab === "register" && <AssetRegister key={gk} game={game} world={world} commit={commit} />}
+        {world && game && tab === "release" && <ReleasePanel key={gk} game={game} world={world} commit={commit} />}
+        {tab !== "games" && tab !== "detail" ? null : !world ? (
           loadErr ? <><p className="error">{loadErr}</p><button className="chip mt-2" onClick={() => void load()}>Retry</button></> : <p className="muted">Loading studio…</p>
-        ) : game ? (
-          <GameDetail key={game.id} game={game} world={world} commit={commit} onBack={() => setSelected(null)} onPlay={setPlaying}
-            onDeleted={() => setSelected(null)} onOpenTask={onOpenTask} onFix={(error) => { setFix({ key: Date.now(), error }); setTab("code"); }} />
-        ) : (
+        ) : game && tab === "detail" ? (
+          <GameDetail key={game.id} game={game} world={world} commit={commit} onBack={() => { setSelected(null); setTab("games"); }} onPlay={setPlaying}
+            onDeleted={() => { setSelected(null); setTab("games"); }} onOpenTask={onOpenTask} onFix={(error) => { setFix({ key: Date.now(), error: `${contractBrief(game)}\n\n${error}`.slice(0, 2000) }); setTab("code"); }} />
+        ) : tab === "games" ? (
           <>
             <div className="hud-title"><MaskText text="GAME STUDIO" /></div>
             <p className="muted text-xs">{games.length} games · {bugs.filter(isActive).length} open bugs{seeded ? " · starter data, saved to your account on your first change" : ""}</p>
@@ -319,7 +352,8 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
                 const s = bugStats(world, g.id);
                 return (
                   <li key={g.id}>
-                    <button className="hud-row" style={{ ["--accent" as string]: PLATFORM_COLOR[g.platform] }} onClick={() => setSelected(g.id)}
+                    <button className="hud-row" style={{ ["--accent" as string]: PLATFORM_COLOR[g.platform] }} onClick={() => { setSelected(g.id); setTab("detail"); }}
+                      aria-current={g.id === selected || undefined}
                       aria-label={`${g.name}, ${g.platform}, ${g.stage}, ${s.active} open bugs`}>
                       <span className="truncate">{g.name}</span><span className="muted text-xs">{g.stage}</span><span className="num">{s.active}</span>
                     </button>
@@ -330,11 +364,12 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
             {!games.length && <p className="mt-3 text-sm">No games yet. Add your first one.</p>}
             {adding
               ? <GameForm taken={games.map((g) => g.id)} onCancel={() => setAdding(false)}
-                  onSave={(g) => { if (commit({ ...world, games: [...games, g] })) { setAdding(false); setSelected(g.id); } }} />
+                  onSave={(g) => { if (commit({ ...world, games: [...games, g] })) { setAdding(false); setSelected(g.id); setTab("detail"); } }} />
               : <button className="chip mt-3" onClick={() => setAdding(true)} disabled={games.length >= 30}>+ Add game</button>}
           </>
-        )}
-        {err && tab === "games" && <p className="error mt-2" role="alert">{err}</p>}
+        ) : null}
+        </WorkspaceFrame>
+        {err && <p className="error mt-2" role="alert">{err}</p>}
       </section>
 
       <button className="chip world-back absolute z-[15] left-3 top-[4.5rem] min-[900px]:left-auto min-[900px]:top-auto min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
@@ -400,6 +435,7 @@ function GameDetail({ game, world, commit, onBack, onPlay, onDeleted, onOpenTask
         }}>Delete game</button>
       </div>
       {qa.msg && <p role="status" className={qa.ok ? "ok" : "error"}>{qa.msg}</p>}
+      <ContractCard key={game.id} game={game} world={world} commit={commit} />
       <BugTracker game={game} world={world} commit={commit} onFix={onFix} />
     </div>
   );
@@ -487,6 +523,7 @@ function BugTracker({ game, world, commit, onFix }: { game: Game; world: World; 
               <span className="shrink-0 text-xs" style={{ color: SEVERITY_COLOR[b.severity] }}>{b.kind ?? "bug"} · {b.severity}</span>
             </div>
             {b.detail && <p className="muted whitespace-pre-wrap text-xs">{b.detail}</p>}
+            <WorkStepsLine bug={b} world={world} />
             <div className="flex items-center gap-2 text-xs">
               <select className="field py-1" aria-label={`Status of ${b.title}`} value={b.status}
                 onChange={(e) => { const status = e.target.value as Status; setBug(b.id, { status, fixed: status === "fixed" ? new Date().toISOString() : undefined }); }}>
