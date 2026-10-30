@@ -141,3 +141,32 @@ test("routine history retention never hides the latest unresolved red problem", 
   bell = addItem(bell, notice("scout", "latest"), T + 71, "latest");
   assert.equal(bell.some((x) => x.key === "disk"), false);
 });
+
+import { requestKey, agentNoticeKey, digestQueue, focusRunning, ownerIdle as idle2 } from "../src/lib/interruption-pure.ts";
+import { needsYou } from "../src/lib/needs-you-pure.ts";
+import { addItem as addBell } from "../src/lib/notify-pure.ts";
+test("one failed mission → one request: Needs-you, toast and bell share one key", () => {
+  const need = needsYou({ missions: [{ id: "m1", objective: "Ship it", status: "failed", updated_at: "2026-10-30T00:00:00Z", chain_id: "t1" }] })[0];
+  const key = agentNoticeKey("t1", "agent.failed", "failed");
+  assert.equal(key, requestKey(need.ref, need.cause));
+  assert.equal(agentNoticeKey("t1", "agent.completed", "failed"), key); // a status update about the same failure is the same request
+  const n = { key, kind: "agents" as const, signal: "agent-finished" as const, title: "Agent task failed" };
+  assert.equal(addBell(addBell([], n, 1), n, 2).length, 1);
+  assert.notEqual(agentNoticeKey("t1", "agent.completed", "done"), key);
+});
+test("digest: one per key, urgent kept apart, useful before quiet, newest first", () => {
+  const q = [{ key: "a", kind: "system" as const, signal: "scout" as const, title: "A" }, { key: "b", kind: "system" as const, signal: "briefing" as const, title: "B" },
+    { key: "a", kind: "system" as const, signal: "scout" as const, title: "A2" }, { key: "c", kind: "system" as const, signal: "disk-full" as const, title: "C" },
+    { key: "d", kind: "system" as const, signal: "reminder" as const, title: "D" }];
+  const r = digestQueue(q, emptyJudgment());
+  assert.deepEqual(r.urgent.map((x) => x.title), ["C"]);
+  assert.deepEqual(r.digest.map((x) => x.title), ["D", "B", "A2"]);
+});
+test("focus timer or THEATER hold non-urgent; idle otherwise", () => {
+  const a = { visible: true, coreBusy: false, worldOpen: false, lastTyped: 0 };
+  assert.equal(idle2(a, IDLE_MS), true);
+  assert.equal(idle2({ ...a, theater: true }, IDLE_MS), false);
+  assert.equal(idle2({ ...a, focus: true }, IDLE_MS), false);
+  assert.equal(focusRunning(JSON.stringify({ plan: 25, phase: "focus", endAt: 10_000, left: 1 }), 5_000), true);
+  assert.equal(focusRunning(null, 5_000), false);
+});

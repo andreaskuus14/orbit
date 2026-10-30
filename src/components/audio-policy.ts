@@ -4,6 +4,7 @@ import { AUDIO_IDLE, MUTE_KEY, holdAnnouncement, targetGains, type AudioState } 
 import { onSpeakingChange, isSpeaking, speakChunk } from "./voice/speak";
 import { VOICE_PAUSE, VOICE_RESUME } from "./voice/useVoiceInput";
 import { getWatch, subscribeWatch } from "./watch-store";
+import { THEATER_EVENT } from "@/lib/interruption-pure";
 
 let state: AudioState = { ...AUDIO_IDLE, muted: readMute() };
 let held: string[] = [];
@@ -19,6 +20,7 @@ function set(p: Partial<AudioState>) {
   if (Object.keys(p).every((k) => next[k as keyof AudioState] === state[k as keyof AudioState])) return;
   state = next;
   subs.forEach((f) => f());
+  if ("media" in p) dispatchEvent(new CustomEvent(THEATER_EVENT, { detail: state.media })); // Herald holds non-urgent pop-ups
   if (!holdAnnouncement(state, false) && held.length) { const h = held; held = []; h.forEach((t) => speakChunk(t)); }
 }
 
