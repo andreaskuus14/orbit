@@ -6,6 +6,7 @@ import { foreignUrl, typedText } from "./attach-pure.ts";
 import { actionBlocked, STUDIO_TOOLS, type StudioTool } from "./core-studio.ts";
 import { LIFE_TOOLS, lifeWriteBlocked, type LifeTool } from "./core-life.ts";
 import { WS_TOOLS, wsTainted, wsWriteBlocked } from "./core-workspace.ts";
+import type { WsGate } from "./ws-intent-pure.ts";
 import { createGoalBlocked } from "./goals-pure.ts";
 import { asksToRemember } from "./reflect-pure.ts";
 import { checkpointBlocked } from "./checkpoint-pure.ts";
@@ -22,7 +23,9 @@ export type Decision = { allow: boolean; tier: Tier; reason: string };
  *  steps: this answer's tool results so far, in core.ts's "You called <tool> <json>\nRESULT:\n..." form; question: latest user message. */
 export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[]; autonomy?: Partial<Levels>;
   /** an earlier turn of this chat had private data in context (journal/LIFE, attachments, pins): it is still in the session (C03) */
-  carried?: boolean };
+  carried?: boolean;
+  /** workspace names + CORE's pending build offer in this chat (ws-intent-pure.ts) */
+  ws?: WsGate };
 
 export const TIERS: Record<string, Tier> = {
   navigate: "T0", goal_status: "T0", mission_status: "T0", business_status: "T0", ideas_list: "T0",
@@ -108,7 +111,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   let blocked = "";
   if ((STUDIO_TOOLS as readonly string[]).includes(tool) || tool === "plan_task") blocked = actionBlocked(tool as StudioTool, question, dataIn);
   else if ((LIFE_TOOLS as readonly string[]).includes(tool)) blocked = err(lifeWriteBlocked(tool as LifeTool, question, dataIn));
-  else if (tool === "ws_write" || tool === "ws_create") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps))); // core-modules.ts:50
+  else if (tool === "ws_write" || tool === "ws_create") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps), { ...ctx.ws, target: tool === "ws_write" ? input?.workspace : input?.name })); // core-modules.ts:50
   else if (tool === "create_goal") blocked = createGoalBlocked(question, dataIn);
   else if (tool === "higgsfield_draft") blocked = draftBlocked(question, dataIn);
   else if (tool === "queue_tonight") blocked = tonightBlocked(question, dataIn);

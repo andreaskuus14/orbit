@@ -22,6 +22,9 @@ import { WeeklyReviewSetting } from "./RemoteCall";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
 import { DeliverableCards } from "./DeliverableCards";
+import { wsConfirmOffer } from "@/lib/ws-intent-pure";
+import { parseChoices, parseGoalCard, withoutCard } from "@/lib/goal-card-pure";
+import { GoalCardView } from "./GoalCard";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
 import type { Plan } from "@/lib/plans-pure";
@@ -239,7 +242,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? "", true));
           setLive(null);
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model,
-            chips: followUps(message, (ev.trace ?? []).map((s) => s.step)), lesson: ev.lesson, fixes: look === "roblox" ? robloxErrors(ev.answer ?? "") : undefined }]);
+            chips: [...parseChoices(ev.answer ?? ""), ...followUps(message, (ev.trace ?? []).map((s) => s.step))], lesson: ev.lesson, fixes: look === "roblox" ? robloxErrors(ev.answer ?? "") : undefined }]);
         } else if (ev.type === "error") {
           throw new Error(ev.error || "CORE failed");
         }
@@ -307,8 +310,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const history = useMemo(() => msgs.map((m, i) => (
     <div key={i} className={m.role === "user" ? "bubble user" : `bubble core${m.error ? " err" : ""}`}>
       {m.role === "assistant" && !m.error
-        ? <Markdown text={numberCitations(m.content, (m.citations ?? []).map((c) => c.id))} openMemory={onOpenMemory} />
+        ? <Markdown text={numberCitations(withoutCard(m.content), (m.citations ?? []).map((c) => c.id))} openMemory={onOpenMemory} />
         : <div className="whitespace-pre-wrap">{m.content}</div>}
+      {m.role === "assistant" && !m.error && (() => { const g = parseGoalCard(m.content); return g && <GoalCardView card={g} onChange={() => { setInput(""); inputRef.current?.focus(); }} />; })()}
       {!!m.citations?.length && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {m.citations.map((c, n) => <button key={c.id} className="chip" onClick={() => (c.kind.startsWith("week:") ? dispatchEvent(new CustomEvent(OPEN_SOURCE_EVENT, { detail: c })) : onOpenMemory(c.id))}>[{n + 1}] {c.title}</button>)}
@@ -344,6 +348,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           {m.chips.map((c) => <button key={c} type="button" className="chip" onClick={() => void send(c)}>{c}</button>)}
         </div>
       )}
+      {!busy && i === msgs.length - 1 && (() => { const ws = m.trace?.map((x) => wsConfirmOffer(x.detail.split(" → ").slice(1).join(" → "))).filter(Boolean).at(-1); return ws && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs" role="group" aria-label={tr("ws.confirm", { ws })}>
+          <span>{tr("ws.confirm", { ws })}</span>
+          <button type="button" className="chip" onClick={() => void send(tr("ws.buildIt"))}>{tr("ws.buildIt")}</button>
+          <button type="button" className="chip" onClick={() => void send(tr("ws.notNow"))}>{tr("ws.notNow")}</button>
+        </div>); })()}
       {!!m.fixes?.length && (
         <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={tr("core.robloxErrors")}>
           {m.fixes.map((f) => <button key={f} type="button" className="chip max-w-full truncate" title={`Open the Luau helper (docs-checked) in Fix mode with: ${f}`}

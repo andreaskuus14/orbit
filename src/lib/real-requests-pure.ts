@@ -5,6 +5,7 @@ import { MODULE_HINTS, selectModules } from "./core-modules-pure.ts";
 import { classifyFailure, deriveStatus, nextAction, onFailure, type MissionStatus } from "./missions-pure.ts";
 import { describeFailure } from "./core-capability-pure.ts";
 import { olderTurnsSummary } from "./core-context-pure.ts";
+import { EXACT, goalHint, isVague, mayAsk } from "./goal-card-pure.ts";
 import type { ChainStatus, ChainView } from "./chains-pure.ts";
 import type { CaseResult } from "./self-eval-pure.ts";
 import { REAL_REQUESTS, type RealRequest } from "../../evals/real-requests.ts";
@@ -36,6 +37,12 @@ function problem(r: RealRequest): string {
         steps: c.steps.map((status, index) => ({ index, agent: "nova", request: "r", taskId: null, status: status as ChainView["steps"][number]["status"] })) } : null;
       const s = deriveStatus({ status: c.doc as MissionStatus }, chain), next = nextAction(s, chain);
       return s === c.status && next.includes(c.next) ? "" : `mission became ${s} ("${next}")`;
+    }
+    case "idea": {
+      const h = goalHint(r.prompt);
+      if (!isVague(r.prompt) || !h.includes("```goal")) return "treated as a finished goal (no Goal card hint)";
+      if (mayAsk(r.prompt) !== c.ask) return `question gate ${c.ask ? "closed" : "open"}, expected ${c.ask ? "open" : "closed"}`;
+      return EXACT.test(h) ? "" : "hint lost its no-exact-wording rule";
     }
     case "context": {
       const turns = Array.from({ length: c.turns }, (_, i) => ({ role: i % 2 ? "assistant" as const : "user" as const, content: i ? `turn ${i}` : `Plan a trip, ${c.keep}.` }));
