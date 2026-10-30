@@ -130,7 +130,7 @@ const BASE = {
 
   "tour.title": "WHAT'S NEW", "tour.step": "{n} of {total}", "tour.chapters": "Tour chapters", "tour.showMe": "Show me",
   "tour.next": "Next", "tour.back": "Back", "tour.finish": "Finish", "tour.skip": "Skip for now",
-  "tour.skipAria": "Skip the tour for now. Resume it from Ctrl+K: What's new tour", "tour.setup": "Set this up:", "tour.ready": "What's new tour is open.", "tour.setupLink": "Setup steps",
+  "tour.skipAria": "Skip the tour for now. Resume it from Ctrl+K: What's new tour", "tour.setup": "Set this up:", "tour.ready": "What's new tour is open.", "tour.setupLink": "Setup steps", "tour.since": "Since you last looked", "tour.seeAll": "See all", "tour.gotIt": "Got it",
 
   "common.loading": "Loading…", "common.add": "Add", "common.remove": "Remove", "common.cancel": "Cancel", "common.copied": "Copied",
 
@@ -447,7 +447,7 @@ const BASE = {
   "memrev.title": "Review · nothing changes until you decide", "memrev.correct": "Correct", "memrev.snooze": "Snooze a week", "memrev.discard": "Discard", "memrev.save": "Save correction",
   "memrev.working": "Working…", "memrev.history": "The original stays as history.", "memrev.accept.merge": "Merge", "memrev.accept.retract": "Retract", "memrev.accept.keep": "Accept",
   "memrev.k.merge": "Merge two memories", "memrev.k.contradicted": "A newer belief says the opposite", "memrev.k.superseded": "A newer belief replaces this one", "memrev.k.stale-belief": "Belief not restated in over a year",
-  "memrev.k.inferred": "ORBIT guessed this (unconfirmed)", "memrev.k.inferred-belief": "ORBIT inferred this belief", "memrev.k.stale-project": "Project knowledge untouched for 6 months",
+  "memrev.k.inferred": "ORBIT guessed this (unconfirmed)", "memrev.k.inferred-belief": "ORBIT inferred this belief", "memrev.k.stale-project": "Project knowledge untouched for 6 months", "memrev.k.rerun": "Same output saved twice (a re-run)", "memrev.k.version": "Older version of the same thing", "memrev.k.entity-same": "Are these the same?", "memrev.accept.newest": "Keep newest, archive older",
   "memws.context": "{n} memories · {r} to review", "memws.search": "Search", "memws.recent": "Recent", "memws.projects": "Projects", "memws.people": "People", "memws.review": "Review",
   "study.source": "Source", "study.changed": "source corrected {d}", "study.changedHint": "The memory this card came from was corrected. Check the card and edit it if needed; the old version stays in its history.",
   "study.history": "History ({n} reviews)", "study.before.edit": "before your edit", "study.before.source": "before the source was corrected",
@@ -912,7 +912,7 @@ export const ET: Partial<Record<Key, string>> = {
 
   "tour.title": "UUDISED", "tour.step": "{n}/{total}", "tour.chapters": "Tuuri peatükid", "tour.showMe": "Näita",
   "tour.next": "Edasi", "tour.back": "Tagasi", "tour.finish": "Valmis", "tour.skip": "Jäta praegu vahele",
-  "tour.skipAria": "Jäta tuur praegu vahele. Jätka seda Ctrl+K kaudu: What's new tour", "tour.setup": "Seadista:", "tour.ready": "Uudiste tuur on avatud.", "tour.setupLink": "Seadistuse sammud",
+  "tour.skipAria": "Jäta tuur praegu vahele. Jätka seda Ctrl+K kaudu: What's new tour", "tour.setup": "Seadista:", "tour.ready": "Uudiste tuur on avatud.", "tour.setupLink": "Seadistuse sammud", "tour.since": "Pärast su viimast külastust", "tour.seeAll": "Vaata kõiki", "tour.gotIt": "Selge",
 
   "common.loading": "Laadin…", "common.add": "Lisa", "common.remove": "Eemalda", "common.cancel": "Tühista", "common.copied": "Kopeeritud",
 
@@ -1218,7 +1218,7 @@ export const ET: Partial<Record<Key, string>> = {
   "memrev.title": "Ülevaatus · midagi ei muutu enne sinu otsust", "memrev.correct": "Paranda", "memrev.snooze": "Lükka nädal edasi", "memrev.discard": "Loobu", "memrev.save": "Salvesta parandus",
   "memrev.working": "Töötan…", "memrev.history": "Algne jääb ajalukku alles.", "memrev.accept.merge": "Ühenda", "memrev.accept.retract": "Võta tagasi", "memrev.accept.keep": "Kinnita",
   "memrev.k.merge": "Ühenda kaks mälukirjet", "memrev.k.contradicted": "Uuem uskumus ütleb vastupidist", "memrev.k.superseded": "Uuem uskumus asendab selle", "memrev.k.stale-belief": "Uskumust pole üle aasta kinnitatud",
-  "memrev.k.inferred": "ORBIT arvas seda (kinnitamata)", "memrev.k.inferred-belief": "ORBIT järeldas selle uskumuse", "memrev.k.stale-project": "Projekti teadmine pole 6 kuud muutunud",
+  "memrev.k.inferred": "ORBIT arvas seda (kinnitamata)", "memrev.k.inferred-belief": "ORBIT järeldas selle uskumuse", "memrev.k.stale-project": "Projekti teadmine pole 6 kuud muutunud", "memrev.k.rerun": "Sama väljund salvestati kaks korda (kordus)", "memrev.k.version": "Sama asja vanem versioon", "memrev.k.entity-same": "Kas need on samad?", "memrev.accept.newest": "Hoia uusim, arhiivi vanem",
   "memws.context": "{n} mälukirjet · {r} üle vaadata", "memws.search": "Otsi", "memws.recent": "Hiljutised", "memws.projects": "Projektid", "memws.people": "Inimesed", "memws.review": "Ülevaatus",
   "study.source": "Allikas", "study.changed": "allikat parandati {d}", "study.changedHint": "Mälestust, millest see kaart tehti, parandati. Kontrolli kaarti ja muuda vajadusel; vana versioon jääb ajalukku.",
   "study.history": "Ajalugu ({n} kordamist)", "study.before.edit": "enne sinu muudatust", "study.before.source": "enne allika parandust",

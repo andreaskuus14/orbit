@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SIGNALS, GAP_MS, IDLE_MS, WEEK_MS, emptyJudgment, parseJudgment, classify, dismissKind, unmuteKind, ownerIdle, selectInterruptions, batchCount, reasonLine, businessReplies, clipProblemNotices, fixTarget, isProblem } from "../src/lib/interruption-pure.ts";
+import { SIGNALS, GAP_MS, IDLE_MS, WEEK_MS, emptyJudgment, parseJudgment, classify, dismissKind, unmuteKind, ownerIdle, selectInterruptions, batchCount, reasonLine, businessReplies, clipProblemNotices, fixTarget, isProblem, signalFor } from "../src/lib/interruption-pure.ts";
 import { addItem, parseItems, type NotifyDetail, type NotifyItem } from "../src/lib/notify-pure.ts";
 
 const T = 2_000_000_000_000;
@@ -114,21 +114,23 @@ test("failed uploads/jobs/downloads have separate stable bell keys and real fix 
     { id: "c3", publish: { status: "done" } },
   ] }], downloads: [{ id: "d1", status: "failed" }, { id: "d2", status: "done" }] };
   const notes = clipProblemNotices(data);
-  assert.equal(notes.length, 4); assert.equal(new Set(notes.map((n) => n.key)).size, 4);
+  assert.equal(notes.length, 3); assert.equal(new Set(notes.map((n) => n.key)).size, 3); // job + download share one notice
   assert.ok(notes.every((n) => classify(n, emptyJudgment()) === "URGENT"));
   assert.equal(notes.find((n) => n.key!.startsWith("failed-upload"))!.nav!.view, "review");
-  assert.equal(notes.find((n) => n.key!.startsWith("failed-download"))!.nav!.view, "clips");
+  assert.equal(notes.find((n) => n.key!.includes("failed-download"))!.nav!.view, "clips");
   let bell: NotifyItem[] = [];
   for (const n of [...notes, ...notes]) bell = addItem(bell, n, T);
-  assert.equal(bell.length, 4); assert.deepEqual(clipProblemNotices({}), []);
+  assert.equal(bell.length, 3); assert.deepEqual(clipProblemNotices({}), []);
 });
 
-test("many failed jobs/downloads collapse into one notice each; uploads stay separate", () => {
+test("failed jobs and downloads collapse into one STUDIO notice with both counts; uploads stay separate", () => {
   const notes = clipProblemNotices({ jobs: [1, 2, 3].map((i) => ({ id: `j${i}`, status: "failed", updatedAt: `t${i}` })), downloads: [{ id: "d1", status: "failed" }, { id: "d2", status: "failed" }] });
-  assert.deepEqual(notes.map((n) => n.title), ["3 clip jobs failed", "2 downloads failed"]);
+  assert.deepEqual(notes.map((n) => n.title), ["STUDIO: 3 clip jobs and 2 downloads failed"]);
+  assert.equal(signalFor({ kind: "system", title: notes[0].title! }), "upload-failed"); // legacy title match still red
+  assert.deepEqual(clipProblemNotices({ downloads: [{ id: "d1", status: "failed" }, { id: "d2", status: "failed" }] }).map((n) => n.title), ["2 downloads failed"]);
   const fewer = clipProblemNotices({ jobs: [{ id: "j1", status: "failed", updatedAt: "t1" }, { id: "j3", status: "failed", updatedAt: "t3" }] });
   assert.equal(fewer[0].key, clipProblemNotices({ jobs: [{ id: "j3", status: "failed", updatedAt: "t3" }] })[0].key); // shrinking never re-alerts
-  assert.ok(/^\d+ clip jobs failed/.test(notes[0].title!) && notes.every((n) => classify(n, emptyJudgment()) === "URGENT"));
+  assert.ok(/^\d+ clip jobs failed/.test(fewer[0].title!) && notes.every((n) => classify(n, emptyJudgment()) === "URGENT"));
 });
 
 test("routine history retention never hides the latest unresolved red problem", () => {

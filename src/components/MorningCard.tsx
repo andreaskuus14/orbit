@@ -7,6 +7,7 @@ import { NOTIFY_KEY, parseItems } from "@/lib/notify-pure";
 import { awaySince, countSince, localDay, shouldAutoShow, sinceEmpty, sinceSpoken, type Morning, type MorningSince } from "@/lib/morning-pure";
 import dynamic from "next/dynamic";
 import { speakChunk, speechSettings } from "./voice/speak";
+import { useTurn } from "./startup-store";
 
 const KEY = "orbit.morning"; // { day: last auto-shown local day, speak: read it aloud when it auto-shows (speakMorning, default off) }
 type Saved = { day?: string; speak?: boolean };
@@ -99,7 +100,8 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
     return () => removeEventListener("keydown", onKey);
   }, [open, home]);
 
-  if (!open || !home) return null;
+  const turn = useTurn("morning", open && home); // an urgent alert goes first; What's new waits for this card (startup-pure)
+  if (!open || !home || !turn) return null;
   const toggleSpeak = (v: boolean) => { setSpeakMorning(v); save({ ...load(), speak: v }); };
   return <MorningCardBody data={data} err={err} recap={recap} notes={notes} speakMorning={speakMorning} onSpeak={toggleSpeak}
     close={() => setOpen(false)} onOpenTask={onOpenTask} onOpenGoal={onOpenGoal} />;
