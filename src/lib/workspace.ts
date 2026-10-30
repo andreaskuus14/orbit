@@ -170,15 +170,18 @@ export async function readWsFile(uid: string, slug: string, rel: string): Promis
   } catch { return null; }
 }
 
-export function writeWsFile(uid: string, slug: string, rel: string, content: string): Promise<{ path: string; bytes: number; created: boolean } | { error: string }> {
+/** content: text, or bytes for an image file (png/jpg/webp, written by ws_fetch_image after a type sniff). */
+export function writeWsFile(uid: string, slug: string, rel: string, content: string | Uint8Array): Promise<{ path: string; bytes: number; created: boolean } | { error: string }> {
   const c = checkPath(rel);
   if ("error" in c) return Promise.resolve({ error: c.error });
-  if (typeof content !== "string" || content.includes("\0")) return Promise.resolve({ error: "content must be text" });
+  const bin = content instanceof Uint8Array;
+  if (bin !== /\.(?:png|jpe?g|webp)$/i.test(c.path)) return Promise.resolve({ error: bin ? "binary content only for png/jpg/webp" : "image files come only from ws_fetch_image" });
+  if (!bin && (typeof content !== "string" || content.includes("\0"))) return Promise.resolve({ error: "content must be text" });
   return serial(async () => {
     const dir = await realWsDir(uid, slug);
     const files = dir && (await listFiles(uid, slug));
     if (!dir || !files) return { error: `no workspace "${slug}"` };
-    const bytes = Buffer.byteLength(content);
+    const bytes = bin ? content.length : Buffer.byteLength(content);
     const old = files.find((f) => sameFile(f.path, c.path, FOLD));
     const cap = capError(bytes, old ? old.size : null, files.length, files.reduce((a, f) => a + f.size, 0));
     if (cap) return { error: cap };
@@ -190,7 +193,7 @@ export function writeWsFile(uid: string, slug: string, rel: string, content: str
     await writeFile(tmp, content);
     await rename(tmp, full);
     const stored = await readWsFile(uid, slug, c.path);
-    if (!stored || stored.text !== content || stored.size !== bytes)
+    if (!stored || (bin ? !Buffer.from(stored.bytes).equals(content) : stored.text !== content) || stored.size !== bytes)
       return { error: `Write confirmation failed for ${c.path}. The file may exist; inspect it before retrying.` };
     return { path: c.path, bytes, created: !old };
   });

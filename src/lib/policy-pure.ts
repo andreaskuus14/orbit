@@ -43,7 +43,7 @@ export const TIERS: Record<string, Tier> = {
   add_wish: "T2", // adds to his own wishlist; the hunter only reads public pages, and nothing is bought or sent by ORBIT
   save_checkpoint: "T2", // his own chat checkpoint (local file); every line can be edited or deleted on the Checkpoint card
   queue_tonight: "T2", // adds to the night shift's own queue; the night run's outside effects still wait for owner approvals
-  life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", rea_analyze: "T2", rea_cancel: "T2",
+  life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", ws_fetch_image: "T2", rea_analyze: "T2", rea_cancel: "T2",
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
   higgsfield_draft: "T3", // proposes a Higgsfield spend (price check only); the spend itself is the owner's story.approve click
 };
@@ -70,11 +70,11 @@ export const TOOL_AREA: Record<string, Area> = {
 // Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true).
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
 export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status", "week_review"];
-const LINK_TOOLS = ["fetch_url", "read_news", "ask_agent", "reach_read"];
+const LINK_TOOLS = ["fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image"];
 const LEAK_TOOLS = ["ask_agent", "read_news", "web_search"];
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
-const UNTRUSTED = ["fetch_url", "read_news", "web_search", "reach_read", "reach_trending", "ask_agent", "business_status"];
+const UNTRUSTED = ["fetch_url", "read_news", "web_search", "ws_fetch_image", "reach_read", "reach_trending", "ask_agent", "business_status"];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
 const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
@@ -132,7 +132,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   let blocked = "";
   if ((STUDIO_TOOLS as readonly string[]).includes(tool) || tool === "plan_task") blocked = actionBlocked(tool as StudioTool, question, dataIn);
   else if ((LIFE_TOOLS as readonly string[]).includes(tool)) blocked = err(lifeWriteBlocked(tool as LifeTool, question, dataIn));
-  else if (tool === "ws_write" || tool === "ws_create") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps), { ...ctx.ws, target: tool === "ws_write" ? input?.workspace : input?.name })); // core-modules.ts:50
+  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps, question), { ...ctx.ws, target: tool !== "ws_create" ? input?.workspace : input?.name })); // core-modules.ts:50
   else if (tool === "create_goal") blocked = createGoalBlocked(question, dataIn);
   else if (tool === "higgsfield_draft") blocked = draftBlocked(question, dataIn);
   else if (tool === "queue_tonight") blocked = tonightBlocked(question, dataIn);

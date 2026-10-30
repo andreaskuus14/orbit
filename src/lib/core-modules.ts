@@ -46,9 +46,9 @@ const MODULES: CoreModule[] = [
     run: async (t, i) => (await import("./reach/core")).runReachTool(t as "reach_trending" | "reach_read", i),
   },
   {
-    name: "WORKSPACE", tools: [...WS_TOOLS], writes: ["ws_write", "ws_create"], private: ["ws_read"], prompt: WS_PROMPT,
+    name: "WORKSPACE", tools: [...WS_TOOLS], writes: ["ws_write", "ws_create", "ws_fetch_image"], private: ["ws_read"], prompt: WS_PROMPT,
     // own taint rule: CORE's own earlier ws writes don't count; fix rounds = earlier successful ws_write calls in this answer
-    run: async (t, i, c) => runWsTool(c.userId, t as WsTool, i, c.question, c.pinned || wsTainted(c.steps), c.steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length, c.onEvidence,
+    run: async (t, i, c) => runWsTool(c.userId, t as WsTool, i, c.question, c.pinned || wsTainted(c.steps, c.question), c.steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length, c.onEvidence,
       t === "ws_write" && c.chat ? await import("./checkpoint").then(async (m) => checkpointBasis(await m.getCheckpoint(c.userId, c.chat!)), () => []) : [],
       (p) => c.steps.some((s) => /^You called ws_(?:read|write)\b/.test(s) && s.split("\nRESULT:")[0].includes(JSON.stringify(p))), await loadWsGate(c.userId, c.chat)),
   },

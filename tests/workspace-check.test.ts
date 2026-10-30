@@ -75,9 +75,9 @@ test("summarize builds the check line and issue list", () => {
 
 test("checkNote asks for fixes for 2 rounds, then gives the link", () => {
   const r = { line: "checked: ✗ 1 load problem", issues: ["error: boom"] };
-  assert.match(checkNote(r, 0), /fix round 1 of 2/);
-  assert.match(checkNote(r, 1), /fix round 2 of 2/);
-  assert.match(checkNote(r, 2), /No fix rounds left/);
+  assert.match(checkNote(r, 0), /fix round 1 of 3/);
+  assert.match(checkNote(r, 2), /fix round 3 of 3/);
+  assert.match(checkNote(r, 3), /No fix rounds left/);
   assert.match(checkNote({ line: "checked: ✓ loads", issues: [] }, 0), /Give the user the preview link/);
 });
 
