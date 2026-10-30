@@ -1,10 +1,13 @@
 import { requireUser } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude, emit } from "@/lib/claude";
 import { usageHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { sendDraft } from "@/lib/business-send";
 import { pushNotify } from "@/lib/remote-push";
+import { crmOf, loadCrm, logEvent, updateCrm } from "@/lib/prospect-crm";
+import { claimProblem, deliveryPlan, duplicateOf, EVENT_KINDS, newCrm, touch, type EventKind } from "@/lib/prospect-crm-pure";
 import { FOLLOWUP_SYSTEM, followupPrompt, FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, RESEARCH_SYSTEM, findPrompt, funnel, isTemplate, outreachPrompt, parseDraft, parseFinds, researchPrompt, trimDossier, validatePatch, validateProspect, withDossier, type Lang, type Prospect } from "@/lib/business-pure";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +29,8 @@ export async function GET() {
   if (res) return res;
   const { data, error } = await sb.from("prospects").select(COLS).order("updated_at", { ascending: false }).limit(300);
   if (error) return fail(error.code === "42P01" ? "Run supabase/migrations/0011_business.sql first" : error.message, 500);
-  const prospects = (data ?? []).map((p) => ({ ...p, fee: Number(p.fee) })) as Prospect[];
+  const store = await loadCrm().catch(() => ({}));
+  const prospects = (data ?? []).map((p) => { const crm = crmOf(store, p); return { ...p, fee: Number(p.fee), crm, touch: touch(crm.events) }; }) as Prospect[];
   return Response.json({ prospects, funnel: funnel(prospects), canSend: !!(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM) });
 }
 
@@ -59,8 +63,15 @@ export async function POST(req: Request) {
     case "add": {
       const p = validateProspect(b);
       if (typeof p === "string") return fail(p);
+      const { data: all } = await sb.from("prospects").select("id,name,contact").limit(1000);
+      const store = await loadCrm();
+      const dup = duplicateOf(all ?? [], store, p.name, p.contact);
+      if (dup) return Response.json({ error: "Already in your pipeline (same name, website, email or phone)", duplicate: dup }, { status: 409 });
       const r = await sb.from("prospects").insert(p).select(COLS).single();
-      if (r.data) await emit(sb, user.id, "business.stage", "business", { prospect: r.data.id, to: r.data.stage }); // a new prospect enters the pipeline
+      if (r.data) {
+        await updateCrm((s) => { s[r.data.id] = newCrm(b.source === "web-find" ? "web-find" : "manual", p.name, p.contact); });
+        await emit(sb, user.id, "business.stage", "business", { prospect: r.data.id, to: r.data.stage }); // a new prospect enters the pipeline
+      }
       return one(Promise.resolve(r));
     }
     case "update": {
@@ -68,11 +79,17 @@ export async function POST(req: Request) {
       if (typeof p === "string") return fail(p);
       const before = p.stage ? (await sb.from("prospects").select("stage").eq("id", b.id as string).maybeSingle()).data : null;
       const r = await sb.from("prospects").update({ ...p, updated_at: new Date().toISOString() }).eq("id", b.id as string).select(COLS).maybeSingle();
-      if (!r.error && r.data && p.stage && before?.stage !== p.stage) await emit(sb, user.id, "business.stage", "business", { prospect: b.id, to: p.stage }); // the id, never the name
+      if (!r.error && r.data && p.stage && before?.stage !== p.stage) {
+        await emit(sb, user.id, "business.stage", "business", { prospect: b.id, to: p.stage }); // the id, never the name
+        await logEvent(r.data, "stage", p.stage);
+        if (p.stage === "paying") await linkDelivery(sb, user.id, r.data);
+      }
+      if (!r.error && r.data && p.contact !== undefined) await updateCrm((s) => { const c = crmOf(s, r.data); s[r.data.id] = { ...c, key: newCrm(c.source, r.data.name, r.data.contact).key, verified: c.source === "manual", verifiedAt: undefined }; }); // a new contact must be checked again
       return one(Promise.resolve(r));
     }
     case "delete": {
       const { error } = await sb.from("prospects").delete().eq("id", b.id as string);
+      if (!error) await updateCrm((s) => { delete s[b.id as string]; }).catch(() => {});
       return error ? fail(error.message, 500) : Response.json({ ok: true });
     }
     case "research": {
@@ -115,6 +132,7 @@ export async function POST(req: Request) {
         const patch = { draft, updated_at: new Date().toISOString() };
         if (!followup && p.stage === "lead") pushNotify("send"); // phone push (6.3): a label only, never the draft
         // Tag only drafts that haven't gone out yet, so a sent message keeps the angle it was sent with.
+        void logEvent({ id: b.id as string, name: p.name, contact: "" }, "draft", followup ? "follow-up" : template ?? undefined);
         if (!template || p.stage !== "lead") return one(save(patch));
         const tagged = await save({ ...patch, template });
         return one(Promise.resolve(tagged.error?.code === "42703" ? save(patch) : tagged)); // no column before 0015: save untagged
@@ -124,6 +142,29 @@ export async function POST(req: Request) {
       }
     }
     case "send": return sendDraft(sb, user.id, b.id as string, b.seen);
-    default: return fail("action must be find, research, send, add, update, draft, followup or delete");
+    case "verify": {
+      const { data: p } = await sb.from("prospects").select("id,name,contact,notes").eq("id", b.id as string).maybeSingle();
+      if (!p) return fail("Not found", 404);
+      await updateCrm((s) => { s[p.id] = { ...crmOf(s, p), verified: true, verifiedAt: new Date().toISOString() }; });
+      return Response.json({ ok: true });
+    }
+    case "log": { // the owner records what really happened: a follow-up he sent himself, their reply, a call, a note
+      const kind = b.kind as EventKind;
+      if (!EVENT_KINDS.includes(kind) || kind === "draft" || kind === "stage") return fail("kind must be sent, reply, call or note");
+      const at = typeof b.at === "string" && !Number.isNaN(Date.parse(b.at)) && Date.parse(b.at) <= Date.now() ? new Date(b.at).toISOString() : new Date().toISOString();
+      const { data: p } = await sb.from("prospects").select("id,name,contact,notes").eq("id", b.id as string).maybeSingle();
+      if (!p) return fail("Not found", 404);
+      await updateCrm((s) => { const c = crmOf(s, p); s[p.id] = { ...c, events: [...c.events, { at, kind, ...(typeof b.text === "string" && b.text.trim() && { text: b.text.trim().slice(0, 300) }) }].sort((x, y) => Date.parse(x.at) - Date.parse(y.at)).slice(-200) }; });
+      return Response.json({ ok: true });
+    }
+    default: return fail("action must be find, research, send, verify, log, add, update, draft, followup or delete");
   }
+}
+
+/** BUS05: a client that starts paying gets an OPERATIONS project with a delivery plan, once (the id is kept in prospect-crm.json). */
+async function linkDelivery(sb: SupabaseClient, userId: string, p: Prospect) {
+  const has = crmOf(await loadCrm(), p).opsProject;
+  if (has) return;
+  const { data } = await sb.from("projects").insert({ user_id: userId, ...deliveryPlan(p) }).select("id").single();
+  if (data?.id) await updateCrm((s) => { s[p.id] = { ...crmOf(s, p), opsProject: data.id }; });
 }

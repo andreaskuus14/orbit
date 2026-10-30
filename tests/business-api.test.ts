@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as pure from "../src/lib/business-pure.ts";
+import * as crmPure from "../src/lib/prospect-crm-pure.ts";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/app/api/business/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", stage = "contacted", draft = "Tere! Pakun tasuta pilooti.", noTemplateColumn = false) {
@@ -29,6 +30,8 @@ function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", 
       if (name.endsWith("usage-meter")) return { usageHold: () => null };
       if (name.endsWith("stop-all")) return { stopAllOn: () => false };
       if (name.endsWith("remote-push")) return { pushNotify: () => {} };
+      if (name.endsWith("prospect-crm-pure")) return crmPure;
+      if (name.endsWith("prospect-crm")) return { loadCrm: async () => ({}), updateCrm: async () => {}, logEvent: async () => {}, crmOf: () => crmPure.newCrm("manual", "", "") };
       if (name.endsWith("business-send")) return { sendDraft: () => { throw new Error("Drafting must never send"); } };
       throw new Error(name);
     },

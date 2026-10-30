@@ -2,6 +2,7 @@
 // Pure: validation, the outreach prompt and the funnel numbers (tested in tests/business.test.ts).
 // ORBIT only drafts messages; the owner sends them himself (ORBIT stays read-only on outside platforms).
 import { contentHash } from "./approval-pure.ts";
+import type { Crm } from "./prospect-crm-pure.ts";
 
 export const STAGES = ["lead", "contacted", "replied", "pilot", "paying", "lost"] as const;
 export type Stage = (typeof STAGES)[number];
@@ -9,7 +10,9 @@ export const STAGE_LABEL: Record<Stage, string> = { lead: "To contact", contacte
 export const LANGS = ["English", "Estonian", "Russian"] as const;
 export type Lang = (typeof LANGS)[number];
 
-export type Prospect = { id: string; name: string; kind: string; contact: string; stage: Stage; fee: number; notes: string; draft: string; created_at: string; updated_at: string; template?: string | null };
+export type Prospect = { id: string; name: string; kind: string; contact: string; stage: Stage; fee: number; notes: string; draft: string; created_at: string; updated_at: string; template?: string | null;
+  /** Attached by GET /api/business from prospect-crm.json (BUS02/03). */
+  crm?: Crm; touch?: { last: string; replied: boolean } | null };
 export type ProspectInput = Pick<Prospect, "name" | "kind" | "contact" | "notes">;
 export type ProspectPatch = Partial<Pick<Prospect, "name" | "kind" | "contact" | "notes" | "stage" | "fee">>;
 
@@ -126,8 +129,10 @@ export const sendContent = (p: { name: string; contact: string | null; draft: st
 export const sendStamp = (p: Parameters<typeof sendContent>[0]) => contentHash(sendContent(p));
 
 /** Notes use explicit reply markers; negative status notes do not count as replies. */
-export function dueFollowups<T extends Pick<Prospect, "stage" | "updated_at" | "notes">>(prospects: T[], now: number): T[] {
+/** With `touch` (the logged timeline, prospect-crm-pure), timing uses the last real contact/reply, never a note edit. */
+export function dueFollowups<T extends Pick<Prospect, "stage" | "updated_at" | "notes"> & { touch?: { last: string; replied: boolean } | null }>(prospects: T[], now: number): T[] {
   return prospects.filter((p) => {
+    if (p.touch) return p.stage === "contacted" && !p.touch.replied && now - Date.parse(p.touch.last) >= 4 * 86_400_000;
     const notes = p.notes.replace(/\b(?:no|not yet|without|awaiting|waiting for|hasn't|haven't|never)\s+(?:a\s+|any\s+)?(?:reply|replies|response|responded|replied)\b|\b(?:reply|response)\s*:\s*(?:none|no|pending)\b/gi, "");
     return p.stage === "contacted" && now - Date.parse(p.updated_at) >= 4 * 86_400_000 && !/\b(?:reply|replied|responded|response received)\b/i.test(notes);
   });

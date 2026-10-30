@@ -92,7 +92,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
           <div className="grid grid-cols-3 gap-2" aria-label="Pipeline summary">
             <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">In pipeline</div><div className="num text-xl font-semibold">{st.funnel.total - st.funnel.counts.lost}</div></div>
             <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">Pilots</div><div className="num text-xl font-semibold">{st.funnel.counts.pilot}</div></div>
-            <div className="card !p-2.5"><div className="muted text-[10px] uppercase tracking-widest">Per month</div><div className="num text-xl font-semibold">{euro(st.funnel.monthly)}</div></div>
+            <button className="card !p-2.5 text-left" onClick={() => setView("money")} title={t("biz.money.notCash")}><div className="muted text-[10px] uppercase tracking-widest">{t("biz.money.expected")}</div><div className="num text-xl font-semibold">{euro(st.funnel.monthly)}</div><div className="muted text-[10px]">{t("biz.money.notCash")}</div></button>
           </div>
           <div className="space-y-1.5">
             <div className="flex gap-1" role="group" aria-label="Pipeline view">
@@ -103,7 +103,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
             {!mapOn && <button className="chip" onClick={() => setView("client")}>{t("bizws.allClients")}</button>}
           </div>
           <FindNearby busy={busy} setBusy={setBusy} setErr={setErr} names={new Set(st.prospects.map((p) => p.name.toLowerCase()))}
-            onAdd={(f) => act(`add:${f.name}`, { action: "add", name: f.name, kind: f.kind, contact: f.contact, notes: f.why && `Found on the web (unchecked): ${f.why}` })} />
+            onAdd={(f) => act(`add:${f.name}`, { action: "add", source: "web-find", name: f.name, kind: f.kind, contact: f.contact, notes: f.why && `Found on the web (unchecked): ${f.why}` })} />
           <div id="biz-add"><AddForm busy={busy === "add"} onAdd={(b) => act("add", { action: "add", ...b })} /></div>
           <Scorecard ps={st.prospects} />
           <VisibilityPanel />
@@ -199,7 +199,31 @@ function AddForm({ busy, onAdd }: { busy: boolean; onAdd: (b: { name: string; ki
   );
 }
 
+function Timeline({ p, busy, act }: { p: Prospect; busy: string; act: (key: string, body: object) => Promise<boolean> }) {
+  const { t } = useT();
+  const [text, setText] = useState("");
+  const ev = p.crm?.events ?? [];
+  const log = (kind: string) => void act(`log:${p.id}`, { action: "log", id: p.id, kind, text }).then((ok) => ok && setText(""));
+  return (
+    <details className="text-xs">
+      <summary className="muted cursor-pointer">{t("biz.crm.timeline", { n: ev.length })}{p.touch && ` · ${t("biz.crm.lastTouch", { d: p.touch.last.slice(0, 10) })}`}</summary>
+      {ev.length ? <ol className="mt-1 space-y-0.5">{[...ev].reverse().map((e, i) => (
+        <li key={i}><span className="num muted">{e.at.slice(0, 16).replace("T", " ")}</span> {t(`biz.crm.ev.${e.kind}`)}{e.text && <span className="muted"> · {e.kind === "stage" && e.text in STAGE_LABEL ? STAGE_LABEL[e.text as Stage] : e.text}</span>}</li>))}</ol>
+        : <p className="muted mt-1">{t("biz.crm.none")}</p>}
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        <input className="field flex-1 min-w-32" aria-label={t("biz.crm.what")} placeholder={t("biz.crm.what")} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} />
+        {p.stage !== "lead" && <button className="chip" disabled={!!busy} onClick={() => log("sent")}>{t("biz.crm.logSent")}</button>}
+        <button className="chip" disabled={!!busy} onClick={() => log("reply")}>{t("biz.crm.logReply")}</button>
+        <button className="chip" disabled={!!busy} onClick={() => log("call")}>{t("biz.crm.logCall")}</button>
+        <button className="chip" disabled={!!busy || !text.trim()} onClick={() => log("note")}>{t("biz.crm.logNote")}</button>
+      </div>
+    </details>
+  );
+}
+
 function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; due: boolean; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean }) {
+  const { t } = useT();
+  const unverified = p.crm ? !p.crm.verified : false;
   const [notes, setNotes] = useState(p.notes);
   useEffect(() => setNotes(p.notes), [p.notes]); // research rewrites the notes on the server
   const [fee, setFee] = useState(String(p.fee || ""));
@@ -227,6 +251,9 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
           <input className="field w-24" inputMode="decimal" value={fee} disabled={any} onChange={(e) => setFee(e.target.value)} onBlur={() => { if (Number(fee || 0) !== p.fee) void update({ fee: fee || 0 }); }} />
         </label>
       )}
+      {unverified && <p className="text-xs"><span className="error">{t("biz.crm.web")}</span> <button className="chip" disabled={any} onClick={() => void act(`verify:${p.id}`, { action: "verify", id: p.id })}>{t("biz.crm.verify")}</button></p>}
+      {p.stage === "paying" && p.crm?.opsProject && <p className="text-xs muted">✓ {t("biz.crm.delivery")}</p>}
+      <Timeline p={p} busy={busy} act={act} />
       <textarea className="field w-full" rows={2} aria-label={`Notes about ${p.name}`} placeholder="Notes: who you talked to, what they said" maxLength={2000}
         value={notes} disabled={any} onChange={(e) => setNotes(e.target.value)} onBlur={() => { if (notes !== p.notes) void update({ notes }); }} />
       <div className="flex flex-wrap items-center gap-1.5">
@@ -249,11 +276,11 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
           {p.template && <p className="muted text-[11px]">Angle: {p.template}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-2"><button className="chip" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
             {canSend && to && p.stage === "lead" && (
-              <button className={`chip ${sendSure ? "ok" : ""}`} disabled={any}
+              <button className={`chip ${sendSure ? "ok" : ""}`} disabled={any || unverified} title={unverified ? t("biz.crm.verifyFirst") : undefined}
                 onClick={() => (sendSure ? (setSendSure(false), void sendStamp(p).then((seen) => act(`send:${p.id}`, { action: "send", id: p.id, seen }))) : (setSendSure(true), setTimeout(() => setSendSure(false), 5000)))}>
                 {busy === `send:${p.id}` ? "Sending…" : sendSure ? `Click again to send to ${to}` : `✉ Approve & send to ${to}`}</button>)}
             {canSend && to && p.stage === "lead" && /https?:\/\/|www\./i.test(p.draft) && <span className="error text-[11px]">This draft contains a link: check it's one you meant to send.</span>}
-            <span className="muted text-[11px]">{canSend && to && p.stage === "lead" ? "Read it first: nothing is sent until you click twice." : canSend && p.stage === "lead" ? "To send from ORBIT, put one email address in Contact." : "Check it, then send it yourself."} Only say you tested their reply time if you really did.</span>
+            <span className="muted text-[11px]">{canSend && to && p.stage === "lead" ? "Read it first: nothing is sent until you click twice." : canSend && p.stage === "lead" ? "To send from ORBIT, put one email address in Contact." : "Check it, then send it yourself."} Only say you tested their reply time if you really did. {t("biz.crm.firstOnly")}</span>
             {p.stage === "lead" && <OrbitThinks id={`draft:${p.id}`} />}</div>
         </div>
       )}

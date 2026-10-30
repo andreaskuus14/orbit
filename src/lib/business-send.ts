@@ -4,6 +4,8 @@ import { emit } from "@/lib/claude";
 import { stopAllOn } from "@/lib/stop-all";
 import { sendContent } from "@/lib/business-pure";
 import { allows } from "@/lib/autonomy";
+import { crmOf, loadCrm, logEvent } from "@/lib/prospect-crm";
+import { claimProblem } from "@/lib/prospect-crm-pure";
 
 const COLS = "*";
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
@@ -24,6 +26,11 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
   const mail = sendContent(p), to = mail.to;
   if (!to) return fail("No single email address in Contact: add one (phone numbers can't be emailed)");
   if (!p.draft?.trim()) return fail("Draft a message first");
+  // Only the first message is sent from here (stage "To contact"); follow-ups are copied and sent by him, then logged as sent.
+  const who = { id, name: p.name, contact: p.contact, notes: p.notes }, crm = crmOf(await loadCrm(), who);
+  if (!crm.verified) return fail("Check this contact first (found on the web): open their site, then click Verified", 409);
+  const claim = claimProblem(p.draft, crm.events);
+  if (claim) return fail(claim, 409);
   const stamp = new Date().toISOString();
   // Claim before sending: only a business still "To contact" is emailed, once.
   // seen: the hash of the exact email the owner read; any change since (draft, address, name) needs a fresh approval.
@@ -44,10 +51,12 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
     // No answer: it may have gone out. Stays "Contacted" so a second click can't email them twice.
     const notes = `${p.notes ? `${p.notes}\n` : ""}Email to ${to} on ${stamp.slice(0, 10)}: result unknown (no answer from Resend). Check your Resend log before sending again.`.slice(-2000);
     await sb.from("prospects").update({ notes }).eq("id", id);
+    await logEvent(who, "sent", "first message: result unknown");
     return fail("No answer from the email service: it may or may not have been sent. Check your Resend log; it stays marked Contacted.", 504);
   }
   if (r.status >= 500 || r.status === 429) { // server trouble: it may have gone out, same as no answer
     await sb.from("prospects").update({ notes: `${p.notes ? `${p.notes}\n` : ""}Email to ${to} on ${stamp.slice(0, 10)}: result unknown (Resend ${r.status}). Check your Resend log.`.slice(-2000) }).eq("id", id);
+    await logEvent(who, "sent", "first message: result unknown");
     return fail(`The email service had a problem (${r.status}): it may or may not have been sent. Check your Resend log; it stays marked Contacted.`, 502);
   }
   if (!r.ok) { // a clear refusal (4xx): nothing was sent, so it goes back to "To contact"
@@ -55,6 +64,7 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
     if (back?.length) await emit(sb, userId, "business.stage", "business", { prospect: id, to: "lead" });
     return fail(`Not sent: Resend ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`, 502);
   }
+  await logEvent(who, "sent", `first message to ${to} (${via})`, stamp);
   const notes = `${p.notes ? `${p.notes}\n` : ""}Emailed ${to} on ${stamp.slice(0, 10)} (${via}).`.slice(-2000);
   return one(sb.from("prospects").update({ notes }).eq("id", id).select(COLS).maybeSingle());
 }
