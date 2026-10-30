@@ -5,6 +5,7 @@ import { CAM_NAME, CAPTION_STYLES, CHANNEL_LINK_MSG, LAYOUT_NAME, REJECT_REASONS
 import ReviewQueue from "./ReviewQueue";
 import { useWorldPaused } from "./world-paused";
 import { useT } from "./i18n";
+import { ACK_EVENT, ACK_KEY, failureGroups, isSkip, parseAck, type AckState } from "@/lib/clips/failure-alert-pure";
 import ClipPicks from "./ClipPicks";
 import LearnedCard from "./LearnedCard";
 import AutopilotPanel from "./AutopilotPanel";
@@ -140,7 +141,7 @@ function ConfirmButton({ id, label, sure, aria, onConfirm, disabled, className =
 /* ---------- panel ---------- */
 
 const seenReview = new WeakSet<object>();
-export default function ClipFactory({ reduced, onClose, review }: { reduced: boolean; onClose?: () => void; review?: object | null /* a new object opens the morning review */ }) {
+export default function ClipFactory({ reduced, onClose, review, failed }: { reduced: boolean; onClose?: () => void; review?: object | null /* a new object opens the morning review */; failed?: object | null /* a new object opens the Failed list */ }) {
   const { t: tr, tn } = useT();
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
@@ -162,6 +163,18 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
   const [scoutRun, setScoutRun] = useState(0); // bumped by the "Find videos" next step: ScoutSection runs the scout
   // Each review request opens once; the same object lingers in Orbit's state until STUDIO is left.
   useEffect(() => { if (review && !seenReview.has(review)) { seenReview.add(review); setReviewing(true); } }, [review]);
+  const [showFailed, setShowFailed] = useState(false);
+  const [ack, setAck] = useState<AckState>({ acked: [], shown: {} });
+  useEffect(() => { try { setAck(parseAck(localStorage.getItem(ACK_KEY))); } catch { /* storage unavailable */ } }, []);
+  useEffect(() => { if (failed && !seenReview.has(failed)) { seenReview.add(failed); setTab("clips"); setShowFailed(true); } }, [failed]);
+  const dismiss = (keys: string[]) => {
+    let cur = ack;
+    try { cur = parseAck(localStorage.getItem(ACK_KEY)); } catch { /* use what we have */ }
+    const next = { ...cur, acked: [...cur.acked, ...keys].slice(-500) };
+    setAck(next);
+    try { localStorage.setItem(ACK_KEY, JSON.stringify(next)); } catch { /* dismissed for this session only */ }
+    dispatchEvent(new Event(ACK_EVENT));
+  };
   const seq = useRef(0);
 
   const load = useCallback(async (quiet = false) => {
@@ -291,6 +304,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
 
   const avg = (xs: number[]) => Math.round((xs.reduce((s, x) => s + Math.min(1, Math.max(0, x || 0)), 0) / Math.max(1, xs.length)) * 100);
   const health = data ? uploadHealth(data.jobs) : [];
+  const fails = data ? failureGroups(data, ack) : [];
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const workText = workingJobs.length ? `⏳ ${plural(workingJobs.length, "job")} working… ${avg(workingJobs.map((j) => j.progress))}%`
     : dls.length ? `⬇ ${plural(dls.length, "download")}… ${avg(dls.map((d) => d.progress))}%` : "";
@@ -487,6 +501,9 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
 
           <div id="cf-panel-clips" role="tabpanel" aria-labelledby="cf-tab-clips" hidden={shown !== "clips"} className="space-y-3">
           <Section title={tr("cf.jobs")} right={<>
+            {(fails.length > 0 || showFailed) && (
+              <button className="chip" aria-pressed={showFailed} onClick={() => setShowFailed((s) => !s)}>⚠ {tr("cf.failedN", { n: fails.length })}</button>
+            )}
             <ScheduleAll count={unpublished} canUpload={!!yt?.canUpload} onChange={load} />
             {rejectedCount > 0 && (
               <button className="chip" aria-pressed={showRejected} onClick={() => setShowRejected((s) => !s)} aria-label={tr(showRejected ? "cf.hideRejected" : "cf.showRejected", { n: rejectedCount })}>
@@ -494,6 +511,22 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
               </button>
             )}
           </>}>
+            {showFailed ? (!fails.length ? <Empty text={tr("cf.noFailed")} /> : (
+              <ul className="space-y-2" aria-label={tr("cf.failedList")}>
+                {fails.map((g) => (
+                  <li key={g.source} className="rounded-xl border border-white/10 p-2 text-xs">
+                    <b className="block truncate text-sm" title={g.source}>{g.job?.source ?? g.download?.file ?? g.download?.url ?? g.source}{g.count > 1 ? ` ×${g.count}` : ""}</b>
+                    <span className="muted num text-[11px]">{when(g.at)}</span>
+                    <p className="error">{g.error || tr("cf.dlFailed")}</p>
+                    <div className="mt-1 flex gap-1.5">
+                      {g.job ? <button className="btn" disabled={busy[`make:${g.job.source}`] || !data.tools.ffmpeg} onClick={() => { const j = byId.get(g.job!.id); if (j) void make(j.source, j.options, true); }}>{tr("task.retry")}</button>
+                        : g.download && <button className="btn" disabled={busy[`dl:${g.download.id}`] || !data.tools.ytdlp} onClick={() => { const d = g.download as Download; void download({ url: d.url, permission: d.permission, ...(d.autoClip ? { autoClip: d.autoClip } : {}) }, d.id); }}>{tr("task.retry")}</button>}
+                      <button className="chip" onClick={() => dismiss(g.keys)}>{tr("cf.dismissFail")}</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )) : <>
             {!jobs.length && <Empty text={tr("cf.noClips")} action={<button className="btn" onClick={() => selectTab("find")}>🔭 {tr("cf.findVideos")}</button>} />}
             <div className="space-y-3">
               {jobs.map((j) => (
@@ -503,6 +536,7 @@ export default function ClipFactory({ reduced, onClose, review }: { reduced: boo
                   onCheck={(clip) => checkYouTube(j.id, clip)} onVersion={(clip, body) => version(j.id, clip, body)} onTitles={(clip, review) => moreTitles(j.id, clip, review)} onReload={() => void load(true)} />
               ))}
             </div>
+            </>}
           </Section>
           </div>
         </div>
@@ -1054,7 +1088,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Status text={JOB_LABEL[job.status] ?? job.status} tone={toneOf(job.status)} />
+          {job.status === "failed" && isSkip(job.error) ? <Status text={`⤼ ${tr("cf.skipped")}`} /> : <Status text={JOB_LABEL[job.status] ?? job.status} tone={toneOf(job.status)} />}
           <ConfirmButton label={tr("rules.delete")} sure={tr("cf.deleteQ")} aria={tr("cf.deleteJob", { src: job.source })} onConfirm={onDelete} disabled={busy[`del:${job.id}`]} />
         </div>
       </div>
