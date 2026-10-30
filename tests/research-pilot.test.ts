@@ -14,6 +14,7 @@ import * as stopAllPure from "../src/lib/stop-all-pure.ts";
 import * as pure from "../src/lib/pure.ts";
 import * as foregroundPure from "../src/lib/foreground-pure.ts";
 import * as clipStorePure from "../src/lib/clip-store-pure.ts";
+import * as outboundPure from "../src/lib/outbound-pure.ts";
 import * as missionChecksPure from "../src/lib/mission-checks-pure.ts";
 import * as pilot from "../src/lib/research-pilot-pure.ts";
 
@@ -125,8 +126,8 @@ function fakeDb() {
   } };
   return { sb, tables };
 }
-
-const EVIL = "https://evil.example/collect?q=retention", DEAD = "https://dead.example/guide", B = "https://good.example/onboarding-study", C = "https://other.example/ftue";
+ // EVIL carries the checkpoint phrase
+const EVIL = "https://evil.example/collect?q=success+better+10-minute+retention", DEAD = "https://dead.example/guide", B = "https://good.example/onboarding-study", C = "https://other.example/ftue";
 type World = ReturnType<typeof fakeDb> & { files: Map<string, string>; hang: boolean; citeDead: boolean; calls: number[]; fetches: string[]; systems: string[]; budgets: number[][] };
 
 /** The fake model. Step 1: tries an unreadable page, substitutes two readable ones, answers. Step 2: the report (cites dead if told to). */
@@ -171,7 +172,7 @@ function boot(w: World) {
     "./claude": claude, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure,
     "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./durable": { noteWrite: () => {} }, "./pure": pure, "./research-pilot-pure": pilot,
     "./memory": { KINDS: ["note"] }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
-    "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./mission-checks-pure": missionChecksPure,
+    "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./outbound-pure": outboundPure, "./mission-checks-pure": missionChecksPure,
     "./capability": { capabilityStart: async () => ({ block: "", headsUp: "" }) }, "./workspace": ws,
     "./verify": { verifyAnswer: async (_sb: unknown, _u: string, text: string) => ({ text, trace: [] }) }, // the real cross-check is a model call
     "./agents": p.agents, "./chains": p.chains, "./migration-guard": { requireMigration: async () => {}, MigrationBlocked: class extends Error {} },
@@ -209,7 +210,7 @@ async function run(citeDead: boolean) {
   await until(() => step(0)?.status === "done" && step(1)?.status === "running" && w.calls[1] === 1, "step 2 running in A");
   assert.deepEqual(w.fetches, [DEAD, B, C], "the composed URL never reached the web");
   const tr = step(0).trace as Row[];
-  assert.match(tr.find((t) => t.step === "fetch_url")!.detail, /private data is in this task/);
+  assert.match(tr.find((t) => t.step === "fetch_url")!.detail, /would send private text from the task out/);
   assert.match(tr.find((t) => t.step === "save_memory")!.detail, /not available to you/);
   assert.deepEqual(step(0).pending, [], "nothing queued for approval: prepare mode");
   assert.deepEqual(tr.filter((t) => t.step === "fetch_url").map((t) => t.ok), [false, false, true, true]);

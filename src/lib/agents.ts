@@ -1,3 +1,4 @@
+import { outboundLeak } from "./outbound-pure";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClipStore } from "./clip-store-pure";
 import { isCurrent, scopeTags } from "./memory-types-pure";
@@ -107,10 +108,11 @@ export const TOOLS: Record<string, Tool> = {
   fetch_url: {
     description: "Read a web page or news article in full (Google News links are unwrapped to the publisher). Use on links from news_search.",
     input: '{"url": string}',
-    run: async ({ pages, priv, links }, i) => {
+    run: async ({ pages, priv, links, task }, i) => {
       const url = s(i.url, 2000);
-      // With private data in context a URL could carry it out (?q=<secret>): only open links the news tools found in this task.
-      if (priv && !links?.has(url)) return "Error: the user's private data is in this task; fetch_url may only open links returned by news_search or read_news in this task.";
+      // With private data in the task a URL could carry it out (?q=<secret>): links the news tools found pass; any other URL is checked for the task's text.
+      const hit = priv && !links?.has(url) ? outboundLeak(url, [task.request ?? ""]) : "";
+      if (hit) return `Error: this URL would send private text from the task out ("${hit.slice(0, 80)}"); open a public URL without it.`;
       const art = await readArticle(url, 40_000); // long pages are clipped per step with a read_more pointer
       if (art) pages.set(art.url, art);
       if (art) return `TITLE: ${art.title}\nURL: ${art.url}\n\n${art.text}${art.links.length ? `\n\nLINKS ON THIS PAGE (for citing or reading further):\n${art.links.map((l) => `- ${l.text} — ${l.url}`).join("\n")}` : ""}`;
