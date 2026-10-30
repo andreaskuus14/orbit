@@ -8,18 +8,32 @@ import type { Part } from "./arch-pure.ts";
 
 /** Teaching values. U in W/m²K: roughly a new Estonian low-energy house. Degree-days: Tallinn normal year, base 17 °C (≈ 4 200 °C·d;
  *  21 °C inside, internal gains cover the last 4 K). Design outdoor −22 °C (Tallinn). Ventilation 0.5 air changes/h, no heat recovery. */
-export const ENERGY = { u: { wall: 0.17, window: 0.8, roof: 0.12, floor: 0.15 }, ach: 0.5, inside: 21, design: -22, degreeDays: 4200, stepMin: 10, probe: 0.7 };
+export const ENERGY = { u: { wall: 0.17, window: 0.8, roof: 0.12, floor: 0.15 }, ach: 0.5, inside: 21, design: -22, degreeDays: 4200, stepMin: 10, probe: 0.7, year: 2025 };
+/** ARC05: the owner-editable assumptions (flat, so a form can bind them). Defaults = ENERGY. */
+export type EnergyInputs = { uWall: number; uWindow: number; uRoof: number; uFloor: number; ach: number; inside: number; design: number; degreeDays: number; stepMin: number; year: number };
+export const ENERGY_INPUTS: EnergyInputs = { uWall: ENERGY.u.wall, uWindow: ENERGY.u.window, uRoof: ENERGY.u.roof, uFloor: ENERGY.u.floor, ach: ENERGY.ach,
+  inside: ENERGY.inside, design: ENERGY.design, degreeDays: ENERGY.degreeDays, stepMin: ENERGY.stepMin, year: ENERGY.year };
+/** Allowed range per input; out-of-range or non-numbers fall back to the default (trust boundary: typed or stored values). */
+export const INPUT_RANGE: Record<keyof EnergyInputs, [number, number]> = { uWall: [0.05, 3], uWindow: [0.3, 6], uRoof: [0.05, 3], uFloor: [0.05, 3], ach: [0, 3],
+  inside: [10, 26], design: [-40, 10], degreeDays: [500, 8000], stepMin: [5, 60], year: [1950, 2100] };
+export function cleanInputs(raw: unknown): EnergyInputs {
+  const o = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return Object.fromEntries((Object.keys(ENERGY_INPUTS) as (keyof EnergyInputs)[]).map((k) => {
+    const v = o[k], [lo, hi] = INPUT_RANGE[k];
+    return [k, typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? v : ENERGY_INPUTS[k]];
+  })) as EnergyInputs;
+}
 export const SOLSTICE = { m: 11, d: 21 }, EQUINOX = { m: 2, d: 20 };
 
 /** Hours of direct sun through any of each room's windows on one day (local solar day, sampled every ENERGY.stepMin). */
-export function sunHours(plan: Plan, site: Site, month: number, day: number, north = 0, year = 2025): Record<string, number> {
-  const n: Record<string, number> = Object.fromEntries(plan.rooms.map((r) => [r.id, 0])), steps = (24 * 60) / ENERGY.stepMin;
+export function sunHours(plan: Plan, site: Site, month: number, day: number, north = 0, year = ENERGY.year, stepMin = ENERGY.stepMin): Record<string, number> {
+  const n: Record<string, number> = Object.fromEntries(plan.rooms.map((r) => [r.id, 0])), steps = Math.round((24 * 60) / stepMin);
   const start = Date.UTC(year, month, day) - (site.lon / 15) * 3_600_000; // local solar midnight
   for (let k = 0; k < steps; k++) {
-    const sun = toModel(sunDirection(site.lat, site.lon, new Date(start + (k + 0.5) * ENERGY.stepMin * 60_000)), north);
+    const sun = toModel(sunDirection(site.lat, site.lon, new Date(start + (k + 0.5) * stepMin * 60_000)), north);
     if (sun.y > 0) for (const r of plan.rooms) if (plan.windows.some((w) => w.room === r.id && windowSees(w, sun, plan.boxes))) n[r.id]++;
   }
-  return Object.fromEntries(Object.entries(n).map(([id, c]) => [id, Math.round((c * ENERGY.stepMin) / 6) / 10]));
+  return Object.fromEntries(Object.entries(n).map(([id, c]) => [id, Math.round((c * stepMin) / 6) / 10]));
 }
 
 const inside = (rooms: Room[], x: number, z: number) => rooms.find((r) => r.rects.some((q) => x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1));
@@ -43,14 +57,15 @@ export type EnergyRow = { id: string; name: string; area: number; sunDec: number
 
 /** Per room: sun hours (Dec 21, Mar 20) and heat loss. Exterior wall = outdoor edge × room height − glazing; roof on the top floor,
  *  ground floor on floor 1 (ground treated like outside air: on the safe side). */
-export function energyStudy(parts: Part[], site: Site, north = 0): EnergyRow[] {
-  const plan = daylightPlan(parts), top = Math.max(0, ...plan.rooms.map((r) => r.floor)), U = ENERGY.u;
-  const dec = sunHours(plan, site, SOLSTICE.m, SOLSTICE.d, north), mar = sunHours(plan, site, EQUINOX.m, EQUINOX.d, north);
+export function energyStudy(parts: Part[], site: Site, north = 0, inputs: EnergyInputs = ENERGY_INPUTS): EnergyRow[] {
+  const a = cleanInputs(inputs), plan = daylightPlan(parts), top = Math.max(0, ...plan.rooms.map((r) => r.floor));
+  const U = { wall: a.uWall, window: a.uWindow, roof: a.uRoof, floor: a.uFloor };
+  const dec = sunHours(plan, site, SOLSTICE.m, SOLSTICE.d, north, a.year, a.stepMin), mar = sunHours(plan, site, EQUINOX.m, EQUINOX.d, north, a.year, a.stepMin);
   return plan.rooms.map((r) => {
     const wall = Math.max(0, exteriorLength(r, plan.rooms.filter((o) => o.floor === r.floor)) * r.h - r.glazing);
-    const H = U.wall * wall + U.window * r.glazing + (r.floor === top ? U.roof * r.area : 0) + (r.floor === 1 ? U.floor * r.area : 0) + 0.33 * ENERGY.ach * r.area * r.h;
-    const kWh = Math.round((H * ENERGY.degreeDays * 24) / 1000);
+    const H = U.wall * wall + U.window * r.glazing + (r.floor === top ? U.roof * r.area : 0) + (r.floor === 1 ? U.floor * r.area : 0) + 0.33 * a.ach * r.area * r.h;
+    const kWh = Math.round((H * a.degreeDays * 24) / 1000);
     return { id: r.id, name: r.name, area: r.area, sunDec: dec[r.id], sunMar: mar[r.id], hWK: Math.round(H * 10) / 10,
-      peakW: Math.round(H * (ENERGY.inside - ENERGY.design)), kWh, kWhM2: r.area > 0 ? Math.round(kWh / r.area) : 0 };
+      peakW: Math.round(H * (a.inside - a.design)), kWh, kWhM2: r.area > 0 ? Math.round(kWh / r.area) : 0 };
   });
 }
