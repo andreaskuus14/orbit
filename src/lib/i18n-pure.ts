@@ -9,6 +9,10 @@ export const parseLang = (v: unknown): Lang => (v === "et" ? "et" : "en");
 const BASE = {
   "common.close": "Close", "common.open": "Open", "common.approve": "Approve", "common.reject": "Reject",
   "common.approved": "Approved", "common.rejected": "Rejected", "common.copy": "Copy", "common.on": "on", "common.off": "off",
+  "bizws.today": "Today", "bizws.pipeline": "Pipeline", "bizws.client": "Clients", "bizws.money": "Money", "bizws.setup": "Setup & niches",
+  "bizws.context": "{n} in pipeline · {m} / month", "bizws.add": "+ Add business", "bizws.allClients": "Open client list",
+  "bizws.q.followup": "follow-up due", "bizws.q.send": "draft ready to check and send", "bizws.q.draft": "write a first message",
+  "bizws.empty": "Nothing due. Add a business or find one nearby in Pipeline.",
   "common.failed": "Couldn't do that",
 
   "lang.title": "Language", "lang.hint": "Menus, cards and buttons. CORE answers in the same language.",
@@ -614,6 +618,10 @@ export const EN = { ...BASE, ...Object.fromEntries(PLANETS.flatMap((p) => [[`pla
  *   standing rule = püsireegel · night shift = öine vahetus · open loop = lahtine ots · incident = intsident · call (Claude) = päring
  * Counts: after a number other than 1 Estonian takes the partitive singular ("3 agenti"), so .one/.other is enough. */
 export const ET: Partial<Record<Key, string>> = {
+  "bizws.today": "Täna", "bizws.pipeline": "Müügitoru", "bizws.client": "Kliendid", "bizws.money": "Raha", "bizws.setup": "Seadistus ja nišid",
+  "bizws.context": "{n} müügitorus · {m} / kuus", "bizws.add": "+ Lisa ettevõte", "bizws.allClients": "Ava kliendinimekiri",
+  "bizws.q.followup": "järelkiri on käes", "bizws.q.send": "mustand valmis: kontrolli ja saada", "bizws.q.draft": "kirjuta esimene sõnum",
+  "bizws.empty": "Midagi pole ootel. Lisa ettevõte või leia mõni lähedal (Müügitoru).",
   "mission.doneWhen": "Valmis, kui: ", "mission.verified": "kontrollitud", "mission.notVerified": "kontrollimata", "mission.effort": "Umbes {n} min · peatumistingimused",
   "mission.checks": "Kontrollid ({ok}/{n} läbitud)", "mission.passed": "läbitud", "mission.failed": "ebaõnnestus", "mission.step": "samm {n}:",
   "mission.report": "Aruanne: ", "mission.then": "edasi: ", "mission.run": "{mode} režiim · {n} sekkumist", "mission.minutes": " · {n} min",
