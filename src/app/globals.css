@@ -22,6 +22,10 @@
   --holo-edge-a: rgba(34, 211, 238, 0.42);
   --holo-edge-b: rgba(232, 121, 249, 0.3);
   --holo-bracket: rgba(125, 233, 255, 0.75);
+  /* Readable surfaces (tests/readable-surfaces checks alpha): working panels hide the scene behind them; the global nav sits on a scrim. */
+  --panel-surface: rgba(6, 12, 28, 0.88);
+  --work-surface: rgba(7, 9, 14, 0.9);
+  --nav-scrim: linear-gradient(rgba(2, 4, 11, 0.85), rgba(2, 4, 11, 0.6) 65%, transparent);
   --font-display: var(--font-rajdhani), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", Consolas, monospace;
   /* The house glide (expDamp in lib/smooth-damp-pure) sampled for CSS: 1 - e^(-5t), normalised. No overshoot. */
@@ -122,6 +126,17 @@ body {
 
 .drawer { position: absolute; z-index: 20; top: 4.5rem; right: 0.75rem; bottom: 5.5rem; width: min(30rem, calc(100vw - 1.5rem)); padding: 1rem; display: flex; flex-direction: column; animation: slide-in 0.45s var(--ease-glide); }
 .drawer h2.brand { font-size: 1rem; }
+/* Working panels: near-opaque, whatever the theme (the holo layers above still paint on top of this colour). */
+.drawer, .world-panel { background-color: var(--panel-surface); }
+/* Long names wrap and inputs/tabs may shrink, so a panel never needs a sideways scrollbar; real tables keep their own scroll. */
+.world-panel { overflow-x: hidden; overflow-wrap: anywhere; }
+.world-panel :where(.field, input, select, textarea) { min-width: 0; }
+.world-panel .flex:has(> .chip, > .btn) { flex-wrap: wrap; }
+.world-panel :where(table) { display: block; max-width: 100%; overflow-x: auto; }
+/* Global nav: its own scrim (reaching the back link under it), so it reads on the white ARCH viewport and the darkest scene alike. */
+main > header { isolation: isolate; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+main > header::before { content: ""; position: absolute; inset: 0 0 auto; height: 7rem; z-index: -1; pointer-events: none; background: var(--nav-scrim); }
+main > header :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; box-shadow: 0 0 0 4px #02040b; }
 .drawer > .overflow-y-auto { overflow-x: hidden; }
 .cmdbar { position: absolute; z-index: 30; left: 50%; bottom: 1rem; transform: translateX(-50%); width: min(42rem, calc(100vw - 1.5rem)); padding: 0.45rem; border-radius: 999px; }
 :root { --bar: 4.5rem; } /* command-bar footprint; phones override below */
@@ -458,7 +473,7 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 /* one-canvas spike: the 3D lives in the galaxy canvas underneath, so let clicks through the empty parts of the world. */
 .studio[data-stage] { pointer-events: none; }
 .studio[data-stage] > :not(.pointer-events-none) { pointer-events: auto; }
-.studio .glass { background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0) 30%), rgba(7, 9, 14, 0.62); border: 1px solid var(--hair); border-radius: 22px;
+.studio .glass { background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0) 30%), var(--work-surface); border: 1px solid var(--hair); border-radius: 22px;
   backdrop-filter: blur(26px) saturate(1.15); -webkit-backdrop-filter: blur(26px) saturate(1.15); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 30px 80px rgba(0, 0, 0, 0.45); }
 .studio .card { background: rgba(255, 255, 255, 0.025); border-color: var(--hair); box-shadow: none; border-radius: 16px; }
 .studio .chip { background: transparent; border-color: rgba(255, 255, 255, 0.1); box-shadow: none; color: var(--ice); transition: border-color 0.25s var(--ease-out), background 0.25s var(--ease-out); }
@@ -481,7 +496,9 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 
 /* Over the 3D: a darker edge so the chrome stays legible (the holo scene keeps its colour). */
 .studio-head { text-shadow: 0 0 2px #000, 0 1px 14px rgba(0, 0, 0, 0.9); }
-.studio-vignette { background: radial-gradient(115% 85% at 50% 45%, transparent 38%, rgba(3, 5, 9, 0.62)); }
+.studio-vignette { background: radial-gradient(115% 85% at 50% 45%, transparent 38%, rgba(3, 5, 9, 0.62)); transition: background-color 0.4s; }
+/* A detailed editor (Stats/Clips/Produce) is open: the film strip, planet, rings and glow fall back behind a dark veil. */
+.studio:has(.studio-sheet) .studio-vignette { background-color: rgba(3, 5, 9, 0.72); }
 
 /* Title block (top left): quiet kicker line, the channel name revealed with a scramble. */
 .studio-back { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ice-dim); transition: color 0.2s; }

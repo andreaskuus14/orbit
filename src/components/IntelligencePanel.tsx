@@ -5,6 +5,7 @@ import { FollowingSection } from "./FollowingSection";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
 import { checkClaims, type FeedHealth, type Prefs } from "@/lib/news-intel-pure";
+import { schedState } from "@/lib/panel-states-pure";
 
 type Cite = { id: string; title: string; url: string; source: string | null; published_at: string | null; evidence?: "fetched" | "snippet"; passage?: string; fetched_url?: string };
 type Dev = { key: string; rev: string; status: "new" | "corrected" | "resolved"; title: string; why: string; independent: number; articles: Article[] };
@@ -74,12 +75,26 @@ function BriefingBody({ b }: { b: Briefing }) {
   );
 }
 
+function SchedNote({ s, retry }: { s: ReturnType<typeof schedState>; retry: () => void }) {
+  const { t } = useT();
+  if (s === "configured") return <p className="muted text-xs">{t("intel.sched.on")}</p>;
+  if (s === "checking") return <p className="muted text-xs" role="status">{t("intel.sched.checking")}</p>;
+  if (s === "unconfigured") return (
+    <div className="text-xs" role="status">
+      <p>{t("intel.sched.off")}</p>
+      <ol className="muted list-decimal pl-5"><li>{t("intel.sched.step1")}</li><li>{t("intel.sched.step2")}</li><li>{t("intel.sched.step3")}</li></ol>
+      <button className="chip mt-1" onClick={retry}>{t("state.retry")}</button>
+    </div>
+  );
+  return <p className="error text-xs" role="alert">{t(s === "unavailable" ? "intel.sched.unavailable" : "intel.sched.error")} <button className="chip" onClick={retry}>{t("state.retry")}</button></p>;
+}
+
 export function IntelligencePanel() {
   const [briefings, setBriefings] = useState<Briefing[]>([]);
   const [articles, setArticles] = useState<Article[]>([]);
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [scheduled, setScheduled] = useState(false);
+  const [sched, setSched] = useState<{ scheduled?: boolean; failed?: "network" | "server" }>({}); // undefined = still checking: no setup notice yet
   const [open, setOpen] = useState<string | null>(null);
   const { t } = useT();
   const [view, setView] = useWorkspaceView<ViewId>("intelligence", VIEWS);
@@ -89,15 +104,19 @@ export function IntelligencePanel() {
   const [err, setErr] = useState("");
 
   const load = useCallback(async () => {
+    setSched((s) => (s.failed ? {} : s)); // a retry goes back to "checking"
     try {
       const [b, f] = await Promise.all([
         api<{ briefings: Briefing[]; articles: Article[]; jobs: Job[]; scheduled: boolean }>("/api/briefings"),
         api<{ feeds: Feed[] }>("/api/feeds"),
       ]);
-      setBriefings(b.briefings); setArticles(b.articles); setJobs(b.jobs); setScheduled(b.scheduled); setFeeds(f.feeds);
+      setBriefings(b.briefings); setArticles(b.articles); setJobs(b.jobs); setSched({ scheduled: b.scheduled }); setFeeds(f.feeds);
       setOpen((o) => o ?? b.briefings[0]?.id ?? null);
       setIntel(await api<Intel>("/api/news/intel"));
-    } catch (e) { setErr(e instanceof Error ? e.message : "Could not load"); }
+    } catch (e) {
+      setSched((s) => (s.scheduled === undefined ? { failed: e instanceof TypeError ? "network" : "server" } : s)); // fetch throws TypeError when offline
+      setErr(e instanceof Error ? e.message : "Could not load");
+    }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -151,10 +170,7 @@ export function IntelligencePanel() {
               <button className="chip" onClick={() => generate("all")} disabled={running}>{t("intel.all")}</button>
             </span>
           </div>
-          <p className="muted text-xs">
-            {scheduled ? "Scheduled briefings on: Morning 07:30 · Midday 12:30 · Evening 19:00 · Weekly Sun 18:30 (while this PC runs ORBIT)."
-              : "Scheduled briefings are off until SUPABASE_SECRET_KEY is set (see README). On-demand briefings work now."}
-          </p>
+          <SchedNote s={schedState(sched)} retry={() => void load()} />
           {lastJob && (
             <p className={`text-xs ${lastJob.status === "failed" ? "error" : "muted"}`}>
               Last run: {lastJob.status} · {when(lastJob.started_at)}{lastJob.detail ? ` · ${lastJob.detail}` : ""}
