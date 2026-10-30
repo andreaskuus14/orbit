@@ -303,8 +303,8 @@ export const setNightSettings = (b: Record<string, unknown>) =>
   update((s) => { const r = patchNightSettings(b, s.settings); if (typeof r === "string") return r; s.settings = r; return ""; });
 
 /** CORE tool queue_tonight {"text", "agent"?}; policy decide() has already checked the owner asked for it in his latest message. */
-export async function runTonightTool(userId: string, input: Record<string, unknown>, question: string, tainted: boolean): Promise<string> {
-  const blocked = tonightBlocked(question, tainted); // decide() checked this too; kept here like the other module runners
+export async function runTonightTool(userId: string, input: Record<string, unknown>, question: string, tainted: boolean, operator = false): Promise<string> {
+  const blocked = operator ? "" : tonightBlocked(question, tainted); // decide() checked this too; kept here like the other module runners
   if (blocked) return `Error: ${blocked}`;
   try {
     const err = await addTonightItem(userId, { text: input.text, agent: input.agent }, "core");

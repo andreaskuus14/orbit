@@ -9,7 +9,7 @@ import { planNight, NIGHT_DEFAULTS, type PlanInput } from "../src/lib/night-pure
 import { validate } from "../src/lib/ledger-pure.ts";
 
 // What ORBIT did on its own before Autonomy existed: these ran unattended (night shift, scout, sleep loop, deal hunt, calls).
-const RAN_ALONE_TODAY: Area[] = ["research", "brief", "memory", "studio-prepare", "business-drafts", "goals", "night-shift", "deals", "calls"];
+const RAN_ALONE_TODAY: Area[] = ["research", "brief", "memory", "studio-prepare", "business-drafts", "goals", "night-shift", "deals", "calls", "operator-build", "operator-organize"]; // operator: standing grants, AGENTS.md rule 6
 
 test("defaults pin today's behaviour: owner clicks work everywhere, unattended work only where it already ran, no auto anywhere", () => {
   for (const a of AREAS) {

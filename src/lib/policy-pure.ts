@@ -14,7 +14,7 @@ import { draftBlocked } from "./higgsfield-pure.ts";
 import { tonightBlocked } from "./night-pure.ts";
 import { wishBlocked } from "./deals-pure.ts";
 import { ruleBlocked } from "./rules-pure.ts";
-import { autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
+import { AREA_INFO, autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
 import { et } from "./et-ask-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
@@ -85,6 +85,21 @@ export function agentBlocked(question: string, agent: unknown, untrusted: boolea
 const called = (steps: string[], tools: string[]) => steps.some((s) => tools.some((t) => s.startsWith(`You called ${t} `)));
 const err = (s: string | null | undefined) => (s ? s.replace(/^Error: /, "") : "");
 
+// Operator mode (AGENTS.md rule 6, owner-granted 2026-10-30): with the category's Profile → Autonomy area at "do" (the default),
+// these tools skip the "only when the user asks in their latest message / as your first tool" check. Never after outside text
+// (pages, news, mail, agent results) or attached files in this turn: injected text still can't start work or persist itself.
+export const OPERATOR_TOOLS: Record<string, Area> = {
+  ask_agent: "operator-build", start_mission: "operator-build", create_goal: "operator-build", queue_tonight: "operator-build",
+  save_memory: "operator-organize",
+};
+export const OPERATOR_REASON = "standing operator grant";
+export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "attach" | "steps" | "autonomy">): boolean {
+  const area = OPERATOR_TOOLS[tool];
+  if (!area || ctx.stopAll || ctx.attach || called(ctx.steps, UNTRUSTED)) return false;
+  const l = ctx.autonomy?.[area];
+  return (l ?? AREA_INFO[area].def) === "do";
+}
+
 /** This turn put private data in context: the chat stays tainted on later turns (core.ts saves it in coreTaintStore). */
 export const carriesPrivate = (ctx: PolicyCtx) => ctx.attach || ctx.pins || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]);
 
@@ -120,6 +135,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || called(ctx.steps, UNTRUSTED));
   else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
+  if (blocked && operatorAllows(tool, ctx)) return { allow: true, tier, reason: OPERATOR_REASON };
   if (blocked) return no(blocked);
   // shortcut: rea_analyze/rea_cancel keep their explicit-ask check inside REA code (not ported: REA files stay untouched).
   return { allow: true, tier, reason: tool.startsWith("rea_") && tier === "T2" ? "allowed here; REA's own guard still applies" : "allowed" };

@@ -16,7 +16,7 @@ import { wishBlocked } from "../src/lib/deals-pure.ts";
 import { ruleBlocked } from "../src/lib/rules-pure.ts";
 import { checkpointBlocked } from "../src/lib/checkpoint-pure.ts";
 
-const ctx = (o: Partial<PolicyCtx> = {}): PolicyCtx => ({ stopAll: false, attach: false, pins: false, steps: [], question: "hello", ...o });
+const ctx = (o: Partial<PolicyCtx> = {}): PolicyCtx => ({ stopAll: false, attach: false, pins: false, steps: [], question: "hello", autonomy: { "operator-build": "ask", "operator-organize": "ask" }, ...o }); // per-action ask path; operator grants: tests/operator.test.ts
 const step = (tool: string, input: object = {}) => `You called ${tool} ${JSON.stringify(input)}\nRESULT:\nok`;
 /** What CORE's dispatch now does with a verdict: "" = the tool runs, else the tool result the model sees. */
 const viaPolicy = (tool: string, input: Record<string, unknown>, c: PolicyCtx) => { const d = decide(tool, input, c); return d.allow ? "" : `Error: ${d.reason}`; };
