@@ -2,14 +2,17 @@
 import type { Op, Part, Scene } from "./arch-pure.ts";
 
 /** What the save badge shows. "local" = kept in this browser only (server unreachable or not signed in). */
-export type SaveState = { status: "idle" | "saving" | "saved" | "failed" | "local"; rev: number; error?: string };
-export type SaveEvent = { type: "start" | "ok" | "fail" | "local"; rev: number; error?: string };
+export type SaveState = { status: "idle" | "saving" | "saved" | "failed" | "local" | "conflict"; rev: number; error?: string; serverRev?: number };
+export type SaveEvent = { type: "start" | "ok" | "fail" | "local" | "conflict"; rev: number; error?: string; serverRev?: number };
+/** Only network/5xx failures get a plain Retry; a "conflict" (409, newer copy elsewhere) needs an explicit choice. */
+export const canRetry = (s: SaveState) => s.status === "failed";
 
 /** "saved" only when the newest started revision is confirmed; a late ok for an older rev never hides a newer save or failure. */
 export function saveStep(s: SaveState, e: SaveEvent): SaveState {
   if (e.type === "start") return e.rev >= s.rev ? { status: "saving", rev: e.rev } : s;
   if (e.rev < s.rev) return s; // answer for an older save: the newer one decides
   if (e.type === "ok") return { status: "saved", rev: e.rev };
+  if (e.type === "conflict") return { status: "conflict", rev: e.rev, serverRev: e.serverRev, error: e.error };
   if (e.type === "local") return { status: "local", rev: e.rev, error: e.error };
   return { status: "failed", rev: e.rev, error: e.error };
 }

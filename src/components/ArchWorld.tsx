@@ -35,7 +35,7 @@ import { ArchPortfolio } from "./ArchPortfolio";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
 import { SiteLayer, SitePanel } from "./ArchSite";
 import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
-import { pickNewer, saveStep, staleCheck, type Saved } from "@/lib/arch-save-pure";
+import { canRetry, pickNewer, saveStep, staleCheck, type Saved } from "@/lib/arch-save-pure";
 
 const KEY = "orbit.arch.v1";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
@@ -304,6 +304,17 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     })();
     return () => { alive = false; };
   }, []);
+  const backup = (data: unknown) => { try { localStorage.setItem(KEY + ".bak", JSON.stringify(data)); } catch { /* best effort */ } };
+  async function resolveConflict(keepMine: boolean) {
+    const srv = await fetch("/api/arch/scene").then((r) => (r.ok ? r.json() : null)).catch(() => null), other = srv?.saved as (Saved & { prices?: PriceItem[] }) | null;
+    if (!other?.scene?.parts) return dispatchSave({ type: "fail", rev: revRef.current });
+    if (keepMine) { backup(other); revRef.current = Math.max(revRef.current, other.rev); setRetry((n) => n + 1); return; } // effect bumps past the server rev
+    backup(load());
+    revRef.current = other.rev; lastSaved.current = null; // no bump: the reload re-saves exactly other.rev
+    setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = other.scene; setScene(other.scene); setSel(null);
+    if (Array.isArray(other.prices)) setPrices(other.prices);
+    if (other.site) setSite({ ...readSite(other.site), on: false });
+  }
   useEffect(() => {
     if (!ready || lesson) return;
     if (lastSaved.current) revRef.current++; // the first run after load is the loaded state itself
@@ -316,7 +327,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
       const r = await fetch("/api/arch/scene", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }).catch(() => null);
       const j = await r?.json().catch(() => ({}));
       if (r?.ok) dispatchSave({ type: "ok", rev });
-      else if (r?.status === 409) { revRef.current = Math.max(revRef.current, (j?.rev ?? 0) + 1); dispatchSave({ type: "fail", rev, error: j?.error }); } // retry then overwrites with a newer rev
+      else if (r?.status === 409) dispatchSave({ type: "conflict", rev, serverRev: j?.rev ?? 0, error: j?.error }); // newer copy elsewhere: he chooses, never a silent overwrite
       else if (localOk && (!r || r.status === 401 || r.status === 403)) dispatchSave({ type: "local", rev });
       else dispatchSave({ type: "fail", rev, error: j?.error ?? (localOk ? undefined : "localStorage") });
     }, 800);
@@ -553,7 +564,11 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           {save.status !== "idle" && !lesson && (
             <span className="chip" role="status" title={save.error}>
               {tr(`arch.save.${save.status}`)}
-              {save.status === "failed" && <button className="ml-1 underline" onClick={() => setRetry((n) => n + 1)}>{tr("arch.save.retry")}</button>}
+              {canRetry(save) && <button className="ml-1 underline" onClick={() => setRetry((n) => n + 1)}>{tr("arch.save.retry")}</button>}
+              {save.status === "conflict" && <>
+                <button className="ml-1 underline" onClick={() => resolveConflict(false)}>{tr("arch.save.loadNewer")}</button>
+                <button className="ml-1 underline" onClick={() => resolveConflict(true)}>{tr("arch.save.keepMine")}</button>
+              </>}
             </span>
           )}
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>{tr("arch.startOver")}</button>

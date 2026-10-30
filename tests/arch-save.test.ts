@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { acceptSave, pickNewer, saveStep, staleCheck, type SaveState } from "../src/lib/arch-save-pure.ts";
+import { acceptSave, canRetry, pickNewer, saveStep, staleCheck, type SaveState } from "../src/lib/arch-save-pure.ts";
 import { applyOps, starterScene, type Op } from "../src/lib/arch-pure.ts";
 
 test("save state: saved only for the newest rev, failure is never shown as saved", () => {
@@ -17,6 +17,17 @@ test("save state: saved only for the newest rev, failure is never shown as saved
   s = saveStep(s, { type: "ok", rev: 2 });
   assert.equal(s.status, "saved");
   assert.equal(saveStep(s, { type: "local", rev: 3 }).status, "local");
+});
+
+test("409: conflict state, no plain retry, not hidden by a late ok", () => {
+  let s: SaveState = saveStep({ status: "idle", rev: 0 }, { type: "start", rev: 4 });
+  s = saveStep(s, { type: "conflict", rev: 4, serverRev: 7 });
+  assert.deepEqual(s, { status: "conflict", rev: 4, serverRev: 7, error: undefined });
+  assert.equal(canRetry(s), false);
+  assert.equal(saveStep(s, { type: "ok", rev: 3 }).status, "conflict");
+  assert.equal(canRetry(saveStep(s, { type: "fail", rev: 4 })), true);
+  // "keep mine" saves above the server's rev, which the server accepts
+  assert.ok(acceptSave({ rev: 7 }, 8));
 });
 
 test("pickNewer: higher rev wins, local on tie, junk ignored", () => {
