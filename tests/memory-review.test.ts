@@ -63,4 +63,7 @@ test("stored merge proposals are re-judged on titles; entity check folds into th
   assert.deepEqual(q2.map((i) => i.kind), ["entity-which", "entity-same"]); // the question cites c, so the re-run of c waits: one record, one item
   assert.equal(q2[1].items[0].title, "Mart · Mart Tamm");
   assert.deepEqual(q2[0].items.map((x) => x.id), ["tartu", "tallinn"]);
+  assert.equal(q2[1].merge?.key, "same:0000000a"); // the card gets the evidence/sides payload
+  const q3 = buildQueue({ proposals: [], mems: [], facts: [], entities: { merges: [], contradictions: [], merged: [{ key: "same:0000000c", keys: ["a", "b"], forms: ["A", "B"], act: "same" as const, at: "2026-10-01T00:00:00Z" }] } }, st, NOW);
+  assert.deepEqual(q3.map((i) => [i.kind, i.items[0].title]), [["entity-merged", "A = B · 2026-10-01"]]); // confirmed merges stay undoable
 });
