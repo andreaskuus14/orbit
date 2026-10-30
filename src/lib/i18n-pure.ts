@@ -446,6 +446,8 @@ const BASE = {
   "study.source": "Source", "study.changed": "source corrected {d}", "study.changedHint": "The memory this card came from was corrected. Check the card and edit it if needed; the old version stays in its history.",
   "study.history": "History ({n} reviews)", "study.before.edit": "before your edit", "study.before.source": "before the source was corrected",
   "pack.title": "Handover pack", "pack.open": "Handover pack", "pack.rev": "Revision {n}", "pack.unsaved": "Not saved yet", "pack.changed": "Changed since revision {n}",
+  "vc.saved": "Voice saving is not available here yet — use the Save button.", "vc.cancelled": "Cancelled, nothing changed.", "vc.opening": "Opening {name}.", "vc.overdue": "Here are the overdue ones.",
+  "vc.noTarget": "Select the record first, then say it again.", "vc.confirmSave": "Save a new version of {target}? Say yes to confirm.", "vc.which": "Several match: {options}. Which one?", "vc.notFound": "I couldn't find {name}, so I changed nothing.",
   "pack.outdated": "Outdated since {d}", "pack.current": "Up to date", "pack.save": "Save as revision", "pack.export": "Export markdown", "pack.empty": "Nothing to hand over yet: tag memories in this project as decision, constraint, question or goal.",
   "pack.guard": "Only this project's current memories. Other projects, chat-only, superseded and journal/LIFE content are never included.",
   "pack.s.objective": "Objective", "pack.s.decisions": "Decisions", "pack.s.constraints": "Constraints", "pack.s.questions": "Open questions", "pack.files": "Authoritative files",
@@ -675,6 +677,7 @@ const BASE = {
 
   "sf.hi": "Welcome back.", "sf.incident": "{t} needs a look.", "sf.meeting": "{t} starts in {n} min.", "sf.approval": "{t} has waited {n} h for your OK.",
   "sf.loop": "Due today: {t}.", "sf.brief": "Your morning brief is ready.",
+  "herald.digest": "While you were away: {n} things", "herald.digestHint": "All of them stay in the bell.",
   "sf.toggle": "ORBIT speaks first", "sf.hint": "When you come back after 20+ min, one short line about the most important thing. Max 4 a day, never 23–08.",
   "voice.convStart": "Conversation mode: keep listening after each answer (Ctrl+Shift+M)", "voice.convEnd": "End conversation mode (Esc)",
   "voice.convTitle": "Conversation mode (Ctrl+Shift+M, or say “Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Conversation mode needs hands-free on (voice settings)",
@@ -1208,6 +1211,8 @@ export const ET: Partial<Record<Key, string>> = {
   "study.source": "Allikas", "study.changed": "allikat parandati {d}", "study.changedHint": "Mälestust, millest see kaart tehti, parandati. Kontrolli kaarti ja muuda vajadusel; vana versioon jääb ajalukku.",
   "study.history": "Ajalugu ({n} kordamist)", "study.before.edit": "enne sinu muudatust", "study.before.source": "enne allika parandust",
   "pack.title": "Üleandmispakk", "pack.open": "Üleandmispakk", "pack.rev": "Versioon {n}", "pack.unsaved": "Veel salvestamata", "pack.changed": "Muutunud pärast versiooni {n}",
+  "vc.saved": "Häälega salvestamine pole siin veel saadaval — kasuta nuppu Salvesta.", "vc.cancelled": "Tühistatud, midagi ei muutunud.", "vc.opening": "Avan {name}.", "vc.overdue": "Siin on hilinenud asjad.",
+  "vc.noTarget": "Vali enne kirje ja ütle siis uuesti.", "vc.confirmSave": "Kas salvestan {target} uue versiooni? Kinnitamiseks ütle jah.", "vc.which": "Sobib mitu: {options}. Milline?", "vc.notFound": "Ma ei leidnud {name}, seega ei muutnud midagi.",
   "pack.outdated": "Aegunud alates {d}", "pack.current": "Ajakohane", "pack.save": "Salvesta versioonina", "pack.export": "Ekspordi markdown", "pack.empty": "Veel pole midagi üle anda: märgista projekti mälestused kui otsus, piirang, küsimus või eesmärk.",
   "pack.guard": "Ainult selle projekti kehtivad mälestused. Teiste projektide, ühe vestluse, asendatud ning päeviku/LIFE sisu ei lähe kunagi sisse.",
   "pack.s.objective": "Eesmärk", "pack.s.decisions": "Otsused", "pack.s.constraints": "Piirangud", "pack.s.questions": "Lahtised küsimused", "pack.files": "Autoriteetsed failid",
@@ -1450,6 +1455,7 @@ export const ET: Partial<Record<Key, string>> = {
 
   "sf.hi": "Tere tagasi.", "sf.incident": "{t} vajab tähelepanu.", "sf.meeting": "{t} algab {n} min pärast.", "sf.approval": "{t} ootab sinu kinnitust juba {n} h.",
   "sf.loop": "Täna tähtaeg: {t}.", "sf.brief": "Sinu hommikune ülevaade on valmis.",
+  "herald.digest": "Sel ajal kui olid eemal: {n} asja", "herald.digestHint": "Kõik jäävad kellukesse alles.",
   "sf.toggle": "ORBIT räägib esimesena", "sf.hint": "Kui tuled 20+ min pärast tagasi, üks lühike lause kõige tähtsamast. Kuni 4 korda päevas, mitte kell 23–08.",
   "voice.convStart": "Vestlusrežiim: kuula pärast iga vastust edasi (Ctrl+Shift+M)", "voice.convEnd": "Lõpeta vestlusrežiim (Esc)",
   "voice.convTitle": "Vestlusrežiim (Ctrl+Shift+M või ütle „Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Vestlusrežiim vajab sisselülitatud käed-vaba kuulamist (hääle seaded)",

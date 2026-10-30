@@ -132,7 +132,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
   ]);
   return {
     tonight: st.users[userId]?.tonight ?? [], goals: (goals.data ?? []) as { id: string; doc: import("./goals-pure").Goal }[],
-    followups: dueFollowups((prospects.data ?? []) as Prospect[], Date.now()), drafted: st.users[userId]?.drafted ?? {},
+    followups: dueFollowups(await import("./prospect-crm").then((c) => c.withTouch((prospects.data ?? []) as Prospect[])), Date.now()), drafted: st.users[userId]?.drafted ?? {},
     nicheDue: !!board && !board.busy && scoutDue({ lastAttempt: board.lastAttempt ?? undefined, lastOk: board.lastOk ?? undefined }, Date.now()),
     company: await import("./chains").then((c) => c.openCompanyChains(sb, userId), () => []),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),

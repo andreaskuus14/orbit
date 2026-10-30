@@ -173,7 +173,7 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
     })), within(getContinueWork(sb, userId)), within(contactedToday(sb, now, tz)),
     within(Promise.resolve(sb.from("prospects").select("id,name,stage,updated_at,notes").eq("stage", "contacted")).then(({ data, error }) => {
       if (error) throw error;
-      return dueFollowups(data ?? [], now);
+      return import("./prospect-crm").then((c) => c.withTouch(data ?? [])).then((ps) => dueFollowups(ps, now));
     }))]);
   const invP = within(import("./invoices").then(async (x) => (await import("./invoices-pure")).overdueLine(await x.allInvoices(), today))).catch(() => ""); // "2 invoices overdue: …"
   const nightP = within(import("./night").then((x) => x.getNightReport(sb, userId, now))).catch(() => null); // a failure just drops the section

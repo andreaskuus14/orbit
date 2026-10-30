@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { loadVoiceSettings, recognizerFor, voiceContext, whisperLang, CALL_ACTIVE, CORE_DONE, VOICE_ASK, VOICE_CONVERSATION, VOICE_INTERRUPT, type HandsFree } from "./bus";
+import { loadVoiceSettings, recognizerFor, voiceContext, whisperLang, WAKE_HEARING, CALL_ACTIVE, CORE_DONE, VOICE_ASK, VOICE_CONVERSATION, VOICE_INTERRUPT, type HandsFree } from "./bus";
 import { alternatives, getSpeechRecognition, speechErrorMessage, VOICE_LISTEN, VOICE_PAUSE, VOICE_RESUME, type SpeechRec } from "./useVoiceInput";
 import { extractWakeQuestion, isSleepCommand } from "./wake";
 import { correctTranscript, endpointDelay, finalJoiner, isEcho, mergeFinals, pickBestAlternative, shouldBargeIn, STOP_WORDS, turnWaitMs } from "./hear";
@@ -323,6 +323,14 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
     addEventListener(VOICE_RESUME, resume);
     return () => removeEventListener(VOICE_RESUME, resume);
   }, []);
+
+  const hearing = state === "armed" || (state !== "off" && !!interim);
+  useEffect(() => {
+    if (!hearing) return;
+    const send = (on: boolean) => dispatchEvent(new CustomEvent(WAKE_HEARING, { detail: { on } }));
+    send(true);
+    return () => { send(false); }; // also on unmount: never leave the rest ducked
+  }, [hearing]);
 
   return { state, error, interim, conversation, note };
 }
