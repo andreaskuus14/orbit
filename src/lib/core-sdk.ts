@@ -12,6 +12,7 @@ import { policyEvent, TIERS, type PolicyCtx } from "./policy-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { authMode, gated, readMessage, sdkFailure, sdkOptions, sdkTools, serial, toolResult, userMessage, SERVER } from "./core-sdk-pure";
 import type { TraceStep } from "./core";
+import type { StepDone } from "./core-live-pure";
 
 type Turn = {
   sb: SupabaseClient; userId: string; system: string; prompt: string; model: string; effort?: string; maxTurns: number;
@@ -20,7 +21,7 @@ type Turn = {
   /** core.ts's dispatch for an allowed call (navigate / module / runCoreTool) and its eval/trace/activity record, shared with the CLI loop. */
   exec: (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator?: boolean) => Promise<string>;
   record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator?: boolean) => void;
-  onDelta?: (d: string) => void; onReset?: () => void; onStep?: (tool: string, input: Record<string, unknown>) => void;
+  onDelta?: (d: string) => void; onReset?: () => void; onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void;
 };
 
 /** Runs the turn; returns the answer and the SDK session id (escalated: nothing answered, redo on the main model).

@@ -152,7 +152,16 @@
 .orbit-shell .overview-worlds .planet-card.warn { border-top-color: var(--rose) !important; }
 .core-activity { border-left: 1px solid #b4d9e040; padding: .6rem 0 .6rem 1rem; color: #b1c2cc; font-size: .8rem; }
 .core-activity summary { cursor: pointer; font-size: .7rem; color: #9caebd; margin-bottom: .6rem; }
-.core-activity ol { display: grid; gap: .4rem; margin-bottom: .8rem; padding-left: 1rem; list-style: decimal; }
+.core-activity ol { display: grid; gap: .3rem; margin-bottom: .5rem; padding-left: 0; list-style: none; }
+.core-step { display: flex; align-items: center; gap: .5rem; min-width: 0; cursor: default; }
+summary.core-step { cursor: pointer; list-style: none; }
+summary.core-step::-webkit-details-marker { display: none; }
+.core-step-mark { width: .9rem; flex: none; text-align: center; }
+.core-step .activity-orbit { width: .9rem; height: .9rem; flex: 0 0 .9rem; }
+.core-step-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.core-step-ms { flex: none; font-family: var(--font-mono); font-size: .7rem; }
+.core-step-more { margin: .2rem 0 0 1.4rem; font-size: .75rem; overflow-wrap: anywhere; }
+.core-activity-done { border-left: 0; padding: 0; }
 .core-activity-now { display: flex; align-items: center; gap: .75rem; }
 .core-activity-now small { display: block; font-family: var(--font-mono); letter-spacing: .15em; font-size: .55rem; color: #8da2af; margin-bottom: .2rem; }
 .activity-orbit { width: 20px; height: 20px; flex: 0 0 20px; }
