@@ -11,7 +11,7 @@ import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "
 import { useGlRecovery } from "./useGlRecovery";
 import { useT } from "./i18n";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
-import { MAX, applyOps, boq, boqCsv, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
+import { COST_ASSUMPTIONS, COST_EXCLUDED, MAX, applyOps, boq, boqCsv, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
 import { coach, type FloorType } from "@/lib/arch-structure-pure";
 import { lessonNote, lessonScene, quizScore, type Lesson } from "@/lib/arch-lesson-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
@@ -297,7 +297,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     revRef.current = Math.max(local?.rev ?? 0, srv?.saved?.rev ?? 0);
     if (s?.scene?.parts) {
       setScene(s.scene);
-      const ps = s.prices; if (Array.isArray(ps)) setPrices(STARTER_PRICES.map((d) => { const x = ps.find((p) => p.key === d.key); return x && Number.isFinite(x.eur) ? { ...d, ...x } : d; }));
+      const ps = s.prices; if (Array.isArray(ps)) setPrices(STARTER_PRICES.map((d) => { const x = ps.find((p) => p.key === d.key); return x && (x.eur === null || Number.isFinite(x.eur)) ? { ...d, ...x } : d; }));
     }
     if (s?.site) setSite({ ...readSite(s.site), on: false });
     setReady(true);
@@ -339,7 +339,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const [conflict, setConflict] = useState<{ ops: Op[]; say: string } | null>(null); // ARC02: stale AI reply, he decides
   const apply = (ops: Op[]) => { const cur = sceneRef.current, r = applyOps(cur, ops, newId); sceneRef.current = r.scene; setPast((p) => [...p.slice(-30), cur]); setScene(r.scene); return r.moved; };
   const undo = () => setPast((p) => { if (p.length) setScene(p[p.length - 1]); return p.slice(0, -1); });
-  const q = boq(scene.parts), cost = costLines(q, prices), tips = bulkTips(q);
+  const q = boq(scene.parts), cost = costLines(q, prices, scene.parts), tips = bulkTips(q);
   const part = scene.parts.find((p) => p.id === sel);
   const shell = scene.parts.find((p) => p.kind === "wall" && !isStraightWall(p));
   // one straight wall across the middle of the first floor's shell, standing on its floor
@@ -611,15 +611,21 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.boq")}</div>
           <table className="w-full text-xs"><tbody>
             {cost.lines.map((l) => (
-              <tr key={l.key} title={`${l.source}${l.date ? ` · ${l.date}` : ""}`}>
-                <td>{l.label}</td><td className="num text-right">{l.qty} {l.unit}</td>
-                <td className="num text-right"><input className="field w-16 text-right" type="number" step={0.5} value={l.eur} aria-label={tr("arch.priceAria", { label: l.label, unit: l.unit })}
-                  onChange={(e) => { const v = Number(e.target.value); if (v >= 0) setPrices((ps) => ps.map((x) => (x.key === l.key ? { ...x, eur: v, source: "your edit", date: new Date().toISOString().slice(0, 10) } : x))); }} /> €/{l.unit}</td>
-                <td className="num text-right">{eur(l.total)}</td>
+              <tr key={l.key} title={`${l.how}\n${tr("arch.costFrom")}: ${l.from.join(", ") || "—"}\n${l.source}${l.date ? ` · ${l.date}` : ""}`}>
+                <td>{l.label}<div className="muted text-[10px]">{l.source.slice(0, 60)}{l.date ? ` · ${l.date}` : ""}</div></td>
+                <td className="num text-right">{l.qty} {l.unit}<div className="muted text-[10px]">+<input className="field w-10 text-right" type="number" min={0} max={50} step={1} value={Math.round(l.waste * 100)} aria-label={tr("arch.wasteAria", { label: l.label })}
+                  onChange={(e) => { const v = Number(e.target.value); if (v >= 0 && v <= 50) setPrices((ps) => ps.map((x) => (x.key === l.key ? { ...x, waste: v / 100 } : x))); }} />% → {l.buy}</div></td>
+                <td className="num text-right"><input className="field w-16 text-right" type="number" step={0.5} min={0} value={l.eur ?? ""} placeholder="?" aria-label={tr("arch.priceAria", { label: l.label, unit: l.unit })}
+                  onChange={(e) => { const raw = e.target.value, v = Number(raw); if (raw === "" || v >= 0) setPrices((ps) => ps.map((x) => (x.key === l.key ? { ...x, eur: raw === "" ? null : v, source: "your edit", date: new Date().toISOString().slice(0, 10) } : x))); }} /> €/{l.unit}</td>
+                <td className="num text-right">{l.total === null ? <span className="error">{tr("arch.unknownPrice")}</span> : eur(l.total)}</td>
               </tr>))}
-            <tr className="font-semibold"><td colSpan={3}>{tr("arch.total")}</td><td className="num text-right">{eur(cost.total)}</td></tr>
+            <tr className="font-semibold"><td colSpan={3}>{tr("arch.total")}{cost.unknown.length > 0 && <span className="error"> · {tr("arch.costPartial", { n: cost.unknown.length })}</span>}</td><td className="num text-right">{eur(cost.total)}</td></tr>
           </tbody></table>
           <p className="muted text-[11px]">{prices.some((p) => !p.date) ? tr("arch.unverified") : ""}{tr("arch.boqHint")}</p>
+          <details className="text-[11px]"><summary className="cursor-pointer">{tr("arch.costBasis")}</summary>
+            <ul className="muted list-disc pl-4">{cost.lines.map((l) => <li key={l.key}><b>{l.label}</b>: {l.how} · {tr("arch.costFrom")}: {l.from.join(", ") || "—"}</li>)}</ul>
+            <p className="muted"><b>{tr("arch.costExcluded")}:</b> {COST_EXCLUDED.join(", ")}.</p>
+            <p className="muted"><b>{tr("arch.costAssume")}:</b> {COST_ASSUMPTIONS.join("; ")}.</p></details>
         </div>
 
         <ArchMaterials q={q} />

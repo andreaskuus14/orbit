@@ -9,9 +9,10 @@ import { parseFeed } from "./pure";
 import { topicFeedUrl } from "./pulse";
 import {
   MAX_ALERTS, MAX_HOLDINGS, MAX_WATCH, NOTE, STRATEGIES, alertError, alertText, applyOrder, botTargets, cleanTicker, dayChange, dayKey, equity,
-  allPriced, evaluateAlerts, freshPrices, isStale, recordFetch, historyMissing, newAccount, promptSafe, parseHistory, parseQuotes, rebalanceOrders, runOrders, snapshot, stats, stooqSymbol, valueHoldings, vsIndex,
+  allPriced, freshPrices, isStale, recordFetch, historyMissing, newAccount, promptSafe, parseHistory, parseQuotes, rebalanceOrders, runOrders, snapshot, stats, stooqSymbol, vsIndex,
   type Account, type Alert, type AlertKind, type Bar, type Holding, type Quote, type QuoteState, type Strategy,
 } from "./markets-pure";
+import { instrument, ledger, portfolioReport, previewAlert, simFill, statWindow, stepAlert } from "./markets-depth-pure";
 
 // MARKETS workspace (watchlist, tracked holdings, price alerts, AI explainer, PAPER trading + rule-based paper bot),
 // stored locally in <ORBIT data dir>/markets.json like life.json. Prices: Stooq free CSV (US stocks/ETFs). No broker, no real money.
@@ -130,9 +131,14 @@ async function sync(checkAlerts: boolean) {
   const fired = await update((s) => {
     let out: { id: string; ticker: string; text: string }[] = [];
     if (checkAlerts) {
-      const d = Object.fromEntries(Object.keys(fresh).map((t) => [t, { price: prices[t], changePct: change[t] }]));
-      out = evaluateAlerts(s.alerts, d, today);
-      for (const f of out) { const a = s.alerts.find((x) => x.id === f.id); if (a) a.firedOn = today; }
+      s.alerts = s.alerts.map((a) => {
+        const q = quotes[a.ticker];
+        if (!q) return a;
+        const r = stepAlert(a, { price: q.close, changePct: change[a.ticker] ?? null, session: q.date }, today, Date.now()); // stale → skipped inside
+        if (!r.fired) return r.alert;
+        out.push({ id: a.id, ticker: a.ticker, text: `${alertText(a)} — ${r.fired.text}` });
+        return { ...r.alert, firedOn: today };
+      });
     }
     const b = s.bot;
     if (b.strategy !== "off" && b.lastRun !== today && prices.SPY) {
@@ -162,9 +168,10 @@ export async function firedAlerts() { return (await sync(true)).fired; }
 /** Stored alert rules with their text, no quote fetch (the morning "since you left" recap). */
 export const listAlerts = async () => (await read()).alerts.map((a) => ({ ...a, text: alertText(a) }));
 
-const accountView = (a: Account, prices: Record<string, number>) => ({
+const accountView = (a: Account, prices: Record<string, number>, quotes: Data["quotes"]) => ({
+  seed: a.seed ?? a.started, ...ledger(a.trades),
+  report: portfolioReport(Object.entries(a.positions).map(([ticker, p]) => ({ ticker, shares: p.shares, cost: p.cost })), quotes),
   cash: a.cash, equity: equity(a, prices), started: a.started, trades: a.trades.slice(0, 50), curve: a.curve, ...vsIndex(a),
-  positions: valueHoldings(Object.entries(a.positions).map(([ticker, p]) => ({ ticker, shares: p.shares, cost: p.cost })), prices),
 });
 
 export async function getMarkets() {
@@ -172,19 +179,22 @@ export async function getMarkets() {
   const s = await read(), { quotes, hist, prices, change } = data;
   return {
     note: NOTE,
-    watchlist: s.watchlist.map((t) => ({ ticker: t, price: prices[t] ?? null, date: quotes[t]?.date ?? null, failed: quotes[t]?.failed ?? false, stale: quotes[t] ? isStale(quotes[t].date, dayKey()) : false, changePct: change[t] ?? null,
+    watchlist: s.watchlist.map((t) => ({ ticker: t, instrument: instrument(t), price: prices[t] ?? null, date: quotes[t]?.date ?? null, failed: quotes[t]?.failed ?? false, stale: quotes[t] ? isStale(quotes[t].date, dayKey()) : false, changePct: change[t] ?? null,
       spark: (hist[t] ?? []).slice(-30).map((b) => b.close) })),
-    portfolio: valueHoldings(s.holdings, prices),
-    alerts: s.alerts.map((a) => ({ ...a, text: alertText(a) })),
-    paper: accountView(s.paper, prices),
-    bot: { strategy: s.bot.strategy, strategies: STRATEGIES, lastRun: s.bot.lastRun ?? null, log: s.bot.log.slice(0, 15), ...accountView(s.bot.account, prices) },
+    portfolio: portfolioReport(s.holdings, quotes),
+    alerts: s.alerts.map((a) => ({ ...a, text: alertText(a), preview: previewAlert(a, hist[a.ticker] ?? []), quoteDate: quotes[a.ticker]?.date ?? null })),
+    paper: accountView(s.paper, prices, quotes),
+    bot: { strategy: s.bot.strategy, strategies: STRATEGIES, lastRun: s.bot.lastRun ?? null, log: s.bot.log.slice(0, 15), ...accountView(s.bot.account, prices, quotes) },
   };
 }
 
 /* ---------- edits ---------- */
 
 type R = { ok: true } | { error: string };
+/** Unsupported instruments are refused with the reason, never swapped for another symbol (MKT02). */
+const unsupported = (t: string) => { const i = instrument(t); return "error" in i ? { error: i.error } : null; };
 export async function watch(t: string): Promise<R> {
+  const bad = unsupported(t); if (bad) return bad;
   return update((s) => {
     if (s.watchlist.includes(t)) return { ok: true as const };
     if (s.watchlist.length >= MAX_WATCH) return { error: `Up to ${MAX_WATCH} tickers` };
@@ -195,6 +205,7 @@ export async function watch(t: string): Promise<R> {
 export const unwatch = (t: string) => update((s) => { s.watchlist = s.watchlist.filter((x) => x !== t); return { ok: true as const }; });
 
 export async function setHolding(ticker: string, shares: number, cost: number): Promise<R> {
+  const bad = unsupported(ticker); if (bad) return bad;
   return update((s) => {
     const h = s.holdings.find((x) => x.ticker === ticker);
     if (h) { h.shares = shares; h.cost = cost; return { ok: true as const }; }
@@ -206,6 +217,7 @@ export async function setHolding(ticker: string, shares: number, cost: number): 
 export const removeHolding = (t: string) => update((s) => { s.holdings = s.holdings.filter((h) => h.ticker !== t); return { ok: true as const }; });
 
 export async function addAlert(ticker: string, kind: AlertKind, value: number): Promise<R> {
+  const bad = unsupported(ticker); if (bad) return bad;
   return update((s) => {
     if (s.alerts.length >= MAX_ALERTS) return { error: `Up to ${MAX_ALERTS} alerts` };
     s.alerts.push({ id: randomUUID(), ticker, kind, value });
@@ -216,17 +228,21 @@ export const removeAlert = (id: string) => update((s) => { s.alerts = s.alerts.f
 
 /** PAPER market order at the latest cached quote. */
 export async function paperOrder(ticker: string, side: unknown, qty: unknown): Promise<R> {
+  const ins = instrument(ticker);
+  if ("error" in ins) return { error: ins.error };
+  if (ins.currency !== "USD") return { error: `${ticker} is quoted in ${ins.currency}; the paper account is USD and has no FX rate, so it isn't filled` };
   const q = (await getQuotes([ticker]))[ticker];
   if (!q) return { error: `No price for ${ticker} (US stocks/ETFs only)` };
   if (isStale(q.date, dayKey())) return { error: `Latest ${ticker} close is from ${q.date} (stale); paper order not filled` };
   return update((s) => {
-    const r = applyOrder(s.paper, { ticker, side, qty }, q.close, new Date().toISOString());
+    const f = side === "buy" || side === "sell" ? simFill(side, typeof qty === "number" ? qty : 0, q.close, q.date, s.paper.seed ?? s.paper.started, s.paper.fills ?? 0) : null;
+    const r = applyOrder(s.paper, { ticker, side, qty }, f?.price ?? q.close, new Date().toISOString(), undefined, f ?? undefined);
     if ("error" in r) return r;
     s.paper = r.account;
     return { ok: true as const };
   });
 }
-export const resetPaper = () => update((s) => { s.paper = newAccount(dayKey()); return { ok: true as const }; });
+export const resetPaper = () => update((s) => { s.paper = { ...newAccount(dayKey()), seed: randomUUID().slice(0, 8) }; return { ok: true as const }; });
 /** Changing strategy restarts the bot's virtual $10,000 account so results stay comparable. */
 export const setStrategy = (st: Strategy) => update((s) => {
   if (s.bot.strategy !== st) s.bot = { strategy: st, account: newAccount(dayKey()), log: [] };
@@ -238,7 +254,8 @@ export const setStrategy = (st: Strategy) => update((s) => {
 export type Analysis = {
   ticker: string; price: number | null; date: string | null; at: number; note: string;
   stats30: ReturnType<typeof stats>; stats180: ReturnType<typeof stats>;
-  headlines: { title: string; url: string; source: string | null }[]; summary: string | null; error?: string;
+  window30: ReturnType<typeof statWindow>; window180: ReturnType<typeof statWindow>;
+  headlines: { title: string; url: string; source: string | null; published: string | null }[]; summary: string | null; error?: string;
 };
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 const statLine = (label: string, st: ReturnType<typeof stats>) =>
@@ -263,10 +280,10 @@ function explain(sb: SupabaseClient, userId: string, ticker: string, now = Date.
       getQuotes([ticker]).then((x) => x[ticker] ?? null),
       getHistory(ticker),
       safeFetch(topicFeedUrl(`${ticker} stock`, "7d"), "application/rss+xml, application/xml, text/xml")
-        .then(async ({ res }) => parseFeed((await res.text()).slice(0, 2_000_000)).items.slice(0, 8).map((i) => ({ title: promptSafe(i.title, 200), url: i.url, source: promptSafe(i.source, 80) || null })))
+        .then(async ({ res }) => parseFeed((await res.text()).slice(0, 2_000_000)).items.slice(0, 8).map((i) => ({ title: promptSafe(i.title, 200), url: i.url, source: promptSafe(i.source, 80) || null, published: i.published })))
         .catch(() => []),
     ]);
-    const base = { ticker, price: q?.close ?? null, date: q?.date ?? null, at: now, note: NOTE, stats30: stats(bars, 30), stats180: stats(bars, 180), headlines };
+    const base = { ticker, price: q?.close ?? null, date: q?.date ?? null, at: now, note: NOTE, stats30: stats(bars, 30), stats180: stats(bars, 180), window30: statWindow(bars, 30), window180: statWindow(bars, 180), headlines };
     if (!q && !bars.length) return { ...base, summary: null, error: `No market data for ${ticker} (US stocks/ETFs only)` };
     const prompt = `Ticker: ${ticker}\nLatest close: ${q?.close ?? "unknown"} (${q?.date ?? "?"})\n${statLine("30-day", base.stats30)}\n${statLine("180-day", base.stats180)}\n\n`
       + `<headlines untrusted="true">\n${headlines.map((h) => `- ${h.title} (${h.source ?? "unknown"})`).join("\n") || "(none found)"}\n</headlines>`;

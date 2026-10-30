@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  applyOrder, botTargets, cleanTicker, dayChange, equity, evaluateAlerts, alertError, newAccount, parseHistory, parseQuotes, rebalanceOrders,
+  applyOrder, botTargets, cleanTicker, dayChange, equity, alertError, newAccount, parseHistory, parseQuotes, rebalanceOrders,
   runOrders, snapshot, allPriced, historyMissing, promptSafe, sma, sparkPath, stats, stooqSymbol, valueHoldings, vsIndex, type Account, type Bar,
 } from "../src/lib/markets-pure.ts";
 
@@ -76,19 +76,7 @@ test("portfolio valuation and P/L", () => {
   assert.deepEqual(valueHoldings([], {}), { rows: [], value: 0, pl: 0, plPct: 0 });
 });
 
-test("alerts: rules, once per day, validation", () => {
-  const alerts = [
-    { id: "1", ticker: "A", kind: "above" as const, value: 100 },
-    { id: "2", ticker: "A", kind: "below" as const, value: 50 },
-    { id: "3", ticker: "B", kind: "move" as const, value: 5 },
-    { id: "4", ticker: "B", kind: "move" as const, value: 5, firedOn: "2026-10-16" },
-    { id: "5", ticker: "C", kind: "above" as const, value: 1 },
-  ];
-  const fired = evaluateAlerts(alerts, { A: { price: 100, changePct: 1 }, B: { price: 10, changePct: -6.2 } }, "2026-10-16");
-  assert.deepEqual(fired.map((f) => f.id), ["1", "3"]);
-  assert.match(fired[1].text, /-6.2% today/);
-  assert.deepEqual(evaluateAlerts([{ ...alerts[3], firedOn: "2026-10-15" }], { B: { price: 10, changePct: 5 } }, "2026-10-16").length, 1, "fires again the next day");
-  assert.equal(evaluateAlerts([alerts[2]], { B: { price: 10, changePct: null } }, "2026-10-16").length, 0);
+test("alerts: validation", () => {
   assert.equal(alertError("above", 10), null);
   assert.ok(alertError("move", 150));
   assert.ok(alertError("sideways", 1));
@@ -203,8 +191,4 @@ test("quote freshness: failure after success keeps market date; stale blocks fil
   assert.deepEqual(fresh, { B: 10 });
   // Paper bot: stale ticker gets no order.
   assert.deepEqual(rebalanceOrders(newAccount("d"), { A: 1 }, fresh), []);
-  // Alerts only see fresh tickers.
-  const alerts = [{ id: "1", ticker: "A", kind: "above" as const, value: 5 }, { id: "2", ticker: "B", kind: "above" as const, value: 5 }];
-  const d = Object.fromEntries(Object.entries(fresh).map(([t, price]) => [t, { price, changePct: null }]));
-  assert.deepEqual(evaluateAlerts(alerts, d, "2026-10-30").map((a) => a.id), ["2"]);
 });
