@@ -1,7 +1,7 @@
 // CORE tool permission policy: every CORE tool call passes decide() before it runs (core.ts tool dispatch); T2/T3 verdicts go to the ledger.
 // "core.ts:NNN" refs point at the inline guards this replaced (core.ts at fb313a4); tests/policy.test.ts pins decide() to them.
 // Tiers: T0 read own data, T1 read the public web, T2 change own data, T3 act on the outside world (owner-approved only, AGENTS.md rule 6).
-import { coreToolRefusal } from "./stop-all-pure.ts";
+import { coreToolRefusal, PAUSED_MSG } from "./stop-all-pure.ts";
 import { typedText } from "./attach-pure.ts";
 import { actionBlocked, STUDIO_TOOLS, type StudioTool } from "./core-studio.ts";
 import { LIFE_TOOLS, lifeWriteBlocked, type LifeTool } from "./core-life.ts";
@@ -16,6 +16,7 @@ import { wishBlocked } from "./deals-pure.ts";
 import { ruleBlocked } from "./rules-pure.ts";
 import { AREA_INFO, autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
 import { et } from "./et-ask-pure.ts";
+import { isOpsTool, opsBlocked } from "./core-operator-pure.ts";
 import { outboundLeak, outgoing, privateResults } from "./outbound-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
@@ -44,6 +45,7 @@ export const TIERS: Record<string, Tier> = {
   save_checkpoint: "T2", // his own chat checkpoint (local file); every line can be edited or deleted on the Checkpoint card
   queue_tonight: "T2", // adds to the night shift's own queue; the night run's outside effects still wait for owner approvals
   life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", ws_fetch_image: "T2", ws_run: "T2", ws_stop: "T2", rea_analyze: "T2", rea_cancel: "T2",
+  vault_move: "T2", vault_rename: "T2", lead_update: "T2", life_plan: "T2", automation_create: "T2", automation_pause: "T2", // ORGANIZE: his own records, each with Undo
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
   higgsfield_draft: "T3", // proposes a Higgsfield spend (price check only); the spend itself is the owner's story.approve click
   ws_inspire_image: "T3", // reference words from an image search, then the same priced draft as higgsfield_draft for an original brief
@@ -70,9 +72,9 @@ export const TOOL_AREA: Record<string, Area> = {
   ws_run: "operator-build", // a local demo server of his own workspace (AGENTS.md rule 6 category A); never public
 };
 
-// Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true).
+// Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true), ORGANIZE lead_update + life_plan.
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
-export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status", "week_review"];
+export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status", "week_review", "lead_update", "life_plan"];
 const LINK_TOOLS = ["fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image"];
 const LEAK_TOOLS = ["ask_agent", "read_news", "web_search"];
 
@@ -96,7 +98,8 @@ const err = (s: string | null | undefined) => (s ? s.replace(/^Error: /, "") : "
 // (pages, news, mail, agent results) or attached files in this turn: injected text still can't start work or persist itself.
 export const OPERATOR_TOOLS: Record<string, Area> = {
   ask_agent: "operator-build", start_mission: "operator-build", create_goal: "operator-build", queue_tonight: "operator-build",
-  save_memory: "operator-organize",
+  save_memory: "operator-organize", vault_move: "operator-organize", vault_rename: "operator-organize", lead_update: "operator-organize",
+  life_plan: "operator-organize", automation_create: "operator-organize", automation_pause: "operator-organize",
 };
 export const OPERATOR_REASON = "standing operator grant";
 export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "attach" | "steps" | "autonomy">): boolean {
@@ -143,6 +146,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "propose_rule") blocked = ruleBlocked(question, dataIn);
   else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || called(ctx.steps, UNTRUSTED));
   else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);
+  else if (isOpsTool(tool)) { if (ctx.stopAll) return no(PAUSED_MSG); blocked = opsBlocked(tool, question, dataIn, input) ?? ""; } // Stop-all halts operator writes outright
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
   if (blocked && operatorAllows(tool, ctx)) return { allow: true, tier, reason: OPERATOR_REASON };
   if (blocked) return no(blocked);

@@ -4,10 +4,10 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { orbitDataDir } from "./data-dir";
-import { adjustPlan } from "./life-plan-pure";
-import { localDay } from "./morning-pure";
-import { acceptPlan, applyDeferrals, defer, deferUntil, type Deferred, approvalItems, buildPlan, carryForward, commitmentItems, dayStat, type DayStat, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure";
+import { orbitDataDir } from "./data-dir.ts";
+import { adjustPlan } from "./life-plan-pure.ts";
+import { localDay } from "./morning-pure.ts";
+import { acceptPlan, applyDeferrals, defer, deferUntil, type Deferred, approvalItems, buildPlan, carryForward, commitmentItems, dayStat, type DayStat, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure.ts";
 
 type Store = { plan?: DayPlan; prev?: DayPlan; order?: string[]; commitments: Commitment[]; history?: DayStat[]; deferred?: Deferred[] };
 const file = () => path.join(orbitDataDir(), "dayplan.json");
@@ -108,6 +108,15 @@ export const adjust = (id: string, extra: number) => update((s) => {
   return r;
 });
 export const accept = () => update((s) => (s.plan ? (s.plan = acceptPlan(s.plan, new Date().toISOString())) : "No plan yet"));
+/** Operator undo (core-operator.ts): everything a plan change can touch (planDay rolls prev/history; deferrals ride along). */
+export type PlanSnap = Pick<Store, "plan" | "order" | "prev" | "history" | "deferred">;
+export const planSnapshot = async (): Promise<PlanSnap> => { const { plan, order, prev, history, deferred } = await load(); return { plan, order, prev, history, deferred }; };
+/** Put it all back, only if nobody changed the plan since (`now` = what the operator left). Commitments are never touched. */
+export const restorePlan = (before: PlanSnap, now: DayPlan) => update((s) => {
+  if (JSON.stringify(s.plan ?? null) !== JSON.stringify(now)) return "Today's plan changed since; adjust it in the morning brief";
+  for (const k of ["plan", "order", "prev", "history", "deferred"] as const) { if (before[k] === undefined) delete s[k]; else (s as Record<string, unknown>)[k] = before[k]; }
+  return "";
+});
 export const setDone = (id: string, done: boolean) => update((s) => {
   if (!s.plan) return "No plan yet";
   const r = markDone(s.plan, id, done);

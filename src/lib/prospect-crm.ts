@@ -1,8 +1,8 @@
 // BUSINESS client records store: <ORBIT data dir>/prospect-crm.json, keyed by prospect id (rules: prospect-crm-pure.ts).
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { orbitDataDir } from "./data-dir";
-import { addEvent, contactKey, touch, type Crm, type EventKind, type Store } from "./prospect-crm-pure";
+import { orbitDataDir } from "./data-dir.ts";
+import { addEvent, contactKey, touch, type Crm, type EventKind, type Store } from "./prospect-crm-pure.ts";
 
 const FILE = () => path.join(orbitDataDir(), "prospect-crm.json");
 const g = globalThis as unknown as { __orbitCrm?: Promise<unknown> };

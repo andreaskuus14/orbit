@@ -75,6 +75,7 @@ export const MODULE_HINTS: Record<string, RegExp> = {
   DEALS: hint("wish|deal|buy|price|cheap|offer|€|eur|sale", `soovinimekir|soovin|${W}ost(?:a|an|u|ma)|hind|hinna|odav|soodus|pakkumi|allahind`),
   RULES: /\b(?:every|each|daily|weekly|weekdays?|whenever|when|rules?|iga|igal|kui|reegel|millal)\b|reegl|igapäev|iganädal|tööpäev|alati kui/i,
   CHECKPOINT: hint("checkpoint|remember|keep in mind|next (?:step|action)|decid|constraint|continue", "jäta[^.?!]{0,30}meelde|meeles|jätka|järgmine samm|otsus|salvesta|pane kirja"),
+  ORGANIZE: hint("renam|trash|lead|prospect|\\bstage\\b|verif|accept|confirm|adjust|automat|pause|resume", "nimeta|prügikast|huvilis|etapp|kinnita|nihuta|automaat|peata"),
   WEEK: hint("week(?!day)|slipp|late|get done|got done|did i|streak|wins?\\b|behind", "nädal|hilin|hilja|maha jä|mahajää|sain tehtud|tegin ära|seeria|järjest|saavutus|võit"),
 };
 export function selectModules<T extends ModuleSpec>(mods: T[], text: string): T[] {
@@ -95,6 +96,7 @@ export const MODULE_ABOUT: Record<string, string> = {
   NIGHT: "queue work for the night shift",
   DEALS: "wishlist and deal hunter: best offers, add a wish",
   RULES: "standing rules for recurring work",
+  ORGANIZE: "change his own records with Undo: rename/trash VAULT files, update BUSINESS lead records, accept/adjust today's plan, create/pause automations",
   WEEK: "week review: planned vs done, what slipped, streaks, wins",
 };
 
