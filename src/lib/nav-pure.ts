@@ -4,6 +4,7 @@ import { COUNTRIES, REGIONS, displayName } from "./geo.ts";
 import { WORLD } from "./countries-pure.ts";
 import { planetById, type PanelId } from "./planets.ts";
 import { WORK_TABS, workTabName, type WorkTab } from "./work-vocab-pure.ts";
+import type { LinkKind } from "./deeplink-pure.ts";
 
 /** panel null = back to the galaxy. country is a world-atlas name (as NewsGlobe uses), region a REGIONS key.
  *  view "none" closes STUDIO's overlay, "review" opens the clip factory's review queue; search runs the globe's news search ("" clears search and selection);
@@ -19,6 +20,7 @@ export type NavTarget = {
   continueWork?: true; // open the Work sheet, without starting or resuming a task
   workTab?: WorkTab; // with continueWork: which of the four tabs (Work, Routines, Saved workflows, Goals)
   evening?: true; // open "Today in a minute" (EveningCapture.tsx) over whatever is on screen
+  open?: { kind: LinkKind; id: string }; // a record on that planet (deeplink-pure.ts): selects exactly that row
   life?: LifeView; start?: true; // life: LIFE opens on that tab; start (with life "focus"): start the focus timer
 };
 export type LifeView = "today" | "habits" | "focus" | "reminders" | "journal";

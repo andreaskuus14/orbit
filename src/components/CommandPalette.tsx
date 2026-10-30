@@ -36,7 +36,7 @@ function openById(id: string) {
   else if (kind === "goal") cite("week:goal");
   else if (kind === "task") cite("week:task"); // a task waiting for approval: opens it in OPERATIONS
   else if (kind === "prop") nav({ panel: "agents" }); // proposals are decided in AGENTS
-  else if (kind === "pros" || kind === "person") nav({ panel: "business" });
+  else if (kind === "pros" || kind === "person") nav({ panel: "business", open: { kind: "client", id: key } }); // both keyed by prospect id
   else if (kind === "file") nav({ panel: "vault" });
   else if (kind === "life") nav({ panel: "life", life: "journal" });
   else if (kind === "chat") { // shortcut: an already-open CORE panel keeps its chat; it switches the next time CORE opens
