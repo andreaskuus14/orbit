@@ -47,7 +47,7 @@ export default function MorningCardBody({ data, err, recap, notes, speakMorning,
   );
 
   return (
-    <section className="glass hud-panel morning-card absolute right-3 top-16 z-20 w-[min(22rem,calc(100vw-1.5rem))] p-4 text-sm" aria-label={t(recap ? "morning.since" : "morning.aria")}>
+    <section className="glass hud-panel morning-card absolute right-3 top-16 z-20 w-[min(20rem,calc(100vw-1.5rem))] p-4 text-sm" aria-label={t(recap ? "morning.since" : "morning.aria")}>
       <div className="mb-2 flex items-center justify-between">
         <h2 className="hud-title">{recap ? t("morning.welcome") : (lang === "et" ? t(greetKey(new Date().getHours())) : data?.greeting ?? t("greet.morning")).toUpperCase()}</h2>
         <button className="chip" onClick={() => close()} aria-label={t(recap ? "morning.dismissRecap" : "morning.dismiss")}>{t("common.close")}</button>

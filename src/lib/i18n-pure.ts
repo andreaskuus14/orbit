@@ -133,6 +133,7 @@ const BASE = {
   "tour.title": "WHAT'S NEW", "tour.step": "{n} of {total}", "tour.chapters": "Tour chapters", "tour.showMe": "Show me",
   "tour.next": "Next", "tour.back": "Back", "tour.finish": "Finish", "tour.skip": "Skip for now",
   "tour.skipAria": "Skip the tour for now. Resume it from Ctrl+K: What's new tour", "tour.setup": "Set this up:", "tour.ready": "What's new tour is open.", "tour.setupLink": "Setup steps", "tour.since": "Since you last looked", "tour.seeAll": "See all", "tour.gotIt": "Got it",
+  "quiet.brief": "Morning brief", "quiet.morning": "Good morning", "quiet.recap": "Since you left", "quiet.tour": "What's new", "quiet.new": "{n} new", "quiet.needYou": "{n} need you", "quiet.dot": "new", "quiet.aria": "Status: {s}. Open the list", "quiet.title": "Waiting for you",
 
   "common.loading": "Loading…", "common.add": "Add", "common.remove": "Remove", "common.cancel": "Cancel", "common.copied": "Copied",
 
@@ -975,6 +976,7 @@ export const ET: Partial<Record<Key, string>> = {
   "tour.title": "UUDISED", "tour.step": "{n}/{total}", "tour.chapters": "Tuuri peatükid", "tour.showMe": "Näita",
   "tour.next": "Edasi", "tour.back": "Tagasi", "tour.finish": "Valmis", "tour.skip": "Jäta praegu vahele",
   "tour.skipAria": "Jäta tuur praegu vahele. Jätka seda Ctrl+K kaudu: What's new tour", "tour.setup": "Seadista:", "tour.ready": "Uudiste tuur on avatud.", "tour.setupLink": "Seadistuse sammud", "tour.since": "Pärast su viimast külastust", "tour.seeAll": "Vaata kõiki", "tour.gotIt": "Selge",
+  "quiet.brief": "Hommikune ülevaade", "quiet.morning": "Tere hommikust", "quiet.recap": "Sinu äraolekul", "quiet.tour": "Mis on uut", "quiet.new": "{n} uut", "quiet.needYou": "{n} vajab sind", "quiet.dot": "uus", "quiet.aria": "Olek: {s}. Ava nimekiri", "quiet.title": "Sind ootab",
 
   "common.loading": "Laadin…", "common.add": "Lisa", "common.remove": "Eemalda", "common.cancel": "Tühista", "common.copied": "Kopeeritud",
 

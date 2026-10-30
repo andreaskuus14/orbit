@@ -85,14 +85,21 @@ test("WhatsNew gate: body always mounts (it shows only new steps, startup-pure n
   assert.equal(find(seen.out(), "WhatsNewBody").props.reopen, true);
 });
 
-test("MorningBrief gate: mounts the body when the brief is due, keyed by day, and unmounts on close", () => {
-  const data: Record<string, string> = {};
-  const c = run("MorningBrief.tsx", (n) => n.endsWith("brief-pure") ? { shouldShowBrief: (last: string | null, _h: number, today: string) => last !== today } : n.endsWith("morning-pure") ? { localDay: () => "2026-10-27" } : undefined,
+test("MorningBrief gate: when due it waits in the header pill (quiet open); his click mounts the body keyed by day; close unmounts", () => {
+  const data: Record<string, string> = {}, ready: Record<string, boolean> = {};
+  let open = () => {};
+  const store = { setReady: (r: string, on: boolean) => { ready[r] = on; }, useOpenRequest: (_r: string, f: () => void) => { open = f; } };
+  const c = run("MorningBrief.tsx", (n) => n.endsWith("brief-pure") ? { shouldShowBrief: (last: string | null, _h: number, today: string) => last !== today } : n.endsWith("morning-pure") ? { localDay: () => "2026-10-27" }
+    : n.endsWith("/startup-store") ? store : undefined,
     { localStorage: storage(data), document: { visibilityState: "visible", addEventListener() {}, removeEventListener() {} } });
-  const body = c.render(c.exports.MorningBrief, { home: true, onOpenTask() {}, onOpenGoal() {} });
+  const props = { home: true, onOpenTask() {}, onOpenGoal() {} };
+  assert.equal(c.render(c.exports.MorningBrief, props), null); // nothing covers the galaxy on open
+  assert.equal(ready.brief, true); assert.equal(data["orbit.brief"], undefined);
+  open();
+  const body = c.render(c.exports.MorningBrief, props);
   assert.ok(body.type.file.includes("MorningBriefBody"));
   assert.equal(body.key, "2026-10-27");
-  assert.equal(data["orbit.brief"], "2026-10-27");
+  assert.equal(data["orbit.brief"], "2026-10-27"); assert.equal(ready.brief, false);
   body.props.onClose();
-  assert.equal(c.render(c.exports.MorningBrief, { home: true, onOpenTask() {}, onOpenGoal() {} }), null);
+  assert.equal(c.render(c.exports.MorningBrief, props), null);
 });

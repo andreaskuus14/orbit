@@ -1,6 +1,6 @@
 "use client";
 // "ORBIT speaks first" (roadmap 8, 2.2): on his first input after ≥ 20 min away, one short line about the most important thing,
-// shown through Herald (bell + pop-up) and spoken when the voice speak setting is on. Rules and caps: lib/speak-first-pure.ts.
+// shown through Herald (bell + pop-up); spoken only when urgent (an open incident) and the voice speak setting is on. Rules and caps: lib/speak-first-pure.ts.
 import { useEffect, useRef, useState } from "react";
 import { notify } from "@/lib/notify-pure";
 import { HERALD_KEY, parseHerald } from "@/lib/herald-pure";
@@ -49,7 +49,8 @@ export function SpeakFirst() {
       save(r.state);
       if (!r.moment) return;
       notify({ key: `speak-first:${r.moment.key}`, kind: "core", signal: "reminder", title: r.moment.line });
-      if (r.moment.voice && !speakingOrJustEnded(2000)) announce(r.moment.line); // waits while THEATER plays
+      // Quiet open: said aloud only when urgent (an open incident); everything else is shown, never spoken, on his return.
+      if (r.moment.voice && r.moment.kind === "incident" && !speakingOrJustEnded(2000)) announce(r.moment.line); // waits while THEATER plays
     };
     const onInput = () => {
       const now = Date.now(), prev = last;

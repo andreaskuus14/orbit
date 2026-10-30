@@ -9,7 +9,9 @@ import { HeraldToggle } from "./Herald";
 import { INTERRUPTION_CHANGED, INTERRUPTION_KEY, POPUP_SHOWN, RESOLVE_ALERT, LABELS, batchCount, classify, fixTarget, isProblem, reasonLine, signalFor, unmuteKind, type Signal } from "@/lib/interruption-pure";
 import { loadJudgment, saveJudgment } from "./interruption-store";
 import { AlertWatch } from "./AlertWatch";
-import { useWanting } from "./startup-store";
+import { OPEN_EVENT, openedToday, useReady, useWanting } from "./startup-store";
+import { pillOf, type Ready } from "@/lib/startup-pure";
+import { useT } from "./i18n";
 
 let memory: NotifyItem[] = [], storageFailed = false;
 const load = () => { try { if (!storageFailed) memory = parseItems(localStorage.getItem(NOTIFY_KEY)); } catch { storageFailed = true; } return memory; };
@@ -20,6 +22,10 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
   const [now, setNow] = useState(0);
   const [judgment, setJudgment] = useState(loadJudgment);
   const commit = (l: NotifyItem[]) => { save(l); setItems(l); };
+  const { t } = useT();
+  const ready = useReady();
+  const [sameDay, setSameDay] = useState(true); // client only: a same-day reopen gets no "new" dot
+  useEffect(() => setSameDay(openedToday()), []);
 
   useEffect(() => {
     setItems(load());
@@ -52,6 +58,12 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
     if (it.fixHref === "/api/studio/oauth/start") { window.location.assign(it.fixHref); return; }
     dispatchEvent(new CustomEvent(NAV_EVENT, { detail: fixTarget(it) }));
   };
+  // Quiet open: morning brief, What's new, digests and non-urgent notices wait in this one pill (startup-pure pillOf).
+  const pill = pillOf(ready, updates, kinds, sameDay);
+  const label = pill && [pill.lead ? t(`quiet.${pill.lead}`) : pill.tour ? t("quiet.tour") : "", pill.fresh ? t("quiet.new", { n: pill.fresh }) : "",
+    pill.needYou ? t("quiet.needYou", { n: pill.needYou }) : ""].filter(Boolean).join(" · ");
+  const openReady = (r: Ready) => dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: r }));
+  const bell = () => { try { document.getElementById("notify-menu")?.showPopover(); } catch { /* already open */ } };
   const open = (it: NotifyItem) => {
     commit(load().map((x) => (x.id === it.id ? { ...x, read: true } : x))); // fresh from storage: keep what other windows added
     if (it.nav) dispatchEvent(new CustomEvent(NAV_EVENT, { detail: it.nav }));
@@ -64,6 +76,18 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
         onClick={() => fix(problems[0])} aria-label={`Red alert: ${problems[0].title}. ${problems[0].fixLabel ?? "Open fix"}`}>
         🔴 Red alert{kinds > 1 ? ` (${kinds})` : ""} · {problems[0].fixLabel ?? "Open fix"}
       </button>}
+      {home && pill && <>
+        <button type="button" className="chip quiet-pill relative" popoverTarget="quiet-menu" aria-label={t("quiet.aria", { s: label ?? "" })}>
+          {label}{pill.dot && <span aria-hidden className="quiet-dot" />}
+        </button>
+        <div id="quiet-menu" popover="auto" className="glass hud-menu quiet-menu" aria-label={t("quiet.title")}>
+          {ready.map((r) => <button key={r} className="hud-menu-item w-full" popoverTarget="quiet-menu" popoverTargetAction="hide" onClick={() => openReady(r)}>
+            {t(`quiet.${r}`)}{r === "tour" && <span className="quiet-new">{t("quiet.dot")}</span>}
+          </button>)}
+          {pill.fresh > 0 && <button className="hud-menu-item w-full" popoverTarget="quiet-menu" popoverTargetAction="hide" onClick={bell}>🔔 {t("quiet.new", { n: pill.fresh })}</button>}
+          {pill.needYou > 0 && <button className="hud-menu-item w-full" popoverTarget="quiet-menu" popoverTargetAction="hide" onClick={() => fix(problems[0])}>🔴 {t("quiet.needYou", { n: pill.needYou })}</button>}
+        </div>
+      </>}
       <button className="chip relative" popoverTarget="notify-menu" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"} title="Notifications">
         🔔
         {unread > 0 && <span aria-hidden className="absolute -right-1 -top-1 min-w-[1.1rem] rounded-full bg-rose-500 px-1 text-center text-[10px] font-semibold leading-[1.1rem] text-white">{unread > 9 ? "9+" : unread}</span>}
