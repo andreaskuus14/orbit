@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { runCore, CoreStopped } from "@/lib/core";
+import { runCore, runCoreFor, CoreHandoff, CoreStopped } from "@/lib/core";
+import { BACKGROUND_TURN_MS, BG_FAILED, handoffReply } from "@/lib/long-work-pure";
 import { contextLine, safeLink } from "@/lib/voice-target-pure";
 import { reflectOnTurn } from "@/lib/reflect";
 import { learnFacts } from "@/lib/facts";
@@ -91,7 +92,16 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
         } : attach;
         const withSkill = skill ? { block: skill + "\n\n" + (contextAttach?.block ?? ""), images: contextAttach?.images ?? [] } : contextAttach;
         const t0 = Date.now();
-        const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, (checkpoint ? checkpointPrompt(checkpoint, isContinue(message)) : "") + record + project.text + contextLine(safeLink(body.here)), project.tainted, project.memoryProject, cid, lang);
+        const ctx = (checkpoint ? checkpointPrompt(checkpoint, isContinue(message)) : "") + record + project.text + contextLine(safeLink(body.here));
+        let out: Awaited<ReturnType<typeof runCore>>;
+        try { out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, ctx, project.tainted, project.memoryProject, cid, lang); }
+        catch (e) {
+          // Out of interactive time on a long step: the turn continues server-side; reply now, notify when done (never "timed out").
+          if (!(e instanceof CoreHandoff) || signal?.aborted) throw e;
+          onReset?.();
+          const taskId = await inBackground(sb, userId, cid, message, (bg) => runCoreFor(BACKGROUND_TURN_MS, true, sb, userId, history, undefined, bg, undefined, voice, undefined, undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang));
+          out = { text: handoffReply(taskId, lang), citations: [], trace: [{ step: "fallback", detail: "turn time limit → background task", ms: 0, ok: false }], model: "smart" };
+        }
         await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
         void noteReceipts(userId, cid, out.trace).catch(() => {}); // artifact versions from ORBIT's own write receipts
         await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
@@ -157,4 +167,29 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
 
   const o = await once();
   return Response.json(o.body, { status: o.status === 499 ? 502 : o.status });
+}
+
+// shortcut: the background turn runs in this Node process (survives a closed browser, not a server restart); a restart leaves its task "running" until reclaimed.
+/** Run a handed-off CORE turn as an OPERATIONS task: its answer lands in the chat, and agent.completed/failed gives the one notice. */
+async function inBackground(sb: SupabaseClient, userId: string, cid: string, message: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>): Promise<string> {
+  const title = `CORE: ${message.replace(/\s+/g, " ").trim().slice(0, 80)}`;
+  const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent: "nova", title, request: message, status: "running", started_at: new Date().toISOString() }).select("id").single();
+  if (error) throw error;
+  const taskId: string = data.id;
+  void (async () => {
+    let status = "done", result: string | null = null, err: string | null = null;
+    try {
+      const out = await run(new AbortController().signal);
+      result = out.text;
+      await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
+      void noteReceipts(userId, cid, out.trace).catch(() => {});
+    } catch (e) {
+      status = "failed"; err = BG_FAILED;
+      console.error("[orbit] background CORE turn failed:", e instanceof Error ? e.message : e);
+      await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: `_${BG_FAILED}_` }).then(() => {}, () => {});
+    }
+    await sb.from("tasks").update({ status, result, error: err, finished_at: new Date().toISOString() }).eq("id", taskId).then(() => {}, () => {});
+    await emit(sb, userId, status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId, status, title });
+  })();
+  return taskId;
 }

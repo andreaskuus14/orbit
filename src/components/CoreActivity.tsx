@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useT } from "./i18n";
 
 export function CoreActivity({ labels, streaming }: { labels: string[]; streaming: boolean }) {
+  const { t } = useT();
   const current = streaming ? "Writing your answer" : labels.at(-1) ?? "Connecting to CORE";
   const [slowLabel, setSlowLabel] = useState<string | null>(null);
   useEffect(() => {
@@ -15,6 +17,6 @@ export function CoreActivity({ labels, streaming }: { labels: string[]; streamin
       <ol>{previous.map((label, i) => <li key={i}>{label}</li>)}</ol>
     </details>}
     <div className="core-activity-now" role="status"><span className="activity-orbit" aria-hidden="true" /><span><small>NOW</small>{current}</span></div>
-    {slowLabel === current && <p className="core-activity-hint">This step is taking a little longer. You can stop it if needed.</p>}
+    {slowLabel === current && <p className="core-activity-hint">{t("core.slow", { what: current })}</p>}
   </div>;
 }

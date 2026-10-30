@@ -45,6 +45,8 @@ import { maxSteps, fallbackNote, sessionInput } from "./core-capability-pure";
 import { withHeadsUp } from "./capability-pure";
 import { CORE_ENGINE } from "./core-sdk-pure";
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { afterTimeout, callTimeout, isHeavy, isTimeout, SPLIT_HINT } from "./long-work-pure";
 import type { CliSession } from "./claude";
 import { coreSessionStore as coreSessions, coreTaintStore as coreTaint } from "./durable";
 import { loadWsGate, settleWsPending } from "./core-workspace";
@@ -122,12 +124,17 @@ ${facts || "(empty)"}`;
 /** A CORE turn is foreground: background loops pause at their checkpoints while it runs (foreground-pure.ts). */
 /** Every turn has an elapsed-time deadline (B04): it aborts the CLI/SDK call, tools, agent tasks and fallbacks through one signal. */
 export const TURN_MS = 285_000; // inside the CORE route's 300 s maxDuration
-export async function runCore(...a: Parameters<typeof coreTurn>) {
+/** Thrown when an interactive turn ran out of time on a long step: core-turn.ts moves the work to the background. */
+export class CoreHandoff extends Error {}
+const turnBudget = new AsyncLocalStorage<{ ms: number; background: boolean }>();
+export const runCore = (...a: Parameters<typeof coreTurn>) => runCoreFor(TURN_MS, false, ...a);
+/** background: a handed-off turn (long budget; a timeout ends it instead of handing off again). */
+export async function runCoreFor(ms: number, background: boolean, ...a: Parameters<typeof coreTurn>) {
   const leave = foreground.enter();
-  const d = turnSignal(a[4], TURN_MS);
+  const d = turnSignal(a[4], ms);
   a[4] = d.signal;
-  try { d.signal.throwIfAborted(); return await coreTurn(...a); }
-  catch (e) { throw d.timedOut() ? new CoreStopped(e instanceof CoreStopped ? e.completed : "", (d.signal.reason as Error).message) : e; }
+  try { d.signal.throwIfAborted(); return await turnBudget.run({ ms, background }, () => coreTurn(...a)); }
+  catch (e) { throw e instanceof CoreHandoff ? e : d.timedOut() && !background ? new CoreHandoff((d.signal.reason as Error).message) : d.timedOut() ? new CoreStopped(e instanceof CoreStopped ? e.completed : "", (d.signal.reason as Error).message) : e; }
   finally { d.clear(); leave(); }
 }
 
@@ -240,7 +247,9 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const dataIn = () => !!attach || pinsIn || steps.some((s) => !s.startsWith("You called navigate"));
   // Deep: plan privately in "thought" (never shown), answer in the same call, then one tool-less self-check below.
   const turnStart = Date.now();
-  const deepLeft = () => DEEP_TURN_MS - (Date.now() - turnStart);
+  const budget = turnBudget.getStore() ?? { ms: TURN_MS, background: false };
+  const deepLeft = () => budget.ms - (TURN_MS - DEEP_TURN_MS) - (Date.now() - turnStart);
+  let splitRetried = false;
   const deepNote = 'DEEP MODE (a hard request): write "thought" before "final" and in it privately plan first — the steps, the constraints, what could go wrong (it is never shown). Then give a complete, well-structured, correct "final".\n\n';
   const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
   let answer = "";
@@ -324,14 +333,14 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       const last = step === MAX_STEPS - 1 || (step > 0 && deepLeft() < 90_000); // out of steps or turn time: answer now
       signal?.throwIfAborted();
       onStep?.("think", {});
-      const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote}${tier === "deep" ? deepNote : ""}${(sess ? steps.slice(sessSeen) : steps).length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${(sess ? steps.slice(sessSeen) : steps).join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
+      const tail = `\n\n${splitRetried ? SPLIT_HINT + "\n\n" : ""}${CORE_LANG_RULE[lang]}${voiceNote}${tier === "deep" ? deepNote : ""}${(sess ? steps.slice(sessSeen) : steps).length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${(sess ? steps.slice(sessSeen) : steps).join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
       const sessNow = sess, sentNow = sessSent;
       const ask = (prompt ? Promise.resolve(prompt) : prep.then((p) => (prompt = p))).then((p) => sessNow ? sessionInput(p, transcriptHolder.text, sessNow.resume, sentNow) + tail : p + tail);
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
       if (tier === "deep" && deepLeft() - 60_000 < 30_000) { tier = "smart"; trace.push({ step: "fallback", detail: "deep → main model (time limit)", ms: 0, ok: false }); }
       const model = tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL;
       const effort = tier === "deep" ? deepFlags.effort || undefined : undefined;
-      const timeoutMs = tier === "deep" ? Math.min(120_000, deepLeft() - 60_000) : undefined;
+      const timeoutMs = tier === "deep" ? Math.min(120_000, deepLeft() - 60_000) : callTimeout(isHeavy(question, steps), deepLeft());
       let r;
       try {
       if (onDelta) {
@@ -347,7 +356,14 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       } else {
         r = await askClaude(ask, system, { lane: "foreground", signal, model, images: attach?.images, effort, timeoutMs, session: sess ?? undefined });
       }
-      } catch (e) { recover(e, effort); step--; continue; }
+      } catch (e) {
+        // A long step timed out: once more with the work split, then (interactive) hand the rest to the background.
+        if (!signal?.aborted && isTimeout(e)) {
+          if (afterTimeout(splitRetried, deepLeft()) === "retry") { splitRetried = true; onReset?.(); trace.push({ step: "fallback", detail: "timed out → retry split", ms: 0, ok: false }); step--; continue; }
+          if (!budget.background) throw new CoreHandoff(String(e instanceof Error ? e.message : e));
+        }
+        recover(e, effort); step--; continue;
+      }
       if (sess && !r.local) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
       await recordUsage(sb, userId, "core.chat", r, r.local ? "local" : model);
       // Offline brain (claude.ts): no tools, so its reply is always the answer; the "local" trace step shows the badge.
