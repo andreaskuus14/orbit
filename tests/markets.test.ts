@@ -205,6 +205,6 @@ test("quote freshness: failure after success keeps market date; stale blocks fil
   assert.deepEqual(rebalanceOrders(newAccount("d"), { A: 1 }, fresh), []);
   // Alerts only see fresh tickers.
   const alerts = [{ id: "1", ticker: "A", kind: "above" as const, value: 5 }, { id: "2", ticker: "B", kind: "above" as const, value: 5 }];
-  const d = Object.fromEntries(Object.keys(fresh).map((t) => [t, { price: fresh[t], changePct: null }]));
+  const d = Object.fromEntries(Object.entries(fresh).map(([t, price]) => [t, { price, changePct: null }]));
   assert.deepEqual(evaluateAlerts(alerts, d, "2026-10-30").map((a) => a.id), ["2"]);
 });
