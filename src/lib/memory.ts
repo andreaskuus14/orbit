@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -9,6 +10,8 @@ import { emit } from "./claude";
 import { verifyRow } from "./completion";
 import { htmlToText, pickPublicAddress, assertHttpUrl, redirectTarget, readCapped } from "./pure";
 import { MEMORY_COLUMNS, retrieveMemories, type MemorySearchOptions } from "./memory-search";
+import { dupPlan, findDuplicate, provenance, provenanceTags, type DupChoice, type DupRow } from "./memory-capture-pure";
+import { correctionRecords, isMissingColumn } from "./provenance-pure";
 export { MEMORY_COLUMNS } from "./memory-search";
 
 import { KINDS, type Kind } from "./kinds";
@@ -29,6 +32,8 @@ const SUGGEST_THRESHOLD = 0.6;
 
 /** Store a memory, embed it, emit a universe event, and suggest (never auto-confirm) related memories. */
 export async function createMemory(sb: SupabaseClient, userId: string, input: MemoryInput) {
+  // MEM04: every capture path (notes, links, voice memos, files, CORE) carries the same provenance tags.
+  if (!input.tags?.some((t) => t.startsWith("fp:"))) input = { ...input, tags: [...(input.tags ?? []), ...provenanceTags(provenance(input))] };
   const embedding = await embed(`${input.title}\n\n${input.content}`, "document");
   const { data, error } = await sb
     .from("memories")
@@ -59,6 +64,46 @@ export async function createMemory(sb: SupabaseClient, userId: string, input: Me
   await emit(sb, userId, "memory.saved", "memory", { memoryId: data.id, kind: data.kind });
   return { memory: data, embedded: !!embedding, suggested };
 }
+
+/** MEM04 capture without silent copies. A repeat (same stable source, or the same normalized text, within the same kind)
+ *  returns {duplicate, preview} and writes nothing until the owner picks keep (a marked separate version), merge or update
+ *  (the old text is kept as a "superseded" history copy, like Correct). No model call besides the usual embedding. */
+export async function captureMemory(sb: SupabaseClient, userId: string, input: MemoryInput, opts: { vault?: string | null; fileHash?: string | null; onDuplicate?: DupChoice | null; attach?: () => Promise<string> } = {}) {
+  const make = async (extra: string[]) => ({ ...(await createMemory(sb, userId, { ...input, tags: [...tags, ...extra], ...(opts.attach ? { storage_path: await opts.attach() } : {}) })), duplicate: dup });
+  let dup: ReturnType<typeof findDuplicate> = null;
+  const p = provenance({ ...input, ...opts });
+  const tags = [...(input.tags ?? []), ...provenanceTags(p)];
+  const cols = "id, title, content, tags, url, created_at, kind";
+  const keys = tags.filter((t) => /^(fp|sid):/.test(t));
+  const [byTag, legacy] = await Promise.all([
+    sb.from("memories").select(cols).eq("user_id", userId).eq("kind", input.kind).overlaps("tags", keys).limit(10),
+    // rows saved before provenance tags: same link, or same title (the text compare happens in findDuplicate)
+    sb.from("memories").select(cols).eq("user_id", userId).eq("kind", input.kind).eq(input.url ? "url" : "title", input.url || input.title).limit(10),
+  ]);
+  if (byTag.error) throw byTag.error;
+  const rows = [...(byTag.data ?? []), ...(legacy.data ?? [])].map((r) => ({ ...r, content: String(r.content ?? ""), tags: (r.tags ?? []) as string[] })) as DupRow[];
+  dup = findDuplicate(p, rows);
+  if (!dup) return make([]);
+  const cur = rows.find((r) => r.id === dup.id)!;
+  const plan = dupPlan(cur, input.content, opts.onDuplicate ?? undefined);
+  if ("preview" in plan) return { duplicate: dup, preview: plan.preview };
+  if (plan.create) return make(plan.tags);
+  if (plan.content !== null) {
+    if ("history" in plan) {
+      const ins: Record<string, unknown> = { ...correctionRecords({ ...cur, kind: input.kind }, plan.content).insert, user_id: userId };
+      let r = await sb.from("memories").insert(ins);
+      if (isMissingColumn(r.error)) { delete ins.source_ref; delete ins.confirmation; r = await sb.from("memories").insert(ins); } // until 0019
+      if (r.error) throw r.error;
+    }
+    const e = await embed(`${cur.title}\n\n${plan.content}`, "document");
+    const { error } = await sb.from("memories").update({ content: plan.content, tags: [...new Set([...cur.tags, ...keys])], embedding: e ? JSON.stringify(e) : null }).eq("id", cur.id);
+    if (error) throw error;
+    await emit(sb, userId, "memory.updated", "memory", { id: cur.id });
+  }
+  return { memory: { id: cur.id, title: cur.title }, embedded: true, suggested: 0, duplicate: dup, changed: plan.content !== null };
+}
+
+export const fileHash = (buf: Uint8Array) => createHash("sha256").update(buf).digest("hex").slice(0, 32);
 
 /** The caller's memories whose embedding is at least `min` cosine-similar to `text` ([] when embeddings are off). Needs a user-session client (match_memories filters by auth.uid()). */
 export async function findSimilar(sb: SupabaseClient, text: string, min = 0.9, count = 3) {

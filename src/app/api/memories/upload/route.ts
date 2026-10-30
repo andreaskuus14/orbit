@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { createMemory, type Kind } from "@/lib/memory";
+import { captureMemory, fileHash, type Kind } from "@/lib/memory";
 import { cleanTags, str } from "@/lib/pure";
 import { extractText, DOCX, TEXT } from "@/lib/extract";
 
@@ -33,25 +33,28 @@ export async function POST(req: Request) {
     return Response.json({ error: `Couldn't read that file: ${e instanceof Error ? e.message : "unknown error"}` }, { status: 422 });
   }
 
-  const safeName = file.name.replace(/[^\w.-]+/g, "_").slice(-120) || "file";
-  const path = `${user.id}/${crypto.randomUUID()}-${safeName}`;
-  const { error: upErr } = await sb.storage.from("vault").upload(path, buf, { contentType: type, upsert: false });
-  if (upErr) return Response.json({ error: `Storage failed: ${upErr.message}` }, { status: 500 });
-
   const note = str(form?.get("note"), 20_000) ?? "";
   const kind: Kind = isImage ? "image" : "document";
+  const choice = ["keep", "merge", "update"].find((c) => c === form?.get("onDuplicate")) as "keep" | "merge" | "update" | undefined;
+  const input = {
+    kind, title: (str(form?.get("title"), 300) || file.name).slice(0, 300),
+    content: [note, text].filter(Boolean).join("\n\n---\n").slice(0, 200_000) || `${isImage ? "Image" : "File"}: ${file.name}`,
+    source: "upload", tags: cleanTags(form?.get("tags")),
+  };
+  const safeName = file.name.replace(/[^\w.-]+/g, "_").slice(-120) || "file";
+  let path = "";
+  // MEM04: bytes are stored only when a memory is actually created; a repeat, merge or update never re-uploads.
+  const attach = async () => {
+    const p = `${user.id}/${crypto.randomUUID()}-${safeName}`;
+    const { error } = await sb.storage.from("vault").upload(p, buf, { contentType: type, upsert: false });
+    if (error) throw new Error(`Storage failed: ${error.message}`);
+    return (path = p);
+  };
   try {
-    const out = await createMemory(sb, user.id, {
-      kind,
-      title: (str(form?.get("title"), 300) || file.name).slice(0, 300),
-      content: [note, text].filter(Boolean).join("\n\n---\n").slice(0, 200_000) || `${isImage ? "Image" : "File"}: ${file.name}`,
-      source: "upload",
-      storage_path: path,
-      tags: cleanTags(form?.get("tags")),
-    });
-    return Response.json({ ...out, extractedChars: text.length }, { status: 201 });
+    const out = await captureMemory(sb, user.id, input, { fileHash: fileHash(buf), onDuplicate: choice ?? null, attach });
+    return Response.json({ ...out, extractedChars: text.length }, { status: "preview" in out ? 409 : 201 });
   } catch (e) {
-    await sb.storage.from("vault").remove([path]); // don't leave an orphaned file
+    if (path) await sb.storage.from("vault").remove([path]); // don't leave an orphaned file
     return Response.json({ error: e instanceof Error ? e.message : "Could not save" }, { status: 500 });
   }
 }
