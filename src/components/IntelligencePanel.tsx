@@ -2,8 +2,15 @@
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { highlight } from "./Highlight";
 import { FollowingSection } from "./FollowingSection";
+import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
+import { useT } from "./i18n";
+import { checkClaims, type FeedHealth, type Prefs } from "@/lib/news-intel-pure";
 
-type Cite = { id: string; title: string; url: string; source: string | null; published_at: string | null };
+type Cite = { id: string; title: string; url: string; source: string | null; published_at: string | null; evidence?: "fetched" | "snippet"; passage?: string; fetched_url?: string };
+type Dev = { key: string; rev: string; status: "new" | "corrected" | "resolved"; title: string; why: string; independent: number; articles: Article[] };
+type Intel = { prefs: Prefs; topics: { topic: string; items: Dev[]; known: number }[]; health: Record<string, Partial<FeedHealth> & { disabled?: boolean }>; done: string[] };
+const VIEWS = [{ id: "today", label: "Today" }, { id: "following", label: "Following" }, { id: "research", label: "Research" }, { id: "sources", label: "Sources" }] as const;
+type ViewId = (typeof VIEWS)[number]["id"];
 type Briefing = { id: string; kind: string; title: string; content: string; citations: Cite[]; article_count: number; created_at: string };
 type Article = { id: string; title: string; url: string; source: string | null; topic: string | null; published_at: string | null };
 type Feed = { id: string; url: string; title: string | null; topic: string | null; enabled: boolean; last_fetched_at: string | null; last_error: string | null };
@@ -34,9 +41,14 @@ function inline(text: string, cites: Cite[]): ReactNode[] {
 }
 
 function BriefingBody({ b }: { b: Briefing }) {
+  const { t } = useT();
   const lines = b.content.split("\n");
+  const checks = b.citations.some((c) => c.evidence) ? checkClaims(b.content, b.citations) : []; // INT03; older briefings have no evidence
+  const failed = checks.filter((c) => !c.ok);
   return (
     <div className="space-y-2 text-sm leading-relaxed">
+      {checks.length > 0 && <p className={`text-xs ${failed.length ? "error" : "muted"}`}>{t("intel.claimsOk", { ok: checks.length - failed.length, n: checks.length })}</p>}
+      {failed.slice(0, 5).map((c, i) => <p key={i} className="error text-xs">“{c.sentence}” — {t("intel.claimFail", { what: c.what })}</p>)}
       {lines.map((l, i) => {
         const t = l.trim();
         if (!t) return null;
@@ -51,6 +63,10 @@ function BriefingBody({ b }: { b: Briefing }) {
           <li key={c.id}>
             [{i + 1}] <a className="link" href={safeHref(c.url)} target="_blank" rel="noreferrer noopener">{c.title}</a>
             <span className="muted"> — {c.source ?? "unknown source"}, {when(c.published_at)}</span>
+            {c.evidence && (
+              <details className="ml-4"><summary className="muted cursor-pointer">{c.evidence === "fetched" ? t("intel.fetched") : t("intel.snippet")}</summary>
+                <p className="muted whitespace-pre-wrap">{c.passage}</p>{c.fetched_url && <p className="muted">{c.fetched_url}</p>}</details>
+            )}
           </li>
         ))}
       </ol>
@@ -65,7 +81,9 @@ export function IntelligencePanel() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [scheduled, setScheduled] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
-  const [tab, setTab] = useState<"briefings" | "sources" | "articles">("briefings");
+  const { t } = useT();
+  const [view, setView] = useWorkspaceView<ViewId>("intelligence", VIEWS);
+  const [intel, setIntel] = useState<Intel | null>(null);
   const [running, setRunning] = useState(false);
   const [add, setAdd] = useState("");
   const [err, setErr] = useState("");
@@ -78,6 +96,7 @@ export function IntelligencePanel() {
       ]);
       setBriefings(b.briefings); setArticles(b.articles); setJobs(b.jobs); setScheduled(b.scheduled); setFeeds(f.feeds);
       setOpen((o) => o ?? b.briefings[0]?.id ?? null);
+      setIntel(await api<Intel>("/api/news/intel"));
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not load"); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -86,7 +105,7 @@ export function IntelligencePanel() {
     setRunning(true); setErr("");
     try {
       const r = await api<{ briefing: Briefing }>("/api/pulse", { method: "POST", body: JSON.stringify({ focus }) });
-      setOpen(r.briefing.id); setTab("briefings");
+      setOpen(r.briefing.id); setView("research");
     } catch (e) { setErr(e instanceof Error ? e.message : "Pulse failed"); }
     finally { setRunning(false); void load(); }
   }
@@ -113,42 +132,47 @@ export function IntelligencePanel() {
     catch (e) { setErr(e instanceof Error ? e.message : "Could not remove"); }
   }
 
+  const post = async (body: object) => {
+    try { const r = await api<{ existing?: boolean }>("/api/news/intel", { method: "POST", body: JSON.stringify(body) }); setErr(r.existing ? t("intel.already") : ""); void load(); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Could not save"); }
+  };
   const lastJob = jobs[0];
   return (
-    <div className="space-y-4">
+    <WorkspaceFrame planet="intelligence" title={t("intel.title")} context={t("intel.context")} view={view} onView={setView}
+      views={VIEWS.map((v) => ({ ...v, label: t(`intel.v.${v.id}` as const) }))}>
+      {err && view !== "today" && <p className="error">{err}</p>}
+      {view === "today" && (<>
       <div className="card space-y-2 text-sm">
-        <div className="flex items-center justify-between gap-2">
-          <span><b>Pulse</b> <span className="muted">· news intelligence agent</span></span>
-          <span className="flex flex-wrap justify-end gap-1.5">
-            <button className="btn" onClick={() => generate("world")} disabled={running}>{running ? "Pulse is working…" : "World brief"}</button>
-            <button className="chip" onClick={() => generate("mine")} disabled={running}>My topics</button>
-            <button className="chip" onClick={() => generate("all")} disabled={running}>Everything</button>
-          </span>
-        </div>
-        <p className="muted text-xs">
-          {scheduled ? "Scheduled briefings on: Morning 07:30 · Midday 12:30 · Evening 19:00 · Weekly Sun 18:30 (while this PC runs ORBIT)."
-            : "Scheduled briefings are off until SUPABASE_SECRET_KEY is set (see README). On-demand briefings work now."}
-        </p>
-        {lastJob && (
-          <p className={`text-xs ${lastJob.status === "failed" ? "error" : "muted"}`}>
-            Last run: {lastJob.status} · {when(lastJob.started_at)}{lastJob.detail ? ` · ${lastJob.detail}` : ""}
+          <div className="flex items-center justify-between gap-2">
+            <span><b>Pulse</b> <span className="muted">· news intelligence agent</span></span>
+            <span className="flex flex-wrap justify-end gap-1.5">
+              <button className="btn" onClick={() => generate("world")} disabled={running}>{running ? t("intel.working") : t("intel.world")}</button>
+              <button className="chip" onClick={() => generate("mine")} disabled={running}>{t("intel.mine")}</button>
+              <button className="chip" onClick={() => generate("all")} disabled={running}>{t("intel.all")}</button>
+            </span>
+          </div>
+          <p className="muted text-xs">
+            {scheduled ? "Scheduled briefings on: Morning 07:30 · Midday 12:30 · Evening 19:00 · Weekly Sun 18:30 (while this PC runs ORBIT)."
+              : "Scheduled briefings are off until SUPABASE_SECRET_KEY is set (see README). On-demand briefings work now."}
           </p>
-        )}
-        {running && <p className="muted text-xs">Fetching feeds, grouping stories and writing the briefing. This usually takes under a minute.</p>}
-        {err && <p className="error">{err}</p>}
-      </div>
+          {lastJob && (
+            <p className={`text-xs ${lastJob.status === "failed" ? "error" : "muted"}`}>
+              Last run: {lastJob.status} · {when(lastJob.started_at)}{lastJob.detail ? ` · ${lastJob.detail}` : ""}
+            </p>
+          )}
+          {running && <p className="muted text-xs">Fetching feeds, grouping stories and writing the briefing. This usually takes under a minute.</p>}
+          {err && <p className="error">{err}</p>}
+        </div>
+  
+          {intel && <Developments intel={intel} post={post} />}
+      </>)}
 
-      <FollowingSection />
+      {view === "following" && (<>
+        <FollowingSection />
+        {intel && <PrefsForm prefs={intel.prefs} save={(p) => post({ action: "prefs", prefs: p })} />}
+      </>)}
 
-      <div className="flex gap-1.5" role="tablist">
-        {(["briefings", "sources", "articles"] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
-            {t === "briefings" ? `Briefings (${briefings.length})` : t === "sources" ? `Sources (${feeds.length})` : "Latest articles"}
-          </button>
-        ))}
-      </div>
-
-      {tab === "briefings" && (
+      {view === "research" && (<>
         <ul className="space-y-2">
           {briefings.map((b) => (
             <li key={b.id} className="card">
@@ -161,9 +185,19 @@ export function IntelligencePanel() {
           ))}
           {!briefings.length && <li className="muted text-sm">No briefings yet. Press “World brief” or “My topics”.</li>}
         </ul>
-      )}
+        <h3 className="h3">Latest articles</h3>
+        <ul className="space-y-2 text-sm">
+          {articles.map((a) => (
+            <li key={a.id}>
+              <a className="link" href={safeHref(a.url)} target="_blank" rel="noreferrer noopener">{a.title}</a>
+              <div className="muted text-xs">{a.source ?? "unknown"} · {when(a.published_at)}{a.topic ? ` · ${a.topic}` : ""}</div>
+            </li>
+          ))}
+          {!articles.length && <li className="muted">No articles yet. They arrive with the first briefing.</li>}
+        </ul>
+      </>)}
 
-      {tab === "sources" && (
+      {view === "sources" && (
         <div className="space-y-3">
           <form onSubmit={follow} className="flex gap-2">
             <input className="field flex-1" value={add} onChange={(e) => setAdd(e.target.value)} placeholder="Topic (e.g. Roblox) or RSS feed URL" aria-label="Topic or feed URL" maxLength={2000} />
@@ -181,26 +215,101 @@ export function IntelligencePanel() {
                     <button className="chip" onClick={() => remove(f)} aria-label={`Remove ${f.title ?? f.url}`}>Remove</button>
                   </span>
                 </div>
-                <div className={`text-xs ${f.last_error ? "error" : "muted"}`}>
-                  {f.last_error ? `Failed: ${f.last_error}` : f.last_fetched_at ? `Fetched ${when(f.last_fetched_at)}` : "Not fetched yet"}
-                </div>
+                <FeedStatus f={f} h={intel?.health[f.id]} />
               </li>
             ))}
           </ul>
         </div>
       )}
+    </WorkspaceFrame>
+  );
+}
 
-      {tab === "articles" && (
-        <ul className="space-y-2 text-sm">
-          {articles.map((a) => (
-            <li key={a.id}>
-              <a className="link" href={safeHref(a.url)} target="_blank" rel="noreferrer noopener">{a.title}</a>
-              <div className="muted text-xs">{a.source ?? "unknown"} · {when(a.published_at)}{a.topic ? ` · ${a.topic}` : ""}</div>
-            </li>
-          ))}
-          {!articles.length && <li className="muted">No articles yet. They arrive with the first briefing.</li>}
-        </ul>
-      )}
+/** INT07: per-feed health (last success, error kind, empty, paused, next retry). */
+function FeedStatus({ f, h }: { f: Feed; h?: Intel["health"][string] }) {
+  const { t } = useT();
+  const kind = !f.enabled ? "disabled" : h?.kind ?? (f.last_error ? "fetch" : f.last_fetched_at ? "ok" : "never");
+  const bad = kind === "parse" || kind === "fetch";
+  return (
+    <div className={`text-xs ${bad ? "error" : "muted"}`}>
+      {t(`intel.h.${kind}` as "intel.h.ok")}{bad && (h?.lastError ?? f.last_error) ? `: ${h?.lastError ?? f.last_error}` : ""}
+      {h?.lastSuccess && ` · ${t("intel.lastOk", { at: when(h.lastSuccess) })}`}
+      {bad && h?.nextRetry && f.enabled && ` · ${t("intel.retry", { at: when(h.nextRetry) })}`}
+      {bad && h?.lastSuccess && ` · ${t("intel.keepGood")}`}
     </div>
+  );
+}
+
+/** INT02/04/06: developments since the last "Mark seen", with why-this, all reports, less-like-this and story actions. */
+function Developments({ intel, post }: { intel: Intel; post: (b: object) => Promise<void> }) {
+  const { t } = useT();
+  const [task, setTask] = useState<string | null>(null);
+  const [obj, setObj] = useState(""); const [acc, setAcc] = useState("");
+  const done = new Set(intel.done);
+  return (
+    <div className="space-y-3">
+      <p className="muted text-xs">{t("intel.sinceSeen")}</p>
+      {intel.topics.map((tp) => (
+        <div key={tp.topic} className="card space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <b>{tp.topic}</b>
+            {tp.items.length > 0 && <button className="chip" onClick={() => post({ action: "ack", topic: tp.topic, events: tp.items.map(({ key, rev }) => ({ key, rev })) })}>{t("intel.markSeen")}</button>}
+          </div>
+          {!tp.items.length && <p className="muted text-xs">{t("intel.nothingNew", { n: tp.known })}</p>}
+          <ul className="space-y-3">
+            {tp.items.map((d) => {
+              const a = d.articles[0], url = a.url;
+              return (
+                <li key={d.key} className="space-y-1">
+                  <div><span className="chip mr-2 text-xs" style={d.status === "new" ? { borderColor: "var(--cyan)" } : undefined}>{t(`intel.st.${d.status}` as const)}</span>
+                    <a className="link" href={safeHref(url)} target="_blank" rel="noreferrer noopener">{d.title}</a></div>
+                  <div className="muted text-xs">{d.why} · {a.source ?? "unknown"} · {when(a.published_at)}</div>
+                  {d.articles.length > 1 && (
+                    <details className="text-xs"><summary className="muted cursor-pointer">{t("intel.copies", { n: d.articles.length })} · {t("intel.sources", { n: d.independent })}</summary>
+                      <ul className="ml-4">{d.articles.map((x) => <li key={x.id}><a className="link" href={safeHref(x.url)} target="_blank" rel="noreferrer noopener">{x.title}</a> <span className="muted">— {x.source ?? "?"}, {when(x.published_at)}</span></li>)}</ul>
+                    </details>
+                  )}
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    <button className="chip" onClick={() => post({ action: "less", title: d.title })}>{t("intel.less")}</button>
+                    {(["note", "watch"] as const).map((k) => (
+                      <button key={k} className="chip" disabled={done.has(`${k}:${url}`)} onClick={() => post({ action: "story", kind: k, title: d.title, url, published_at: a.published_at })}>{t(`intel.${k}` as const)}</button>
+                    ))}
+                    <button className="chip" onClick={() => setTask(task === d.key ? null : d.key)}>{t("intel.task")}</button>
+                  </div>
+                  {task === d.key && (
+                    <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); void post({ action: "story", kind: "task", title: d.title, url, published_at: a.published_at, objective: obj, acceptance: acc }).then(() => { setTask(null); setObj(""); setAcc(""); }); }}>
+                      <input className="field w-full" required maxLength={300} value={obj} onChange={(e) => setObj(e.target.value)} placeholder={t("intel.objective")} aria-label={t("intel.objective")} />
+                      <input className="field w-full" required maxLength={300} value={acc} onChange={(e) => setAcc(e.target.value)} placeholder={t("intel.acceptance")} aria-label={t("intel.acceptance")} />
+                      <button className="btn">{t("intel.propose")}</button>
+                    </form>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** INT04: topics, regions, projects, exclusions and length. */
+function PrefsForm({ prefs, save }: { prefs: Prefs; save: (p: Partial<Prefs>) => Promise<void> }) {
+  const { t } = useT();
+  const [f, setF] = useState({ topics: prefs.topics.join(", "), regions: prefs.regions.join(", "), projects: prefs.projects.join(", "), exclusions: prefs.exclusions.join(", "), length: prefs.length });
+  return (
+    <form className="card space-y-2" onSubmit={(e) => { e.preventDefault(); void save(f as unknown as Partial<Prefs>); }}>
+      <b>{t("intel.prefs")}</b>
+      {(["topics", "regions", "projects", "exclusions"] as const).map((k) => (
+        <label key={k} className="block text-xs">{t(`intel.${k}` as const)}
+          <input className="field w-full" maxLength={600} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
+      ))}
+      <label className="block text-xs">{t("intel.length")}{" "}
+        <select className="field" value={f.length} onChange={(e) => setF({ ...f, length: e.target.value as Prefs["length"] })}>
+          {(["short", "normal", "long"] as const).map((l) => <option key={l} value={l}>{t(`intel.len.${l}` as const)}</option>)}
+        </select></label>
+      {prefs.less.length > 0 && <p className="muted text-xs">{t("intel.lessCount", { n: prefs.less.length })}</p>}
+      <button className="btn">{t("intel.savePrefs")}</button>
+    </form>
   );
 }

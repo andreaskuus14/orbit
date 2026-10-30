@@ -2,14 +2,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isCurrent } from "./memory-types-pure";
 import { askClaude, recordUsage, emit, MODEL } from "./claude";
 import { createMemory, safeFetch } from "./memory";
-import { parseFeed, normalizeUrl, clusterArticles, parseCitations, numberCitations, type BriefingKind } from "./pure";
+import { parseFeed, normalizeUrl, parseCitations, numberCitations, type BriefingKind } from "./pure";
 import { readArticle } from "./news";
+import { clusterEvents, due, evidenceOf, freshAfterRepair, independentSources, nextHealth } from "./news-intel-pure";
+import { readIntel, updateIntel } from "./news-intel";
 
 // Pulse — the News Intelligence Agent. Collects real articles from the user's feeds, de-duplicates,
 // groups them into events, and has Claude write a briefing that may only use (and must cite) those articles.
 
 export type PulseKind = BriefingKind | "manual";
-export type ArticleCitation = { id: string; title: string; url: string; source: string | null; published_at: string | null };
+// evidence/passage (INT03): the fetched passage behind the citation, or the search snippet, labelled as such.
+export type ArticleCitation = { id: string; title: string; url: string; source: string | null; published_at: string | null; evidence?: "fetched" | "snippet"; passage?: string; fetched_url?: string };
 
 const WINDOW_HOURS: Record<PulseKind, number> = { morning: 16, midday: 8, evening: 14, weekly: 168, manual: 24 };
 export const BRIEFING_TITLES: Record<PulseKind, string> = {
@@ -65,18 +68,21 @@ async function ensureFeeds(sb: SupabaseClient, userId: string): Promise<Feed[]> 
 
 /** Fetch every enabled feed and store new articles. Returns how many were new and which feeds failed. */
 export async function ingestFeeds(sb: SupabaseClient, userId: string) {
-  const feeds = await ensureFeeds(sb, userId);
+  const health = (await readIntel()).health, now = Date.now();
+  const feeds = (await ensureFeeds(sb, userId)).filter((f) => due(health[f.id], now)); // INT07: backing-off feeds wait their turn
+  const setHealth = (id: string, r: Parameters<typeof nextHealth>[1]) => updateIntel((s) => { s.health[id] = nextHealth(s.health[id], r, Date.now()); });
   let added = 0;
   const failures: string[] = [];
   const queue = [...feeds];
   const worker = async () => {
     for (let feed = queue.shift(); feed; feed = queue.shift()) {
       try {
-        const { res } = await safeFetch(feed.url, FEED_ACCEPT);
-        const xml = (await res.text()).slice(0, 3_000_000);
+        let xml: string;
+        try { const { res } = await safeFetch(feed.url, FEED_ACCEPT); xml = (await res.text()).slice(0, 3_000_000); }
+        catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { feedKind: "fetch" }); }
         const parsed = parseFeed(xml);
-        if (!parsed.items.length && !/<(rss|feed|rdf)[\s>]/i.test(xml)) throw new Error("Not an RSS or Atom feed");
-        const rows = parsed.items.slice(0, 60).map((it) => {
+        if (!parsed.items.length && !/<(rss|feed|rdf)[\s>]/i.test(xml)) throw Object.assign(new Error("Not an RSS or Atom feed"), { feedKind: "parse" });
+        const rows = freshAfterRepair(parsed.items, health[feed.id]).slice(0, 60).map((it) => {
           const source = it.source ?? feed.title ?? new URL(it.url).hostname;
           // Google News appends " - Source" to headlines; drop it so clustering compares the story, not the outlet.
           const title = it.source && it.title.endsWith(` - ${it.source}`) ? it.title.slice(0, -(it.source.length + 3)) : it.title;
@@ -89,10 +95,12 @@ export async function ingestFeeds(sb: SupabaseClient, userId: string) {
           if (error) throw error;
           added += data?.length ?? 0;
         }
+        await setHealth(feed.id, { ok: true, items: parsed.items.length }).catch(() => undefined);
         await sb.from("feeds").update({ last_fetched_at: new Date().toISOString(), last_error: null, title: feed.title ?? (parsed.title || null) }).eq("id", feed.id);
       } catch (e) {
         const msg = e instanceof Error ? e.message : (e as { message?: string })?.message ?? JSON.stringify(e);
         failures.push(`${feed.title ?? feed.url}: ${msg}`);
+        await setHealth(feed.id, { ok: false, kind: (e as { feedKind?: string })?.feedKind === "parse" ? "parse" : "fetch", error: msg }).catch(() => undefined);
         await sb.from("feeds").update({ last_fetched_at: new Date().toISOString(), last_error: msg.slice(0, 300) }).eq("id", feed.id);
       }
     }
@@ -169,14 +177,14 @@ export async function runPulse(sb: SupabaseClient, userId: string, kind: PulseKi
 
     // Cluster world news and the user's own topics separately so big world stories don't crowd out their interests.
     const isWorld = (a: ArticleRow) => WORLD_TOPICS.includes(a.topic ?? "");
-    const take = (list: ArticleRow[], n: number) => clusterArticles(list).slice(0, n);
+    const take = (list: ArticleRow[], n: number) => clusterEvents(list).slice(0, n); // INT01: exact URL/title/text copies first
     const worldN = focus === "mine" ? 0 : kind === "weekly" ? 18 : focus === "world" ? 16 : 10;
     const mineN = focus === "world" ? 0 : kind === "weekly" ? 10 : focus === "mine" ? 12 : 6;
     const clusters = [...take(articles.filter(isWorld), worldN), ...take(articles.filter((a) => !isWorld(a)), mineN)];
     if (!clusters.length) throw new Error(focus === "world" ? "No world news yet: add the World news pack in INTELLIGENCE → Sources" : "No articles for your topics in the time window");
 
     // Read the full story for the top events (one article each, tried in order until one opens).
-    const fullText = new Map<string, string>();
+    const fullText = new Map<string, string>(), readUrl = new Map<string, string>(); // readUrl: the exact page each passage came from
     const readTop = clusters.slice(0, kind === "weekly" ? 14 : 12);
     let cursor = 0;
     await Promise.all(Array.from({ length: 4 }, async () => {
@@ -184,7 +192,7 @@ export async function runPulse(sb: SupabaseClient, userId: string, kind: PulseKi
         for (const a of readTop[c].slice(0, 3)) {
           const art = await readArticle(a.url, 2500, false); // bulk: plain downloads only, keeps briefings fast
           if (!art) continue;
-          fullText.set(a.id, art.text);
+          fullText.set(a.id, art.text); readUrl.set(a.id, art.url);
           if (art.url !== a.url) {
             a.url = art.url; // cite the publisher, not the Google redirect
             await sb.from("articles").update({ url: art.url }).eq("id", a.id).then(() => undefined, () => undefined);
@@ -198,7 +206,7 @@ export async function runPulse(sb: SupabaseClient, userId: string, kind: PulseKi
     const events = clusters.map((c, i) => {
       const picked = c.slice(0, 4);
       picked.forEach((a) => used.set(a.id, a));
-      const outlets = new Set(c.map((a) => (a.source ?? "").toLowerCase())).size;
+      const outlets = independentSources(c); // syndicated copies count once
       return `### Event ${i + 1} (${c.length} article${c.length > 1 ? "s" : ""}, ${outlets} independent outlet${outlets > 1 ? "s" : ""})\n` +
         picked.map((a) => `- [a:${a.id}] "${a.title}" — ${a.source ?? "unknown source"}, ${a.published_at ?? "date unknown"}${a.topic ? `, topic: ${a.topic}` : ""}\n` +
           (fullText.has(a.id) ? `  FULL ARTICLE TEXT:\n  ${fullText.get(a.id)!.replace(/\n/g, "\n  ")}` : `  (headline only) ${a.summary.slice(0, 300)}`)).join("\n");
@@ -223,7 +231,7 @@ export async function runPulse(sb: SupabaseClient, userId: string, kind: PulseKi
     const citations: ArticleCitation[] = parseCitations(r.text, "a")
       .map((id) => used.get(id))
       .filter((a): a is ArticleRow => !!a)
-      .map(({ id, title, url, source, published_at }) => ({ id, title, url, source, published_at }));
+      .map(({ id, title, url, source, published_at, summary }) => ({ id, title, url, source, published_at, ...evidenceOf(url, readUrl.get(id) ?? null, fullText.get(id) ?? null, summary) }));
     if (!citations.length) throw new Error("Pulse's draft had no verifiable sources, so it was discarded");
 
     const title = `${kind === "manual" && focus === "world" ? "World brief" : kind === "manual" && focus === "mine" ? "Your topics brief" : BRIEFING_TITLES[kind]} · ${new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`;
