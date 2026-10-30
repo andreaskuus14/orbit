@@ -17,7 +17,7 @@ type AgentIn = { slug: string; role: string; tools: string[]; stats?: { done?: n
 /** configured: env/connection files only (no doctor run); available: with the doctor's latest checks. null = unknown, never "limited". */
 export function workerCard(a: AgentIn, approval: ReadonlySet<string>, configured: DepState, available: DepState): WorkerCard {
   const deps = [...new Set<Dep>(["claude", ...a.tools.flatMap((t) => TOOL_DEPS[t] ?? [])])];
-  const conns = deps.map((dep) => ({ dep, configured: configured[dep], available: available[dep] }));
+  const conns = deps.map((dep) => ({ dep, configured: available[dep] === true ? true : configured[dep], available: available[dep] }));
   return {
     slug: a.slug, domain: a.role.split(":")[0].trim(), tools: a.tools.filter((t) => t !== "delegate").map((name) => ({ name, approval: approval.has(name) })), conns,
     limited: conns.filter((c) => c.available === false || (c.available === null && c.configured === false)).map((c) => c.dep),

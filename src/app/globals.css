@@ -124,6 +124,9 @@ body {
 .drawer h2.brand { font-size: 1rem; }
 .drawer > .overflow-y-auto { overflow-x: hidden; }
 .cmdbar { position: absolute; z-index: 30; left: 50%; bottom: 1rem; transform: translateX(-50%); width: min(42rem, calc(100vw - 1.5rem)); padding: 0.45rem; border-radius: 999px; }
+:root { --bar: 4.5rem; } /* command-bar footprint; phones override below */
+/* Short windows: world panels can reach under the command bar, so their last rows scroll clear of it. */
+@media (max-height: 640px) { .world-panel { padding-bottom: var(--bar); } }
 .cmdbar .field, .globe-search .field { border-radius: 999px; background: rgba(2, 8, 22, 0.35); }
 
 .field { background: rgba(2, 8, 22, 0.55); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 0.55rem 0.75rem; color: var(--ink); font-size: 0.9rem; transition: border-color 0.15s, box-shadow 0.15s; }
@@ -861,4 +864,12 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 @media (prefers-reduced-motion: reduce) { .rm-core, .rm-star { animation: none; } }
 /* G05: workspace tabs and primary actions reach 44px on phones; G04 shared state line. */
 @media (max-width: 640px), (pointer: coarse) { .ws-tabs [role="tab"], .state-note .chip { min-height: 44px; min-width: 44px; } }
+/* Drawer chrome: the shell title names the planet once; tabs scroll in one row with fade edges; Herald toasts start below the drawer header. */
+.drawer .ws-title { display: none; }
+.drawer .ws-head:not(:has(.ws-ctx, button, a, select)) { display: none; }
+.ws-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-inline: 0.75rem; margin-inline: -0.75rem;
+  mask-image: linear-gradient(to right, transparent, #000 0.75rem, #000 calc(100% - 0.75rem), transparent); }
+.ws-tabs::-webkit-scrollbar { display: none; }
+.ws-tabs > [role="tab"] { flex: none; white-space: nowrap; }
+@media (min-width: 761px) { body:has(.drawer:not(.drawer-out)) .herald { top: 8.5rem; } }
 .state-note { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }

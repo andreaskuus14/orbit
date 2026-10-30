@@ -17,6 +17,7 @@ import { FailureReport } from "./FailureReport";
 import { OpsStatus } from "./OpsStatus";
 import { lastProgress } from "@/lib/ops-status-pure";
 import { blockedBy, recoveryOptions } from "@/lib/tasks-recovery-pure";
+import { groupTasks } from "@/lib/ops-tasks-pure";
 import { PREVIEW_TZ, graceMinutes, lastWith, nextOccurrences } from "@/lib/automation-preview-pure";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
@@ -35,7 +36,7 @@ type Agent = {
 type ToolInfo = { name: string; description: string; approval: boolean };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
+  const res = await fetch(url, { cache: "no-store", ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
   return json as T;
@@ -259,17 +260,17 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const [newProject, setNewProject] = useState("");
   const [filter, setFilter] = useState<string>("");
   const [tab, setTab] = useState<"tasks" | "automations" | "rules" | "activity">("tasks");
+  const [shown, setShown] = useState<Record<string, number>>({});
   const [err, setErr] = useState("");
 
   const load = useCallback(async () => {
-    try {
-      const [t, p, a] = await Promise.all([
-        api<{ tasks: Task[] }>(`/api/tasks${filter ? `?project=${filter}` : ""}`),
-        api<{ projects: Project[] }>("/api/projects"),
-        api<{ agents: Agent[] }>("/api/agents"),
-      ]);
-      setTasks(t.tasks); setProjects(p.projects); setAgents(a.agents);
-    } catch (e) { setErr(e instanceof Error ? e.message : "Could not load"); }
+    // Each list loads on its own: a failing projects/agents call must not hide the tasks.
+    const fail = (e: unknown) => setErr(e instanceof Error ? e.message : "Could not load");
+    await Promise.all([
+      api<{ tasks: Task[] }>(`/api/tasks${filter ? `?project=${filter}` : ""}`).then((r) => setTasks(r.tasks ?? []), fail),
+      api<{ projects: Project[] }>("/api/projects").then((r) => setProjects(r.projects ?? []), fail),
+      api<{ agents: Agent[] }>("/api/agents").then((r) => setAgents(r.agents ?? []), fail),
+    ]);
   }, [filter]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setOpen(focusTask); }, [focusTask]); // Back to a link without the task closes it
@@ -301,6 +302,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
     catch (e) { setErr(e instanceof Error ? e.message : "Could not update"); }
   }
 
+  const groups = groupTasks(tasks);
   if (open) return <TaskView id={open} onBack={() => { setOpen(null); void load(); }} openMemory={openMemory} />;
 
   const tabs = (
@@ -356,17 +358,23 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
 
       <div>
         <h3 className="h3">{tr(filter ? "ops.tasksIn" : "ops.tasks")}</h3>
-        <ul className="mt-2 space-y-2">
-          {tasks.map((t) => (
-            <li key={t.id}>
-              <button className="card w-full text-left" onClick={() => setOpen(t.id)}>
-                <div className="font-medium">{t.title}</div>
-                <div className="text-xs"><TaskStatus t={t} /><span className="muted"> · {t.agent} · {when(t.created_at)}</span></div>
-              </button>
-            </li>
-          ))}
-          {!tasks.length && <li className="muted text-sm">{tr("ops.noTasks")}</li>}
-        </ul>
+        {(["attention", "active", "done"] as const).map((k) => groups[k].length > 0 && (
+          <div key={k} className="mt-3">
+            <h4 className="muted text-xs uppercase">{tr(`ops.group.${k}`)} · {groups[k].length}</h4>
+            <ul className="mt-1.5 space-y-2">
+              {groups[k].slice(0, shown[k] ?? 10).map((t) => (
+                <li key={t.id}>
+                  <button className="card w-full text-left" onClick={() => setOpen(t.id)}>
+                    <div className="font-medium">{t.title}</div>
+                    <div className="text-xs"><TaskStatus t={t} /><span className="muted"> · {t.agent} · {when(t.created_at)}</span></div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {groups[k].length > (shown[k] ?? 10) && <button className="chip mt-1.5" onClick={() => setShown({ ...shown, [k]: (shown[k] ?? 10) + 20 })}>{tr("ops.showMore")}</button>}
+          </div>
+        ))}
+        {!tasks.length && <p className="muted mt-2 text-sm">{tr("ops.noTasks")}</p>}
       </div>
     </div>
   );

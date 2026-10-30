@@ -6,6 +6,7 @@ import { sharedJson } from "./use-poll";
 import { parseState, step, type NotifyState } from "@/lib/studio-notify";
 import { notify } from "@/lib/notify-pure";
 import { clipProblemNotices, RESOLVE_ALERT } from "@/lib/interruption-pure";
+import { ACK_EVENT, ACK_KEY, alertSnapshot, alertingGroups, parseAck } from "@/lib/clips/failure-alert-pure";
 
 const KEY = "orbit.studioNotify";
 const load = () => { try { return parseState(localStorage.getItem(KEY)); } catch { return parseState(null); } };
@@ -42,7 +43,12 @@ export function StudioNotifier() {
         const state = load(); // fresh each time, so another tab's announcements count as seen
         const snapshot = await sharedJson<Parameters<typeof step>[1]>("/api/studio/clips");
         if (snapshot && !stopped) {
-          const failures = clipProblemNotices(snapshot);
+          let ack = parseAck(null);
+          try { ack = parseAck(localStorage.getItem(ACK_KEY)); } catch { /* storage unavailable */ }
+          const { groups, shown } = alertingGroups(snapshot, ack, Date.now());
+          try { localStorage.setItem(ACK_KEY, JSON.stringify({ ...ack, shown })); } catch { /* old failures may alert again */ }
+          // Job/download failures open the Failed list; upload failures keep their review link.
+          const failures = clipProblemNotices(alertSnapshot(snapshot, groups)).map((n) => (n.nav?.view === "clips" ? { ...n, nav: { panel: "studio" as const, view: "failed" as const } } : n));
           failures.forEach(notify);
           if (!failures.length) dispatchEvent(new CustomEvent(RESOLVE_ALERT, { detail: "upload-failed" }));
           const res = step(state, snapshot, Date.now());
@@ -58,8 +64,10 @@ export function StudioNotifier() {
     // Due time counts from the last poll, so returning to the tab after >60 s polls at once rather than restarting the wait.
     const schedule = () => { clearTimeout(timer); if (!stopped && !busy && !document.hidden) timer = window.setTimeout(poll, Math.max(0, last + 60_000 - Date.now())); }; // hidden tab: none; the server keeps working
     void poll();
+    const again = () => { last = 0; schedule(); }; // a dismissal in the Failed list: re-check now
     document.addEventListener("visibilitychange", schedule);
-    return () => { stopped = true; clearTimeout(timer); document.removeEventListener("visibilitychange", schedule); };
+    addEventListener(ACK_EVENT, again);
+    return () => { stopped = true; clearTimeout(timer); document.removeEventListener("visibilitychange", schedule); removeEventListener(ACK_EVENT, again); };
   }, []);
 
   if (!ask) return null;
