@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
 import { WorldPaused } from "./world-paused";
 import { CALL_ACTIVE, VOICE_ASK, voiceContext } from "./voice/bus";
+import { runObjectCommand } from "./voice/object-command";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
@@ -274,6 +275,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         finally { dispatchEvent(new Event("orbit:core-done")); }
         return;
       }
+      if (runObjectCommand(text, (msg) => { setCmdReply(msg); if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) { stopSpeech(); return; } // "open client Kask", "save this version" (asks first)
       const fr = runFollowCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // done signal: a voice conversation listens again // "follow Estonia" / "unfollow AI": speaks the real outcome
       if (fr) { stopSpeech(); return; }
       if (runRecipeCommand(text, (msg) => { setCmdReply(msg); if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) { stopSpeech(); return; } // "run recipe daily ideas"

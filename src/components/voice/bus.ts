@@ -67,5 +67,7 @@ export const VOICE_CONVERSATION = "orbit:voice-conversation";
 /** A voice call with ORBIT started or ended, on this PC or another device (RemoteCall, call.* events). detail: { on: boolean }
  *  "Hey Orbit" lets go of the mic while one is on: his talk on the call is not for it. */
 export const CALL_ACTIVE = "orbit:call-active";
+/** "Hey Orbit" is taking a question (armed, or words after the wake word are coming in). detail: { on: boolean }. audio-policy ducks. */
+export const WAKE_HEARING = "orbit:wake-hearing";
 /** CorePanel finished (or failed/stopped) a spoken answer's stream. */
 export const CORE_DONE = "orbit:core-done";
