@@ -1,6 +1,6 @@
 "use client";
 // GAME DEV per-game views (DEV01-03, DEV05, DEV08): project contract, labelled test results, work steps for a backlog item,
-// asset register and release package. Everything saves through DevWorld's optimistic commit; rules in lib/gamedev-pure.ts.
+// asset register and release package; DEV04 UI kit, DEV07 economy simulator, DEV06 retention import. Everything saves through DevWorld's optimistic commit; rules in lib/gamedev-pure.ts.
 import { useState } from "react";
 import { useT } from "./i18n";
 import type { Bug, DevWorld as World, Game } from "@/lib/devworld-pure";
@@ -8,6 +8,9 @@ import {
   ASSET_FORMATS, CONTRACT_FIELDS, DEFAULT_CHECKLIST, EVIDENCE_KINDS, OUTCOMES, WORK_STEPS, assetIssues, contractGaps, nextStep, normalizeEvidence, releaseGaps, workSteps,
   type Asset, type Contract, type Evidence, type EvidenceKind, type Outcome, type Release,
 } from "@/lib/gamedev-pure";
+import { DEFAULT_KIT, KIT_COLORS, KIT_FONTS, PREVIEW_MODES, SAMPLE_TEXT, abbrev, buttonHeight, kitIssues, kitLuau, type PreviewMode, type UiKit } from "@/lib/gamedev-uikit-pure";
+import { SAMPLE_MODEL, SIM_DEFAULTS, findings, parseModel, playOne, sensitivity, simulateModel, type Model, type SimResult } from "@/lib/economy-sim-pure";
+import { cohorts, funnelRates, parseExport, type Metric, type Retention } from "@/lib/gamedev-retention-pure";
 
 type P = { game: Game; world: World; commit: (w: World) => boolean };
 const now = () => new Date().toISOString();
@@ -188,5 +191,151 @@ function ReleaseCard({ r: init, ev, gaps, onSave, onDelete }: { r: Release; ev: 
       <p role="status" className={gaps.length ? "muted" : "ok"}>{gaps.length ? t("gd.rel.gaps", { list: gaps.join(", ") }) : t("gd.rel.ready")}</p>
       <button className="chip" onClick={onDelete}>{t("gd.delete")}</button>
     </div>
+  );
+}
+
+const setGame = (world: World, id: string, patch: Partial<Game>) => ({ ...world, games: world.games.map((g) => (g.id === id ? { ...g, ...patch } : g)) });
+
+/** DEV04: the game's UI kit, previewed in four modes, saved on the game; the Luau module is generated on demand. */
+export function UiKitCard({ game, world, commit }: P) {
+  const { t } = useT();
+  const [k, setK] = useState<UiKit>(game.uikit ?? DEFAULT_KIT);
+  const [mode, setMode] = useState<PreviewMode>("short");
+  const [code, setCode] = useState("");
+  const issues = kitIssues(k, mode), s = mode === "lowres" ? 0.5 : 1, px = (n: number) => Math.round(n * s);
+  const num = (f: "body" | "title" | "spacing" | "radius" | "card") => (
+    <label key={f} className="text-xs">{t(f === "title" ? "gd.ui.titleSize" : `gd.ui.${f}`)}
+      <input className="field mt-0.5 w-16" type="number" min={0} max={400} value={k[f]} onChange={(e) => setK({ ...k, [f]: Math.round(Number(e.target.value) || 0) })} /></label>
+  );
+  const font = { fontFamily: "system-ui, sans-serif", fontWeight: /Bold|Fredoka|Luckiest|Arcade|Cartoon/.test(k.font) ? 700 : 400 };
+  const name = mode === "long" ? SAMPLE_TEXT.long : "Dog";
+  return (
+    <form className="card space-y-2" aria-label={t("gd.ui.title")} onSubmit={(e) => { e.preventDefault(); commit(setGame(world, game.id, { uikit: k })); }}>
+      <div className="hud-title">{t("gd.ui.title")}</div>
+      <p className="muted text-xs">{t("gd.ui.help")}</p>
+      <div className="flex flex-wrap items-end gap-1.5">
+        <label className="text-xs">{t("gd.ui.font")}<select className="field mt-0.5 py-1" value={k.font} onChange={(e) => setK({ ...k, font: e.target.value as UiKit["font"] })}>{KIT_FONTS.map((f) => <option key={f}>{f}</option>)}</select></label>
+        {(["body", "title", "spacing", "radius", "card"] as const).map(num)}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {KIT_COLORS.map((c) => <label key={c} className="text-xs">{t(`gd.ui.col.${c}`)}<input className="ml-1 align-middle" type="color" value={k.colors[c]} onChange={(e) => setK({ ...k, colors: { ...k.colors, [c]: e.target.value } })} /></label>)}
+      </div>
+      <div className="flex gap-1.5">
+        <input className="field min-w-0 flex-1" maxLength={24} aria-label={t("gd.ui.currency")} placeholder={t("gd.ui.currency")} value={k.currency} onChange={(e) => setK({ ...k, currency: e.target.value })} />
+        <input className="field min-w-0 flex-1" maxLength={40} aria-label={t("gd.ui.icon")} placeholder={t("gd.ui.icon")} value={k.icon} onChange={(e) => setK({ ...k, icon: e.target.value.trim() })} />
+      </div>
+      <div className="flex flex-wrap gap-1" role="group" aria-label={t("gd.ui.preview")}>
+        {PREVIEW_MODES.map((m) => <button type="button" key={m} className="chip" aria-pressed={mode === m} onClick={() => setMode(m)}>{t(`gd.ui.m.${m}`)}</button>)}
+      </div>
+      <div aria-hidden className="flex flex-wrap items-start gap-2 rounded p-2" style={{ ...font, background: "#0b1220", maxWidth: mode === "lowres" ? 320 : undefined }}>
+        <span style={{ background: k.colors.primary, color: k.colors.primaryText, borderRadius: px(k.radius), padding: `0 ${px(k.spacing)}px`, height: px(buttonHeight(k)), lineHeight: `${px(buttonHeight(k))}px`, fontSize: px(k.body),
+          outline: mode === "touch" ? `1px dashed ${buttonHeight(k) < 44 ? "#ef4444" : "#4ade80"}` : undefined, outlineOffset: mode === "touch" ? (44 - buttonHeight(k)) / -2 : undefined }}>{mode === "long" ? "Hatch Legendary Egg ×3" : "Buy"}</span>
+        <span style={{ background: k.colors.surface, color: k.colors.accent, borderRadius: px(k.radius), padding: px(k.spacing), fontSize: px(k.body), whiteSpace: "nowrap" }}>{abbrev(mode === "short" ? 999_999 : 1_234_567)} {k.currency}</span>
+        <div style={{ background: k.colors.surface, color: k.colors.text, borderRadius: px(k.radius), padding: px(k.spacing), width: px(k.card), fontSize: px(k.body) }}>
+          <div style={{ height: px(k.card - 2 * k.spacing), background: "#ffffff14", borderRadius: px(k.radius) / 2 }} />
+          <div style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.15 }}>{name}</div>
+        </div>
+        <span style={{ background: k.colors.surface, color: k.colors.success, borderRadius: px(k.radius), padding: px(k.spacing), fontSize: px(k.body) }}>{t("gd.ui.toastOk")}</span>
+        <span style={{ background: k.colors.surface, color: k.colors.danger, borderRadius: px(k.radius), padding: px(k.spacing), fontSize: px(k.body) }}>{t("gd.ui.toastErr", { c: k.currency })}</span>
+      </div>
+      <ul role="status" className="text-xs">{issues.length ? issues.map((i) => <li key={i} className="error">{t(`gd.ui.i.${i}`)}</li>) : <li className="ok">{t("gd.ui.ok")}</li>}</ul>
+      <div className="flex flex-wrap gap-1.5">
+        <button className="btn">{t("gd.save")}</button>
+        <button type="button" className="chip" onClick={() => setCode(kitLuau(k, game.name))}>{t("gd.ui.luau")}</button>
+        {code && <button type="button" className="chip" onClick={() => void navigator.clipboard?.writeText(code).catch(() => {})}>{t("gd.ui.copy")}</button>}
+      </div>
+      {code && <><p className="muted text-xs">{t("gd.ui.luauHelp")}</p><textarea className="field w-full font-mono text-[11px]" rows={10} readOnly value={code} aria-label="Luau" /></>}
+    </form>
+  );
+}
+
+/** DEV07: seeded, game-agnostic economy simulation. The model text is saved on the game when it runs cleanly. */
+export function EconomySim({ game, world, commit }: P) {
+  const { t } = useT();
+  const [text, setText] = useState(game.econ ?? SAMPLE_MODEL);
+  const [o, setO] = useState(SIM_DEFAULTS);
+  const [out, setOut] = useState<{ m: Model; r: SimResult; errors: string[] } | null>(null);
+  const [sens, setSens] = useState<ReturnType<typeof sensitivity> | null>(null);
+  const [who, setWho] = useState("");
+  const run = (e: React.FormEvent) => {
+    e.preventDefault(); setSens(null); setWho("");
+    const { model, errors } = parseModel(text);
+    setOut({ m: model, r: simulateModel(model, o), errors });
+    if (!errors.length && text !== game.econ) commit(setGame(world, game.id, { econ: text }));
+  };
+  const m1 = (x: number | null) => (x === null ? t("gd.sim.never") : String(x));
+  const replay = out && who !== "" ? playOne(out.m, o.seed, Math.max(0, Math.min(o.players - 1, Number(who) - 1 || 0))).events.slice(0, 200) : [];
+  return (
+    <section className="space-y-2" aria-label={t("gd.sim.title")}>
+      <div className="hud-title">{t("gd.sim.title")}</div>
+      <p className="text-xs"><KindBadge kind="simulated" /> {t("gd.sim.label")}</p>
+      <form className="space-y-1.5" onSubmit={run}>
+        <textarea className="field w-full font-mono text-[11px]" rows={9} maxLength={6000} aria-label={t("gd.sim.model")} value={text} onChange={(e) => setText(e.target.value)} />
+        <div className="flex flex-wrap items-end gap-1.5">
+          <label className="text-xs">{t("gd.sim.seed")}<input className="field mt-0.5 w-20" type="number" value={o.seed} onChange={(e) => setO({ ...o, seed: Math.floor(Number(e.target.value)) || 0 })} /></label>
+          <label className="text-xs">{t("gd.sim.players")}<input className="field mt-0.5 w-20" type="number" min={1} max={500} value={o.players} onChange={(e) => setO({ ...o, players: Math.max(1, Math.min(500, Math.floor(Number(e.target.value)) || 1)) })} /></label>
+          <button className="btn">{t("gd.sim.run")}</button>
+        </div>
+      </form>
+      {out && <div className="space-y-1.5 text-xs" role="status">
+        {out.errors.map((x) => <p key={x} className="error">{x}</p>)}
+        {!out.errors.length && <>
+          <ul className="space-y-0.5">{out.r.sinks.map((x) => <li key={x.name}>{t("gd.sim.sink", { name: x.name, price: abbrev(x.price), pct: x.reached, m: m1(x.median), p90: m1(x.p90), share: x.share })}</li>)}</ul>
+          <p>{t("gd.sim.flow", { min: out.r.minutes, e: abbrev(out.r.earned), r: abbrev(out.r.rewarded), s: abbrev(out.r.spent), b: abbrev(out.r.endBalance) })}</p>
+          {out.r.gap && <p className="muted">{t("gd.sim.gap", { min: out.r.gap.minutes, from: out.r.gap.from })}</p>}
+          <ul>{findings(out.r).map((f) => <li key={f.code} className="error">{t(`gd.sim.f.${f.code}`, f.vars)}</li>)}</ul>
+          <div className="flex flex-wrap items-end gap-1.5">
+            <button className="chip" onClick={() => setSens(sensitivity(out.m, o))}>{t("gd.sim.sens")}</button>
+            <label>{t("gd.sim.replay")}<input className="field ml-1 w-16" type="number" min={1} max={o.players} value={who} onChange={(e) => setWho(e.target.value)} /></label>
+          </div>
+          {sens && (sens.target ? <><p className="muted">{t("gd.sim.sensHelp", { name: sens.target })}</p>
+            <ul>{sens.rows.map((x) => <li key={x.input}>{x.input}: ×0.8 {x.down === null ? t("gd.sim.never") : `${x.down > 0 ? "+" : ""}${x.down}`} · ×1.2 {x.up === null ? t("gd.sim.never") : `${x.up > 0 ? "+" : ""}${x.up}`}</li>)}</ul></>
+            : <p className="muted">{t("gd.sim.sensNone")}</p>)}
+          {replay.length > 0 && <ol className="max-h-40 overflow-y-auto font-mono text-[11px]">{replay.map((e, i) => <li key={i}>{e.min.toFixed(1)}m {e.kind === "buy" ? "−" : "+"} {e.name} → {abbrev(e.balance)}</li>)}</ol>}
+        </>}
+      </div>}
+    </section>
+  );
+}
+
+/** DEV06: the owner's Roblox analytics export joined to this game's release packages. Descriptive only. */
+export function RetentionPanel({ game, world, commit }: P) {
+  const { t } = useT();
+  const [text, setText] = useState("");
+  const [msg, setMsg] = useState<string[]>([]);
+  const mine = world.retention?.find((r) => r.game === game.id);
+  const doImport = () => {
+    const p = parseExport(text);
+    setMsg([...p.errors, ...(p.ignored.length ? [t("gd.ret.ignored", { list: p.ignored.join(", ") })] : [])]);
+    if (!p.rows.length && !p.funnel.length) return;
+    const today = now().slice(0, 10), last = p.rows.at(-1)?.date ?? mine?.asOf ?? today;
+    const next: Retention = { game: game.id, importedAt: now(), asOf: last < today ? last : today, rows: p.rows.length ? p.rows : mine?.rows ?? [], funnel: p.funnel.length ? p.funnel : mine?.funnel ?? [] };
+    if (commit({ ...world, retention: [...(world.retention ?? []).filter((r) => r.game !== game.id), next] })) setText("");
+  };
+  const rel = (world.releases ?? []).filter((r) => r.game === game.id);
+  const pct = (k: string, x: Metric) => (x.value === null ? t("gd.ret.unknown", { k, n: x.immature }) : t("gd.ret.metric", { k, v: Math.round(x.value * 1000) / 10, n: x.n }) + (x.immature ? t("gd.ret.partial", { n: x.immature }) : ""));
+  return (
+    <section className="space-y-2" aria-label={t("gd.ret.title")}>
+      <div className="hud-title">{t("gd.ret.title")}</div>
+      <p className="muted text-xs">{t("gd.ret.help")}</p>
+      <p className="text-xs">{t("gd.ret.noCause")}</p>
+      <label className="block text-xs">{t("gd.ret.file")} <input type="file" accept=".csv,text/csv" onChange={(e) => void e.target.files?.[0]?.text().then(setText)} /></label>
+      <textarea className="field w-full font-mono text-[11px]" rows={4} maxLength={200000} placeholder={t("gd.ret.paste")} aria-label={t("gd.ret.paste")} value={text} onChange={(e) => setText(e.target.value)} />
+      <button className="btn" disabled={!text.trim()} onClick={doImport}>{t("gd.ret.import")}</button>
+      {msg.map((x) => <p key={x} className="muted text-xs">{x}</p>)}
+      {!mine ? <p className="muted text-xs">{t("gd.ret.none")}</p> : <div className="space-y-1.5 text-xs">
+        <p className="muted">{t("gd.ret.asOf", { d: mine.asOf, at: new Date(mine.importedAt).toLocaleString() })}</p>
+        {cohorts(mine, rel).map((c) => (
+          <div key={c.release ?? "before"} className="card space-y-0.5">
+            <b>{t("gd.ret.window", { rel: c.release ? c.build || "?" : t("gd.ret.before"), from: c.from, to: c.to, n: c.users, days: c.days })}</b>
+            <p>{pct("D1", c.d1)}</p><p>{pct("D7", c.d7)}</p>
+            {c.sessions !== null && <p className="muted">{t("gd.ret.sessions", { s: c.sessions, m: c.minutes ?? "?" })}</p>}
+            {c.small && <p className="error">{t("gd.ret.small")}</p>}
+          </div>
+        ))}
+        {mine.funnel.length > 0 && <><div className="hud-title">{t("gd.ret.funnel")}</div>
+          <ul>{funnelRates(mine.funnel).map((f) => <li key={f.step}>{t("gd.ret.step", { step: f.step, n: f.users, prev: f.fromPrev, start: f.fromStart })}</li>)}</ul></>}
+      </div>}
+    </section>
   );
 }

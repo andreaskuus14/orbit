@@ -9,11 +9,11 @@ import type { PublishSettings } from "@/lib/clips/schedule";
 type Job = Parameters<typeof weekCalendar>[0][number];
 const API = "/api/studio/clips";
 const media = (p: string) => `${API}/media?f=${encodeURIComponent(p)}`;
-const LABEL: Record<CalStatus, string> = { scheduled: "🕒 Scheduled", published: "✓ Published", failed: "⚠ Failed", pending: "⏳ Uploading" };
+const LABEL: Record<CalStatus, string> = { scheduled: "🕒 Scheduled", due: "🕒 Due: not confirmed live", published: "✓ Published", failed: "⚠ Failed", pending: "⏳ Uploading" };
 const TONE: Partial<Record<CalStatus, { borderColor: string; color: string }>> = { published: { borderColor: "#ff8fab", color: "#ffd6e0" }, failed: { borderColor: "#fb7185", color: "#fda4af" } };
 
-export default function StudioCalendar({ jobs, waiting, scheduleAll, onOpen }: {
-  jobs: Job[]; waiting: number; scheduleAll: ReactNode; onOpen: (job: string, clip: string) => void;
+export default function StudioCalendar({ jobs, waiting, scheduleAll, onOpen, live }: {
+  jobs: Job[]; waiting: number; scheduleAll: ReactNode; onOpen: (job: string, clip: string) => void; live?: string[]; // live: video ids seen public
 }) {
   const [settings, setSettings] = useState<PublishSettings | null>(null);
   const [err, setErr] = useState("");
@@ -26,7 +26,7 @@ export default function StudioCalendar({ jobs, waiting, scheduleAll, onOpen }: {
     }).catch((e: unknown) => setErr(e instanceof Error ? e.message : "Couldn't load the publish slots"));
   }, [jobs]);
   const [picked, setPicked] = useState<CalItem | null>(null);
-  const week = useMemo(() => (settings ? weekCalendar(jobs, settings, Date.now()) : []), [jobs, settings]);
+  const week = useMemo(() => (settings ? weekCalendar(jobs, settings, Date.now(), 7, new Set(live)) : []), [jobs, settings, live]);
 
   if (err) return <p className="error text-sm" role="alert">{err}</p>;
   if (!settings) return <p className="muted text-sm" role="status">Loading the week…</p>;

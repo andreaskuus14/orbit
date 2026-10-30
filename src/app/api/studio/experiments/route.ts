@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { addExp, experimentsView, removeExp } from "@/lib/clips/experiments";
 
-// STUDIO Shorts experiments: GET list with verdicts, POST {jobId, clipId, hypothesis, lesson}, DELETE ?id=. Local file only.
+// STUDIO Shorts experiments: GET list with verdicts, POST {jobId, clipId, hypothesis, lesson, variants?, window?}, DELETE ?id= (failed ones are kept: 409). Local file only.
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
@@ -24,5 +24,5 @@ export async function DELETE(req: Request) {
   const id = new URL(req.url).searchParams.get("id");
   if (!id || !/^[0-9a-f]{12}$/.test(id)) return Response.json({ error: "Invalid id" }, { status: 400 });
   const r = await removeExp(id);
-  return typeof r === "string" ? Response.json({ error: r }, { status: 404 }) : Response.json({ ok: true });
+  return typeof r === "string" ? Response.json({ error: r }, { status: r === "Experiment not found" ? 404 : 409 }) : Response.json({ ok: true });
 }

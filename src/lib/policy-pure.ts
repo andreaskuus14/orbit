@@ -46,12 +46,14 @@ export const TIERS: Record<string, Tier> = {
   life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", ws_fetch_image: "T2", ws_run: "T2", ws_stop: "T2", rea_analyze: "T2", rea_cancel: "T2",
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
   higgsfield_draft: "T3", // proposes a Higgsfield spend (price check only); the spend itself is the owner's story.approve click
+  ws_inspire_image: "T3", // reference words from an image search, then the same priced draft as higgsfield_draft for an original brief
 };
 
 // T3 runs only behind an owner-click approval (AGENTS.md rule 6): the token each path checks before anything leaves ORBIT.
 export const APPROVAL_PATHS: Record<string, string> = {
   schedule_approved: 'clip.status "approved" from the owner\'s Approve click in STUDIO review; scheduleAll uploads only those clips',
   higgsfield_draft: "never spends: it saves a draft and asks Higgsfield the price (hf-guard quote mode, get_cost only); credits are spent only by the owner's Approve click on that quote in Clip Factory → AI Story (story.approve)",
+  ws_inspire_image: "never spends: reference search returns words only (nothing saved); a brief is queued as a priced higgsfield draft (quote mode); generation only after the owner's story.approve click",
 };
 // The UI's own T3 actions. Not CORE tools (decide() refuses them as unknown): they run only from the owner's click, with these tokens.
 export const UI_APPROVALS: Record<string, string> = {
@@ -71,11 +73,11 @@ export const TOOL_AREA: Record<string, Area> = {
 // Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true).
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
 export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status", "week_review"];
-const LINK_TOOLS = ["fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image"];
+const LINK_TOOLS = ["fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image"];
 const LEAK_TOOLS = ["ask_agent", "read_news", "web_search"];
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
-const UNTRUSTED = ["fetch_url", "read_news", "web_search", "ws_fetch_image", "reach_read", "reach_trending", "ask_agent", "business_status"];
+const UNTRUSTED = ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status"];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
 const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
@@ -133,7 +135,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   let blocked = "";
   if ((STUDIO_TOOLS as readonly string[]).includes(tool) || tool === "plan_task") blocked = actionBlocked(tool as StudioTool, question, dataIn);
   else if ((LIFE_TOOLS as readonly string[]).includes(tool)) blocked = err(lifeWriteBlocked(tool as LifeTool, question, dataIn));
-  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps, question), { ...ctx.ws, target: tool !== "ws_create" ? input?.workspace : input?.name })); // core-modules.ts:50
+  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps, question), { ...ctx.ws, target: tool !== "ws_create" ? input?.workspace : input?.name })); // core-modules.ts:50
   else if (tool === "create_goal") blocked = createGoalBlocked(question, dataIn);
   else if (tool === "higgsfield_draft") blocked = draftBlocked(question, dataIn);
   else if (tool === "queue_tonight") blocked = tonightBlocked(question, dataIn);

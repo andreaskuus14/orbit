@@ -30,20 +30,20 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   const r = coreToolRefusal(c.stopAll, tool)
     || (tool === "navigate" ? (dataIn() ? "Error: navigate only as your first tool call, for the user's own request" : "")
     // task-scoped tools: the blanket web/agent switch-off became a per-call outbound check (privateText absent → no-text mode: emails/phones/amounts)
-    : (attach || pinsIn || privateIn()) && ["web_search", "fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image"].includes(tool) && outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question.replace(/\n\n\[attached:[^\]]*\]/g, ""), !privateIn())
+    : (attach || pinsIn || privateIn()) && ["web_search", "fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image"].includes(tool) && outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question.replace(/\n\n\[attached:[^\]]*\]/g, ""), !privateIn())
       ? `Error: this ${tool} call would send private text out: "${outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question, !privateIn())}" (from the user's private notes, journal or files). The tool is allowed: retry with a generic query/brief without that text, and if you can't, tell the user exactly which text blocked it; never tell the user to do the search himself`
     : null);
   if (r !== null) return r;
   let b: string | null = "";
   if ((STUDIO_TOOLS as readonly string[]).includes(tool) || tool === "plan_task") b = actionBlocked(tool as StudioTool, question, dataIn());
   else if ((LIFE_TOOLS as readonly string[]).includes(tool)) b = lifeWriteBlocked(tool as LifeTool, question, dataIn());
-  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image") b = wsWriteBlocked(question, !!attach || pinsIn || wsTainted(steps, question.replace(/\n\n\[attached:[^\]]*\]/g, "")));
+  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image") b = wsWriteBlocked(question, !!attach || pinsIn || wsTainted(steps, question.replace(/\n\n\[attached:[^\]]*\]/g, "")));
   else if (tool === "create_goal") b = createGoalBlocked(question, dataIn());
   else if (tool === "higgsfield_draft") b = draftBlocked(question, dataIn()); // roadmap 3.1: its runner's guard (story.ts runDraftTool)
   else if (tool === "queue_tonight") b = tonightBlocked(question, dataIn()); // night shift: its runner's guard (night.ts runTonightTool)
   else if (tool === "add_wish") b = wishBlocked(question, dataIn()); // deal hunter: its runner's guard (deals.ts runDealTool)
   else if (tool === "propose_rule") b = ruleBlocked(question, dataIn()); // standing rules: its runner's guard (rules.ts runRuleTool)
-  else if (tool === "ask_agent") b = agentBlocked(question, input.agent, !!attach || steps.some((x) => ["fetch_url", "read_news", "web_search", "ws_fetch_image", "reach_read", "reach_trending", "ask_agent", "business_status"].some((t) => x.startsWith(`You called ${t} `)))); // red-team 8.3: added after 1.3
+  else if (tool === "ask_agent") b = agentBlocked(question, input.agent, !!attach || steps.some((x) => ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status"].some((t) => x.startsWith(`You called ${t} `)))); // red-team 8.3: added after 1.3
   else if (tool === "save_checkpoint") b = checkpointBlocked(question); // chat checkpoint: its runner's guard (checkpoint.ts runCheckpointTool)
   else if (tool === "save_memory" && !asksToRemember(question)) return "Error: only save when the user asks; reflection handles the rest";
   else if (!(tool in TIERS)) return `Error: unknown tool "${tool}"`;

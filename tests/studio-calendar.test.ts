@@ -29,13 +29,13 @@ test("statuses, sorting and occupied slots", () => {
   const now = T("2026-10-16T06:00:00Z"); // 09:00 Tallinn
   const w = weekCalendar(job([
     { id: "s", title: "Later", thumb: "t.jpg", publish: { status: "scheduled", scheduledFor: "2026-10-16T14:00:00Z" } }, // 17:00
-    { id: "p", title: "Live", publish: { status: "scheduled", scheduledFor: "2026-10-16T05:00:00Z" } }, // 08:00, past → published
+    { id: "p", title: "Live", publish: { status: "scheduled", scheduledFor: "2026-10-16T05:00:00Z" } }, // 08:00, past but unconfirmed → due
     { id: "d", title: "Done", publish: { status: "done", startedAt: "2026-10-16T04:00:00Z", at: "2026-10-16T04:10:00Z" } },
     { id: "f", title: "Bad", publish: { status: "failed", at: "2026-10-17T08:00:00Z", error: "quota" } },
     { id: "u", title: "Up", publish: { status: "uploading", at: "2026-10-16T05:00:00Z" } }, // no publish time → not shown
     { id: "n", title: "Draft" },
   ]), S, now);
-  assert.deepEqual(w[0].items.map((i) => [i.title, i.status]), [["Done", "published"], ["Live", "published"], ["Later", "scheduled"]]);
+  assert.deepEqual(w[0].items.map((i) => [i.title, i.status]), [["Done", "published"], ["Live", "due"], ["Later", "scheduled"]]);
   assert.equal(w[0].items[2].thumb, "t.jpg");
   assert.deepEqual(w[1].items.map((i) => [i.status, i.error]), [["failed", "quota"]]);
   // 3 used today (perDay 3) → no free slot today; 17:00 is taken anyway
