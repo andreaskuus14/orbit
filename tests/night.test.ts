@@ -149,7 +149,7 @@ test("tonight queue: text checked, agents limited, no duplicates, capped", () =>
 });
 
 test("queue_tonight: T2, only on the owner's explicit 'tonight' ask, before any tool result; Stop-all doesn't block queuing", () => {
-  const ctx = { stopAll: false, attach: false, pins: false, steps: [] as string[], question: "look into faceless channels tonight" };
+  const ctx = { stopAll: false, attach: false, pins: false, steps: [] as string[], question: "look into faceless channels tonight", autonomy: { "operator-build": "ask", "operator-organize": "ask" } as const };
   assert.deepEqual(decide("queue_tonight", { text: "x" }, ctx), { allow: true, tier: "T2", reason: "allowed" });
   assert.ok(decide("queue_tonight", {}, { ...ctx, question: "can you research this overnight?" }).allow);
   assert.ok(!decide("queue_tonight", {}, { ...ctx, question: "look into faceless channels" }).allow);

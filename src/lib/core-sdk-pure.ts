@@ -1,6 +1,6 @@
 // Agent SDK prototype (ORBIT_CORE_ENGINE=sdk, docs/AGENT-SDK.md): the pure mapping between CORE and @anthropic-ai/claude-agent-sdk.
 // No SDK import here, so it loads under node --test without the package.
-import { decide, type Decision, type PolicyCtx } from "./policy-pure.ts";
+import { operatorAllows, decide, type Decision, type PolicyCtx } from "./policy-pure.ts";
 import { skillDenied } from "./skills-pure.ts";
 import type { StreamResult } from "./streamjson.ts";
 import { streamJsonInput } from "./attach-pure.ts";
@@ -26,13 +26,15 @@ export const toolResult = (out: string) => ({ content: [{ type: "text" as const,
 
 /** Every SDK tool call passes skillDenied() and decide() first, exactly as core.ts's loop does; a refusal never runs the tool.
  *  ctx is read per call so a Stop-all flipped mid-turn applies to the next tool. attachBlock: the turn's attachment text (skill limits). */
-export async function gated(tool: string, input: Record<string, unknown>, ctx: () => Omit<PolicyCtx, "steps">, steps: string[], run: () => Promise<string>, attachBlock = "", bound: (tool: string, d: Decision) => Decision = (_t, d) => d): Promise<{ out: string; verdict: Decision }> {
-  const verdict = bound(tool, skillDenied(tool, attachBlock) ?? decide(tool, input, { ...ctx(), steps })); // bound: authority.ts authorizeTool (one action boundary)
+export async function gated(tool: string, input: Record<string, unknown>, ctx: () => Omit<PolicyCtx, "steps">, steps: string[], run: (operator: boolean) => Promise<string>, attachBlock = "", bound: (tool: string, d: Decision) => Decision = (_t, d) => d): Promise<{ out: string; verdict: Decision; operated: boolean }> {
+  const c = { ...ctx(), steps };
+  const verdict = bound(tool, skillDenied(tool, attachBlock) ?? decide(tool, input, c)); // bound: authority.ts authorizeTool (one action boundary)
+  const operated = verdict.allow && operatorAllows(tool, c); // standing grant: module runners skip their explicit-ask check (as core.ts)
   let out: string;
-  try { out = verdict.allow ? await run() : `Error: ${verdict.reason}`; }
+  try { out = verdict.allow ? await run(operated) : `Error: ${verdict.reason}`; }
   catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
   steps.push(stepLine(tool, input, out));
-  return { out, verdict };
+  return { out, verdict, operated };
 }
 
 /** The SDK runs a model's parallel tool calls at once; queued here so each decide() sees the steps before it (taint stays ordered). */

@@ -18,8 +18,8 @@ type Turn = {
   policy: () => Omit<PolicyCtx, "steps">; attachBlock: string; images?: PromptImage[]; steps: string[]; trace: TraceStep[]; signal?: AbortSignal; turnId?: string;
   session?: CliSession; escalate?: boolean; // escalate: the fast model reached for a tool → stop, core.ts redoes the turn on the main model
   /** core.ts's dispatch for an allowed call (navigate / module / runCoreTool) and its eval/trace/activity record, shared with the CLI loop. */
-  exec: (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[]) => Promise<string>;
-  record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number) => void;
+  exec: (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator?: boolean) => Promise<string>;
+  record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator?: boolean) => void;
   onDelta?: (d: string) => void; onReset?: () => void; onStep?: (tool: string, input: Record<string, unknown>) => void;
 };
 
@@ -34,10 +34,10 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
     if (t.escalate) { escalated = true; abortController.abort(); return toolResult("Error: stopped"); }
     t.onReset?.(); t.onStep?.(name, input); // text before a tool call is not the answer (as in core.ts)
     const at = Date.now(), evidence: WriteEvidence[] = [];
-    const { out, verdict } = await gated(name, input, t.policy, t.steps, () => t.exec(name, input, evidence), t.attachBlock, authorizeTool);
+    const { out, verdict, operated } = await gated(name, input, t.policy, t.steps, (op) => t.exec(name, input, evidence, op), t.attachBlock, authorizeTool);
     const row = policyEvent(name, verdict);
     if (row) void emit(t.sb, t.userId, "policy.decision", "core", { ...row, turn: t.turnId });
-    t.record(name, input, out, evidence, Date.now() - at);
+    t.record(name, input, out, evidence, Date.now() - at, operated);
     if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId };
     return toolResult(out);
   });

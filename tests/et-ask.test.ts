@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { decide } from "../src/lib/policy-pure.ts";
 import { etQuestion } from "../src/lib/et-ask-pure.ts";
 
-const allow = (tool: string, question: string) => decide(tool, {}, { stopAll: false, attach: false, pins: false, steps: [], question }).allow;
+const allow = (tool: string, question: string) => decide(tool, {}, { stopAll: false, attach: false, pins: false, steps: [], question, autonomy: { "operator-build": "ask", "operator-organize": "ask" } }).allow;
 
 test("Estonian questions and 'don't' never count as an order", () => {
   assert.ok(etQuestion("Kas ma peaksin eesmärgi looma") && etQuestion("Mis on mu eesmärk?") && !etQuestion("Loo eesmärk") && !etQuestion("Kas sa saaksid eesmärgi luua?"));
