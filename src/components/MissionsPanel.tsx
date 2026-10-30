@@ -5,13 +5,13 @@ import { canDo, stepVerified, type OwnerAction } from "@/lib/missions-pure";
 import { timeAgo } from "@/lib/mission-pure";
 import { evidenceLine } from "@/lib/mission-checks-pure";
 import { useT } from "./i18n";
+import { OpsStatus } from "./OpsStatus";
 import type { MissionView } from "@/lib/missions";
 
 // MISSIONS: CORE's multi-step jobs. State, the one next action, steps, receipts (what ORBIT verified) and the plain-language log.
 // Approvals are not here: an action waiting for approval is approved in the step's task, as before. Text is untrusted: React text only.
 
 const ACTIONS: OwnerAction[] = ["pause", "resume", "retry", "accept", "cancel"];
-const TONE: Record<string, string> = { completed: "var(--mint)", failed: "#fb7185", "waiting-input": "#fbbf24", "waiting-approval": "#fbbf24", paused: "var(--muted)" };
 
 export default function MissionsPanel({ visible, onOpenTask }: { visible: boolean; onOpenTask?: (id: string) => void }) {
   const [list, setList] = useState<MissionView[] | null>(null);
@@ -31,7 +31,7 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
             <li key={m.id} className="card space-y-1.5">
               <div className="flex items-start justify-between gap-2">
                 <p className="min-w-0 break-words font-medium">{m.doc.objective}</p>
-                <span className="shrink-0" style={{ color: TONE[m.status] ?? "var(--cyan)" }}>{m.label}</span>
+                <span className="shrink-0"><OpsStatus raw={m.status} label={m.label} at={m.doc.log?.at(-1)?.at} /></span>
               </div>
               <p><span className="muted">Next: </span>{m.next}</p>
               {m.doc.acceptance && <p><span className="muted">{t("mission.doneWhen")}</span>{m.doc.acceptance}{m.doc.verified !== undefined && <span style={{ color: m.doc.verified ? "var(--mint)" : "#fb7185" }}> — {t(m.doc.verified ? "mission.verified" : "mission.notVerified")}</span>}</p>}

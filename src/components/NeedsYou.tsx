@@ -7,6 +7,7 @@ import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { MARKETS_TAB, type BriefOpen } from "@/lib/brief-pure";
 import type { Need } from "@/lib/needs-you-pure";
 import { useT } from "./i18n";
+import { OpsStatus } from "./OpsStatus";
 
 const SHOWN = 5;
 const nav = (detail: NavTarget) => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail }));
@@ -30,6 +31,7 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
   const titleId = useId();
   const [items, setItems] = useState<Need[] | null>(null);
   const [err, setErr] = useState("");
+  const [snooze, setSnooze] = useState<{ ref: string; why: string } | null>(null);
 
   const load = useCallback(() => fetch(`/api/needs-you?lang=${lang}`, { cache: "no-store" }).then((r) => r.json())
     .then((j: { items?: Need[]; error?: string }) => { if (!j.items) throw new Error(j.error); setItems(j.items); setErr(""); })
@@ -40,6 +42,14 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
     return () => clearInterval(h);
   }, [load]);
 
+  const doSnooze = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!snooze?.why.trim()) return;
+    const ref = snooze.ref;
+    fetch("/api/needs-you", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snooze: ref, reason: snooze.why.trim() }) })
+      .then((r) => { if (!r.ok) throw new Error(); setItems((l) => l?.filter((x) => x.ref !== ref) ?? l); setSnooze(null); })
+      .catch(() => setErr(t("needs.snoozeFailed")));
+  };
   const label = (n: Need) => t(n.kind === "decide" ? "needs.review" : "common.open"); // Decide opens the exact content and its Approve
   const list = items ?? [];
 
@@ -53,8 +63,14 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
     {!items && !err && <p className="muted" role="status">{t("needs.loading")}</p>}
     {items && !items.length && <p className="muted">{t("needs.empty")}</p>}
     {!!list.length && <ul>{list.slice(0, SHOWN).map((n) => <li key={n.ref} data-status={n.kind === "decide" ? "awaiting_approval" : n.kind === "unblock" ? "failed" : "done"}>
-      <span><small className="continue-kind">{t(`needs.kind.${n.kind}`)}</small><b>{n.title}</b>{n.detail && <small>{n.detail}</small>}</span>
-      <button type="button" className="chip" aria-label={`${label(n)}: ${n.title}`} onClick={() => openTarget(n.act.open, onOpenTask, onOpenGoal)}>{label(n)}</button>
+      <span><small className="continue-kind">{t(`needs.kind.${n.kind}`)}{n.status && <> · <OpsStatus raw={n.status} at={n.at} /></>}</small><b>{n.title}</b>{n.detail && <small>{n.detail}</small>}
+        <small>{t(`needs.ask.${n.cause}`)}</small>
+        {snooze?.ref === n.ref && <form onSubmit={doSnooze} className="flex gap-1">
+          <input className="field flex-1 py-0.5 text-xs" autoFocus value={snooze.why} maxLength={200} onChange={(e) => setSnooze({ ref: n.ref, why: e.target.value })} aria-label={t("needs.snoozeWhy")} placeholder={t("needs.snoozeWhy")} />
+          <button className="chip" disabled={!snooze.why.trim()}>{t("needs.snoozeSave")}</button></form>}</span>
+      <span className="flex flex-col gap-1">
+        <button type="button" className="chip" aria-label={`${label(n)}: ${n.title}`} onClick={() => openTarget(n.act.open, onOpenTask, onOpenGoal)}>{label(n)}</button>
+        {snooze?.ref !== n.ref && <button type="button" className="link text-xs" aria-label={`${t("needs.snooze")}: ${n.title}`} onClick={() => setSnooze({ ref: n.ref, why: "" })}>{t("needs.snooze")}</button>}</span>
     </li>)}</ul>}
     {list.length > SHOWN && <p className="muted">{t("needs.more", { n: list.length - SHOWN })}</p>}
   </section>;

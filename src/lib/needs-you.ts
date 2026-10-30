@@ -20,9 +20,9 @@ export async function gatherNeeds(sb: SupabaseClient, userId: string, now = Date
     soft(import("./work-continuation").then((x) => x.getContinueWork(sb, userId)), null),
     soft(import("./contracts").then((x) => x.listContracts()), []),
     soft(import("./invoices").then((x) => x.allInvoices()), []),
-    soft(sb.from("missions").select("id, doc, status, updated_at").eq("user_id", userId).in("status", ["waiting-input", "failed"]).limit(10)
-      .then((r) => ((r.data ?? []) as { id: string; doc: { objective?: string; blocker?: string }; status: string; updated_at: string }[])
-        .map((m) => ({ id: m.id, objective: m.doc?.objective ?? "", blocker: m.doc?.blocker, status: m.status, updated_at: m.updated_at }))), []),
+    soft(sb.from("missions").select("id, chain_id, doc, status, updated_at").eq("user_id", userId).in("status", ["waiting-input", "failed"]).limit(10)
+      .then((r) => ((r.data ?? []) as { id: string; chain_id: string | null; doc: { objective?: string; blocker?: string }; status: string; updated_at: string }[])
+        .map((m) => ({ id: m.id, chain_id: m.chain_id, objective: m.doc?.objective ?? "", blocker: m.doc?.blocker, status: m.status, updated_at: m.updated_at }))), []),
     soft(import("./loops").then((x) => x.loopsView(sb, userId, now)).then((v) => v.open), []),
     soft(import("./entity-graph").then((x) => x.entitiesBrief(userId)), null),
     soft(Promise.all([import("./autonomy"), import("./trust-pure")]).then(async ([a, t]) => { const s = a.autonomyState(); return t.trustSuggestions(await a.trustHistory(sb, userId), s.levels, s.snooze, now); }), []),
@@ -32,13 +32,17 @@ export async function gatherNeeds(sb: SupabaseClient, userId: string, now = Date
     soft(Promise.all([import("./migration-guard"), import("./version-pure")]).then(async ([m, v]) => v.migrationNeed(await m.missingGuarded(sb))), null),
     soft(Promise.all([import("./durable"), import("./durable-pure")]).then(([d, p]) => { const c = p.durableCheck(d.writeFailures(), d.deadEvents()); return c.status === "ok" ? null : { id: "durable", title: c.detail.slice(0, 160) }; }), null),
   ]);
+  const snoozed = await import("./brief").then((b) => b.snoozedIds(userId, NEED_SNOOZE, now)).catch(() => []);
   const inv = await import("./invoices-pure").then((x) => x.briefInvoices(invoices, day)).catch(() => []);
   return needsYou({
     approvals: rem, night,
     decisions: [...briefDecisions(night?.approvals ?? [], work?.items ?? [], []), ...briefContracts(contracts), ...inv],
     work: work?.items, missions, loops, conflict, trust, incident, migration, durable, tasks,
-  }, lang);
+  }, lang, snoozed);
 }
+
+/** brief.json snooze id prefix for a Needs-you item (its ref follows). */
+export const NEED_SNOOZE = "need:";
 
 const cache = new Map<string, { at: number; v: Promise<Need[]> }>(); // user + lang → the last gather (the phone's 20 s poll)
 /** gatherNeeds at most once a minute per user and language; a failed gather is not kept. */

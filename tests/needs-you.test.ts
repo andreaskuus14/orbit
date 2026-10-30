@@ -105,3 +105,14 @@ test("reuse: the cached inbox serves for 60 s, then it is gathered again", () =>
   assert.equal(reuse(c, 999), undefined); // clock went back: refresh
   assert.equal(reuse(undefined, 1000), undefined);
 });
+
+test("a mission and its chain task are one card (task + cause), with a cause, a shared status and snooze", () => {
+  const x: NeedsIn = {
+    missions: [{ id: "m1", chain_id: "c1", objective: "Launch", status: "failed", blocker: "Step 2 failed", updated_at: "x" }],
+    work: [{ kind: "task", id: "c1", title: "Team: Launch", status: "failed", detail: "", action: "" }, { kind: "task", id: "t2", title: "Other", status: "blocked", detail: "", action: "" }],
+  };
+  const all = needsYou(x);
+  assert.deepEqual(all.map((n) => [n.ref, n.cause, n.status]), [["task:c1", "failed", "failed"], ["task:t2", "blocked", "blocked"]]);
+  assert.deepEqual(needsYou(x, "en", ["task:c1"]).map((n) => n.ref), ["task:t2"]);
+  assert.equal(needsYou({ missions: [{ id: "m", objective: "o", status: "waiting-input", updated_at: "x" }] })[0].cause, "input");
+});
