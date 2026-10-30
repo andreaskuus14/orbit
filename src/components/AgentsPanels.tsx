@@ -146,7 +146,8 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
     catch (e) { setErr(e instanceof Error ? e.message : t("common.failed")); }
   }
 
-  if (!data) return <p className="muted">{err || t("common.loading")}</p>;
+  if (!data) return err ? <div role="alert" className="space-y-2"><p>{t("link.missingTask")}</p><p className="muted text-[12px]">{err}</p><button className="chip" onClick={onBack}>{t("link.back")}</button></div>
+    : <p className="muted">{t("common.loading")}</p>; // a deleted or mistyped link: say so, never a blank
   const { task, children } = data;
   const stLabel = doneLabel(taskVerified(task.status, [task, ...children].flatMap((x) => x.pending))); // executed ≠ verified
   return (
@@ -207,7 +208,7 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
 
 /* ---------- OPERATIONS: tasks + projects ---------- */
 
-export function OperationsPanel({ focusTask, openMemory }: { focusTask: string | null; openMemory: (id: string) => void }) {
+export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: string | null; onOpen?: (id: string | null) => void; openMemory: (id: string) => void }) {
   const { t: tr } = useT();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -230,7 +231,8 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not load"); }
   }, [filter]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (focusTask) setOpen(focusTask); }, [focusTask]);
+  useEffect(() => { setOpen(focusTask); }, [focusTask]); // Back to a link without the task closes it
+  useEffect(() => { onOpen?.(open); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- the open task is the URL's record
   const active = tasks.some((t) => t.status === "running" || t.status === "queued");
   const paused = useWorldPaused();
   useEffect(() => {

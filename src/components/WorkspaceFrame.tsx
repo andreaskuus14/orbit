@@ -3,6 +3,7 @@
 // chosen view. The last view per planet is remembered on this device. Pure rules: lib/planet-view-pure.ts.
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { pickView, viewKey } from "@/lib/planet-view-pure";
+import { withView } from "@/lib/deeplink-pure";
 
 export type View<V extends string> = { id: V; label: string; secondary?: boolean };
 
@@ -10,7 +11,11 @@ export function useWorkspaceView<V extends string>(planet: string, views: readon
   const ids = views.map((v) => v.id);
   const [view, setView] = useState<V>(ids[0]);
   useEffect(() => { try { setView(pickView(localStorage.getItem(viewKey(planet)), ids)); } catch { /* no storage: first view */ } }, [planet]); // eslint-disable-line react-hooks/exhaustive-deps
-  const choose = (v: V) => { setView(v); try { localStorage.setItem(viewKey(planet), v); } catch { /* this session only */ } };
+  const choose = (v: V) => {
+    setView(v); try { localStorage.setItem(viewKey(planet), v); } catch { /* this session only */ }
+    const h = withView(location.hash, planet, v); // the link's view and the remembered view stay the same
+    if (h !== location.hash) history.replaceState(history.state, "", location.pathname + location.search + h);
+  };
   return [view, choose] as const;
 }
 
