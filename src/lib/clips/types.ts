@@ -3,6 +3,7 @@ import type { Critique } from "./titles";
 import type { HypeView } from "./hype-pure";
 import type { Virality } from "./score-pure";
 import type { HookLab } from "./hooklab-pure";
+import type { MediaCheck, SourceRights } from "./production-pure";
 export type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 export type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   notes?: string[];
@@ -17,7 +18,8 @@ export type Clip = { id: string; start: number; end: number; title: string; hook
   variantOf?: string; edit?: VersionEdit; // a "make another version" render: the original clip's id and the settings it was rendered with
   hookLab?: HookLab; // a "🧪 Hook lab" variant (hooklab-pure.ts): which opening pattern it tests
   virality?: Virality; // personal virality score + the features it was computed from (score-pure.ts); learned from once published
-  original?: string }; // owner's note of their own layer (commentary, reaction, analysis); required to publish another creator's clip (publish-checks-pure.ts)
+  original?: string; // owner's note of their own layer (commentary, reaction, analysis); required to publish another creator's clip (publish-checks-pure.ts)
+  qc?: MediaCheck }; // last technical media check of the render (production-pure mediaVerdict); qc.media = sha256 of the file it checked
 // unknown: the upload may or may not have reached YouTube; checked against the channel's uploads before a retry is offered.
 // scheduled: on YouTube as private, YouTube makes it public at scheduledFor (ISO; also set while uploading/unknown when one was asked for).
 export type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string;
@@ -32,6 +34,7 @@ export type Feedback = { clipId: string; action: FeedbackAction; reason?: string
 export type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering" | "done" | "failed";
 export type ClipJob = { v?: number; id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
+  rights?: SourceRights; // the owner's permission basis for the source (production-pure): required before publishing another creator's video
   permission?: string; // source/permission note (inbox auto-clip: from <video>.source.txt / .source.json)
   timings?: { audio: number; transcribe: number; pick: number; render: number }; // seconds per stage
   feedback?: Feedback[]; // review decisions, kept for learning what makes a good clip

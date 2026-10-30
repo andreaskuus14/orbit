@@ -41,8 +41,10 @@ export async function contentHash(content: unknown): Promise<string> {
 export const spendContent = (fingerprint: string, credits: number) => ({ fingerprint, credits });
 /** Negotiator reply: the draft text and who approving emails it to (null = he copies it himself). A changed recipient needs a fresh approval. */
 export const negoContent = (id: string, text: string, to: string | null) => ({ id, text, to: to ? to.trim().toLowerCase() : null });
-/** Clip publish: the media he approved (video, thumbnail, cut). The title/description come from the publish click itself. */
-export const clipContent = (c: { video?: string; thumb?: string; start: number; end: number }) => ({ video: c.video ?? "", thumb: c.thumb ?? "", start: c.start, end: c.end });
+/** Clip publish: the exact revision he approved (video, thumbnail, cut, title, edit settings incl. captions); any edit changes the hash.
+ *  The description is approved by the publish click itself (he reads it in the form he submits). */
+export const clipContent = (c: { video?: string; thumb?: string; start: number; end: number; title?: string; edit?: unknown }) =>
+  ({ video: c.video ?? "", thumb: c.thumb ?? "", start: c.start, end: c.end, title: c.title ?? "", edit: c.edit ?? null });
 
 /** "" when `action` may run with `content`; otherwise why not. `approved` is the hash the owner's click carried. */
 export async function approvalGate(action: string, approved: unknown, content: unknown): Promise<string> {

@@ -1,6 +1,7 @@
 import { authorizeApproval } from "../authority";
 import { RECAP_SOURCE } from "./publish-checks-pure";
 import { destinationProblem, mediaProblem } from "./handoff-pure";
+import { mediaCheckArgs, mediaVerdict, rightsProblem, type MediaCheck } from "./production-pure";
 import { languageVerdict } from "./lang-pure";
 import { clipContent, contentHash } from "../approval-pure";
 import { spawn } from "node:child_process";
@@ -244,7 +245,8 @@ export function withJobLock<T>(fn: () => Promise<T>): Promise<T> {
 
 export async function updateClip(job: ClipJob, clip: Clip, patch: { status?: "approved" | "rejected"; title?: string; reason?: string; thumb?: string }, ownerRetryApproval = false) {
   if (clip.retryOf && patch.status === "approved" && !ownerRetryApproval) throw new Error("Approve this retry and its replacement in the review queue");
-  const changedRetry = !!clip.retryOf && ((patch.title !== undefined && patch.title !== clip.title) || (patch.thumb !== undefined && patch.thumb !== clip.thumb));
+  const edited = (patch.title !== undefined && patch.title !== clip.title) || (patch.thumb !== undefined && patch.thumb !== clip.thumb);
+  const changedRetry = !!clip.retryOf && edited;
   if (patch.title !== undefined) clip.title = patch.title;
   if (patch.thumb !== undefined) clip.thumb = patch.thumb; // the route checked it is one of clip.thumbOptions
   if (patch.status && patch.status !== clip.status) addFeedback(job, clip.id, patch.status, patch.reason);
@@ -262,6 +264,7 @@ export async function updateClip(job: ClipJob, clip: Clip, patch: { status?: "ap
     if (changedRetry || patch.status === "rejected") { clip.retryApproved = undefined; if (clip.status === "approved") clip.status = "ready"; }
     if (patch.status === "approved") { clip.status = "approved"; clip.retryApproved = ownerRetryApproval ? { at: new Date().toISOString(), fingerprint: retryFingerprint(clip) } : undefined; }
   }
+  if (edited && patch.status !== "approved" && clip.status === "approved" && !clip.retryOf) { clip.status = "ready"; clip.approvedHash = clip.approvedMedia = undefined; } // any edit voids the approval (STU03)
   if (patch.status === "approved" && clip.status === "approved") { // only an approve click stamps; later edits don't
     clip.approvedHash = await contentHash(clipContent(clip));
     clip.approvedMedia = await mediaHash(clip);
@@ -1056,15 +1059,35 @@ export const publishingKey = () => (S.pub ? `${S.pub.job}/${S.pub.clip}` : null)
 /** Settles when the running upload (if any) has saved its outcome. */
 export const publishDone = () => S.pub?.done;
 
+/** STU04: one ffmpeg decode pass over the render → clip.qc (caller saves). Never throws for a bad file: that is a failed check with its evidence. */
+export async function checkClipMedia(clip: Clip, job: ClipJob): Promise<MediaCheck> {
+  const file = clipFile(clip), ff = await ffmpegPath();
+  const expect = { seconds: clip.end - clip.start, captions: (clip.edit?.captions ?? (job.options.captions ? "karaoke" : "none")) !== "none" };
+  let qc: MediaCheck;
+  if (!file || !ff) qc = { ...mediaVerdict("", expect), blocking: [!file ? "The clip's video file is missing" : "ffmpeg is missing: can't check the render"], pass: false };
+  else {
+    const log = await runFfmpeg(ff, mediaCheckArgs(file), { timeoutMs: 5 * 60_000, okCodes: [1] }).catch((e: Error) => `Invalid data found: ${e.message}`);
+    qc = { ...mediaVerdict(log, expect), media: await fileHash(file) };
+  }
+  clip.qc = qc;
+  return qc;
+}
+
 /** Marks the clip "uploading" and uploads it in the background (one at a time). Call under withJobLock after checking the clip. */
 export async function startPublish(job: ClipJob, clip: Clip, file: string, video: VideoResource) {
   if (clip.retryOf && !retryConsent(clip)) throw new Error("Review and approve this exact retry before publishing");
   if (job.source.startsWith(RECAP_SOURCE)) throw new Error("ORBIT's private daily recap is never posted");
   const gate = await authorizeApproval("studio.publish", clip.approvedHash, clipContent(clip)); // the one publish point: route, scheduleAll, autonomy
   if (gate) throw new Error(gate);
+  const rights = rightsProblem(job); // STU02: no recorded permission basis, no upload
+  if (rights) throw new Error(rights);
+  const norm = (t: string) => t.replace(/[<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 100);
+  if (norm(video.snippet.title) !== norm(clip.title)) throw new Error("The title differs from the approved revision: change it on the clip and approve again");
   const media = await fileHash(file); // shortcut: hashed once before the upload reads it again; a swap in between would need a hashing read stream
   const bad = mediaProblem(clip.approvedMedia, media);
   if (bad) throw new Error(bad);
+  if (!clip.qc || clip.qc.media !== media) await checkClipMedia(clip, job); // STU04: the exact bytes about to go out
+  if (!clip.qc?.pass) { await saveJob(job); throw new Error(`Media check failed: ${clip.qc?.blocking.join("; ") ?? "couldn't run"}`); }
   const ctrl = new AbortController();
   S.pub = { job: job.id, clip: clip.id, ctrl, done: Promise.resolve() };
   const at = new Date().toISOString();

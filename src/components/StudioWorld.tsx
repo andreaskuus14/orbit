@@ -20,6 +20,7 @@ import StudioStats from "./StudioStats";
 import Hologram from "./Hologram";
 import { compactNumber } from "@/lib/hologram-pure";
 import ClipFactory from "./ClipFactory";
+import StudioProduction from "./StudioProduction";
 import LastShorts from "./LastShorts";
 import { isShort, medianViewsPerDay, moonRadius, takeoff, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
 
@@ -332,7 +333,7 @@ function Comet({ m, reduced, onPick }: { m: Moon; reduced: boolean; onPick: (id:
 }
 
 /** Shifts the scene left of the side panel on wide screens. */
-type Mode = "channel" | "stats" | "clips";
+type Mode = "channel" | "stats" | "clips" | "production";
 const HOME = Math.hypot(4.2, 11);
 
 /** Cinematic camera: flies in from far on open, then glides the planet aside for whatever panel is open
@@ -376,9 +377,9 @@ function StudioCamera({ mode, reduced }: { mode: Mode; reduced: boolean }) {
 /* ---------- data + UI ---------- */
 
 type Sort = "newest" | "views" | "takeoff";
-const MODES: [Mode, string][] = [["channel", "Channel"], ["stats", "Stats"], ["clips", "Clips"]];
+const MODES: [Mode, string][] = [["channel", "Channel"], ["stats", "Stats"], ["clips", "Clips"], ["production", "Produce"]];
 
-export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
+export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, quality = "auto", paused = false, review = null, onReview }: { review?: string | null /* production record from a #…&k=review link */; onReview?: (id: string | null) => void; onClose: () => void; reduced: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
   const q = useLeanQuality(quality);
   const glr = useGlRecovery();
   const [staged] = useState(oneCanvasOn); // spike flag, read once
@@ -390,6 +391,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const [hover, setHover] = useState<Hover>({ id: null, x: 0, y: 0 });
   const [sort, setSort] = useState<Sort>("newest");
   const [mode, setMode] = useState<Mode>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio") ? "stats" : "channel"));
+  useEffect(() => { if (review) setMode("production"); }, [review]); // a review link opens the production workspace
   useEffect(() => { if (open) setMode(open.view === "stats" ? "stats" : open.view === "clips" || open.view === "review" ? "clips" : "channel"); }, [open]);
   useEffect(() => { // Esc goes back to the channel first; capture phase + preventDefault keeps Orbit from closing the world
     if (mode === "channel" || paused) return;
@@ -641,6 +643,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
         <div key={mode} className="studio-sheet absolute inset-x-3 top-[7.5rem] bottom-36 z-[16] min-[900px]:left-4 min-[900px]:right-[36vw]">
           {mode === "stats"
             ? <StudioStats onClose={() => setMode("channel")} videoId={selected} videoTitle={sel?.title} reduced={reduced} onPickVideo={setSelected} titleOf={(id) => byId.get(id)?.title} />
+            : mode === "production" ? <StudioProduction reduced={reduced} review={review} onReview={(id) => onReview?.(id)} onOpenClips={() => setMode("clips")} />
             : <ClipFactory onClose={() => setMode("channel")} reduced={reduced} review={open?.view === "review" ? open : null} />}
         </div>
       )}
