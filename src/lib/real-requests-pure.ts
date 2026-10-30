@@ -21,7 +21,7 @@ function problem(r: RealRequest): string {
       return miss.length || extra.length ? `routed to [${got.join(", ")}]${miss.length ? `, missing ${miss.join(", ")}` : ""}${extra.length ? `, wrongly ${extra.join(", ")}` : ""}` : "";
     }
     case "policy": {
-      const d = decide(c.tool, c.input, { stopAll: !!c.stopAll, attach: !!c.attach, pins: !!c.pins, steps: c.steps ?? [], question: r.prompt });
+      const d = decide(c.tool, c.input, { stopAll: !!c.stopAll, attach: !!c.attach, pins: !!c.pins, steps: c.steps ?? [], question: r.prompt, autonomy: { "operator-build": "ask", "operator-organize": "ask" } }); // guard pairs pin the per-action ask path (operator grants off)
       return d.allow === c.allow ? "" : `${c.tool} was ${d.allow ? "ALLOWED" : `refused (${d.reason})`}`;
     }
     case "failure": {

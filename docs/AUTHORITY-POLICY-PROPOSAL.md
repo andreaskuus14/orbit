@@ -1,6 +1,8 @@
-# PROPOSAL (not applied): Operate mode for one outward workflow
+# PROPOSAL (partly superseded): Operate mode for one outward workflow
 
-**Status: PROPOSAL. Nothing here is in effect.** AGENTS.md rule 6 and SAFETY.md §1 still require Andreas's own click on the exact version of every send, spend, publish and signature. The code enforces that today: `authority-pure.ts` refuses to create, load or use a grant that covers a consequential action, and `setMode(..., "operate")` is refused. Only Andreas can apply this proposal, by editing AGENTS.md and SAFETY.md himself and then changing the code checks named below in the same reviewed PR.
+**Update 2026-10-30: Operator mode adopted for internal work only.** Andreas changed AGENTS.md rule 6: research & build (category A) and organizing his data (category B) now run under standing grants without per-action asks (Profile → Autonomy areas `operator-build` / `operator-organize`, default "Do & report"; policy-pure `operatorAllows`), logged in OPERATIONS → Activity with Undo where possible. **Not adopted:** everything below about outward actions. Sends, publishing, uploads and spending still need his click on the exact item; `setMode("operate")` stays refused and grants still cannot cover consequential actions.
+
+**Status of the rest: PROPOSAL. Nothing below is in effect.** AGENTS.md rule 6 and SAFETY.md §1 still require Andreas's own click on the exact version of every send, spend, publish and signature. The code enforces that today: `authority-pure.ts` refuses to create, load or use a grant that covers a consequential action, and `setMode(..., "operate")` is refused. Only Andreas can apply this proposal, by editing AGENTS.md and SAFETY.md himself and then changing the code checks named below in the same reviewed PR.
 
 ## What exists now (Prepare mode)
 
