@@ -34,7 +34,7 @@ import CoreConfigPanel from "./CoreConfigPanel";
 import WorkspaceFrame from "./WorkspaceFrame";
 import { useT } from "./i18n";
 import { pickState, type PickState } from "@/lib/panel-states-pure";
-import { AssetRegister, ContractCard, EvidenceLog, ReleasePanel, WorkStepsLine } from "./GameDevViews";
+import { AssetRegister, ContractCard, EconomySim, EvidenceLog, ReleasePanel, RetentionPanel, UiKitCard, WorkStepsLine } from "./GameDevViews";
 import { contractBrief } from "@/lib/gamedev-pure";
 import { backlogGoal, fixContext, importDrafts, parseBacklog, sortBacklog } from "@/lib/backlog-pure";
 import {
@@ -53,11 +53,11 @@ const MAX_PARTICLES = 300;
 // Projects → one game's Overview / Build / Test / Assets / Release. Each specialist tool lives in one view; per-game views need a selected game.
 const VIEWS = {
   projects: [["games", "🎮 Games"], ["trends", "📈 Trends"], ["hive", "🐝 Hive"], ["sessions", "🕒 Sessions"], ["core", "⚙ CORE"]],
-  overview: [["detail", "🎯 Game"], ["economy", "🪙 Economy"]],
+  overview: [["detail", "🎯 Game"], ["economy", "🪙 Economy"], ["sim", "🧮 Simulator"]],
   build: [["scene", "🏗 Scene"], ["code", "📝 Code"], ["grid", "🟦 Grid"]],
   test: [["evidence", "🧾 Results"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"]],
-  assets: [["register", "📦 Register"], ["refs", "🎨 References"], ["textures", "🧱 Textures"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"]],
-  release: [["release", "🚀 Package"]],
+  assets: [["register", "📦 Register"], ["uikit", "🧩 UI kit"], ["refs", "🎨 References"], ["textures", "🧱 Textures"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"]],
+  release: [["release", "🚀 Package"], ["retention", "📊 Retention"]],
 } as const;
 type ViewId = keyof typeof VIEWS;
 type Tool = (typeof VIEWS)[ViewId][number][0];
@@ -339,6 +339,9 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {world && game && tab === "evidence" && <EvidenceLog key={gk} game={game} world={world} commit={commit} />}
         {world && game && tab === "register" && <AssetRegister key={gk} game={game} world={world} commit={commit} />}
         {world && game && tab === "release" && <ReleasePanel key={gk} game={game} world={world} commit={commit} />}
+        {world && game && tab === "uikit" && <UiKitCard key={gk} game={game} world={world} commit={commit} />}
+        {world && game && tab === "sim" && <EconomySim key={gk} game={game} world={world} commit={commit} />}
+        {world && game && tab === "retention" && <RetentionPanel key={gk} game={game} world={world} commit={commit} />}
         {tab !== "games" && tab !== "detail" ? null : !world ? (
           <StateNote state={loadErr ? "failed" : "loading"} what={loadErr || undefined} action={{ label: t("state.retry"), run: () => void load() }} />
         ) : game && tab === "detail" ? (
