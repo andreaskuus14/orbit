@@ -4,6 +4,7 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { pickView, viewKey } from "@/lib/view-key-pure";
 import { withView } from "@/lib/deeplink-pure";
+import { nextTab } from "@/lib/ui-state-pure";
 
 export type View<V extends string> = { id: V; label: string; secondary?: boolean };
 
@@ -23,10 +24,10 @@ export default function WorkspaceFrame<V extends string>({ planet, title, contex
   planet: string; title: string; context?: ReactNode; action?: ReactNode; views: readonly View<V>[]; view: V; onView: (v: V) => void; children: ReactNode;
 }) {
   const move = (e: KeyboardEvent, i: number) => {
-    const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-    if (!d) return;
+    const j = nextTab(e.key, i, views.length);
+    if (j === null) return;
     e.preventDefault();
-    const next = views[(i + d + views.length) % views.length].id;
+    const next = views[j].id;
     onView(next); document.getElementById(`${planet}-tab-${next}`)?.focus();
   };
   return (
@@ -35,7 +36,7 @@ export default function WorkspaceFrame<V extends string>({ planet, title, contex
         <div className="min-w-0"><h2 className="text-[11px] uppercase tracking-widest muted">{title}</h2>{context && <div className="muted text-[12px]">{context}</div>}</div>
         {action}
       </header>
-      <div role="tablist" aria-label={title} className="flex flex-wrap gap-1.5">
+      <div role="tablist" aria-label={title} className="ws-tabs flex flex-wrap gap-1.5">
         {views.map((v, i) => (
           <button key={v.id} id={`${planet}-tab-${v.id}`} role="tab" aria-selected={view === v.id} aria-controls={`${planet}-tabpanel`} tabIndex={view === v.id ? 0 : -1}
             className={`chip ${v.secondary ? "muted" : ""}`} style={view === v.id ? { borderColor: "var(--cyan)" } : undefined} onClick={() => onView(v.id)} onKeyDown={(e) => move(e, i)}>

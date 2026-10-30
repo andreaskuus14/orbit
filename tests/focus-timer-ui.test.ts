@@ -46,6 +46,7 @@ function browser(raw: string | null, now = 1_000_000) {
         if (id === "./voice/bus" || id === "./CalendarCard" || id === "./SchoolPanel") return {};
         if (id.endsWith("dayplan-pure") || id.endsWith("life-plan-pure")) return {};
         if (id === "./WorkspaceFrame") return { default: () => null, useWorkspaceView: () => ["today", () => {}] };
+        if (id === "./StateNote") return { default: () => null };
         return require(id);
       },
     });

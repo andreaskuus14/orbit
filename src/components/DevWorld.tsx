@@ -1,5 +1,6 @@
 "use client";
 import { WarmCompile } from "./WarmCompile";
+import StateNote from "./StateNote";
 import { MaskText } from "./MaskText";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -339,7 +340,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {world && game && tab === "register" && <AssetRegister key={gk} game={game} world={world} commit={commit} />}
         {world && game && tab === "release" && <ReleasePanel key={gk} game={game} world={world} commit={commit} />}
         {tab !== "games" && tab !== "detail" ? null : !world ? (
-          loadErr ? <><p className="error">{loadErr}</p><button className="chip mt-2" onClick={() => void load()}>Retry</button></> : <p className="muted">Loading studio…</p>
+          <StateNote state={loadErr ? "failed" : "loading"} what={loadErr || undefined} action={{ label: t("state.retry"), run: () => void load() }} />
         ) : game && tab === "detail" ? (
           <GameDetail key={game.id} game={game} world={world} commit={commit} onBack={() => { setSelected(null); setTab("games"); }} onPlay={setPlaying}
             onDeleted={() => { setSelected(null); setTab("games"); }} onOpenTask={onOpenTask} onFix={(error) => { setFix({ key: Date.now(), error: `${contractBrief(game)}\n\n${error}`.slice(0, 2000) }); setTab("code"); }} />

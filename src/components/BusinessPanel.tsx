@@ -1,5 +1,6 @@
 "use client";
 import { OrbitThinks } from "./OrbitThinks";
+import StateNote from "./StateNote";
 import VisibilityPanel from "./VisibilityPanel";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
@@ -68,8 +69,8 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
     <WorkspaceFrame planet="business" title={t("planet.business")} views={views} view={view} onView={setView}
       context={st && t("bizws.context", { n: st.funnel.total - st.funnel.counts.lost, m: euro(st.funnel.monthly) })}
       action={<button className="chip" onClick={addNew}>{t("bizws.add")}</button>}>
-      {err && <p className="error" role="alert">{err}</p>}
-      {!st && !err && <p className="muted">Loading…</p>}
+      {err ? <StateNote state="failed" what={err} kept={st ? t("state.keptScreen") : undefined} action={{ label: t("state.retry"), run: () => void load() }} />
+        : !st && <StateNote state="loading" action={{ label: t("state.retry"), run: () => void load() }} />}
       {missing && <p className="muted" role="status">{t("link.missingClient")} <button className="chip" onClick={() => onFocus?.(null)}>{t("link.back")}</button></p>}
 
       {view === "today" && st && (

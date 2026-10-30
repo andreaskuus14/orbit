@@ -1,5 +1,6 @@
 "use client";
 import { WarmCompile } from "./WarmCompile";
+import StateNote from "./StateNote";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -298,7 +299,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
             })}
           </div>
         )}
-        {w?.status === "loading" && <p className="muted mt-3 text-sm">Loading…</p>}
+        {w?.status === "loading" && <StateNote state="loading" />}
         {w?.status === "ready" && w.videos.length > 0 && (
           <ol className="mt-3 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }} aria-label={w.topic ? `${w.topic} videos` : "Videos"}>
             {w.videos.map((v, i) => {

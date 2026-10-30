@@ -1,5 +1,6 @@
 "use client";
 import { WarmCompile } from "./WarmCompile";
+import StateNote from "./StateNote";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -559,7 +560,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
       <section className="glass hud-panel world-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
         aria-label="Agents station">
         {!agents ? (
-          err ? <><p className="error">{err}</p><button className="chip mt-2" onClick={loadAgents}>Retry</button></> : <p className="muted">Docking…</p>
+          <StateNote state={err ? "failed" : "loading"} what={err || undefined} action={{ label: t("state.retry"), run: loadAgents }} />
         ) : agent ? (
           <AgentMission key={agent.slug} agent={agent} status={status[agent.slug]} visible={visible} onClose={() => setSelected(null)} onChanged={loadTasks} onOpenTask={onOpenTask} />
         ) : manage ? (

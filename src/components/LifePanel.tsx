@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import StateNote from "./StateNote";
 import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, REPEAT_LABEL, isRepeat, type HabitView, type LifeState } from "@/lib/life-pure";
 import { hhmm, nudgeMinute, windowLabel } from "@/lib/habit-nudge-pure";
 import type { LifeView } from "@/lib/nav-pure";
@@ -69,8 +70,9 @@ export default function LifePanel({ open }: { open?: { tab: LifeView; start?: tr
     <WorkspaceFrame planet="life" title={tr("planet.life")} views={views} view={tab} onView={setTab}
       context={st && tr("life.ctx", { date: longDate(st.today), min: st.focus.today })}
       action={tab === "today" ? <button className="chip" onClick={replan}>{tr("life.replan")}</button> : undefined}>
-      {err && <p className="error" role="alert">{err}</p>}
-      {!st ? (!err && <p className="muted text-sm">{tr("common.loading")}</p>) : <>
+      {err ? <StateNote state="failed" what={err} kept={st ? tr("state.keptScreen") : undefined} action={{ label: tr("state.retry"), run: () => void load() }} />
+        : !st && <StateNote state="loading" action={{ label: tr("state.retry"), run: () => void load() }} />}
+      {st && <>
         {tab === "today" && <Today st={st} act={act} plan={plan?.plan ?? null} planAct={planAct} focusOn={focusOn} />}
         {tab === "capture" && <Capture st={st} act={act} planAct={planAct} />}
         {tab === "review" && <Review st={st} act={act} review={plan?.review ?? null} />}
