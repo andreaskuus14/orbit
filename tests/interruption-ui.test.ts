@@ -144,7 +144,7 @@ test("blocked storage keeps the insight baseline in memory and every new insight
     module: m, exports: m.exports,
     localStorage: { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("quota"); } },
     fetch: async () => ({ ok: true, json: async () => ({ items }) }),
-    require: (name: string) => name.endsWith("notify-pure") ? { notify: (d: notices.NotifyDetail) => got.push(d) } : name.endsWith("interruption-pure") ? rules : name === "react" || name.endsWith("studio-notify") ? {} : require(name),
+    require: (name: string) => name.endsWith("notify-pure") ? { notify: (d: notices.NotifyDetail) => got.push(d) } : name.endsWith("interruption-pure") ? rules : name === "react" || name.endsWith("studio-notify") || name.endsWith("failure-alert-pure") ? {} : require(name),
   });
   await m.exports.pollInsights(); assert.equal(got.length, 0);
   items = [...items, ...[1, 2, 3].map((n) => ({ key: `new${n}`, kind: "hot", priority: "high", title: `Short ${n}`, detail: `${n * 1000} views` }))];

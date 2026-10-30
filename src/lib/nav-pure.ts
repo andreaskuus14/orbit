@@ -7,10 +7,10 @@ import { WORK_TABS, workTabName, type WorkTab } from "./work-vocab-pure.ts";
 import type { LinkKind } from "./deeplink-pure.ts";
 
 /** panel null = back to the galaxy. country is a world-atlas name (as NewsGlobe uses), region a REGIONS key.
- *  view "none" closes STUDIO's overlay, "review" opens the clip factory's review queue; search runs the globe's news search ("" clears search and selection);
+ *  view "none" closes STUDIO's overlay, "review" opens the clip factory's review queue, "failed" its open failures; search runs the globe's news search ("" clears search and selection);
  *  zoom acts on whatever world is on screen and never navigates (panel is ignored). */
 export type NavTarget = {
-  panel: PanelId | null; country?: string; region?: string; view?: "stats" | "clips" | "review" | "none";
+  panel: PanelId | null; country?: string; region?: string; view?: "stats" | "clips" | "review" | "failed" | "none";
   search?: string; zoom?: "in" | "out" | "reset"; morning?: true; weekly?: true; // weekly: the Sunday review card, read aloud. morning: open the "Good morning" card on the galaxy and read it aloud
   mission?: true; // mission: the full-screen "bridge" overlay (MissionControl.tsx) over whatever is on screen
   doctor?: true; // doctor: open the ORBIT doctor (health checks) and read the result aloud; stays where you are
