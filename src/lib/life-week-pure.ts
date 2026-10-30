@@ -1,6 +1,6 @@
 // LIF08 weekly review (pure, tested in tests/life-week.test.ts): the last 7 days from local LIFE data only. Outcomes, how close
 // the accepted plans were to what got done, friction (pushed back or missed more than once) and one habit worth adjusting.
-// Missing data is listed, never guessed. Takes the LIFE store but never reads the journal: nothing here goes to a model anyway.
+// Missing data is listed, never guessed. Takes the LIFE store but leaves the journal untouched (and nothing here goes to a model).
 import { addDays, scheduledOn, type LifeStore } from "./life-pure.ts";
 import type { DayStat, Deferred } from "./dayplan-pure.ts";
 
