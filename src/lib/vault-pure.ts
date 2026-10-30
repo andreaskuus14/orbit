@@ -207,3 +207,9 @@ export function cloudFailure(msg: unknown): string {
   const m = String(msg || "unknown error").slice(0, 200);
   return /size|exceed|too large|payload|413|policy|row-level/i.test(m) ? `${m}. Run supabase/migrations/0009_vault_cloud.sql` : m;
 }
+
+// Latest-request-wins: each begin() invalidates earlier tokens, so a slow response for an old selection is dropped.
+export function latestGate() {
+  let cur = 0;
+  return () => { const id = ++cur; return () => id === cur; };
+}
