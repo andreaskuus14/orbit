@@ -85,6 +85,7 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
   const { nightSignals, snapshot } = await import("./night-plan");
   const { queue, deferred } = planTonight(await planInput(sb, userId, st, run, learned), s, used(), await nightSignals(sb, userId));
   let snap = await snapshot(sb, userId); // morning diff: counts before → after each item
+  run.planned = [...(run.planned ?? []), ...queue.map(({ kind, ref, label }) => ({ kind, ref, label }))]; // AGT05 morning: planned vs produced
   run.deferred = deferred; run.why = whyLine(learned, queue.map((t) => t.kind), s.pin) || undefined;
   for (const t of queue) {
     if (ac.signal.aborted || stopAllOn()) { run.stopped = "stop-all"; break; }
@@ -271,7 +272,15 @@ export async function getNightReport(sb: SupabaseClient, userId: string, now = D
 
 export async function nightView(sb: SupabaseClient, userId: string) {
   const st = await load();
-  return { settings: st.settings, tonight: st.users[userId]?.tonight ?? [], report: await getNightReport(sb, userId), running: nightRunning() };
+  return { settings: st.settings, tonight: st.users[userId]?.tonight ?? [], report: await getNightReport(sb, userId), running: nightRunning(), last: st.users[userId]?.run ?? null,
+    plan: await previewTonight(sb, userId, st).catch(() => null) };
+}
+/** AGENTS → Night shift: what tonight would pick if it started now (same planner, no budget used yet). */
+async function previewTonight(sb: SupabaseClient, userId: string, st: NightState) {
+  const s = st.settings, key = nightKey(Date.now(), s), blank: NightRun = { id: "", key, startedAt: "", calls: 0, ms: 0, items: [] };
+  const learned = await (await import("./night-learn")).learnedPlan(sb, userId, s, key);
+  const { nightSignals } = await import("./night-plan");
+  return planTonight(await planInput(sb, userId, st, blank, learned), s, { calls: 0, ms: 0 }, await nightSignals(sb, userId));
 }
 
 export const addTonightItem = (userId: string, b: { text?: unknown; agent?: unknown }, by: "owner" | "core") =>

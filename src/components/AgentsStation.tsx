@@ -30,13 +30,19 @@ import { useLeanQuality } from "./useLeanQuality";
 import { smoothDamp } from "@/lib/smooth-damp-pure";
 import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clamp, currentTask, orbitPos, statusGlow, statusVisual, streamFrac, type AgentStatus } from "@/lib/station-pure";
 import { MaskText } from "./MaskText";
+import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
+import { NightPlan, OPS_HREF, WorkerCards, type Deps, type ToolInfo } from "./Workforce";
+import { useT } from "./i18n";
 
 // AGENTS → a floating obsidian ring station (alien megastructure theme): each agent is a ship circling its docking lane,
 // glowing by status, plotted live on a holographic tactical map behind the station.
 // Data: /api/agents (roster + running counts incl. sub-tasks), /api/tasks (top-level tasks), /api/tasks/:id (live trace).
 // Built-in materials only and every emissive/opacity value goes through clamp(), so Bloom never sees NaN/negative output.
 
-type Agent = { slug: string; name: string; role: string; color: string; builtin: boolean; stats: { running: number } };
+type Agent = { slug: string; name: string; role: string; color: string; builtin: boolean; tools?: string[]; stats: { running: number; done?: number; failed?: number } };
+const VIEW_IDS = ["workers", "skills", "teams", "performance", "goals", "missions", "company", "ideas", "recipes"] as const;
+type ViewId = (typeof VIEW_IDS)[number];
+const VIEW_KEY: Record<ViewId, "agt.workers"> = Object.fromEntries(VIEW_IDS.map((v) => [v, `agt.${v === "performance" ? "perf" : v}`])) as Record<ViewId, "agt.workers">;
 
 const HOME = 14.5;
 const ago = (iso: number) => { const s = Math.max(0, (Date.now() - iso) / 1000); return s < 60 ? "now" : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`; };
@@ -462,9 +468,14 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
-  const [tab, setTab] = useState<"agents" | "company" | "missions" | "teams" | "goals" | "ideas" | "recipes" | "skills" | "night">("agents");
-  useEffect(() => { if (focusGoal) setTab("goals"); }, [focusGoal]);
-  useEffect(() => { if (radarUrl) setTab("ideas"); }, [radarUrl]);
+  const { t } = useT();
+  // AGT: four primary views (configure the workforce); the rest stay reachable as secondary views. Execution lives in OPERATIONS.
+  const views = useMemo(() => VIEW_IDS.map((id, i) => ({ id, label: t(VIEW_KEY[id]), secondary: i > 3 })), [t]);
+  const [tab, setTab] = useWorkspaceView<ViewId>("agents", views);
+  useEffect(() => { if (focusGoal) setTab("goals"); }, [focusGoal]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (radarUrl) setTab("ideas"); }, [radarUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [deps, setDeps] = useState<Deps>(null);
+  const [toolInfo, setToolInfo] = useState<ToolInfo[]>([]);
   const [chains, setChains] = useState<ChainView[] | null>(null);
   const [chainErr, setChainErr] = useState("");
   const rows = useRef(new Map<string, HTMLButtonElement>());
@@ -482,7 +493,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
     return () => document.removeEventListener("visibilitychange", on);
   }, []);
 
-  const loadAgents = useCallback(() => { api<{ agents: Agent[] }>("/api/agents").then((r) => { setAgents(r.agents); setErr(""); }).catch((e) => setErr(e.message)); }, []);
+  const loadAgents = useCallback(() => { api<{ agents: Agent[]; deps?: Deps; tools?: ToolInfo[] }>("/api/agents").then((r) => { setAgents(r.agents); setDeps(r.deps ?? null); setToolInfo(r.tools ?? []); setErr(""); }).catch((e) => setErr(e.message)); }, []);
   const loadTasks = useCallback(() => { api<{ tasks: Task[] }>("/api/tasks").then((r) => { setTasks(r.tasks); setErr(""); }).catch((e) => setErr(e.message)); }, []);
   usePoll(loadAgents, 10_000, visible);
   usePoll(loadTasks, 3_000, visible);
@@ -556,48 +567,21 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         ) : (
           <>
             <div className="hud-title"><MaskText text="AGENTS STATION" /></div>
-            <p className="muted text-xs">{list.length} agents · {list.filter((a) => status[a.slug] === "working").length} working · {list.filter((a) => status[a.slug] === "waiting").length} need approval{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</p>
-            <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Station views">
-              {(["agents", "company", "missions", "teams", "goals", "ideas", "recipes", "skills", "night"] as const).map((t) => (
-                <button key={t} id={`st-tab-${t}`} role="tab" aria-selected={tab === t} aria-controls={`st-panel-${t}`} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
-                  {t === "agents" ? "🛰 Agents" : t === "company" ? "🏢 Company" : t === "missions" ? "🚀 Missions" : t === "teams" ? "👥 Teams" : t === "goals" ? "🎯 Goals" : t === "ideas" ? "💡 Ideas" : t === "night" ? "🌙 Tonight" : t === "skills" ? "✨ Skills" : "📋 Recipes"}
-                </button>
-              ))}
-            </div>
-            {tab === "night" ? (
-              <div id="st-panel-night" role="tabpanel" aria-labelledby="st-tab-night" className="mt-3">
-                <TonightPanel />
-              </div>
-            ) : tab === "skills" ? (
-              <div id="st-panel-skills" role="tabpanel" aria-labelledby="st-tab-skills" className="mt-3">
-                <SkillsPanel />
-              </div>
-            ) : tab === "recipes" ? (
-              <div id="st-panel-recipes" role="tabpanel" aria-labelledby="st-tab-recipes" className="mt-3">
-                <RecipesPanel onOpenTask={onOpenTask} />
-              </div>
-            ) : tab === "ideas" ? (
-              <div id="st-panel-ideas" role="tabpanel" aria-labelledby="st-tab-ideas" className="mt-3">
-                <IdeasPanel initialUrl={radarUrl} onConsumed={onRadarDone} />
-              </div>
-            ) : tab === "goals" ? (
-              <div id="st-panel-goals" role="tabpanel" aria-labelledby="st-tab-goals" className="mt-3">
-                <GoalsPanel agents={list} visible={visible} onOpenTask={onOpenTask} focusId={focusGoal} />
-              </div>
-            ) : tab === "company" ? (
-              <div id="st-panel-company" role="tabpanel" aria-labelledby="st-tab-company" className="mt-3">
-                <CompanyPanel names={Object.fromEntries(list.map((a) => [a.slug, a.name]))} visible={visible} onOpenTask={onOpenTask} />
-              </div>
-            ) : tab === "missions" ? (
-              <div id="st-panel-missions" role="tabpanel" aria-labelledby="st-tab-missions" className="mt-3">
-                <MissionsPanel visible={visible} onOpenTask={onOpenTask} />
-              </div>
-            ) : tab === "teams" ? (
-              <div id="st-panel-teams" role="tabpanel" aria-labelledby="st-tab-teams" className="mt-3">
-                <TeamBuilder agents={list} chains={chains} error={chainErr} onChanged={loadChains} onOpenTask={onOpenTask} />
-              </div>
-            ) : <div id="st-panel-agents" role="tabpanel" aria-labelledby="st-tab-agents">
-            <ul className="mt-3 space-y-1">
+            <WorkspaceFrame planet="agents" title="AGENTS" views={views} view={tab} onView={setTab}
+              context={<>{t("agt.context", { n: list.length, w: list.filter((a) => status[a.slug] === "working").length, a: list.filter((a) => status[a.slug] === "waiting").length })}{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</>}
+              action={<a className="chip" href={OPS_HREF}>{t("agt.opsLink")}</a>}>
+            {tab === "performance" ? (
+              <><NightPlan /><TonightPanel /></>
+            ) : tab === "skills" ? <SkillsPanel />
+            : tab === "recipes" ? <RecipesPanel onOpenTask={onOpenTask} />
+            : tab === "ideas" ? <IdeasPanel initialUrl={radarUrl} onConsumed={onRadarDone} />
+            : tab === "goals" ? <GoalsPanel agents={list} visible={visible} onOpenTask={onOpenTask} focusId={focusGoal} />
+            : tab === "company" ? <CompanyPanel names={names} visible={visible} onOpenTask={onOpenTask} />
+            : tab === "missions" ? <MissionsPanel visible={visible} onOpenTask={onOpenTask} />
+            : tab === "teams" ? <TeamBuilder agents={list} chains={chains} error={chainErr} onChanged={loadChains} onOpenTask={onOpenTask} />
+            : <>
+            <WorkerCards agents={list} deps={deps} tools={toolInfo} onPick={setSelected} />
+            <ul className="space-y-1" aria-label={t("agt.workers")}>
               {list.map((a) => (
                 <li key={a.slug}>
                   <button ref={(el) => { if (el) rows.current.set(a.slug, el); else rows.current.delete(a.slug); }} className="hud-row" style={{ ["--accent" as string]: STATUS_DOT[status[a.slug]] }} onClick={() => setSelected(a.slug)}
@@ -607,8 +591,9 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
                 </li>
               ))}
             </ul>
-            <button className="chip mt-3" onClick={() => setManage(true)}>Manage agents & proposals</button>
-            </div>}
+            <button className="chip" onClick={() => setManage(true)}>Manage agents & proposals</button>
+            </>}
+            </WorkspaceFrame>
           </>
         )}
         {err && agents && <p className="error mt-2" role="alert">{err}</p>}
