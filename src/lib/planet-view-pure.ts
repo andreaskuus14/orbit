@@ -1,9 +1,7 @@
 // Planet workspace frame (G01) logic: which view to open, and BUSINESS's Today queue (BUS01). UI: components/WorkspaceFrame.tsx.
 import { dueFollowups, type Prospect } from "./business-pure.ts";
 
-export const viewKey = (planet: string) => `orbit.view.${planet}`;
-/** The saved view if it's still one of this planet's views, else the first. */
-export const pickView = <V extends string>(saved: unknown, views: readonly V[]): V => (views.includes(saved as V) ? (saved as V) : views[0]);
+export { pickView, viewKey } from "./view-key-pure.ts"; // split out so WorkspaceFrame never pulls business-pure into a browser bundle
 
 export type TodayKind = "followup" | "send" | "draft";
 export type TodayItem = { id: string; name: string; kind: TodayKind };

@@ -1391,7 +1391,7 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
   return (
     <form className="flex flex-col gap-1.5 rounded-md border border-white/10 p-1.5" aria-label={`Publish ${c.title} to YouTube`} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <label><span className={label}>{tr("cf.titleLbl")}</span>
-        <input className="field w-full !px-2 !py-1 !text-xs" value={form.title} maxLength={100} required onChange={(e) => set({ title: e.target.value })} />
+        <input className="field w-full !px-2 !py-1 !text-xs" value={form.title} maxLength={100} required readOnly title={tr("cf.titleLocked")} /* STU03: the approved revision's title; change it on the clip and approve again */ />
       </label>
       <label><span className={label}>{tr("cf.description")}</span>
         <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} value={form.description} maxLength={5000} onChange={(e) => set({ description: e.target.value })} />

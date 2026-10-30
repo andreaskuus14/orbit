@@ -3,9 +3,9 @@
 // UI: Orbit.tsx (hash <-> state, Back/refresh), WorkspaceFrame.tsx (view). Tested in tests/deeplink.test.ts.
 import { planetById, type PanelId } from "./planets.ts";
 
-export type LinkKind = "task" | "goal" | "memory" | "client";
+export type LinkKind = "task" | "goal" | "memory" | "client" | "review"; // review: a STUDIO production record (production-pure recordId)
 export type DeepLink = { planet: PanelId; view?: string; kind?: LinkKind; id?: string };
-const KINDS: readonly LinkKind[] = ["task", "goal", "memory", "client"];
+const KINDS: readonly LinkKind[] = ["task", "goal", "memory", "client", "review"];
 const SAFE = /^[\w.:-]{1,80}$/; // ids and view names only: nothing a link could smuggle into a query or the DOM
 
 export function linkToHash(l: DeepLink | null): string {

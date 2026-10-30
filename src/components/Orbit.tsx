@@ -137,6 +137,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [focusTask, setFocusTask] = useState<string | null>(null);
   const [focusGoal, setFocusGoal] = useState<string | null>(null);
   const [focusClient, setFocusClient] = useState<string | null>(null); // BUSINESS row picked by a link
+  const [focusReview, setFocusReview] = useState<string | null>(null); // STUDIO production record (#…&k=review&id=…)
   const [radarUrl, setRadarUrl] = useState<string | null>(null); // ?radar=<YouTube link>: shared from the phone (iOS Shortcut) → Idea Radar
   const [automationFailing, setAutomationFailing] = useState(false); // real: an enabled automation's last run failed
   const [hfWeek, setHfWeek] = useState<{ used: number; cap: number } | null>(null); // Higgsfield credits approved this week / weekly cap
@@ -475,7 +476,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     if (l.view) try { localStorage.setItem(viewKey(l.planet), l.view); } catch { /* storage off: first view */ }
     if (l.planet === "core") openCore(); else select(l.planet);
     const id = (k: DeepLink["kind"]) => (l.kind === k ? l.id! : null);
-    setFocusTask(id("task")); setFocusGoal(id("goal")); setFocusMemory(id("memory")); setFocusClient(id("client"));
+    setFocusTask(id("task")); setFocusGoal(id("goal")); setFocusMemory(id("memory")); setFocusClient(id("client")); setFocusReview(id("review"));
   }, [openCore, select]); // eslint-disable-line react-hooks/exhaustive-deps
   const [linkReady, setLinkReady] = useState(false);
   useEffect(() => { const l = linkFromHash(location.hash); if (l) applyLink(l); setLinkReady(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -489,11 +490,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const here = useMemo<DeepLink | null>(() => {
     if (!shown) return null;
     const rec = shown === "operations" && focusTask ? { kind: "task" as const, id: focusTask } : shown === "agents" && focusGoal ? { kind: "goal" as const, id: focusGoal }
-      : shown === "memory" && focusMemory ? { kind: "memory" as const, id: focusMemory } : shown === "business" && focusClient ? { kind: "client" as const, id: focusClient } : {};
+      : shown === "memory" && focusMemory ? { kind: "memory" as const, id: focusMemory } : shown === "business" && focusClient ? { kind: "client" as const, id: focusClient } : shown === "studio" && focusReview ? { kind: "review" as const, id: focusReview } : {};
     let view: string | null = null;
     try { view = localStorage.getItem(viewKey(shown)); } catch { /* none */ }
     return { planet: shown, ...(view && { view }), ...rec };
-  }, [shown, focusTask, focusGoal, focusMemory, focusClient]);
+  }, [shown, focusTask, focusGoal, focusMemory, focusClient, focusReview]);
   useEffect(() => {
     if (!linkReady) return;
     const from = linkFromHash(location.hash), h = linkToHash(here);
@@ -595,7 +596,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       )}
       {/* Worlds stay mounted after their first visit (hidden + paused): re-entering skips the rebuild, shader compile and texture upload. */}
       {has("intelligence") && <Kept on={at("intelligence")}><NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} paused={!at("intelligence")} /></Kept>}
-      {has("studio") && <Kept on={at("studio")}><StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} paused={!at("studio")} /></Kept>}
+      {has("studio") && <Kept on={at("studio")}><StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} paused={!at("studio")} review={focusReview} onReview={setFocusReview} /></Kept>}
       {has("creation") && <Kept on={at("creation")}><DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} paused={!at("creation")} /></Kept>}
       {has("agents") && <Kept on={at("agents")}><AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} paused={!at("agents")} /></Kept>}
       {has("arch") && <Kept on={at("arch")}><ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} paused={!at("arch")} /></Kept>}
