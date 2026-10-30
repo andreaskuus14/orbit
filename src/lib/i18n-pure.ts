@@ -616,6 +616,16 @@ const BASE = {
   "needs.kind.decide": "Decide", "needs.kind.unblock": "Unblock", "needs.kind.review": "Review result", "needs.review": "Review", "needs.more": "{n} more in Mission control and Continue my work.",
   "needs.work": "Continue my work", "needs.mission": "Mission control", "needs.onPc": "On the PC",
   "capsule.drill": "Run restore drill", "capsule.drillTitle": "Restores into a temporary folder, checks every file, then deletes it. Your data isn't touched.",
+  "vault.where": "Files are kept on this PC. Each one also gets a private copy in your Supabase cloud; ORBIT can't see that storage's plan or free space (unknown).",
+  "vault.inCloud": "{n} of {m} files have a cloud copy", "vault.queue": "{n} waiting to retry (Sync now)",
+  "vault.sync.local": "Only on this PC", "vault.sync.cloud": "Cloud copy", "vault.sync.pending": "Uploading to cloud…", "vault.sync.failed": "Cloud copy failed", "vault.sync.restored": "Restored from cloud",
+  "vault.lastSync": "last cloud copy {at}", "vault.neverSynced": "no cloud copy yet",
+  "vault.cov.indexed": "contents searchable", "vault.cov.partial": "only partly searchable (too long)", "vault.cov.unsupported": "contents not searchable (type)", "vault.cov.failed": "text couldn't be read (not searchable)",
+  "vault.notIndexed": "No match in the files ORBIT could read. {n} file(s) aren't (fully) searchable inside, so they weren't checked: {names}",
+  "vault.moveToTrash": "Move to trash", "vault.trash": "Trash", "vault.trashNote": "Deleted files stay here on this PC for {days} days, then they are erased. Their cloud copies were removed when you deleted them.",
+  "vault.trashConfirm": "Move \"{name}\" to the trash? It stays restorable on this PC for {days} days. Its cloud copy is removed now.",
+  "vault.purgeConfirm": "Delete \"{name}\" permanently? The copy on this PC is erased and can't be restored. There is no cloud copy left (it was removed when you moved it to the trash).",
+  "vault.restore": "Restore", "vault.purge": "Delete permanently", "vault.expires": "erased {at}", "vault.restored": "Restored {name}.",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -1276,6 +1286,16 @@ export const ET: Partial<Record<Key, string>> = {
   "voice.convHelp": "Ctrl+Shift+M, 💬 või „Orbit, let’s talk”. ORBIT vastab siis küsimustele ja palvetele ilma sõnata „Orbit” ning eirab muud juttu; katkestamiseks räägi lihtsalt peale. Lõpeb sõnadega „lõpeta” / „stop”, Esc, 💬, Peata kõik või 60 s vaikusega (üks jätkuküsimus: pärast seda).",
   "voice.openMic": "Avatud mikrofon · {phase} — ✕ lõpeta", "voice.phaseListening": "kuulab", "voice.phaseThinking": "mõtleb", "voice.phaseSpeaking": "räägib (katkestamiseks räägi peale)",
   "capsule.drill": "Käivita taastamise harjutus", "capsule.drillTitle": "Taastab ajutisse kausta, kontrollib iga faili ja kustutab selle siis. Sinu andmeid ei puudutata.",
+  "vault.where": "Failid on selles arvutis. Igaühest läheb ka privaatne koopia sinu Supabase'i pilve; ORBIT ei näe selle salvestuse paketti ega vaba ruumi (teadmata).",
+  "vault.inCloud": "{n} faili {m}-st on pilvekoopiaga", "vault.queue": "{n} ootab kordust (Sünkroniseeri)",
+  "vault.sync.local": "Ainult selles arvutis", "vault.sync.cloud": "Pilvekoopia", "vault.sync.pending": "Laeb pilve…", "vault.sync.failed": "Pilvekoopia ebaõnnestus", "vault.sync.restored": "Taastatud pilvest",
+  "vault.lastSync": "viimane pilvekoopia {at}", "vault.neverSynced": "pilvekoopiat veel pole",
+  "vault.cov.indexed": "sisu otsitav", "vault.cov.partial": "sisu osaliselt otsitav (liiga pikk)", "vault.cov.unsupported": "sisu ei ole otsitav (failitüüp)", "vault.cov.failed": "teksti ei õnnestunud lugeda (pole otsitav)",
+  "vault.notIndexed": "Failidest, mida ORBIT lugeda sai, vastet ei leitud. {n} faili sisu pole (täielikult) otsitav, neid ei kontrollitud: {names}",
+  "vault.moveToTrash": "Viska prügikasti", "vault.trash": "Prügikast", "vault.trashNote": "Kustutatud failid jäävad siia arvutisse {days} päevaks, siis need kustutatakse. Nende pilvekoopiad eemaldati kustutamisel.",
+  "vault.trashConfirm": "Viia „{name}” prügikasti? Seda saab selles arvutis {days} päeva jooksul taastada. Pilvekoopia eemaldatakse kohe.",
+  "vault.purgeConfirm": "Kustutada „{name}” jäädavalt? Selle arvuti koopia kustutatakse ja seda ei saa taastada. Pilvekoopiat enam pole (see eemaldati prügikasti viimisel).",
+  "vault.restore": "Taasta", "vault.purge": "Kustuta jäädavalt", "vault.expires": "kustub {at}", "vault.restored": "Taastatud: {name}.",
 };
 
 type Vars = Record<string, string | number>;
