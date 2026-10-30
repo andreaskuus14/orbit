@@ -23,5 +23,5 @@ export async function GET(req: Request, { params }: Ctx) {
   const file = previewPath(path);
   const f = await readWsFile(ref.uid, ref.slug, file);
   if (!f) return notFound();
-  return new Response(f.text, { headers: { "Content-Type": contentType(file), ...PREVIEW_HEADERS } });
+  return new Response(new Uint8Array(f.bytes), { headers: { "Content-Type": contentType(file), ...PREVIEW_HEADERS } });
 }

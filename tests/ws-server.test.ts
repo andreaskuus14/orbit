@@ -53,6 +53,9 @@ test("real server: start, smoke check, sandbox, stop, Stop-all", { skip: !hasPer
     assert.match(smoke.line, /4\/4 passed/);
     assert.equal(JSON.parse(readFileSync(path.join(dir, "data/db.json"), "utf8")).length, 1); // smoke item cleaned up
     assert.match(readFileSync(path.join(dir, "logs/server.log"), "utf8"), /GET \/api\/items/);
+    mkdirSync(path.join(dir, "assets")); writeFileSync(path.join(dir, "assets/a.svg"), "<svg/>"); writeFileSync(path.join(dir, "secret.json"), "{}");
+    assert.equal(await fetch(r.url + "assets/a.svg").then((x) => x.text()), "<svg/>"); // licensed images from ws_fetch_image
+    assert.equal((await fetch(r.url + "assets/..%2Fsecret.json")).status, 403);
     // sandbox: a server that reads outside its folder or spawns a process fails
     writeFileSync(path.join(dir, "server.mjs"), `import http from "node:http"; import fs from "node:fs"; import cp from "node:child_process";
 const t = (f) => { try { f(); return "open"; } catch (e) { return e.code; } };
@@ -72,4 +75,15 @@ http.createServer((q, s) => s.end(JSON.stringify(out))).listen(+process.env.PORT
     assert.equal(stopAllServers(), 1);
     assert.equal(serverStatus("t/b").running, false);
   } finally { stopAllServers(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("site pipeline: a fullstack plan's front end lives in public/ and the server step points at the template + ws_run", async () => {
+  const { nextSiteStep, siteStepHint } = await import("../src/lib/site-pipeline-pure.ts");
+  const plan = "Type: fullstack";
+  assert.match(siteStepHint(["plan.md"], plan), /"template": "fullstack".*ws_run/);
+  assert.equal(nextSiteStep(["plan.md", "server.mjs", "css/style.css"], plan), "layout");
+  assert.match(siteStepHint(["plan.md", "server.mjs"], plan), /public\/css\/style\.css/);
+  assert.equal(nextSiteStep(["plan.md", "server.mjs", "public/style.css"], plan), "pages");
+  assert.equal(nextSiteStep(["plan.md", "server.mjs", "public/style.css", "public/index.html", "assets/a.webp"], plan), "check");
+  assert.match(siteStepHint(["plan.md"], "Type: static"), /\(css\/style\.css\)/);
 });

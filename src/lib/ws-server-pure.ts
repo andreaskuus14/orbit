@@ -58,8 +58,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { addItem, deleteItem, listItems } from "./store.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url)), pub = path.join(here, "public");
-const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml" };
+const here = path.dirname(fileURLToPath(import.meta.url)), pub = path.join(here, "public"), assets = path.join(here, "assets");
+const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
 const json = (res, status, body) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); };
 const body = (req) => new Promise((ok, no) => { let s = ""; req.on("data", (c) => { s += c; if (s.length > 1e5) no(new Error("too big")); }); req.on("end", () => ok(s)); });
 
@@ -78,8 +78,9 @@ http.createServer(async (req, res) => {
     const r = routes[\`\${req.method} \${url.pathname}\`];
     if (r) { const [s, b] = await r(req); return json(res, s, b); }
     if (url.pathname.startsWith("/api/")) return json(res, 404, { error: "no such route" });
-    const file = path.join(pub, url.pathname === "/" ? "index.html" : url.pathname);
-    if (!file.startsWith(pub + path.sep)) return json(res, 403, { error: "forbidden" });
+    const base = url.pathname.startsWith("/assets/") ? here : pub; // licensed images (ws_fetch_image) live in assets/
+    const file = path.join(base, url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname));
+    if (!file.startsWith((base === here ? assets : pub) + path.sep)) return json(res, 403, { error: "forbidden" });
     const data = await readFile(file).catch(() => null);
     if (!data) return json(res, 404, { error: "not found" });
     res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream" }); res.end(data);
@@ -121,7 +122,7 @@ What runs where:
 - server.mjs: the back end (Node built-ins only). ORBIT starts it with ws_run on this PC at http://127.0.0.1:<port>, never public.
 - /api routes: GET /api/health, GET /api/items, POST /api/items {"text"}, DELETE /api/items/<id>.
 - store.mjs + data/: the data holder, a JSON file (data/db.json), seeded from data/seed.json.
-- public/: the front end, served by server.mjs.
+- public/: the front end, served by server.mjs (assets/ too, for licensed images and their CREDITS.md).
 - logs/server.log: the server's output (capped).
 
 Sandbox: Node's permission model limits file access to this folder, with no child processes or worker threads, a ${HEAP_MB} MB heap,

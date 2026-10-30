@@ -12,6 +12,7 @@ const MAX_PATH = 200, MAX_DEPTH = 8;
 const TYPES: Record<string, string> = {
   html: "text/html; charset=utf-8", css: "text/css; charset=utf-8", js: "text/javascript; charset=utf-8", mjs: "text/javascript; charset=utf-8",
   json: "application/json; charset=utf-8", svg: "image/svg+xml", md: "text/plain; charset=utf-8", txt: "text/plain; charset=utf-8",
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", // binary: only ws_fetch_image writes these
   lua: "text/plain; charset=utf-8", luau: "text/plain; charset=utf-8", py: "text/plain; charset=utf-8", csv: "text/plain; charset=utf-8",
   sql: "text/plain; charset=utf-8",
 };

@@ -1,0 +1,173 @@
+// CORE's multi-step site pipeline (owner: "maybe it doesn't need to complete the website in one step"): plan → layout/CSS → pages →
+// licensed images → headless check + lint. Pure: license whitelist, image-API parsing, CREDITS.md, lint, step plan.
+// Tests in tests/site-pipeline.test.ts; the network/disk side is site-images.ts and core-workspace.ts.
+import { contrastRatio, type Rgba } from "./workspace-check-pure.ts";
+
+// ---- Licenses: only these may be downloaded. NC (no commercial use) and ND (no changes; we resize) are refused.
+export type License = { label: string; attribution: boolean };
+/** A reuse-safe license from an API's license name/code ("CC BY-SA 4.0", "by-sa", "cc0", "Public domain", "pdm"), else null. */
+export function licenseOk(name: unknown, version = ""): License | null {
+  if (typeof name !== "string") return null;
+  const n = name.toLowerCase().replace(/creative commons/g, "cc").replace(/[-_\s]+/g, " ").trim();
+  if (/\b(?:nc|nd)\b|non ?commercial|no ?deriv/.test(n)) return null;
+  if (/^(?:cc ?0|cc zero)\b/.test(n)) return { label: "CC0", attribution: false };
+  if (/^(?:pdm|public domain|pd)\b/.test(n)) return { label: "Public domain", attribution: false };
+  const m = /^(?:cc )?by(?: (sa))?(?: ([\d.]+))?$/.exec(n);
+  return m ? { label: `CC BY${m[1] ? "-SA" : ""}${m[2] || version ? ` ${m[2] || version}` : ""}`, attribution: true } : null;
+}
+
+// ---- Image search results from the two public APIs, normalised.
+export type Candidate = { url: string; title: string; author: string; license: License; source: string; via: "Wikimedia Commons" | "Openverse" | "Owner-supplied" };
+const IMG_MIME = /^image\/(?:jpeg|png|webp|svg\+xml)$/;
+const IMG_EXT = /\.(?:jpe?g|png|webp|svg)(?:$|\?)/i;
+const text = (v: unknown, max = 120) => (typeof v === "string" ? v.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim().slice(0, max) : "");
+
+/** MediaWiki API (generator=search, prop=imageinfo, iiprop=url|mime|extmetadata, iiurlwidth) → candidates with a whitelisted license. */
+export function parseCommons(json: unknown): Candidate[] {
+  const pages = Object.values(((json as { query?: { pages?: Record<string, unknown> } })?.query?.pages) ?? {}) as { title?: string; index?: number; imageinfo?: Record<string, unknown>[] }[];
+  return pages.sort((a, b) => (a.index ?? 0) - (b.index ?? 0)).flatMap((p) => {
+    const ii = p.imageinfo?.[0] as { thumburl?: string; url?: string; mime?: string; descriptionurl?: string; extmetadata?: Record<string, { value?: string }> } | undefined;
+    const meta = ii?.extmetadata ?? {};
+    const license = licenseOk(text(meta.LicenseShortName?.value));
+    const url = ii?.thumburl || ii?.url;
+    if (!ii || !license || !url || !IMG_MIME.test(ii.mime ?? "") || !/^https:\/\/upload\.wikimedia\.org\//.test(url)) return [];
+    return [{ url, title: text(p.title).replace(/^File:/, "").replace(/\.\w+$/, ""), author: text(meta.Artist?.value) || "Unknown author", license, source: ii.descriptionurl ?? "", via: "Wikimedia Commons" as const }];
+  });
+}
+
+/** Openverse /v1/images/ results → candidates with a whitelisted license. */
+export function parseOpenverse(json: unknown): Candidate[] {
+  const rows = ((json as { results?: unknown[] })?.results ?? []) as { url?: string; title?: string; creator?: string; license?: string; license_version?: string; foreign_landing_url?: string; filetype?: string }[];
+  return rows.flatMap((r) => {
+    const license = licenseOk(r.license, r.license_version ?? "");
+    if (!license || typeof r.url !== "string" || !/^https:\/\//.test(r.url) || !(IMG_EXT.test(r.url) || /^(?:jpe?g|png|webp|svg)$/i.test(r.filetype ?? ""))) return [];
+    return [{ url: r.url, title: text(r.title) || "Untitled", author: text(r.creator) || "Unknown author", license, source: r.foreign_landing_url ?? "", via: "Openverse" as const }];
+  });
+}
+
+/** A direct URL is allowed only when the owner typed that exact URL in his own message. */
+export const ownerSupplied = (url: string, question: string) => /^https:\/\//.test(url) && question.includes(url);
+
+// ---- Downloaded bytes.
+export const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // download limit
+export const IMAGE_BUDGET = 350 * 1024; // per image on the finished site (lint)
+/** Type from the file's magic bytes (never from the server's header), or null. */
+export function sniffImage(b: Uint8Array): "jpg" | "png" | "webp" | "svg" | null {
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  if (String.fromCharCode(...b.slice(0, 4)) === "RIFF" && String.fromCharCode(...b.slice(8, 12)) === "WEBP") return "webp";
+  const head = new TextDecoder().decode(b.slice(0, 1024)).replace(/^﻿/, "").trimStart();
+  return /^(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE svg[^>]*>\s*)?<svg\b/i.test(head) ? "svg" : null;
+}
+/** SVG that could run code or load outside things when opened as a page. */
+export const unsafeSvg = (svg: string) => /<script\b|<foreignObject\b|\son[a-z]+\s*=|javascript:|(?:href|src)\s*=\s*["']?\s*(?:https?:)?\/\//i.test(svg);
+
+/** assets/<slug of purpose or query>.<ext> */
+export function assetPath(name: string, ext: string): string {
+  const slug = name.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "") || "image";
+  return `assets/${slug}.${ext}`;
+}
+
+// ---- assets/CREDITS.md: one line per asset, the last write of a path wins.
+export type Credit = { path: string; title: string; author: string; license: string; attribution: boolean; source: string; via: string };
+const LINE = /^- `([^`]+)` — (.*) by (.*) \((.*)\), (.*?) <(.*)>(?: · attribution required)?$/;
+export function parseCredits(md: string): Credit[] {
+  return md.split("\n").flatMap((l) => { const m = LINE.exec(l.trim()); return m ? [{ path: m[1], title: m[2], author: m[3], license: m[4], via: m[5], source: m[6], attribution: l.includes("attribution required") }] : []; });
+}
+const clean = (s: string) => s.replace(/[`<>\n()]/g, "").trim();
+export function creditsMd(list: Credit[], add?: Credit): string {
+  const all = add ? [...list.filter((c) => c.path !== add.path), add] : list;
+  return `# Image credits\n\nImages in this site and their licenses (written by ORBIT when it downloaded them).\n\n${all.map((c) =>
+    `- \`${c.path}\` — ${clean(c.title)} by ${clean(c.author)} (${clean(c.license)}), ${clean(c.via)} <${clean(c.source)}>${c.attribution ? " · attribution required" : ""}`).join("\n")}\n`;
+}
+/** The footer line for licenses that require attribution ("" when none do). */
+export function attributionLine(list: Credit[]): string {
+  const need = list.filter((c) => c.attribution);
+  return need.length ? `Images: ${need.map((c) => `“${clean(c.title)}” by ${clean(c.author)} (${clean(c.license)}, ${clean(c.via)})`).join("; ")}.` : "";
+}
+
+// ---- Lint: static checks on the written files; issues feed the fix rounds next to the headless check's.
+const NAMED: Record<string, string> = { white: "#fff", black: "#000", red: "#f00", gray: "#808080", grey: "#808080", silver: "#c0c0c0", navy: "#000080", blue: "#00f", green: "#008000", yellow: "#ff0", orange: "#ffa500", purple: "#800080", teal: "#008080", maroon: "#800000" };
+/** #rgb, #rrggbb, rgb()/rgba() or a basic named colour → Rgba; null for vars, gradients and anything else. */
+export function cssColor(v: string): Rgba | null {
+  const s = (NAMED[v.trim().toLowerCase()] ?? v).trim();
+  const h = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s)?.[1];
+  if (h) { const x = h.length === 3 ? h.replace(/./g, "$&$&") : h; return [0, 2, 4].map((i) => parseInt(x.slice(i, i + 2), 16)).concat(1) as Rgba; }
+  const m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/i.exec(s);
+  return m ? [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : Math.min(1, +m[4] / (m[5] ? 100 : 1))] : null;
+}
+/** Rules that set both a text colour and a solid background: pairs under 4.5:1. CSS custom properties are resolved from :root. */
+export function cssContrast(css: string): string[] {
+  const body = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const vars = new Map([...body.matchAll(/(--[\w-]+)\s*:\s*([^;}]+)/g)].map((m) => [m[1], m[2].trim()]));
+  const val = (v: string) => v.replace(/var\((--[\w-]+)(?:,\s*([^)]+))?\)/g, (_, n, d) => vars.get(n) ?? d ?? "").trim();
+  const out: string[] = [];
+  for (const [, sel, decl] of body.matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
+    const fg = /(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(decl)?.[1], bg = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i.exec(decl)?.[1];
+    const f = fg && cssColor(val(fg)), b = bg && cssColor(val(bg));
+    if (!f || !b || b[3] < 1) continue;
+    const r = contrastRatio(f, b);
+    if (r < 4.5) out.push(`low contrast ${r.toFixed(2)}:1 in "${sel.trim().slice(0, 60)}" (${val(fg!)} on ${val(bg!)}); make it at least 4.5:1`);
+  }
+  return out;
+}
+export type SiteFiles = { html: { path: string; text: string }[]; css: { path: string; text: string }[]; images: { path: string; bytes: number }[]; credits?: string };
+export function lintSite(f: SiteFiles): string[] {
+  const out: string[] = [];
+  for (const { path, text: h } of f.html) {
+    if (!/<meta[^>]+name=["']?viewport/i.test(h)) out.push(`${path}: missing <meta name="viewport" content="width=device-width, initial-scale=1">`);
+    if (!/<html[^>]*\blang=/i.test(h)) out.push(`${path}: <html> has no lang attribute`);
+    const noAlt = [...h.matchAll(/<img\b[^>]*>/gi)].filter((m) => !/\salt\s*=/i.test(m[0])).length;
+    if (noAlt) out.push(`${path}: ${noAlt} <img> without alt text (alt="" only for decoration)`);
+    if (/<(?:link|script)\b[^>]*(?:href|src)\s*=\s*["']?(?:https?:)?\/\//i.test(h) || /@import\s+url\(\s*["']?https?:/i.test(h)) out.push(`${path}: loads an external font/CDN; the preview is offline, use system fonts and local files`);
+    for (const m of h.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) out.push(...cssContrast(m[1]).map((i) => `${path}: ${i}`));
+  }
+  for (const { path, text: c } of f.css) {
+    out.push(...cssContrast(c).map((i) => `${path}: ${i}`));
+    if (/@import\s+url\(\s*["']?https?:|@font-face[^}]*url\(\s*["']?https?:/i.test(c)) out.push(`${path}: loads an external font; use a system font stack`);
+  }
+  for (const i of f.images) if (i.bytes > IMAGE_BUDGET) out.push(`${i.path} is ${Math.round(i.bytes / 1024)} KB (budget ${IMAGE_BUDGET / 1024} KB): fetch a smaller one or drop it`);
+  const need = attributionLine(parseCredits(f.credits ?? ""));
+  const all = f.html.map((h) => h.text.replace(/<[^>]*>/g, " ")).join(" ");
+  for (const c of parseCredits(f.credits ?? "").filter((c) => c.attribution)) if (!all.includes(clean(c.author))) { out.push(`footer is missing the required image credit; add: ${need}`); break; }
+  return out;
+}
+
+// ---- Step plan: what the next step is, from the files already in the workspace (CORE's progress, and the next-step hint).
+export type SiteStep = "plan" | "server" | "layout" | "pages" | "images" | "check";
+export const SITE_STEPS: SiteStep[] = ["plan", "server", "layout", "pages", "images", "check"];
+/** plan.md's "Type: fullstack" line (the plan step decides static vs fullstack). */
+export const isFullstackPlan = (plan: string) => /^\W*type\W*:?\W*full-?stack\b/im.test(plan);
+/** Where the front end lives: public/ in a full-stack workspace (server.mjs serves it; ws-server-pure.ts template), else the root. */
+export const frontRoot = (plan: string) => (isFullstackPlan(plan) ? "public/" : "");
+export function nextSiteStep(paths: string[], plan = ""): SiteStep {
+  const root = frontRoot(plan);
+  if (!paths.includes("plan.md")) return "plan";
+  if (isFullstackPlan(plan) && !paths.includes("server.mjs")) return "server";
+  if (!paths.some((p) => p.startsWith(root) && p.endsWith(".css"))) return "layout";
+  if (!paths.includes(`${root}index.html`)) return "pages";
+  if (!paths.some((p) => p.startsWith("assets/") && !p.endsWith(".md"))) return "images";
+  return "check";
+}
+const HINT: Record<SiteStep, string> = {
+  plan: "write plan.md first (a \"Type: static\" or \"Type: fullstack\" line; audience, pages/sections, tone, palette, content outline, inspiration notes from web_search/fetch_url; for fullstack also the data model and API routes)",
+  server: "create the back end with ws_create {\"name\": <this workspace>, \"template\": \"fullstack\"} (server.mjs, /api routes, data/ store, public/), then ws_write its routes and data model from plan.md and ws_run to start and smoke-check it",
+  layout: "write the layout and CSS ({root}css/style.css) following the site guide",
+  pages: "write the pages ({root}index.html last)",
+  images: "add images with ws_fetch_image (licensed only) where the plan wants them, or inline SVG illustrations",
+  check: "fix what the check and lint list, then deliver",
+};
+export const siteStepHint = (paths: string[], plan = "") => `Next site step: ${HINT[nextSiteStep(paths, plan)].replace(/\{root\}/g, frontRoot(plan))}.`;
+/** i18n keys for the live progress labels of the pipeline's steps (CoreActivity translates them). */
+export const SITE_LABEL_KEYS: Record<string, "site.plan" | "site.layout" | "site.pages" | "site.image"> = {
+  "Writing the site plan…": "site.plan", "Writing layout and styles…": "site.layout", "Writing the pages…": "site.pages", "Finding a licensed image…": "site.image",
+};
+/** Progress label of a ws_write in the pipeline, from the files it writes; null = the generic one. */
+export function siteWriteLabel(files: unknown): string | null {
+  const p = Array.isArray(files) ? files.map((f) => String((f as { path?: unknown })?.path ?? "")) : [];
+  if (!p.length) return null;
+  if (p.every((x) => x === "plan.md")) return "Writing the site plan…";
+  if (p.every((x) => x.endsWith(".css"))) return "Writing layout and styles…";
+  if (p.some((x) => x.endsWith(".html"))) return "Writing the pages…";
+  return null;
+}
