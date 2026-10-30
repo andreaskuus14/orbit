@@ -1124,7 +1124,7 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
         <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2" aria-label={`Clips from ${job.source}`}>
           {clips.map((c) => (
             <li key={c.id} id={`cf-clip-${job.id}/${c.id}`} tabIndex={-1} className="rounded-xl focus:outline focus:outline-2 focus:outline-[#f43f5e]">
-              <ClipCard clip={c} reduced={reduced} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<><Note k={`clip:${job.id}/${c.id}`} />{c.status === "ready" && <OrbitThinks id={`clip:${job.id}/${c.id}`} />}</>}
+              <ClipCard clip={c} reduced={reduced} busy={!!busy[`clip:${job.id}/${c.id}`]} onPatch={onPatch} note={<><Note k={`clip:${job.id}/${c.id}`} />{c.status === "ready" && <OrbitThinks id={`clip:${job.id}/${c.id}`} label={tr("cf.approvalGuess")} about={tr("cf.approvalGuessWhy")} />}</>}
                 picks={(c.status === "ready" || c.status === "approved") && <>
                   <ClipPicks clip={c} busy={!!busy[`clip:${job.id}/${c.id}`]} onPick={(body) => void onPatch(c.id, body)}
                     onMore={() => void onTitles(c.id)} onReview={() => void onTitles(c.id, true)} moreBusy={!!busy[`titles:${job.id}/${c.id}`]} />
@@ -1206,6 +1206,7 @@ function ClipCard({ clip: c, reduced, busy, onPatch, note, picks, version, publi
       {c.notes?.map((n, i) => <p key={i} className="muted text-[11px]">{n}</p>)}
       {c.reason && <p className="muted line-clamp-2 text-[11px] leading-snug" title={c.reason}>{c.reason}</p>}
       <p className="muted num text-[11px]">{mmss(c.start)}–{mmss(c.end)} · {mmss(len)} · {tr(c.virality ? "cf.editor" : "cf.scoreWord")} {score(c.score)}/100</p>
+      {c.virality && <p className="text-[11px]" title={tr("cf.predictionOnly")}><b>{tr("cf.viewsForecast")}</b> {tr("cf.viewsMult", { mult: c.virality.mult.toFixed(1) })}</p>}
       {c.virality && <ScoreWhy v={c.virality} />}
       {c.video && c.error && <p className="muted text-[11px] leading-snug">⚠ {c.error}</p>}
 
@@ -1287,11 +1288,13 @@ function HookLabBox({ jobId, clip: c, started, onReload }: { jobId: string; clip
   );
 }
 
-type VersionForm = VersionEdit & { title: string; hook: string; start: number; end: number; suggest: boolean };
+export type VersionForm = VersionEdit & { title: string; hook: string; start: number; end: number; suggest: boolean };
 /** "Another version": same moment re-rendered with other settings, from the saved analysis (fast, no transcription). */
-function VersionBox({ clip: c, base, busy, onVersion, note }: { clip: Clip; base: VersionEdit; busy: boolean; onVersion: VersionFn; note: ReactNode }) {
+export function VersionBox({ clip: c, base, busy, onVersion, note, onDraft }: { clip: Clip; base: VersionEdit; busy: boolean; onVersion: VersionFn; note: ReactNode;
+  onDraft?: (f: VersionForm | null) => void }) { // onDraft: STUDIO editing workspace previews the form before a render
   const [f, setF] = useState<VersionForm | null>(null);
   const { t: tr } = useT();
+  useEffect(() => { onDraft?.(f); }, [f]); // eslint-disable-line react-hooks/exhaustive-deps -- report the form, not the callback identity
   if (!f) return (
     <div>
       <button className="chip" onClick={() => setF({ ...base, title: c.title, hook: c.hook, start: 0, end: 0, suggest: false })} aria-label={tr("cf.anotherAria", { title: c.title })}>↻ {tr("cf.another")}</button>
