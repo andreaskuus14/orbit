@@ -21,7 +21,7 @@ import { StopAll } from "./StopAll";
 import { Terminal } from "./Terminal";
 import { HalEye } from "./HalEye";
 import { notify } from "@/lib/notify-pure";
-import { agentNoticeKey } from "@/lib/interruption-pure";
+import { taskNotice } from "@/lib/interruption-pure";
 import { OPEN_MEMORY_EVENT, PALETTE_EVENT } from "@/lib/palette-pure";
 import { OPEN_SOURCE_EVENT, citeTarget, type WeekCite } from "@/lib/week-pure";
 import { MorningCard } from "./MorningCard";
@@ -378,7 +378,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) {
           setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations();
           const status = (payload.new as { payload?: { status?: string } }).payload?.status;
-          notify({ signal: "agent-finished", key: agentNoticeKey(taskId, e.type, status), reason: e.type === "agent.failed" ? `Task ${taskId.slice(0, 8)} failed and needs review.` : status === "awaiting_approval" ? `Task ${taskId.slice(0, 8)} is waiting for your approval.` : status === "cancelled" ? `Task ${taskId.slice(0, 8)} was cancelled.` : `Task ${taskId.slice(0, 8)} finished and its result is ready.`, title: e.type === "agent.failed" ? "Agent task failed" : status === "awaiting_approval" ? "Task needs your approval" : status === "cancelled" ? "Agent task cancelled" : "Agent task finished", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations", open: { kind: "task", id: taskId } } });
+          notify(taskNotice(taskId, e.type, status, (payload.new as { payload?: { title?: unknown } }).payload?.title));
         }
       })
       .subscribe((s) => setLive(s === "SUBSCRIBED" ? "live" : s === "CLOSED" || s === "CHANNEL_ERROR" || s === "TIMED_OUT" ? "offline" : "connecting"));
