@@ -177,8 +177,9 @@ export function boq(parts: Part[]): Boq {
   return { concreteM3: r2(concreteM3), rebarT: r2((concreteM3 * RULES.rebarKgPerM3) / 1000), blocks: Math.max(0, Math.ceil(r2(wallFace) / RULES.blockFace)), wallM3: Math.max(0, r2(wallM3)), roofM2: r2(roofM2), windows, doors, risers, wallM2: Math.max(0, r2(wallFace)), slabM2: r2(slabM2), windowM2: r2(windowM2) };
 }
 
-/** Unit prices in EUR (VAT excluded). source + date are shown next to every price so it can be checked. */
-export type PriceItem = { key: keyof Omit<Boq, "wallM3" | "wallM2" | "slabM2" | "windowM2">; label: string; unit: string; eur: number; source: string; date: string };
+/** Unit prices in EUR (VAT excluded). source + date are shown next to every price so it can be checked. eur null = unknown
+ *  (never counted as 0). waste = extra share bought on top of the net quantity (offcuts, breakage). */
+export type PriceItem = { key: keyof Omit<Boq, "wallM3" | "wallM2" | "slabM2" | "windowM2">; label: string; unit: string; eur: number | null; source: string; date: string; waste?: number };
 export const STARTER_PRICES: PriceItem[] = [
   { key: "concreteM3", label: "Ready-mix C25/30 XC2/XC3", unit: "m³", eur: 110, source: "starter estimate, unverified: press Check live prices", date: "" },
   { key: "rebarT", label: "Rebar B500B", unit: "t", eur: 900, source: "starter estimate, unverified: press Check live prices", date: "" },
@@ -189,15 +190,40 @@ export const STARTER_PRICES: PriceItem[] = [
   { key: "risers", label: "Stair, timber dogleg (treads, stringers, handrail)", unit: "riser", eur: 150, source: "starter estimate, unverified (~2 400 € for a 16-riser house stair): press Check live prices", date: "" },
 ];
 
-export function costLines(q: Boq, prices: PriceItem[]) {
-  const lines = prices.map((p) => ({ ...p, qty: q[p.key], total: Math.round(q[p.key] * p.eur) }));
-  return { lines, total: lines.reduce((s, l) => s + l.total, 0) };
+/** ARC04: default waste factors (teaching values, typical site allowances) and how each quantity is derived from the model. */
+export const WASTE: Record<PriceItem["key"], number> = { concreteM3: 0.05, rebarT: 0.05, blocks: 0.05, roofM2: 0.1, windows: 0, doors: 0, risers: 0 };
+const LINE_KINDS: Record<PriceItem["key"], Part["kind"][]> = { concreteM3: ["slab", "foundation"], rebarT: ["slab", "foundation"], blocks: ["wall", "window", "door"], roofM2: ["roof"], windows: ["window"], doors: ["door"], risers: ["stair"] };
+export const DERIVATION: Record<PriceItem["key"], string> = {
+  concreteM3: `slabs w×d×h + foundation strips ${RULES.stripWidth} m wide under the outer walls`,
+  rebarT: `concrete m³ × ${RULES.rebarKgPerM3} kg/m³ ÷ 1000`,
+  blocks: `net wall face (shell perimeter or straight wall × height, openings cut out) ÷ ${RULES.blockFace} m² per block, rounded up`,
+  roofM2: `roof w×d × ${RULES.roofPitchFactor} pitch factor`,
+  windows: "count of windows hosted on a wall", doors: "count of doors hosted on a wall",
+  risers: `stair height ÷ ${RULES.riserMaxMm} mm max riser, rounded up`,
+};
+export const COST_EXCLUDED = ["labour", "transport and crane", "VAT", "excavation and earthworks", "insulation, cladding and finishes (see Materials lab)", "services (heating, plumbing, electrics)", "permits and design fees"];
+export const COST_ASSUMPTIONS = [`currency EUR, VAT excluded`, `wall shell ${RULES.wallThick} m thick`, `rebar ${RULES.rebarKgPerM3} kg per m³ concrete`, "unknown prices are left out of the total and flagged, never counted as 0"];
+
+const knownPrice = (e: number | null | undefined): e is number => typeof e === "number" && Number.isFinite(e) && e >= 0;
+
+/** Each line: net qty from boq, + waste → buy qty, × price → total (null when the price is unknown); from = the model elements
+ *  that produced it (an opening with no host is left out, like in boq). total sums the known lines; unknown names the others. */
+export function costLines(q: Boq, prices: PriceItem[], parts: Part[] = []) {
+  const lines = prices.map((p) => {
+    const waste = p.waste ?? WASTE[p.key] ?? 0, qty = q[p.key];
+    const buy = p.unit === "pc" || p.unit === "riser" ? Math.ceil(r2(qty * (1 + waste))) : r2(qty * (1 + waste));
+    const from = parts.filter((x) => LINE_KINDS[p.key].includes(x.kind) && (!isOpening(x.kind) || parts.some((w) => w.id === x.host))).map((x) => x.name || x.id);
+    return { ...p, qty, waste, buy, total: knownPrice(p.eur) ? Math.round(buy * p.eur) : null, how: DERIVATION[p.key], from };
+  });
+  return { lines, total: lines.reduce((s, l) => s + (l.total ?? 0), 0), unknown: lines.filter((l) => l.total === null && l.qty > 0).map((l) => l.label), currency: "EUR" as const };
 }
 
 /** Bill of quantities as CSV (one row per line + total), for a spreadsheet. */
 export function boqCsv(c: ReturnType<typeof costLines>): string {
   const cell = (v: string | number) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-  const rows = [["Item", "Qty", "Unit", "EUR per unit", "Total EUR", "Price source"], ...c.lines.map((l) => [l.label, l.qty, l.unit, l.eur, l.total, `${l.source}${l.date ? ` ${l.date}` : ""}`]), ["Total (materials, VAT excl.)", "", "", "", c.total, ""]];
+  const rows = [["Item", "Net qty", "Waste %", "Buy qty", "Unit", "EUR per unit", "Total EUR", "Price source", "Price date", "Derivation", "From elements"],
+    ...c.lines.map((l) => [l.label, l.qty, Math.round(l.waste * 100), l.buy, l.unit, l.eur ?? "unknown", l.total ?? "unknown", l.source, l.date, l.how, l.from.join("; ")]),
+    [c.unknown.length ? `Total of known prices (materials, VAT excl.); unknown: ${c.unknown.join("; ")}` : "Total (materials, VAT excl.)", "", "", "", "", "", c.total, "", "", "", ""]];
   return rows.map((r) => r.map(cell).join(",")).join("\n") + "\n";
 }
 
