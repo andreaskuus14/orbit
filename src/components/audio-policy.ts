@@ -41,7 +41,7 @@ export function initAudioPolicy() {
   addEventListener(VOICE_PAUSE, () => set({ mic: true })); // push-to-talk opened the mic
   addEventListener(VOICE_RESUME, () => set({ mic: false }));
   onSpeakingChange((speaking) => set({ speaking }));
-  const media = () => set({ media: (getWatch()?.playing ?? null) !== null });
+  const media = () => set({ media: !!getWatch()?.audible }); // the player says it is playing (a paused or errored video is quiet)
   subscribeWatch(media);
   set({ speaking: isSpeaking(), muted: readMute() });
   media();
