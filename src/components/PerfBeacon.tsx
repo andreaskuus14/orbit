@@ -1,15 +1,15 @@
 "use client";
 // Reports long frames (>150 ms) with script attribution and galaxy context to /api/perf, so a freeze in the owner's
 // own window can be diagnosed. Also the fps meter: one rAF loop writes frame times into a preallocated ring (no
-// per-frame allocation); every 10 s the window's p50/p95/p99 and fps go up per scene. Hidden-tab time is skipped.
-// Shift+F toggles a small readout. Cheap: one POST every 10 s, only when there is something to send.
+// per-frame allocation); every 30 s the window's p50/p95/p99 and fps go up per scene in one batched POST. Hidden-tab time is skipped.
+// Shift+F toggles a small readout. Cheap: one POST every 30 s (or a beacon on pagehide), only when there is something to send.
 import { useEffect, useState } from "react";
 import { FrameRing, frameStats, sceneOf } from "@/lib/perf-pure";
 
 type Ctx = Record<string, unknown>;
 export const perfCtx: Ctx = {}; // the galaxy writes its state here (level, stop, selected, paused); Orbit writes dive
 
-const RING = 4096; // 10 s at up to ~400 Hz; it wraps (keeps the newest) past that
+const RING = 4096; // 30 s at up to ~136 Hz; it wraps (keeps the newest) past that
 const ring = new FrameRing(RING), scratch = new Float32Array(RING);
 const marks: unknown[] = [];
 /** Only in a scripted perf run (?perfrun=1, PerfRun.tsx): every mark from page load on, with the step it fell in. */
@@ -64,13 +64,19 @@ export function PerfBeacon() {
     document.addEventListener("visibilitychange", onVis);
     raf = requestAnimationFrame(tick);
 
-    const t = setInterval(() => {
+    // One batched POST every 30 s; on pagehide/hide the rest goes by sendBeacon so a closing tab still reports.
+    const send = (beacon: boolean) => {
       if (!document.hidden) flush();
       q.push(...marks.splice(0));
       if (!q.length && !frames.length) return;
-      void fetch("/api/perf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: q.splice(0), frames: frames.splice(0) }) }).catch(() => {});
-    }, 10_000);
-    return () => { po?.disconnect(); clearInterval(t); cancelAnimationFrame(raf); document.removeEventListener("visibilitychange", onVis); };
+      const body = JSON.stringify({ items: q.splice(0), frames: frames.splice(0) });
+      if (beacon && navigator.sendBeacon?.("/api/perf", new Blob([body], { type: "application/json" }))) return;
+      void fetch("/api/perf", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: beacon }).catch(() => {});
+    };
+    const t = setInterval(() => send(false), 30_000);
+    const bye = () => send(true), hide = () => { if (document.hidden) send(true); };
+    addEventListener("pagehide", bye); document.addEventListener("visibilitychange", hide);
+    return () => { po?.disconnect(); clearInterval(t); cancelAnimationFrame(raf); document.removeEventListener("visibilitychange", onVis); removeEventListener("pagehide", bye); document.removeEventListener("visibilitychange", hide); };
   }, []);
 
   // Shift+F: live readout of the current window (not while typing). Shift+Alt+P: reload into a scripted perf run.
