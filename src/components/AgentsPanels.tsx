@@ -16,6 +16,8 @@ import { useT } from "./i18n";
 import { FailureReport } from "./FailureReport";
 import { OpsStatus } from "./OpsStatus";
 import { lastProgress } from "@/lib/ops-status-pure";
+import { blockedBy, recoveryOptions } from "@/lib/tasks-recovery-pure";
+import { PREVIEW_TZ, graceMinutes, lastWith, nextOccurrences } from "@/lib/automation-preview-pure";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
 type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string; evidence?: WriteEvidence[] };
@@ -140,50 +142,65 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
     return () => clearInterval(h);
   }, [active, paused, load]);
 
-  async function act(action: string, target = id) {
+  async function act(action: string, target = id, body: object = {}) {
     setErr("");
-    try { await api(`/api/tasks/${target}`, { method: "POST", body: JSON.stringify({ action }) }); await load(); }
+    try { await api(`/api/tasks/${target}`, { method: "POST", body: JSON.stringify({ ...body, action }) }); await load(); }
     catch (e) { setErr(e instanceof Error ? e.message : t("common.failed")); }
   }
 
   if (!data) return err ? <div role="alert" className="space-y-2"><p>{t("link.missingTask")}</p><p className="muted text-[12px]">{err}</p><button className="chip" onClick={onBack}>{t("link.back")}</button></div>
     : <p className="muted">{t("common.loading")}</p>; // a deleted or mistyped link: say so, never a blank
   const { task, children } = data;
-  const stLabel = doneLabel(taskVerified(task.status, [task, ...children].flatMap((x) => x.pending))); // executed ≠ verified
+  const all = [task, ...children];
+  const stLabel = doneLabel(taskVerified(task.status, all.flatMap((x) => x.pending))); // executed ≠ verified
+  const evidence = all.flatMap((x) => x.pending.flatMap((p) => p.evidence ?? []));
+  const waiting = blockedBy(task, children);
+  const unresolved = all.flatMap((x) => x.pending.filter((p) => ["failed", "uncertain", "rejected", "attempting"].includes(p.status)).map((p) => ({ who: x.agent, p })));
+  const failedSteps = all.filter((x) => x.status === "failed" || x.status === "cancelled");
+  const wholeOk = canRetryTask(all.flatMap((x) => x.pending));
+  // OPS06: deliverables first (result, checked records, unresolved issues + recovery); request, delegation and trace collapsed below.
   return (
     <div className="space-y-3">
       <button className="link" onClick={onBack}>{t("task.back")}</button>
       <div>
         <div className="font-medium">{task.title}</div>
         <div className="text-xs"><TaskStatus t={task} label={stLabel} /><span className="muted"> · {task.agent} · {when(task.created_at)}</span></div>
+        {!!waiting.length && <p className="text-xs" role="status">{t("task.blockedBy", { list: waiting.map((c) => `${c.agent} · ${c.title} (${c.status.replace("_", " ")})`).join("; ") })}</p>}
       </div>
-      <details className="card text-sm"><summary className="cursor-pointer muted">{t("task.request")}</summary><p className="mt-2 whitespace-pre-wrap">{task.request}</p></details>
 
       {task.pending.some((p) => p.status === "pending") && task.status !== "done" && task.status !== "failed" && task.status !== "cancelled" && <Approval pending={task.pending} who={task.agent} ready={task.status === "awaiting_approval"} onAct={(a) => act(a)} />}
       {children.filter((c) => c.pending.some((p) => p.status === "pending") && c.status !== "done" && c.status !== "failed" && c.status !== "cancelled").map((c) => (
         <Approval key={c.id} pending={c.pending} who={c.agent} ready={c.status === "awaiting_approval"} onAct={(a) => act(a, c.id)} />
       ))}
-      {task.pending.some((p) => p.status !== "pending") && (
-        <ul className="muted text-xs">{task.pending.filter((p) => p.status !== "pending").map((p, i) => <li key={i}>{p.tool}: {p.status}{p.note ? ` — ${p.note}` : ""}</li>)}</ul>
-      )}
 
       {task.result && <div className="card"><Markdown text={task.result} openMemory={openMemory} /></div>}
-      <ResultEvidence items={[task, ...children].flatMap((t) => t.pending.flatMap((p) => p.evidence ?? []))} openMemory={openMemory} />
-      {task.error && <p className="error">{task.error}</p>}
-      {(task.status === "failed" || task.status === "cancelled") && !task.parent_id && (canRetryTask([task, ...children].flatMap((t) => t.pending))
-        ? <button className="chip" onClick={() => act("retry")}>{t("task.retry")}</button>
-        : <p className="muted text-xs">{t("task.noRetry")}</p>)}
-      {(task.status === "queued" || task.status === "running") && <button className="chip" onClick={() => act("cancel")}>{t("task.cancel")}</button>}
-      {(task.status === "failed" || children.some((c) => c.status === "failed")) && (
-        <FailureReport input={{ kind: children.length ? "mission" : "task", id: task.id, status: task.status, relatedIds: [task.parent_id ?? "", ...children.map((c) => c.id)],
-          error: [task.error, ...children.map((c) => c.error)].filter(Boolean).join("\n") || null,
-          trace: [...task.trace, ...children.flatMap((c) => c.trace)], request: task.request, answer: task.result ?? "" }} />
+      <ResultEvidence items={evidence} openMemory={openMemory} />
+
+      {(task.error || unresolved.length > 0 || failedSteps.length > 0) && (
+        <section className="card space-y-2 text-sm" aria-label={t("task.issues")} style={{ borderColor: "#f43f5e" }}>
+          <b>{t("task.issues")}</b>
+          {task.error && <p className="error">{task.error}</p>}
+          {!!unresolved.length && <ul className="text-xs">{unresolved.map(({ who, p }, i) => <li key={i}><b>{who}</b> · {p.tool.replace(/_/g, " ")}: {p.status}{p.note ? ` — ${p.note}` : ""}</li>)}</ul>}
+          {failedSteps.map((x) => <Recover key={x.id} task={x} wholeOk={wholeOk} label={x === task ? null : `${x.agent} · ${x.title}`} onAct={(a, body) => act(a, x.id, body)} />)}
+          {(task.status === "failed" || children.some((c) => c.status === "failed")) && (
+            <FailureReport input={{ kind: children.length ? "mission" : "task", id: task.id, status: task.status, relatedIds: [task.parent_id ?? "", ...children.map((c) => c.id)],
+              error: [task.error, ...children.map((c) => c.error)].filter(Boolean).join("\n") || null,
+              trace: [...task.trace, ...children.flatMap((c) => c.trace)], request: task.request, answer: task.result ?? "" }} />
+          )}
+        </section>
       )}
+      {(task.status === "queued" || task.status === "running") && <button className="chip" onClick={() => act("cancel")}>{t("task.cancel")}</button>}
       {task.status === "done" && !task.parent_id && !task.title.startsWith("Team: ") && <SaveRecipe task={task} />}
 
+      <details className="card text-sm"><summary className="cursor-pointer muted">{t("task.request")}</summary><p className="mt-2 whitespace-pre-wrap">{task.request}</p></details>
+      {task.pending.some((p) => p.status === "approved") && (
+        <details className="text-xs"><summary className="cursor-pointer muted">{t("task.actions")}</summary>
+          <ul className="muted mt-1">{task.pending.filter((p) => p.status === "approved").map((p, i) => <li key={i}>{p.tool}: {p.status}{p.note ? ` — ${p.note}` : ""}</li>)}</ul>
+        </details>
+      )}
       {!!children.length && (
-        <div>
-          <h3 className="h3">{t("task.delegated")}</h3>
+        <details open={children.some((c) => c.status === "running" || c.status === "awaiting_approval")}>
+          <summary className="cursor-pointer h3">{t("task.delegated")} ({children.length})</summary>
           <ul className="mt-1 space-y-2">
             {children.map((c) => (
               <li key={c.id} className="card text-sm">
@@ -194,14 +211,38 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
               </li>
             ))}
           </ul>
-        </div>
+        </details>
       )}
 
       <details open={task.status === "running"} className="text-xs">
         <summary className="cursor-pointer muted">{t("task.trace", { n: task.trace.length })}</summary>
         <ul className="mt-1 space-y-0.5">{task.trace.map((s, n) => <li key={n}>{s.ok ? "✓" : "✗"} <b>{s.step}</b> · {s.ms}ms · <span className="muted">{s.detail}</span></li>)}</ul>
       </details>
-      {err && <p className="error">{err}</p>}
+      {err && <p className="error" role="alert">{err}</p>}
+    </div>
+  );
+}
+
+/** OPS04: recovery at one failed task / chain step. Evidence (result, receipts, trace) is never cleared by these. */
+function Recover({ task, wholeOk, label, onAct }: { task: Task; wholeOk: boolean; label: string | null; onAct: (a: string, body?: object) => void }) {
+  const { t } = useT();
+  const [input, setInput] = useState<string | null>(null);
+  const opts = recoveryOptions(task, task.pending, wholeOk);
+  if (!opts.length) return task.parent_id ? null : <p className="muted text-xs">{t("task.noRetry")}</p>;
+  return (
+    <div className="space-y-1.5 text-xs">
+      {label && <b>{label}</b>}
+      <div className="flex flex-wrap gap-1.5">
+        {opts.includes("retry_step") && <button className="chip" onClick={() => onAct("retry_step")}>{t("task.retryStep")}</button>}
+        {opts.includes("resume") && <button className="chip" onClick={() => onAct("resume")}>{t("task.resume")}</button>}
+        {opts.includes("replace_input") && input === null && <><button className="chip" onClick={() => onAct("retry")}>{t("task.retry")}</button><button className="chip" onClick={() => setInput(task.request)}>{t("task.replaceInput")}</button></>}
+        {opts.includes("abandon") && <button className="chip" onClick={() => onAct("abandon")}>{t("task.abandon")}</button>}
+      </div>
+      {input !== null && <form className="space-y-1.5" onSubmit={(e) => { e.preventDefault(); onAct("replace_input", { request: input }); setInput(null); }}>
+        <textarea className="field w-full" rows={4} aria-label={t("task.replaceInput")} value={input} maxLength={4000} onChange={(e) => setInput(e.target.value)} />
+        <div className="flex gap-1.5"><button className="chip" disabled={input.trim().length < 5}>{t("task.rerun")}</button><button type="button" className="chip" onClick={() => setInput(null)}>{t("common.cancel")}</button></div>
+      </form>}
+      <p className="muted">{t("task.recoverHint")}</p>
     </div>
   );
 }
@@ -536,6 +577,7 @@ export function AutomationsView({ agents, onOpenTask }: { agents: AutomationAgen
             </div>
             {editing === a.id && form}
             <div className="muted text-xs">{a.when} → {a.agent} · {tn("auto.runs", a.run_count)}{a.enabled ? "" : tr("auto.paused")}</div>
+            <details className="mt-1 text-xs"><summary className="cursor-pointer muted">{tr("auto.preview")}</summary><AutoPreview a={a} /></details>
             {a.last && (
               <div className="mt-1 text-xs">
                 {tr("auto.lastRun")} <button className="link" aria-label={`${tr("auto.lastRun")} ${a.last.status}`} onClick={() => onOpenTask(a.last!.id)}><OpsStatus raw={a.last.status} /></button>
@@ -549,5 +591,25 @@ export function AutomationsView({ agents, onOpenTask }: { agents: AutomationAgen
       </ul>
       {err && <p className="error" role="alert">{err}</p>}
     </div>
+  );
+}
+
+/** OPS05: what this automation will do and when (Tallinn clock), with its last outcomes. */
+function AutoPreview({ a }: { a: Automation }) {
+  const { t } = useT();
+  const ok = lastWith(a.runs, "done"), bad = lastWith(a.runs, "failed");
+  const at = (d: Date | string) => new Date(d).toLocaleString([], { timeZone: PREVIEW_TZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return (
+    <dl className="mt-1 space-y-0.5">
+      <div><dt className="inline muted">{t("auto.trigger")} </dt><dd className="inline">{a.when}</dd></div>
+      {a.trigger === "schedule" && a.schedule && <>
+        <div><dt className="inline muted">{t("auto.tz")} </dt><dd className="inline">{PREVIEW_TZ}</dd></div>
+        <div><dt className="inline muted">{t("auto.next")} </dt><dd className="inline">{a.enabled ? nextOccurrences(a.schedule, new Date()).map(at).join(" · ") : t("auto.pausedNone")}</dd></div>
+        <div className="muted">{t("auto.dst")} {t("auto.missed", { min: graceMinutes(a.schedule) })}</div>
+      </>}
+      <div><dt className="inline muted">{t("auto.lastOk")} </dt><dd className="inline">{ok ? at(ok.created_at) : "—"}</dd></div>
+      <div><dt className="inline muted">{t("auto.lastFail")} </dt><dd className="inline">{bad ? `${at(bad.created_at)}${bad.error ? ` · ${bad.error.slice(0, 80)}` : ""}` : "—"}</dd></div>
+      <div><dt className="inline muted">{t("auto.effects")} </dt><dd className="inline">{t("auto.effectsText", { agent: a.agent })}</dd></div>
+    </dl>
   );
 }
