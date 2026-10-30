@@ -101,7 +101,7 @@ const txt = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+
 /** A new entry: why (thesis), what would prove it wrong (invalidation) and when to look again. No price target: no predictions. */
 export function journalEntry(x: Record<string, unknown>, id: string, now: Date, priceAt: number | null): JournalEntry | string {
   const ticker = txt(x.ticker, 15).toUpperCase(), thesis = txt(x.thesis, 500), invalidation = txt(x.invalidation, 300), reviewOn = txt(x.reviewOn, 10);
-  const action = ["buy", "sell", "hold", "watch"].includes(x.action as string) ? (x.action as JournalEntry["action"]) : null;
+  const action = ["buy", "sell", "hold", "watch"].includes(x.decision as string) ? (x.decision as JournalEntry["action"]) : null; // "decision": the API's "action" routes the request
   if (!ticker || !action) return "Ticker and decision are required";
   if (thesis.length < 10) return "Write the reason (10+ characters)";
   if (invalidation.length < 5) return "Write what would prove it wrong";

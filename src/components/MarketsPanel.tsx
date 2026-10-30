@@ -225,7 +225,7 @@ function StudyBox({ strategy }: { strategy: Strategy }) {
 /** MKT08: decisions with the reason, what would prove them wrong and a review date; reviewed by him, not scored by price. */
 function Journal({ st, act }: { st: State; act: Act }) {
   const { t: tr } = useT();
-  const blank = { ticker: "", action: "buy", thesis: "", invalidation: "", reviewOn: "" };
+  const blank = { ticker: "", decision: "buy", thesis: "", invalidation: "", reviewOn: "" };
   const [f, setF] = useState(blank);
   const today = new Date().toISOString().slice(0, 10), tally = journalTally(st.journal);
   return (
@@ -234,7 +234,7 @@ function Journal({ st, act }: { st: State; act: Act }) {
       <form className="grid gap-1.5" onSubmit={async (e) => { e.preventDefault(); if (await act({ action: "journal", ...f })) setF(blank); }}>
         <div className="grid grid-cols-[1fr_auto_auto] gap-1.5">
           <input className="field min-w-0" placeholder={tr("mk.ticker")} aria-label={tr("mk.ticker")} maxLength={15} value={f.ticker} onChange={(e) => setF({ ...f, ticker: e.target.value })} />
-          <select className="field" aria-label={tr("mk.j.decision")} value={f.action} onChange={(e) => setF({ ...f, action: e.target.value })}>
+          <select className="field" aria-label={tr("mk.j.decision")} value={f.decision} onChange={(e) => setF({ ...f, decision: e.target.value })}>
             {["buy", "sell", "hold", "watch"].map((a) => <option key={a} value={a}>{tr(`mk.j.a.${a}` as Key)}</option>)}
           </select>
           <input className="field" type="date" aria-label={tr("mk.j.reviewOn")} min={today} value={f.reviewOn} onChange={(e) => setF({ ...f, reviewOn: e.target.value })} />

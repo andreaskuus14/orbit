@@ -32,7 +32,7 @@ import { smoothDamp } from "@/lib/smooth-damp-pure";
 import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clamp, currentTask, orbitPos, statusGlow, statusVisual, streamFrac, type AgentStatus } from "@/lib/station-pure";
 import { MaskText } from "./MaskText";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
-import { NightPlan, OPS_HREF, WorkerCards, type Deps, type ToolInfo } from "./Workforce";
+import { NightPlan, OPS_HREF, Scorecards, WorkerCards, type Deps, type ToolInfo } from "./Workforce";
 import { useT } from "./i18n";
 
 // AGENTS → a floating obsidian ring station (alien megastructure theme): each agent is a ship circling its docking lane,
@@ -572,7 +572,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
               context={<>{t("agt.context", { n: list.length, w: list.filter((a) => status[a.slug] === "working").length, a: list.filter((a) => status[a.slug] === "waiting").length })}{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</>}
               action={<a className="chip" href={OPS_HREF}>{t("agt.opsLink")}</a>}>
             {tab === "performance" ? (
-              <><NightPlan /><TonightPanel /></>
+              <><Scorecards /><NightPlan /><TonightPanel /></>
             ) : tab === "skills" ? <SkillsPanel />
             : tab === "recipes" ? <RecipesPanel onOpenTask={onOpenTask} />
             : tab === "ideas" ? <IdeasPanel initialUrl={radarUrl} onConsumed={onRadarDone} />

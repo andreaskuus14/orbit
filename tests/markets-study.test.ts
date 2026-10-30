@@ -40,9 +40,9 @@ test("MKT07 refuses short or missing history", () => {
 
 test("MKT08 journal: needs thesis, invalidation, future review date; review is his outcome", () => {
   const now = new Date("2026-10-30T10:00:00Z");
-  assert.equal(typeof journalEntry({ ticker: "spy", action: "buy", thesis: "short", invalidation: "x", reviewOn: "2026-12-01" }, "1", now, 1), "string");
-  assert.equal(journalEntry({ ticker: "spy", action: "buy", thesis: "Broad index for ten years", invalidation: "need cash", reviewOn: "2026-10-30" }, "1", now, 1), "Review date must be a future date");
-  const e = journalEntry({ ticker: "spy", action: "buy", thesis: "Broad index for ten years", invalidation: "need the cash", reviewOn: "2026-12-01" }, "1", now, 500);
+  assert.equal(typeof journalEntry({ ticker: "spy", decision: "buy", thesis: "short", invalidation: "x", reviewOn: "2026-12-01" }, "1", now, 1), "string");
+  assert.equal(journalEntry({ ticker: "spy", decision: "buy", thesis: "Broad index for ten years", invalidation: "need cash", reviewOn: "2026-10-30" }, "1", now, 1), "Review date must be a future date");
+  const e = journalEntry({ ticker: "spy", decision: "buy", thesis: "Broad index for ten years", invalidation: "need the cash", reviewOn: "2026-12-01" }, "1", now, 500);
   assert.ok(typeof e !== "string");
   assert.equal(e.ticker, "SPY");
   assert.equal(reviewDue(e, "2026-11-30"), false);
