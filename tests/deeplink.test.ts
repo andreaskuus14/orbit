@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { linkToHash, linkFromHash, withView, shouldPush } from "../src/lib/deeplink-pure.ts";
 
 test("round-trips planet, view and record by internal id", () => {
-  for (const l of [{ planet: "creation" as const }, { planet: "business" as const, view: "client", kind: "client" as const, id: "a1-b2" }, { planet: "operations" as const, kind: "task" as const, id: "t9" }])
+  for (const l of [{ planet: "creation" as const }, { planet: "business" as const, view: "client", kind: "client" as const, id: "a1-b2" }, { planet: "operations" as const, kind: "task" as const, id: "t9" }, { planet: "studio" as const, view: "review", kind: "review" as const, id: "abc123-0f0f0f:clip-2-v1" }])
     assert.deepEqual(linkFromHash(linkToHash(l)), l);
   assert.equal(linkToHash(null), "");
 });

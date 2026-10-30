@@ -2,7 +2,7 @@
 // Planet workspace frame (G01): header (planet name, one line of context, one primary action), a tab row of views, then the
 // chosen view. The last view per planet is remembered on this device. Pure rules: lib/planet-view-pure.ts.
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
-import { pickView, viewKey } from "@/lib/planet-view-pure";
+import { pickView, viewKey } from "@/lib/view-key-pure";
 import { withView } from "@/lib/deeplink-pure";
 
 export type View<V extends string> = { id: V; label: string; secondary?: boolean };
