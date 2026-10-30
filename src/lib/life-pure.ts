@@ -8,6 +8,9 @@ export type Habit = {
   id: string; name: string; emoji: string; days: number[]; created: string; done: string[];
   // Habit engine (habit-nudge-pure): window = minutes of the day, nudge absent = off, at = check-in minute per day, nudged = last nudge day.
   window?: { from: number; to: number }; nudge?: "toast" | "push"; at?: Record<string, number>; nudged?: string; ignored?: number;
+  // LIF04: target = check-ins a week (any of its days); unit + goal = a quantity habit (amount per day in qty, done once it reaches goal);
+  // pauses = date ranges it is off (holiday, illness); rest = single rest days he took. Off days never break a streak or count as missed.
+  target?: number; unit?: string; goal?: number; qty?: Record<string, number>; pauses?: { from: string; to: string }[]; rest?: string[];
 };
 export const REPEATS = ["daily", "weekdays", "weekly"] as const;
 export type Repeat = (typeof REPEATS)[number];
@@ -18,7 +21,8 @@ export type Reminder = { id: string; text: string; at: string; fired?: string; r
 export type WorkLog = { day: string; task: string; min: number };
 export type LifeStore = { habits: Habit[]; reminders: Reminder[]; focus: Record<string, number>; journal: Record<string, string>; work?: WorkLog[]; timer?: FocusTimer };
 export type DayDot = { date: string; scheduled: boolean; done: boolean };
-export type HabitView = Habit & { streak: number; week: DayDot[]; doneToday: boolean; scheduledToday: boolean };
+/** weekDone: check-ins this week (Mon–today); off: paused or a rest day today; trend: neutral 4-week direction (LIF04). Optional: older callers build views without them. */
+export type HabitView = Habit & { streak: number; week: DayDot[]; doneToday: boolean; scheduledToday: boolean; weekDone?: number; off?: boolean; trend?: Trend; amountToday?: number };
 export type LifeState = {
   today: string; habits: HabitView[]; reminders: Reminder[];
   focus: { today: number; week: number }; journal: { date: string; text: string }[];
@@ -41,21 +45,113 @@ export const weekday = (k: string) => fromKey(k).getDay();
 /** Monday of the week containing k. */
 export const weekStart = (k: string) => addDays(k, -((weekday(k) + 6) % 7));
 
-/** Consecutive scheduled days done, ending today. Today not done yet doesn't break it; unscheduled days are skipped. */
-export function streak(h: Pick<Habit, "days" | "done" | "created">, today: string): number {
+type Sched = Pick<Habit, "days" | "pauses" | "rest">;
+/** Paused or a rest day: not expected, not missed. */
+export const isOff = (h: Pick<Habit, "pauses" | "rest">, k: string) => !!h.rest?.includes(k) || !!h.pauses?.some((p) => k >= p.from && k <= p.to);
+export const scheduledOn = (h: Sched, k: string) => h.days.includes(weekday(k)) && !isOff(h, k);
+/** Check-ins in the Mon–Sun week of k, up to k. */
+export const weekCount = (h: Pick<Habit, "done">, k: string) => { const ws = weekStart(k); return h.done.filter((d) => d >= ws && d <= k).length; };
+
+/** Consecutive scheduled days done, ending today. Today not done yet doesn't break it; unscheduled and off days are skipped.
+ *  A weekly-target habit counts weeks that met the target (this week only once met; a fully paused week is skipped). */
+export function streak(h: Sched & Pick<Habit, "done" | "created" | "target">, today: string): number {
   if (!h.days.length) return 0;
   const done = new Set(h.done);
   let n = 0;
+  if (h.target) {
+    for (let ws = weekStart(today), i = 0; i < 150 && addDays(ws, 6) >= h.created; ws = addDays(ws, -7), i++) {
+      const end = ws === weekStart(today) ? today : addDays(ws, 6);
+      if ([0, 1, 2, 3, 4, 5, 6].every((d) => isOff(h, addDays(ws, d)))) continue;
+      if (weekCount(h, end) >= h.target) n++;
+      else if (ws !== weekStart(today)) break;
+    }
+    return n;
+  }
   for (let k = today, i = 0; i < 1000 && k >= h.created; k = addDays(k, -1), i++) {
-    if (!h.days.includes(weekday(k))) continue;
+    if (!scheduledOn(h, k)) continue;
     if (done.has(k)) n++;
     else if (k !== today) break;
   }
   return n;
 }
 
-export const last7 = (h: Pick<Habit, "days" | "done">, today: string): DayDot[] =>
-  [6, 5, 4, 3, 2, 1, 0].map((i) => { const date = addDays(today, -i); return { date, scheduled: h.days.includes(weekday(date)), done: h.done.includes(date) }; });
+export const last7 = (h: Sched & Pick<Habit, "done">, today: string): DayDot[] =>
+  [6, 5, 4, 3, 2, 1, 0].map((i) => { const date = addDays(today, -i); return { date, scheduled: scheduledOn(h, date), done: h.done.includes(date) }; });
+
+/** Expected today: a weekly-target habit until this week's target is met, else its scheduled days. Never on an off day. */
+export const dueToday = (h: Sched & Pick<Habit, "done" | "target">, today: string) =>
+  !isOff(h, today) && (h.target ? h.days.includes(weekday(today)) && weekCount(h, today) - (h.done.includes(today) ? 1 : 0) < h.target : scheduledOn(h, today));
+
+/** Share of what was expected that got done, per week (oldest first), over the last `weeks` full weeks. Off days drop out. null = nothing expected. */
+export function weekRates(h: Sched & Pick<Habit, "done" | "created" | "target">, today: string, weeks = 4): (number | null)[] {
+  const out: (number | null)[] = [];
+  for (let w = weeks; w >= 1; w--) {
+    const ws = addDays(weekStart(today), -7 * w), keys = [0, 1, 2, 3, 4, 5, 6].map((d) => addDays(ws, d)).filter((k) => k >= h.created);
+    const exp = keys.filter((k) => scheduledOn(h, k)), did = keys.filter((k) => h.done.includes(k)).length;
+    const want = h.target ? Math.min(h.target, exp.length) : exp.length;
+    out.push(want ? Math.min(1, (h.target ? did : exp.filter((k) => h.done.includes(k)).length) / want) : null);
+  }
+  return out;
+}
+export type Trend = "new" | "up" | "steady" | "down";
+/** Neutral direction: last two weeks vs the two before (needs both halves). Wording in the UI never scolds. */
+export function trend(rates: (number | null)[]): Trend {
+  const avg = (xs: (number | null)[]) => { const v = xs.filter((x): x is number => x !== null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const half = rates.length >> 1, a = avg(rates.slice(0, half)), b = avg(rates.slice(half));
+  if (a === null || b === null) return "new";
+  return b - a > 0.15 ? "up" : a - b > 0.15 ? "down" : "steady";
+}
+
+export const MAX_UNIT = 20, MAX_GOAL = 10_000, MAX_PAUSE_DAYS = 120, MAX_REST = 60;
+export type HabitPlan = { target?: number | null; unit?: string | null; goal?: number | null; pause?: { from: string; to: string } | null; rest?: string };
+/** Validated LIF04 options → a patch to apply, or why not. null fields clear the option. */
+export function habitPlanPatch(b: Record<string, unknown>): HabitPlan | string {
+  const out: HabitPlan = {};
+  if (b.target !== undefined) {
+    if (b.target !== null && !(Number.isInteger(b.target) && (b.target as number) >= 1 && (b.target as number) <= 7)) return "Weekly target must be 1–7";
+    out.target = b.target as number | null;
+  }
+  if (b.unit !== undefined || b.goal !== undefined) {
+    if (b.unit === null || b.goal === null) { out.unit = null; out.goal = null; }
+    else {
+      const u = typeof b.unit === "string" ? b.unit.replace(/\s+/g, " ").trim() : "", g = Number(b.goal);
+      if (!u || u.length > MAX_UNIT || /[<>]/.test(u)) return `Unit must be 1–${MAX_UNIT} characters`;
+      if (!Number.isFinite(g) || g <= 0 || g > MAX_GOAL) return `Daily goal must be more than 0 and at most ${MAX_GOAL}`;
+      out.unit = u; out.goal = Math.round(g * 100) / 100;
+    }
+  }
+  if (b.pause !== undefined) {
+    const p = b.pause as { from?: unknown; to?: unknown } | null;
+    if (p !== null && !(isDateKey(p?.from) && isDateKey(p?.to) && p.from <= p.to && addDays(p.from, MAX_PAUSE_DAYS) >= p.to)) return `A pause needs from ≤ to, at most ${MAX_PAUSE_DAYS} days`;
+    out.pause = p as HabitPlan["pause"];
+  }
+  if (b.rest !== undefined) { if (!isDateKey(b.rest)) return "Rest day must be a date"; out.rest = b.rest; }
+  return out;
+}
+/** Applies a patch (mutates). A pause replaces any pause that overlaps it; null ends pauses from today on; rest toggles that day. */
+export function applyHabitPlan(h: Habit, p: HabitPlan, today: string): void {
+  if (p.target !== undefined) { if (p.target === null) delete h.target; else h.target = p.target; }
+  if (p.unit !== undefined) { if (p.unit === null) { delete h.unit; delete h.goal; } else { h.unit = p.unit; h.goal = p.goal!; } }
+  if (p.pause !== undefined) {
+    const keep = (h.pauses ?? []).filter((x) => x.to >= addDays(today, -90)); // old pauses only matter for recent streaks
+    if (p.pause === null) h.pauses = keep.map((x) => (x.to >= today ? { ...x, to: addDays(today, -1) } : x)).filter((x) => x.from <= x.to);
+    else h.pauses = [...keep.filter((x) => x.to < p.pause!.from || x.from > p.pause!.to), p.pause].sort((a, b) => a.from.localeCompare(b.from)).slice(-10);
+    if (!h.pauses.length) delete h.pauses;
+  }
+  if (p.rest !== undefined) {
+    const set = new Set(h.rest ?? []);
+    if (set.has(p.rest)) set.delete(p.rest); else set.add(p.rest);
+    h.rest = [...set].sort().slice(-MAX_REST);
+    if (!h.rest.length) delete h.rest;
+  }
+}
+/** A quantity check-in: the day's amount (0 clears it) and whether it reached the goal. */
+export function recordAmount(h: Habit, day: string, amount: number): boolean {
+  const q = { ...h.qty };
+  if (amount > 0) q[day] = Math.min(MAX_GOAL * 10, Math.round(amount * 100) / 100); else delete q[day];
+  h.qty = Object.fromEntries(Object.entries(q).sort(([a], [b]) => a.localeCompare(b)).slice(-400));
+  return amount > 0 && amount >= (h.goal ?? 1);
+}
 
 export function cleanName(v: unknown): string | null {
   if (typeof v !== "string") return null;
@@ -106,7 +202,8 @@ export function view(s: LifeStore, now: number): LifeState {
   const ws = weekStart(today);
   return {
     today,
-    habits: s.habits.map((h) => ({ ...h, streak: streak(h, today), week: last7(h, today), doneToday: h.done.includes(today), scheduledToday: h.days.includes(weekday(today)) })),
+    habits: s.habits.map((h) => ({ ...h, streak: streak(h, today), week: last7(h, today), doneToday: h.done.includes(today), scheduledToday: dueToday(h, today),
+      weekDone: weekCount(h, today), off: isOff(h, today), trend: trend(weekRates(h, today)), ...(h.qty?.[today] !== undefined && { amountToday: h.qty[today] }) })),
     reminders: visibleReminders(s.reminders, now),
     focus: { today: s.focus[today] ?? 0, week: Object.entries(s.focus).filter(([k]) => k >= ws && k <= today).reduce((a, [, m]) => a + m, 0) },
     work: (s.work ?? []).filter((w) => w.day === today), timer: s.timer ?? null, review: reviewState(s.reminders, now),

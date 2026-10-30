@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import {
-  MAX_HABITS, MAX_JOURNAL, MAX_OPEN_REMINDERS, MAX_REMINDER, addDays, cleanDays, cleanEmoji, cleanName, dateKey, dueReminders,
+  MAX_HABITS, MAX_JOURNAL, MAX_OPEN_REMINDERS, MAX_REMINDER, addDays, applyHabitPlan, cleanDays, recordAmount, type HabitPlan, cleanEmoji, cleanName, dateKey, dueReminders,
   emptyStore, isDateKey, isRepeat, matchHabit, pruneReminders, reminderTimeError, streak, summaryText, view,
   type Habit, type LifeState, type LifeStore, type Reminder, type Repeat,
 } from "./life-pure";
@@ -82,13 +82,15 @@ export async function removeHabit(id: string): Promise<boolean> {
   return update((s) => { const before = s.habits.length; s.habits = s.habits.filter((h) => h.id !== id); return s.habits.length < before; });
 }
 
-export async function checkHabit(nameOrId: string, done = true, date?: string): Promise<{ ok: true; name: string; streak: number } | { error: string }> {
+/** amount: a quantity habit's amount for the day (done once it reaches the goal; 0 clears the day). */
+export async function checkHabit(nameOrId: string, done = true, date?: string, amount?: number): Promise<{ ok: true; name: string; streak: number } | { error: string }> {
   const t = today();
   const day = date ?? t;
   if (!isDateKey(day) || day > t || day < addDays(t, -60)) return { error: "Date must be within the last 60 days" };
   return update((s) => {
     const h = matchHabit(s.habits, String(nameOrId ?? "").slice(0, 80));
     if (!h) return { error: `No habit matches “${nameOrId}”` };
+    if (amount !== undefined) done = recordAmount(h, day, amount);
     const set = new Set(h.done);
     if (done) set.add(day); else set.delete(day);
     h.done = [...set].sort().slice(-400); // shortcut: keeps ~400 completions per habit; enough for streak display
@@ -111,6 +113,14 @@ export async function setHabitNudge(id: string, when: string, channel: string): 
     return { ok: true as const };
   });
 }
+
+/** LIF04: weekly target, quantity unit/goal, a pause or a rest day (validated by habitPlanPatch). */
+export const setHabitPlan = (id: string, p: HabitPlan) => update((s) => {
+  const h = s.habits.find((x) => x.id === id);
+  if (!h) return { error: "Habit not found" };
+  applyHabitPlan(h, p, today());
+  return { ok: true as const };
+});
 
 /** Habits to nudge now (habit-nudge-pure decides); each is marked nudged for today first so no window shows it twice. */
 export async function claimNudges(now: number, ctx: NudgeCtx): Promise<Habit[]> {

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir";
 import {
-  MAX_COURSES, MAX_ITEMS, archLink, clean, dayKey, dueMs, emptyStore, hoursOk, parseStore, patchSettings, planSchool, prepText, schoolBrief, validateItem,
+  MAX_COURSES, MAX_ITEMS, MAX_NEXT, archLink, clean, cleanSources, dayKey, dueMs, emptyStore, hoursOk, parseStore, patchSettings, planSchool, prepText, schoolBrief, validateItem,
   type Busy, type SchoolStore,
 } from "./school-pure";
 
@@ -90,12 +90,17 @@ export async function schoolAction(b: Record<string, unknown>, userId: string): 
         s.items.push(it);
         return { ok: true as const, id: it.id };
       });
-    case "updateItem": // hours left and/or done
+    case "updateItem": // hours left, done, next action and/or VAULT sources
       return update((s) => {
         const it = s.items.find((i) => i.id === id);
         if (!it) return { error: "Not found" };
         if (b.hours !== undefined) { const h = hoursOk(b.hours); if (h === null) return { error: "Hours must be 0–200" }; it.hours = h; }
-        if (b.done !== undefined) { if (typeof b.done !== "boolean") return { error: "done must be true or false" }; it.done = b.done; }
+        if (b.done !== undefined) {
+          if (typeof b.done !== "boolean") return { error: "done must be true or false" };
+          it.done = b.done; if (b.done) it.doneAt = new Date(now).toISOString(); else delete it.doneAt;
+        }
+        if (b.next !== undefined) { const n = clean(b.next, MAX_NEXT); if (n) it.next = n; else delete it.next; }
+        if (b.sources !== undefined) { const src = cleanSources(b.sources); if (typeof src === "string") return { error: src }; if (src.length) it.sources = src; else delete it.sources; }
         return { ok: true as const };
       });
     case "removeItem":

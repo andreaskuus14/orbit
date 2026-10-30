@@ -1,11 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import StateNote from "./StateNote";
-import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, REPEAT_LABEL, isRepeat, type HabitView, type LifeState } from "@/lib/life-pure";
+import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, MAX_UNIT, REPEAT_LABEL, addDays, isRepeat, type HabitView, type LifeState } from "@/lib/life-pure";
 import { hhmm, nudgeMinute, windowLabel } from "@/lib/habit-nudge-pure";
 import type { LifeView } from "@/lib/nav-pure";
 import { FOCUS_TIMER_KEY, advanceFocusTimer, focusPhaseSeconds, pickTimer, restoreFocusTimer, workedMinutes, type FocusTimer, type RestoredFocusTimer } from "@/lib/focus-timer-pure";
-import { hhmm as clock, type DayPlan } from "@/lib/dayplan-pure";
+import { hhmm as clock, type Block, type DayPlan } from "@/lib/dayplan-pure";
+import type { WeekReview } from "@/lib/life-week-pure";
 import { nextAction, whyKey } from "@/lib/life-plan-pure";
 import { useT } from "./i18n";
 import WorkspaceFrame, { useWorkspaceView, type View } from "./WorkspaceFrame";
@@ -134,14 +135,15 @@ function Today({ st, act, plan, planAct, focusOn }: { st: LifeState; act: Act; p
             {plan.blocks.map((b) => (
               <li key={b.id} className="flex gap-2" style={b.flexible ? undefined : { opacity: 0.75 }}>
                 <span className="font-mono text-xs muted w-24 shrink-0">{clock(b.start)}–{clock(b.end)}</span>
-                <span className="flex-1">{b.done ? "✓ " : ""}{b.title}</span>
+                <span className="flex-1">{b.done ? "✓ " : ""}{b.title}<Why b={b} /></span>
                 <span className="muted text-xs">{t(b.flexible ? "life.suggested" : "life.fixed")}</span>
+                {b.flexible && !b.done && <Defer id={b.id} title={b.title} planAct={planAct} />}
               </li>
             ))}
           </ol>
           {plan.unplaced.length > 0 && <>
             <div className="muted text-[11px] uppercase tracking-widest pt-1">{t("life.unscheduled")}</div>
-            <ul className="space-y-1 text-sm">{plan.unplaced.map((u) => <li key={u.id}>{u.title} <span className="muted text-xs">· {t(whyKey(u))}</span></li>)}</ul>
+            <ul className="space-y-1 text-sm">{plan.unplaced.map((u) => <li key={u.id} className="flex gap-2"><span className="flex-1">{u.title} <span className="muted text-xs">· {t(whyKey(u))}</span></span><Defer id={u.id} title={u.title} planAct={planAct} /></li>)}</ul>
           </>}
         </section>
       )}
@@ -150,7 +152,8 @@ function Today({ st, act, plan, planAct, focusOn }: { st: LifeState; act: Act; p
           <li key={h.id} className="card flex items-center gap-3 text-sm">
             <button className="chip" aria-pressed={h.doneToday} aria-label={`${h.name}: ${t(h.doneToday ? "life.markUndone" : "life.markDone")}`}
               onClick={() => act({ action: "check", id: h.id, done: !h.doneToday })}>{h.doneToday ? "✓" : "○"}</button>
-            <span className="flex-1">{h.emoji} {h.name}</span>
+            <span className="flex-1">{h.emoji} {h.name}{h.target ? <span className="muted text-xs"> · {t("habit.week", { n: h.weekDone ?? 0, target: h.target })}</span> : null}</span>
+            {h.unit && <Amount h={h} act={act} />}
             <span className="muted text-xs" title={t("life.streak")}>🔥{h.streak}</span>
             <Dots h={h} />
           </li>
@@ -196,6 +199,7 @@ function Review({ st, act, review }: { st: LifeState; act: Act; review: { text: 
   const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Tallinn" });
   return (
     <div className="space-y-3">
+      <WeekCard />
       <section className="card space-y-1"><b>{t("life.reviewDay")}</b><p className="text-sm">{review?.text ?? <span className="muted">{t("life.notAccepted")}</span>}</p></section>
       <ul className="space-y-2">
         {st.review.unacked.map((r) => (
@@ -250,10 +254,13 @@ function Habits({ st, act }: { st: LifeState; act: Act }) {
                 {h.emoji} {h.name}
                 <span className="muted block text-xs">{h.days.length === 7 ? t("life.everyDay") : h.days.map((d) => DAY_NAMES[d].slice(0, 3)).join(", ")} · 🔥{h.streak}
                   {h.window && h.nudge && t("habit.nudgeAt", { t: hhmm(nudgeMinute(h, st.today)!) })}</span>
+                <span className="muted block text-xs">{[h.target && t("habit.week", { n: h.weekDone ?? 0, target: h.target }), h.unit && t("habit.qtyToday", { n: h.amountToday ?? 0, goal: h.goal ?? 0, unit: h.unit }),
+                  pausedTill(h, st.today) ? t("habit.paused", { d: pausedTill(h, st.today)! }) : h.off && t("habit.offToday"), h.trend && t(`habit.trend.${h.trend}`)].filter(Boolean).join(" · ")}</span>
               </span>
               <button className="chip" onClick={() => remove(h)} aria-label={t("life.deleteAria", { name: h.name })}>{t("rules.delete")}</button>
             </div>
             <NudgeEdit key={`${h.window?.from}-${h.window?.to}-${h.nudge}`} h={h} act={act} />
+            <PlanEdit key={`${h.target}-${h.unit}-${h.goal}`} h={h} today={st.today} act={act} />
           </li>
         ))}
       </ul>
@@ -275,6 +282,96 @@ function NudgeEdit({ h, act }: { h: HabitView; act: Act }) {
       </select>
       <button className="chip">{t("habit.save")}</button>
     </form>
+  );
+}
+
+const pausedTill = (h: HabitView, today: string) => h.pauses?.find((p) => p.from <= today && p.to >= today)?.to;
+
+/** LIF04: times a week, a daily amount with its unit, a pause (holiday, illness) or a rest day today. None of these break a streak. */
+function PlanEdit({ h, today, act }: { h: HabitView; today: string; act: Act }) {
+  const { t } = useT();
+  const [target, setTarget] = useState(h.target ? String(h.target) : ""), [unit, setUnit] = useState(h.unit ?? ""), [goal, setGoal] = useState(h.goal ? String(h.goal) : "");
+  const [pause, setPause] = useState({ from: today, to: addDays(today, 6) });
+  const resting = !!h.rest?.includes(today), paused = pausedTill(h, today);
+  const save = (e: React.FormEvent) => {
+    e.preventDefault();
+    void act({ action: "habitPlan", id: h.id, target: target ? Number(target) : null, ...(unit.trim() && goal ? { unit, goal: Number(goal) } : h.unit ? { unit: null } : {}) });
+  };
+  return (
+    <details className="text-xs">
+      <summary className="muted cursor-pointer">{t("habit.more")}</summary>
+      <form className="mt-1 flex flex-wrap gap-1.5" onSubmit={save}>
+        <input className="field w-20" type="number" min={1} max={7} value={target} onChange={(e) => setTarget(e.target.value)} placeholder={t("habit.target")} aria-label={t("habit.targetAria", { name: h.name })} />
+        <input className="field w-28" value={unit} maxLength={MAX_UNIT} onChange={(e) => setUnit(e.target.value)} placeholder={t("habit.unit")} aria-label={t("habit.unit")} />
+        <input className="field w-20" type="number" min={0} step="any" value={goal} onChange={(e) => setGoal(e.target.value)} placeholder={t("habit.goal")} aria-label={t("habit.goal")} />
+        <button className="chip">{t("habit.save")}</button>
+      </form>
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        <button className="chip" aria-pressed={resting} onClick={() => act({ action: "habitPlan", id: h.id, rest: today })}>{t(resting ? "habit.restUndo" : "habit.restToday")}</button>
+        {paused ? <button className="chip" onClick={() => act({ action: "habitPlan", id: h.id, pause: null })}>{t("habit.resume")}</button> : <>
+          <input className="field" type="date" value={pause.from} onChange={(e) => setPause({ ...pause, from: e.target.value })} aria-label={t("habit.pauseFrom")} />
+          <input className="field" type="date" value={pause.to} onChange={(e) => setPause({ ...pause, to: e.target.value })} aria-label={t("habit.pauseTo")} />
+          <button className="chip" onClick={() => act({ action: "habitPlan", id: h.id, pause })}>{t("habit.pause")}</button>
+        </>}
+      </div>
+    </details>
+  );
+}
+
+/** A quantity habit's amount today (done at the goal; partial amounts are kept, not judged). */
+function Amount({ h, act }: { h: HabitView; act: Act }) {
+  const { t } = useT();
+  const [n, setN] = useState(h.amountToday ? String(h.amountToday) : "");
+  return (
+    <form className="flex items-center gap-1 text-xs" onSubmit={(e) => { e.preventDefault(); void act({ action: "check", id: h.id, amount: Number(n) || 0 }); }}>
+      <input className="field w-16" type="number" min={0} step="any" value={n} onChange={(e) => setN(e.target.value)} aria-label={t("habit.amountAria", { unit: h.unit ?? "", name: h.name })} />
+      <span className="muted">/{h.goal} {h.unit}</span>
+      <button className="chip">{t("habit.log")}</button>
+    </form>
+  );
+}
+
+/** LIF13: why the block is here, how long and whose estimate, its deadline and where it came from. */
+function Why({ b }: { b: Block }) {
+  const { t } = useT();
+  if (!b.why || b.source.kind === "break" || b.source.kind === "personal") return null;
+  const w = b.why;
+  return <span className="muted block text-xs">{[t(`life.r.${w.r}`), `${b.end - b.start} min (${t(`life.est.${w.est}`)})`, w.due && t("life.dueOn", { d: w.due }), b.source.label].filter(Boolean).join(" · ")}</span>;
+}
+
+/** "Not today": out of plans until tomorrow (or next week); the same task isn't suggested again before then. */
+function Defer({ id, title, planAct }: { id: string; title: string; planAct: PlanAct }) {
+  const { t } = useT();
+  return (
+    <span className="flex shrink-0 gap-1">
+      <button className="chip !py-0 text-xs" aria-label={t("life.deferAria", { title })} onClick={() => planAct({ defer: id, until: "tomorrow" })}>{t("life.defer")}</button>
+      <button className="chip !py-0 text-xs" aria-label={t("life.deferWeekAria", { title })} onClick={() => planAct({ defer: id, until: "week" })}>{t("life.deferWeek")}</button>
+    </span>
+  );
+}
+
+/** LIF08: the last 7 days from local data (never the journal). Gaps are named, not filled in. */
+function WeekCard() {
+  const { t } = useT();
+  const [r, setR] = useState<WeekReview | null>(null), [err, setErr] = useState("");
+  const load = async () => {
+    try { const res = await fetch("/api/life?week=1"); const j = await res.json(); if (!res.ok) throw new Error(j.error || res.status); setR(j); setErr(""); }
+    catch (e) { setErr((e as Error).message); }
+  };
+  useEffect(() => { void load(); }, []);
+  if (!r) return err ? <StateNote state="failed" what={err} action={{ label: t("state.retry"), run: () => void load() }} /> : null;
+  const o = r.outcomes, a = r.adjust;
+  return (
+    <section className="card space-y-1 text-sm" aria-label={t("life.wk.title", { from: r.from, to: r.to })}>
+      <b>{t("life.wk.title", { from: r.from, to: r.to })}</b>
+      <p>{[r.accuracy && t("life.wk.tasks", { done: o.tasksDone, planned: o.tasksPlanned }), t("life.wk.focus", { min: o.focusMin }), o.habitsDue > 0 && t("life.wk.habits", { done: o.habitsDone, due: o.habitsDue })].filter(Boolean).join(" · ")}</p>
+      {o.schoolDone.length > 0 && <p>{t("life.wk.school", { list: o.schoolDone.join(", ") })}</p>}
+      {r.accuracy && <p><span className="muted">{t("life.wk.accuracy")}:</span> {t("life.wk.acc", { pct: r.accuracy.pct, done: r.accuracy.doneMin, planned: r.accuracy.plannedMin, days: r.accuracy.days })}</p>}
+      <div><span className="muted">{t("life.wk.friction")}:</span> {r.friction.length ? <ul className="list-disc pl-4">{r.friction.map((f) => <li key={f.title}>{t("life.wk.fr", { title: f.title, d: f.deferred, m: f.missed })}</li>)}</ul> : t("life.wk.noFriction")}</div>
+      <p><span className="muted">{t("life.wk.adjust")}:</span> {a ? t(`life.wk.adj.${a.suggest}`, { name: a.name, pct: Math.round(a.rate * 100) }) : t("life.wk.noAdjust")}</p>
+      {r.missing.length > 0 && <p className="muted text-xs">{t("life.wk.missing", { list: r.missing.map((m) => t(`life.wk.m.${m}`)).join(", ") })}</p>}
+      <p className="muted text-xs">{t("life.wk.private")}</p>
+    </section>
   );
 }
 

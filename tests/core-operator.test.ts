@@ -128,19 +128,31 @@ test("undo round-trips: lead_update (records only), refuses when notes changed s
   assert.match(await runOpsTool("lead_update", { lead: "Cafe Roma", stage: "lead" }, { ...c, operator: false, question: "how is roma doing?" }), /^Error: /); // ask path: his message must ask
 });
 
-test("undo round-trips: life_plan accept and adjust", async () => {
+test("undo round-trips: life_plan accept and adjust, incl. the day roll-over, history and deferrals (fixed clock)", async () => {
   const dp = await import("../src/lib/dayplan.ts");
-  await dp.addTask("Write the outline", { kind: "test" }, { min: 60 });
-  const c = { sb: null as never, userId: "u1", question: "", tainted: false, operator: true };
+  const now = new Date(2026, 9, 30, 9, 0).getTime(); // 09:00 local: the task always fits before the 22:00 day end
+  const file = path.join(process.env.ORBIT_DATA_DIR!, "dayplan.json");
+  const seeded = { plan: { day: "2026-10-29", blocks: [], unplaced: [] }, history: [{ day: "2026-10-28", plannedMin: 60, doneMin: 30 }],
+    deferred: [{ id: "x", title: "Later thing", until: "2026-11-02", n: 1, at: "2026-10-29T10:00:00Z" }],
+    commitments: [{ id: "c1", text: "Write the outline", owner: "me", missing: [], status: "confirmed", source: { kind: "test" }, at: "2026-10-29T10:00:00Z", min: 60 }] };
+  await writeFile(file, JSON.stringify(seeded));
+  const snapshot = async () => JSON.stringify(await dp.planSnapshot());
+  const start = await snapshot();
+  const c = { sb: null as never, userId: "u1", question: "", tainted: false, operator: true, now };
   const acc = undoOfOut("life_plan", await runOpsTool("life_plan", { action: "accept" }, c));
-  assert.ok((await dp.currentPlan())?.accepted);
+  const p = await dp.currentPlan();
+  assert.equal(p?.day, "2026-10-30"); assert.ok(p?.accepted);
+  assert.equal((await dp.planSnapshot()).prev?.day, "2026-10-29"); // yesterday's plan rolled over
   assert.match(await undoOp(c.sb, "u1", acc), /plan put back/);
-  assert.equal((await dp.currentPlan())?.accepted, undefined);
-  const before = JSON.stringify(await dp.currentPlan());
+  assert.equal(await snapshot(), start); // plan, prev, history and deferrals exactly as before
   const adj = undoOfOut("life_plan", await runOpsTool("life_plan", { action: "adjust", block: "outline", minutes: 30 }, c));
-  assert.notEqual(JSON.stringify(await dp.currentPlan()), before);
+  const mid = JSON.stringify(await dp.currentPlan());
   await undoOp(c.sb, "u1", adj);
-  assert.equal(JSON.stringify(await dp.currentPlan()), before);
+  assert.equal(await snapshot(), start);
+  const again = undoOfOut("life_plan", await runOpsTool("life_plan", { action: "adjust", block: "outline", minutes: 30 }, c));
+  assert.equal(JSON.stringify(await dp.currentPlan()), mid);
+  await dp.adjust((await dp.currentPlan())!.blocks.find((b) => b.title.includes("outline"))!.id, 15); // he changed it since
+  await assert.rejects(undoOp(c.sb, "u1", again), /changed since/);
 });
 
 test("undo round-trips: automation_create (with Tallinn preview) and automation_pause", async () => {

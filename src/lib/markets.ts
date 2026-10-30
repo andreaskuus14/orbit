@@ -13,12 +13,13 @@ import {
   type Account, type Alert, type AlertKind, type Bar, type Holding, type Quote, type QuoteState, type Strategy,
 } from "./markets-pure";
 import { instrument, ledger, portfolioReport, previewAlert, simFill, statWindow, stepAlert } from "./markets-depth-pure";
+import { MAX_JOURNAL, compareStrategy, journalEntry, reviewEntry, type JournalEntry } from "./markets-study-pure";
 
 // MARKETS workspace (watchlist, tracked holdings, price alerts, AI explainer, PAPER trading + rule-based paper bot),
 // stored locally in <ORBIT data dir>/markets.json like life.json. Prices: Stooq free CSV (US stocks/ETFs). No broker, no real money.
 
 type Bot = { strategy: Strategy; account: Account; lastRun?: string; lastRebalance?: string; log: string[] };
-type Store = { watchlist: string[]; holdings: Holding[]; alerts: Alert[]; paper: Account; bot: Bot };
+type Store = { watchlist: string[]; holdings: Holding[]; alerts: Alert[]; paper: Account; bot: Bot; journal: JournalEntry[] };
 
 const file = () => {
   const local = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "orbit") : path.join(os.homedir(), ".orbit");
@@ -40,7 +41,7 @@ const QUOTE_MS = 5 * 60_000, HIST_MS = 6 * 3600_000, ANALYSIS_MS = 3600_000;
 
 const isAccount = (a: unknown): a is Account => !!a && typeof a === "object" && typeof (a as Account).cash === "number"
   && !!(a as Account).positions && typeof (a as Account).positions === "object" && Array.isArray((a as Account).trades) && Array.isArray((a as Account).curve);
-const empty = (): Store => ({ watchlist: [], holdings: [], alerts: [], paper: newAccount(dayKey()), bot: { strategy: "off", account: newAccount(dayKey()), log: [] } });
+const empty = (): Store => ({ watchlist: [], holdings: [], alerts: [], paper: newAccount(dayKey()), bot: { strategy: "off", account: newAccount(dayKey()), log: [] }, journal: [] });
 
 async function read(): Promise<Store> {
   try {
@@ -51,6 +52,7 @@ async function read(): Promise<Store> {
       holdings: Array.isArray(s.holdings) ? s.holdings.filter((h: Holding) => h && cleanTicker(h.ticker) && typeof h.shares === "number" && typeof h.cost === "number") : e.holdings,
       alerts: Array.isArray(s.alerts) ? s.alerts.filter((a: Alert) => a && typeof a.id === "string" && cleanTicker(a.ticker) && !alertError(a.kind, a.value)) : e.alerts,
       paper: isAccount(s.paper) ? s.paper : e.paper,
+      journal: Array.isArray(s.journal) ? s.journal.filter((j: JournalEntry) => j && typeof j.id === "string" && typeof j.thesis === "string") : e.journal,
       bot: s.bot && isAccount(s.bot.account) && typeof s.bot.strategy === "string" && Object.hasOwn(STRATEGIES, s.bot.strategy) ? { ...s.bot, log: Array.isArray(s.bot.log) ? s.bot.log : [] } : e.bot,
     };
   } catch (e) {
@@ -184,6 +186,7 @@ export async function getMarkets() {
     portfolio: portfolioReport(s.holdings, quotes),
     alerts: s.alerts.map((a) => ({ ...a, text: alertText(a), preview: previewAlert(a, hist[a.ticker] ?? []), quoteDate: quotes[a.ticker]?.date ?? null })),
     paper: accountView(s.paper, prices, quotes),
+    journal: s.journal,
     bot: { strategy: s.bot.strategy, strategies: STRATEGIES, lastRun: s.bot.lastRun ?? null, log: s.bot.log.slice(0, 15), ...accountView(s.bot.account, prices, quotes) },
   };
 }
@@ -248,6 +251,30 @@ export const setStrategy = (st: Strategy) => update((s) => {
   if (s.bot.strategy !== st) s.bot = { strategy: st, account: newAccount(dayKey()), log: [] };
   return { ok: true as const };
 });
+
+/* ---------- MKT07/08: strategy study, decision journal ---------- */
+
+/** The rule vs equal-weight buy-and-hold on the watchlist's own history (no AI, no trades). */
+export async function studyStrategy(st: Strategy) {
+  const s = await read();
+  return compareStrategy(st, s.watchlist, await histories(s.watchlist));
+}
+export async function addJournal(body: Record<string, unknown>): Promise<R> {
+  const t = cleanTicker(body.ticker);
+  if (!t) return { error: "Ticker must be 1–15 letters, digits, . ^ or -" };
+  const q = (await getQuotes([t]))[t];
+  const e = journalEntry(body, randomUUID(), new Date(), q?.close ?? null);
+  if (typeof e === "string") return { error: e };
+  return update((s) => { s.journal = [e, ...s.journal].slice(0, MAX_JOURNAL); return { ok: true as const }; });
+}
+export async function reviewJournal(id: string, body: Record<string, unknown>): Promise<R> {
+  const e = (await read()).journal.find((j) => j.id === id);
+  if (!e) return { error: "No such journal entry" };
+  const q = (await getQuotes([e.ticker]))[e.ticker];
+  const r = reviewEntry(e, body, new Date(), q?.close ?? null);
+  if (typeof r === "string") return { error: r };
+  return update((s) => { s.journal = s.journal.map((j) => (j.id === id ? r : j)); return { ok: true as const }; });
+}
 
 /* ---------- AI explainer ---------- */
 

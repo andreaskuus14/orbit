@@ -7,9 +7,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir.ts";
 import { automationInput, keepSnaps, leadChange, leadNotes, newOpId, OP_ID, opsBlocked, pickByName, receipt, tallinnTimes, type OpsSnap, type OpsTool } from "./core-operator-pure.ts";
 import type { DayPlan } from "./dayplan-pure.ts";
+import type { PlanSnap } from "./dayplan.ts";
 
 /** agentOk: tests pass their own (agents.ts can't load under node --test). */
-type Ctx = { sb: SupabaseClient; userId: string; question: string; tainted: boolean; operator?: boolean; agentOk?: (slug: string) => Promise<boolean> };
+type Ctx = { sb: SupabaseClient; userId: string; question: string; tainted: boolean; operator?: boolean; agentOk?: (slug: string) => Promise<boolean>; now?: number };
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
 const FILE = () => path.join(orbitDataDir(), "operator-undo.json");
@@ -83,8 +84,9 @@ export async function runOpsTool(tool: OpsTool, input: Record<string, unknown>, 
       case "life_plan": {
         const dp = await import("./dayplan.ts");
         const { localDay } = await import("./morning-pure.ts");
-        if ((await dp.currentPlan())?.day !== localDay(new Date())) await dp.planDay(c.sb, c.userId); // no plan for today yet: build the proposal first
-        const cur = (await dp.currentPlan())!; // Undo puts this back
+        const now = c.now ?? Date.now(), snapBefore = await dp.planSnapshot(); // Undo puts this back (plan, order, prev, history, deferrals)
+        if ((await dp.currentPlan())?.day !== localDay(new Date(now))) await dp.planDay(c.sb, c.userId, { now }); // no plan for today yet: build the proposal first
+        const cur = (await dp.currentPlan())!;
         const action = str(input.action, 10).toLowerCase();
         if (action === "accept") {
           if (cur.accepted) return "Nothing to do: today's plan is already accepted.";
@@ -97,7 +99,7 @@ export async function runOpsTool(tool: OpsTool, input: Record<string, unknown>, 
           if (typeof r === "string") return `Error: ${r}`;
         } else return 'Error: action must be "accept" or "adjust"';
         const after = (await dp.currentPlan())!;
-        return `Done: today's plan ${action === "accept" ? "accepted" : "adjusted"} ${await snap(tool, { before: cur, after })}\n${(await import("./dayplan-pure.ts")).planText(after)}`;
+        return `Done: today's plan ${action === "accept" ? "accepted" : "adjusted"} ${await snap(tool, { before: snapBefore, after })}\n${(await import("./dayplan-pure.ts")).planText(after)}`;
       }
       case "automation_create": {
         const d = automationInput(input);
@@ -164,7 +166,7 @@ export async function undoOp(sb: SupabaseClient, userId: string, id: string): Pr
       break;
     }
     case "life_plan": {
-      const r = await (await import("./dayplan.ts")).restorePlan(d.before as DayPlan | null, d.after as DayPlan);
+      const r = await (await import("./dayplan.ts")).restorePlan(d.before as PlanSnap, d.after as DayPlan);
       if (r) throw new Error(r);
       line = "Undone: today's plan put back";
       break;

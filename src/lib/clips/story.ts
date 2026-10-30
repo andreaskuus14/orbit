@@ -104,11 +104,11 @@ export async function runDraftTool(input: Record<string, unknown>, question: str
 
 /** A priced Higgsfield proposal in the AI Story queue (CORE's drafts, long-form visuals). Saved, then quoted (get_cost only, in the
  *  background: it can take minutes). Nothing is generated before the owner's Approve click on it. `by` labels who drafted it. */
-export async function queueDraftAs(d: Draft, by: string): Promise<StoryJob> {
+export async function queueDraftAs(d: Draft, by: string, extra: Pick<StoryJob, "site"> = {}): Promise<StoryJob> {
   const now = new Date().toISOString();
   const job: StoryJob = { v: 1, id: newId(), createdAt: now, updatedAt: now, status: "draft", step: `Drafted by ${by}: asking Higgsfield the price`,
     opts: { idea: d.prompt, style: "", length: 0, voice: "none", motion: d.kind === "video" ? "video" : "stills" },
-    story: { title: `${by}: ${d.count}× ${d.kind}, ${d.prompt}`.slice(0, 100), hook: "", scenes: [] }, items: draftItems(d), warnings: [], draft: d };
+    story: { title: `${by}: ${d.count}× ${d.kind}, ${d.prompt}`.slice(0, 100), hook: "", scenes: [] }, items: draftItems(d), warnings: [], draft: d, ...extra };
   await save(job);
   void quoteStory(job).catch(() => {});
   return job;
@@ -199,6 +199,7 @@ async function run(job: StoryJob, signal: AbortSignal) {
       await mkdir(dir, { recursive: true });
       await generate(job, dir, { hf: higgsfield(), save: async (step) => { job.step = step; await save(job); } }, signal);
       Object.assign(job, { status: "done", step: `Done: ${job.items.length} file${job.items.length > 1 ? "s" : ""} in ${dir}` });
+      if (job.site) job.step += `; ${await (await import("../site-inspire")).saveGenerated(job.site, job.draft.model, job.items.flatMap((i) => (i.file ? [i.file] : []))).catch((e) => `not saved to the site: ${errText(e)}`)}`;
       return;
     }
     const ff = await ffmpegPath();

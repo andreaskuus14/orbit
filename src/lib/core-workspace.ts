@@ -6,7 +6,7 @@ import { wsConfirmOffer, wsWriteBlocked, type WsGate, type WsPending } from "./w
 import { explicitBuild } from "./ws-intent-pure.ts";
 import { SITE_GUIDE, SITE_PIPELINE } from "./site-guide.ts";
 import { lintSite, siteStepHint } from "./site-pipeline-pure.ts";
-export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create", "ws_fetch_image", "ws_run", "ws_stop"] as const;
+export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create", "ws_fetch_image", "ws_inspire_image", "ws_run", "ws_stop"] as const;
 export type WsTool = (typeof WS_TOOLS)[number];
 export const isWsTool = (t: string): t is WsTool => (WS_TOOLS as readonly string[]).includes(t);
 
@@ -20,7 +20,7 @@ ${SITE_PIPELINE}`;
  *  question: when the owner's own latest message explicitly asks to build a site/files, the site pipeline's public research
  *  (web_search, fetch_url, ws_fetch_image) doesn't block the build (Operator mode A: research and build). */
 export const wsTainted = (steps: string[], question = "") => {
-  const ok = explicitBuild(question) ? /^You called (?:navigate|ws_create|ws_write|ws_fetch_image|web_search|fetch_url)\b/ : /^You called (?:navigate|ws_create|ws_write)\b/;
+  const ok = explicitBuild(question) ? /^You called (?:navigate|ws_create|ws_write|ws_fetch_image|ws_inspire_image|web_search|fetch_url)\b/ : /^You called (?:navigate|ws_create|ws_write)\b/;
   return steps.some((s) => !ok.test(s));
 };
 
@@ -83,7 +83,7 @@ async function siteCheck(userId: string, slug: string, priorWrites: number): Pro
 }
 
 export async function runWsTool(userId: string, tool: WsTool, input: Record<string, unknown>, question: string, tainted: boolean, priorWrites = 0, onEvidence?: (e: WriteEvidence) => void, basis: Basis[] = [], touched: (path: string) => boolean = () => false, gate: WsGate = {}): Promise<string> {
-  if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image") {
+  if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image") {
     const blocked = wsWriteBlocked(question, tainted, { ...gate, target: tool !== "ws_create" ? input.workspace : input.name });
     if (blocked) return `Error: ${blocked}`;
   }
@@ -130,6 +130,12 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
             return r;
           },
         });
+      }
+      case "ws_inspire_image": {
+        const slug = slugify(str(input.workspace, 60));
+        if (!slug || !(await ws.listFiles(userId, slug))) return "Error: write the site's files first (ws_write), then get picture ideas for that workspace";
+        const { inspireImage, inspireIO } = await import("./site-inspire.ts");
+        return await inspireImage(input, userId, slug, inspireIO());
       }
       case "ws_write": {
         const files = Array.isArray(input.files) ? input.files : input.path !== undefined ? [{ path: input.path, content: input.content }] : [];

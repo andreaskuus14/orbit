@@ -4,12 +4,13 @@ import { highlight } from "./Highlight";
 import { FollowingSection } from "./FollowingSection";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
-import { checkClaims, type FeedHealth, type Prefs } from "@/lib/news-intel-pure";
+import { checkClaims, type FeedHealth, type Prefs, type rankingGate, type Vote } from "@/lib/news-intel-pure";
 import { schedState } from "@/lib/panel-states-pure";
 
 type Cite = { id: string; title: string; url: string; source: string | null; published_at: string | null; evidence?: "fetched" | "snippet"; passage?: string; fetched_url?: string };
 type Dev = { key: string; rev: string; status: "new" | "corrected" | "resolved"; title: string; why: string; independent: number; articles: Article[] };
-type Intel = { prefs: Prefs; topics: { topic: string; items: Dev[]; known: number }[]; health: Record<string, Partial<FeedHealth> & { disabled?: boolean }>; done: string[] };
+type Intel = { prefs: Prefs; topics: { topic: string; items: Dev[]; known: number }[]; health: Record<string, Partial<FeedHealth> & { disabled?: boolean }>; done: string[];
+  votes?: Record<string, Vote>; gate?: ReturnType<typeof rankingGate> };
 const VIEWS = [{ id: "today", label: "Today" }, { id: "following", label: "Following" }, { id: "research", label: "Research" }, { id: "sources", label: "Sources" }] as const;
 type ViewId = (typeof VIEWS)[number]["id"];
 type Briefing = { id: string; kind: string; title: string; content: string; citations: Cite[]; article_count: number; created_at: string };
@@ -186,6 +187,7 @@ export function IntelligencePanel() {
       {view === "following" && (<>
         <FollowingSection />
         {intel && <PrefsForm prefs={intel.prefs} save={(p) => post({ action: "prefs", prefs: p })} />}
+        {intel?.gate && <RankingGate g={intel.gate} />}
       </>)}
 
       {view === "research" && (<>
@@ -286,6 +288,9 @@ function Developments({ intel, post }: { intel: Intel; post: (b: object) => Prom
                     </details>
                   )}
                   <div className="flex flex-wrap gap-1.5 text-xs">
+                    {(["useful", "not_useful", "wrong"] as const).map((v) => (
+                      <button key={v} className="chip" aria-pressed={intel.votes?.[d.key] === v} onClick={() => post({ action: "feedback", key: d.key, title: d.title, vote: v, sources: d.independent })}>{t(`intel.fb.${v}` as const)}</button>
+                    ))}
                     <button className="chip" onClick={() => post({ action: "less", title: d.title })}>{t("intel.less")}</button>
                     {(["note", "watch"] as const).map((k) => (
                       <button key={k} className="chip" disabled={done.has(`${k}:${url}`)} onClick={() => post({ action: "story", kind: k, title: d.title, url, published_at: a.published_at })}>{t(`intel.${k}` as const)}</button>
@@ -305,6 +310,21 @@ function Developments({ intel, post }: { intel: Intel; post: (b: object) => Prom
           </ul>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** INT08: votes so far and whether a ranking change would pass the held-out check. Nothing re-ranks on its own. */
+function RankingGate({ g }: { g: NonNullable<Intel["gate"]> }) {
+  const { t } = useT();
+  const acc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
+  return (
+    <div className="card space-y-1 text-xs">
+      <b className="text-sm">{t("intel.fb.title")}</b>
+      <p>{t("intel.fb.counts", { n: g.votes, h: g.held, u: g.useful, b: g.notUseful })}</p>
+      <p>{t("intel.fb.compare", { a: acc(g.current), b: acc(g.candidate) })}</p>
+      <p className={g.adopt ? "" : "muted"}>{t(g.why as "intel.fb.whyFew", { need: g.need })}</p>
+      <p className="muted">{t("intel.fb.how")}</p>
     </div>
   );
 }

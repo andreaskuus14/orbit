@@ -2,7 +2,8 @@
 // LIFE → School: courses, assignments / studio deadlines and exams, the backward-planned study blocks and week warnings.
 // All data via /api/school (local school.json). ARCH links keep a copy of ARCH's scene; "Open in ARCH" puts it back after a confirm.
 import { useCallback, useEffect, useState } from "react";
-import { KINDS, KIND_LABEL, PREP_DAYS, dueMs, prepDue, type Course, type Plan, type SchoolItem, type Settings } from "@/lib/school-pure";
+import { KINDS, KIND_LABEL, MAX_NEXT, MAX_SOURCES, PREP_DAYS, dueMs, nextStep, prepDue, type Course, type Plan, type SchoolItem, type Settings } from "@/lib/school-pure";
+import { useT } from "./i18n";
 import { NAV_EVENT } from "@/lib/nav-pure";
 
 type View = { courses: Course[]; items: SchoolItem[]; settings: Settings; plan: Plan };
@@ -21,6 +22,8 @@ export default function SchoolPanel() {
     } catch (e) { setErr((e as Error).message); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  const [vault, setVault] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => { fetch("/api/vault").then((r) => (r.ok ? r.json() : null)).then((j) => setVault((j?.files ?? []).filter((f: { id?: string }) => f.id))).catch(() => {}); }, []);
   const act = useCallback(async (body: object) => {
     try {
       const r = await fetch("/api/school", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -63,6 +66,7 @@ export default function SchoolPanel() {
               <span className="flex-1"><b>{i.title}</b> <span className="muted text-xs">{KIND_LABEL[i.kind]}{course(i.courseId) ? ` · ${course(i.courseId)}` : ""}</span></span>
               <span className="muted text-xs">due {day(dueMs(i.due))}{i.due.includes("T") ? ` ${time(dueMs(i.due))}` : ""}</span>
             </div>
+            <Workflow item={i} plan={v.plan} now={now} vault={vault} act={act} />
             <div className="flex flex-wrap items-center gap-1.5">
               <label className="muted text-xs">Hours left <input className="field w-16" type="number" min={0} max={200} step={0.5} defaultValue={i.hours}
                 onBlur={(e) => { const h = Number(e.target.value); if (h !== i.hours) void act({ action: "updateItem", id: i.id, hours: h }); }} /></label>
@@ -84,6 +88,31 @@ export default function SchoolPanel() {
 }
 
 type Act = (body: object) => Promise<boolean>;
+
+/** LIF06: the one next action, the course material (VAULT files by id, so a rename keeps the link) and the way to study cards. */
+function Workflow({ item, plan, now, vault, act }: { item: SchoolItem; plan: Plan; now: number; vault: { id: string; name: string }[]; act: Act }) {
+  const { t } = useT();
+  const n = nextStep(item, plan, now), src = item.sources ?? [];
+  const label = n.kind === "own" ? n.text : n.kind === "block" ? t("school.n.block", { t: `${day(n.at)} ${time(n.at)}` }) : n.kind === "short" ? t("school.n.short", { h: n.hours }) : t(`school.n.${n.kind}`);
+  const name = (id: string) => vault.find((f) => f.id === id)?.name ?? t("school.gone");
+  return (
+    <div className="space-y-1 text-xs">
+      <p><span className="muted">{t("school.next")}:</span> <b>{label}</b></p>
+      <input className="field w-full" defaultValue={item.next ?? ""} maxLength={MAX_NEXT} placeholder={t("school.nextPh")} aria-label={t("school.nextAria", { title: item.title })}
+        onBlur={(e) => { if (e.target.value.trim() !== (item.next ?? "")) void act({ action: "updateItem", id: item.id, next: e.target.value }); }} />
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="muted">{t("school.sources")}:</span>
+        {src.map((id) => <button key={id} className="chip !py-0" aria-label={t("school.removeSource", { name: name(id) })} onClick={() => act({ action: "updateItem", id: item.id, sources: src.filter((x) => x !== id) })}>{name(id)} ×</button>)}
+        {src.length < MAX_SOURCES && vault.length > 0 && (
+          <select className="field !py-0" value="" aria-label={t("school.addSource")} onChange={(e) => e.target.value && act({ action: "updateItem", id: item.id, sources: [...src, e.target.value] })}>
+            <option value="">{t("school.addSource")}</option>
+            {vault.filter((f) => !src.includes(f.id)).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>)}
+        <button className="chip !py-0 ml-auto" onClick={() => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: { panel: "memory", study: true } }))}>{t("school.cards")}</button>
+      </div>
+    </div>
+  );
+}
 
 function AddItem({ courses, act }: { courses: Course[]; act: Act }) {
   const [f, setF] = useState({ title: "", kind: "assignment", courseId: "", due: "", time: "", hours: "4" });
