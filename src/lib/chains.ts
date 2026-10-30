@@ -5,7 +5,7 @@ import { stopAllOn } from "./stop-all";
 import { createBudget, emit } from "./claude";
 import { interruptedPatch } from "./completion-pure";
 import { COMPANY_PREFIX, resolvedStep, roleOf, stepStatus } from "./company-pure";
-import { CHAIN_TITLE, byStep, chainView, composeRequest, nextMove, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
+import { CHAIN_TITLE, acceptHandoff, byStep, chainView, nextMove, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
 
 // AGENT TEAMS runner: the chain lives in the tasks table (see chains-pure.ts), so it survives restarts. drive() walks the steps in order,
 // one at a time per chain, and stops at an approval; resumeChains (the scheduler tick) picks it up again. Reads never drive
@@ -180,7 +180,9 @@ export async function drive(sb: SupabaseClient, userId: string, id: string, gate
       const started = await withSlot(sb, userId, move.task.id, ac.signal, async () => {
         if (move.prev) {
           const own = move.task.request.slice(0, meta.steps[move.k].len);
-          await sb.from("tasks").update({ request: composeRequest(own, move.prev.agent, move.prev.result) }).eq("id", move.task.id).eq("status", "queued");
+          const h = acceptHandoff(id, move.k, own, meta.steps[move.k], move.prev, move.task.request); // AGT03 contract
+          if (h.do === "block") { await sb.from("tasks").update({ status: "failed", error: h.reason, finished_at: new Date().toISOString() }).eq("id", move.task.id).eq("status", "queued"); return; }
+          if (h.do === "write") await sb.from("tasks").update({ request: h.request }).eq("id", move.task.id).eq("status", "queued");
         }
         const st = meta.steps[move.k], role = meta.company ? roleOf(st.agent) : null; // company runs log ids/roles only to the ledger
         if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: "started" });
