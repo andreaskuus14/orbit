@@ -1,15 +1,16 @@
 "use client";
 // "Good morning" card on the galaxy: shown once per day on the first open after 05:00, or on "good morning" (then read aloud).
-// Also the "Since you left" recap: on return after ≥ 3 h away it opens compact (or merges into the morning briefing).
+// Also the "Since you left" recap after ≥ 3 h away (or merged into the morning briefing). Quiet open: neither opens by itself;
+// both wait in the header pill (startup-store setReady) and open as a side sheet on his click.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { NOTIFY_KEY, parseItems } from "@/lib/notify-pure";
-import { awaySince, countSince, localDay, shouldAutoShow, sinceEmpty, sinceSpoken, type Morning, type MorningSince } from "@/lib/morning-pure";
+import { awaySince, countSince, localDay, shouldAutoShow, sinceEmpty, type Morning, type MorningSince } from "@/lib/morning-pure";
 import dynamic from "next/dynamic";
 import { speakChunk, speechSettings } from "./voice/speak";
-import { useTurn } from "./startup-store";
+import { setReady, useOpenRequest, useTurn } from "./startup-store";
 
-const KEY = "orbit.morning"; // { day: last auto-shown local day, speak: read it aloud when it auto-shows (speakMorning, default off) }
+const KEY = "orbit.morning"; // { day: last auto-shown local day, speak: read it aloud when he opens it from the pill (speakMorning, default off) }
 type Saved = { day?: string; speak?: boolean };
 const load = (): Saved => { try { return JSON.parse(localStorage.getItem(KEY) || "{}") ?? {}; } catch { return {}; } };
 const save = (s: Saved) => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage unavailable: may show again next open */ } };
@@ -36,12 +37,13 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
   const homeRef = useRef(home);
   homeRef.current = home;
   const ctrl = useRef<AbortController | null>(null); // the one request in flight; a newer show() aborts it
+  const pending = useRef<number | null>(null); // the away window to merge into the morning card when he opens it
 
 
   // from: the away window to merge in. orbit.lastSeen moves forward only once that window was actually fetched, so a failure retries next tick.
   const show = useCallback(async (say: boolean, from: number | null = null) => {
     const c = begin(ctrl);
-    setOpen(true); setRecap(false); setErr(""); setData(null); setNotes(from === null ? 0 : notesSince(from));
+    setOpen(true); setRecap(false); setErr(""); setData(null); setNotes(from === null ? 0 : notesSince(from)); setReady("morning", false); setReady("recap", false);
     try {
       const r = await fetch(`/api/morning${from === null ? "" : `?since=${from}`}`, { signal: c.signal });
       const j = await r.json();
@@ -66,9 +68,7 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
       markSeen(Date.now());
       const k = notesSince(from);
       if (sinceEmpty(since, k) || openRef.current) return; // never replace an open briefing
-      setData({ since } as Morning); setNotes(k); setErr(""); setRecap(true); setOpen(true);
-      // Said aloud only with "read the briefing aloud" on, like the morning card.
-      if (load().speak && speechSettings().speak && !whatsNewUp()) for (const line of sinceSpoken(since, k).split(/(?<=[.!?])\s+/)) if (line) speakChunk(line);
+      setData({ since } as Morning); setNotes(k); setErr(""); setRecap(true); setReady("recap", true); // waits in the pill, silent
     } catch { /* offline or aborted: no recap yet */ }
     finally { end(ctrl, c); }
   }, []);
@@ -82,7 +82,7 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
       const now = new Date(), s = load(), from = awaySince(lastSeen(), now.getTime()), morning = shouldAutoShow(s.day ?? null, now);
       if (from === null) { markSeen(now.getTime()); if (!morning) return; }
       else if (ctrl.current || (!morning && !homeRef.current)) return; // fetch in flight, or recap waits for the galaxy (away time keeps accruing)
-      if (morning) { save({ ...s, day: localDay(now) }); void show(!!s.speak && homeRef.current, from); }
+      if (morning) { save({ ...s, day: localDay(now) }); pending.current = from; markSeen(now.getTime()); setReady("morning", true); }
       else void showRecap(from!);
     };
     auto();
@@ -100,6 +100,8 @@ export function MorningCard({ home, onOpenTask, onOpenGoal }: { home: boolean; o
     return () => removeEventListener("keydown", onKey);
   }, [open, home]);
 
+  useOpenRequest("morning", () => { void show(!!load().speak, pending.current); pending.current = null; });
+  useOpenRequest("recap", () => { setReady("recap", false); if (!openRef.current) setOpen(true); });
   const turn = useTurn("morning", open && home); // an urgent alert goes first; What's new waits for this card (startup-pure)
   if (!open || !home || !turn) return null;
   const toggleSpeak = (v: boolean) => { setSpeakMorning(v); save({ ...load(), speak: v }); };

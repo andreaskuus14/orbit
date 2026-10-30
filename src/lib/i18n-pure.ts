@@ -133,6 +133,7 @@ const BASE = {
   "tour.title": "WHAT'S NEW", "tour.step": "{n} of {total}", "tour.chapters": "Tour chapters", "tour.showMe": "Show me",
   "tour.next": "Next", "tour.back": "Back", "tour.finish": "Finish", "tour.skip": "Skip for now",
   "tour.skipAria": "Skip the tour for now. Resume it from Ctrl+K: What's new tour", "tour.setup": "Set this up:", "tour.ready": "What's new tour is open.", "tour.setupLink": "Setup steps", "tour.since": "Since you last looked", "tour.seeAll": "See all", "tour.gotIt": "Got it",
+  "quiet.brief": "Morning brief", "quiet.morning": "Good morning", "quiet.recap": "Since you left", "quiet.tour": "What's new", "quiet.new": "{n} new", "quiet.needYou": "{n} need you", "quiet.dot": "new", "quiet.aria": "Status: {s}. Open the list", "quiet.title": "Waiting for you",
 
   "common.loading": "Loading…", "common.add": "Add", "common.remove": "Remove", "common.cancel": "Cancel", "common.copied": "Copied",
 
@@ -469,6 +470,7 @@ const BASE = {
   "core.copyAnswer": "Copy answer", "core.stopSpeaking": "Stop speaking", "core.readAloud": "Read aloud", "core.stop": "Stop",
   "core.pinTitle": "Pin this reply to the project", "core.pinNeedsProject": "Move this chat into a project to pin replies", "core.pinned": "Pinned",
   "core.pin": "Pin", "core.pinCodeTitle": "Pin only the code blocks to the project", "core.pinCode": "Pin code",
+  "live.search_memory": "Searching memories", "live.think": "Thinking", "live.web_search": "Searching the web", "live.fetch_url": "Reading a page", "live.read_news": "Reading news", "live.ask_agent": "Asking {agent}", "live.save_memory": "Saving to memory", "live.ws_write": "Writing files", "live.ws_create": "Creating the workspace", "live.review": "Double-checking the answer", "live.navigate": "Flying there", "live.private": "Reading a private note", "live.writing": "Writing the answer", "live.connecting": "Connecting to CORE", "live.steps.one": "{n} step · {time}", "live.steps.other": "{n} steps · {time}", "live.earlier": "{n} earlier", "live.failed": "didn't work", "live.background": "Continuing in the background. You can close this; you'll get a notice when it's done.", "live.openOps": "Open in OPERATIONS", "live.aria": "CORE activity",
   "core.retryTitle": "Ask the last question again", "core.slow": "Still working: {what} This step is taking a little longer. You can stop it if needed.",
   "site.plan": "Writing the site plan…", "site.layout": "Writing layout and styles…", "site.pages": "Writing the pages…", "site.image": "Finding a licensed image…", "site.inspire": "Gathering picture ideas…",
   "core.localTitle": "Claude was unreachable, rate-limited or on hold, so this answer came from the local model on this PC (no tools)",
@@ -974,6 +976,7 @@ export const ET: Partial<Record<Key, string>> = {
   "tour.title": "UUDISED", "tour.step": "{n}/{total}", "tour.chapters": "Tuuri peatükid", "tour.showMe": "Näita",
   "tour.next": "Edasi", "tour.back": "Tagasi", "tour.finish": "Valmis", "tour.skip": "Jäta praegu vahele",
   "tour.skipAria": "Jäta tuur praegu vahele. Jätka seda Ctrl+K kaudu: What's new tour", "tour.setup": "Seadista:", "tour.ready": "Uudiste tuur on avatud.", "tour.setupLink": "Seadistuse sammud", "tour.since": "Pärast su viimast külastust", "tour.seeAll": "Vaata kõiki", "tour.gotIt": "Selge",
+  "quiet.brief": "Hommikune ülevaade", "quiet.morning": "Tere hommikust", "quiet.recap": "Sinu äraolekul", "quiet.tour": "Mis on uut", "quiet.new": "{n} uut", "quiet.needYou": "{n} vajab sind", "quiet.dot": "uus", "quiet.aria": "Olek: {s}. Ava nimekiri", "quiet.title": "Sind ootab",
 
   "common.loading": "Laadin…", "common.add": "Lisa", "common.remove": "Eemalda", "common.cancel": "Tühista", "common.copied": "Kopeeritud",
 
@@ -1284,6 +1287,7 @@ export const ET: Partial<Record<Key, string>> = {
   "core.copyAnswer": "Kopeeri vastus", "core.stopSpeaking": "Lõpeta ettelugemine", "core.readAloud": "Loe ette", "core.stop": "Peata",
   "core.pinTitle": "Kinnita see vastus projekti juurde", "core.pinNeedsProject": "Vastuste kinnitamiseks vii see vestlus projekti",
   "core.pinned": "Kinnitatud", "core.pin": "Kinnita", "core.pinCodeTitle": "Kinnita projekti juurde ainult koodiplokid",
+  "live.search_memory": "Otsin mälestustest", "live.think": "Mõtlen", "live.web_search": "Otsin veebist", "live.fetch_url": "Loen lehte", "live.read_news": "Loen uudiseid", "live.ask_agent": "Küsin: {agent}", "live.save_memory": "Salvestan mällu", "live.ws_write": "Kirjutan faile", "live.ws_create": "Loon tööruumi", "live.review": "Kontrollin vastust üle", "live.navigate": "Lendan sinna", "live.private": "Loen privaatset märget", "live.writing": "Kirjutan vastust", "live.connecting": "Ühendun CORE-iga", "live.steps.one": "{n} samm · {time}", "live.steps.other": "{n} sammu · {time}", "live.earlier": "{n} varasemat", "live.failed": "ei õnnestunud", "live.background": "Jätkan taustal. Võid selle sulgeda; annan teada, kui valmis.", "live.openOps": "Ava OPERATIONS-is", "live.aria": "CORE tegevus",
   "core.pinCode": "Kinnita kood", "core.retryTitle": "Küsi viimast küsimust uuesti", "core.slow": "Töötan edasi: {what} See samm võtab veidi kauem. Vajadusel saad selle peatada.",
   "site.plan": "Kirjutan saidi plaani…", "site.layout": "Kirjutan paigutust ja stiile…", "site.pages": "Kirjutan lehti…", "site.image": "Otsin litsentsiga pilti…", "site.inspire": "Kogun pildiideid…",
   "core.localTitle": "Claude polnud kättesaadav, päringupiir sai täis või oli ootel, seega tuli see vastus selle arvuti kohalikult mudelilt (tööriistadeta)",

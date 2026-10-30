@@ -5,7 +5,9 @@ import { contextLine, safeLink } from "@/lib/voice-target-pure";
 import { reflectOnTurn } from "@/lib/reflect";
 import { learnFacts } from "@/lib/facts";
 import { emit } from "@/lib/claude";
-import { stepLabel } from "@/lib/core-ui";
+import { liveTracker, ndjsonStream, type StepDone } from "@/lib/core-live-pure";
+import { MODULE_PRIVATE } from "@/lib/core-modules";
+import { coreTaintStore } from "@/lib/durable";
 import { str } from "@/lib/pure";
 import type { NavTarget } from "@/lib/nav-pure";
 import { parseAttachments, attachedSuffix, attachmentPrompt } from "@/lib/attach-pure";
@@ -39,6 +41,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
   // B05: one turn per chat at a time (phone + desktop), and a client retry with the same requestId gets the first turn's outcome.
   const rid = typeof body.requestId === "string" && /^[\w-]{8,80}$/.test(body.requestId) ? `${userId}:${body.requestId}` : null;
   type Outcome = { status: number; body: Record<string, unknown> };
+  let background: Promise<{ answer: string } | null> | null = null; // a handed-off turn still running (its stream follows it)
   const run = async (send: (ev: Record<string, unknown>) => void = () => {}, signal?: AbortSignal): Promise<Outcome> => {
     // Conversation: reuse if it belongs to the user (RLS enforces this), else start a new one.
     let conversationId: string | null = typeof body.conversationId === "string" ? body.conversationId : null;
@@ -70,7 +73,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       void emit(sb, userId, "core.started", "core", { conversationId: cid, ...(opts.remote ? { source: "remote" } : {}) }); // never throws; the answer needn't wait for the event row
 
       // Shared by both response styles: answer, then save it once at the end.
-      const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void) => {
+      const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void) => {
         // Older turns supply a compact recap and their saved attachments; only the latest nine stay in full.
         // The chat's checkpoint (constraints from his own typed words, decisions, artifacts, next action) rides apart from the sampled history.
         const [{ data: prior, error: priorError }, project, checkpoint, record] = await Promise.all([
@@ -99,7 +102,11 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
           // Out of interactive time on a long step: the turn continues server-side; reply now, notify when done (never "timed out").
           if (!(e instanceof CoreHandoff) || signal?.aborted) throw e;
           onReset?.();
-          const taskId = await inBackground(sb, userId, cid, message, (bg) => runCoreFor(BACKGROUND_TURN_MS, true, sb, userId, history, undefined, bg, undefined, voice, undefined, undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang));
+          // Not for the phone remote: its clients read "done" as the end. In-app, the open stream keeps showing the background work.
+          const follow = !opts.remote;
+          const bg = await inBackground(sb, userId, cid, message, (sig) => runCoreFor(BACKGROUND_TURN_MS, true, sb, userId, history, follow ? onDelta : undefined, sig, follow ? onReset : undefined, voice, undefined, follow ? onStep : undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang));
+          const taskId = bg.taskId;
+          if (follow) { background = bg.finished; send({ type: "background", taskId }); }
           out = { text: handoffReply(taskId, lang), citations: [], trace: [{ step: "fallback", detail: "turn time limit → background task", ms: 0, ok: false }], model: "smart" };
         }
         await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
@@ -125,13 +132,17 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
 
 
       send({ type: "start", conversationId: cid });
+      // Live work view: numbered, timed, redacted steps (core-live-pure.ts); private module reads show only "a private note".
+      const live = liveTracker((tool, input) => MODULE_PRIVATE.includes(tool) || input.kind === "journal", coreTaintStore.has(cid));
+      const sendAll = (evs: Record<string, unknown>[]) => evs.forEach(send);
       let shown = "";
       try {
         const { text, citations, trace, model, lesson } = await answer(
           (text) => { shown += text; send({ type: "delta", text }); }, signal,
           () => { if (shown) { shown = ""; send({ type: "reset" }); } },
           (to) => send({ type: "navigate", to }),
-          (tool, input) => send({ type: "step", label: stepLabel(tool, input), tool }));
+          (tool, input, done) => sendAll(done ? live.finish(tool, done) : live.start(tool, input)));
+        sendAll(live.end());
         return { status: 200, body: { conversationId: cid, answer: text, citations, trace, model, ...(lesson && { lesson }) } };
       } catch (e) {
         // Stopped or out of time (CoreStopped from runCore's deadline): keep what was shown, plus what cancelled agent tasks had finished.
@@ -148,20 +159,18 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       .catch((e): Outcome => (e && typeof e === "object" && "status" in e ? e as Outcome : { status: 500, body: { error: e instanceof Error ? e.message : "CORE failed" } }));
 
   if (new URL(req.url).searchParams.get("stream") === "1") {
-    // NDJSON events: {type:"start",conversationId} {type:"step",label}* {type:"delta",text}* {type:"navigate",to}? then {type:"done",...} or {type:"error",error}.
+    // NDJSON events: {type:"start",conversationId} {type:"step",id,label,key?,detail?,t}* {type:"step_done",id,ok,ms,result?,t}*
+    // {type:"delta",text}* {type:"navigate",to}? then {type:"done",...} or {type:"error",error}. After a handoff: {type:"background",taskId},
+    // then "done" (the handoff reply), the background turn's steps/deltas while the client stays, and {type:"bg_done",answer}.
     // A deduped retry gets only the final done/error line.
     const ac = new AbortController();
-    req.signal.addEventListener("abort", () => ac.abort(), { once: true }); // client went away: kill the CLI
-    const enc = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
-      async start(ctrl) {
-        const send = (ev: Record<string, unknown>) => { try { ctrl.enqueue(enc.encode(JSON.stringify(ev) + "\n")); } catch { /* client gone */ } };
-        const o = await once(send, ac.signal);
-        send({ type: o.status === 200 ? "done" : "error", ...o.body });
-        try { ctrl.close(); } catch { /* already cancelled */ }
-      },
-      cancel() { ac.abort(); },
-    });
+    req.signal.addEventListener("abort", () => ac.abort(), { once: true }); // client went away: kill the CLI (a background turn keeps going)
+    const stream = ndjsonStream(async (send) => {
+      const o = await once(send, ac.signal);
+      send({ type: o.status === 200 ? "done" : "error", ...o.body });
+      const bg = background && !ac.signal.aborted ? await background : null;
+      if (bg) send({ type: "bg_done", ...bg });
+    }, () => ac.abort());
     return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" } });
   }
 
@@ -171,12 +180,12 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
 
 // shortcut: the background turn runs in this Node process (survives a closed browser, not a server restart); a restart leaves its task "running" until reclaimed.
 /** Run a handed-off CORE turn as an OPERATIONS task: its answer lands in the chat, and agent.completed/failed gives the one notice. */
-async function inBackground(sb: SupabaseClient, userId: string, cid: string, message: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>): Promise<string> {
+async function inBackground(sb: SupabaseClient, userId: string, cid: string, message: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>): Promise<{ taskId: string; finished: Promise<{ answer: string } | null> }> {
   const title = `CORE: ${message.replace(/\s+/g, " ").trim().slice(0, 80)}`;
   const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent: "nova", title, request: message, status: "running", started_at: new Date().toISOString() }).select("id").single();
   if (error) throw error;
   const taskId: string = data.id;
-  void (async () => {
+  const finished = (async () => {
     let status = "done", result: string | null = null, err: string | null = null;
     try {
       const out = await run(new AbortController().signal);
@@ -190,6 +199,7 @@ async function inBackground(sb: SupabaseClient, userId: string, cid: string, mes
     }
     await sb.from("tasks").update({ status, result, error: err, finished_at: new Date().toISOString() }).eq("id", taskId).then(() => {}, () => {});
     await emit(sb, userId, status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId, status, title });
+    return { answer: result ?? `_${BG_FAILED}_` };
   })();
-  return taskId;
+  return { taskId, finished };
 }

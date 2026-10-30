@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isTurn, newSince, parseKnown, showSetup } from "../src/lib/startup-pure.ts";
+import { isTurn, newSince, parseKnown, pillOf, quietPick, showSetup } from "../src/lib/startup-pure.ts";
 import { STEPS } from "../src/lib/tour-pure.ts";
 
 test("startup: urgent alert > morning card > What's new, one at a time", () => {
@@ -35,4 +35,23 @@ test("agent notices name the task, never its raw id, and open it", async () => {
   assert.match(n.reason!, /^“Draft the weekly client update for Acme and send for review”|^“.{60}”/);
   assert.deepEqual(n.nav, { panel: "operations", open: { kind: "task", id } });
   assert.equal(taskNotice(id, "agent.failed", undefined).reason, "Your task failed and needs review.");
+});
+
+test("quiet open: morning + 3 notices + tour → zero overlays, one pill with counts", () => {
+  const sig = (d: { signal: string }) => d.signal;
+  const notices = [{ signal: "briefing" }, { signal: "agent-finished" }, { signal: "upload-failed" }];
+  assert.deepEqual(quietPick(notices, sig, 0, false).show, []); // even a failed upload waits: it is in the pill's "need you"
+  assert.equal(quietPick(notices, sig, 0, false).drop.length, 3);
+  assert.deepEqual(pillOf(["morning", "tour"], 2, 1, false), { lead: "morning", tour: true, fresh: 2, needYou: 1, dot: true });
+  assert.equal(pillOf([], 0, 0, false), null);
+  assert.equal(pillOf(["brief", "morning"], 0, 0, true)?.lead, "brief");
+  assert.equal(pillOf(["recap"], 3, 0, true)?.dot, false); // same-day reopen: counts, no dot
+});
+
+test("quiet open: an urgent money/security/Stop-all notice → exactly one small toast", () => {
+  const sig = (d: { signal: string }) => d.signal;
+  const q = [{ signal: "briefing" }, { signal: "usage-limit" }, { signal: "stop-all" }];
+  assert.deepEqual(quietPick(q, sig, 0, false).show, [{ signal: "usage-limit" }]);
+  assert.deepEqual(quietPick(q, sig, 1, false).show, []); // one already toasted in this window
+  assert.deepEqual(quietPick(q, sig, 0, true).show, [{ signal: "stop-all" }]); // same-day reopen: only Stop-all
 });

@@ -14,7 +14,8 @@ import { useT } from "./i18n";
 import { loadJudgment, saveJudgment } from "./interruption-store";
 import { speakChunk, speechSettings, speakingOrJustEnded } from "./voice/speak";
 import { inboxOffer } from "@/lib/herald-watch-pure";
-import { want, wantingNow } from "./startup-store";
+import { openedToday, want, wantingNow } from "./startup-store";
+import { OPEN_MS, RETURN_MS, quietPick } from "@/lib/startup-pure";
 
 const MUTE_EVENT = "orbit:herald-mute";
 const load = () => { try { return parseHerald(localStorage.getItem(HERALD_KEY), Date.now()); } catch { return parseHerald(null, Date.now()); } };
@@ -48,6 +49,7 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
   const homeRef = useRef(home);
   homeRef.current = home;
   const attention = useRef({ lastTyped: Date.now(), localBusy: false, coreBusy, theater: false });
+  const quiet = useRef({ until: Date.now() + OPEN_MS, toasted: 0 }); // quiet open (startup-pure quietPick): after open or a long absence
   const gather = useRef(0); // back after AWAY_MS: until this time non-urgent notices wait to become one digest
   const { t } = useT();
   const tRef = useRef(t);
@@ -60,7 +62,9 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
     const legacy = load(), a = attention.current, now = Date.now();
     const get = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
     if (document.visibilityState === "visible") {
-      if (!gather.current && now - (Number(get(LAST_SEEN_KEY)) || now) >= AWAY_MS) gather.current = now + GATHER_MS;
+      const away = now - (Number(get(LAST_SEEN_KEY)) || now);
+      if (!gather.current && away >= AWAY_MS) gather.current = now + GATHER_MS;
+      if (away >= RETURN_MS) quiet.current = { until: now + OPEN_MS, toasted: 0 };
       try { localStorage.setItem(LAST_SEEN_KEY, String(now)); } catch { /* no digest across reloads */ }
     }
     if (gather.current && now >= gather.current) {
@@ -72,6 +76,8 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
         notify({ key: `digest:${now}`, kind: "core", signal: "briefing", title, body, reason: tRef.current("herald.digestHint"), herald: { key: `digest:${now}`, kind: "brief", title, body, actions: [] } });
       } else queue.current.push(...d.digest);
     }
+    // Opening is quiet: at most one toast-worthy notice pops; the rest are already in the bell and the header pill counts them.
+    if (now < quiet.current.until) queue.current = quietPick(queue.current, signalFor, quiet.current.toasted, openedToday()).show;
     const waiting = gather.current ? queue.current.filter((n) => classify(n, loadJudgment()) !== "URGENT") : [];
     const r = selectInterruptions(loadJudgment(), queue.current.filter((n) => !waiting.includes(n)), now, {
       focus: focusRunning(get(FOCUS_TIMER_KEY), now), theater: a.theater, startup: wantingNow().some((s) => s !== "alert"),
@@ -100,6 +106,7 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
       if (urgent && document.hasFocus() && speechSettings().speak && !a.coreBusy && !a.localBusy && !speakingOrJustEnded(2000)) speakChunk(reasonLine(n));
     }
     count.current += shown.length;
+    if (now < quiet.current.until) quiet.current.toasted += shown.length;
     if (shown.length) dispatchEvent(new CustomEvent(POPUP_SHOWN, { detail: shown.map((c) => c.notice.key) }));
     setCards((c) => [...shown, ...c]); // urgent bypass never evicts a card
     setSaid(shown.map((x) => reasonLine(x.notice)).join(". "));
@@ -211,8 +218,6 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
     addEventListener("orbit:herald-action", action);
     return () => removeEventListener("orbit:herald-action", action);
   });
-  const snooze = (c: Shown) => { save({ ...load(), snooze: Date.now() + 60 * MIN }); dismiss(c.key); };
-  const mute = () => { save({ ...load(), mute: true }); setCards([]); dispatchEvent(new Event(MUTE_EVENT)); };
   const hold = (on: boolean) => {
     hover.current = on;
     if (!on) { const at = Date.now(); setCards((cs) => cs.map((c) => (c.open ? { ...c, at } : c))); } // a fresh 12 s after leaving
@@ -232,13 +237,11 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
               <b className="herald-title flex-1">{classify(c.notice, loadJudgment()) === "URGENT" ? "🔴 " : ""}{c.title}</b>
               <button className="herald-x" onClick={() => dismiss(c.key, true)} aria-label={`Dismiss: ${c.title}`} title="Dismiss">✕</button>
             </div>
-            {c.image && <img src={c.image} alt="" className="mt-1.5 w-full rounded-md" loading="lazy" referrerPolicy="no-referrer" />}
-            <p className="mt-1 text-xs" aria-label="Why this appeared">{reasonLine(c.notice)}</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {c.notice.fixHref === "/api/studio/oauth/start" && <a className="chip" href={c.notice.fixHref}>{c.notice.fixLabel ?? "Fix"}</a>}
-              {c.actions.map((a) => <button key={a.label} className="chip herald-go" onClick={() => act(c, a)}>{a.label}</button>)}
-              <button className="chip" onClick={() => snooze(c)} title="No pop-ups for an hour">Snooze 1h</button>
-              <button className="chip" onClick={mute} title="Turn pop-ups off (turn them back on in 🔔 Notifications)">Mute</button>
+            <p className="herald-why mt-1 text-xs" aria-label="Why this appeared">{reasonLine(c.notice)}</p>
+            {/* Compact: one action; the rest (more actions, Pop-ups off) are in the 🔔 bell. */}
+            <div className="mt-1.5 flex gap-1.5">
+              {c.notice.fixHref === "/api/studio/oauth/start" ? <a className="chip" href={c.notice.fixHref}>{c.notice.fixLabel ?? "Fix"}</a>
+                : c.actions[0] && <button className="chip herald-go" onClick={() => act(c, c.actions[0])}>{c.actions[0].label}</button>}
             </div>
           </div>
         </article>
@@ -269,19 +272,20 @@ export function HeraldToggle() {
 }
 
 const CSS = `
-.herald { position: absolute; z-index: 40; top: 4.5rem; right: 0.75rem; width: min(21rem, calc(100vw - 1.5rem)); display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem; pointer-events: none; }
+.herald { position: absolute; z-index: 40; top: 4.5rem; right: 0.75rem; width: min(20rem, calc(100vw - 1.5rem)); display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem; pointer-events: none; }
 .herald > * { pointer-events: auto; }
-.herald-card { --edge: #22d3ee; position: relative; overflow: hidden; width: 100%; display: flex; gap: 0.65rem; padding: 0.75rem 0.8rem 0.75rem 0.9rem; border-radius: 16px;
+.herald-card { --edge: #22d3ee; position: relative; overflow: hidden; width: 100%; display: flex; gap: 0.55rem; padding: 0.55rem 0.7rem 0.55rem 0.8rem; border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--edge) 45%, transparent); box-shadow: 0 0 22px color-mix(in srgb, var(--edge) 22%, transparent), 0 10px 30px rgba(0, 0, 0, 0.45);
   animation: herald-in 0.55s cubic-bezier(0.2, 0.9, 0.25, 1.15) both; font-size: 0.85rem; }
 .herald-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--edge); box-shadow: 0 0 12px var(--edge); }
 .herald-card::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
   background: linear-gradient(105deg, transparent 35%, color-mix(in srgb, var(--edge) 28%, transparent) 50%, transparent 65%); transform: translateX(-100%);
   animation: herald-sweep 1.4s 0.25s ease-out both; }
-.herald-icon { position: relative; flex: none; display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; font-size: 1rem;
+.herald-icon { position: relative; flex: none; display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; font-size: 1rem;
   background: color-mix(in srgb, var(--edge) 16%, transparent); }
 .herald-icon::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid var(--edge); animation: herald-ping 1.6s ease-out 2; opacity: 0; }
 .herald-title { line-height: 1.25; }
+.herald-why { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .herald-x { color: var(--muted); padding: 0 0.2rem; border-radius: 6px; }
 .herald-x:hover { color: var(--ink); }
 .herald-go { border-color: color-mix(in srgb, var(--edge) 60%, transparent); }
