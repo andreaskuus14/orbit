@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { BUILTIN_AGENTS, TOOLS } from "@/lib/agents";
+import { BUILTIN_ONLY_TOOLS } from "@/lib/agent-defs-pure";
 import { slugify, str } from "@/lib/pure";
 import { CHAIN_TITLE } from "@/lib/chains-pure";
 import { capabilityState } from "@/lib/capability";
@@ -33,7 +34,7 @@ export async function GET() {
   ];
   // AGT01: connections as configured (env/files only) and as available now (with the doctor's latest checks); null on error = unknown.
   const [configured, available] = await Promise.all([capabilityState([]).catch(() => null), capabilityState().catch(() => null)]);
-  return Response.json({ agents, deps: { configured, available }, tools: Object.entries(TOOLS).filter(([k]) => k !== "delegate").map(([name, t]) => ({ name, description: t.description, approval: !!t.approval })) });
+  return Response.json({ agents, deps: { configured, available }, tools: Object.entries(TOOLS).filter(([k]) => k !== "delegate" && !BUILTIN_ONLY_TOOLS.includes(k)).map(([name, t]) => ({ name, description: t.description, approval: !!t.approval })) });
 }
 
 /** Create a custom agent with your own instructions and an allow-list of tools. */
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
   if (!name || !instructions) return Response.json({ error: "Give the agent a name and instructions (10+ characters)" }, { status: 400 });
   const slug = slugify(name);
   if (slug.length < 2 || BUILTIN_AGENTS.some((a) => a.slug === slug)) return Response.json({ error: "Pick a different name" }, { status: 400 });
-  const tools = (Array.isArray(body.tools) ? body.tools : []).filter((t: unknown) => typeof t === "string" && t in TOOLS && t !== "delegate");
+  const tools = (Array.isArray(body.tools) ? body.tools : []).filter((t: unknown) => typeof t === "string" && t in TOOLS && t !== "delegate" && !BUILTIN_ONLY_TOOLS.includes(t));
   const { data, error } = await sb.from("agents").insert({ user_id: user.id, slug, name, role: str(body.role, 200) || "", instructions, tools }).select("slug").single();
   if (error) return Response.json({ error: error.code === "23505" ? "An agent with that name exists" : error.message }, { status: 400 });
   return Response.json({ agent: data }, { status: 201 });
