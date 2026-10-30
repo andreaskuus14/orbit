@@ -2,30 +2,30 @@
 // user's own request in their latest message, and not once page/file/agent output is in context (injected text can't plant files).
 import { fileRev, type Basis } from "./artifact-rev-pure.ts";
 import type { WriteEvidence } from "./completion-pure.ts";
-import { et, etQuestion, ET_NOT } from "./et-ask-pure.ts";
+import { wsConfirmOffer, wsWriteBlocked, type WsGate, type WsPending } from "./ws-intent-pure.ts";
 export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create"] as const;
 export type WsTool = (typeof WS_TOOLS)[number];
 export const isWsTool = (t: string): t is WsTool => (WS_TOOLS as readonly string[]).includes(t);
 
 /** Prompt line for core.ts's TOOLS list. */
-export const WS_PROMPT = `- WORKSPACE (real files you build for the user, viewable at a preview link): ws_list {"workspace"?: string} (no workspace → all workspaces; else its files), ws_read {"workspace": string, "path": string}; and only when the user's latest message asks you to build, make, create, edit or save files, a site, an app or a game: ws_create {"name": string}, ws_write {"workspace": string, "files": [{"path": "index.html", "content": string}, ...]} (creates the workspace if needed; write ALL files of a site in ONE call; relative paths like "css/style.css"; types: html css js mjs json md txt svg lua luau py csv; max 512 KB per file). The site entry is index.html; reference files relatively. The preview is offline: no CDNs, web fonts or external URLs (they are blocked), so put all CSS/JS in the workspace. After writing, ORBIT renders the site headlessly and the result ends with a "Check:" line: fix any problems it lists (at most 2 rounds), then give the user the preview link with that check line instead of pasting the code.
+export const WS_PROMPT = `- WORKSPACE (real files you build for the user, viewable at a preview link): ws_list {"workspace"?: string} (no workspace → all workspaces; else its files), ws_read {"workspace": string, "path": string}; and only when the user's latest message asks you to build, make, create, edit, upgrade or save files, a site, an app or a game (or says yes to the build you just offered for that workspace): ws_create {"name": string}, ws_write {"workspace": string, "files": [{"path": "index.html", "content": string}, ...]} (creates the workspace if needed; write ALL files of a site in ONE call; relative paths like "css/style.css"; types: html css js mjs json md txt svg lua luau py csv; max 512 KB per file). The site entry is index.html; reference files relatively. The preview is offline: no CDNs, web fonts or external URLs (they are blocked), so put all CSS/JS in the workspace. After writing, ORBIT renders the site headlessly and the result ends with a "Check:" line: fix any problems it lists (at most 2 rounds), then give the user the preview link with that check line instead of pasting the code.
   DELIVERING FILES: the chat shows each written file as a deliverable card with Open preview, Download, Download all (.zip) and Save to VAULT buttons. When a workspace file exists, never paste a whole file (over 40 lines) into chat and never tell the user to copy code into Notepad or "Save As": the files are already saved and downloadable. Reply with a 1-2 line summary of what you built plus the check line; the cards do the rest. Previews run sandboxed and offline.`;
 
 /** True once any step other than navigate or CORE's own workspace writes put outside text in context (pass with attach/pins). */
 export const wsTainted = (steps: string[]) => steps.some((s) => !/^You called (?:navigate|ws_create|ws_write)\b/.test(s));
 
-/** A workspace write must be what the user's latest message asks for. null = allowed. */
-export function wsWriteBlocked(question: string, tainted: boolean): string | null {
-  if (tainted) return "workspace files change only for the user's own request, before any page, file or agent output is in context";
-  const q = question.toLowerCase();
-  if (/\b(?:don'?t|do not|never|stop|cancel)\b/.test(q) || ET_NOT.test(q)) return "the user said not to; answer instead";
-  if (/^\s*(?:how|what|why|which|when|where|explain)\b/.test(q) || etQuestion(q) || /^\s*seleta/.test(q)) return "the user asked a question; answer it instead of writing files";
-  const verb = /\b(?:build|make|create|write|edit|update|change|fix|save|add|generate|scaffold|code|put|redo|rewrite|tweak)\b/.test(q);
-  // Bare "it/that/this" doesn't count ("make it so"): the message must name a file, site, page or workspace.
-  const thing = /\b(?:site|website|web ?page|webpage|page|app|game|files?|html|css|js|javascript|script|landing|portfolio|workspace|folder|index|readme|luau?|python|prototype|demo)\b/.test(q);
-  const verbEt = et("ehita|tee |loo |kirjuta|muuda|paranda|salvesta|lisa|uuenda|genereeri").test(q);
-  const thingEt = et("veebileh|veebisait|leh[te]|lehekülg|äpp|rakendus|mäng|fail|tööruum|kaust|prototüüp|demo|html|skript").test(q);
-  return (verb || verbEt) && (thing || thingEt) ? null : "the user's latest message didn't ask to build or save files; answer instead";
+export { wsWriteBlocked } from "./ws-intent-pure.ts";
+
+// CORE's held-back build offer per chat (ws-intent-pure.ts): set when a ws_write/ws_create was refused with a Build it offer,
+// cleared by the next turn that doesn't make one. shortcut: in memory, a restart drops it (the owner just gets the button again).
+const pending = ((globalThis as unknown as { __orbitWsPending?: Map<string, WsPending> }).__orbitWsPending ??= new Map());
+export async function loadWsGate(userId: string, chat?: string): Promise<WsGate> {
+  const workspaces = await import("./workspace.ts").then((ws) => ws.listWorkspaces(userId)).then((l) => l.map((w) => w.slug), () => []);
+  return { workspaces, pending: chat ? pending.get(`${userId}:${chat}`) ?? null : null };
+}
+export function settleWsPending(userId: string, chat: string, steps: string[]) {
+  const offer = steps.filter((s) => /^You called ws_(?:write|create)\b/.test(s)).map((s) => wsConfirmOffer(s.split("\nRESULT:\n")[1] ?? "")).at(-1);
+  if (offer) pending.set(`${userId}:${chat}`, { workspace: offer, at: Date.now() }); else pending.delete(`${userId}:${chat}`);
 }
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -59,9 +59,9 @@ async function siteCheck(userId: string, slug: string, priorWrites: number): Pro
   }
 }
 
-export async function runWsTool(userId: string, tool: WsTool, input: Record<string, unknown>, question: string, tainted: boolean, priorWrites = 0, onEvidence?: (e: WriteEvidence) => void, basis: Basis[] = [], touched: (path: string) => boolean = () => false): Promise<string> {
+export async function runWsTool(userId: string, tool: WsTool, input: Record<string, unknown>, question: string, tainted: boolean, priorWrites = 0, onEvidence?: (e: WriteEvidence) => void, basis: Basis[] = [], touched: (path: string) => boolean = () => false, gate: WsGate = {}): Promise<string> {
   if (tool === "ws_write" || tool === "ws_create") {
-    const blocked = wsWriteBlocked(question, tainted);
+    const blocked = wsWriteBlocked(question, tainted, { ...gate, target: tool === "ws_write" ? input.workspace : input.name });
     if (blocked) return `Error: ${blocked}`;
   }
   try {

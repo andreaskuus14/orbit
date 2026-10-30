@@ -46,6 +46,7 @@ import { CORE_ENGINE } from "./core-sdk-pure";
 import { randomUUID } from "node:crypto";
 import type { CliSession } from "./claude";
 import { coreSessionStore as coreSessions, coreTaintStore as coreTaint } from "./durable";
+import { loadWsGate, settleWsPending } from "./core-workspace";
 
 /** ORBIT_CORE_SESSION=resume: one persistent Claude CLI session per CORE conversation, so follow-ups and tool results stay in it.
  *  The chat → session map survives restarts (durable.ts); a failed resume still drops it and falls back to stateless. */
@@ -240,7 +241,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   let answer = "";
   const voiceNote = typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you: only the FIRST paragraph of \"final\" is read aloud. Make it a 1-3 sentence conversational summary (no lists, headings or links). Brevity applies only to that summary, never to the work: do every step the request needs, and when it needs more (a plan, a draft, results, steps), put the complete result below the summary after a blank line; it stays on screen.\n\n" : "";
   const carried = !!sessionKey && coreTaint.has(sessionKey); // private data from an earlier turn is still in this chat (C03)
-  const policyCtx = () => ({ stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried });
+  const wsGate = await loadWsGate(userId, sessionKey); // workspace names + CORE's pending Build-it offer for this chat
+  const policyCtx = () => ({ ws: wsGate, stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried });
   // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
   // Results over the step limit are clipped with a read_more pointer; the full text lives in this per-turn store (roadmap 20).
   const clips = createClipStore();
@@ -376,6 +378,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     if (signal?.aborted && stopped.length) throw new CoreStopped(stopped.join("\n\n"));
     throw e;
   } finally {
+    if (sessionKey) settleWsPending(userId, sessionKey, steps);
     if (sessionKey && !carried && carriesPrivate({ ...policyCtx(), steps })) coreTaint.mark(sessionKey); // also when stopped mid-turn
   }
 

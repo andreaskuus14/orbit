@@ -22,6 +22,7 @@ import { WeeklyReviewSetting } from "./RemoteCall";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
 import { DeliverableCards } from "./DeliverableCards";
+import { wsConfirmOffer } from "@/lib/ws-intent-pure";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
 import type { Plan } from "@/lib/plans-pure";
@@ -345,6 +346,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           {m.chips.map((c) => <button key={c} type="button" className="chip" onClick={() => void send(c)}>{c}</button>)}
         </div>
       )}
+      {!busy && i === msgs.length - 1 && (() => { const ws = m.trace?.map((x) => wsConfirmOffer(x.detail.split(" → ").slice(1).join(" → "))).filter(Boolean).at(-1); return ws && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs" role="group" aria-label={tr("ws.confirm", { ws })}>
+          <span>{tr("ws.confirm", { ws })}</span>
+          <button type="button" className="chip" onClick={() => void send(tr("ws.buildIt"))}>{tr("ws.buildIt")}</button>
+          <button type="button" className="chip" onClick={() => void send(tr("ws.notNow"))}>{tr("ws.notNow")}</button>
+        </div>); })()}
       {!!m.fixes?.length && (
         <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={tr("core.robloxErrors")}>
           {m.fixes.map((f) => <button key={f} type="button" className="chip max-w-full truncate" title={`Open the Luau helper (docs-checked) in Fix mode with: ${f}`}
