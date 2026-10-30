@@ -4,7 +4,7 @@ import path from "node:path";
 import { SMART_MODEL, askClaude, type PromptImage } from "../claude";
 import { stopAllOn } from "../stop-all";
 import { PAUSED_MSG } from "../stop-all-pure";
-import { usageHold } from "../usage-meter";
+import { usageHardHold } from "../usage-meter";
 import { shortsUrl } from "../yt-viral-pure";
 import { audioArgs, parseDuration, probeArgs, YTDLP_FILE_MARK, ytdlpError, type Word } from "./pure";
 import { ffmpegPath, readState, runFfmpeg, runYtdlp, saveState, studioRoot, transcribe, ytdlpPath } from "./factory";
@@ -42,7 +42,7 @@ export async function studyView() {
 export async function studyShort(meta: { id: string; title: string; channel: string; views?: number; source: "niche" | "own" }): Promise<Lesson> {
   const url = shortsUrl(meta.id);
   if (!url) throw new Error("Not a YouTube video id");
-  const held = stopAllOn() ? PAUSED_MSG : usageHold();
+  const held = stopAllOn() ? PAUSED_MSG : usageHardHold();
   if (held) throw new Error(held);
   if (S.busy) throw new Error("Already studying another Short — wait for it to finish");
   S.busy = meta.id;

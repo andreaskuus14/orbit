@@ -2,7 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { isCurrent } from "@/lib/memory-types-pure";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
-import { usageHold } from "@/lib/usage-meter";
+import { usageHardHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { createMemory } from "@/lib/memory";
 import { MAX_IMAGE_BYTES, sniff } from "@/lib/attach-pure";
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   try { const l = JSON.parse(String(form?.get("lesson") ?? "null")); if (typeof l?.building === "string") lesson = { building: l.building.slice(0, 200), text: String(l.text ?? "").slice(0, 2000) }; } catch { /* no lesson */ }
   const tag = String(form?.get("lessonTag") ?? "");
   const lessonTagOk = /^lesson:[a-z0-9-]{1,28}$/.test(tag) ? tag : "";
-  const held = stopAllOn() ? "Stop-all is on" : usageHold();
+  const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
   if (held) return fail(`Not right now: ${held}`, 503);
 
   const { data: notes } = await sb.from("memories").select("kind, title, content, tags, created_at").contains("tags", ["arch", "lesson"]).order("created_at", { ascending: false }).limit(4);

@@ -5,7 +5,7 @@ import { SMART_MODEL, askClaude, type Lane } from "./claude";
 import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { usageHold } from "./usage-meter";
+import { usageHoldFor } from "./usage-meter";
 import { NICHE_SYSTEM, SHOP_SYSTEM, isNicheId, kitMarkdown, mergeBatch, newTrace, nichePrompt, parseKit, parseNiches, renderShop, scoutDue, shopPrompt, traceLine, type Kit, type Niche } from "./niche-pure";
 
 // BUSINESS niche scout + shop-in-a-box store: <ORBIT data dir>/business/niches.json and business/shops/<niche id>/{index.html,kit.json,launch-kit.md}.
@@ -50,11 +50,11 @@ export async function nicheBoard() {
   return { niches, kits, lastOk: s.lastOk ?? null, lastAttempt: s.lastAttempt ?? null, lastError: s.lastError ?? null, busy: g.__orbitNicheBusy ?? null, dir: root() };
 }
 
-const held = () => (stopAllOn() ? PAUSED_MSG : usageHold());
+const held = (lane: Lane = "background") => (stopAllOn() ? PAUSED_MSG : usageHoldFor(lane));
 
 /** One scout run: CORE searches the web (read-only tools) and proposes niches; only ideas with ≥2 links it really read are kept. */
 export async function runScout(lane: Lane): Promise<number> {
-  const h = held();
+  const h = held(lane);
   if (h) throw new Error(h);
   if (g.__orbitNicheBusy) throw new Error("The niche scout is already working");
   g.__orbitNicheBusy = "scout";
@@ -92,7 +92,7 @@ export async function setNicheStatus(id: string, status: "kept" | "dismissed") {
 
 /** Shop-in-a-box for a kept idea, on the owner's click: copy from CORE (no tools), page rendered locally. Nothing is published. */
 export async function buildShop(id: string, signal: AbortSignal): Promise<Kit> {
-  const h = held();
+  const h = held("foreground");
   if (h) throw new Error(h);
   const n = (await load()).niches.find((x) => x.id === id);
   if (!n) throw new Error("Not found");
