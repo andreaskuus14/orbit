@@ -24,7 +24,7 @@ export async function companyView(sb: SupabaseClient, userId: string) {
   const agents = [...new Set(ROLES.map((r) => COMPANY[r].agent))];
   const [{ data, error }, chains, card, tonight] = await Promise.all([
     sb.from("tasks").select("agent, title, status, result, created_at").eq("user_id", userId).in("agent", agents).order("created_at", { ascending: false }).limit(200),
-    listChains(sb, userId), // also resumes running chains, like GET /api/chains
+    listChains(sb, userId), // read only: the scheduler tick resumes chains
     scorecardView().catch(() => null),
     import("./night").then((n) => n.companyTonight(userId)),
   ]);

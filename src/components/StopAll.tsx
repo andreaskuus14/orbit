@@ -6,7 +6,7 @@ import { RESOLVE_ALERT, type Signal } from "@/lib/interruption-pure";
 import { STOP_ALL_EVENT, STOP_ALL_REQUEST_EVENT, type StopAllDetail } from "@/lib/stop-all-pure";
 import { useT } from "./i18n";
 
-type Status = { stop: { on: boolean; at: string }; hold: string; limit: { until: number; at: number } | null };
+type Status = { stop: { on: boolean; at: string }; hold: string; limit: { until: number; at: number } | null; host?: string | null };
 const SEEN_KEY = "orbit.limitSeen";
 
 /** 🛑 Stop-all in the top HUD (with a confirm), the red "Paused" banner while it's on, and a bell note when Claude's usage limit is hit. */
@@ -19,8 +19,8 @@ export function StopAll() {
   const wasOn = useRef(false);
   const known = useRef<StopAllDetail | null>(null);
 
-  const broadcast = useCallback((on: boolean) => {
-    known.current = { on };
+  const broadcast = useCallback((on: boolean, host = known.current?.host) => {
+    known.current = { on, host };
     dispatchEvent(new CustomEvent<StopAllDetail>(STOP_ALL_EVENT, { detail: known.current }));
   }, []);
 
@@ -28,7 +28,7 @@ export function StopAll() {
     const r = await fetch("/api/stop-all").then((x) => (x.ok ? x.json() : null)).catch(() => null) as Status | null;
     if (!r) return;
     setS(r);
-    broadcast(r.stop.on);
+    broadcast(r.stop.on, r.host);
     if (r.stop.on && !wasOn.current) notify({ key: `stop-all:${r.stop.at}`, signal: "stop-all", kind: "system", title: "Stop-all switched on", reason: "Agents and automations are paused until you resume them.", fixLabel: "Open pause controls", nav: { panel: null } });
     if (!r.stop.on) dispatchEvent(new CustomEvent<Signal>(RESOLVE_ALERT, { detail: "stop-all" }));
     wasOn.current = r.stop.on;

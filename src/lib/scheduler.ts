@@ -16,6 +16,7 @@ import { maybeDealHunt } from "./deals";
 import { maybeScorecard } from "./agent-replay";
 import { maybeArchDigest } from "./arch-digest";
 import { allows, tickAutonomy } from "./autonomy";
+import { beat } from "./host-heartbeat";
 
 // Server-side scheduler (briefings + automations): runs inside the ORBIT server process (npm run dev / npm start), so briefings
 // happen without a browser open. It needs SUPABASE_SECRET_KEY to act for the user with no session.
@@ -108,6 +109,6 @@ export function startScheduler() {
   }
   console.log("[orbit] briefing scheduler on: Morning 07:30, Midday 12:30, Evening 19:00, Weekly Sun 18:30 (this PC's time)");
   g.__orbitTick = tick;
-  g.__orbitScheduler = setInterval(() => void tick(sb), TICK_MS);
-  setTimeout(() => void tick(sb), 15_000);
+  g.__orbitScheduler = setInterval(() => { void beat(); void tick(sb); }, TICK_MS); // beat outside tick: a long busy tick still beats
+  setTimeout(() => { void beat(); void tick(sb); }, 15_000);
 }

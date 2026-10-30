@@ -19,8 +19,9 @@ export const isWorkStatus = (raw: string) => Object.hasOwn(MAP, raw);
 /** Raw task / step / chain / mission / work-item status → the shared vocabulary. stopAll: queued or running work is held (Stop-all
  *  is on), so it is "blocked", never shown as running. A running task whose approved action is mid-flight or unconfirmed is
  *  "checking" (its read-back has not landed yet). Unknown raw values read as "queued" rather than claiming progress. */
-export function opsStatus(raw: string, o: { stopAll?: boolean; pending?: unknown } = {}): OpsStatus {
+export function opsStatus(raw: string, o: { stopAll?: boolean; pending?: unknown; hostOffline?: boolean } = {}): OpsStatus {
   const s = isWorkStatus(raw) ? MAP[raw] : "queued";
+  if (o.hostOffline && s === "running") return "blocked"; // no live host: nothing is advancing it (interrupted until the host is back)
   if (o.stopAll && (s === "running" || s === "queued")) return "blocked";
   if (s === "running" && Array.isArray(o.pending) && o.pending.some((p) => ["attempting", "uncertain"].includes((p as { status?: string })?.status ?? ""))) return "checking";
   return s;
@@ -35,4 +36,13 @@ export const OPS_TONE: Record<OpsStatus, string> = {
 export function lastProgress(...at: (string | null | undefined)[]): string {
   const t = Math.max(...at.map((a) => Date.parse(a ?? "")).filter(Number.isFinite));
   return Number.isFinite(t) ? new Date(t).toISOString() : "";
+}
+
+/** The scheduler beats every minute (host-heartbeat.ts); three missed beats = the host is offline. */
+export const HOST_STALE_MS = 3 * 60_000;
+/** at: last host beat (ISO), null = never beaten, undefined = not known yet (don't claim offline). */
+export function hostOffline(at: string | null | undefined, now = Date.now()): boolean {
+  if (at === undefined) return false;
+  const t = Date.parse(at ?? "");
+  return !Number.isFinite(t) || now - t > HOST_STALE_MS;
 }

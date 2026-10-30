@@ -57,7 +57,7 @@ async function requeue(sb: SupabaseClient, chainId: string, taskId: string) {
 /** Bring a mission's record in line with its chain: receipts, failure handling/retries, status + log; then keep it driving.
  *  advance false: the same view computed in memory only (no save, requeue or drive). */
 export async function reconcile(sb: SupabaseClient, userId: string, row: Row, advance = true): Promise<MissionView> {
-  const chain = row.chain_id ? await getChain(sb, userId, row.chain_id, false) : null;
+  const chain = row.chain_id ? await getChain(sb, userId, row.chain_id) : null;
   let doc = row.doc;
   const at = now();
   if (chain) {
@@ -73,7 +73,7 @@ export async function reconcile(sb: SupabaseClient, userId: string, row: Row, ad
       if (f.do === "retry" && advance) {
         await requeue(sb, row.chain_id!, bad.taskId);
         doc = logged({ ...doc, status: "running", retries: { ...doc.retries, [bad.index]: (doc.retries[bad.index] ?? 0) + 1 } }, at, `Step ${bad.index + 1} hit a temporary problem; retrying (${(doc.retries[bad.index] ?? 0) + 1}).`);
-        const again = await getChain(sb, userId, row.chain_id!, false);
+        const again = await getChain(sb, userId, row.chain_id!);
         return finish(sb, userId, row, doc, again);
       }
       if (f.do === "stop") doc = logged({ ...doc, status: f.status, blocker: f.why, failure: f.cls }, at, explain(doc.status, f.status, f.why));

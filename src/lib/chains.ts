@@ -8,7 +8,8 @@ import { COMPANY_PREFIX, resolvedStep, roleOf, stepStatus } from "./company-pure
 import { CHAIN_TITLE, byStep, chainView, composeRequest, nextMove, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
 
 // AGENT TEAMS runner: the chain lives in the tasks table (see chains-pure.ts), so it survives restarts. drive() walks the steps in order,
-// one at a time per chain, and stops at an approval; resumeChains (GET /api/chains, and the scheduler tick if wired) picks it up again.
+// one at a time per chain, and stops at an approval; resumeChains (the scheduler tick) picks it up again. Reads never drive
+// (OPS08: proven by tests/mission-scenario.test.ts "chain runs to the end from scheduler ticks alone").
 
 const MAX_RUNNING = 2; // agents.ts MAX_RUNNING: chain steps share kickQueue's slots
 const STALE_MS = 20 * 60_000; // same rule as the tasks list sweep / cancelTask
@@ -32,7 +33,7 @@ export async function createChain(sb: SupabaseClient, userId: string, body: unkn
     user_id: userId, agent: "nova", title: `${prefix}${d.goal}`.slice(0, 200), request: JSON.stringify(toMeta(d, company)), status: "running",
   }).select("id").single(); // started_at stays null: the stale-task sweep only touches rows with a started_at
   if (error) return { error: error.message };
-  driving.add(parent.id); // so a GET poll can't start a driver before the step rows exist
+  driving.add(parent.id); // so a scheduler resume can't start a driver before the step rows exist
   const { error: kidsErr } = await sb.from("tasks").insert(d.steps.map((st, k) => ({
     user_id: userId, parent_id: parent.id, agent: st.agent, title: stepTitle(k, d.steps.length, st.agent, st.request), request: st.request,
   })));
@@ -54,26 +55,25 @@ async function loadKids(sb: SupabaseClient, ids: string[]) {
   return m;
 }
 
-async function views(sb: SupabaseClient, userId: string, parents: Parent[], resume = true): Promise<ChainView[]> {
+async function views(sb: SupabaseClient, parents: Parent[]): Promise<ChainView[]> {
   const ps = parents.flatMap((p) => { const meta = parseMeta(p.request); return meta ? [{ p, meta }] : []; });
   const kids = await loadKids(sb, ps.map((x) => x.p.id));
-  if (resume) for (const { p } of ps) if (p.status === "running") void drive(sb, userId, p.id); // resume after an approval or a restart (no-op if driving)
   return ps.map(({ p, meta }) => chainView(p, meta, kids.get(p.id) ?? []));
 }
 
 const PARENT_COLS = "id, status, request, project_id";
 
-export async function getChain(sb: SupabaseClient, userId: string, id: string, resume = true): Promise<ChainView | null> {
+export async function getChain(sb: SupabaseClient, _userId: string, id: string): Promise<ChainView | null> {
   const { data, error } = await sb.from("tasks").select(PARENT_COLS).eq("id", id).is("parent_id", null).maybeSingle();
   if (error) throw error;
-  return data ? (await views(sb, userId, [data as Parent], resume))[0] ?? null : null;
+  return data ? (await views(sb, [data as Parent]))[0] ?? null : null;
 }
 
-export async function listChains(sb: SupabaseClient, userId: string): Promise<ChainView[]> {
+export async function listChains(sb: SupabaseClient, _userId: string): Promise<ChainView[]> {
   const { data, error } = await sb.from("tasks").select(PARENT_COLS).is("parent_id", null).like("title", `${CHAIN_TITLE}%`)
     .order("created_at", { ascending: false }).limit(20);
   if (error) throw error;
-  return views(sb, userId, (data ?? []) as Parent[]);
+  return views(sb, (data ?? []) as Parent[]);
 }
 
 /** For a server-side tick: continue this user's running chains. skipCompany: in the night window, company chains are the night shift's (its budget). */
