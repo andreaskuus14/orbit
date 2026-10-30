@@ -9,6 +9,7 @@ import ts from "typescript";
 import * as edit from "../src/lib/automation-edit-pure.ts";
 import { translate } from "../src/lib/i18n-pure.ts";
 
+import * as preview from "../src/lib/automation-preview-pure.ts";
 const require = createRequire(import.meta.url), clone = (x: any) => JSON.parse(JSON.stringify(x));
 const compile = (file: string) => ts.transpileModule(readFileSync(new URL(`../src/components/${file}.tsx`, import.meta.url), "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
@@ -46,7 +47,7 @@ function ui(options: { failSave?: boolean; failRun?: boolean } = {}) {
   };
   const m = { exports: {} as any };
   runInNewContext(compile("AgentsPanels"), { module: m, exports: m.exports, Error, confirm: () => true, setInterval: () => 1, clearInterval() {},
-    require: (name: string) => name === "react" ? react : name.endsWith("automation-edit-pure") ? edit : name.endsWith("AutomationFields") ? fieldsModule.exports : name.endsWith("world-paused") ? { useWorldPaused: () => false } : name === "./i18n" ? { useT: () => ({ t: (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate("en", k, v), tn: (b: string, n: number) => translate("en", `${b}.${n === 1 ? "one" : "other"}` as Parameters<typeof translate>[1], { n }) }) } : name === "react/jsx-runtime" ? require(name) : {},
+    require: (name: string) => name === "react" ? react : name.endsWith("automation-edit-pure") ? edit : name.endsWith("automation-preview-pure") ? preview : name.endsWith("AutomationFields") ? fieldsModule.exports : name.endsWith("world-paused") ? { useWorldPaused: () => false } : name === "./i18n" ? { useT: () => ({ t: (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate("en", k, v), tn: (b: string, n: number) => translate("en", `${b}.${n === 1 ? "one" : "other"}` as Parameters<typeof translate>[1], { n }) }) } : name === "react/jsx-runtime" ? require(name) : {},
     fetch: async (_url: string, init: any = {}) => {
       const method = init.method ?? "GET", body = init.body ? JSON.parse(init.body) : null;
       if (method === "GET") return { ok: true, json: async () => ({ automations: clone(rows) }) };
