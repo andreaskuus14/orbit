@@ -89,7 +89,7 @@ async function runCheck(uid: string, slug: string, page: string): Promise<CheckR
           if (rel && rel !== "favicon.ico") missing.add(rel);
           return route.fulfill({ status: 404, headers: { ...PREVIEW_HEADERS, "Content-Type": "text/plain; charset=utf-8" }, body: "Not found" });
         }
-        return route.fulfill({ status: 200, headers: { ...PREVIEW_HEADERS, "Content-Type": contentType(rel!) }, body: f.text });
+        return route.fulfill({ status: 200, headers: { ...PREVIEW_HEADERS, "Content-Type": contentType(rel!) }, body: Buffer.from(f.bytes) });
       });
       for (const v of VIEWS) {
         const p = await ctx.newPage();

@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useT } from "./i18n";
+import { SITE_LABEL_KEYS } from "@/lib/site-pipeline-pure";
 
-export function CoreActivity({ labels, streaming }: { labels: string[]; streaming: boolean }) {
+export function CoreActivity({ labels: raw, streaming }: { labels: string[]; streaming: boolean }) {
   const { t } = useT();
+  const labels = raw.map((l) => (SITE_LABEL_KEYS[l] ? t(SITE_LABEL_KEYS[l]) : l));
   const current = streaming ? "Writing your answer" : labels.at(-1) ?? "Connecting to CORE";
   const [slowLabel, setSlowLabel] = useState<string | null>(null);
   useEffect(() => {

@@ -94,7 +94,8 @@ test("workspace writes use their own taint: CORE's earlier ws writes and navigat
   assert.equal(ok("ws_write", {}, ctx({ question: q })), true);
   assert.equal(ok("ws_write", {}, ctx({ question: q, steps: [step("ws_create"), step("ws_write"), step("navigate")] })), true);
   assert.equal(ok("ws_write", {}, ctx({ question: q, steps: [step("ws_read")] })), false);
-  assert.equal(ok("ws_create", {}, ctx({ question: q, steps: [step("fetch_url")] })), false);
+  assert.equal(ok("ws_create", {}, ctx({ question: q, steps: [step("fetch_url")] })), true); // site pipeline: research before the explicit build
+  assert.equal(ok("ws_create", {}, ctx({ question: "yes", steps: [step("fetch_url")] })), false);
   assert.equal(ok("ws_write", {}, ctx({ question: q, attach: true })), false);
   assert.equal(ok("ws_write", {}, ctx({ question: q, pins: true })), false);
   assert.equal(ok("ws_write", {}, ctx({ question: "how do I build a site?" })), false);

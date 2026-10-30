@@ -3,16 +3,25 @@
 import { fileRev, type Basis } from "./artifact-rev-pure.ts";
 import type { WriteEvidence } from "./completion-pure.ts";
 import { wsConfirmOffer, wsWriteBlocked, type WsGate, type WsPending } from "./ws-intent-pure.ts";
-export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create"] as const;
+import { explicitBuild } from "./ws-intent-pure.ts";
+import { SITE_GUIDE, SITE_PIPELINE } from "./site-guide.ts";
+import { lintSite, siteStepHint } from "./site-pipeline-pure.ts";
+export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create", "ws_fetch_image"] as const;
 export type WsTool = (typeof WS_TOOLS)[number];
 export const isWsTool = (t: string): t is WsTool => (WS_TOOLS as readonly string[]).includes(t);
 
 /** Prompt line for core.ts's TOOLS list. */
-export const WS_PROMPT = `- WORKSPACE (real files you build for the user, viewable at a preview link): ws_list {"workspace"?: string} (no workspace → all workspaces; else its files), ws_read {"workspace": string, "path": string}; and only when the user's latest message asks you to build, make, create, edit, upgrade or save files, a site, an app or a game (or says yes to the build you just offered for that workspace): ws_create {"name": string}, ws_write {"workspace": string, "files": [{"path": "index.html", "content": string}, ...]} (creates the workspace if needed; write all files of a site in one call, or for a large site in at most 3 calls with index.html in the last one so the check runs on the finished site; relative paths like "css/style.css"; types: html css js mjs json md txt svg lua luau py csv; max 512 KB per file). The site entry is index.html; reference files relatively. The preview is offline: no CDNs, web fonts or external URLs (they are blocked), so put all CSS/JS in the workspace. After writing, ORBIT renders the site headlessly and the result ends with a "Check:" line: fix any problems it lists (at most 2 rounds), then give the user the preview link with that check line instead of pasting the code.
-  DELIVERING FILES: the chat shows each written file as a deliverable card with Open preview, Download, Download all (.zip) and Save to VAULT buttons. When a workspace file exists, never paste a whole file (over 40 lines) into chat and never tell the user to copy code into Notepad or "Save As": the files are already saved and downloadable. Reply with a 1-2 line summary of what you built plus the check line; the cards do the rest. Previews run sandboxed and offline.`;
+export const WS_PROMPT = `- WORKSPACE (real files you build for the user, viewable at a preview link): ws_list {"workspace"?: string} (no workspace → all workspaces; else its files), ws_read {"workspace": string, "path": string}; and only when the user's latest message asks you to build, make, create, edit, upgrade or save files, a site, an app or a game (or says yes to the build you just offered for that workspace): ws_create {"name": string}, ws_write {"workspace": string, "files": [{"path": "index.html", "content": string}, ...]} (creates the workspace if needed; write all files of a site in one call, or for a large site in at most 3 calls with index.html in the last one so the check runs on the finished site; relative paths like "css/style.css"; types: html css js mjs json md txt svg lua luau py csv; max 512 KB per file). The site entry is index.html; reference files relatively. The preview is offline: no CDNs, web fonts or external URLs (they are blocked), so put all CSS/JS in the workspace. After writing, ORBIT renders the site headlessly and the result ends with a "Check:" line: fix any problems it lists (at most 3 rounds), then give the user the preview link with that check line instead of pasting the code.
+  DELIVERING FILES: the chat shows each written file as a deliverable card with Open preview, Download, Download all (.zip) and Save to VAULT buttons. When a workspace file exists, never paste a whole file (over 40 lines) into chat and never tell the user to copy code into Notepad or "Save As": the files are already saved and downloadable. Reply with a 1-2 line summary of what you built plus the check line; the cards do the rest. Previews run sandboxed and offline.
+${SITE_PIPELINE}`;
 
-/** True once any step other than navigate or CORE's own workspace writes put outside text in context (pass with attach/pins). */
-export const wsTainted = (steps: string[]) => steps.some((s) => !/^You called (?:navigate|ws_create|ws_write)\b/.test(s));
+/** True once any step other than navigate or CORE's own workspace writes put outside text in context (pass with attach/pins).
+ *  question: when the owner's own latest message explicitly asks to build a site/files, the site pipeline's public research
+ *  (web_search, fetch_url, ws_fetch_image) doesn't block the build (Operator mode A: research and build). */
+export const wsTainted = (steps: string[], question = "") => {
+  const ok = explicitBuild(question) ? /^You called (?:navigate|ws_create|ws_write|ws_fetch_image|web_search|fetch_url)\b/ : /^You called (?:navigate|ws_create|ws_write)\b/;
+  return steps.some((s) => !ok.test(s));
+};
 
 export { wsWriteBlocked } from "./ws-intent-pure.ts";
 
@@ -31,7 +40,7 @@ export function settleWsPending(userId: string, chat: string, steps: string[]) {
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const kb = (n: number) => `${(n / 1024).toFixed(1)} KB`;
 
-export const MAX_FIX_ROUNDS = 2;
+export const MAX_FIX_ROUNDS = 3;
 /** The ws_write result's check part: the verdict line, and the problems to fix while fix rounds are left (priorWrites = earlier
  *  ws_write calls in this answer). The page's own error text is CORE's code echoing back, still marked as data. */
 export function checkNote(r: { line: string; issues: string[] }, priorWrites: number): string {
@@ -50,18 +59,31 @@ export function verifiedLine(note: string): string {
   return `${line[0].toUpperCase()}${line.slice(1)}${/Problems|Still open/.test(note) ? " (problems still listed)" : ""}`;
 }
 
+/** Static lint over the workspace's html/css/images (site-pipeline-pure.ts); its issues join the headless check's. */
+async function siteLint(userId: string, slug: string): Promise<string[]> {
+  const ws = await import("./workspace.ts");
+  const files = (await ws.listFiles(userId, slug)) ?? [];
+  const read = async (p: string) => ({ path: p, text: (await ws.readWsFile(userId, slug, p))?.text ?? "" });
+  return lintSite({
+    html: await Promise.all(files.filter((f) => f.path.endsWith(".html")).slice(0, 20).map((f) => read(f.path))),
+    css: await Promise.all(files.filter((f) => f.path.endsWith(".css")).slice(0, 20).map((f) => read(f.path))),
+    images: files.filter((f) => /\.(?:png|jpe?g|webp|svg)$/i.test(f.path)).map((f) => ({ path: f.path, bytes: f.size })),
+    credits: (await ws.readWsFile(userId, slug, "assets/CREDITS.md"))?.text,
+  });
+}
+
 async function siteCheck(userId: string, slug: string, priorWrites: number): Promise<string> {
   try {
-    const r = await (await import("./workspace-check.ts")).checkSite(userId, slug);
-    return r ? checkNote(r, priorWrites) : "";
+    const [r, lint] = await Promise.all([(await import("./workspace-check.ts")).checkSite(userId, slug), siteLint(userId, slug).catch(() => [])]);
+    return r ? checkNote({ line: r.line, issues: [...r.issues, ...lint.map((i) => `lint: ${i}`)] }, priorWrites) : "";
   } catch (e) { // a broken check must never block the link
     return `\nCheck: skipped (${e instanceof Error ? e.message.slice(0, 120) : "error"}).`;
   }
 }
 
 export async function runWsTool(userId: string, tool: WsTool, input: Record<string, unknown>, question: string, tainted: boolean, priorWrites = 0, onEvidence?: (e: WriteEvidence) => void, basis: Basis[] = [], touched: (path: string) => boolean = () => false, gate: WsGate = {}): Promise<string> {
-  if (tool === "ws_write" || tool === "ws_create") {
-    const blocked = wsWriteBlocked(question, tainted, { ...gate, target: tool === "ws_write" ? input.workspace : input.name });
+  if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image") {
+    const blocked = wsWriteBlocked(question, tainted, { ...gate, target: tool !== "ws_create" ? input.workspace : input.name });
     if (blocked) return `Error: ${blocked}`;
   }
   try {
@@ -89,6 +111,19 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
         const r = await ws.createWorkspace(userId, str(input.name, 60));
         return "error" in r ? `Error: ${r.error}` : `Done: workspace "${r.slug}" ${r.created ? "created" : "already exists"}. Preview ${await ws.previewUrl(userId, r.slug)}`;
       }
+      case "ws_fetch_image": {
+        const slug = slugify(str(input.workspace, 60));
+        if (!slug || !(await ws.listFiles(userId, slug))) return "Error: write the site's files first (ws_write), then fetch images into that workspace";
+        const { fetchImage } = await import("./site-images.ts");
+        return await fetchImage(input, question, {
+          read: async (p) => (await ws.readWsFile(userId, slug, p))?.text ?? null,
+          write: async (p, data) => {
+            const r = await ws.writeWsFile(userId, slug, p, data);
+            if (!("error" in r)) onEvidence?.({ kind: "file", id: slug, path: r.path, bytes: r.bytes, rev: fileRev(sha256(typeof data === "string" ? data : Buffer.from(data).toString("base64")), Date.now()), check: "Not checked: saved and read back only" });
+            return r;
+          },
+        });
+      }
       case "ws_write": {
         const files = Array.isArray(input.files) ? input.files : input.path !== undefined ? [{ path: input.path, content: input.content }] : [];
         if (!files.length || files.length > 50) return "Error: files must be a list of 1-50 {path, content}";
@@ -111,8 +146,12 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
         }
         const hasIndex = (await ws.listFiles(userId, c.slug))?.some((f) => f.path === "index.html");
         const check = hasIndex ? await siteCheck(userId, c.slug, priorWrites) : "";
+        const paths = ((await ws.listFiles(userId, c.slug)) ?? []).map((f) => f.path);
+        // The design guide loads with the build step, right after the plan is written.
+        const guide = written.some((e) => e.path === "plan.md") && !paths.some((p) => p.endsWith(".css")) ? `\n${SITE_GUIDE}` : "";
+        const next = paths.includes("plan.md") ? `\n${siteStepHint(paths, (await ws.readWsFile(userId, c.slug, "plan.md"))?.text ?? "")}` : "";
         for (const e of written) onEvidence?.({ ...e, check: verifiedLine(check) });
-        return `${failed ? "Error: workspace write is incomplete. Some files failed; report the partial result.\n" : ""}Workspace ${c.slug}:\n${lines.join("\n")}\n${hasIndex ? "" : "index.html isn't there yet; "}Preview link: ${await ws.previewUrl(userId, c.slug)}${check}`;
+        return `${failed ? "Error: workspace write is incomplete. Some files failed; report the partial result.\n" : ""}Workspace ${c.slug}:\n${lines.join("\n")}\n${hasIndex ? "" : "index.html isn't there yet; "}Preview link: ${await ws.previewUrl(userId, c.slug)}${check}${next}${guide}`;
       }
     }
   } catch (e) {

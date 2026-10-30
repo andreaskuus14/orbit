@@ -2,6 +2,7 @@
 // One CLI call gets a limit by purpose: quick chat stays short, generation-heavy steps (site files, research, agents) get minutes.
 // A timed-out call is retried once with the work split; if the interactive turn still can't finish, the rest runs in the background.
 import type { Lang } from "./i18n-pure.ts";
+import { siteWriteLabel } from "./site-pipeline-pure.ts";
 
 export const CHAT_MS = 120_000;
 export const GEN_MS = 9 * 60_000;
@@ -10,7 +11,7 @@ export const BACKGROUND_TURN_MS = 20 * 60_000; // a handed-off turn's whole budg
 const MARGIN_MS = 15_000; // left for the tool and the answer after a call
 
 const HEAVY_Q = /\b(?:build|make|create|write|generate|redesign|rewrite)\b[\s\S]{0,80}\b(?:site|website|web ?page|app|game|files?|landing|portfolio)\b|\b(?:research|deep dive|investigate|report on)\b|\b(?:ehita|loo|tee)\b[\s\S]{0,60}(?:veebileh|lehe|äpp|mäng)|\buuri(?:mus)?\b/i;
-const HEAVY_TOOL = /^You called (?:ws_write|ws_create|ask_agent|web_search|start_mission) /;
+const HEAVY_TOOL = /^You called (?:ws_write|ws_create|ws_fetch_image|ask_agent|web_search|start_mission) /;
 
 /** Generation-heavy: the question asks to build/research, or the last step was a file write, an agent or research. */
 export function isHeavy(question: string, steps: string[]): boolean {
@@ -41,6 +42,8 @@ export const SPLIT_HINT = "YOUR LAST REPLY TIMED OUT (too much in one call). Do 
 
 /** Progress label for a long step ("Writing 6 files…"); null when the generic label is fine. */
 export function progressLabel(tool: string, input: Record<string, unknown>): string | null {
+  if (tool === "ws_fetch_image") return "Finding a licensed image…";
+  if (tool === "ws_write" && siteWriteLabel(input.files)) return siteWriteLabel(input.files);
   if (tool === "ws_write") { const n = Array.isArray(input.files) ? input.files.length : 0; return n ? `Writing ${n} file${n === 1 ? "" : "s"}…` : "Writing files…"; }
   if (tool === "ws_create") return "Creating the workspace…";
   return null;
