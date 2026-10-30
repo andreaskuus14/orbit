@@ -34,3 +34,33 @@ test("hygiene never proposes merging an intentional separate version", () => {
   assert.equal(dupCandidates([h("a", []), h("b", ["v:a"])]).length, 0);
   assert.equal(dupCandidates([h("a", []), h("b", [])]).length, 1);
 });
+
+test("dated generated outputs never merge; re-runs and v2 become keep-newest", () => {
+  const h = (id: string, title: string, created_at = "2026-10-15T08:00:00Z") => ({ id, title, content: "World news today", kind: "note", tags: [], created_at, embedding: [1, 0] });
+  assert.equal(dupCandidates([h("a", "World brief · Sat 24 Oct"), h("b", "World brief · Sun 25 Oct")]).length, 0);
+  const [re] = dupCandidates([h("a", "World brief · Thu 15 Oct"), h("b", "World brief · Thu 15 Oct", "2026-10-15T09:00:00Z")]);
+  assert.deepEqual([re.why, re.ids], ["re-run", ["b", "a"]]);
+  const [v] = dupCandidates([h("a", "YouTube ideas · Thu 15 Oct 2026 (Roblox/gaming) v2", "2026-10-16T00:00:00Z"), h("b", "YouTube ideas · Thu 15 Oct 2026 (Roblox/gaming)")]);
+  assert.deepEqual([v.why, v.ids], ["version", ["a", "b"]]);
+  // same date, different outputs: stricter similarity for generated content
+  const g = (id: string, title: string, e: number[]) => ({ ...h(id, title), content: id, embedding: e });
+  assert.equal(dupCandidates([g("a", "World brief · 15 Oct", [1, 0]), g("b", "Market brief · 15 Oct", [1, 0.3])]).length, 0);
+  assert.equal(dupCandidates([g("a", "Notes on pets", [1, 0]), g("b", "Pet notes", [1, 0.3])]).length, 1);
+});
+
+test("stored merge proposals are re-judged on titles; entity check folds into the one queue", () => {
+  const p = (a: string, b: string) => ({ ...merge, key: `merge:${a}:${b}`, ids: [a, b], items: [{ id: a, title: a }, { id: b, title: b }] });
+  const mems = [mem("a", { title: "World brief · Sat 24 Oct" }), mem("b", { title: "World brief · Sun 25 Oct" }),
+    mem("c", { title: "World brief · Thu 15 Oct" }), mem("d", { title: "World brief · Thu 15 Oct", created_at: "2026-10-02T00:00:00Z" })];
+  const q = buildQueue({ proposals: [p("a", "b"), p("c", "d")], mems, facts: [] }, st, NOW);
+  assert.deepEqual(q.map((i) => [i.kind, i.ids]), [["rerun", ["d", "c"]]]);
+  const src = { id: "c", type: "memory" as const, title: "x", at: "2026-01-01" };
+  const entities = {
+    merges: [{ key: "same:0000000a", keys: ["mart", "mart tamm"], forms: ["Mart", "Mart Tamm"], kind: "person" as const, confidence: 0.88 }],
+    contradictions: [{ key: "contra:0000000b", entity: "me", attr: "home" as const, options: [{ norm: "tartu", value: "Tartu", src }, { norm: "tallinn", value: "Tallinn", src: { ...src, id: "z" } }] }],
+  };
+  const q2 = buildQueue({ proposals: [p("c", "d")], mems, facts: [], entities }, st, NOW);
+  assert.deepEqual(q2.map((i) => i.kind), ["entity-which", "entity-same"]); // the question cites c, so the re-run of c waits: one record, one item
+  assert.equal(q2[1].items[0].title, "Mart · Mart Tamm");
+  assert.deepEqual(q2[0].items.map((x) => x.id), ["tartu", "tallinn"]);
+});

@@ -9,6 +9,7 @@ import { HeraldToggle } from "./Herald";
 import { INTERRUPTION_CHANGED, INTERRUPTION_KEY, POPUP_SHOWN, RESOLVE_ALERT, LABELS, batchCount, classify, fixTarget, isProblem, reasonLine, signalFor, unmuteKind, type Signal } from "@/lib/interruption-pure";
 import { loadJudgment, saveJudgment } from "./interruption-store";
 import { AlertWatch } from "./AlertWatch";
+import { useWanting } from "./startup-store";
 
 let memory: NotifyItem[] = [], storageFailed = false;
 const load = () => { try { if (!storageFailed) memory = parseItems(localStorage.getItem(NOTIFY_KEY)); } catch { storageFailed = true; } return memory; };
@@ -45,6 +46,8 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
 
   const unread = unreadCount(items), updates = batchCount(items, judgment);
   const problems = items.filter((x) => !x.resolved && isProblem(x));
+  const kinds = new Set(problems.map(signalFor)).size; // one cause, one count (e.g. many STUDIO failures = 1)
+  const toastUp = useWanting().includes("alert"); // an urgent Herald card is saying it right now: the chip waits (startup-pure)
   const fix = (it: NotifyItem) => {
     if (it.fixHref === "/api/studio/oauth/start") { window.location.assign(it.fixHref); return; }
     dispatchEvent(new CustomEvent(NAV_EVENT, { detail: fixTarget(it) }));
@@ -57,9 +60,9 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
   return (
     <>
       <AlertWatch />
-      {home && problems.length > 0 && <button type="button" className="chip !border-red-500 !text-red-300" title={reasonLine(problems[0])}
+      {home && problems.length > 0 && !toastUp && <button type="button" className="chip !border-red-500 !text-red-300" title={reasonLine(problems[0])}
         onClick={() => fix(problems[0])} aria-label={`Red alert: ${problems[0].title}. ${problems[0].fixLabel ?? "Open fix"}`}>
-        🔴 Red alert{problems.length > 1 ? ` (${problems.length})` : ""} · {problems[0].fixLabel ?? "Open fix"}
+        🔴 Red alert{kinds > 1 ? ` (${kinds})` : ""} · {problems[0].fixLabel ?? "Open fix"}
       </button>}
       <button className="chip relative" popoverTarget="notify-menu" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"} title="Notifications">
         🔔

@@ -379,7 +379,7 @@ function StudioCamera({ mode, reduced }: { mode: Mode; reduced: boolean }) {
 type Sort = "newest" | "views" | "takeoff";
 const MODES: [Mode, string][] = [["channel", "Channel"], ["stats", "Stats"], ["clips", "Clips"], ["production", "Produce"]];
 
-export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, quality = "auto", paused = false, review = null, onReview }: { review?: string | null /* production record from a #…&k=review link */; onReview?: (id: string | null) => void; onClose: () => void; reduced: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "none" } | null /* from CORE navigation */ }) {
+export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, quality = "auto", paused = false, review = null, onReview }: { review?: string | null /* production record from a #…&k=review link */; onReview?: (id: string | null) => void; onClose: () => void; reduced: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "failed" | "none" } | null /* from CORE navigation */ }) {
   const q = useLeanQuality(quality);
   const glr = useGlRecovery();
   const [staged] = useState(oneCanvasOn); // spike flag, read once
@@ -392,7 +392,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const [sort, setSort] = useState<Sort>("newest");
   const [mode, setMode] = useState<Mode>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio") ? "stats" : "channel"));
   useEffect(() => { if (review) setMode("production"); }, [review]); // a review link opens the production workspace
-  useEffect(() => { if (open) setMode(open.view === "stats" ? "stats" : open.view === "clips" || open.view === "review" ? "clips" : "channel"); }, [open]);
+  useEffect(() => { if (open) setMode(open.view === "stats" ? "stats" : open.view === "clips" || open.view === "review" || open.view === "failed" ? "clips" : "channel"); }, [open]);
   useEffect(() => { // Esc goes back to the channel first; capture phase + preventDefault keeps Orbit from closing the world
     if (mode === "channel" || paused) return;
     const h = (e: KeyboardEvent) => {
@@ -644,7 +644,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
           {mode === "stats"
             ? <StudioStats onClose={() => setMode("channel")} videoId={selected} videoTitle={sel?.title} reduced={reduced} onPickVideo={setSelected} titleOf={(id) => byId.get(id)?.title} />
             : mode === "production" ? <StudioProduction reduced={reduced} review={review} onReview={(id) => onReview?.(id)} onOpenClips={() => setMode("clips")} />
-            : <ClipFactory onClose={() => setMode("channel")} reduced={reduced} review={open?.view === "review" ? open : null} />}
+            : <ClipFactory onClose={() => setMode("channel")} reduced={reduced} review={open?.view === "review" ? open : null} failed={open?.view === "failed" ? open : null} />}
         </div>
       )}
     </div>

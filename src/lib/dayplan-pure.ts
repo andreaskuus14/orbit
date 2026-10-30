@@ -24,6 +24,17 @@ export function taskOrder(items: PlanItem[], day: string): PlanItem[] {
   return [...items].sort((a, b) => urgent(a) - urgent(b) || kind(a) - kind(b) || (a.rank ?? 50) - (b.rank ?? 50) || (a.due ?? "9").localeCompare(b.due ?? "9"));
 }
 
+/** Approvals waiting for him: one review block per place they open (e.g. all STUDIO clips), 10 min each, capped at 30. */
+export function approvalItems(ap: { id: string; title: string; kind?: string }[]): PlanItem[] {
+  const groups = new Map<string, typeof ap>();
+  for (const a of ap) { const k = a.kind === "clip" ? "clip" : a.kind === "send" ? "send" : "other"; groups.set(k, [...(groups.get(k) ?? []), a]); }
+  return [...groups].map(([k, g]) => ({
+    id: g.length === 1 ? `ap:${g[0].id}` : `ap:${k}`, min: Math.min(30, 10 * g.length), flexible: true,
+    title: g.length === 1 ? `Review: ${g[0].title}` : k === "clip" ? `Review ${g.length} clips in STUDIO` : k === "send" ? `Review ${g.length} messages in BUSINESS` : `Review ${g.length} approvals in STUDIO`,
+    source: { kind: "approval", label: "Approvals", open: k === "clip" ? { panel: "studio", view: "review" } : k === "send" ? { panel: "business" } : { panel: "studio" } },
+  }));
+}
+
 /** Builds the day. order: ids of flexible items in the order he dragged them to (missing ones follow in taskOrder). */
 export function buildPlan(items: PlanItem[], o: PlanOpts, order: string[] = []): DayPlan {
   const { dayStart, dayEnd, buffer, breakAfter, breakMin, maxPlanned } = { ...DEFAULTS, ...o };
@@ -40,9 +51,11 @@ export function buildPlan(items: PlanItem[], o: PlanOpts, order: string[] = []):
   const unplaced: DayPlan["unplaced"] = items.filter((i) => !i.fixed && !i.flexible).map((i) => ({ id: i.id, title: i.title, source: i.source }));
   const from = Math.max(dayStart, Math.ceil(o.now / 5) * 5); // first fit from now: a short task can fill a gap before a fixed event
   const freeMin = freeMinutes(busy, from, dayEnd);
-  let run = 0, last = -1, planned = 0;
+  let run = 0, last = -1, planned = 0, chores = 0;
   for (const t of ordered) {
     const len = clampMin(t.min);
+    if (t.source.kind === "approval" && chores + len > Math.max(15, freeMin / 4)) { unplaced.push({ id: t.id, title: t.title, source: t.source, why: "cap" }); continue; } // approval chores never crowd out his own work
+    if (t.source.kind === "approval") chores += len;
     if (planned + len > cap) { unplaced.push({ id: t.id, title: t.title, source: t.source, why: "cap" }); continue; } // never fill every free hour
     let s = from;
     while (s + len <= dayEnd && !free(s, s + len)) s += 5;
