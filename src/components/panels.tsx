@@ -8,7 +8,7 @@ import { numberCitations } from "@/lib/pure";
 import { OPEN_SOURCE_EVENT } from "@/lib/week-pure";
 import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
-import { appendActivity } from "@/lib/core-activity-pure";
+import { applyLive, type LiveEvent, type LiveRow } from "@/lib/core-live-pure";
 import { CoreActivity } from "./CoreActivity";
 import { CoreWorkspace } from "./CoreWorkspace";
 import { cancelsJob, missionOf, turnArtifact } from "@/lib/core-workspace-pure";
@@ -68,7 +68,7 @@ import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechG
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
 type Cite = { id: string; title: string; kind: string };
 type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: { pass: boolean; flags: string[] } };
-type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[] };
+type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[]; live?: { rows: LiveRow[]; ms: number } };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
@@ -96,7 +96,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const [live, setLive] = useState<string | null>(null); // the answer while it streams in
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => onSpeakingChange(setSpeaking), []);
-  const [activity, setActivity] = useState<string[]>([]);
+  const [rows, setRows] = useState<LiveRow[]>([]); // this turn's live steps (core-live-pure.ts)
+  const [bgTask, setBgTask] = useState<string | null>(null); // handed off: still streaming from the background turn
+  const since = useRef(0);
   const [heard, setHeard] = useState(""); // last spoken question, shown as the voice transcript
   const [copied, setCopied] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -197,7 +199,10 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       return;
     }
     setBusy(true);
-    setActivity([]);
+    setRows([]); setBgTask(null);
+    since.current = Date.now();
+    let steps: LiveRow[] = []; // mirrors `rows` so "done" can keep them under the answer
+    let handedOff = false;
     const ac = new AbortController();
     abort.current = ac;
     let partial = "";
@@ -218,16 +223,16 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       let buf = "";
       let finished = false;
       const handle = (line: string) => {
-        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; tool?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
+        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; tool?: string; taskId?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
         if (ev.conversationId && ev.conversationId !== convo.current) { setChatId(ev.conversationId); void chats.reload(); }
         if (ev.type === "delta" && ev.text) {
           partial += ev.text;
           say(voiceOut.push(ev.text));
           // One render per frame at most, and only the streaming bubble changes.
           if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLive(partial); });
-        } else if (ev.type === "step" && ev.label) {
-          setActivity((labels) => appendActivity(labels, ev.label!));
-          if (ev.tool) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "step", tool: ev.tool } })); // the singularity shows it (E4)
+        } else if (ev.type === "step" || ev.type === "step_done") {
+          steps = applyLive(steps, ev as unknown as LiveEvent); setRows(steps);
+          if (ev.type === "step" && ev.tool) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "step", tool: ev.tool } })); // the singularity shows it (E4)
         } else if (ev.type === "navigate" && ev.to) {
           navTo = ev.to;
         } else if (ev.type === "reset") {
@@ -235,13 +240,18 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           voiceOut.reset();
           if (talk && speechGen() === myGen) { stopSpeech(); myGen = speechGen(); } // restart, unless the user already silenced it
           setLive("");
+        } else if (ev.type === "background" && ev.taskId) {
+          handedOff = true; setBgTask(ev.taskId);
+        } else if (ev.type === "bg_done") {
+          flush(); setLive(null); partial = "";
+          setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", live: { rows: steps, ms: Date.now() - since.current } }]);
         } else if (ev.type === "done") {
           finished = true;
           flush();
           // The final answer equals the streamed text up to citation markers (stripped for speech): speak only the tail.
           say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? "", true));
           setLive(null);
-          setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model,
+          setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model, live: { rows: steps, ms: Date.now() - since.current },
             chips: [...parseChoices(ev.answer ?? ""), ...followUps(message, (ev.trace ?? []).map((s) => s.step))], lesson: ev.lesson, fixes: look === "roblox" ? robloxErrors(ev.answer ?? "") : undefined }]);
         } else if (ev.type === "error") {
           throw new Error(ev.error || "CORE failed");
@@ -261,13 +271,13 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       if (talk) stopSpeech();
       if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
       if (!stopped) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "error" } }));
-      setMsgs((m) => [...m, stopped
-        ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._` }
+      if (!(stopped && handedOff)) setMsgs((m) => [...m, stopped // after a handoff, Stop only stops watching: the work goes on in OPERATIONS
+        ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._`, live: { rows: steps, ms: Date.now() - since.current } }
         : { role: "assistant", content: e instanceof Error ? e.message : "CORE failed", error: true }]);
     } finally {
       flush();
       setLive(null);
-      setActivity([]);
+      setRows([]); setBgTask(null);
       setBusy(false);
       if (abort.current === ac) abort.current = null;
       if (talk) dispatchEvent(new Event("orbit:core-done")); // voice conversation listens again only after this (bus.ts CORE_DONE)
@@ -312,6 +322,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       {m.role === "assistant" && !m.error
         ? <Markdown text={numberCitations(withoutCard(m.content), (m.citations ?? []).map((c) => c.id))} openMemory={onOpenMemory} />
         : <div className="whitespace-pre-wrap">{m.content}</div>}
+      {m.live && <CoreActivity rows={m.live.rows} running={false} totalMs={m.live.ms} />}
       {m.role === "assistant" && !m.error && (() => { const g = parseGoalCard(m.content); return g && <GoalCardView card={g} onChange={() => { setInput(""); inputRef.current?.focus(); }} />; })()}
       {!!m.citations?.length && (
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -379,7 +390,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
 
   const lastCore = [...msgs].reverse().find((m) => m.role === "assistant" && !m.error);
   const artifact = useMemo(() => (lastCore ? turnArtifact(lastCore.content) : null), [lastCore]);
-  const mission = busy ? missionOf([], activity, true) : missionOf(lastCore?.trace, [], false, !!artifact) // while busy, the old turn's steps aren't this job's;
+  const mission = busy ? missionOf([], rows.map((r) => r.label), true) : missionOf(lastCore?.trace, [], false, !!artifact) // while busy, the old turn's steps aren't this job's;
   return (
     <div className="core-ws">
     <div className="relative flex h-full min-w-0 flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
@@ -405,11 +416,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       <div className="flex-1 space-y-4 overflow-y-auto pr-1" aria-live="polite" aria-busy={busy}>
         {!msgs.length && <p className="muted">{tr("core.intro")}</p>}
         {history}
-        {busy && <CoreActivity labels={activity} streaming={!!live} />}
-        {busy && live && <div className="bubble core">
+        {/* Same layout as the finished bubble (answer, then steps under it), so the final answer replaces the stream without a jump. */}
+        {busy && <div className="bubble core">
               {/* Citation numbers arrive with the final answer; hide raw [m:id] markers until then. */}
-              <Markdown text={numberCitations(live, [])} openMemory={onOpenMemory} />
-              <span aria-hidden className="inline-block h-4 w-1.5 translate-y-0.5 rounded-sm bg-current opacity-60" style={{ animation: "blink 1s steps(2) infinite" }} />
+              {live && <><Markdown text={numberCitations(live, [])} openMemory={onOpenMemory} />
+              <span aria-hidden className="inline-block h-4 w-1.5 translate-y-0.5 rounded-sm bg-current opacity-60" style={{ animation: "blink 1s steps(2) infinite" }} /></>}
+              <CoreActivity rows={rows} running streaming={!!live} since={since.current} taskId={bgTask} />
             </div>}
         <div ref={end} />
       </div>
