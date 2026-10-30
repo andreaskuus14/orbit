@@ -1,7 +1,6 @@
 "use client";
 import { WarmCompile } from "./WarmCompile";
 import StateNote from "./StateNote";
-import { MaskText } from "./MaskText";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import * as THREE from "three";
@@ -346,8 +345,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
             onDeleted={() => { setSelected(null); setTab("games"); }} onOpenTask={onOpenTask} onFix={(error) => { setFix({ key: Date.now(), error: `${contractBrief(game)}\n\n${error}`.slice(0, 2000) }); setTab("code"); }} />
         ) : tab === "games" ? (
           <>
-            <div className="hud-title"><MaskText text="GAME STUDIO" /></div>
-            <p className="muted text-xs">{games.length} games · {bugs.filter(isActive).length} open bugs{seeded ? " · starter data, saved to your account on your first change" : ""}</p>
+            {seeded && <p className="muted text-xs">starter data, saved to your account on your first change</p>}
             <ul className="mt-3 space-y-1">
               {games.map((g) => {
                 const s = bugStats(world, g.id);

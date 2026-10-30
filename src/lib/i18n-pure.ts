@@ -645,7 +645,7 @@ const BASE = {
   "ap.armedOk": "Press A again within 5 s to approve & schedule.",
   "ap.armedSkip": "Skip deletes this clip's render. Press Skip (or S) again within 5 s to confirm.", "ap.noData": "No data yet",
 
-  "mk.sections": "Markets sections", "mk.tab.Watchlist": "Watchlist", "mk.tab.Portfolio": "Portfolio", "mk.tab.Alerts": "Alerts",
+  "mk.tab.Watchlist": "Watchlist", "mk.tab.Portfolio": "Portfolio", "mk.tab.Alerts": "Alerts",
   "mk.tab.Analysis": "Analysis", "mk.tab.Paper": "Paper", "mk.tab.Deals": "Deals", "mk.tickerPh": "Ticker, e.g. AAPL or SPY", "mk.ticker": "Ticker",
   "mk.noChart": "no chart", "mk.source": "US stocks/ETFs via Stooq (delayed). {n}/40 tickers.", "mk.emptyWatch": "Your watchlist is empty.",
   "mk.last30": "last 30 days", "mk.fromTo": "from {a} to {b}", "mk.noData": "no data", "mk.noPrice": "no price", "mk.latestClose": "Latest close: {d}", "mk.refreshFailed": "refresh failed", "mk.stale": "stale", "mk.remove": "Remove {t}",
@@ -1424,7 +1424,7 @@ export const ET: Partial<Record<Key, string>> = {
   "ap.armedSkip": "Vahelejätmine kustutab selle klipi renderduse. Kinnitamiseks vajuta 5 s jooksul uuesti „Jäta vahele“ (või S).",
   "ap.noData": "Andmeid veel pole",
 
-  "mk.sections": "Turgude jaotised", "mk.tab.Watchlist": "Jälgimisnimekiri", "mk.tab.Portfolio": "Portfell", "mk.tab.Alerts": "Hoiatused",
+  "mk.tab.Watchlist": "Jälgimisnimekiri", "mk.tab.Portfolio": "Portfell", "mk.tab.Alerts": "Hoiatused",
   "mk.tab.Analysis": "Analüüs", "mk.tab.Paper": "Paberkauplemine", "mk.tab.Deals": "Pakkumised", "mk.tickerPh": "Sümbol, nt AAPL või SPY",
   "mk.ticker": "Sümbol", "mk.noChart": "graafikut pole", "mk.source": "USA aktsiad/ETF-id Stooqi kaudu (viitega). {n}/40 sümbolit.",
   "mk.emptyWatch": "Sinu jälgimisnimekiri on tühi.", "mk.last30": "viimased 30 päeva", "mk.fromTo": "{a} → {b}", "mk.noData": "andmeid pole",
