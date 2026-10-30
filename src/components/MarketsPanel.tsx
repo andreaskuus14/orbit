@@ -105,6 +105,7 @@ function Watchlist({ st, act }: { st: State; act: Act }) {
             <span className="flex-1 text-right">
               {w.price === null ? <span className="muted">{tr("mk.noPrice")}</span> : money(w.price)}<br />
               <span className="text-xs" style={tone(w.changePct)}>{pct(w.changePct)}</span>
+              {w.date && (w.failed || w.stale) && <><br /><span className="muted text-xs">{tr("mk.latestClose", { d: w.date })}{w.failed && ` · ${tr("mk.refreshFailed")}`}{w.stale && ` · ${tr("mk.stale")}`}</span></>}
             </span>
             <button className="chip" aria-label={tr("mk.remove", { t: w.ticker })} onClick={() => act({ action: "unwatch", ticker: w.ticker })}>✕</button>
           </li>
