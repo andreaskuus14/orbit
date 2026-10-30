@@ -475,7 +475,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         const { status } = completion;
         signal.throwIfAborted(); // stopped during verification or the check above: save as cancelled/budget, never as done
         await save({ status, result, error: completion.error, finished_at: status === "awaiting_approval" ? null : new Date().toISOString() });
-        await emit(sb, userId, status === "failed" ? "agent.failed" : "agent.completed", "agents", { agent: agent.slug, taskId, status });
+        await emit(sb, userId, status === "failed" ? "agent.failed" : "agent.completed", "agents", { agent: agent.slug, taskId, status, title: task.title });
         if (!task.parent_id) await emit(sb, userId, "task.delivered", "core", { taskId, agent: agent.slug });
         await settleParents(sb, userId, task.parent_id);
         return { status, result, error: completion.error };
@@ -516,14 +516,14 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
       trace.push({ step: kind, detail: msg, ms: 0, ok: false });
       const status = kind === "budget" ? "failed" : "cancelled";
       await save({ status, result, error: kind === "budget" ? msg : null, finished_at: new Date().toISOString() });
-      await emit(sb, userId, "agent.completed", "agents", { agent: agent.slug, taskId, status }); // the galaxy listens for completed/failed
+      await emit(sb, userId, "agent.completed", "agents", { agent: agent.slug, taskId, status, title: task.title }); // the galaxy listens for completed/failed
       await settleParents(sb, userId, task.parent_id);
       return { status, result, error: msg };
     }
     const msg = e instanceof Error ? e.message : String(e);
     trace.push({ step: "error", detail: msg.slice(0, 300), ms: 0, ok: false });
     await save({ status: "failed", error: msg.slice(0, 1000), finished_at: new Date().toISOString() });
-    await emit(sb, userId, "agent.failed", "agents", { agent: agent.slug, taskId, error: msg.slice(0, 200) });
+    await emit(sb, userId, "agent.failed", "agents", { agent: agent.slug, taskId, error: msg.slice(0, 200), title: task.title });
     await settleParents(sb, userId, task.parent_id);
     return { status: "failed", result: null, error: msg };
   }
@@ -581,7 +581,7 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
   let { error: saveErr } = await sb.from("tasks").update(done).eq("user_id", userId).eq("id", taskId).eq("status", "running");
   if (saveErr) ({ error: saveErr } = await sb.from("tasks").update(done).eq("user_id", userId).eq("id", taskId).eq("status", "running")); // retry the record, never the actions
   if (saveErr) throw new Error(`Actions ran but their results couldn't be saved: ${saveErr.message}`);
-  await emit(sb, userId, outcome.status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId, status: outcome.status });
+  await emit(sb, userId, outcome.status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId, status: outcome.status, title: task.title });
   if (task.parent_id) await import("./chains").then((c) => c.stepResolved(sb, userId, task.parent_id, task.agent, outcome.status, approve)).catch(() => {}); // company.step for an approved chain step
   await settleParents(sb, userId, task.parent_id);
   return pending;
