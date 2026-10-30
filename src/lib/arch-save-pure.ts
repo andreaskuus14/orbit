@@ -17,7 +17,7 @@ export function saveStep(s: SaveState, e: SaveEvent): SaveState {
   return { status: "failed", rev: e.rev, error: e.error };
 }
 
-export type Saved = { rev: number; scene: Scene; prices?: unknown; site?: unknown; at?: string };
+export type Saved = { rev: number; scene: Scene; prices?: unknown; site?: unknown; variants?: unknown; at?: string };
 /** Which copy to open: the higher revision wins, ties go to the local one (it is what he last saw on this PC). */
 export function pickNewer(local: Saved | null, server: Saved | null): Saved | null {
   const ok = (x: Saved | null) => (x?.scene?.parts && Array.isArray(x.scene.parts) ? x : null);
