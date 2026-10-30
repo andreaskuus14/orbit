@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { pollMs } from "@/lib/poll-pure";
+import { usePoll } from "./use-poll";
 import { useT } from "./i18n";
 import { AREAS, AREA_INFO, AUTO_CONFIRM, LEVEL_TEXT, LIMIT_MAX, type Area, type Level, type Levels, type Limits, type Pending } from "@/lib/autonomy-pure";
 import { changeStopAll } from "./nav-command";
@@ -28,7 +30,8 @@ export function AutonomySection() {
     if (r?.ok && j) { setV(j); setLimitsDraft(j.limits); } else setErr(j?.error ?? "Couldn't load Autonomy");
   }, []);
   useEffect(() => { void fetch("/api/twin").then((r) => r.json()).then((j) => Array.isArray(j?.muted) && setMuted(j.muted), () => {}); }, []);
-  useEffect(() => { void call(); const h = setInterval(() => void call(), 30_000); return () => clearInterval(h); }, [call]);
+  const poll = useCallback(() => void call(), [call]);
+  usePoll(poll, pollMs(30_000));
 
   function pick(area: Area, level: Level) {
     const argue = () => v && setTwin({ area, from: v.levels[area], to: level });

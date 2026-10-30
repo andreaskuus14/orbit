@@ -15,6 +15,8 @@ test("StopAll alone polls; HalEye receives initial, replayed, toggled and polled
   let serverOn = false, failGet = false;
   bus.addEventListener(stop.STOP_ALL_EVENT, e => events.push((e as CustomEvent<stop.StopAllDetail>).detail.on));
 
+  const si = (fn: () => void, ms: number) => { assert.equal(ms, 30_000); const id = timers.size + 1; timers.set(id, fn); return id; };
+  const ci = (id: number) => { timers.delete(id); };
   function mount(name: string) {
     const states: unknown[] = [], effects: (() => void | (() => void))[] = [], cleanups: (() => void)[] = [];
     const react = {
@@ -36,13 +38,15 @@ test("StopAll alone polls; HalEye receives initial, replayed, toggled and polled
         if (id.endsWith("interruption-pure")) return { RESOLVE_ALERT: "resolve" };
         if (id === "./nav-command") return { STOP_ALL_CHANGED: "changed", async changeStopAll(on: boolean) { serverOn = on; bus.dispatchEvent(new Event("changed")); } };
         if (id === "./i18n") return { useT: () => ({ lang: "en", t: (k: any, v?: any) => i18n.translate("en", k, v) }) };
+        if (id === "./use-poll") return { usePoll(fn: () => void, ms: number, _on: boolean, evs: string[] = []) { // the shared poller, on this test's timers and bus
+          react.useEffect(() => { fn(); const h = si(fn, ms); for (const e of evs) bus.addEventListener(e, fn); return () => { ci(h); for (const e of evs) bus.removeEventListener(e, fn); }; });
+        } };
         if (id === "./voice/bus") return { loadVoiceSettings: () => ({ speak: true }) };
         return require(id);
       },
       Event, CustomEvent, Date,
       addEventListener: bus.addEventListener.bind(bus), removeEventListener: bus.removeEventListener.bind(bus), dispatchEvent: bus.dispatchEvent.bind(bus),
-      setInterval(fn: () => void, ms: number) { assert.equal(ms, 30_000); const id = timers.size + 1; timers.set(id, fn); return id; },
-      clearInterval(id: number) { timers.delete(id); },
+      setInterval: si, clearInterval: ci,
       confirm: () => true,
       fetch: async (url: string) => { requests.push(url); if (failGet) throw new Error("offline"); return { ok: true, json: async () => ({ stop: { on: serverOn, at: "now" }, hold: "", limit: null }) }; },
     });

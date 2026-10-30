@@ -2,6 +2,7 @@
 // STUDIO desktop notifications: polls the clip factory (60 s visible, 5 min hidden), announces new ready clips, failed jobs,
 // YouTube-blocked downloads and scheduled Shorts going live. Logic: src/lib/studio-notify.ts. Renders only the permission chip.
 import { useEffect, useState } from "react";
+import { sharedJson } from "./use-poll";
 import { parseState, step, type NotifyState } from "@/lib/studio-notify";
 import { notify } from "@/lib/notify-pure";
 import { clipProblemNotices, RESOLVE_ALERT } from "@/lib/interruption-pure";
@@ -15,9 +16,9 @@ const save = (s: NotifyState) => { try { localStorage.setItem(KEY, JSON.stringif
 const SEEN = "orbit.insightsSeen";
 let insightsSeen: string[] | null = null;
 async function insightNotes() {
-  const r = await fetch("/api/insights");
-  if (!r.ok) return;
-  const high = ((await r.json()).items ?? []).filter((i: { priority: string }) => i.priority === "high") as { key: string; kind: string; title: string; detail: string }[];
+  const j = await sharedJson<{ items?: { priority: string; key: string; kind: string; title: string; detail: string }[] }>("/api/insights");
+  if (!j) return;
+  const high = (j.items ?? []).filter((i: { priority: string }) => i.priority === "high") as { key: string; kind: string; title: string; detail: string }[];
   let seen = insightsSeen;
   try { const stored = JSON.parse(localStorage.getItem(SEEN) ?? "null"); if (Array.isArray(stored)) seen = stored; } catch { /* use session baseline */ }
   insightsSeen = [...new Set([...(seen ?? []), ...high.map((i) => i.key)])].slice(-200);
@@ -40,9 +41,8 @@ export function StudioNotifier() {
       busy = true; last = Date.now();
       try {
         const state = load(); // fresh each time, so another tab's announcements count as seen
-        const r = await fetch("/api/studio/clips");
-        if (r.ok && !stopped) {
-          const snapshot = await r.json();
+        const snapshot = await sharedJson<Parameters<typeof step>[1]>("/api/studio/clips");
+        if (snapshot && !stopped) {
           let ack = parseAck(null);
           try { ack = parseAck(localStorage.getItem(ACK_KEY)); } catch { /* storage unavailable */ }
           const { groups, shown } = alertingGroups(snapshot, ack, Date.now());
@@ -62,7 +62,7 @@ export function StudioNotifier() {
       schedule();
     };
     // Due time counts from the last poll, so returning to the tab after >60 s polls at once rather than restarting the wait.
-    const schedule = () => { clearTimeout(timer); if (!stopped && !busy) timer = window.setTimeout(poll, Math.max(0, last + (document.visibilityState === "visible" ? 60_000 : 300_000) - Date.now())); };
+    const schedule = () => { clearTimeout(timer); if (!stopped && !busy && !document.hidden) timer = window.setTimeout(poll, Math.max(0, last + 60_000 - Date.now())); }; // hidden tab: none; the server keeps working
     void poll();
     const again = () => { last = 0; schedule(); }; // a dismissal in the Failed list: re-check now
     document.addEventListener("visibilitychange", schedule);

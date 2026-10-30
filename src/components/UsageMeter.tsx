@@ -1,5 +1,7 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { pollMs } from "@/lib/poll-pure";
+import { usePoll } from "./use-poll";
 
 type Win = { calls: number; tokens: number; cost: number; byPurpose: Record<string, { calls: number; tokens: number }> };
 type Youtube = { day: string; budget: number; used: number; callers: Record<string, { units: number; searches: number; dataUnits: number; analytics: number }>; shares: Record<string, { left: number }>; note: string };
@@ -16,7 +18,8 @@ export function UsageMeter() {
     setV(r);
     setForm((f) => (f.calls5h ? f : { calls5h: String(r.settings.calls5h), tokens5h: String(r.settings.tokens5h), warnPct: String(r.settings.warnPct) }));
   }, []);
-  useEffect(() => { void load(); const h = setInterval(() => void load(), 30_000); return () => clearInterval(h); }, [load]);
+  const poll = useCallback(() => void load(), [load]);
+  usePoll(poll, pollMs(30_000));
 
   async function save(extra: Record<string, unknown> = {}) {
     setMsg("");

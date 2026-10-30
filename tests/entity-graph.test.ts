@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   birthdayNorm, claimsIn, contradictionBrief, decideEntity, emptyDecisions, findContradictions, formKey, gather, linkScore,
-  mergeSuggestions, resolveEntities, valueNorm, type MemIn, type Src,
+  mergeSuggestions, resolveEntities, valueNorm, type MemIn, type Src, compareSides, resolveGraph, undoable,
 } from "../src/lib/entity-graph-pure.ts";
 
 const src = (id: string, at = "2026-10-01T00:00:00Z"): Src => ({ id, type: "memory", title: id, at });
@@ -108,4 +108,62 @@ test("journal (LIFE) never enters the scan, and the job never imports a model cl
   assert.match(io, /\.neq\("kind", "journal"\)/);
   assert.match(io, /usable\(|gather\(/);
   assert.doesNotMatch(io, /from "\.\/claude"|askClaude|import\("\.\/claude"\)/);
+});
+
+// ---- V04/V05 regression set: names that only share a shell ("Times") stay apart; ids decide; evidence + differences shown ----
+test("entity truth regression set: precision on same-entity suggestions", () => {
+  const m = (form: string, ids?: string[], kind?: "person") => ({ form, kind, ids, src: src(form) });
+  const ments = [
+    m("The Moscow Times", ["domain:themoscowtimes.com"]), m("The Economic Times", ["domain:economictimes.indiatimes.com"]), m("The Seattle Times", ["domain:seattletimes.com"]),
+    m("The Moscow Times"), m("Seattle"), // a place never joins the paper
+    m("NYT", ["domain:nytimes.com"]), m("The New York Times", ["domain:nytimes.com"]),
+    m("NYC", ["domain:nyc.gov"]), m("New York City", ["domain:nycity.example"]), // conflicting ids block even an acronym
+    m("Mart", undefined, "person"), m("Mart Tamm"), m("Mart Kask"), // ambiguous first name
+    m("Facebook", ["domain:facebook.com"]), m("Meta Platforms", ["domain:facebook.com"]), // renamed: related, not same
+    m("Liis Kask"), m("Liis Maria Kask"), m("M. Tamm"),
+  ];
+  const { ents, related } = resolveGraph(ments, emptyDecisions());
+  const s = mergeSuggestions(ents, 50, { related });
+  const pairs = (rel: string) => new Set(s.filter((x) => x.relation === rel).flatMap((x) => x.keys.flatMap((a, i) => x.keys.slice(i + 1).map((b) => [a, b].sort().join("|")))));
+  const expected = new Set(["nyt|the new york times", "liis kask|liis maria kask"]); // "M. Tamm" (0.75) links but is below SUGGEST
+  const got = pairs("same"), tp = [...got].filter((p) => expected.has(p)).length;
+  const precision = got.size ? tp / got.size : 1, recall = tp / expected.size;
+  console.log(`# entity regression: precision ${precision.toFixed(2)} (${tp}/${got.size}), recall ${recall.toFixed(2)} (${tp}/${expected.size})`);
+  assert.equal(precision, 1); assert.equal(recall, 1);
+  for (const k of ["the moscow times", "the economic times", "the seattle times"]) assert.equal(ents.find((e) => e.keys.includes(k))!.keys.length, 1);
+  assert.ok(pairs("related").has("facebook|meta platforms"));
+  assert.ok(![...pairs("related"), ...got].some((p) => p.includes("nyc")));
+  assert.ok(![...pairs("related"), ...got].some((p) => p.startsWith("mart|")));
+  const nyt = s.find((x) => x.keys.includes("nyt"))!;
+  assert.deepEqual(nyt.evidence!.map((e) => e.code).sort(), ["acronym", "id"]);
+  assert.equal(linkScore("The Moscow Times", "The Seattle Times", new Map()), 0);
+});
+
+test("merge card: sides, classes, kept result; undo restores, rejection stays", () => {
+  const c = (form: string, attr: "employer" | "home", value: string, at: string, weight = 3) => ({ form, attr, value, norm: value.toLowerCase(), src: { ...src(form + at, at), weight } });
+  const parts = [{ key: "mart tamm", forms: ["Mart Tamm"], srcs: [src("a", "2026-01-01")] }, { key: "mart juhan tamm", forms: ["Mart Juhan Tamm"], srcs: [src("b", "2026-05-01")] }];
+  assert.equal(compareSides(parts, []).cls, "duplicate");
+  assert.equal(compareSides(parts, [c("Mart Tamm", "home", "Tartu", "2026-01-01")]).cls, "continuation");
+  const rev = compareSides(parts, [c("Mart Tamm", "employer", "Bolt", "2026-01-01", 2), c("Mart Juhan Tamm", "employer", "Wise", "2026-05-01", 2)]);
+  assert.equal(rev.cls, "revision"); assert.deepEqual(rev.keep!.facts, [{ attr: "employer", value: "Wise" }]); assert.equal(rev.keep!.name, "Mart Juhan Tamm");
+  assert.ok(rev.sides![0].facts[0].conflict);
+  const con = compareSides(parts, [c("Mart Tamm", "employer", "Bolt", "2026-01-01"), c("Mart Juhan Tamm", "employer", "Wise", "2026-05-01")]);
+  assert.equal(con.cls, "contradiction"); assert.deepEqual(con.keep!.ask, ["employer"]);
+
+  const ms = [{ form: "Mart Tamm", src: src("1") }, { form: "Mart Juhan Tamm", src: src("2") }];
+  const sug = mergeSuggestions(resolveEntities(ms, emptyDecisions()));
+  const d1 = decideEntity(emptyDecisions(), { merges: sug, contradictions: [] }, sug[0].key, "same") as ReturnType<typeof emptyDecisions>;
+  assert.equal(undoable(d1).length, 1);
+  const d2 = decideEntity(d1, { merges: [], contradictions: [] }, sug[0].key, "undo") as ReturnType<typeof emptyDecisions>;
+  assert.equal(d2.same.length, 0); assert.equal(undoable(d2).length, 0); assert.equal(resolveEntities(ms, d2)[0].confirmed, false);
+  assert.equal(decideEntity(d2, { merges: [], contradictions: [] }, sug[0].key, "undo"), "Nothing to undo");
+  const no = decideEntity(emptyDecisions(), { merges: sug, contradictions: [] }, sug[0].key, "different") as ReturnType<typeof emptyDecisions>;
+  assert.equal(decideEntity(no, { merges: [], contradictions: [] }, sug[0].key, "undo"), "Nothing to undo"); // a rejection stays rejected
+  assert.equal(mergeSuggestions(resolveEntities(ms, no)).length, 0);
+});
+
+test("gather reads a name with its domain as a stable id", () => {
+  const { mentions } = gather({ memories: [mem("m1", "Source: The New York Times (https://www.nytimes.com/x) and NYT (nytimes.com).")], facts: [], people: [] });
+  const ids = mentions.filter((x) => x.ids).map((x) => [x.form, x.ids![0]]);
+  assert.deepEqual(ids, [["The New York Times", "domain:nytimes.com"], ["NYT", "domain:nytimes.com"]]);
 });

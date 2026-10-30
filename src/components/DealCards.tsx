@@ -1,6 +1,8 @@
 "use client";
 import { OrbitThinks } from "./OrbitThinks";
 import { useCallback, useEffect, useState } from "react";
+import { pollMs } from "@/lib/poll-pure";
+import { usePoll } from "./use-poll";
 import type { Offer, Wish } from "@/lib/deals-pure";
 import NegotiatorBox from "./NegotiatorBox";
 
@@ -27,11 +29,7 @@ export default function DealCards() {
   const [busy, setBusy] = useState("");
   const load = useCallback(() => call().then((j: Board) => { setB(j); setErr(""); }, (e: Error) => setErr(e.message)), []);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { // a hunt takes minutes: refresh until it's done
-    if (!b?.busy) return;
-    const t = setInterval(() => { if (!document.hidden) void load(); }, 5000);
-    return () => clearInterval(t);
-  }, [b?.busy, load]);
+  usePoll(load, pollMs(5000, "live"), !!b?.busy); // a scout/hunt runs minutes: refresh until done, only while on screen
   const act = async (key: string, body: object) => {
     setBusy(key); setErr("");
     try { await call(body); return true; } catch (e) { setErr((e as Error).message); return false; } finally { setBusy(""); await load(); }

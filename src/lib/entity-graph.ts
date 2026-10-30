@@ -8,8 +8,8 @@ import { orbitDataDir } from "./data-dir";
 import { isMissingColumn } from "./provenance-pure";
 import { listFacts, FactsMissing } from "./facts";
 import {
-  contradictionBrief, decideEntity, emptyDecisions, findContradictions, gather, mergeSuggestions, resolveEntities, usable,
-  type Contradiction, type EntityDecisions, type MemIn, type MergeSuggestion,
+  contradictionBrief, decideEntity, emptyDecisions, findContradictions, gather, mergeSuggestions, resolveGraph, undoable, usable,
+  type Contradiction, type EntityDecisions, type MemIn, type MergeHist, type MergeSuggestion,
 } from "./entity-graph-pure";
 
 type UserEnt = { at?: string; entities?: number; merges: MergeSuggestion[]; contradictions: Contradiction[]; decisions: EntityDecisions };
@@ -50,20 +50,20 @@ export async function scanEntities(sb: SupabaseClient, userId: string): Promise<
   const memories = usable(((mem.data ?? []) as unknown as MemIn[]).map((m) => ({ ...m, title: String(m.title ?? ""), content: String(m.content ?? "") })));
   const { mentions, claims } = gather({ memories, facts, people });
   return update(userId, (u) => {
-    const ents = resolveEntities(mentions, u.decisions);
+    const { ents, related } = resolveGraph(mentions, u.decisions);
     u.at = new Date().toISOString(); u.entities = ents.length;
-    u.merges = mergeSuggestions(ents);
+    u.merges = mergeSuggestions(ents, undefined, { related, claims });
     u.contradictions = findContradictions(claims, ents, u.decisions);
     return { merges: u.merges.length, contradictions: u.contradictions.length };
   });
 }
 
 /** What MEMORY shows; scans once if there has never been a scan (before the first night). */
-export async function entitiesView(sb: SupabaseClient, userId: string): Promise<UserEnt> {
+export async function entitiesView(sb: SupabaseClient, userId: string): Promise<UserEnt & { merged: MergeHist[] }> {
   const u = (await load()).users[userId];
   if (!u?.at) await scanEntities(sb, userId);
   const v = (await load()).users[userId] ?? empty();
-  return { ...v, decisions: emptyDecisions() }; // the panel needs only the open items
+  return { ...v, merged: undoable(v.decisions), decisions: emptyDecisions() }; // the panel needs only the open items and what can be undone
 }
 
 /** His click; the next scan uses it. A merge never edits People or memories: it only lets claims group across names. */
