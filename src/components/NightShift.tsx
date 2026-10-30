@@ -66,7 +66,7 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
         {report.done.map((i) => <li key={key(i)}>{row(i, "✓")}</li>)}
         {report.failed.map((i) => <li key={key(i)} className="warn">{row(i, "⚠")}{i.why && <span className="text-xs"> · {i.why}</span>}</li>)}
         {report.company && <li className="text-xs">{report.company}</li>}
-        {report.invoices && <li className="warn">{t("night.invoices", { x: report.invoices })}</li>}
+        {report.invoices && <li className={/overdue/.test(report.invoices) ? "warn" : "text-xs"}>{t("night.invoices", { x: report.invoices })}</li>}
         {report.stopped && <li className="text-xs">{stoppedText(report.stopped, lang)}{report.deferred ? t("night.deferred", { n: report.deferred }) : ""}</li>}
       </ul>
     </div>

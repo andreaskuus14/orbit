@@ -1,21 +1,22 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { MAX_RECEIPT } from "@/lib/money-pure";
-import { addExpense, deleteExpense, moneyCsv, moneyView, receipt, saveSettings, saveVatPaid } from "@/lib/money";
+import { addExpense, deleteExpense, moneyCsv, moneyView, receipt, saveSettings, saveVatPaid, splitView } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
 
 // Money view (roadmap 3; logic: money-pure.ts, IO: money.ts). GET ?period=2026-10|2026-Q4|2026 → {pnl, settings, expenses, deadlines, today};
-// GET ?csv=<period> → CSV for the accountant; GET ?receipt=<expense id> → the receipt file.
+// GET ?split=1 → the BUS06 money split (money-pure moneySplit); GET ?csv=<period> → CSV for the accountant; GET ?receipt=<expense id> → the receipt file.
 // POST multipart {action:"expense", day, category, amount, vatRate|vat, note, file?} | JSON {action:"settings", …} | {action:"vatPaid", month, amount} | {action:"delete", id}.
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 const out = (r: unknown) => (typeof r === "string" ? (r ? fail(r, r === "Not found" ? 404 : 400) : Response.json({ ok: true })) : Response.json({ result: r }));
 
 export async function GET(req: Request) {
-  const { res } = await requireUser();
+  const { sb, res } = await requireUser();
   if (res) return res;
   const q = new URL(req.url).searchParams;
   try {
+    if (q.get("split")) return Response.json(await splitView(sb));
     const rid = q.get("receipt");
     if (rid) {
       const r = await receipt(rid);

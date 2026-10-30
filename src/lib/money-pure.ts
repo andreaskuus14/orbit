@@ -2,7 +2,7 @@
 // Monthly profit & loss in cents: income = paid invoices (by paid day), costs = expenses he logs + ORBIT's own spend
 // (Claude API-equivalent USD and approved Higgsfield credits, each converted with a rate he sets; 0 = not counted).
 // VAT summary per month (KMD is monthly in Estonia) and a deadline calendar for FIE or OÜ. Not tax advice: he checks with an accountant.
-import { totals, toCents, MAX_CENTS, type Invoice } from "./invoices-pure.ts";
+import { totals, toCents, MAX_CENTS, euro, inLast, isOverdue, type Invoice } from "./invoices-pure.ts";
 import { localDay } from "./morning-pure.ts";
 
 export const FORMS = ["FIE", "OÜ"] as const;
@@ -97,6 +97,9 @@ export type Row = {
   outVat: number; inVat: number; vatOwed: number; vatPaid: number;
 };
 
+/** The VAT share of a refund: the same share the invoice's total had. */
+export const refundVat = (cents: number, t: { vat: number; gross: number }) => (t.gross ? Math.round((cents * t.vat) / t.gross) : 0);
+
 const zero = (month: string): Row => ({ month, income: 0, incomeVat: 0, costs: 0, orbitApi: 0, orbitHf: 0, profit: 0, outVat: 0, inVat: 0, vatOwed: 0, vatPaid: 0 });
 
 /** One month in cents. Income is paid invoices by paid day (cash), net of VAT. A VAT-registered expense costs its net and its VAT
@@ -108,6 +111,12 @@ export function monthRow(x: Inputs, month: string): Row {
     const t = totals(i), paidHere = i.status === "paid" && i.paidAt?.startsWith(month);
     if (paidHere) { r.income += t.net; r.incomeVat += t.vat; }
     if (s.vatRegistered && (s.vatBasis === "cash" ? paidHere : i.issued.startsWith(month))) r.outVat += t.vat;
+    for (const f of i.refunds ?? []) { // a refund lowers income (and output VAT, like a credit note) in the month it was paid back
+      if (!f.day.startsWith(month)) continue;
+      const vat = refundVat(f.cents, t);
+      r.income -= f.cents - vat; r.incomeVat -= vat;
+      if (s.vatRegistered) r.outVat -= vat;
+    }
   }
   for (const e of x.store.expenses) {
     if (!e.day.startsWith(month)) continue;
@@ -142,7 +151,7 @@ export function pnl(x: Inputs, period: string): Pnl | string {
 
 const cell = (v: string | number) => {
   let s = String(v);
-  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`; // spreadsheet formula injection
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s) && !/^-\d+(\.\d+)?$/.test(s)) s = `'${s}`; // spreadsheet formula injection (a plain negative amount is safe)
   return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 const eur = (c: number) => (c / 100).toFixed(2);
@@ -156,6 +165,10 @@ export function toCsv(x: Inputs, p: Pnl): string {
     const t = totals(i);
     out.push(line([i.paidAt!, "income", i.number, i.buyer.name, eur(t.net), eur(t.vat), eur(t.gross), ""]));
   }
+  for (const i of x.invoices) for (const f of i.refunds ?? []) if (inP(f.day)) {
+    const vat = refundVat(f.cents, totals(i));
+    out.push(line([f.day, "refund", i.number, `${i.buyer.name}${f.note ? `: ${f.note}` : ""}`, eur(vat - f.cents), eur(-vat), eur(-f.cents), ""]));
+  }
   for (const e of [...x.store.expenses].filter((e) => inP(e.day)).sort((a, b) => a.day.localeCompare(b.day)))
     out.push(line([e.day, "expense", e.category, e.note, eur(e.gross - e.vat), eur(e.vat), eur(e.gross), e.receipt ?? ""]));
   for (const r of p.rows) {
@@ -165,6 +178,49 @@ export function toCsv(x: Inputs, p: Pnl): string {
   out.push("", line(["month", "income_net_eur", "costs_eur", "orbit_eur", "profit_eur", "output_vat_eur", "input_vat_eur", "vat_owed_eur", "vat_paid_eur"]));
   for (const r of [...p.rows, p.sum]) out.push(line([r.month, eur(r.income), eur(r.costs), eur(r.orbitApi + r.orbitHf), eur(r.profit), eur(r.outVat), eur(r.inVat), eur(r.vatOwed), eur(r.vatPaid)]));
   return out.join("\r\n") + "\r\n";
+}
+
+// ---- The money split (BUS06): one definition for BUSINESS, Money and the morning/night digests --------------------------
+
+export const WINDOW_DAYS = 30;
+export type Item = { id: string; label: string; cents: number; kind: "client" | "invoice" | "expense" };
+export type Bucket = { cents: number; items: Item[] };
+/** expected: paying clients' monthly fees, not cash. pipeline: fees of replies and pilots, not cash either.
+ *  invoiced: sent and not paid (overdue is part of it). paid: invoices he marked paid in the window. refunds and expenses: paid out in the window.
+ *  kept = paid - refunds - expenses: the only figure here that is cash he kept. All in cents, gross (as on the bank statement). */
+export type Split = { days: number; today: string; expected: Bucket; pipeline: Bucket; invoiced: Bucket; overdue: Bucket; paid: Bucket; refunds: Bucket; expenses: Bucket; kept: number; drafts: number };
+export type Client = { id: string; name: string; stage: string; fee: number };
+
+const bucket = (items: Item[]): Bucket => ({ cents: items.reduce((a, i) => a + i.cents, 0), items: items.sort((a, b) => b.cents - a.cents) });
+
+export function moneySplit(x: { invoices: Invoice[]; expenses: Expense[]; clients: Client[] }, today: string, days = WINDOW_DAYS): Split {
+  const fee = (c: Client): Item => ({ id: c.id, label: c.name, cents: Math.round((Number(c.fee) || 0) * 100), kind: "client" });
+  const inv = (i: Invoice, cents: number, label = `${i.number} · ${i.buyer.name}`): Item => ({ id: i.id, label, cents, kind: "invoice" });
+  const sent = x.invoices.filter((i) => i.status === "sent");
+  const paid = bucket(x.invoices.filter((i) => i.status === "paid" && i.paidAt && inLast(i.paidAt, today, days)).map((i) => inv(i, totals(i).gross)));
+  const refunds = bucket(x.invoices.flatMap((i) => (i.refunds ?? []).filter((f) => inLast(f.day, today, days)).map((f) => inv(i, f.cents, `${i.number} · ${i.buyer.name} · ${f.day}`))));
+  const expenses = bucket(x.expenses.filter((e) => inLast(e.day, today, days)).map((e) => ({ id: e.id, label: `${e.day} · ${e.category}${e.note ? ` · ${e.note}` : ""}`, cents: e.gross, kind: "expense" as const })));
+  return {
+    days, today,
+    expected: bucket(x.clients.filter((c) => c.stage === "paying" && c.fee > 0).map(fee)),
+    pipeline: bucket(x.clients.filter((c) => (c.stage === "pilot" || c.stage === "replied") && c.fee > 0).map(fee)),
+    invoiced: bucket(sent.map((i) => inv(i, totals(i).gross))),
+    overdue: bucket(sent.filter((i) => isOverdue(i, today)).map((i) => inv(i, totals(i).gross))),
+    paid, refunds, expenses, kept: paid.cents - refunds.cents - expenses.cents,
+    drafts: x.invoices.filter((i) => i.status === "draft").length,
+  };
+}
+
+/** The digest line (morning card, night report), built from the split so it can't disagree with BUSINESS → Money. "" when there is nothing. */
+export function moneyLine(s: Split, overdueDetail = ""): string {
+  const cash = [s.paid.cents && `${euro(s.paid.cents)} paid in`, s.refunds.cents && `${euro(s.refunds.cents)} refunded`, s.expenses.cents && `${euro(s.expenses.cents)} spent`].filter(Boolean);
+  const parts = [
+    cash.length && `last ${s.days} days ${cash.join(", ")}`,
+    s.invoiced.cents && `${euro(s.invoiced.cents)} invoiced, not paid yet`,
+    s.overdue.cents && (overdueDetail || `${euro(s.overdue.cents)} overdue`),
+    s.expected.cents && `${euro(s.expected.cents)}/month expected from clients (not cash)`,
+  ].filter(Boolean);
+  return parts.length ? `Money: ${parts.join(" · ")}` : "";
 }
 
 export const setVatPaid = (s: Store, month: unknown, amount: unknown): string => {

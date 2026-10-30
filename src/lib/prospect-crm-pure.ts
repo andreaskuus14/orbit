@@ -8,7 +8,10 @@ export type Source = (typeof SOURCES)[number];
 export const EVENT_KINDS = ["draft", "sent", "reply", "call", "stage", "note"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 export type CrmEvent = { at: string; kind: EventKind; text?: string };
-export type Crm = { source: Source; verified: boolean; verifiedAt?: string; key: string; events: CrmEvent[]; opsProject?: string };
+export type Crm = { source: Source; verified: boolean; verifiedAt?: string; key: string; events: CrmEvent[]; opsProject?: string;
+  /** Why it went to "Not now" (BUS08), his pick: feeds the conversion learning. */ lost?: { reason: LostReason; at: string } };
+export const LOST_REASONS = ["no-reply", "price", "timing", "not-a-fit", "went-elsewhere", "other"] as const;
+export type LostReason = (typeof LOST_REASONS)[number];
 export type Store = Record<string, Crm>;
 export const MAX_EVENTS = 200;
 
@@ -51,7 +54,7 @@ export function touch(events: CrmEvent[]): { last: string; replied: boolean } | 
 
 /** Lines a draft must not carry unless the timeline shows a real call or reply (BUS04): claimed past contact or tests. */
 const CLAIMS: RegExp[] = [
-  /\b(as (we )?discussed|we (spoke|talked|met)|our (call|conversation|chat|meeting)|following up on our|last time we)\b/i,
+  /\b(as (we )?(discussed|agreed)|we (spoke|talked|met)|our (call|conversation|chat|meeting)|following up on our|last time we)\b/i,
   /\bI (tested|tried|checked|sent a test|measured)\b[^.!?]*\b(response|reply|enquir|inquir|form|time)/i,
   /\b(rääkisime|vestlesime|meie (kõne|vestlus|kohtumine)|nagu (arutasime|kokku leppisime)|testisin|proovisin teie)\b/i,
   /(как мы (обсуждали|договорились)|мы (говорили|созванивались)|я (протестировал|проверил))/i,
@@ -64,12 +67,14 @@ export function claimProblem(draft: string, events: CrmEvent[]): string {
 }
 
 /** The OPERATIONS delivery project a newly paying client gets (BUS05). */
-export function deliveryPlan(p: { name: string; kind: string; fee: number }): { name: string; description: string } {
+/** `agreed`: contracts-pure agreedLine of the version the client accepted (BUS07), so delivery follows that exact revision. */
+export function deliveryPlan(p: { name: string; kind: string; fee: number }, agreed?: string): { name: string; description: string } {
   return {
     name: `Deliver: ${p.name}`.slice(0, 120),
     description: [
       `Delivery plan for ${p.name}${p.kind ? ` (${p.kind})` : ""}${p.fee ? `, €${p.fee}/month expected` : ""}. Created when BUSINESS moved it to Paying.`,
-      "1. Kick-off: confirm scope, contacts and their enquiry channels.",
+      ...(agreed ? [agreed] : []),
+      agreed ? "1. Kick-off: walk through the agreed version above; anything new is a new proposal revision." : "1. Kick-off: confirm scope, contacts and their enquiry channels.",
       "2. Set up Lead Follow-up Autopilot (services/lead-followup) for their site.",
       "3. Test with one real enquiry together; they tap Send or Reject.",
       "4. Send the first invoice from BUSINESS → Money.",

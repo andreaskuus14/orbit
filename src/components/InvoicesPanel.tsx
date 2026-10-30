@@ -1,7 +1,8 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { contentHash } from "@/lib/approval-pure";
-import { REMIND_LANGS, reminderContent, daysLate, euro, totals, view, type Dashboard, type Invoice, type Seller, type View } from "@/lib/invoices-pure";
+import { useT } from "./i18n";
+import { REMIND_LANGS, reminderContent, daysLate, euro, refunded, totals, view, type Dashboard, type Invoice, type Seller, type View } from "@/lib/invoices-pure";
 import type { Negotiation } from "@/lib/negotiator-pure";
 
 // Invoices (roadmap B6) inside BUSINESS: his seller details, drafts made from a prospect or an agreed negotiation, the PDF,
@@ -26,6 +27,7 @@ export default function InvoicesPanel({ prospects }: { prospects: { id: string; 
   const [from, setFrom] = useState("");
   const [me, setMe] = useState<Record<string, string> | null>(null);
   const [lit, setLit] = useState<string | null>(null);
+  const { t } = useT();
 
   const load = useCallback(async () => {
     setSt(await call());
@@ -58,7 +60,8 @@ export default function InvoicesPanel({ prospects }: { prospects: { id: string; 
         <div className="grid grid-cols-3 gap-2">
           <div className="card !p-2"><div className="muted text-[10px] uppercase tracking-widest">Owed to you</div><div className="num text-lg font-semibold">{euro(d.open)}</div></div>
           <div className="card !p-2"><div className="muted text-[10px] uppercase tracking-widest">Overdue</div><div className={`num text-lg font-semibold ${d.overdue ? "warn" : ""}`}>{euro(d.overdue)}</div></div>
-          <div className="card !p-2"><div className="muted text-[10px] uppercase tracking-widest">Paid, 30 days</div><div className="num text-lg font-semibold">{euro(d.paid30)}</div></div>
+          <div className="card !p-2"><div className="muted text-[10px] uppercase tracking-widest">Paid, 30 days</div><div className="num text-lg font-semibold">{euro(d.paid30)}</div>
+            {d.refunds30 > 0 && <div className="muted text-[10px]">{t("inv.refunds30")} {euro(d.refunds30)}</div>}</div>
         </div>
       )}
       {d && d.byBuyer.length > 0 && (
@@ -145,8 +148,9 @@ function Row({ i, today, open, toggle, busy, act }: { i: Invoice; today: string;
                   <button className="chip" disabled={any} onClick={() => void act(`paid:${i.id}`, { action: "status", id: i.id, to: "paid", paidOn })}>Mark paid</button>
                   {!i.reminded.length && <button className="chip" disabled={any} onClick={() => void act(`draft:${i.id}`, { action: "status", id: i.id, to: "draft" })}>Back to draft</button>}
                 </>}
-                {i.status === "paid" && <button className="chip" disabled={any} onClick={() => void act(`unpaid:${i.id}`, { action: "status", id: i.id, to: "sent" })}>Not paid after all</button>}
+                {i.status === "paid" && !i.refunds?.length && <button className="chip" disabled={any} onClick={() => void act(`unpaid:${i.id}`, { action: "status", id: i.id, to: "sent" })}>Not paid after all</button>}
               </div>
+              {i.status === "paid" && <Refunds i={i} today={today} busy={any} act={act} />}
               {v === "overdue" && !i.reminder && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   <select className="chip" aria-label="Reminder language" value={lang} onChange={(e) => setLang(e.target.value)}>{REMIND_LANGS.map((l) => <option key={l}>{l}</option>)}</select>
@@ -171,6 +175,27 @@ function Row({ i, today, open, toggle, busy, act }: { i: Invoice; today: string;
         </div>
       )}
     </li>
+  );
+}
+
+/** BUS06: money he paid back on a paid invoice, kept on its own day (Money, CSV and digests count it apart from "paid"). */
+function Refunds({ i, today, busy, act }: { i: Invoice; today: string; busy: boolean; act: Act }) {
+  const { t } = useT();
+  const [f, setF] = useState({ amount: "", day: today, note: "" });
+  const left = totals(i).gross - refunded(i);
+  return (
+    <div className="space-y-1">
+      {(i.refunds ?? []).map((r, k) => <p key={k} className="num">{t("inv.refunded", { x: euro(r.cents), d: r.day })}{r.note && <span className="muted"> · {r.note}</span>}</p>)}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {left > 0 && <>
+          <input className="field w-28" inputMode="decimal" aria-label={t("inv.refundAmount")} placeholder={t("inv.refundAmount")} value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
+          <input className="field" type="date" aria-label={t("inv.refundDay")} value={f.day} onChange={(e) => setF({ ...f, day: e.target.value })} />
+          <input className="field w-40" aria-label={t("inv.refundNote")} placeholder={t("inv.refundNote")} maxLength={200} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
+          <button className="chip" disabled={busy || !f.amount.trim()} onClick={() => void act(`refund:${i.id}`, { action: "refund", id: i.id, ...f }, () => setF({ amount: "", day: today, note: "" }))}>{t("inv.refund")}</button>
+        </>}
+        {!!i.refunds?.length && <button className="chip" disabled={busy} onClick={() => void act(`unrefund:${i.id}`, { action: "unrefund", id: i.id })}>{t("inv.unrefund")}</button>}
+      </div>
+    </div>
   );
 }
 

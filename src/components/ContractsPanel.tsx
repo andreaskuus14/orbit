@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NOT_LEGAL_ADVICE, STATUS_LABEL, signedHref, TEMPLATES, TEMPLATE_IDS, changed, contractSendContent, current, diffWords, missing, type Contract, type Fields, type Signature, type TemplateId, type VClause, type Version } from "@/lib/contracts-pure";
+import { useT } from "./i18n";
+import { COVER_LANGS, NOT_LEGAL_ADVICE, STATUS_LABEL, coverEmail, revision, signedHref, TEMPLATES, TEMPLATE_IDS, changed, contractSendContent, current, diffWords, missing, type Contract, type Fields, type Signature, type TemplateId, type VClause, type Version } from "@/lib/contracts-pure";
 import { emailIn, type Prospect } from "@/lib/business-pure";
 import { contentHash } from "@/lib/approval-pure";
 
@@ -15,6 +16,8 @@ async function call(body?: object) {
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
   return json;
 }
+// A proposal's "countersigned" is the client accepting that revision (BUS07).
+const statusText = (c: Contract, t: (k: "ct.accepted") => string) => (c.template === "proposal" && c.status === "countersigned" ? t("ct.accepted") : STATUS_LABEL[c.status]);
 const statusTone = (s: Contract["status"]) => (s === "review" ? "error" : s === "countersigned" ? "ok" : "muted");
 
 export default function ContractsPanel({ prospects }: { prospects: Prospect[] }) {
@@ -34,6 +37,7 @@ export default function ContractsPanel({ prospects }: { prospects: Prospect[] })
     try { const c = await call(body); await load(); return c as Contract; } catch (e) { setErr((e as Error).message); return null; } finally { setBusy(""); }
   };
   const c = st?.contracts.find((x) => x.id === open);
+  const { t } = useT();
   return (
     <section className="card space-y-2" aria-label="Contracts">
       <h3 className="text-[11px] uppercase tracking-widest muted">Contracts</h3>
@@ -45,7 +49,7 @@ export default function ContractsPanel({ prospects }: { prospects: Prospect[] })
         {st?.contracts.map((x) => (
           <li key={x.id}><button className="flex w-full flex-wrap items-baseline justify-between gap-2 text-left" aria-expanded={open === x.id} onClick={() => setOpen(open === x.id ? "" : x.id)}>
             <span><b>{x.title}</b><span className="muted"> · {current(x).fields.partyName || x.source?.label || "no party yet"} · v{current(x).n}</span></span>
-            <span className={`chip ${statusTone(x.status)}`}>{STATUS_LABEL[x.status]}</span></button></li>))}
+            <span className={`chip ${statusTone(x.status)}`}>{statusText(x, t)}</span></button></li>))}
       </ul>
       {c && st && <Detail key={c.id + current(c).hash + c.updatedAt} c={c} canSend={st.canSend} busy={busy} act={act} />}
     </section>
@@ -120,15 +124,28 @@ function Detail({ c, canSend, busy, act }: { c: Contract; canSend: boolean; busy
   const dirty = JSON.stringify(fields) !== JSON.stringify(v.fields) || Object.keys(edits).length > 0;
   const gaps = missing(TEMPLATES[c.template], fields);
   const to = emailIn(v.fields.partyEmail ?? "");
+  const { t } = useT();
+  const prev = [...c.versions].reverse().find((x) => x.n < shown.n);
+  const rev = prev && revision(TEMPLATES[c.template], prev, shown);
+  const proposal = c.template === "proposal";
   return (
     <div className="space-y-2 rounded-md border border-white/10 p-2">
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className={`chip ${statusTone(c.status)}`}>{STATUS_LABEL[c.status]}</span>
+        <span className={`chip ${statusTone(c.status)}`}>{statusText(c, t)}</span>
         <label className="flex items-center gap-1"><span className="muted">Version</span>
           <select className="chip" value={viewN} onChange={(e) => setViewN(Number(e.target.value))}>
             {[...c.versions].reverse().map((x) => <option key={x.n} value={x.n}>v{x.n} · {x.by === "orbit" ? "ORBIT" : "you"} · {x.at.slice(0, 16).replace("T", " ")} · {x.hash.slice(0, 10)}</option>)}</select></label>
         <code className="muted break-all" title="SHA-256 of this version's text">SHA-256 {shown.hash}</code>
       </div>
+      {rev && prev && (
+        <div className={`space-y-0.5 rounded-md border p-2 text-xs ${rev.scope ? "border-amber-400/50" : "border-white/10"}`} aria-label={t("ct.rev.title", { n: shown.n, p: prev.n })}>
+          <p className="font-semibold">{t("ct.rev.title", { n: shown.n, p: prev.n })}</p>
+          {rev.scope && <p className="warn">{t("ct.rev.scope")}</p>}
+          {!rev.fields.length && !rev.clauses.length && <p className="muted">{t("ct.rev.none", { p: prev.n })}</p>}
+          {rev.fields.map((f) => <p key={f.key}><span className="muted">{f.label}:</span> <del className="bg-rose-500/20">{f.from || "—"}</del> → <ins className="bg-emerald-500/20 no-underline">{f.to || "—"}</ins></p>)}
+          {rev.clauses.map((cl) => <p key={cl.id}><span className="muted">{cl.heading}:</span> {cl.pieces.map((x, k) => x.op === "same" ? <span key={k}>{x.text}</span>
+            : x.op === "add" ? <ins key={k} className="bg-emerald-500/20 no-underline">{x.text}</ins> : <del key={k} className="bg-rose-500/20">{x.text}</del>)}</p>)}
+        </div>)}
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="space-y-2">
           <FieldGrid t={c.template} f={fields} set={setFields} disabled={!editable || viewN !== v.n} />
@@ -168,12 +185,13 @@ function Detail({ c, canSend, busy, act }: { c: Contract; canSend: boolean; busy
               {canSend && to ? <button className={`chip ${sure === "send" ? "ok" : ""}`} disabled={!!busy || cover !== c.cover} onClick={() => twice("send", () => void contentHash(contractSendContent(c)).then((seen) => act("send", { action: "send", id: c.id, seen })))}>
                 {busy === "send" ? "Sending…" : sure === "send" ? `Click again to email the signed PDF to ${to}` : `✉ Approve & send to ${to}`}</button>
                 : <span className="muted">{to ? "Sending from ORBIT isn't set up: download the PDF and email it yourself." : "Add the other party's email to send it from ORBIT, or email the PDF yourself."}</span>}
+              {proposal && COVER_LANGS.map((l) => <button key={l} className="chip" disabled={!!busy} onClick={() => { const text = coverEmail(c, v.fields, l); setCover(text); void act("cover", { action: "cover", id: c.id, text }); }}>{t(l === "Estonian" ? "ct.coverEt" : "ct.coverEn")}</button>)}
               <button className="chip" disabled={!!busy} onClick={() => twice("unsign", () => void act("unsign", { action: "unsign", id: c.id }))}>{sure === "unsign" ? "Click again to take your signature back" : "Take signature back"}</button>
             </div></>)}
           {c.sent && <p>Sent to {c.sent.to} on {c.sent.at.slice(0, 10)}.{c.sent.note && <span className="error"> {c.sent.note}</span>}</p>}
           {(c.status === "sent" || c.status === "signed") && <button className="chip" disabled={!!busy} onClick={() => twice("cs", () => void act("countersign", { action: "countersign", id: c.id, note: "" }))}>
-            {sure === "cs" ? "Click again: they signed and you have their copy" : "Mark countersigned"}</button>}
-          {c.countersigned && <p className="ok">Countersigned, marked by you on {c.countersigned.at.slice(0, 10)}. Save their signed copy in VAULT.</p>}
+            {sure === "cs" ? "Click again: they signed and you have their copy" : proposal ? t("ct.markAccepted", { n: c.signed.n }) : "Mark countersigned"}</button>}
+          {c.countersigned && <p className="ok">{proposal ? t("ct.agreed", { n: c.signed.n }) : <>Countersigned, marked by you on {c.countersigned.at.slice(0, 10)}. Save their signed copy in VAULT.</>}</p>}
         </div>)}
       {c.status !== "countersigned" && c.status !== "cancelled" && <button className="chip" disabled={!!busy} onClick={() => twice("cancel", () => void act("cancel", { action: "cancel", id: c.id }))}>{sure === "cancel" ? "Click again to cancel this contract" : "Cancel contract"}</button>}
       <p className="muted text-[11px]">E-signature by the other party (a provider such as Dokobit or Smart-ID signing) is a future step and not connected: for now they sign the PDF and send it back.</p>
