@@ -1,4 +1,5 @@
 import { createReadStream, createWriteStream } from "node:fs";
+import { createHash } from "node:crypto";
 import { lstat, mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -11,6 +12,10 @@ import {
   CLOUD_MAX, cloudDir, cloudFailure, cloudPath, mergeCloud, mimeOf, nameFromKey,
   INDEX_FILE, INDEX_TEXT_MAX, PREVIEW_BYTES, extractType, kindOf, parseRange, renameTarget, sanitizeName, snippet, uniqueName, uploadError, type VaultFile,
 } from "./vault-pure.ts";
+import {
+  META_FILE, TRASH_DIR, byName, coverageOf, expired, expiresAt, fromTrash, newMeta, parseMeta, reconcile, recordSync, renamed, resolveRef, retryQueue,
+  syncState, toTrash, typeMismatch, type Coverage, type Meta, type SyncState,
+} from "./vault-meta-pure.ts";
 
 // VAULT: the owner's personal files, stored flat in <ORBIT data dir>/vault (same data dir as follows.json).
 // Every name from a request must already be a sanitized vault name; every path is resolved and checked to stay inside the folder.
@@ -24,9 +29,13 @@ export function vaultDir(): string {
 const ensureDir = async () => { const d = vaultDir(); await mkdir(d, { recursive: true }); return d; };
 
 /** Path of an existing regular vault file; throws 400/404 for anything else (traversal, index, symlink, dir). */
-async function filePath(name: unknown): Promise<string> {
-  if (typeof name !== "string" || !name || sanitizeName(name) !== name) throw new VaultError("Invalid file name");
+async function filePath(ref: unknown): Promise<string> {
+  if (typeof ref !== "string" || !ref || sanitizeName(ref) !== ref) throw new VaultError("Invalid file name");
   const dir = vaultDir();
+  // A name kept elsewhere (a contract's signed PDF, a chat) keeps working after a rename: a missing name falls back to its id / former names.
+  const live = await lstat(path.resolve(dir, ref)).catch(() => null);
+  const name = live ? ref : resolveRef(await readMeta(), ref) ?? ref;
+  if (sanitizeName(name) !== name) throw new VaultError("Invalid file name");
   const p = path.resolve(dir, name);
   if (path.dirname(p) !== dir || path.basename(p) === INDEX_FILE) throw new VaultError("Invalid file name");
   const st = await lstat(p).catch(() => null);
@@ -39,7 +48,34 @@ const g = globalThis as unknown as {
   __orbitVault?: Promise<unknown>; __orbitVaultIndex?: Promise<unknown>;
   __orbitVaultCloud?: { uid: string; at: number; items: Map<string, number> };
   __orbitVaultIdx?: { data: Index; checkedAt: number; stale: boolean }; // parsed .index.json, kept in memory
+  __orbitVaultMeta?: Promise<unknown>;
 };
+
+// ---- metadata: <vault>/.meta.json (ids, versions, hashes, cloud state, trash). Own queue, so cloud uploads outside the vault lock can record results. ----
+const metaPath = () => path.join(vaultDir(), META_FILE);
+export async function readMeta(): Promise<Meta> {
+  try { return parseMeta(JSON.parse(await readFile(metaPath(), "utf8"))); } catch { return parseMeta(null); }
+}
+function updateMeta<T>(fn: (m: Meta) => T): Promise<T> {
+  const p = (g.__orbitVaultMeta ?? Promise.resolve()).catch(() => {}).then(async () => {
+    const m = await readMeta();
+    const out = fn(m);
+    await ensureDir();
+    await writeFile(metaPath() + ".tmp", JSON.stringify(m));
+    await rename(metaPath() + ".tmp", metaPath());
+    return out;
+  });
+  g.__orbitVaultMeta = p;
+  return p;
+}
+const now = () => Date.now();
+const mkId = () => crypto.randomUUID();
+const sha256 = (p: string) => new Promise<string>((ok, bad) => {
+  const h = createHash("sha256");
+  createReadStream(p).on("data", (c) => h.update(c)).on("end", () => ok(h.digest("hex"))).on("error", bad);
+});
+/** Record a cloud result for one file ("ok" | "pending" | "failed: …"). Never throws: metadata must not fail the file work. */
+export const markSync = (name: string, result: string) => updateMeta((m) => recordSync(byName(m, name), result, now())).catch(() => {});
 function locked<T>(fn: () => Promise<T>): Promise<T> {
   const p = (g.__orbitVault ?? Promise.resolve()).catch(() => {}).then(fn);
   g.__orbitVault = p;
@@ -76,10 +112,14 @@ export function saveUpload(file: File, opts: { exact?: boolean; taken?: string[]
     const tmp = path.join(dir, `.upload-${crypto.randomUUID()}.tmp`);
     try {
       await pipeline(Readable.fromWeb(file.stream() as import("node:stream/web").ReadableStream), createWriteStream(tmp, { flags: "wx" }));
+      const bad = typeMismatch(name, await readHead(tmp, 1024)); // the original bytes are kept as-is; only a lying extension is refused
+      if (bad) throw new VaultError(bad, 415);
+      const hash = await sha256(tmp);
       const dest = path.join(dir, name);
       // Windows can match dest to another file by its 8.3 short name (REPORT~1.PDF), and rename would overwrite it.
       if (await lstat(dest).catch(() => null)) throw new VaultError(`"${name}" already exists`, 409);
       await rename(tmp, dest);
+      await updateMeta((m) => { const id = mkId(); m.files[id] = newMeta(id, name, file.size, hash, now()); }).catch(() => {});
     } catch (e) { await unlink(tmp).catch(() => {}); throw e; }
     markStale();
     return name;
@@ -90,15 +130,18 @@ export function saveUpload(file: File, opts: { exact?: boolean; taken?: string[]
 export function renameFile(from: unknown, to: unknown, taken: string[] = []): Promise<string> {
   return locked(async () => {
     const src = await filePath(from);
+    if (path.basename(src) !== from) throw new VaultError("File not found", 404); // rename needs the current name, not an old one
     const target = renameTarget(from as string, to);
     if (target === from) return target;
-    const others = [...(await listVault()).filter((f) => f.name !== from).map((f) => f.name), ...taken];
+    const all = await listVault();
+    const others = [...all.filter((f) => f.name !== from).map((f) => f.name), ...taken];
     if (others.some((n) => n.toLowerCase() === target.toLowerCase())) throw new VaultError(`"${target}" already exists`, 409);
     const dest = path.resolve(vaultDir(), target);
     // Refuse any existing dest (incl. 8.3 short-name aliases); only a case-only rename of the same file may "exist".
     const [a, b] = await Promise.all([lstat(src), lstat(dest).catch(() => null)]);
     if (b && !(target.toLowerCase() === String(from).toLowerCase() && a.ino === b.ino && a.dev === b.dev)) throw new VaultError(`"${target}" already exists`, 409);
     await rename(src, dest);
+    await updateMeta((m) => { reconcile(m, all, mkId, now()); renamed(m, from as string, target); }).catch(() => {});
     const idx = g.__orbitVaultIdx?.data;
     if (idx?.[from as string]) { idx[target] = idx[from as string]; delete idx[from as string]; } // same bytes, keep the extracted text
     markStale();
@@ -106,8 +149,72 @@ export function renameFile(from: unknown, to: unknown, taken: string[] = []): Pr
   });
 }
 
-export function deleteFile(name: unknown): Promise<void> {
-  return locked(async () => { await unlink(await filePath(name)); markStale(); });
+/** Delete = move to <vault>/.trash for TRASH_DAYS (restorable). Returns the trash id and the file's real name (ref may be an old name). The cloud copy is removed by the route. */
+export function deleteFile(name: unknown): Promise<{ id: string; name: string }> {
+  return locked(async () => {
+    const src = await filePath(name);
+    const real = path.basename(src), size = (await stat(src)).size;
+    const tdir = path.join(vaultDir(), TRASH_DIR);
+    await mkdir(tdir, { recursive: true });
+    const item = await updateMeta((m) => toTrash(m, real, size, mkId, now()));
+    try { await rename(src, path.join(tdir, item.id)); }
+    catch (e) { await updateMeta((m) => { fromTrash(m, item.id, real); }); throw e; }
+    markStale();
+    return { id: item.id, name: real };
+  });
+}
+
+/** Trash contents; items past retention are deleted for good first. */
+export function listTrash() {
+  return locked(async () => {
+    const gone = expired(await readMeta(), now());
+    if (gone.length) {
+      for (const t of gone) await unlink(path.join(vaultDir(), TRASH_DIR, t.id)).catch(() => {});
+      await updateMeta((m) => { const ids = new Set(gone.map((t) => t.id)); m.trash = m.trash.filter((t) => !ids.has(t.id)); });
+    }
+    return (await readMeta()).trash.map((t) => ({ id: t.id, name: t.name, size: t.size, trashedAt: t.trashedAt, expiresAt: expiresAt(t) }));
+  });
+}
+
+/** Put a trashed file back (same id, so references keep working). Gets a "(2)" name if its name was taken meanwhile. */
+export function restoreTrash(id: unknown, taken: string[] = []): Promise<string> {
+  return locked(async () => {
+    const t = (await readMeta()).trash.find((x) => x.id === id);
+    if (!t) throw new VaultError("Not in the trash", 404);
+    const files = await listVault();
+    const err = uploadError(t.size, await usage(files));
+    if (err) throw new VaultError(err, 413);
+    const name = uniqueName(t.name, [...files.map((f) => f.name), ...taken]);
+    const dest = path.join(vaultDir(), name);
+    if (await lstat(dest).catch(() => null)) throw new VaultError(`"${name}" already exists`, 409);
+    await rename(path.join(vaultDir(), TRASH_DIR, t.id), dest);
+    await updateMeta((m) => { fromTrash(m, t.id, name); });
+    markStale();
+    return name;
+  });
+}
+
+/** Delete permanently: the PC copy in the trash. (Its cloud copy was already removed when it was moved to the trash.) */
+export function purgeTrash(id: unknown): Promise<void> {
+  return locked(async () => {
+    if (!(await readMeta()).trash.some((x) => x.id === id)) throw new VaultError("Not in the trash", 404);
+    await unlink(path.join(vaultDir(), TRASH_DIR, id as string)).catch((e) => { if (e?.code !== "ENOENT") throw e; });
+    await updateMeta((m) => { m.trash = m.trash.filter((x) => x.id !== id); });
+  });
+}
+
+export type ListedFile = VaultFile & { id: string; version: number; hash: string | null; sync: SyncState; lastSync: number | null; syncError: string | null; cov: Coverage | null };
+/** Listing with ids and cloud state. cloud null = cloud listing failed (state shown as last recorded). */
+export async function listDetailed(cloud: Map<string, number> | null): Promise<ListedFile[]> {
+  const files = await listVault();
+  let m = await readMeta();
+  if (reconcile(structuredClone(m), files, () => "x", 0)) m = await updateMeta((mm) => { reconcile(mm, files, mkId, now()); return mm; }).catch(() => m);
+  const idx = g.__orbitVaultIdx?.data ?? {};
+  return files.map((f) => {
+    const r = byName(m, f.name);
+    const cov = extractType(f.name, DOCX) ? idx[f.name]?.cov ?? (idx[f.name] ? "indexed" : null) : "unsupported";
+    return { ...f, id: r?.id ?? "", version: r?.version ?? 1, hash: r?.hash ?? null, sync: syncState(r, cloud ? cloud.has(f.name) : undefined), lastSync: r?.lastSync ?? null, syncError: r?.syncError ?? null, cov };
+  });
 }
 
 /** Streams a vault file, or the single byte range asked for, without buffering it. range "bad" → caller answers 416. */
@@ -134,11 +241,12 @@ export async function previewText(name: unknown): Promise<{ text: string; trunca
 }
 
 // ---- content index: <vault>/.index.json, extracted text keyed by name + mtime + size ----
-type Index = Record<string, { mtime: number; size: number; text: string }>;
+type Index = Record<string, { mtime: number; size: number; text: string; cov?: Coverage }>;
 const INDEX_TOTAL_MAX = 50 * 1024 * 1024; // all cached text together; files past this are just not content-searchable
 const RECHECK_MS = 60_000; // picks up files changed outside ORBIT (Explorer) within a minute
 const SAVE_EVERY = 20;
 
+const skipped = new Set<string>(); // over INDEX_TOTAL_MAX: listed as partially searchable
 let gen = 0; // bumped on every change, so a rebuild that started before an upload/rename/delete still ends stale
 function markStale() { gen++; if (g.__orbitVaultIdx) g.__orbitVaultIdx.stale = true; }
 
@@ -169,21 +277,23 @@ function freshIndex(): Promise<Index> {
     const files = (await listVault()).filter((f) => extractType(f.name, DOCX));
     const next: Index = {};
     let total = 0, pending = 0;
+    skipped.clear();
     const fresh = (f: VaultFile) => { const o = idx[f.name]; return o && o.mtime === f.mtime && o.size === f.size && typeof o.text === "string" ? o : null; };
     for (const f of files) { const o = fresh(f); if (o) { next[f.name] = o; total += o.text.length; } }
     let changed = Object.keys(idx).length !== Object.keys(next).length;
     for (const f of files) {
       if (next[f.name]) continue;
-      if (total >= INDEX_TOTAL_MAX) break;
+      if (total >= INDEX_TOTAL_MAX) { skipped.add(f.name); continue; }
       const type = extractType(f.name, DOCX)!;
-      let text = "";
+      let text = "", error = false;
       try {
         const fp = await filePath(f.name);
         const buf = type.startsWith("text/") ? await readHead(fp, INDEX_TEXT_MAX) : await readFile(fp);
         // Text is decoded here (same as extractText does); PDF/Word go through the limited parser worker.
         text = (type.startsWith("text/") ? buf.toString("utf8").replace(/\u0000/g, "").trim() : await (await import("./extract")).extractText(buf, type)).slice(0, INDEX_TEXT_MAX);
-      } catch { /* unreadable or gone: cache as empty so it isn't retried until it changes */ }
-      next[f.name] = { mtime: f.mtime, size: f.size, text };
+      } catch { error = true; /* unreadable or gone: cache as empty so it isn't retried until it changes */ }
+      const truncated = type.startsWith("text/") ? f.size > INDEX_TEXT_MAX : text.length >= INDEX_TEXT_MAX;
+      next[f.name] = { mtime: f.mtime, size: f.size, text, cov: coverageOf(true, { error, truncated }) };
       total += text.length;
       changed = true;
       if (++pending >= SAVE_EVERY) { pending = 0; await saveIndex(file, next).catch(() => {}); } // progress survives a crash or timeout
@@ -198,8 +308,13 @@ function freshIndex(): Promise<Index> {
 
 /** Name and content search (for the panel's "Search inside" and for CORE). */
 export async function searchVault(q: string, limit = 10): Promise<{ name: string; snippet: string }[]> {
+  return (await searchVaultInfo(q, limit)).results;
+}
+
+/** Search plus the files whose contents it could not (fully) see, so "no match" and "not indexed" are told apart. */
+export async function searchVaultInfo(q: string, limit = 10): Promise<{ results: { name: string; snippet: string }[]; notIndexed: string[] }> {
   const query = String(q ?? "").trim().slice(0, 200);
-  if (!query) return [];
+  if (!query) return { results: [], notIndexed: [] };
   const files = (await listVault()).sort((a, b) => b.mtime - a.mtime);
   const idx = await freshIndex();
   const out: { name: string; snippet: string }[] = [];
@@ -208,13 +323,19 @@ export async function searchVault(q: string, limit = 10): Promise<{ name: string
     if (s !== null || f.name.toLowerCase().includes(query.toLowerCase())) out.push({ name: f.name, snippet: s ?? "" });
     if (out.length >= limit) break;
   }
-  return out;
+  const notIndexed = files.filter((f) => {
+    if (!extractType(f.name, DOCX)) return f.type === "doc" || f.type === "other"; // media and code aren't documents; .doc/.xlsx etc. are
+    if (skipped.has(f.name)) return true;
+    const c = idx[f.name]?.cov;
+    return c === "failed" || c === "partial";
+  }).map((f) => f.name);
+  return { results: out, notIndexed };
 }
 
 /** Readable text of a vault file for CORE; null when missing or not a text/document type. */
 export async function readVaultText(name: string, maxChars = 8000): Promise<string | null> {
   try {
-    await filePath(name);
+    name = path.basename(await filePath(name)); // a renamed file's old name still resolves
     if (extractType(name, DOCX)) return ((await freshIndex())[name]?.text ?? "").slice(0, maxChars) || null;
     if (kindOf(name) === "text") return (await previewText(name)).text.slice(0, maxChars);
     return null;
@@ -248,6 +369,11 @@ const cached = (uid: string) => (g.__orbitVaultCloud?.uid === uid ? g.__orbitVau
 
 /** Upload a local vault file's bytes to its cloud copy. Returns "ok" or "failed: <reason>". */
 export async function cloudPut(sb: SupabaseClient, uid: string, name: string): Promise<string> {
+  const r = await cloudPutRaw(sb, uid, name);
+  await markSync(name, r);
+  return r;
+}
+async function cloudPutRaw(sb: SupabaseClient, uid: string, name: string): Promise<string> {
   try {
     const p = cloudPath(uid, name);
     const buf = await readFile(await filePath(name));
@@ -288,7 +414,11 @@ export async function cloudMove(sb: SupabaseClient, uid: string, from: string, t
 export async function syncToCloud(sb: SupabaseClient, uid: string) {
   const started = Date.now();
   const cloud = await cloudList(sb, uid, true);
-  const missing = (await listVault()).filter((f) => !cloud.has(f.name) && f.size <= CLOUD_MAX).sort((a, b) => b.mtime - a.mtime);
+  const files = await listVault();
+  // Already in the cloud (e.g. an upload that timed out after it landed): mark it, never upload it again.
+  await updateMeta((m) => { for (const f of files) { const r = byName(m, f.name); if (r && cloud.has(f.name) && r.sync !== "cloud" && r.sync !== "restored") { r.sync = "cloud"; r.syncError = null; } } }).catch(() => {});
+  const size = new Map(files.map((f) => [f.name, f.size]));
+  const missing = retryQueue(files, await readMeta(), cloud).filter((n) => size.get(n)! <= CLOUD_MAX).map((name) => ({ name, size: size.get(name)! }));
   let uploaded = 0, failed = 0, firstError: string | null = null, tried = 0;
   for (const f of missing) {
     if (tried >= 200) break;
@@ -305,5 +435,7 @@ export async function restoreFromCloud(sb: SupabaseClient, uid: string, name: un
   if (typeof name !== "string" || !name || sanitizeName(name) !== name) throw new VaultError("Invalid file name");
   const { data, error } = await bucket(sb).download(cloudPath(uid, name));
   if (error || !data) throw new VaultError(`Cloud download failed: ${errText(error)}`, 502);
-  return saveUpload(new File([data], name), { exact: true });
+  const saved = await saveUpload(new File([data], name), { exact: true });
+  await updateMeta((m) => { const r = byName(m, saved); if (r) { r.sync = "restored"; r.lastSync = now(); } }).catch(() => {});
+  return saved;
 }
