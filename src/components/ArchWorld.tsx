@@ -744,7 +744,7 @@ function ArchVariants({ variants, setVariants, scene, rev, prices, site, north, 
       </div>)}
       {variants.length > 0 && <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <select className="field" value={a} aria-label="A" onChange={(e) => setA(e.target.value)}>{opt()}</select>
-        <span>vs</span>
+        <span>{tr("arch.varVs")}</span>
         <select className="field" value={b} aria-label="B" onChange={(e) => setB(e.target.value)}><option value="">—</option>{opt()}</select>
         <label className="flex items-center gap-1"><input type="checkbox" checked={energy} onChange={(e) => setEnergy(e.target.checked)} />{tr("arch.varEnergy")}</label>
         <button className="chip" disabled={!b || a === b || busy} onClick={run}>{busy ? tr("arch.working") : tr("arch.varCompare")}</button>
