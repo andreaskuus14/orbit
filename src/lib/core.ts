@@ -52,6 +52,7 @@ import type { CliSession } from "./claude";
 import { coreSessionStore as coreSessions, coreTaintStore as coreTaint } from "./durable";
 import { loadWsGate, settleWsPending } from "./core-workspace";
 import { goalHint } from "./goal-card-pure";
+import type { StepDone } from "./core-live-pure";
 
 /** ORBIT_CORE_SESSION=resume: one persistent Claude CLI session per CORE conversation, so follow-ups and tool results stay in it.
  *  The chat → session map survives restarts (durable.ts); a failed resume still drops it and falls back to stateless. */
@@ -143,7 +144,7 @@ export async function runCoreFor(ms: number, background: boolean, ...a: Paramete
 // shortcut: in-memory only (never written to disk); after a restart a carried chat falls back to refusing outbound emails/phones/amounts.
 const carriedText = new Map<string, string[]>();
 
-async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", sessionKey?: string, lang: Lang = "en") {
+async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", sessionKey?: string, lang: Lang = "en") {
   const trace: TraceStep[] = [];
   const turnId = crypto.randomUUID(); // links policy.decision ledger rows to this turn's trace (failure report)
   const transcriptHolder = { text: "" };
@@ -212,6 +213,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     }
     results = await import("./memory-types").then((m) => m.currentMemories(sb, userId, results, memoryProject, sessionKey)).catch(() => results.filter((m) => isCurrent(m, { now: Date.now(), project: memoryProject, chat: sessionKey }))); // 24–25: expired, out-of-scope (other chat/project) and corrected memories never reach CORE as current; fails closed
     trace.push({ step: "search_memory", detail: `${results.length} found (${mode}${mode !== "recent" && memoryProject ? ", project hints considered" : ""})`, ms: Date.now() - t, ok: true });
+    onStep?.("search_memory", {}, { out: `${results.length} found`, ms: Date.now() - t, ok: true });
     evalTools.push({ tool: "search_memory", input: {}, output: "", evidence: [] });
     const recentChats = selectChatSummaries(relevantChats.results, summaries ?? []).filter((s) => !results.some((m) => m.id === s.id));
     byId = new Map([...results, ...recentChats].map((m) => [m.id as string, m]));
@@ -273,6 +275,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator = false) => {
     evalTools.push({ tool, input, output: out.slice(0, 8000), evidence });
     trace.push({ step: tool, detail: `${JSON.stringify(input).slice(0, 140)} → ${out.slice(0, 140)}`, ms, ok: !out.startsWith("Error:"), ...(evidence.length ? { evidence } : {}) });
+    onStep?.(tool, input, { out, ms, ok: !out.startsWith("Error:") }); // the live view's step end (core-live-pure.ts redacts it)
     if (LOGGED.includes(tool) && !out.startsWith("Error:")) logActivity({ area: operator ? "operator" : "core", title: `CORE ${tool}: ${activityLine(tool, out)}`, ...undoOf(tool, out) }); // no inputs: memory / reminder / file text stays out of the log
   };
   // A failed model call: true = redo it (session dropped, --effort dropped, or fast/deep → main model); throws when there is no fallback.
