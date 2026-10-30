@@ -55,8 +55,8 @@ import { isLearned } from "@/lib/memory-world-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import MemoryControls from "./MemoryControls";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
-import { MemoryInspector, MemoryProjects, MemorySearch, PeopleView } from "./MemoryWorkspace";
-import { MemoryHygiene } from "./MemoryHygiene";
+import { DupPreview, MemoryInspector, MemoryProjects, MemoryReview, MemorySearch, PeopleView } from "./MemoryWorkspace";
+import { isProvTag, type DupChoice } from "@/lib/memory-capture-pure";
 import { MemoryEntities } from "./MemoryEntities";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
@@ -502,6 +502,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const [links, setLinks] = useState<LinkRow[]>([]);
   const [form, setForm] = useState({ kind: "note" as Kind, title: "", content: "", url: "", tags: "" });
   const [saving, setSaving] = useState(false);
+  const [dup, setDup] = useState<{ duplicate: React.ComponentProps<typeof DupPreview>["dup"]; preview: React.ComponentProps<typeof DupPreview>["preview"]; again: (c: DupChoice) => void } | null>(null);
   const [learnedOnly, setLearnedOnly] = useState(false);
   const [episodesOnly, setEpisodesOnly] = useState(false);
   const [beliefs, setBeliefs] = useState(false);
@@ -515,16 +516,18 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   }, []);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  async function upload(file: File) {
-    setSaving(true); setErr(""); setNote("");
+  async function upload(file: File, choice?: DupChoice) {
+    setSaving(true); setErr(""); setNote(""); setDup(null);
     try {
       const fd = new FormData();
       fd.set("file", file);
       if (form.title.trim()) fd.set("title", form.title.trim());
       if (form.content.trim()) fd.set("note", form.content.trim());
       if (form.tags.trim()) fd.set("tags", form.tags);
+      if (choice) fd.set("onDuplicate", choice);
       const res = await fetch("/api/memories/upload", { method: "POST", body: fd });
       const json = await res.json().catch(() => ({}));
+      if (res.status === 409 && json.preview) return setDup({ ...json, again: (c: DupChoice) => void upload(file, c) });
       if (!res.ok) throw new Error(json.error || `Upload failed (${res.status})`);
       setNote(`Saved ${file.name}${json.extractedChars ? ` (${json.extractedChars.toLocaleString()} characters of text read)` : ""}.`);
       setForm({ ...form, title: "", content: "", url: "", tags: "" });
@@ -551,11 +554,14 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
     api<{ memory: Memory }>(`/api/memories/${focusId}`).then((r) => setOpen(r.memory)).catch((e) => setErr(e.message));
   }, [focusId]);
 
-  async function capture(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true); setErr(""); setNote("");
+  async function capture(e?: React.FormEvent, choice?: DupChoice) {
+    e?.preventDefault();
+    setSaving(true); setErr(""); setNote(""); setDup(null);
     try {
-      const r = await api<{ embedded: boolean; suggested: number }>("/api/memories", { method: "POST", body: JSON.stringify(form) });
+      const res = await fetch("/api/memories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, onDuplicate: choice }) });
+      const r = await res.json().catch(() => ({}));
+      if (res.status === 409 && r.preview) return setDup({ ...r, again: (c: DupChoice) => void capture(undefined, c) });
+      if (!res.ok) throw new Error(r.error || `Could not save (${res.status})`);
       setNote(`Saved.${r.suggested ? ` ${r.suggested} related memories suggested below.` : ""}${r.embedded ? "" : " (keyword search only; no embeddings configured)"}`);
       setForm({ ...form, title: "", content: "", url: "", tags: "" });
       await Promise.all([reload(), loadLinks()]); onChanged();
@@ -606,7 +612,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
     <button className="card w-full text-left" onClick={() => pick(m)}>
       <div className="font-medium">{m.title}{isLearned(m.source) && <span className="badge learned ml-2 align-middle">{tr("mem.learned").toUpperCase()}</span>}</div>
       <div className="muted line-clamp-2 text-xs">{m.content.slice(0, 200)}</div>
-      <div className="muted mt-1 text-[11px]">{m.kind} · {when(m.created_at)}{m.tags.length ? ` · ${m.tags.map((t) => `#${t}`).join(" ")}` : ""}</div>
+      <div className="muted mt-1 text-[11px]">{m.kind} · {when(m.created_at)}{m.tags.some((t) => !isProvTag(t)) ? ` · ${m.tags.filter((t) => !isProvTag(t)).map((t) => `#${t}`).join(" ")}` : ""}</div>
       {why}
     </button>
   );
@@ -645,6 +651,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
             </label>
             <span className="muted text-xs">{tr("mem.uploadHint")}</span>
           </div>
+          {dup && <DupPreview dup={dup.duplicate} preview={dup.preview} onChoose={dup.again} onCancel={() => setDup(null)} />}
           {note && <p className="ok">{note}</p>}
           {err && <p className="error">{err}</p>}
         </form>
@@ -659,7 +666,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
       {view === "people" && <PeopleView />}
       {view === "review" && <>
         <StudyCards />
-        <MemoryHygiene onChanged={onChanged} />
+        <MemoryReview onChanged={onChanged} />
         <MemoryEntities />
         {!!suggested.length && (
           <div>

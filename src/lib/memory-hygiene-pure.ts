@@ -38,7 +38,7 @@ export function dupCandidates(mems: HMem[], min = DUP_MIN): HProposal[] {
   const norm = mems.map((m) => normText(`${m.title} ${m.content}`));
   for (let i = 0; i < mems.length; i++) for (let j = i + 1; j < mems.length; j++) {
     const a = mems[i], b = mems[j];
-    if (a.kind !== b.kind || a.tags.includes(b.id) || b.tags.includes(a.id)) continue;
+    if (a.kind !== b.kind || a.tags.includes(b.id) || b.tags.includes(a.id) || a.tags.includes(`v:${b.id}`) || b.tags.includes(`v:${a.id}`)) continue; // v: = kept on purpose as a separate version
     const same = !!norm[i] && norm[i] === norm[j];
     const sim = a.embedding && b.embedding ? cosine(a.embedding, b.embedding) : 0;
     if (!same && sim < min) continue;
