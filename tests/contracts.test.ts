@@ -154,3 +154,15 @@ test("BUS07 proposals: a changed scope is a visible revision; the accepted versi
   assert.equal(d.split("\n")[1], agreedLine(a));
   assert.equal(withAgreed(d, { ...a, n: 3 }).split("\n").filter((l) => l.startsWith("Agreed: ")).length, 1);
 });
+
+test("BUS07/BUS04: a proposal's cover email (EN and ET) claims no earlier talk or agreement; the old 'as we agreed' wording would be caught", async () => {
+  const { coverEmail } = await import("../src/lib/contracts-pure.ts");
+  const { claimProblem } = await import("../src/lib/prospect-crm-pure.ts");
+  const f: Fields = { ownerName: "Andreas", partyName: "Cake OÜ" };
+  const en = coverEmail({ title: "Proposal", template: "proposal" }, f), et = coverEmail({ title: "Proposal", template: "proposal" }, f, "Estonian");
+  assert.match(en, /Here's the proposal for Cake OÜ/); assert.match(en, /happy to adjust the scope/);
+  assert.match(et, /^Tere, Cake OÜ!/); assert.match(et, /Mahtu saab hea meelega muuta/);
+  assert.equal(claimProblem(en, []), ""); assert.equal(claimProblem(et, []), "");
+  assert.match(claimProblem(coverEmail({ title: "Service Agreement" }, f), []), /as we agreed/i); // contracts need a logged call or reply
+  assert.equal(claimProblem(coverEmail({ title: "Service Agreement" }, f), [{ at: "2026-10-01T00:00:00Z", kind: "call" }]), "");
+});

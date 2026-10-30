@@ -13,6 +13,7 @@ import { usageHardHold } from "./usage-meter";
 import { allows } from "./autonomy";
 import { pushNotify } from "./remote-push";
 import { emailIn } from "./business-pure";
+import { claimProblem } from "./prospect-crm-pure";
 import {
   FILL_SYSTEM, STATUSES, contractText, MAX_COMMENTS, MAX_CONTRACTS, MAX_VERSIONS, TEMPLATES, cleanFields, contractPdf, coverEmail, coverSubject, current, fillPrompt, isTemplateId,
   makeVersion, mergeFields, missing, overridesOf, parseFill, parseSignature, sha256Hex, transition, waitingIds,
@@ -90,7 +91,7 @@ export async function createContract(sb: SupabaseClient, userId: string, b: Reco
   const v = await makeVersion(t, title, fields, overrides, 1, by, now);
   const status: Status = missing(t, fields).length ? "draft" : "review";
   const c: Contract = { id: randomUUID(), title, template: t.id, status, at: now, updatedAt: now, ...(status === "review" && { reviewAt: now }),
-    ...(src && { source: { ...src, label: known.label.slice(0, 120) } }), versions: [v], comments: [], cover: coverEmail({ title }, fields) };
+    ...(src && { source: { ...src, label: known.label.slice(0, 120) } }), versions: [v], comments: [], cover: coverEmail({ title, template: t.id }, fields) };
   await update((list) => { if (list.filter((x) => x.status !== "cancelled").length >= MAX_CONTRACTS) throw new ContractError("Too many contracts: cancel old ones first"); list.unshift(c); });
   void ledger(sb, userId, c);
   if (status === "review" && by === "orbit") pushNotify("contract"); // label only: "a contract waits for your signature"
@@ -187,6 +188,11 @@ export async function sendContract(sb: SupabaseClient, userId: string, id: unkno
   if (!key || !from) throw new ContractError("Sending isn't set up: add RESEND_API_KEY and ORBIT_MAIL_FROM to .env.local, or download the PDF and email it yourself", 503);
   if (stopAllOn()) throw new ContractError("Not sending: Stop-all is on", 503);
   for (const a of ["business-send", "contracts"] as const) { const v = allows(a, "owner"); if (!v.ok) throw new ContractError(`Not sending: ${v.why}`, 503); }
+  const pre = (await load()).find((x) => x.id === id);
+  if (pre?.source?.kind === "prospect") { // BUS04: the cover may not claim a talk or agreement the timeline doesn't show
+    const why = claimProblem(pre.cover, (await (await import("./prospect-crm")).loadCrm())[pre.source.id]?.events ?? []);
+    if (why) throw new ContractError(why.replace("The draft", "The email"), 409);
+  }
   const stamp = new Date().toISOString();
   const c = await update(async (list) => { // claim signed → sent first: one email even on a double click
     const c = find(list, id);

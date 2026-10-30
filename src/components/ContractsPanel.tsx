@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "./i18n";
-import { NOT_LEGAL_ADVICE, STATUS_LABEL, revision, signedHref, TEMPLATES, TEMPLATE_IDS, changed, contractSendContent, current, diffWords, missing, type Contract, type Fields, type Signature, type TemplateId, type VClause, type Version } from "@/lib/contracts-pure";
+import { COVER_LANGS, NOT_LEGAL_ADVICE, STATUS_LABEL, coverEmail, revision, signedHref, TEMPLATES, TEMPLATE_IDS, changed, contractSendContent, current, diffWords, missing, type Contract, type Fields, type Signature, type TemplateId, type VClause, type Version } from "@/lib/contracts-pure";
 import { emailIn, type Prospect } from "@/lib/business-pure";
 import { contentHash } from "@/lib/approval-pure";
 
@@ -185,6 +185,7 @@ function Detail({ c, canSend, busy, act }: { c: Contract; canSend: boolean; busy
               {canSend && to ? <button className={`chip ${sure === "send" ? "ok" : ""}`} disabled={!!busy || cover !== c.cover} onClick={() => twice("send", () => void contentHash(contractSendContent(c)).then((seen) => act("send", { action: "send", id: c.id, seen })))}>
                 {busy === "send" ? "Sending…" : sure === "send" ? `Click again to email the signed PDF to ${to}` : `✉ Approve & send to ${to}`}</button>
                 : <span className="muted">{to ? "Sending from ORBIT isn't set up: download the PDF and email it yourself." : "Add the other party's email to send it from ORBIT, or email the PDF yourself."}</span>}
+              {proposal && COVER_LANGS.map((l) => <button key={l} className="chip" disabled={!!busy} onClick={() => { const text = coverEmail(c, v.fields, l); setCover(text); void act("cover", { action: "cover", id: c.id, text }); }}>{t(l === "Estonian" ? "ct.coverEt" : "ct.coverEn")}</button>)}
               <button className="chip" disabled={!!busy} onClick={() => twice("unsign", () => void act("unsign", { action: "unsign", id: c.id }))}>{sure === "unsign" ? "Click again to take your signature back" : "Take signature back"}</button>
             </div></>)}
           {c.sent && <p>Sent to {c.sent.to} on {c.sent.at.slice(0, 10)}.{c.sent.note && <span className="error"> {c.sent.note}</span>}</p>}

@@ -333,8 +333,14 @@ export const briefContracts = (list: Pick<Contract, "id" | "status" | "title" | 
     id: `contract:${c.id}`, title: c.title, what: `the ${c.title.toLowerCase()} with ${c.source?.label ?? "a client"}, waiting for your signature`, open: { panel: "business" as const },
   }));
 
-export function coverEmail(c: Pick<Contract, "title">, f: Fields): string {
-  return `Hello ${f.partyName || ""},\n\nPlease find attached the ${c.title.toLowerCase()} as we agreed, signed by me. If everything is in order, please sign the last page and send a scan or photo back to me. If you would like to change anything, just reply to this email.\n\nBest regards,\n${f.ownerName || ""}`.replace("Hello ,", "Hello,");
+export const COVER_LANGS = ["English", "Estonian"] as const;
+/** The cover email. A proposal's is neutral (BUS04: it never claims a talk or agreement that may not have happened); prospect-crm claimProblem checks it before sending. */
+export function coverEmail(c: Pick<Contract, "title"> & { template?: TemplateId }, f: Fields, lang: (typeof COVER_LANGS)[number] = "English"): string {
+  const to = f.partyName || "", me = f.ownerName || "";
+  if (c.template === "proposal") return lang === "Estonian"
+    ? `Tere${to ? `, ${to}` : ""}!\n\nSaadan manuses pakkumise: mida teen, millal ja mis hinnaga. Mahtu saab hea meelega muuta, kirjutage lihtsalt, mida soovite teisiti. Kui see sobib, allkirjastage viimane leht või kinnitage e-kirjaga.\n\nParimate soovidega\n${me}`
+    : `Hello${to ? ` ${to}` : ""},\n\nHere's the proposal for ${to || "you"}, attached: what I would do, when, and for what price. I'm happy to adjust the scope; just reply with what you'd like changed. If it works for you, sign the last page or confirm by email.\n\nBest regards,\n${me}`;
+  return `Hello ${to},\n\nPlease find attached the ${c.title.toLowerCase()} as we agreed, signed by me. If everything is in order, please sign the last page and send a scan or photo back to me. If you would like to change anything, just reply to this email.\n\nBest regards,\n${me}`.replace("Hello ,", "Hello,");
 }
 export const coverSubject = (c: Pick<Contract, "title">, f: Fields) => `${c.title} for signature${f.ownerName ? ` (${f.ownerName})` : ""}`.replace(/[\r\n]+/g, " ").slice(0, 150);
 /** Exactly what "Approve & send" emails: its contentHash is the approval his click carries (approval-pure approvalGate). */

@@ -54,7 +54,7 @@ export function touch(events: CrmEvent[]): { last: string; replied: boolean } | 
 
 /** Lines a draft must not carry unless the timeline shows a real call or reply (BUS04): claimed past contact or tests. */
 const CLAIMS: RegExp[] = [
-  /\b(as (we )?discussed|we (spoke|talked|met)|our (call|conversation|chat|meeting)|following up on our|last time we)\b/i,
+  /\b(as (we )?(discussed|agreed)|we (spoke|talked|met)|our (call|conversation|chat|meeting)|following up on our|last time we)\b/i,
   /\bI (tested|tried|checked|sent a test|measured)\b[^.!?]*\b(response|reply|enquir|inquir|form|time)/i,
   /\b(rääkisime|vestlesime|meie (kõne|vestlus|kohtumine)|nagu (arutasime|kokku leppisime)|testisin|proovisin teie)\b/i,
   /(как мы (обсуждали|договорились)|мы (говорили|созванивались)|я (протестировал|проверил))/i,
