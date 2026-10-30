@@ -4,7 +4,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { localDay } from "./morning-pure";
-import { DRAFT_SYSTEM, addCards, cleanDraft, draftPrompt, dueToday, lessonCard, parseDrafts, parseStore, review, stats, studyable,
+import { DRAFT_SYSTEM, addCards, editCard as editCardPure, sourceCorrected, draftPrompt, dueToday, lessonCard, parseDrafts, parseStore, review, stats, studyable,
   type CardSource, type Draft, type Grade, type Store, type UserStudy } from "./study-pure";
 
 // Study cards I/O (logic: study-pure.ts). State: <ORBIT data dir>/study.json (local only). Days are the PC's local days.
@@ -37,7 +37,7 @@ const mine = async (userId: string) => (await load()).users[userId] ?? { cards: 
 export async function studyView(userId: string) {
   const [u, kept] = await Promise.all([mine(userId), import("./lessons").then((m) => m.lessonsView(userId)).then((v) => v.kept, () => [])]), d = today();
   const carded = new Set(u.cards.filter((c) => c.source === "lesson").map((c) => c.ref));
-  return { cards: u.cards, queue: dueToday(u, d).map((c) => c.id), stats: stats(u, d),
+  return { cards: u.cards, log: u.log.slice(-500), queue: dueToday(u, d).map((c) => c.id), stats: stats(u, d),
     lessons: kept.filter((l) => !carded.has(l.id)).map((l) => ({ id: l.id, ...lessonCard(l) })) };
 }
 
@@ -49,11 +49,11 @@ export const saveCards = (userId: string, drafts: Draft[], source: CardSource, r
 
 export const gradeCard = (userId: string, id: string, grade: Grade) => update((u) => review(u, id, grade, today()), userId);
 
-export const editCard = (userId: string, id: string, d: Draft) => update((u) => {
-  const c = u.cards.find((x) => x.id === id), ok = cleanDraft(d);
-  if (c && ok) Object.assign(c, ok);
-  return !!(c && ok);
-}, userId);
+export const editCard = (userId: string, id: string, d: Draft) => update((u) => editCardPure(u, id, d, today()), userId);
+
+/** MEM07: a memory was corrected; its cards keep their history and get a "source changed" mark. Best-effort (0 on failure). */
+export const markSourceCorrected = (userId: string, memoryId: string) =>
+  mine(userId).then((u) => (u.cards.some((c) => c.ref === memoryId) ? update((x) => sourceCorrected(x, memoryId, today()), userId) : 0)).catch(() => 0);
 
 export const deleteCard = (userId: string, id: string) => update((u) => { const n = u.cards.length; u.cards = u.cards.filter((c) => c.id !== id); return u.cards.length < n; }, userId);
 

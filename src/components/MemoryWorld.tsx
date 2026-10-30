@@ -17,7 +17,8 @@ import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
-import { centroid, isLearned, searchStars } from "@/lib/memory-world-pure";
+import { centroid, connections, isLearned, searchStars, starProjects, subgraph } from "@/lib/memory-world-pure";
+import { useT } from "./i18n";
 import { DAY, edgeBorn, edgeGlow } from "@/lib/memory-edges-pure";
 import { useAlienEnv } from "./alien/env";
 import { ClusterHalos, ClusterList } from "./MemoryClusters";
@@ -30,7 +31,7 @@ import dynamic from "next/dynamic";
 const Chronicle = dynamic(() => import("./Chronicle"), { ssr: false }); // its own canvas, loaded only when he opens Chronicle
 const Palace = dynamic(() => import("./MemoryPalace"), { ssr: false }); // likewise, only when he opens Palace
 
-type Star = { id: string; title: string; kind: string; tags: string[]; created_at: string; source: string | null; x: number; y: number; z: number };
+type Star = { id: string; title: string; kind: string; tags: string[]; folder?: string | null; created_at: string; source: string | null; x: number; y: number; z: number };
 type MapData = { items: Star[]; links: { from: string; to: string }[]; edges?: [number, number, number][]; total: number; graph?: Graph | null };
 
 const BG = "#020308";
@@ -347,7 +348,11 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const glr = useGlRecovery();
   const later = useMountLater(); // the panel paints first; the WebGL context and scene come in the next task
   const q = useLeanQuality(quality);
-  const [data, setData] = useState<MapData | null>(null);
+  const { t } = useT();
+  const [raw, setData] = useState<MapData | null>(null);
+  const [project, setProject] = useState(""); // MEM06: project-focused subgraph ("" = everything)
+  const projects = useMemo(() => (raw ? starProjects(raw.items) : []), [raw]);
+  const data = useMemo(() => (raw && project ? { ...raw, ...subgraph(raw.items, raw.edges, project), graph: null } : raw), [raw, project]);
   const [err, setErr] = useState("");
   const [list, setList] = useState(() => !!List && (!!focusId || beliefsPending() || studyPending()));
   const [query, setQuery] = useState("");
@@ -374,6 +379,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
     }).catch((e: Error) => { if (live) setErr(e.message); });
     return () => { live = false; };
   }, [list, paused]); // eslint-disable-line react-hooks/exhaustive-deps -- data is only the "already loaded" guard
+  const conns = useMemo(() => (data && sel !== null ? connections(sel, data.items, data.links, data.edges) : []), [data, sel]);
 
   const index = useMemo(() => new Map(data?.items.map((m, i) => [m.id, i]) ?? []), [data]);
   useEffect(() => { if (focusId) setList(true); }, [focusId]); // a newly opened memory shows its detail once; Constellation stays reachable
@@ -484,6 +490,8 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
         {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && (river || hall) ? <div ref={setSlot} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}
             onChange={(e) => setQuery(e.target.value)} aria-label="Search memories in the constellation" />
+          {projects.length > 0 && <select className="field text-xs" value={project} onChange={(e) => { setProject(e.target.value); setQuery(""); }} aria-label={t("mapx.project")}>
+            <option value="">{t("mapx.allProjects")}</option>{projects.map((p) => <option key={p}>{p}</option>)}</select>}
           {err && <p className="error" role="alert">{err}</p>}
           {!data && !err && <p className="muted" role="status">Charting your memories…</p>}
           {data && !data.items.length && <p className="muted">No memories yet. Open List view to capture your first one.</p>}
@@ -498,6 +506,14 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
             <div className="font-medium">{data.items[sel].title}</div>
             <p className="muted text-xs">{data.items[sel].kind} · {new Date(data.items[sel].created_at).toLocaleDateString([], { dateStyle: "medium" })}{isLearned(data.items[sel].source) ? " · learned by CORE" : ""}{data.items[sel].tags.length ? ` · #${data.items[sel].tags.slice(0, 4).join(" #")}` : ""}</p>
             <button className="btn" onClick={() => open(sel)}>Open memory</button>
+            <div className="muted pt-1 text-[10px] uppercase tracking-widest">{t("mapx.links")}</div>
+            {!conns.length ? <p className="muted text-xs">{t("mapx.none")}</p> : <ul className="space-y-0.5">{conns.slice(0, 12).map((c) => { const m = data.items[c.i]; return (
+              <li key={m.id} className="flex items-center gap-2 text-xs">
+                <span className={c.kind === "explicit" ? "shrink-0" : "muted shrink-0"} title={t(c.kind === "explicit" ? "mapx.explicitHint" : "mapx.inferredHint")}>
+                  {c.kind === "explicit" ? t("mapx.explicit") : t("mapx.inferred", { p: Math.round((c.sim ?? 0) * 100) })}</span>
+                <button className="link min-w-0 flex-1 truncate text-left" onClick={() => { setSel(c.i); fly([m.x, m.y, m.z], 9); }} aria-label={`${t("mapx.select")}: ${m.title}`}>{m.title}</button>
+                <button className="link shrink-0" onClick={() => open(c.i)}>{t("mapx.open")}</button>
+              </li>); })}</ul>}
           </div>}
           {span && data && data.items.length > 1 && <div role="group" aria-label="Memory timeline" className="flex items-center gap-3 text-xs">
             <button className="chip" onClick={play} aria-pressed={playing}>{playing ? "Pause" : "Replay"}</button>

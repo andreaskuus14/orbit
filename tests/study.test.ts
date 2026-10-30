@@ -98,3 +98,21 @@ test("parseStore: empty file is a new store, garbage is null, bad rows are dropp
 test("parseDeck: '::' wins over a spaced dash in the question", () => {
   assert.deepEqual(parseDeck("Le Corbusier - Villa Savoye :: 1931"), [{ front: "Le Corbusier - Villa Savoye", back: "1931" }]);
 });
+
+test("MEM07: edits and source corrections keep history; schedule and review log stay", async () => {
+  const { editCard, sourceCorrected, cardLog, review: rv, newCard: nc } = await import("../src/lib/study-pure.ts");
+  const u = { cards: [nc({ front: "Q", back: "A" }, "memory", "2026-10-01", "c1", "m1"), nc({ front: "Q2", back: "B" }, "deck", "2026-10-01", "c2")], log: [] as never[] };
+  rv(u, "c1", 3, "2026-10-01");
+  const due = u.cards[0].due;
+  assert.equal(sourceCorrected(u, "m1", "2026-10-05"), 1);
+  assert.equal(u.cards[0].sourceChanged, "2026-10-05");
+  assert.deepEqual(u.cards[0].history, [{ front: "Q", back: "A", day: "2026-10-05", why: "source" }]);
+  assert.equal(u.cards[1].history, undefined);
+  assert.ok(editCard(u, "c1", { front: "Q", back: "A fixed" }, "2026-10-06"));
+  assert.equal(u.cards[0].back, "A fixed");
+  assert.equal(u.cards[0].sourceChanged, undefined);
+  assert.equal(u.cards[0].history?.length, 2);
+  assert.equal(u.cards[0].due, due);
+  assert.equal(cardLog(u, "c1").length, 1);
+  assert.ok(!editCard(u, "c1", { front: "", back: "x" }, "2026-10-06"));
+});

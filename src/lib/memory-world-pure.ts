@@ -31,3 +31,41 @@ export function centroid(pts: { x: number; y: number; z: number }[]): [number, n
   for (const p of pts) { x += p.x; y += p.y; z += p.z; }
   return [x / pts.length, y / pts.length, z / pts.length];
 }
+
+type P3 = { id: string; x: number; y: number; z: number };
+/** MEM06: stars keep their place between refreshes. Known ids keep their previous position; new ones keep the fresh layout's
+ *  position, shifted by how far the shared stars' centre moved (a new memory can re-orient the whole PCA layout). */
+export function stabilize<T extends P3>(prev: Map<string, [number, number, number]> | undefined, pts: T[]): T[] {
+  if (!prev?.size) return pts;
+  const shared = pts.filter((p) => prev.has(p.id));
+  if (!shared.length) return pts;
+  const was = centroid(shared.map((p) => { const [x, y, z] = prev.get(p.id)!; return { x, y, z }; })), now = centroid(shared);
+  const d = [was[0] - now[0], was[1] - now[1], was[2] - now[2]];
+  return pts.map((p) => { const k = prev.get(p.id); return k ? { ...p, x: k[0], y: k[1], z: k[2] } : { ...p, x: p.x + d[0], y: p.y + d[1], z: p.z + d[2] }; });
+}
+
+export type Conn = { i: number; kind: "explicit" | "inferred"; sim?: number };
+/** What a selected star is joined to and why: explicit links (stated/confirmed) first, then inferred similarity, strongest first. */
+export function connections(i: number, items: { id: string }[], links: { from: string; to: string }[], edges: [number, number, number][] = []): Conn[] {
+  const id = items[i]?.id, at = new Map(items.map((m, j) => [m.id, j])), seen = new Set<number>([i]), out: Conn[] = [];
+  if (id === undefined) return [];
+  for (const l of links) {
+    const j = l.from === id ? at.get(l.to) : l.to === id ? at.get(l.from) : undefined;
+    if (j !== undefined && !seen.has(j)) { seen.add(j); out.push({ i: j, kind: "explicit" }); }
+  }
+  const inf = edges.filter(([a, b]) => a === i || b === i).sort((a, b) => b[2] - a[2]);
+  for (const [a, b, sim] of inf) { const j = a === i ? b : a; if (!seen.has(j)) { seen.add(j); out.push({ i: j, kind: "inferred", sim }); } }
+  return out;
+}
+
+/** MEM06: one project's subgraph (its "scope:" tag or folder), with the similarity edges re-indexed to the kept stars. */
+export function subgraph<T extends { id: string; tags: string[]; folder?: string | null }>(items: T[], edges: [number, number, number][] | undefined, project: string) {
+  const p = project.trim().toLowerCase(), keep: number[] = [];
+  items.forEach((m, i) => { const of = (m.tags.find((t) => t.startsWith("scope:"))?.slice(6) || m.folder || "").toLowerCase(); if (of === p) keep.push(i); });
+  const map = new Map(keep.map((old, j) => [old, j]));
+  return { items: keep.map((i) => items[i]), edges: (edges ?? []).filter(([a, b]) => map.has(a) && map.has(b)).map(([a, b, s]) => [map.get(a)!, map.get(b)!, s] as [number, number, number]) };
+}
+
+/** Project names present on the stars, for the project filter. */
+export const starProjects = (items: { tags: string[]; folder?: string | null }[]) =>
+  [...new Set(items.map((m) => m.tags.find((t) => t.startsWith("scope:"))?.slice(6) || m.folder || "").filter(Boolean))].sort();
