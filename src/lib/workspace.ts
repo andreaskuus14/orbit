@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { zipStore } from "./zip-pure.ts";
 import { link, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -131,6 +132,14 @@ export async function listWorkspaces(uid: string): Promise<WsInfo[]> {
 export async function listFiles(uid: string, slug: string): Promise<WsFile[] | null> {
   const dir = await realWsDir(uid, slug);
   return dir ? (await walk(dir)).sort((a, b) => a.path.localeCompare(b.path)) : null;
+}
+
+/** The whole workspace as a store-only .zip (null = no such workspace). Each file goes through readWsFile's path checks. */
+export async function zipWorkspace(uid: string, slug: string): Promise<Buffer | null> {
+  const files = await listFiles(uid, slug);
+  if (!files) return null;
+  const read = await Promise.all(files.map(async (f) => ({ path: f.path, bytes: (await readWsFile(uid, slug, f.path))?.bytes })));
+  return zipStore(read.filter((f): f is { path: string; bytes: Uint8Array } => !!f.bytes));
 }
 
 /** Creates the workspace folder (fine if it already exists). */
