@@ -9,7 +9,8 @@ import { incidentTitle } from "@/lib/system-health-pure";
 import { localParts } from "@/lib/call-pure";
 import { SPEAK_FIRST, SPEAK_FIRST_KEY, decideMoment, parseSpeakFirst, trackApprovals, type SpeakFirstState } from "@/lib/speak-first-pure";
 import { CALL_ACTIVE, voiceLevel } from "./voice/bus";
-import { speakChunk, speechSettings, speakingOrJustEnded } from "./voice/speak";
+import { speechSettings, speakingOrJustEnded } from "./voice/speak";
+import { announce } from "./audio-policy";
 import { useT } from "./i18n";
 
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -48,7 +49,7 @@ export function SpeakFirst() {
       save(r.state);
       if (!r.moment) return;
       notify({ key: `speak-first:${r.moment.key}`, kind: "core", signal: "reminder", title: r.moment.line });
-      if (r.moment.voice && !speakingOrJustEnded(2000)) speakChunk(r.moment.line);
+      if (r.moment.voice && !speakingOrJustEnded(2000)) announce(r.moment.line); // waits while THEATER plays
     };
     const onInput = () => {
       const now = Date.now(), prev = last;
