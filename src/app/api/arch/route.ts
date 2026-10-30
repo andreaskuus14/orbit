@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
-import { usageHold } from "@/lib/usage-meter";
+import { usageHardHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { ARCH_SYSTEM, archPrompt, parseOps, parseSay, type Scene } from "@/lib/arch-pure";
 
@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   const command = typeof b?.command === "string" ? b.command.trim() : "";
   if (!command) return fail("Say what to change");
   if (!b?.scene || !Array.isArray(b.scene.parts) || JSON.stringify(b.scene).length > 20_000) return fail("Scene missing or too big");
-  const held = stopAllOn() ? "Stop-all is on" : usageHold();
+  const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
   if (held) return fail(`Not right now: ${held}`, 503);
   try {
     const r = await askClaude(archPrompt(b.scene, command), ARCH_SYSTEM, { lane: "foreground", purpose: "arch.edit", timeoutMs: 90_000, signal: req.signal });

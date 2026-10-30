@@ -5,7 +5,7 @@ import path from "node:path";
 import { askClaude } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { usageHold } from "./usage-meter";
+import { usageHardHold } from "./usage-meter";
 import { ffmpegPath, readState, runFfmpeg, runYtdlp, saveState, studioRoot, transcribe, ytdlpPath } from "./clips/factory";
 import { SAMPLE_RATE, audioArgs, ytdlpError } from "./clips/pure";
 import { RADAR_SYSTEM, board, filterFresh, parseIdeas, radarPrompt, sourceDate, videoIdFrom, vttText, type Idea } from "./ideas-pure";
@@ -83,7 +83,7 @@ async function transcriptOf(id: string, signal: AbortSignal, onPhase: (p: string
 export async function radar(url: string, signal: AbortSignal): Promise<Idea[]> {
   const id = videoIdFrom(url);
   if (!id) throw new Error("Paste a YouTube video link");
-  const held = stopAllOn() ? PAUSED_MSG : usageHold();
+  const held = stopAllOn() ? PAUSED_MSG : usageHardHold();
   if (held) throw new Error(held);
   if (S.__orbitRadar) throw new Error("Already reading another video: wait for it to finish");
   S.__orbitRadar = id; S.__orbitRadarPhase = "metadata";

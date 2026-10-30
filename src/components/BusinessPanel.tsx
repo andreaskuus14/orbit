@@ -162,9 +162,11 @@ function Scorecard({ ps }: { ps: Prospect[] }) {
 function FindNearby({ busy, setBusy, setErr, names, onAdd }: { busy: string; setBusy: (k: string) => void; setErr: (e: string) => void; names: Set<string>; onAdd: (f: Find) => Promise<boolean> }) {
   const [q, setQ] = useState("");
   const [finds, setFinds] = useState<Find[]>([]);
+  const [past, setPast] = useState(false);
+  const { t } = useT();
   const search = async () => {
     setBusy("find"); setErr("");
-    try { setFinds((await call("POST", { action: "find", query: q })).finds); } catch (e) { setErr((e as Error).message); } finally { setBusy(""); }
+    try { const r = await call("POST", { action: "find", query: q }); setFinds(r.finds); setPast(!!r.pastBudget); } catch (e) { setErr((e as Error).message); } finally { setBusy(""); }
   };
   return (
     <div className="card space-y-2">
@@ -182,6 +184,7 @@ function FindNearby({ busy, setBusy, setErr, names, onAdd }: { busy: string; set
                 {names.has(f.name.toLowerCase()) ? "Added" : busy === `add:${f.name}` ? "Adding…" : "+ Add"}</button>
             </li>))}
         </ul>)}
+      {past && <p className="muted text-xs">{t("usage.pastBudget")}</p>}
       {finds.length > 0 && <p className="muted text-xs">Found on the web by CORE: check each one before you contact them.</p>}
     </div>
   );

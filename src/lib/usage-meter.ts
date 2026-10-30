@@ -3,7 +3,7 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir.ts";
 import { logActivity } from "./activity.ts";
-import { D7, H5, addCall, emptyMeter, holdReason, parseLimitError, parseMeter, patchSettings, usageLevel, windowStats, type Call, type Meter } from "./usage-meter-pure.ts";
+import { D7, H5, addCall, emptyMeter, hardHoldReason, holdReason, parseLimitError, parseMeter, patchSettings, usageLevel, windowStats, type Call, type Meter } from "./usage-meter-pure.ts";
 
 // Usage meter store: <ORBIT data dir>/usage-meter.json, kept in memory and saved at most every 2 s (atomic tmp + rename).
 // recordCall is called by claude.ts after every CLI call; usageHold() is what background lanes check before starting.
@@ -50,6 +50,11 @@ export function recordCall(c: Omit<Call, "at">, errText = "") {
 
 /** "" when background lanes (autopilot, goals, proactive, translate) may start a Claude call, else why not. */
 export const usageHold = () => holdReason(meter(), Date.now());
+/** Owner clicks / foreground lane: only the real provider limit holds them, never the soft 5-hour budget. */
+export const usageHardHold = () => hardHoldReason(meter(), Date.now());
+export const usageHoldFor = (lane: "foreground" | "background") => (lane === "foreground" ? usageHardHold() : usageHold());
+/** True when an owner click proceeds past the soft budget (background work is paused meanwhile): for a small UI note. */
+export const pastBudget = () => !!usageHold() && !usageHardHold();
 
 /** A real usage/rate limit (not just heavy use) is active: nothing that calls Claude should start. */
 export const usageLimited = () => { const l = meter().limit; return !!l && l.until > Date.now(); };

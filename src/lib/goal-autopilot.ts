@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, recordUsage } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { usageHold } from "./usage-meter";
+import { usageHardHold } from "./usage-meter";
 import { parseJson, today, type Goal } from "./goals-pure";
 import { PHRASE_SYSTEM, applyPhrasing, applyReplan, burnup, phrasePrompt, sameReplan, setupAutopilot, trackGoal, type Evidence } from "./goal-autopilot-pure";
 import type { GoalRow } from "./goals";
@@ -64,7 +64,7 @@ export async function autopilotAction(sb: SupabaseClient, userId: string, id: st
     const r = await mutate(sb, id, (d) => { const t = trackGoal(d, ev, today()); return sameReplan(t?.replan ?? null, body.seen) ? applyReplan(d, t!.replan!) : "The numbers moved since you looked; review the re-plan again"; });
     return "error" in r ? { error: r.error } : { row: r.row }; // a catch-up step runs on the goal's next advance (night shift or opening it)
   }
-  const held = stopAllOn() ? PAUSED_MSG : usageHold();
+  const held = stopAllOn() ? PAUSED_MSG : usageHardHold();
   if (held) return { error: held };
   const { data } = await sb.from("goals").select("doc").eq("id", id).maybeSingle();
   const doc = data?.doc as Goal | undefined;

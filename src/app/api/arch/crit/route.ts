@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
-import { usageHold } from "@/lib/usage-meter";
+import { usageHardHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { createMemory } from "@/lib/memory";
 import { MAX_IMAGE_BYTES, sniff } from "@/lib/attach-pure";
@@ -15,7 +15,7 @@ export const maxDuration = 180;
 // ARCH studio crit (roadmap 4), owner's click only. POST multipart {scene, prices (JSON), shot? (JPEG of the 3D view)} → {crit, facts,
 // version, memoryId}: facts computed here, ONE model call. POST JSON {id, reply} → one follow-up answer appended to that crit.
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
-const held = () => (stopAllOn() ? "Stop-all is on" : usageHold());
+const held = () => (stopAllOn() ? "Stop-all is on" : usageHardHold());
 const busy = (e: unknown, what: string) => (e instanceof BusyError ? fail("CORE is busy; try again in a moment", 429) : fail(`Couldn't ${what}: ${e instanceof Error ? e.message : "unknown error"}`, 502));
 
 export async function POST(req: Request) {

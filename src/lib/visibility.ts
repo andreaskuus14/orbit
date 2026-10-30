@@ -2,7 +2,7 @@ import path from "node:path";
 import { askClaude } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { usageHold } from "./usage-meter";
+import { usageHardHold } from "./usage-meter";
 import { readState, saveState, studioRoot } from "./clips/factory";
 import { KNOW_SYSTEM, MAX_TARGETS, WEB_SYSTEM, checkPrompt, parseCheck, validateName, withChecks, type Check, type Target } from "./visibility-pure";
 
@@ -38,7 +38,7 @@ export const removeTarget = (name: string) => locked(async () => {
 
 /** Both checks for one tracked name: Claude's own knowledge (no tools) and a web search (read-only tools). */
 export async function checkTarget(name: string, signal: AbortSignal): Promise<Target> {
-  const held = stopAllOn() ? PAUSED_MSG : usageHold();
+  const held = stopAllOn() ? PAUSED_MSG : usageHardHold();
   if (held) throw new Error(held);
   if (S.__orbitVis) throw new Error("Already checking another name: wait for it to finish");
   S.__orbitVis = name; // taken before any await, so two clicks can't both start

@@ -5,7 +5,7 @@ import { orbitDataDir } from "./data-dir";
 import { askClaude, FAST_MODEL, recordUsage } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { usageHold } from "./usage-meter";
+import { usageHardHold } from "./usage-meter";
 import { MAX_CHANGES, MAX_TABLE, MAX_VOICE, NOTES_SYSTEM, cleanNotes, economyContext, economyReport, fallbackNotes, notesPrompt, parseEconomy } from "./economy-pure";
 
 // Game dev copilot IO (rules: economy-pure.ts). <ORBIT data dir>/economy.json, per user: the egg/pet table, an example of his update notes
@@ -42,7 +42,7 @@ export class NotesError extends Error {}
 
 /** One fast-model call on his click; any model failure returns the plain list instead. Nothing is posted anywhere. */
 export async function draftNotes(sb: SupabaseClient, userId: string, game: string, changes: string): Promise<{ notes: string; ai: boolean }> {
-  const held = stopAllOn() ? PAUSED_MSG : usageHold();
+  const held = stopAllOn() ? PAUSED_MSG : usageHardHold();
   if (held) throw new NotesError(held);
   const c = changes.slice(0, MAX_CHANGES), fallback = fallbackNotes(game, c);
   let notes = fallback, ai = false;

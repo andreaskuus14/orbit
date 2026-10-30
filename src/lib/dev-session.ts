@@ -8,7 +8,7 @@ import { orbitDataDir } from "./data-dir";
 import { askClaude, emit, FAST_MODEL, recordUsage } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { usageHold } from "./usage-meter";
+import { usageHardHold } from "./usage-meter";
 import {
   SUMMARY_SYSTEM, addEvent, briefSession, cleanSummary, closeIdle, dayNumber, fallbackSummary, parseSessions, sessionIdea, sessionLine, sessionStats, shotRef, summaryPrompt,
   type DevEvent, type DevSession,
@@ -99,7 +99,7 @@ export async function summarizeDevSession(sb: SupabaseClient, userId: string, id
   const s = mine(await load(), userId, id);
   const fallback = fallbackSummary(s, now);
   let text = fallback;
-  const held = stopAllOn() ? PAUSED_MSG : usageHold();
+  const held = stopAllOn() ? PAUSED_MSG : usageHardHold();
   if (held) throw new SessionError(held);
   try {
     const r = await askClaude(summaryPrompt(s, now), SUMMARY_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 30_000, purpose: "devsession.summary" });
