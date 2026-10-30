@@ -9,11 +9,13 @@ export type Quote = { symbol: string; date: string; open: number | null; close: 
 export type Bar = { date: string; close: number };
 export type Holding = { ticker: string; shares: number; cost: number };
 export type AlertKind = "above" | "below" | "move";
-export type Alert = { id: string; ticker: string; kind: AlertKind; value: number; firedOn?: string };
+export type Alert = { id: string; ticker: string; kind: AlertKind; value: number; firedOn?: string; armed?: boolean; lastAt?: string; lastSession?: string;
+  history?: { at: string; session: string; price: number; text: string }[] }; // crossing state + fire history: markets-depth-pure stepAlert
 export type Position = { shares: number; cost: number };
-export type Trade = { at: string; ticker: string; side: "buy" | "sell"; qty: number; price: number; note?: string };
+export type Trade = { at: string; ticker: string; side: "buy" | "sell"; qty: number; price: number; note?: string; fee?: number;
+  fill?: { close: number; quoteDate: string; spreadBps: number; slipBps: number; n: number } }; // fill: simulated-fill inputs (MKT06)
 export type Point = { d: string; eq: number; spy: number | null };
-export type Account = { cash: number; positions: Record<string, Position>; trades: Trade[]; curve: Point[]; started: string };
+export type Account = { cash: number; positions: Record<string, Position>; trades: Trade[]; curve: Point[]; started: string; seed?: string; fills?: number };
 export type Strategy = "off" | "ma" | "rebalance";
 export const STRATEGIES: Record<Strategy, string> = {
   off: "Off",
@@ -107,18 +109,6 @@ export function alertError(kind: unknown, value: unknown): string | null {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > (kind === "move" ? 100 : 1e7)) return kind === "move" ? "Move % must be 0–100" : "Price must be a positive number";
   return null;
 }
-/** Rules that trigger now and haven't fired today (each fires at most once per day). */
-export function evaluateAlerts(alerts: Alert[], data: Record<string, { price: number; changePct: number | null }>, today: string) {
-  return alerts.flatMap((a) => {
-    const d = data[a.ticker];
-    if (!d || a.firedOn === today) return [];
-    const hit = a.kind === "above" ? d.price >= a.value : a.kind === "below" ? d.price <= a.value : d.changePct !== null && Math.abs(d.changePct) >= a.value;
-    if (!hit) return [];
-    const now = a.kind === "move" ? `${d.changePct! > 0 ? "+" : ""}${d.changePct}% today` : `now ${d.price}`;
-    return [{ id: a.id, ticker: a.ticker, text: `${alertText(a)} — ${now}` }];
-  });
-}
-
 /* ---------- quote freshness ---------- */
 
 /** One cached quote: the provider's market date stays with the last good quote; fetch success/attempt/failure are tracked apart,
@@ -146,25 +136,26 @@ export const equity = (a: Account, prices: Record<string, number>) =>
   round2(a.cash + Object.entries(a.positions).reduce((s, [t, p]) => s + p.shares * (prices[t] ?? p.cost), 0));
 
 /** Validate and apply a PAPER market order at `price`; returns a new account or an error. Never touches real money. */
-export function applyOrder(a: Account, o: { ticker: string; side: unknown; qty: unknown }, price: number, at: string, note?: string): { account: Account; trade: Trade } | { error: string } {
+export function applyOrder(a: Account, o: { ticker: string; side: unknown; qty: unknown }, price: number, at: string, note?: string, fill?: Trade["fill"] & { fee: number }): { account: Account; trade: Trade } | { error: string } {
   if (o.side !== "buy" && o.side !== "sell") return { error: "Side must be buy or sell" };
   if (typeof o.qty !== "number" || !Number.isFinite(o.qty) || o.qty <= 0 || o.qty > 1e6) return { error: "Quantity must be a positive number" };
   const qty = floor4(o.qty);
   if (qty <= 0) return { error: "Quantity is too small (min 0.0001)" };
   if (!Number.isFinite(price) || price <= 0) return { error: `No price for ${o.ticker} right now` };
-  const acc: Account = structuredClone(a), pos = acc.positions[o.ticker], value = qty * price;
+  const acc: Account = structuredClone(a), pos = acc.positions[o.ticker], value = qty * price, fee = fill?.fee ?? 0;
   if (o.side === "buy") {
-    if (value > acc.cash + 1e-9) return { error: `Not enough virtual cash (need $${round2(value)}, have $${acc.cash})` };
+    if (value + fee > acc.cash + 1e-9) return { error: `Not enough virtual cash (need $${round2(value + fee)}, have $${acc.cash})` };
     const shares = (pos?.shares ?? 0) + qty;
     acc.positions[o.ticker] = { shares: floor4(shares + 1e-9), cost: ((pos?.shares ?? 0) * (pos?.cost ?? 0) + value) / shares };
-    acc.cash = Math.max(0, round2(acc.cash - value));
+    acc.cash = Math.max(0, round2(acc.cash - value - fee));
   } else {
     if (!pos || qty > pos.shares + 1e-9) return { error: `You only hold ${pos?.shares ?? 0} ${o.ticker}` };
     const left = floor4(pos.shares - qty + 1e-9);
     if (left <= 0) delete acc.positions[o.ticker]; else pos.shares = left;
-    acc.cash = round2(acc.cash + value);
+    acc.cash = round2(acc.cash + value - fee);
   }
   const trade: Trade = { at, ticker: o.ticker, side: o.side, qty, price, ...(note ? { note } : {}) };
+  if (fill) { const { fee: f, ...inputs } = fill; trade.fee = f; trade.fill = inputs; acc.fills = (acc.fills ?? 0) + 1; }
   acc.trades = [trade, ...acc.trades].slice(0, MAX_TRADES);
   return { account: acc, trade };
 }
