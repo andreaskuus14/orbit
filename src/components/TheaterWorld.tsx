@@ -12,7 +12,9 @@ import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { ago, findMode, isNew, isVideoId, length, safeThumb } from "@/lib/watch-pure";
-import { candidate, clock, groundedAnswer, parseTranscript, playerError, seekTarget, embedParams, type NoteKind } from "@/lib/theater-pure";
+import { candidate, clock, groundedAnswer, parseTranscript, playerError, seekTarget, embedParams, type NoteKind,
+  NO_FILTER, addSaved, filterOn, filterVideos, followUps, parseFilter, parseIds, parseSaved, parseSession, removeSaved, sessionMemory, sourceKey, startSession, toggleId,
+  type Dur, type Filter, type SavedSearch, type Session, type Since } from "@/lib/theater-pure";
 import type { Watched } from "@/lib/theater-history-pure";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
@@ -22,6 +24,10 @@ import { WATCH_CONTROL, getTranscript, positions, queueVideo, reportPlayer, rest
 // one plays in the big screen through YouTube's official embed (youtube-nocookie). Standard materials only (safe for Bloom).
 
 const fmt = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+// THE05/THE08 per-device state (localStorage, validated on read; blocked storage just means it isn't remembered).
+const FILTER_KEY = "orbit.theater.filter", SEARCHES_KEY = "orbit.theater.searches", HIDDEN_KEY = "orbit.theater.hidden", SESSION_KEY = "orbit.theater.session";
+const lsGet = (k: string): unknown => { try { return JSON.parse(localStorage.getItem(k) ?? "null"); } catch { return null; } };
+const lsPut = (k: string, v: unknown) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch { /* in memory only */ } };
 const GOLD = "#fbbf24";
 const YT_ORIGIN = "https://www.youtube-nocookie.com";
 
@@ -93,6 +99,11 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
   const w = useSyncExternalStore(subscribeWatch, getWatch, () => null);
   const playing = w?.playing != null ? w.videos[w.playing] : null;
   const saved = useSyncExternalStore(subscribeSaved, getSaved, getSavedServer);
+  const [filter, setFilterS] = useState<Filter>(NO_FILTER), [searches, setSearchesS] = useState<SavedSearch[]>([]), [hidden, setHiddenS] = useState<string[]>([]);
+  useEffect(() => { setFilterS(parseFilter(lsGet(FILTER_KEY))); setSearchesS(parseSaved(lsGet(SEARCHES_KEY))); setHiddenS(parseIds(lsGet(HIDDEN_KEY))); }, []);
+  const setFilter = (f: Filter) => { setFilterS(f); lsPut(FILTER_KEY, f); };
+  const setSearches = (l: SavedSearch[]) => { setSearchesS(l); lsPut(SEARCHES_KEY, l); };
+  const setHidden = (l: string[]) => { setHiddenS(l); lsPut(HIDDEN_KEY, l); };
   const history = saved.history.filter((v) => isVideoId(v.id));
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -117,7 +128,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
   const notice = (msg: string) => { const s = getWatch(); if (s) setWatch({ ...s, notice: msg }); };
 
   const { t } = useT();
-  const views = [{ id: "continue", label: t("thr.v.continue") }, { id: "queue", label: t("thr.v.queue") }, { id: "following", label: t("thr.v.following") }, { id: "search", label: t("thr.v.search") }] as const;
+  const views = [{ id: "continue", label: t("thr.v.continue") }, { id: "queue", label: t("thr.v.queue") }, { id: "following", label: t("thr.v.following") }, { id: "search", label: t("thr.v.search") }, { id: "learn", label: t("thr.v.learn") }] as const;
   const [view, setView] = useWorkspaceView("theater", views);
   const now$ = useRef({ time: 0, duration: 0 }); // the player's last reported time (seek and notes use it)
   const [offline, setOffline] = useState(false);
@@ -211,6 +222,10 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
   const perr = w?.playerError ?? (offline && playing ? "network" : undefined);
   const pos = positions();
   const now = Date.now();
+  const seen = new Set([...saved.history.map((v) => v.id), ...Object.keys(pos)]);
+  const shown = w ? filterVideos(w.videos, filter, hidden, seen, now) : [];
+  const hiddenHere = w ? w.videos.filter((v) => hidden.includes(v.id)).length : 0;
+  const why = w && sourceKey(w.kind, w.channel?.title ?? w.creator, w.sort);
 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="Theater: watch YouTube videos" style={{ background: "#030208" }}>
@@ -299,10 +314,15 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
             })}
           </div>
         )}
+        {w && w.status === "ready" && <Discover f={filter} set={setFilter} shown={shown.length} total={w.videos.length} hiddenHere={hiddenHere}
+          unhide={() => setHidden(hidden.filter((id) => !w.videos.some((v) => v.id === id)))}
+          save={(name) => setSearches(addSaved(searches, { name, kind: w.kind === "topic" ? "topic" : "creator", q: w.channel?.title ?? w.creator, filter }))} />}
+        {why && w?.status === "ready" && <p className="muted mt-1 text-xs">{t(why.key, { q: why.q, sort: t(`thr.sort.${why.sort}`) })}</p>}
         {w?.status === "loading" && <StateNote state="loading" />}
         {w?.status === "ready" && w.videos.length > 0 && (
           <ol className="mt-3 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }} aria-label={w.topic ? `${w.topic} videos` : "Videos"}>
-            {w.videos.map((v, i) => {
+            {shown.map((v) => {
+              const i = w.videos.indexOf(v);
               const thumb = safeThumb(v.thumb), ranked = (w.sort ?? "viral") === "viral";
               return (
                 <li key={v.id}>
@@ -318,11 +338,12 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
                         : v.durationSec > 0 && <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1 text-xs font-semibold">{length(v.durationSec)}</span>}
                     </span>
                     <b className="mt-2 line-clamp-2 text-sm leading-snug group-hover:text-[#fbbf24]">{v.title}</b>
-                    {v.channel && <span className="muted mt-1 block truncate text-xs">{v.channel}</span>}
+                    {v.channel && <span className="muted mt-1 block truncate text-xs">{v.channel}{seen.has(v.id) ? ` · ${t("thr.seen")}` : ""}</span>}
                     <span className="muted block text-xs">{fmt.format(v.views)} views · {ago(v.publishedAt, now)}</span>
                   </button>
                   <button className="chip mt-1 !py-0 text-xs" onClick={() => queueVideo(v, w.channel?.title)} disabled={saved.queue.some((x) => x.id === v.id)}>
                     {saved.queue.some((x) => x.id === v.id) ? t("thr.queued") : t("thr.addQueue")}</button>
+                  <button className="chip ml-1 mt-1 !py-0 text-xs" onClick={() => setHidden(toggleId(hidden, v.id))} aria-label={t("thr.hideAria", { title: v.title })}>{t("thr.hide")}</button>
                 </li>
               );
             })}
@@ -354,7 +375,15 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
           </div>
           <button className="chip shrink-0" type="submit">Find</button>
         </form>
+        {searches.length > 0 && <ul className="mt-2 flex flex-wrap gap-1.5" aria-label={t("thr.savedList")}>
+          {searches.map((x) => (
+            <li key={x.name} className="chip flex items-center gap-0.5 !px-1 !py-0.5">
+              <button className="px-1 text-sm" onClick={() => { setFilter(x.filter); findVideos({ creator: x.q, shorts: false, topic: x.kind === "topic" }, undefined, w?.sort); }}>{x.name}</button>
+              <button className="muted px-1" onClick={() => setSearches(removeSaved(searches, x.name))} aria-label={t("thr.savedRemove", { name: x.name })}>×</button>
+            </li>))}
+        </ul>}
         </>}
+        {view === "learn" && <Learn queue={saved.queue} notes={saved.notes} />}
         {view === "following" && !saved.creators.length && <p className="muted text-sm">{t("thr.noFollow")}</p>}
         {view === "following" && saved.creators.length > 0 && (
           <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Your creators">
@@ -471,5 +500,86 @@ function NotesPane({ v, time, duration, notes, seek }: { v: Watched; time: () =>
       </>}
       {msg && <p className="mt-2" aria-live="polite">{msg}</p>}
     </details>
+  );
+}
+
+/** THE05: filters on the loaded list (creator, words in the title, upload date, length, watched), hidden videos, saving the search. */
+function Discover({ f, set, shown, total, hiddenHere, unhide, save }: { f: Filter; set: (f: Filter) => void; shown: number; total: number; hiddenHere: number; unhide: () => void; save: (name: string) => void }) {
+  const { t } = useT();
+  const [name, setName] = useState("");
+  const on = filterOn(f);
+  return (
+    <details className="mt-2 text-sm" open={on || undefined}>
+      <summary className="cursor-pointer">{t("thr.f.title")}{on || hiddenHere ? ` · ${t("thr.f.count", { n: shown, total })}` : ""}</summary>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        <input className="field w-32" value={f.creator} maxLength={60} onChange={(e) => set({ ...f, creator: e.target.value })} placeholder={t("thr.f.creator")} aria-label={t("thr.f.creator")} />
+        <input className="field w-40" value={f.topic} maxLength={60} onChange={(e) => set({ ...f, topic: e.target.value })} placeholder={t("thr.f.topic")} aria-label={t("thr.f.topic")} />
+        <select className="field" value={f.since} onChange={(e) => set({ ...f, since: e.target.value as Since })} aria-label={t("thr.f.since")}>
+          {(["", "day", "week", "month", "year"] as const).map((k) => <option key={k} value={k}>{t(k ? `thr.f.${k}` : "thr.f.any")}</option>)}
+        </select>
+        <select className="field" value={f.dur} onChange={(e) => set({ ...f, dur: e.target.value as Dur })} aria-label={t("thr.f.dur")}>
+          {(["", "short", "medium", "long"] as const).map((k) => <option key={k} value={k}>{t(k ? `thr.f.${k}` : "thr.f.anyLen")}</option>)}
+        </select>
+        <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={f.watched} onChange={(e) => set({ ...f, watched: e.target.checked })} />{t("thr.f.watched")}</label>
+        {on && <button className="chip !py-0" onClick={() => set(NO_FILTER)}>{t("thr.f.clear")}</button>}
+        {hiddenHere > 0 && <button className="chip !py-0" onClick={unhide}>{t("thr.unhide", { n: hiddenHere })}</button>}
+      </div>
+      <form className="mt-1 flex gap-1.5" onSubmit={(e) => { e.preventDefault(); if (name.trim()) { save(name.trim()); setName(""); } }}>
+        <input className="field min-w-0 flex-1" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder={t("thr.savedName")} aria-label={t("thr.savedName")} />
+        <button className="chip" type="submit" disabled={!name.trim()}>{t("thr.saveSearch")}</button>
+      </form>
+    </details>
+  );
+}
+
+/** THE08: a learning session over the queue. Questions come from the Notes pane; ending it saves one MEMORY entry and adds the
+ *  follow-ups as LIFE tasks (his own click, local only). */
+function Learn({ queue, notes }: { queue: Watched[]; notes: { id: string; t: number; text: string; kind: NoteKind; at: number }[] }) {
+  const { t } = useT();
+  const [s, setS] = useState<Session | null>(null), [topic, setTopic] = useState(""), [end, setEnd] = useState(""), [follow, setFollow] = useState(""), [msg, setMsg] = useState(""), [busy, setBusy] = useState(false);
+  useEffect(() => setS(parseSession(lsGet(SESSION_KEY))), []);
+  const keep = (x: Session | null) => { setS(x); lsPut(SESSION_KEY, x); };
+  if (!s) {
+    const start = () => { const r = startSession(topic, queue, Date.now()); if (typeof r === "string") setMsg(r); else { keep(r); setMsg(""); } };
+    return (
+      <form className="mt-2 space-y-2 text-sm" onSubmit={(e) => { e.preventDefault(); start(); }}>
+        <input className="field w-full" value={topic} maxLength={80} onChange={(e) => setTopic(e.target.value)} placeholder={t("thr.l.topic")} aria-label={t("thr.l.topic")} />
+        {queue.length ? <button className="chip" type="submit" disabled={topic.trim().length < 2}>{t("thr.l.start", { n: Math.min(queue.length, 10) })}</button> : <p className="muted">{t("thr.l.needQueue")}</p>}
+        {msg && <p className="muted" aria-live="polite">{msg}</p>}
+      </form>
+    );
+  }
+  const ids = new Set(s.playlist.map((v) => v.id)), qs = notes.filter((n) => n.kind === "question" && ids.has(n.id) && n.at >= s.started);
+  async function finish() {
+    if (!s) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/memories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sessionMemory(s, notes, end, Date.now())) });
+      if (!res.ok && res.status !== 409) throw new Error((await res.json().catch(() => ({}))).error || `Failed (${res.status})`);
+      let n = 0;
+      for (const task of followUps(follow)) {
+        const r = await fetch("/api/dayplan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task }) }).catch(() => null);
+        if (r?.ok) n++;
+      }
+      keep(null); setEnd(""); setFollow(""); setMsg(t("thr.l.saved", { n }));
+    } catch (e) { setMsg(e instanceof Error ? e.message : t("common.failed")); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="mt-2 space-y-2 text-sm">
+      <b>{t("thr.l.active", { topic: s.topic })}</b>
+      <div className="muted text-xs">{t("thr.l.playlist")}</div>
+      <ol className="list-decimal space-y-0.5 pl-5">{s.playlist.map((v) => (
+        <li key={v.id}><button className="text-left" onClick={() => { const q = queue.find((x) => x.id === v.id); if (q) replay(q); }} disabled={!queue.some((x) => x.id === v.id)}>{v.title}</button></li>))}</ol>
+      <div className="muted text-xs">{t("thr.l.questions", { n: qs.length })}</div>
+      {qs.length ? <ul className="space-y-0.5">{qs.map((n) => <li key={n.at}><b>{clock(n.t)}</b> {n.text}</li>)}</ul> : <p className="muted text-xs">{t("thr.l.qHint")}</p>}
+      <textarea className="field h-20 w-full" value={end} maxLength={4000} onChange={(e) => setEnd(e.target.value)} placeholder={t("thr.l.endPh")} aria-label={t("thr.l.end")} />
+      <textarea className="field h-16 w-full" value={follow} maxLength={1200} onChange={(e) => setFollow(e.target.value)} placeholder={t("thr.l.followPh")} aria-label={t("thr.l.follow")} />
+      <div className="flex gap-2">
+        <button className="chip" disabled={busy} onClick={() => void finish()}>{t("thr.l.save")}</button>
+        <button className="chip" disabled={busy} onClick={() => keep(null)}>{t("thr.l.discard")}</button>
+      </div>
+      {msg && <p aria-live="polite">{msg}</p>}
+    </div>
   );
 }

@@ -4,13 +4,17 @@
 
 export type PlanSource = { kind: "calendar" | "approval" | "goal" | "deadline" | "commitment" | "personal" | "break"; label: string; open?: unknown };
 /** fixed: minutes from local midnight. Without fixed, the item is a task: flexible ones get placed, non-flexible ones without a time are listed as unplaced. */
-export type PlanItem = { id: string; title: string; min: number; flexible: boolean; fixed?: { start: number; end: number }; due?: string; rank?: number; source: PlanSource; carried?: string };
-export type Block = { id: string; title: string; start: number; end: number; flexible: boolean; source: PlanSource; done?: boolean; carried?: string };
+/** est: who set the minutes ("own" = he typed them; absent = ORBIT's default guess). */
+export type PlanItem = { id: string; title: string; min: number; flexible: boolean; fixed?: { start: number; end: number }; due?: string; rank?: number; source: PlanSource; carried?: string; est?: "own" };
+/** LIF13: why a block is in the plan, whose duration estimate it is, and its deadline (the card shows these next to the source). */
+export type Reason = "fixed" | "carried" | "overdue" | "dueToday" | "dueSoon" | "approval" | "high" | "goal" | "fits";
+export type Why = { r: Reason; est: "own" | "orbit" | "event"; due?: string };
+export type Block = { id: string; title: string; start: number; end: number; flexible: boolean; source: PlanSource; done?: boolean; carried?: string; why?: Why };
 /** load: planned vs real capacity. cap = minutes of flexible work he can take on today; over = what didn't get in because of the cap or the calendar. */
 export type Load = { capMin: number; plannedMin: number; demandMin: number; freeMin: number; overload: boolean };
 export type DayPlan = { day: string; blocks: Block[]; unplaced: { id: string; title: string; source: PlanSource; why?: "cap" | "time" }[]; accepted?: string; load?: Load; carried?: string[] };
 /** One finished day: planned flexible minutes vs minutes he actually marked done. */
-export type DayStat = { day: string; plannedMin: number; doneMin: number };
+export type DayStat = { day: string; plannedMin: number; doneMin: number; planned?: number; done?: number; missed?: string[] }; // counts and missed titles (weekly review)
 export type PlanOpts = { day: string; now: number; dayStart?: number; dayEnd?: number; personal?: { start: number; end: number } | null; buffer?: number; breakAfter?: number; breakMin?: number; maxPlanned?: number; history?: DayStat[] };
 
 export const DEFAULTS = { dayStart: 8 * 60, dayEnd: 22 * 60, personal: { start: 19 * 60, end: 21 * 60 }, buffer: 10, breakAfter: 90, breakMin: 15, maxPlanned: 6 * 60 };
@@ -23,6 +27,32 @@ export function taskOrder(items: PlanItem[], day: string): PlanItem[] {
   const kind = (i: PlanItem) => (i.source.kind === "approval" ? 0 : 1);
   return [...items].sort((a, b) => urgent(a) - urgent(b) || kind(a) - kind(b) || (a.rank ?? 50) - (b.rank ?? 50) || (a.due ?? "9").localeCompare(b.due ?? "9"));
 }
+
+const daysTo = (a: string, b: string) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
+/** Why this item is on today's plan, in the order taskOrder ranks it. */
+export function whyOf(i: PlanItem, day: string): Why {
+  const est = i.fixed ? "event" : i.est === "own" ? "own" : "orbit", due = i.due ? { due: i.due } : {};
+  const r: Reason = i.fixed ? "fixed" : i.carried ? "carried" : i.due && i.due < day ? "overdue" : i.due === day ? "dueToday" : i.source.kind === "approval" ? "approval"
+    : i.due && daysTo(day, i.due) <= 3 ? "dueSoon" : (i.rank ?? 50) <= 10 ? "high" : i.source.kind === "goal" || i.source.kind === "deadline" ? "goal" : "fits";
+  return { r, est, ...due };
+}
+
+// ── Deferral (LIF13): "not today" keeps the item out until `until`, matched by id and by title, so a re-captured copy isn't re-suggested.
+export type Deferred = { id: string; title: string; until: string; n: number; at: string };
+const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+/** "tomorrow" → the next day; "week" → next Monday. */
+export function deferUntil(day: string, when: "tomorrow" | "week"): string {
+  const d = new Date(`${day}T12:00:00`), add = when === "tomorrow" ? 1 : ((8 - d.getDay()) % 7) || 7;
+  return ymd(new Date(d.getFullYear(), d.getMonth(), d.getDate() + add));
+}
+/** Records a deferral (n counts how often he pushed it: friction for the weekly review). Kept ≤ 100, newest first. */
+export function defer(list: Deferred[], b: { id: string; title: string }, until: string, at: string): Deferred[] {
+  const old = list.find((d) => d.id === b.id || norm(d.title) === norm(b.title));
+  return [{ id: b.id, title: b.title, until, n: (old?.n ?? 0) + 1, at }, ...list.filter((d) => d !== old)].slice(0, 100);
+}
+/** Items not deferred past `day` (fixed calendar items are never hidden). */
+export const applyDeferrals = (items: PlanItem[], list: Deferred[], day: string): PlanItem[] =>
+  items.filter((i) => i.fixed || !list.some((d) => d.until > day && (d.id === i.id || norm(d.title) === norm(i.title))));
 
 /** Approvals waiting for him: one review block per place they open (e.g. all STUDIO clips), 10 min each, capped at 30. */
 export function approvalItems(ap: { id: string; title: string; kind?: string }[]): PlanItem[] {
@@ -41,7 +71,7 @@ export function buildPlan(items: PlanItem[], o: PlanOpts, order: string[] = []):
   const cap = capacity(maxPlanned, o.history ?? []);
   const personal = o.personal === undefined ? DEFAULTS.personal : o.personal;
   const blocks: Block[] = [];
-  for (const i of items) if (i.fixed && i.fixed.end > i.fixed.start) blocks.push({ id: i.id, title: i.title, start: i.fixed.start, end: i.fixed.end, flexible: false, source: i.source });
+  for (const i of items) if (i.fixed && i.fixed.end > i.fixed.start) blocks.push({ id: i.id, title: i.title, start: i.fixed.start, end: i.fixed.end, flexible: false, source: i.source, why: whyOf(i, o.day) });
   if (personal) blocks.push({ id: "personal", title: "Personal time (protected)", start: personal.start, end: personal.end, flexible: false, source: { kind: "personal", label: "Your protected time" } });
   const busy = blocks.map((b) => [b.start, b.end] as const);
   const free = (s: number, e: number) => e <= dayEnd && busy.every(([bs, be]) => e <= bs || s >= be);
@@ -68,7 +98,7 @@ export function buildPlan(items: PlanItem[], o: PlanOpts, order: string[] = []):
       while (s + len <= dayEnd && !free(s, s + len)) s += 5;
       if (s + len > dayEnd) { unplaced.push({ id: t.id, title: t.title, source: t.source, why: "time" }); continue; }
     }
-    blocks.push({ id: t.id, title: t.title, start: s, end: s + len, flexible: true, source: t.source, ...(t.carried && { carried: t.carried }) });
+    blocks.push({ id: t.id, title: t.title, start: s, end: s + len, flexible: true, source: t.source, why: whyOf(t, o.day), ...(t.carried && { carried: t.carried }) });
     planned += len;
     busy.push([s, s + len]);
     run += len + buffer; last = s + len + buffer;
@@ -98,8 +128,9 @@ export function capacity(maxPlanned: number, history: DayStat[]): number {
 /** Planned vs done flexible minutes of an accepted day (for the history that sets the cap). */
 export function dayStat(p: DayPlan): DayStat | null {
   if (!p.accepted) return null;
-  const work = p.blocks.filter((b) => b.flexible), len = (b: Block) => b.end - b.start;
-  return { day: p.day, plannedMin: work.reduce((n, b) => n + len(b), 0), doneMin: work.filter((b) => b.done).reduce((n, b) => n + len(b), 0) };
+  const work = p.blocks.filter((b) => b.flexible), len = (b: Block) => b.end - b.start, done = work.filter((b) => b.done);
+  return { day: p.day, plannedMin: work.reduce((n, b) => n + len(b), 0), doneMin: done.reduce((n, b) => n + len(b), 0), planned: work.length, done: done.length,
+    missed: work.filter((b) => !b.done).map((b) => b.title.slice(0, 80)).slice(0, 10) };
 }
 
 /** Unfinished work from an earlier accepted plan, carried into today explicitly (marked, due that day so it goes first).
@@ -190,7 +221,7 @@ export function decideCommitment(list: Commitment[], id: string, ok: boolean, du
 
 /** Only his own confirmed, still-relevant commitments go into the planner (as flexible 30-min tasks). */
 export const commitmentItems = (list: Commitment[]): PlanItem[] => list.filter((c) => c.status === "confirmed" && c.owner === "me")
-  .map((c) => ({ id: c.id, title: c.text, min: c.min ?? 30, flexible: true, ...(c.rank && { rank: c.rank }), ...(c.due && { due: c.due }), source: { kind: "commitment", label: "Commitment inbox", open: { panel: "life" } } }));
+  .map((c) => ({ id: c.id, title: c.text, min: c.min ?? 30, flexible: true, ...(c.min && { est: "own" as const }), ...(c.rank && { rank: c.rank }), ...(c.due && { due: c.due }), source: { kind: "commitment", label: "Commitment inbox", open: { panel: "life" } } }));
 
 /** CORE's answer text for "plan my day". */
 export function planText(p: DayPlan): string {

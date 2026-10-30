@@ -93,7 +93,7 @@ test("capacity: completion history lowers the cap to what he really finishes (ne
 test("carry forward: unfinished accepted work comes back explicitly, first, and isn't planned twice", () => {
   const blk = (id: string, done: boolean, kind: "goal" | "approval" = "goal"): Block => ({ id, title: id, start: 600, end: 660, flexible: true, done, source: { kind, label: "x" } });
   const prev: DayPlan = { day: "2026-10-27", accepted: "2026-10-27T07:00:00Z", unplaced: [], blocks: [blk("done", true), blk("left", false), blk("goal:1", false), blk("ap:1", false, "approval")] };
-  assert.deepEqual(dayStat(prev), { day: "2026-10-27", plannedMin: 240, doneMin: 60 });
+  assert.deepEqual(dayStat(prev), { day: "2026-10-27", plannedMin: 240, doneMin: 60, planned: 4, done: 1, missed: ["left", "goal:1", "ap:1"] });
   const items = carryForward([task("goal:1", 45), task("new", 30)], prev, "2026-10-28");
   assert.deepEqual(items.map((i) => [i.id, i.carried ?? null]), [["goal:1", "2026-10-27"], ["new", null], ["left", "2026-10-27"]]);
   const p = buildPlan(items, { day: "2026-10-28", now: 8 * 60 });

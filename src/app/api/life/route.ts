@@ -1,20 +1,23 @@
 import { requireUser } from "@/lib/supabase/server";
 import { emit } from "@/lib/claude";
-import { ackReminder, addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal, setHabitNudge, setLiveFocus } from "@/lib/life";
+import { ackReminder, addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal, setHabitNudge, setHabitPlan, setLiveFocus } from "@/lib/life";
+import { getWeekReview } from "@/lib/life-week";
 import { takeHabitToasts } from "@/lib/habit-nudge";
 import { restoreFocusTimer } from "@/lib/focus-timer-pure";
-import { MAX_FOCUS_MIN, isRepeat } from "@/lib/life-pure";
+import { MAX_FOCUS_MIN, habitPlanPatch, isRepeat } from "@/lib/life-pure";
 
 export const dynamic = "force-dynamic";
 
 // LIFE workspace. GET → full state (?due=1 → { due } reminders whose time has come and that haven't fired).
 // addReminder takes optional repeat: daily|weekdays|weekly.
-// POST { action: addHabit|removeHabit|check|nudge|addReminder|removeReminder|fired|focus|timer|journal, ... }.
+// POST { action: addHabit|removeHabit|check|nudge|habitPlan|addReminder|removeReminder|fired|focus|timer|journal, ... }.
+// ?week=1 → the weekly review (LIF08, local data only, never the journal).
 // ?due=1 also drains in-app habit nudges ({ habits }) from habit-nudge.ts.
 
 export async function GET(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
+  if (new URL(req.url).searchParams.get("week") === "1") return Response.json(await getWeekReview());
   if (new URL(req.url).searchParams.get("due") === "1") return Response.json({ due: await getDue(), habits: takeHabitToasts() });
   return Response.json(await getLife());
 }
@@ -43,12 +46,18 @@ export async function POST(req: Request) {
     case "check": {
       const q = id ?? str(b.name, 80);
       if (!q || (b.done !== undefined && typeof b.done !== "boolean")) return bad("Missing habit or invalid done");
-      return out(await checkHabit(q, b.done ?? true, date));
+      if (b.amount !== undefined && !(typeof b.amount === "number" && b.amount >= 0 && b.amount <= 100_000)) return bad("Amount must be 0–100000");
+      return out(await checkHabit(q, b.done ?? true, date, b.amount));
     }
     case "nudge": {
       const when = str(b.when ?? "", 60), channel = str(b.channel, 10);
       if (!id || when === null || channel === null) return bad("Missing id, when or channel");
       return out(await setHabitNudge(id, when, channel));
+    }
+    case "habitPlan": {
+      const p = habitPlanPatch(b);
+      if (!id || typeof p === "string") return bad(typeof p === "string" ? p : "Missing id");
+      return out(await setHabitPlan(id, p));
     }
     case "addReminder": {
       const text = str(b.text, 200), at = str(b.at, 40);

@@ -8,7 +8,9 @@ export const KINDS = ["assignment", "studio", "exam"] as const;
 export type Kind = (typeof KINDS)[number];
 export type Course = { id: string; name: string };
 export type ArchLink = { at: string; parts: number; scene: { parts: unknown[] } & Record<string, unknown> };
-export type SchoolItem = { id: string; courseId: string; kind: Kind; title: string; due: string; hours: number; done?: boolean; prepped?: string; arch?: ArchLink };
+/** LIF06: sources = VAULT file ids (course material), next = the next action he wrote himself, doneAt = when he finished it. */
+export type SchoolItem = { id: string; courseId: string; kind: Kind; title: string; due: string; hours: number; done?: boolean; prepped?: string; arch?: ArchLink;
+  sources?: string[]; next?: string; doneAt?: string };
 export type Settings = { weekday: [string, string]; weekend: [string, string]; maxDay: number; maxWeek: number; bufferDays: number };
 export type SchoolStore = { courses: Course[]; items: SchoolItem[]; settings: Settings };
 export type Busy = { start: number; end: number };
@@ -17,7 +19,7 @@ export type WeekLoad = { week: string; hours: number; deadlines: number; short: 
 export type Plan = { blocks: Block[]; short: Record<string, number>; weeks: WeekLoad[] };
 
 export const DEFAULTS: Settings = { weekday: ["16:00", "22:00"], weekend: ["10:00", "20:00"], maxDay: 4, maxWeek: 20, bufferDays: 1 };
-export const MAX_COURSES = 30, MAX_ITEMS = 200, MAX_TITLE = 120, MAX_SCENE = 20_000, HORIZON_DAYS = 180, PREP_DAYS = 21;
+export const MAX_COURSES = 30, MAX_ITEMS = 200, MAX_TITLE = 120, MAX_SCENE = 20_000, HORIZON_DAYS = 180, PREP_DAYS = 21, MAX_SOURCES = 10, MAX_NEXT = 160;
 export const KIND_LABEL: Record<Kind, string> = { assignment: "Assignment", studio: "Studio project", exam: "Exam" };
 const SLOT = 30 * 60_000, DAY = 86_400_000;
 export const emptyStore = (): SchoolStore => ({ courses: [], items: [], settings: { ...DEFAULTS } });
@@ -165,12 +167,34 @@ export function schoolBrief(store: SchoolStore, plan: Plan, now: number): { id: 
   return null;
 }
 
+/** VAULT ids (vault.ts: randomUUID) → a deduped list, or why not. Names never go in: a renamed file keeps its id. */
+export function cleanSources(v: unknown): string[] | string {
+  if (!Array.isArray(v) || v.length > MAX_SOURCES || !v.every((x) => typeof x === "string" && /^[\w-]{8,64}$/.test(x))) return `Sources must be up to ${MAX_SOURCES} VAULT file ids`;
+  return [...new Set(v as string[])];
+}
+
+export type NextStep = { kind: "own"; text: string } | { kind: "block"; at: number } | { kind: "short"; hours: number } | { kind: "sources" } | { kind: "cards" } | { kind: "start" };
+/** LIF06: the one next action for an open item: his own words first, then a missing piece (sources; study cards before an exam),
+ *  then what the plan says (the next study block, or that hours don't fit). */
+export function nextStep(it: SchoolItem, plan: Plan, now: number): NextStep {
+  if (it.next) return { kind: "own", text: it.next };
+  if (plan.short[it.id]) return { kind: "short", hours: plan.short[it.id] };
+  if (!it.sources?.length) return { kind: "sources" };
+  if (it.kind === "exam" && dueMs(it.due) - now < 7 * DAY) return { kind: "cards" };
+  const b = plan.blocks.find((x) => x.itemId === it.id && x.end > now);
+  return b ? { kind: "block", at: b.start } : { kind: "start" };
+}
+
+/** Estonian course material (õ ä ö ü š ž or common Estonian words): the night shift then looks for Estonian sources too. */
+export const isEstonian = (s: string) => /[õäöüšž]/i.test(s) || /\b(?:ja|ning|essee|eksam|kodutöö|loeng|arhitektuur\w*|ehitus\w*|ajalugu)\b/i.test(s);
+
 /** Items worth a night-shift reading list: open, due within PREP_DAYS, not queued yet. */
 export const prepDue = (items: SchoolItem[], now: number) => items.filter((i) => !i.done && !i.prepped && dueMs(i.due) > now && dueMs(i.due) < now + PREP_DAYS * DAY);
 
 /** The night shift's research ask for one item (≤ 500 chars, night-pure TEXT_MAX). Proposals only: a reading list and notes. */
 export function prepText(it: SchoolItem, course?: Course): string {
   const what = it.kind === "exam" ? "a revision reading list and key concepts to study" : "a reading list, precedents and short research notes";
+  const et = isEstonian(`${it.title} ${course?.name ?? ""}`) ? " The course is taught in Estonian: include Estonian sources and keep Estonian terms." : "";
   return `Architecture studies (building and design): prepare ${what} for my ${KIND_LABEL[it.kind].toLowerCase()} "${clean(it.title, 100)}"`
-    + `${course ? ` in the course "${clean(course.name, 80)}"` : ""}, due ${it.due.replace("T", " ")}. Sources with links; no actions outside ORBIT.`;
+    + `${course ? ` in the course "${clean(course.name, 80)}"` : ""}, due ${it.due.replace("T", " ")}. Sources with links; no actions outside ORBIT.${et}`;
 }
