@@ -94,7 +94,7 @@ function world(req: string[]) {
   const w = {
     ...db, req,
     writes: 0, dest: new Map<string, string>(), crashNext: false, // the fake destination: what actually landed, keyed by idempotency key
-    proposals: 0, calls: [0, 0, 0],
+    proposals: 0, calls: [0, 0, 0], hang: -1, // hang: the step index whose next model call never returns (the process dies mid-step)
   };
   return w;
 }
@@ -123,7 +123,10 @@ function boot(w: World, missing = new Set<string>()) {
     MODEL: "stub", emit: async () => {}, recordUsage: async () => {}, createBudget: budget, chargeCall: (b: Row) => { b.used++; },
     stopKind: (_b: unknown, s: AbortSignal) => (s.aborted ? "cancelled" : null), stoppedReport: (m: string) => m, BudgetError: class extends Error {},
     reviewDraft: async (_t: string, d: string) => ({ text: d, reviewed: false }),
-    askClaude: async (prompt: string) => ({ text: JSON.stringify(model(w, p, prompt)), ms: 1 }),
+    askClaude: async (prompt: string) => {
+      if (w.hang >= 0 && prompt.includes(`REQUEST:\n${w.req[w.hang]}`)) { w.calls[w.hang]++; w.hang = -1; return new Promise(() => {}); }
+      return { text: JSON.stringify(model(w, p, prompt)), ms: 1 };
+    },
   };
   const mods: Row = {
     "./claude": claude, "./authority": { authorizeAction: async () => ({ ok: true }) }, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure,
@@ -308,4 +311,52 @@ test("chain with 0021 missing: the drive stops, the step stays queued (not faile
   assert.equal(steps[0].status, "queued");
   assert.equal(w.tables.tasks.find((t) => !t.parent_id)!.status, "running");
   assert.equal(w.calls[0], 0, "no model call");
+});
+
+// OPS08/G19: the scheduler is the only host. No UI read (GET /api/chains → listChains/getChain) ever drives; scheduler ticks
+// (resumeChains, exactly what scheduler.ts calls) alone take a team chain through an approval to the end, and a restart mid-step
+// ends in an explicit interrupted state with no second model call or effect.
+test("chain runs to the end from scheduler ticks alone; reads never drive; restart mid-step → interrupted, no duplicate", { timeout: 30_000 }, async () => {
+  const run = async (restart: boolean) => {
+    const w = world(EN); DBG = w;
+    const { sb } = w;
+    const steps = () => w.tables.tasks.filter((t) => t.parent_id), chain = () => w.tables.tasks.find((t) => !t.parent_id)!;
+    const A = boot(w);
+    const c = await A.chains.createChain(sb, "owner", { goal: "Report", steps: EN.map((r) => ({ agent: "nova", request: r })) }, undefined, false);
+    assert.ok(c.chainId, JSON.stringify(c));
+    const tick = async (p: Proc) => { await p.chains.resumeChains(sb, "owner"); await until(() => { p.ctx.__orbitTaskQueue?.delete("other-1"); p.ctx.__orbitTaskQueue?.delete("other-2"); return !p.ctx.__orbitChains?.size; }, "driver idle"); }; // step 1's model fills both slots: free them
+    // A UI read alone: nothing moves.
+    await A.chains.listChains(sb, "owner"); await A.chains.getChain(sb, "owner", c.chainId);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(steps()[0].status, "queued", "a read never starts a step");
+    assert.equal(w.calls[0], 0);
+    await tick(A); // step 1, then step 2 proposes its write and waits
+    assert.deepEqual(steps().map((t) => t.status), ["done", "awaiting_approval", "queued"]);
+    await A.agents.resolvePending(sb, "owner", steps()[1].id, true); // the owner's click (an action, not a read)
+    assert.equal(w.writes, 1);
+    if (!restart) {
+      await tick(A);
+      assert.equal(chain().status, "done");
+      assert.deepEqual(w.calls, [1, 2, 1]);
+      return;
+    }
+    w.hang = 2; // step 3 starts, then the process dies mid-step
+    void A.chains.resumeChains(sb, "owner");
+    await until(() => { A.ctx.__orbitTaskQueue?.delete("other-1"); A.ctx.__orbitTaskQueue?.delete("other-2"); return steps()[2].status === "running" && w.calls[2] === 1; }, "step 3 mid-flight");
+    const B = boot(w); // restart: fresh process, same DB
+    await tick(B);
+    assert.equal(steps()[2].status, "running", "inside the lease: not re-run, not touched");
+    assert.equal(w.calls[2], 1);
+    steps()[2].started_at = new Date(Date.now() - 21 * 60_000).toISOString(); // the lease runs out
+    await tick(B);
+    assert.equal(steps()[2].status, "failed");
+    assert.match(steps()[2].error, /Interrupted \(ORBIT restarted\)/);
+    assert.equal(chain().status, "failed", "the chain ends explicitly, never shown running forever");
+    assert.match(chain().error, /Step 3/);
+    await tick(B);
+    assert.equal(w.calls[2], 1, "no automatic re-run");
+    assert.equal(w.writes, 1, "no duplicate effect");
+  };
+  await run(false);
+  await run(true);
 });
