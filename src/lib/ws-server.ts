@@ -50,7 +50,7 @@ export async function startServer(key: string, dir: string, o: { stopAll?: boole
   if (!inside(dir, log)) return { error: "invalid log path" };
   mkdirSync(path.dirname(log), { recursive: true });
   writeFileSync(log, `--- started ${new Date().toISOString()} on ${url}\n`);
-  const child = spawn(process.execPath, nodeArgs(dir, true), { cwd: dir, env: minimalEnv(process.env, port), stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  const child: ChildProcess = spawn(process.execPath, nodeArgs(dir, true), { cwd: dir, env: minimalEnv(process.env, port) as NodeJS.ProcessEnv, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   const run: Run = { child, url, dir, last: Date.now(), logBytes: 0, timer: setInterval(() => { if (idleExpired(run.last, Date.now())) stopServer(key); }, 60_000) };
   run.timer.unref?.();
   const write = (b: Buffer) => {
@@ -62,7 +62,7 @@ export async function startServer(key: string, dir: string, o: { stopAll?: boole
     } catch { /* a full disk must not kill the server */ }
   };
   child.stdout!.on("data", write); child.stderr!.on("data", write);
-  child.on("exit", (code) => { write(Buffer.from(`--- exited (${code ?? "killed"})\n`)); if (runs.get(key) === run) { clearInterval(run.timer); runs.delete(key); } });
+  child.on("exit", (code: number | null) => { write(Buffer.from(`--- exited (${code ?? "killed"})\n`)); if (runs.get(key) === run) { clearInterval(run.timer); runs.delete(key); } });
   runs.set(key, run);
   if (!(await up(url, child))) { stopServer(key); return { error: `server.mjs didn't start listening on PORT within 5 s; see logs/server.log` }; }
   return { url, routes: apiRoutes(src!) };
