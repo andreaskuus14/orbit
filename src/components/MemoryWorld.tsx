@@ -9,7 +9,7 @@ import { EffectComposer, Bloom, Vignette, ToneMapping, SMAA } from "@react-three
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import type { MemoryPanel } from "./panels"; // passed in by Orbit: the public demo must not bundle panels (Supabase client)
-import { MemoryHygiene } from "./MemoryHygiene";
+import { MemoryReview } from "./MemoryWorkspace";
 import { MemoryEntities } from "./MemoryEntities";
 import { beliefsPending } from "./BeliefsPanel";
 import { studyPending } from "./StudyCards";
@@ -479,7 +479,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           </div>}
         </div>
 
-        {List && !peep && !list && !flat && <MemoryHygiene onChanged={onChanged} />}{/* in List view these live under Review */}
+        {List && !peep && !list && !flat && <MemoryReview onChanged={onChanged} />}{/* in List view these live under Review */}
         {List && !peep && !list && !flat && <MemoryEntities />}
         {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && (river || hall) ? <div ref={setSlot} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}

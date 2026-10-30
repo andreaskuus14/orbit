@@ -47,7 +47,7 @@ const CEILING: Record<string, number> = {
   "HypeScore.tsx": 10, "IdeasPanel.tsx": 14, "InkGlyph.tsx": 0, "IntelligencePanel.tsx": 17, "InvoicesPanel.tsx": 46, "LastShorts.tsx": 17,
   "LaunchPackage.tsx": 23, "LearnedCard.tsx": 30, "LessonsCard.tsx": 16, "LifePanel.tsx": 1, "LifeReminders.tsx": 0, "LifeStats.tsx": 5,
   "LivingEffects.tsx": 0, "LongformPanel.tsx": 18, "MarketWatcher.tsx": 0, "MarketsPanel.tsx": 0, "MaskText.tsx": 0,
-  "MemoryClusters.tsx": 4, "MemoryControls.tsx": 5, "MemoryHygiene.tsx": 3, "MemoryPalace.tsx": 7, "MemoryWorld.tsx": 20,
+  "MemoryClusters.tsx": 4, "MemoryControls.tsx": 5, "MemoryPalace.tsx": 7, "MemoryWorld.tsx": 20,
   "MissionControl.tsx": 25, "MissionsPanel.tsx": 7, "MoneyPanel.tsx": 53, "MorningBrief.tsx": 0, "MorningCard.tsx": 1,
   "MorningCards.tsx": 7, "NegotiatorBox.tsx": 25, "NewsGlobe.tsx": 24, "NicheCards.tsx": 32, "NightShift.tsx": 0,
   "NotificationCenter.tsx": 16, "OpenLoops.tsx": 0, "OperatorCard.tsx": 8, "Orbit.tsx": 5, "OrbitExplore.tsx": 2, "OrbitLog.tsx": 9,

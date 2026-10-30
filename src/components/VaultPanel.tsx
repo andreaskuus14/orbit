@@ -3,9 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VOICE_ASK } from "./voice/bus";
 import { WorkspacePanel } from "./WorkspacePanel";
+import { useT } from "./i18n";
 import { MAX_FILE, MEMORY_MAX, fmtSize, memoryType, latestGate, type CloudFile, type Kind } from "@/lib/vault-pure";
+import { TRASH_DAYS, searchVerdict, type Coverage, type SyncState } from "@/lib/vault-meta-pure";
 
 type Usage = { bytes: number; count: number };
+type File2 = CloudFile & { id?: string; version?: number; hash?: string | null; sync?: SyncState; lastSync?: number | null; syncError?: string | null; cov?: Coverage | null };
+type Trashed = { id: string; name: string; size: number; trashedAt: number; expiresAt: number };
 type Sort = "newest" | "name" | "size";
 const ICON: Record<Kind, string> = { image: "IMG", video: "VID", audio: "AUD", pdf: "PDF", text: "TXT", doc: "DOC", other: "FILE" };
 const cloudWarn = (r: unknown) => (typeof r === "string" && r.startsWith("failed") ? `Saved on this PC; cloud copy failed: ${r.replace(/^failed: /, "")}` : "");
@@ -20,7 +24,10 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function VaultPanel() {
-  const [files, setFiles] = useState<CloudFile[]>([]);
+  const { t } = useT();
+  const [files, setFiles] = useState<File2[]>([]);
+  const [trash, setTrash] = useState<Trashed[]>([]);
+  const [notIndexed, setNotIndexed] = useState<string[]>([]);
   const [use, setUse] = useState<Usage>({ bytes: 0, count: 0 });
   const [cloudOnly, setCloudOnly] = useState<{ name: string; size: number }[]>([]);
   const [cloudError, setCloudError] = useState<string | null>(null);
@@ -28,7 +35,7 @@ export function VaultPanel() {
   const [q, setQ] = useState("");
   const [inside, setInside] = useState(false);
   const [hits, setHits] = useState<Record<string, string> | null>(null);
-  const [open, setOpen] = useState<CloudFile | null>(null);
+  const [open, setOpen] = useState<File2 | null>(null);
   const [text, setText] = useState<{ text: string; truncated: boolean } | null>(null);
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
@@ -39,8 +46,8 @@ export function VaultPanel() {
 
   const load = useCallback(async () => {
     try {
-      const r = await call<{ files: CloudFile[]; usage: Usage; cloudOnly: { name: string; size: number }[]; cloudError: string | null }>("/api/vault");
-      setFiles(r.files); setUse(r.usage); setCloudOnly(r.cloudOnly ?? []); setCloudError(r.cloudError ?? null);
+      const r = await call<{ files: File2[]; usage: Usage; cloudOnly: { name: string; size: number }[]; cloudError: string | null; trash?: Trashed[] }>("/api/vault");
+      setFiles(r.files); setTrash(r.trash ?? []); setUse(r.usage); setCloudOnly(r.cloudOnly ?? []); setCloudError(r.cloudError ?? null);
     }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not load the vault"); }
   }, []);
@@ -51,8 +58,8 @@ export function VaultPanel() {
     if (!inside || !q.trim()) { setHits(null); return; }
     const ac = new AbortController(); // a slow older search must not overwrite newer results
     const t = setTimeout(() => {
-      call<{ results: { name: string; snippet: string }[] }>(`/api/vault?content=1&q=${encodeURIComponent(q.trim())}`, { signal: ac.signal })
-        .then((r) => { if (!ac.signal.aborted) { setErr(""); setHits(Object.fromEntries(r.results.map((x) => [x.name, x.snippet]))); } })
+      call<{ results: { name: string; snippet: string }[]; notIndexed?: string[] }>(`/api/vault?content=1&q=${encodeURIComponent(q.trim())}`, { signal: ac.signal })
+        .then((r) => { if (!ac.signal.aborted) { setErr(""); setHits(Object.fromEntries(r.results.map((x) => [x.name, x.snippet]))); setNotIndexed(r.notIndexed ?? []); } })
         .catch((e) => { if (!ac.signal.aborted) setErr(e instanceof Error ? e.message : "Search failed"); });
     }, 350);
     return () => { clearTimeout(t); ac.abort(); };
@@ -104,7 +111,7 @@ export function VaultPanel() {
     await load();
   }
 
-  async function rename(f: CloudFile) {
+  async function rename(f: File2) {
     const to = prompt("New name (the extension is kept unless you type one):", f.name);
     if (!to || to.trim() === f.name) return;
     try {
@@ -116,8 +123,8 @@ export function VaultPanel() {
     } catch (e) { setErr(e instanceof Error ? e.message : "Rename failed"); }
   }
 
-  async function remove(f: CloudFile) {
-    if (!confirm(`Permanently delete "${f.name}"? This can't be undone.`)) return;
+  async function remove(f: File2) {
+    if (!confirm(t("vault.trashConfirm", { name: f.name, days: TRASH_DAYS }))) return;
     try {
       const r = await call<{ cloud?: string }>("/api/vault", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: f.name }) });
       if (open?.name === f.name) setOpen(null);
@@ -125,6 +132,23 @@ export function VaultPanel() {
       await load();
     } catch (e) { setErr(e instanceof Error ? e.message : "Delete failed"); }
   }
+
+  async function untrash(x: Trashed) {
+    setErr(""); setNote("");
+    try {
+      const r = await call<{ name: string; cloud?: string }>("/api/vault", JSON_POST({ action: "untrash", id: x.id }));
+      setNote(t("vault.restored", { name: r.name })); setErr(cloudWarn(r.cloud));
+    } catch (e) { setErr(e instanceof Error ? e.message : "Restore failed"); }
+    await load();
+  }
+
+  async function purge(x: Trashed) {
+    if (!confirm(t("vault.purgeConfirm", { name: x.name }))) return;
+    try { await call("/api/vault", JSON_POST({ action: "purge", id: x.id })); } catch (e) { setErr(e instanceof Error ? e.message : "Delete failed"); }
+    await load();
+  }
+
+  const syncLabel = (f: File2) => t(`vault.sync.${f.sync ?? (f.cloud ? "cloud" : "local")}` as "vault.sync.local");
 
   async function sync() {
     setErr(""); setNote(""); setBusy("Copying files to the cloud…");
@@ -144,7 +168,7 @@ export function VaultPanel() {
   }
 
   // Same request the MEMORY panel's "Upload file" makes.
-  async function toMemory(f: CloudFile) {
+  async function toMemory(f: File2) {
     if (!confirm(`Upload a copy of "${f.name}" to MEMORY? It will be stored in ORBIT's cloud memory (your Supabase project), not only on this PC.`)) return;
     setErr(""); setNote(""); setBusy(`Saving ${f.name} to MEMORY…`);
     try {
@@ -174,6 +198,12 @@ export function VaultPanel() {
         <button className="link" onClick={() => setOpen(null)}>← Back</button>
         <h3 className="h3 break-all">{open.name}</h3>
         <p className="muted text-xs">{fmtSize(open.size)} · modified {new Date(open.mtime).toLocaleString()}</p>
+        <p className="muted text-xs break-all">
+          {syncLabel(open)}{open.lastSync ? ` · ${t("vault.lastSync", { at: new Date(open.lastSync).toLocaleString() })}` : ` · ${t("vault.neverSynced")}`}
+          {open.syncError && ` · ${open.syncError}`}
+          {open.cov && ` · ${t(`vault.cov.${open.cov}` as "vault.cov.indexed")}`}
+          {open.id && ` · ID ${open.id.slice(0, 8)} · v${open.version ?? 1}${open.hash ? ` · SHA-256 ${open.hash.slice(0, 12)}` : ""}`}
+        </p>
         {open.type === "image" && <img src={src} alt={open.name} className="max-h-[60vh] max-w-full rounded" />}
         {open.type === "video" && <video src={src} controls className="max-h-[60vh] w-full" />}
         {open.type === "audio" && <audio src={src} controls className="w-full" />}
@@ -190,7 +220,7 @@ export function VaultPanel() {
           {memoryType(open.name) && <button className="btn" disabled={!!busy || open.size > MEMORY_MAX} title={open.size > MEMORY_MAX ? "MEMORY accepts files up to 4 MB" : undefined} onClick={() => toMemory(open)}>Save copy to MEMORY (cloud)</button>}
           {(open.type === "text" || open.type === "pdf" || open.type === "doc") && (
             <button className="btn" onClick={() => dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text: `Read my VAULT file "${open.name}" and give me a short summary.` } }))}>Ask CORE</button>)}
-          <button className="btn danger" onClick={() => remove(open)}>Delete</button>
+          <button className="btn danger" onClick={() => remove(open)}>{t("vault.moveToTrash")}</button>
         </div>
         {busy && <p className="muted">{busy}</p>}
       </div>
@@ -199,9 +229,10 @@ export function VaultPanel() {
 
   return (
     <div className={`space-y-4 ${rootCls}`} {...dropProps}>
-      <p className="muted text-xs">Files are kept on this PC, with a private copy in your Supabase cloud (free plan: 1 GB total).</p>
+      <p className="muted text-xs">{t("vault.where")}</p>
       <p className="muted text-xs">
-        {cloudError ? <>Cloud unavailable: {cloudError}</> : <>{files.filter((f) => f.cloud).length} of {files.length} files in the cloud</>}
+        {cloudError ? <>Cloud unavailable: {cloudError}</> : <>{t("vault.inCloud", { n: files.filter((f) => f.cloud).length, m: files.length })}</>}
+        {(() => { const q = files.filter((f) => f.sync === "failed" || f.sync === "pending").length; return q ? ` · ${t("vault.queue", { n: q })}` : ""; })()}
         {" · "}<button className="link" disabled={!!busy} onClick={sync}>Sync now</button>
       </p>
       <div className="flex flex-wrap items-center gap-2">
@@ -221,6 +252,8 @@ export function VaultPanel() {
       {busy && <p className="muted">{busy}</p>}
       {err && <p className="error whitespace-pre-line">{err}</p>}
       {note && <p className="muted">{note}</p>}
+      {inside && q.trim() && hits && !Object.keys(hits).length && searchVerdict(0, notIndexed.length) === "notIndexed" && (
+        <p className="muted text-xs">{t("vault.notIndexed", { n: notIndexed.length, names: notIndexed.slice(0, 5).join(", ") })}</p>)}
       {shown.length === 0 ? <p className="muted">{files.length ? "No matches." : "The vault is empty. Upload or drop files to keep them here."}</p> : (
         <ul className="space-y-1">
           {shown.map((f) => (
@@ -232,8 +265,7 @@ export function VaultPanel() {
                   {hits?.[f.name] && <span className="muted block truncate text-xs">{hits[f.name]}</span>}
                 </span>
                 <span className="muted shrink-0 text-xs">{fmtSize(f.size)} · {new Date(f.mtime).toLocaleDateString()}</span>
-                {f.cloud === true && <span className="shrink-0 text-xs" role="img" aria-label="Cloud copy saved" title="Cloud copy saved">☁</span>}
-                {f.cloud === false && <span className="shrink-0 text-xs" role="img" aria-label="Not in the cloud yet" title="Not in the cloud yet (Sync now)">⚠</span>}
+                {f.cloud !== undefined && <span className={`shrink-0 text-xs${f.sync === "failed" ? " error" : ""}`} title={f.syncError ?? undefined}>{syncLabel(f)}</span>}
               </button>
             </li>
           ))}
@@ -248,6 +280,22 @@ export function VaultPanel() {
                 <span className="min-w-0 flex-1 truncate">{c.name}</span>
                 <span className="muted shrink-0 text-xs">{fmtSize(c.size)}</span>
                 <button className="chip" disabled={!!busy} onClick={() => restore(c.name)}>Download to this PC</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {trash.length > 0 && (
+        <div className="space-y-1">
+          <h3 className="h3">{t("vault.trash")}</h3>
+          <p className="muted text-xs">{t("vault.trashNote", { days: TRASH_DAYS })}</p>
+          <ul className="space-y-1">
+            {trash.map((x) => (
+              <li key={x.id} className="card flex flex-wrap items-center gap-3">
+                <span className="min-w-0 flex-1 truncate">{x.name}</span>
+                <span className="muted shrink-0 text-xs">{fmtSize(x.size)} · {t("vault.expires", { at: new Date(x.expiresAt).toLocaleDateString() })}</span>
+                <button className="chip" disabled={!!busy} onClick={() => untrash(x)}>{t("vault.restore")}</button>
+                <button className="chip danger" disabled={!!busy} onClick={() => purge(x)}>{t("vault.purge")}</button>
               </li>
             ))}
           </ul>

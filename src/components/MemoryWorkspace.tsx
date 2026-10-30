@@ -2,11 +2,15 @@
 // MEMORY workspace views (MEM01/MEM02): Search with filters and "why it matched", Projects, People, and the inspector card on an
 // open memory. Pure rules: lib/memory-workspace-pure.ts. Everything runs on rows already loaded for the owner; no model calls.
 import dynamic from "next/dynamic";
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useT } from "./i18n";
 import { applyFilters, inspect, NO_FILTERS, projects, whyMatched, type Filters, type Mem } from "@/lib/memory-workspace-pure";
 import type { MemoryType } from "@/lib/memory-types-pure";
 import type { Key } from "@/lib/i18n-pure";
+import { mergedContent } from "@/lib/memory-hygiene-pure";
+import type { Decision, RItem } from "@/lib/memory-review-pure";
+import type { Dup, DupChoice } from "@/lib/memory-capture-pure";
+import { OrbitThinks } from "./OrbitThinks";
 
 const TYPES: MemoryType[] = ["preference", "fact", "temporary", "observation", "inferred", "superseded"];
 const day = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
@@ -77,5 +81,105 @@ export function MemoryInspector({ m }: { m: Mem }) {
     <dl className="card grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs" aria-label={t("memws.inspector")}>
       {rows.map(([k, v]) => <div key={k} className="contents"><dt className="muted">{k}</dt><dd className="min-w-0 break-words">{v}</dd></div>)}
     </dl>
+  );
+}
+
+/** MEM04: a capture repeats an existing memory. Nothing was saved; the owner picks keep both, merge or update. */
+export function DupPreview({ dup, preview, onChoose, onCancel }: {
+  dup: Dup; preview: { existing: string; merged: string; changes: boolean }; onChoose: (c: DupChoice) => void; onCancel: () => void;
+}) {
+  const { t } = useT();
+  return (
+    <div className="card space-y-2" role="alertdialog" aria-label={t("memcap.title")}>
+      <b>{t(dup.by === "source" ? "memcap.bySource" : "memcap.byContent", { title: dup.title })}</b>
+      <p className="muted text-xs">{t(preview.changes ? "memcap.mergeAdds" : "memcap.mergeSame")}</p>
+      <pre className="field max-h-40 overflow-auto whitespace-pre-wrap text-xs">{preview.merged}</pre>
+      <div className="flex flex-wrap gap-2">
+        <button className="btn" onClick={() => onChoose("merge")}>{t("memcap.merge")}</button>
+        <button className="chip" onClick={() => onChoose("update")}>{t("memcap.update")}</button>
+        <button className="chip" onClick={() => onChoose("keep")}>{t("memcap.keep")}</button>
+        <button className="link text-xs" onClick={onCancel}>{t("memcap.cancel")}</button>
+      </div>
+    </div>
+  );
+}
+
+async function call(url: string, init?: RequestInit, okIf404 = false) {
+  const r = await fetch(url, { ...init, headers: { "Content-Type": "application/json" } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok && !(okIf404 && r.status === 404)) throw new Error(j.error || `Failed (${r.status})`);
+  return j;
+}
+const control = (id: string, body: object) => call(`/api/memories/${id}/control`, { method: "POST", body: JSON.stringify(body) });
+const fact = (body: object) => call("/api/facts", { method: "POST", body: JSON.stringify(body) });
+
+/** Runs the owner's decision on the record it belongs to; history is never lost (Correct keeps the original as history). */
+async function apply(it: RItem, d: Decision, text: string) {
+  const [a, b] = it.items, k = it.kind;
+  if (d === "accepted") {
+    if (k === "merge") {
+      const [x, y] = await Promise.all([call(`/api/memories/${a.id}`), call(`/api/memories/${b.id}`)]);
+      const content = mergedContent(String(x.memory.content ?? ""), String(y.memory.content ?? ""));
+      if (content !== null) await call(`/api/memories/${a.id}`, { method: "PATCH", body: JSON.stringify({ content }) });
+      await call(`/api/memories/${b.id}`, { method: "DELETE" }, true);
+    } else if (it.target === "fact") await (k === "inferred-belief" ? fact({ action: "edit", id: a.id, subject: a.subject, statement: a.text }) : fact({ action: "wrong", id: a.id }));
+    else await control(a.id, { action: "confirm" }).catch(() => null); // before 0019 there is no confirmation to set
+  }
+  if (d === "corrected") {
+    if (it.target === "fact") await fact({ action: "edit", id: a.id, subject: a.subject, statement: text });
+    else {
+      await control(a.id, { action: "correct", content: text });
+      if (k === "merge") { // the second one stays as history, out of retrieval
+        const y = await call(`/api/memories/${b.id}`);
+        await call(`/api/memories/${b.id}`, { method: "PATCH", body: JSON.stringify({ tags: [...(y.memory.tags ?? []), "superseded"] }) });
+      }
+    }
+  }
+  if (d === "dismissed" && k === "inferred-belief") await fact({ action: "wrong", id: a.id }); // a discarded guess stops being believed (history kept)
+  await call("/api/memories/hygiene", { method: "POST", body: JSON.stringify({ key: it.key, decision: d }) });
+}
+
+/** MEM05: the one review queue (top 5): merges, guesses, contradictions and stale project knowledge. */
+export function MemoryReview({ onChanged }: { onChanged: () => void }) {
+  const { t } = useT();
+  const [list, setList] = useState<RItem[] | null>(null);
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const [fix, setFix] = useState<{ key: string; text: string } | null>(null);
+  const load = useCallback(() => call("/api/memories/hygiene").then((j) => setList(j.queue ?? []), (e: Error) => setErr(e.message)), []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function act(it: RItem, d: Decision, text = "") {
+    setBusy(it.key); setErr("");
+    try { await apply(it, d, text); setFix(null); if (d !== "snoozed") onChanged(); await load(); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Failed"); }
+    finally { setBusy(""); }
+  }
+  if (!list?.length && !err) return null;
+  return (
+    <div className="card space-y-2" aria-label={t("memrev.title")}>
+      <div className="muted text-[10px] uppercase tracking-widest">{t("memrev.title")}</div>
+      {err && <p className="error" role="alert">{err}</p>}
+      <ul className="space-y-3">{(list ?? []).map((it) => (
+        <li key={it.key} className="space-y-1">
+          <b>{t(`memrev.k.${it.kind}` as Key)}</b>
+          <ul className="text-xs">{it.items.map((x) => <li key={x.id} className="line-clamp-2">· {x.subject ? `${x.subject}: ${x.text}` : x.title}</li>)}</ul>
+          {fix?.key === it.key ? (
+            <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); if (fix.text.trim()) void act(it, "corrected", fix.text.trim()); }}>
+              <textarea className="field h-24 w-full" value={fix.text} onChange={(e) => setFix({ ...fix, text: e.target.value })} aria-label={t("memrev.correct")} />
+              <p className="muted text-[11px]">{t("memrev.history")}</p>
+              <div className="flex gap-2"><button className="btn" disabled={!!busy}>{t("memrev.save")}</button><button type="button" className="chip" onClick={() => setFix(null)}>{t("memcap.cancel")}</button></div>
+            </form>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button className="btn" onClick={() => act(it, "accepted")} disabled={!!busy}>{busy === it.key ? t("memrev.working") : t(`memrev.accept.${it.target === "fact" && it.kind !== "inferred-belief" ? "retract" : it.kind === "merge" ? "merge" : "keep"}` as Key)}</button>
+              <button className="chip" onClick={() => setFix({ key: it.key, text: it.kind === "merge" ? mergedContent(it.items[0].text, it.items[1]?.text ?? "") ?? it.items[0].text : it.items[0].text })} disabled={!!busy}>{t("memrev.correct")}</button>
+              <button className="chip" onClick={() => act(it, "snoozed")} disabled={!!busy}>{t("memrev.snooze")}</button>
+              <button className="chip" onClick={() => act(it, "dismissed")} disabled={!!busy}>{t("memrev.discard")}</button>
+              <OrbitThinks id={`hygiene:${it.key}`} />
+            </div>
+          )}
+        </li>))}</ul>
+    </div>
   );
 }

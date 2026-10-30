@@ -1,6 +1,9 @@
 import { requireUser } from "@/lib/supabase/server";
-import { createMemory, searchMemories, fetchPage, KINDS, MEMORY_COLUMNS, type Kind } from "@/lib/memory";
+import { captureMemory, searchMemories, fetchPage, KINDS, MEMORY_COLUMNS, type Kind } from "@/lib/memory";
 import { cleanTags, str } from "@/lib/pure";
+import { readVaultText } from "@/lib/vault";
+
+const CHOICES = ["keep", "merge", "update"] as const;
 
 export async function GET(req: Request) {
   const { sb, res } = await requireUser();
@@ -16,7 +19,8 @@ export async function GET(req: Request) {
   }
 }
 
-/** Universal capture: a note/idea/etc., or a link (fetched and stored as readable text). */
+/** Universal capture: a note/idea/etc., a link (fetched and stored as readable text), or a VAULT file by name (referenced,
+ *  not re-uploaded). A repeat answers 409 {duplicate, preview} until the body carries onDuplicate: keep | merge | update. */
 export async function POST(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
@@ -27,7 +31,9 @@ export async function POST(req: Request) {
   let title = str(body.title, 300);
   let content = str(body.content, 200_000);
   const url = str(body.url, 2000);
-  if (title === null || content === null || url === null) return Response.json({ error: "Invalid field" }, { status: 400 });
+  const vault = str(body.vault, 255);
+  const onDuplicate = CHOICES.find((c) => c === body.onDuplicate) ?? null;
+  if (title === null || content === null || url === null || vault === null) return Response.json({ error: "Invalid field" }, { status: 400 });
 
   try {
     let source = "capture";
@@ -38,15 +44,21 @@ export async function POST(req: Request) {
       title ||= page.title;
       content = content ? `${content}\n\n---\n${page.text}` : page.text;
       source = "url";
+    } else if (vault) {
+      const text = await readVaultText(vault, 200_000);
+      if (text === null) return Response.json({ error: "That VAULT file has no readable text" }, { status: 404 });
+      title ||= vault;
+      content = content ? `${content}\n\n---\n${text}` : text;
+      source = "vault";
     }
     if (!title) title = content.split("\n")[0].slice(0, 80);
     if (!title) return Response.json({ error: "Add a title or some content" }, { status: 400 });
 
-    const out = await createMemory(sb, user.id, {
-      kind: url ? "link" : kind, title: title.slice(0, 300), content, source, url: url || null,
+    const out = await captureMemory(sb, user.id, {
+      kind: url ? "link" : vault ? "document" : kind, title: title.slice(0, 300), content, source, url: url || null,
       tags: cleanTags(body.tags), folder: str(body.folder, 100) || null,
-    });
-    return Response.json(out, { status: 201 });
+    }, { vault: vault || null, onDuplicate });
+    return Response.json(out, { status: "preview" in out ? 409 : 201 });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Could not save" }, { status: 502 });
   }

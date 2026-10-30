@@ -13,7 +13,7 @@ const names = async () => (await v.listVault()).map((f) => f.name).sort();
 test("upload sanitizes names and suffixes collisions (case-insensitive)", async () => {
   assert.equal(await v.saveUpload(new File(["hello needle world"], "../notes.txt")), "notes.txt");
   assert.equal(await v.saveUpload(new File(["second"], "NOTES.TXT")), "NOTES (2).TXT");
-  assert.equal(await v.saveUpload(new File(["x"], "REPORT~1.PDF")), "REPORT-1.PDF");
+  assert.equal(await v.saveUpload(new File(["%PDF-1.4"], "REPORT~1.PDF")), "REPORT-1.PDF");
   assert.deepEqual(await names(), ["NOTES (2).TXT", "REPORT-1.PDF", "notes.txt"]);
   assert.equal(await readFile(path.join(dir, "notes.txt"), "utf8"), "hello needle world");
 });
@@ -129,3 +129,58 @@ test("cloud-only files are never overwritten or orphaned", async () => {
 });
 
 // Quota (40 MB / 5 GB / 2000 files) is a constant, not injectable here; uploadError is unit-tested in tests/vault.test.ts.
+
+test("delete goes to the trash and restores with the same id; purge erases it", async () => {
+  await v.saveUpload(new File(["keep me"], "trash-me.txt"));
+  const before = (await v.listDetailed(null)).find((f) => f.name === "trash-me.txt")!;
+  assert.ok(before.id && before.hash && before.version === 1 && before.sync === "local");
+  const { id, name } = await v.deleteFile("trash-me.txt");
+  assert.equal(id, before.id); assert.equal(name, "trash-me.txt");
+  assert.ok(!(await names()).includes("trash-me.txt"));
+  assert.ok((await v.listTrash()).some((t) => t.id === id));
+  assert.equal(await v.restoreTrash(id), "trash-me.txt");
+  assert.equal(await readFile(path.join(dir, "trash-me.txt"), "utf8"), "keep me");
+  assert.equal((await v.listDetailed(null)).find((f) => f.name === "trash-me.txt")!.id, id);
+  const again = await v.deleteFile("trash-me.txt");
+  await v.purgeTrash(again.id);
+  assert.ok(!(await v.listTrash()).some((t) => t.id === again.id));
+  await assert.rejects(v.restoreTrash(again.id), /Not in the trash/);
+});
+
+test("rename keeps old references (name and id) working", async () => {
+  await v.saveUpload(new File(["%PDF-1.4 signed"], "contract.pdf"));
+  const id = (await v.listDetailed(null)).find((f) => f.name === "contract.pdf")!.id;
+  assert.equal(await v.renameFile("contract.pdf", "Contract final"), "Contract final.pdf");
+  assert.equal(await new Response((await v.readStream("contract.pdf", null)).stream).text(), "%PDF-1.4 signed");
+  assert.equal(await new Response((await v.readStream(id, null)).stream).text(), "%PDF-1.4 signed");
+  await assert.rejects(v.renameFile("contract.pdf", "x"), /not found/); // rename needs the current name
+});
+
+test("import refuses a lying extension and keeps nothing", async () => {
+  await assert.rejects(v.saveUpload(new File(["MZ not a pdf"], "fake.pdf")), (e: Error & { status?: number }) => e.status === 415);
+  assert.ok(!(await names()).includes("fake.pdf"));
+});
+
+test("search tells 'not indexed' apart from 'no match'", async () => {
+  await v.saveUpload(new File(["%PDF-1.4 garbage"], "broken.pdf"));
+  const r = await v.searchVaultInfo("zzz-nothing");
+  assert.deepEqual(r.results, []);
+  assert.ok(r.notIndexed.includes("broken.pdf"), JSON.stringify(r));
+});
+
+test("sync marks state and never re-uploads a file already in the cloud", async () => {
+  const objects = new Map<string, Blob>();
+  let uploads = 0;
+  const api = {
+    async upload(p: string, body: Buffer) { uploads++; objects.set(p, new Blob([new Uint8Array(body)])); return { error: null }; },
+    async list(prefix: string) { return { data: [...objects].filter(([k]) => k.startsWith(prefix + "/")).map(([k, b]) => ({ name: k.slice(prefix.length + 1), id: k, metadata: { size: b.size } })), error: null }; },
+  };
+  const sb = { storage: { from: () => api } } as never;
+  await v.syncToCloud(sb, UID);
+  const n = uploads;
+  assert.ok(n > 0);
+  await v.syncToCloud(sb, UID);
+  assert.equal(uploads, n);
+  const listed = await v.listDetailed(await v.cloudList(sb, UID, true));
+  assert.ok(listed.every((f) => f.sync === "cloud" || f.sync === "restored"), JSON.stringify(listed.map((f) => [f.name, f.sync])));
+});
