@@ -1,12 +1,19 @@
 // UI sound layer (plan #3): tiny WebAudio synth, no audio files. Off with the HUD menu's "UI sounds" toggle (orbit.sfx = "0").
 // The AudioContext starts on the first sound after a user gesture; browsers block it before that, so early calls are silent no-ops.
 import { detuneRatios } from "@/lib/alien-behaviour-pure";
+import { RAMP_S } from "@/lib/audio-policy-pure";
+import { audioGains, subscribeAudio } from "./audio-policy";
 
-let ctx: AudioContext | null = null;
+let ctx: AudioContext | null = null, bus: GainNode | null = null;
+/** Every UI sound goes through one bus the audio policy ducks (mic, voice) or silences (global mute) with a ramp. */
+const out = (a: AudioContext) => {
+  if (!bus) { bus = a.createGain(); bus.gain.value = audioGains().cues; bus.connect(a.destination); subscribeAudio(() => bus!.gain.setTargetAtTime(audioGains().cues, a.currentTime, RAMP_S)); }
+  return bus;
+};
 const on = () => { try { return localStorage.getItem("orbit.sfx") !== "0"; } catch { return true; } };
 const ac = () => {
   if (!on() || typeof window === "undefined") return null;
-  try { ctx ??= new AudioContext(); if (ctx.state === "suspended") void ctx.resume(); return ctx.state === "running" ? ctx : null; } catch { return null; }
+  try { ctx ??= new AudioContext(); if (ctx.state === "suspended") void ctx.resume(); return ctx.state === "running" && audioGains().cues > 0 ? ctx : null; } catch { return null; } // muted: build nothing
 };
 
 /** One shaped tone: frequency glide f0→f1, attack/decay envelope, optional band-passed noise instead of a sine. */
@@ -17,7 +24,7 @@ function tone({ f0, f1 = f0, dur, gain = 0.05, type = "sine", noise = false, q =
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(gain, t + Math.min(0.03, dur / 4));
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  g.connect(a.destination);
+  g.connect(out(a));
   if (noise) {
     const buf = a.createBuffer(1, Math.ceil(a.sampleRate * dur), a.sampleRate), d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -41,7 +48,7 @@ function converge() {
   g.gain.exponentialRampToValueAtTime(0.022, t + 0.25);
   g.gain.setValueAtTime(0.022, t + 1.0);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
-  g.connect(a.destination);
+  g.connect(out(a));
   for (const r of detuneRatios(5, 45)) {
     const o = a.createOscillator(), v = a.createGain();
     v.gain.value = 0.2;

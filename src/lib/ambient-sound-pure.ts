@@ -1,5 +1,6 @@
 // Spatial ambient sound (roadmap E6): pure mapping, coalescing and mixing rules. No Web Audio, clock or storage here;
 // the engine (components/spatial-audio.ts) applies them. Tested in tests/ambient-sound.test.ts.
+import { verifiedCompletion } from "./audio-policy-pure.ts";
 export const AMBIENT_KEY = "orbit.ambient"; // "1" = on. Off by default: nothing plays until he enables "Ambient sound".
 export const VOLUME_KEY = "orbit.ambient.volume";
 export const DAWN_KEY = "orbit.ambient.dawn"; // endedAt of the last night shift that already got its dawn swell
@@ -15,7 +16,7 @@ export type Cue = { source: string; kind: "chime" | "dawn" };
 export function cueFor(type: string, payload?: { status?: unknown } | null): Cue | null {
   switch (type) {
     case "clip.published": return { source: "studio", kind: "chime" };
-    case "agent.completed": return payload?.status === "cancelled" ? null : { source: "agents", kind: "chime" };
+    case "agent.completed": return verifiedCompletion(type, payload) ? { source: "agents", kind: "chime" } : null; // saved "done" only
     case "deal.found": return { source: "markets", kind: "chime" };
     case "night.end": return { source: "core", kind: "dawn" };
     default: return null;
