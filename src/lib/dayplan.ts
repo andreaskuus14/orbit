@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { adjustPlan } from "./life-plan-pure";
 import { localDay } from "./morning-pure";
-import { acceptPlan, buildPlan, carryForward, commitmentItems, dayStat, type DayStat, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure";
+import { acceptPlan, approvalItems, buildPlan, carryForward, commitmentItems, dayStat, type DayStat, decideCommitment, dragOrder, eveningReport, inferCommitments, markDone, type Commitment, type DayPlan, type PlanItem } from "./dayplan-pure";
 
 type Store = { plan?: DayPlan; prev?: DayPlan; order?: string[]; commitments: Commitment[]; history?: DayStat[] };
 const file = () => path.join(orbitDataDir(), "dayplan.json");
@@ -42,7 +42,7 @@ async function gather(sb: SupabaseClient | null, userId: string | null, now: num
     const start = Math.max(0, minutes(Date.parse(e.start), d0.getTime())), end = Math.min(24 * 60, minutes(Date.parse(e.end), d0.getTime()));
     if (end > start) items.push({ id: `cal:${e.start}:${e.title.slice(0, 40)}`, title: e.title, min: end - start, flexible: false, fixed: { start, end }, source: { kind: "calendar", label: "Google Calendar", open: { panel: "life" } } });
   }
-  for (const a of ap) items.push({ id: `ap:${a.id}`, title: `Review: ${a.title}`, min: 10, flexible: true, source: { kind: "approval", label: "Approvals", open: a.kind === "clip" ? { panel: "studio", view: "review" } : a.kind === "send" ? { panel: "business" } : { panel: "studio" } } });
+  items.push(...approvalItems(ap));
   for (const g of goals) {
     const doc = g.doc;
     if (doc.status === "done" || doc.status === "stopped") continue;

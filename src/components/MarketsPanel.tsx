@@ -52,7 +52,7 @@ export default function MarketsPanel() {
   }, [load]);
 
   return (
-    <WorkspaceFrame planet="markets" title={tr("mk.sections")} context={tr("mk.context")} views={views} view={tab} onView={setTab}>
+    <WorkspaceFrame planet="markets" title={tr("planet.markets")} context={tr("mk.context")} views={views} view={tab} onView={setTab}>
       {err ? <StateNote state="failed" what={err} kept={st ? tr("state.keptScreen") : undefined} action={{ label: tr("state.retry"), run: () => void load() }} />
         : !st && <StateNote state="loading" action={{ label: tr("state.retry"), run: () => void load() }} />}
       {st && (
