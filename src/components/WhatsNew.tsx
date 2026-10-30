@@ -11,7 +11,7 @@ export function WhatsNew({ home }: { home: boolean }) {
   const [on, setOn] = useState<null | "auto" | "reopen">(null); // once mounted the body stays, with its own TOUR_EVENT listener
   useEffect(() => {
     setOn("auto"); // the body compares known step ids (startup-pure newSince) and shows only what is new, or nothing
-    const reopen = () => setOn((o) => o ?? "reopen");
+    const reopen = () => setOn("reopen");
     addEventListener(TOUR_EVENT, reopen);
     return () => removeEventListener(TOUR_EVENT, reopen);
   }, []);
