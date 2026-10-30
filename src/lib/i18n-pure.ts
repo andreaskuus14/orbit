@@ -664,6 +664,7 @@ const BASE = {
 
   "sf.hi": "Welcome back.", "sf.incident": "{t} needs a look.", "sf.meeting": "{t} starts in {n} min.", "sf.approval": "{t} has waited {n} h for your OK.",
   "sf.loop": "Due today: {t}.", "sf.brief": "Your morning brief is ready.",
+  "herald.digest": "While you were away: {n} things", "herald.digestHint": "All of them stay in the bell.",
   "sf.toggle": "ORBIT speaks first", "sf.hint": "When you come back after 20+ min, one short line about the most important thing. Max 4 a day, never 23–08.",
   "voice.convStart": "Conversation mode: keep listening after each answer (Ctrl+Shift+M)", "voice.convEnd": "End conversation mode (Esc)",
   "voice.convTitle": "Conversation mode (Ctrl+Shift+M, or say “Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Conversation mode needs hands-free on (voice settings)",
@@ -1428,6 +1429,7 @@ export const ET: Partial<Record<Key, string>> = {
 
   "sf.hi": "Tere tagasi.", "sf.incident": "{t} vajab tähelepanu.", "sf.meeting": "{t} algab {n} min pärast.", "sf.approval": "{t} ootab sinu kinnitust juba {n} h.",
   "sf.loop": "Täna tähtaeg: {t}.", "sf.brief": "Sinu hommikune ülevaade on valmis.",
+  "herald.digest": "Sel ajal kui olid eemal: {n} asja", "herald.digestHint": "Kõik jäävad kellukesse alles.",
   "sf.toggle": "ORBIT räägib esimesena", "sf.hint": "Kui tuled 20+ min pärast tagasi, üks lühike lause kõige tähtsamast. Kuni 4 korda päevas, mitte kell 23–08.",
   "voice.convStart": "Vestlusrežiim: kuula pärast iga vastust edasi (Ctrl+Shift+M)", "voice.convEnd": "Lõpeta vestlusrežiim (Esc)",
   "voice.convTitle": "Vestlusrežiim (Ctrl+Shift+M või ütle „Orbit, let’s talk”)", "voice.convNeedsHandsFree": "Vestlusrežiim vajab sisselülitatud käed-vaba kuulamist (hääle seaded)",

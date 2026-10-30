@@ -8,7 +8,9 @@ import {
   DEV_TAB_EVENT, DEV_TAB_KEY, HERALD_KEY, KIND_ICON, MAX_ON_SCREEN, breakingCards, briefCard, morningCard, parseHerald,
   trendCards, uploadNudge, type HeraldAction, type HeraldCard, type HeraldState,
 } from "@/lib/herald-pure";
-import { CORE_BUSY, POPUP_SHOWN, RESOLVE_ALERT, classify, dismissKind, reasonLine, selectInterruptions, signalFor, type Signal } from "@/lib/interruption-pure";
+import { AWAY_MS, CORE_BUSY, GATHER_MS, LAST_SEEN_KEY, POPUP_SHOWN, RESOLVE_ALERT, THEATER_EVENT, classify, digestQueue, dismissKind, focusRunning, reasonLine, selectInterruptions, signalFor, type Signal } from "@/lib/interruption-pure";
+import { FOCUS_TIMER_KEY } from "@/lib/focus-timer-pure";
+import { useT } from "./i18n";
 import { loadJudgment, saveJudgment } from "./interruption-store";
 import { speakChunk, speechSettings, speakingOrJustEnded } from "./voice/speak";
 import { inboxOffer } from "@/lib/herald-watch-pure";
@@ -44,19 +46,39 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
   count.current = cards.length;
   const homeRef = useRef(home);
   homeRef.current = home;
-  const attention = useRef({ lastTyped: Date.now(), localBusy: false, coreBusy });
+  const attention = useRef({ lastTyped: Date.now(), localBusy: false, coreBusy, theater: false });
+  const gather = useRef(0); // back after AWAY_MS: until this time non-urgent notices wait to become one digest
+  const { t } = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
   attention.current.coreBusy = coreBusy;
   const hover = useRef(false);
   const [said, setSaid] = useState(""); // screen-reader line for new cards only (collapsing must not re-announce)
 
   const pump = useCallback(() => {
-    const legacy = load(), a = attention.current;
-    const r = selectInterruptions(loadJudgment(), queue.current, Date.now(), {
+    const legacy = load(), a = attention.current, now = Date.now();
+    const get = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
+    if (document.visibilityState === "visible") {
+      if (!gather.current && now - (Number(get(LAST_SEEN_KEY)) || now) >= AWAY_MS) gather.current = now + GATHER_MS;
+      try { localStorage.setItem(LAST_SEEN_KEY, String(now)); } catch { /* no digest across reloads */ }
+    }
+    if (gather.current && now >= gather.current) {
+      gather.current = 0;
+      const d = digestQueue(queue.current, loadJudgment());
+      queue.current = d.urgent;
+      if (d.digest.length > 1) {
+        const title = tRef.current("herald.digest", { n: d.digest.length }), body = d.digest.slice(0, 3).map((x) => x.title).join(" · ");
+        notify({ key: `digest:${now}`, kind: "core", signal: "briefing", title, body, reason: tRef.current("herald.digestHint"), herald: { key: `digest:${now}`, kind: "brief", title, body, actions: [] } });
+      } else queue.current.push(...d.digest);
+    }
+    const waiting = gather.current ? queue.current.filter((n) => classify(n, loadJudgment()) !== "URGENT") : [];
+    const r = selectInterruptions(loadJudgment(), queue.current.filter((n) => !waiting.includes(n)), now, {
+      focus: focusRunning(get(FOCUS_TIMER_KEY), now), theater: a.theater,
       visible: document.visibilityState === "visible", worldOpen: !homeRef.current,
       coreBusy: a.coreBusy || a.localBusy || speakingOrJustEnded(2000), lastTyped: a.lastTyped,
       popupsOff: legacy.mute || legacy.snooze > Date.now(),
     }, MAX_ON_SCREEN - count.current);
-    queue.current = r.pending;
+    queue.current = [...waiting, ...r.pending];
     if (!r.show.length) return;
     saveJudgment(r.state);
     const at = Date.now(), shown: Shown[] = [];
@@ -127,10 +149,11 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
       if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) attention.current.lastTyped = Date.now();
     };
     const onBusy = (e: Event) => { attention.current.localBusy = (e as CustomEvent<boolean>).detail === true; };
+    const onTheater = (e: Event) => { attention.current.theater = (e as CustomEvent<boolean>).detail === true; };
     const resolve = (e: Event) => { const signal = (e as CustomEvent<Signal>).detail; queue.current = queue.current.filter((n) => signalFor(n) !== signal); setCards((cs) => cs.filter((c) => signalFor(c.notice) !== signal)); };
     const scheduler = setInterval(pump, 1000);
     document.addEventListener("input", typed, true); document.addEventListener("keydown", typed, true);
-    addEventListener(CORE_BUSY, onBusy); addEventListener(RESOLVE_ALERT, resolve);
+    addEventListener(CORE_BUSY, onBusy); addEventListener(RESOLVE_ALERT, resolve); addEventListener(THEATER_EVENT, onTheater);
     const first = setTimeout(() => void tick(), 8_000); // let ORBIT boot first
     const h = setInterval(() => void tick(), MIN);
     document.addEventListener("visibilitychange", onVis);
@@ -139,7 +162,7 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
     return () => {
       stopped = true; clearInterval(scheduler);
       document.removeEventListener("input", typed, true); document.removeEventListener("keydown", typed, true);
-      removeEventListener(CORE_BUSY, onBusy); removeEventListener(RESOLVE_ALERT, resolve);
+      removeEventListener(CORE_BUSY, onBusy); removeEventListener(RESOLVE_ALERT, resolve); removeEventListener(THEATER_EVENT, onTheater);
       clearTimeout(first); clearInterval(h);
       document.removeEventListener("visibilitychange", onVis); removeEventListener("orbit:news", onNews); removeEventListener(NOTIFY_EVENT, onNotify);
     };
