@@ -3,6 +3,8 @@ import { useWorldPaused } from "./world-paused";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Task } from "./AgentsPanels";
 import { AgentStatsCard } from "./AgentStatsCard";
+import { OpsStatus } from "./OpsStatus";
+import { isWorkStatus } from "@/lib/ops-status-pure";
 import { CHAIN_TITLE } from "@/lib/chains-pure";
 import { excerpt, timeAgo, traceLines } from "@/lib/mission-pure";
 import { STATUS_LABEL, agentStatus, currentTask, type AgentStatus } from "@/lib/station-pure";
@@ -37,6 +39,7 @@ export function usePoll(fn: () => void, ms: number, enabled: boolean) {
 }
 
 export function StatusPill({ status }: { status: string }) {
+  if (isWorkStatus(status)) return <span className="pill inline-flex shrink-0"><OpsStatus raw={status} /></span>; // shared vocabulary for tasks, steps, chains
   const cls = status === "done" ? "pill ok" : status === "failed" || status === "cancelled" ? "pill bad" : "pill";
   const color = status === "running" || status === "queued" ? "var(--cyan)" : status === "awaiting_approval" || status === "waiting" ? "#fbbf24" : undefined;
   return <span className={`${cls} inline-flex shrink-0`} style={color ? { color } : undefined}>{status.replace("_", " ")}</span>;

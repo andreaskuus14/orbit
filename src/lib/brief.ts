@@ -13,7 +13,7 @@ import { POLISH_SYSTEM, briefDecisions, briefOpener, cleanPolish, composeBrief, 
 import { briefContracts } from "./contracts-pure";
 import { leadItems, morningPicks } from "./needs-you-pure";
 
-type UserBrief = { life?: boolean; snoozed?: Record<string, string>; polish?: { day: string; base?: string; text?: string } }; // snoozed: id → until day
+type UserBrief = { life?: boolean; snoozed?: Record<string, string>; why?: Record<string, string>; polish?: { day: string; base?: string; text?: string } }; // snoozed: id → until day
 type Store = { users: Record<string, UserBrief> };
 const file = () => path.join(orbitDataDir(), "brief.json");
 const load = async (): Promise<Store> => { try { const j = JSON.parse(await readFile(file(), "utf8")); return j?.users && typeof j.users === "object" ? j : { users: {} }; } catch { return { users: {} }; } };
@@ -104,12 +104,20 @@ export async function getBrief(sb: SupabaseClient, userId: string, now = Date.no
   return { ...b, life: !!u.life, spoken: text, polished: text !== b.spoken };
 }
 
-/** Hide one item until tomorrow. */
-export const snoozeItem = (userId: string, id: string, now = Date.now()) => update(userId, (u) => {
+/** Hide one item until tomorrow; reason: why (Needs-you snoozes ask for one). */
+export const snoozeItem = (userId: string, id: string, now = Date.now(), reason?: string) => update(userId, (u) => {
   const today = localDay(new Date(now));
   const kept = Object.fromEntries(Object.entries(u.snoozed ?? {}).filter(([, until]) => until > today)); // expired ones drop out
-  return { ...u, snoozed: { ...kept, [id.slice(0, 128)]: localDay(new Date(now + DAY)) } };
+  const why = Object.fromEntries(Object.entries(u.why ?? {}).filter(([k]) => k in kept));
+  const k = id.slice(0, 128);
+  return { ...u, snoozed: { ...kept, [k]: localDay(new Date(now + DAY)) }, why: reason ? { ...why, [k]: reason.slice(0, 200) } : why };
 });
+
+/** Snoozed ids still in force that start with prefix (prefix stripped). */
+export async function snoozedIds(userId: string, prefix: string, now = Date.now()): Promise<string[]> {
+  const today = localDay(new Date(now)), u = (await load()).users[userId] ?? {};
+  return Object.entries(u.snoozed ?? {}).filter(([k, until]) => until > today && k.startsWith(prefix)).map(([k]) => k.slice(prefix.length));
+}
 
 /** LIFE opt-in: calendar titles and reminder text may be said aloud (off by default). */
 export const setBriefLife = (userId: string, life: boolean) => update(userId, (u) => ({ ...u, life }));

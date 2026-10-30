@@ -14,6 +14,8 @@ import type { WriteEvidence } from "@/lib/completion-pure";
 import { canRetryTask, doneLabel, taskVerified } from "@/lib/completion-pure";
 import { useT } from "./i18n";
 import { FailureReport } from "./FailureReport";
+import { OpsStatus } from "./OpsStatus";
+import { lastProgress } from "@/lib/ops-status-pure";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
 type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string; evidence?: WriteEvidence[] };
@@ -37,14 +39,9 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "");
-const STATUS: Record<Task["status"], { label: string; color: string }> = {
-  queued: { label: "Queued", color: "var(--muted)" },
-  running: { label: "Working…", color: "var(--cyan)" },
-  awaiting_approval: { label: "Needs your approval", color: "#fbbf24" },
-  done: { label: "Done", color: "#6ee7b7" },
-  failed: { label: "Failed", color: "#fb7185" },
-  cancelled: { label: "Cancelled", color: "var(--muted)" },
-};
+/** The shared status badge (ops-status-pure) for one task, with its last progress time. */
+const TaskStatus = ({ t, label }: { t: Pick<Task, "status" | "pending" | "created_at" | "started_at" | "finished_at">; label?: string }) =>
+  <OpsStatus raw={t.status} pending={t.pending} at={lastProgress(t.finished_at, t.started_at, t.created_at)} label={label} />;
 const safeHref = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
 
 /* ---------- small Markdown renderer for agent output ---------- */
@@ -151,14 +148,13 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
 
   if (!data) return <p className="muted">{err || t("common.loading")}</p>;
   const { task, children } = data;
-  const st = STATUS[task.status];
-  const stLabel = task.status === "done" ? doneLabel(taskVerified(task.status, [task, ...children].flatMap((x) => x.pending))) : st.label; // executed ≠ verified
+  const stLabel = doneLabel(taskVerified(task.status, [task, ...children].flatMap((x) => x.pending))); // executed ≠ verified
   return (
     <div className="space-y-3">
       <button className="link" onClick={onBack}>{t("task.back")}</button>
       <div>
         <div className="font-medium">{task.title}</div>
-        <div className="text-xs"><span style={{ color: st.color }}>{stLabel}</span><span className="muted"> · {task.agent} · {when(task.created_at)}</span></div>
+        <div className="text-xs"><TaskStatus t={task} label={stLabel} /><span className="muted"> · {task.agent} · {when(task.created_at)}</span></div>
       </div>
       <details className="card text-sm"><summary className="cursor-pointer muted">{t("task.request")}</summary><p className="mt-2 whitespace-pre-wrap">{task.request}</p></details>
 
@@ -190,7 +186,7 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
           <ul className="mt-1 space-y-2">
             {children.map((c) => (
               <li key={c.id} className="card text-sm">
-                <div><b>{c.agent}</b> · {c.title} · <span style={{ color: STATUS[c.status].color }}>{c.status === "done" ? doneLabel(taskVerified(c.status, c.pending)) : STATUS[c.status].label}</span>
+                <div><b>{c.agent}</b> · {c.title} · <TaskStatus t={c} label={doneLabel(taskVerified(c.status, c.pending))} />
                   {c.status === "running" && <button className="chip ml-2" onClick={() => act("cancel", c.id)}>{t("common.cancel")}</button>}</div>
                 {c.result && <details className="mt-1"><summary className="cursor-pointer muted text-xs">{t("task.result")}</summary><div className="mt-2"><Markdown text={c.result} openMemory={openMemory} /></div></details>}
                 {c.error && <p className="error">{c.error}</p>}
@@ -322,7 +318,7 @@ export function OperationsPanel({ focusTask, openMemory }: { focusTask: string |
             <li key={t.id}>
               <button className="card w-full text-left" onClick={() => setOpen(t.id)}>
                 <div className="font-medium">{t.title}</div>
-                <div className="text-xs"><span style={{ color: STATUS[t.status].color }}>{STATUS[t.status].label}</span><span className="muted"> · {t.agent} · {when(t.created_at)}</span></div>
+                <div className="text-xs"><TaskStatus t={t} /><span className="muted"> · {t.agent} · {when(t.created_at)}</span></div>
               </button>
             </li>
           ))}
@@ -391,7 +387,7 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
         <h3 className="h3">{tr("agents.history")}</h3>
         <ul className="space-y-1.5 text-sm">
           {tasks.map((t) => (
-            <li key={t.id}><button className="text-left" onClick={() => onOpenTask(t.id)}>{t.title} <span className="text-xs" style={{ color: STATUS[t.status].color }}>· {STATUS[t.status].label}</span> <span className="muted text-xs">· {when(t.created_at)}</span></button></li>
+            <li key={t.id}><button className="text-left" onClick={() => onOpenTask(t.id)}>{t.title} <span className="text-xs">· <TaskStatus t={t} /></span> <span className="muted text-xs">· {when(t.created_at)}</span></button></li>
           ))}
           {!tasks.length && <li className="muted">{tr("agents.noTasks")}</li>}
         </ul>
@@ -540,7 +536,7 @@ export function AutomationsView({ agents, onOpenTask }: { agents: AutomationAgen
             <div className="muted text-xs">{a.when} → {a.agent} · {tn("auto.runs", a.run_count)}{a.enabled ? "" : tr("auto.paused")}</div>
             {a.last && (
               <div className="mt-1 text-xs">
-                {tr("auto.lastRun")} <button className="link" onClick={() => onOpenTask(a.last!.id)}>{STATUS[a.last.status].label}</button>
+                {tr("auto.lastRun")} <button className="link" aria-label={`${tr("auto.lastRun")} ${a.last.status}`} onClick={() => onOpenTask(a.last!.id)}><OpsStatus raw={a.last.status} /></button>
                 <span className="muted"> · {when(a.last.created_at)}</span>
                 {a.last.error && <span className="error"> · {a.last.error.slice(0, 120)}</span>}
               </div>
