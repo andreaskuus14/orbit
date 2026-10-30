@@ -8,6 +8,7 @@ import * as rules from "../src/lib/interruption-pure.ts";
 import * as notices from "../src/lib/notify-pure.ts";
 import * as herald from "../src/lib/herald-pure.ts";
 import * as inbox from "../src/lib/herald-watch-pure.ts";
+import * as startup from "../src/lib/startup-pure.ts";
 
 const require = createRequire(import.meta.url), T = 2_000_000_000_000;
 const compile = (path: string) => ts.transpileModule(readFileSync(new URL(`../src/${path}`, import.meta.url), "utf8"), {
@@ -16,7 +17,7 @@ const compile = (path: string) => ts.transpileModule(readFileSync(new URL(`../sr
 const clone = (x: any) => JSON.parse(JSON.stringify(x));
 
 // Execute the real components with deterministic hooks/event targets, not duplicated UI decision logic.
-function ui(component = "Herald", options: { voice?: boolean; hidden?: boolean; storageBroken?: boolean } = {}) {
+function ui(component = "Herald", options: { voice?: boolean; hidden?: boolean; storageBroken?: boolean; quietOpen?: boolean } = {}) {
   let now = T, cursor = 0, dirty = false, tree: any;
   const hooks: any[] = [], effects: (() => void)[] = [], timers = new Map<number, () => void>(), storage = new Map<string, string>();
   let timerId = 0;
@@ -58,7 +59,8 @@ function ui(component = "Herald", options: { voice?: boolean; hidden?: boolean; 
     if (name.endsWith("interruption-store")) return store;
     if (name.endsWith("/Herald")) return { HeraldToggle: () => null };
     if (name.endsWith("/AlertWatch")) return { AlertWatch: () => null };
-    if (name.endsWith("/startup-store")) return { want() {}, wantingNow: () => [], useWanting: () => [] };
+    if (name.endsWith("/startup-store")) return { want() {}, wantingNow: () => [], useWanting: () => [], useReady: () => [], openedToday: () => false, OPEN_EVENT: "orbit:startup-open" };
+    if (name.endsWith("startup-pure")) return options.quietOpen ? startup : { ...startup, OPEN_MS: 0 }; // other tests start after the quiet-open window
     if (name.endsWith("/sfx")) return { sfx: { chime: () => {}, tick: () => {}, open: () => {}, close: () => {}, whoosh: () => {} } };
     if (name.endsWith("nav-pure")) return { NAV_EVENT: "orbit:navigate" };
     if (name.endsWith("focus-timer-pure")) return { FOCUS_TIMER_KEY: "orbit.focus-timer.v1" };
@@ -166,4 +168,12 @@ test("back after a day: waiting notices become one ranked digest card; each stay
   h.tick(rules.GATHER_MS + 1000);
   const cards = h.nodes("article"); assert.equal(cards.length, 1); assert.equal(cards[0].props["aria-label"], "herald.digest3");
   assert.equal(h.bell.length, 4); h.close();
+});
+
+test("quiet open: real Herald pops nothing on open for useful notices; one urgent toast at most", () => {
+  const h = ui("Herald", { quietOpen: true });
+  for (const k of ["a", "b", "c"]) h.emit(d("briefing", k));
+  h.tick(rules.IDLE_MS); assert.equal(h.nodes("article").length, 0); assert.equal(h.bell.length, 3); // all in the bell, none on screen
+  h.emit(d("usage-limit", "money")); h.emit(d("disk-full", "disk"));
+  assert.equal(h.nodes("article").length, 1); assert.equal(h.bell.length, 5); h.close();
 });

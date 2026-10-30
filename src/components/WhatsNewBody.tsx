@@ -9,10 +9,10 @@ import {
 import { useT } from "./i18n";
 import { announce } from "./announce";
 import { KNOWN_KEY, newSince, parseKnown, showSetup } from "@/lib/startup-pure";
-import { useTurn } from "./startup-store";
+import { setReady, useOpenRequest, useTurn } from "./startup-store";
 
 // "What's new" as a guided tour (chapters, steps, Show me, setup hints). Data and rules: lib/tour-pure.ts.
-// Opens by itself once per TOUR_KEY; afterwards only from Ctrl+K → "What's new tour" (TOUR_EVENT), where it resumes.
+// Never opens by itself (quiet open): new steps wait as a "new" dot in the header pill; the full tour opens from Ctrl+K → "What's new tour" (TOUR_EVENT), where it resumes.
 // Loaded by the WhatsNew gate (WhatsNew.tsx) only when one of those applies.
 const load = () => { try { return parseProgress(localStorage.getItem(TOUR_KEY)); } catch { return null; } };
 const markKnown = () => { try { localStorage.setItem(KNOWN_KEY, JSON.stringify(STEPS.map((x) => x.id))); } catch { /* may show again */ } };
@@ -22,7 +22,10 @@ export default function WhatsNewBody({ home, reopen }: { home: boolean; reopen: 
   const { lang, t } = useT();
   const [p, setP] = useState<Progress | null>(null);
   const [active, setActive] = useState(false); // this session: shown on the galaxy until skipped or finished
-  const [news, setNews] = useState<{ ids: string[]; more: boolean } | null>(null); // auto-open: a short "since you last looked" card, not the whole tour
+  const [news, setNews] = useState<{ ids: string[]; more: boolean } | null>(null); // a short "since you last looked" card, opened from the pill
+  const [newsOpen, setNewsOpen] = useState(false);
+  useEffect(() => setReady("tour", !!news), [news]);
+  useOpenRequest("tour", () => { if (news) setNewsOpen(true); else { update(resume(load())); setActive(true); } });
   const [missing, setMissing] = useState<string[] | null>(null); // guard-confirmed missing migrations; null = unknown (hint hidden)
   useEffect(() => { void fetch("/api/doctor?migrations=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => setMissing(j?.missing ?? null)).catch(() => {}); }, []);
   const update = useCallback((q: Progress) => { setP(q); save(q); if (q.closed) setActive(false); }, []);
@@ -37,7 +40,7 @@ export default function WhatsNewBody({ home, reopen }: { home: boolean; reopen: 
     return () => removeEventListener(TOUR_EVENT, onReopen);
   }, [update]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const turn = useTurn("tour", home && (!!news || (active && !!p && !p.closed))); // waits for an urgent alert and the morning card
+  const turn = useTurn("tour", home && ((!!news && newsOpen) || (active && !!p && !p.closed))); // waits for an urgent alert and the morning card
   const closeNews = () => { markKnown(); setNews(null); };
   const show = turn && active && home && p && !p.closed;
   useEffect(() => { if (show) announce(t("tour.ready")); }, [show]); // eslint-disable-line react-hooks/exhaustive-deps -- once per opening
@@ -47,8 +50,8 @@ export default function WhatsNewBody({ home, reopen }: { home: boolean; reopen: 
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
   }, [show, p, update]);
-  if (news && home && turn) return (
-    <section className="glass hud-panel whats-new absolute left-3 top-16 z-20 w-[min(24rem,calc(100vw-1.5rem))] p-4 text-sm" role="dialog" aria-labelledby="whats-new-title">
+  if (news && newsOpen && home && turn) return (
+    <section className="glass hud-panel whats-new absolute left-3 top-16 z-20 w-[min(20rem,calc(100vw-1.5rem))] p-4 text-sm" role="dialog" aria-labelledby="whats-new-title">
       <h2 id="whats-new-title" className="hud-title mb-2">{t("tour.title")} <span className="muted">· {t("tour.since")}</span></h2>
       <ul className="mb-3 space-y-1">{news.ids.map((id) => { const x = STEPS.find((y) => y.id === id)!; return <li key={id}>{x.icon} <b>{x.title[lang]}</b></li>; })}</ul>
       <div className="flex items-center gap-2">
@@ -73,7 +76,7 @@ export default function WhatsNewBody({ home, reopen }: { home: boolean; reopen: 
     <>
     {/* Phones only (CSS): the card becomes a top sheet over a tap-to-dismiss backdrop. */}
     <div className="sheet-backdrop" onClick={() => update(skip(p))} aria-hidden />
-    <section className="glass hud-panel whats-new absolute left-3 top-16 z-20 w-[min(24rem,calc(100vw-1.5rem))] p-4 text-sm" role="dialog" aria-labelledby="whats-new-title">
+    <section className="glass hud-panel whats-new absolute left-3 top-16 z-20 w-[min(20rem,calc(100vw-1.5rem))] p-4 text-sm" role="dialog" aria-labelledby="whats-new-title">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 id="whats-new-title" className="hud-title">{t("tour.title")} <span className="muted">· {t("tour.step", { n, total })}</span></h2>
         <button className="chip" onClick={() => update(skip(p))} aria-label={t("tour.skipAria")} title={t("tour.skipAria")}>{t("tour.skip")}</button>
