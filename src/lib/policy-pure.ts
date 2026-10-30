@@ -2,7 +2,7 @@
 // "core.ts:NNN" refs point at the inline guards this replaced (core.ts at fb313a4); tests/policy.test.ts pins decide() to them.
 // Tiers: T0 read own data, T1 read the public web, T2 change own data, T3 act on the outside world (owner-approved only, AGENTS.md rule 6).
 import { coreToolRefusal } from "./stop-all-pure.ts";
-import { foreignUrl, typedText } from "./attach-pure.ts";
+import { typedText } from "./attach-pure.ts";
 import { actionBlocked, STUDIO_TOOLS, type StudioTool } from "./core-studio.ts";
 import { LIFE_TOOLS, lifeWriteBlocked, type LifeTool } from "./core-life.ts";
 import { WS_TOOLS, wsTainted, wsWriteBlocked } from "./core-workspace.ts";
@@ -16,6 +16,7 @@ import { wishBlocked } from "./deals-pure.ts";
 import { ruleBlocked } from "./rules-pure.ts";
 import { AREA_INFO, autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
 import { et } from "./et-ask-pure.ts";
+import { outboundLeak, outgoing, privateResults } from "./outbound-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
 export type Decision = { allow: boolean; tier: Tier; reason: string };
@@ -24,6 +25,8 @@ export type Decision = { allow: boolean; tier: Tier; reason: string };
 export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[]; autonomy?: Partial<Levels>;
   /** an earlier turn of this chat had private data in context (journal/LIFE, attachments, pins): it is still in the session (C03) */
   carried?: boolean;
+  /** private text in this turn's context besides tool results (attachments, pinned notes, an earlier turn's private results): outbound calls are checked against it */
+  privateText?: readonly string[];
   /** workspace names + CORE's pending build offer in this chat (ws-intent-pure.ts) */
   ws?: WsGate };
 
@@ -116,9 +119,12 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   const area = TOOL_AREA[tool], auto = area ? autonomyAllows(area, "owner", { levels: ctx.autonomy }) : null;
   if (auto && !auto.ok) return no(auto.why);
   if (tool === "navigate") return dataIn ? no("navigate only as your first tool call, for the user's own request") : { allow: true, tier, reason: "first tool call" }; // core.ts:218 + 265
-  if (ctx.attach && tool === "web_search") return no("with the user's attached files in context, web search is off for this answer (the search words could carry their text out)"); // core.ts:219
-  if ((ctx.pins || privateIn) && LEAK_TOOLS.includes(tool)) return no("the user's private files, journal or pinned notes are in context; agents, news and web searches are off for the rest of this answer (they could carry that text out)"); // core.ts:220
-  if ((ctx.attach || ctx.pins || privateIn) && LINK_TOOLS.includes(tool) && foreignUrl(input ?? {}, question)) return no("with the user's files in context, only open links the user typed in their message"); // core.ts:221
+  // Web and agent tools stay on with private data in context; only a call whose outgoing query/URL/brief carries a piece of it is refused.
+  if ((ctx.attach || ctx.pins || privateIn) && (LEAK_TOOLS.includes(tool) || LINK_TOOLS.includes(tool))) {
+    const texts = [...(ctx.privateText ?? []), ...privateResults(ctx.steps, ctx.privateTools ?? PRIVATE_TOOLS)];
+    const hit = outboundLeak(outgoing(input ?? {}), texts, question, !texts.length);
+    if (hit) return no(`this ${tool} call would send private text out: "${hit.slice(0, 80)}" (from the user's private notes, journal or files). The tool is allowed: retry with a generic query/brief without that text, and if you can't, tell the user exactly which text blocked it; never tell the user to do the search himself`);
+  }
 
   if (tier === "T3" && !APPROVAL_PATHS[tool]) return no("acts outside ORBIT with no owner approval path; the owner does this from its panel");
 
@@ -143,4 +149,4 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
 
 /** The ledger's policy.decision payload, T2/T3 only: tool, tier, verdict and the guard's fixed reason; never inputs or message text. */
 export const policyEvent = (tool: string, d: Decision) =>
-  d.tier === "T2" || d.tier === "T3" ? { tool: tool.slice(0, 128), tier: d.tier, verdict: d.allow ? "allow" : "refuse", reason: d.reason.slice(0, 300) } : null;
+  d.tier === "T2" || d.tier === "T3" ? { tool: tool.slice(0, 128), tier: d.tier, verdict: d.allow ? "allow" : "refuse", reason: d.reason.replace(/"[^"]*"/g, '"…"').slice(0, 300) } : null;

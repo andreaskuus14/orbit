@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, emit } from "./claude";
 import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
-import { usageHold } from "./usage-meter";
+import { usageHardHold } from "./usage-meter";
 import { allows } from "./autonomy";
 import { emailIn, sendSubject, LANGS } from "./business-pure";
 import { negoContent } from "./approval-pure";
@@ -72,7 +72,7 @@ export async function setLimits(b: Record<string, unknown>): Promise<Negotiation
 
 /** CORE words the plan; the words are checked against his limits before they are kept. */
 async function draftFor(n: Negotiation, plan: Plan, lang: string, signal?: AbortSignal): Promise<Negotiation | string> {
-  const held = stopAllOn() ? "Stop-all is on" : usageHold();
+  const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
   if (held) return `Not drafting right now: ${held}`;
   const r = await askClaude(negoPrompt(n, plan, lang), NEGO_SYSTEM, { lane: "foreground", purpose: "business.negotiate", timeoutMs: 90_000, signal });
   const intent = [...n.turns].reverse().find((t) => t.from === "them")?.intent ?? "interested";

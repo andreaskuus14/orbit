@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { FAST_MODEL, askClaude, recordUsage } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { usageHold, usageView } from "./usage-meter";
+import { usageHardHold, usageView } from "./usage-meter";
 import { createMemory, searchMemories } from "./memory";
 import { nicheBoard } from "./niche";
 import { listGoals } from "./goals";
@@ -17,7 +17,7 @@ import { ADVOCATE_SYSTEM, CROSS_SYSTEM, JUDGE_SYSTEM, MAX_CALLS, advocatePrompt,
 const g = globalThis as unknown as { __orbitCourt?: Map<string, CourtResult> };
 const results = () => (g.__orbitCourt ??= new Map());
 const CALL_MS = 60_000;
-const held = () => (stopAllOn() ? PAUSED_MSG : usageHold());
+const held = () => (stopAllOn() ? PAUSED_MSG : usageHardHold());
 
 /** What a run costs, shown before he clicks. */
 export function courtCost(options: number) {

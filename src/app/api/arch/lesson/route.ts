@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
-import { usageHold } from "@/lib/usage-meter";
+import { usageHardHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { LESSON_SYSTEM, lessonPrompt, parseLesson } from "@/lib/arch-lesson-pure";
 
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   const b = (await req.json().catch(() => null)) as { topic?: unknown } | null;
   const topic = typeof b?.topic === "string" ? b.topic.trim() : "";
   if (!topic) return fail("Name a building to learn about");
-  const held = stopAllOn() ? "Stop-all is on" : usageHold();
+  const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
   if (held) return fail(`Not right now: ${held}`, 503);
   try {
     const r = await askClaude(lessonPrompt(topic), LESSON_SYSTEM, { lane: "foreground", purpose: "arch.lesson", timeoutMs: 150_000, signal: req.signal });

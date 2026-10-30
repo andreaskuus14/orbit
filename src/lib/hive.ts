@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { FAST_MODEL, askClaude, recordUsage } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { usageHold } from "./usage-meter";
+import { usageHardHold } from "./usage-meter";
 import { AGENT_SYSTEM, JUDGE_SYSTEM, PERSONAS, agentPrompt, judgePrompt, mergeIdeas, parseIdeas, parseJudge, voteTop, type HiveIdea, type HivePick } from "./hive-pure";
 
 // The Hive: 6 persona agents in parallel (background lane, so the shared CLI limiter queues them and CORE keeps a slot),
@@ -12,7 +12,7 @@ export type HiveResult = { top: HivePick[]; ideas: HiveIdea[]; minds: { persona:
 const AGENT_MS = 90_000;
 
 export async function runHive(sb: SupabaseClient, userId: string, problem: string, reqSignal?: AbortSignal): Promise<HiveResult> {
-  const held = stopAllOn() ? PAUSED_MSG : usageHold();
+  const held = stopAllOn() ? PAUSED_MSG : usageHardHold();
   if (held) throw new Error(held);
   // All 6 calls enqueue at once, so a check at enqueue isn't enough: Stop-all aborts queued AND running calls.
   const ac = new AbortController();

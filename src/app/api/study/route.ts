@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { BusyError } from "@/lib/claude";
-import { usageHold } from "@/lib/usage-meter";
+import { usageHardHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
 import { deleteCard, draftFromMemory, editCard, gradeCard, saveCards, studyView } from "@/lib/study";
 import { SOURCES, parseDeck, type CardSource, type Draft } from "@/lib/study-pure";
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
         break;
       case "draft": {
         if (!isId(b.memoryId)) return fail("memoryId is required");
-        const held = stopAllOn() ? "Stop-all is on" : usageHold();
+        const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
         if (held) return fail(`Not right now: ${held}`, 503);
         const r = await draftFromMemory(sb, user.id, b.memoryId, req.signal);
         if (typeof r === "string") return fail(r, r === "Memory not found" ? 404 : 403);

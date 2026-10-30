@@ -5,7 +5,7 @@ import { interruptedPatch } from "./completion-pure";
 import { askClaude, createBudget, emit, recordUsage } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { usageHold } from "./usage-meter";
+import { usageHardHold, usageHold } from "./usage-meter";
 import {
   MAX_OPEN, PLAN_SYSTEM, REFLECT_SYSTEM, addSample, createGoalBlocked, goalLine, isOpen, planningActive, unstartStep, applyReflection, applyTask, approvePlan, charge, cont, decideProposal, doneSteps, editPlan, finish,
   goalProblem, isLive, newGoal, nextMove, okStep, parseJson, pause, planPrompt, reflectPrompt, resume, setPlan, startStep, stepRequest, stop,
@@ -80,7 +80,7 @@ export async function createGoal(sb: SupabaseClient, userId: string, body: unkno
 
 /** An agent drafts the plan (one Claude call, counted as a run). Nothing runs until the owner approves it. */
 export async function draftPlan(sb: SupabaseClient, userId: string, id: string): Promise<string> {
-  const held = stopAllOn() ? PAUSED_MSG : usageHold();
+  const held = stopAllOn() ? PAUSED_MSG : usageHardHold(); // drafting a plan follows the owner's create/redraft click
   if (held) { await mutate(sb, id, (d) => { d.planError = `${held}: press Redraft later`; return ""; }); return held; }
   const started = await mutate(sb, id, (d) => {
     if (d.status !== "draft") return "Only a draft goal can be (re)planned";
