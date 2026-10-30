@@ -166,7 +166,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [tapToTalk, setTapToTalk] = useState(false);
   // CORE navigation: sub-targets for the worlds (new object per command), and a world we're flying to through the galaxy.
   const [newsFocus, setNewsFocus] = useState<{ country?: string; region?: string; search?: string } | null>(null);
-  const [studioOpen, setStudioOpen] = useState<{ view: "stats" | "clips" | "review" | "none" } | null>(null);
+  const [studioOpen, setStudioOpen] = useState<{ view: NonNullable<NavTarget["view"]> } | null>(null);
   const [lifeOpen, setLifeOpen] = useState<{ tab: LifeView; start?: true } | null>(null);
   const [approach, setApproach] = useState<PanelId | null>(null);
   const [sfxOn, setSfxOn] = useState(true);
