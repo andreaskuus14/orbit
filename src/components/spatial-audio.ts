@@ -5,6 +5,7 @@ import type * as THREE from "three"; // type-only: keeps three.js out of the fir
 import { PLANETS } from "@/lib/planets";
 import { SOUND_RANGE } from "@/lib/spatial-sound-pure";
 import { admit, AMBIENT_KEY, COALESCE_START, cueFor, DAWN_KEY, dawnDue, HUM_HZ, mix, parseVolume, VOLUME_KEY, voiceFor } from "@/lib/ambient-sound-pure";
+import { audioGains, subscribeAudio } from "./audio-policy";
 import { STOP_ALL_EVENT, STOP_ALL_REQUEST_EVENT, type StopAllDetail } from "@/lib/stop-all-pure";
 
 type Source = { id: string; panner: PannerNode; bus: GainNode; hz: number };
@@ -51,6 +52,7 @@ function build(a: AudioContext) {
   byId.core = core;
   addEventListener(STOP_ALL_EVENT, (e) => { stopAll = !!(e as CustomEvent<StopAllDetail>).detail?.on; applyMix(); });
   dispatchEvent(new Event(STOP_ALL_REQUEST_EVENT));
+  subscribeAudio(applyMix); // mic, voice, THEATER or mute: duck/silence the drones
 }
 
 /** Creates the graph on first use. Before a user gesture browsers keep it suspended; resumeAmbient() on a gesture starts it. */
@@ -64,6 +66,7 @@ function ensure(): AudioContext | null {
 export function applyMix() {
   if (!ctx || !master || !hum) return;
   const m = mix({ enabled: ambientEnabled(), volume: ambientVolume(), hidden: document.hidden, hour: new Date().getHours(), stopAll });
+  m.master *= audioGains().ambience;
   const t = ctx.currentTime;
   master.gain.cancelScheduledValues(t); master.gain.setTargetAtTime(m.master, t, 0.25);
   hum.gain.setTargetAtTime(m.hum, t, 0.6);
