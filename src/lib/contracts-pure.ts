@@ -10,11 +10,11 @@ import { emailIn } from "./business-pure.ts";
 export type FieldKey =
   | "ownerRole" | "ownerName" | "ownerId" | "ownerAddress" | "ownerEmail"
   | "partyName" | "partyId" | "partyAddress" | "partyEmail"
-  | "scope" | "price" | "currency" | "startDate" | "endDate" | "paymentTerms" | "jurisdiction" | "court" | "extra";
+  | "scope" | "price" | "currency" | "startDate" | "endDate" | "paymentTerms" | "jurisdiction" | "court" | "extra" | "validUntil";
 export type Field = { key: FieldKey; label: string; required?: boolean; def?: string; long?: boolean; options?: readonly string[] };
 export type Clause = { id: string; heading: string; text: string };
 export type Template = { id: TemplateId; title: string; blurb: string; roles: readonly [string, string]; fields: Field[]; clauses: Clause[] };
-export const TEMPLATE_IDS = ["service", "purchase", "sponsorship", "nda"] as const;
+export const TEMPLATE_IDS = ["service", "proposal", "purchase", "sponsorship", "nda"] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
 const PARTY: Field[] = [
@@ -64,6 +64,27 @@ export const TEMPLATES: Record<TemplateId, Template> = {
       { id: "end", heading: "Ending the agreement", text: "Either party may end this Agreement with 14 days' written notice. The Client pays for work done up to the end date. Either party may end it at once if the other seriously breaches it and does not fix the breach within 7 days of a written request." },
       ...GENERAL,
       { id: "extra", heading: "Other terms", text: "{{extra}}" },
+    ],
+  },
+  // BUS07: a proposal is revised (each saved edit is a new version with its own hash); the client accepting one version
+  // ("countersigned") is the agreed scope the delivery project points to.
+  proposal: {
+    id: "proposal", title: "Proposal", blurb: "What you offer a client: scope, price, timeline. Every change is a new revision; the one they accept is what you deliver.",
+    roles: ["Provider", "Client"],
+    fields: [...PARTY,
+      { key: "scope", label: "What's included (scope and deliverables)", required: true, long: true },
+      { key: "extra", label: "Not included (optional)", long: true },
+      { key: "startDate", label: "Start", required: true }, { key: "endDate", label: "Delivery / first results by", required: true },
+      ...MONEY, { key: "validUntil", label: "Offer valid until", required: true }, ...LAW],
+    clauses: [
+      { id: "parties", heading: "Proposal", text: "{{Provider}} (the \"Provider\") proposes the following work to {{Client}} (the \"Client\")." },
+      { id: "scope", heading: "What's included", text: "{{scope}}" },
+      { id: "extra", heading: "Not included", text: "{{extra}}" },
+      { id: "time", heading: "Timeline", text: "Work starts {{startDate}}; delivery or first results by {{endDate}}." },
+      { id: "price", heading: "Price and payment", text: "{{price}} {{currency}}. Payment is due {{paymentTerms}}. VAT is added only if the Provider is registered for VAT." },
+      { id: "changes", heading: "Changes", text: "Any change to the scope, price or timeline is a new revision of this proposal, agreed again in writing before work on it starts. Work is delivered to the revision the Client accepted." },
+      { id: "accept", heading: "Accepting", text: "This proposal is valid until {{validUntil}}. The Client accepts this revision by signing it or by confirming it in writing (email is enough)." },
+      ...GENERAL,
     ],
   },
   purchase: {
@@ -225,6 +246,34 @@ export async function makeVersion(t: Template, title: string, f: Fields, overrid
 /** A version's overrides (to edit it further): every clause that differs from its template text. */
 export const overridesOf = (v: Version): Record<string, Override> =>
   Object.fromEntries(v.clauses.filter(changed).map((c) => [c.id, { text: c.text, by: c.by ?? "owner", ...(c.why && { why: c.why }) }]));
+
+// ---- Revisions (BUS07): what changed from the version before ----------------------
+
+export type Revision = { n: number; fields: { key: FieldKey; label: string; from: string; to: string }[]; clauses: { id: string; heading: string; pieces: Piece[] }[]; scope: boolean };
+const SCOPE_KEYS: FieldKey[] = ["scope", "extra", "price", "currency", "startDate", "endDate", "paymentTerms"];
+/** Field and clause changes from `prev` to `next`; scope = the work, price or dates changed (shown as a scope revision). */
+export function revision(t: Template, prev: Version, next: Version): Revision {
+  const fields = t.fields.filter((f) => (prev.fields[f.key] ?? "") !== (next.fields[f.key] ?? "")).map((f) => ({ key: f.key, label: f.label, from: prev.fields[f.key] ?? "", to: next.fields[f.key] ?? "" }));
+  const before = new Map(prev.clauses.map((c) => [c.id, c.text]));
+  const clauses = next.clauses.filter((c) => before.get(c.id) !== c.text).map((c) => ({ id: c.id, heading: c.heading, pieces: diffWords(before.get(c.id) ?? "", c.text) }));
+  for (const c of prev.clauses) if (!next.clauses.some((x) => x.id === c.id)) clauses.push({ id: c.id, heading: c.heading, pieces: [{ op: "del", text: c.text }] });
+  return { n: next.n, fields, clauses, scope: fields.some((f) => SCOPE_KEYS.includes(f.key)) || clauses.some((c) => ["scope", "extra", "price", "time", "item", "deliverables"].includes(c.id)) };
+}
+
+/** The version the client agreed to (a countersigned contract or accepted proposal for this prospect, newest), for the delivery project. */
+export type Agreed = { id: string; title: string; n: number; hash: string; href: string | null; at: string };
+export function agreedFor(list: Contract[], prospectId: string): Agreed | null {
+  const c = list.filter((x) => x.status === "countersigned" && x.source?.kind === "prospect" && x.source.id === prospectId && x.signed)
+    .sort((a, b) => (b.countersigned?.at ?? "").localeCompare(a.countersigned?.at ?? ""))[0];
+  return c ? { id: c.id, title: c.title, n: c.signed!.n, hash: c.signed!.hash, href: signedHref(c.signed!), at: c.countersigned?.at ?? c.updatedAt } : null;
+}
+export const agreedLine = (a: Agreed) => `Agreed: ${a.title} v${a.n} (SHA-256 ${a.hash.slice(0, 12)}, ${a.at.slice(0, 10)})${a.href ? ` ${a.href}` : ""}`;
+/** A delivery description pointing at the agreed version: replaces an older "Agreed:" line, else adds one after the first line. */
+export function withAgreed(description: string, a: Agreed): string {
+  const lines = description.split("\n"), at = lines.findIndex((l) => l.startsWith("Agreed: "));
+  if (at >= 0) lines[at] = agreedLine(a); else lines.splice(1, 0, agreedLine(a));
+  return lines.join("\n");
+}
 
 // ---- Status machine ------------------------------------------------------------
 

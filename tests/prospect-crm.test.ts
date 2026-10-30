@@ -70,3 +70,11 @@ test("signedHref prefers the VAULT stable id", () => {
   assert.equal(signedHref({ pdf: "a b.pdf" }), "/api/vault?file=a%20b.pdf&raw=1");
   assert.equal(signedHref({ pdf: "a.pdf", pdfId: "abc" }), "/api/vault?file=abc&raw=1");
 });
+
+test("BUS07 delivery plan names the agreed version when there is one", async () => {
+  const { deliveryPlan } = await import("../src/lib/prospect-crm-pure.ts");
+  const d = deliveryPlan({ name: "Cake", kind: "bakery", fee: 150 }, "Agreed: Proposal v2 (SHA-256 abc, 2026-10-28)").description.split("\n");
+  assert.equal(d[1], "Agreed: Proposal v2 (SHA-256 abc, 2026-10-28)");
+  assert.match(d[2], /agreed version/);
+  assert.doesNotMatch(deliveryPlan({ name: "Cake", kind: "", fee: 0 }).description, /Agreed:/);
+});

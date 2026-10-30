@@ -170,3 +170,19 @@ test("invoice push: once per invoice per week, only while a reminder is waiting"
   assert.equal(invoicePushes([{ ...waiting, pushedAt: new Date(NOW - PUSH_AGAIN_DAYS * day).toISOString() }], TODAY, NOW).length, 1);
   assert.match(invoicePushes([{ ...waiting, due: "2026-10-25" }], TODAY, NOW)[0].title, / 1 day overdue/);
 });
+
+test("refunds (BUS06): only on paid invoices, at most what is left, on or after the paid day; kept apart in the dashboard", async () => {
+  const { addRefund, dropRefund, refunded } = await import("../src/lib/invoices-pure.ts");
+  const paid = setStatus(sent(), "paid", NOW, seller, "2026-10-20") as Invoice, g = totals(paid).gross;
+  assert.equal(addRefund(sent(), { amount: "10" }, NOW), "Only a paid invoice can have a refund");
+  assert.match(addRefund(paid, { amount: "10", day: "2026-10-19" }, NOW) as string, /before/);
+  assert.match(addRefund(paid, { amount: String(g / 100 + 1) }, NOW) as string, /between/);
+  const r1 = addRefund(paid, { amount: "100", day: "2026-10-22", note: "half a month" }, NOW) as Invoice;
+  assert.equal(refunded(r1), 10000);
+  assert.match(addRefund(r1, { amount: String(g / 100) }, NOW) as string, /between/); // can't refund more than is left
+  assert.match(setStatus(r1, "sent", NOW, seller) as string, /refunds/); // "not paid after all" would hide the refund
+  const d = dashboard([r1], TODAY);
+  assert.equal(d.paid30, g); assert.equal(d.refunds30, 10000);
+  assert.equal(refunded(dropRefund(r1, NOW) as Invoice), 0);
+  assert.equal(typeof dropRefund(paid, NOW), "string");
+});

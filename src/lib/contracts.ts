@@ -17,7 +17,7 @@ import {
   FILL_SYSTEM, STATUSES, contractText, MAX_COMMENTS, MAX_CONTRACTS, MAX_VERSIONS, TEMPLATES, cleanFields, contractPdf, coverEmail, coverSubject, current, fillPrompt, isTemplateId,
   makeVersion, mergeFields, missing, overridesOf, parseFill, parseSignature, sha256Hex, transition, waitingIds,
   type Contract, type Event, type Fields, type Override, type Status,
-  contractSendContent,
+  contractSendContent, agreedFor, withAgreed,
 } from "./contracts-pure";
 
 export class ContractError extends Error { status: number; constructor(m: string, status = 400) { super(m); this.status = status; } }
@@ -168,7 +168,16 @@ export async function ownerStep(sb: SupabaseClient, userId: string, id: unknown,
     return c;
   });
   void ledger(sb, userId, c);
+  if (ev === "countersign" && c.source?.kind === "prospect") await pointDelivery(sb, c.source.id).catch(() => {});
   return c;
+}
+
+/** BUS07: a client's delivery project (prospect-crm opsProject) points at the version they agreed to. No project yet → linkDelivery adds it later. */
+async function pointDelivery(sb: SupabaseClient, prospectId: string) {
+  const ops = (await (await import("./prospect-crm")).loadCrm())[prospectId]?.opsProject, agreed = agreedFor(await load(), prospectId);
+  if (!ops || !agreed) return;
+  const { data } = await sb.from("projects").select("description").eq("id", ops).maybeSingle();
+  if (data) await sb.from("projects").update({ description: withAgreed(data.description ?? "", agreed) }).eq("id", ops);
 }
 
 /** "Approve & send": emails the signed PDF with his cover text to the counterparty, only from his click on the exact cover he read
