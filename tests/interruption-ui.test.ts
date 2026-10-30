@@ -60,6 +60,8 @@ function ui(component = "Herald", options: { voice?: boolean; hidden?: boolean; 
     if (name.endsWith("/AlertWatch")) return { AlertWatch: () => null };
     if (name.endsWith("/sfx")) return { sfx: { chime: () => {}, tick: () => {}, open: () => {}, close: () => {}, whoosh: () => {} } };
     if (name.endsWith("nav-pure")) return { NAV_EVENT: "orbit:navigate" };
+    if (name.endsWith("focus-timer-pure")) return { FOCUS_TIMER_KEY: "orbit.focus-timer.v1" };
+    if (name.endsWith("/i18n")) return { useT: () => ({ t: (k: string, v?: { n?: number }) => `${k}${v?.n ?? ""}`, lang: "en" }) };
     if (name.endsWith("voice/speak")) return { speechSettings: () => ({ speak: !!options.voice }), speakingOrJustEnded: () => false, speakChunk: (s: string) => voice.push(s) };
     return require(name);
   });
@@ -149,4 +151,17 @@ test("blocked storage keeps the insight baseline in memory and every new insight
   await m.exports.pollInsights(); assert.equal(got.length, 3);
   assert.ok(got.every((d) => d.signal === "short-hot"));
   await m.exports.pollInsights(); assert.equal(got.length, 3);
+});
+
+test("THEATER playback holds a useful pop-up; urgent still shows", () => {
+  const h = ui(); h.event(rules.THEATER_EVENT, true); h.emit(d("briefing", "brief")); h.tick(rules.IDLE_MS);
+  assert.equal(h.nodes("article").length, 0); h.emit(d("disk-full", "disk")); assert.equal(h.nodes("article").length, 1);
+  assert.equal(h.bell.length, 2); h.close(); // held, not lost: still in the bell
+});
+test("back after a day: waiting notices become one ranked digest card; each stays in the bell", () => {
+  const h = ui(); h.storage.set(rules.LAST_SEEN_KEY, String(T - rules.AWAY_MS - 1)); h.tick(0);
+  for (const k of ["a", "b", "c"]) h.emit(d("briefing", k));
+  h.tick(rules.GATHER_MS + 1000);
+  const cards = h.nodes("article"); assert.equal(cards.length, 1); assert.equal(cards[0].props["aria-label"], "herald.digest3");
+  assert.equal(h.bell.length, 4); h.close();
 });

@@ -2,7 +2,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir";
-import { addEvent, contactKey, type Crm, type EventKind, type Store } from "./prospect-crm-pure";
+import { addEvent, contactKey, touch, type Crm, type EventKind, type Store } from "./prospect-crm-pure";
 
 const FILE = () => path.join(orbitDataDir(), "prospect-crm.json");
 const g = globalThis as unknown as { __orbitCrm?: Promise<unknown> };
@@ -26,6 +26,11 @@ export function updateCrm<T>(fn: (s: Store) => T): Promise<T> {
 /** A record for a prospect added before this store existed: manual, unverified only if its notes say it came from the web. */
 const legacy = (p: { name: string; contact: string; notes?: string }): Crm =>
   ({ source: /Found on the web/i.test(p.notes ?? "") ? "web-find" : "manual", verified: !/Found on the web/i.test(p.notes ?? ""), key: contactKey(p.contact, p.name), events: [] });
+/** BUSINESS timeline-aware rows for dueFollowups: same `touch` the BUSINESS panel uses; an unreadable store falls back to notes. */
+export const withTouch = async <T extends { id: string }>(rows: T[]) => {
+  const s = await loadCrm().catch((): Store => ({}));
+  return rows.map((p) => ({ ...p, touch: s[p.id] ? touch(s[p.id].events) : null }));
+};
 export const crmOf = (s: Store, p: { id: string; name: string; contact: string; notes?: string }) => s[p.id] ?? legacy(p);
 
 /** Log one event; never throws (the timeline must not break a send that already happened). */
