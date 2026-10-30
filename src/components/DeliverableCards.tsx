@@ -1,6 +1,6 @@
 "use client";
 // Deliverable cards under a CORE answer: each workspace file it wrote, with Open preview, Download, Save to VAULT and Download all (.zip).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import { deliverables } from "@/lib/core-workspace-pure";
 import { useT } from "./i18n";
@@ -31,6 +31,26 @@ export function DeliverableCards({ items }: { items: WriteEvidence[] }) {
       <p className="muted text-xs">{f.check ?? t("deliv.unchecked")}{saved[k] ? ` · ${saved[k]}` : ""}</p>
     </li>;
   })}</ul>
+    {[...new Set(files.filter((f) => f.path === "server.mjs").map((f) => f.id))].map((ws) => <ServerCard key={`srv-${ws}`} ws={ws} />)}
     {[...new Set(files.map((f) => f.id))].map((ws) => <a key={ws} className="chip text-xs" href={`${q(ws)}&zip=1`} download>{t("deliv.zip", { ws })}</a>)}
   </section>;
+}
+
+type Srv = { running: boolean; url?: string; routes: string[]; note: string; error?: string };
+/** A full-stack workspace's local demo server: Running / Stopped, Open, Start / Stop, and the API routes in server.mjs. */
+function ServerCard({ ws }: { ws: string }) {
+  const { t } = useT();
+  const [s, setS] = useState<Srv | null>(null);
+  useEffect(() => { void fetch(`${q(ws)}&server=1`).then((r) => r.json()).then(setS, () => {}); }, [ws]);
+  const op = async (o: "start" | "stop") => setS(await fetch("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "server", ws, op: o }) }).then((r) => r.json()).catch(() => ({ error: t("deliv.failed") })));
+  if (!s) return null;
+  return <div className="text-xs" aria-live="polite">
+    <p><b>{t("deliv.server")}</b> <span className="muted">· {s.running ? t("deliv.running") : t("deliv.stopped")}</span></p>
+    <span className="flex flex-wrap gap-1.5">
+      {s.running && s.url && <a className="chip" href={s.url} target="_blank" rel="noopener noreferrer">{t("deliv.open")}</a>}
+      <button type="button" className="chip" onClick={() => void op(s.running ? "stop" : "start")}>{s.running ? t("deliv.stop") : t("deliv.start")}</button>
+    </span>
+    <p className="muted">{t("deliv.routes")}: {s.routes?.length ? s.routes.join(", ") : "—"}{s.error ? ` · ${s.error}` : ""}</p>
+    <p className="muted">{t("deliv.localOnly")}</p>
+  </div>;
 }

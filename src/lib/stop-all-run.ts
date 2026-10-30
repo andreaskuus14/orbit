@@ -23,6 +23,7 @@ export async function switchStopAll(sb: SupabaseClient, userId: string, on: bool
     abortNightShift(); // the night shift's current step (its agent task is also in liveTaskIds above)
     abortDealHunt(); // a running deal hunt (MARKETS → Deals)
     await clearAutoQueue(); // Profile → Autonomy: queued auto sends/publishes are cancelled
+    await import("@/lib/ws-server").then((m) => m.stopAllServers()).catch(() => 0); // local workspace demo servers
     pushNotify("stop");
   } else {
     resumeClipQueue(); void kickQueue(sb, userId); void resumeChains(sb, userId).catch(() => {}); void resumeGoals(sb, userId).catch(() => {}); // don't wait for the next tick
