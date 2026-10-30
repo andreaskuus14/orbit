@@ -14,6 +14,7 @@ const TYPES: Record<string, string> = {
   json: "application/json; charset=utf-8", svg: "image/svg+xml", md: "text/plain; charset=utf-8", txt: "text/plain; charset=utf-8",
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", // binary: only ws_fetch_image writes these
   lua: "text/plain; charset=utf-8", luau: "text/plain; charset=utf-8", py: "text/plain; charset=utf-8", csv: "text/plain; charset=utf-8",
+  sql: "text/plain; charset=utf-8",
 };
 export const WS_EXTS = Object.keys(TYPES);
 const ext = (p: string) => (/\.([a-z0-9]+)$/i.exec(p)?.[1] ?? "").toLowerCase();
@@ -32,6 +33,7 @@ export function checkPath(p: unknown): { path: string } | { error: string } {
   if (p.startsWith("/") || /^[a-z]:/i.test(p)) return { error: "path must be relative to the workspace" };
   const segs = p.split("/");
   if (segs.length > MAX_DEPTH) return { error: `at most ${MAX_DEPTH} folders deep` };
+  if (segs.at(-1) === ".env.example") return { path: p }; // full-stack template: variable names only (ws-server-pure envExampleError)
   for (const s of segs) {
     if (s === "." || s === "..") return { error: "path can't contain . or .." };
     if (!/^[A-Za-z0-9_][A-Za-z0-9._ -]*$/.test(s)) return { error: `invalid name "${s.slice(0, 40)}" (letters, digits, . _ - and spaces; not starting with . or -)` };

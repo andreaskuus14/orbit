@@ -138,23 +138,26 @@ export type SiteStep = "plan" | "server" | "layout" | "pages" | "images" | "chec
 export const SITE_STEPS: SiteStep[] = ["plan", "server", "layout", "pages", "images", "check"];
 /** plan.md's "Type: fullstack" line (the plan step decides static vs fullstack). */
 export const isFullstackPlan = (plan: string) => /^\W*type\W*:?\W*full-?stack\b/im.test(plan);
+/** Where the front end lives: public/ in a full-stack workspace (server.mjs serves it; ws-server-pure.ts template), else the root. */
+export const frontRoot = (plan: string) => (isFullstackPlan(plan) ? "public/" : "");
 export function nextSiteStep(paths: string[], plan = ""): SiteStep {
+  const root = frontRoot(plan);
   if (!paths.includes("plan.md")) return "plan";
   if (isFullstackPlan(plan) && !paths.includes("server.mjs")) return "server";
-  if (!paths.some((p) => p.endsWith(".css"))) return "layout";
-  if (!paths.includes("index.html")) return "pages";
+  if (!paths.some((p) => p.startsWith(root) && p.endsWith(".css"))) return "layout";
+  if (!paths.includes(`${root}index.html`)) return "pages";
   if (!paths.some((p) => p.startsWith("assets/") && !p.endsWith(".md"))) return "images";
   return "check";
 }
 const HINT: Record<SiteStep, string> = {
   plan: "write plan.md first (a \"Type: static\" or \"Type: fullstack\" line; audience, pages/sections, tone, palette, content outline, inspiration notes from web_search/fetch_url; for fullstack also the data model and API routes)",
-  server: "write the back end: server.mjs (node built-ins only), the /api routes and the data/ store from plan.md",
-  layout: "write the layout and CSS (css/style.css) following the site guide",
-  pages: "write the pages (index.html last)",
+  server: "create the back end with ws_create {\"name\": <this workspace>, \"template\": \"fullstack\"} (server.mjs, /api routes, data/ store, public/), then ws_write its routes and data model from plan.md and ws_run to start and smoke-check it",
+  layout: "write the layout and CSS ({root}css/style.css) following the site guide",
+  pages: "write the pages ({root}index.html last)",
   images: "add images with ws_fetch_image (licensed only) where the plan wants them, or inline SVG illustrations",
   check: "fix what the check and lint list, then deliver",
 };
-export const siteStepHint = (paths: string[], plan = "") => `Next site step: ${HINT[nextSiteStep(paths, plan)]}.`;
+export const siteStepHint = (paths: string[], plan = "") => `Next site step: ${HINT[nextSiteStep(paths, plan)].replace(/\{root\}/g, frontRoot(plan))}.`;
 /** i18n keys for the live progress labels of the pipeline's steps (CoreActivity translates them). */
 export const SITE_LABEL_KEYS: Record<string, "site.plan" | "site.layout" | "site.pages" | "site.image"> = {
   "Writing the site plan…": "site.plan", "Writing layout and styles…": "site.layout", "Writing the pages…": "site.pages", "Finding a licensed image…": "site.image",

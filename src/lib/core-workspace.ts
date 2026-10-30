@@ -6,12 +6,13 @@ import { wsConfirmOffer, wsWriteBlocked, type WsGate, type WsPending } from "./w
 import { explicitBuild } from "./ws-intent-pure.ts";
 import { SITE_GUIDE, SITE_PIPELINE } from "./site-guide.ts";
 import { lintSite, siteStepHint } from "./site-pipeline-pure.ts";
-export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create", "ws_fetch_image"] as const;
+export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create", "ws_fetch_image", "ws_run", "ws_stop"] as const;
 export type WsTool = (typeof WS_TOOLS)[number];
 export const isWsTool = (t: string): t is WsTool => (WS_TOOLS as readonly string[]).includes(t);
 
 /** Prompt line for core.ts's TOOLS list. */
 export const WS_PROMPT = `- WORKSPACE (real files you build for the user, viewable at a preview link): ws_list {"workspace"?: string} (no workspace → all workspaces; else its files), ws_read {"workspace": string, "path": string}; and only when the user's latest message asks you to build, make, create, edit, upgrade or save files, a site, an app or a game (or says yes to the build you just offered for that workspace): ws_create {"name": string}, ws_write {"workspace": string, "files": [{"path": "index.html", "content": string}, ...]} (creates the workspace if needed; write all files of a site in one call, or for a large site in at most 3 calls with index.html in the last one so the check runs on the finished site; relative paths like "css/style.css"; types: html css js mjs json md txt svg lua luau py csv; max 512 KB per file). The site entry is index.html; reference files relatively. The preview is offline: no CDNs, web fonts or external URLs (they are blocked), so put all CSS/JS in the workspace. After writing, ORBIT renders the site headlessly and the result ends with a "Check:" line: fix any problems it lists (at most 3 rounds), then give the user the preview link with that check line instead of pasting the code.
+  FULL-STACK (a site with a back end, API and data): ws_create with "template": "fullstack" gives server.mjs (Node built-ins only, /api routes), store.mjs + data/ (JSON-file data store, seed data), public/ (front end) and README.md; edit those with ws_write. Then ws_run {"workspace": string} starts it as a local demo server on this PC (127.0.0.1, sandboxed, never public; deploying stays the owner's own step) and runs a smoke check (GET / and each /api route, one POST round-trip): its "Check:" line works like ws_write's (fix rounds with ws_write, then ws_run again). ws_stop {"workspace": string} stops it.
   DELIVERING FILES: the chat shows each written file as a deliverable card with Open preview, Download, Download all (.zip) and Save to VAULT buttons. When a workspace file exists, never paste a whole file (over 40 lines) into chat and never tell the user to copy code into Notepad or "Save As": the files are already saved and downloadable. Reply with a 1-2 line summary of what you built plus the check line; the cards do the rest. Previews run sandboxed and offline.
 ${SITE_PIPELINE}`;
 
@@ -109,7 +110,13 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
       }
       case "ws_create": {
         const r = await ws.createWorkspace(userId, str(input.name, 60));
-        return "error" in r ? `Error: ${r.error}` : `Done: workspace "${r.slug}" ${r.created ? "created" : "already exists"}. Preview ${await ws.previewUrl(userId, r.slug)}`;
+        if ("error" in r) return `Error: ${r.error}`;
+        if (input.template === "fullstack") {
+          const { FULLSTACK_TEMPLATE } = await import("./ws-server-pure.ts"), errs: string[] = [];
+          for (const [p, text] of Object.entries(FULLSTACK_TEMPLATE)) { const w = await ws.writeWsFile(userId, r.slug, p, text); if ("error" in w) errs.push(`${p}: ${w.error}`); }
+          return `${errs.length ? `Error: template incomplete: ${errs.join("; ")}\n` : ""}Done: full-stack workspace "${r.slug}" with ${Object.keys(FULLSTACK_TEMPLATE).join(", ")}. Edit with ws_write, then ws_run to start and check it.`;
+        }
+        return `Done: workspace "${r.slug}" ${r.created ? "created" : "already exists"}. Preview ${await ws.previewUrl(userId, r.slug)}`;
       }
       case "ws_fetch_image": {
         const slug = slugify(str(input.workspace, 60));
@@ -144,7 +151,12 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
           else written.push({ kind: "file", id: c.slug, path: r.path, bytes: r.bytes, rev: fileRev(sha256(typeof f?.content === "string" ? f.content : ""), Date.now()) });
           lines.push("error" in r ? `- ${p || "(no path)"}: Error: ${r.error}` : `- ${r.path} ${r.created ? "created" : "updated"} (${kb(r.bytes)})`);
         }
-        const hasIndex = (await ws.listFiles(userId, c.slug))?.some((f) => f.path === "index.html");
+        const all = await ws.listFiles(userId, c.slug), hasIndex = all?.some((f) => f.path === "index.html");
+        if (all?.some((f) => f.path === "server.mjs")) { // full-stack: the check is ws_run's smoke check + the lint, against the running server
+          const plan = all.some((f) => f.path === "plan.md") ? `\n${siteStepHint(all.map((f) => f.path), (await ws.readWsFile(userId, c.slug, "plan.md"))?.text ?? "Type: fullstack")}` : "";
+          for (const e of written) onEvidence?.({ ...e, check: "Not checked yet: run ws_run to start the server and smoke-check it" });
+          return `${failed ? "Error: workspace write is incomplete. Some files failed; report the partial result.\n" : ""}Workspace ${c.slug}:\n${lines.join("\n")}\nFull-stack workspace: call ws_run {"workspace": "${c.slug}"} now to (re)start the server and run the check.${plan}`;
+        }
         const check = hasIndex ? await siteCheck(userId, c.slug, priorWrites) : "";
         const paths = ((await ws.listFiles(userId, c.slug)) ?? []).map((f) => f.path);
         // The design guide loads with the build step, right after the plan is written.
@@ -152,6 +164,20 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
         const next = paths.includes("plan.md") ? `\n${siteStepHint(paths, (await ws.readWsFile(userId, c.slug, "plan.md"))?.text ?? "")}` : "";
         for (const e of written) onEvidence?.({ ...e, check: verifiedLine(check) });
         return `${failed ? "Error: workspace write is incomplete. Some files failed; report the partial result.\n" : ""}Workspace ${c.slug}:\n${lines.join("\n")}\n${hasIndex ? "" : "index.html isn't there yet; "}Preview link: ${await ws.previewUrl(userId, c.slug)}${check}${next}${guide}`;
+      }
+      case "ws_run":
+      case "ws_stop": {
+        const slug = slugify(str(input.workspace, 60)), dir = slug && (await ws.workspaceDir(userId, slug));
+        if (!slug || !dir) return `Error: no workspace "${str(input.workspace, 60)}"`;
+        const srv = await import("./ws-server.ts"), key = `${userId}/${slug}`;
+        if (tool === "ws_stop") return srv.stopServer(key) ? `Done: stopped the ${slug} server.` : `The ${slug} server wasn't running.`;
+        const { stopAllOn } = await import("./stop-all.ts");
+        const r = await srv.startServer(key, dir, { stopAll: stopAllOn() });
+        if ("error" in r) return `Error: ${r.error}`;
+        const smoke = await srv.smokeCheck(r.url, r.routes), lint = await siteLint(userId, slug).catch(() => []);
+        const check = checkNote({ line: smoke.line, issues: [...smoke.issues, ...lint.map((i) => `lint: ${i}`)] }, priorWrites);
+        onEvidence?.({ kind: "file", id: slug, path: "server.mjs", check: verifiedLine(check) });
+        return `Running (local demo, this PC only): ${r.url}\nAPI routes: ${r.routes.join(", ") || "none found"}\nLogs: logs/server.log. Auto-stops after 30 min idle; ws_stop stops it.${check}`;
       }
     }
   } catch (e) {

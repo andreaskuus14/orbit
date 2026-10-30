@@ -3,6 +3,7 @@ import { zipStore } from "./zip-pure.ts";
 import { link, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { envExampleError } from "./ws-server-pure.ts";
 import { MAX_WORKSPACES, capError, checkPath, isSlug, isUserId, parsePreviewSeg, previewSeg, previewValid, sameFile, slugify } from "./workspace-pure.ts";
 
 // Workspaces on disk: <ORBIT data dir>/workspaces/<user id>/<slug>/..., like life.json and core-chats.json. Deleting moves the file
@@ -33,6 +34,8 @@ async function realWsDir(uid: string, slug: string): Promise<string | null> {
     throw e;
   }
 }
+/** The workspace folder (real, contained) or null; the demo server runner starts there. */
+export const workspaceDir = realWsDir;
 const FOLD = process.platform === "win32" || process.platform === "darwin";
 const TRASH_MAX = 50;
 const NONCE = ".nonce";
@@ -108,7 +111,7 @@ async function inside(dir: string, rel: string): Promise<string | null> {
 async function walk(dir: string, prefix = ""): Promise<WsFile[]> {
   const out: WsFile[] = [];
   for (const e of await readdir(dir, { withFileTypes: true })) {
-    if (e.name.startsWith(".") || e.isSymbolicLink()) continue; // .trash, tmp files, links
+    if ((e.name.startsWith(".") && e.name !== ".env.example") || e.isSymbolicLink()) continue; // .trash, tmp files, links
     const rel = prefix ? `${prefix}/${e.name}` : e.name;
     if (e.isDirectory()) out.push(...(await walk(path.join(dir, e.name), rel)));
     else if (e.isFile()) { const s = await stat(path.join(dir, e.name)); out.push({ path: rel, size: s.size, mtime: s.mtimeMs }); }
@@ -177,6 +180,8 @@ export function writeWsFile(uid: string, slug: string, rel: string, content: str
   const bin = content instanceof Uint8Array;
   if (bin !== /\.(?:png|jpe?g|webp)$/i.test(c.path)) return Promise.resolve({ error: bin ? "binary content only for png/jpg/webp" : "image files come only from ws_fetch_image" });
   if (!bin && (typeof content !== "string" || content.includes("\0"))) return Promise.resolve({ error: "content must be text" });
+  const env = c.path.endsWith(".env.example") && typeof content === "string" ? envExampleError(content) : "";
+  if (env) return Promise.resolve({ error: env });
   return serial(async () => {
     const dir = await realWsDir(uid, slug);
     const files = dir && (await listFiles(uid, slug));
