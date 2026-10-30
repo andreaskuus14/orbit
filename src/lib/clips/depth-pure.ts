@@ -1,49 +1,20 @@
-// STUDIO depth (pure; tested in tests/studio-depth.test.ts): STU05 editing workspace helpers, STU07 calendar capacity and
-// exceptions, STU06 outcomes joined to the exact published revision. Nothing here renders, schedules or publishes.
-import type { Clip, ClipJob, VersionEdit } from "./types.ts";
-import type { ProdRecord, Revision } from "./production-pure.ts";
+// STUDIO depth (pure, server side; tested in tests/studio-depth.test.ts): STU07 calendar capacity and exceptions, STU06 outcomes
+// joined to the exact published revision. Nothing here renders, schedules or publishes. STU05 editing helpers: edit-pure.ts.
+import type { Clip, ClipJob } from "./types.ts";
+import type { ProdRecord } from "./production-pure.ts";
+import { renderEstimate } from "./edit-pure.ts";
 import type { PublishSettings } from "./schedule.ts";
 import type { LearnRec, SnapKey, Stats } from "./learn-pure.ts";
 import { weekCalendar } from "./calendar-pure.ts";
 import { BASE_MIN, baseline } from "./experiments-pure.ts";
 import { median } from "./learn-pure.ts";
 
-// ---- STU05: editing workspace ----
-export const EDIT_KEYS = ["layout", "camSide", "camSize", "captions", "jumpCuts", "zooms", "coldOpen", "progressBar", "loopEnd"] as const;
-export type Change = { key: (typeof EDIT_KEYS)[number]; from: unknown; to: unknown };
-
-/** The settings that differ between two renders (missing = the job's base setting). */
-export function editChanges(base: VersionEdit, a: Partial<VersionEdit> | undefined, b: Partial<VersionEdit> | undefined): Change[] {
-  const A = { ...base, ...a }, B = { ...base, ...b };
-  return EDIT_KEYS.filter((k) => A[k] !== B[k]).map((k) => ({ key: k, from: A[k], to: B[k] }));
-}
-
-const versionNo = (id: string) => Number(/-v(\d+)$/.exec(id)?.[1] ?? 1);
-/** Parameter history of one moment: every render in version order with what changed against the one before it. */
-export function paramHistory(revs: Revision[], base: VersionEdit): (Revision & { n: number; changes: Change[] })[] {
-  const sorted = [...revs].sort((x, y) => versionNo(x.clip) - versionNo(y.clip));
-  return sorted.map((r, i) => ({ ...r, n: versionNo(r.clip), changes: i ? editChanges(base, sorted[i - 1].edit, r.edit) : [] }));
-}
-
-/** Low-cost preview of a trim on the render that already exists (a media fragment: no ffmpeg). Lengthening needs frames the
- *  render doesn't have, so `beyond` says only the full render can show that part. */
-export function trimPreview(lenSec: number, dStart: number, dEnd: number): { from: number; to: number; fragment: string; beyond: boolean } {
-  const from = Math.max(0, Math.min(lenSec, dStart)), to = Math.max(from, Math.min(lenSec, lenSec + dEnd));
-  return { from, to, fragment: `#t=${from.toFixed(1)},${to.toFixed(1)}`, beyond: dStart < 0 || dEnd > 0 };
-}
-
-/** Seconds one full render took on this job (its measured render stage / its first-pass clips), or null when never measured. */
-export function renderEstimate(job: Pick<ClipJob, "timings" | "clips">): number | null {
-  const n = job.clips.filter((c) => !c.variantOf).length, sec = job.timings?.render;
-  return sec && n ? Math.round(sec / n) : null;
-}
-
 // ---- STU07: calendar capacity ----
 export const REVIEW_MIN = 2; // assumed minutes to review one clip; shown as an assumption, never as measured
 const DAY = 86_400_000;
 export type CapDay = { key: string; planned: number; confirmed: number; free: number };
 export type Exception = { id: string; title: string; why: string };
-export type Capacity = { timezone: string; days: CapDay[]; free: number; readyToSchedule: number; awaitingReview: number; reviewMinutes: number;
+export type Capacity = { timezone: string; days: CapDay[]; free: number; readyToSchedule: number; awaitingReview: number; reviewMinutes: number; reviewEach: number;
   rendering: number; renderMinutes: number | null; gap: number; exceptions: Exception[] };
 
 /** Videos seen public: a learn.json reading with views. A scheduled upload is only "confirmed published" once one exists. */
@@ -72,7 +43,7 @@ export function capacity(records: ProdRecord[], jobs: ClipJob[], s: PublishSetti
     else if (p?.status === "scheduled" && at <= now - DAY && !(p.videoId && live.has(p.videoId))) exceptions.push({ id: r.id, title: r.title, why: "Due over a day ago and not confirmed live" });
     else if ((p?.status === "unknown") || (p?.status === "uploading" && Date.parse(p.at) < now - DAY)) exceptions.push({ id: r.id, title: r.title, why: "Upload outcome unknown: check YouTube" });
   }
-  return { timezone: s.timezone, days, free, readyToSchedule, awaitingReview, reviewMinutes: awaitingReview * REVIEW_MIN, rendering,
+  return { timezone: s.timezone, days, free, readyToSchedule, awaitingReview, reviewMinutes: awaitingReview * REVIEW_MIN, reviewEach: REVIEW_MIN, rendering,
     renderMinutes: unknown ? null : Math.ceil(renderSec / 60), gap: Math.max(0, free - readyToSchedule), exceptions };
 }
 

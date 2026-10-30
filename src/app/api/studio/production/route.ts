@@ -2,8 +2,9 @@ import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { checkClipMedia, getJob, listJobs, readState, saveJob, startClipQueue, studioRoot, withJobLock } from "@/lib/clips/factory";
 import { emptyLearn, learnProblem, type LearnState } from "@/lib/clips/learn-pure";
-import { liveIds, outcomeOf, type Outcome } from "@/lib/clips/depth-pure";
-import { isClipId, isJobId } from "@/lib/clips/pure";
+import { capacity, liveIds, outcomeOf, type Outcome } from "@/lib/clips/depth-pure";
+import { readPublishSettings } from "@/lib/clips/publish-schedule";
+import { baseEdit, isClipId, isJobId } from "@/lib/clips/pure";
 import { cleanRights, productionRecords, recordId } from "@/lib/clips/production-pure";
 
 // STUDIO production records (production-pure.ts): GET = one record per clip; PATCH { job, rights } = the source's permission basis;
@@ -14,12 +15,14 @@ const blocked = (req: Request, m: string) => { const h = req.headers;
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  const [jobs, stories, learn] = await Promise.all([listJobs(), import("@/lib/clips/story").then((m) => m.listStories(), () => []),
-    readState<LearnState>(studioRoot(), "learn", learnProblem).catch(() => null)]);
+  const [jobs, stories, learn, settings] = await Promise.all([listJobs(), import("@/lib/clips/story").then((m) => m.listStories(), () => []),
+    readState<LearnState>(studioRoot(), "learn", learnProblem).catch(() => null), readPublishSettings()]);
   const recs = Object.values((learn ?? emptyLearn()).clips), outcomes: Record<string, Outcome> = {};
   for (const j of jobs) for (const c of j.clips) { const o = outcomeOf(c, recs); if (o) outcomes[recordId(j.id, c.id)] = o; }
-  // jobs: for the pipeline board and the calendar; live: video ids seen public (confirms a scheduled Short); outcomes: STU06
-  return Response.json({ records: productionRecords(jobs, stories), jobs, live: [...liveIds(recs)], outcomes });
+  const records = productionRecords(jobs, stories), live = liveIds(recs);
+  // jobs: pipeline board + calendar; live: video ids seen public (confirms a scheduled Short); bases: each job's first-pass edit (STU05)
+  return Response.json({ records, jobs, live: [...live], outcomes, capacity: capacity(records, jobs, settings, Date.now(), live),
+    bases: Object.fromEntries(jobs.map((j) => [j.id, baseEdit(j.options)])) });
 }
 
 export async function PATCH(req: Request) {

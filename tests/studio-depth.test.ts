@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capacity, editChanges, liveIds, outcomeOf, paramHistory, renderEstimate, trimPreview, REVIEW_MIN } from "../src/lib/clips/depth-pure.ts";
+import { capacity, liveIds, outcomeOf, REVIEW_MIN } from "../src/lib/clips/depth-pure.ts";
+import { editChanges, paramHistory, renderEstimate, trimPreview } from "../src/lib/clips/edit-pure.ts";
 import { addExperiment, compareArms, emptyExperiments, removalProblem, BASE_MIN, type Experiment } from "../src/lib/clips/experiments-pure.ts";
 import { productionRecords } from "../src/lib/clips/production-pure.ts";
 import { DEFAULT_PUBLISH } from "../src/lib/clips/schedule.ts";

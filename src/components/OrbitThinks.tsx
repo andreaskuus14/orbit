@@ -18,9 +18,9 @@ function usePredictions() {
 }
 
 /** "ORBIT thinks: approve, 87%" under an item waiting for his decision; nothing when ORBIT has no guess. id: predict.ts item id. */
-export function OrbitThinks({ id }: { id: string }) {
+export function OrbitThinks({ id, label, about }: { id: string; label?: string; about?: string }) { // label/about: say what is guessed where other numbers sit nearby
   const x = usePredictions()?.open[id];
-  return x ? <span className="muted text-[11px]" title={`Why: ${x.why}. A guess from your past decisions; you decide.`}>{hintText(x)}</span> : null;
+  return x ? <span className="muted text-[11px]" title={`${about ? `${about} ` : ""}Why: ${x.why}. A guess from your past decisions; you decide.`}>{label && <b>{label} </b>}{hintText(x)}</span> : null;
 }
 
 const pct = (n: number | null) => (n == null ? "–" : `${Math.round(n * 100)}%`);
