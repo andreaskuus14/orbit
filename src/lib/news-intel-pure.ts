@@ -150,3 +150,45 @@ export function freshAfterRepair<T extends { published: string | null }>(items: 
   if (!prev?.failures || !prev.lastSuccess) return items;
   return items.filter((i) => i.published && i.published > prev.lastSuccess!);
 }
+
+// ---------- INT05: honest map semantics ----------
+/** What the globe shows, per time window. Location = countries a story NAMES (headline mentions weigh 3×): what it's about,
+ *  not a confirmed event location and not the publisher's country. Size = coverage (stories naming it), not significance.
+ *  The window is by fetch time (when ORBIT stored the story), as /api/news/geo filters. */
+export function mapLegend(d: { hours: number; total: number; untagged: number }, now: number) {
+  const at = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+  return { from: at(now - d.hours * 3600_000), to: at(now), hours: d.hours, placed: d.total - d.untagged, total: d.total, untagged: d.untagged,
+    location: "named" as const, size: "coverage" as const, by: "fetched" as const };
+}
+
+// ---------- INT08: story-level feedback, held-out check before any ranking change ----------
+export type Vote = "useful" | "not_useful" | "wrong";
+/** One vote per story (latest wins), with the features both rankers score it on, frozen at vote time. */
+export type Feedback = { key: string; title: string; vote: Vote; at: string; sources: number; matched: boolean };
+export const FEEDBACK_MAX = 500, HELD_EVERY = 5, MIN_HELD = 10, MIN_GAIN = 0.05;
+/** Deterministic split: every 5th story (by key hash) is held out; it's never used to propose a change, only to check one. */
+export function heldOut(key: string): boolean {
+  let h = 2166136261;
+  for (const ch of key) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return (h >>> 0) % HELD_EVERY === 0;
+}
+export const matchesPrefs = (title: string, p: Prefs) => [...p.topics, ...p.regions, ...p.projects].some((x) => has(title, x));
+/** current = the briefing's order today (independent sources); candidate = sources plus a boost for matching his preferences. */
+export const RANKERS = { current: (f: Feedback) => f.sources, candidate: (f: Feedback) => f.sources + (f.matched ? 2 : 0) };
+/** Share of (useful, not useful/wrong) pairs the ranker orders correctly; ties count half. null without any pair. */
+export function pairAccuracy(fs: Feedback[], score: (f: Feedback) => number): number | null {
+  const good = fs.filter((f) => f.vote === "useful"), bad = fs.filter((f) => f.vote !== "useful");
+  if (!good.length || !bad.length) return null;
+  let s = 0;
+  for (const g of good) for (const b of bad) s += score(g) > score(b) ? 1 : score(g) === score(b) ? 0.5 : 0;
+  return Math.round((s / (good.length * bad.length)) * 100) / 100;
+}
+/** The gate: a ranking change is only adopted when it beats today's order on held-out votes, with enough of them. */
+export function rankingGate(all: Feedback[]) {
+  const held = all.filter((f) => heldOut(f.key));
+  const useful = held.filter((f) => f.vote === "useful").length;
+  const current = pairAccuracy(held, RANKERS.current), candidate = pairAccuracy(held, RANKERS.candidate);
+  const why = held.length < MIN_HELD ? "intel.fb.whyFew" : current === null || candidate === null ? "intel.fb.whyOneSided"
+    : candidate - current >= MIN_GAIN ? "intel.fb.whyBetter" : "intel.fb.whyNotBetter";
+  return { votes: all.length, held: held.length, useful, notUseful: held.length - useful, current, candidate, adopt: why === "intel.fb.whyBetter", why, need: MIN_HELD };
+}

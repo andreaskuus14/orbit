@@ -4,16 +4,18 @@ import StateNote from "./StateNote";
 import { MARKETS_TAB } from "@/lib/brief-pure";
 import type { Analysis, getMarkets } from "@/lib/markets";
 import { NOTE, sparkPath, type Point, type Strategy } from "@/lib/markets-pure";
+import { COST_BPS, journalTally, reviewDue, scenarios, type Leg, type Outcome, type Study } from "@/lib/markets-study-pure";
 import DealCards from "./DealCards";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
+import type { Key } from "@/lib/i18n-pure";
 
 // MARKETS drawer: watchlist, tracked portfolio, research, price alerts, PAPER simulation + rule-based paper bot; deals apart.
 // Tracking, education and simulation only — no broker, no real money. All data via /api/markets.
 
 type State = Awaited<ReturnType<typeof getMarkets>>;
 type Act = (body: object) => Promise<Record<string, unknown> | null>;
-const TABS = ["Watchlist", "Portfolio", "Research", "Alerts", "Simulation", "Deals"] as const;
+const TABS = ["Watchlist", "Portfolio", "Research", "Alerts", "Simulation", "Journal", "Deals"] as const;
 type Tab = (typeof TABS)[number];
 type Totals = State["portfolio"]["value"];
 
@@ -61,7 +63,8 @@ export default function MarketsPanel() {
           {tab === "Portfolio" && <Portfolio st={st} act={act} />}
           {tab === "Research" && <Explain tickers={st.watchlist.map((w) => w.ticker)} />}
           {tab === "Alerts" && <Alerts st={st} act={act} />}
-          {tab === "Simulation" && <Paper st={st} act={act} />}
+          {tab === "Simulation" && <><Paper st={st} act={act} /><StudyBox strategy={st.bot.strategy} /></>}
+          {tab === "Journal" && <Journal st={st} act={act} />}
           {tab === "Deals" && <DealCards />}
         </>
       )}
@@ -162,9 +165,107 @@ function Portfolio({ st, act }: { st: State; act: Act }) {
               </li>
             ))}
           </ul>
+          <Scenarios rows={p.rows} />
         </>
       )}
     </>
+  );
+}
+
+/** MKT08: what-if arithmetic per currency (not a forecast). */
+function Scenarios({ rows }: { rows: State["portfolio"]["rows"] }) {
+  const { t: tr } = useT();
+  const s = scenarios(rows);
+  return (
+    <details className="card text-xs"><summary className="cursor-pointer text-sm">{tr("mk.sc.title")}</summary>
+      <p className="muted">{tr("mk.sc.note")}</p>
+      <table className="w-full"><tbody>{s.shocks.map((x) => <tr key={x.pct}><th className="pr-2 text-left font-normal">{x.pct > 0 ? "+" : ""}{x.pct}%</th>
+        <td>{Object.entries(x.change).map(([c, v]) => <span key={c} style={tone(v)}>{num(v, c)} </span>)}</td></tr>)}</tbody></table>
+      {Object.entries(s.biggest).map(([c, b]) => <p key={c}>{tr("mk.sc.biggest", { t: b.ticker, s: Math.round(b.share * 100), v: num(b.change, c) })}</p>)}
+      {!!s.unpriced.length && <p style={{ color: "#fbbf24" }}>{tr("mk.sc.unpriced", { t: s.unpriced.join(", ") })}</p>}
+    </details>
+  );
+}
+
+/** MKT07: the bot's rule vs equal-weight buy-and-hold on the same history, costs and dates. */
+function StudyBox({ strategy }: { strategy: Strategy }) {
+  const { t: tr } = useT();
+  const [pick, setPick] = useState<Strategy>(strategy === "off" ? "ma" : strategy);
+  const [s, setS] = useState<Study | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => { setBusy(true); try { setS((await post({ action: "study", strategy: pick })) as Study); } catch (e) { setS({ error: (e as Error).message }); } setBusy(false); };
+  const row = (name: string, l: Leg) => <tr key={name}><th className="pr-2 text-left font-normal">{name}</th><td style={tone(l.ret)}>{pct(l.ret, true)}</td>
+    <td>-{(l.maxDrawdown * 100).toFixed(1)}%</td><td>{(l.turnover * 100).toFixed(0)}%</td><td>{(l.exposure * 100).toFixed(0)}%</td></tr>;
+  const table = (label: string, b: Leg, r: Leg) => (
+    <div key={label}><p className="mt-1 font-semibold">{label} <span className="muted font-normal">{tr("mk.window", { a: b.from, b: b.to, n: b.days })}</span></p>
+      <table className="w-full"><thead><tr><th /><th className="text-left">{tr("mk.return")}</th><th className="text-left">{tr("mk.drawdown")}</th><th className="text-left">{tr("mk.st.turnover")}</th><th className="text-left">{tr("mk.st.exposure")}</th></tr></thead>
+        <tbody>{row(tr("mk.st.baseline"), b)}{row(tr("mk.st.rule"), r)}</tbody></table></div>
+  );
+  return (
+    <div className="card space-y-1 text-xs">
+      <p className="text-sm font-semibold">{tr("mk.st.title")}</p>
+      <p className="muted">{tr("mk.st.how", { c: COST_BPS })}</p>
+      <div className="flex gap-2">
+        <select className="field flex-1" aria-label={tr("mk.strategy")} value={pick} onChange={(e) => setPick(e.target.value as Strategy)}>
+          <option value="ma">{tr("mk.st.ma")}</option><option value="rebalance">{tr("mk.st.rebalance")}</option>
+        </select>
+        <button className="btn" disabled={busy} onClick={() => void run()}>{tr(busy ? "mk.thinking" : "mk.st.run")}</button>
+      </div>
+      {s && ("error" in s ? <p className="error" role="alert">{s.error}</p> : (
+        <div aria-live="polite">
+          {table(tr("mk.st.early"), s.baseline.early, s.rule.early)}
+          {s.baseline.late && s.rule.late && table(tr("mk.st.late"), s.baseline.late, s.rule.late)}
+          <ul className="muted mt-1 list-disc pl-4">{s.notes.map((n) => <li key={n}>{tr(n as Key, { c: s.costBps })}</li>)}</ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** MKT08: decisions with the reason, what would prove them wrong and a review date; reviewed by him, not scored by price. */
+function Journal({ st, act }: { st: State; act: Act }) {
+  const { t: tr } = useT();
+  const blank = { ticker: "", action: "buy", thesis: "", invalidation: "", reviewOn: "" };
+  const [f, setF] = useState(blank);
+  const today = new Date().toISOString().slice(0, 10), tally = journalTally(st.journal);
+  return (
+    <>
+      <p className="muted text-xs">{tr("mk.j.hint")}</p>
+      <form className="grid gap-1.5" onSubmit={async (e) => { e.preventDefault(); if (await act({ action: "journal", ...f })) setF(blank); }}>
+        <div className="grid grid-cols-[1fr_auto_auto] gap-1.5">
+          <input className="field min-w-0" placeholder={tr("mk.ticker")} aria-label={tr("mk.ticker")} maxLength={15} value={f.ticker} onChange={(e) => setF({ ...f, ticker: e.target.value })} />
+          <select className="field" aria-label={tr("mk.j.decision")} value={f.action} onChange={(e) => setF({ ...f, action: e.target.value })}>
+            {["buy", "sell", "hold", "watch"].map((a) => <option key={a} value={a}>{tr(`mk.j.a.${a}` as Key)}</option>)}
+          </select>
+          <input className="field" type="date" aria-label={tr("mk.j.reviewOn")} min={today} value={f.reviewOn} onChange={(e) => setF({ ...f, reviewOn: e.target.value })} />
+        </div>
+        <textarea className="field" rows={2} placeholder={tr("mk.j.thesis")} aria-label={tr("mk.j.thesis")} maxLength={500} value={f.thesis} onChange={(e) => setF({ ...f, thesis: e.target.value })} />
+        <input className="field" placeholder={tr("mk.j.invalid")} aria-label={tr("mk.j.invalid")} maxLength={300} value={f.invalidation} onChange={(e) => setF({ ...f, invalidation: e.target.value })} />
+        <button className="btn" disabled={!f.ticker.trim() || !f.thesis.trim() || !f.invalidation.trim() || !f.reviewOn}>{tr("habit.save")}</button>
+      </form>
+      <p className="muted text-xs">{tr("mk.j.tally", { r: tally.reviewed, o: tally.open, right: tally.by.right, wrong: tally.by.wrong, mixed: tally.by.mixed, unclear: tally.by.unclear })}</p>
+      <ul className="space-y-1.5">
+        {st.journal.map((j) => (
+          <li key={j.id} className="card space-y-0.5 text-xs">
+            <p className="text-sm"><b>{j.ticker}</b> · {tr(`mk.j.a.${j.action}` as Key)} <span className="muted">{j.at.slice(0, 10)}{j.priceAt !== null && ` @ ${j.priceAt}`}</span></p>
+            <p>{j.thesis}</p>
+            <p className="muted">{tr("mk.j.wrongIf", { x: j.invalidation })} · {tr("mk.j.reviewBy", { d: j.reviewOn })}</p>
+            {j.review ? <p>{tr("mk.j.reviewed", { o: tr(`mk.j.o.${j.review.outcome}` as Key), d: j.review.at.slice(0, 10), p: j.review.priceAt ?? "—" })}{j.review.note && ` · ${j.review.note}`}</p>
+              : reviewDue(j, today) && <ReviewRow onReview={(outcome, note) => act({ action: "review", id: j.id, outcome, note })} />}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+function ReviewRow({ onReview }: { onReview: (o: Outcome, note: string) => Promise<unknown> }) {
+  const { t: tr } = useT();
+  const [note, setNote] = useState("");
+  return (
+    <div className="flex flex-wrap items-center gap-1" style={{ color: "#fbbf24" }}>{tr("mk.j.due")}
+      <input className="field min-w-0 flex-1" placeholder={tr("mk.j.note")} aria-label={tr("mk.j.note")} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+      {(["right", "wrong", "mixed", "unclear"] as Outcome[]).map((o) => <button key={o} className="chip" onClick={() => void onReview(o, note)}>{tr(`mk.j.o.${o}` as Key)}</button>)}
+    </div>
   );
 }
 

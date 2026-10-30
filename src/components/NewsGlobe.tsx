@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useT } from "./i18n";
+import { mapLegend } from "@/lib/news-intel-pure";
 import { useGlRecovery } from "./useGlRecovery";
 import { worldQuality, type QualityMode } from "@/lib/quality-pure";
 import { FrameMark } from "./dev-timing";
@@ -877,6 +878,21 @@ function GlobeLoading() {
   return <p role="status" className="muted pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 text-xs">{t("intel.globeLoading")}</p>;
 }
 
+/** INT05: what location, size and the time window mean on this map. */
+function MapLegend({ d }: { d: Data }) {
+  const { t } = useT();
+  const l = mapLegend(d, Date.now());
+  return (
+    <details className="muted text-xs"><summary className="cursor-pointer">{t("intel.map.title", { h: l.hours })}</summary>
+      <ul className="list-disc pl-4">
+        <li>{t("intel.map.loc")}</li><li>{t("intel.map.size")}</li>
+        <li>{t("intel.map.window", { a: l.from, b: l.to, h: l.hours })}</li>
+        <li>{t("intel.map.placed", { p: l.placed, n: l.total })}</li>
+      </ul>
+    </details>
+  );
+}
+
 export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode; paused?: boolean }) {
   const q = worldQuality(quality);
   const glr = useGlRecovery();
@@ -1116,6 +1132,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
               </div>
             </div>
             <p className="muted text-xs">{data ? `${data.total} stories · ${hs.length} countries${region ? ` · showing ${region}` : ""}` : err ? "" : "Loading…"}</p>
+            {data && <MapLegend d={data} />}
             <form onSubmit={pickCountry} className="mt-2 flex gap-1" role="search" aria-label="Open any country">
               <input className="field w-full" list="globe-countries" value={pick} onChange={(e) => setPick(e.target.value)} maxLength={60}
                 placeholder={`Any country… (${PICKABLE.length})`} aria-label="Country name" />
