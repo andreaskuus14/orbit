@@ -3,11 +3,11 @@
 // two memories disagree. His answer is only recorded (POST /api/memories/entities); no memory or person is edited or deleted.
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "./i18n";
-import type { Contradiction, MergeSuggestion } from "@/lib/entity-graph-pure";
+import type { Contradiction, MergeHist, MergeSuggestion } from "@/lib/entity-graph-pure";
 
 export function MemoryEntities() {
   const { t } = useT();
-  const [v, setV] = useState<{ merges: MergeSuggestion[]; contradictions: Contradiction[] } | null>(null);
+  const [v, setV] = useState<{ merges: MergeSuggestion[]; contradictions: Contradiction[]; merged?: MergeHist[] } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const load = useCallback(() => fetch("/api/memories/entities").then((r) => r.ok ? r.json() : null).then((j) => j && setV(j), () => {}), []);
@@ -23,7 +23,7 @@ export function MemoryEntities() {
     finally { setBusy(null); }
   }
 
-  if (!v || (!v.merges.length && !v.contradictions.length && !err)) return null;
+  if (!v || (!v.merges.length && !v.contradictions.length && !v.merged?.length && !err)) return null;
   return (
     <div className="card space-y-2" aria-label={t("ent.title")}>
       <div className="muted text-[10px] uppercase tracking-widest">{t("ent.title")}</div>
@@ -41,14 +41,32 @@ export function MemoryEntities() {
           </li>))}
         {v.merges.map((m) => (
           <li key={m.key} className="space-y-1">
-            <b>{t("ent.same")}</b> <span className="muted num text-xs">{Math.round(m.confidence * 100)}%</span>
-            <p className="text-xs truncate">{m.forms.join(" · ")}</p>
+            <b>{t(m.relation === "related" ? "ent.related" : "ent.same")}</b> <span className="muted num text-xs">{Math.round(m.confidence * 100)}%</span>
+            {m.cls && <span className="chip text-[10px] ml-2">{t(`ent.cls.${m.cls}` as const)}</span>}
+            {!!m.evidence?.length && <ul className="muted text-[11px]" aria-label={t("ent.why")}>{m.evidence.map((e, i) => <li key={i}>{t(`ent.ev.${e.code}` as const, { a: e.a, b: e.b })}</li>)}</ul>}
+            {m.sides ? <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">{m.sides.map((sd, i) => (
+              <div key={i} className="min-w-0">
+                <b className="truncate block">{sd.form}</b>
+                {sd.srcs.map((x, j) => <div key={j} className="muted truncate">{x.title} · {x.at.slice(0, 10)}</div>)}
+                {sd.facts.map((f) => <div key={f.attr} className={f.conflict ? "error" : undefined}>{t(`ent.attr.${f.attr}` as const)}: {f.value} <span className="muted">· {f.at.slice(0, 10)}</span></div>)}
+                {!sd.facts.length && <div className="muted">{t("ent.noFacts")}</div>}
+              </div>))}</div> : <p className="text-xs truncate">{m.forms.join(" · ")}</p>}
+            {m.keep && <p className="text-xs"><span className="muted">{t("ent.keep")}</span> <b>{m.keep.name}</b>{m.keep.facts.map((f) => ` · ${t(`ent.attr.${f.attr}` as const)}: ${f.value}`).join("")}
+              {m.keep.ask.map((a) => <span key={a} className="error"> · {t(`ent.attr.${a}` as const)}: {t("ent.youChoose")}</span>)}</p>}
             <div className="flex gap-2">
               <button className="btn" onClick={() => answer(m.key, "same")} disabled={busy !== null}>{busy === m.key ? "…" : t("ent.yes")}</button>
               <button className="chip" onClick={() => answer(m.key, "different")} disabled={busy !== null}>{t("ent.no")}</button>
             </div>
           </li>))}
       </ul>
+      {!!v.merged?.length && <ul className="space-y-1 text-xs" aria-label={t("ent.merged")}>
+        <li className="muted text-[10px] uppercase tracking-widest">{t("ent.merged")}</li>
+        {v.merged.map((h) => (
+          <li key={h.key} className="flex items-center gap-2">
+            <span className="truncate">{h.forms.join(" = ")} <span className="muted">· {h.at.slice(0, 10)}</span></span>
+            <button className="chip" onClick={() => answer(h.key, "undo")} disabled={busy !== null}>{t("ent.undo")}</button>
+          </li>))}
+      </ul>}
     </div>
   );
 }
