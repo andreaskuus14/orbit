@@ -154,13 +154,13 @@ const HINT: Record<SiteStep, string> = {
   server: "create the back end with ws_create {\"name\": <this workspace>, \"template\": \"fullstack\"} (server.mjs, /api routes, data/ store, public/), then ws_write its routes and data model from plan.md and ws_run to start and smoke-check it",
   layout: "write the layout and CSS ({root}css/style.css) following the site guide",
   pages: "write the pages ({root}index.html last)",
-  images: "add images with ws_fetch_image (licensed only) where the plan wants them, or inline SVG illustrations",
+  images: "add images with ws_fetch_image (licensed only) where the plan wants them, else ws_inspire_image (an original generated picture, owner approves), or inline SVG illustrations",
   check: "fix what the check and lint list, then deliver",
 };
 export const siteStepHint = (paths: string[], plan = "") => `Next site step: ${HINT[nextSiteStep(paths, plan)].replace(/\{root\}/g, frontRoot(plan))}.`;
 /** i18n keys for the live progress labels of the pipeline's steps (CoreActivity translates them). */
-export const SITE_LABEL_KEYS: Record<string, "site.plan" | "site.layout" | "site.pages" | "site.image"> = {
-  "Writing the site plan…": "site.plan", "Writing layout and styles…": "site.layout", "Writing the pages…": "site.pages", "Finding a licensed image…": "site.image",
+export const SITE_LABEL_KEYS: Record<string, "site.plan" | "site.layout" | "site.pages" | "site.image" | "site.inspire"> = {
+  "Writing the site plan…": "site.plan", "Writing layout and styles…": "site.layout", "Writing the pages…": "site.pages", "Finding a licensed image…": "site.image", "Gathering picture ideas…": "site.inspire",
 };
 /** Progress label of a ws_write in the pipeline, from the files it writes; null = the generic one. */
 export function siteWriteLabel(files: unknown): string | null {
