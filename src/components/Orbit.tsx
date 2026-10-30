@@ -11,6 +11,8 @@ import { CALL_ACTIVE, VOICE_ASK, voiceContext } from "./voice/bus";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
+import { linkFromHash, linkToHash, shouldPush, type DeepLink } from "@/lib/deeplink-pure";
+import { viewKey } from "@/lib/planet-view-pure";
 import { NAV_EVENT, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
 import { StudioNotifier } from "./StudioNotifier";
 import { NotificationCenter } from "./NotificationCenter";
@@ -134,6 +136,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [shipTasks, setShipTasks] = useState<ShipTask[]>([]); // running + just-finished tasks, drawn as ships in the galaxy
   const [focusTask, setFocusTask] = useState<string | null>(null);
   const [focusGoal, setFocusGoal] = useState<string | null>(null);
+  const [focusClient, setFocusClient] = useState<string | null>(null); // BUSINESS row picked by a link
   const [radarUrl, setRadarUrl] = useState<string | null>(null); // ?radar=<YouTube link>: shared from the phone (iOS Shortcut) → Idea Radar
   const [automationFailing, setAutomationFailing] = useState(false); // real: an enabled automation's last run failed
   const [hfWeek, setHfWeek] = useState<{ used: number; cap: number } | null>(null); // Higgsfield credits approved this week / weekly cap
@@ -371,7 +374,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) {
           setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations();
           const status = (payload.new as { payload?: { status?: string } }).payload?.status;
-          notify({ signal: "agent-finished", key: `agent:${taskId}:${e.type}:${status}`, reason: e.type === "agent.failed" ? `Task ${taskId.slice(0, 8)} failed and needs review.` : status === "awaiting_approval" ? `Task ${taskId.slice(0, 8)} is waiting for your approval.` : status === "cancelled" ? `Task ${taskId.slice(0, 8)} was cancelled.` : `Task ${taskId.slice(0, 8)} finished and its result is ready.`, title: e.type === "agent.failed" ? "Agent task failed" : status === "awaiting_approval" ? "Task needs your approval" : status === "cancelled" ? "Agent task cancelled" : "Agent task finished", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations" } });
+          notify({ signal: "agent-finished", key: `agent:${taskId}:${e.type}:${status}`, reason: e.type === "agent.failed" ? `Task ${taskId.slice(0, 8)} failed and needs review.` : status === "awaiting_approval" ? `Task ${taskId.slice(0, 8)} is waiting for your approval.` : status === "cancelled" ? `Task ${taskId.slice(0, 8)} was cancelled.` : `Task ${taskId.slice(0, 8)} finished and its result is ready.`, title: e.type === "agent.failed" ? "Agent task failed" : status === "awaiting_approval" ? "Task needs your approval" : status === "cancelled" ? "Agent task cancelled" : "Agent task finished", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations", open: { kind: "task", id: taskId } } });
         }
       })
       .subscribe((s) => setLive(s === "SUBSCRIBED" ? "live" : s === "CLOSED" || s === "CHANNEL_ERROR" || s === "TIMED_OUT" ? "offline" : "connecting"));
@@ -463,12 +466,49 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, [openGoal, openTask]);
   const consumed = useCallback(() => setPending(null), []);
 
+  // Deep links (G02/G20): the open planet, its view and the selected record live in the URL hash (deeplink-pure.ts),
+  // so refresh restores them and Back steps out of a record before it leaves the world.
+  const applyLink = useCallback((l: DeepLink | null) => {
+    setWorkOpen(false); setApproach(null); setDive(null);
+    if (!l) { closeWorld(); return; }
+    // shortcut: a view only applies when the workspace mounts (useWorkspaceView reads it then); Back between tabs of an open workspace doesn't switch them.
+    if (l.view) try { localStorage.setItem(viewKey(l.planet), l.view); } catch { /* storage off: first view */ }
+    if (l.planet === "core") openCore(); else select(l.planet);
+    const id = (k: DeepLink["kind"]) => (l.kind === k ? l.id! : null);
+    setFocusTask(id("task")); setFocusGoal(id("goal")); setFocusMemory(id("memory")); setFocusClient(id("client"));
+  }, [openCore, select]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [linkReady, setLinkReady] = useState(false);
+  useEffect(() => { const l = linkFromHash(location.hash); if (l) applyLink(l); setLinkReady(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const applyRef = useRef(applyLink);
+  applyRef.current = applyLink;
+  useEffect(() => {
+    const f = () => applyRef.current(linkFromHash(location.hash));
+    addEventListener("popstate", f);
+    return () => removeEventListener("popstate", f);
+  }, []);
+  const here = useMemo<DeepLink | null>(() => {
+    if (!shown) return null;
+    const rec = shown === "operations" && focusTask ? { kind: "task" as const, id: focusTask } : shown === "agents" && focusGoal ? { kind: "goal" as const, id: focusGoal }
+      : shown === "memory" && focusMemory ? { kind: "memory" as const, id: focusMemory } : shown === "business" && focusClient ? { kind: "client" as const, id: focusClient } : {};
+    let view: string | null = null;
+    try { view = localStorage.getItem(viewKey(shown)); } catch { /* none */ }
+    return { planet: shown, ...(view && { view }), ...rec };
+  }, [shown, focusTask, focusGoal, focusMemory, focusClient]);
+  useEffect(() => {
+    if (!linkReady) return;
+    const from = linkFromHash(location.hash), h = linkToHash(here);
+    if ((!here && !from) || h === location.hash) return;
+    const url = location.pathname + location.search + h;
+    if (shouldPush(from, here)) history.pushState(null, "", url); else history.replaceState(history.state, "", url);
+  }, [here, linkReady]);
+
   // orbit:navigate (command bar, CORE, voice): drawers open over the galaxy as a click does; from the galaxy a world is
   // entered by a short flight to its planet, then the world's own fly-in takes over. Between worlds we switch directly.
   useEffect(() => {
     const onNav = (e: Event) => {
       const t = (e as CustomEvent<NavTarget>).detail;
       if (t.continueWork) { setWorkOpen(t.workTab ?? "work"); return; }
+      if (t.open && t.panel) { applyLink({ planet: t.panel, ...t.open }); return; } // a record: straight there, selected
       setWorkOpen(false);
       if (t.zoom) return; // ZoomRig in the canvas on screen handles it
       if (t.mission) return; // MissionControl opens itself over whatever is on screen
@@ -487,7 +527,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     };
     addEventListener(NAV_EVENT, onNav);
     return () => removeEventListener(NAV_EVENT, onNav);
-  }, [panel, shown, approach, dive, view, reduced, select, openCore, closeWorld, enterWorld]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [panel, shown, approach, dive, view, reduced, select, openCore, closeWorld, enterWorld, applyLink]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!approach) return;
     const t = setTimeout(() => { setPanel(approach); setApproach(null); }, 1200); // the galaxy's longest fast flight
@@ -634,12 +674,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
               : drawer === "profile" ? <ProfilePanel />
               : drawer === "analytics" ? <AnalyticsPanel />
               : drawer === "intelligence" ? <IntelligencePanel />
-              : drawer === "operations" ? <OperationsPanel focusTask={focusTask} openMemory={openMemory} />
+              : drawer === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
               : drawer === "agents" ? <AgentsPanel onOpenTask={openTask} />
               : drawer === "life" ? <LifePanel open={lifeOpen} />
               : drawer === "vault" ? <VaultPanel />
               : drawer === "markets" ? <MarketsPanel />
-              : drawer === "business" ? <BusinessPanel />
+              : drawer === "business" ? <BusinessPanel focusId={focusClient} onFocus={setFocusClient} />
               : null}
           </div>
         </aside>

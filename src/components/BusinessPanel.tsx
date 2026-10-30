@@ -32,7 +32,7 @@ async function call(method: "GET" | "POST", body?: object) {
 }
 const euro = (n: number) => n.toLocaleString(undefined, { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 
-export default function BusinessPanel() {
+export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: string | null; onFocus?: (id: string | null) => void } = {}) {
   const [st, setSt] = useState<State | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
@@ -55,10 +55,12 @@ export default function BusinessPanel() {
   const nodes = mapNodes(st?.prospects ?? [], due);
   const mapOn = showMap ?? nodes.length > 0;
   const pick = (id: string) => {
-    setView("client"); setFilter("all"); setLit(id);
+    setView("client"); setFilter("all"); setLit(id); onFocus?.(id);
     setTimeout(() => document.getElementById(`biz-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
     setTimeout(() => setLit((l) => (l === id ? "" : l)), 2500);
   };
+  const missing = !!focusId && !!st && !st.prospects.some((p) => p.id === focusId);
+  useEffect(() => { if (focusId && st?.prospects.some((p) => p.id === focusId)) pick(focusId); }, [focusId, !!st]); // eslint-disable-line react-hooks/exhaustive-deps
   const addNew = () => { setView("pipeline"); setTimeout(() => (document.querySelector("#biz-add input") as HTMLInputElement | null)?.focus(), 50); };
   const shown = st?.prospects.filter((p) => filter === "all" || (filter === "followup" ? due.has(p.id) : p.stage === filter)) ?? [];
   const queue = todayQueue(st?.prospects ?? [], Date.now());
@@ -68,6 +70,7 @@ export default function BusinessPanel() {
       action={<button className="chip" onClick={addNew}>{t("bizws.add")}</button>}>
       {err && <p className="error" role="alert">{err}</p>}
       {!st && !err && <p className="muted">Loading…</p>}
+      {missing && <p className="muted" role="status">{t("link.missingClient")} <button className="chip" onClick={() => onFocus?.(null)}>{t("link.back")}</button></p>}
 
       {view === "today" && st && (
         <section className="space-y-2" aria-label={t("bizws.today")}>

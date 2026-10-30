@@ -11,6 +11,7 @@ const BASE = {
   "common.approved": "Approved", "common.rejected": "Rejected", "common.copy": "Copy", "common.on": "on", "common.off": "off",
   "bizws.today": "Today", "bizws.pipeline": "Pipeline", "bizws.client": "Clients", "bizws.money": "Money", "bizws.setup": "Setup & niches",
   "bizws.context": "{n} in pipeline · {m} / month", "bizws.add": "+ Add business", "bizws.allClients": "Open client list",
+  "link.missingTask": "This task no longer exists, or the link is wrong.", "link.missingClient": "This client no longer exists, or the link is wrong.", "link.back": "Back",
   "bizws.q.followup": "follow-up due", "bizws.q.send": "draft ready to check and send", "bizws.q.draft": "write a first message",
   "bizws.empty": "Nothing due. Add a business or find one nearby in Pipeline.",
   "common.failed": "Couldn't do that",
@@ -626,6 +627,7 @@ export const EN = { ...BASE, ...Object.fromEntries(PLANETS.flatMap((p) => [[`pla
 export const ET: Partial<Record<Key, string>> = {
   "bizws.today": "Täna", "bizws.pipeline": "Müügitoru", "bizws.client": "Kliendid", "bizws.money": "Raha", "bizws.setup": "Seadistus ja nišid",
   "bizws.context": "{n} müügitorus · {m} / kuus", "bizws.add": "+ Lisa ettevõte", "bizws.allClients": "Ava kliendinimekiri",
+  "link.missingTask": "Seda ülesannet enam pole või link on vale.", "link.missingClient": "Seda klienti enam pole või link on vale.", "link.back": "Tagasi",
   "bizws.q.followup": "järelkiri on käes", "bizws.q.send": "mustand valmis: kontrolli ja saada", "bizws.q.draft": "kirjuta esimene sõnum",
   "bizws.empty": "Midagi pole ootel. Lisa ettevõte või leia mõni lähedal (Müügitoru).",
   "mission.doneWhen": "Valmis, kui: ", "mission.verified": "kontrollitud", "mission.notVerified": "kontrollimata", "mission.effort": "Umbes {n} min · peatumistingimused",
