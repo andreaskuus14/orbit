@@ -189,3 +189,22 @@ test("snapshot guard and prompt sanitising", () => {
   assert.equal(promptSafe("x".repeat(300), 200).length, 200);
   assert.equal(promptSafe(null, 80), "");
 });
+
+test("quote freshness: failure after success keeps market date; stale blocks fills and alerts", async () => {
+  const { recordFetch, prevSession, isStale, freshPrices } = await import("../src/lib/markets-pure.ts");
+  const q = { symbol: "a.us", date: "2026-10-28", open: null, close: 10 };
+  const ok = recordFetch(undefined, q, 1000), bad = recordFetch(ok, "error", 2000);
+  assert.deepEqual(bad, { quote: q, okAt: 1000, triedAt: 2000, failed: true });
+  assert.deepEqual(recordFetch(bad, q, 3000), { quote: q, okAt: 3000, triedAt: 3000, failed: false });
+  assert.equal(prevSession("2026-11-02"), "2026-10-30", "Monday -> Friday");
+  assert.equal(isStale("2026-10-29", "2026-10-30"), false);
+  assert.equal(isStale("2026-10-28", "2026-10-30"), true);
+  const fresh = freshPrices({ A: q, B: { ...q, date: "2026-10-30" } }, "2026-10-30");
+  assert.deepEqual(fresh, { B: 10 });
+  // Paper bot: stale ticker gets no order.
+  assert.deepEqual(rebalanceOrders(newAccount("d"), { A: 1 }, fresh), []);
+  // Alerts only see fresh tickers.
+  const alerts = [{ id: "1", ticker: "A", kind: "above" as const, value: 5 }, { id: "2", ticker: "B", kind: "above" as const, value: 5 }];
+  const d = Object.fromEntries(Object.keys(fresh).map((t) => [t, { price: fresh[t], changePct: null }]));
+  assert.deepEqual(evaluateAlerts(alerts, d, "2026-10-30").map((a) => a.id), ["2"]);
+});

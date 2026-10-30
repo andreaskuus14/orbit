@@ -9,8 +9,8 @@ import { parseFeed } from "./pure";
 import { topicFeedUrl } from "./pulse";
 import {
   MAX_ALERTS, MAX_HOLDINGS, MAX_WATCH, NOTE, STRATEGIES, alertError, alertText, applyOrder, botTargets, cleanTicker, dayChange, dayKey, equity,
-  allPriced, evaluateAlerts, historyMissing, newAccount, promptSafe, parseHistory, parseQuotes, rebalanceOrders, runOrders, snapshot, stats, stooqSymbol, valueHoldings, vsIndex,
-  type Account, type Alert, type AlertKind, type Bar, type Holding, type Quote, type Strategy,
+  allPriced, evaluateAlerts, freshPrices, isStale, recordFetch, historyMissing, newAccount, promptSafe, parseHistory, parseQuotes, rebalanceOrders, runOrders, snapshot, stats, stooqSymbol, valueHoldings, vsIndex,
+  type Account, type Alert, type AlertKind, type Bar, type Holding, type Quote, type QuoteState, type Strategy,
 } from "./markets-pure";
 
 // MARKETS workspace (watchlist, tracked holdings, price alerts, AI explainer, PAPER trading + rule-based paper bot),
@@ -25,7 +25,7 @@ const file = () => {
 };
 type Cache<T> = Map<string, { at: number; v: T }>;
 const g = globalThis as unknown as {
-  __orbitMarkets?: Promise<unknown>; __orbitMkQ?: Cache<Quote | null>; __orbitMkH?: Cache<Bar[]>;
+  __orbitMarkets?: Promise<unknown>; __orbitMkQ?: Map<string, QuoteState>; __orbitMkH?: Cache<Bar[]>;
   __orbitMkA?: Map<string, { at: number; p: Promise<Analysis> }>;
 };
 const quoteCache = (g.__orbitMkQ ??= new Map()), histCache = (g.__orbitMkH ??= new Map()), analysisCache = (g.__orbitMkA ??= new Map());
@@ -78,19 +78,20 @@ async function csv(url: string): Promise<string> {
   const { res } = await safeFetch(url, "text/csv,text/plain,*/*", undefined, 2_000_000);
   return res.text();
 }
-/** Latest quotes keyed by ticker (cached 5 min; batched 20 symbols per request). Unknown/unavailable tickers are absent. */
-export async function getQuotes(tickers: string[], now = Date.now()): Promise<Record<string, Quote>> {
-  const uniq = [...new Set(tickers)], stale = uniq.filter((t) => now - (quoteCache.get(t)?.at ?? 0) > QUOTE_MS);
+/** Latest quotes keyed by ticker (cached 5 min; batched 20 symbols per request). Unknown/unavailable tickers are absent.
+ *  Each carries `okAt` (last successful fetch) and `failed` (last attempt failed); `date` is always the provider's market date. */
+export async function getQuotes(tickers: string[], now = Date.now()): Promise<Record<string, Quote & { okAt: number | null; failed: boolean }>> {
+  const uniq = [...new Set(tickers)], stale = uniq.filter((t) => now - (quoteCache.get(t)?.triedAt ?? 0) > QUOTE_MS);
   for (let i = 0; i < stale.length; i += 20) {
     const batch = stale.slice(i, i + 20);
     try {
       const got = new Map(parseQuotes(await csv(`https://stooq.com/q/l/?s=${batch.map(stooqSymbol).join("+")}&f=sd2t2ohlcv&h&e=csv`)).map((q) => [q.symbol, q]));
-      batch.forEach((t) => put(quoteCache, t, { at: now, v: got.get(stooqSymbol(t)) ?? null }));
+      batch.forEach((t) => put(quoteCache, t, recordFetch(quoteCache.get(t), got.get(stooqSymbol(t)) ?? null, now)));
     } catch {
-      batch.forEach((t) => put(quoteCache, t, { at: now, v: quoteCache.get(t)?.v ?? null })); // offline: keep the old quote, retry in 5 min
+      batch.forEach((t) => put(quoteCache, t, recordFetch(quoteCache.get(t), "error", now))); // offline: keep the old quote + its date, retry in 5 min
     }
   }
-  return Object.fromEntries(uniq.flatMap((t) => { const q = quoteCache.get(t)?.v; return q ? [[t, q]] : []; }));
+  return Object.fromEntries(uniq.flatMap((t) => { const c = quoteCache.get(t); return c?.quote ? [[t, { ...c.quote, okAt: c.okAt, failed: c.failed }]] : []; }));
 }
 /** Last 180 daily bars (cached 6 h; [] when unavailable). */
 export async function getHistory(t: string, now = Date.now()): Promise<Bar[]> {
@@ -113,7 +114,7 @@ async function histories(tickers: string[]): Promise<Record<string, Bar[]>> {
 
 /* ---------- daily sync: snapshots, bot, alerts ---------- */
 
-type Data = { quotes: Record<string, Quote>; hist: Record<string, Bar[]>; prices: Record<string, number>; change: Record<string, number | null> };
+type Data = { quotes: Awaited<ReturnType<typeof getQuotes>>; hist: Record<string, Bar[]>; prices: Record<string, number>; change: Record<string, number | null> };
 
 /** Fetch what the store needs, then in one write: snapshot both paper accounts, run the bot once per day, and (alerts=true)
  *  mark alert rules that trigger now as fired today. */
@@ -124,11 +125,12 @@ async function sync(checkAlerts: boolean) {
   const [quotes, hist] = await Promise.all([getQuotes(all), histories([...snap.watchlist, ...snap.alerts.map((a) => a.ticker)])]);
   const prices = Object.fromEntries(Object.entries(quotes).map(([t, q]) => [t, q.close]));
   const change = Object.fromEntries(Object.entries(quotes).map(([t, q]) => [t, dayChange(q, hist[t] ?? [])]));
+  const fresh = freshPrices(quotes, today); // paper fills and alerts never act on a stale close
   const data: Data = { quotes, hist, prices, change };
   const fired = await update((s) => {
     let out: { id: string; ticker: string; text: string }[] = [];
     if (checkAlerts) {
-      const d = Object.fromEntries(Object.keys(prices).map((t) => [t, { price: prices[t], changePct: change[t] }]));
+      const d = Object.fromEntries(Object.keys(fresh).map((t) => [t, { price: prices[t], changePct: change[t] }]));
       out = evaluateAlerts(s.alerts, d, today);
       for (const f of out) { const a = s.alerts.find((x) => x.id === f.id); if (a) a.firedOn = today; }
     }
@@ -142,7 +144,7 @@ async function sync(checkAlerts: boolean) {
       } else b.lastRun = today;
       if (targets) {
         if (b.strategy === "rebalance") b.lastRebalance = today;
-        const r = runOrders(b.account, rebalanceOrders(b.account, targets, prices), prices, new Date().toISOString(), `bot: ${b.strategy}`);
+        const r = runOrders(b.account, rebalanceOrders(b.account, targets, fresh), fresh, new Date().toISOString(), `bot: ${b.strategy}`);
         b.account = r.account;
         b.log = [`${today}: ${r.log.length ? r.log.join("; ") : "no trades needed"}`, ...b.log].slice(0, 60);
       }
@@ -170,7 +172,7 @@ export async function getMarkets() {
   const s = await read(), { quotes, hist, prices, change } = data;
   return {
     note: NOTE,
-    watchlist: s.watchlist.map((t) => ({ ticker: t, price: prices[t] ?? null, date: quotes[t]?.date ?? null, changePct: change[t] ?? null,
+    watchlist: s.watchlist.map((t) => ({ ticker: t, price: prices[t] ?? null, date: quotes[t]?.date ?? null, failed: quotes[t]?.failed ?? false, stale: quotes[t] ? isStale(quotes[t].date, dayKey()) : false, changePct: change[t] ?? null,
       spark: (hist[t] ?? []).slice(-30).map((b) => b.close) })),
     portfolio: valueHoldings(s.holdings, prices),
     alerts: s.alerts.map((a) => ({ ...a, text: alertText(a) })),
@@ -216,6 +218,7 @@ export const removeAlert = (id: string) => update((s) => { s.alerts = s.alerts.f
 export async function paperOrder(ticker: string, side: unknown, qty: unknown): Promise<R> {
   const q = (await getQuotes([ticker]))[ticker];
   if (!q) return { error: `No price for ${ticker} (US stocks/ETFs only)` };
+  if (isStale(q.date, dayKey())) return { error: `Latest ${ticker} close is from ${q.date} (stale); paper order not filled` };
   return update((s) => {
     const r = applyOrder(s.paper, { ticker, side, qty }, q.close, new Date().toISOString());
     if ("error" in r) return r;
