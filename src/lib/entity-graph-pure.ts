@@ -1,5 +1,5 @@
 // Entity graph + contradiction check (pure, tested in tests/entity-graph.test.ts). IO: entity-graph.ts; API: /api/memories/entities;
-// UI: MemoryEntities.tsx in the MEMORY panel; one brief line. Rules only, no model call. Journal (LIFE) memories are dropped here
+// UI: the MEMORY review queue (memory-review-pure.ts); one brief line. Rules only, no model call. Journal (LIFE) memories are dropped here
 // even if a caller passes them. Conflicts settle by memory-types-pure.ts weight before anything is asked. Merges are only ever SUGGESTED: claims group across names only after the owner confirms.
 
 import { currentOnly, resolveClaims, weight } from "./memory-types-pure.ts";
