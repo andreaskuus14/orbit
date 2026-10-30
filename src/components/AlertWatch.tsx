@@ -1,9 +1,10 @@
 "use client";
 import { useEffect } from "react";
+import { sharedJson } from "./use-poll";
 import { notify, NOTIFY_KEY, parseItems, type NotifyDetail } from "@/lib/notify-pure";
 import { RESOLVE_ALERT, businessReplies, signalFor, type Signal } from "@/lib/interruption-pure";
 
-const json = async (url: string) => { const r = await fetch(url, { cache: "no-store" }); return r.ok ? r.json() : null; };
+const json = sharedJson as (url: string) => Promise<any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- shared with StudioNotifier/panels while in flight
 /** Observe existing read-only status endpoints. Never refresh credentials or start an agent/briefing. */
 export function AlertWatch() {
   useEffect(() => {
@@ -18,7 +19,7 @@ export function AlertWatch() {
       if (!on) { open.delete(signal); dispatchEvent(new CustomEvent(RESOLVE_ALERT, { detail: signal })); }
     };
     const poll = async () => {
-      if (busy || stopped) return;
+      if (busy || stopped || document.hidden) return; // hidden tab: the server watches; refresh on return
       busy = true;
       const safe = (url: string) => json(url).catch(() => null);
       try {
@@ -40,8 +41,10 @@ export function AlertWatch() {
 
       } finally { busy = false; }
     };
+    const back = () => { if (!document.hidden) void poll(); };
     void poll(); const timer = setInterval(() => void poll(), 60_000);
-    return () => { stopped = true; clearInterval(timer); };
+    document.addEventListener("visibilitychange", back);
+    return () => { stopped = true; clearInterval(timer); document.removeEventListener("visibilitychange", back); };
   }, []);
   return null;
 }

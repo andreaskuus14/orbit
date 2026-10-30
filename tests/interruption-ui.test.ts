@@ -141,11 +141,12 @@ test("bell batch count excludes the update already shown as a popup", () => {
 test("blocked storage keeps the insight baseline in memory and every new insight reaches the shared bus", async () => {
   const m = { exports: {} as any }, got: notices.NotifyDetail[] = [];
   let items: any[] = [{ key: "old", kind: "hot", priority: "high", title: "Old Short", detail: "100 views" }];
+  const fetch = async () => ({ ok: true, json: async () => ({ items }) });
   runInNewContext(compile("components/StudioNotifier.tsx") + "\nexports.pollInsights = insightNotes;", {
     module: m, exports: m.exports,
     localStorage: { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("quota"); } },
     fetch: async () => ({ ok: true, json: async () => ({ items }) }),
-    require: (name: string) => name.endsWith("notify-pure") ? { notify: (d: notices.NotifyDetail) => got.push(d) } : name.endsWith("interruption-pure") ? rules : name === "react" || name.endsWith("studio-notify") || name.endsWith("failure-alert-pure") ? {} : require(name),
+    require: (name: string) => name.endsWith("notify-pure") ? { notify: (d: notices.NotifyDetail) => got.push(d) } : name.endsWith("interruption-pure") ? rules : name === "./use-poll" ? { sharedJson: (u: string) => fetch().then((r) => (r.ok ? r.json() : null), () => u && null) } : name === "react" || name.endsWith("studio-notify") || name.endsWith("failure-alert-pure") ? {} : require(name),
   });
   await m.exports.pollInsights(); assert.equal(got.length, 0);
   items = [...items, ...[1, 2, 3].map((n) => ({ key: `new${n}`, kind: "hot", priority: "high", title: `Short ${n}`, detail: `${n * 1000} views` }))];
