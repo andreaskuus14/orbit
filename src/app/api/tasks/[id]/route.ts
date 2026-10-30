@@ -4,6 +4,7 @@ import { ConflictError, cancelTask, kickQueue, resolvePending } from "@/lib/agen
 import { cancelChain } from "@/lib/chains";
 import { CHAIN_TITLE } from "@/lib/chains-pure";
 import { canRetryTask } from "@/lib/completion-pure";
+import { abandonPatch, cleanInput, outputClash, retryStepPatch } from "@/lib/tasks-recovery-pure";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 type Ctx = { params: Promise<{ id: string }> };
@@ -24,22 +25,52 @@ export async function GET(_: Request, { params }: Ctx) {
   return Response.json({ task, children: [...children, ...(nested ?? [])] });
 }
 
-/** approve | reject (pending actions), retry (failed/cancelled), cancel (queued or running, with its sub-tasks). */
+/** approve | reject (pending actions), retry | replace_input (rerun, nothing resolved), retry_step | resume | abandon (at the failed step), cancel (queued or running, with its sub-tasks). */
 export async function POST(req: Request, { params }: Ctx) {
   const h = req.headers; // the middleware matcher skips paths ending in .png etc., so check here too
   if (crossSiteBlocked("POST", "/api/tasks", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const { id } = await params;
-  const { action } = await req.json().catch(() => ({}));
+  const { action, request } = await req.json().catch(() => ({}));
   try {
-    if (action === "approve" || action === "reject") {
-      const pending = await resolvePending(sb, user.id, id, action === "approve");
+    if (action === "approve" || action === "resume") { // OPS03: one writer per output at a time
+      const { data: mine } = await sb.from("tasks").select("pending").eq("user_id", user.id).eq("id", id).maybeSingle();
+      const { data: others } = await sb.from("tasks").select("id, status, pending").eq("user_id", user.id).eq("status", "running").neq("id", id).limit(100);
+      const clash = outputClash(mine?.pending ?? [], others ?? []);
+      if (clash) return Response.json({ error: `Another task (${clash}) is writing the same output right now. Approve this one after it finishes.`, blockedBy: clash }, { status: 409 });
+    }
+    if (action === "retry_step" || action === "resume") { // OPS04: failed/uncertain/rejected actions only; receipts and attempt ids kept
+      const { data: t, error: tErr } = await sb.from("tasks").select("pending, parent_id").eq("user_id", user.id).eq("id", id).in("status", ["failed", "cancelled"]).maybeSingle();
+      if (tErr) throw tErr;
+      const patch = t && retryStepPatch(t.pending ?? []);
+      if (!patch) return Response.json({ error: "No failed step to retry here" }, { status: 400 });
+      const { data: hit, error } = await sb.from("tasks").update(patch).eq("user_id", user.id).eq("id", id).in("status", ["failed", "cancelled"]).select("id");
+      if (error) throw error;
+      if (!hit?.length) return Response.json({ error: "This task changed meanwhile. Reload it." }, { status: 409 });
+      // A failed (non-team) parent waits for this step again; resolvePending settles it once the step finishes.
+      for (let p = t.parent_id as string | null, depth = 0; p && depth < 3; depth++) {
+        const { data: up } = await sb.from("tasks").update({ status: "awaiting_approval", finished_at: null }).eq("user_id", user.id).eq("id", p).eq("status", "failed").not("title", "like", "Team: %").select("parent_id");
+        p = up?.[0]?.parent_id ?? null;
+      }
+      if (action === "retry_step") return Response.json({ ok: true });
+    }
+    if (action === "abandon") {
+      const { data: t } = await sb.from("tasks").select("error").eq("user_id", user.id).eq("id", id).eq("status", "failed").maybeSingle();
+      if (!t) return Response.json({ error: "Only a failed task can be abandoned" }, { status: 400 });
+      const { error } = await sb.from("tasks").update({ ...abandonPatch(t.error), finished_at: new Date().toISOString() }).eq("user_id", user.id).eq("id", id).eq("status", "failed");
+      if (error) throw error;
+      return Response.json({ ok: true });
+    }
+    if (action === "approve" || action === "reject" || action === "resume") {
+      const pending = await resolvePending(sb, user.id, id, action !== "reject");
       void kickQueue(sb, user.id); // approved follow-up tasks start now
       void import("@/lib/missions").then((m) => m.resumeMissions(sb, user.id)).catch(() => {}); // a mission waiting on this approval moves on now (reads never drive)
       return Response.json({ pending });
     }
-    if (action === "retry") {
+    if (action === "retry" || action === "replace_input") {
+      const input = action === "replace_input" ? cleanInput(request) : null;
+      if (action === "replace_input" && !input) return Response.json({ error: "Describe the new input (at least 5 characters)" }, { status: 400 });
       const { data: previous, error: previousError } = await sb.from("tasks").select("pending").eq("user_id", user.id).eq("id", id).maybeSingle();
       if (previousError) throw previousError;
       if (!previous || !canRetryTask(previous.pending ?? [])) return Response.json({ error: "This task has resolved actions. Keep their results and request only the unfinished work in a follow-up." }, { status: 409 });
@@ -51,7 +82,7 @@ export async function POST(req: Request, { params }: Ctx) {
           return Response.json({ error: "Delegated work has resolved actions. Review its results and request only the unfinished work." }, { status: 409 });
         parents = (children ?? []).map((c) => c.id);
       }
-      const { data, error } = await sb.from("tasks").update({ status: "queued", error: null, result: null, trace: [], pending: [], started_at: null, finished_at: null })
+      const { data, error } = await sb.from("tasks").update({ ...(input && { request: input }), status: "queued", error: null, result: null, trace: [], pending: [], started_at: null, finished_at: null })
         .eq("id", id).in("status", ["failed", "cancelled"]).is("parent_id", null).not("title", "like", "Team: %").select("id"); // a team runs its own steps (src/lib/chains.ts)
       if (error) throw error;
       if (!data?.length) return Response.json({ error: "Only failed or cancelled tasks can be retried" }, { status: 400 });

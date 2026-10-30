@@ -8,6 +8,7 @@ import path from "node:path";
 import ts from "typescript";
 import * as completionPure from "../src/lib/completion-pure.ts";
 import { canRetryTask, completionState, matchesStored } from "../src/lib/completion-pure.ts";
+import * as recovery from "../src/lib/tasks-recovery-pure.ts";
 import { blockedMsg, type GuardedId } from "../src/lib/version-pure.ts";
 import { verifyRow } from "../src/lib/completion.ts";
 
@@ -40,13 +41,14 @@ function approvalHarness(rows: Record<string, unknown>[], missing = new Set<stri
     const filters: [string, unknown][] = []; let patch: object | null = null;
     const query = {
       select() { return query; }, eq(key: string, value: unknown) { filters.push([key, value]); return query; },
+      neq(key: string, value: unknown) { filters.push([key, (x: unknown) => x !== value]); return query; },
       in(key: string, values: unknown[]) { filters.push([key, new Set(values)]); return query; },
       is(key: string, value: unknown) { filters.push([key, value]); return query; }, not() { return query; },
       limit() { return query; },
       order() { return query; },
       update(value: object) { patch = value; return query; },
       exec(single = false) {
-        const matches = db.filter((r) => filters.every(([k, v]) => v instanceof Set ? v.has(r[k]) : r[k] === v));
+        const matches = db.filter((r) => filters.every(([k, v]) => v instanceof Set ? v.has(r[k]) : typeof v === "function" ? v(r[k]) : r[k] === v));
         if (patch) for (const r of matches) Object.assign(r, structuredClone(patch));
         return { data: single ? matches[0] ?? null : structuredClone(matches), error: null };
       },
@@ -193,4 +195,61 @@ test("executed vs verified: a task without read-back evidence never shows verifi
   assert.equal(taskVerified("done", [{ status: "approved", evidence: [{ kind: "memory", id: "m" }] }]), true);
   assert.equal(doneLabel(false), "Done · executed, not read back");
   assert.equal(doneLabel(true), "Done · executed, read back");
+});
+
+// OPS04: recovery at the failed step through the actual route + actual resolvePending.
+function routeWith(h: ReturnType<typeof approvalHarness>) {
+  const exports: Record<string, any> = {};
+  const source = ts.transpileModule(readFileSync(new URL("../src/app/api/tasks/[id]/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  vm.runInNewContext(source, { exports, Response, require: (name: string) => name.endsWith("supabase/server") ? { requireUser: async () => ({ sb: h.sb, user: { id: "owner" } }) }
+    : name.endsWith("tasks-recovery-pure") ? recovery : name.endsWith("completion-pure") ? { canRetryTask } : name.endsWith("/agents") ? { resolvePending: h.resolve, kickQueue: () => {}, ConflictError: Error } : name.endsWith("/csrf") ? { crossSiteBlocked: () => false } : {} });
+  return (id: string, body: object) => exports.POST(new Request(`http://localhost/api/tasks/${id}`, { method: "POST", body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
+}
+
+test("retry at the failed step re-runs only the failed/uncertain action under its original attempt id; receipts are never rewritten", async () => {
+  const h = approvalHarness([task("parent", null, "failed"), task("t", "parent", "failed", [
+    { tool: "save_memory", input: { title: "a" }, status: "approved", attempt: "t:0", evidence: [{ kind: "memory", id: "m1" }] },
+    { tool: "add_task", input: { title: "b" }, status: "uncertain", attempt: "t:1", note: "no receipt" },
+  ])]);
+  const landed = new Map<string, string>([["t:1", "row-from-first-try"]]); // the write landed before the crash
+  let writes = 0;
+  h.tools.save_memory.run = () => { throw new Error("accepted artifact must not be rewritten"); };
+  h.tools.add_task.run = async (ctx: any) => { // same contract as landed()/insertOnce: an attempt that already wrote returns its row
+    const prior = landed.get(ctx.attempt);
+    if (!prior) { writes++; landed.set(ctx.attempt, "new"); }
+    ctx.evidence.push({ kind: "task", id: prior ?? "new" }); return prior ? "Already done" : "Added";
+  };
+  const post = routeWith(h);
+  assert.equal((await post("t", { action: "retry_step" })).status, 200);
+  const t = h.db.find((r) => r.id === "t")! as any;
+  assert.equal(t.status, "awaiting_approval");
+  assert.deepEqual(t.pending.map((a: any) => a.status), ["approved", "pending"]);
+  assert.equal(t.pending[1].attempt, "t:1");
+  assert.equal(h.db[0].status, "awaiting_approval"); // the failed parent waits for the step again
+  assert.equal((await post("t", { action: "approve" })).status, 200);
+  assert.equal(writes, 0);
+  const after = h.db.find((r) => r.id === "t")! as any;
+  assert.equal(after.status, "done");
+  assert.deepEqual(after.pending[0].evidence, [{ kind: "memory", id: "m1" }]);
+  assert.deepEqual(after.pending[1].evidence, [{ kind: "task", id: "row-from-first-try" }]);
+  assert.equal(h.db[0].status, "done");
+});
+
+test("resume approves the failed step in one click; abandon keeps evidence; a second writer to the same output waits", async () => {
+  const h = approvalHarness([task("t", null, "failed", [{ tool: "add_task", input: { title: "Report" }, status: "failed", attempt: "t:0", note: "timeout" }]),
+    task("busy", null, "running", [{ tool: "add_task", input: { title: "report" }, status: "attempting" }])]);
+  let runs = 0;
+  h.tools.add_task.run = async () => { runs++; return "Added"; };
+  const post = routeWith(h);
+  const clash = await post("t", { action: "resume" });
+  assert.equal(clash.status, 409); assert.equal((await clash.json()).blockedBy, "busy");
+  assert.equal(h.db[0].status, "failed"); assert.equal(runs, 0);
+  h.db[1].status = "done";
+  assert.equal((await post("t", { action: "resume" })).status, 200);
+  assert.equal(runs, 1); assert.equal(h.db[0].status, "done");
+  const f = approvalHarness([task("x", null, "failed", [{ tool: "save_memory", input: {}, status: "approved", evidence: [{ kind: "memory", id: "m" }] }])]);
+  (f.db[0] as any).error = "boom";
+  assert.equal((await routeWith(f)("x", { action: "abandon" })).status, 200);
+  assert.equal(f.db[0].status, "cancelled"); assert.match(String((f.db[0] as any).error), /Abandoned.*boom/);
+  assert.equal((f.db[0].pending as any[])[0].evidence[0].id, "m");
 });
