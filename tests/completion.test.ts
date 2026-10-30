@@ -141,6 +141,7 @@ test("actual file-open endpoint checks the signed-in owner's file before issuing
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL("../src/app/api/workspace/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(source, { exports, Response, URL, require: (name: string) => name.endsWith("supabase/server") ? { requireUser: async () => ({ user: { id: "owner" } }) }
+    : name.endsWith("/ws-server") ? { serverStatus: () => ({ running: false }) }
     : name.endsWith("workspace-pure") ? { isSlug: (x: string) => x === "site" }
     : name.endsWith("/workspace") ? { readWsFile: async (...args: unknown[]) => { reads.push(args); return args[2] === "index.html" ? { text: "<h1>Saved</h1>", size: 14 } : null; }, previewUrl: async () => { signs++; return "/w/signed/index.html"; } } : {} });
   const ok = await exports.GET(new Request("http://localhost/api/workspace?ws=site&file=index.html&open=1"));
