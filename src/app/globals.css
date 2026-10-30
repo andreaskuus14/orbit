@@ -25,6 +25,7 @@
   /* Readable surfaces (tests/readable-surfaces checks alpha): working panels hide the scene behind them; the global nav sits on a scrim. */
   --panel-surface: rgba(6, 12, 28, 0.88);
   --work-surface: rgba(7, 9, 14, 0.9);
+  --core-surface: rgba(5, 9, 20, 0.96);
   --nav-scrim: linear-gradient(rgba(2, 4, 11, 0.85), rgba(2, 4, 11, 0.6) 65%, transparent);
   --font-display: var(--font-rajdhani), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", Consolas, monospace;
@@ -890,3 +891,13 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .ws-tabs > [role="tab"] { flex: none; white-space: nowrap; }
 @media (min-width: 761px) { body:has(.drawer:not(.drawer-out)) .herald { top: 8.5rem; } }
 .state-note { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+
+/* CORE chat (tests/core-readable): a solid reading surface, the scene dims behind a conversation, decorative serials stay off the text. */
+.orbit-shell .drawer.glass:has(.core-ws) { background-color: var(--core-surface); }
+.orbit-shell:has(.core-ws .bubble) div:has(> canvas) { filter: brightness(0.4) saturate(0.6); transition: filter 0.4s; }
+.orbit-shell .drawer:has(.core-ws .bubble)::after { display: none; }
+.core-ws .bubble { font-size: 15px; line-height: 1.5; color: #e6edf5; }
+.orbit-shell .core-ws .bubble.user { background: #123a52; border-color: #5cc8f0; color: #f2f9ff; }
+.orbit-shell .core-ws .bubble.core { background: #191530; border-color: #6f5fb8; border-left: 3px solid #a78bfa; }
+.core-ws form { border-top: 1px solid #b4d9e030; padding-top: 0.75rem; }
+@media (prefers-reduced-motion: reduce) { .orbit-shell:has(.core-ws .bubble) div:has(> canvas) { transition: none; } }
