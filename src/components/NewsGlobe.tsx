@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useT } from "./i18n";
-import { mapLegend } from "@/lib/news-intel-pure";
+import { mapLegend } from "@/lib/news-map-pure";
 import { useGlRecovery } from "./useGlRecovery";
 import { worldQuality, type QualityMode } from "@/lib/quality-pure";
 import { FrameMark } from "./dev-timing";

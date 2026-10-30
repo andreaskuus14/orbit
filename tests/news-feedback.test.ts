@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanPrefs, heldOut, mapLegend, matchesPrefs, MIN_HELD, pairAccuracy, rankingGate, RANKERS, type Feedback } from "../src/lib/news-intel-pure.ts";
-
+import { cleanPrefs, heldOut, matchesPrefs, MIN_HELD, pairAccuracy, rankingGate, RANKERS, type Feedback } from "../src/lib/news-intel-pure.ts";
+import { mapLegend } from "../src/lib/news-map-pure.ts";
 test("INT05 map legend: window by fetch time, coverage not significance, placed share", () => {
   const l = mapLegend({ hours: 24, total: 10, untagged: 3 }, Date.parse("2026-10-30T12:00:00Z"));
   assert.deepEqual(l, { from: "2026-10-29 12:00", to: "2026-10-30 12:00", hours: 24, placed: 7, total: 10, untagged: 3, location: "named", size: "coverage", by: "fetched" });
