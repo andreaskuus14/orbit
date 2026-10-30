@@ -51,6 +51,9 @@ const PAIRS: [string, string, string][] = [
   ["WEEK", "How is my streak?", "Kuidas mu seeria on?"],
   ["CHECKPOINT", "Remember for this chat: no red", "Pea selle vestluse jaoks meeles: punast ei kasuta"],
   ["CHECKPOINT", "Continue where I stopped", "Jätka sealt, kus pooleli jäin"],
+  ["ORGANIZE", "Rename the invoice file", "Nimeta arve fail ümber"],
+  ["ORGANIZE", "Pause the news automation", "Peata uudiste automaatika"],
+  ["ORGANIZE", "Mark the client as verified", "Märgi klient kinnitatuks"],
   ["CHECKPOINT", "Save a checkpoint with the next step", "Salvesta järgmine samm"],
 ];
 
