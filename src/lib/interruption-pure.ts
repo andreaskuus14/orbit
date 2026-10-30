@@ -40,7 +40,7 @@ export function parseJudgment(raw: string | null, now: number): JudgmentState {
 export function signalFor(d: NotifyDetail): Signal {
   if (signalOK(d.signal)) return d.signal;
   const t = d.title;
-  if (/^(?:A clip job failed|\d+ clip jobs failed|Upload failed|Couldn't start the clip)/i.test(t)) return "upload-failed";
+  if (/^(?:A clip job failed|\d+ clip jobs failed|STUDIO: .* failed$|Upload failed|Couldn't start the clip)/i.test(t)) return "upload-failed";
   if (/^YouTube (?:sign-in|login).*(?:expired|reconnect)/i.test(t)) return "youtube-expired";
   if (/^Claude usage limit (?:hit|reached)/i.test(t)) return "usage-limit";
   if (d.kind === "agents") return "agent-finished";
@@ -69,14 +69,23 @@ export function dismissKind(state: JudgmentState, signal: Signal, now: number): 
 }
 export const unmuteKind = (s: JudgmentState, signal: Signal): JudgmentState => ({ ...s, muted: s.muted.filter((k) => k !== signal), dismissals: { ...s.dismissals, [signal]: [] } });
 // focus: LIFE focus timer running; theater: a video is playing. Both hold non-urgent pop-ups (they stay queued and in the bell).
-export type Attention = { visible: boolean; coreBusy: boolean; worldOpen: boolean; lastTyped: number; popupsOff?: boolean; focus?: boolean; theater?: boolean };
-export const ownerIdle = (a: Attention, now: number) => a.visible && !a.coreBusy && !a.worldOpen && !a.focus && !a.theater && now - a.lastTyped >= IDLE_MS;
+// startup: the morning card or What's new is on screen (startup-pure); non-urgent pop-ups wait instead of stacking on it.
+export type Attention = { visible: boolean; coreBusy: boolean; worldOpen: boolean; lastTyped: number; popupsOff?: boolean; focus?: boolean; theater?: boolean; startup?: boolean };
+export const ownerIdle = (a: Attention, now: number) => a.visible && !a.coreBusy && !a.worldOpen && !a.focus && !a.theater && !a.startup && now - a.lastTyped >= IDLE_MS;
 export const focusRunning = (raw: string | null, now: number) => { const t = restoreFocusTimer(raw, now).timer; return t.phase === "focus" && t.endAt > now; };
 
 /** One event, one request: toast, voice, bell and Needs-you (and its planet beacon) share the Needs-you record+cause key. */
 export const requestKey = (ref: string, cause: string) => `need:${recordRef(ref)}:${cause}`;
 export const agentNoticeKey = (taskId: string, type: string, status?: string) =>
   type === "agent.failed" || status === "failed" ? requestKey(`task:${taskId}`, "failed") : `agent:${taskId}:${type}:${status}`;
+/** Agent finished/failed notice: the task's title (truncated), never its raw id; opens the task (deep link #o=operations&k=task&id=…). */
+export function taskNotice(taskId: string, type: string, status: string | undefined, title?: unknown): NotifyDetail {
+  const name = typeof title === "string" && title.trim() ? `“${title.replace(/\s+/g, " ").trim().slice(0, 60)}”` : "Your task";
+  const failed = type === "agent.failed" || status === "failed";
+  const [head, reason] = failed ? ["Agent task failed", `${name} failed and needs review.`] : status === "awaiting_approval" ? ["Task needs your approval", `${name} is waiting for your approval.`]
+    : status === "cancelled" ? ["Agent task cancelled", `${name} was cancelled.`] : ["Agent task finished", `${name} finished and its result is ready.`];
+  return { signal: "agent-finished", key: agentNoticeKey(taskId, type, status), title: head, reason, body: name, kind: "agents", nav: { panel: "operations", open: { kind: "task", id: taskId } } };
+}
 /** Back after a long absence: one per key, urgent ones still pop alone; the rest are ranked useful-first, newest first. */
 export function digestQueue<T extends NotifyDetail & { key: string }>(queue: T[], state: JudgmentState): { urgent: T[]; digest: T[] } {
   const rank = { URGENT: 0, USEFUL: 1, QUIET: 2 } as const, seen = new Set<string>(), one: T[] = [];
@@ -114,19 +123,18 @@ type ClipSnapshot = { jobs?: { id: string; status: string; source?: string; upda
 export function clipProblemNotices(data: ClipSnapshot): NotifyDetail[] {
   const out: NotifyDetail[] = [];
   const add = (key: string, title: string, reason: string, review: boolean) => out.push({ key, title, reason, kind: "studio", signal: "upload-failed", fixLabel: "Review failure", nav: { panel: "studio", view: review ? "review" : "clips" } });
-  // Many failed jobs/downloads at once (e.g. a broken yt-dlp) become one notice. Keyed by the newest failure only:
-  // a retry or cleanup shrinking the set keeps the key (no re-alert); a new failure changes it.
-  const one = <T,>(items: T[], at: (x: T) => string, key: (x: T) => string, title: (x: T) => string, reason: (x: T) => string, many: string) => {
-    if (!items.length) return;
-    const newest = items.reduce((a, b) => (at(b) > at(a) ? b : a));
-    add(key(newest), items.length > 1 ? `${items.length} ${many}` : title(newest), items.length > 1 ? "Open STUDIO to see why; they may share one cause." : reason(newest), false);
-  };
-  one((data.jobs ?? []).filter((j) => j.status === "failed"), (j) => j.updatedAt ?? "", (j) => `failed-job:${j.id}:${j.updatedAt ?? ""}`,
-    () => "A clip job failed", (j) => `Clip job ${(j.source || j.id).slice(0, 100)} failed and needs review.`, "clip jobs failed");
-  for (const j of data.jobs ?? []) {
-    for (const c of j.clips ?? []) if (c.publish?.status === "failed") add(`failed-upload:${j.id}:${c.id}:${c.publish.at ?? ""}`, "Upload failed", `Your Short ${(c.title || c.id).slice(0, 100)} could not be uploaded.`, true);
+  // Failed clip jobs and downloads usually share one cause (e.g. a broken yt-dlp): one STUDIO notice with both counts. Keyed by
+  // the newest failure of each kind: a retry or cleanup shrinking the set keeps the key (no re-alert); a new failure changes it.
+  const jobs = (data.jobs ?? []).filter((j) => j.status === "failed"), dls = (data.downloads ?? []).filter((d) => d.status === "failed");
+  const newest = <T,>(xs: T[], at: (x: T) => string) => xs.reduce((a, b) => (at(b) > at(a) ? b : a));
+  const j = jobs.length ? newest(jobs, (x) => x.updatedAt ?? "") : null, d = dls.length ? newest(dls, (x) => x.createdAt ?? "") : null;
+  const jKey = j && `failed-job:${j.id}:${j.updatedAt ?? ""}`, dKey = d && `failed-download:${d.id}:${d.createdAt ?? ""}`;
+  const count = (n: number, one: string, many: string) => (n === 1 ? one : `${n} ${many}`);
+  if (j && d) add(`${jKey}|${dKey}`, `STUDIO: ${count(jobs.length, "1 clip job", "clip jobs")} and ${count(dls.length, "1 download", "downloads")} failed`, "Open STUDIO to see why; they likely share one cause.", false);
+  else if (j) add(jKey!, jobs.length > 1 ? `${jobs.length} clip jobs failed` : "A clip job failed", jobs.length > 1 ? "Open STUDIO to see why; they may share one cause." : `Clip job ${(j.source || j.id).slice(0, 100)} failed and needs review.`, false);
+  else if (d) add(dKey!, dls.length > 1 ? `${dls.length} downloads failed` : "A download failed", dls.length > 1 ? "Open STUDIO to see why; they may share one cause." : `Download ${d.id.slice(0, 50)} failed; STUDIO has the error and retry control.`, false);
+  for (const job of data.jobs ?? []) {
+    for (const c of job.clips ?? []) if (c.publish?.status === "failed") add(`failed-upload:${job.id}:${c.id}:${c.publish.at ?? ""}`, "Upload failed", `Your Short ${(c.title || c.id).slice(0, 100)} could not be uploaded.`, true);
   }
-  one((data.downloads ?? []).filter((d) => d.status === "failed"), (d) => d.createdAt ?? "", (d) => `failed-download:${d.id}:${d.createdAt ?? ""}`,
-    () => "A download failed", (d) => `Download ${d.id.slice(0, 50)} failed; STUDIO has the error and retry control.`, "downloads failed");
   return out;
 }

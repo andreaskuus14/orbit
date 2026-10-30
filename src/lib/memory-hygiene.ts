@@ -65,10 +65,11 @@ async function queue(sb: SupabaseClient, userId: string, u: ReviewState, proposa
     ids.length ? mine(cols).in("id", ids) : { data: [] },
     listFacts(sb, userId).catch((e) => { if (e instanceof FactsMissing) return []; throw e; }),
   ]);
+  const entities = await import("./entity-graph").then((m) => m.entitiesView(sb, userId)).catch((e) => { console.error("[hygiene] entities", e); return null; });
   type Row = { content?: unknown; tags?: unknown } & Record<string, unknown>;
   const mems = ([...(inferred.data ?? []), ...(stale.data ?? []), ...(merged.data ?? [])] as unknown as Row[])
     .map((m) => ({ ...m, content: String(m.content ?? ""), tags: (m.tags ?? []) as string[] })) as unknown as Parameters<typeof buildQueue>[0]["mems"];
-  return buildQueue({ proposals, mems, facts }, u, now);
+  return buildQueue({ proposals, mems, facts, entities }, u, now);
 }
 
 /** The owner's decision on a queue item (the action itself already ran through the memory/fact routes). */

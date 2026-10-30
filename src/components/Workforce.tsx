@@ -15,7 +15,7 @@ export type Deps = { configured: DepState | null; available: DepState | null } |
 export type ToolInfo = { name: string; approval: boolean };
 
 export const OPS_HREF = linkToHash({ planet: "operations" });
-const yn = (v: boolean | null | undefined) => (v === true ? "✓" : v === false ? "✗" : "?");
+const yn = (v: boolean | null | undefined, unknown: string) => (v === true ? "✓" : v === false ? "✗" : unknown);
 
 export function WorkerCards({ agents, deps, tools, onPick }: { agents: RosterAgent[]; deps: Deps; tools: ToolInfo[]; onPick: (slug: string) => void }) {
   const { t, lang } = useT();
@@ -34,7 +34,7 @@ export function WorkerCards({ agents, deps, tools, onPick }: { agents: RosterAge
             </div>
             <p className="muted">{t("agt.domain")}: {c.domain || "—"}</p>
             <p>{t("agt.tools")}: {c.tools.length ? c.tools.map((x) => `${x.name.replace(/_/g, " ")}${x.approval ? " 🔒" : ""}`).join(", ") : t("agt.noTools")}</p>
-            <p>{t("agt.conns")}: {c.conns.map((x) => `${x.dep} (${t("agt.configured")} ${yn(x.configured)} · ${t("agt.available")} ${yn(x.available)})`).join(", ")}</p>
+            <p>{t("agt.conns")}: {c.conns.map((x) => `${x.dep} (${t("agt.configured")} ${yn(x.configured, t("agt.unchecked"))} · ${t("agt.available")} ${yn(x.available, t("agt.unchecked"))})`).join(", ")}</p>
             <p className="muted">{t("agt.restrict")}{asks.length ? ` ${t("agt.asks", { tools: asks.join(", ") })}` : ""}</p>
             <p className="muted">{t("agt.results", { done: c.done, failed: c.failed })}</p>
             {!!c.limited.length && <p className="error" role="note">{t("agt.remedy")}: {capRow({ id: "think", deps: c.limited }, lang).why}. {capRow({ id: "think", deps: c.limited }, lang).fix}</p>}

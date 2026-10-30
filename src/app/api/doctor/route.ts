@@ -21,6 +21,12 @@ export async function GET(req: Request) {
     const check = await disk().catch(() => null);
     return Response.json({ checks: check ? [check] : [] });
   }
+  // What's new: hide "Run migrations" once the guard sees them applied (read-only marker probe, startup-pure TOUR_MIGRATIONS).
+  if (new URL(req.url).searchParams.has("migrations")) {
+    const { TOUR_MIGRATIONS } = await import("@/lib/startup-pure");
+    const applied = await (await import("@/lib/migration-guard")).probeMarkers(sb, TOUR_MIGRATIONS).catch(() => null);
+    return Response.json({ missing: applied ? TOUR_MIGRATIONS.filter((id) => applied[id] === false) : null });
+  }
   const boot = bootSelfTest().catch(() => null);
   if (new URL(req.url).searchParams.get("boot")) return Response.json(await boot);
   const since = new Date(Date.now() - 15 * 86_400_000).toISOString(); // this + last ISO week, plus a day for redo/duplicate look-back

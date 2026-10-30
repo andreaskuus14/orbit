@@ -224,7 +224,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
           <circleGeometry args={[12, 48]} />
           <meshStandardMaterial color="#0a0610" roughness={1} />
         </mesh>
-        {(playing || !w) && <Screen lit={!!playing} reduced={reduced} />} {/* hidden behind the feed: its empty gold frame looked broken */}
+        {playing && <Screen lit reduced={reduced} />} {/* only behind a playing video: an empty gold frame looked broken */}
         <Seats />
         <Rig reduced={reduced} />
         {q.bloomScale > 0 && (
@@ -265,11 +265,11 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
       {/* Kept mounted while a video plays (hidden), so closing it returns to the same scroll position. */}
       <section ref={scroller} className={`absolute inset-x-3 top-[4.5rem] bottom-[calc(40dvh+9rem)] z-[13] overflow-y-auto rounded-xl pb-14 min-[900px]:bottom-3 min-[900px]:right-[32rem]${w ? " bg-[#05030b]/90 p-3 backdrop-blur-sm" : ""}${playing ? " hidden" : ""}`}
         aria-label="Browse videos">
-        <ul className="flex flex-wrap items-center gap-1.5" aria-label="Categories">
+        <ul className="flex items-center gap-1.5 overflow-x-auto pb-1" aria-label="Categories">
           {["All", "Trending", ...saved.topics].map((t) => {
             const on = w?.topic?.toLowerCase() === t.toLowerCase(), fixed = t === "All" || t === "Trending";
             return (
-              <li key={t} className="chip flex items-center gap-0.5 !py-0.5" style={on ? { borderColor: "#f59e0b", background: "#f59e0b22" } : undefined}>
+              <li key={t} className="chip flex shrink-0 items-center gap-0.5 !py-0.5" style={on ? { borderColor: "#f59e0b", background: "#f59e0b22" } : undefined}>
                 <button className="px-1 text-sm" aria-pressed={on} style={on ? { color: "#f59e0b" } : undefined}
                   onClick={() => (t === "All" ? findAll(w?.sort) : t === "Trending" ? findTrending() : findVideos({ creator: t, shorts: false, topic: true }, undefined, w?.sort))}
                   aria-label={t === "All" ? "All: newest videos from your creators" : t === "Trending" ? "Trending Gaming: most popular gaming videos now" : `${t} videos`}>
@@ -278,7 +278,7 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
               </li>
             );
           })}
-          <li>
+          <li className="shrink-0">
             {adding === null ? (
               saved.topics.length < 12 && <button className="chip !py-0.5 text-sm" onClick={() => setAdding("")} aria-label="Add a category">+ Add</button>
             ) : (
@@ -396,6 +396,8 @@ export default function TheaterWorld({ onClose, reduced, flat, quality = "auto" 
               </li>))}
           </ol>) : <p className="muted text-sm">{t("thr.queueEmpty")}</p>)}
         </WorkspaceFrame>
+        {!w && history.length > 0 && <button className="card mt-2 w-full p-2 text-left text-sm" style={{ borderColor: GOLD }} onClick={() => replay(history[0])}>
+          ▶ <b>{t("thr.resume")}</b> {history[0].title}{pos[history[0].id] ? <span className="muted"> · {clock(pos[history[0].id].t)}</span> : null}</button>}
         {!w && <p className="muted mt-2 text-sm">Say “show me Jynxzi&apos;s latest videos” or “show me cs2 videos”, or pick a category. ORBIT finds them and asks which one to open.</p>}
         <div aria-live="polite">
           {w?.status === "loading" && <p className="muted mt-2 text-sm">{w.topic === "All" ? "Loading your creators’ newest videos…" : w.topic ? `Finding ${w.topic} videos…` : `Looking for ${w.creator}’s ${w.shorts ? "Shorts" : "videos"}…`}</p>}
