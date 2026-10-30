@@ -52,7 +52,12 @@ import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { CORE_BUSY } from "@/lib/interruption-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { isLearned } from "@/lib/memory-world-pure";
+import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import MemoryControls from "./MemoryControls";
+import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
+import { MemoryInspector, MemoryProjects, MemorySearch, PeopleView } from "./MemoryWorkspace";
+import { MemoryHygiene } from "./MemoryHygiene";
+import { MemoryEntities } from "./MemoryEntities";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
@@ -488,7 +493,8 @@ type LinkRow = { id: string; status: string; score: number | null; from: { id: s
 export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; onChanged: () => void }) {
   const { t: tr } = useT();
   const [items, setItems] = useState<Memory[]>([]);
-  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<Memory[]>([]);
+  const [q, setQ] = useState(""); // the last search run; "" = none
   const [mode, setMode] = useState("");
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
@@ -499,6 +505,8 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const [learnedOnly, setLearnedOnly] = useState(false);
   const [episodesOnly, setEpisodesOnly] = useState(false);
   const [beliefs, setBeliefs] = useState(false);
+  const views = (["search", "recent", "projects", "people", "review"] as const).map((id) => ({ id, label: tr(`memws.${id}`) }));
+  const [view, setView] = useWorkspaceView("memory", views);
   useEffect(() => {
     if (takeBeliefsRequest()) setBeliefs(true); // "what do you know about me" opened MEMORY
     const h = (e: Event) => { if ((e as CustomEvent<NavTarget>).detail?.beliefs) { takeBeliefsRequest(); setBeliefs(true); } };
@@ -520,7 +528,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
       if (!res.ok) throw new Error(json.error || `Upload failed (${res.status})`);
       setNote(`Saved ${file.name}${json.extractedChars ? ` (${json.extractedChars.toLocaleString()} characters of text read)` : ""}.`);
       setForm({ ...form, title: "", content: "", url: "", tags: "" });
-      await Promise.all([load(q), loadLinks()]); onChanged();
+      await Promise.all([reload(), loadLinks()]); onChanged();
     } catch (e) { setErr(e instanceof Error ? e.message : "Upload failed"); }
     finally { setSaving(false); if (fileRef.current) fileRef.current.value = ""; }
   }
@@ -528,7 +536,8 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const load = useCallback(async (query: string) => {
     try {
       const r = await api<{ results: Memory[]; mode: string }>(`/api/memories${query ? `?q=${encodeURIComponent(query)}` : ""}`);
-      setItems(r.results); setMode(r.mode); setErr("");
+      if (query) { setHits(r.results); setMode(r.mode); setQ(query); } else setItems(r.results);
+      setErr("");
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not load"); }
   }, []);
   const loadLinks = useCallback(async () => {
@@ -536,6 +545,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   }, []);
 
   useEffect(() => { void load(""); void loadLinks(); }, [load, loadLinks]);
+  const reload = () => Promise.all([load(""), q && load(q)]).then(() => {});
   useEffect(() => {
     if (!focusId) return;
     api<{ memory: Memory }>(`/api/memories/${focusId}`).then((r) => setOpen(r.memory)).catch((e) => setErr(e.message));
@@ -548,7 +558,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
       const r = await api<{ embedded: boolean; suggested: number }>("/api/memories", { method: "POST", body: JSON.stringify(form) });
       setNote(`Saved.${r.suggested ? ` ${r.suggested} related memories suggested below.` : ""}${r.embedded ? "" : " (keyword search only; no embeddings configured)"}`);
       setForm({ ...form, title: "", content: "", url: "", tags: "" });
-      await Promise.all([load(q), loadLinks()]); onChanged();
+      await Promise.all([reload(), loadLinks()]); onChanged();
     } catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not save"); }
     finally { setSaving(false); }
   }
@@ -557,12 +567,12 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
     if (!open) return;
     try {
       await api(`/api/memories/${open.id}`, { method: "PATCH", body: JSON.stringify({ title: open.title, content: open.content, tags: open.tags }) });
-      setOpen(null); await load(q); onChanged();
+      setOpen(null); await reload(); onChanged();
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not update"); }
   }
   async function remove() {
     if (!open || !confirm(tr("mem.deleteConfirm", { title: open.title }))) return;
-    try { await api(`/api/memories/${open.id}`, { method: "DELETE" }); setOpen(null); await Promise.all([load(q), loadLinks()]); onChanged(); }
+    try { await api(`/api/memories/${open.id}`, { method: "DELETE" }); setOpen(null); await Promise.all([reload(), loadLinks()]); onChanged(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not delete"); }
   }
   async function decide(id: string, status: "confirmed" | "rejected") {
@@ -581,9 +591,10 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
         <input className="field w-full" value={open.title} onChange={(e) => setOpen({ ...open, title: e.target.value })} aria-label={tr("cf.titleLbl")} />
         <textarea className="field h-56 w-full" value={open.content} onChange={(e) => setOpen({ ...open, content: e.target.value })} aria-label={tr("mem.content")} />
         <input className="field w-full" value={open.tags.join(", ")} onChange={(e) => setOpen({ ...open, tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })} placeholder={tr("mem.tagsPh")} aria-label={tr("mem.tags")} />
+        <MemoryInspector m={open} />
         <p className="muted text-xs">{open.kind} · {tr("mem.source", { s: open.source })}{open.url && <> · <a className="link" href={open.url} target="_blank" rel="noreferrer noopener">{tr("mem.openLink")}</a></>}{open.storage_path && <> · <a className="link" href={`/api/memories/${open.id}/file`} target="_blank" rel="noreferrer">{tr("mem.openFile")}</a></>} · {tr("mem.dates", { c: when(open.created_at), u: when(open.updated_at) })}</p>
         <MemoryControls key={open.id} id={open.id} content={open.content} confirmation={open.confirmation} recheckAt={open.recheck_at} onOpen={setFocus}
-          onDone={(gone) => { if (gone) setOpen(null); void load(q); onChanged(); }} />
+          onDone={(gone) => { if (gone) setOpen(null); void reload(); onChanged(); }} />
         {err && <p className="error">{err}</p>}
         <div className="flex gap-2"><button className="btn" onClick={saveEdit}>{tr("habit.save")}</button><button className="btn danger" onClick={remove}>{tr("rules.delete")}</button></div>
         <LearnThis key={open.id} memory={open} />
@@ -591,78 +602,88 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
     );
   }
 
-  return (
-    <div className="space-y-5">
-      <StudyCards />
-      <form onSubmit={capture} className="space-y-2">
-        <h3 className="h3">{tr("mem.capture")}</h3>
-        <textarea className="field h-24 w-full" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder={tr("mem.capturePh")} aria-label={tr("mem.content")} maxLength={200000} />
-        <div className="flex gap-2">
-          <input className="field flex-1" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={tr("mem.titlePh")} aria-label={tr("cf.titleLbl")} maxLength={300} />
-          <select className="field" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as Kind })} aria-label={tr("mem.kind")}>{KINDS.map((k) => <option key={k}>{k}</option>)}</select>
-        </div>
-        <div className="flex gap-2">
-          <input className="field flex-1" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder={tr("mem.urlPh")} aria-label={tr("mem.url")} />
-          <input className="field flex-1" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder={tr("mem.tagsShort")} aria-label={tr("mem.tags")} />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button className="btn" disabled={saving || (!form.content.trim() && !form.url.trim() && !form.title.trim())}>{tr(saving ? "auto.saving" : "mem.save")}</button>
-          <label className={`chip cursor-pointer${saving ? " opacity-50" : ""}`}>
-            {tr("mem.upload")}
-            <input ref={fileRef} type="file" className="sr-only" disabled={saving}
-              accept=".pdf,.docx,.txt,.md,.csv,image/png,image/jpeg,image/webp,image/gif"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
-          </label>
-          <span className="muted text-xs">{tr("mem.uploadHint")}</span>
-        </div>
-        {note && <p className="ok">{note}</p>}
-        {err && <p className="error">{err}</p>}
-      </form>
-
-      {!!suggested.length && (
-        <div>
-          <h3 className="h3">{tr("mem.suggested")}</h3>
-          <p className="muted text-xs">{tr("mem.suggestedHint")}</p>
-          <ul className="mt-2 space-y-2">
-            {suggested.map((l) => (
-              <li key={l.id} className="card text-sm">
-                <button className="link text-left" onClick={() => l.from && setFocus(l.from.id)}>{l.from?.title}</button> ↔ <button className="link text-left" onClick={() => l.to && setFocus(l.to.id)}>{l.to?.title}</button>
-                <span className="muted"> · {Math.round((l.score ?? 0) * 100)}%</span>
-                <div className="mt-1 flex gap-2"><button className="chip" onClick={() => decide(l.id, "confirmed")}>{tr("rules.confirm")}</button><button className="chip" onClick={() => decide(l.id, "rejected")}>{tr("cf.dismiss")}</button></div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <Rewind onOpen={setFocus} />
-
-      <div>
-        <div className="flex items-center justify-between"><h3 className="h3">{tr("mem.title")}</h3><span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a></span></div>
-        <form className="my-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); void load(q.trim()); }}>
-          <input className="field flex-1" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr("mem.searchPh")} aria-label={tr("mem.searchAria")} />
-          <button className="btn">{tr("mem.search")}</button>
-        </form>
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <button type="button" className="chip" aria-pressed={learnedOnly} onClick={() => setLearnedOnly(!learnedOnly)}>{tr("mem.learned")}</button>
-          <button type="button" className="chip" aria-pressed={episodesOnly} onClick={() => setEpisodesOnly(!episodesOnly)}>{tr("mem.episodes")}</button>
-          {q.trim() && mode && <span className="muted text-xs">{tr(mode === "hybrid" ? "mem.hybrid" : "mem.keyword")}</span>}
-        </div>
-        {episodesOnly ? <EpisodesList onOpen={setFocus} /> : <ul className="space-y-2">
-          {shown.map((m) => (
-            <li key={m.id}>
-              <button className="card w-full text-left" onClick={() => setOpen(m)}>
-                <div className="font-medium">{m.title}{isLearned(m.source) && <span className="badge learned ml-2 align-middle">{tr("mem.learned").toUpperCase()}</span>}</div>
-                <div className="muted line-clamp-2 text-xs">{m.content.slice(0, 200)}</div>
-                <div className="muted mt-1 text-[11px]">{m.kind} · {when(m.created_at)}{m.tags.length ? ` · ${m.tags.map((t) => `#${t}`).join(" ")}` : ""}</div>
-              </button>
-            </li>
-          ))}
-          {!shown.length && !err && <li className="muted">{tr(learnedOnly ? "mem.noLearned" : q.trim() ? "mem.noMatch" : "mem.empty")}</li>}
-        </ul>}
-      </div>
-    </div>
+  const row = (m: Memory, why?: React.ReactNode) => (
+    <button className="card w-full text-left" onClick={() => pick(m)}>
+      <div className="font-medium">{m.title}{isLearned(m.source) && <span className="badge learned ml-2 align-middle">{tr("mem.learned").toUpperCase()}</span>}</div>
+      <div className="muted line-clamp-2 text-xs">{m.content.slice(0, 200)}</div>
+      <div className="muted mt-1 text-[11px]">{m.kind} · {when(m.created_at)}{m.tags.length ? ` · ${m.tags.map((t) => `#${t}`).join(" ")}` : ""}</div>
+      {why}
+    </button>
   );
+  const chips = <>
+    <button type="button" className="chip" aria-pressed={learnedOnly} onClick={() => setLearnedOnly(!learnedOnly)}>{tr("mem.learned")}</button>
+    <button type="button" className="chip" aria-pressed={episodesOnly} onClick={() => setEpisodesOnly(!episodesOnly)}>{tr("mem.episodes")}</button>
+  </>;
+  const learned = (xs: Memory[]) => (learnedOnly ? xs.filter((m) => isLearned(m.source)) : xs);
+
+  return (
+    <WorkspaceFrame planet="memory" title={tr("mem.title")} views={views} view={view} onView={setView}
+      context={tr("memws.context", { n: items.length, r: suggested.length })}
+      action={<span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a></span>}>
+      {err && view !== "recent" && <p className="error" role="alert">{err}</p>}
+      {view === "search" && (episodesOnly ? <><div className="flex gap-2">{chips}</div><EpisodesList onOpen={setFocus} /></>
+        : <MemorySearch recent={learned(items)} hits={learned(hits)} searched={q} mode={mode} onSearch={(x) => (x ? void load(x) : setQ(""))} row={row}>{chips}</MemorySearch>)}
+      {view === "recent" && <>
+        <form onSubmit={capture} className="space-y-2">
+          <h3 className="h3">{tr("mem.capture")}</h3>
+          <textarea className="field h-24 w-full" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder={tr("mem.capturePh")} aria-label={tr("mem.content")} maxLength={200000} />
+          <div className="flex gap-2">
+            <input className="field flex-1" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={tr("mem.titlePh")} aria-label={tr("cf.titleLbl")} maxLength={300} />
+            <select className="field" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as Kind })} aria-label={tr("mem.kind")}>{KINDS.map((k) => <option key={k}>{k}</option>)}</select>
+          </div>
+          <div className="flex gap-2">
+            <input className="field flex-1" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder={tr("mem.urlPh")} aria-label={tr("mem.url")} />
+            <input className="field flex-1" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder={tr("mem.tagsShort")} aria-label={tr("mem.tags")} />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button className="btn" disabled={saving || (!form.content.trim() && !form.url.trim() && !form.title.trim())}>{tr(saving ? "auto.saving" : "mem.save")}</button>
+            <label className={`chip cursor-pointer${saving ? " opacity-50" : ""}`}>
+              {tr("mem.upload")}
+              <input ref={fileRef} type="file" className="sr-only" disabled={saving}
+                accept=".pdf,.docx,.txt,.md,.csv,image/png,image/jpeg,image/webp,image/gif"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
+            </label>
+            <span className="muted text-xs">{tr("mem.uploadHint")}</span>
+          </div>
+          {note && <p className="ok">{note}</p>}
+          {err && <p className="error">{err}</p>}
+        </form>
+        <Rewind onOpen={setFocus} />
+        <div className="flex flex-wrap gap-2">{chips}</div>
+        {episodesOnly ? <EpisodesList onOpen={setFocus} /> : <ul className="space-y-2">
+          {shown.map((m) => <li key={m.id}>{row(m)}</li>)}
+          {!shown.length && !err && <li className="muted">{tr(learnedOnly ? "mem.noLearned" : "mem.empty")}</li>}
+        </ul>}
+      </>}
+      {view === "projects" && <MemoryProjects items={items} row={row} />}
+      {view === "people" && <PeopleView />}
+      {view === "review" && <>
+        <StudyCards />
+        <MemoryHygiene onChanged={onChanged} />
+        <MemoryEntities />
+        {!!suggested.length && (
+          <div>
+            <h3 className="h3">{tr("mem.suggested")}</h3>
+            <p className="muted text-xs">{tr("mem.suggestedHint")}</p>
+            <ul className="mt-2 space-y-2">
+              {suggested.map((l) => (
+                <li key={l.id} className="card text-sm">
+                  <button className="link text-left" onClick={() => l.from && setFocus(l.from.id)}>{l.from?.title}</button> ↔ <button className="link text-left" onClick={() => l.to && setFocus(l.to.id)}>{l.to?.title}</button>
+                  <span className="muted"> · {Math.round((l.score ?? 0) * 100)}%</span>
+                  <div className="mt-1 flex gap-2"><button className="chip" onClick={() => decide(l.id, "confirmed")}>{tr("rules.confirm")}</button><button className="chip" onClick={() => decide(l.id, "rejected")}>{tr("cf.dismiss")}</button></div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <button type="button" className="chip" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button>
+      </>}
+    </WorkspaceFrame>
+  );
+
+  // Opening from a list also selects its star in the constellation (Orbit turns the event into focusId).
+  function pick(m: Memory) { setOpen(m); dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id: m.id } })); }
 
   function setFocus(id: string) {
     api<{ memory: Memory }>(`/api/memories/${id}`).then((r) => setOpen(r.memory)).catch((e) => setErr(e.message));
