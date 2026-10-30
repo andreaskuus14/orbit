@@ -15,6 +15,7 @@ test("worker card: tools, domain, approvals, limited only on a known-missing con
   assert.deepEqual(workerCard(a, new Set(), all(true), { ...all(true), claude: false }).limited, ["claude"]);
   assert.deepEqual(workerCard(a, new Set(), all(false), all(null)).limited, ["claude"]); // not configured, not checked
   assert.deepEqual(workerCard(a, new Set(), all(null), all(null)).limited, []); // unknown never limits
+  assert.deepEqual(c.conns, [{ dep: "claude", configured: true, available: true }]); // available implies configured
 });
 
 test("night compare: planned vs produced, skipped/failed/not run, ran is not success", () => {
