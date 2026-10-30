@@ -21,6 +21,7 @@ import { AuthoritySection } from "./AuthoritySection";
 import { WeeklyReviewSetting } from "./RemoteCall";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
+import { DeliverableCards } from "./DeliverableCards";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
 import type { Plan } from "@/lib/plans-pure";
@@ -351,7 +352,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       )}
       {m.lesson && <LessonChip lesson={m.lesson} />}
       {!!m.trace?.length && (
-        <ResultEvidence items={m.trace.flatMap((s) => s.evidence ?? [])} openMemory={onOpenMemory} />
+        <><DeliverableCards items={m.trace.flatMap((s) => s.evidence ?? [])} /><ResultEvidence items={m.trace.flatMap((s) => s.evidence ?? [])} openMemory={onOpenMemory} /></>
       )}
       {!!m.trace?.length && (
         <details className="mt-2 text-xs muted">

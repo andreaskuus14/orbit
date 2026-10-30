@@ -1,4 +1,4 @@
-export type WriteEvidence = { kind: "memory" | "file" | "project" | "task" | "automation"; id: string; path?: string; bytes?: number; rev?: string };
+export type WriteEvidence = { kind: "memory" | "file" | "project" | "task" | "automation"; id: string; path?: string; bytes?: number; rev?: string; check?: string };
 export type ActionResult = { status: string; note?: string; evidence?: WriteEvidence[] };
 export type Completion = { status: "done" | "failed" | "cancelled" | "awaiting_approval"; error: string | null };
 
