@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { BUILTIN_AGENTS, TOOLS } from "@/lib/agents";
 import { slugify, str } from "@/lib/pure";
 import { CHAIN_TITLE } from "@/lib/chains-pure";
+import { capabilityState } from "@/lib/capability";
 
 /** All agents with live status, task history counts and token usage (last 30 days). */
 export async function GET() {
@@ -30,7 +31,9 @@ export async function GET() {
     ...BUILTIN_AGENTS.map((a) => ({ ...a, enabled: true, stats: stats(a.slug) })),
     ...(custom.data ?? []).map((a) => ({ ...a, builtin: false, color: "#e879f9", stats: stats(a.slug) })),
   ];
-  return Response.json({ agents, tools: Object.entries(TOOLS).filter(([k]) => k !== "delegate").map(([name, t]) => ({ name, description: t.description, approval: !!t.approval })) });
+  // AGT01: connections as configured (env/files only) and as available now (with the doctor's latest checks); null on error = unknown.
+  const [configured, available] = await Promise.all([capabilityState([]).catch(() => null), capabilityState().catch(() => null)]);
+  return Response.json({ agents, deps: { configured, available }, tools: Object.entries(TOOLS).filter(([k]) => k !== "delegate").map(([name, t]) => ({ name, description: t.description, approval: !!t.approval })) });
 }
 
 /** Create a custom agent with your own instructions and an allow-list of tools. */

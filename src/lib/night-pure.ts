@@ -26,7 +26,7 @@ export type NightTask = { kind: NightKind; ref: string; label: string; calls: nu
 export type Open = { task: string } | { goal: string; step?: number; stepId?: string } | { panel: "studio" | "business" | "memory" | "agents" | "markets" };
 export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string;
   pick?: Why; diff?: Diff }; // night-plan-pure: why tonight, and the counts it changed (before → after)
-export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string; why?: string };
+export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string; why?: string; planned?: Pick<NightTask, "kind" | "ref" | "label">[] };
 export type TonightItem = { id: string; text: string; agent: string; by: "owner" | "core"; at: string };
 // company: goals the owner queued from AGENTS → Company "for tonight"; the night shift starts them as company chains (company.ts).
 export type CompanyTonight = { id: string; goal: string; at: string };

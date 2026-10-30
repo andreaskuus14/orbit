@@ -7,6 +7,8 @@ import { OpsStatus } from "./OpsStatus";
 import { isWorkStatus } from "@/lib/ops-status-pure";
 import { CHAIN_TITLE } from "@/lib/chains-pure";
 import { excerpt, timeAgo, traceLines } from "@/lib/mission-pure";
+import { linkToHash } from "@/lib/deeplink-pure";
+import { useT } from "./i18n";
 import { STATUS_LABEL, agentStatus, currentTask, type AgentStatus } from "@/lib/station-pure";
 
 // MISSION CONTROL: one agent's live view in the station panel. Data: /api/tasks?agent= (3 s), /api/tasks/:id for the live trace + approvals.
@@ -45,13 +47,14 @@ export function StatusPill({ status }: { status: string }) {
   return <span className={`${cls} inline-flex shrink-0`} style={color ? { color } : undefined}>{status.replace("_", " ")}</span>;
 }
 
-export default function AgentMission({ agent, onClose, status: given, visible = true, onOpenTask, onChanged }: {
+export default function AgentMission({ agent, onClose, status: given, visible = true, onOpenTask }: {
   agent: MissionAgent; onClose: () => void; status?: AgentStatus; visible?: boolean; onOpenTask?: (id: string) => void; onChanged?: () => void;
 }) {
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
-  const [job, setJob] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { t } = useT();
+  // AGT06: AGENTS configures; running, approving and cancelling a task happens in OPERATIONS on the same record (deep link).
+  const ops = (id?: string) => linkToHash(id ? { planet: "operations", kind: "task", id } : { planet: "operations" });
   const [err, setErr] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const title = useRef<HTMLHeadingElement>(null);
@@ -73,23 +76,6 @@ export default function AgentMission({ agent, onClose, status: given, visible = 
     api<Detail>(`/api/tasks/${curId}`).then(setDetail).catch((e) => setErr(e.message));
   }, [curId]);
   usePoll(loadDetail, 3_000, visible && !!curId);
-
-  async function act(action: "approve" | "reject" | "cancel", id: string, what: string) {
-    const ask = action === "approve" ? `Approve and let ${agent.name} run:\n${what}` : action === "reject" ? `Reject ${what}? ${agent.name} will continue without it.` : `Cancel "${what}"? ${agent.name} stops now.`;
-    if (!window.confirm(ask)) return;
-    setErr(""); setBusy(true);
-    try { await api(`/api/tasks/${id}`, { method: "POST", body: JSON.stringify({ action }) }); loadTasks(); loadDetail(); onChanged?.(); }
-    catch (e) { setErr(e instanceof Error ? e.message : "Failed"); }
-    finally { setBusy(false); }
-  }
-  async function give(e: React.FormEvent) {
-    e.preventDefault();
-    if (!job.trim()) return;
-    setErr(""); setBusy(true);
-    try { await api("/api/tasks", { method: "POST", body: JSON.stringify({ request: job, agent: agent.slug }) }); setJob(""); loadTasks(); onChanged?.(); }
-    catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not create the task"); }
-    finally { setBusy(false); }
-  }
 
   const status = given ?? agentStatus(mine, agent.slug);
   const d = detail && detail.task.id === curId ? detail : null;
@@ -133,10 +119,7 @@ export default function AgentMission({ agent, onClose, status: given, visible = 
               {pend.map((p, i) => (
                 <p key={i} className="break-words"><b>{p.tool.replace(/_/g, " ")}</b>{holder.agent !== agent.slug ? <span className="muted"> · via {holder.agent}</span> : null}: {String(p.input.title ?? p.input.name ?? p.input.query ?? "").slice(0, 200)}</p>
               ))}
-              <div className="flex gap-2">
-                <button className="btn" disabled={busy} onClick={() => void act("approve", holder.id, pend.map((p) => `• ${p.tool.replace(/_/g, " ")}: ${String(p.input.title ?? p.input.name ?? "").slice(0, 120)}`).join("\n"))}>Approve</button>
-                <button className="btn danger" disabled={busy} onClick={() => void act("reject", holder.id, pend.length > 1 ? `these ${pend.length} actions` : "this action")}>Reject</button>
-              </div>
+              <a className="link" href={ops(holder.id)}>{t("agt.approveOps")}</a>
             </div>
           )}
           {!holder && d && cur.status === "awaiting_approval" && onOpenTask && (
@@ -148,18 +131,13 @@ export default function AgentMission({ agent, onClose, status: given, visible = 
             {!log.length && <li className="muted">{d ? "No steps yet." : "Loading trace…"}</li>}
           </ol>
           <div className="flex flex-wrap gap-2">
-            {(cur.status === "queued" || cur.status === "running") && <button className="chip" disabled={busy} onClick={() => void act("cancel", cur.id, cur.title)}>Cancel task</button>}
+            {(cur.status === "queued" || cur.status === "running") && <a className="chip" href={ops(cur.id)}>{t("agt.cancelOps")}</a>}
             {onOpenTask && <button className="link text-xs" onClick={() => onOpenTask(cur.id)}>Open in Operations →</button>}
           </div>
         </section>
-      ) : tasks && <p className="muted text-sm">{agent.name} is free. Give them a task below.</p>}
+      ) : tasks && <p className="muted text-sm">{agent.name} is free.</p>}
 
-      <form onSubmit={give} className="space-y-2">
-        <label className="hud-title block text-[0.7rem]" htmlFor={`job-${agent.slug}`}>GIVE {agent.name.toUpperCase()} A TASK</label>
-        <textarea id={`job-${agent.slug}`} className="field min-h-[4.5rem] w-full" value={job} onChange={(e) => setJob(e.target.value)} maxLength={8000}
-          placeholder={`What should ${agent.name} do?`} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) e.currentTarget.form?.requestSubmit(); }} />
-        <button className="btn" disabled={busy || !job.trim()}>Give {agent.name} a task</button>
-      </form>
+      <a className="btn inline-block" href={ops()}>{t("agt.giveTask", { name: agent.name })}</a>
 
       <section aria-label="Recent results">
         <div className="hud-title">RECENT RESULTS</div>
