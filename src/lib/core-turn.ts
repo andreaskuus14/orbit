@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runCore, CoreStopped } from "@/lib/core";
+import { contextLine, safeLink } from "@/lib/voice-target-pure";
 import { reflectOnTurn } from "@/lib/reflect";
 import { learnFacts } from "@/lib/facts";
 import { emit } from "@/lib/claude";
@@ -90,7 +91,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
         } : attach;
         const withSkill = skill ? { block: skill + "\n\n" + (contextAttach?.block ?? ""), images: contextAttach?.images ?? [] } : contextAttach;
         const t0 = Date.now();
-        const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, (checkpoint ? checkpointPrompt(checkpoint, isContinue(message)) : "") + record + project.text, project.tainted, project.memoryProject, cid, lang);
+        const out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, (checkpoint ? checkpointPrompt(checkpoint, isContinue(message)) : "") + record + project.text + contextLine(safeLink(body.here)), project.tainted, project.memoryProject, cid, lang);
         await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
         void noteReceipts(userId, cid, out.trace).catch(() => {}); // artifact versions from ORBIT's own write receipts
         await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity

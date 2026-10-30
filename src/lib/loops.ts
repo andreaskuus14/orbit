@@ -38,7 +38,7 @@ export async function scanLoops(sb: SupabaseClient, userId: string, now = Date.n
     soft(import("./goals").then((m) => m.listGoals(sb, userId)).then((rs) => rs.map((r) => ({ id: r.id, title: r.doc.title, status: r.doc.status, updated_at: r.updated_at }))), []),
     soft(sb.from("missions").select("id, doc, status, updated_at").eq("user_id", userId).limit(50)
       .then((r) => ((r.data ?? []) as { id: string; doc: { objective: string }; status: string; updated_at: string }[]).map((m) => ({ id: m.id, objective: m.doc?.objective ?? "", status: m.status, updated_at: m.updated_at }))), []),
-    soft(sb.from("prospects").select("id, name, stage, updated_at, notes, draft").eq("user_id", userId).limit(300).then((r) => r.data ?? []), []),
+    soft(sb.from("prospects").select("id, name, stage, updated_at, notes, draft").eq("user_id", userId).limit(300).then((r) => import("./prospect-crm").then((c) => c.withTouch(r.data ?? []))), []),
     soft(import("./invoices").then((m) => m.allInvoices()), []),
     soft(import("./contracts").then((m) => m.listContracts()), []),
     soft(sb.from("messages").select("id, conversation_id, content, created_at").eq("user_id", userId).eq("role", "user").gte("created_at", since).order("created_at", { ascending: false }).limit(300).then((r) => r.data ?? []), []),

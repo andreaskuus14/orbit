@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
 import { WorldPaused } from "./world-paused";
 import { CALL_ACTIVE, VOICE_ASK, voiceContext } from "./voice/bus";
+import { runObjectCommand } from "./voice/object-command";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
@@ -20,6 +21,7 @@ import { StopAll } from "./StopAll";
 import { Terminal } from "./Terminal";
 import { HalEye } from "./HalEye";
 import { notify } from "@/lib/notify-pure";
+import { agentNoticeKey } from "@/lib/interruption-pure";
 import { OPEN_MEMORY_EVENT, PALETTE_EVENT } from "@/lib/palette-pure";
 import { OPEN_SOURCE_EVENT, citeTarget, type WeekCite } from "@/lib/week-pure";
 import { MorningCard } from "./MorningCard";
@@ -273,6 +275,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         finally { dispatchEvent(new Event("orbit:core-done")); }
         return;
       }
+      if (runObjectCommand(text, (msg) => { setCmdReply(msg); if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) { stopSpeech(); return; } // "open client Kask", "save this version" (asks first)
       const fr = runFollowCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // done signal: a voice conversation listens again // "follow Estonia" / "unfollow AI": speaks the real outcome
       if (fr) { stopSpeech(); return; }
       if (runRecipeCommand(text, (msg) => { setCmdReply(msg); if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) { stopSpeech(); return; } // "run recipe daily ideas"
@@ -375,7 +378,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) {
           setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations();
           const status = (payload.new as { payload?: { status?: string } }).payload?.status;
-          notify({ signal: "agent-finished", key: `agent:${taskId}:${e.type}:${status}`, reason: e.type === "agent.failed" ? `Task ${taskId.slice(0, 8)} failed and needs review.` : status === "awaiting_approval" ? `Task ${taskId.slice(0, 8)} is waiting for your approval.` : status === "cancelled" ? `Task ${taskId.slice(0, 8)} was cancelled.` : `Task ${taskId.slice(0, 8)} finished and its result is ready.`, title: e.type === "agent.failed" ? "Agent task failed" : status === "awaiting_approval" ? "Task needs your approval" : status === "cancelled" ? "Agent task cancelled" : "Agent task finished", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations", open: { kind: "task", id: taskId } } });
+          notify({ signal: "agent-finished", key: agentNoticeKey(taskId, e.type, status), reason: e.type === "agent.failed" ? `Task ${taskId.slice(0, 8)} failed and needs review.` : status === "awaiting_approval" ? `Task ${taskId.slice(0, 8)} is waiting for your approval.` : status === "cancelled" ? `Task ${taskId.slice(0, 8)} was cancelled.` : `Task ${taskId.slice(0, 8)} finished and its result is ready.`, title: e.type === "agent.failed" ? "Agent task failed" : status === "awaiting_approval" ? "Task needs your approval" : status === "cancelled" ? "Agent task cancelled" : "Agent task finished", body: `Task ${taskId.slice(0, 8)}`, kind: "agents", nav: { panel: "operations", open: { kind: "task", id: taskId } } });
         }
       })
       .subscribe((s) => setLive(s === "SUBSCRIBED" ? "live" : s === "CLOSED" || s === "CHANNEL_ERROR" || s === "TIMED_OUT" ? "offline" : "connecting"));

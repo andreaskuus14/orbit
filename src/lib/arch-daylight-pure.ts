@@ -119,11 +119,24 @@ export function windowSees(win: Window, sun: { x: number; y: number; z: number }
   });
 }
 
-/** One chunk of work: the 21st of `month` (0–11), each hour of local solar time (UTC + lon/15), so the strip reads noon = sun south. */
-export function studyMonth(plan: Plan, site: Site, month: number, year = 2025): MonthSample {
+/** ARC05: the study's inputs, shown and editable in the panel. day = sampled day of each month; step = minutes between samples;
+ *  dfDiv = the daylight-factor rule DF ≈ window-to-floor ratio ÷ dfDiv. */
+export type DaylightInputs = { day: number; stepMin: number; year: number; dfDiv: number };
+export const DAYLIGHT_INPUTS: DaylightInputs = { day: 21, stepMin: 60, year: 2025, dfDiv: 5 };
+export const DAYLIGHT_RANGE: Record<keyof DaylightInputs, [number, number]> = { day: [1, 28], stepMin: [15, 120], year: [1900, 2100], dfDiv: [3, 10] };
+export function cleanDaylight(raw: unknown): DaylightInputs {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(DAYLIGHT_INPUTS).map(([k, d]) => {
+    const v = Number(o[k]), [lo, hi] = DAYLIGHT_RANGE[k as keyof DaylightInputs];
+    return [k, o[k] !== undefined && o[k] !== "" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, k === "dfDiv" ? v : Math.round(v))) : d];
+  })) as DaylightInputs;
+}
+
+/** One chunk of work: day `day` of `month` (0–11), every `stepMin` of local solar time (UTC + lon/15), so the strip reads noon = sun south. */
+export function studyMonth(plan: Plan, site: Site, month: number, year = 2025, day = 21, stepMin = 60): MonthSample {
   const up: boolean[] = [], lit: Record<string, boolean[]> = Object.fromEntries(plan.rooms.map((r) => [r.id, [] as boolean[]]));
-  for (let h = 0; h < 24; h++) {
-    const sun = sunDirection(site.lat, site.lon, new Date(Date.UTC(year, month, 21) + (h + 0.5 - site.lon / 15) * 3_600_000));
+  for (let k = 0, n = Math.round((24 * 60) / stepMin); k < n; k++) {
+    const h = (k * stepMin) / 60, sun = sunDirection(site.lat, site.lon, new Date(Date.UTC(year, month, day) + (h + stepMin / 120 - site.lon / 15) * 3_600_000));
     up.push(sun.y > 0);
     for (const r of plan.rooms) lit[r.id].push(sun.y > 0 && plan.windows.some((w) => w.room === r.id && windowSees(w, sun, plan.boxes)));
   }
@@ -133,12 +146,12 @@ export function studyMonth(plan: Plan, site: Site, month: number, year = 2025): 
 export type RoomResult = { id: string; name: string; annualHours: number; decHours: number; junHours: number; wfr: number; df: number; noDecSun: boolean };
 /** Annual direct-sun hours weight each sampled day by its month's length. Daylight factor rule of thumb: DF ≈ window-to-floor
  *  ratio ÷ 5 (the BRE average-DF formula with a typical room: glass transmittance 0.7, 80° of sky, mean reflectance 0.5). */
-export function summarize(plan: Plan, months: MonthSample[]): RoomResult[] {
+export function summarize(plan: Plan, months: MonthSample[], stepMin = 60, dfDiv = 5): RoomResult[] {
   return plan.rooms.map((r) => {
-    const hours = months.map((m) => m.lit[r.id]?.filter(Boolean).length ?? 0);
+    const hours = months.map((m) => Math.round(((m.lit[r.id]?.filter(Boolean).length ?? 0) * stepMin) / 6) / 10);
     const wfr = r.area > 0 ? r.glazing / r.area : 0;
-    return { id: r.id, name: r.name, annualHours: hours.reduce((s, n, i) => s + n * MONTH_DAYS[i], 0), decHours: hours[11] ?? 0, junHours: hours[5] ?? 0,
-      wfr: Math.round(wfr * 1000) / 10, df: Math.round(wfr * 200) / 10, noDecSun: months.length === 12 && hours[11] === 0 };
+    return { id: r.id, name: r.name, annualHours: Math.round(hours.reduce((s, n, i) => s + n * MONTH_DAYS[i], 0)), decHours: hours[11] ?? 0, junHours: hours[5] ?? 0,
+      wfr: Math.round(wfr * 1000) / 10, df: Math.round((wfr * 1000) / dfDiv) / 10, noDecSun: months.length === 12 && hours[11] === 0 };
   });
 }
 

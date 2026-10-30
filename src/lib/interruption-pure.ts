@@ -1,12 +1,17 @@
 // Shared judgment for Herald, desktop notifications, speech and bell batching. No I/O.
 import type { NotifyDetail } from "./notify-pure.ts";
 import type { NavTarget } from "./nav-pure.ts";
+import { recordRef } from "./needs-you-pure.ts";
+import { restoreFocusTimer } from "./focus-timer-pure.ts";
 
 export const INTERRUPTION_KEY = "orbit.interruptions.v1";
 export const INTERRUPTION_CHANGED = "orbit:interruptions-changed";
 export const RESOLVE_ALERT = "orbit:resolve-alert";
 export const CORE_BUSY = "orbit:core-busy";
 export const POPUP_SHOWN = "orbit:popup-shown";
+export const THEATER_EVENT = "orbit:theater"; // detail: boolean, THEATER audibly playing (audio-policy)
+export const LAST_SEEN_KEY = "orbit.last-seen.v1";
+export const AWAY_MS = 12 * 3_600_000, GATHER_MS = 60_000; // back after this long: what waits for the first minute becomes one digest
 export const GAP_MS = 120_000, IDLE_MS = 20_000, WEEK_MS = 7 * 86_400_000;
 export type Level = "URGENT" | "USEFUL" | "QUIET";
 export const SIGNALS = ["upload-failed", "youtube-expired", "disk-full", "usage-limit", "business-reply", "stop-all", "short-hot", "agent-finished", "briefing", "reminder", "scout", "routine"] as const;
@@ -63,8 +68,22 @@ export function dismissKind(state: JudgmentState, signal: Signal, now: number): 
   return { ...state, dismissals: { ...state.dismissals, [signal]: times }, muted: times.length >= 2 ? [...new Set([...state.muted, signal])] : state.muted };
 }
 export const unmuteKind = (s: JudgmentState, signal: Signal): JudgmentState => ({ ...s, muted: s.muted.filter((k) => k !== signal), dismissals: { ...s.dismissals, [signal]: [] } });
-export type Attention = { visible: boolean; coreBusy: boolean; worldOpen: boolean; lastTyped: number; popupsOff?: boolean };
-export const ownerIdle = (a: Attention, now: number) => a.visible && !a.coreBusy && !a.worldOpen && now - a.lastTyped >= IDLE_MS;
+// focus: LIFE focus timer running; theater: a video is playing. Both hold non-urgent pop-ups (they stay queued and in the bell).
+export type Attention = { visible: boolean; coreBusy: boolean; worldOpen: boolean; lastTyped: number; popupsOff?: boolean; focus?: boolean; theater?: boolean };
+export const ownerIdle = (a: Attention, now: number) => a.visible && !a.coreBusy && !a.worldOpen && !a.focus && !a.theater && now - a.lastTyped >= IDLE_MS;
+export const focusRunning = (raw: string | null, now: number) => { const t = restoreFocusTimer(raw, now).timer; return t.phase === "focus" && t.endAt > now; };
+
+/** One event, one request: toast, voice, bell and Needs-you (and its planet beacon) share the Needs-you record+cause key. */
+export const requestKey = (ref: string, cause: string) => `need:${recordRef(ref)}:${cause}`;
+export const agentNoticeKey = (taskId: string, type: string, status?: string) =>
+  type === "agent.failed" || status === "failed" ? requestKey(`task:${taskId}`, "failed") : `agent:${taskId}:${type}:${status}`;
+/** Back after a long absence: one per key, urgent ones still pop alone; the rest are ranked useful-first, newest first. */
+export function digestQueue<T extends NotifyDetail & { key: string }>(queue: T[], state: JudgmentState): { urgent: T[]; digest: T[] } {
+  const rank = { URGENT: 0, USEFUL: 1, QUIET: 2 } as const, seen = new Set<string>(), one: T[] = [];
+  for (const d of [...queue].reverse()) if (!seen.has(d.key)) { seen.add(d.key); one.push(d); } // queue is oldest first
+  const urgent = one.filter((d) => classify(d, state) === "URGENT").reverse();
+  return { urgent, digest: one.filter((d) => classify(d, state) !== "URGENT").sort((a, b) => rank[classify(a, state)] - rank[classify(b, state)]) };
+}
 /** Every input is already in the bell. Quiet/rate-limited extras stay there; useful items wait while busy.
  * Urgent bypasses idle/rate/room, but respects explicit mute. No popup eviction can lose a bell item. */
 export function selectInterruptions<T extends NotifyDetail>(state: JudgmentState, pending: T[], now: number, a: Attention, room = 1): { state: JudgmentState; show: T[]; pending: T[]; batched: T[] } {
