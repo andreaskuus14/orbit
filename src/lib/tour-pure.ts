@@ -42,6 +42,28 @@ const s = (id: string, icon: string, en: [string, string], et: [string, string],
   ({ id, icon, title: { en: en[0], et: et[0] }, text: { en: en[1], et: et[1] }, ...more });
 
 export const CHAPTERS: Chapter[] = [
+  { id: "week", icon: "✦", title: { en: "This week", et: "Sel nädalal" }, steps: [
+    s("wk-goal-card", "🎯", ["Idea → goal", "Tell CORE a rough idea and it writes a goal card with done-checks and what it guessed. Start, Change… or Not now are buttons, not typing."],
+      ["Ideest eesmärk", "Räägi CORE'ile toores idee ja see kirjutab eesmärgikaardi valmis-kontrollide ja oma oletustega. Start, Change… ja Not now on nupud, mitte trükkimine."], { go: { panel: "core" } }),
+    s("wk-file-cards", "📎", ["Files as cards", "CORE hands over files as cards. Preview, download, get a zip or save to VAULT."],
+      ["Failid kaartidena", "CORE annab failid üle kaartidena. Vaata eelvaadet, laadi alla, võta zip või salvesta VAULTi."], { go: { panel: "core" } }),
+    s("wk-workspaces", "🗂", ["Workspaces on every planet", "Each planet now has views: BUSINESS has Today, Pipeline, Clients and Money; MEMORY has Search, Recent, Projects, People and Review."],
+      ["Tööruumid igal planeedil", "Igal planeedil on nüüd vaated: BUSINESSis Today, Pipeline, Clients ja Money; MEMORYs Search, Recent, Projects, People ja Review."], { go: { panel: "business" } }),
+    s("wk-links", "🔗", ["Links to the exact record", "A link opens the exact task, goal, memory or client. Back and refresh keep your place."],
+      ["Lingid täpsele kirjele", "Link avab täpselt selle ülesande, eesmärgi, mälestuse või kliendi. Tagasi ja värskendus jätavad sind samasse kohta."], { go: { panel: "memory" } }),
+    s("wk-ops-recover", "🛠", ["Recover a failed step", "OPERATIONS uses one set of statuses; a failed step can be retried, resumed, given a new input or abandoned without redoing finished work. Automations show a preview of their next runs."],
+      ["Ebaõnnestunud sammu päästmine", "OPERATIONS kasutab üht olekute komplekti; ebaõnnestunud sammu saab uuesti proovida, jätkata, uue sisendiga anda või loobuda ilma tehtud tööd kordamata. Automaatikad näitavad järgmiste käivituste eelvaadet."], { go: { panel: "operations" } }),
+    s("wk-needs-you", "🔔", ["Needs you", "One notice per problem, held back while you focus or watch a video. After you've been away you get one digest instead."],
+      ["Vajab sind", "Üks teade probleemi kohta, mis ootab, kuni keskendud või vaatad videot. Kui olid eemal, saad selle asemel ühe kokkuvõtte."], { go: { panel: null, mission: true } }),
+    s("wk-memory", "🧠", ["MEMORY review", "Capturing the same thing twice doesn't duplicate it, and everything to check sits in one Review queue. Handover packs and people/project suggestions come with their evidence."],
+      ["MEMORY ülevaatus", "Sama asja kaks korda salvestamine ei tee duplikaati ja kõik kontrollimist vajav on ühes Review järjekorras. Üleandmispaketid ning inimeste ja projektide soovitused tulevad koos tõenditega."], { go: { panel: "memory" } }),
+    s("wk-vault", "🗄", ["VAULT trash and backups", "Deleted files go to trash and can be restored, and backup state says plainly what is and isn't backed up. Renamed files keep their links."],
+      ["VAULTi prügikast ja varukoopiad", "Kustutatud failid lähevad prügikasti ja neid saab taastada ning varunduse olek ütleb ausalt, mis on varundatud ja mis mitte. Ümbernimetatud failide lingid jäävad tööle."], { go: { panel: "vault" } }),
+    s("wk-studio", "🎬", ["STUDIO production record", "Each video has a production record with its rights basis checked before publishing, and approval is tied to the exact version. Real video checks run, and failures land in the Failed list."],
+      ["STUDIO tootmiskirje", "Igal videol on tootmiskirje, mille õiguste alus kontrollitakse enne avaldamist, ja kinnitus kehtib ainult täpselt sellele versioonile. Videoid kontrollitakse päriselt ja vead jõuavad Failed nimekirja."], { go: { panel: "studio", view: "failed" } }),
+    s("wk-safety", "🛡", ["Still your click", "Sending, spending and publishing still need your own click. Your journal never goes to a model."],
+      ["Ikka sinu klõps", "Saatmine, kulutamine ja avaldamine vajavad endiselt sinu enda klõpsu. Sinu päevik ei lähe kunagi mudelile."], { go: { panel: "profile" } }),
+  ] },
   { id: "core", icon: "◉", title: { en: "CORE & missions", et: "CORE ja missioonid" }, steps: [
     s("missions", "🧭", ["Missions", "A multi-step request becomes a mission with steps, receipts and checkpoints. Pause, resume or retry it in AGENTS → Missions."],
       ["Missioonid", "Mitmesammulisest palvest saab missioon sammude, kviitungite ja kontrollpunktidega. Peata, jätka või proovi uuesti: AGENDID → Missions."],

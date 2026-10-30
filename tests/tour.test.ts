@@ -19,7 +19,7 @@ test("every step has short English and Estonian text, unique ids and a real plac
     }
     if (st.go) assert.ok(panels.has(st.go.panel), st.id);
   }
-  assert.deepEqual(CHAPTERS.map((c) => c.id), ["core", "autonomy", "business", "arch", "galaxy", "phone"]);
+  assert.deepEqual(CHAPTERS.map((c) => c.id), ["week", "core", "autonomy", "business", "arch", "galaxy", "phone"]);
 });
 
 // GitHub's heading slug: lower case, drop punctuation, spaces → "-".
