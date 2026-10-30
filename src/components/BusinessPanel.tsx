@@ -13,7 +13,7 @@ import ContractsPanel from "./ContractsPanel";
 import NegotiatorBox from "./NegotiatorBox";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
-import { todayQueue } from "@/lib/workspace-pure";
+import { todayQueue } from "@/lib/planet-view-pure";
 
 // Three.js loads after the drawer opens, so the list shows instantly.
 const BusinessMap = dynamic(() => import("./BusinessMap"), { ssr: false, loading: () => <div className="h-[260px] rounded-md border border-white/10" /> });
