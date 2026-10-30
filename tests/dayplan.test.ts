@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPlan, dragOrder, acceptPlan, markDone, eveningReport, inferCommitments, decideCommitment, commitmentItems, dueFrom, type PlanItem } from "../src/lib/dayplan-pure.ts";
+import { approvalItems, buildPlan, dragOrder, acceptPlan, markDone, eveningReport, inferCommitments, decideCommitment, commitmentItems, dueFrom, type PlanItem } from "../src/lib/dayplan-pure.ts";
 
 const day = "2026-10-26";
 const cal = (id: string, s: number, e: number): PlanItem => ({ id, title: id, min: e - s, flexible: false, fixed: { start: s, end: e }, source: { kind: "calendar", label: "Calendar" } });
@@ -101,4 +101,16 @@ test("carry forward: unfinished accepted work comes back explicitly, first, and 
   assert.deepEqual(p.blocks.filter((b) => b.flexible).slice(0, 2).map((b) => b.id).sort(), ["goal:1", "left"]); // overdue → first
   assert.match(planText(p), /Carried from earlier: goal:1, left/);
   assert.equal(carryForward(items, { ...prev, accepted: undefined }, "2026-10-28"), items); // not accepted → nothing promised
+});
+
+test("clip approvals batch into one capped STUDIO review block that never crowds out his own work", () => {
+  const ap = approvalItems([1, 2, 3, 4, 5].map((n) => ({ id: `c${n}`, title: `Clip ${n}`, kind: "clip" })).concat({ id: "s1", title: "Mail", kind: "send" }));
+  assert.equal(ap.length, 2);
+  assert.deepEqual([ap[0].title, ap[0].min, ap[0].source.open], ["Review 5 clips in STUDIO", 30, { panel: "studio", view: "review" }]);
+  assert.deepEqual([ap[1].title, ap[1].min], ["Review: Mail", 10]);
+  const p = buildPlan([cal("busy", 600, 1440), task("essay", 30, { due: day }), ...ap], { day, now: 480 }); // 2 h free before 10:00
+  const flex = p.blocks.filter((b) => b.flexible).map((b) => b.id);
+  assert.equal(flex[0], "essay"); // his deadline first; the next action is never a single clip
+  assert.ok(flex.includes("ap:clip"));
+  assert.ok(p.unplaced.some((u) => u.id === "ap:s1" && u.why === "cap")); // chores capped at a quarter of free time
 });
