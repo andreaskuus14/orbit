@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VOICE_ASK } from "./voice/bus";
 import { WorkspacePanel } from "./WorkspacePanel";
-import { MAX_FILE, MEMORY_MAX, fmtSize, memoryType, type CloudFile, type Kind } from "@/lib/vault-pure";
+import { MAX_FILE, MEMORY_MAX, fmtSize, memoryType, latestGate, type CloudFile, type Kind } from "@/lib/vault-pure";
 
 type Usage = { bytes: number; count: number };
 type Sort = "newest" | "name" | "size";
@@ -35,6 +35,7 @@ export function VaultPanel() {
   const [note, setNote] = useState("");
   const [drag, setDrag] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const previewGate = useRef(latestGate()).current;
 
   const load = useCallback(async () => {
     try {
@@ -59,10 +60,14 @@ export function VaultPanel() {
 
   useEffect(() => {
     setText(null);
+    const isCurrent = previewGate(); // new selection or rename (new `open` object) invalidates any in-flight preview
     if (open?.type !== "text") return;
-    call<{ text: string; truncated: boolean }>(`/api/vault?file=${encodeURIComponent(open.name)}&preview=1`).then(setText)
-      .catch((e) => setErr(e instanceof Error ? e.message : "Preview failed"));
-  }, [open]);
+    const ac = new AbortController();
+    call<{ text: string; truncated: boolean }>(`/api/vault?file=${encodeURIComponent(open.name)}&preview=1`, { signal: ac.signal })
+      .then((r) => { if (isCurrent()) setText(r); })
+      .catch((e) => { if (isCurrent()) setErr(e instanceof Error ? e.message : "Preview failed"); });
+    return () => ac.abort();
+  }, [open, previewGate]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();

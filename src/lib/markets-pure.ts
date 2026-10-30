@@ -119,6 +119,27 @@ export function evaluateAlerts(alerts: Alert[], data: Record<string, { price: nu
   });
 }
 
+/* ---------- quote freshness ---------- */
+
+/** One cached quote: the provider's market date stays with the last good quote; fetch success/attempt/failure are tracked apart,
+ *  so a failed refresh can never make an old close look fresh. */
+export type QuoteState = { quote: Quote | null; okAt: number | null; triedAt: number; failed: boolean };
+export function recordFetch(prev: QuoteState | undefined, got: Quote | null | "error", now: number): QuoteState {
+  if (got === "error") return { quote: prev?.quote ?? null, okAt: prev?.okAt ?? null, triedAt: now, failed: true };
+  return { quote: got, okAt: now, triedAt: now, failed: false };
+}
+/** Weekday before `today` (YYYY-MM-DD). shortcut: ignores exchange holidays (a post-holiday quote reads stale = blocked, the safe side); add a holiday list if that bites. */
+export function prevSession(today: string): string {
+  const d = new Date(`${today}T12:00:00Z`);
+  do d.setUTCDate(d.getUTCDate() - 1); while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return d.toISOString().slice(0, 10);
+}
+/** Stale policy: a quote whose market date is older than the previous trading session (weekday) can't fill paper orders or fire alerts. */
+export const isStale = (date: string, today: string) => date < prevSession(today);
+/** Close prices of the non-stale quotes only (for paper fills, the bot and alerts). */
+export const freshPrices = (quotes: Record<string, { date: string; close: number }>, today: string): Record<string, number> =>
+  Object.fromEntries(Object.entries(quotes).filter(([, q]) => !isStale(q.date, today)).map(([t, q]) => [t, q.close]));
+
 export const newAccount = (today: string): Account => ({ cash: START_CASH, positions: {}, trades: [], curve: [], started: today });
 /** Cash + positions at the given prices (a position without a price counts at cost). */
 export const equity = (a: Account, prices: Record<string, number>) =>

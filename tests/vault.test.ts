@@ -158,3 +158,13 @@ test("cloud failure hints and content types", () => {
   assert.equal(mimeOf("a.html"), "application/octet-stream");
   assert.equal(mimeOf("a.png"), "image/png");
 });
+
+test("latestGate: A→B→C selections resolving in reverse order show only C", async () => {
+  const { latestGate } = await import("../src/lib/vault-pure.ts");
+  const begin = latestGate();
+  let shown: string | null = null;
+  const pending: (() => void)[] = [];
+  for (const f of ["A", "B", "C"]) { const ok = begin(); pending.push(() => { if (ok()) shown = f; }); }
+  for (const resolve of pending.reverse()) resolve(); // C, then B, then A
+  assert.equal(shown, "C");
+});
