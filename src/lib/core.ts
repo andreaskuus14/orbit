@@ -49,6 +49,7 @@ import { CORE_ENGINE } from "./core-sdk-pure";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterTimeout, callTimeout, isHeavy, isTimeout, SPLIT_HINT } from "./long-work-pure";
+import { stepTier, stepsContext, callKey, remember, reused, STEP_THINKING } from "./core-steps-pure";
 import type { CliSession } from "./claude";
 import { coreSessionStore as coreSessions, coreTaintStore as coreTaint } from "./durable";
 import { loadWsGate, settleWsPending } from "./core-workspace";
@@ -74,7 +75,7 @@ type Profile = {
 export const MAX_STEPS = maxSteps(process.env.ORBIT_CORE_MAX_STEPS); // was 5; the turn time budget below still bounds it
 const AGENT_LIST = BUILTIN_AGENTS.map((a) => `${a.slug} (${a.role.split(":")[0]})`).join(", ");
 
-function systemPrompt(p: Profile | null, today: string) {
+function systemPrompt(p: Profile | null, today: string, maxN = MAX_STEPS) {
   const facts = p
     ? [
         p.display_name && `Name: ${p.display_name}`,
@@ -106,7 +107,7 @@ ${FOLLOW_THROUGH}
 HOW YOU ANSWER — reply with exactly ONE JSON object and nothing else (never XML or <invoke> function-call syntax; tools are called only through this JSON):
 {"thought": "<short>", "tool": "<name>", "input": {...}}   to use a tool, or
 {"final": "<your answer in Markdown>"}   to answer (no "thought" needed: the user sees the answer from its first word).
-Most questions need no tool: answer with "final" straight away. Use at most ${MAX_STEPS - 1} tools.
+Most questions need no tool: answer with "final" straight away. Use at most ${maxN - 1} tools.
 
 TOOLS:
 - web_search {"query": string}: search the whole web and get short findings with source links (takes up to a minute or two). For anything current or outside the user's memories: businesses or places in a town, prices, opening hours, people, products, facts. Put only the search words in "query", never private details. Prefer it over fetch_url when you don't have a specific link.
@@ -130,16 +131,23 @@ ${facts || "(empty)"}`;
 /** Every turn has an elapsed-time deadline (B04): it aborts the CLI/SDK call, tools, agent tasks and fallbacks through one signal. */
 export const TURN_MS = 285_000; // inside the CORE route's 300 s maxDuration
 /** Thrown when an interactive turn ran out of time on a long step: core-turn.ts moves the work to the background. */
-export class CoreHandoff extends Error {}
-const turnBudget = new AsyncLocalStorage<{ ms: number; background: boolean }>();
+/** carry: the finished tool results, trace and call cache, so the background run resumes instead of restarting. */
+type Carry = { steps: string[]; trace: TraceStep[]; done: Map<string, string> };
+export class CoreHandoff extends Error { carry?: Carry }
+const turnBudget = new AsyncLocalStorage<{ ms: number; background: boolean } & Carry>();
 export const runCore = (...a: Parameters<typeof coreTurn>) => runCoreFor(TURN_MS, false, ...a);
-/** background: a handed-off turn (long budget; a timeout ends it instead of handing off again). */
-export async function runCoreFor(ms: number, background: boolean, ...a: Parameters<typeof coreTurn>) {
+/** background: a handed-off turn (long budget; a timeout ends it instead of handing off again); the CoreHandoff itself resumes its finished steps. */
+export async function runCoreFor(ms: number, background: boolean | CoreHandoff, ...a: Parameters<typeof coreTurn>) {
   const leave = foreground.enter();
   const d = turnSignal(a[4], ms);
   a[4] = d.signal;
-  try { d.signal.throwIfAborted(); return await turnBudget.run({ ms, background }, () => coreTurn(...a)); }
-  catch (e) { throw e instanceof CoreHandoff ? e : d.timedOut() && !background ? new CoreHandoff((d.signal.reason as Error).message) : d.timedOut() ? new CoreStopped(e instanceof CoreStopped ? e.completed : "", (d.signal.reason as Error).message) : e; }
+  const store = { ms, background: !!background, ...((background instanceof CoreHandoff && background.carry) || { steps: [], trace: [], done: new Map<string, string>() }) };
+  try { d.signal.throwIfAborted(); return await turnBudget.run(store, () => coreTurn(...a)); }
+  catch (e) {
+    const out = e instanceof CoreHandoff ? e : d.timedOut() && !background ? new CoreHandoff((d.signal.reason as Error).message) : d.timedOut() ? new CoreStopped(e instanceof CoreStopped ? e.completed : "", (d.signal.reason as Error).message) : e;
+    if (out instanceof CoreHandoff) out.carry = { steps: store.steps, trace: store.trace, done: store.done };
+    throw out;
+  }
   finally { d.clear(); leave(); }
 }
 
@@ -147,7 +155,8 @@ export async function runCoreFor(ms: number, background: boolean, ...a: Paramete
 const carriedText = new Map<string, string[]>();
 
 async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", sessionKey?: string, lang: Lang = "en") {
-  const trace: TraceStep[] = [];
+  const budget = turnBudget.getStore() ?? { ms: TURN_MS, background: false, steps: [], trace: [], done: new Map<string, string>() };
+  const trace = budget.trace; // shared with a background resume (CoreHandoff.carry)
   const turnId = crypto.randomUUID(); // links policy.decision ledger rows to this turn's trace (failure report)
   const transcriptHolder = { text: "" };
   const question = typedText(history[history.length - 1].content); // attached file names never count as the user's words
@@ -187,7 +196,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   let t = Date.now();
   let tier = attach ? "smart" as const : pickModel(question, [...history].reverse().find((h) => h.role === "assistant")?.content);
   if (typeof voice === "string" && tier === "deep") tier = "smart"; // phone call: no screen, the reply must start fast. On-screen voice keeps full depth (only its summary is spoken)
-  const system = systemPrompt(await at("profile", cachedProfile(sb, userId)), localDate()); // no clock: the same all day, so spare CLIs (warmCore) and prompt caching match
+  const maxN = maxSteps(process.env.ORBIT_CORE_MAX_STEPS, isHeavy(question, [])); // operator/research turns get more steps
+  const system = systemPrompt(await at("profile", cachedProfile(sb, userId)), localDate(), maxN); // no clock: the same all day, so spare CLIs (warmCore) and prompt caching match
   onStep?.("search_memory", {});
   let byId = new Map<string, { id: string; title: string; kind: string }>(); // memories in context, for citations
   let playbookRules: string[] = [];
@@ -246,14 +256,13 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   let sess: CliSession | null = SESSION_MODE === "resume" && sessionKey ? (coreSessions.get(sessionKey) ?? { id: randomUUID(), resume: false }) : null;
   let sessSent = false, sessSeen = 0; // this turn's context already in the session; tool results it has seen
 
-  const steps: string[] = [];
+  const steps = budget.steps, resumed = steps.length; // a resumed background run starts with the finished tool results
   // Short chit-chat goes to the fast model; if it still reaches for a tool, that step is redone on the main model.
   // Attachments always go to the main model, and their content counts as untrusted data in context from the start.
   // Pinned project notes are saved replies (maybe quoting web/agent text): untrusted from the start too.
   const dataIn = () => !!attach || pinsIn || steps.some((s) => !s.startsWith("You called navigate"));
   // Deep: plan privately in "thought" (never shown), answer in the same call, then one tool-less self-check below.
   const turnStart = Date.now();
-  const budget = turnBudget.getStore() ?? { ms: TURN_MS, background: false };
   const deepLeft = () => budget.ms - (TURN_MS - DEEP_TURN_MS) - (Date.now() - turnStart);
   let splitRetried = false;
   const deepNote = 'DEEP MODE (a hard request): write "thought" before "final" and in it privately plan first — the steps, the constraints, what could go wrong (it is never shown). Then give a complete, well-structured, correct "final".\n\n';
@@ -268,7 +277,14 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
   // Results over the step limit are clipped with a read_more pointer; the full text lives in this per-turn store (roadmap 20).
   const clips = createClipStore();
-  const exec = async (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator = false) => clips.clip(await execRaw(tool, input, evidence, operator));
+  // Same tool + same input in one task (incl. after a handoff) reuses the result instead of running again (core-steps-pure.ts).
+  const exec = async (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator = false) => {
+    const hit = budget.done.get(callKey(tool, input));
+    if (hit !== undefined) return reused(hit);
+    const out = clips.clip(await execRaw(tool, input, evidence, operator));
+    remember(budget.done, tool, input, out, (t) => LOGGED.includes(t));
+    return out;
+  };
   const execRaw = async (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator: boolean) => tool === "navigate" ? navigateTool(input, onNavigate)
     : tool === "read_more" ? clips.read(input)
     // module tools (core-modules.ts) keep their own explicit-ask guards as a second check
@@ -327,7 +343,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         // A redo after tools already ran carries their results, so writes aren't repeated.
         const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote.replace(/"final"/g, "your answer")}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}`;
         try {
-          const r = await sdk.sdkTurn({ sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: MAX_STEPS, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", turnId, exec, record, onDelta: sendDelta, onReset, onStep });
+          const r = await sdk.sdkTurn({ sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", turnId, exec, record, onDelta: sendDelta, onReset, onStep });
           if (r.escalated) { onReset?.(); tier = "smart"; continue; } // as the loop: a fast-model tool call is redone on the main model
           if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
           answer = r.text;
@@ -336,21 +352,26 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       }
       await review();
     }
-    else for (let step = 0; step < MAX_STEPS; step++) {
-      const last = step === MAX_STEPS - 1 || (step > 0 && deepLeft() < 90_000); // out of steps or turn time: answer now
+    else for (let step = resumed, synth = false, noRoute = false; step < maxN; step++) {
+      const last = synth || step === maxN - 1 || (step > 0 && deepLeft() < 90_000); // out of steps or turn time: answer now
       signal?.throwIfAborted();
       onStep?.("think", {});
-      const tail = `\n\n${splitRetried ? SPLIT_HINT + "\n\n" : ""}${CORE_LANG_RULE[lang]}${voiceNote}${tier === "deep" ? deepNote : ""}${(sess ? steps.slice(sessSeen) : steps).length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${(sess ? steps.slice(sessSeen) : steps).join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
+      // A tool-choice step after a read runs on the fast model, thinking capped, old results shortened; the answer stays on the turn's model.
+      const stepT = stepTier(tier, { lastStep: steps.at(-1), last, session: !!sess || noRoute }), planning = stepT !== tier;
+      const shownSteps = stepsContext(sess ? steps.slice(sessSeen) : steps, planning);
+      const tail = `\n\n${splitRetried ? SPLIT_HINT + "\n\n" : ""}${CORE_LANG_RULE[lang]}${voiceNote}${stepT === "deep" ? deepNote : ""}${shownSteps.length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${shownSteps.join("\n\n")}\n\n` : ""}${last ? 'Answer now with "final".' : "Your JSON reply:"}`;
       const sessNow = sess, sentNow = sessSent;
       const ask = (prompt ? Promise.resolve(prompt) : prep.then((p) => (prompt = p))).then((p) => sessNow ? sessionInput(p, transcriptHolder.text, sessNow.resume, sentNow) + tail : p + tail);
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
       if (tier === "deep" && deepLeft() - 60_000 < 30_000) { tier = "smart"; trace.push({ step: "fallback", detail: "deep → main model (time limit)", ms: 0, ok: false }); }
-      const model = tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL;
-      const effort = tier === "deep" ? deepFlags.effort || undefined : undefined;
-      const timeoutMs = tier === "deep" ? Math.min(120_000, deepLeft() - 60_000) : callTimeout(isHeavy(question, steps), deepLeft());
+      const model = planning || tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL;
+      const effort = !planning && tier === "deep" ? deepFlags.effort || undefined : undefined;
+      const timeoutMs = !planning && tier === "deep" ? Math.min(120_000, deepLeft() - 60_000) : callTimeout(!planning && isHeavy(question, steps), deepLeft());
       let r;
       try {
-      if (onDelta) {
+      if (planning) {
+        r = await askClaude(ask, system, { lane: "foreground", signal, model, effort, timeoutMs, thinking: STEP_THINKING }); // nothing streams: a tool call, or a draft redone below
+      } else if (onDelta) {
         // The model writes a JSON envelope; forward only the newly decoded part of its "final" answer.
         // Deep: nothing until the reply is clearly the JSON envelope, so a raw plan or tool call never streams.
         let raw = "", sent = 0;
@@ -369,6 +390,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
           if (afterTimeout(splitRetried, deepLeft()) === "retry") { splitRetried = true; onReset?.(); trace.push({ step: "fallback", detail: "timed out → retry split", ms: 0, ok: false }); step--; continue; }
           if (!budget.background) throw new CoreHandoff(String(e instanceof Error ? e.message : e));
         }
+        if (planning && !signal?.aborted) { noRoute = true; step--; continue; } // the fast model failed: this turn plans on its own model
         recover(e, effort); step--; continue;
       }
       if (sess && !r.local) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
@@ -379,6 +401,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       // The deep plan stays private: the trace (shown in the UI) never carries it.
       const thought = tier === "deep" ? (reply.tool ? "planned privately" : "answering") : reply.thought || (reply.final !== undefined ? "answering" : "");
       trace.push({ step: "think", detail: `${model} · ${thought}`.slice(0, 200), ms: r.ms, ok: true });
+      if (planning && !r.local && (reply.final !== undefined || !reply.tool)) { synth = true; step--; continue; } // ready to answer: the turn's model writes it
       if (tier === "fast" && reply.tool) { onReset?.(); tier = "smart"; step--; continue; }
       if (reply.final !== undefined || !reply.tool || last) {
         answer = reply.final ?? (reply.tool ? "" : r.text); // a tool call on the last step is never shown as the answer

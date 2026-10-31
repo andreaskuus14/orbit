@@ -49,6 +49,7 @@ import { PerfRuns } from "./PerfRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
 import { getLang, LangSwitch, useT } from "./i18n";
 import { FailureReport } from "./FailureReport";
+import { turnFailed } from "@/lib/failure-report-pure";
 import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
 import { eventLabel } from "@/lib/event-label-pure";
@@ -120,7 +121,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     try { if (id) localStorage.setItem(ACTIVE_CHAT_KEY, id); else localStorage.removeItem(ACTIVE_CHAT_KEY); } catch { /* private mode */ }
   }, []);
   const newChat = useCallback((projectId: string | null = null) => {
-    abort.current?.abort(); stopSpeech();
+    // A running turn is not stopped: it detaches and keeps going in its own chat (marked running in the list); this view starts fresh.
+    if (abort.current) { view.current++; abort.current = null; setBusy(false); setLive(null); setRows([]); setBgTask(null); }
+    stopSpeech();
     opening.current++;
     setMsgs([]); setChatId(null); setNewProject(projectId); setSheet(false); lastQ.current = "";
   }, [setChatId]);
@@ -154,6 +157,8 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   };
   const end = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
+  const view = useRef(0); // bumped by "+ New" during a turn: that turn's stream stops touching this view
+  const [running, setRunning] = useState<string[]>([]); // chats with a turn still streaming (detached ones included)
   // Abort a running answer only on a real unmount: React dev mode unmounts and remounts once right away,
   // which used to cancel the command-bar question instantly ("Stopped.").
   const alive = useRef(false);
@@ -170,6 +175,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
 
   const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset) => {
     const message = text.trim();
+    const mine = view.current, here = () => mine === view.current;
     const nav = parseNavCommand(message, { current: "core" });
     const asked = !look && !nav ? parseLookRequest(message) : null;
     if (asked) { setLookAsk(asked); setInput(""); return; } // never captures by itself: the strip shows a "choose the window" button
@@ -182,7 +188,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     let myGen = speechGen(); // a later stop() (barge-in, Stop button) silences the rest of this answer
     const talk = fromVoice || takeVoiceAsked();
     if (talk) setHeard(message);
-    const say = (parts: string[]) => { if (talk && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
+    const say = (parts: string[]) => { if (talk && here() && speechSettings().speak) parts.forEach((p) => speakChunk(p, myGen)); };
     const voiceOut = sentenceStream(true);
     const fly = (to: NavTarget) => dispatchEvent(new CustomEvent(NAV_EVENT, { detail: to }));
     const files = nav ? [] : att.take(); // pending attachments must not send a direct command to Claude
@@ -207,7 +213,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     abort.current = ac;
     let partial = "";
     let navTo: NavTarget | null = null; // CORE's navigate tool: fly once the answer is done, so leaving the panel can't cut it off
-    let raf = 0;
+    let raf = 0, cid = "";
     const flush = () => { cancelAnimationFrame(raf); raf = 0; };
     try {
       const res = await fetch("/api/core?stream=1", {
@@ -224,6 +230,8 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       let finished = false;
       const handle = (line: string) => {
         const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; tool?: string; taskId?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
+        if (ev.conversationId && !cid) { const id = cid = ev.conversationId; setRunning((r) => [...r, id]); }
+        if (!here()) { if (ev.type === "done" || ev.type === "error") finished = true; return; } // detached by "+ New": the server finishes and saves it in its own chat
         if (ev.conversationId && ev.conversationId !== convo.current) { setChatId(ev.conversationId); void chats.reload(); }
         if (ev.type === "delta" && ev.text) {
           partial += ev.text;
@@ -265,20 +273,19 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
         if (done) { if (buf.trim()) handle(buf); break; }
       }
       if (!finished) throw new Error("Connection to CORE was lost");
-      if (navTo) fly(navTo); // after the stream closed: leaving the panel aborts the request, which mustn't land mid-read
+      if (navTo && here()) fly(navTo); // after the stream closed: leaving the panel aborts the request, which mustn't land mid-read
     } catch (e) {
       const stopped = ac.signal.aborted;
       if (talk) stopSpeech();
       if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
       if (!stopped) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "error" } }));
-      if (!(stopped && handedOff)) setMsgs((m) => [...m, stopped // after a handoff, Stop only stops watching: the work goes on in OPERATIONS
+      if (!(stopped && handedOff) && here()) setMsgs((m) => [...m, stopped // after a handoff, Stop only stops watching: the work goes on in OPERATIONS
         ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._`, live: { rows: steps, ms: Date.now() - since.current } }
         : { role: "assistant", content: e instanceof Error ? e.message : "CORE failed", error: true }]);
     } finally {
       flush();
-      setLive(null);
-      setRows([]); setBgTask(null);
-      setBusy(false);
+      if (cid) setRunning((r) => r.filter((x) => x !== cid));
+      if (here()) { setLive(null); setRows([]); setBgTask(null); setBusy(false); }
       if (abort.current === ac) abort.current = null;
       if (talk) dispatchEvent(new Event("orbit:core-done")); // voice conversation listens again only after this (bus.ts CORE_DONE)
       void chats.reload(); // Recents order + title
@@ -381,7 +388,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           <ul className="mt-1 space-y-0.5">{m.trace.map((s, n) => <li key={n}>{s.ok ? "✓" : "✗"} <b>{s.step}</b> · {s.ms}ms · {s.detail}</li>)}</ul>
         </details>
       )}
-      {m.role === "assistant" && (m.error || m.trace?.some((s) => !s.ok || s.answerEval?.pass === false)) && (
+      {m.role === "assistant" && turnFailed(m) && (
         <div className="mt-2"><FailureReport input={{ kind: "turn", id: chatId, relatedIds: chatId ? [chatId] : [], model: m.model ?? null, error: m.error ? m.content : null,
           trace: m.trace ?? [], request: msgs[i - 1]?.role === "user" ? msgs[i - 1].content : "", answer: m.error ? "" : m.content }} /></div>
       )}
@@ -409,9 +416,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
         <button type="button" className="chip" onClick={() => newChat()} disabled={!msgs.length && !chatId} title={tr("core.newTitle")}>＋ {tr("core.new")}</button>
       </div>
       {chats.error && !sheet && <p className="error mb-2 text-xs" role="alert">{chats.error}</p>}
-      {sheet && <ChatSheet {...chats} activeId={chatId} onOpen={(id) => void openChat(id)} onNew={newChat} onClose={() => setSheet(false)}
+      {sheet && <ChatSheet {...chats} activeId={chatId} running={running} onOpen={(id) => void openChat(id)} onNew={newChat} onClose={() => setSheet(false)}
         onDeleted={(id) => { if (id === chatId) newChat(); }} />}
-      <CoreSuggests tick={msgs.length} />
+      <CoreSuggests tick={msgs.length} busy={busy} />
       <PlanCard tick={msgs.length} />
       <div className="flex-1 space-y-4 overflow-y-auto pr-1" aria-live="polite" aria-busy={busy}>
         {!msgs.length && <p className="muted">{tr("core.intro")}</p>}
@@ -445,9 +452,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   );
 }
 
-/** "CORE suggests": up to 3 proactive suggestions (src/lib/insights-pure.ts), each with its one-click action and dismiss. */
-function CoreSuggests({ tick }: { tick: number }) {
+/** "CORE suggests": one compact line (count + expand) over up to 3 proactive suggestions (src/lib/insights-pure.ts),
+ *  each with its one-click action and dismiss. Hidden while a turn runs, so the chat keeps its height. */
+function CoreSuggests({ tick, busy }: { tick: number; busy: boolean }) {
   const { t: tr } = useT();
+  const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Suggestion[]>([]);
   const [busyKey, setBusyKey] = useState("");
   const [err, setErr] = useState("");
@@ -467,11 +476,15 @@ function CoreSuggests({ tick }: { tick: number }) {
     } catch (e) { setErr(`${a.label}: ${e instanceof Error ? e.message : "failed"}`); }
     setBusyKey("");
   };
-  if (!items.length) return null;
+  if (!items.length || busy) return null;
   return (
-    <section className="mb-3 space-y-1.5" aria-label={tr("core.suggests")}>
-      <div className="muted text-xs uppercase tracking-wide">{tr("core.suggests")}</div>
-      {items.slice(0, 3).map((s) => (
+    <section className="mb-2 space-y-1.5" aria-label={tr("core.suggests")}>
+      <button type="button" className="muted flex w-full items-center gap-2 truncate text-left text-xs" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className="uppercase tracking-wide">{tr("core.suggests")} · {Math.min(3, items.length)}</span>
+        {!open && <span className="min-w-0 flex-1 truncate">{items[0].title}</span>}
+        <span aria-hidden>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && items.slice(0, 3).map((s) => (
         <div key={s.key} className="glass flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm">
           <span className="min-w-0 flex-1" title={s.detail}>{s.priority === "high" && <span aria-label={tr("core.important")}>● </span>}{s.title}</span>
           {s.actions.map((a) => <button key={a.label} type="button" className="chip" disabled={!!busyKey} onClick={() => void run(s, a)}>{busyKey === s.key ? "…" : a.label}</button>)}

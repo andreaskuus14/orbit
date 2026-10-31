@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import { maxSteps, fallbackNote, describeFailure } from "../src/lib/core-capability-pure.ts";
 import { speechChunks, sentenceStream } from "../src/components/voice/speech-text.ts";
 
-test("maxSteps: default 8, clamped 2..12", () => {
+test("maxSteps: default 8, operator turns 16, clamped 2..20", () => {
   assert.equal(maxSteps(undefined), 8);
   assert.equal(maxSteps("abc"), 8);
   assert.equal(maxSteps("1"), 2);
-  assert.equal(maxSteps("50"), 12);
+  assert.equal(maxSteps("50"), 20);
+  assert.equal(maxSteps(undefined, true), 16);
+  assert.equal(maxSteps("4", true), 16);
+  assert.equal(maxSteps("50", true), 20);
   assert.equal(maxSteps("6"), 6);
 });
 

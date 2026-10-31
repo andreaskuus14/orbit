@@ -101,10 +101,11 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
         catch (e) {
           // Out of interactive time on a long step: the turn continues server-side; reply now, notify when done (never "timed out").
           if (!(e instanceof CoreHandoff) || signal?.aborted) throw e;
+          const handoff = e; // carries the finished tool results: the background run resumes, not restarts
           onReset?.();
           // Not for the phone remote: its clients read "done" as the end. In-app, the open stream keeps showing the background work.
           const follow = !opts.remote;
-          const bg = await inBackground(sb, userId, cid, message, (sig) => runCoreFor(BACKGROUND_TURN_MS, true, sb, userId, history, follow ? onDelta : undefined, sig, follow ? onReset : undefined, voice, undefined, follow ? onStep : undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang));
+          const bg = await inBackground(sb, userId, cid, message, (sig) => runCoreFor(BACKGROUND_TURN_MS, handoff, sb, userId, history, follow ? onDelta : undefined, sig, follow ? onReset : undefined, voice, undefined, follow ? onStep : undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang));
           const taskId = bg.taskId;
           if (follow) { background = bg.finished; send({ type: "background", taskId }); }
           out = { text: handoffReply(taskId, lang), citations: [], trace: [{ step: "fallback", detail: "turn time limit → background task", ms: 0, ok: false }], model: "smart" };

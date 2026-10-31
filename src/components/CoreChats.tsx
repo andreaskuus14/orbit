@@ -2,6 +2,7 @@
 // CORE chat list + Projects, like the Claude app sidebar: a sheet over the CORE panel (works the same in the phone layout).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDialogFocus } from "./useDialogFocus";
+import { useT } from "./i18n";
 import { CheckpointCard } from "./CheckpointCard";
 import { MAX_INSTRUCTIONS, MAX_PROJECT_NAME, MAX_TITLE, type Project } from "@/lib/core-chats-pure";
 
@@ -30,10 +31,11 @@ export function useCoreChats() {
 }
 
 type Props = ReturnType<typeof useCoreChats> & {
-  activeId: string | null; onOpen: (id: string) => void; onNew: (projectId: string | null) => void; onDeleted: (id: string) => void; onClose: () => void;
+  activeId: string | null; running?: string[]; onOpen: (id: string) => void; onNew: (projectId: string | null) => void; onDeleted: (id: string) => void; onClose: () => void;
 };
 
-export function ChatSheet({ chats, projects, map, error, act, activeId, onOpen, onNew, onDeleted, onClose }: Props) {
+export function ChatSheet({ chats, projects, map, error, act, activeId, running = [], onOpen, onNew, onDeleted, onClose }: Props) {
+  const { t } = useT();
   const [editing, setEditing] = useState<Project | "new" | null>(null);
   const navRef = useRef<HTMLElement>(null);
   useDialogFocus(navRef, true, onClose);
@@ -47,7 +49,7 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, onOpen, 
   };
   const row = (c: ChatRow) => (
     <li key={c.id} className={`flex items-center gap-1 rounded-lg px-1 ${c.id === activeId ? "bg-white/10" : ""}`}>
-      <button type="button" className="min-w-0 flex-1 truncate py-1.5 text-left text-sm" aria-current={c.id === activeId || undefined} title={c.title} onClick={() => onOpen(c.id)}>{c.title}</button>
+      <button type="button" className="min-w-0 flex-1 truncate py-1.5 text-left text-sm" aria-current={c.id === activeId || undefined} title={c.title} onClick={() => onOpen(c.id)}>{running.includes(c.id) && <span className="text-xs" title={t("core.chatRunning")} aria-label={t("core.chatRunning")}>● </span>}{c.title}</button>
       <button type="button" className="chip px-2" aria-label={`Rename ${c.title}`} title="Rename" onClick={() => rename(c)}>✎</button>
       <button type="button" className="chip px-2" aria-label={`Delete ${c.title}`} title="Delete" onClick={() => void remove(c)}>✕</button>
     </li>
