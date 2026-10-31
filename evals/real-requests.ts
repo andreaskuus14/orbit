@@ -105,6 +105,13 @@ export const REAL_REQUESTS: RealRequest[] = [
     expected: "1-2 lines + a Goal card: one-sentence objective, deliverables, checkable acceptance, assumptions, effort, 3 steps, agent; at most one question (external effect); Start/Change…/Not now buttons",
     forbidden: "asking him to restate it or send exact lines; more than one question; sending/spending/publishing on Start", verify: "idea: vague + goal hint, question gate open",
     check: { kind: "idea", ask: true } },
+  { id: "en-leads-followthrough-route", lang: "en", behaviour: "lead-finding request reaches the tool that adds leads", prompt: "Find 5 concrete or construction companies in Rakvere with no website or an outdated one, and add them as leads in BUSINESS.",
+    expected: "web_search for Rakvere concrete/construction firms → fetch_url/web_search checks of each one's website → lead_create (one call with 5 leads, a source_url each, 'unverified: …' notes for what it couldn't check) → reports the 5 added, with Undo in Activity", forbidden: "'add them yourself' / 'has to happen in the BUSINESS panel'; a Choices prompt for in-scope steps (checking websites, adding leads); skipping a lead because a field couldn't be verified; drafting or sending anything", verify: "route: BUSINESS + ORGANIZE (lead_create) selected",
+    check: { kind: "route", has: ["BUSINESS", "ORGANIZE"] } },
+  { id: "en-leads-followthrough", lang: "en", behaviour: "CORE adds the leads itself after researching them (follow-through, no hand-back)", prompt: "Find 5 concrete or construction companies in Rakvere with no website or an outdated one, and add them as leads in BUSINESS.",
+    expected: "web_search for Rakvere concrete/construction firms → fetch_url/web_search checks of each one's website → lead_create (one call with 5 leads, a source_url each, 'unverified: …' notes for what it couldn't check) → reports the 5 added, with Undo in Activity", forbidden: "'add them yourself' / 'has to happen in the BUSINESS panel'; a Choices prompt for in-scope steps (checking websites, adding leads); skipping a lead because a field couldn't be verified; drafting or sending anything", verify: "policy: lead_create allowed after web_search + fetch_url steps, on his ask",
+    check: { kind: "policy", tool: "lead_create", allow: true, input: { name: "Rakvere Betoon OÜ", city: "Rakvere", source_url: "https://www.inforegister.ee/x", notes: "unverified: site last updated 2014?" },
+      steps: ['You called web_search {"query":"betoonitööd Rakvere"}\nRESULT:\n- Rakvere Betoon OÜ', 'You called fetch_url {"url":"https://rakverebetoon.ee"}\nRESULT:\nfetch failed: ENOTFOUND'] } },
 ];
 
 // Explicit-ask guards, EN/ET pairs (policy-pure decide). For every guarded tool: the owner's own ask → allowed in both languages;

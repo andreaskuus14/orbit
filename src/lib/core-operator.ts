@@ -5,7 +5,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir.ts";
-import { automationInput, keepSnaps, leadChange, leadNotes, newOpId, OP_ID, opsBlocked, pickByName, receipt, tallinnTimes, type OpsSnap, type OpsTool } from "./core-operator-pure.ts";
+import { automationInput, keepSnaps, leadChange, leadInputs, leadNotes, newOpId, OP_ID, opsBlocked, pickByName, receipt, tallinnTimes, type OpsSnap, type OpsTool } from "./core-operator-pure.ts";
 import type { DayPlan } from "./dayplan-pure.ts";
 import type { PlanSnap } from "./dayplan.ts";
 
@@ -56,6 +56,24 @@ export async function runOpsTool(tool: OpsTool, input: Record<string, unknown>, 
         const t = await v.deleteFile(name);
         await v.cloudRemove(c.sb, c.userId, t.name);
         return `Done: VAULT "${t.name}" moved to the VAULT trash (restorable for 30 days) ${await snap(tool, { trash: t.id, name: t.name })}`;
+      }
+      case "lead_create": {
+        const leads = leadInputs(input);
+        if (typeof leads === "string") return `Error: ${leads}`;
+        const [crm, { duplicateOf, newCrm }] = await Promise.all([import("./prospect-crm.ts"), import("./prospect-crm-pure.ts")]);
+        const rows = ((await c.sb.from("prospects").select("id,name,contact").limit(1000)).data ?? []) as { id: string; name: string; contact: string }[];
+        const store = await crm.loadCrm(), made: { id: string; notes: string }[] = [], lines: string[] = [];
+        for (const l of leads) {
+          const dup = duplicateOf(rows, store, l.name, l.contact);
+          if (dup) { lines.push(`skipped "${l.name}": already in BUSINESS as "${rows.find((r) => r.id === dup)?.name}" (id ${dup})`); continue; }
+          const { data, error } = await c.sb.from("prospects").insert({ ...l, stage: "lead" }).select("id,name,contact,notes").single();
+          if (error || !data) { lines.push(`"${l.name}" not added: ${error?.message ?? "no row"}`); continue; }
+          rows.push(data); made.push({ id: data.id, notes: l.notes });
+          await crm.updateCrm((s) => { s[data.id] = newCrm("web-find", l.name, l.contact); }); // contact unverified until he checks it
+          lines.push(`added "${l.name}" (id ${data.id})`);
+        }
+        if (!made.length) return `Nothing to do: ${lines.join("; ")}`;
+        return `Done: ${made.length} BUSINESS lead${made.length > 1 ? "s" : ""} added at To contact, unverified ${await snap(tool, { made })}\n${lines.join("\n")}\nNothing was drafted or sent.`;
       }
       case "lead_update": {
         const { STAGES, validatePatch } = await import("./business-pure.ts");
@@ -151,6 +169,20 @@ export async function undoOp(sb: SupabaseClient, userId: string, id: string): Pr
       const name = await v.restoreTrash(d.trash, await v.cloudOnlyNames(sb, userId));
       await v.cloudPut(sb, userId, name);
       line = `Undone: VAULT "${name}" back from the trash`;
+      break;
+    }
+    case "lead_create": {
+      const made = d.made as unknown as { id: string; notes: string }[], crm = await import("./prospect-crm.ts");
+      for (const m of made) { // refuse before deleting anything he has worked on since
+        const { data: p } = await sb.from("prospects").select("id,name,stage,notes").eq("id", m.id).maybeSingle();
+        if (p && (p.stage !== "lead" || (p.notes ?? "") !== m.notes)) throw new Error(`"${p.name}" changed since; remove it in BUSINESS`);
+      }
+      for (const m of made) {
+        const { error } = await sb.from("prospects").delete().eq("id", m.id);
+        if (error) throw new Error(error.message);
+      }
+      await crm.updateCrm((st) => { for (const m of made) delete st[m.id]; });
+      line = `Undone: ${made.length} added lead${made.length > 1 ? "s" : ""} deleted`;
       break;
     }
     case "lead_update": {
