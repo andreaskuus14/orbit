@@ -9,6 +9,8 @@ export type Universe = {
   comets: number; // STUDIO streaks, 0..5
   moons: number; // BUSINESS paying clients, 0..8
   nebula: number; // MEMORY nebula density, 0..1
+  recent: Record<string, number>; // events per planet in the last 7 days (counts only)
+  stages: Partial<Snapshot["businessStages"]>; // BUSINESS prospects by their latest stage
 };
 
 const DAY = 86_400_000;
@@ -38,7 +40,7 @@ export function universeFrom(snap: Snapshot | null | undefined, atMs: number): U
 
   const moons = Math.min(8, Math.floor(cnt(snap?.businessStages?.paying)));
   const nebula = fin(Math.log1p(cnt(snap?.counts?.["memory.saved"])) / Math.log1p(200));
-  return { vitality, light, comets, moons, nebula };
+  return { vitality, light, comets, moons, nebula, recent: n, stages: { ...snap?.businessStages } };
 }
 
 /** Slider value (days ago, 0..180) → the moment to ask the ledger about; null = live. Whole hours so the cache hits. */

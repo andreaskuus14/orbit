@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Snapshot } from "@/lib/ledger-pure";
 import { scrubAt, SCRUB_DAYS, universeFrom } from "@/lib/universe-pure";
+import { LIVING_EVENT } from "@/lib/living-events-pure";
 
 type Got = { at: string; snapshot: Snapshot };
 
@@ -26,7 +27,11 @@ export function useLivingUniverse(active = true) {
     if (!active) return; // galaxy hidden (2D index / a world covers it): no ledger polling
     const t = setTimeout(load, at ? 250 : 0); // debounce dragging
     const live = at ? undefined : setInterval(load, 5 * 60_000);
-    return () => { dead = true; clearTimeout(t); clearInterval(live); };
+    // live: a BUSINESS event (a lead added or moved) refetches soon, so its moon arrives while the owner watches
+    let soon: ReturnType<typeof setTimeout> | undefined;
+    const onEv = (e: Event) => { if ((e as CustomEvent<{ planet?: string }>).detail?.planet === "business") { clearTimeout(soon); soon = setTimeout(load, 1500); } };
+    if (!at) addEventListener(LIVING_EVENT, onEv);
+    return () => { dead = true; clearTimeout(t); clearTimeout(soon); clearInterval(live); removeEventListener(LIVING_EVENT, onEv); };
   }, [days, active]);
   const universe = useMemo(() => (got ? universeFrom(got.snapshot, Date.parse(got.at)) : null), [got]);
   return { open, setOpen, days, setDays, universe };

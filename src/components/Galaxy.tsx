@@ -17,7 +17,7 @@ import { GalaxyLoader } from "./GalaxyLoader";
 import { Universe } from "./Universe";
 import { Ships } from "./Ships";
 import type { ShipTask } from "@/lib/ships-pure";
-import type { Light, Universe as UniverseData } from "@/lib/universe-pure";
+import type { Universe as UniverseData } from "@/lib/universe-pure";
 import { FrameMark } from "./dev-timing";
 import { StageOut, useStageActive } from "./Stage";
 import { Singularity } from "./alien/Singularity";
@@ -49,6 +49,8 @@ import { InkGlyph } from "./InkGlyph";
 import { useT } from "./i18n";
 import { ET, translate, type Lang } from "@/lib/i18n-pure";
 import { AlienScript } from "./AlienScript";
+import { hoverParts, planetLife, toolPlanet, QUIET, WARM, WORK } from "@/lib/living-galaxy-pure";
+import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
 
 export type GalaxyProps = {
@@ -84,6 +86,12 @@ type Arrive = { id: PanelId | null; k: number }; // the planet fly-to's progress
 const _v = new THREE.Vector3();
 const glow = (pulses: RefObject<Record<string, number>>, id: string) =>
   Math.max(0, 1 - (Date.now() - (pulses.current?.[id] ?? 0)) / 3000);
+/** Living galaxy: when a CORE trail lands on a world (scene clock seconds); the world flares for a moment. */
+const hits: Record<string, number> = {};
+const hitGlow = (id: string, now: number) => { const a = now - (hits[id] ?? -99); return a >= 0 && a < 1.2 ? (1 - a / 1.2) ** 2 : 0; };
+const QUIET_C = new THREE.Color(QUIET), WARM_C = new THREE.Color(WARM);
+let auraTex: THREE.Texture | null = null; // one warm halo texture shared by every world
+const aura = () => (auraTex ??= glowTexture([[0, "rgba(255,214,150,0.9)"], [0.25, "rgba(255,170,80,0.35)"], [0.6, "rgba(255,140,60,0.08)"], [1, "rgba(255,120,40,0)"]]));
 
 /* ---------- procedural textures (painted on a canvas: no downloads, no licensing) ---------- */
 
@@ -329,13 +337,13 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, light, shell = 0, level = 1, scales, feel, arrive }: {
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive }: {
   p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
   agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
   life?: { done: number; total: number } | null; still?: boolean; // still = reduced motion or low quality: no animation
   segs?: number; // sphere segments: fewer on lower quality levels
-  light?: Light; // living universe: busy worlds glow a touch, idle ones dim a touch
+  vitality?: number; // living galaxy: 7-day activity 0..1 (undefined = no ledger yet: neutral look)
   shell?: number; // thought-cluster particles around the world
   level?: number; // quality level: caps the close-up detail octaves and the LOD mesh
   scales?: Scales;
@@ -356,7 +364,10 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   // first light: drawn until the surface program has compiled (registered while rendering: before the canvas's warm-up)
   useMemo(() => standIn(liquid.mat, planetStandIn(liquid.u, liquid.mat, rim.u)), [liquid, rim]);
   const base = useMemo(() => liquid.mat.color.clone(), [liquid]);
-  const lit = useRef(light); lit.current = light;
+  const env0 = useMemo(() => liquid.mat.envMapIntensity, [liquid]);
+  const act = useMemo(() => planetLife(vitality), [vitality]);
+  const lit = useRef(act); lit.current = act;
+  const halo = useRef<THREE.Sprite>(null);
   const pulse = useCallback(() => glow(pulses, p.id), [pulses, p.id]);
   // Procedural LOD: detail (0 overview .. 1 close-up) drives the shader octaves, the surface swarm, the ring's fine
   // ticks, and a denser sphere once the world is big on screen (level 2+ only; swapped in place, no re-render).
@@ -411,18 +422,26 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
       }
     }
     if (mesh.current) {
-      if (!reduced) mesh.current.rotation.y += dt * 0.18;
-      // Real backend events and lightning add a brief flare. Nothing glows at rest otherwise.
-      const m = liquid.mat, l = lit.current;
-      m.emissiveIntensity = glow(pulses, p.id) * 0.8 + flash.current * 0.6 + (l?.glow ?? 0) * 0.18;
-      m.color.copy(base).multiplyScalar(1 - (l?.dim ?? 0)); // dim is clamped to [0, 0.15] in universe-pure
+      const l = lit.current, hit = hitGlow(p.id, clock.elapsedTime);
+      if (!reduced) mesh.current.rotation.y += dt * 0.18 * l.spin; // busy worlds turn faster
+      // Real backend events, CORE trails landing and lightning add a brief flare; a busy week keeps a warm glow.
+      const m = liquid.mat;
+      m.emissiveIntensity = glow(pulses, p.id) * 0.8 + flash.current * 0.6 + l.glow * 0.3 + hit * 1.2;
+      m.color.copy(base).lerp(QUIET_C, l.cool * 0.75).multiplyScalar(1 - l.dim); // a quiet week: cold and dim
+      m.envMapIntensity = env0 * (1 - l.dim * 0.8); // reflections too, or chrome worlds never dim
+      const h = halo.current;
+      if (h) {
+        const o = Math.min(0.9, l.glow * 0.7 * (reduced ? 1 : 0.85 + 0.15 * Math.sin(clock.elapsedTime * 1.3 + phase)) + hit * 0.7);
+        h.visible = o > 0.01;
+        (h.material as THREE.SpriteMaterial).opacity = o;
+      }
     }
     // Hover lifts the planet a little; eases, never snaps.
     // Overview: far worlds are enlarged to a minimum on-screen size so each reads as a world, not a dot.
     const boost = selected ? 1 : Math.min(boostCap(size, p.radius, CORE_RING), overviewBoost(size, camera.position.distanceTo(positions[p.id]), (camera as THREE.PerspectiveCamera).fov ?? 50, 0.042));
     const g = group.current;
     if (g) {
-      g.scale.setScalar(expDamp(g.scale.x, (hovered.current || selected ? 1.08 : 1) * boost, 0.12, dt));
+      g.scale.setScalar(expDamp(g.scale.x, (hovered.current || selected ? 1.08 : 1) * boost * (selected ? 1 : lit.current.size), 0.12, dt));
       if (scales) scales[p.id] = g.scale.x;
       // Lusion-like inertia: the world leans a little toward the pointer (already eased; this adds a second, slower lag).
       const f = feel?.current, on = f && !reduced ? f.on * (hovered.current ? 1.6 : 1) : 0;
@@ -482,6 +501,9 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
         >
           {level > 0 && micro && <MicroWorld size={size} u={liquid.u} level={level} orbital={!!look.orbital} body={look.surf?.pal[0] ?? p.color} seed={index + 1} />}
         </mesh>
+        <sprite ref={halo} scale={size * 4.2} visible={false} renderOrder={-1}>
+          <spriteMaterial map={aura()} transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+        </sprite>
         {look.halo && <Ringworld size={size} u={liquid.u} detail={near} reduced={reduced} />}
         <ThoughtShell size={size} color={p.color} count={shell} reduced={reduced} glow={pulse} near={near} />
         <HoloRing size={size} color={p.color} tilt={tilt} reduced={reduced} detail={near} />
@@ -560,6 +582,78 @@ function Beams({ positions, pulses, reduced }: { positions: Positions; pulses: R
     }
   });
   return <>{lines.map(({ id, line }) => <primitive key={id} object={line} />)}</>;
+}
+
+/** CORE's work, visible: each tool step sends a comet from the CORE to the world it touches (warm: inside ORBIT), or out
+ *  to the galaxy's edge and back (cold: the public web). The world flares when it lands. A small pool of lines + head
+ *  sprites, recoloured on the CPU only while alive. Reduced motion: the whole arc shows at once and fades (no travel). */
+const TRAIL_N = 64, TRAILS = 8, OUT_C = new THREE.Color("#9fe8ff"), WORK_C = new THREE.Color(WORK);
+type Trail = { to: string; t0: number; dur: number; edge: THREE.Vector3 | null; landed: boolean };
+function Trails({ positions, reduced }: { positions: Positions; reduced: boolean }) {
+  const pool = useMemo(() => Array.from({ length: TRAILS }, () => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(TRAIL_N * 3), 3));
+    g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(TRAIL_N * 3), 3));
+    const line = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    line.frustumCulled = false; line.visible = false;
+    // the same points as soft dots: a 1 px line alone is too thin to read at the overview, the dots give the comet body
+    const dots = new THREE.Points(g, new THREE.PointsMaterial({ size: 7, sizeAttenuation: false, map: aura(), vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    dots.frustumCulled = false; line.add(dots);
+    const head = new THREE.Sprite(new THREE.SpriteMaterial({ map: aura(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    head.visible = false;
+    return { line, head, tr: null as Trail | null };
+  }), []);
+  useEffect(() => () => pool.forEach(({ line, head }) => { line.geometry.dispose(); (line.material as THREE.Material).dispose(); ((line.children[0] as THREE.Points).material as THREE.Material).dispose(); head.material.dispose(); }), [pool]);
+  const queue = useRef<string[]>([]);
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<CoreSignal>).detail;
+      const to = d?.type === "step" ? toolPlanet(d.tool) : null;
+      if (to && queue.current.length < TRAILS) queue.current.push(to);
+    };
+    addEventListener(CORE_SIGNAL, on);
+    return () => removeEventListener(CORE_SIGNAL, on);
+  }, []);
+  const mid = useMemo(() => new THREE.Vector3(), []), to = useMemo(() => new THREE.Vector3(), []), c = useMemo(() => new THREE.Color(), []);
+  useFrame(({ clock, camera }) => {
+    const now = clock.elapsedTime;
+    while (queue.current.length) { // a free slot, or the oldest one
+      const id = queue.current.shift()!, slot = pool.find((s) => !s.tr) ?? pool.reduce((a, b) => (a.tr!.t0 < b.tr!.t0 ? a : b));
+      const edge = id === "edge" ? new THREE.Vector3().setFromSphericalCoords(58, Math.PI / 2 - 0.12, Math.random() * Math.PI * 2) : null;
+      slot.tr = { to: id, t0: now, dur: edge ? 2.6 : 1.9, edge, landed: false };
+    }
+    for (const s of pool) {
+      const tr = s.tr, age = tr ? now - tr.t0 : -1;
+      if (!tr || age < 0 || age > tr.dur || (!tr.edge && !positions[tr.to])) { s.tr = null; s.line.visible = s.head.visible = false; continue; }
+      to.copy(tr.edge ?? positions[tr.to]);
+      mid.copy(to).multiplyScalar(0.5); mid.y += 1.2 + to.length() * 0.14; // arc over the plane
+      const u = age / tr.dur, travel = tr.edge ? 0.8 : 0.42; // share of the life spent travelling (edge: out, then back)
+      // head position along the curve (0 CORE .. 1 target); the edge trip returns to the CORE
+      const h = reduced ? 1 : tr.edge ? (u < travel / 2 ? (2 * u) / travel : Math.max(0, 1 - (2 * (u - travel / 2)) / travel)) : Math.min(1, u / travel);
+      const back = !!tr.edge && u >= travel / 2;
+      const fade = reduced ? 1 - u : u < travel ? 1 : 1 - (u - travel) / (1 - travel);
+      if (!tr.landed && !tr.edge && h >= 1) { tr.landed = true; hits[tr.to] = now; }
+      const col = tr.edge ? OUT_C : WORK_C;
+      const pos = s.line.geometry.attributes.position as THREE.BufferAttribute, cl = s.line.geometry.attributes.color as THREE.BufferAttribute;
+      for (let i = 0; i < TRAIL_N; i++) {
+        const t = i / (TRAIL_N - 1), b = 2 * (1 - t) * t, d = t * t;
+        pos.setXYZ(i, b * mid.x + d * to.x, b * mid.y + d * to.y, b * mid.z + d * to.z);
+        const behind = reduced ? 1 : back ? t >= h : t <= h; // the part already travelled
+        const k = (behind ? 0.18 + 0.82 * Math.exp(-((h - t) ** 2) / 0.006) : 0) * fade * 1.8;
+        c.copy(col).lerp(tr.edge ? OUT_C : WARM_C, 1 - Math.exp(-((h - t) ** 2) / 0.02)); // white-gold head, amber tail
+        cl.setXYZ(i, c.r * k, c.g * k, c.b * k);
+      }
+      pos.needsUpdate = true; cl.needsUpdate = true;
+      s.line.visible = true;
+      const ht = h, hb = 2 * (1 - ht) * ht, hd = ht * ht;
+      s.head.position.set(hb * mid.x + hd * to.x, hb * mid.y + hd * to.y, hb * mid.z + hd * to.z);
+      s.head.scale.setScalar(Math.max(0.6, camera.position.distanceTo(s.head.position) * 0.05));
+      s.head.material.color.copy(col);
+      s.head.material.opacity = Math.min(1, fade * (reduced ? 0.6 : 1));
+      s.head.visible = !reduced || u < 0.5;
+    }
+  });
+  return <>{pool.map(({ line, head }, i) => <group key={i}><primitive object={line} /><primitive object={head} /></group>)}</>;
 }
 
 function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, level, aligned, approval }: Pick<GalaxyProps, "onSelect" | "pulses" | "busy" | "warning" | "reduced"> & { particles?: number; level: number; aligned: boolean; approval: boolean }) {
@@ -877,7 +971,7 @@ function loadScale(): ScaleState { try { const v = Number(localStorage.getItem(S
 function saveScale(s: ScaleState) { try { localStorage.setItem(SCALE_KEY, String(s.scale)); } catch { /* storage off */ } }
 
 export default function Galaxy(props: GalaxyProps) {
-  const { t, lang } = useT();
+  const { t, tn, lang } = useT();
   const positions = useMemo<Positions>(() => Object.fromEntries(PLANETS.map((p) => [p.id, new THREE.Vector3()])), []);
   const scales = useMemo<Scales>(() => Object.fromEntries(PLANETS.map((p) => [p.id, 1])), []);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
@@ -936,6 +1030,11 @@ export default function Galaxy(props: GalaxyProps) {
   const onIntroEnd = useCallback(() => setIntro(false), []);
   const sizes = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, planetSize(p)])), []);
   const { onSelect, selected } = props;
+  const u = props.universe;
+  const lines = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, hoverParts(p.id, { recent: u?.recent, stages: p.id === "business" ? u?.stages : null,
+    memories: props.memoryCount, agents: props.agentsWorking, life: props.lifeProgress })
+    .map((x) => (x.n !== undefined ? tn(x.key as Parameters<typeof tn>[0], x.n, x.vars) : t(x.key as Parameters<typeof t>[0], x.vars))).join(" · ")])),
+  [u, props.memoryCount, props.agentsWorking, props.lifeProgress, t, tn]);
   useEffect(() => { // Enter opens the current stop, exactly like clicking it
     if (stop < 0 || selected !== null) return;
     const k = (e: KeyboardEvent) => {
@@ -963,6 +1062,7 @@ export default function Galaxy(props: GalaxyProps) {
         <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} aligned={props.selected === "core"} approval={!!props.ships?.tasks.some((t) => t.status === "awaiting_approval")} />
         <Filaments positions={positions} pulses={props.pulses} reduced={props.reduced} />
         <Beams positions={positions} pulses={props.pulses} reduced={props.reduced} />
+        <Trails positions={positions} reduced={props.reduced} />
         <LivingEffects positions={positions} reduced={props.reduced} />
         {/* Main belt between MEMORY and INTELLIGENCE, and an outer belt beyond ANALYTICS, as in the reference. */}
         <AsteroidBelt inner={5.5} outer={6.0} count={Math.round(900 * q.belt)} seed={3} reduced={props.reduced} />
@@ -972,10 +1072,10 @@ export default function Galaxy(props: GalaxyProps) {
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
-            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} light={props.universe?.light[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
+            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} vitality={props.universe?.vitality[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
         ))}
         <WarmIn> {/* both arrive with data after the start-up compile */}
-          {props.universe && <Universe u={props.universe} positions={positions} still={props.reduced || level === 0} level={level} />}
+          {props.universe && <Universe u={props.universe} positions={positions} scales={scales} still={props.reduced || level === 0} level={level} />}
           {props.ships && <Ships tasks={props.ships.tasks} onOpen={props.ships.onOpen} positions={positions} reduced={props.reduced} />}
         </WarmIn>
         {/* a focused world may be approached until it nearly fills the view: its surface keeps resolving finer detail */}
@@ -1017,7 +1117,7 @@ export default function Galaxy(props: GalaxyProps) {
       </Canvas>
       <div style={{ display: staged ? "none" : "contents" }}>
       <GalaxyLoader done={ready} />
-      <GalaxyHud selected={props.selected} hoverSet={hoverSet} els={hud} introMs={introMs} />
+      <GalaxyHud selected={props.selected} hoverSet={hoverSet} els={hud} introMs={introMs} lines={lines} />
       {!props.reduced && <StoryReadout stop={stop} intro={intro} onOpen={onSelect} />}
       {!props.reduced && <StoryRail stop={stop} on={!intro && selected === null} onGo={(n) => story.current.goTo(n)} />}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">

@@ -673,6 +673,7 @@ kbd { font-family: var(--font-mono); font-size: 0.68rem; padding: 0.05rem 0.4rem
 .hud-leader-text { position: absolute; left: 80px; top: -34px; transform: translateY(-50%); white-space: nowrap; text-shadow: 0 0 8px rgba(0, 0, 0, 0.9); }
 .hud-leader-text b { color: #8fd3ff; font-weight: 500; margin-right: 0.7em; }
 .hud-leader-text small { display: block; font-size: 9px; color: rgba(186, 214, 255, 0.5); }
+.hud-leader-text small.hud-leader-live { font-size: 11px; letter-spacing: 0.04em; color: #ffd9a0; margin-top: 2px; }
 @keyframes hud-draw { from { stroke-dashoffset: 110; } to { stroke-dashoffset: 0; } }
 @media (prefers-reduced-motion: reduce) { .hud-leader { transition: none; } .hud-leader polyline { animation: none; } }
 
