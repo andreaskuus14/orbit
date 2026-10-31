@@ -20,6 +20,9 @@ export type Brief = Record<(typeof BRIEF_FIELDS)[number], string>;
 const NAMES = /\b(nike|adidas|puma|apple|google|coca[- ]?cola|pepsi|starbucks|mcdonald'?s|ikea|lego|disney|pixar|marvel|dc comics|nintendo|pokemon|pok[eé]mon|mario|mickey|minnie|donald duck|batman|superman|spider-?man|hello kitty|barbie|star wars|harry potter|ghibli|banksy|picasso|van gogh|monet|warhol|dali|kahlo|hokusai|rembrandt|vermeer|basquiat|kusama|haring|mucha|klimt|rockwell|greg rutkowski)\b/i;
 const MARKS = /\b(logos?|brand(?:ed|s)?|trademarks?|watermarks?|copyright|celebrit(?:y|ies)|famous|character from|mascot)\b|[™®©]|\b(?:in|after) the (?:style|manner) of\b|\bstyle of\b|\binspired by\b|\bà la\b|\bby (?:the )?(?:artist|photographer|painter|illustrator)\b/i;
 
+/** The brand, character, artist or "in the style of" words in a text, or "" (ws_picture_draft prompts). */
+export const brandIn = (v: string) => NAMES.exec(v)?.[0] ?? MARKS.exec(v)?.[0] ?? "";
+
 /** CORE's brief → the generation prompt, or why it was refused. Generic descriptors only: no brands, logos, people, characters or artists. */
 export function checkBrief(input: unknown): { brief: Brief; prompt: string } | string {
   if (!input || typeof input !== "object" || Array.isArray(input)) return `brief must be an object with ${BRIEF_FIELDS.join(", ")}`;

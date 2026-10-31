@@ -12,6 +12,8 @@ import { stopAllOn } from "../stop-all";
 import { pushNotify } from "../remote-push";
 import { PAUSED_MSG } from "../stop-all-pure";
 import { errText } from "../core-studio";
+import { logActivity } from "../activity";
+import { mergeSlots, openSiteJob, slotItems, type Slot } from "../site-pictures-pure";
 import { STATE_V, audioArgs, parseDuration, probeArgs, type Word } from "./pure";
 import {
   DRAMA_MODELS, DRAMA_SYSTEM, STORY_SCENES, approveProblem, mergeItems, payable, redoItem, fingerprint, hfErrorKind, jsonObject, parseStory, quoteTotal, storyItems, storyProblem, validDrama, validStory,
@@ -104,14 +106,29 @@ export async function runDraftTool(input: Record<string, unknown>, question: str
 
 /** A priced Higgsfield proposal in the AI Story queue (CORE's drafts, long-form visuals). Saved, then quoted (get_cost only, in the
  *  background: it can take minutes). Nothing is generated before the owner's Approve click on it. `by` labels who drafted it. */
-export async function queueDraftAs(d: Draft, by: string, extra: Pick<StoryJob, "site"> = {}): Promise<StoryJob> {
+export async function queueDraftAs(d: Draft, by: string, extra: Pick<StoryJob, "site"> = {}, items = draftItems(d)): Promise<StoryJob> {
   const now = new Date().toISOString();
   const job: StoryJob = { v: 1, id: newId(), createdAt: now, updatedAt: now, status: "draft", step: `Drafted by ${by}: asking Higgsfield the price`,
     opts: { idea: d.prompt, style: "", length: 0, voice: "none", motion: d.kind === "video" ? "video" : "stills" },
-    story: { title: `${by}: ${d.count}× ${d.kind}, ${d.prompt}`.slice(0, 100), hook: "", scenes: [] }, items: draftItems(d), warnings: [], draft: d, ...extra };
+    story: { title: `${by}: ${d.count}× ${d.kind}, ${d.prompt}`.slice(0, 100), hook: "", scenes: [] }, items, warnings: [], draft: d, ...extra };
   await save(job);
   void quoteStory(job).catch(() => {});
   return job;
+}
+
+/** ws_picture_draft: one priced job per site (a new call merges into the site's unapproved one, so the owner has one Approve-all
+ *  click per site in STUDIO → Websites). Nothing is generated before that click. Returns the job's slots. */
+export async function queueSitePictures(user: string, workspace: string, slots: Slot[], model: string): Promise<StoryJob> {
+  const old = openSiteJob(await listStories(), user, workspace);
+  const all = old ? mergeSlots(old.site!.slots!, slots) : slots;
+  const d: Draft = { kind: "image", prompt: all.map((s) => `${s.path}: ${s.prompt}`).join(" | ").slice(0, 1500), model, count: all.length, aspect: all[0].aspect };
+  if (!old) return queueDraftAs(d, `Site pictures for ${workspace}`, { site: { user, workspace, purpose: "site pictures", brief: "", slots: all } }, slotItems(all, model));
+  Object.assign(old, { draft: d, items: slotItems(all, model), quote: undefined, error: undefined, status: "draft", step: "More pictures added: asking Higgsfield the price",
+    opts: { ...old.opts, idea: d.prompt }, story: { ...old.story, title: `Site pictures for ${workspace}: ${all.length}× image`.slice(0, 100) } });
+  old.site!.slots = all;
+  await save(old);
+  void quoteStory(old).catch(() => {});
+  return old;
 }
 
 /** A draft in the AI Story queue, priced only (CORE's tool, or the owner's "Get Higgsfield quote" click in BUSINESS). Nothing is generated before Approve. */
@@ -199,7 +216,12 @@ async function run(job: StoryJob, signal: AbortSignal) {
       await mkdir(dir, { recursive: true });
       await generate(job, dir, { hf: higgsfield(), save: async (step) => { job.step = step; await save(job); } }, signal);
       Object.assign(job, { status: "done", step: `Done: ${job.items.length} file${job.items.length > 1 ? "s" : ""} in ${dir}` });
-      if (job.site) job.step += `; ${await (await import("../site-inspire")).saveGenerated(job.site, job.draft.model, job.items.flatMap((i) => (i.file ? [i.file] : []))).catch((e) => `not saved to the site: ${errText(e)}`)}`;
+      if (job.site) {
+        const made = job.items.filter((i) => i.file), site = job.site;
+        const saved = await (await import("../site-inspire")).saveGenerated(site, job.draft.model, made.map((i) => i.file!), undefined, site.slots && made.map((i) => site.slots![i.index]?.path)).catch((e) => `not saved to the site: ${errText(e)}`);
+        job.step += `; ${saved}`;
+        logActivity({ area: "clips", title: `Site pictures for ${site.workspace}: ${saved}`, link: { panel: "studio" } });
+      }
       return;
     }
     const ff = await ffmpegPath();

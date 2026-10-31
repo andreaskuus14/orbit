@@ -19,6 +19,7 @@ type StoryJob = { id: string; createdAt: string; status: "draft" | "quoted" | "g
 type Data = { stories: StoryJob[]; running: string | null; dryRun: boolean };
 
 const API = "/api/studio/clips/story";
+const LIST = `${API}?section=youtube`; // site and other drafts live in STUDIO → Websites / Other (StudioDrafts)
 // Mirrors DRAMA_MODELS in story-pure.ts (talking drama: the model speaks each line with lip-sync).
 const MODELS: [string, string][] = [["seedance_2_0_mini", "Seedance 2.0 Mini (budget, 720p)"], ["gemini_omni_flash_1_1", "Gemini Omni Flash 1.1 (quality, 1080p)"]];
 const media = (job: string, file: string) => `/api/studio/clips/media?f=${encodeURIComponent(`clips/${job}/${file.split(/[\\/]/).pop()}`)}`;
@@ -38,7 +39,7 @@ const ICON = { pending: "⏳", done: "✓", failed: "⚠" } as const;
 const busyStatus = (s: StoryJob["status"]) => s === "generating" || s === "assembling";
 
 async function api<T>(body?: unknown): Promise<T> {
-  const res = await fetch(API, body ? { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { cache: "no-store" });
+  const res = await fetch(body ? API : LIST, body ? { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { cache: "no-store" });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
   return json as T;

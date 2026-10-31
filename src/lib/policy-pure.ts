@@ -50,6 +50,8 @@ export const TIERS: Record<string, Tier> = {
   vault_move: "T2", vault_rename: "T2", lead_create: "T2", lead_update: "T2", life_plan: "T2", automation_create: "T2", automation_pause: "T2", // ORGANIZE: his own records, each with Undo
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
   higgsfield_draft: "T3", // proposes a Higgsfield spend (price check only); the spend itself is the owner's story.approve click
+  ws_picture_draft: "T3", // stand-in art at the site's image paths + one priced draft per site; the spend is the owner's story.approve click
+  studio_drafts: "T0", // lists STUDIO's drafts and their state
   ws_inspire_image: "T3", // reference words from an image search, then the same priced draft as higgsfield_draft for an original brief
 };
 
@@ -57,6 +59,7 @@ export const TIERS: Record<string, Tier> = {
 export const APPROVAL_PATHS: Record<string, string> = {
   schedule_approved: 'clip.status "approved" from the owner\'s Approve click in STUDIO review; scheduleAll uploads only those clips',
   higgsfield_draft: "never spends: it saves a draft and asks Higgsfield the price (hf-guard quote mode, get_cost only); credits are spent only by the owner's Approve click on that quote in Clip Factory → AI Story (story.approve)",
+  ws_picture_draft: "never spends: draws stand-ins in the workspace and queues one priced higgsfield draft per site (quote mode); generation only after the owner's story.approve click in STUDIO → Websites, then the photos are saved at the slot paths",
   ws_inspire_image: "never spends: reference search returns words only (nothing saved); a brief is queued as a priced higgsfield draft (quote mode); generation only after the owner's story.approve click",
 };
 // The UI's own T3 actions. Not CORE tools (decide() refuses them as unknown): they run only from the owner's click, with these tokens.
@@ -70,14 +73,14 @@ export const UI_APPROVALS: Record<string, string> = {
 // Profile → Autonomy area of each tool that starts work, writes or acts: an area set to Off refuses it (autonomyAllows "owner").
 export const TOOL_AREA: Record<string, Area> = {
   ask_agent: "research", start_mission: "research", plan_task: "research", run_niche: "research", run_scout: "studio-prepare", save_memory: "memory",
-  create_goal: "goals", queue_tonight: "night-shift", add_wish: "deals", schedule_approved: "studio-publish", higgsfield_draft: "higgsfield-spend",
+  create_goal: "goals", queue_tonight: "night-shift", add_wish: "deals", schedule_approved: "studio-publish", higgsfield_draft: "higgsfield-spend", ws_picture_draft: "higgsfield-spend",
   ws_run: "operator-build", // a local demo server of his own workspace (AGENTS.md rule 6 category A); never public
 };
 
 // Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true), ORGANIZE lead_update + life_plan.
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
 export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status", "week_review", "lead_update", "life_plan"];
-const LINK_TOOLS = ["fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image"];
+const LINK_TOOLS = ["fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
 const LEAK_TOOLS = ["ask_agent", "read_news", "web_search"];
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
@@ -140,7 +143,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   let blocked = "";
   if ((STUDIO_TOOLS as readonly string[]).includes(tool) || tool === "plan_task") blocked = actionBlocked(tool as StudioTool, question, dataIn);
   else if ((LIFE_TOOLS as readonly string[]).includes(tool)) blocked = err(lifeWriteBlocked(tool as LifeTool, question, dataIn));
-  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps, question), { ...ctx.ws, target: tool !== "ws_create" ? input?.workspace : input?.name })); // core-modules.ts:50
+  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image" || tool === "ws_picture_draft") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps, question), { ...ctx.ws, target: tool !== "ws_create" ? input?.workspace : input?.name })); // core-modules.ts:50
   else if (tool === "create_goal") blocked = createGoalBlocked(question, dataIn);
   else if (tool === "higgsfield_draft") blocked = draftBlocked(question, dataIn);
   else if (tool === "queue_tonight") blocked = tonightBlocked(question, dataIn);

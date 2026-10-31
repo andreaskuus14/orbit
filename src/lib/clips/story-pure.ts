@@ -2,6 +2,7 @@
 // ffmpeg assembly graph. Server glue: story.ts; engine: story-render.ts; Higgsfield: higgsfield.ts.
 import { assText, assTime, type Word } from "./pure.ts";
 import type { Draft } from "../higgsfield-pure.ts";
+import type { Slot } from "../site-pictures-pure.ts";
 import { rankPackaging, type PackagingHistory } from "../packaging-pure.ts";
 
 /** Talking drama: narration is the speaker's own spoken line, beat its emotion. */
@@ -24,7 +25,8 @@ export type StoryJob = { v: 1; id: string; createdAt: string; updatedAt: string;
   approved?: { at: string; credits: number }[]; // every owner click that allowed spending (resumes add one)
   clipJob?: string; error?: { kind: HfErrorKind; message: string }; warnings: string[];
   draft?: Draft; // CORE's higgsfield_draft: plain generations (no script, no assembly), same quote → Approve gate
-  site?: { user: string; workspace: string; purpose: string; brief: string } }; // ws_inspire_image: after generation, saved into this workspace's assets/
+  site?: { user: string; workspace: string; purpose: string; brief: string; // ws_inspire_image: after generation, saved into this workspace's assets/
+    slots?: Slot[] } }; // ws_picture_draft: item slot-i is saved at slots[i].path (STUDIO → Websites)
 export type Models = { image: string; video: string; audio: string };
 
 export const STORY_SCENES = { min: 5, max: 9 };

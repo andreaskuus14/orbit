@@ -35,7 +35,7 @@ export default function ShortsBoard({ jobs, active, reduced, onOpen, onPickTitle
 
   const load = useCallback(() => {
     // Each source fails on its own: the board still shows what it has.
-    void Promise.allSettled([getJson<{ shown: PIdea[] }>("/api/ideas"), getJson<{ stories: PStory[] }>("/api/studio/clips/story")]).then(([i, s]) => {
+    void Promise.allSettled([getJson<{ shown: PIdea[] }>("/api/ideas"), getJson<{ stories: PStory[] }>("/api/studio/clips/story?section=youtube")]).then(([i, s]) => {
       if (i.status === "fulfilled") setIdeas(i.value.shown ?? []);
       if (s.status === "fulfilled") setStories(s.value.stories ?? []);
       const failed = [i.status === "rejected" && "Idea Radar", s.status === "rejected" && "AI Story"].filter(Boolean).join(" and ");

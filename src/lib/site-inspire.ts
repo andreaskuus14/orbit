@@ -8,6 +8,7 @@ import { assetPath, creditsMd, parseCredits, sniffImage } from "./site-pipeline-
 import type { Draft } from "./higgsfield-pure.ts";
 import { ASPECTS, MAX_COUNT } from "./higgsfield-pure.ts";
 import type { ImageIO } from "./site-images.ts";
+import { parseSlots, placeholderSvg, type Slot } from "./site-pictures-pure.ts";
 
 export type SiteTarget = { user: string; workspace: string; purpose: string };
 export type InspireIO = {
@@ -60,7 +61,7 @@ export const inspireIO = (): InspireIO => ({
 
 /** After the owner's Approve click and the generation (story.ts): copies each finished file into the workspace's assets/ and
  *  records it in assets/CREDITS.md. Returns a short status for the job's step line. */
-export async function saveGenerated(site: SiteTarget & { brief: string }, model: string, files: string[], io?: Pick<ImageIO, "read" | "write" | "resize">): Promise<string> {
+export async function saveGenerated(site: SiteTarget & { brief: string }, model: string, files: string[], io?: Pick<ImageIO, "read" | "write" | "resize">, paths?: (string | undefined)[]): Promise<string> {
   const w = io ?? await (async () => {
     const ws = await import("./workspace.ts"), { sharpResize } = await import("./site-images.ts");
     return { read: async (p: string) => (await ws.readWsFile(site.user, site.workspace, p))?.text ?? null, write: (p: string, d: string | Uint8Array) => ws.writeWsFile(site.user, site.workspace, p, d), resize: sharpResize };
@@ -69,9 +70,10 @@ export async function saveGenerated(site: SiteTarget & { brief: string }, model:
   for (const [i, file] of files.entries()) {
     let bytes: Uint8Array = await readFile(file), ext: string | null = sniffImage(bytes);
     if (!ext || ext === "svg") continue;
-    const small = await w.resize?.(bytes, ext);
+    const fixed = paths?.[i]; // ws_picture_draft: the exact path the site already uses (its stand-in is replaced)
+    const small = fixed ? await toFormat(bytes, fixed) : await w.resize?.(bytes, ext);
     if (small) ({ bytes, ext } = small);
-    const path = assetPath(`${site.purpose}${files.length > 1 ? `-${i + 1}` : ""}`, ext);
+    const path = fixed ?? assetPath(`${site.purpose}${files.length > 1 ? `-${i + 1}` : ""}`, ext);
     const r = await w.write(path, bytes);
     if ("error" in r) return `couldn't save ${path} to ${site.workspace}: ${r.error}`;
     const cw = await w.write("assets/CREDITS.md", creditsMd(parseCredits((await w.read("assets/CREDITS.md")) ?? ""), generatedCredit(path, site.brief, model)));
@@ -80,3 +82,47 @@ export async function saveGenerated(site: SiteTarget & { brief: string }, model:
   }
   return saved.length ? `saved ${saved.join(", ")} in workspace ${site.workspace}` : `nothing usable to save in ${site.workspace}`;
 }
+
+/** A generated photo re-encoded to the format its slot path names (≤1600 px wide); null = sharp unavailable, keep the bytes
+ *  (browsers sniff image bytes, so a webp at a .jpg path still shows). */
+export async function toFormat(b: Uint8Array, path: string): Promise<{ bytes: Uint8Array; ext: string } | null> {
+  const ext = /\.png$/.test(path) ? "png" : /\.webp$/.test(path) ? "webp" : "jpg";
+  try {
+    const img = (await import("sharp")).default(b, { limitInputPixels: 50_000_000 }).rotate().resize({ width: 1600, withoutEnlargement: true });
+    return { bytes: await (ext === "png" ? img.png() : ext === "webp" ? img.webp({ quality: 78 }) : img.jpeg({ quality: 80, mozjpeg: true })).toBuffer(), ext };
+  } catch { return null; }
+}
+
+/** ws_picture_draft: stand-ins at every slot path that has no picture yet (so the site looks finished now), then one priced
+ *  draft per site. Nothing is generated or spent before the owner's Approve click in STUDIO → Websites. */
+export async function pictureDraft(input: Record<string, unknown>, user: string, workspace: string, io: PictureIO): Promise<string> {
+  const slots = parseSlots(input);
+  if (typeof slots === "string") return `Error: ${slots}`;
+  const stand: string[] = [];
+  for (const s of slots) if (!(await io.exists(s.path)) && (await io.placeholder(s))) stand.push(s.path);
+  const g = await io.generator();
+  const drew = stand.length ? `Drew stand-in art at ${stand.join(", ")} so the site looks finished now. ` : "";
+  if (!g.ok) return `${drew}No image generator is set up (Higgsfield via Claude Code, or the weekly cap is 0): nothing was drafted. Use ws_fetch_image (licensed photos) for these paths, or keep the stand-ins / inline SVG.`;
+  const job = await io.queue(slots, g.model);
+  return `Done: ${drew}Drafted ${job.slots} photo${job.slots > 1 ? "s" : ""} for ${workspace} (${slots.map((s) => s.path).join(", ")}), price check only: nothing is generated and no credits are spent. They wait in STUDIO → Websites → ${workspace} for the owner's one "Approve all" click (weekly cap applies); after it ORBIT saves each photo at its exact path and the site updates by itself. Reference these paths in the HTML now (<img src="${slots[0].path}" alt="…" width height>). Tell him where to approve; never send him to look in Higgsfield.`;
+}
+
+export type PictureIO = {
+  exists: (path: string) => Promise<boolean>;
+  /** Writes the drawn stand-in at the slot path; false when it couldn't be drawn. */
+  placeholder: (s: Slot) => Promise<boolean>;
+  generator: InspireIO["generator"];
+  /** Queues (or merges into) the site's priced draft. Must never generate. */
+  queue: (slots: Slot[], model: string) => Promise<{ id: string; slots: number }>;
+};
+
+/** Real wiring for core-workspace.ts. */
+export const pictureIO = (user: string, workspace: string): PictureIO => ({
+  exists: async (p) => !!(await (await import("./workspace.ts")).listFiles(user, workspace))?.some((f) => f.path === p),
+  placeholder: async (s) => {
+    const r = await toFormat(new TextEncoder().encode(placeholderSvg(s)), s.path);
+    return !!r && !("error" in (await (await import("./workspace.ts")).writeWsFile(user, workspace, s.path, r.bytes)));
+  },
+  generator: inspireIO().generator,
+  queue: async (slots, model) => { const j = await (await import("./clips/story")).queueSitePictures(user, workspace, slots, model); return { id: j.id, slots: j.items.length }; },
+});

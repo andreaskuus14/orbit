@@ -31,14 +31,14 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   const r = coreToolRefusal(c.stopAll, tool)
     || (tool === "navigate" ? (dataIn() ? "Error: navigate only as your first tool call, for the user's own request" : "")
     // task-scoped tools: the blanket web/agent switch-off became a per-call outbound check (privateText absent → no-text mode: emails/phones/amounts)
-    : (attach || pinsIn || privateIn()) && ["web_search", "fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image"].includes(tool) && outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question.replace(/\n\n\[attached:[^\]]*\]/g, ""), !privateIn())
+    : (attach || pinsIn || privateIn()) && ["web_search", "fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"].includes(tool) && outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question.replace(/\n\n\[attached:[^\]]*\]/g, ""), !privateIn())
       ? `Error: this ${tool} call would send private text out: "${outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question, !privateIn())}" (from the user's private notes, journal or files). The tool is allowed: retry with a generic query/brief without that text, and if you can't, tell the user exactly which text blocked it; never tell the user to do the search himself`
     : null);
   if (r !== null) return r;
   let b: string | null = "";
   if ((STUDIO_TOOLS as readonly string[]).includes(tool) || tool === "plan_task") b = actionBlocked(tool as StudioTool, question, dataIn());
   else if ((LIFE_TOOLS as readonly string[]).includes(tool)) b = lifeWriteBlocked(tool as LifeTool, question, dataIn());
-  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image") b = wsWriteBlocked(question, !!attach || pinsIn || wsTainted(steps, question.replace(/\n\n\[attached:[^\]]*\]/g, "")));
+  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image" || tool === "ws_picture_draft") b = wsWriteBlocked(question, !!attach || pinsIn || wsTainted(steps, question.replace(/\n\n\[attached:[^\]]*\]/g, "")));
   else if (tool === "create_goal") b = createGoalBlocked(question, dataIn());
   else if (tool === "higgsfield_draft") b = draftBlocked(question, dataIn()); // roadmap 3.1: its runner's guard (story.ts runDraftTool)
   else if (tool === "queue_tonight") b = tonightBlocked(question, dataIn()); // night shift: its runner's guard (night.ts runTonightTool)
