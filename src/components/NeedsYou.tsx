@@ -34,6 +34,7 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
   const [items, setItems] = useState<Need[] | null>(null);
   const [err, setErr] = useState("");
   const [snooze, setSnooze] = useState<{ ref: string; why: string } | null>(null);
+  const [open, setOpen] = useState(false); // quiet open (#352): the galaxy stays uncovered; the count waits in a chip until clicked
 
   const load = useCallback(() => fetch(`/api/needs-you?lang=${lang}`, { cache: "no-store" }).then((r) => r.json())
     .then((j: { items?: Need[]; error?: string }) => { if (!j.items) throw new Error(j.error); setItems(j.items); setErr(""); })
@@ -52,9 +53,12 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
   const label = (n: Need) => t(n.kind === "decide" ? "needs.review" : "common.open"); // Decide opens the exact content and its Approve
   const list = items ?? [];
 
+  if (!open) return <button type="button" className="chip needs-you-chip" aria-expanded={false} onClick={() => setOpen(true)}>
+    {t("needs.title")}{items?.length ? ` · ${items.length}` : ""}</button>;
   return <section className="continue-work continue-work-float needs-you" aria-labelledby={titleId}>
     <div className="continue-heading"><h2 id={titleId}>{t("needs.title")}{items?.length ? ` · ${items.length}` : ""}</h2>
       <span className="flex items-center gap-2">
+        <button type="button" className="link" aria-expanded onClick={() => setOpen(false)}>{t("common.close")}</button>
         <button type="button" className="link" onClick={() => nav({ panel: null, continueWork: true })}>{t("needs.work")}</button>
         <button type="button" className="link" onClick={() => nav({ panel: null, mission: true })}>{t("needs.mission")}</button>
       </span></div>

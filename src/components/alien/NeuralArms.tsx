@@ -132,7 +132,7 @@ export function GalaxyVeil({ reduced }: { reduced: boolean }) {
     mat.uniforms.uTime.value = reduced ? 40 : clock.elapsedTime;
     mat.uniforms.uCalm.value = coreCalm(d);
     // inside the disc (close-ups) the veil would fog the whole view: it belongs to the overview
-    mat.uniforms.uGain.value = 0.45 * Math.min(1, Math.max(0.25, (d - 8) / 26));
+    mat.uniforms.uGain.value = 0.3 * Math.min(1, Math.max(0.25, (d - 8) / 26)); // living galaxy: a calmer backdrop, the data is the hero
   });
   return <mesh geometry={geo} material={mat} rotation-x={-Math.PI / 2} renderOrder={-10} frustumCulled={false} />;
 }

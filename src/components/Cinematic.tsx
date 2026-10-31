@@ -238,8 +238,9 @@ const pad = (n: number) => String(n).padStart(2, "0");
 
 /** Monospace HUD over the galaxy: a corner readout and the numbered leader label of the hovered planet.
  *  Positions/coordinates are written by the projector inside the canvas; this only owns text and the reveal. */
-export function GalaxyHud({ selected, hoverSet, els, introMs = 900 }: {
+export function GalaxyHud({ selected, hoverSet, els, introMs = 900, lines }: {
   selected: PanelId | null; hoverSet: RefObject<(id: PlanetId, on: boolean) => void>; els: RefObject<HudEls>; introMs?: number;
+  lines?: Partial<Record<PlanetId, string>>; // the hovered world's live line (living galaxy)
 }) {
   const [hover, setHover] = useState<PlanetId | null>(null);
   useEffect(() => { hoverSet.current = (id, on) => setHover((h) => (on ? id : h === id ? null : h)); }, [hoverSet]);
@@ -268,7 +269,7 @@ export function GalaxyHud({ selected, hoverSet, els, introMs = 900 }: {
         {hi >= 0 && (
           <div key={hover}>{/* keyed: the leader line redraws for each planet */}
             <svg width="1" height="1"><circle r="2" /><polyline points="0,0 34,-34 74,-34" /></svg>
-            <span className="hud-leader-text"><b>{pad(hi + 1)}</b>{label}<small>ORBIT R {PLANETS[hi].radius.toFixed(2)}</small></span>
+            <span className="hud-leader-text"><b>{pad(hi + 1)}</b>{label}<small className={hover && lines?.[hover] ? "hud-leader-live" : undefined}>{(hover && lines?.[hover]) || `ORBIT R ${PLANETS[hi].radius.toFixed(2)}`}</small></span>
           </div>
         )}
       </div>
