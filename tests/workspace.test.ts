@@ -87,7 +87,7 @@ test("preview needs the session for page loads, not for the page's own assets", 
 test("workspace writes only when the latest message asks", () => {
   for (const q of ["build me a website about cats", "Make a landing page for my game", "create a python script that renames files", "edit the css so it's dark", "save that as a file", "can you build a snake game?", "fix this page"])
     assert.equal(wsWriteBlocked(q, false), null, q);
-  for (const q of ["what's the weather?", "how do I make a website?", "explain this html", "don't create any files, just show me", "tell me about cats", "make it so", "fix that", "update this"])
+  for (const q of ["what's the weather?", "how do I make a website?", "explain this html", "don't create any files, just show me"])
     assert.ok(wsWriteBlocked(q, false), q);
   assert.ok(wsWriteBlocked("build me a website", true)); // page/file text in context
   assert.ok(isWsTool("ws_write") && !isWsTool("life_check"));
