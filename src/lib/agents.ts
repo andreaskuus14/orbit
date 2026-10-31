@@ -449,6 +449,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
       const r = await askClaude(prompt, system, { signal, purpose: `agent.${agent.slug}`, ...(model ? { model } : {}) });
       await recordUsage(sb, userId, `agent.${agent.slug}`, r);
       const reply = parseAgentReply(r.text);
+      if (reply.garbled && !forceFinal) { trace.push({ step: "fallback", detail: "reply used function-call markup → asked again", ms: r.ms, ok: false }); continue; }
       trace.push({ step: "think", detail: `${model ?? MODEL} · ${reply.thought || (reply.final ? "answering" : "")}`.slice(0, 300), ms: r.ms, ok: true });
 
       if (reply.final !== undefined || !reply.tool || forceFinal) {

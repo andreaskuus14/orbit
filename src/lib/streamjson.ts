@@ -49,7 +49,7 @@ const ESC: Record<string, string> = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f
 export function partialAnswer(raw: string): string | null {
   const t = raw.trimStart();
   if (!t) return null;
-  if (t[0] !== "{" && t[0] !== "`") { const k = t.search(/\{\s*"tool"\s*:|<function_calls>|<invoke /); return k < 0 ? t : t.slice(0, k).trimEnd() || null; } // prose: stop before any tool-call JSON
+  if (t[0] !== "{" && t[0] !== "`") { const k = t.search(/\{\s*"tool"\s*:|<function_calls>|<invoke[\s_>]/); return k < 0 ? t : t.slice(0, k).trimEnd() || null; } // prose: stop before any tool-call JSON
   const m = /(?:^|[^\\])"final"\s*:\s*"/.exec(raw);
   if (!m) return null;
   let out = "";

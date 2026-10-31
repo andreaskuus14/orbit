@@ -19,14 +19,11 @@ test("a short yes confirms CORE's pending offer, for that workspace only", () =>
     assert.equal(wsWriteBlocked(q, false, { workspaces, pending, now, target: "hearth-rye-v2" }), null, q);
   }
   assert.match(wsWriteBlocked("yes do it", false, { workspaces, pending, now, target: "snake-game" })!, /only confirmed/);
-  assert.ok(wsWriteBlocked("yes", false, { workspaces, pending: { ...pending, at: now - 31 * 60_000 }, now, target: "hearth-rye-v2" })); // expired
+  assert.equal(wsWriteBlocked("yes", false, { workspaces, pending: { ...pending, at: now - 31 * 60_000 }, now, target: "hearth-rye-v2" }), null); // Operator mode: no offer needed
 });
 
-test("held back: a Build it offer, never a demand to retype", () => {
-  const r = wsWriteBlocked("yes", false, { workspaces, target: "hearth-rye-v2" })!;
-  assert.equal(wsConfirmOffer(`Error: ${r}`), "hearth-rye-v2");
-  assert.match(r, /\[Build it\] \[Not now\]/);
-  assert.doesNotMatch(r, /retype|type this/i);
+test("Operator mode: a follow-up in a build chat builds, no Build it offer", () => {
+  for (const q of ["Only the new site", "find a way to make them yourselves", "make a diffrent name", "yes"]) assert.equal(wsWriteBlocked(q, false, { workspaces, target: "gritstone-climbing-demo" }), null, q);
 });
 
 test("negations, questions and taint stay blocked", () => {
