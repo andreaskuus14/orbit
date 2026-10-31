@@ -18,6 +18,8 @@ export const EFFECTS: Record<string, Effect> = {
   ws_write: "reversible", ws_create: "reversible", ws_fetch_image: "reversible", ws_run: "reversible", ws_stop: "reversible", rea_analyze: "reversible", rea_cancel: "reversible",
   vault_move: "reversible", vault_rename: "reversible", lead_create: "reversible", lead_update: "reversible", life_plan: "reversible", automation_create: "reversible", automation_pause: "reversible", // ORGANIZE: Undo in Activity
   higgsfield_draft: "reversible", // quote only; the spend is story.approve
+  ws_picture_draft: "reversible", // stand-ins + a quoted draft; the spend is story.approve
+  studio_drafts: "read",
   ws_inspire_image: "reversible", // reference words + a quoted draft; the spend is story.approve
   schedule_approved: "publish", // uploads only clips already approved by his click (status "approved")
   // owner-click actions

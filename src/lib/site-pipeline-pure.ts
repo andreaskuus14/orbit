@@ -146,7 +146,7 @@ export function nextSiteStep(paths: string[], plan = ""): SiteStep {
   if (isFullstackPlan(plan) && !paths.includes("server.mjs")) return "server";
   if (!paths.some((p) => p.startsWith(root) && p.endsWith(".css"))) return "layout";
   if (!paths.includes(`${root}index.html`)) return "pages";
-  if (!paths.some((p) => p.startsWith("assets/") && !p.endsWith(".md"))) return "images";
+  if (!paths.some((p) => /\.(?:png|jpe?g|webp)$/i.test(p) || (p.startsWith("assets/") && !p.endsWith(".md")))) return "images";
   return "check";
 }
 const HINT: Record<SiteStep, string> = {
@@ -154,7 +154,7 @@ const HINT: Record<SiteStep, string> = {
   server: "create the back end with ws_create {\"name\": <this workspace>, \"template\": \"fullstack\"} (server.mjs, /api routes, data/ store, public/), then ws_write its routes and data model from plan.md and ws_run to start and smoke-check it",
   layout: "write the layout and CSS ({root}css/style.css) following the site guide",
   pages: "write the pages ({root}index.html last)",
-  images: "add images with ws_fetch_image (licensed only) where the plan wants them, else ws_inspire_image (an original generated picture, owner approves), or inline SVG illustrations",
+  images: "the site has no photos yet: ws_picture_draft the realistic photos it needs at the paths the pages use (stand-ins appear at once, the owner approves the real ones in STUDIO → Websites), or ws_fetch_image licensed ones; draw inline SVG art for icons and section illustrations",
   check: "fix what the check and lint list, then deliver",
 };
 export const siteStepHint = (paths: string[], plan = "") => `Next site step: ${HINT[nextSiteStep(paths, plan)].replace(/\{root\}/g, frontRoot(plan))}.`;
@@ -171,3 +171,31 @@ export function siteWriteLabel(files: unknown): string | null {
   if (p.some((x) => x.endsWith(".html"))) return "Writing the pages…";
   return null;
 }
+
+// ---- Depth lint (owner: "built sites look like plain starter templates"): no pictures, thin text, a form that saves nothing,
+// or a back end asked for but not built. Separate from lintSite so its basic rules stay testable on tiny pages.
+export const MIN_TEXT = 2500;
+/** The owner's request wants data saved (bookings, orders, accounts, a database or an admin). */
+export const wantsBackend = (q: string) => /\b(?:back[- ]?end|database|\bdb\b|full[- ]?stack|admin (?:panel|page)|log ?in|sign ?up|accounts?|(?:that|which|to) saves?|stores? (?:the )?(?:bookings?|orders?|data)|booking system|api)\b|andmebaas|tagasüsteem|salvesta/i.test(q);
+const visible = (h: string) => h.replace(/<(script|style|svg|noscript)\b[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " ").replace(/&[a-z#0-9]+;/gi, " ").replace(/\s+/g, " ").trim();
+type Depth = SiteFiles & { js?: { path: string; text: string }[]; fullstack?: boolean; wantsBackend?: boolean };
+
+/** Pictures (img/picture/svg/canvas or a CSS url() background), visible text characters and forms across the pages. */
+export function siteFacts(f: Depth): { visuals: number; chars: number; forms: number; handled: boolean } {
+  const html = f.html.map((h) => h.text).join("\n"), css = f.css.map((c) => c.text).join("\n"), js = [...(f.js ?? []).map((j) => j.text), ...[...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1])].join("\n");
+  const visuals = (html.match(/<(?:img|picture|svg|canvas|video)\b/gi) ?? []).length + (`${css}\n${html}`.match(/background(?:-image)?\s*:[^;}]*url\(/gi) ?? []).length;
+  const forms = [...html.matchAll(/<form\b[^>]*>/gi)];
+  const handled = forms.every((m) => /\saction\s*=\s*["']?[^"'\s>#]/i.test(m[0]) || /\sonsubmit\s*=/i.test(m[0])) || /addEventListener\(\s*["']submit["']|\.onsubmit\s*=|requestSubmit|fetch\(/.test(js);
+  return { visuals, chars: f.html.reduce((n, h) => n + visible(h.text).length, 0), forms: forms.length, handled };
+}
+export function lintDepth(f: Depth): string[] {
+  const x = siteFacts(f), out: string[] = [];
+  if (!f.html.length) return out;
+  if (!x.visuals) out.push("no pictures, SVG or illustration at all: draft real photos with ws_picture_draft (stand-ins appear at once), fetch licensed ones with ws_fetch_image, and draw inline SVG art for icons and section art");
+  if (x.chars < MIN_TEXT) out.push(`only ${x.chars} characters of visible text (aim for ${MIN_TEXT}+): write the real sections this business needs (what it offers with specifics, prices/packages, how it works, proof such as reviews or numbers, FAQ, location/hours, contact) instead of placeholder lines`);
+  if (x.forms && !x.handled) out.push("a <form> has no handler, so it saves nothing: give it a submit handler with a visible confirmation (and a fullstack back end when entries must be kept)");
+  if (f.wantsBackend && !f.fullstack) out.push("the request needs saved data (bookings, orders, accounts or a database) but this is a static site: ws_create the \"fullstack\" template and move the front end to public/");
+  return out;
+}
+/** The facts part of the Check line, so the answer's honest review has numbers. */
+export const factsLine = (f: Depth) => { const x = siteFacts(f); return `${x.visuals} picture${x.visuals === 1 ? "" : "s"}/SVG, ${x.chars} chars of text${x.forms ? `, ${x.forms} form${x.forms > 1 ? "s" : ""}${x.handled ? "" : " (no handler)"}` : ""}`; };

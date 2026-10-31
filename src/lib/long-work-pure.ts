@@ -44,6 +44,7 @@ export const SPLIT_HINT = "YOUR LAST REPLY TIMED OUT (too much in one call). Do 
 export function progressLabel(tool: string, input: Record<string, unknown>): string | null {
   if (tool === "ws_fetch_image") return "Finding a licensed image…";
   if (tool === "ws_inspire_image") return "Gathering picture ideas…";
+  if (tool === "ws_picture_draft") return "Drafting the site's photos…";
   if (tool === "ws_write" && siteWriteLabel(input.files)) return siteWriteLabel(input.files);
   if (tool === "ws_write") { const n = Array.isArray(input.files) ? input.files.length : 0; return n ? `Writing ${n} file${n === 1 ? "" : "s"}…` : "Writing files…"; }
   if (tool === "ws_create") return "Creating the workspace…";

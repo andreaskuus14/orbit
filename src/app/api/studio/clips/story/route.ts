@@ -1,14 +1,18 @@
 import { requireUser } from "@/lib/supabase/server";
 import { approveStory, editStory, redoStory, getStory, listStories, quoteStory, runningStory, writeStory } from "@/lib/clips/story";
 import { validStoryOpts } from "@/lib/clips/story-pure";
+import { studioSection } from "@/lib/site-pictures-pure";
 
 export const dynamic = "force-dynamic";
 
 // AI Story (Clip Factory). Generation only ever starts from action "approve" with the quoted credits (ORBIT rule 6).
-export async function GET() {
+/** ?section=youtube|websites|other → only that STUDIO section's jobs (site-pictures-pure studioSection). */
+export async function GET(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
-  return Response.json({ stories: (await listStories()).slice(0, 20), running: runningStory(), dryRun: process.env.ORBIT_HIGGSFIELD_DRY_RUN === "1" });
+  const section = new URL(req.url).searchParams.get("section");
+  const all = await listStories(), shown = section ? all.filter((j) => studioSection(j) === section) : all;
+  return Response.json({ stories: shown.slice(0, section === "websites" ? 60 : 20), running: runningStory(), dryRun: process.env.ORBIT_HIGGSFIELD_DRY_RUN === "1" });
 }
 
 /** Body: {action:"write", idea, style, length, voice, motion, format?, model?} | {action:"edit", id, story, model?} | {action:"quote", id} | {action:"approve", id, credits, seen} | {action:"redo", id, key}. */

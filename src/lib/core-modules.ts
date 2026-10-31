@@ -47,7 +47,7 @@ const MODULES: CoreModule[] = [
     run: async (t, i) => (await import("./reach/core")).runReachTool(t as "reach_trending" | "reach_read", i),
   },
   {
-    name: "WORKSPACE", tools: [...WS_TOOLS], writes: ["ws_write", "ws_create", "ws_fetch_image"], private: ["ws_read"], prompt: WS_PROMPT,
+    name: "WORKSPACE", tools: [...WS_TOOLS], writes: ["ws_write", "ws_create", "ws_fetch_image", "ws_picture_draft"], private: ["ws_read"], prompt: WS_PROMPT,
     // own taint rule: CORE's own earlier ws writes don't count; fix rounds = earlier successful ws_write calls in this answer
     run: async (t, i, c) => runWsTool(c.userId, t as WsTool, i, c.question, c.pinned || wsTainted(c.steps, c.question), c.steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length, c.onEvidence,
       t === "ws_write" && c.chat ? await import("./checkpoint").then(async (m) => checkpointBasis(await m.getCheckpoint(c.userId, c.chat!)), () => []) : [],
@@ -81,9 +81,11 @@ const MODULES: CoreModule[] = [
     status: async () => ideasLine(await ideas(), Date.now()),
   },
   {
-    name: "HIGGSFIELD", tools: ["higgsfield_draft"], writes: ["higgsfield_draft"],
-    prompt: "- higgsfield_draft {\"prompt\": string, \"kind\"?: \"image\"|\"video\", \"count\"?: 1-4, \"aspect\"?: \"9:16\"|\"16:9\"|\"1:1\"|\"4:5\"|\"3:4\"|\"4:3\", \"model\"?: string}: prepare a Higgsfield picture/video generation for the user to approve (\"make 2 images of a fox in the snow\"). Only when the user tells you to make pictures or videos in their latest message, as your first tool. It only asks the price: nothing is generated and no credits are spent until he clicks Approve in STUDIO → Clip Factory → AI Story (a weekly credit cap applies); say so. You can never approve or spend.",
-    run: async (_t, i, c) => (await import("./clips/story")).runDraftTool(i, c.question, c.tainted),
+    name: "HIGGSFIELD", tools: ["higgsfield_draft", "studio_drafts"], writes: ["higgsfield_draft"],
+    prompt: "- higgsfield_draft {\"prompt\": string, \"kind\"?: \"image\"|\"video\", \"count\"?: 1-4, \"aspect\"?: \"9:16\"|\"16:9\"|\"1:1\"|\"4:5\"|\"3:4\"|\"4:3\", \"model\"?: string}: prepare a Higgsfield picture/video generation for the user to approve (\"make 2 images of a fox in the snow\"). Only when the user tells you to make pictures or videos in their latest message, as your first tool. It only asks the price: nothing is generated and no credits are spent until he clicks Approve in STUDIO (Other, or Clips → AI Story for video stories; a weekly credit cap applies); say so. You can never approve or spend. Pictures for a website: use ws_picture_draft instead (they go to STUDIO → Websites and land in the site by themselves).\n- studio_drafts {\"workspace\"?: string}: the picture/video drafts in STUDIO and what each waits for (price, the owner's Approve click, being made, made and saved where). Use it when he asks whether pictures were made instead of saying you can't check.",
+    run: async (t, i, c) => t === "studio_drafts"
+      ? (await import("./site-pictures-pure")).draftsSummary(await (await import("./clips/story")).listStories(), typeof i.workspace === "string" ? i.workspace.trim().toLowerCase() : "")
+      : (await import("./clips/story")).runDraftTool(i, c.question, c.tainted),
   },
   {
     name: "GOALS", tools: ["goal_status", "create_goal"], writes: ["create_goal"],

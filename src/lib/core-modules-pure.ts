@@ -91,7 +91,7 @@ export const MODULE_ABOUT: Record<string, string> = {
   WORKSPACE: "build and edit small websites/apps/files in his workspace",
   BUSINESS: "client pipeline: leads, stages, follow-ups due",
   IDEAS: "Idea Radar board of ideas from YouTube videos",
-  HIGGSFIELD: "prepare AI image/video generations (price check; he approves the spend)",
+  HIGGSFIELD: "prepare AI image/video generations (price check; he approves the spend) and list STUDIO drafts",
   GOALS: "his long-running goals: status, progress, create a goal",
   NIGHT: "queue work for the night shift",
   DEALS: "wishlist and deal hunter: best offers, add a wish",
