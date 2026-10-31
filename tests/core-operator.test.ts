@@ -222,3 +222,30 @@ test("CORE's prompt carries the follow-through rule", async () => {
   const { readFile } = await import("node:fs/promises");
   assert.match(await readFile(new URL("../src/lib/core.ts", import.meta.url), "utf8"), /plainly\.\n\$\{FOLLOW_THROUGH\}\n/);
 });
+
+test("lead_update on a lead CORE itself added this turn/chat needs no new ask; others, attachments and Stop-all still refuse", async () => {
+  const { createdLeads, rememberOwnLeads, ownLeadsIn, leadCheckHint } = await import("../src/lib/core-operator-pure.ts");
+  const q = "Find 5 concrete or construction companies in Rakvere with no website or an outdated one, and add them as leads in BUSINESS.";
+  const made = 'You called lead_create {"leads":[]}\nRESULT:\nDone: 2 BUSINESS leads added at To contact, unverified [op:op-abc123]\nadded "Lasila Betoon OÜ" (id 1)\nskipped "Old Firm": already in BUSINESS as "Old Firm" (id 9)';
+  const page = 'You called fetch_url {"url":"https://lasilabetoon.ee"}\nRESULT:\nmodern site';
+  assert.deepEqual(createdLeads([made, page]), ["Lasila Betoon OÜ"]);
+  const steps = [made, page], note = { lead: "lasila betoon oü", note: "not a fit: live, current site" };
+  for (const autonomy of [undefined, { "operator-organize": "ask" as const }]) {
+    assert.equal(decide("lead_update", note, ctx({ question: q, steps, autonomy })).allow, true);
+    assert.equal(decide("lead_update", { lead: "Old Firm", stage: "lost" }, ctx({ question: q, steps, autonomy })).allow, false); // a duplicate it skipped is his
+    assert.equal(decide("lead_update", note, ctx({ question: q, steps, autonomy, attach: true })).allow, false);
+    assert.equal(decide("lead_update", note, ctx({ question: q, steps, autonomy, stopAll: true })).allow, false);
+  }
+  assert.equal(decide("lead_update", note, ctx({ question: `${q} Don't touch anything else.`, steps, autonomy: { "operator-organize": "ask" } })).allow, false);
+  // a later turn of the same chat: the names come from the chat store
+  rememberOwnLeads("chat-1", ["Lasila Betoon OÜ"]);
+  assert.deepEqual(ownLeadsIn("chat-1"), ["Lasila Betoon OÜ"]); assert.deepEqual(ownLeadsIn("chat-2"), []);
+  assert.equal(decide("lead_update", note, ctx({ question: "ok", steps: [page], ownLeads: ownLeadsIn("chat-1"), autonomy: { "operator-organize": "ask" } })).allow, true);
+  assert.equal(opsBlocked("lead_update", "ok", true, note, ownLeadsIn("chat-2")) !== null, true);
+  // verify-first hint for a conditional lead request only
+  assert.match(leadCheckHint(q), /BEFORE lead_create/);
+  assert.match(leadCheckHint("Leia 5 Rakvere ehitusfirmat, kellel pole veebilehte, ja lisa need liidideks"), /BEFORE lead_create/);
+  assert.equal(leadCheckHint("Add Rakvere Betoon OÜ as a lead"), "");
+  const { FOLLOW_THROUGH } = await import("../src/lib/core-operator-pure.ts");
+  assert.match(FOLLOW_THROUGH, /check the condition for each candidate first/); assert.match(FOLLOW_THROUGH, /never write "I'll continue on your next message"/);
+});

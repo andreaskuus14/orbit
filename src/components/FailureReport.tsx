@@ -1,11 +1,11 @@
 "use client";
 // Failure report: builds a diagnostic package from a failed turn/task/mission trace for review. Copy or download only, never sent.
 import { useState } from "react";
-import { buildFailureReport, reportFileName, reportJson, type ReportInput } from "@/lib/failure-report-pure";
+import { buildFailureReport, refusedOnly, reportFileName, reportJson, type ReportInput, type ReportStep } from "@/lib/failure-report-pure";
 import { useT } from "./i18n";
 
 export function FailureReport({ input }: { input: Omit<ReportInput, "at" | "appVersion"> }) {
-  const { t } = useT();
+  const { t, tn } = useT();
   const [open, setOpen] = useState(false);
   const [personal, setPersonal] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
@@ -17,7 +17,8 @@ export function FailureReport({ input }: { input: Omit<ReportInput, "at" | "appV
     // Local liveness route: reads this server's build id, nothing leaves the machine.
     if (!version) fetch("/api/health").then((r) => r.json()).then((j: { buildId?: string | null }) => setVersion(j.buildId ?? null)).catch(() => {});
   }
-  if (!open) return <button className="chip" onClick={show}>{t("failrep.button")}</button>;
+  const refused = refusedOnly({ error: !!input.error, trace: Array.isArray(input.trace) ? input.trace as ReportStep[] : [] }); // a refusal is not a broken turn
+  if (!open) return <button className="chip" onClick={show}>{refused ? tn("failrep.refused", refused) : t("failrep.button")}</button>;
 
   const report = buildFailureReport({ ...input, appVersion: version, at }, personal);
   const json = reportJson(report);

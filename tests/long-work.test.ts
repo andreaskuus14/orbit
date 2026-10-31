@@ -39,3 +39,20 @@ test("progress label and handoff reply", () => {
   assert.match(handoffReply("abc", "et"), /taustal/);
   assert.doesNotMatch(handoffReply("abc", "en"), /timed out/);
 });
+
+test("out of steps before the request is done: hand off, then at most 2 extra budgets, never 'next message'", async () => {
+  const { afterBudget, stripMore, EXTRA_BUDGETS, MORE_ASK } = await import("../src/lib/long-work-pure.ts");
+  const notDone = "[continue] 1 of 5 leads saved; 4 sites left to check.", live = "The request is not fully done… I'll continue on your next message.";
+  assert.equal(EXTRA_BUDGETS, 2); assert.match(MORE_ASK, /\[continue\]/);
+  assert.equal(afterBudget(notDone, { background: false, extra: 0, leftMs: 30_000 }), "handoff");
+  assert.equal(afterBudget(live, { background: false, extra: 0, leftMs: 30_000 }), "handoff");
+  assert.equal(afterBudget("Jätkan su järgmise sõnumi peale.", { background: false, extra: 0, leftMs: 30_000 }), "handoff");
+  assert.equal(afterBudget(notDone, { background: true, extra: 1, leftMs: 600_000 }), "extend");
+  assert.equal(afterBudget(notDone, { background: true, extra: 1, leftMs: 60_000 }), "stop"); // no time left for another budget
+  assert.equal(afterBudget(notDone, { background: true, extra: 2, leftMs: 600_000 }), "stop"); // cap reached
+  assert.equal(afterBudget("Added all 5 leads.", { background: false, extra: 0, leftMs: 200_000 }), "stop");
+  assert.equal(stripMore(notDone), "1 of 5 leads saved; 4 sites left to check.");
+  const { readFile } = await import("node:fs/promises");
+  const core = await readFile(new URL("../src/lib/core.ts", import.meta.url), "utf8");
+  assert.match(core, /if \(more === "handoff"\) throw new CoreHandoff/); assert.match(core, /extra: store\.extra/); // the background run keeps the count
+});

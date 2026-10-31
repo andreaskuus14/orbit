@@ -8,7 +8,9 @@ export type Check =
   | { kind: "core-failure"; error: string; says: string } // core-capability-pure describeFailure
   | { kind: "mission"; doc: string; chain: string | null; steps: string[]; status: string; next: string } // checkpoint: missions-pure deriveStatus/nextAction
   | { kind: "idea"; ask: boolean } // goal-card-pure: idea-level → Goal card hint (acceptance + assumptions), question allowed only when ask
-  | { kind: "context"; turns: number; keep: string }; // long chat: the first-turn constraint survives in core-context-pure olderTurnsSummary
+  | { kind: "context"; turns: number; keep: string } // long chat: the first-turn constraint survives in core-context-pure olderTurnsSummary
+  // A recorded tool run: real-requests-pure leadRunProblems must pass `good` and catch `live`; `live`'s answer must auto-continue (long-work-pure afterBudget).
+  | { kind: "run"; notFit: string[]; live: { steps: string[]; answer: string }; good: { steps: string[]; answer: string } };
 
 export type RealRequest = { id: string; lang: "en" | "et"; behaviour: string; prompt: string; expected: string; forbidden: string; verify: string; check: Check };
 
@@ -112,6 +114,25 @@ export const REAL_REQUESTS: RealRequest[] = [
     expected: "web_search for Rakvere concrete/construction firms → fetch_url/web_search checks of each one's website → lead_create (one call with 5 leads, a source_url each, 'unverified: …' notes for what it couldn't check) → reports the 5 added, with Undo in Activity", forbidden: "'add them yourself' / 'has to happen in the BUSINESS panel'; a Choices prompt for in-scope steps (checking websites, adding leads); skipping a lead because a field couldn't be verified; drafting or sending anything", verify: "policy: lead_create allowed after web_search + fetch_url steps, on his ask",
     check: { kind: "policy", tool: "lead_create", allow: true, input: { name: "Rakvere Betoon OÜ", city: "Rakvere", source_url: "https://www.inforegister.ee/x", notes: "unverified: site last updated 2014?" },
       steps: ['You called web_search {"query":"betoonitööd Rakvere"}\nRESULT:\n- Rakvere Betoon OÜ', 'You called fetch_url {"url":"https://rakverebetoon.ee"}\nRESULT:\nfetch failed: ENOTFOUND'] } },
+  // Live run 2026-10-31 on main #356 (14 steps, 1m54s): 5 leads saved BEFORE any site check, then lasilabetoon.ee turned out live and
+  // current, lead_update "not a fit" was refused, 4 left unchecked, ended "I'll continue on your next message".
+  { id: "en-leads-verify-first", lang: "en", behaviour: "condition checked before saving; non-fits never saved; out of steps continues in the background", prompt: "Find 5 concrete or construction companies in Rakvere with no website or an outdated one, and add them as leads in BUSINESS.",
+    expected: "web_search → fetch_url per candidate (or web_search when no site) → lead_create only for no/outdated sites (or 'unverified: …') → non-fits replaced by new candidates → 5 saved; if steps run out, the rest continues in the background with a notice",
+    forbidden: "lead_create before checking the sites; a lead for a live, current site; 'I'll continue on your next message'; drafting or sending anything", verify: "run: verify-first grader passes the fixed run and catches the live one",
+    check: { kind: "run", notFit: ["lasilabetoon.ee"],
+      live: { steps: [
+        'You called web_search {"query":"betoonitööd ehitusfirma Rakvere"}\nRESULT:\n- Lasila Betoon OÜ lasilabetoon.ee\n- Rakvere Ehitus OÜ\n- Virumaa Betoon OÜ\n- RK Ehitus OÜ\n- Tammiku Ehitus OÜ',
+        'You called lead_create {"leads":[{"name":"Lasila Betoon OÜ","website":"lasilabetoon.ee","source_url":"https://www.inforegister.ee/a"},{"name":"Rakvere Ehitus OÜ","source_url":"https://www.inforegister.ee/b"}]}\nRESULT:\nDone: 5 BUSINESS leads added at To contact, unverified [op:op-abc123]\nadded "Lasila Betoon OÜ" (id 1)\nadded "Rakvere Ehitus OÜ" (id 2)',
+        'You called fetch_url {"url":"https://lasilabetoon.ee"}\nRESULT:\nLasila Betoon: modern site, news from 2026',
+        'You called lead_update {"lead":"Lasila Betoon OÜ","note":"not a fit: live, current website"}\nRESULT:\nError: after tool results, make this change only for a target the user names in their latest message'],
+        answer: "Saved 5 leads; Lasila Betoon has a good site. The request is not fully done: 4 sites are unchecked. I'll continue on your next message." },
+      good: { steps: [
+        'You called web_search {"query":"betoonitööd ehitusfirma Rakvere"}\nRESULT:\n- Lasila Betoon OÜ lasilabetoon.ee\n- Rakvere Ehitus OÜ rakvereehitus.ee\n- Virumaa Betoon OÜ',
+        'You called fetch_url {"url":"https://lasilabetoon.ee"}\nRESULT:\nLasila Betoon: modern site, news from 2026',
+        'You called fetch_url {"url":"https://rakvereehitus.ee"}\nRESULT:\n© 2011 Rakvere Ehitus, Flash required',
+        'You called web_search {"query":"Virumaa Betoon OÜ Rakvere koduleht"}\nRESULT:\nonly registry listings, no website',
+        'You called lead_create {"leads":[{"name":"Rakvere Ehitus OÜ","website":"rakvereehitus.ee","source_url":"https://www.inforegister.ee/b","notes":"site from 2011"},{"name":"Virumaa Betoon OÜ","source_url":"https://www.inforegister.ee/c","notes":"no website found"}]}\nRESULT:\nDone: 2 BUSINESS leads added at To contact, unverified [op:op-def456]\nadded "Rakvere Ehitus OÜ" (id 2)\nadded "Virumaa Betoon OÜ" (id 3)'],
+        answer: "Added 2 of 5 so far (Lasila Betoon has a current site, so I skipped it); the remaining 3 continue in the background." } } },
 ];
 
 // Explicit-ask guards, EN/ET pairs (policy-pure decide). For every guarded tool: the owner's own ask → allowed in both languages;

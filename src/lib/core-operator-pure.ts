@@ -32,14 +32,33 @@ const TARGET: Partial<Record<OpsTool, string>> = { vault_rename: "name", vault_m
 /** The explicit-ask check (Profile → Autonomy "Operator: organize my data" at Ask, or outside text/attachments in context): the
  *  owner's latest message must ask for this change. After tool results it must also name the target (file, lead, automation)
  *  itself, so text a tool returned can't pick one. null = allowed. */
-export function opsBlocked(tool: OpsTool, question: string, tainted: boolean, input: Record<string, unknown> = {}): string | null {
+export function opsBlocked(tool: OpsTool, question: string, tainted: boolean, input: Record<string, unknown> = {}, own: readonly string[] = []): string | null {
   const q = question.toLowerCase();
   if (/\b(?:don'?t|do not|never|cancel)\b/.test(q) || ET_NOT.test(q)) return "the user said not to; answer instead";
+  // A lead CORE itself added for this task (this turn or this chat) is ORBIT's own record: noting "not a fit" on it needs no new ask.
+  // Callers pass [] with attachments/pins in context; Stop-all is refused before this (policy-pure decide).
+  if (tool === "lead_update" && isOwnLead(str(input.lead, 120), own)) return null;
   const [en, ee] = ASK[tool];
   if (!en.test(q) && !ee.test(q)) return "the user's latest message didn't ask for this change; answer instead";
   if (!tainted || tool === "lead_create") return null; // lead_create stores what a search found by design; his message still has to ask for leads
   const key = TARGET[tool], target = key ? str(input[key], 120).toLowerCase() : "";
   return target && q.includes(target) ? null : "after tool results, make this change only for a target the user names in their latest message";
+}
+
+const isOwnLead = (name: string, own: readonly string[]) => !!name && own.some((n) => n.trim().toLowerCase() === name.toLowerCase());
+
+/** Names of the leads lead_create added in these tool results ("added "X" (id …)"); skipped duplicates are not ours. */
+export function createdLeads(steps: readonly string[]): string[] {
+  return steps.filter((s) => s.startsWith("You called lead_create ")).flatMap((s) => [...(s.split("\nRESULT:\n")[1] ?? "").matchAll(/^added "([^"\n]+)" \(id /gm)].map((m) => m[1]));
+}
+// shortcut: in process memory (lost on restart, then lead_update on them needs his ask again); fine for a chat's working session.
+const OWN = ((globalThis as unknown as { __orbitOwnLeads?: Map<string, string[]> }).__orbitOwnLeads ??= new Map());
+/** Leads CORE added in this chat, remembered for later turns of the same chat (newest 50 per chat, 200 chats). */
+export const ownLeadsIn = (chat?: string): string[] => (chat ? OWN.get(chat) ?? [] : []);
+export function rememberOwnLeads(chat: string | undefined, names: string[]) {
+  if (!chat || !names.length) return;
+  OWN.delete(chat); OWN.set(chat, [...ownLeadsIn(chat), ...names].slice(-50));
+  if (OWN.size > 200) OWN.delete(OWN.keys().next().value!);
 }
 
 /** One row by name: exact (any case) first, else the only one containing it. */
@@ -81,7 +100,15 @@ export function leadInputs(input: Record<string, unknown>): NewLead[] | string {
 }
 
 /** CORE's operator follow-through rule (core.ts system prompt; tested in tests/core-operator.test.ts). */
-export const FOLLOW_THROUGH = "- Follow-through: keep working until his request's acceptance is met (\"add 5 leads\" is done when 5 leads are saved), not until you have something to show. Do in-scope steps yourself (research, checking, building, organizing his records) instead of offering them as choices or handing them back (never \"add them yourself\" or \"Choices: check them | leave it\"): verify facts with web_search/fetch_url, then save the result with the matching tool (lead_create for new BUSINESS leads, several in one call). When a detail can't be verified, save it anyway with an \"unverified: …\" note instead of skipping it. Offer choices or ask only when the next step would send, publish, upload or spend, or the request is genuinely ambiguous. If you run out of steps, say in one line what is saved and what is left, and continue on his next message.";
+export const FOLLOW_THROUGH = "- Follow-through: keep working until his request's acceptance is met (\"add 5 leads\" is done when 5 leads are saved), not until you have something to show. Do in-scope steps yourself (research, checking, building, organizing his records) instead of offering them as choices or handing them back (never \"add them yourself\" or \"Choices: check them | leave it\"): verify facts with web_search/fetch_url, then save the result with the matching tool (lead_create for new BUSINESS leads, several in one call). When a detail can't be verified, save it anyway with an \"unverified: …\" note instead of skipping it. Offer choices or ask only when the next step would send, publish, upload or spend, or the request is genuinely ambiguous. For \"find X that match a condition (no website, an outdated site, …) and add them\": check the condition for each candidate first (fetch_url its site, or web_search when it has none), then lead_create only the ones that fit, plus any you couldn't check with an \"unverified: …\" note; drop a candidate that doesn't fit (a live, current site) and find a new one instead, until the count is met. If you run out of steps, say in one line what is saved and what is left; ORBIT continues the rest in the background by itself, so never write \"I'll continue on your next message\".";
+
+/** Per-turn planner hint for "find N … with no/outdated website … add as leads": verify first, then save (core.ts prompt). */
+export function leadCheckHint(question: string): string {
+  const q = question.toLowerCase();
+  if (!ASK.lead_create.some((r) => r.test(q))) return "";
+  if (!/\b(?:no|without|outdated|old|missing|bad|poor|weak)\b[^.?!\n]{0,30}\b(?:website|site|web ?page|homepage)|(?:pole|puudub|ilma|vana|aegunud)[^.?!\n]{0,20}(?:veebileh|koduleh)|(?:veebileh|koduleh)\w*ta\b/i.test(q)) return "";
+  return "PLAN HINT (lead finding with a condition): check each candidate's site with fetch_url (or web_search) BEFORE lead_create, add only the ones that fit or that you couldn't check (\"unverified: …\" note), and replace non-fits with new candidates until the count is met.\n\n";
+}
 
 /** lead_update input → the change, or an error. */
 export function leadChange(input: Record<string, unknown>, stages: readonly string[]): { stage?: string; note: string; next: string; verified?: boolean } | string {
