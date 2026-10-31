@@ -174,3 +174,51 @@ test("undo round-trips: automation_create (with Tallinn preview) and automation_
   await writeFile(path.join(process.env.ORBIT_DATA_DIR!, "operator-undo.json"), "{broken");
   await assert.rejects(undoOp(sb, "u1", pa), /Nothing to undo/); // an unreadable store never undoes the wrong thing
 });
+
+test("lead_create: default grant, his ask after web results, refused on injected text, attachments and Stop-all", () => {
+  const lead = { name: "Rakvere Betoon OÜ", source_url: "https://x.ee" }, web = 'You called web_search {"query":"betoon Rakvere"}\nRESULT:\n- Rakvere Betoon OÜ';
+  assert.equal(decide("lead_create", lead, ctx()).reason, OPERATOR_REASON);
+  const q = "Find 5 concrete companies in Rakvere and add them as leads in BUSINESS";
+  assert.equal(decide("lead_create", lead, ctx({ steps: [web], question: q })).allow, true);
+  assert.equal(decide("lead_create", lead, ctx({ steps: [web], question: "lisa need huvilisteks BUSINESSisse" })).allow, true);
+  assert.equal(decide("lead_create", lead, ctx({ steps: [web, outside] })).allow, false); // page text alone can't add leads
+  assert.equal(decide("lead_create", lead, ctx({ attach: true })).allow, false);
+  assert.match(decide("lead_create", lead, ctx({ stopAll: true, question: q })).reason, /Stop-all/);
+});
+
+test("lead_create: unverified notes, dedupe by contact key, Undo deletes, refuses Undo once he worked the lead", async () => {
+  const { leadInputs } = await import("../src/lib/core-operator-pure.ts");
+  assert.match(String(leadInputs({ name: "X" })), /source_url/);
+  const [one] = leadInputs({ name: "Roma Ehitus", city: "Rakvere", phone: "+372 5123 4567", source_url: "https://reg.ee/1", notes: "unverified: site from 2012" }) as { contact: string; notes: string }[];
+  assert.equal(one.contact, "+372 5123 4567");
+  assert.match(one.notes, /^Found on the web \(unchecked\): https:\/\/reg\.ee\/1\nCity: Rakvere\nunverified: no website, email found\nunverified: site from 2012$/);
+
+  const old = { id: "p0", name: "Old Firm", contact: "info@oldfirm.ee", notes: "", stage: "contacted" };
+  const sb = fakeSb({ prospects: [old] });
+  const c = { sb, userId: "u1", question: "", tainted: false, operator: true };
+  const out = await runOpsTool("lead_create", { leads: [
+    { name: "Betoon AS", website: "betoon.ee", source_url: "https://reg.ee/2" },
+    { name: "Old Firm Ltd", email: "sales@oldfirm.ee", source_url: "https://reg.ee/3" }, // same domain as p0
+  ] }, c);
+  assert.match(out, /^Done: 1 BUSINESS lead added/); assert.match(out, /skipped "Old Firm Ltd": already in BUSINESS as "Old Firm" \(id p0\)/);
+  assert.match(await runOpsTool("lead_create", { name: "betoon as", source_url: "https://reg.ee/2" }, c), /^Nothing to do: skipped .*id id-2/);
+  const crm = await import("../src/lib/prospect-crm.ts");
+  assert.deepEqual([(await crm.loadCrm())["id-2"].source, (await crm.loadCrm())["id-2"].verified], ["web-find", false]);
+  const sbT = sb as unknown as { from: (t: string) => { then: (f: (x: { data: Record<string, unknown>[] }) => unknown) => Promise<unknown> } };
+  const rows = () => new Promise<Record<string, unknown>[]>((r) => sbT.from("prospects").then((x) => r(x.data)));
+  assert.equal((await rows()).find((r) => r.id === "id-2")?.stage, "lead");
+  assert.match(await undoOp(sb, "u1", undoOfOut("lead_create", out)), /1 added lead deleted/);
+  assert.deepEqual((await rows()).map((r) => r.id), ["p0"]); assert.equal((await crm.loadCrm())["id-2"], undefined);
+
+  const again = undoOfOut("lead_create", await runOpsTool("lead_create", { name: "Kivi OÜ", source_url: "https://reg.ee/4" }, c));
+  (await rows()).find((r) => r.name === "Kivi OÜ")!.stage = "contacted";
+  await assert.rejects(undoOp(sb, "u1", again), /changed since/);
+});
+
+test("CORE's prompt carries the follow-through rule", async () => {
+  const { FOLLOW_THROUGH } = await import("../src/lib/core-operator-pure.ts");
+  assert.match(FOLLOW_THROUGH, /until his request's acceptance is met/); assert.match(FOLLOW_THROUGH, /never "add them yourself"/); assert.match(FOLLOW_THROUGH, /unverified: …/);
+  assert.match(FOLLOW_THROUGH, /only when the next step would send, publish, upload or spend/);
+  const { readFile } = await import("node:fs/promises");
+  assert.match(await readFile(new URL("../src/lib/core.ts", import.meta.url), "utf8"), /plainly\.\n\$\{FOLLOW_THROUGH\}\n/);
+});

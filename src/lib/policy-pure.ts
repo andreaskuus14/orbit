@@ -45,7 +45,7 @@ export const TIERS: Record<string, Tier> = {
   save_checkpoint: "T2", // his own chat checkpoint (local file); every line can be edited or deleted on the Checkpoint card
   queue_tonight: "T2", // adds to the night shift's own queue; the night run's outside effects still wait for owner approvals
   life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", ws_fetch_image: "T2", ws_run: "T2", ws_stop: "T2", rea_analyze: "T2", rea_cancel: "T2",
-  vault_move: "T2", vault_rename: "T2", lead_update: "T2", life_plan: "T2", automation_create: "T2", automation_pause: "T2", // ORGANIZE: his own records, each with Undo
+  vault_move: "T2", vault_rename: "T2", lead_create: "T2", lead_update: "T2", life_plan: "T2", automation_create: "T2", automation_pause: "T2", // ORGANIZE: his own records, each with Undo
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
   higgsfield_draft: "T3", // proposes a Higgsfield spend (price check only); the spend itself is the owner's story.approve click
   ws_inspire_image: "T3", // reference words from an image search, then the same priced draft as higgsfield_draft for an original brief
@@ -98,7 +98,7 @@ const err = (s: string | null | undefined) => (s ? s.replace(/^Error: /, "") : "
 // (pages, news, mail, agent results) or attached files in this turn: injected text still can't start work or persist itself.
 export const OPERATOR_TOOLS: Record<string, Area> = {
   ask_agent: "operator-build", start_mission: "operator-build", create_goal: "operator-build", queue_tonight: "operator-build",
-  save_memory: "operator-organize", vault_move: "operator-organize", vault_rename: "operator-organize", lead_update: "operator-organize",
+  save_memory: "operator-organize", vault_move: "operator-organize", vault_rename: "operator-organize", lead_create: "operator-organize", lead_update: "operator-organize",
   life_plan: "operator-organize", automation_create: "operator-organize", automation_pause: "operator-organize",
 };
 export const OPERATOR_REASON = "standing operator grant";

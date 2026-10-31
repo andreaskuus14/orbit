@@ -3,13 +3,14 @@
 // POST /api/activity {undo: {kind: "op", id}} puts it back. Nothing here sends, publishes or spends; the journal is never read.
 import { et, ET_NOT } from "./et-ask-pure.ts";
 
-export const OPS_TOOLS = ["vault_move", "vault_rename", "lead_update", "life_plan", "automation_create", "automation_pause"] as const;
+export const OPS_TOOLS = ["vault_move", "vault_rename", "lead_create", "lead_update", "life_plan", "automation_create", "automation_pause"] as const;
 export type OpsTool = (typeof OPS_TOOLS)[number];
 export const isOpsTool = (t: string): t is OpsTool => (OPS_TOOLS as readonly string[]).includes(t);
 
 export const OPS_PROMPT = "- ORGANIZE (his own data; each change is logged in OPERATIONS → Activity with Undo; nothing is sent, published or spent): " +
   "vault_rename {\"name\": string, \"to\": string} (rename a VAULT file; the extension stays unless given), " +
   "vault_move {\"name\": string, \"to\": \"trash\"} (move a VAULT file to the VAULT trash, restorable), " +
+  "lead_create {\"name\": string, \"city\"?: string, \"website\"?: string, \"phone\"?: string, \"email\"?: string, \"source_url\": string (the page you found it on), \"notes\"?: string} or {\"leads\": [up to 10 of those]} (adds new BUSINESS prospects at To contact, marked found on the web and unverified; a business already in BUSINESS is skipped and its id returned; records only: it never drafts or sends. Put anything you couldn't check in notes as \"unverified: …\" and still add the lead), " +
   "lead_update {\"lead\": string (BUSINESS prospect name), \"stage\"?: \"lead\"|\"contacted\"|\"replied\"|\"pilot\"|\"paying\"|\"lost\", \"note\"?: string (appended), \"next\"?: string (the next action), \"verified\"?: boolean (contact checked)} (records only: it never drafts or sends), " +
   "life_plan {\"action\": \"accept\"|\"adjust\", \"block\"?: string (block title, for adjust), \"minutes\"?: 5-240 (extra time for that block)} (accept today's plan, or stretch one flexible block; fixed events never move), " +
   "automation_create {\"name\": string, \"prompt\": string, \"agent\"?: string, \"when\": \"hour\"|\"day\"|\"week\"|\"memory\"|\"briefing\", \"time\"?: \"HH:MM\" Europe/Tallinn, \"weekday\"?: 0-6 (0 = Sunday)} (answers with the next run times), " +
@@ -20,6 +21,7 @@ const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\x
 const ASK: Record<OpsTool, [RegExp, RegExp]> = {
   vault_rename: [/\brenam|\bcall it\b|\bname it\b/i, et("nimeta|nimeks|muuda (?:faili )?nime")],
   vault_move: [/\b(?:move|trash|bin|delete|remove|clean ?up)\b/i, et("liiguta|teisalda|prügikast|kustuta|eemalda|korista")],
+  lead_create: [/\b(?:add|create|save|put|log|record|store|make)\b[^.?!\n]{0,80}\b(?:leads?|prospects?|pipeline|crm|business)\b/i, et("(?:lisa|salvesta|loo|pane|tee)[^.?!\\n]{0,80}(?:liid|lead|huvilis|klient|klien|müügitoru|business)")],
   lead_update: [/\b(?:mark|move|set|update|change|stage|note|next (?:step|action)|verif|replied|contacted|lost|paying|pilot)\b/i, et("märgi|liiguta|uuenda|muuda|etapp|märkus|järgmine|kinnita|kontrolli|vastas|kaotatud")],
   life_plan: [/\b(?:accept|lock|confirm|adjust|extend|stretch|push|shift|ran over|took longer|more time)\b/i, et("kinnita|võta vastu|nihuta|lükka|pikenda|venis|võttis kauem|rohkem aega")],
   automation_create: [/\bautomat|\b(?:every|each) (?:hour|day|morning|evening|night|week|mon|tue|wed|thu|fri|sat|sun)/i, et("automaat|iga(?:l)? (?:tund|päev|hommik|õhtu|nädal|esmasp|teisip|kolmap|neljap|reede|laup|pühap)")],
@@ -35,7 +37,7 @@ export function opsBlocked(tool: OpsTool, question: string, tainted: boolean, in
   if (/\b(?:don'?t|do not|never|cancel)\b/.test(q) || ET_NOT.test(q)) return "the user said not to; answer instead";
   const [en, ee] = ASK[tool];
   if (!en.test(q) && !ee.test(q)) return "the user's latest message didn't ask for this change; answer instead";
-  if (!tainted) return null;
+  if (!tainted || tool === "lead_create") return null; // lead_create stores what a search found by design; his message still has to ask for leads
   const key = TARGET[tool], target = key ? str(input[key], 120).toLowerCase() : "";
   return target && q.includes(target) ? null : "after tool results, make this change only for a target the user names in their latest message";
 }
@@ -58,6 +60,28 @@ export function leadNotes(notes: string, note: string, next: string): string {
   if (note) out = `${out}\n${note}`.trim();
   return out;
 }
+
+export type NewLead = { name: string; contact: string; notes: string };
+/** lead_create input (one lead or {leads: [...]}) → prospect rows, or an error. Web text is stored as a record only. */
+export function leadInputs(input: Record<string, unknown>): NewLead[] | string {
+  const list = Array.isArray(input.leads) ? input.leads : [input];
+  if (!list.length || list.length > 10) return "give 1-10 leads";
+  const out: NewLead[] = [];
+  for (const raw of list) {
+    const l = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    const name = str(l.name, 120), src = str(l.source_url, 500);
+    if (!name) return "each lead needs a name";
+    if (!/^https?:\/\/\S+$/i.test(src)) return `lead "${name}": source_url must be the http(s) page it was found on`;
+    const f = { website: str(l.website, 200), phone: str(l.phone, 40), email: str(l.email, 120) };
+    const missing = (Object.keys(f) as (keyof typeof f)[]).filter((k) => !f[k]);
+    const notes = [`Found on the web (unchecked): ${src}`, str(l.city, 60) && `City: ${str(l.city, 60)}`, missing.length ? `unverified: no ${missing.join(", ")} found` : "", str(l.notes, 1000)];
+    out.push({ name, contact: [f.website, f.phone, f.email].filter(Boolean).join(" · ").slice(0, 200), notes: notes.filter(Boolean).join("\n").slice(0, 2000) });
+  }
+  return out;
+}
+
+/** CORE's operator follow-through rule (core.ts system prompt; tested in tests/core-operator.test.ts). */
+export const FOLLOW_THROUGH = "- Follow-through: keep working until his request's acceptance is met (\"add 5 leads\" is done when 5 leads are saved), not until you have something to show. Do in-scope steps yourself (research, checking, building, organizing his records) instead of offering them as choices or handing them back (never \"add them yourself\" or \"Choices: check them | leave it\"): verify facts with web_search/fetch_url, then save the result with the matching tool (lead_create for new BUSINESS leads, several in one call). When a detail can't be verified, save it anyway with an \"unverified: …\" note instead of skipping it. Offer choices or ask only when the next step would send, publish, upload or spend, or the request is genuinely ambiguous. If you run out of steps, say in one line what is saved and what is left, and continue on his next message.";
 
 /** lead_update input → the change, or an error. */
 export function leadChange(input: Record<string, unknown>, stages: readonly string[]): { stage?: string; note: string; next: string; verified?: boolean } | string {

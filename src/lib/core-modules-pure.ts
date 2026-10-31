@@ -96,7 +96,7 @@ export const MODULE_ABOUT: Record<string, string> = {
   NIGHT: "queue work for the night shift",
   DEALS: "wishlist and deal hunter: best offers, add a wish",
   RULES: "standing rules for recurring work",
-  ORGANIZE: "change his own records with Undo: rename/trash VAULT files, update BUSINESS lead records, accept/adjust today's plan, create/pause automations",
+  ORGANIZE: "change his own records with Undo: rename/trash VAULT files, add or update BUSINESS lead records, accept/adjust today's plan, create/pause automations",
   WEEK: "week review: planned vs done, what slipped, streaks, wins",
 };
 
