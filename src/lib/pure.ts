@@ -212,7 +212,7 @@ export function dueSlots(now: Date, lastRun: Partial<Record<BriefingKind, string
 
 /* ---------------- agents (Phase 3) ---------------- */
 
-export type AgentStep = { thought: string; tool?: string; input?: Record<string, unknown>; final?: string };
+export type AgentStep = { thought: string; tool?: string; input?: Record<string, unknown>; final?: string; garbled?: true };
 
 /** Read one agent reply. Agents must answer with a single JSON object; anything unparseable counts as a final answer. */
 export function parseAgentReply(text: string): AgentStep {
@@ -238,6 +238,8 @@ export function parseAgentReply(text: string): AgentStep {
     for (const m of call[2].matchAll(/<parameter name="([\w.-]+)">([\s\S]*?)<\/parameter>/g)) input[m[1]] = m[2].trim();
     return { thought: t.slice(0, call.index).replace(/<\/?function_calls>/g, "").trim(), tool: call[1], input };
   }
+  // Native tool-call markup with nothing runnable left in it (the CLI blanks those to <invoke_placeholder>): never an answer.
+  if (/<invoke[\s_>]|<\/?function_calls>/.test(t)) return { thought: "", garbled: true };
   return { thought: "", final: text.trim() };
 }
 
