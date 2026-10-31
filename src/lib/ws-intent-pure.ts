@@ -54,8 +54,8 @@ export function wsWriteBlocked(question: string, tainted: boolean, gate: WsGate 
   const target = typeof gate.target === "string" ? slugify(gate.target) : null;
   const p = gate.pending && (gate.now ?? Date.now()) - gate.pending.at < PENDING_MS ? gate.pending : null;
   if (p && isGoAhead(q)) return !target || target === p.workspace ? null : `the user only confirmed building "${p.workspace}"; write there or ask first`;
-  // Operator mode A (AGENTS.md rule 6): building in his own sandboxed, local workspaces needs no extra confirmation. A follow-up
-  // in a build chat ("only the new site", "find a way to make them yourself") goes ahead; only taint, a "don't" or a question stop it.
+  // Operator mode A (AGENTS.md rule 6): building in his own sandboxed, local workspaces needs no extra confirmation; only taint,
+  // a "don't" or a plain question stop a write. The model decides whether a message calls for files at all.
   return null;
 }
 
