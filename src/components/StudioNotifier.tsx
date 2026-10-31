@@ -6,7 +6,7 @@ import { sharedJson } from "./use-poll";
 import { parseState, step, type NotifyState } from "@/lib/studio-notify";
 import { notify } from "@/lib/notify-pure";
 import { clipProblemNotices, RESOLVE_ALERT } from "@/lib/interruption-pure";
-import { ACK_EVENT, ACK_KEY, alertSnapshot, alertingGroups, parseAck } from "@/lib/clips/failure-alert-pure";
+import { ACK_EVENT, alertSnapshot, alertingGroups } from "@/lib/clips/failure-alert-pure";
 
 const KEY = "orbit.studioNotify";
 const load = () => { try { return parseState(localStorage.getItem(KEY)); } catch { return parseState(null); } };
@@ -41,12 +41,9 @@ export function StudioNotifier() {
       busy = true; last = Date.now();
       try {
         const state = load(); // fresh each time, so another tab's announcements count as seen
-        const snapshot = await sharedJson<Parameters<typeof step>[1]>("/api/studio/clips");
+        const snapshot = await sharedJson<Parameters<typeof step>[1] & { failAck?: string[] }>("/api/studio/clips");
         if (snapshot && !stopped) {
-          let ack = parseAck(null);
-          try { ack = parseAck(localStorage.getItem(ACK_KEY)); } catch { /* storage unavailable */ }
-          const { groups, shown } = alertingGroups(snapshot, ack, Date.now());
-          try { localStorage.setItem(ACK_KEY, JSON.stringify({ ...ack, shown })); } catch { /* old failures may alert again */ }
+          const groups = alertingGroups(snapshot, snapshot.failAck ?? [], Date.now()); // last 72 h, not dismissed (server-side)
           // Job/download failures open the Failed list; upload failures keep their review link.
           const failures = clipProblemNotices(alertSnapshot(snapshot, groups)).map((n) => (n.nav?.view === "clips" ? { ...n, nav: { panel: "studio" as const, view: "failed" as const } } : n));
           failures.forEach(notify);
