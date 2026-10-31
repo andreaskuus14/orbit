@@ -240,8 +240,10 @@ async function runClaudeStream(prompt: string | Promise<string>, system: string,
   const t0 = Date.now();
   // With images, stdin carries one stream-json user message (image blocks + text); tools stay disabled.
   const spare = images.length || web || mcp || effort || session || thinking ? null : takeSpare(system, model ?? MODEL);
-  const json = images.length > 0 || !!spare;
-  const input = images.length ? ["--input-format", "stream-json"] : [];
+  // Plain -p gives up on stdin after 3 s; a prompt still being built (CORE's prep) goes in as stream-json, which waits.
+  const pending = typeof prompt !== "string";
+  const json = images.length > 0 || !!spare || pending;
+  const input = images.length || pending ? ["--input-format", "stream-json"] : [];
   const { dir, start } = spare ? { dir: spare.dir, start: () => spare.child } : await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model, effort, web, mcp, session, thinking);
   try {
     return await new Promise<ClaudeResult>((resolve, reject) => {
