@@ -265,7 +265,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const turnStart = Date.now();
   const deepLeft = () => budget.ms - (TURN_MS - DEEP_TURN_MS) - (Date.now() - turnStart);
   let splitRetried = false, garbledLeft = 2, formatNote = "";
-  const GARBLED_NOTE = "FORMAT FIX: your last reply used XML/<invoke> function-call markup, which ORBIT cannot run. Call a tool only as ONE JSON object: {\"thought\": \"…\", \"tool\": \"ws_write\", \"input\": {…}}, or answer with {\"final\": \"…\"}.\n\n";
+  const GARBLED_NOTE = "FORMAT FIX: your last reply used XML/<invoke> function-call markup, which ORBIT cannot run. Call a tool only as ONE JSON object: {\"thought\": \"…\", \"tool\": \"ws_write\", \"input\": {…}}, or answer with {\"final\": \"…\"}. For a big site, write it in 2-3 smaller ws_write calls (index.html last).\n\n";
   const deepNote = 'DEEP MODE (a hard request): write "thought" before "final" and in it privately plan first — the steps, the constraints, what could go wrong (it is never shown). Then give a complete, well-structured, correct "final".\n\n';
   const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
   let answer = "";

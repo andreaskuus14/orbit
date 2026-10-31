@@ -20,7 +20,8 @@ ${SITE_PIPELINE}`;
  *  question: when the owner's own latest message explicitly asks to build a site/files, the site pipeline's public research
  *  (web_search, fetch_url, ws_fetch_image) doesn't block the build (Operator mode A: research and build). */
 export const wsTainted = (steps: string[], question = "") => {
-  const ok = explicitBuild(question) ? /^You called (?:navigate|ws_create|ws_write|ws_fetch_image|ws_inspire_image|web_search|fetch_url)\b/ : /^You called (?:navigate|ws_create|ws_write)\b/;
+  // ORBIT's own outputs (a draft's price, a file list, its own server's smoke check) carry no outside text.
+  const ok = explicitBuild(question) ? /^You called (?:navigate|ws_create|ws_write|ws_list|ws_run|ws_stop|higgsfield_draft|ws_fetch_image|ws_inspire_image|web_search|fetch_url)\b/ : /^You called (?:navigate|ws_create|ws_write|ws_list|ws_run|ws_stop|higgsfield_draft)\b/;
   const fresh = freshWorkspaces(steps);
   return steps.some((s) => !ok.test(s) && !readsFresh(s, fresh));
 };

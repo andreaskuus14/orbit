@@ -13,8 +13,6 @@ export const slugify = (name: unknown): string | null => {
 export type WsPending = { workspace: string; at: number };
 export type WsGate = { target?: unknown; workspaces?: string[]; pending?: WsPending | null; now?: number };
 export const PENDING_MS = 30 * 60_000;
-/** Refusal prefix the chat turns into a "Build <workspace>? [Build it] [Not now]" offer (wsConfirmOffer). */
-const OFFER = "confirm build ";
 
 const VERB = /\b(?:build|make|create|write|edit|update|change|fix|save|add|generate|scaffold|code|put|redo|rewrite|tweak|upgrade|improve|polish|redesign|restyle|refactor|continue|finish|apply|implement|extend|enhance|revamp|modernize|modernise)\b/;
 const VERB_ET = et("ehita|tee |loo |kirjuta|muuda|paranda|salvesta|lisa|uuenda|genereeri|täienda|kujunda|jätka|rakenda|viimistle|arenda|kaasajasta");
@@ -56,12 +54,9 @@ export function wsWriteBlocked(question: string, tainted: boolean, gate: WsGate 
   const target = typeof gate.target === "string" ? slugify(gate.target) : null;
   const p = gate.pending && (gate.now ?? Date.now()) - gate.pending.at < PENDING_MS ? gate.pending : null;
   if (p && isGoAhead(q)) return !target || target === p.workspace ? null : `the user only confirmed building "${p.workspace}"; write there or ask first`;
-  const verb = VERB.test(q) || VERB_ET.test(q);
-  if (verb && (THING.test(q) || THING_ET.test(q) || namedWorkspace(q, gate.workspaces))) return null;
-  // Held back: ORBIT shows the owner a Build it / Not now button for this workspace; never make him retype a sentence.
-  return target
-    ? `${OFFER}"${target}": the user hasn't clearly asked to build yet. ORBIT now shows him a "Build ${target}? [Build it] [Not now]" button. In one or two lines, say what you'd build; don't ask him to type any exact sentence.`
-    : "the user's latest message didn't ask to build or save files; say in one line what you'd build and ask if he wants it";
+  // Operator mode A (AGENTS.md rule 6): building in his own sandboxed, local workspaces needs no extra confirmation. A follow-up
+  // in a build chat ("only the new site", "find a way to make them yourself") goes ahead; only taint, a "don't" or a question stop it.
+  return null;
 }
 
 /** The workspace a held-back write offers to build, from that tool call's refusal text (trace detail or step), else null. */
