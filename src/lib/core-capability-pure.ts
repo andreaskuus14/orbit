@@ -1,11 +1,12 @@
 // CORE capability helpers: the tool-step cap, honest failure text, fallback notes and the DEV "CORE config" readout.
 // Pure (no imports with side effects): tested in tests/core-capability.test.ts. See docs/CORE-CAPABILITY.md.
 
-/** Model calls per CORE turn (the last one must answer). ORBIT_CORE_MAX_STEPS, default 8, clamped 2..12;
- *  the turn's 270 s time budget (core.ts) still forces an answer earlier when time runs short. */
-export function maxSteps(env: string | undefined): number {
+/** Model calls per CORE turn (the last one must answer). ORBIT_CORE_MAX_STEPS, default 8; operator/research turns
+ *  (search + several checks + save) get at least 16. Hard cap 20; the turn deadline and background handoff still apply. */
+export function maxSteps(env: string | undefined, operator = false): number {
   const n = Math.floor(Number(env));
-  return Number.isFinite(n) && n > 0 ? Math.min(12, Math.max(2, n)) : 8;
+  const base = Number.isFinite(n) && n > 0 ? n : 8;
+  return Math.min(20, Math.max(2, operator ? Math.max(base, 16) : base));
 }
 
 /** A visible line when this answer came from a weaker setup than chosen (deep → main model), else "". */

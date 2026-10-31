@@ -39,6 +39,12 @@ export function errorCategory(text: string): Category {
   return "unknown";
 }
 
+/** Show the report only for a turn that really failed: an error, a failed answer check, or a failed tool call.
+ *  Recovered bookkeeping steps (a fallback, a background handoff, a split retry) are not failures. */
+export function turnFailed(m: { error?: boolean; trace?: ReportStep[] }): boolean {
+  return !!m.error || !!m.trace?.some((s) => s.answerEval?.pass === false || (s.ok === false && !META.has(s.step)));
+}
+
 const steps = (trace: unknown): ReportStep[] => (Array.isArray(trace) ? trace : [])
   .filter((r): r is ReportStep => !!r && typeof r === "object" && typeof (r as ReportStep).step === "string").slice(-MAX_STEPS);
 

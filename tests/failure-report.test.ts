@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildFailureReport, errorCategory, reportFileName, traceChain } from "../src/lib/failure-report-pure.ts";
+import { buildFailureReport, errorCategory, reportFileName, traceChain, turnFailed } from "../src/lib/failure-report-pure.ts";
 
 const trace = [
   { step: "search_memory", detail: "3 found", ms: 12, ok: true },
@@ -62,4 +62,12 @@ test("policy verdict flag wins over words and links the turn id", () => {
   assert.equal(r.errorCategory, "policy");
   const flaggedOk = buildFailureReport({ ...base, error: null, trace: [{ step: "x", detail: "denied", ok: false, policy: { verdict: "allow" } }] });
   assert.equal(flaggedOk.policyDecisions.length, 0); // flag present and not a refusal: no word guessing
+});
+
+test("turnFailed: only real failures show the report, not a handoff or fallback", () => {
+  assert.equal(turnFailed({ trace: [{ step: "fallback", detail: "turn time limit → background task", ms: 0, ok: false }] }), false);
+  assert.equal(turnFailed({ trace: [{ step: "think", ok: true }, { step: "fallback", detail: "timed out → retry split", ok: false }, { step: "web_search", ok: true }] }), false);
+  assert.equal(turnFailed({ error: true }), true);
+  assert.equal(turnFailed({ trace: [{ step: "lead_create", detail: "Error: x", ok: false }] }), true);
+  assert.equal(turnFailed({ trace: [{ step: "think", ok: true, answerEval: { pass: false } }] }), true);
 });
