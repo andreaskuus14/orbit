@@ -3,7 +3,7 @@
 // never once page/file/agent output is in context (the caller passes that taint).
 import { et, etQuestion, ET_NOT } from "./et-ask-pure.ts";
 // Local copy of workspace-pure's slug rule: that module imports node:crypto, and panels.tsx (client) imports this file.
-const slugify = (name: unknown): string | null => {
+export const slugify = (name: unknown): string | null => {
   if (typeof name !== "string") return null;
   const s = name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
   return s || null;

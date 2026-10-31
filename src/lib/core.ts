@@ -264,7 +264,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   // Deep: plan privately in "thought" (never shown), answer in the same call, then one tool-less self-check below.
   const turnStart = Date.now();
   const deepLeft = () => budget.ms - (TURN_MS - DEEP_TURN_MS) - (Date.now() - turnStart);
-  let splitRetried = false;
+  let splitRetried = false, garbledLeft = 2, formatNote = "";
+  const GARBLED_NOTE = "FORMAT FIX: your last reply used XML/<invoke> function-call markup, which ORBIT cannot run. Call a tool only as ONE JSON object: {\"thought\": \"…\", \"tool\": \"ws_write\", \"input\": {…}}, or answer with {\"final\": \"…\"}.\n\n";
   const deepNote = 'DEEP MODE (a hard request): write "thought" before "final" and in it privately plan first — the steps, the constraints, what could go wrong (it is never shown). Then give a complete, well-structured, correct "final".\n\n';
   const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
   let answer = "";
@@ -360,7 +361,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       // A tool-choice step after a read runs on the fast model, thinking capped, old results shortened; the answer stays on the turn's model.
       const stepT = stepTier(tier, { lastStep: steps.at(-1), last, session: !!sess || noRoute }), planning = stepT !== tier;
       const shownSteps = stepsContext(sess ? steps.slice(sessSeen) : steps, planning);
-      const tail = `\n\n${splitRetried ? SPLIT_HINT + "\n\n" : ""}${CORE_LANG_RULE[lang]}${voiceNote}${stepT === "deep" ? deepNote : ""}${shownSteps.length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${shownSteps.join("\n\n")}\n\n` : ""}${last ? `Answer now with "final".${outOfSteps && (budget.extra ?? 0) < EXTRA_BUDGETS ? MORE_ASK : ""}` : "Your JSON reply:"}`;
+      const tail = `\n\n${formatNote}${splitRetried ? SPLIT_HINT + "\n\n" : ""}${CORE_LANG_RULE[lang]}${voiceNote}${stepT === "deep" ? deepNote : ""}${shownSteps.length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${shownSteps.join("\n\n")}\n\n` : ""}${last ? `Answer now with "final".${outOfSteps && (budget.extra ?? 0) < EXTRA_BUDGETS ? MORE_ASK : ""}` : "Your JSON reply:"}`;
       const sessNow = sess, sentNow = sessSent;
       const ask = (prompt ? Promise.resolve(prompt) : prep.then((p) => (prompt = p))).then((p) => sessNow ? sessionInput(p, transcriptHolder.text, sessNow.resume, sentNow) + tail : p + tail);
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
@@ -399,6 +400,16 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       // Offline brain (claude.ts): no tools, so its reply is always the answer; the "local" trace step shows the badge.
       if (r.local && !trace.some((s) => s.step === "local")) trace.push({ step: "local", detail: "local brain: Claude was unreachable or on hold", ms: 0, ok: true });
       const reply = r.local ? { thought: "", final: parseAgentReply(r.text).final ?? r.text } : parseAgentReply(r.text);
+      // Native function-call markup (blanked by the CLI) instead of our JSON: ask again, never save it as the answer.
+      if ("garbled" in reply && reply.garbled) {
+        if (garbledLeft-- > 0) {
+          formatNote = GARBLED_NOTE; onReset?.();
+          if (sess) { if (sessionKey) coreSessions.delete(sessionKey); sess = null; } // the session holds the bad reply
+          trace.push({ step: "fallback", detail: "reply used function-call markup → asked again for JSON", ms: r.ms, ok: false });
+          step--; continue;
+        }
+        reply.final = "That didn't finish: my replies came out in a format ORBIT can't run. Nothing more was built or saved after the steps above; say \"try again\" and I'll redo it.";
+      } else formatNote = "";
       // The deep plan stays private: the trace (shown in the UI) never carries it.
       const thought = tier === "deep" ? (reply.tool ? "planned privately" : "answering") : reply.thought || (reply.final !== undefined ? "answering" : "");
       trace.push({ step: "think", detail: `${model} · ${thought}`.slice(0, 200), ms: r.ms, ok: true });
