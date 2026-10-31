@@ -5,6 +5,7 @@ import { MODULE_HINTS, selectModules } from "./core-modules-pure.ts";
 import { classifyFailure, deriveStatus, nextAction, onFailure, type MissionStatus } from "./missions-pure.ts";
 import { describeFailure } from "./core-capability-pure.ts";
 import { olderTurnsSummary } from "./core-context-pure.ts";
+import { afterBudget } from "./long-work-pure.ts";
 import { EXACT, goalHint, isVague, mayAsk } from "./goal-card-pure.ts";
 import type { ChainStatus, ChainView } from "./chains-pure.ts";
 import type { CaseResult } from "./self-eval-pure.ts";
@@ -44,11 +45,39 @@ function problem(r: RealRequest): string {
       if (mayAsk(r.prompt) !== c.ask) return `question gate ${c.ask ? "closed" : "open"}, expected ${c.ask ? "open" : "closed"}`;
       return EXACT.test(h) ? "" : "hint lost its no-exact-wording rule";
     }
+    case "run": {
+      const good = leadRunProblems(c.good.steps, c.good.answer, c.notFit), live = leadRunProblems(c.live.steps, c.live.answer, c.notFit);
+      if (good) return `the fixed run failed the grader: ${good}`;
+      if (!live) return "the grader passed the live failing run";
+      return afterBudget(c.live.answer, { background: false, extra: 0, leftMs: 200_000 }) === "handoff" ? "" : "the live run's 'not done' answer would not continue in the background";
+    }
     case "context": {
       const turns = Array.from({ length: c.turns }, (_, i) => ({ role: i % 2 ? "assistant" as const : "user" as const, content: i ? `turn ${i}` : `Plan a trip, ${c.keep}.` }));
       return olderTurnsSummary(turns).includes(c.keep) ? "" : "first-turn constraint dropped from the older-turns recap";
     }
   }
+}
+
+const host = (u: string) => u.toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#]/)[0];
+const call = (s: string) => { const m = s.match(/^You called (\w+) (.*)\nRESULT:/s); try { return m ? { tool: m[1], input: JSON.parse(m[2]) as Record<string, unknown> } : null; } catch { return { tool: m![1], input: {} }; } };
+/** A "find N matching X and add as leads" run, judged on its steps: every saved site was fetched first, nothing from notFit was
+ *  saved, and the answer never hands the rest to "your next message". "" = fine. */
+export function leadRunProblems(steps: string[], answer: string, notFit: string[]): string {
+  const fetched = new Set<string>(), bad: string[] = [];
+  for (const s of steps) {
+    const c = call(s);
+    if (!c) continue;
+    if (c.tool === "fetch_url" && typeof c.input.url === "string") fetched.add(host(c.input.url));
+    if (c.tool !== "lead_create") continue;
+    if (!steps.slice(0, steps.indexOf(s)).some((x) => /^You called (?:fetch_url|web_search) /.test(x)) || !fetched.size) bad.push("lead_create before any site check");
+    for (const l of (Array.isArray(c.input.leads) ? c.input.leads : [c.input]) as Record<string, unknown>[]) {
+      const site = typeof l.website === "string" ? host(l.website) : "";
+      if (site && notFit.includes(site)) bad.push(`saved a non-fit (${site})`);
+      else if (site && !fetched.has(site)) bad.push(`saved ${site} without fetching it`);
+    }
+  }
+  if (/continue on (?:your|his) next message/i.test(answer)) bad.push('"continue on your next message"');
+  return [...new Set(bad)].join("; ");
 }
 
 export function realRequestCase(r: RealRequest): CaseResult {

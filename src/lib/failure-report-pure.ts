@@ -45,6 +45,13 @@ export function turnFailed(m: { error?: boolean; trace?: ReportStep[] }): boolea
   return !!m.error || !!m.trace?.some((s) => s.answerEval?.pass === false || (s.ok === false && !META.has(s.step)));
 }
 
+/** The turn's only failures were policy refusals (no error, answer check passed): how many, for the "N steps were refused" label; else 0. */
+export function refusedOnly(m: { error?: boolean; trace?: ReportStep[] }): number {
+  const bad = (m.trace ?? []).filter((s) => s.ok === false && !META.has(s.step));
+  if (m.error || !bad.length || m.trace!.some((s) => s.answerEval?.pass === false)) return 0;
+  return bad.every((s) => s.policy?.verdict === "refuse") ? bad.length : 0;
+}
+
 const steps = (trace: unknown): ReportStep[] => (Array.isArray(trace) ? trace : [])
   .filter((r): r is ReportStep => !!r && typeof r === "object" && typeof (r as ReportStep).step === "string").slice(-MAX_STEPS);
 

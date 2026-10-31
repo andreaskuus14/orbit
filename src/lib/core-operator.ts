@@ -5,12 +5,12 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir.ts";
-import { automationInput, keepSnaps, leadChange, leadInputs, leadNotes, newOpId, OP_ID, opsBlocked, pickByName, receipt, tallinnTimes, type OpsSnap, type OpsTool } from "./core-operator-pure.ts";
+import { automationInput, createdLeads, keepSnaps, leadChange, leadInputs, leadNotes, newOpId, OP_ID, opsBlocked, ownLeadsIn, pickByName, receipt, rememberOwnLeads, tallinnTimes, type OpsSnap, type OpsTool } from "./core-operator-pure.ts";
 import type { DayPlan } from "./dayplan-pure.ts";
 import type { PlanSnap } from "./dayplan.ts";
 
 /** agentOk: tests pass their own (agents.ts can't load under node --test). */
-type Ctx = { sb: SupabaseClient; userId: string; question: string; tainted: boolean; operator?: boolean; agentOk?: (slug: string) => Promise<boolean>; now?: number };
+type Ctx = { sb: SupabaseClient; userId: string; question: string; tainted: boolean; operator?: boolean; agentOk?: (slug: string) => Promise<boolean>; now?: number; chat?: string; pinned?: boolean; steps?: string[] };
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
 const FILE = () => path.join(orbitDataDir(), "operator-undo.json");
@@ -35,7 +35,8 @@ const snap = async (tool: OpsTool, data: Record<string, unknown>) => {
 };
 
 export async function runOpsTool(tool: OpsTool, input: Record<string, unknown>, c: Ctx): Promise<string> {
-  const blocked = c.operator ? null : opsBlocked(tool, c.question, c.tainted, input); // standing grant: decide() already passed it
+  const own = c.pinned ? [] : [...createdLeads(c.steps ?? []), ...ownLeadsIn(c.chat)]; // leads CORE added for this task (policy-pure decide has the same rule)
+  const blocked = c.operator ? null : opsBlocked(tool, c.question, c.tainted, input, own); // standing grant: decide() already passed it
   if (blocked) return `Error: ${blocked}`;
   try {
     switch (tool) {
@@ -73,6 +74,7 @@ export async function runOpsTool(tool: OpsTool, input: Record<string, unknown>, 
           lines.push(`added "${l.name}" (id ${data.id})`);
         }
         if (!made.length) return `Nothing to do: ${lines.join("; ")}`;
+        rememberOwnLeads(c.chat, leads.filter((l) => lines.some((x) => x.startsWith(`added "${l.name}" (id `))).map((l) => l.name)); // later turns of this chat may note them
         return `Done: ${made.length} BUSINESS lead${made.length > 1 ? "s" : ""} added at To contact, unverified ${await snap(tool, { made })}\n${lines.join("\n")}\nNothing was drafted or sent.`;
       }
       case "lead_update": {

@@ -71,3 +71,16 @@ test("turnFailed: only real failures show the report, not a handoff or fallback"
   assert.equal(turnFailed({ trace: [{ step: "lead_create", detail: "Error: x", ok: false }] }), true);
   assert.equal(turnFailed({ trace: [{ step: "think", ok: true, answerEval: { pass: false } }] }), true);
 });
+
+test("only policy refusals: labelled 'N steps were refused', not a generic failure", async () => {
+  const { refusedOnly } = await import("../src/lib/failure-report-pure.ts");
+  const { translate, plural } = await import("../src/lib/i18n-pure.ts");
+  const ok = { step: "lead_create", ok: true }, refused = { step: "lead_update", ok: false, policy: { verdict: "refuse" } }, broken = { step: "fetch_url", ok: false };
+  assert.equal(refusedOnly({ trace: [ok, refused, { step: "fallback", ok: false }] }), 1);
+  assert.equal(turnFailed({ trace: [ok, refused] }), true); // still shown
+  assert.equal(refusedOnly({ trace: [ok, refused, broken] }), 0);
+  assert.equal(refusedOnly({ error: true, trace: [refused] }), 0);
+  assert.equal(refusedOnly({ trace: [ok] }), 0);
+  assert.equal(plural("en", "failrep.refused", 1), "1 step was refused"); assert.equal(plural("et", "failrep.refused", 2), "2 sammu lükati tagasi");
+  assert.notEqual(translate("et", "failrep.refused.one"), translate("en", "failrep.refused.one"));
+});

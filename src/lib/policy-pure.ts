@@ -16,7 +16,7 @@ import { wishBlocked } from "./deals-pure.ts";
 import { ruleBlocked } from "./rules-pure.ts";
 import { AREA_INFO, autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
 import { et } from "./et-ask-pure.ts";
-import { isOpsTool, opsBlocked } from "./core-operator-pure.ts";
+import { createdLeads, isOpsTool, opsBlocked } from "./core-operator-pure.ts";
 import { outboundLeak, outgoing, privateResults } from "./outbound-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
@@ -29,7 +29,9 @@ export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; step
   /** private text in this turn's context besides tool results (attachments, pinned notes, an earlier turn's private results): outbound calls are checked against it */
   privateText?: readonly string[];
   /** workspace names + CORE's pending build offer in this chat (ws-intent-pure.ts) */
-  ws?: WsGate };
+  ws?: WsGate;
+  /** leads CORE added in this chat on earlier turns (core-operator-pure ownLeadsIn); this turn's come from steps */
+  ownLeads?: readonly string[] };
 
 export const TIERS: Record<string, Tier> = {
   navigate: "T0", goal_status: "T0", mission_status: "T0", business_status: "T0", ideas_list: "T0",
@@ -146,7 +148,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "propose_rule") blocked = ruleBlocked(question, dataIn);
   else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || called(ctx.steps, UNTRUSTED));
   else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);
-  else if (isOpsTool(tool)) { if (ctx.stopAll) return no(PAUSED_MSG); blocked = opsBlocked(tool, question, dataIn, input) ?? ""; } // Stop-all halts operator writes outright
+  else if (isOpsTool(tool)) { if (ctx.stopAll) return no(PAUSED_MSG); blocked = opsBlocked(tool, question, dataIn, input, ctx.attach || ctx.pins ? [] : [...createdLeads(ctx.steps), ...(ctx.ownLeads ?? [])]) ?? ""; } // Stop-all halts operator writes outright
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
   if (blocked && operatorAllows(tool, ctx)) return { allow: true, tier, reason: OPERATOR_REASON };
   if (blocked) return no(blocked);

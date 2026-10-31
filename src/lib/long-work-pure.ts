@@ -60,3 +60,19 @@ export function handoffReply(taskId: string, lang: Lang): string {
 
 /** Never show the raw CLI timeout as the owner's final answer. */
 export const BG_FAILED = "The background run didn't finish. Ask again, or split the request into smaller parts.";
+
+// Out of steps before the request is done (owner report 2026-10-31: "I'll continue on your next message" with 4 leads unchecked).
+/** Marker CORE starts its last-step answer with when the acceptance isn't met; asked for only when more budget is possible. */
+export const MORE_MARK = "[continue]";
+export const MORE_ASK = ` If his request's acceptance is not met yet (e.g. fewer leads saved than he asked for), begin "final" with ${MORE_MARK} and say in one line what is saved and what is left.`;
+export const EXTRA_BUDGETS = 2; // step budgets a request may get on top of its first, all in the background
+const NOT_DONE = /^\s*\[continue\]|continue on (?:your|his) next message|jätkan (?:sinu |su )?järgmise(?:l| sõnumi)/i;
+
+/** The step budget ran out: "handoff" (interactive → background, which resumes from the finished steps), "extend" (background:
+ *  one more budget in place), or "stop" (done, out of extra budgets, or not enough time left). */
+export function afterBudget(answer: string, o: { background: boolean; extra: number; leftMs: number }): "handoff" | "extend" | "stop" {
+  if (!NOT_DONE.test(answer) || o.extra >= EXTRA_BUDGETS) return "stop";
+  if (!o.background) return "handoff";
+  return o.leftMs >= 120_000 ? "extend" : "stop";
+}
+export const stripMore = (answer: string) => answer.replace(/^\s*\[continue\]\s*/i, "");
