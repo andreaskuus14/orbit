@@ -13,6 +13,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { SMART_MODEL, askClaudeStream, emitAsOwner } from "../claude";
 import { pushNotify } from "../remote-push";
+import { isSkip } from "./failure-alert-pure";
 import { stopAllOn } from "../stop-all";
 import { retryConsent, retryFingerprint } from "./flop-retry-pure";
 import { createLimiter } from "../pure";
@@ -512,7 +513,7 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
     job.error = signal.aborted ? "Cancelled" : e instanceof Error ? e.message : String(e);
     job.clips.forEach((c) => { if (c.status === "rendering") { c.status = "failed"; c.error = "not rendered"; } });
     await set(job, "failed", job.progress, "Failed");
-    if (!signal.aborted) pushNotify("failed");
+    if (!signal.aborted && !isSkip(job.error)) pushNotify("failed"); // a skip (non-English, re-upload) is no failure: no phone push or call
     throw e;
   } finally {
     await rm(path.join(dir, pcmName), { force: true }).catch(() => {});

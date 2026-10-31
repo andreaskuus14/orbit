@@ -5,7 +5,7 @@ import { CAM_NAME, CAPTION_STYLES, CHANNEL_LINK_MSG, LAYOUT_NAME, REJECT_REASONS
 import ReviewQueue from "./ReviewQueue";
 import { useWorldPaused } from "./world-paused";
 import { useT } from "./i18n";
-import { ACK_EVENT, ACK_KEY, failureGroups, isSkip, parseAck, type AckState } from "@/lib/clips/failure-alert-pure";
+import { ACK_EVENT, ACK_KEY, failureGroups, isSkip, legacyAcked } from "@/lib/clips/failure-alert-pure";
 import ClipPicks from "./ClipPicks";
 import LearnedCard from "./LearnedCard";
 import AutopilotPanel from "./AutopilotPanel";
@@ -56,7 +56,7 @@ type InboxFile = { name: string; size: number; mtime: string; jobId?: string; pe
 type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
 type Download = { id: string; url: string; status: "queued" | "downloading" | "done" | "failed"; progress: number; step: string; file?: string; error?: string;
   createdAt: string; permission: string; autoClip?: ClipJob["options"] };
-type Data = { root: string; tools: ToolsStatus; inbox: InboxFile[]; jobs: ClipJob[]; downloads: Download[]; quarantined?: Quarantined[]; publishing?: string | null };
+type Data = { root: string; tools: ToolsStatus; inbox: InboxFile[]; jobs: ClipJob[]; downloads: Download[]; quarantined?: Quarantined[]; publishing?: string | null; failAck?: string[] };
 type Opts = Required<ClipOptions>;
 
 const API = "/api/studio/clips";
@@ -164,17 +164,16 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
   // Each review request opens once; the same object lingers in Orbit's state until STUDIO is left.
   useEffect(() => { if (review && !seenReview.has(review)) { seenReview.add(review); setReviewing(true); } }, [review]);
   const [showFailed, setShowFailed] = useState(false);
-  const [ack, setAck] = useState<AckState>({ acked: [], shown: {} });
-  useEffect(() => { try { setAck(parseAck(localStorage.getItem(ACK_KEY))); } catch { /* storage unavailable */ } }, []);
+  const [acked, setAcked] = useState<string[]>([]); // dismissed this session, until the next load brings the server's list
   useEffect(() => { if (failed && !seenReview.has(failed)) { seenReview.add(failed); setTab("clips"); setShowFailed(true); } }, [failed]);
   const dismiss = (keys: string[]) => {
-    let cur = ack;
-    try { cur = parseAck(localStorage.getItem(ACK_KEY)); } catch { /* use what we have */ }
-    const next = { ...cur, acked: [...cur.acked, ...keys].slice(-500) };
-    setAck(next);
-    try { localStorage.setItem(ACK_KEY, JSON.stringify(next)); } catch { /* dismissed for this session only */ }
-    dispatchEvent(new Event(ACK_EVENT));
+    setAcked((a) => [...a, ...keys]);
+    return api(`${API}/fail-ack`, { method: "POST", body: { keys } })
+      .then(() => { try { localStorage.removeItem(ACK_KEY); } catch { /* nothing to clean */ } dispatchEvent(new Event(ACK_EVENT)); },
+        (e) => setErr(e instanceof Error ? e.message : "Couldn't save the dismissal"));
   };
+  // One-time move of this browser's old dismissals to the server.
+  useEffect(() => { let old: string[] = []; try { old = legacyAcked(localStorage.getItem(ACK_KEY)); } catch { /* storage unavailable */ } if (old.length) void dismiss(old); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once
   const seq = useRef(0);
 
   const load = useCallback(async (quiet = false) => {
@@ -304,7 +303,7 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
 
   const avg = (xs: number[]) => Math.round((xs.reduce((s, x) => s + Math.min(1, Math.max(0, x || 0)), 0) / Math.max(1, xs.length)) * 100);
   const health = data ? uploadHealth(data.jobs) : [];
-  const fails = data ? failureGroups(data, ack) : [];
+  const fails = data ? failureGroups(data, [...(data.failAck ?? []), ...acked]) : [];
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const workText = workingJobs.length ? `⏳ ${plural(workingJobs.length, "job")} working… ${avg(workingJobs.map((j) => j.progress))}%`
     : dls.length ? `⬇ ${plural(dls.length, "download")}… ${avg(dls.map((d) => d.progress))}%` : "";
