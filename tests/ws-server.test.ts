@@ -65,7 +65,7 @@ http.createServer((q, s) => s.end(JSON.stringify(out))).listen(+process.env.PORT
     assert.ok(!("error" in r2));
     if ("error" in r2) return;
     const o = await fetch(r2.url).then((x) => x.json());
-    assert.deepEqual(o, { env: ["HOST", "NODE_ENV", "PORT"].concat(process.env.LANG ? ["LANG"] : [], process.env.TZ ? ["TZ"] : []).sort(), read: "ERR_ACCESS_DENIED", spawn: "ERR_ACCESS_DENIED" });
+    assert.deepEqual(o, { env: Object.keys(minimalEnv(process.env, 1)).sort(), read: "ERR_ACCESS_DENIED", spawn: "ERR_ACCESS_DENIED" });
     assert.equal(stopServer("t/a"), true);
     assert.equal(serverStatus("t/a").running, false);
     await new Promise((s) => setTimeout(s, 300));
@@ -74,7 +74,7 @@ http.createServer((q, s) => s.end(JSON.stringify(out))).listen(+process.env.PORT
     assert.ok(!("error" in r3));
     assert.equal(stopAllServers(), 1);
     assert.equal(serverStatus("t/b").running, false);
-  } finally { stopAllServers(); rmSync(dir, { recursive: true, force: true }); }
+  } finally { stopAllServers(); rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
 test("site pipeline: a fullstack plan's front end lives in public/ and the server step points at the template + ws_run", async () => {

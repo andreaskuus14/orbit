@@ -1,7 +1,8 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError } from "@/lib/claude";
-import { dismissIdea, listIdeas, radar } from "@/lib/ideas";
+import { dismissIdea, listIdeas, radar, radarTranscript } from "@/lib/ideas";
+import { validateTranscript } from "@/lib/ideas-pure";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -21,11 +22,13 @@ export async function POST(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!b || typeof b !== "object") return fail("JSON body required");
+  if (!b || typeof b !== "object" || Array.isArray(b)) return fail("JSON body required");
   if (b.action === "dismiss") return typeof b.id === "string" && (await dismissIdea(b.id)) ? Response.json(await listIdeas()) : fail("Not found", 404);
-  if (b.action !== "radar" || typeof b.url !== "string") return fail("action must be radar or dismiss");
+  const transcript = b.action === "transcript" ? validateTranscript(b) : null;
+  if (typeof transcript === "string") return fail(transcript);
+  if (!transcript && (b.action !== "radar" || typeof b.url !== "string")) return fail("action must be radar, transcript or dismiss");
   try {
-    const found = await radar(b.url, req.signal);
+    const found = transcript ? await radarTranscript(transcript, req.signal) : await radar(b.url as string, req.signal);
     return Response.json({ found: found.length, ...(await listIdeas()) });
   } catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);

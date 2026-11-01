@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { access, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,7 +8,8 @@ import { PAUSED_MSG } from "./stop-all-pure";
 import { usageHardHold } from "./usage-meter";
 import { ffmpegPath, readState, runFfmpeg, runYtdlp, saveState, studioRoot, transcribe, ytdlpPath } from "./clips/factory";
 import { SAMPLE_RATE, audioArgs, ytdlpError } from "./clips/pure";
-import { RADAR_SYSTEM, board, filterFresh, parseIdeas, radarPrompt, sourceDate, videoIdFrom, vttText, type Idea } from "./ideas-pure";
+import { RADAR_SYSTEM, board, filterFresh, parseIdeas, radarPrompt, sourceDate, validateTranscript, videoIdFrom, vttText, type Idea, type PublicTranscript } from "./ideas-pure";
+import { logActivity } from "./activity";
 
 // IDEA RADAR store: <studio>/ideas.json (local, like the other STUDIO state). Logic: ideas-pure.ts.
 type Store = { ideas: Idea[] };
@@ -96,6 +97,29 @@ export async function radar(url: string, signal: AbortSignal): Promise<Idea[]> {
     if (!found.length) throw new Error("CORE found no usable ideas in this video");
     const st = (await readState<Store>(studioRoot(), "ideas", problem)) ?? { ideas: [] };
     await saveState("ideas", FILE(), { ideas: [...found, ...st.ideas.filter((i) => i.video !== id)].slice(0, 500) }); // re-reading a video replaces its ideas
+    return found;
+  } finally { S.__orbitRadar = null; }
+}
+
+/** Undated public research stays distinct from verified fresh video ideas. */
+export async function radarTranscript(input: PublicTranscript, signal: AbortSignal): Promise<Idea[]> {
+  const checked = validateTranscript(input);
+  if (typeof checked === "string") throw new Error(checked);
+  if (signal.aborted) throw new Error("Transcript research cancelled");
+  const held = stopAllOn() ? PAUSED_MSG : usageHardHold();
+  if (held) throw new Error(held);
+  if (S.__orbitRadar) throw new Error("Already reading another source: wait for it to finish");
+  S.__orbitRadar = "transcript"; S.__orbitRadarPhase = "research";
+  try {
+    const r = await askClaude(radarPrompt(checked.title, checked.transcript), RADAR_SYSTEM, { lane: "foreground", purpose: "ideas.radar", timeoutMs: 180_000, signal });
+    if (signal.aborted) throw new Error("Transcript research cancelled");
+    if (stopAllOn()) throw new Error(PAUSED_MSG);
+    const key = createHash("sha256").update(checked.transcript).digest("hex");
+    const found = parseIdeas(r.text, "", checked.title, new Date().toISOString(), randomUUID)
+      .map((i): Idea => ({ ...i, origin: "transcript", transcriptKey: key }));
+    if (!found.length) throw new Error("CORE found no usable ideas in this transcript");
+    await updateIdeas((ideas) => [...found, ...ideas.filter((i) => i.transcriptKey !== key)]);
+    logActivity({ area: "agents", title: "Idea Radar: public transcript analyzed", detail: `${found.length} research ideas saved; source date unverified`, link: { panel: "agents" } });
     return found;
   } finally { S.__orbitRadar = null; }
 }

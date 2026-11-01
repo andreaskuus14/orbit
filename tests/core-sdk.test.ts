@@ -23,7 +23,7 @@ test("tool names round-trip through the SDK's mcp__orbit__ prefix; built-ins and
 const SPREADS: Record<string, readonly string[]> = { STUDIO_TOOLS, LIFE_TOOLS, WS_TOOLS, REA_TOOLS, OPS_TOOLS };
 const moduleTools = [...readFileSync("src/lib/core-modules.ts", "utf8").matchAll(/\btools: \[([^\]]*)\]/g)].flatMap((m) =>
   m[1].split(",").map((x) => x.trim()).filter(Boolean).flatMap((x) => (x.startsWith("...") ? [...SPREADS[x.slice(3)]] : [JSON.parse(x) as string])));
-const coreSrc = readFileSync("src/lib/core.ts", "utf8");
+const coreSrc = readFileSync("src/lib/core.ts", "utf8").replace(/\r\n/g, "\n");
 
 test("tool parity: the SDK server registers exactly the tools core.ts's loop can dispatch", () => {
   // core.ts's own tools: its TOOLS prompt section and the names its dispatch (navigateTool / runCoreTool) handles

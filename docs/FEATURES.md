@@ -58,6 +58,9 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 
 ## AGENTS
 
+- **Idea Radar public transcripts:** if YouTube cannot be read, open *Have a public transcript?*, add the source title and paste 200–60,000 characters. Confirm it is public source material; CORE extracts ideas without downloading the video. Results are labeled as research with an unverified source date, remain visible under *Hide stale*, and are excluded from automatic Shorts planning. Reanalyzing the same transcript replaces its previous ideas. Private LIFE/journal text does not belong in this input.
+- **Ideas by category:** Idea Radar can classify public-source ideas across 27 ORBIT areas, including ARCH, MEMORY, LIFE, School, Voice and Phone. Use *Category* to focus the board; existing ideas keep their saved categories. Public ideas about private features do not grant access to LIFE/journal content.
+
 - **Tonight tab (night shift):** queue things for tonight ("tonight, research …"). Each night (default 01:00–06:30 Tallinn time, only while you're idle) ORBIT works through your asks, one step of each goal plan you approved, BUSINESS follow-up drafts, Shorts prep up to review, the weekly niche scout, memory tidy-up suggestions, the health check and the persona playtest. It has a budget (max 40 Claude calls, 150 minutes).
 - **"While you slept"** card in the morning with one-tap approve/reject.
 - **Company tab:** a CEO planner splits a goal into 2–4 role steps (researcher, analyst, writer, ops) run as a team, with a budget per role; *🌙 Tonight* runs it in the night shift.

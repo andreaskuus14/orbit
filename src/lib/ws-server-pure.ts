@@ -1,4 +1,5 @@
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 // Full-stack workspaces: a workspace with server.mjs runs as a local demo server (127.0.0.1 only, never public). Pure rules here,
 // tested in tests/ws-server.test.ts; the process side is ws-server.ts. Template files: FULLSTACK_TEMPLATE below.
@@ -19,7 +20,9 @@ export function minimalEnv(env: Record<string, string | undefined>, port: number
  *  workers, addons or WASI since those aren't allowed). Without it the runner refuses to start (see startBlocked). */
 export const nodeArgs = (dir: string, permission: boolean) => [
   ...(permission ? ["--permission", `--allow-fs-read=${dir}`, `--allow-fs-write=${dir}`] : []),
-  `--max-old-space-size=${HEAP_MB}`, "--disable-warning=ExperimentalWarning", "server.mjs",
+  `--max-old-space-size=${HEAP_MB}`, "--disable-warning=ExperimentalWarning", "--input-type=module", "--eval",
+  // Windows can add account/system variables while spawning. Strip them before any workspace module runs.
+  `const keep = new Set(["PORT", "HOST", "NODE_ENV", "SYSTEMROOT", "TZ", "LANG"]); for (const key of Object.keys(process.env)) if (!keep.has(key)) delete process.env[key]; await import(${JSON.stringify(pathToFileURL(path.join(dir, "server.mjs")).href)});`,
 ];
 
 /** Is p (absolute) the workspace dir or inside it? */
