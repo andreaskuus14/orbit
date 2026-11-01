@@ -23,6 +23,7 @@ import { LUAU_FIX_EVENT } from "@/lib/screen-look-pure";
 import CodeHelper from "./CodeHelper";
 import ScenePlanner from "./ScenePlanner";
 import TextureStudio from "./TextureStudio";
+import { PictureTo3D, TextTo3D } from "./LocalAi";
 import PlaytestBot from "./PlaytestBot";
 import PersonaPlaytest from "./PersonaPlaytest";
 import GameCopilot from "./GameCopilot";
@@ -56,7 +57,7 @@ const VIEWS = {
   overview: [["detail", "🎯 Game"], ["economy", "🪙 Economy"], ["sim", "🧮 Simulator"]],
   build: [["scene", "🏗 Scene"], ["code", "📝 Code"], ["grid", "🟦 Grid"]],
   test: [["evidence", "🧾 Results"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"]],
-  assets: [["register", "📦 Register"], ["uikit", "🧩 UI kit"], ["refs", "🎨 References"], ["textures", "🧱 Textures"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"]],
+  assets: [["register", "📦 Register"], ["uikit", "🧩 UI kit"], ["refs", "🎨 References"], ["textures", "🧱 Textures"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["model3d", "🧊 Picture to 3D"], ["text3d", "✨ Text to 3D"]],
   release: [["release", "🚀 Package"], ["retention", "📊 Retention"]],
 } as const;
 type ViewId = keyof typeof VIEWS;
@@ -327,6 +328,8 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         <div hidden={tab !== "hive"}><HivePanel /></div>
         {tab === "scene" && !needsGame && <ScenePlanner key={gk} />}
         {tab === "textures" && !needsGame && <TextureStudio />}
+        {tab === "model3d" && !needsGame && <PictureTo3D />}
+        {tab === "text3d" && !needsGame && <TextTo3D />}
         <div hidden={tab !== "playtest" || needsGame}>
           <p className="muted mb-1 text-xs">{t("gd.k.runtime")}: {t("gd.runtimeNote")}</p>
           <PlaytestBot key={gk} world={world} commit={commit} gameId={selected} />

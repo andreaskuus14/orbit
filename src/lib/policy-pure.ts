@@ -53,6 +53,7 @@ export const TIERS: Record<string, Tier> = {
   ws_picture_draft: "T3", // stand-in art at the site's image paths + one priced draft per site; the spend is the owner's story.approve click
   studio_drafts: "T0", // lists STUDIO's drafts and their state
   ws_inspire_image: "T3", // reference words from an image search, then the same priced draft as higgsfield_draft for an original brief
+  local_3d: "T2", local_tts: "T2", // free models on his own PC (tools/local-ai); the result is a new VAULT file, nothing leaves the PC
 };
 
 // T3 runs only behind an owner-click approval (AGENTS.md rule 6): the token each path checks before anything leaves ORBIT.
@@ -75,13 +76,14 @@ export const TOOL_AREA: Record<string, Area> = {
   ask_agent: "research", start_mission: "research", plan_task: "research", run_niche: "research", run_scout: "studio-prepare", save_memory: "memory",
   create_goal: "goals", queue_tonight: "night-shift", add_wish: "deals", schedule_approved: "studio-publish", higgsfield_draft: "higgsfield-spend", ws_picture_draft: "higgsfield-spend",
   ws_run: "operator-build", // a local demo server of his own workspace (AGENTS.md rule 6 category A); never public
+  local_3d: "operator-build", local_tts: "operator-build", // local models writing new VAULT files (category A)
 };
 
 // Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true), ORGANIZE lead_update + life_plan.
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
 export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status", "week_review", "lead_update", "life_plan"];
 const LINK_TOOLS = ["fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
-const LEAK_TOOLS = ["ask_agent", "read_news", "web_search"];
+const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "local_tts"]; // local_tts: journal/LIFE text never goes to a model, local ones included
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
 const UNTRUSTED = ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status"];
