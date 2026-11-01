@@ -12,7 +12,8 @@ export const NO_NET_NOTE = "outbound network is NOT blocked: this Node version h
 /** The child's whole environment: nothing from ORBIT's own (no Supabase, API keys or tokens). */
 export function minimalEnv(env: Record<string, string | undefined>, port: number): Record<string, string> {
   const keep: Record<string, string> = { PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "development" };
-  for (const k of ["SYSTEMROOT", "TZ", "LANG"]) if (env[k]) keep[k] = env[k]!; // SYSTEMROOT: Windows sockets need it
+  // Windows names are case-insensitive (SystemRoot): match any spelling. SYSTEMROOT: Windows sockets need it.
+  for (const k of ["SYSTEMROOT", "TZ", "LANG"]) { const v = env[k] ?? Object.entries(env).find(([n]) => n.toUpperCase() === k)?.[1]; if (v) keep[k] = v; }
   return keep;
 }
 
@@ -22,7 +23,7 @@ export const nodeArgs = (dir: string, permission: boolean) => [
   ...(permission ? ["--permission", `--allow-fs-read=${dir}`, `--allow-fs-write=${dir}`] : []),
   `--max-old-space-size=${HEAP_MB}`, "--disable-warning=ExperimentalWarning", "--input-type=module", "--eval",
   // Windows can add account/system variables while spawning. Strip them before any workspace module runs.
-  `const keep = new Set(["PORT", "HOST", "NODE_ENV", "SYSTEMROOT", "TZ", "LANG"]); for (const key of Object.keys(process.env)) if (!keep.has(key)) delete process.env[key]; await import(${JSON.stringify(pathToFileURL(path.join(dir, "server.mjs")).href)});`,
+  `const keep = new Set(["PORT", "HOST", "NODE_ENV", "SYSTEMROOT", "TZ", "LANG"]); for (const key of Object.keys(process.env)) if (!keep.has(key.toUpperCase())) delete process.env[key]; await import(${JSON.stringify(pathToFileURL(path.join(dir, "server.mjs")).href)});`,
 ];
 
 /** Is p (absolute) the workspace dir or inside it? */

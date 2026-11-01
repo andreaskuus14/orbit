@@ -84,7 +84,7 @@ export function goalMission(c: GoalCard, lang?: string) {
 export const parseChoices = (answer: string): string[] =>
   (answer.match(/^\s*(?:Choices|Valikud):\s*(.+)$/im)?.[1] ?? "").split("|").map((x) => x.trim()).filter((x) => x && x.length <= 80).slice(0, 4);
 
-const RULES = "IDEA → GOAL: never ask the owner to restate or type an exact sentence, and never offer choices as lines to send: end with one line `Choices: <a> | <b> | <both>` and ORBIT shows them as buttons.";
+const RULES = "IDEA → GOAL: never ask the owner to restate or type an exact sentence, and never offer choices as lines to send. Finish the work yourself; only when the next step needs his decision (it would send, publish or spend, or the request is genuinely ambiguous) end with one line `Choices: <a> | <b> | <both>` and ORBIT shows them as buttons.";
 
 /** CORE prompt hint: draft a Goal card for an idea-level message, or revise the last card after the owner's correction. */
 export function goalHint(question: string, lastAnswer = ""): string {

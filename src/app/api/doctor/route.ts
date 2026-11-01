@@ -1,3 +1,4 @@
+import type { Report } from "@/lib/doctor-pure";
 import { disk, runDoctor } from "@/lib/doctor";
 import { bootSelfTest } from "@/lib/doctor-boot";
 import { healthView } from "@/lib/health";
@@ -32,9 +33,9 @@ export async function GET(req: Request) {
   const since = new Date(Date.now() - 15 * 86_400_000).toISOString(); // this + last ISO week, plus a day for redo/duplicate look-back
   const outcomes = sb.from("tasks").select("id, parent_id, agent, title, status, pending, created_at, finished_at").eq("user_id", user.id).gte("created_at", since).limit(5000)
     .then(({ data }) => (data ? weeklyOutcomes(data as OutcomeTask[], Date.now()) : null), () => null);
-  const [report, b, health, improve, system, selfEval, outcome] = await Promise.all([runDoctor(sb), boot, healthView().catch(() => null), improveView(sb, user.id).catch(() => null),
+  const [report, b, health, improve, system, selfEval, outcome] = await Promise.all([runDoctor(sb).catch((e: unknown): Report => ({ status: "fail", headline: "The health check itself failed", speech: "The health check itself failed.", checks: [{ id: "doctor", label: "Health check", status: "fail", detail: String(e instanceof Error ? e.message : e).slice(0, 200) }], ms: 0, at: new Date().toISOString() })), boot, healthView().catch(() => null), improveView(sb, user.id).catch(() => null),
     systemHealthView(sb, user.id).catch(() => null), selfEvalView().catch(() => null), outcomes]);
-  const cantDo = await cantDoNow(report.checks).catch(() => null);
+  const cantDo = await cantDoNow(report.checks).catch(() => null); // one failing piece must not fail the whole report
   return Response.json({ ...report, boot: b, health, improve, system, selfEval, outcome, cantDo });
 }
 
