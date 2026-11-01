@@ -15,7 +15,7 @@ $env:HF_HOME = Join-Path $Models "hf"
 $env:U2NET_HOME = Join-Path $Models "rembg"
 
 # Pinned versions (bump deliberately, never "latest")
-$TorchVer = "2.5.1"  # 2.6+ changed torch.load defaults and breaks TripoSR's checkpoint load
+$TorchVer = "2.7.1"  # CUDA 12.8 build: the first that runs RTX 50-series (sm_120); server.py loads TripoSR's checkpoint with weights_only=False
 $TripoSRCommit = "107cefdc244c39106fa830359024f6a2f1c78871"
 $TorchMcubesCommit = "a9ac95aa329957ba646e7bb057f825f5dfa77f38"
 $TripoSRRev = "5b521936b01fbe1890f6f9baed0254ab6351c04a"
@@ -57,8 +57,8 @@ Step "Virtual environment ($Venv)"
 if (-not (Test-Path $Py)) { Run py @("-3.11", "-m", "venv", $Venv) }
 Run $Py @("-m", "pip", "install", "--upgrade", "pip==24.3.1", "setuptools==75.6.0", "wheel==0.45.1")
 
-Step "PyTorch $TorchVer (CUDA 12.1 build, works on RTX 30-series)"
-RunRetry $Py @("-m", "pip", "install", "torch==$TorchVer", "torchaudio==$TorchVer", "--index-url", "https://download.pytorch.org/whl/cu121")
+Step "PyTorch $TorchVer (CUDA 12.8 build: RTX 20/30/40/50-series)"
+RunRetry $Py @("-m", "pip", "install", "torch==$TorchVer", "torchaudio==$TorchVer", "--index-url", "https://download.pytorch.org/whl/cu128")
 
 Step "Python packages (pinned: requirements.txt + constraints.txt)"
 RunRetry $Py @("-m", "pip", "install", "-r", (Join-Path $Here "requirements.txt"), "-c", (Join-Path $Here "constraints.txt"))
@@ -86,7 +86,8 @@ if (-not $Skip3D) {
     # Builds a C++ extension: needs Visual Studio 2022 Build Tools (C++). Without the CUDA toolkit it builds the CPU version, which TripoSR falls back to.
     # --no-build-isolation builds against the installed torch, so its build tools must be here first.
     RunRetry $Py @("-m", "pip", "install", "scikit-build-core==1.0.3", "pybind11==2.13.6", "cmake==3.31.6", "ninja==1.11.1.4")
-    Run $Py @("-m", "pip", "install", "--no-build-isolation", "git+https://github.com/tatsy/torchmcubes.git@$TorchMcubesCommit")
+    # Rebuilt every run: a C++ extension only works with the torch it was built against.
+    Run $Py @("-m", "pip", "install", "--force-reinstall", "--no-deps", "--no-build-isolation", "git+https://github.com/tatsy/torchmcubes.git@$TorchMcubesCommit")
   } catch {
     Warn "torchmcubes did not build, so Picture to 3D stays off. Install 'Visual Studio 2022 Build Tools' with 'Desktop development with C++' (winget install Microsoft.VisualStudio.2022.BuildTools), open a new PowerShell and run setup.ps1 again."
   }

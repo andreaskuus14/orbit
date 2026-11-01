@@ -2,7 +2,7 @@
 
 Free models that run on this PC. Nothing is uploaded and nothing costs money: the only network use is the one-time
 weight download in `setup.ps1`. The service listens on `127.0.0.1:7861` only, runs one job at a time and unloads each
-GPU model after its job (a 6 GB laptop GPU never holds two).
+GPU model after its job (a laptop GPU never holds two).
 
 **Status: untested on Windows and on a GPU.** It was written in a cloud box without either. `/health`, the refusals and
 Kokoro voiceover were run there on CPU (Linux); Picture to 3D and own-voice cloning were never run.
