@@ -24,7 +24,8 @@ export function projectJson(name: string): string {
   return JSON.stringify({ name, tree }, null, 2) + "\n";
 }
 
-export const SELENE_TOML = 'std = "roblox"\n';
+// multiple_statements flags "a = 1; b = 2" style lines, a taste rule (303 hits on his first project), not a bug.
+export const SELENE_TOML = 'std = "roblox"\n\n[lints]\nmultiple_statements = "allow"\n';
 export const GITIGNORE = "# Rojo build output and place files (the source of truth is src/)\n*.rbxl\n*.rbxlx\n*.rbxl.lock\n*.rbxlx.lock\nsourcemap.json\n";
 
 const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;

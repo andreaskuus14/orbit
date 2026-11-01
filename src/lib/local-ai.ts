@@ -13,12 +13,14 @@ const G = globalThis as unknown as { __orbitLocalAi?: Promise<boolean> | null };
 function autostart(u: string): Promise<boolean> {
   if (process.env.ORBIT_LOCAL_AI_AUTOSTART?.trim() === "0") return Promise.resolve(false);
   return (G.__orbitLocalAi ??= (async () => {
-    const [{ spawn }, { existsSync, openSync }, path] = await Promise.all([import("node:child_process"), import("node:fs"), import("node:path")]);
+    const [{ spawn }, { closeSync, existsSync, openSync }, path] = await Promise.all([import("node:child_process"), import("node:fs"), import("node:path")]);
     const dir = path.join(process.cwd(), "tools", "local-ai");
     const py = path.join(dir, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
     if (!existsSync(py)) return false;
     const log = openSync(path.join(dir, "service.log"), "a");
     const child = spawn(py, [path.join(dir, "server.py")], { cwd: dir, windowsHide: true, stdio: ["ignore", log, log], env: { ...process.env, ORBIT_LOCAL_AI_PORT: new URL(u).port || "7861" } });
+    closeSync(log); // the child keeps its own handle
+    child.on("error", () => { G.__orbitLocalAi = null; }); // a failed spawn must not crash ORBIT; the health wait below just fails
     child.on("exit", () => { G.__orbitLocalAi = null; });
     for (let i = 0; i < 40; i++) { await new Promise((r) => setTimeout(r, 1500)); if (await ping(u, 3000)) return true; } // torch + uvicorn start in ~5-20 s
     return false;

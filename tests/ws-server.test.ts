@@ -99,3 +99,9 @@ test("smoke plan: POST-only routes aren't probed with GET; validated POST routes
   assert.deepEqual(smokePlan(apiEndpoints(`"GET /api/items" "POST /api/items"`)), { gets: ["/api/items"], post: "/api/items", readBack: true });
   assert.equal(smokePlan(apiEndpoints(`"/api/notes"`)).post, "/api/notes"); // no method named: probed as before
 });
+
+test("minimal env keeps Windows' SystemRoot in any spelling", async () => {
+  const { minimalEnv, nodeArgs } = await import("../src/lib/ws-server-pure.ts");
+  assert.equal(minimalEnv({ SystemRoot: "C:\\Windows" }, 1).SYSTEMROOT, "C:\\Windows");
+  assert.match(nodeArgs("/w", true).at(-1)!, /keep\.has\(key\.toUpperCase\(\)\)/);
+});
