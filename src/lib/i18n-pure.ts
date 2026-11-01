@@ -335,7 +335,7 @@ const BASE = {
   "nightplan.k.drafts": "drafts waiting", "nightplan.k.tasks": "tasks done", "nightplan.k.steps": "goal steps", "nightplan.k.memories": "memories", "nightplan.k.loops": "open loops",
 
   "ops.memory": "memory", "ops.tab.tasks": "Tasks & projects", "ops.tab.automations": "Automations", "ops.tab.rules": "Rules",
-  "ops.tab.activity": "Activity", "ops.newTask": "New task",
+  "ops.tab.activity": "Activity", "ops.tab.localai": "Local AI", "ops.newTask": "New task",
   "ops.taskPh": "e.g. Research the best ways to grow a Roblox game in 2026 and save a report", "ops.task": "Task", "ops.agent": "Agent",
   "ops.novaHint": " (decides & delegates)", "ops.project": "Project", "ops.noProject": "No project", "ops.projects": "Projects",
   "ops.status.active": "active", "ops.status.paused": "paused", "ops.status.done": "done", "ops.statusOf": "Status of {name}",
@@ -1148,7 +1148,7 @@ export const ET: Partial<Record<Key, string>> = {
   "rules.runNow": "Käivita kohe", "rules.skipped.one": "{n} sündmus jäeti täna vahele (piir {max} käivitust päevas)", "rules.skipped.other": "{n} sündmust jäeti täna vahele (piir {max} käivitust päevas)",
 
   "ops.memory": "mälukirje", "ops.tab.tasks": "Ülesanded ja projektid", "ops.tab.automations": "Automatiseeringud", "ops.tab.rules": "Reeglid",
-  "ops.tab.activity": "Tegevus", "ops.newTask": "Uus ülesanne",
+  "ops.tab.activity": "Tegevus", "ops.tab.localai": "Kohalik AI", "ops.newTask": "Uus ülesanne",
   "ops.taskPh": "nt Uuri, kuidas 2026. aastal Roblox-mängu kõige paremini kasvatada, ja salvesta raport", "ops.task": "Ülesanne",
   "ops.agent": "Agent", "ops.novaHint": " (otsustab ja jagab tööd)", "ops.project": "Projekt", "ops.noProject": "Projektita",
   "ops.projects": "Projektid", "ops.status.active": "aktiivne", "ops.status.paused": "peatatud", "ops.status.done": "valmis",

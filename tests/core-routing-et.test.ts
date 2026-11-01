@@ -54,7 +54,9 @@ const PAIRS: [string, string, string][] = [
   ["ORGANIZE", "Rename the invoice file", "Nimeta arve fail ümber"],
   ["ORGANIZE", "Pause the news automation", "Peata uudiste automaatika"],
   ["ORGANIZE", "Mark the client as verified", "Märgi klient kinnitatuks"],
-  ["CHECKPOINT", "Save a checkpoint with the next step", "Salvesta järgmine samm"],
+  ["CHECKPOINT", "Save a checkpoint with the next step", "Salvesta järgmine samm"],  ["LOCALAI", "Turn this dragon into a 3D model", "Muuda see draakon 3D mudeliks"],
+  ["LOCALAI", "Read this aloud", "Loe seda ette"],
+  ["LOCALAI", "I need a voiceover", "Vajan häälvõtet"],
 ];
 
 test("every keyword-gated module has ≥3 EN/ET pairs and a capability line", () => {

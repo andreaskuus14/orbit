@@ -115,6 +115,12 @@ const MODULES: CoreModule[] = [
     run: async (_t, i, c) => (await import("./rules")).runRuleTool(i, c.question, c.tainted),
   },
   {
+    // free models on his PC (tools/local-ai/server.py): new VAULT files only, nothing leaves the PC
+    name: "LOCALAI", tools: ["local_3d", "local_tts"], writes: ["local_3d", "local_tts"],
+    prompt: "- LOCAL AI (free models on his own PC; nothing is uploaded or paid): local_3d {\"image\": \"<VAULT picture file name>\", \"name\"?: string} (one picture of an object → 3D model .glb in VAULT, for Roblox Studio's Import 3D or Unreal), local_tts {\"text\": string, \"voice\"?: \"af_heart\"|\"af_bella\"|\"af_sarah\"|\"am_michael\"|\"am_fenrir\"|\"bf_emma\"|\"bm_george\", \"name\"?: string} (English voiceover .wav in VAULT). If the tool says the service isn't running, tell him to run tools/local-ai/start.ps1. Text to 3D inside Roblox is GAME DEV → Assets → Text to 3D. You can't clone voices: his own-voice cloning is only in STUDIO → Produce → Voiceover with his own recording.",
+    run: async (t, i) => (await import("./local-ai")).runLocalTool(t, i),
+  },
+  {
     // read-only; private: habit streaks and LIFE counts are in it (journal text never is: only a count of entries)
     name: "WEEK", tools: ["week_review"], private: true,
     prompt: "- week_review {\"week\"?: \"this\"|\"last\"}: his week (Europe/Tallinn, Monday start) from ORBIT's own data as facts: planned vs done, what slipped (deadline passed, Shorts target missed, started but not finished), what's late, streaks and biggest wins. For \"what slipped / what did I get done / what's late / how did my week go\". Cite each fact you use with its [w:...] marker exactly as written.",
