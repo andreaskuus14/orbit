@@ -1,6 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { board, parseIdeas, videoIdFrom, vttText } from "../src/lib/ideas-pure.ts";
+import { validateTranscript, TRANSCRIPT_MAX } from "../src/lib/ideas-pure.ts";
+
+test("public transcript validation requires explicit public classification and bounded title/text", () => {
+  const input = { title: " Public source ", transcript: "Public transcript. ".repeat(20), publicSource: true };
+  const valid = validateTranscript(input);
+  assert.equal(typeof valid, "object");
+  if (typeof valid !== "string") assert.equal(valid.title, "Public source");
+  for (const patch of [{ publicSource: false }, { publicSource: "true" }, { title: " " }, { title: "x".repeat(201) },
+    { transcript: "x".repeat(199) }, { transcript: "x".repeat(TRANSCRIPT_MAX + 1) }, { transcript: null }])
+    assert.equal(typeof validateTranscript({ ...input, ...patch }), "string", JSON.stringify(patch).slice(0, 80));
+  assert.equal(typeof validateTranscript({ ...input, transcript: "x".repeat(TRANSCRIPT_MAX) }), "object");
+});
 
 test("videoIdFrom accepts YouTube links only", () => {
   for (const u of ["https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1", "https://youtu.be/dQw4w9WgXcQ", "https://m.youtube.com/shorts/dQw4w9WgXcQ", "https://youtube.com/live/dQw4w9WgXcQ?si=x"])

@@ -16,6 +16,7 @@ test("idea sources: radar, comment ideas and Day-N sessions keep the board's see
     { id: "c", title: "Day 4", summary: "y", area: "studio", score: 65, origin: "devsession" },
     { id: "d", title: "Biz", summary: "z", area: "business", score: 99 },
     { id: "e", title: "Gone", summary: "z", area: "studio", score: 99, dismissed: true },
+    { id: "research", title: "Undated research", summary: "z", area: "studio", score: 100, origin: "transcript" },
   ]);
   assert.deepEqual(c.map((x) => x.source), ["radar", "comments", "roblox"]);
   assert.equal(c[0].idea, ideaSeed({ title: "T", summary: "S" }));

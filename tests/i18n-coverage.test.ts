@@ -5,9 +5,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
-const ROOT = new URL("../src/components/", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("../src/components/", import.meta.url));
 const ATTRS = new Set(["aria-label", "title", "placeholder"]);
 const letters = (s: string) => /[A-Za-z]{2}/.test(s);
 

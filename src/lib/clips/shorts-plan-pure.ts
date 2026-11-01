@@ -3,6 +3,7 @@
 // nudge the sources), write talking-drama scripts and get Higgsfield quotes overnight (get_cost only), then offer ONE morning batch
 // "Approve 3 Shorts for 210 credits" that fits the weekly cap. Nothing is generated or spent before that click.
 import { DEFAULT_WEEKLY_TARGET, ideaSeed, validTarget } from "./pipeline-pure.ts";
+import type { Idea } from "../ideas-pure.ts";
 
 export const PLAN_SOURCES = ["radar", "comments", "roblox", "trend"] as const;
 export type PlanSource = (typeof PLAN_SOURCES)[number];
@@ -21,9 +22,9 @@ export const planProblem = (x: unknown) => ((x as ShortsPlan)?.v === 1 && Array.
 export const rollWeek = (p: ShortsPlan, week: number, live: string[] = []): ShortsPlan =>
   p.week === week ? p : { v: 1, week, target: validTarget(p.target), picks: p.picks.filter((x) => x.story && live.includes(x.story)), used: p.used.slice(-USED_MAX) };
 
-type IdeaLike = { id: string; title: string; summary: string; area: string; score: number; dismissed?: boolean; origin?: "comments" | "devsession" };
+type IdeaLike = { id: string; title: string; summary: string; area: string; score: number; dismissed?: boolean; origin?: Idea["origin"] };
 /** STUDIO ideas from IDEA RADAR (comment ideas and Day-N Roblox sessions live there too). The seed matches the pipeline board's. */
-export const ideaCands = (ideas: IdeaLike[]): Cand[] => ideas.filter((i) => i.area === "studio" && !i.dismissed).map((i) => ({
+export const ideaCands = (ideas: IdeaLike[]): Cand[] => ideas.filter((i) => i.area === "studio" && !i.dismissed && i.origin !== "transcript").map((i) => ({
   key: `idea:${i.id}`, source: i.origin === "comments" ? "comments" : i.origin === "devsession" ? "roblox" : "radar", title: i.title, idea: ideaSeed(i),
   score: Math.max(0, Math.min(1, i.score / 100)) }));
 

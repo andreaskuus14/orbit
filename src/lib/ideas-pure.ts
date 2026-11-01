@@ -3,10 +3,19 @@ export const AREAS = ["studio", "business", "markets", "agents", "core", "gamede
 export type Area = (typeof AREAS)[number];
 export type Idea = { id: string; video: string; videoTitle: string; title: string; summary: string; area: Area; score: number; next: string; at?: string; sourceAt?: string; dismissed?: boolean;
   // Comment-to-idea (comment-ideas-pure.ts): recurring viewer questions, linked to the source comments.
-  origin?: "comments" | "devsession"; commentKey?: string; askers?: number; comments?: { id: string; videoId: string; text: string }[];
-  sessionId?: string }; // devsession: a GAME DEV session turned into a "Day N" Short idea (dev-session-pure.ts sessionIdea; video is "")
+  origin?: "comments" | "devsession" | "transcript"; commentKey?: string; askers?: number; comments?: { id: string; videoId: string; text: string }[];
+  sessionId?: string; transcriptKey?: string }; // non-video sources have video=""; transcriptKey deduplicates repeated public transcripts
 export const SHOW_AT = 60; // below this an idea is saved but hidden from the board
 export const TRANSCRIPT_MAX = 60_000;
+export type PublicTranscript = { title: string; transcript: string; publicSource: true };
+/** Only explicitly identified public sources belong here. Never truncate silently or claim a verified source date. */
+export function validateTranscript(b: Record<string, unknown>): PublicTranscript | string {
+  if (b.publicSource !== true) return "Confirm this is a public transcript, not private LIFE or journal text";
+  if (typeof b.title !== "string" || !b.title.trim() || b.title.length > 200) return "Give the public source a title (up to 200 characters)";
+  if (typeof b.transcript !== "string" || b.transcript.trim().length < 200 || b.transcript.length > TRANSCRIPT_MAX)
+    return `Paste 200–${TRANSCRIPT_MAX} characters of public transcript`;
+  return { title: text(b.title, 200), transcript: b.transcript.trim(), publicSource: true };
+}
 const DAY = 86_400_000;
 const date = (s: unknown) => typeof s === "string" && s.trim() ? Date.parse(s) : NaN;
 const age = (s: unknown, now: number) => { const n = now - date(s); return n >= 0 ? n : NaN; };
