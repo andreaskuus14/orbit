@@ -220,7 +220,7 @@ test("CORE's prompt carries the follow-through rule", async () => {
   assert.match(FOLLOW_THROUGH, /until his request's acceptance is met/); assert.match(FOLLOW_THROUGH, /never "add them yourself"/); assert.match(FOLLOW_THROUGH, /unverified: …/);
   assert.match(FOLLOW_THROUGH, /only when the next step would send, publish, upload or spend/);
   const { readFile } = await import("node:fs/promises");
-  assert.match(await readFile(new URL("../src/lib/core.ts", import.meta.url), "utf8"), /plainly\.\n\$\{FOLLOW_THROUGH\}\n/);
+  assert.match(await readFile(new URL("../src/lib/core.ts", import.meta.url), "utf8"), /plainly\.\r?\n\$\{FOLLOW_THROUGH\}\r?\n/);
 });
 
 test("lead_update on a lead CORE itself added this turn/chat needs no new ask; others, attachments and Stop-all still refuse", async () => {
