@@ -2,6 +2,8 @@
 
 Branch: `codex/idea-radar-transcripts`.
 
+Latest work and validation superseding the historical blocker below: see [upgrade progress](UPGRADE-PROGRESS-2026-11-01.md).
+
 ## Delivered
 
 AGENTS → Ideas → **Have a public transcript?** accepts a source title and 200–60,000 characters after explicit confirmation that the material is public, not LIFE/journal text. It uses the existing model prompt and ideas store without downloading media. Transcript-derived ideas are labeled as undated research and shown even with Hide stale enabled. Their source dates remain unknown; they are excluded from automatic Shorts candidate selection. Reanalyzing identical trimmed text replaces that transcript's previous ideas while preserving other records. Stop-all, usage holds and cancellation refuse the operation. Activity logs record only the count and fixed source-status label, not pasted content.

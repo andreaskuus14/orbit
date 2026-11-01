@@ -1,12 +1,16 @@
 import { requireUser } from "@/lib/supabase/server";
 import { topicFeedUrl, WORLD_PACK } from "@/lib/pulse";
 import { str } from "@/lib/pure";
+import { feedsOpml } from "@/lib/feed-export-pure";
 
-export async function GET() {
+export async function GET(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const { data, error } = await sb.from("feeds").select("id, url, title, topic, enabled, last_fetched_at, last_error").order("created_at");
   if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (new URL(req.url).searchParams.get("format") === "opml") return new Response(feedsOpml(data ?? []), { headers: {
+    "Content-Type": "text/x-opml; charset=utf-8", "Content-Disposition": 'attachment; filename="orbit-subscriptions.opml"', "Cache-Control": "private, no-store",
+  } });
   return Response.json({ feeds: data });
 }
 

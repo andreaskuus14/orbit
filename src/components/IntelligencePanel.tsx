@@ -223,6 +223,7 @@ export function IntelligencePanel() {
           </form>
           <button className="chip" onClick={addWorldPack}>+ Add World news pack (BBC, Guardian, Al Jazeera, NPR, DW + war, economy, politics)</button>
           <p className="muted text-xs">Topics use Google News search feeds. Any RSS/Atom URL works too. Your first briefing starts with your profile’s news topics.</p>
+          <a className="chip inline-block" href="/api/feeds?format=opml" download="orbit-subscriptions.opml">{t("intel.exportFeeds")}</a>
           <ul className="space-y-2">
             {feeds.map((f) => (
               <li key={f.id} className="card text-sm">
