@@ -20,7 +20,7 @@ export const EFFECTS: Record<string, Effect> = {
   higgsfield_draft: "reversible", // quote only; the spend is story.approve
   ws_picture_draft: "reversible", // stand-ins + a quoted draft; the spend is story.approve
   studio_drafts: "read",
-  local_3d: "reversible", local_tts: "reversible", // a new VAULT file from a model on his PC (trash it to undo)
+  local_3d: "reversible", local_tts: "reversible", local_transcribe: "reversible", // a new VAULT file from a model on his PC (trash it to undo)
   roblox_export: "reversible", roblox_lint: "read", // local Rojo project files, each export a git commit (git revert to undo)
   ws_inspire_image: "reversible", // reference words + a quoted draft; the spend is story.approve
   schedule_approved: "publish", // uploads only clips already approved by his click (status "approved")

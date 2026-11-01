@@ -53,7 +53,7 @@ export const TIERS: Record<string, Tier> = {
   ws_picture_draft: "T3", // stand-in art at the site's image paths + one priced draft per site; the spend is the owner's story.approve click
   studio_drafts: "T0", // lists STUDIO's drafts and their state
   ws_inspire_image: "T3", // reference words from an image search, then the same priced draft as higgsfield_draft for an original brief
-  local_3d: "T2", local_tts: "T2", // free models on his own PC (tools/local-ai); the result is a new VAULT file, nothing leaves the PC
+  local_3d: "T2", local_tts: "T2", local_transcribe: "T2", // free models on his own PC (tools/local-ai); the result is a new VAULT file, nothing leaves the PC
   roblox_export: "T2", // rojo syncback into his own projects folder + a local git commit (tools/roblox); nothing leaves the PC
   roblox_lint: "T0", // selene on his exported project, read-only
 };
@@ -78,7 +78,7 @@ export const TOOL_AREA: Record<string, Area> = {
   ask_agent: "research", start_mission: "research", plan_task: "research", run_niche: "research", run_scout: "studio-prepare", save_memory: "memory",
   create_goal: "goals", queue_tonight: "night-shift", add_wish: "deals", schedule_approved: "studio-publish", higgsfield_draft: "higgsfield-spend", ws_picture_draft: "higgsfield-spend",
   ws_run: "operator-build", // a local demo server of his own workspace (AGENTS.md rule 6 category A); never public
-  local_3d: "operator-build", local_tts: "operator-build", // local models writing new VAULT files (category A)
+  local_3d: "operator-build", local_tts: "operator-build", local_transcribe: "operator-build", // local models writing new VAULT files (category A)
   roblox_export: "operator-build", // local project files + git commit (category A)
 };
 

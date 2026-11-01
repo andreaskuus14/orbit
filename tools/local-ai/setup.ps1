@@ -5,7 +5,12 @@
 # Needs: Python 3.11 (winget install Python.Python.3.11), Git, and for Picture to 3D the
 # "Desktop development with C++" workload of Visual Studio 2022 Build Tools (torchmcubes is compiled on install).
 # UNTESTED on Windows/GPU: written in a cloud box. If a step fails it says which tool is affected and the rest still installs.
-param([switch]$SkipClone, [switch]$Skip3D)
+# Optional modules, added later (after the main setup has run once; each skips what is already installed, torch is never changed):
+#   setup.ps1 -Captions   captions/transcripts: faster-whisper + Whisper large-v3-turbo (~1.6 GB)
+#   setup.ps1 -Ifc        IFC models for ARCH: IfcOpenShell (~60 MB, CPU)
+#   setup.ps1 -Docs       document reading: Docling + its layout/table/OCR models (~1 GB)
+#   setup.ps1 -Extras     all three
+param([switch]$SkipClone, [switch]$Skip3D, [switch]$Captions, [switch]$Ifc, [switch]$Docs, [switch]$Extras)
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
 $Venv = Join-Path $Here ".venv"
@@ -20,6 +25,12 @@ $TripoSRCommit = "107cefdc244c39106fa830359024f6a2f1c78871"
 $TorchMcubesCommit = "a9ac95aa329957ba646e7bb057f825f5dfa77f38"
 $TripoSRRev = "5b521936b01fbe1890f6f9baed0254ab6351c04a"
 $Audio8Rev = "1e857568bfd4f02931aca3988ee773a44d2d26d3"
+# Optional modules (exact pins; their dependencies are locked in constraints.txt, resolved for win_amd64 / py3.11 with torch 2.7.1)
+$WhisperPkgs = @("faster-whisper==1.2.1", "ctranslate2==4.8.3")  # CTranslate2 Windows wheels: CUDA 12.8 + cuDNN 9, cuBLAS/cuDNN DLLs come from torch\lib
+$WhisperRepo = "dropbox-dash/faster-whisper-large-v3-turbo"; $WhisperRev = "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf"  # MIT, CTranslate2 float16
+$IfcPkgs = @("ifcopenshell==0.9.0.post1")  # LGPL-3.0, prebuilt py311 win_amd64 wheel
+$DoclingPkgs = @("docling==2.139.0")  # MIT; needs torchvision built for the same torch
+$TorchVisionVer = "0.22.1"  # pairs with torch 2.7.1
 $Kokoro = @(
   @{ Name = "kokoro-v1.0.onnx"; Sha = "beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a" },
   @{ Name = "voices-v1.0.bin"; Sha = "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d" }
@@ -56,6 +67,40 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "Git not found
 Step "Virtual environment ($Venv)"
 if (-not (Test-Path $Py)) { Run py @("-3.11", "-m", "venv", $Venv) }
 Run $Py @("-m", "pip", "install", "--upgrade", "pip==24.3.1", "setuptools==75.6.0", "wheel==0.45.1")
+
+if ($Captions -or $Ifc -or $Docs -or $Extras) {
+  # Only the optional modules: the main tools are left as they are. "torch==$TorchVer" in each install keeps pip from touching torch.
+  $C = @("-c", (Join-Path $Here "constraints.txt"))
+  # find_spec, not import: nothing on stderr (Windows PowerShell treats native stderr as an error under "Stop")
+  $Has = { param($mod) & $Py -c "import importlib.util as u, sys; sys.exit(0 if u.find_spec('$mod') else 1)"; $LASTEXITCODE -eq 0 }
+  if (-not (& $Has "torch")) { throw "Run the main setup first:  powershell -ExecutionPolicy Bypass -File tools\local-ai\setup.ps1" }
+  if ($Captions -or $Extras) {
+    Step "Captions: faster-whisper (MIT) + Whisper large-v3-turbo (~1.6 GB)"
+    if (-not (& $Has "faster_whisper")) { RunRetry $Py (@("-m", "pip", "install") + $WhisperPkgs + @("torch==$TorchVer") + $C) }
+    if (-not (Test-Path (Join-Path $Models "whisper-large-v3-turbo\model.bin"))) {
+      RunTries $Py @("-c", "from huggingface_hub import snapshot_download as s; s('$WhisperRepo', revision='$WhisperRev', local_dir=r'$Models\whisper-large-v3-turbo', allow_patterns=['*.json', 'model.bin']); print('Whisper ready')")
+    }
+    & $Py @("-c", "import torch, ctranslate2; print('Captions on GPU:', 'yes (' + ', '.join(sorted(ctranslate2.get_supported_compute_types('cuda'))) + ')' if ctranslate2.get_cuda_device_count() else 'no, CPU (slower)')")
+    if ($LASTEXITCODE -ne 0) { Warn "CTranslate2 did not load. Captions may fall back to the CPU; the message above says why." }
+  }
+  if ($Ifc -or $Extras) {
+    Step "IFC models: IfcOpenShell (LGPL-3.0, CPU)"
+    if (-not (& $Has "ifcopenshell")) { RunRetry $Py (@("-m", "pip", "install") + $IfcPkgs + $C) }
+  }
+  if ($Docs -or $Extras) {
+    Step "Document reading: Docling (MIT) + layout, table and OCR models (~1 GB)"
+    if (-not (& $Has "docling")) {
+      RunRetry $Py @("-m", "pip", "install", "torch==$TorchVer", "torchvision==$TorchVisionVer", "--index-url", "https://download.pytorch.org/whl/cu128")
+      RunRetry $Py (@("-m", "pip", "install") + $DoclingPkgs + @("torch==$TorchVer", "torchvision==$TorchVisionVer") + $C)
+    }
+    if (-not (Test-Path (Join-Path $Models "docling\ready.txt"))) {
+      RunTries (Join-Path $Venv "Scripts\docling-tools.exe") @("models", "download", "-o", "$Models\docling", "layout", "tableformer", "rapidocr")
+      Set-Content (Join-Path $Models "docling\ready.txt") "docling 2.139.0 models"
+    }
+  }
+  Write-Host "`nDone. Restart the service (close its window, then run start.ps1) and check OPERATIONS → Local AI." -ForegroundColor Green
+  exit 0
+}
 
 Step "PyTorch $TorchVer (CUDA 12.8 build: RTX 20/30/40/50-series)"
 RunRetry $Py @("-m", "pip", "install", "torch==$TorchVer", "torchaudio==$TorchVer", "--index-url", "https://download.pytorch.org/whl/cu128")

@@ -1,7 +1,8 @@
 """ORBIT local AI service: free models on this PC, nothing leaves the machine except the one-time weight downloads.
 
 Listens on 127.0.0.1 only. One job at a time and every GPU model is unloaded after its job, so a 6 GB laptop GPU
-never holds two models. Endpoints: /health, /image-to-3d, /remove-bg, /tts, /clone-tts (see README.md).
+never holds two models. Endpoints: /health, /image-to-3d, /remove-bg, /tts, /clone-tts, and the optional modules
+/transcribe (captions), /ifc-summary (IFC models), /doc-to-md (document reading); see README.md.
 
 UNTESTED ON A GPU: written and syntax-checked in a cloud box without CUDA or Windows. setup.ps1 installs what this imports.
 """
@@ -34,6 +35,15 @@ MAX_CLONE_CHARS = 600  # Audio8 shares ~2048 positions between sample, transcrip
 # TripoSR renders the triplane in chunks; 8192 is the default (~6 GB). Half of it trades speed for headroom on 6 GB cards.
 CHUNK = int(os.environ.get("ORBIT_TRIPOSR_CHUNK", "4096"))
 VOICES = {"af_heart", "af_bella", "af_sarah", "am_michael", "am_fenrir", "bf_emma", "bm_george"}  # Kokoro presets ORBIT offers
+# Optional modules (setup.ps1 -Captions / -Ifc / -Docs). Files are spooled to a temp file, never held whole in memory.
+WHISPER_DIR = MODELS / "whisper-large-v3-turbo"
+DOCLING_DIR = MODELS / "docling"
+MAX_MEDIA = 200 * 1024 * 1024
+MAX_IFC = 100 * 1024 * 1024
+MAX_DOC = 50 * 1024 * 1024
+MAX_DOC_PAGES = 300
+CAPTION_LANGS = {"auto": None, "en": "en", "et": "et"}
+DOC_TYPES = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg"}
 
 app = FastAPI(title="ORBIT local AI")
 _job = threading.Lock()
@@ -106,7 +116,29 @@ def installed() -> dict:
         "removebg": has("rembg"),
         "tts": has("kokoro_onnx") and (MODELS / "kokoro" / "kokoro-v1.0.onnx").is_file(),
         "clone": has("transformers") and (MODELS / "audio8" / "model.safetensors").is_file(),
+        "captions": has("faster_whisper") and (WHISPER_DIR / "model.bin").is_file(),
+        "ifc": has("ifcopenshell"),
+        "docs": has("docling") and (DOCLING_DIR / "ready.txt").is_file(),
     }
+
+
+def spool(f: UploadFile, cap: int, what: str, suffix: str) -> str:
+    """Upload → temp file (capped), so a 200 MB video never sits in RAM. Caller deletes it."""
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    n = 0
+    try:
+        with os.fdopen(fd, "wb") as out:
+            while chunk := f.file.read(1024 * 1024):
+                n += len(chunk)
+                if n > cap:
+                    raise HTTPException(413, f"The {what} is too big (max {cap // (1024 * 1024)} MB).")
+                out.write(chunk)
+        if not n:
+            raise HTTPException(400, f"No {what} received.")
+        return path
+    except BaseException:
+        os.unlink(path)
+        raise
 
 
 @app.get("/health")
@@ -240,6 +272,151 @@ def clone_tts(sample: UploadFile = File(...), sample_text: str = Form(...), text
             os.unlink(ref)
             del model
     return Response(wav_bytes(audio, rate), media_type="audio/wav")
+
+
+def whisper(dev: str):
+    """faster-whisper large-v3-turbo. GPU: float16 (CTranslate2 has no INT8 on RTX 50 / sm_120, so int8_float16 only where offered)."""
+    torch_mod()  # Windows: importing torch puts torch\lib (cuBLAS 12.8 + cuDNN 9 DLLs) on the DLL path CTranslate2 loads from
+    import ctranslate2
+    from faster_whisper import WhisperModel
+    if dev == "cpu":
+        return WhisperModel(str(WHISPER_DIR), device="cpu", compute_type="int8"), "cpu int8"
+    ct = "int8_float16" if "int8_float16" in ctranslate2.get_supported_compute_types("cuda") else "float16"
+    return WhisperModel(str(WHISPER_DIR), device="cuda", compute_type=ct), f"gpu {ct}"
+
+
+@app.post("/transcribe")
+def transcribe(file: UploadFile = File(...), language: str = Form("auto")):
+    need(installed()["captions"], "Captions (faster-whisper)")
+    if language not in CAPTION_LANGS:
+        raise HTTPException(400, "language must be auto, en or et")
+    path = spool(file, MAX_MEDIA, "audio or video file", Path(file.filename or "").suffix[:8] or ".bin")
+    try:
+        with Busy():
+            devs = ["cuda", "cpu"] if device() != "cpu" else ["cpu"]
+            for dev in devs:
+                model = None
+                try:
+                    model, used = whisper(dev)
+                    segs, info = model.transcribe(path, language=CAPTION_LANGS[language], word_timestamps=True, vad_filter=True, beam_size=5)
+                    out = [{"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip(),
+                            "words": [{"start": round(w.start, 2), "end": round(w.end, 2), "word": w.word} for w in (s.words or [])]} for s in segs]
+                    break
+                except RuntimeError as e:
+                    # A missing cuBLAS/cuDNN DLL or a full GPU shows up here (on load or first decode): the CPU still works, just slower.
+                    if dev == devs[-1]:
+                        raise
+                    print(f"[captions] GPU failed, using the CPU: {e}", file=sys.stderr)
+                except Exception as e:
+                    if type(e).__module__.startswith("av"):  # PyAV: not audio/video, or no audio track
+                        raise HTTPException(400, "ORBIT can't read sound from that file (use mp4, mov, mkv, webm, mp3, wav or m4a).")
+                    raise
+                finally:
+                    del model
+                    free_vram()
+    finally:
+        os.unlink(path)
+    return {"language": info.language, "languageProbability": round(info.language_probability, 2), "duration": round(info.duration, 2), "device": used, "segments": out}
+
+
+def ifc_report(m) -> dict:
+    """Storeys, spaces with areas, element counts, materials and simple checks of an opened IFC model (CPU only)."""
+    from collections import Counter
+    import ifcopenshell.util.element as ue
+    import ifcopenshell.util.unit as uu
+    length = uu.calculate_unit_scale(m)  # project length unit → metres
+    try:
+        area = uu.calculate_unit_scale(m, "AREAUNIT")
+    except Exception:
+        area = length * length
+    container = lambda e: getattr(ue.get_container(e) or ue.get_aggregate(e), "Name", None)
+
+    storeys = [{"name": s.Name or "", "elevation": round((s.Elevation or 0) * length, 3),
+                "elements": sum(1 for x in ue.get_decomposition(s) if x.is_a("IfcElement"))}
+               for s in sorted(m.by_type("IfcBuildingStorey"), key=lambda s: s.Elevation or 0)]
+    spaces = []
+    for s in m.by_type("IfcSpace"):
+        a = None
+        for q in ue.get_psets(s, qtos_only=True).values():
+            for k in ("NetFloorArea", "GrossFloorArea"):
+                if isinstance(q.get(k), (int, float)):
+                    a = q[k]
+                    break
+            if a is not None:
+                break
+        spaces.append({"guid": s.GlobalId, "name": s.Name or "", "longName": s.LongName or "", "storey": container(s) or "",
+                       "area": round(a * area, 2) if a is not None else None})
+    elements = m.by_type("IfcElement")
+    counts = Counter(e.is_a() for e in elements)
+    used = Counter()
+    for e in elements:
+        for mat in {x.Name for x in ue.get_materials(e) if getattr(x, "Name", None)}:
+            used[mat] += 1
+    materials = [{"name": n, "elements": used[n]} for n in sorted({x.Name for x in m.by_type("IfcMaterial") if x.Name} | set(used), key=lambda n: -used[n])]
+
+    issues = []
+    def issue(kind, text, items):
+        if items:
+            issues.append({"kind": kind, "text": text, "count": len(items), "examples": items[:20]})
+    guids = Counter(x.GlobalId for x in m.by_type("IfcRoot"))
+    issue("duplicate-guid", "GlobalIds used more than once (BIM tools will mix these objects up)", [f"{g} ×{n}" for g, n in guids.items() if n > 1])
+    issue("no-name", "Storeys, spaces or elements without a name",
+          [f"{x.is_a()} {x.GlobalId}" for x in [*m.by_type("IfcBuildingStorey"), *m.by_type("IfcSpace"), *elements] if not (x.Name or "").strip() and not x.is_a("IfcOpeningElement")])
+    issue("space-no-area", "Spaces without a floor area quantity (NetFloorArea/GrossFloorArea)", [f"{s['name'] or s['guid']}" for s in spaces if s["area"] is None])
+    if not m.by_type("IfcBuildingStorey"):
+        issue("no-storey", "No building storeys: elements aren't organised by floor", ["the model has no IfcBuildingStorey"])
+
+    project = m.by_type("IfcProject")
+    return {"schema": m.schema, "project": (project[0].Name or "") if project else "", "storeys": storeys, "spaces": spaces[:5000],
+            "counts": dict(counts.most_common()), "materials": materials[:500], "issues": issues}
+
+
+@app.post("/ifc-summary")
+def ifc_summary(file: UploadFile = File(...)):
+    need(installed()["ifc"], "IFC models (IfcOpenShell)")
+    path = spool(file, MAX_IFC, "IFC file", ".ifc")
+    try:
+        with Busy():
+            import ifcopenshell
+            try:
+                m = ifcopenshell.open(path)
+            except Exception:
+                raise HTTPException(400, "That file isn't an IFC model ORBIT can read (an .ifc file, IFC2X3 or IFC4).")
+            return ifc_report(m)
+    finally:
+        os.unlink(path)
+
+
+@app.post("/doc-to-md")
+def doc_to_md(file: UploadFile = File(...)):
+    need(installed()["docs"], "Document reading (Docling)")
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in DOC_TYPES:
+        raise HTTPException(400, "ORBIT reads PDF, Word (.docx), PowerPoint (.pptx) and scanned pages (.png/.jpg).")
+    path = spool(file, MAX_DOC, "document", suffix)
+    try:
+        with Busy():
+            from docling.datamodel.accelerator_options import AcceleratorOptions
+            from docling.datamodel.base_models import InputFormat
+            from docling.datamodel.pipeline_options import PdfPipelineOptions
+            from docling.document_converter import DocumentConverter, ImageFormatOption, PdfFormatOption
+            import torch
+            # Models come from models/docling (setup.ps1); HF_HUB_OFFLINE keeps it from fetching anything while running.
+            opts = PdfPipelineOptions(artifacts_path=str(DOCLING_DIR), do_ocr=True, do_table_structure=True,
+                                      accelerator_options=AcceleratorOptions(device="cuda" if device() != "cpu" else "cpu"))
+            conv = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts), InputFormat.IMAGE: ImageFormatOption(pipeline_options=opts)})
+            try:
+                res = conv.convert(path, max_num_pages=MAX_DOC_PAGES, raises_on_error=False)
+                if res.document is None or (suffix == ".pdf" and not res.pages):
+                    raise HTTPException(400, f"ORBIT couldn't read that document ({res.status.value}). Is it a PDF with at most {MAX_DOC_PAGES} pages?")
+                md = res.document.export_to_markdown()
+            except torch.cuda.OutOfMemoryError:
+                raise HTTPException(507, "The GPU ran out of memory. Close games/browsers using the GPU and try again.")
+            finally:
+                del conv
+    finally:
+        os.unlink(path)
+    return {"markdown": md, "pages": len(res.pages), "status": res.status.value}
 
 
 @app.exception_handler(HTTPException)
