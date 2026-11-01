@@ -28,6 +28,15 @@ $Kokoro = @(
 function Step($t) { Write-Host "`n== $t" -ForegroundColor Cyan }
 function Warn($t) { Write-Host "!! $t" -ForegroundColor Yellow }
 function Run($exe, [string[]]$a) { & $exe @a; if ($LASTEXITCODE -ne 0) { throw "$exe $($a -join ' ') failed ($LASTEXITCODE)" } }
+# Big downloads (torch is 2.4 GB) can be cut off midway; pip then reports a hash mismatch for the partial file. Try 3 times.
+function RunRetry($exe, [string[]]$a) {
+  for ($i = 1; $i -le 3; $i++) {
+    & $exe @a "--retries" "10" "--timeout" "120"
+    if ($LASTEXITCODE -eq 0) { return }
+    if ($i -lt 3) { Warn "Download failed or was cut off (try $i of 3); trying again..." }
+  }
+  throw "$exe $($a -join ' ') failed 3 times. Check the internet connection and run setup.ps1 again; finished parts are kept."
+}
 
 Step "Python 3.11 and Git"
 & py -3.11 -c "import sys; print(sys.version)"
@@ -39,10 +48,10 @@ if (-not (Test-Path $Py)) { Run py @("-3.11", "-m", "venv", $Venv) }
 Run $Py @("-m", "pip", "install", "--upgrade", "pip==24.3.1", "setuptools==75.6.0", "wheel==0.45.1")
 
 Step "PyTorch $TorchVer (CUDA 12.1 build, works on RTX 30-series)"
-Run $Py @("-m", "pip", "install", "torch==$TorchVer", "torchaudio==$TorchVer", "--index-url", "https://download.pytorch.org/whl/cu121")
+RunRetry $Py @("-m", "pip", "install", "torch==$TorchVer", "torchaudio==$TorchVer", "--index-url", "https://download.pytorch.org/whl/cu121")
 
 Step "Python packages (pinned: requirements.txt + constraints.txt)"
-Run $Py @("-m", "pip", "install", "-r", (Join-Path $Here "requirements.txt"), "-c", (Join-Path $Here "constraints.txt"))
+RunRetry $Py @("-m", "pip", "install", "-r", (Join-Path $Here "requirements.txt"), "-c", (Join-Path $Here "constraints.txt"))
 
 Step "Kokoro voices (CPU text-to-speech, ~350 MB)"
 $kdir = Join-Path $Models "kokoro"; New-Item -ItemType Directory -Force $kdir | Out-Null
