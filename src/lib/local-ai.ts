@@ -6,16 +6,37 @@ import { NOT_RUNNING, assetName, cleanTranscript, cloneBlocked, docMarkdown, doc
 const base = () => serviceUrl(process.env.ORBIT_LOCAL_AI_URL);
 const MINUTE = 60_000;
 
+const ping = async (u: string, ms = 12_000) => fetch(`${u}/health`, { cache: "no-store", signal: AbortSignal.timeout(ms) }).then((r) => r.json(), () => null); // the first /health imports torch (5-10 s on Windows)
+
+/** The service starts by itself (hidden) when ORBIT needs it, if setup.ps1 installed it; ORBIT_LOCAL_AI_AUTOSTART=0 turns that off. */
+const G = globalThis as unknown as { __orbitLocalAi?: Promise<boolean> | null };
+function autostart(u: string): Promise<boolean> {
+  if (process.env.ORBIT_LOCAL_AI_AUTOSTART?.trim() === "0") return Promise.resolve(false);
+  return (G.__orbitLocalAi ??= (async () => {
+    const [{ spawn }, { existsSync, openSync }, path] = await Promise.all([import("node:child_process"), import("node:fs"), import("node:path")]);
+    const dir = path.join(process.cwd(), "tools", "local-ai");
+    const py = path.join(dir, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
+    if (!existsSync(py)) return false;
+    const log = openSync(path.join(dir, "service.log"), "a");
+    const child = spawn(py, [path.join(dir, "server.py")], { cwd: dir, windowsHide: true, stdio: ["ignore", log, log], env: { ...process.env, ORBIT_LOCAL_AI_PORT: new URL(u).port || "7861" } });
+    child.on("exit", () => { G.__orbitLocalAi = null; });
+    for (let i = 0; i < 40; i++) { await new Promise((r) => setTimeout(r, 1500)); if (await ping(u, 3000)) return true; } // torch + uvicorn start in ~5-20 s
+    return false;
+  })().finally(() => { setTimeout(() => { if (G.__orbitLocalAi) G.__orbitLocalAi = null; }, 60_000); }));
+}
+
 export async function localHealth(): Promise<Health> {
   const u = base();
   if (!u) return parseHealth(null);
-  const j = await fetch(`${u}/health`, { cache: "no-store", signal: AbortSignal.timeout(12_000) }).then((r) => r.json(), () => null); // the first /health imports torch (5-10 s on Windows)
+  const j = await ping(u);
+  if (!j) void autostart(u); // not running: start it in the background; the next check shows it
   return parseHealth(j);
 }
 
 async function call(path: string, body: FormData | object, ms: number): Promise<Uint8Array> {
   const u = base();
   if (!u) throw new Error("ORBIT_LOCAL_AI_URL must point at this PC (http://127.0.0.1:<port>).");
+  if (!(await ping(u, 3000)) && !(await autostart(u))) throw new Error(NOT_RUNNING);
   const json = !(body instanceof FormData);
   const res = await fetch(`${u}${path}`, { method: "POST", body: json ? JSON.stringify(body) : body, headers: json ? { "content-type": "application/json" } : undefined, signal: AbortSignal.timeout(ms) })
     .catch((e: unknown) => { throw new Error(e instanceof Error && e.name === "TimeoutError" ? `Local AI took longer than ${ms / MINUTE} minutes and was stopped waiting.` : NOT_RUNNING); });

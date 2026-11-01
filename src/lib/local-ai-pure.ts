@@ -4,7 +4,7 @@
 export const DEFAULT_URL = "http://127.0.0.1:7861";
 export const SETUP_CMD = "powershell -ExecutionPolicy Bypass -File tools\\local-ai\\setup.ps1";
 export const START_CMD = "powershell -ExecutionPolicy Bypass -File tools\\local-ai\\start.ps1";
-export const NOT_RUNNING = "Not installed / not running — run tools/local-ai/start.ps1 (first time: tools/local-ai/setup.ps1).";
+export const NOT_RUNNING = "Local AI isn't installed or couldn't start — ORBIT starts it by itself once tools/local-ai/setup.ps1 has run (log: tools/local-ai/service.log).";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 /** ORBIT_LOCAL_AI_URL → its origin, or null when it isn't plain http on this PC (refused: the tools must never reach the network). */
