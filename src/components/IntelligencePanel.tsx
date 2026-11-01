@@ -2,6 +2,7 @@
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { highlight } from "./Highlight";
 import { FollowingSection } from "./FollowingSection";
+import { WatchesSection } from "./WatchesSection";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
 import { checkClaims, type FeedHealth, type Prefs, type rankingGate, type Vote } from "@/lib/news-intel-pure";
@@ -11,7 +12,7 @@ type Cite = { id: string; title: string; url: string; source: string | null; pub
 type Dev = { key: string; rev: string; status: "new" | "corrected" | "resolved"; title: string; why: string; independent: number; articles: Article[] };
 type Intel = { prefs: Prefs; topics: { topic: string; items: Dev[]; known: number }[]; health: Record<string, Partial<FeedHealth> & { disabled?: boolean }>; done: string[];
   votes?: Record<string, Vote>; gate?: ReturnType<typeof rankingGate> };
-const VIEWS = [{ id: "today", label: "Today" }, { id: "following", label: "Following" }, { id: "research", label: "Research" }, { id: "sources", label: "Sources" }] as const;
+const VIEWS = [{ id: "today", label: "Today" }, { id: "following", label: "Following" }, { id: "watches", label: "Watches" }, { id: "research", label: "Research" }, { id: "sources", label: "Sources" }] as const;
 type ViewId = (typeof VIEWS)[number]["id"];
 type Briefing = { id: string; kind: string; title: string; content: string; citations: Cite[]; article_count: number; created_at: string };
 type Article = { id: string; title: string; url: string; source: string | null; topic: string | null; published_at: string | null };
@@ -189,6 +190,8 @@ export function IntelligencePanel() {
         {intel && <PrefsForm prefs={intel.prefs} save={(p) => post({ action: "prefs", prefs: p })} />}
         {intel?.gate && <RankingGate g={intel.gate} />}
       </>)}
+
+      {view === "watches" && <WatchesSection />}
 
       {view === "research" && (<>
         <ul className="space-y-2">

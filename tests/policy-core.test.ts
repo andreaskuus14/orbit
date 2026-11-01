@@ -1,6 +1,7 @@
 // Roadmap 1.3: CORE's tool dispatch runs decide() instead of its inline guards. These tests pin that swap.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { watchBlocked } from "../src/lib/pagewatch-pure.ts";
 import { agentBlocked, APPROVAL_PATHS, decide, policyEvent, PRIVATE_TOOLS, TIERS, UI_APPROVALS, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { coreToolRefusal, PAUSED_MSG } from "../src/lib/stop-all-pure.ts";
 import { isOpsTool, opsBlocked } from "../src/lib/core-operator-pure.ts";
@@ -31,7 +32,7 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   const r = coreToolRefusal(c.stopAll, tool)
     || (tool === "navigate" ? (dataIn() ? "Error: navigate only as your first tool call, for the user's own request" : "")
     // task-scoped tools: the blanket web/agent switch-off became a per-call outbound check (privateText absent → no-text mode: emails/phones/amounts)
-    : (attach || pinsIn || privateIn()) && ["web_search", "fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"].includes(tool) && outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question.replace(/\n\n\[attached:[^\]]*\]/g, ""), !privateIn())
+    : (attach || pinsIn || privateIn()) && ["web_search", "watch_add", "fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"].includes(tool) && outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question.replace(/\n\n\[attached:[^\]]*\]/g, ""), !privateIn())
       ? `Error: this ${tool} call would send private text out: "${outboundLeak(outgoing(input), privateIn() ? ["ok"] : [], question, !privateIn())}" (from the user's private notes, journal or files). The tool is allowed: retry with a generic query/brief without that text, and if you can't, tell the user exactly which text blocked it; never tell the user to do the search himself`
     : null);
   if (r !== null) return r;
@@ -44,7 +45,8 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   else if (tool === "queue_tonight") b = tonightBlocked(question, dataIn()); // night shift: its runner's guard (night.ts runTonightTool)
   else if (tool === "add_wish") b = wishBlocked(question, dataIn()); // deal hunter: its runner's guard (deals.ts runDealTool)
   else if (tool === "propose_rule") b = ruleBlocked(question, dataIn()); // standing rules: its runner's guard (rules.ts runRuleTool)
-  else if (tool === "ask_agent") b = agentBlocked(question, input.agent, !!attach || steps.some((x) => ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status"].some((t) => x.startsWith(`You called ${t} `)))); // red-team 8.3: added after 1.3
+  else if (tool === "watch_add") b = watchBlocked(question, dataIn()); // page watch: its runner's guard (pagewatch.ts runWatchTool)
+  else if (tool === "ask_agent") b = agentBlocked(question, input.agent, !!attach || steps.some((x) => ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes"].some((t) => x.startsWith(`You called ${t} `)))); // red-team 8.3: added after 1.3
   else if (tool === "save_checkpoint") b = checkpointBlocked(question); // chat checkpoint: its runner's guard (checkpoint.ts runCheckpointTool)
   else if (isOpsTool(tool)) b = c.stopAll ? PAUSED_MSG : opsBlocked(tool, question, dataIn(), input); // ORGANIZE (operator category B): its runner's guard (core-operator.ts)
   else if (tool === "save_memory" && !asksToRemember(question)) return "Error: only save when the user asks; reflection handles the rest";
