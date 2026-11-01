@@ -104,3 +104,15 @@ export function nearestAspect(a: unknown): string {
   const ratio = (s: string) => { const [w, h] = s.split(":").map(Number); return w / h; };
   return [...ASPECTS].sort((x, y) => Math.abs(Math.log(ratio(x) / r)) - Math.abs(Math.log(ratio(y) / r)))[0];
 }
+
+// Free AI pictures (owner's choice 2026-11-01, no Higgsfield plan): Pollinations makes the photo now; nothing is spent, so no
+// approval card. Only CORE's site prompt goes out (no private data). With POLLINATIONS_API_KEY its keyed endpoint is tried first.
+export function freeImageUrls(s: Slot, key = ""): { url: string; headers: Record<string, string> }[] {
+  const [w, h] = dims(s.aspect).map((n) => Math.round(n * 0.75)); // 1200 px wide: plenty for a site, faster to make
+  const q = `model=flux&width=${w}&height=${h}&seed=${hash(s.path + s.prompt) % 1_000_000}&nologo=true&private=true`;
+  const p = encodeURIComponent(`${s.prompt}. Realistic photograph, natural light, no text, no logos, no watermark.`.slice(0, 900));
+  return [
+    ...(key ? [{ url: `https://gen.pollinations.ai/image/${p}?${q}`, headers: { Authorization: `Bearer ${key}` } }] : []),
+    { url: `https://image.pollinations.ai/prompt/${p}?${q}`, headers: {} },
+  ];
+}

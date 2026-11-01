@@ -8,7 +8,7 @@ import { assetPath, creditsMd, parseCredits, sniffImage } from "./site-pipeline-
 import type { Draft } from "./higgsfield-pure.ts";
 import { ASPECTS, MAX_COUNT } from "./higgsfield-pure.ts";
 import type { ImageIO } from "./site-images.ts";
-import { parseSlots, placeholderSvg, type Slot } from "./site-pictures-pure.ts";
+import { freeImageUrls, parseSlots, placeholderSvg, type Slot } from "./site-pictures-pure.ts";
 
 export type SiteTarget = { user: string; workspace: string; purpose: string };
 export type InspireIO = {
@@ -100,11 +100,27 @@ export async function pictureDraft(input: Record<string, unknown>, user: string,
   if (typeof slots === "string") return `Error: ${slots}`;
   const stand: string[] = [];
   for (const s of slots) if (!(await io.exists(s.path)) && (await io.placeholder(s))) stand.push(s.path);
-  const g = await io.generator();
   const drew = stand.length ? `Drew stand-in art at ${stand.join(", ")} so the site looks finished now. ` : "";
-  if (!g.ok) return `${drew}No image generator is set up (Higgsfield via Claude Code, or the weekly cap is 0): nothing was drafted. Use ws_fetch_image (licensed photos) for these paths, or keep the stand-ins / inline SVG.`;
-  const job = await io.queue(slots, g.model);
-  return `Done: ${drew}Drafted ${job.slots} photo${job.slots > 1 ? "s" : ""} for ${workspace} (${slots.map((s) => s.path).join(", ")}), price check only: nothing is generated and no credits are spent. They wait in STUDIO → Websites → ${workspace} for the owner's one "Approve all" click (weekly cap applies); after it ORBIT saves each photo at its exact path and the site updates by itself. Reference these paths in the HTML now (<img src="${slots[0].path}" alt="…" width height>). Tell him where to approve; never send him to look in Higgsfield.`;
+  // Free generator first: every slot without a real photo yet gets one now (two at a time); what fails goes on below.
+  let todo = slots, freeNote = "";
+  if (io.free) {
+    const made: string[] = [], left: Slot[] = [], queue = [...slots];
+    const worker = async () => {
+      for (let s = queue.shift(); s; s = queue.shift()) {
+        if (await io.hasPhoto?.(s.path)) continue;
+        if (await io.free!(s)) made.push(s.path); else left.push(s);
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    todo = left;
+    freeNote = made.length ? `Made ${made.length} realistic photo${made.length > 1 ? "s" : ""} for free (Pollinations) at ${made.join(", ")}; credits are in assets/CREDITS.md, nothing was spent. ` : "";
+    if (!todo.length) return `Done: ${drew}${freeNote || "Every path already has a photo. "}No approval is needed. Reference these paths in the HTML (<img src="${slots[0].path}" alt="…" width height>).`;
+    freeNote += `The free generator failed for ${todo.map((t) => t.path).join(", ")}. `;
+  }
+  const g = await io.generator();
+  if (!g.ok) return `${drew}${freeNote}No image generator is set up (Higgsfield via Claude Code, or the weekly cap is 0): nothing was drafted. Use ws_fetch_image (licensed photos) for these paths, or keep the stand-ins / inline SVG.`;
+  const job = await io.queue(todo, g.model);
+  return `Done: ${drew}${freeNote}Drafted ${job.slots} photo${job.slots > 1 ? "s" : ""} for ${workspace} (${todo.map((s) => s.path).join(", ")}), price check only: nothing is generated and no credits are spent. They wait in STUDIO → Websites → ${workspace} for the owner's one "Approve all" click (weekly cap applies); after it ORBIT saves each photo at its exact path and the site updates by itself. Reference these paths in the HTML now (<img src="${slots[0].path}" alt="…" width height>). Tell him where to approve; never send him to look in Higgsfield.`;
 }
 
 export type PictureIO = {
@@ -114,7 +130,24 @@ export type PictureIO = {
   generator: InspireIO["generator"];
   /** Queues (or merges into) the site's priced draft. Must never generate. */
   queue: (slots: Slot[], model: string) => Promise<{ id: string; slots: number }>;
+  /** Free AI photo written at the slot path with its credit; false = failed (the stand-in stays). Absent = off. */
+  free?: (s: Slot) => Promise<boolean>;
+  /** The path already has a real photo (a credit line in assets/CREDITS.md), so it isn't made again. */
+  hasPhoto?: (path: string) => Promise<boolean>;
 };
+
+/** One free photo for a slot: the first endpoint that returns a real raster image (≥ 8 KB) within 90 s, else null. */
+export async function freePicture(s: Slot, f: typeof fetch = fetch, key = process.env.POLLINATIONS_API_KEY?.trim() ?? ""): Promise<Uint8Array | null> {
+  for (const { url, headers } of freeImageUrls(s, key)) {
+    try {
+      const r = await f(url, { headers: { "User-Agent": "ORBIT-site-builder/1.0", ...headers }, signal: AbortSignal.timeout(90_000) });
+      if (!r.ok) continue;
+      const b = new Uint8Array(await r.arrayBuffer()), ext = sniffImage(b);
+      if (ext && ext !== "svg" && b.length >= 8_000) return b;
+    } catch { /* next endpoint */ }
+  }
+  return null;
+}
 
 /** Real wiring for core-workspace.ts. */
 export const pictureIO = (user: string, workspace: string): PictureIO => ({
@@ -124,5 +157,15 @@ export const pictureIO = (user: string, workspace: string): PictureIO => ({
     return !!r && !("error" in (await (await import("./workspace.ts")).writeWsFile(user, workspace, s.path, r.bytes)));
   },
   generator: inspireIO().generator,
+  free: process.env.ORBIT_FREE_PICTURES?.trim() === "0" ? undefined : async (s) => {
+    const raw = await freePicture(s);
+    if (!raw) return false;
+    const ws = await import("./workspace.ts"), out = (await toFormat(raw, s.path))?.bytes ?? raw;
+    if ("error" in (await ws.writeWsFile(user, workspace, s.path, out))) return false;
+    const cur = parseCredits((await ws.readWsFile(user, workspace, "assets/CREDITS.md"))?.text ?? "");
+    await ws.writeWsFile(user, workspace, "assets/CREDITS.md", creditsMd(cur, { path: s.path, title: `Prompt: ${s.prompt.slice(0, 400)}`, author: "Pollinations (flux), free AI image", license: "AI-generated for this site", attribution: false, source: "generated in ORBIT", via: "Pollinations" }));
+    return true;
+  },
+  hasPhoto: async (p) => parseCredits((await (await import("./workspace.ts")).readWsFile(user, workspace, "assets/CREDITS.md"))?.text ?? "").some((c) => c.path === p),
   queue: async (slots, model) => { const j = await (await import("./clips/story")).queueSitePictures(user, workspace, slots, model); return { id: j.id, slots: j.items.length }; },
 });
