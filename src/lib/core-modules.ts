@@ -10,6 +10,8 @@ import { WS_PROMPT, WS_TOOLS, loadWsGate, runWsTool, wsTainted, type WsTool } fr
 import { REA_PROMPT, runReaTool } from "./core-rea";
 import { REA_TOOLS } from "./rea-pure";
 import { OPS_PROMPT, OPS_TOOLS, type OpsTool } from "./core-operator-pure";
+import { isPluginTool } from "./plugins-pure";
+import { pluginPromptNow, runPluginTool } from "./plugins";
 
 type Base = { sb: SupabaseClient; userId: string };
 /** What a tool call sees. tainted: page/file/agent/tool output or attachments/pins are in context (core.ts's dataIn).
@@ -152,13 +154,14 @@ const MODULES: CoreModule[] = [
 
 export const MODULE_PROMPT = modulePrompt(MODULES);
 /** Only the modules this turn needs (core-modules-pure routedPrompt: keyword match, else a capability index), for the per-turn prompt. */
-export const modulePromptFor = (text: string) => routedPrompt(MODULES, text);
+export const modulePromptFor = (text: string) => [routedPrompt(MODULES, text), pluginPromptNow()].filter(Boolean).join("\n"); // + his MCP plugins (plugins.ts)
 export const MODULE_NAMES = MODULES.map((m) => m.name).join(", ");
 export const MODULE_TOOLS = MODULES.flatMap((m) => m.tools);
 export const MODULE_PRIVATE = privateTools(MODULES);
 export const MODULE_WRITES = writeTools(MODULES);
-export const isModuleTool = (tool: string) => !!toolModule(MODULES, tool);
-export const runModuleTool = (tool: string, input: Record<string, unknown>, c: Ctx) => toolModule(MODULES, tool)!.run(tool, input, c);
+export const isModuleTool = (tool: string) => !!toolModule(MODULES, tool) || isPluginTool(tool);
+export const runModuleTool = (tool: string, input: Record<string, unknown>, c: Ctx) =>
+  isPluginTool(tool) ? runPluginTool(tool, input, { steps: c.steps, pinned: c.pinned, chat: c.chat }) : toolModule(MODULES, tool)!.run(tool, input, c);
 
 /** Every module's live status in parallel; a module that fails just says nothing. Never throws. */
 export async function moduleStatus(sb: SupabaseClient, userId: string): Promise<string> {
