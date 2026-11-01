@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { MODULE_TOOLS } from "./core-modules";
+import { pluginToolNames } from "./plugins";
 import { emit, recordUsage, type CliSession, type PromptImage } from "./claude";
 import { authorizeTool } from "./authority";
 import { policyEvent, TIERS, type PolicyCtx } from "./policy-pure";
@@ -42,7 +43,7 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
     if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId };
     return toolResult(out);
   });
-  const names = sdkTools(MODULE_TOOLS);
+  const names = sdkTools([...MODULE_TOOLS, ...pluginToolNames()]); // + his MCP plugins, each still behind decide()
   const server = createSdkMcpServer({
     name: SERVER, version: "0.2.0",
     // Inputs are documented in the prompt (TOOL NOTES / MODULE TOOLS) and checked by each runner, so the schema passes them through.

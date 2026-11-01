@@ -25,6 +25,7 @@ import RojoPanel from "./RojoPanel";
 import ScenePlanner from "./ScenePlanner";
 import TextureStudio from "./TextureStudio";
 import { PictureTo3D, TextTo3D } from "./LocalAi";
+import { MakeInBlender } from "./BlenderEntry";
 import PlaytestBot from "./PlaytestBot";
 import PersonaPlaytest from "./PersonaPlaytest";
 import GameCopilot from "./GameCopilot";
@@ -330,7 +331,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {tab === "scene" && !needsGame && <ScenePlanner key={gk} />}
         {tab === "textures" && !needsGame && <TextureStudio />}
         {tab === "model3d" && !needsGame && <PictureTo3D />}
-        {tab === "text3d" && !needsGame && <TextTo3D />}
+        {tab === "text3d" && !needsGame && <><TextTo3D /><MakeInBlender /></>}
         <div hidden={tab !== "playtest" || needsGame}>
           <p className="muted mb-1 text-xs">{t("gd.k.runtime")}: {t("gd.runtimeNote")}</p>
           <PlaytestBot key={gk} world={world} commit={commit} gameId={selected} />

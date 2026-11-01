@@ -19,6 +19,7 @@ import { AREA_INFO, autonomyAllows, type Area, type Levels } from "./autonomy-pu
 import { et } from "./et-ask-pure.ts";
 import { createdLeads, isOpsTool, opsBlocked } from "./core-operator-pure.ts";
 import { outboundLeak, outgoing, privateResults } from "./outbound-pure.ts";
+import { isPluginTool, outsideIn, pluginDecision, type Gate } from "./plugins-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
 export type Decision = { allow: boolean; tier: Tier; reason: string };
@@ -32,7 +33,9 @@ export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; step
   /** workspace names + CORE's pending build offer in this chat (ws-intent-pure.ts) */
   ws?: WsGate;
   /** leads CORE added in this chat on earlier turns (core-operator-pure ownLeadsIn); this turn's come from steps */
-  ownLeads?: readonly string[] };
+  ownLeads?: readonly string[];
+  /** callable MCP plugin tools (plugins-pure gates(): plugin__<server>__<tool> → mode/tier) */
+  plugins?: Record<string, Gate> };
 
 export const TIERS: Record<string, Tier> = {
   navigate: "T0", goal_status: "T0", mission_status: "T0", business_status: "T0", ideas_list: "T0",
@@ -92,7 +95,7 @@ const LINK_TOOLS = ["watch_add", "fetch_url", "read_news", "ask_agent", "reach_r
 const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "local_tts"]; // local_tts: journal/LIFE text never goes to a model, local ones included
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
-const UNTRUSTED = ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes"];
+export const UNTRUSTED = ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes"];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
 const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
@@ -104,6 +107,8 @@ export function agentBlocked(question: string, agent: unknown, untrusted: boolea
 }
 
 const called = (steps: string[], tools: string[]) => steps.some((s) => tools.some((t) => s.startsWith(`You called ${t} `)));
+/** outside text in this answer: the untrusted tools above or any plugin's result (plugins-pure resultText) */
+const untrustedIn = (steps: string[]) => called(steps, UNTRUSTED) || steps.some((s) => s.startsWith("You called plugin__"));
 const err = (s: string | null | undefined) => (s ? s.replace(/^Error: /, "") : "");
 
 // Operator mode (AGENTS.md rule 6, owner-granted 2026-10-30): with the category's Profile → Autonomy area at "do" (the default),
@@ -117,7 +122,7 @@ export const OPERATOR_TOOLS: Record<string, Area> = {
 export const OPERATOR_REASON = "standing operator grant";
 export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "attach" | "steps" | "autonomy">): boolean {
   const area = OPERATOR_TOOLS[tool];
-  if (!area || ctx.stopAll || ctx.attach || called(ctx.steps, UNTRUSTED)) return false;
+  if (!area || ctx.stopAll || ctx.attach || untrustedIn(ctx.steps)) return false;
   const l = ctx.autonomy?.[area];
   return (l ?? AREA_INFO[area].def) === "do";
 }
@@ -126,6 +131,11 @@ export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "a
 export const carriesPrivate = (ctx: PolicyCtx) => ctx.attach || ctx.pins || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]);
 
 export function decide(tool: string, input: Record<string, unknown> | undefined, ctx: PolicyCtx): Decision {
+  if (isPluginTool(tool)) { // MCP plugins: tier from annotations + his trust settings, private-text check on every argument (plugins-pure.ts)
+    const privateIn = ctx.attach || ctx.pins || !!ctx.carried || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]);
+    return pluginDecision(tool, input, ctx.plugins?.[tool], { stopAll: ctx.stopAll, privateIn, question: typedText(ctx.question), outside: outsideIn(ctx.steps, UNTRUSTED, ctx.plugins ?? {}, ctx.attach),
+      privateTexts: [...(ctx.privateText ?? []), ...privateResults(ctx.steps, ctx.privateTools ?? PRIVATE_TOOLS)] });
+  }
   const tier = TIERS[tool] ?? "T3"; // unknown = fail closed
   const no = (reason: string): Decision => ({ allow: false, tier, reason });
   if (!(tool in TIERS)) return no(`unknown tool "${tool}"`);
@@ -158,7 +168,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "add_wish") blocked = wishBlocked(question, dataIn);
   else if (tool === "propose_rule") blocked = ruleBlocked(question, dataIn);
   else if (tool === "watch_add") blocked = watchBlocked(question, dataIn);
-  else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || called(ctx.steps, UNTRUSTED));
+  else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || untrustedIn(ctx.steps));
   else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);
   else if (isOpsTool(tool)) { if (ctx.stopAll) return no(PAUSED_MSG); blocked = opsBlocked(tool, question, dataIn, input, ctx.attach || ctx.pins ? [] : [...createdLeads(ctx.steps), ...(ctx.ownLeads ?? [])]) ?? ""; } // Stop-all halts operator writes outright
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287

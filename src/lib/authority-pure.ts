@@ -4,7 +4,9 @@
 //  - reversible internal actions: the owner's own click/ask, a legacy path (workflow with no mode set), or an active matching grant.
 // Entry points (core, sdk, agent, rule, automation, remote, retry) never change the verdict: the same ctx gives the same answer.
 // Operate mode is defined but cannot be switched on in this version: see docs/AUTHORITY-POLICY-PROPOSAL.md.
-import { EFFECTS, isConsequential } from "./approval-pure.ts";
+import { CONSEQUENTIAL, EFFECTS } from "./approval-pure.ts";
+import { isPluginTool, pluginEffect } from "./plugins-pure.ts";
+import type { Tier } from "./policy-pure.ts";
 
 /** Bumped whenever the rules below change; grants and bindings from another version stop working (re-grant / re-approve). */
 export const POLICY_VERSION = "2026-10-29.1";
@@ -31,7 +33,7 @@ export const authorityDefaults = (): AuthorityState => ({ grants: [], modes: {} 
 export type AuthCtx = {
   entry: Entry; workflow?: string; account?: string; project?: string; destination?: string; money?: number; calls?: number;
   ownerClick?: boolean; // his own click or his latest message asked (decide() checked the explicit ask)
-  stopAll: boolean; decision?: { allow: boolean; reason: string }; // policy-pure decide() verdict, when the entry has one
+  stopAll: boolean; decision?: { allow: boolean; reason: string; tier?: Tier }; // policy-pure decide() verdict, when the entry has one
   approval?: { approved: unknown; hash: string }; // consequential: hash his click carried + hash of the content about to leave
   deferred?: boolean; // only queues work whose effect passes authorize() again at its execution point (DEFERRED)
   binding?: string; // a binding from an earlier verdict (retry / resume): must still match
@@ -69,7 +71,7 @@ export function authorize(action: string, c: AuthCtx): Verdict {
     if (ok && c.binding !== undefined && c.binding !== binding) return { ok: false, why: "stale: the policy, grant or content changed since this was decided; decide again", by: "none", binding };
     return { ok, why, by, grantId, binding };
   };
-  const effect = EFFECTS[action];
+  const effect = EFFECTS[action] ?? (isPluginTool(action) ? pluginEffect(c.decision?.tier) : undefined); // plugin tools: from decide()'s tier
   if (!effect) return v(false, `unknown action "${action}"`, "none");
   if (c.decision && !c.decision.allow) return v(false, c.decision.reason, "policy");
   if (effect === "read") return v(true, "read", "policy");
@@ -77,7 +79,7 @@ export function authorize(action: string, c: AuthCtx): Verdict {
   const mode = c.workflow ? c.state.modes[c.workflow] : undefined;
   if (mode === "hold" && !c.ownerClick) return v(false, "workflow is on exception hold", "none");
 
-  if (isConsequential(action)) { // never via a grant, whatever the mode or entry
+  if (CONSEQUENTIAL.includes(effect)) { // never via a grant, whatever the mode or entry
     if (c.deferred && DEFERRED.includes(action)) return v(true, "queues only; each item passes its own approval gate", "approval");
     if (typeof c.approval?.approved !== "string" || !c.approval.approved) return v(false, "Needs your approval of this exact version: reload and read it first", "none");
     return c.approval.approved === c.approval.hash ? v(true, "your approval of this exact version", "approval") : v(false, "The content changed since you approved it: reload and read it again", "none");

@@ -18,6 +18,7 @@ import { PhonePairing } from "./PhonePairing";
 import { PlaceSection } from "./PlaceSection";
 import { AutonomySection } from "./AutonomySection";
 import { AuthoritySection } from "./AuthoritySection";
+import { PluginsSection } from "./PluginsSection";
 import { WeeklyReviewSetting } from "./RemoteCall";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
@@ -770,6 +771,7 @@ export function ProfilePanel() {
     <PasswordSection />
     <AutonomySection />
     <AuthoritySection />
+    <PluginsSection />
     <PhonePairing />
     <WeeklyReviewSetting />
     <TimeCapsuleSection />

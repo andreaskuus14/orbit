@@ -30,6 +30,8 @@ import { privateResults } from "./outbound-pure";
 import { authorizeTool } from "./authority";
 import { turnSignal } from "./session-bound-pure";
 import { logActivity } from "./activity";
+import { pluginGates } from "./plugins";
+import { isPluginTool } from "./plugins-pure";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import { CORE_LANG_RULE, type Lang } from "./i18n-pure";
 import type { WriteEvidence } from "./completion-pure";
@@ -276,7 +278,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const wsGate = await loadWsGate(userId, sessionKey); // workspace names + CORE's pending Build-it offer for this chat
   // Outbound calls are checked against this text (policy-pure decide()); an earlier turn's private results live only in this process.
   const privateText = [attach?.block ?? "", pinsIn ? project : "", ...(sessionKey ? carriedText.get(sessionKey) ?? [] : [])].filter(Boolean);
-  const policyCtx = () => ({ ws: wsGate, stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried, privateText, ownLeads: ownLeadsIn(sessionKey) });
+  const policyCtx = () => ({ ws: wsGate, stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried, privateText, ownLeads: ownLeadsIn(sessionKey), plugins: pluginGates() });
   // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
   // Results over the step limit are clipped with a read_more pointer; the full text lives in this per-turn store (roadmap 20).
   const clips = createClipStore();
@@ -285,7 +287,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     const hit = budget.done.get(callKey(tool, input));
     if (hit !== undefined) return reused(hit);
     const out = clips.clip(await execRaw(tool, input, evidence, operator));
-    remember(budget.done, tool, input, out, (t) => LOGGED.includes(t));
+    remember(budget.done, tool, input, out, (t) => LOGGED.includes(t) || isPluginTool(t)); // a plugin call can change its app: earlier reads go stale
     return out;
   };
   const execRaw = async (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator: boolean) => tool === "navigate" ? navigateTool(input, onNavigate)

@@ -38,6 +38,7 @@ import { ArchPortfolio } from "./ArchPortfolio";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
 import { SiteLayer, SitePanel } from "./ArchSite";
 import { IfcOpen } from "./LocalAi";
+import { OpenInBlender } from "./BlenderEntry";
 import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
 import { canRetry, pickNewer, saveStep, staleCheck, type Saved } from "@/lib/arch-save-pure";
 
@@ -631,6 +632,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           <p className="muted text-[11px]">{tr("arch.exportHow")}</p>
         </div>
         <IfcOpen />
+        <OpenInBlender />
 
         <ArchVariants variants={variants} setVariants={setVariants} scene={scene} rev={save.rev} prices={prices} site={{ lat: sun.lat, lon: sun.lon }} north={site.north}
           onChoose={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); }} />
