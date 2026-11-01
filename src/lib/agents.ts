@@ -14,7 +14,7 @@ import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { attemptId, attemptTag, completionState, type WriteEvidence } from "./completion-pure";
+import { attemptId, attemptTag, completionState, INTERRUPTED, interruptedPatch, startedBeforeBoot, type WriteEvidence } from "./completion-pure";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
 import { MigrationBlocked, refuse, requireMigration } from "./migration-guard";
 import { verifyRow } from "./completion";
@@ -644,7 +644,21 @@ export async function cancelTask(sb: SupabaseClient, taskId: string) {
 const running = (g.__orbitTaskQueue ??= new Set());
 
 /** Start queued top-level tasks while fewer than MAX_RUNNING are active. */
+const G2 = globalThis as unknown as { __orbitBoot?: number; __orbitReclaimed?: Set<string> };
+const BOOT = (G2.__orbitBoot ??= Date.now()), reclaimed = (G2.__orbitReclaimed ??= new Set());
+/** Once per process and user: tasks (agent tasks, background CORE turns, night tasks) left "running" by the previous process are
+ *  marked interrupted at once, not after the 20-minute stale sweep, so nothing silently hangs. Queued ones simply start again below. */
+async function reclaimInterrupted(sb: SupabaseClient, userId: string) {
+  if (reclaimed.has(userId)) return;
+  reclaimed.add(userId);
+  const { data } = await sb.from("tasks").select("id, pending, started_at").eq("user_id", userId).eq("status", "running").lt("started_at", new Date(BOOT).toISOString())
+    .is("parent_id", null).not("title", "like", "Team: %").not("title", "like", "Goal step %").limit(100); // teams and goals resume their own steps (chains.ts, goals.ts)
+  for (const t of data ?? []) if (startedBeforeBoot(t.started_at, BOOT) && !running.has(t.id))
+    await sb.from("tasks").update(interruptedPatch(t.pending, INTERRUPTED)).eq("id", t.id).eq("status", "running").lt("started_at", new Date(BOOT).toISOString());
+}
+
 export async function kickQueue(sb: SupabaseClient, userId: string) {
+  await reclaimInterrupted(sb, userId).catch((e) => { reclaimed.delete(userId); console.error("[orbit] interrupted-task sweep failed:", e instanceof Error ? e.message : e); });
   while (running.size < MAX_RUNNING && !stopAllOn()) { // Stop-all: queued tasks wait (they start on Resume)
     const { data } = await sb.from("tasks").select("id").eq("user_id", userId).eq("status", "queued").is("parent_id", null)
       .order("created_at").limit(1);

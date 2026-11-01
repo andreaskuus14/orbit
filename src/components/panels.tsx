@@ -21,7 +21,7 @@ import { AuthoritySection } from "./AuthoritySection";
 import { WeeklyReviewSetting } from "./RemoteCall";
 import { PersonaSection } from "./PersonaSection";
 import { ResultEvidence } from "./ResultEvidence";
-import { DeliverableCards } from "./DeliverableCards";
+import { DeliverableCards, ReceiptChip } from "./DeliverableCards";
 import { wsConfirmOffer } from "@/lib/ws-intent-pure";
 import { parseChoices, parseGoalCard, withoutCard } from "@/lib/goal-card-pure";
 import { GoalCardView } from "./GoalCard";
@@ -68,7 +68,7 @@ import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechG
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
 type Cite = { id: string; title: string; kind: string };
-type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: { pass: boolean; flags: string[] } };
+type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: { pass: boolean; flags: string[] }; receipt?: unknown };
 type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[]; live?: { rows: LiveRow[]; ms: number } };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -380,7 +380,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       )}
       {m.lesson && <LessonChip lesson={m.lesson} />}
       {!!m.trace?.length && (
-        <><DeliverableCards items={m.trace.flatMap((s) => s.evidence ?? [])} /><ResultEvidence items={m.trace.flatMap((s) => s.evidence ?? [])} openMemory={onOpenMemory} /></>
+        <><ReceiptChip receipt={m.trace.findLast((s) => s.receipt)?.receipt} /><DeliverableCards items={m.trace.flatMap((s) => s.evidence ?? [])} /><ResultEvidence items={m.trace.flatMap((s) => s.evidence ?? [])} openMemory={onOpenMemory} /></>
       )}
       {!!m.trace?.length && (
         <details className="mt-2 text-xs muted">

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import { deliverables } from "@/lib/core-workspace-pure";
 import { useT } from "./i18n";
+import { cleanReceipt, receiptLine } from "@/lib/receipt-pure";
 
 const q = (ws: string, file?: string) => `/api/workspace?ws=${encodeURIComponent(ws)}${file ? `&file=${encodeURIComponent(file)}` : ""}`;
 const size = (n = 0) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
@@ -34,6 +35,19 @@ export function DeliverableCards({ items }: { items: WriteEvidence[] }) {
     {[...new Set(files.filter((f) => f.path === "server.mjs").map((f) => f.id))].map((ws) => <ServerCard key={`srv-${ws}`} ws={ws} />)}
     {[...new Set(files.map((f) => f.id))].map((ws) => <a key={ws} className="chip text-xs" href={`${q(ws)}&zip=1`} download>{t("deliv.zip", { ws })}</a>)}
   </section>;
+}
+
+/** The turn's receipt (receipt-pure.ts), compact: status + acceptance on one line, the checked / unchecked / failed parts on open. */
+export function ReceiptChip({ receipt }: { receipt: unknown }) {
+  const { lang } = useT();
+  const r = cleanReceipt(receipt);
+  if (!r) return null;
+  const rows: [string, string[]][] = [["✓", r.verified], ["?", r.claimed], ["✗", r.failed]];
+  return <details className="mt-2 text-xs" data-status={r.status === "verified" ? "done" : r.status === "failed" ? "failed" : "awaiting_approval"}>
+    <summary className="cursor-pointer">{receiptLine(r, lang)}</summary>
+    <ul className="mt-1 space-y-0.5">{rows.flatMap(([mark, xs]) => xs.map((x, i) => <li key={mark + i}>{mark} {x}</li>))}</ul>
+    {r.links.map((l) => <a key={l} className="chip mt-1" href={l} target="_blank" rel="noopener noreferrer">{decodeURIComponent(l.match(/file=([^&]+)/)?.[1] ?? "open")}</a>)}
+  </details>;
 }
 
 type Srv = { running: boolean; url?: string; routes: string[]; note: string; error?: string };
