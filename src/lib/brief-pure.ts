@@ -22,6 +22,7 @@ export type BriefIn = {
   day: string; hour: number; life: boolean; // life: he allowed calendar titles / reminder text in the brief (off by default)
   morning: Pick<Morning, "night" | "calendar" | "life" | "hero" | "studio">;
   decisions: Decision[]; replies: { id: string; name: string }[];
+  watch?: { id: string; label: string; n: number }; // page-watch changes of the last day, his own labels only (pagewatch-pure briefWatch)
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
@@ -149,6 +150,9 @@ export function briefItems(x: BriefIn): BriefItem[] {
   const deal = x.deal;
   if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },
     say: `An offer for ${short(deal.item, 8)} came in at about ${Math.round(deal.eur).toLocaleString("en-US")} euros. That looks like a good price.` });
+
+  if (x.watch) add({ id: `watch:${x.watch.id}`, kind: "result", title: `Page changed: ${plain(x.watch.label)}`, detail: x.watch.n > 1 ? `+${x.watch.n - 1} more in Watches` : "INTELLIGENCE → Watches",
+    open: { link: "#o=intelligence&v=watches" }, say: `A page you watch changed: ${short(x.watch.label, 8)}${x.watch.n > 1 ? `, and ${num(x.watch.n - 1)} more` : ""}.` });
 
   // LIFE: counts only, and spoken (so polished by the model) only with his LIFE opt-in; otherwise just on the card.
   if (x.habits?.due && new Date(`${x.day}T12:00`).getDay() === 1) add({ id: `habits:${x.day}`, kind: "result", title: `Habits last week: ${x.habits.done}/${x.habits.due}`,

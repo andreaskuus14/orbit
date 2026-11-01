@@ -10,13 +10,14 @@ import type { WriteEvidence } from "./completion-pure";
 import type { Lang } from "./i18n-pure";
 import { opsStatus, type OpsStatus } from "./ops-status-pure.ts";
 import type { Blocker } from "./business-overview-pure.ts";
+import type { ReceiptStatus } from "./receipt-pure.ts";
 
 export type NeedKind = "decide" | "unblock" | "review";
 /** Always navigate (href = a checked result file). Never a one-tap approve: Decide items open where the exact content and its
  *  Approve live (AGENTS.md rule 6). The phone's own approval cards, which show that exact content, stay the only one-tap path. */
 export type NeedAct = { open: BriefOpen };
 /** Why it needs him; the UI asks one precise question per cause (needs.ask.<cause>). */
-export type NeedCause = "approval" | "decide" | "trust" | "conflict" | "system" | "input" | "failed" | "blocked" | "loop" | "review" | "overdue" | "followup" | "delivery";
+export type NeedCause = "approval" | "decide" | "trust" | "conflict" | "system" | "input" | "failed" | "blocked" | "loop" | "review" | "overdue" | "followup" | "delivery" | "watch";
 // remote: the phone approval id. status: the shared work status (ops-status-pure) when the item is a task or mission.
 export type Need = { ref: string; kind: NeedKind; cause: NeedCause; title: string; detail?: string; at?: string; act: NeedAct; remote?: string; status?: OpsStatus };
 type NightItem = { label: string; open?: { task: string } | { goal: string } | { panel: string } };
@@ -38,6 +39,7 @@ export type NeedsIn = {
   overdue?: { id: string; number: string; buyer: string; cents: number; days: number }[];
   followups?: { id: string; name: string; since: string }[]; // since: the last real contact (prospect-crm touch), else the row's updated_at
   delivery?: Blocker[];
+  watches?: { id: string; label: string; at: string }[]; // pagewatch-pure importantUnseen: owner-marked watches with an unseen change
   now?: number;
 };
 
@@ -50,9 +52,9 @@ export const shortDay = (iso: string, lang: Lang) => { const d = new Date(iso); 
 const clientLink = (id: string): BriefOpen => ({ link: `#o=business&v=client&k=client&id=${encodeURIComponent(id)}` });
 const S = {
   en: { overdue: (no: string, d: number) => `Invoice ${no} is ${d} day${d === 1 ? "" : "s"} overdue`, quiet: (d: number, on: string) => `No reply ${d} day${d === 1 ? "" : "s"} after your message on ${on}`,
-    waiting: (on: string) => `Delivery paused since ${on}`, blockedD: (t: string) => `Delivery step failed: ${t}`, trust: (a: string) => `Let ORBIT do ${a} work without asking?`, trustD: (n: number, t: number) => `You approved ${n} of ${t} this month`, failed: "Didn't work out", mission: "Mission blocked: ", checked: "Checked result", night: "Finished overnight" },
+    waiting: (on: string) => `Delivery paused since ${on}`, blockedD: (t: string) => `Delivery step failed: ${t}`, trust: (a: string) => `Let ORBIT do ${a} work without asking?`, trustD: (n: number, t: number) => `You approved ${n} of ${t} this month`, failed: "Didn't work out", mission: "Mission blocked: ", checked: "Checked result", night: "Finished overnight", watch: "Watched page changed" },
   et: { overdue: (no: string, d: number) => `Arve ${no} on ${d} päeva üle tähtaja`, quiet: (d: number, on: string) => `Vastust pole ${d} päeva pärast sinu ${on} sõnumit`,
-    waiting: (on: string) => `Teostus on ootel alates ${on}`, blockedD: (t: string) => `Teostuse samm ebaõnnestus: ${t}`, trust: (a: string) => `Kas ORBIT võib ${a} töö teha küsimata?`, trustD: (n: number, t: number) => `Kinnitasid sel kuul ${n}/${t}`, failed: "Ei õnnestunud", mission: "Missioon seisab: ", checked: "Kontrollitud tulemus", night: "Valmis öösel" },
+    waiting: (on: string) => `Teostus on ootel alates ${on}`, blockedD: (t: string) => `Teostuse samm ebaõnnestus: ${t}`, trust: (a: string) => `Kas ORBIT võib ${a} töö teha küsimata?`, trustD: (n: number, t: number) => `Kinnitasid sel kuul ${n}/${t}`, failed: "Ei õnnestunud", mission: "Missioon seisab: ", checked: "Kontrollitud tulemus", night: "Valmis öösel", watch: "Jälgitav leht muutus" },
 };
 
 /** The record behind a source key, so one draft is one item: "approval:prospect:ID:day", "send:ID" and "prospect:ID:day" → "prospect:ID". */
@@ -108,6 +110,7 @@ export function needsYou(x: NeedsIn, lang: Lang = "en", snoozed: string[] = []):
   for (const l of x.loops ?? []) add({ ref: recordRef(l.key), kind: "unblock", cause: "loop", title: l.title, detail: l.next, at: l.since, act: { open: { mission: true } } });
 
   for (const t of x.tasks ?? []) { const o = receiptOpen(t.pending); if (o) add({ ref: `task:${t.id}`, kind: "review", cause: "review", status: "complete", title: t.title, detail: s.checked, at: t.finished_at ?? undefined, act: { open: o } }); }
+  for (const w of x.watches ?? []) add({ ref: `watch:${w.id}`, kind: "review", cause: "watch", title: w.label, detail: s.watch, at: w.at, act: { open: { link: "#o=intelligence&v=watches" } } });
   for (const i of x.night?.done ?? []) add({ ref: nightRef(i), kind: "review", cause: "review", title: i.label, detail: s.night, at: x.night?.endedAt, act: { open: nightOpen(i) } });
 
   const t = (n: Need) => Date.parse(n.at ?? "") || 0;
@@ -146,3 +149,31 @@ export function leadItems(p: ReturnType<typeof morningPicks>): BriefItem[] {
 
 /** A cached result while it is younger than ttl (the phone polls every 20 s; the inbox is gathered at most once a minute). */
 export const reuse = <T>(c: { at: number; v: T } | undefined, now: number, ttl = 60_000): T | undefined => (c && now >= c.at && now - c.at < ttl ? c.v : undefined);
+
+// "What finished, what's blocked, what I need from you": one compact answer on top of this card, for the last 24 h or since he
+// was last here (whichever is longer). Finished = receipts (receipt-pure.ts), never a bare "done"; blocked / decide = this list.
+export type DigestReceipt = { at: string; status: ReceiptStatus; title: string };
+export type Digest = { from: string; finished: Record<ReceiptStatus, number>; lines: string[] };
+const DG = {
+  en: { window: (away: boolean, d: string) => (away ? `since you were last here (${d})` : "in the last 24 h"), none: "Nothing finished", fin: (n: number) => `${n} finished`,
+    st: { verified: "verified", partly: "partly done", unverified: "not verified", failed: "failed" }, blocked: (n: number, t: string) => `${n} blocked, first: ${t}`, noBlock: "Nothing blocked",
+    decide: (n: number, t: string) => `${n} need${n === 1 ? "s" : ""} your decision, first: ${t}`, noDecide: "Nothing needs your decision" },
+  et: { window: (away: boolean, d: string) => (away ? `pärast su viimast külastust (${d})` : "viimase 24 h jooksul"), none: "Midagi ei valminud", fin: (n: number) => `${n} valmis`,
+    st: { verified: "kontrollitud", partly: "osaliselt", unverified: "kontrollimata", failed: "ebaõnnestus" }, blocked: (n: number, t: string) => `${n} seisab, esimene: ${t}`, noBlock: "Midagi ei seisa",
+    decide: (n: number, t: string) => `${n} ootab su otsust, esimene: ${t}`, noDecide: "Sinu otsust pole vaja" },
+};
+/** Three lines: finished (by proof status), blocked, needs his decision. `lastActive`: ms epoch, or null/0 when unknown. */
+export function doneDigest(needs: Need[], receipts: DigestReceipt[], now: number, lastActive: number | null, lang: Lang = "en"): Digest {
+  const s = DG[lang], from = Math.min(now - DAY, lastActive && lastActive > now - 7 * DAY ? lastActive : now);
+  const fin: Record<ReceiptStatus, number> = { verified: 0, partly: 0, unverified: 0, failed: 0 };
+  for (const r of receipts) if (Date.parse(r.at) >= from && Date.parse(r.at) <= now) fin[r.status]++;
+  const total = Object.values(fin).reduce((a, b) => a + b, 0), parts = (Object.keys(fin) as ReceiptStatus[]).filter((k) => fin[k]).map((k) => `${fin[k]} ${s.st[k]}`);
+  const blocked = needs.filter((n) => n.kind === "unblock"), decide = needs.filter((n) => n.kind === "decide");
+  const short = (t: string) => t.replace(/\s+/g, " ").trim().slice(0, 70);
+  const when = s.window(from < now - DAY, shortDay(new Date(from).toISOString(), lang));
+  return { from: new Date(from).toISOString(), finished: fin, lines: [
+    total ? `${s.fin(total)} ${when}: ${parts.join(", ")}` : `${s.none} ${when}`,
+    blocked.length ? s.blocked(blocked.length, short(blocked[0].title)) : s.noBlock,
+    decide.length ? s.decide(decide.length, short(decide[0].title)) : s.noDecide,
+  ] };
+}
