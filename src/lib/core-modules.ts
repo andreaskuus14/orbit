@@ -121,8 +121,8 @@ const MODULES: CoreModule[] = [
   },
   {
     // free models on his PC (tools/local-ai/server.py): new VAULT files only, nothing leaves the PC
-    name: "LOCALAI", tools: ["local_3d", "local_tts"], writes: ["local_3d", "local_tts"],
-    prompt: "- LOCAL AI (free models on his own PC; nothing is uploaded or paid): local_3d {\"image\": \"<VAULT picture file name>\", \"name\"?: string} (one picture of an object → 3D model .glb in VAULT, for Roblox Studio's Import 3D or Unreal), local_tts {\"text\": string, \"voice\"?: \"af_heart\"|\"af_bella\"|\"af_sarah\"|\"am_michael\"|\"am_fenrir\"|\"bf_emma\"|\"bm_george\", \"name\"?: string} (English voiceover .wav in VAULT). If the tool says the service isn't running, tell him to run tools/local-ai/start.ps1. Text to 3D inside Roblox is GAME DEV → Assets → Text to 3D. You can't clone voices: his own-voice cloning is only in STUDIO → Produce → Voiceover with his own recording.",
+    name: "LOCALAI", tools: ["local_3d", "local_tts", "local_transcribe"], writes: ["local_3d", "local_tts", "local_transcribe"],
+    prompt: "- LOCAL AI (free models on his own PC; nothing is uploaded or paid): local_3d {\"image\": \"<VAULT picture file name>\", \"name\"?: string} (one picture of an object → 3D model .glb in VAULT, for Roblox Studio's Import 3D or Unreal), local_tts {\"text\": string, \"voice\"?: \"af_heart\"|\"af_bella\"|\"af_sarah\"|\"am_michael\"|\"am_fenrir\"|\"bf_emma\"|\"bm_george\", \"name\"?: string} (English voiceover .wav in VAULT), local_transcribe {\"file\": \"<VAULT video/audio file name>\", \"language\"?: \"auto\"|\"en\"|\"et\"} (captions .srt/.vtt and a clean transcript .txt saved next to it in VAULT). If the tool says the service isn't running, tell him to run tools/local-ai/start.ps1. Text to 3D inside Roblox is GAME DEV → Assets → Text to 3D. You can't clone voices: his own-voice cloning is only in STUDIO → Produce → Voiceover with his own recording.",
     run: async (t, i) => (await import("./local-ai")).runLocalTool(t, i),
   },
   {

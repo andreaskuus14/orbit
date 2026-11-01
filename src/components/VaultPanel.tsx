@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VOICE_ASK } from "./voice/bus";
 import { WorkspacePanel } from "./WorkspacePanel";
+import { ReadDocument } from "./LocalAi";
+import { isDocName } from "@/lib/local-ai-pure";
 import { useT } from "./i18n";
 import { MAX_FILE, MEMORY_MAX, fmtSize, memoryType, latestGate, type CloudFile, type Kind } from "@/lib/vault-pure";
 import { TRASH_DAYS, searchVerdict, type Coverage, type SyncState } from "@/lib/vault-meta-pure";
@@ -220,6 +222,7 @@ export function VaultPanel() {
           {memoryType(open.name) && <button className="btn" disabled={!!busy || open.size > MEMORY_MAX} title={open.size > MEMORY_MAX ? "MEMORY accepts files up to 4 MB" : undefined} onClick={() => toMemory(open)}>Save copy to MEMORY (cloud)</button>}
           {(open.type === "text" || open.type === "pdf" || open.type === "doc") && (
             <button className="btn" onClick={() => dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text: `Read my VAULT file "${open.name}" and give me a short summary.` } }))}>Ask CORE</button>)}
+          {isDocName(open.name) && <ReadDocument name={open.name} onSaved={(n) => { setNote(`Saved ${n} next to it (Markdown, on this PC only). CORE can now search and read it.`); void load(); }} />}
           <button className="btn danger" onClick={() => remove(open)}>{t("vault.moveToTrash")}</button>
         </div>
         {busy && <p className="muted">{busy}</p>}

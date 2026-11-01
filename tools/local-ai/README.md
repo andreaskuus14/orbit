@@ -13,6 +13,9 @@ Kokoro voiceover were run there on CPU (Linux); Picture to 3D and own-voice clon
 | Background cut-out | Cuts the subject out of a picture (PNG with transparency), for thumbnails or before 3D | rembg u2net | CPU | MIT |
 | Voiceover | Reads a script aloud in a preset voice (English) | Kokoro 82M (ONNX) | CPU, no GPU needed | Apache-2.0 |
 | Own-voice cloning | Reads a script in **your own** voice from a short recording of you | Audio8 TTS Realistic 0.6B | about 3 GB in bf16 (fits 6 GB); CPU works but is slow | Apache-2.0 |
+| Captions *(optional, `-Captions`)* | Writes down speech in a video/recording (English, Estonian) → `.srt`, `.vtt` and a clean transcript | Whisper large-v3-turbo via faster-whisper 1.2.1 / CTranslate2 4.8.3 | about 2-3 GB in float16; CPU int8 fallback | MIT |
+| IFC models *(optional, `-Ifc`)* | Opens an `.ifc` model: storeys, spaces with areas, element counts, materials, simple checks, spaces CSV | IfcOpenShell 0.9.0.post1 | CPU | LGPL-3.0 |
+| Document reading *(optional, `-Docs`)* | PDF / Word / PowerPoint / scanned page → Markdown with tables, saved beside the original in VAULT | Docling 2.139.0 (layout + TableFormer + RapidOCR) | about 2 GB; CPU works | MIT |
 
 Text to 3D inside Roblox does not need this service: ORBIT already asks Roblox Studio's own `generate_mesh` tool
 (GAME DEV → Assets → Text to 3D) through the Studio MCP bridge.
@@ -24,6 +27,18 @@ Text to 3D inside Roblox does not need this service: ORBIT already asks Roblox S
    **Desktop development with C++** (one library, torchmcubes, is compiled during setup).
 3. In the ORBIT folder: `powershell -ExecutionPolicy Bypass -File tools\local-ai\setup.ps1`
    (add `-SkipClone` to skip the 2.6 GB voice-cloning model, `-Skip3D` to skip Picture to 3D).
+
+### Optional modules (add later; the main setup must have run once)
+
+`powershell -ExecutionPolicy Bypass -File tools\local-ai\setup.ps1 -Captions` (or `-Ifc`, `-Docs`, or `-Extras` for all three).
+Only the chosen modules are installed; what's already there is skipped, torch is left alone, and every version is pinned
+(`constraints.txt`, resolved for Windows + Python 3.11 with torch 2.7.1). Restart `start.ps1` afterwards.
+
+- **Captions on the GPU** use CTranslate2's CUDA 12.8 build. Its cuBLAS/cuDNN DLLs come from the torch 2.7.1+cu128 that is
+  already installed (server.py imports torch first), so no CUDA toolkit is needed. CTranslate2 has no INT8 on RTX 50-series
+  (sm_120), so it runs in float16 there. If the GPU fails (missing DLL, out of memory) the job reruns on the CPU in int8.
+- **Docling** runs its layout and table models with torch (GPU when there is one) and OCR with RapidOCR (ONNX, CPU).
+  Its models are downloaded once into `models\docling`; while running it reads nothing from the internet.
 
 ## Run
 

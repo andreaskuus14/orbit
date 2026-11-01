@@ -2,21 +2,27 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Bounds, OrbitControls, useGLTF } from "@react-three/drei";
-import { CATALOG, MAX_CLONE_CHARS, START_CMD, VOICES, cloneBlocked, encodeWav, toolState, type Health, type ToolId } from "@/lib/local-ai-pure";
+import { CAPTION_LANGS, CATALOG, MAX_CLONE_CHARS, START_CMD, VOICES, cloneBlocked, encodeWav, isMediaName, spacesCsv, toolState, totalArea, type Health, type IfcSummary, type ToolId } from "@/lib/local-ai-pure";
+import { useT } from "./i18n";
 import RobloxBuild, { PINK } from "./RobloxBuild";
 
 // Local AI tools (tools/local-ai on his PC): Picture to 3D and Text to 3D (GAME DEV → Assets), Voiceover (STUDIO → Produce),
-// and the tool list (OPERATIONS → Local AI). Every result is saved in VAULT; nothing is uploaded. Data: /api/local-ai.
+// Captions (STUDIO → Produce), Read document (VAULT), Open IFC model (ARCH) and the tool list (OPERATIONS → Local AI). Every result is saved in VAULT; nothing is uploaded. Data: /api/local-ai.
 
 const raw = (name: string) => `/api/vault?file=${encodeURIComponent(name)}&raw=1`;
 const msg = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong");
 
-async function post(body: FormData | object): Promise<string> {
+async function postJson<T>(body: FormData | object): Promise<T> {
   const json = !(body instanceof FormData);
   const res = await fetch("/api/local-ai", { method: "POST", body: json ? JSON.stringify(body) : body, headers: json ? { "content-type": "application/json" } : undefined });
-  const j = (await res.json().catch(() => ({}))) as { saved?: string; error?: string };
-  if (!res.ok || !j.saved) throw new Error(j.error || `Request failed (${res.status})`);
-  return j.saved;
+  const j = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok || j.error) throw new Error(j.error || `Request failed (${res.status})`);
+  return j;
+}
+async function post(body: FormData | object): Promise<string> {
+  const { saved } = await postJson<{ saved?: string }>(body);
+  if (!saved) throw new Error("Nothing was saved");
+  return saved;
 }
 
 function useHealth() {
@@ -195,9 +201,111 @@ export function Voiceover() {
   );
 }
 
+/** STUDIO → Produce → Captions: a VAULT clip (captions saved next to it) or an uploaded one → .srt, .vtt and a clean transcript. */
+export function Captions() {
+  const [h, check] = useHealth();
+  const [files, setFiles] = useState<string[]>([]);
+  const [pick, setPick] = useState("");
+  const [upload, setUpload] = useState<File | null>(null);
+  const [lang, setLang] = useState<string>("auto");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState<{ saved: string[]; language: string; device: string } | null>(null);
+  useEffect(() => {
+    void fetch("/api/vault", { cache: "no-store" }).then((r) => r.json()).then((j: { files?: { name: string; mtime: number }[] }) =>
+      setFiles((j.files ?? []).filter((f) => isMediaName(f.name)).sort((a, b) => b.mtime - a.mtime).map((f) => f.name)), () => setFiles([]));
+  }, [done]);
+  const make = async () => {
+    setBusy(true); setErr(""); setDone(null);
+    try {
+      if (upload) { const f = new FormData(); f.append("action", "captions"); f.append("media", upload); f.append("language", lang); setDone(await postJson(f)); }
+      else setDone(await postJson({ action: "captions", file: pick, language: lang }));
+    } catch (e) { setErr(msg(e)); } finally { setBusy(false); check(); }
+  };
+  return (
+    <section className="glass grid gap-2 rounded-xl p-3 text-sm" aria-label="Captions">
+      <h3 className="brand text-sm">💬 Captions (free, on your PC)</h3>
+      <p className="muted text-xs">Writes down what is said and saves subtitles (.srt for YouTube, .vtt) and a clean transcript in VAULT, next to the clip. English or Estonian.</p>
+      <State h={h} id="captions" onCheck={check} />
+      <select className="field text-xs" value={pick} onChange={(e) => { setPick(e.target.value); setUpload(null); }} aria-label="Video or audio in VAULT">
+        <option value="">{files.length ? "Pick a video or audio file in VAULT…" : "No video or audio in VAULT yet"}</option>
+        {files.map((n) => <option key={n} value={n}>{n}</option>)}
+      </select>
+      <label className="text-xs">or a file from this PC (up to 100 MB; only the captions are kept): <input type="file" accept="video/*,audio/*,.mkv,.m4a" className="text-xs"
+        onChange={(e) => { setUpload(e.target.files?.[0] ?? null); setPick(""); }} /></label>
+      <select className="field text-xs" value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Spoken language">
+        {CAPTION_LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+      </select>
+      <button className="btn" disabled={busy || (!pick && !upload) || !toolState(h, "captions").ok} onClick={() => void make()}>{busy ? "Listening… (about a minute per 10 min of video on the GPU)" : "Make captions"}</button>
+      {err && <p className="text-xs text-red-400" role="alert">{err}</p>}
+      {done && <p className="text-xs">Saved in VAULT{done.language ? ` (language: ${done.language}, ${done.device})` : ""}: {done.saved.map((n, i) => <span key={n}>{i ? ", " : ""}<a className="underline" href={raw(n)} download>{n}</a></span>)}.
+        YouTube: Studio → Subtitles → Add → Upload file → the .srt. Check names and Estonian words before publishing.</p>}
+    </section>
+  );
+}
+
+/** VAULT file action: PDF/Word/PowerPoint/scan → Markdown saved beside it, so CORE can search and read it. */
+export function ReadDocument({ name, onSaved }: { name: string; onSaved: (saved: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const run = async () => {
+    setBusy(true); setErr("");
+    try { onSaved(await post({ action: "doc", file: name })); } catch (e) { setErr(msg(e)); } finally { setBusy(false); }
+  };
+  return <>
+    <button className="btn" disabled={busy} onClick={() => void run()} title="Docling on this PC (OPERATIONS → Local AI). The file never leaves the PC.">{busy ? "Reading the document…" : "Read document → Markdown"}</button>
+    {err && <p className="error w-full text-xs" role="alert">{err}</p>}
+  </>;
+}
+
+/** ARCH → Open IFC model: storeys, spaces with areas, element counts, materials, simple checks and a spaces CSV (IfcOpenShell on this PC). */
+export function IfcOpen() {
+  const [h, check] = useHealth();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [s, setS] = useState<{ name: string; summary: IfcSummary } | null>(null);
+  const open = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true); setErr(""); setS(null);
+    const f = new FormData(); f.append("action", "ifc"); f.append("file", file);
+    try { setS({ name: file.name, summary: (await postJson<{ summary: IfcSummary }>(f)).summary }); } catch (e) { setErr(msg(e)); } finally { setBusy(false); check(); }
+  };
+  const csv = () => {
+    if (!s) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\ufeff" + spacesCsv(s.summary)], { type: "text/csv" })); // BOM: Excel reads õ/ä/ü right
+    a.download = `${s.name.replace(/\.ifc$/i, "")}-spaces.csv`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  const m = s?.summary;
+  return (
+    <div className="card space-y-1.5 text-xs" aria-label="Open IFC model">
+      <div className="muted text-[10px] uppercase tracking-widest">Open IFC model</div>
+      <State h={h} id="ifc" onCheck={check} />
+      <input type="file" accept=".ifc" disabled={busy || !toolState(h, "ifc").ok} aria-label="IFC file" onChange={(e) => void open(e.target.files?.[0])} />
+      {busy && <p className="muted">Reading the model…</p>}
+      {err && <p className="error" role="alert">{err}</p>}
+      {m && <>
+        <p><b>{m.project || s.name}</b> · {m.schema} · {m.storeys.length} storeys · {m.spaces.length} spaces, {totalArea(m)} m² · {Object.values(m.counts).reduce((a, b) => a + b, 0)} elements</p>
+        {m.issues.length ? <ul className="pl-4">{m.issues.map((x) => <li key={x.kind} className="error">⚠ {x.text}: {x.count}{x.examples.length ? <span className="muted"> (e.g. {x.examples.slice(0, 3).join("; ")})</span> : null}</li>)}</ul>
+          : <p style={{ color: "#4ade80" }}>✓ No issues found by the simple checks (names, space areas, duplicate GlobalIds).</p>}
+        <details><summary className="cursor-pointer">Storeys</summary><ul className="muted pl-4">{m.storeys.map((x, i) => <li key={i}>{x.name || "(no name)"} · {x.elevation} m · {x.elements} elements</li>)}</ul></details>
+        <details><summary className="cursor-pointer">Spaces</summary>
+          <table className="w-full"><thead><tr className="muted"><th className="text-left">Storey</th><th className="text-left">Space</th><th className="text-right">m²</th></tr></thead>
+            <tbody>{m.spaces.slice(0, 300).map((x) => <tr key={x.guid}><td>{x.storey}</td><td>{x.name}{x.longName ? ` · ${x.longName}` : ""}</td><td className="text-right">{x.area ?? "—"}</td></tr>)}</tbody></table>
+          {m.spaces.length > 300 && <p className="muted">First 300 shown; the CSV has all {m.spaces.length}.</p>}</details>
+        <details><summary className="cursor-pointer">Elements by type</summary><p className="muted">{Object.entries(m.counts).map(([k, v]) => `${k.replace(/^Ifc/, "")} ${v}`).join(" · ")}</p></details>
+        <details><summary className="cursor-pointer">Materials</summary><p className="muted">{m.materials.map((x) => `${x.name} (${x.elements})`).join(" · ") || "none"}</p></details>
+        <button className="chip" disabled={!m.spaces.length} onClick={csv}>⬇ Spaces and areas (CSV)</button>
+      </>}
+    </div>
+  );
+}
+
 /** OPERATIONS → Local AI: what each tool does, whether it is installed, VRAM, license and the exact setup command. */
 export function LocalAiTools() {
   const [h, check] = useHealth();
+  const { lang } = useT();
   return (
     <section className="grid gap-3 text-sm" aria-label="Local AI tools">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -210,12 +318,12 @@ export function LocalAiTools() {
         return (
           <div key={c.id} className="glass grid gap-1 rounded-lg p-2 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <b>{c.name}</b>
+              <b>{lang === "et" && c.et ? c.et.name : c.name}</b>
               <span style={{ color: live ? (live.ok ? "#4ade80" : "#fbbf24") : undefined }} className={live ? undefined : "muted"}>
                 {live ? (live.ok ? "Ready" : h?.running ? "Not installed" : "Not running") : c.id === "text3d" ? "Uses Roblox Studio" : "Not available yet"}
               </span>
             </div>
-            <p>{c.what}</p>
+            <p>{lang === "et" && c.et ? c.et.what : c.what}</p>
             <p className="muted">Model: {c.model} · VRAM: {c.vram}{h?.gpu && c.vramGb > h.gpu.vramGb ? " (more than your GPU has)" : ""} · License: {c.license} · Where: {c.where}</p>
             <p className="muted">Setup: <code className="select-all">{c.setup}</code></p>
           </div>
