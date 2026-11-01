@@ -13,6 +13,7 @@ import type { Bucket, Split } from "@/lib/money-pure";
 import NicheCards from "./NicheCards";
 import InvoicesPanel from "./InvoicesPanel";
 import MoneyPanel from "./MoneyPanel";
+import BusinessOverview from "./BusinessOverview";
 import ContractsPanel from "./ContractsPanel";
 import NegotiatorBox from "./NegotiatorBox";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
@@ -75,6 +76,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
       {err ? <StateNote state="failed" what={err} kept={st ? t("state.keptScreen") : undefined} action={{ label: t("state.retry"), run: () => void load() }} />
         : !st && <StateNote state="loading" action={{ label: t("state.retry"), run: () => void load() }} />}
       {missing && <p className="muted" role="status">{t("link.missingClient")} <button className="chip" onClick={() => onFocus?.(null)}>{t("link.back")}</button></p>}
+      <BusinessOverview onClient={pick} onMoney={() => setView("money")} />
 
       {view === "today" && st && (
         <section className="space-y-2" aria-label={t("bizws.today")}>

@@ -72,6 +72,9 @@ export async function listDevSessions(sb: SupabaseClient, userId: string): Promi
   return all.filter((s) => s.userId === userId).reverse().map((s) => view(s, now));
 }
 
+/** Sessions he started since `from` (read only: the daily mission's game dev target). */
+export const devSessionsSince = async (userId: string, from: number) => (await load()).filter((s) => s.userId === userId && Date.parse(s.start) >= from).length;
+
 export class SessionError extends Error {}
 
 const mine = (s: DevSession[], userId: string, id: string) => {

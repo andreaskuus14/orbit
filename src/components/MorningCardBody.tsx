@@ -7,6 +7,7 @@ import { MorningCards, MorningHero, trackCard } from "./MorningCards";
 import type { WorkItem } from "@/lib/work-continuation-pure";
 import type { Card } from "@/lib/morning-rank-pure";
 import { WhileYouSlept } from "./NightShift";
+import MissionTargets from "./MissionTargets";
 import { useT } from "./i18n";
 import { greetKey } from "@/lib/i18n-pure";
 
@@ -86,7 +87,8 @@ export default function MorningCardBody({ data, err, recap, notes, speakMorning,
                   <b>{t("morning.mission")}</b> <span className="muted text-xs">{t("morning.missionDone", { done: data.mission.done, total: data.mission.total })}</span>
                   <div className="mc-bar" aria-hidden><i style={{ width: `${(100 * data.mission.done) / Math.max(1, data.mission.total)}%` }} /></div>
                   <ul className="mt-1 grid gap-0.5">{data.mission.items.map((m) => (
-                    <li key={m.id} className={m.done ? "ok" : undefined}>{m.done ? "✓" : "○"} {m.label} <span className="muted text-xs">· {m.progress}</span></li>))}</ul>
+                    <li key={m.id} className={m.done ? "ok" : undefined}>{m.done ? "✓" : "○"} {lang === "et" ? t(`mission.t.${m.id}` as "mission.t.shorts") : m.label} <span className="muted text-xs">· {m.noData ? t("mission.noData") : m.progress}</span></li>))}</ul>
+                  <MissionTargets />
                 </div>
               )}
               {s?.scout && <p className="muted text-xs">🛰 {s.scout}</p>}

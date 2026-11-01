@@ -75,6 +75,8 @@ export async function moneyCsv(period: string): Promise<string> {
   return typeof p === "string" ? p : "﻿" + toCsv(x, p); // BOM so Excel reads € and õ/ä/ö/ü right
 }
 
+/** His money settings (the BUSINESS overview reads the monthly target); throws when money.json is unreadable. */
+export const moneySettings = () => load().then((s) => s.settings);
 export const saveSettings = (b: Record<string, unknown>) => update((s) => { const r = patchSettings(b, s.settings); if (typeof r === "string") return r; s.settings = r; return ""; });
 export const saveVatPaid = (b: Record<string, unknown>) => update((s) => setVatPaid(s, b.month, b.amount));
 

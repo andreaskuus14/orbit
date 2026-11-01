@@ -17,6 +17,7 @@ const nav = (detail: NavTarget) => dispatchEvent(new CustomEvent<NavTarget>(NAV_
 /** Go where a brief / inbox item points (shared with MorningBriefBody). */
 export function openTarget(o: BriefOpen, onOpenTask: (id: string) => void, onOpenGoal: (id: string) => void) {
   if ("href" in o) window.open(o.href, "_blank", "noopener,noreferrer");
+  else if ("link" in o) location.hash = o.link; // Orbit applies the deep link on popstate (planet, view, record)
   else if ("task" in o) onOpenTask(o.task);
   else if ("goal" in o) onOpenGoal(o.goal);
   else if ("work" in o) (o.work.kind === "task" ? onOpenTask : onOpenGoal)(o.work.id);

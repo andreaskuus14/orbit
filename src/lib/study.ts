@@ -41,6 +41,8 @@ export async function studyView(userId: string) {
     lessons: kept.filter((l) => !carded.has(l.id)).map((l) => ({ id: l.id, ...lessonCard(l) })) };
 }
 
+/** Cards he graded today (the daily mission's study target); throws when study.json is unreadable. */
+export const reviewedToday = (userId: string, now = Date.now()) => mine(userId).then((u) => u.log.filter((r) => r.day === today(now)).length);
 /** How many cards are due today (0 on any failure): the morning brief's "3 minutes of cards". */
 export const dueCount = (userId: string, now = Date.now()) => mine(userId).then((u) => dueToday(u, today(now)).length, () => 0);
 

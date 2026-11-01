@@ -9,13 +9,14 @@ import type { WorkItem } from "./work-continuation-pure";
 import type { WriteEvidence } from "./completion-pure";
 import type { Lang } from "./i18n-pure";
 import { opsStatus, type OpsStatus } from "./ops-status-pure.ts";
+import type { Blocker } from "./business-overview-pure.ts";
 
 export type NeedKind = "decide" | "unblock" | "review";
 /** Always navigate (href = a checked result file). Never a one-tap approve: Decide items open where the exact content and its
  *  Approve live (AGENTS.md rule 6). The phone's own approval cards, which show that exact content, stay the only one-tap path. */
 export type NeedAct = { open: BriefOpen };
 /** Why it needs him; the UI asks one precise question per cause (needs.ask.<cause>). */
-export type NeedCause = "approval" | "decide" | "trust" | "conflict" | "system" | "input" | "failed" | "blocked" | "loop" | "review";
+export type NeedCause = "approval" | "decide" | "trust" | "conflict" | "system" | "input" | "failed" | "blocked" | "loop" | "review" | "overdue" | "followup" | "delivery";
 // remote: the phone approval id. status: the shared work status (ops-status-pure) when the item is a task or mission.
 export type Need = { ref: string; kind: NeedKind; cause: NeedCause; title: string; detail?: string; at?: string; act: NeedAct; remote?: string; status?: OpsStatus };
 type NightItem = { label: string; open?: { task: string } | { goal: string } | { panel: string } };
@@ -33,12 +34,25 @@ export type NeedsIn = {
   incident?: { id: string; title: string } | null; // health-pure briefHealth (new/regressed, serious, last 24 h)
   night?: { done: NightItem[]; failed: NightItem[]; endedAt?: string } | null;
   tasks?: { id: string; title: string; finished_at: string | null; pending?: unknown }[]; // finished top-level tasks of the last day
+  // BUSINESS attention (business-overview.ts sources): money owed, clients gone quiet, delivery that waits. now: for "N days".
+  overdue?: { id: string; number: string; buyer: string; cents: number; days: number }[];
+  followups?: { id: string; name: string; since: string }[]; // since: the last real contact (prospect-crm touch), else the row's updated_at
+  delivery?: Blocker[];
+  now?: number;
 };
 
-const RANK: Record<NeedKind, number> = { decide: 0, unblock: 1, review: 2 };
+/** Attention order: money overdue, then everything waiting for his OK, then follow-ups due, then blockers, then results. */
+const tier = (n: Need) => (n.cause === "overdue" ? 0 : n.cause === "followup" ? 2 : n.kind === "decide" ? 1 : n.kind === "unblock" ? 3 : 4);
+const DAY = 86_400_000;
+const MON = { en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], et: ["jaan", "veebr", "märts", "apr", "mai", "juuni", "juuli", "aug", "sept", "okt", "nov", "dets"] };
+/** "28 Oct" / "28. okt" (UTC date of an ISO time). */
+export const shortDay = (iso: string, lang: Lang) => { const d = new Date(iso); return lang === "et" ? `${d.getUTCDate()}. ${MON.et[d.getUTCMonth()]}` : `${d.getUTCDate()} ${MON.en[d.getUTCMonth()]}`; };
+const clientLink = (id: string): BriefOpen => ({ link: `#o=business&v=client&k=client&id=${encodeURIComponent(id)}` });
 const S = {
-  en: { trust: (a: string) => `Let ORBIT do ${a} work without asking?`, trustD: (n: number, t: number) => `You approved ${n} of ${t} this month`, failed: "Didn't work out", mission: "Mission blocked: ", checked: "Checked result", night: "Finished overnight" },
-  et: { trust: (a: string) => `Kas ORBIT võib ${a} töö teha küsimata?`, trustD: (n: number, t: number) => `Kinnitasid sel kuul ${n}/${t}`, failed: "Ei õnnestunud", mission: "Missioon seisab: ", checked: "Kontrollitud tulemus", night: "Valmis öösel" },
+  en: { overdue: (no: string, d: number) => `Invoice ${no} is ${d} day${d === 1 ? "" : "s"} overdue`, quiet: (d: number, on: string) => `No reply ${d} day${d === 1 ? "" : "s"} after your message on ${on}`,
+    waiting: (on: string) => `Delivery paused since ${on}`, blockedD: (t: string) => `Delivery step failed: ${t}`, trust: (a: string) => `Let ORBIT do ${a} work without asking?`, trustD: (n: number, t: number) => `You approved ${n} of ${t} this month`, failed: "Didn't work out", mission: "Mission blocked: ", checked: "Checked result", night: "Finished overnight" },
+  et: { overdue: (no: string, d: number) => `Arve ${no} on ${d} päeva üle tähtaja`, quiet: (d: number, on: string) => `Vastust pole ${d} päeva pärast sinu ${on} sõnumit`,
+    waiting: (on: string) => `Teostus on ootel alates ${on}`, blockedD: (t: string) => `Teostuse samm ebaõnnestus: ${t}`, trust: (a: string) => `Kas ORBIT võib ${a} töö teha küsimata?`, trustD: (n: number, t: number) => `Kinnitasid sel kuul ${n}/${t}`, failed: "Ei õnnestunud", mission: "Missioon seisab: ", checked: "Kontrollitud tulemus", night: "Valmis öösel" },
 };
 
 /** The record behind a source key, so one draft is one item: "approval:prospect:ID:day", "send:ID" and "prospect:ID:day" → "prospect:ID". */
@@ -64,7 +78,19 @@ export function receiptOpen(pending: unknown): BriefOpen | null {
  *  urgent kind (an approval that is also an open loop stays one Decide card). */
 export function needsYou(x: NeedsIn, lang: Lang = "en", snoozed: string[] = []): Need[] {
   const s = S[lang], by = new Map<string, Need>();
-  const add = (n: Need) => { const o = by.get(n.ref); if (!o || RANK[n.kind] < RANK[o.kind]) by.set(n.ref, o ? { ...n, remote: n.remote ?? o.remote } : n); };
+  const add = (n: Need) => { // one card per record: the most urgent wins and keeps any phone approval id
+    const o = by.get(n.ref);
+    if (!o || tier(n) < tier(o)) by.set(n.ref, o ? { ...n, remote: n.remote ?? o.remote } : n);
+    else if (n.remote && !o.remote) by.set(n.ref, { ...o, remote: n.remote });
+  };
+  const now = x.now ?? Date.now();
+
+  // Same refs as the approvals, decisions and loops they upgrade ("invoice:ID", "prospect:ID", "task:ID"), so each record stays one card.
+  for (const i of x.overdue ?? []) add({ ref: `invoice:${i.id}`, kind: "decide", cause: "overdue", title: `${i.buyer} · €${(i.cents / 100).toFixed(2)}`, detail: s.overdue(i.number, i.days),
+    at: new Date(now - i.days * DAY).toISOString(), act: { open: { link: "#o=business&v=money" } } });
+  for (const f of x.followups ?? []) add({ ref: `prospect:${f.id}`, kind: "decide", cause: "followup", title: f.name, detail: s.quiet(Math.floor((now - Date.parse(f.since)) / DAY), shortDay(f.since, lang)), at: f.since, act: { open: clientLink(f.id) } });
+  for (const b of x.delivery ?? []) add({ ref: b.ref, kind: "unblock", cause: "delivery", status: b.state === "blocked" ? "failed" : "waiting", title: `${b.client} · ${b.title}`,
+    detail: b.state === "waiting" ? s.waiting(shortDay(b.at, lang)) : s.blockedD(b.title), at: b.at, act: { open: b.task ? { task: b.task } : { panel: "operations" } } });
 
   for (const a of x.approvals ?? []) add({ ref: recordRef(a.key), kind: "decide", cause: "approval", title: a.title, detail: a.detail, remote: a.id, act: { open: approvalOpen(a.key, a.detail) } });
   for (const d of x.decisions ?? []) add({ ref: recordRef(d.id), kind: "decide", cause: "decide", title: d.title, act: { open: d.open ?? { panel: "agents" } } });
@@ -86,7 +112,9 @@ export function needsYou(x: NeedsIn, lang: Lang = "en", snoozed: string[] = []):
 
   const t = (n: Need) => Date.parse(n.at ?? "") || 0;
   for (const r of snoozed) by.delete(r); // snoozed with a reason until tomorrow (brief.json snoozes)
-  return [...by.values()].sort((a, b) => RANK[a.kind] - RANK[b.kind] || (a.kind === "review" ? t(b) - t(a) : 0)); // sort is stable: source order otherwise
+  const aged = (n: Need) => n.cause === "overdue" || n.cause === "followup" || n.cause === "delivery";
+  // Review: newest first. Money, follow-ups and delivery: oldest first. Sort is stable: source order otherwise.
+  return [...by.values()].sort((a, b) => tier(a) - tier(b) || (a.kind === "review" ? t(b) - t(a) : aged(a) && aged(b) ? t(a) - t(b) : 0));
 }
 
 /** Where a phone approval is decided on the PC (same targets as brief-pure briefDecisions). */
