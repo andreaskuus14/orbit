@@ -209,7 +209,7 @@ async function inBackground(sb: SupabaseClient, userId: string, cid: string, mes
   return { taskId, finished };
 }
 
-const receiptOf = (trace: { receipt?: Receipt }[]) => trace.findLast((s) => s.receipt)?.receipt;
+const receiptOf = (trace: { step: string; receipt?: Receipt }[]) => trace.findLast((s) => s.receipt)?.receipt;
 /** A turn that changed something leaves its receipt in Activity: the status and what failed or wasn't checked (no question text). */
 function logReceipt(rc: Receipt | undefined) {
   if (rc) logActivity({ area: "core", title: `CORE turn: ${receiptLine(rc)}`, ...(rc.failed.length + rc.claimed.length ? { detail: [...rc.failed, ...rc.claimed].join(" · ") } : {}), receipt: rc.status });
