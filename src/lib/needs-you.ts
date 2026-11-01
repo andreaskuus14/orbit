@@ -16,7 +16,7 @@ const soft = <T>(p: PromiseLike<T>, empty: T, ms = 4000): Promise<T> =>
 /** approvals: pass the phone's already-loaded list to skip a second read. */
 export async function gatherNeeds(sb: SupabaseClient, userId: string, now = Date.now(), lang: Lang = "en", approvals?: NeedsIn["approvals"]): Promise<Need[]> {
   const since = new Date(now - DAY).toISOString(), day = localDay(new Date(now));
-  const [rem, night, work, contracts, biz, missions, loops, conflict, trust, incident, tasks, migration, durable] = await Promise.all([
+  const [rem, night, work, contracts, biz, missions, loops, conflict, trust, incident, tasks, migration, durable, watches] = await Promise.all([
     approvals ?? soft(import("./remote").then((x) => x.pendingApprovals(sb)), []),
     soft(import("./night").then((x) => x.getNightReport(sb, userId, now)), null),
     soft(import("./work-continuation").then((x) => x.getContinueWork(sb, userId)), null),
@@ -33,6 +33,7 @@ export async function gatherNeeds(sb: SupabaseClient, userId: string, now = Date
       .order("finished_at", { ascending: false }).limit(10).then((r) => (r.data ?? []) as NonNullable<NeedsIn["tasks"]>), []),
     soft(Promise.all([import("./migration-guard"), import("./version-pure")]).then(async ([m, v]) => v.migrationNeed(await m.missingGuarded(sb))), null),
     soft(Promise.all([import("./durable"), import("./durable-pure")]).then(([d, p]) => { const c = p.durableCheck(d.writeFailures(), d.deadEvents()); return c.status === "ok" ? null : { id: "durable", title: c.detail.slice(0, 160) }; }), null),
+    soft(Promise.all([import("./pagewatch"), import("./pagewatch-pure")]).then(async ([w, p]) => p.importantUnseen(await w.watchStore())), []),
   ]);
   const snoozed = await import("./brief").then((b) => b.snoozedIds(userId, NEED_SNOOZE, now)).catch(() => []);
   const invoices = biz?.invoices?.data ?? [];
@@ -43,7 +44,7 @@ export async function gatherNeeds(sb: SupabaseClient, userId: string, now = Date
     approvals: rem, night,
     decisions: [...briefDecisions(night?.approvals ?? [], work?.items ?? [], []), ...briefContracts(contracts), ...inv],
     work: work?.items, missions, loops, conflict, trust, incident, migration, durable, tasks,
-    overdue, followups, delivery: biz?.blockers?.data ?? [], now,
+    overdue, followups, delivery: biz?.blockers?.data ?? [], watches, now,
   }, lang, snoozed);
 }
 
