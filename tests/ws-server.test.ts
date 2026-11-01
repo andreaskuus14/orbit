@@ -87,3 +87,15 @@ test("site pipeline: a fullstack plan's front end lives in public/ and the serve
   assert.equal(nextSiteStep(["plan.md", "server.mjs", "public/style.css", "public/index.html", "assets/a.webp"], plan), "check");
   assert.match(siteStepHint(["plan.md"], "Type: static"), /\(css\/style\.css\)/);
 });
+
+test("smoke plan: POST-only routes aren't probed with GET; validated POST routes count when they refuse the test item", async () => {
+  const { apiEndpoints, smokePlan } = await import("../src/lib/ws-server-pure.ts");
+  const src = `const routes = { "GET /api/club": a, "POST /api/club/x": b, "GET /api/bookings": c, "POST /api/bookings": d, "POST /api/contact": e, "GET /api/health": f };`;
+  const eps = apiEndpoints(src);
+  assert.deepEqual(eps["/api/contact"], ["POST"]);
+  const p = smokePlan(eps);
+  assert.ok(!p.gets.includes("/api/contact") && p.gets.includes("/api/club"));
+  assert.equal(p.post, "/api/bookings"); assert.equal(p.readBack, true);
+  assert.deepEqual(smokePlan(apiEndpoints(`"GET /api/items" "POST /api/items"`)), { gets: ["/api/items"], post: "/api/items", readBack: true });
+  assert.equal(smokePlan(apiEndpoints(`"/api/notes"`)).post, "/api/notes"); // no method named: probed as before
+});

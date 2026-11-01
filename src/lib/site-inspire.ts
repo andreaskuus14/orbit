@@ -101,17 +101,22 @@ export async function pictureDraft(input: Record<string, unknown>, user: string,
   const stand: string[] = [];
   for (const s of slots) if (!(await io.exists(s.path)) && (await io.placeholder(s))) stand.push(s.path);
   const drew = stand.length ? `Drew stand-in art at ${stand.join(", ")} so the site looks finished now. ` : "";
-  // Free generator first: every slot without a real photo yet gets one now (two at a time); what fails goes on below.
+  // Free generator first: every slot without a real photo yet gets one now (one at a time, refused ones retried); what fails goes on below.
   let todo = slots, freeNote = "";
   if (io.free) {
     const made: string[] = [], left: Slot[] = [], queue = [...slots];
+    const until = Date.now() + (io.budgetMs ?? 4 * 60_000); // a CORE step can't wait forever; the rest keep their stand-ins
     const worker = async () => {
       for (let s = queue.shift(); s; s = queue.shift()) {
+        if (Date.now() > until) { left.push(s); continue; }
         if (await io.hasPhoto?.(s.path)) continue;
-        if (await io.free!(s)) made.push(s.path); else left.push(s);
+        // The free service limits anonymous use to about one picture at a time: retry a refused one after a pause.
+        let ok = false;
+        for (let t = 0; t < 3 && !ok; t++) { if (t) await new Promise((r) => setTimeout(r, io.retryMs ?? 8000 * t)); ok = await io.free!(s); }
+        if (ok) made.push(s.path); else left.push(s);
       }
     };
-    await Promise.all([worker(), worker()]);
+    await worker(); // one at a time: parallel requests were refused (live: 1 of 8 photos made)
     todo = left;
     freeNote = made.length ? `Made ${made.length} realistic photo${made.length > 1 ? "s" : ""} for free (Pollinations) at ${made.join(", ")}; credits are in assets/CREDITS.md, nothing was spent. ` : "";
     if (!todo.length) return `Done: ${drew}${freeNote || "Every path already has a photo. "}No approval is needed. Reference these paths in the HTML (<img src="${slots[0].path}" alt="…" width height>).`;
@@ -134,6 +139,10 @@ export type PictureIO = {
   free?: (s: Slot) => Promise<boolean>;
   /** The path already has a real photo (a credit line in assets/CREDITS.md), so it isn't made again. */
   hasPhoto?: (path: string) => Promise<boolean>;
+  /** Pause before retrying a refused free picture (tests pass 0). */
+  retryMs?: number;
+  /** Total time for free pictures in one call (default 4 min). */
+  budgetMs?: number;
 };
 
 /** One free photo for a slot: the first endpoint that returns a real raster image (≥ 8 KB) within 90 s, else null. */

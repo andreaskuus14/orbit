@@ -39,6 +39,26 @@ export function startBlocked(o: { hasServer: boolean; permission: boolean; runni
 /** "/api/..." routes named in server.mjs, as string literals; ":id"-style and "*" parts are left out of the smoke check. */
 export const apiRoutes = (src: string) => [...new Set([...src.matchAll(/["'`](?:[A-Z]+ )?(\/api\/[A-Za-z0-9_\-][A-Za-z0-9_\-/]*)["'`]/g)].map((m) => m[1].replace(/\/+$/, "")))];
 
+/** Routes with the methods server.mjs names for them ("POST /api/bookings"); a route named without a method is "ANY". */
+export function apiEndpoints(src: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const m of src.matchAll(/["'`](?:([A-Z]+) )?(\/api\/[A-Za-z0-9_\-][A-Za-z0-9_\-/]*)["'`]/g)) {
+    const r = m[2].replace(/\/+$/, ""), ms = (out[r] ??= []);
+    if (!ms.includes(m[1] ?? "ANY")) ms.push(m[1] ?? "ANY");
+  }
+  return out;
+}
+/** What the smoke check calls: GET only routes that answer GET (a POST-only route isn't probed with GET), and the POST
+ *  round-trip on /api/items, else a route with both POST and GET, else any POST route (posted but not read back). */
+export function smokePlan(eps: Record<string, string[]>): { gets: string[]; post: string | null; readBack: boolean } {
+  const has = (r: string, m: string) => eps[r].includes(m) || eps[r].includes("ANY");
+  const routes = Object.keys(eps), gets = routes.filter((r) => has(r, "GET"));
+  const posts = routes.filter((r) => has(r, "POST") && !/health/.test(r));
+  const both = posts.filter((r) => has(r, "GET"));
+  const post = posts.includes("/api/items") ? "/api/items" : both[0] ?? posts[0] ?? null;
+  return { gets, post, readBack: !!post && has(post, "GET") };
+}
+
 export type SmokeResult = { what: string; ok: boolean; detail?: string };
 /** The "Check:" line and the problems list (checkNote's shape in core-workspace.ts). */
 export function smokeReport(rs: SmokeResult[]): { line: string; issues: string[] } {
