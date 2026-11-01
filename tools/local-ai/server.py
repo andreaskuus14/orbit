@@ -150,7 +150,14 @@ def image_to_3d(image: UploadFile = File(...), resolution: int = Form(256)):
         except Exception:
             raise HTTPException(400, "That file isn't a picture ORBIT can read (use PNG, JPG or WebP).")
         dev = device()
-        model = TSR.from_pretrained(str(MODELS / "TripoSR"), config_name="config.yaml", weight_name="model.ckpt")
+        # torch >= 2.6 loads with weights_only=True, which TripoSR's checkpoint fails; it is the revision-pinned
+        # stabilityai/TripoSR file setup.ps1 downloaded, so the full load is allowed for this one call only.
+        _load = torch.load
+        torch.load = lambda *a, **k: _load(*a, **{**k, "weights_only": False})
+        try:
+            model = TSR.from_pretrained(str(MODELS / "TripoSR"), config_name="config.yaml", weight_name="model.ckpt")
+        finally:
+            torch.load = _load
         try:
             model.renderer.set_chunk_size(CHUNK)
             model.to(dev)
