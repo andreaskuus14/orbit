@@ -37,6 +37,7 @@ import { MODULE_PRIVATE, MODULE_NAMES, modulePromptFor, MODULE_WRITES, isModuleT
 import { classifyReflex, clockReply, smallTalkReply, type Reflex } from "./reflex-pure";
 import { citeWeek, knownCites, weekIntent } from "./week-pure";
 import { coreAnswerEval, type CoreEvalTool } from "./core-answer-eval-pure";
+import { coreReceipt, type Receipt } from "./receipt-pure";
 import type { AnswerEval } from "./answer-eval-pure";
 import { recordCoreTurn } from "./perf-log";
 import { createClipStore } from "./clip-store-pure";
@@ -63,7 +64,7 @@ export const SESSION_MODE = process.env.ORBIT_CORE_SESSION === "resume" ? "resum
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
 const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
 
-export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: AnswerEval & { ms: number }; policy?: { verdict: "refuse"; turn: string } };
+export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: AnswerEval & { ms: number }; receipt?: Receipt; policy?: { verdict: "refuse"; turn: string } };
 export type Citation = { id: string; title: string; kind: string };
 export type Turn = { role: "user" | "assistant"; content: string };
 
@@ -132,7 +133,7 @@ ${facts || "(empty)"}`;
 export const TURN_MS = 285_000; // inside the CORE route's 300 s maxDuration
 /** Thrown when an interactive turn ran out of time on a long step: core-turn.ts moves the work to the background. */
 /** carry: the finished tool results, trace and call cache, so the background run resumes instead of restarting. */
-type Carry = { steps: string[]; trace: TraceStep[]; done: Map<string, string>; extra?: number }; // extra: step budgets added past the first (long-work-pure afterBudget)
+type Carry = { steps: string[]; trace: TraceStep[]; done: Map<string, string>; extra?: number; tools?: CoreEvalTool[] }; // extra: step budgets added past the first (long-work-pure afterBudget)
 export class CoreHandoff extends Error { carry?: Carry }
 const turnBudget = new AsyncLocalStorage<{ ms: number; background: boolean } & Carry>();
 export const runCore = (...a: Parameters<typeof coreTurn>) => runCoreFor(TURN_MS, false, ...a);
@@ -145,7 +146,7 @@ export async function runCoreFor(ms: number, background: boolean | CoreHandoff, 
   try { d.signal.throwIfAborted(); return await turnBudget.run(store, () => coreTurn(...a)); }
   catch (e) {
     const out = e instanceof CoreHandoff ? e : d.timedOut() && !background ? new CoreHandoff((d.signal.reason as Error).message) : d.timedOut() ? new CoreStopped(e instanceof CoreStopped ? e.completed : "", (d.signal.reason as Error).message) : e;
-    if (out instanceof CoreHandoff) out.carry = { steps: store.steps, trace: store.trace, done: store.done, extra: store.extra };
+    if (out instanceof CoreHandoff) out.carry = { steps: store.steps, trace: store.trace, done: store.done, extra: store.extra, tools: store.tools };
     throw out;
   }
   finally { d.clear(); leave(); }
@@ -201,7 +202,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   onStep?.("search_memory", {});
   let byId = new Map<string, { id: string; title: string; kind: string }>(); // memories in context, for citations
   let playbookRules: string[] = [];
-  const evalTools: CoreEvalTool[] = [];
+  const evalTools: CoreEvalTool[] = (budget.tools ??= []); // carried across a handoff, so the receipt counts the finished steps too
   // Every lookup runs in parallel while step 0's CLI is already booting: the finished prompt becomes its stdin.
   const prep = (async () => {
     const [found, playbook, { data: summaries }, relevantChats, known, live, world, people] = await Promise.all([
@@ -232,7 +233,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     // Confirmed + current first; suggested / due-for-recheck records stay but are flagged (provenance-pure.ts).
     const flags = new Map(compactContext([], results.map((m) => m.id as string), results, Date.now(), results.length).map((c) => [c.id, c]));
     results = [...flags.keys()].map((id) => results.find((m) => m.id === id)!);
-    const flag = (id: string) => { const c = flags.get(id), m = results.find((r) => r.id === id); return `${m ? typeLabel(m) : ""}${c?.stale ? ' recheck="due"' : ""}`; };
+    const outdated = await import("./entity-graph").then((x) => x.outdatedNotes(userId), () => new Map<string, string>()); // superseded claims: history, not current
+    const flag = (id: string) => { const c = flags.get(id), m = results.find((r) => r.id === id), o = outdated.get(id); return `${m ? typeLabel(m) : ""}${c?.stale ? ' recheck="due"' : ""}${o ? ` outdated=${JSON.stringify(o.slice(0, 300))}` : ""}`; };
     const memories = results.length
       ? results.map((m, i) => `<memory id="${m.id}" kind="${m.kind}" title=${JSON.stringify(m.title)} created="${m.created_at}"${flag(m.id)}>\n${escapeTags(selectPassages(String(m.content), question, i < 3 ? 6000 : 1500, i + 1))}\n</memory>`).join("\n")
       : "(none matched)";
@@ -479,6 +481,8 @@ function inspectAnswer(question: string, answer: string, trace: TraceStep[], pla
   const last = trace.at(-1);
   if (last) {
     last.answerEval = { ...evaluation, ms: Date.now() - started };
+    const receipt = coreReceipt(question, tools); // only when the turn changed something (receipt-pure.ts)
+    if (receipt) last.receipt = receipt;
     if (log) last.detail += ` · ${log.slice("[core] ".length)}`;
   }
   if (log) setImmediate(() => { try { console.info(log); } catch { /* Advisory logging must not affect delivery. */ } });

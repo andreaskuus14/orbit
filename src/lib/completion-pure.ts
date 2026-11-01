@@ -41,3 +41,7 @@ export function interruptedPatch(pending: ActionResult[] | null | undefined, err
   const marked = (pending ?? []).map((a) => (a.status === "attempting" ? { ...a, status: "uncertain", note: UNCERTAIN_NOTE } : a));
   return { status: "failed", error: unsure(marked) ? UNCERTAIN_ERROR : error, pending: marked, finished_at: new Date().toISOString() };
 }
+
+/** A restart kills every in-process runner, so a task still "running" that started before this process booted can never finish. */
+export const INTERRUPTED = "Interrupted: ORBIT restarted while this ran. Resumable: press Retry (or Resume on a step); approved actions with receipts are kept, any without one is marked Check manually.";
+export const startedBeforeBoot = (startedAt: string | null, bootAt: number) => !startedAt || Date.parse(startedAt) < bootAt;

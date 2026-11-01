@@ -13,10 +13,12 @@ import type { Bucket, Split } from "@/lib/money-pure";
 import NicheCards from "./NicheCards";
 import InvoicesPanel from "./InvoicesPanel";
 import MoneyPanel from "./MoneyPanel";
+import BusinessOverview from "./BusinessOverview";
 import ContractsPanel from "./ContractsPanel";
 import NegotiatorBox from "./NegotiatorBox";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
+import { postWatch } from "./WatchesSection";
 import { todayQueue } from "@/lib/planet-view-pure";
 
 // Three.js loads after the drawer opens, so the list shows instantly.
@@ -75,6 +77,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
       {err ? <StateNote state="failed" what={err} kept={st ? t("state.keptScreen") : undefined} action={{ label: t("state.retry"), run: () => void load() }} />
         : !st && <StateNote state="loading" action={{ label: t("state.retry"), run: () => void load() }} />}
       {missing && <p className="muted" role="status">{t("link.missingClient")} <button className="chip" onClick={() => onFocus?.(null)}>{t("link.back")}</button></p>}
+      <BusinessOverview onClient={pick} onMoney={() => setView("money")} />
 
       {view === "today" && st && (
         <section className="space-y-2" aria-label={t("bizws.today")}>
@@ -325,6 +328,7 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
         <select className="chip" aria-label="Message language" value={lang} onChange={(e) => setLang(e.target.value as Lang)}>{LANGS.map((l) => <option key={l}>{l}</option>)}</select>
         <button className="chip" disabled={any} onClick={() => void act(`research:${p.id}`, { action: "research", id: p.id })}>
           {busy === `research:${p.id}` ? "CORE is reading their site…" : "🔎 Research"}</button>
+        <WatchSite p={p} />
         {p.stage === "lead" && <select className="chip" aria-label="Message angle" value={angle} onChange={(e) => setAngle(e.target.value as Template | "auto")}>
           <option value="auto">Angle: CORE picks</option>{TEMPLATES.map((t) => <option key={t} value={t}>Angle: {t}</option>)}</select>}
         <button className="chip" disabled={any} onClick={() => void act(`draft:${p.id}`, { action: "draft", id: p.id, lang, angle })}>
@@ -351,4 +355,18 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
       )}
     </li>
   );
+}
+
+/** BUSINESS → lead row: watch the lead's website (no site yet → tells him when it goes live; outdated → when it changes). */
+function WatchSite({ p }: { p: Prospect }) {
+  const { t } = useT();
+  const [state, setState] = useState("");
+  const guess = p.contact.match(/https?:\/\/\S+|(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/\S*)?/i)?.[0] ?? ""; // a site, or the domain of their email
+  const go = async () => {
+    const url = prompt(t("pw.leadAsk"), guess)?.trim(); // shortcut: a browser prompt; an inline field if he uses it a lot
+    if (!url) return;
+    try { await postWatch({ action: "add", url, purpose: `Lead: ${p.name} website`, lead: p.id }); setState(t("pw.leadOn")); }
+    catch (e) { setState(e instanceof Error ? e.message : "Could not add the watch"); }
+  };
+  return <>{state ? <span className="muted text-[11px]">{state}</span> : <button className="chip" onClick={() => void go()}>{t("pw.lead")}</button>}</>;
 }

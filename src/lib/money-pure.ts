@@ -14,7 +14,8 @@ export const RECEIPT_TYPES: Record<string, string> = { pdf: "application/pdf", j
 export const MAX_RECEIPT = 10 * 1024 * 1024;
 
 export type Expense = { id: string; day: string; category: Category; gross: number; vat: number; note: string; receipt: string | null; created: string };
-export type Settings = { form: Form | ""; vatRegistered: boolean; vatBasis: "invoice" | "cash"; eurPerUsd: number; eurPerCredit: number };
+export type Settings = { form: Form | ""; vatRegistered: boolean; vatBasis: "invoice" | "cash"; eurPerUsd: number; eurPerCredit: number;
+  revenueTarget?: number }; // € per month he aims to be paid (BUSINESS overview); 0 or missing = none
 export type Store = { settings: Settings; expenses: Expense[]; vatPaid: Record<string, number>; apiUsd: Record<string, number> };
 export const DEFAULT_SETTINGS: Settings = { form: "", vatRegistered: false, vatBasis: "invoice", eurPerUsd: 0, eurPerCredit: 0 };
 export const emptyStore = (): Store => ({ settings: { ...DEFAULT_SETTINGS }, expenses: [], vatPaid: {}, apiUsd: {} });
@@ -54,6 +55,7 @@ export function patchSettings(b: Record<string, unknown>, cur: Settings): Settin
   if (b.vatBasis !== undefined) { if (b.vatBasis !== "invoice" && b.vatBasis !== "cash") return "VAT basis must be invoice or cash"; s.vatBasis = b.vatBasis; }
   if (b.eurPerUsd !== undefined) { const v = rate(b.eurPerUsd, 10); if (v === null) return "€ per USD must be 0-10"; s.eurPerUsd = v; }
   if (b.eurPerCredit !== undefined) { const v = rate(b.eurPerCredit, 100); if (v === null) return "€ per Higgsfield credit must be 0-100"; s.eurPerCredit = v; }
+  if (b.revenueTarget !== undefined) { const v = rate(b.revenueTarget, 10_000_000); if (v === null) return "Monthly target must be €0-10,000,000"; s.revenueTarget = Math.round(v); }
   return s;
 }
 

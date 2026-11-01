@@ -1,6 +1,6 @@
 // Entity graph + contradiction check (pure, tested in tests/entity-graph.test.ts). IO: entity-graph.ts; API: /api/memories/entities;
 // UI: the MEMORY review queue (memory-review-pure.ts); one brief line. Rules only, no model call. Journal (LIFE) memories are dropped here
-// even if a caller passes them. Conflicts settle by memory-types-pure.ts weight before anything is asked. Merges are only ever SUGGESTED: claims group across names only after the owner confirms.
+// even if a caller passes them. Conflicts settle by memory-types-pure.ts weight before anything is asked. Merges are only ever SUGGESTED, and only with 2+ independent signals (signals()): claims group across names only after the owner confirms.
 
 import { currentOnly, resolveClaims, weight } from "./memory-types-pure.ts";
 
@@ -124,11 +124,22 @@ export type ResolvedEntity = ReturnType<typeof resolveEntities>[number];
 /** Clusters worth asking about: 2+ different names, not yet confirmed, confident enough ("same"), then "related" pairs.
  *  Best first, at most `max`. Each carries the evidence, both sides' sources and facts, and the class of difference. Never auto-merged. */
 export function mergeSuggestions(ents: ResolvedEntity[], max = MAX_SHOWN, x: { related?: ResolvedEntity[]; claims?: Claim[] } = {}): MergeSuggestion[] {
-  const same = ents.filter((e) => e.keys.length >= 2 && !e.confirmed && e.confidence >= SUGGEST).map((e) => ({ e, relation: "same" as const }));
-  const rel = (x.related ?? []).map((e) => ({ e, relation: "related" as const }));
+  const enough = (e: ResolvedEntity) => signals(e, x.claims ?? []).length >= MIN_SIGNALS; // one look-alike name is never enough (owner report: a wrong link)
+  const same = ents.filter((e) => e.keys.length >= 2 && !e.confirmed && e.confidence >= SUGGEST && enough(e)).map((e) => ({ e, relation: "same" as const }));
+  const rel = (x.related ?? []).filter(enough).map((e) => ({ e, relation: "related" as const }));
   return [...same.sort((a, b) => b.e.confidence - a.e.confidence || b.e.keys.length - a.e.keys.length), ...rel.sort((a, b) => b.e.confidence - a.e.confidence)]
     .slice(0, max).map(({ e, relation }) => ({ key: `same:${hash([...e.keys].sort().join("|"))}`, keys: e.keys, forms: [...new Set(e.forms)].slice(0, 6), kind: e.kind,
       confidence: e.confidence, relation, evidence: e.evidence.slice(0, 6), ...compareSides(e.parts, x.claims ?? []) }));
+}
+
+export const MIN_SIGNALS = 2;
+/** Independent kinds of evidence that the names are one thing: a name rule (exact/email/first/initial/middle/acronym), a shared
+ *  stable id (same domain), and an agreeing fact (same birthday / employer / home on both sides). Several name rules count once. */
+export function signals(e: Pick<ResolvedEntity, "evidence" | "parts">, claims: Claim[]): ("name" | "id" | "fact")[] {
+  const out = new Set<"name" | "id" | "fact">(e.evidence.map((v) => (v.code === "id" ? "id" as const : "name" as const)));
+  const per = e.parts.map((p) => new Set(claims.filter((c) => c.form !== "me" && formKey(c.form) === p.key).map((c) => `${c.attr}=${c.norm}`)));
+  if (per.some((a, i) => per.slice(i + 1).some((b) => [...a].some((v) => b.has(v))))) out.add("fact");
+  return [...out];
 }
 
 /** V05: what each side says before anything is proposed — sources, dates, facts (changed ones flagged), the class and the kept result. */
@@ -246,7 +257,8 @@ export function gather(x: { memories: MemIn[]; facts: FactIn[]; people: PersonIn
 
 const same = (a: string, b: string) => a === b || (a.length >= 3 && b.length >= 3 && (` ${b} `.includes(` ${a} `) || ` ${a} `.includes(` ${b} `))); // "acme" ~ "acme estonia"
 /** Claims about the same entity (exact name or an owner-confirmed merge) and attribute that disagree. Newest first; decided keys skipped. */
-export function findContradictions(claims: Claim[], ents: ResolvedEntity[], d: EntityDecisions, max = MAX_SHOWN): Contradiction[] {
+/** Claims grouped by entity + attribute (unconfirmed merges never group claims), each group's distinct values newest first. */
+function claimGroups(claims: Claim[], ents: ResolvedEntity[]) {
   const byKey = new Map<string, ResolvedEntity>();
   for (const e of ents) for (const k of e.keys) byKey.set(k, e);
   const groups = new Map<string, { entity: string; attr: Attr; cs: Claim[] }>();
@@ -257,19 +269,40 @@ export function findContradictions(claims: Claim[], ents: ResolvedEntity[], d: E
     const g = groups.get(`${id}|${c.attr}`) ?? { entity: name, attr: c.attr, cs: [] };
     g.cs.push(c); groups.set(`${id}|${c.attr}`, g);
   }
-  const out: (Contradiction & { at: string })[] = [];
-  for (const [gk, g] of groups) {
+  return [...groups].map(([gk, g]) => {
     const opts: Contradiction["options"] = [];
     for (const c of [...g.cs].sort((a, b) => b.src.at.localeCompare(a.src.at))) if (!opts.some((o) => same(o.norm, c.norm))) opts.push({ norm: c.norm, value: c.value, src: c.src });
+    return { ...g, opts, key: `contra:${hash(`${gk}|${opts.map((o) => o.norm).sort().join("|")}`)}` };
+  });
+}
+
+export function findContradictions(claims: Claim[], ents: ResolvedEntity[], d: EntityDecisions, max = MAX_SHOWN): Contradiction[] {
+  const out: (Contradiction & { at: string })[] = [];
+  for (const { entity, attr, opts, key } of claimGroups(claims, ents)) {
     if (opts.length < 2) continue;
     // 26: correction > provenance > recency; only a real tie between his own statements is asked.
     if (resolveClaims(opts.map((o) => ({ weight: o.src.weight ?? 3, at: o.src.at })))) continue;
-    const key = `contra:${hash(`${gk}|${opts.map((o) => o.norm).sort().join("|")}`)}`;
     if (key in d.contra) continue;
-    out.push({ key, entity: g.entity, attr: g.attr, options: opts.slice(0, 4), at: opts[0].src.at });
+    out.push({ key, entity, attr, options: opts.slice(0, 4), at: opts[0].src.at });
   }
   return out.sort((a, b) => b.at.localeCompare(a.at)).slice(0, max).map(({ at: _at, ...c }) => c);
 }
+
+/** A memory claim another one replaced: kept, but marked superseded with the date and the replacing value. */
+export type Outdated = { id: string; entity: string; attr: Attr; was: string; now: string; since: string };
+/** Settled disagreements (by weight/recency, or his "Which is right?" answer): every memory that still says the losing value. */
+export function outdatedClaims(claims: Claim[], ents: ResolvedEntity[], d: EntityDecisions): Outdated[] {
+  const out: Outdated[] = [];
+  for (const { entity, attr, opts, cs, key } of claimGroups(claims, ents)) {
+    if (opts.length < 2) continue;
+    const win = d.contra[key] && d.contra[key] !== "skip" ? opts.find((o) => o.norm === d.contra[key]) : resolveClaims(opts.map((o) => ({ ...o, weight: o.src.weight ?? 3, at: o.src.at })));
+    if (!win) continue;
+    for (const c of cs) if (c.src.type === "memory" && !same(c.norm, win.norm)) out.push({ id: c.src.id, entity, attr, was: c.value, now: win.value, since: win.src.at.slice(0, 10) });
+  }
+  return out;
+}
+/** The retrieval label for one memory's outdated claims ("" when none). */
+export const outdatedLabel = (xs: Outdated[]) => xs.map((x) => `${x.entity === "me" ? "my" : `${x.entity}'s`} ${x.attr}: "${x.was}" is superseded by "${x.now}" (${x.since})`).join("; ");
 
 /** The owner's click. "same"/"different" on a merge suggestion; a chosen norm or "skip" on a contradiction. State or why not. */
 export function decideEntity(d: EntityDecisions, s: { merges: MergeSuggestion[]; contradictions: Contradiction[] }, key: string, choice: string, at = new Date().toISOString()): EntityDecisions | string {

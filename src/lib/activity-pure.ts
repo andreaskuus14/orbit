@@ -1,6 +1,7 @@
 // Activity log: pure parts (JSONL parse/trim, rows → items, merge), tested in tests/activity.test.ts.
 import { PLANETS } from "./planets.ts";
 import { isOpsTool, OP_ID, receiptId } from "./core-operator-pure.ts";
+import { receiptLine, rowReceipt, type ReceiptStatus } from "./receipt-pure.ts";
 
 // Server glue: activity.ts (append-only JSONL for events with no other record); API: /api/activity; UI: ActivityView (OPERATIONS).
 
@@ -10,8 +11,8 @@ export type ActLink = { task?: string; panel?: string };
 /** How to reverse an autonomous action: delete the memory it saved, rename a VAULT file back (`to` = its old name), or put back
  *  an ORGANIZE write's saved before-state (`op`: core-operator.ts undoOp). */
 export type ActUndo = { kind: "memory"; id: string } | { kind: "vault-rename"; id: string; to: string } | { kind: "op"; id: string };
-/** undid: the undoKey() of the action this line reversed. */
-export type ActItem = { at: string; area: ActArea; title: string; detail?: string; link?: ActLink; undo?: ActUndo; undid?: string };
+/** undid: the undoKey() of the action this line reversed. receipt: the finished work's proof status (receipt-pure.ts). */
+export type ActItem = { at: string; area: ActArea; title: string; detail?: string; link?: ActLink; undo?: ActUndo; undid?: string; receipt?: ReceiptStatus };
 export const ACT_MAX = 5000; // lines kept in activity.jsonl
 
 const PANELS = new Set<string>([...PLANETS.map((p) => p.id), "core", "profile"]);
@@ -23,6 +24,7 @@ export function cleanLink(l: unknown): ActLink | undefined {
   if (typeof panel === "string" && PANELS.has(panel)) return { panel };
   return undefined;
 }
+const RECEIPTS: unknown[] = ["verified", "partly", "unverified", "failed"];
 const isArea = (a: unknown): a is ActArea => (ACT_AREAS as readonly string[]).includes(a as string);
 const cut = (s: unknown, n: number) => String(s ?? "").slice(0, n);
 
@@ -36,7 +38,7 @@ export function parseActivity(text: string): ActItem[] {
       if (!o || typeof o.at !== "string" || !isArea(o.area) || typeof o.title !== "string" || Number.isNaN(Date.parse(o.at))) continue;
       const undo = cleanUndo(o.undo);
       out.push({ at: o.at, area: o.area, title: cut(o.title, 300), ...(o.detail ? { detail: cut(o.detail, 500) } : {}), ...(cleanLink(o.link) ? { link: cleanLink(o.link) } : {}),
-        ...(undo ? { undo } : {}), ...(typeof o.undid === "string" ? { undid: cut(o.undid, 400) } : {}) });
+        ...(undo ? { undo } : {}), ...(typeof o.undid === "string" ? { undid: cut(o.undid, 400) } : {}), ...(RECEIPTS.includes(o.receipt) ? { receipt: o.receipt } : {}) });
     } catch { /* skip */ }
   }
   return out;
@@ -55,11 +57,11 @@ export function mergeActivity(lists: ActItem[][], area?: string, limit = 200): A
 
 type TaskRow = {
   id: string; parent_id: string | null; agent: string; title: string; status: string; automation_id?: string | null; error?: string | null;
-  trace?: { step: string; ok: boolean }[] | null; pending?: { tool: string; status: string }[] | null;
+  request?: string | null; trace?: { step: string; ok: boolean; receipt?: unknown }[] | null; pending?: { tool: string; status: string }[] | null;
   created_at: string; started_at: string | null; finished_at: string | null;
 };
 const STATUS: Record<string, string> = { queued: "Queued", running: "Running", awaiting_approval: "Needs approval", done: "Done", failed: "Failed", cancelled: "Cancelled" };
-const INNER = new Set(["think", "verify", "review", "error"]);
+const INNER = new Set(["think", "verify", "review", "error", "receipt"]);
 
 /** Agent tasks (incl. team-chain steps, goal steps, automation runs) → one item each; the tools it used and its approvals in the detail. */
 export function taskItems(rows: TaskRow[]): ActItem[] {
@@ -67,8 +69,9 @@ export function taskItems(rows: TaskRow[]): ActItem[] {
     const area: ActArea = t.automation_id ? "automations" : t.title.startsWith("Team") ? "chains" : t.title.startsWith("Goal step ") ? "goals" : "agents";
     const tools = [...new Set((t.trace ?? []).map((s) => s.step).filter((s) => !INNER.has(s)))];
     const acts = (t.pending ?? []).map((p) => `${p.tool} ${p.status}`);
-    const detail = [t.agent, tools.length ? `tools: ${tools.join(", ")}` : "", acts.length ? `approvals: ${acts.join(", ")}` : "", t.error ? cut(t.error, 160) : ""].filter(Boolean).join(" · ");
-    return { at: t.finished_at ?? t.started_at ?? t.created_at, area, title: `${STATUS[t.status] ?? t.status}: ${t.title}`, detail, link: { task: t.id } };
+    const rc = rowReceipt(t as Parameters<typeof rowReceipt>[0]); // finished: what was verified vs only claimed
+    const detail = [rc ? `Receipt: ${receiptLine(rc)}` : "", t.agent, tools.length ? `tools: ${tools.join(", ")}` : "", acts.length ? `approvals: ${acts.join(", ")}` : "", t.error ? cut(t.error, 160) : ""].filter(Boolean).join(" · ");
+    return { at: t.finished_at ?? t.started_at ?? t.created_at, area, title: `${STATUS[t.status] ?? t.status}: ${t.title}`, detail, link: { task: t.id }, ...(rc ? { receipt: rc.status } : {}) };
   });
 }
 

@@ -20,6 +20,8 @@ import { parseLang } from "@/lib/i18n-pure";
 import { noteOwnerTurn, noteReceipts, projectRecordFor } from "@/lib/checkpoint";
 import { checkpointPrompt, isContinue } from "@/lib/checkpoint-pure";
 import { chatQueue, onceById } from "@/lib/session-bound-pure";
+import { logActivity } from "@/lib/activity";
+import { receiptLine, type Receipt } from "@/lib/receipt-pure";
 
 // Process-wide (one ORBIT server): shortcut: in-memory, so it holds for one Node process; a multi-instance deploy needs a shared lock.
 const G = globalThis as unknown as { __orbitTurns?: { perChat: ReturnType<typeof chatQueue>; sameRequest: ReturnType<typeof onceById<{ status: number; body: Record<string, unknown> }>> } };
@@ -112,6 +114,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
         }
         await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
         void noteReceipts(userId, cid, out.trace).catch(() => {}); // artifact versions from ORBIT's own write receipts
+        logReceipt(receiptOf(out.trace));
         await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
         await emit(sb, userId, "core.completed", "core", { conversationId: cid });
         // counts only, never message text: tools = steps that ran a tool (not CORE's own memory search, thinking, review, fallbacks or reflexes)
@@ -187,10 +190,11 @@ async function inBackground(sb: SupabaseClient, userId: string, cid: string, mes
   if (error) throw error;
   const taskId: string = data.id;
   const finished = (async () => {
-    let status = "done", result: string | null = null, err: string | null = null;
+    let status = "done", result: string | null = null, err: string | null = null, rc: Receipt | undefined;
     try {
       const out = await run(new AbortController().signal);
-      result = out.text;
+      result = out.text; rc = receiptOf(out.trace);
+      logReceipt(rc);
       await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
       void noteReceipts(userId, cid, out.trace).catch(() => {});
     } catch (e) {
@@ -198,9 +202,15 @@ async function inBackground(sb: SupabaseClient, userId: string, cid: string, mes
       console.error("[orbit] background CORE turn failed:", e instanceof Error ? e.message : e);
       await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: `_${BG_FAILED}_` }).then(() => {}, () => {});
     }
-    await sb.from("tasks").update({ status, result, error: err, finished_at: new Date().toISOString() }).eq("id", taskId).then(() => {}, () => {});
+    await sb.from("tasks").update({ status, result, error: err, finished_at: new Date().toISOString(), ...(rc && { trace: [{ step: "receipt", detail: receiptLine(rc), ms: 0, ok: rc.status === "verified", receipt: rc }] }) }).eq("id", taskId).then(() => {}, () => {});
     await emit(sb, userId, status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId, status, title });
     return { answer: result ?? `_${BG_FAILED}_` };
   })();
   return { taskId, finished };
+}
+
+const receiptOf = (trace: { step: string; receipt?: Receipt }[]) => trace.findLast((s) => s.receipt)?.receipt;
+/** A turn that changed something leaves its receipt in Activity: the status and what failed or wasn't checked (no question text). */
+function logReceipt(rc: Receipt | undefined) {
+  if (rc) logActivity({ area: "core", title: `CORE turn: ${receiptLine(rc)}`, ...(rc.failed.length + rc.claimed.length ? { detail: [...rc.failed, ...rc.claimed].join(" · ") } : {}), receipt: rc.status });
 }

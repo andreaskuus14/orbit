@@ -7,7 +7,7 @@ import { usePoll } from "./use-poll";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { MARKETS_TAB, type BriefOpen } from "@/lib/brief-pure";
-import type { Need } from "@/lib/needs-you-pure";
+import type { Digest, Need } from "@/lib/needs-you-pure";
 import { useT } from "./i18n";
 import { OpsStatus } from "./OpsStatus";
 
@@ -17,6 +17,7 @@ const nav = (detail: NavTarget) => dispatchEvent(new CustomEvent<NavTarget>(NAV_
 /** Go where a brief / inbox item points (shared with MorningBriefBody). */
 export function openTarget(o: BriefOpen, onOpenTask: (id: string) => void, onOpenGoal: (id: string) => void) {
   if ("href" in o) window.open(o.href, "_blank", "noopener,noreferrer");
+  else if ("link" in o) location.hash = o.link; // Orbit applies the deep link on popstate (planet, view, record)
   else if ("task" in o) onOpenTask(o.task);
   else if ("goal" in o) onOpenGoal(o.goal);
   else if ("work" in o) (o.work.kind === "task" ? onOpenTask : onOpenGoal)(o.work.id);
@@ -35,10 +36,13 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
   const [err, setErr] = useState("");
   const [snooze, setSnooze] = useState<{ ref: string; why: string } | null>(null);
   const [open, setOpen] = useState(false); // quiet open (#352): the galaxy stays uncovered; the count waits in a chip until clicked
+  const [digest, setDigest] = useState<Digest | null>(null);
+  // When he was last here, read once before MorningCard moves it forward (orbit.lastSeen, ms epoch).
+  const [since] = useState(() => { try { return Number(localStorage.getItem("orbit.lastSeen")) || 0; } catch { return 0; } });
 
-  const load = useCallback(() => fetch(`/api/needs-you?lang=${lang}`, { cache: "no-store" }).then((r) => r.json())
-    .then((j: { items?: Need[]; error?: string }) => { if (!j.items) throw new Error(j.error); setItems(j.items); setErr(""); })
-    .catch(() => setErr(t("needs.loadFailed"))), [lang, t]);
+  const load = useCallback(() => fetch(`/api/needs-you?lang=${lang}${since ? `&since=${since}` : ""}`, { cache: "no-store" }).then((r) => r.json())
+    .then((j: { items?: Need[]; digest?: Digest | null; error?: string }) => { if (!j.items) throw new Error(j.error); setItems(j.items); setDigest(j.digest ?? null); setErr(""); })
+    .catch(() => setErr(t("needs.loadFailed"))), [lang, t, since]);
   const poll = useCallback(() => void load(), [load]);
   usePoll(poll, pollMs(60_000));
 
@@ -63,6 +67,7 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
         <button type="button" className="link" onClick={() => nav({ panel: null, mission: true })}>{t("needs.mission")}</button>
       </span></div>
     {err && <p className="error" role="alert">{err}</p>}
+    {digest && <ul className="muted text-xs" aria-label="Digest">{digest.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
     {!items && !err && <p className="muted" role="status">{t("needs.loading")}</p>}
     {items && !items.length && <p className="muted">{t("needs.empty")}</p>}
     {!!list.length && <ul>{list.slice(0, SHOWN).map((n) => <li key={n.ref} data-status={n.kind === "decide" ? "awaiting_approval" : n.kind === "unblock" ? "failed" : "done"}>

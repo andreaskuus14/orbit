@@ -116,3 +116,41 @@ test("a mission and its chain task are one card (task + cause), with a cause, a 
   assert.deepEqual(needsYou(x, "en", ["task:c1"]).map((n) => n.ref), ["task:t2"]);
   assert.equal(needsYou({ missions: [{ id: "m", objective: "o", status: "waiting-input", updated_at: "x" }] })[0].cause, "input");
 });
+
+test("attention: overdue money > approvals > follow-ups > blockers, each with a concrete reason and one card per record", () => {
+  const now = Date.parse("2026-11-01T12:00:00Z");
+  const n = needsYou({
+    now,
+    approvals: [{ id: "h1", key: "approval:invoice:i1:2026-10-30", title: "Reminder to Cake", detail: "BUSINESS invoice reminder" }, { id: "h2", key: "send:p9", title: "Email to Nine" }],
+    loops: [loop("prospect:p1:2026-10-28", "P1 hasn't replied"), loop("invoice:i2", "Invoice overdue")],
+    work: [{ kind: "task", id: "t7", title: "Set up autopilot", status: "failed", detail: "", action: "" }],
+    overdue: [{ id: "i2", number: "12", buyer: "Salon", cents: 5000, days: 2 }, { id: "i1", number: "11", buyer: "Cake", cents: 12000, days: 6 }],
+    followups: [{ id: "p1", name: "Bakery", since: "2026-10-28T09:00:00Z" }, { id: "p9", name: "Nine", since: "2026-10-20T09:00:00Z" }],
+    delivery: [{ ref: "task:t7", client: "Cake", clientId: "c", state: "blocked", title: "Set up autopilot", at: "2026-10-31T00:00:00Z", task: "t7" }, { ref: "project:x", client: "Salon", clientId: "s", state: "waiting", title: "Deliver: Salon", at: "2026-10-29T00:00:00Z" }],
+  });
+  assert.deepEqual(n.map((i) => [i.ref, i.cause]), [["invoice:i1", "overdue"], ["invoice:i2", "overdue"], ["prospect:p9", "approval"], ["prospect:p1", "followup"], ["project:x", "delivery"], ["task:t7", "delivery"]]); // the delivery card replaces the plain failed-task card, oldest first
+  assert.equal(n[0].detail, "Invoice 11 is 6 days overdue");
+  assert.equal(n[0].remote, "h1"); // the phone approval stays attached
+  assert.equal(n[3].detail, "No reply 4 days after your message on 28 Oct");
+  assert.deepEqual(n[3].act, { open: { link: "#o=business&v=client&k=client&id=p1" } });
+  assert.equal(n[4].detail, "Delivery paused since 29 Oct");
+  assert.deepEqual(n[5].act, { open: { task: "t7" } });
+  assert.equal(needsYou({ now, followups: [{ id: "p1", name: "B", since: "2026-10-28T09:00:00Z" }] }, "et")[0].detail, "Vastust pole 4 päeva pärast sinu 28. okt sõnumit");
+});
+
+test("digest: finished by proof status, blocked, needs his decision; 24 h or since he was last here", async () => {
+  const { doneDigest } = await import("../src/lib/needs-you-pure.ts");
+  const now = Date.parse("2026-11-01T12:00:00Z"), h = (n: number) => new Date(now - n * 3_600_000).toISOString();
+  const needs = [{ ref: "a", kind: "decide", cause: "approval", title: "Send the Bolt email", act: { open: { panel: "business" } } },
+    { ref: "b", kind: "unblock", cause: "failed", title: "Mission blocked: leads", act: { open: { panel: "agents" } } }] as Parameters<typeof doneDigest>[0];
+  const rs = [{ at: h(2), status: "verified" as const, title: "x" }, { at: h(5), status: "partly" as const, title: "y" }, { at: h(30), status: "failed" as const, title: "z" }];
+  const d = doneDigest(needs, rs, now, null);
+  assert.deepEqual(d.finished, { verified: 1, partly: 1, unverified: 0, failed: 0 });
+  assert.deepEqual(d.lines, ["2 finished in the last 24 h: 1 verified, 1 partly done", "1 blocked, first: Mission blocked: leads", "1 needs your decision, first: Send the Bolt email"]);
+  const away = doneDigest([], rs, now, now - 40 * 3_600_000);
+  assert.equal(away.finished.failed, 1);
+  assert.match(away.lines[0], /^3 finished since you were last here \(30 Oct\)/);
+  assert.deepEqual(away.lines.slice(1), ["Nothing blocked", "Nothing needs your decision"]);
+  assert.equal(doneDigest([], [], now, now - 60_000).lines[0], "Nothing finished in the last 24 h"); // here a minute ago: still the last 24 h
+  assert.match(doneDigest([], [], now, null, "et").lines[2], /otsust/);
+});
