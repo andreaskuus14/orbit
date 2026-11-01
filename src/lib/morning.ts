@@ -176,6 +176,7 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
       return import("./prospect-crm").then((c) => c.withTouch(data ?? [])).then((ps) => dueFollowups(ps, now));
     }))]);
   const invP = within(import("./money").then((x) => x.digestMoney(sb, now))).catch(() => ""); // money-pure moneyLine: same split as BUSINESS → Money
+  const ovP = within(Promise.all([import("./business-overview"), import("./business-overview-pure")]).then(async ([x, p]) => p.overviewLine(await x.getOverview(sb, userId, now)))).catch(() => ""); // the BUSINESS overview strip in one line
   const nightP = within(import("./night").then((x) => x.getNightReport(sb, userId, now))).catch(() => null); // a failure just drops the section
   const [th, al, ids, cl, dw, dl, ar] = await cardSources;
   const life = ok(l), rec = ok(r), since = ok(sn) as MorningSince | undefined, work = ok(w), st = ok(s), due = ok(bf);
@@ -185,8 +186,12 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
   const cands = await import("./lessons").then((m) => m.morningPrior(userId, base), () => base); // kept lessons nudge base ±15% (lessons-pure withPrior)
   const hero = pickHero(cands, ok(th) ?? [], ok(cl) ?? [], now) ?? undefined;
   const cards = rankCards(cands.filter((x) => x.key !== hero?.key), ok(th) ?? [], now);
-  // Only counted when its sources loaded: a mission ticked from missing data would be a false claim.
-  const mission = st && work && ok(ct) !== undefined ? dailyMission({ shortsToday: st.today.length, contactedToday: ok(ct)!, approvalsWaiting: approvals(work) }) : undefined;
+  // Only counted from loaded sources: a mission ticked from missing data would be a false claim. The default three hide the
+  // mission when any of them failed (as before); his own picks show a failed source's item as "no data".
+  const picks = await import("./daily-mission").then((d) => d.loadPicks()).catch(() => []);
+  const base3 = { shortsToday: st?.today.length, contactedToday: ok(ct), approvalsWaiting: work ? approvals(work) : undefined };
+  const mission = picks.length ? dailyMission({ ...base3, ...(await within(import("./daily-mission").then((d) => d.extraCounts(userId, picks, now))).catch(() => ({}))) }, picks)
+    : st && work && ok(ct) !== undefined ? dailyMission(base3) : undefined;
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
-    business: [due && businessFollowupLine(due.length), await invP].filter(Boolean).join(". ") || undefined, overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }) };
+    business: (await ovP) || [due && businessFollowupLine(due.length), await invP].filter(Boolean).join(". ") || undefined, overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }) };
 }
