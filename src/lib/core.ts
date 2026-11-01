@@ -355,13 +355,14 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     }
     else for (let step = resumed, synth = false, noRoute = false; step < maxN * (1 + (budget.extra ?? 0)); step++) {
       const outOfSteps = !synth && step >= maxN * (1 + (budget.extra ?? 0)) - 1; // the request may get another budget (afterBudget)
-      const last = synth || outOfSteps || (step > 0 && deepLeft() < 90_000); // out of steps or turn time: answer now
+      const timeUp = !synth && step > 0 && deepLeft() < 90_000, unfinished = outOfSteps || timeUp; // the request may continue in the background
+      const last = synth || unfinished; // out of steps or turn time: answer now
       signal?.throwIfAborted();
       onStep?.("think", {});
       // A tool-choice step after a read runs on the fast model, thinking capped, old results shortened; the answer stays on the turn's model.
       const stepT = stepTier(tier, { lastStep: steps.at(-1), last, session: !!sess || noRoute }), planning = stepT !== tier;
       const shownSteps = stepsContext(sess ? steps.slice(sessSeen) : steps, planning);
-      const tail = `\n\n${formatNote}${splitRetried ? SPLIT_HINT + "\n\n" : ""}${CORE_LANG_RULE[lang]}${voiceNote}${stepT === "deep" ? deepNote : ""}${shownSteps.length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${shownSteps.join("\n\n")}\n\n` : ""}${last ? `Answer now with "final".${outOfSteps && (budget.extra ?? 0) < EXTRA_BUDGETS ? MORE_ASK : ""}` : "Your JSON reply:"}`;
+      const tail = `\n\n${formatNote}${splitRetried ? SPLIT_HINT + "\n\n" : ""}${CORE_LANG_RULE[lang]}${voiceNote}${stepT === "deep" ? deepNote : ""}${shownSteps.length ? `${sess && sessSeen ? "YOUR NEW TOOL RESULTS" : "YOUR TOOL RESULTS SO FAR"}:\n${shownSteps.join("\n\n")}\n\n` : ""}${last ? `Answer now with "final".${unfinished && (budget.extra ?? 0) < EXTRA_BUDGETS ? MORE_ASK : ""}` : "Your JSON reply:"}`;
       const sessNow = sess, sentNow = sessSent;
       const ask = (prompt ? Promise.resolve(prompt) : prep.then((p) => (prompt = p))).then((p) => sessNow ? sessionInput(p, transcriptHolder.text, sessNow.resume, sentNow) + tail : p + tail);
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
@@ -420,7 +421,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         // Deep: unparsed JSON (e.g. a cut-off envelope holding the private plan) shows only its decoded "final", if any.
         if (tier === "deep" && answer === r.text && /^\s*[{`]/.test(r.text)) answer = partialAnswer(r.text) ?? "";
         // Out of steps, request not done: continue in the background (resuming these steps) instead of "on your next message".
-        const more = outOfSteps ? afterBudget(reply.final === undefined && reply.tool ? MORE_MARK : answer, { background: budget.background, extra: budget.extra ?? 0, leftMs: deepLeft() }) : "stop"; // a tool call here = still working
+        const more = unfinished ? afterBudget(reply.final === undefined && reply.tool ? MORE_MARK : answer, { background: budget.background, extra: budget.extra ?? 0, leftMs: deepLeft() }) : "stop"; // a tool call here = still working
         if (more !== "stop") {
           onReset?.(); budget.extra = (budget.extra ?? 0) + 1;
           trace.push({ step: "fallback", detail: `step budget used, request not done → ${more === "handoff" ? "continuing in the background" : `extra budget ${budget.extra}`}`, ms: 0, ok: false });
