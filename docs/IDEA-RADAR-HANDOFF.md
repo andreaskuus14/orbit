@@ -10,13 +10,13 @@ English and Estonian input/help/status text is included. No dependencies or migr
 
 ## Validation
 
-- Focused pure, API, I/O, rendered UI, Shorts-selection and translation coverage checks passed.
+- All 33 focused pure, API, I/O, rendered UI, Shorts-selection, translation, accessibility and route-safety checks passed.
 - Type checking passed in the isolated full gate.
 - First isolated full suite: 3,026 tests; 3,019 passed, 3 failed, 4 skipped.
 - Two failures were existing CRLF assumptions in source-inspection tests (`core-operator.test.ts`, `core-sdk.test.ts`). Their assertions now normalize/accept Windows newlines; the same selected assertions pass.
 - Remaining blocker: `tests/ws-server.test.ts`, test **real server: start, smoke check, sandbox, stop, Stop-all**. This Windows host exposes additional environment variables in the spawned Node process; the test expects a shorter allowlist. A rerun with cleanup retries exposed the underlying environment assertion (the first run's cleanup also encountered EPERM). The cleanup change was discarded, and the environment/security assertion has not been relaxed. Reported variables included HOMEDRIVE, HOMEPATH, LOGONSERVER, PATH, SYSTEMDRIVE, SYSTEMROOT, TEMP, USERDOMAIN, USERNAME, USERPROFILE and WINDIR. File access and child-spawn protections still returned ERR_ACCESS_DENIED in that run.
 - A separate Windows portability fix uses fileURLToPath in the translation-coverage test; its existing URL.pathname conversion produced C:\\C:\\... on Windows.
-- AI synthetic evaluation passed separately. Production build is run separately into `.next-idea-radar-check`; consult the final handoff message for its outcome.
+- AI synthetic evaluation passed separately. The isolated production build passed, including type validation and page generation, into `.next-idea-radar-check`. The live build was not replaced. Build-generated tsconfig edits were discarded.
 
 The required full gate is **not green** while the workspace-server environment test fails. No pull request should be opened or deployment performed until the complete gate passes. Claude remains reviewer/merger/deployer. Logs are local, untracked `idea-radar-gate.log`, `windows-checks.log`, `idea-radar-eval.log`, and `idea-radar-build.log` in the isolated worktree.
 
