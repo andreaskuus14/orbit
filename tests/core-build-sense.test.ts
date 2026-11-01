@@ -37,3 +37,15 @@ test("ORBIT's own tools (a saved lesson, statuses, drafts) never block a build; 
   assert.equal(wsTainted([s("vault_read")], "build me a site"), true);
   assert.equal(wsTainted([s("ask_agent")], "build me a site"), true);
 });
+
+test("picture slots: an odd aspect snaps to the nearest allowed one", async () => {
+  const { nearestAspect } = await import("../src/lib/site-pictures-pure.ts");
+  assert.equal(nearestAspect(undefined), "16:9");
+  assert.equal(nearestAspect("16:9"), "16:9");
+  assert.equal(nearestAspect("3:2"), "4:3");
+  assert.equal(nearestAspect("21:9"), "16:9");
+  assert.equal(nearestAspect("2:3"), "3:4");
+  assert.equal(nearestAspect("square"), "1:1");
+  assert.equal(nearestAspect("tall"), "9:16");
+  assert.equal(nearestAspect("weird"), "16:9");
+});

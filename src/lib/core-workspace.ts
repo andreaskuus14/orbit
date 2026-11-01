@@ -175,7 +175,8 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
         return await pictureDraft(input, userId, slug, pictureIO(userId, slug));
       }
       case "ws_write": {
-        const files = Array.isArray(input.files) ? input.files : input.path !== undefined ? [{ path: input.path, content: input.content }] : [];
+        const listed = typeof input.files === "string" ? (() => { try { return JSON.parse(input.files as string) as unknown; } catch { return null; } })() : input.files; // the model sometimes sends the list as a JSON string
+        const files = Array.isArray(listed) ? listed : input.path !== undefined ? [{ path: input.path, content: input.content }] : [];
         if (!files.length || files.length > 50) return "Error: files must be a list of 1-50 {path, content}";
         if (files.some((f) => !f || typeof f.path !== "string" || typeof f.content !== "string")) return "Error: every file needs a text path and text content";
         const c = await ws.createWorkspace(userId, str(input.workspace, 60) || "site");

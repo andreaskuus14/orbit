@@ -17,7 +17,7 @@ test("slots: relative raster paths once each, a real prompt, a known aspect; bra
     [{}, /slots must be a list/], [{ slots: [] }, /slots must be a list/],
     [{ slots: [{ ...hero, path: "../x.jpg" }] }, /path must be/], [{ slots: [{ ...hero, path: "img/a.svg" }] }, /path must be/],
     [{ slots: [{ ...hero, path: "/etc/a.jpg" }] }, /path must be/], [{ slots: [hero, hero] }, /listed twice/],
-    [{ slots: [{ ...hero, prompt: "golf" }] }, /prompt must be/], [{ slots: [{ ...hero, aspect: "2:1" }] }, /aspect must be/],
+    [{ slots: [{ ...hero, prompt: "golf" }] }, /prompt must be/],
     [{ slots: [{ ...hero, prompt: "a golfer wearing a nike logo cap on the green" }] }, /names "nike"/],
     [{ slots: Array.from({ length: 9 }, (_, i) => ({ ...hero, path: `img/${i}.jpg` })) }, /at most 8/],
   ] as const) assert.match(parseSlots(bad) as string, re, JSON.stringify(bad));
