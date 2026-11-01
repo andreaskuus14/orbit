@@ -57,6 +57,9 @@ const PAIRS: [string, string, string][] = [
   ["CHECKPOINT", "Save a checkpoint with the next step", "Salvesta järgmine samm"],  ["LOCALAI", "Turn this dragon into a 3D model", "Muuda see draakon 3D mudeliks"],
   ["LOCALAI", "Read this aloud", "Loe seda ette"],
   ["LOCALAI", "I need a voiceover", "Vajan häälvõtet"],
+  ["ROBLOXFILES", "Check my Roblox code with Selene", "Kontrolli Selene abil mu Roblox koodi"],
+  ["ROBLOXFILES", "Export the scripts from my place file", "Ekspordi skriptid mu kohafailist"],
+  ["ROBLOXFILES", "Lint my Luau scripts", "Kontrolli mu Luau skripte"],
 ];
 
 test("every keyword-gated module has ≥3 EN/ET pairs and a capability line", () => {

@@ -54,6 +54,8 @@ export const TIERS: Record<string, Tier> = {
   studio_drafts: "T0", // lists STUDIO's drafts and their state
   ws_inspire_image: "T3", // reference words from an image search, then the same priced draft as higgsfield_draft for an original brief
   local_3d: "T2", local_tts: "T2", // free models on his own PC (tools/local-ai); the result is a new VAULT file, nothing leaves the PC
+  roblox_export: "T2", // rojo syncback into his own projects folder + a local git commit (tools/roblox); nothing leaves the PC
+  roblox_lint: "T0", // selene on his exported project, read-only
 };
 
 // T3 runs only behind an owner-click approval (AGENTS.md rule 6): the token each path checks before anything leaves ORBIT.
@@ -77,6 +79,7 @@ export const TOOL_AREA: Record<string, Area> = {
   create_goal: "goals", queue_tonight: "night-shift", add_wish: "deals", schedule_approved: "studio-publish", higgsfield_draft: "higgsfield-spend", ws_picture_draft: "higgsfield-spend",
   ws_run: "operator-build", // a local demo server of his own workspace (AGENTS.md rule 6 category A); never public
   local_3d: "operator-build", local_tts: "operator-build", // local models writing new VAULT files (category A)
+  roblox_export: "operator-build", // local project files + git commit (category A)
 };
 
 // Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true), ORGANIZE lead_update + life_plan.

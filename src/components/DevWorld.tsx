@@ -21,6 +21,7 @@ import TrendRadar from "./TrendRadar";
 import { DEV_TAB_EVENT, DEV_TAB_KEY } from "@/lib/herald-pure";
 import { LUAU_FIX_EVENT } from "@/lib/screen-look-pure";
 import CodeHelper from "./CodeHelper";
+import RojoPanel from "./RojoPanel";
 import ScenePlanner from "./ScenePlanner";
 import TextureStudio from "./TextureStudio";
 import { PictureTo3D, TextTo3D } from "./LocalAi";
@@ -55,7 +56,7 @@ const MAX_PARTICLES = 300;
 const VIEWS = {
   projects: [["games", "🎮 Games"], ["trends", "📈 Trends"], ["hive", "🐝 Hive"], ["sessions", "🕒 Sessions"], ["core", "⚙ CORE"]],
   overview: [["detail", "🎯 Game"], ["economy", "🪙 Economy"], ["sim", "🧮 Simulator"]],
-  build: [["scene", "🏗 Scene"], ["code", "📝 Code"], ["grid", "🟦 Grid"]],
+  build: [["scene", "🏗 Scene"], ["code", "📝 Code"], ["files", "🗂 Files"], ["grid", "🟦 Grid"]],
   test: [["evidence", "🧾 Results"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"]],
   assets: [["register", "📦 Register"], ["uikit", "🧩 UI kit"], ["refs", "🎨 References"], ["textures", "🧱 Textures"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["model3d", "🧊 Picture to 3D"], ["text3d", "✨ Text to 3D"]],
   release: [["release", "🚀 Package"], ["retention", "📊 Retention"]],
@@ -337,6 +338,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {tab === "personas" && !needsGame && <><p className="muted text-xs">{t("gd.k.simulated")}: {t("gd.simNote")}</p><PersonaPlaytest key={gk} world={world} commit={commit} gameId={selected} /></>}
         {tab === "economy" && !needsGame && <GameCopilot key={gk} world={world} gameId={selected} />}
         <div hidden={tab !== "code" || needsGame}><CodeHelper key={gk} prefill={fix} /></div>
+        {tab === "files" && !needsGame && <RojoPanel />}
         {tab === "sessions" && <DevSessions />}
         {tab === "core" && <CoreConfigPanel />}
         {world && game && tab === "evidence" && <EvidenceLog key={gk} game={game} world={world} commit={commit} />}

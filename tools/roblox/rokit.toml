@@ -1,0 +1,5 @@
+# Roblox command-line tools for ORBIT's GAME DEV -> Build -> Files, pinned (bump deliberately). Installed by setup.ps1 with Rokit.
+# ORBIT copies this file into every exported project so the same versions run there.
+[tools]
+rojo = "rojo-rbx/rojo@7.7.1"
+selene = "Kampfkarren/selene@0.31.0"
