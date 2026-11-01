@@ -69,7 +69,7 @@ const MIME: Record<string, string> = {
   mp4: "video/mp4", webm: "video/webm", mp3: "audio/mpeg", wav: "audio/wav", pdf: "application/pdf",
   txt: "text/plain; charset=utf-8", md: "text/plain; charset=utf-8", csv: "text/plain; charset=utf-8", json: "text/plain; charset=utf-8", log: "text/plain; charset=utf-8",
 };
-const TEXTISH = new Set(["txt", "md", "markdown", "csv", "json", "log", "ts", "tsx", "js", "jsx", "mjs", "py", "lua", "luau", "css", "html", "htm", "xml", "svg",
+const TEXTISH = new Set(["txt", "md", "markdown", "csv", "srt", "vtt", "json", "log", "ts", "tsx", "js", "jsx", "mjs", "py", "lua", "luau", "css", "html", "htm", "xml", "svg",
   "yml", "yaml", "ini", "toml", "sh", "ps1", "bat", "c", "cpp", "h", "hpp", "cs", "java", "go", "rs", "sql", "env", "cfg"]);
 
 export function kindOf(name: string): Kind {

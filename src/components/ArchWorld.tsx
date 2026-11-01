@@ -37,6 +37,7 @@ import { ArchTimeMachine, SunShadow } from "./ArchTimeMachine";
 import { ArchPortfolio } from "./ArchPortfolio";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
 import { SiteLayer, SitePanel } from "./ArchSite";
+import { IfcOpen } from "./LocalAi";
 import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
 import { canRetry, pickNewer, saveStep, staleCheck, type Saved } from "@/lib/arch-save-pure";
 
@@ -607,6 +608,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           })}
           <p className="muted text-[11px]">{tr("arch.exportHow")}</p>
         </div>
+        <IfcOpen />
 
         <ArchVariants variants={variants} setVariants={setVariants} scene={scene} rev={save.rev} prices={prices} site={{ lat: sun.lat, lon: sun.lon }} north={site.north}
           onChoose={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); }} />
