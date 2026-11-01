@@ -9,7 +9,7 @@ const MINUTE = 60_000;
 export async function localHealth(): Promise<Health> {
   const u = base();
   if (!u) return parseHealth(null);
-  const j = await fetch(`${u}/health`, { cache: "no-store", signal: AbortSignal.timeout(3000) }).then((r) => r.json(), () => null);
+  const j = await fetch(`${u}/health`, { cache: "no-store", signal: AbortSignal.timeout(12_000) }).then((r) => r.json(), () => null); // the first /health imports torch (5-10 s on Windows)
   return parseHealth(j);
 }
 
