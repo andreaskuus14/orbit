@@ -41,7 +41,8 @@ import { IfcOpen } from "./LocalAi";
 import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
 import { canRetry, pickNewer, saveStep, staleCheck, type Saved } from "@/lib/arch-save-pure";
 
-const KEY = "orbit.arch.v1";
+import { archBrowserKey, archUrl } from "@/lib/project-desk-pure";
+import { ProjectDesk } from "./ProjectDesk";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
 const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9", window: "#33475b", door: "#6b4f3a", stair: "#b08968" };
 const FACE_ROT = { n: Math.PI, s: 0, e: Math.PI / 2, w: -Math.PI / 2 }; // turns local +Z to face outward
@@ -81,7 +82,7 @@ void main() {
 }`,
   transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
 });
-const load = (): { rev?: number; scene: Scene; prices: PriceItem[]; site?: unknown } | null => { try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
+const load = (key: string): { rev?: number; scene: Scene; prices: PriceItem[]; site?: unknown } | null => { try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : null; } catch { return null; } };
 const eur = (n: number) => n.toLocaleString("et-EE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const download = (name: string, text: string, type: string) => {
   const a = document.createElement("a");
@@ -237,7 +238,24 @@ function Walker({ rects, plot, onExit }: { rects: Rect[]; plot: { w: number; d: 
   return null;
 }
 
-export default function ArchWorld({ onClose, reduced, flat, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */ }) {
+type ArchWorldProps = { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; paused?: boolean };
+export default function ArchWorld(props: ArchWorldProps) {
+  const { t } = useT();
+  const [project, setProject] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true, last = "";
+    try { last = localStorage.getItem("orbit.arch.activeProject") ?? ""; } catch { /* storage unavailable */ }
+    if (!last) { setProject(""); return; }
+    fetch("/api/projects", { cache: "no-store", signal: AbortSignal.timeout(5000) }).then((r) => r.ok ? r.json() : null)
+      .then((j) => { if (alive) setProject(j?.projects?.some((p: { id: string }) => p.id === last) ? last : ""); }, () => { if (alive) setProject(""); });
+    return () => { alive = false; };
+  }, []);
+  const choose = (id: string) => { try { localStorage.setItem("orbit.arch.activeProject", id); } catch { /* selection still works */ } setProject(id); };
+  if (project === null) return <p className="absolute inset-0 p-6 pt-20" role="status">{t("desk.modelLoading")}</p>;
+  return <ArchProject key={project || "unassigned"} {...props} project={project} onProject={choose} />;
+}
+function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false, project, onProject }: ArchWorldProps & { project: string; onProject: (id: string) => void }) {
+  const key = archBrowserKey(project || null), sceneUrl = archUrl("scene", project || null);
   const qualityPreset = useLeanQuality(quality);
   const { t: tr, tn } = useT();
   const glr = useGlRecovery();
@@ -286,6 +304,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const [lesson, setLesson] = useState<Lesson | null>(null), [ch, setCh] = useState(0), [answers, setAnswers] = useState<(number | null)[]>([]);
   const [topic, setTopic] = useState(""), [lessonBusy, setLessonBusy] = useState(false), [lessonMsg, setLessonMsg] = useState("");
   const ownScene = useRef<Scene | null>(null);
+  const [loadError, setLoadError] = useState(""), [loadAttempt, setLoadAttempt] = useState(0);
   const [ready, setReady] = useState(false); // state, not a ref: the save effect must not run with the starter scene before the load lands
   const revRef = useRef(0), lastSaved = useRef<Scene | null>(null), inSync = useRef(false); // ARC01: every scene/prices/site change bumps the revision
   const [save, dispatchSave] = useReducer(saveStep, { status: "idle", rev: 0 });
@@ -295,11 +314,12 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   useEffect(() => {
     let alive = true;
     (async () => {
-    const local = load();
-    const srv = await fetch("/api/arch/scene").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const local = load(key);
+    const srv = await fetch(sceneUrl).then(async (r) => { if (!r.ok) throw new Error("Model could not be loaded"); return r.json(); }).catch((e) => { if (alive) setLoadError(e.message); return null; });
+    if (!srv && project) return; // Never replace an unreadable project model with a starter scene.
     if (!alive) return;
     const s = pickNewer(local && { ...local, rev: local.rev ?? 0 }, srv?.saved ?? null) as (Saved & { prices?: PriceItem[] }) | null;
-    if (s && s !== local && local) try { localStorage.setItem(KEY + ".bak", JSON.stringify(local)); } catch { /* backup is best effort */ } // keep the older local copy recoverable
+    if (s && s !== local && local) try { localStorage.setItem(key + ".bak", JSON.stringify(local)); } catch { /* backup is best effort */ } // keep the older local copy recoverable
     revRef.current = Math.max(local?.rev ?? 0, srv?.saved?.rev ?? 0);
     inSync.current = !s || (!!srv?.saved && s === srv.saved); // opened what the server has: no save until an edit
     if (s?.scene?.parts) {
@@ -311,13 +331,13 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     setReady(true);
     })();
     return () => { alive = false; };
-  }, []);
-  const backup = (data: unknown) => { try { localStorage.setItem(KEY + ".bak", JSON.stringify(data)); } catch { /* best effort */ } };
+  }, [key, sceneUrl, project, loadAttempt]);
+  const backup = (data: unknown) => { try { localStorage.setItem(key + ".bak", JSON.stringify(data)); } catch { /* best effort */ } };
   async function resolveConflict(keepMine: boolean) {
-    const srv = await fetch("/api/arch/scene").then((r) => (r.ok ? r.json() : null)).catch(() => null), other = srv?.saved as (Saved & { prices?: PriceItem[] }) | null;
+    const srv = await fetch(sceneUrl).then((r) => (r.ok ? r.json() : null)).catch(() => null), other = srv?.saved as (Saved & { prices?: PriceItem[] }) | null;
     if (!other?.scene?.parts) return dispatchSave({ type: "fail", rev: revRef.current });
     if (keepMine) { backup(other); revRef.current = Math.max(revRef.current, other.rev); setRetry((n) => n + 1); return; } // effect bumps past the server rev
-    backup(load());
+    backup(load(key));
     revRef.current = other.rev; lastSaved.current = null; // no bump: the reload re-saves exactly other.rev
     setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = other.scene; setScene(other.scene); setSel(null);
     if (Array.isArray(other.prices)) setPrices(other.prices);
@@ -330,10 +350,10 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
     lastSaved.current = scene;
     const rev = revRef.current, data = { rev, scene, prices, site: { ...site, draft: null }, variants };
     let localOk = true;
-    try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { localOk = false; } // local backup first, always
+    try { localStorage.setItem(key, JSON.stringify(data)); } catch { localOk = false; } // local backup first, always
     dispatchSave({ type: "start", rev });
     const t = setTimeout(async () => {
-      const r = await fetch("/api/arch/scene", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }).catch(() => null);
+      const r = await fetch(sceneUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }).catch(() => null);
       const j = await r?.json().catch(() => ({}));
       if (r?.ok) dispatchSave({ type: "ok", rev });
       else if (r?.status === 409) dispatchSave({ type: "conflict", rev, serverRev: j?.rev ?? 0, error: j?.error }); // newer copy elsewhere: he chooses, never a silent overwrite
@@ -427,6 +447,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
   const exportsList = useMemo(() => buildExports(scene, cost0, { lat: sun.lat, lon: sun.lon }), [scene, cost0, sun.lat, sun.lon]); // ARC07
   const badOpenings = scene.parts.filter((o) => isOpening(o.kind) && openingIssue(o, scene.parts.find((w) => w.id === o.host)));
 
+  if (!ready && project) return <div className="absolute inset-0 overflow-auto p-6 pt-20"><p role="status">{loadError ? tr("desk.modelError") : tr("desk.modelLoading")}</p><button className="chip" onClick={() => onProject("")}>{tr("desk.back")}</button>{loadError && <button className="chip" onClick={() => { setLoadError(""); setLoadAttempt((n) => n + 1); }}>{tr("state.retry")}</button>}</div>;
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={tr("arch.region")} style={{ background: bg }}>
       {!flat && (
@@ -466,6 +487,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
 
       <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={tr("arch.controls")}>
         <h2 className="brand text-base">{"ARCH"}</h2>
+        <ProjectDesk project={project} onSelect={onProject} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} />
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <input className="field flex-1" placeholder={tr("arch.cmdPh")} value={cmd} maxLength={500} onChange={(e) => setCmd(e.target.value)} aria-label={tr("arch.cmd")} />
           <button className="btn" disabled={busy || !cmd.trim()}>{tr(busy ? "arch.working" : "arch.doIt")}</button>
@@ -614,7 +636,7 @@ export default function ArchWorld({ onClose, reduced, flat, quality = "auto", pa
           onChoose={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); }} />
 
         <ArchPlans plot={scene.plot} onPick={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setRun((n) => n + 1); }} />
-        {ready && <ArchTimeMachine scene={scene} save={!lesson} onPreview={setPreview} onRestore={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); setScene(s); setSel(null); }} />}
+        {ready && <ArchTimeMachine project={project || null} scene={scene} save={!lesson} onPreview={setPreview} onRestore={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); setScene(s); setSel(null); }} />}
 
         <ArchStudio worker={worker} bump={bump} onScan={(s) => { setScan(s); setMeas(measureFrom(s)); setWalk(false); }}
           onScanNote={(id, note) => setMeas((m) => m && { ...m, noteId: id, note })} onTeach={(t) => void teach(t)}

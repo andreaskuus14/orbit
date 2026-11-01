@@ -5,16 +5,18 @@ import { useEffect, useRef, useState } from "react";
 import { Line } from "@react-three/drei";
 import { shadowOf, type Snapshot } from "@/lib/arch-time-pure";
 import type { Scene } from "@/lib/arch-pure";
+import { archUrl } from "@/lib/project-desk-pure";
 
 const SAVE_AFTER_MS = 4000; // a burst of edits becomes one version
 
 /** History panel. `save` false (a lesson is open) = don't record; onPreview(null) = back to the live model. */
-export function ArchTimeMachine({ scene, save, onPreview, onRestore }: { scene: Scene; save: boolean; onPreview: (s: Scene | null) => void; onRestore: (s: Scene) => void }) {
+export function ArchTimeMachine({ scene, save, onPreview, onRestore, project = null }: { scene: Scene; save: boolean; onPreview: (s: Scene | null) => void; onRestore: (s: Scene) => void; project?: string | null }) {
+  const endpoint = archUrl("versions", project);
   const [versions, setVersions] = useState<Snapshot[]>([]);
   const [i, setI] = useState<number | null>(null); // null = live model
   const [err, setErr] = useState("");
   const opened = useRef<string | null>(null); // the scene as ARCH opened: a version is only recorded once it changes
-  useEffect(() => { fetch("/api/arch/versions").then((r) => r.json()).then((j) => Array.isArray(j.versions) && setVersions(j.versions)).catch(() => setErr("History unavailable")); }, []);
+  useEffect(() => { fetch(endpoint).then((r) => { if (!r.ok) throw new Error(); return r.json(); }).then((j) => Array.isArray(j.versions) && setVersions(j.versions)).catch(() => setErr("History unavailable")); }, [endpoint]);
   useEffect(() => {
     if (!save || i !== null) return;
     const now = JSON.stringify(scene);
@@ -22,12 +24,12 @@ export function ArchTimeMachine({ scene, save, onPreview, onRestore }: { scene: 
     const t = setTimeout(() => {
       if (now === opened.current) return; // opened, no edit (or edited back): nothing to record
       opened.current = now;
-      fetch("/api/arch/versions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scene }) })
+      fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scene }) })
         .then((r) => r.json()).then((j) => { if (Array.isArray(j.versions)) { setVersions(j.versions); setErr(""); } else setErr(j.error ?? "Couldn't save the version"); })
         .catch(() => setErr("Couldn't save the version"));
     }, SAVE_AFTER_MS);
     return () => clearTimeout(t);
-  }, [scene, save, i]);
+  }, [scene, save, i, endpoint]);
   const pick = (n: number | null) => { setI(n); onPreview(n === null ? null : versions[n].scene); };
   const v = i === null ? null : versions[i];
   return (

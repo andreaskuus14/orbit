@@ -3,6 +3,8 @@ import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
 import { orbitDataDir } from "@/lib/data-dir";
 import { pushSnapshot, readSnapshots, type Snapshot } from "@/lib/arch-time-pure";
+import { projectScope } from "@/lib/project-access";
+import { archScopeKey } from "@/lib/project-desk-pure";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +13,7 @@ export const dynamic = "force-dynamic";
 type State = { users: Record<string, unknown> };
 const file = () => path.join(orbitDataDir(), "arch-versions.json");
 const load = async (): Promise<State> => {
-  try { const j = JSON.parse(await readFile(file(), "utf8")); return j?.users && typeof j.users === "object" ? j : { users: {} }; } catch { return { users: {} }; }
+  try { const j = JSON.parse(await readFile(file(), "utf8")); if (!j?.users || typeof j.users !== "object" || Array.isArray(j.users)) throw new Error("Invalid ARCH store"); return j; } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return { users: {} }; throw e; }
 };
 async function store(s: State) {
   await mkdir(path.dirname(file()), { recursive: true });
@@ -20,19 +22,25 @@ async function store(s: State) {
 }
 let chain: Promise<unknown> = Promise.resolve(); // one read-modify-write at a time, so two quick saves can't drop each other
 
-export async function GET() {
-  const { user, res } = await requireUser();
+export async function GET(req: Request) {
+  const { sb, user, res } = await requireUser();
   if (res) return res;
-  return Response.json({ versions: readSnapshots((await load()).users[user.id]) });
+  const project = await projectScope(req, sb, user.id);
+  if (project instanceof Response) return project;
+  const key = archScopeKey(user.id, project);
+  return Response.json({ versions: readSnapshots((await load()).users[key]) });
 }
 
 export async function POST(req: Request) {
-  const { user, res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
+  const project = await projectScope(req, sb, user.id);
+  if (project instanceof Response) return project;
+  const key = archScopeKey(user.id, project);
   const b = (await req.json().catch(() => null)) as { scene?: unknown } | null;
   const run = chain.then(async (): Promise<Snapshot[] | null> => {
-    const s = await load(), next = pushSnapshot(readSnapshots(s.users[user.id]), b?.scene, new Date());
-    if (next) { s.users[user.id] = next; await store(s); }
+    const s = await load(), next = pushSnapshot(readSnapshots(s.users[key]), b?.scene, new Date());
+    if (next) { s.users[key] = next; await store(s); }
     return next;
   });
   chain = run.catch(() => {});
