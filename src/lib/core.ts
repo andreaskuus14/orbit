@@ -233,7 +233,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     // Confirmed + current first; suggested / due-for-recheck records stay but are flagged (provenance-pure.ts).
     const flags = new Map(compactContext([], results.map((m) => m.id as string), results, Date.now(), results.length).map((c) => [c.id, c]));
     results = [...flags.keys()].map((id) => results.find((m) => m.id === id)!);
-    const flag = (id: string) => { const c = flags.get(id), m = results.find((r) => r.id === id); return `${m ? typeLabel(m) : ""}${c?.stale ? ' recheck="due"' : ""}`; };
+    const outdated = await import("./entity-graph").then((x) => x.outdatedNotes(userId), () => new Map<string, string>()); // superseded claims: history, not current
+    const flag = (id: string) => { const c = flags.get(id), m = results.find((r) => r.id === id), o = outdated.get(id); return `${m ? typeLabel(m) : ""}${c?.stale ? ' recheck="due"' : ""}${o ? ` outdated=${JSON.stringify(o.slice(0, 300))}` : ""}`; };
     const memories = results.length
       ? results.map((m, i) => `<memory id="${m.id}" kind="${m.kind}" title=${JSON.stringify(m.title)} created="${m.created_at}"${flag(m.id)}>\n${escapeTags(selectPassages(String(m.content), question, i < 3 ? 6000 : 1500, i + 1))}\n</memory>`).join("\n")
       : "(none matched)";

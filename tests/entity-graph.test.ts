@@ -8,6 +8,8 @@ import {
 
 const src = (id: string, at = "2026-10-01T00:00:00Z"): Src => ({ id, type: "memory", title: id, at });
 const mem = (id: string, content: string, o: Partial<MemIn> = {}): MemIn => ({ id, kind: "note", title: id, content, created_at: "2026-10-01T00:00:00Z", ...o });
+/** An agreeing fact on a name: the second, independent signal a suggestion needs (names alone are one signal). */
+const works = (form: string, at = "Bolt") => ({ form, attr: "employer" as const, value: at, norm: at.toLowerCase(), src: src(`${form}-job`) });
 const firsts = (...names: string[]) => { const m = new Map<string, number>(); for (const n of names) { const f = formKey(n).split(" ")[0]; m.set(f, (m.get(f) ?? 0) + 1); } return m; };
 
 test("link scores: exact, email, unique first name, ambiguous first name, initial", () => {
@@ -28,7 +30,8 @@ test("resolution clusters Mart / Mart Tamm / mart@… and suggests (never auto-c
   assert.deepEqual([...mart.keys].sort(), ["mart", "mart tamm", "mart@bolt.eu"]);
   assert.equal(mart.confirmed, false);
   assert.equal(mart.confidence, 0.85); // weakest link that joined the cluster (Mart ~ Mart Tamm)
-  const s = mergeSuggestions(ents);
+  assert.equal(mergeSuggestions(ents).length, 0); // look-alike names only: one signal, never suggested
+  const s = mergeSuggestions(ents, undefined, { claims: [works("Mart"), works("Mart Tamm")] }); // + the same employer on both sides
   assert.equal(s.length, 1);
   assert.match(s[0].key, /^same:[0-9a-f]{8}$/);
   assert.ok(!ents.find((e) => e.keys.includes("liis kask"))!.confirmed);
@@ -36,7 +39,7 @@ test("resolution clusters Mart / Mart Tamm / mart@… and suggests (never auto-c
 
 test("decisions: 'same' confirms the group; 'different' blocks the pair for good", () => {
   const ms = [{ form: "Mart", src: src("a") }, { form: "Mart Tamm", src: src("b") }];
-  const s = mergeSuggestions(resolveEntities(ms, emptyDecisions()));
+  const s = mergeSuggestions(resolveEntities(ms, emptyDecisions()), undefined, { claims: [works("Mart"), works("Mart Tamm")] });
   const yes = decideEntity(emptyDecisions(), { merges: s, contradictions: [] }, s[0].key, "same");
   assert.ok(typeof yes !== "string");
   const e = resolveEntities(ms, yes);
@@ -87,9 +90,8 @@ test("contradictions group across names only after the owner confirms the merge"
   const { mentions, claims } = gather(input);
   const d0 = emptyDecisions();
   assert.equal(findContradictions(claims, resolveEntities(mentions, d0), d0).length, 0);
-  const s = mergeSuggestions(resolveEntities(mentions, d0));
-  const d1 = decideEntity(d0, { merges: s, contradictions: [] }, s[0].key, "same");
-  assert.ok(typeof d1 !== "string");
+  assert.equal(mergeSuggestions(resolveEntities(mentions, d0), undefined, { claims }).length, 0); // names only, facts disagree: not even suggested
+  const d1 = { ...d0, same: [["mart", "mart tamm"]] }; // he linked them himself
   const cs = findContradictions(claims, resolveEntities(mentions, d1), d1);
   assert.equal(cs.length, 1); assert.equal(cs[0].entity, "Mart Tamm");
 });
@@ -125,13 +127,16 @@ test("entity truth regression set: precision on same-entity suggestions", () => 
   const { ents, related } = resolveGraph(ments, emptyDecisions());
   const s = mergeSuggestions(ents, 50, { related });
   const pairs = (rel: string) => new Set(s.filter((x) => x.relation === rel).flatMap((x) => x.keys.flatMap((a, i) => x.keys.slice(i + 1).map((b) => [a, b].sort().join("|")))));
-  const expected = new Set(["nyt|the new york times", "liis kask|liis maria kask"]); // "M. Tamm" (0.75) links but is below SUGGEST
+  // 2+ independent signals: NYT has a name rule + the same domain. "Liis Maria Kask" is a name rule only (one signal) until a fact agrees.
+  const expected = new Set(["nyt|the new york times"]); // "M. Tamm" (0.75) links but is below SUGGEST
   const got = pairs("same"), tp = [...got].filter((p) => expected.has(p)).length;
   const precision = got.size ? tp / got.size : 1, recall = tp / expected.size;
   console.log(`# entity regression: precision ${precision.toFixed(2)} (${tp}/${got.size}), recall ${recall.toFixed(2)} (${tp}/${expected.size})`);
   assert.equal(precision, 1); assert.equal(recall, 1);
   for (const k of ["the moscow times", "the economic times", "the seattle times"]) assert.equal(ents.find((e) => e.keys.includes(k))!.keys.length, 1);
-  assert.ok(pairs("related").has("facebook|meta platforms"));
+  assert.ok(!pairs("related").has("facebook|meta platforms")); // a shared domain alone is one signal: related companies stay apart
+  const liis = mergeSuggestions(ents, 50, { related, claims: [works("Liis Kask"), works("Liis Maria Kask")] });
+  assert.ok(liis.some((x) => x.keys.includes("liis kask") && x.keys.includes("liis maria kask") && x.relation === "same"));
   assert.ok(![...pairs("related"), ...got].some((p) => p.includes("nyc")));
   assert.ok(![...pairs("related"), ...got].some((p) => p.startsWith("mart|")));
   const nyt = s.find((x) => x.keys.includes("nyt"))!;
@@ -151,7 +156,7 @@ test("merge card: sides, classes, kept result; undo restores, rejection stays", 
   assert.equal(con.cls, "contradiction"); assert.deepEqual(con.keep!.ask, ["employer"]);
 
   const ms = [{ form: "Mart Tamm", src: src("1") }, { form: "Mart Juhan Tamm", src: src("2") }];
-  const sug = mergeSuggestions(resolveEntities(ms, emptyDecisions()));
+  const sug = mergeSuggestions(resolveEntities(ms, emptyDecisions()), undefined, { claims: [works("Mart Tamm"), works("Mart Juhan Tamm")] });
   const d1 = decideEntity(emptyDecisions(), { merges: sug, contradictions: [] }, sug[0].key, "same") as ReturnType<typeof emptyDecisions>;
   assert.equal(undoable(d1).length, 1);
   const d2 = decideEntity(d1, { merges: [], contradictions: [] }, sug[0].key, "undo") as ReturnType<typeof emptyDecisions>;
@@ -159,11 +164,33 @@ test("merge card: sides, classes, kept result; undo restores, rejection stays", 
   assert.equal(decideEntity(d2, { merges: [], contradictions: [] }, sug[0].key, "undo"), "Nothing to undo");
   const no = decideEntity(emptyDecisions(), { merges: sug, contradictions: [] }, sug[0].key, "different") as ReturnType<typeof emptyDecisions>;
   assert.equal(decideEntity(no, { merges: [], contradictions: [] }, sug[0].key, "undo"), "Nothing to undo"); // a rejection stays rejected
-  assert.equal(mergeSuggestions(resolveEntities(ms, no)).length, 0);
+  assert.equal(mergeSuggestions(resolveEntities(ms, no), undefined, { claims: [works("Mart Tamm"), works("Mart Juhan Tamm")] }).length, 0);
 });
 
 test("gather reads a name with its domain as a stable id", () => {
   const { mentions } = gather({ memories: [mem("m1", "Source: The New York Times (https://www.nytimes.com/x) and NYT (nytimes.com).")], facts: [], people: [] });
   const ids = mentions.filter((x) => x.ids).map((x) => [x.form, x.ids![0]]);
   assert.deepEqual(ids, [["The New York Times", "domain:nytimes.com"], ["NYT", "domain:nytimes.com"]]);
+});
+
+test("superseded claims: the older value stays as history, marked with the date and what replaced it", async () => {
+  const { outdatedClaims, outdatedLabel, signals } = await import("../src/lib/entity-graph-pure.ts");
+  const { mentions, claims } = gather({ memories: [
+    mem("old", "Liis works at Bolt.", { created_at: "2026-01-01T00:00:00Z", source: "inferred" } as Partial<MemIn>),
+    mem("new", "Liis works at Wise.", { created_at: "2026-09-01T00:00:00Z" }),
+  ], facts: [], people: [] });
+  const d = emptyDecisions(), ents = resolveEntities(mentions, d);
+  const o = outdatedClaims(claims, ents, d);
+  assert.deepEqual(o.map((x) => [x.id, x.was, x.now, x.since]), [["old", "Bolt", "Wise", "2026-09-01"]]);
+  assert.equal(outdatedLabel(o), `Liis's employer: "Bolt" is superseded by "Wise" (2026-09-01)`);
+  // a real tie is asked first ("Which is right?"); his answer then marks the other memory
+  const tie = gather({ memories: [mem("a", "Mart's birthday is 3 May.", { created_at: "2026-01-01T00:00:00Z" }), mem("b", "Mart's birthday is May 5.", { created_at: "2026-09-01T00:00:00Z" })], facts: [], people: [] });
+  const te = resolveEntities(tie.mentions, d);
+  assert.equal(outdatedClaims(tie.claims, te, d).length, 0);
+  const [c] = findContradictions(tie.claims, te, d);
+  const chose = decideEntity(d, { merges: [], contradictions: [c] }, c.key, "05-03") as ReturnType<typeof emptyDecisions>;
+  assert.deepEqual(outdatedClaims(tie.claims, te, chose).map((x) => [x.id, x.now]), [["b", "3 May"]]);
+  // signals: several name rules count once; a shared id or an agreeing fact is a second, independent one
+  assert.deepEqual(signals({ evidence: [{ code: "first", a: "Mart", b: "Mart Tamm" }, { code: "email", a: "mart", b: "mart@x.ee" }], parts: [] }, []), ["name"]);
+  assert.deepEqual(signals({ evidence: [{ code: "acronym", a: "NYT", b: "The New York Times" }, { code: "id", a: "NYT", b: "domain:nytimes.com" }], parts: [] }, []), ["name", "id"]);
 });
