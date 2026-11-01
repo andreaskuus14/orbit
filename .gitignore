@@ -24,5 +24,6 @@ orbit-launcher.log.1
 
 # tools/local-ai: venv, model weights, vendored repos (setup.ps1)
 /tools/local-ai/.venv/
+/tools/local-ai/service.log
 /tools/local-ai/models/
 /tools/local-ai/vendor/
