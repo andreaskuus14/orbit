@@ -124,3 +124,36 @@ test("policy: ws_picture_draft is T3 behind the owner's build ask; studio_drafts
   assert.equal(decide("ws_picture_draft", { workspace: "fairway" }, { ...ctx("make the fairway site with realistic pictures"), stopAll: true }).allow, false);
   assert.equal(decide("studio_drafts", {}, ctx("did the pictures get made?")).allow, true);
 });
+
+test("free photos: made now for every slot without a photo; failures fall to the priced draft; nothing queued when all made", async () => {
+  const made: string[] = [];
+  const all = pio({ free: async (s) => { made.push(s.path); return true; }, hasPhoto: async (p) => p === "img/old.jpg" });
+  const out = await pictureDraft({ slots: [hero, { ...hero, path: "img/team.jpg" }, { ...hero, path: "img/old.jpg" }] }, "u", "fairway", all.v);
+  assert.deepEqual(made.sort(), ["img/hero.jpg", "img/team.jpg"]); // a credited photo isn't made again
+  assert.equal(all.calls.queued.length, 0);
+  assert.match(out, /^Done: .*Made 2 realistic photos for free.*nothing was spent.*No approval is needed/);
+  const some = pio({ free: async (s) => s.path !== "img/team.jpg" });
+  const out2 = await pictureDraft({ slots: [hero, { ...hero, path: "img/team.jpg" }] }, "u", "fairway", some.v);
+  assert.deepEqual(some.calls.queued.map((q) => q.map((s) => s.path)), [["img/team.jpg"]]);
+  assert.match(out2, /free generator failed for img\/team\.jpg/);
+});
+
+test("free photo URLs: keyed endpoint first only with a key; prompt encoded, size and seed stable", async () => {
+  const { freeImageUrls } = await import("../src/lib/site-pictures-pure.ts");
+  const a = freeImageUrls(hero), b = freeImageUrls(hero, "k1");
+  assert.equal(a.length, 1);
+  assert.match(a[0].url, /^https:\/\/image\.pollinations\.ai\/prompt\/[^?/]+\?model=flux&width=1200&height=675&seed=\d+&nologo=true/);
+  assert.equal(b.length, 2);
+  assert.match(b[0].url, /^https:\/\/gen\.pollinations\.ai\/image\//);
+  assert.equal(b[0].headers.Authorization, "Bearer k1");
+  assert.equal(freeImageUrls(hero)[0].url, a[0].url);
+});
+
+test("freePicture: skips errors and tiny/non-image replies, returns the first real photo", async () => {
+  const { freePicture } = await import("../src/lib/site-inspire.ts");
+  const jpg = new Uint8Array(9000); jpg.set([0xff, 0xd8, 0xff, 0xe0]);
+  let n = 0;
+  const f = (async () => { n++; return n === 1 ? new Response("rate limited", { status: 429 }) : new Response(jpg); }) as unknown as typeof fetch;
+  assert.equal((await freePicture(hero, f, "k"))?.length, 9000);
+  assert.equal(await freePicture(hero, (async () => new Response("<html>", { status: 200 })) as unknown as typeof fetch, ""), null);
+});
