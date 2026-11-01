@@ -157,3 +157,13 @@ test("freePicture: skips errors and tiny/non-image replies, returns the first re
   assert.equal((await freePicture(hero, f, "k"))?.length, 9000);
   assert.equal(await freePicture(hero, (async () => new Response("<html>", { status: 200 })) as unknown as typeof fetch, ""), null);
 });
+
+test("free photos: one at a time, a refused one retried, a time budget leaves the rest as stand-ins", async () => {
+  let calls = 0, live = 0, peak = 0;
+  const flaky = pio({ retryMs: 0, free: async (s) => { calls++; live++; peak = Math.max(peak, live); await new Promise((r) => setTimeout(r, 1)); live--; return !(s.path === "img/hero.jpg" && calls === 1); }, hasPhoto: async () => false });
+  const out = await pictureDraft({ slots: [hero, { ...hero, path: "img/team.jpg" }] }, "u", "fairway", flaky.v);
+  assert.equal(peak, 1);
+  assert.match(out, /Made 2 realistic photos/);
+  const late = pio({ budgetMs: -1, free: async () => true, hasPhoto: async () => false });
+  assert.match(await pictureDraft({ slots: [hero] }, "u", "fairway", late.v), /free generator failed for img\/hero\.jpg/);
+});

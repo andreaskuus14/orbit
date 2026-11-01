@@ -218,7 +218,7 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
         const { stopAllOn } = await import("./stop-all.ts");
         const r = await srv.startServer(key, dir, { stopAll: stopAllOn() });
         if ("error" in r) return `Error: ${r.error}`;
-        const smoke = await srv.smokeCheck(r.url, r.routes), lint = await siteLint(userId, slug, question).catch(() => null);
+        const smoke = await srv.smokeCheck(r.url, r.routes, r.endpoints), lint = await siteLint(userId, slug, question).catch(() => null);
         const check = checkNote({ line: smoke.line + (lint ? lintLine(lint) : ""), issues: [...smoke.issues, ...(lint?.issues ?? []).map((i) => `lint: ${i}`)] }, priorWrites);
         onEvidence?.({ kind: "file", id: slug, path: "server.mjs", check: verifiedLine(check) });
         return `Running (local demo, this PC only): ${r.url}\nAPI routes: ${r.routes.join(", ") || "none found"}\nLogs: logs/server.log. Auto-stops after 30 min idle; ws_stop stops it.${check}`;

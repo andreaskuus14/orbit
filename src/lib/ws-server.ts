@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
-import { LOG_CAP, apiRoutes, idleExpired, inside, minimalEnv, nodeArgs, smokeReport, startBlocked, type SmokeResult } from "./ws-server-pure.ts";
+import { LOG_CAP, apiEndpoints, apiRoutes, idleExpired, inside, minimalEnv, nodeArgs, smokePlan, smokeReport, startBlocked, type SmokeResult } from "./ws-server-pure.ts";
 
 // Local demo servers for full-stack workspaces (ws-server-pure.ts has the rules). One per workspace key, 127.0.0.1 only, sandboxed by
 // Node's permission model, stopped by ws_stop, Stop-all (stop-all-run.ts) or 30 min without log output (each request logs a line).
@@ -41,7 +41,7 @@ const up = async (url: string, child: ChildProcess) => {
 };
 
 /** Starts <dir>/server.mjs (dir absolute, already contained by the caller). Restarts it if it was running. */
-export async function startServer(key: string, dir: string, o: { stopAll?: boolean; permission?: boolean } = {}): Promise<{ url: string; routes: string[] } | { error: string }> {
+export async function startServer(key: string, dir: string, o: { stopAll?: boolean; permission?: boolean } = {}): Promise<{ url: string; routes: string[]; endpoints: Record<string, string[]> } | { error: string }> {
   const src = await readFile(path.join(dir, "server.mjs"), "utf8").catch(() => null);
   const blocked = !path.isAbsolute(dir) ? "invalid workspace folder" : startBlocked({ hasServer: src !== null, permission: o.permission ?? hasPermission(), running: runs.has(key), stopAll: !!o.stopAll });
   if (blocked) return { error: blocked };
@@ -65,30 +65,38 @@ export async function startServer(key: string, dir: string, o: { stopAll?: boole
   child.on("exit", (code: number | null) => { write(Buffer.from(`--- exited (${code ?? "killed"})\n`)); if (runs.get(key) === run) { clearInterval(run.timer); runs.delete(key); } });
   runs.set(key, run);
   if (!(await up(url, child))) { stopServer(key); return { error: `server.mjs didn't start listening on PORT within 5 s; see logs/server.log` }; }
-  return { url, routes: apiRoutes(src!) };
+  return { url, routes: apiRoutes(src!), endpoints: apiEndpoints(src!) };
 }
 
 /** GET / and every /api route, then one POST round-trip to the data store (the posted item is deleted again when the server
  *  returns its id). */
-export async function smokeCheck(url: string, routes: string[]): Promise<{ line: string; issues: string[] }> {
+export async function smokeCheck(url: string, routes: string[], endpoints?: Record<string, string[]>): Promise<{ line: string; issues: string[] }> {
   const base = url.replace(/\/$/, "");
-  const call = async (what: string, p: string, init?: RequestInit): Promise<SmokeResult & { body?: string }> => {
+  const call = async (what: string, p: string, init?: RequestInit): Promise<SmokeResult & { body?: string; status?: number }> => {
     try {
       const r = await fetch(base + p, { ...init, signal: AbortSignal.timeout(3000) }), body = await r.text();
-      return { what, ok: r.ok, detail: r.ok ? undefined : `HTTP ${r.status} ${body.slice(0, 120)}`, body };
+      return { what, ok: r.ok, status: r.status, detail: r.ok ? undefined : `HTTP ${r.status} ${body.slice(0, 120)}`, body };
     } catch (e) { return { what, ok: false, detail: e instanceof Error ? e.message : String(e) }; }
   };
+  const plan = smokePlan(endpoints ?? Object.fromEntries(routes.map((r) => [r, ["ANY"]])));
   const rs: SmokeResult[] = [await call("GET /", "/")];
-  for (const r of routes) rs.push(await call(`GET ${r}`, r));
-  const target = routes.includes("/api/items") ? "/api/items" : routes.find((r) => !/health/.test(r));
+  for (const r of plan.gets) rs.push(await call(`GET ${r}`, r));
+  const target = plan.post;
   if (!target) rs.push({ what: "POST round-trip", ok: false, detail: "no /api data route to POST to" });
   else {
     const mark = `orbit smoke check ${Date.now()}`;
     const p = await call(`POST ${target}`, target, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: mark }) });
-    const back = p.ok ? await call(`GET ${target}`, target) : null;
-    rs.push({ what: `POST ${target} round-trip`, ok: !!back?.body?.includes(mark), detail: p.ok ? "the posted item didn't come back from GET" : p.detail });
-    let id: unknown; try { id = JSON.parse(p.body ?? "").id; } catch { /* no id: nothing to clean up */ }
-    if (typeof id === "string" && /^[\w-]{1,80}$/.test(id)) await call("cleanup", `${target}/${id}`, { method: "DELETE" });
+    if (!plan.readBack) {
+      // A validated route (bookings, contact) rightly refuses the generic test item: a 4xx with a reason proves it validates.
+      const validated = !p.ok && p.status !== undefined && p.status >= 400 && p.status < 500 && p.status !== 404;
+      rs.push({ what: `POST ${target}`, ok: p.ok || validated, detail: p.ok ? undefined : validated ? undefined : p.detail });
+      if (validated) rs.push({ what: `POST ${target} with real fields`, ok: false, detail: `not tested: the check only sends {text}; post a real ${target} item and read it back to prove saving works` });
+    } else {
+      const back = p.ok ? await call(`GET ${target}`, target) : null;
+      rs.push({ what: `POST ${target} round-trip`, ok: !!back?.body?.includes(mark), detail: p.ok ? "the posted item didn't come back from GET" : p.detail });
+      let id: unknown; try { id = JSON.parse(p.body ?? "").id; } catch { /* no id: nothing to clean up */ }
+      if (typeof id === "string" && /^[\w-]{1,80}$/.test(id)) await call("cleanup", `${target}/${id}`, { method: "DELETE" });
+    }
   }
   return smokeReport(rs);
 }
