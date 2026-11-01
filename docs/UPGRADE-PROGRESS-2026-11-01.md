@@ -11,7 +11,7 @@ Implementation branch: `codex/idea-radar-transcripts`. Claude reviews, merges an
 
 ## Research and remaining implementation
 
-Confirmed on GitHub during coordination: Claude merged [page watches, PR 370](https://github.com/andreaskuus14/orbit/pull/370) and [receipts, digest, restart recovery and memory reliability, PR 371](https://github.com/andreaskuus14/orbit/pull/371). These are Claude's changes, not features built by this branch. Audit them before starting overlapping CORE, MEMORY, AGENTS or OPERATIONS work. Claude's local captions/IFC/document modules were still in validation when checked.
+Confirmed on GitHub during coordination: Claude merged [page watches, PR 370](https://github.com/andreaskuus14/orbit/pull/370) and [receipts, digest, restart recovery and memory reliability, PR 371](https://github.com/andreaskuus14/orbit/pull/371). These are Claude's changes, not features built by this branch. Audit them before starting overlapping CORE, MEMORY, AGENTS or OPERATIONS work. Claude also merged [local captions, IFC and document reading, PR 372](https://github.com/andreaskuus14/orbit/pull/372). All three PRs have been integrated into this branch. Their local service setup and Windows/GPU runtime still need owner-side validation; this branch does not install their models.
 
 The [100-candidate catalog](MODULE-RESEARCH-2026-11-01.md) and [27-category map](CATEGORY-UPGRADE-MAP-2026-11-01.md) are now included on this review branch. Their proposed first upgrades remain candidates unless listed above as built. Some overlap existing ORBIT features and need a code audit before work.
 
@@ -21,4 +21,4 @@ Do not install overlapping frameworks merely to satisfy the candidate count. Reu
 
 ## Validation
 
-Before the latest batch: 36 focused Idea Radar checks and isolated production build passed. The full gate previously failed in the Windows workspace test. The environment stripping fix now passes all six workspace checks. OPML export, translation coverage and route guards pass six focused checks. The full gate passed: type checking, 3,030 tests (3,026 passed, zero failed, four skipped), synthetic AI evaluation, and isolated production build. A final integration gate is required after merging current main.
+Before the latest batch: 36 focused Idea Radar checks and isolated production build passed. The full gate previously failed in the Windows workspace test. The environment stripping fix now passes all six workspace checks. OPML export, translation coverage and route guards pass six focused checks. The full gate passed: type checking, 3,030 tests (3,026 passed, zero failed, four skipped), synthetic AI evaluation, and isolated production build. Final integration gate also passed after merging main through PR 372: type checking, 3,068 tests (3,064 passed, zero failed, four skipped), synthetic AI evaluation and production build. Build output stayed in .next-idea-radar-check; generated tsconfig edits were discarded.
