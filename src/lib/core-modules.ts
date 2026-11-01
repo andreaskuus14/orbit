@@ -121,6 +121,12 @@ const MODULES: CoreModule[] = [
     run: async (t, i) => (await import("./local-ai")).runLocalTool(t, i),
   },
   {
+    // Rojo + Selene on his PC (tools/roblox): local files in his Roblox projects folder only, nothing is uploaded or published
+    name: "ROBLOXFILES", tools: ["roblox_export", "roblox_lint"], writes: ["roblox_export"],
+    prompt: "- ROBLOX FILES (his Roblox scripts as files on his PC, Rojo + Selene; nothing is uploaded or published): roblox_export {\"place\": \"<full path of a saved .rbxl/.rbxlx>\"} (writes the place's scripts to a Rojo project folder and commits them to git; refused if that folder has uncommitted changes). roblox_lint {\"project\"?: string (default: the newest exported project)} (read-only: Selene's issues by file and line, with the code line). Cite file:line when you name an issue, and say Selene's findings are hints, not proof of a bug. If a tool says rojo/selene isn't installed, tell him to run tools\\roblox\\setup.ps1. If there is no .rbxl yet: in Studio File → Save to File As. Live sync and the issue list are in GAME DEV → Build → Files.",
+    run: async (t, i) => (await import("./rojo")).runRojoTool(t, i),
+  },
+  {
     // read-only; private: habit streaks and LIFE counts are in it (journal text never is: only a count of entries)
     name: "WEEK", tools: ["week_review"], private: true,
     prompt: "- week_review {\"week\"?: \"this\"|\"last\"}: his week (Europe/Tallinn, Monday start) from ORBIT's own data as facts: planned vs done, what slipped (deadline passed, Shorts target missed, started but not finished), what's late, streaks and biggest wins. For \"what slipped / what did I get done / what's late / how did my week go\". Cite each fact you use with its [w:...] marker exactly as written.",
