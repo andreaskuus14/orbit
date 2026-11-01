@@ -29,6 +29,16 @@ function Step($t) { Write-Host "`n== $t" -ForegroundColor Cyan }
 function Warn($t) { Write-Host "!! $t" -ForegroundColor Yellow }
 function Run($exe, [string[]]$a) { & $exe @a; if ($LASTEXITCODE -ne 0) { throw "$exe $($a -join ' ') failed ($LASTEXITCODE)" } }
 # Big downloads (torch is 2.4 GB) can be cut off midway; pip then reports a hash mismatch for the partial file. Try 3 times.
+# Model downloads: huggingface_hub resumes a partial file, so a retry after a dropped connection continues where it stopped.
+function RunTries($exe, [string[]]$a) {
+  for ($i = 1; $i -le 4; $i++) {
+    & $exe @a
+    if ($LASTEXITCODE -eq 0) { return }
+    if ($i -lt 4) { Warn "Download stopped (try $i of 4; the connection dropped?). Continuing in 15 s..."; Start-Sleep 15 }
+  }
+  throw "Model download failed 4 times. Check the internet connection and run setup.ps1 again; it continues where it stopped."
+}
+$env:HF_HUB_DISABLE_SYMLINKS_WARNING = "1"
 function RunRetry($exe, [string[]]$a) {
   for ($i = 1; $i -le 3; $i++) {
     & $exe @a "--retries" "10" "--timeout" "120"
@@ -74,16 +84,18 @@ if (-not $Skip3D) {
   Run git @("-C", $src, "checkout", "--quiet", $TripoSRCommit)
   try {
     # Builds a C++ extension: needs Visual Studio 2022 Build Tools (C++). Without the CUDA toolkit it builds the CPU version, which TripoSR falls back to.
+    # --no-build-isolation builds against the installed torch, so its build tools must be here first.
+    RunRetry $Py @("-m", "pip", "install", "scikit-build-core==1.0.3", "pybind11==2.13.6", "cmake==3.31.6", "ninja==1.11.1.4")
     Run $Py @("-m", "pip", "install", "--no-build-isolation", "git+https://github.com/tatsy/torchmcubes.git@$TorchMcubesCommit")
   } catch {
     Warn "torchmcubes did not build, so Picture to 3D stays off. Install 'Visual Studio 2022 Build Tools' with 'Desktop development with C++' (winget install Microsoft.VisualStudio.2022.BuildTools), open a new PowerShell and run setup.ps1 again."
   }
-  Run $Py @("-c", "from huggingface_hub import hf_hub_download as d; [d('stabilityai/TripoSR', f, revision='$TripoSRRev', local_dir=r'$Models\TripoSR') for f in ('config.yaml', 'model.ckpt')]; d('facebook/dino-vitb16', 'config.json'); print('TripoSR weights ready')")
+  RunTries $Py @("-c", "from huggingface_hub import hf_hub_download as d; [d('stabilityai/TripoSR', f, revision='$TripoSRRev', local_dir=r'$Models\TripoSR') for f in ('config.yaml', 'model.ckpt')]; d('facebook/dino-vitb16', 'config.json'); print('TripoSR weights ready')")
 }
 
 if (-not $SkipClone) {
   Step "Own-voice cloning: Audio8 TTS Realistic 0.6B (Apache-2.0, ~2.6 GB)"
-  Run $Py @("-c", "from huggingface_hub import snapshot_download as s; s('Edge0/Audio8-TTS-Realistic-0.6b', revision='$Audio8Rev', local_dir=r'$Models\audio8', ignore_patterns=['assets/*', '*.jpeg']); print('Audio8 ready')")
+  RunTries $Py @("-c", "from huggingface_hub import snapshot_download as s; s('Edge0/Audio8-TTS-Realistic-0.6b', revision='$Audio8Rev', local_dir=r'$Models\audio8', ignore_patterns=['assets/*', '*.jpeg']); print('Audio8 ready')")
 }
 
 Step "Check"
