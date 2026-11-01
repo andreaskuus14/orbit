@@ -7,7 +7,8 @@ import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.
 import { streamJsonInput } from "./attach-pure.ts";
 import { recordCall, usageHoldFor } from "./usage-meter.ts";
 import { isLimitAnswer } from "./usage-meter-pure.ts";
-import { OLLAMA_URL, claudeDown, localAllowed, ollamaAnswer, ollamaRequest } from "./local-model-pure.ts";
+import { claudeDown, localAllowed } from "./local-model-pure.ts";
+import { LOCAL_MODEL, chatLocal } from "./local-llm.ts";
 import { ledgerIssue } from "./ledger-pure.ts";
 import { adminClient } from "./supabase/admin.ts";
 
@@ -207,8 +208,8 @@ export function askClaudeStream(prompt: string | Promise<string>, system: string
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
-/** Offline brain: Ollama model name, "" = off. */
-export const LOCAL_MODEL = (process.env.ORBIT_LOCAL_MODEL ?? "").trim();
+/** Offline brain: Ollama model name (ORBIT_LOCAL_LLM_MODEL), "" = off. */
+export { LOCAL_MODEL };
 
 /** Lanes that allow it (localAllowed) go to the local model while the usage hold for their lane is on (foreground: only the real limit), or when Claude fails because it's
  *  unreachable or rate-limited. If the local model fails too, the original Claude error is what the caller sees. */
@@ -224,15 +225,8 @@ async function withLocal(lane: Lane, prompt: string | Promise<string>, system: s
 }
 
 /** One plain Ollama chat call (no tools, no streaming). */
-async function askLocal(prompt: string | Promise<string>, system: string, signal?: AbortSignal, timeoutMs = TIMEOUT_MS): Promise<ClaudeResult> {
-  const t0 = Date.now();
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ollamaRequest(LOCAL_MODEL, system, await prompt)),
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) throw new Error(`Local model (Ollama) answered ${res.status}`);
-  return { ...ollamaAnswer(await res.json()), ms: Date.now() - t0, local: true };
-}
+const askLocal = async (prompt: string | Promise<string>, system: string, signal?: AbortSignal, timeoutMs = TIMEOUT_MS): Promise<ClaudeResult> =>
+  chatLocal(await prompt, system, { signal, timeoutMs });
 
 async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false, mcp?: McpAccess, onLine?: (line: string) => void, session?: CliSession, thinking?: number): Promise<ClaudeResult> {
   if (typeof prompt !== "string") prompt.catch(() => {}); // observed now; its error is reported once the CLI is up

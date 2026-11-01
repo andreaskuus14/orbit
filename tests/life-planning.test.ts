@@ -112,6 +112,9 @@ const walk = (d: string): string[] => readdirSync(d).flatMap((f) => { const p = 
 const src = path.join(import.meta.dirname, "../src");
 const MODEL = /\b(askClaude|callModel|runCore|anthropic|messages\.create|VOICE_ASK|generateText|streamText)\b/;
 // Files allowed to read the LIFE journal: the store itself, the LIFE UI, local backup/export and the local search route — none calls a model.
+// The one exception: LIFE → Journal "Reflect", opt-in (ORBIT_LOCAL_PRIVATE=1), sent only to the local model on this PC via
+// local-llm.ts, which never imports claude.ts (tests/local-llm.test.ts). It may read the journal but never import or call Claude.
+const LOCAL_ONLY = ["app/api/life/reflect/route.ts"];
 const ALLOWED = ["lib/life.ts", "lib/life-pure.ts", "components/LifePanel.tsx", "lib/backup.ts", "lib/demo-pure.ts", "app/api/search/route.ts", "app/api/life/route.ts"];
 
 test("LIF07: no model-call path can read LIFE journal content", () => {
@@ -121,6 +124,7 @@ test("LIF07: no model-call path can read LIFE journal content", () => {
     const readsLife = /\b(exportLife|getLife|journalDigest|journalText)\b|from ["'][^"']*\/life(-pure)?(\.ts)?["']/.test(code);
     const readsJournal = readsLife && /\.journal\b|journal\s*[:\]]/.test(code);
     if (!readsJournal) continue;
+    if (LOCAL_ONLY.includes(rel)) { if (MODEL.test(code) || /claude/i.test(code.match(/^import .*$/gm)?.join("\n") ?? "")) offenders.push(`${rel}: local-only journal path touches Claude`); continue; }
     if (!ALLOWED.includes(rel)) offenders.push(`${rel}: reads the LIFE journal`);
     else if (MODEL.test(code)) offenders.push(`${rel}: reads the LIFE journal and has a model call`);
   }
