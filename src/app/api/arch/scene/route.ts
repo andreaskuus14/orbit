@@ -3,6 +3,8 @@ import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
 import { orbitDataDir } from "@/lib/data-dir";
 import { acceptSave, type Saved } from "@/lib/arch-save-pure";
+import { projectScope } from "@/lib/project-access";
+import { archScopeKey } from "@/lib/project-desk-pure";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +14,7 @@ type State = { users: Record<string, Saved> };
 const file = () => path.join(orbitDataDir(), "arch-scene.json");
 const MAX = 2_000_000;
 const load = async (): Promise<State> => {
-  try { const j = JSON.parse(await readFile(file(), "utf8")); return j?.users && typeof j.users === "object" ? j : { users: {} }; } catch { return { users: {} }; }
+  try { const j = JSON.parse(await readFile(file(), "utf8")); if (!j?.users || typeof j.users !== "object" || Array.isArray(j.users)) throw new Error("Invalid ARCH store"); return j; } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return { users: {} }; throw e; }
 };
 async function store(s: State) {
   await mkdir(path.dirname(file()), { recursive: true });
@@ -21,15 +23,21 @@ async function store(s: State) {
 }
 let chain: Promise<unknown> = Promise.resolve();
 
-export async function GET() {
-  const { user, res } = await requireUser();
+export async function GET(req: Request) {
+  const { sb, user, res } = await requireUser();
   if (res) return res;
-  return Response.json({ saved: (await load()).users[user.id] ?? null });
+  const project = await projectScope(req, sb, user.id);
+  if (project instanceof Response) return project;
+  const key = archScopeKey(user.id, project);
+  return Response.json({ saved: (await load()).users[key] ?? null });
 }
 
 export async function POST(req: Request) {
-  const { user, res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
+  const project = await projectScope(req, sb, user.id);
+  if (project instanceof Response) return project;
+  const key = archScopeKey(user.id, project);
   const text = await req.text();
   if (text.length > MAX) return Response.json({ error: "Scene too big" }, { status: 413 });
   let b: Partial<Saved> | null = null;
@@ -37,9 +45,9 @@ export async function POST(req: Request) {
   if (!b || !Array.isArray(b.scene?.parts)) return Response.json({ error: "Scene missing" }, { status: 400 });
   const body = b;
   const run = chain.then(async () => {
-    const s = await load(), cur = s.users[user.id];
+    const s = await load(), cur = s.users[key];
     if (!acceptSave(cur, body.rev)) return { stale: cur?.rev ?? 0 };
-    s.users[user.id] = { rev: body.rev as number, scene: body.scene!, prices: body.prices, site: body.site, variants: body.variants, at: new Date().toISOString() };
+    s.users[key] = { rev: body.rev as number, scene: body.scene!, prices: body.prices, site: body.site, variants: body.variants, at: new Date().toISOString() };
     await store(s);
     return { rev: body.rev as number };
   });

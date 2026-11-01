@@ -134,6 +134,8 @@ Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Long-form · 
 
 ## ARCH
 
+- **Project desk:** choose an OPERATIONS project to keep a separate ARCH model/history alongside local brief/decision notes, reference links and its existing tasks. The unassigned model remains available. CORE chat projects and visual reference boards are not unified yet; see [scope and storage](ARCH-PROJECT-DESK.md).
+
 - **Scans:** import a .ply/.splat scan, walk around it, and **measure** inside it (two clicks, calibrate on a known length).
 - **Sketch critique:** photo of your sketch → feedback on proportion, circulation, light, structure, saved to MEMORY.
 - **Precedents:** "Teach me <building>" lessons, scans and critiques, all linked and searchable.
