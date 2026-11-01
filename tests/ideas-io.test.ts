@@ -138,14 +138,14 @@ test("radar rechecks the cutoff after a long transcript before calling CORE", as
 });
 
 const NOW = Date.parse("2026-10-21T12:00:00Z");
-function panel(hideStale: boolean, research = false) {
+function panel(hideStale: boolean, research = false, area: pure.Area | "all" = "all") {
   const rows: pure.Idea[] = [
     { id: "old", title: "Old strong idea", video: "abcdefghijk", videoTitle: "Old source", summary: "", next: "", area: "core" as const, score: 100, at: "2026-10-19T12:00:00Z", sourceAt: "2026-10-01T12:00:00Z" },
     { id: "fresh", title: "Fresh idea", video: "abcdefghijk", videoTitle: "Fresh source", summary: "", next: "", area: "core" as const, score: 80, at: "2026-10-19T12:00:00Z", sourceAt: "2026-10-16T12:00:00Z" },
     { id: "legacy", title: "Legacy idea", video: "abcdefghijk", videoTitle: "Unknown source", summary: "", next: "", area: "core" as const, score: 99 },
   ];
-  if (research) rows.push({ id: "research", title: "Public transcript idea", video: "", videoTitle: "Public source", summary: "", next: "", area: "core", score: 90, origin: "transcript", at: "2026-10-21T12:00:00Z" });
-  const states = [{ shown: rows, hidden: 0, busy: null }, "", false, hideStale, null]; let index = 0;
+  if (research) rows.push({ id: "research", title: "Public transcript idea", video: "", videoTitle: "Public source", summary: "", next: "", area: "arch", score: 90, origin: "transcript", at: "2026-10-21T12:00:00Z" });
+  const states = [{ shown: rows, hidden: 0, busy: null }, "", false, hideStale, null, area]; let index = 0;
   const m = { exports: {} as any };
   runInNewContext(compile("components/IdeasPanel.tsx"), { module: m, exports: m.exports, Date: class extends Date { static now() { return NOW; } },
     require: (name: string) => name === "react" ? { ...require("react"), useState: () => [states[index++], () => {}], useEffect() {}, useCallback: (f: any) => f }
@@ -174,6 +174,16 @@ test("pasted research remains visible without inventing a video link or verified
   assert.match(html, /<input[^>]*required=""[^>]*name="publicSource"/);
   assert.doesNotMatch(html, /watch\?v="/);
   assert.match(html, /2 stale ideas hidden/);
+});
+
+test("category selector renders the catalog, shows matching research and explains empty results", () => {
+  const arch = panel(true, true, "arch");
+  for (const id of pure.AREAS) assert.ok(arch.includes(`value="${id}"`), id);
+  assert.match(arch, /value="arch" selected=""/);
+  assert.match(arch, /Public transcript idea/); assert.doesNotMatch(arch, /Fresh idea|stale ideas hidden/);
+  const core = panel(true, true, "core");
+  assert.match(core, /Fresh idea/); assert.doesNotMatch(core, /Public transcript idea/);
+  assert.match(panel(true, true, "life"), /No visible ideas in this category/);
 });
 
 

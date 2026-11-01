@@ -1,12 +1,11 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { board, freshnessLabel, isStale, TRANSCRIPT_MAX, type Idea } from "@/lib/ideas-pure";
+import { AREA_INFO, AREAS, ideaView, freshnessLabel, isStale, TRANSCRIPT_MAX, type Area, type Idea } from "@/lib/ideas-pure";
 import { commentUrl } from "@/lib/comment-ideas-pure";
 import { useT } from "./i18n";
 
 // IDEA RADAR board (Agents Station → Ideas). Paste a YouTube link; CORE reads its captions and scores every idea.
 type Board = { shown: Idea[]; hidden: number; busy: string | null; found?: number };
-const AREA: Record<string, string> = { studio: "🎬 STUDIO", business: "💼 BUSINESS", markets: "📈 MARKETS", agents: "🤖 AGENTS", core: "🧠 CORE", gamedev: "🎮 GAME DEV", other: "Other" };
 
 async function call(body?: object): Promise<Board> {
   const r = await fetch("/api/ideas", { method: body ? "POST" : "GET", cache: "no-store", ...(body && { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
@@ -22,6 +21,7 @@ export default function IdeasPanel({ initialUrl, onConsumed }: { initialUrl?: st
   const [busy, setBusy] = useState(false);
   const [hideStale, setHideStale] = useState(true);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [area, setArea] = useState<Area | "all">("all");
   const load = useCallback(() => call().then(setB, (e: Error) => setMsg({ ok: false, text: e.message })), []);
   const read = useCallback(async (u: string) => {
     setBusy(true); setMsg(null);
@@ -39,8 +39,7 @@ export default function IdeasPanel({ initialUrl, onConsumed }: { initialUrl?: st
   // A shared link only fills the box: reading it is the owner's own click (a link from anyone else can't spend Claude usage).
   useEffect(() => { void load(); if (initialUrl) { setUrl(initialUrl); onConsumed?.(); } }, [load, initialUrl]); // eslint-disable-line react-hooks/exhaustive-deps
   const now = Date.now();
-  const shown = board(b?.shown ?? [], now).shown.filter((i) => i.origin === "transcript" || !hideStale || !isStale(i, now));
-  const stale = b?.shown.filter((i) => i.origin !== "transcript" && isStale(i, now)).length ?? 0;
+  const { shown, stale } = ideaView(b?.shown ?? [], now, area, hideStale);
   return (
     <div className="space-y-3 text-sm">
       <form className="flex gap-1.5" aria-label="Read a video for ideas" onSubmit={(e) => { e.preventDefault(); if (url.trim()) void read(url.trim()); }}>
@@ -57,14 +56,22 @@ export default function IdeasPanel({ initialUrl, onConsumed }: { initialUrl?: st
           <button className="btn" disabled={busy}>{t("ideas.transcript.analyze")}</button>
         </form>
       </details>
-      <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={hideStale} onChange={(e) => setHideStale(e.target.checked)} />Hide stale</label>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-xs">{t("ideas.category")}
+          <select className="field" value={area} onChange={(e) => setArea(e.target.value as Area | "all")}>
+            <option value="all">{t("ideas.allCategories")}</option>
+            {AREAS.map((id) => <option key={id} value={id}>{AREA_INFO[id].label}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={hideStale} onChange={(e) => setHideStale(e.target.checked)} />Hide stale</label>
+      </div>
       {busy && <p className="muted" role="status">{t("ideas.reading")}</p>}
       {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
-      {b && !shown.length && <p className="muted">{hideStale && stale ? "No fresh strong ideas. Turn off Hide stale to see older ideas." : "No strong ideas yet. Paste a video about side hustles, tools or channel growth."}</p>}
+      {b && !shown.length && <p className="muted">{area !== "all" ? t("ideas.emptyCategory") : hideStale && stale ? "No fresh strong ideas. Turn off Hide stale to see older ideas." : "No strong ideas yet. Paste a video about side hustles, tools or channel growth."}</p>}
       {hideStale && stale > 0 && <p className="muted text-xs">{stale} stale ideas hidden.</p>}
       <ul className="space-y-2">{shown.map((i) => (
         <li key={i.id} className={`card space-y-1${i.origin !== "transcript" && isStale(i, now) ? " opacity-50 grayscale" : ""}`}>
-          <div className="flex items-baseline justify-between gap-2"><b>{i.title}</b><span className="muted text-xs">{AREA[i.area] ?? i.area} · {i.score}</span></div>
+          <div className="flex items-baseline justify-between gap-2"><b>{i.title}</b><span className="muted text-xs">{AREA_INFO[i.area]?.label ?? i.area} · {i.score}</span></div>
           {i.summary && <p className="muted">{i.summary}</p>}
           <p className="muted text-xs">{i.origin === "transcript" ? t("ideas.transcript.unverified") : <>{freshnessLabel(i, now)}{isStale(i, now) ? " · stale" : ""}</>}</p>
           {i.next && <p><b>Next:</b> {i.next}</p>}

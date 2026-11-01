@@ -7,6 +7,7 @@ export const LANG_KEY = "orbit.lang";
 export const parseLang = (v: unknown): Lang => (v === "et" ? "et" : "en");
 
 const BASE = {
+  "ideas.category": "Category", "ideas.allCategories": "All categories", "ideas.emptyCategory": "No visible ideas in this category. Choose All categories or turn off Hide stale.",
   "ideas.transcript.title": "Have a public transcript?", "ideas.transcript.help": "Paste a public video's transcript when its link cannot be read. Research is labeled as undated, not verified fresh video ideas. 200–60,000 characters.",
   "ideas.transcript.source": "Public source title", "ideas.transcript.text": "Public transcript", "ideas.transcript.public": "This is public source material, not private LIFE or journal text. CORE will analyze it.",
   "ideas.transcript.analyze": "Analyze transcript", "ideas.transcript.saved": "Saved {n} research ideas. The source date is unverified.", "ideas.transcript.unverified": "Transcript research · source date unverified",
@@ -809,6 +810,7 @@ export const EN = { ...BASE, ...Object.fromEntries(PLANETS.flatMap((p) => [[`pla
  *   standing rule = püsireegel · night shift = öine vahetus · open loop = lahtine ots · incident = intsident · call (Claude) = päring
  * Counts: after a number other than 1 Estonian takes the partitive singular ("3 agenti"), so .one/.other is enough. */
 export const ET: Partial<Record<Key, string>> = {
+  "ideas.category": "Kategooria", "ideas.allCategories": "Kõik kategooriad", "ideas.emptyCategory": "Selles kategoorias pole nähtavaid ideid. Vali kõik kategooriad või lülita vanade ideede peitmine välja.",
   "ideas.transcript.title": "Kas sul on avalik transkriptsioon?", "ideas.transcript.help": "Kleebi avaliku video transkriptsioon, kui linki ei saa lugeda. Uurimisideed hoitakse kontrollitud värsketest videoideedest eraldi. 200–60 000 tähemärki.",
   "ideas.transcript.source": "Avaliku allika pealkiri", "ideas.transcript.text": "Avalik transkriptsioon", "ideas.transcript.public": "See on avalik allikmaterjal, mitte privaatne LIFE-i või päeviku tekst. CORE analüüsib seda.",
   "ideas.transcript.analyze": "Analüüsi transkriptsiooni", "ideas.transcript.saved": "Salvestatud {n} uurimisideed. Allika kuupäev on kontrollimata.", "ideas.transcript.unverified": "Transkriptsiooni uurimine · allika kuupäev kontrollimata",

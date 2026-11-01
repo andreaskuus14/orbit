@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { board, parseIdeas, videoIdFrom, vttText } from "../src/lib/ideas-pure.ts";
+import { AREAS, AREA_INFO, RADAR_SYSTEM, board, ideaView, parseIdeas, videoIdFrom, vttText } from "../src/lib/ideas-pure.ts";
 import { validateTranscript, TRANSCRIPT_MAX } from "../src/lib/ideas-pure.ts";
 
 test("public transcript validation requires explicit public classification and bounded title/text", () => {
@@ -43,6 +43,32 @@ import { filterFresh, freshnessLabel, isStale, sourceDate, type Idea } from "../
 const DAY = 86_400_000, NOW = Date.parse("2026-10-21T12:00:00Z");
 const dated = (id: string, age: number, extra: Partial<Idea> = {}): Idea => ({ id, video: "abcdefghijk", videoTitle: "Source", title: id, summary: "", area: "core", score: 80, next: "",
   at: new Date(NOW - 2 * DAY).toISOString(), sourceAt: new Date(NOW - age * DAY).toISOString(), ...extra });
+
+test("every category can be extracted and is described to the model; legacy IDs remain valid", () => {
+  for (const area of AREAS) {
+    const result = parseIdeas(JSON.stringify([{ title: "A public idea", area, score: 80 }]), "", "Public source", new Date(NOW).toISOString(), () => area);
+    assert.equal(result[0].area, area);
+    assert.ok(AREA_INFO[area].label);
+    assert.ok(RADAR_SYSTEM.includes(`${area} = `), area);
+  }
+  for (const legacy of ["studio", "business", "markets", "agents", "core", "gamedev", "other"])
+    assert.ok((AREAS as string[]).includes(legacy));
+  assert.match(RADAR_SYSTEM, /never authorizes reading private data/);
+});
+
+test("category views preserve ranking, hidden/stale rules and undated research without mutating records", () => {
+  const records = [dated("CORE idea", 1), dated("ARCH old", 20, { area: "arch", score: 100 }),
+    dated("ARCH research", 0, { area: "arch", origin: "transcript", sourceAt: undefined }),
+    dated("ARCH dismissed", 1, { area: "arch", dismissed: true }), dated("ARCH weak", 1, { area: "arch", score: 20 })];
+  const before = structuredClone(records);
+  assert.deepEqual(ideaView(records, NOW, "core", true).shown.map((i) => i.id), ["CORE idea"]);
+  const arch = ideaView(records, NOW, "arch", true);
+  assert.deepEqual(arch.shown.map((i) => i.id), ["ARCH research"]); assert.equal(arch.stale, 1);
+  assert.deepEqual(ideaView(records, NOW, "arch", false).shown.map((i) => i.id), ["ARCH old", "ARCH research"]);
+  assert.deepEqual(ideaView(records, NOW, "life", true), { shown: [], stale: 0 });
+  assert.equal(ideaView(records, NOW, "all", true).shown.length, 2);
+  assert.deepEqual(records, before);
+});
 
 test("freshness: source age controls staleness, exact 14d boundary stays fresh, legacy and invalid dates are stale", () => {
   assert.equal(isStale(dated("fresh", 14), NOW), false);

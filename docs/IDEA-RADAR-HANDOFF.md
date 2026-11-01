@@ -8,6 +8,14 @@ AGENTS → Ideas → **Have a public transcript?** accepts a source title and 20
 
 English and Estonian input/help/status text is included. No dependencies or migrations. No REA edits, deployment or live data changes.
 
+## Follow-up: all-category ideas
+
+Idea Radar now classifies new public-source ideas across 27 ORBIT areas plus Other. The category descriptions used in the extraction prompt and the labels/options shown on the board come from one catalog in `ideas-pure.ts`. Categories include ARCH, MEMORY, INTELLIGENCE, LIFE, School, People, VAULT, Workspaces, Money, Voice, Phone, System, and daily/weekly reviews alongside the original areas.
+
+The Category selector filters existing board records without rewriting them or invoking the model. It preserves score thresholds, dismissed records, stale-video visibility and the explicit undated-research exception. Existing saved category IDs remain valid; old Other records are not silently reclassified. Classification does not add model tools or permission to access LIFE/journal data.
+
+Follow-up focused verification: all 36 checks passed across pure classification/view logic, transcript API/I/O, rendered UI, automatic Shorts exclusion, translations, accessibility and route guards. The follow-up gate passed type checking; its suite finished with 3,029 tests: 3,024 passed, 1 failed, 4 skipped. The remaining failure is the same Windows ws-server EPERM cleanup blocker described below. The separate synthetic AI evaluation and isolated production build passed. Build-generated tsconfig changes were discarded; the live build was not replaced.
+
 ## Validation
 
 - All 33 focused pure, API, I/O, rendered UI, Shorts-selection, translation, accessibility and route-safety checks passed.
