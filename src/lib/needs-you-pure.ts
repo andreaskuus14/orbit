@@ -10,6 +10,7 @@ import type { WriteEvidence } from "./completion-pure";
 import type { Lang } from "./i18n-pure";
 import { opsStatus, type OpsStatus } from "./ops-status-pure.ts";
 import type { Blocker } from "./business-overview-pure.ts";
+import type { ReceiptStatus } from "./receipt-pure.ts";
 
 export type NeedKind = "decide" | "unblock" | "review";
 /** Always navigate (href = a checked result file). Never a one-tap approve: Decide items open where the exact content and its
@@ -148,3 +149,31 @@ export function leadItems(p: ReturnType<typeof morningPicks>): BriefItem[] {
 
 /** A cached result while it is younger than ttl (the phone polls every 20 s; the inbox is gathered at most once a minute). */
 export const reuse = <T>(c: { at: number; v: T } | undefined, now: number, ttl = 60_000): T | undefined => (c && now >= c.at && now - c.at < ttl ? c.v : undefined);
+
+// "What finished, what's blocked, what I need from you": one compact answer on top of this card, for the last 24 h or since he
+// was last here (whichever is longer). Finished = receipts (receipt-pure.ts), never a bare "done"; blocked / decide = this list.
+export type DigestReceipt = { at: string; status: ReceiptStatus; title: string };
+export type Digest = { from: string; finished: Record<ReceiptStatus, number>; lines: string[] };
+const DG = {
+  en: { window: (away: boolean, d: string) => (away ? `since you were last here (${d})` : "in the last 24 h"), none: "Nothing finished", fin: (n: number) => `${n} finished`,
+    st: { verified: "verified", partly: "partly done", unverified: "not verified", failed: "failed" }, blocked: (n: number, t: string) => `${n} blocked, first: ${t}`, noBlock: "Nothing blocked",
+    decide: (n: number, t: string) => `${n} need${n === 1 ? "s" : ""} your decision, first: ${t}`, noDecide: "Nothing needs your decision" },
+  et: { window: (away: boolean, d: string) => (away ? `pärast su viimast külastust (${d})` : "viimase 24 h jooksul"), none: "Midagi ei valminud", fin: (n: number) => `${n} valmis`,
+    st: { verified: "kontrollitud", partly: "osaliselt", unverified: "kontrollimata", failed: "ebaõnnestus" }, blocked: (n: number, t: string) => `${n} seisab, esimene: ${t}`, noBlock: "Midagi ei seisa",
+    decide: (n: number, t: string) => `${n} ootab su otsust, esimene: ${t}`, noDecide: "Sinu otsust pole vaja" },
+};
+/** Three lines: finished (by proof status), blocked, needs his decision. `lastActive`: ms epoch, or null/0 when unknown. */
+export function doneDigest(needs: Need[], receipts: DigestReceipt[], now: number, lastActive: number | null, lang: Lang = "en"): Digest {
+  const s = DG[lang], from = Math.min(now - DAY, lastActive && lastActive > now - 7 * DAY ? lastActive : now);
+  const fin: Record<ReceiptStatus, number> = { verified: 0, partly: 0, unverified: 0, failed: 0 };
+  for (const r of receipts) if (Date.parse(r.at) >= from && Date.parse(r.at) <= now) fin[r.status]++;
+  const total = Object.values(fin).reduce((a, b) => a + b, 0), parts = (Object.keys(fin) as ReceiptStatus[]).filter((k) => fin[k]).map((k) => `${fin[k]} ${s.st[k]}`);
+  const blocked = needs.filter((n) => n.kind === "unblock"), decide = needs.filter((n) => n.kind === "decide");
+  const short = (t: string) => t.replace(/\s+/g, " ").trim().slice(0, 70);
+  const when = s.window(from < now - DAY, shortDay(new Date(from).toISOString(), lang));
+  return { from: new Date(from).toISOString(), finished: fin, lines: [
+    total ? `${s.fin(total)} ${when}: ${parts.join(", ")}` : `${s.none} ${when}`,
+    blocked.length ? s.blocked(blocked.length, short(blocked[0].title)) : s.noBlock,
+    decide.length ? s.decide(decide.length, short(decide[0].title)) : s.noDecide,
+  ] };
+}

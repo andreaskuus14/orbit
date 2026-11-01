@@ -8,11 +8,11 @@ import { orbitDataDir } from "./data-dir";
 import { isMissingColumn } from "./provenance-pure";
 import { listFacts, FactsMissing } from "./facts";
 import {
-  contradictionBrief, decideEntity, emptyDecisions, findContradictions, gather, mergeSuggestions, resolveGraph, undoable, usable,
-  type Contradiction, type EntityDecisions, type MemIn, type MergeHist, type MergeSuggestion,
+  contradictionBrief, decideEntity, emptyDecisions, findContradictions, gather, mergeSuggestions, outdatedClaims, outdatedLabel, resolveGraph, undoable, usable,
+  type Contradiction, type Outdated, type EntityDecisions, type MemIn, type MergeHist, type MergeSuggestion,
 } from "./entity-graph-pure";
 
-type UserEnt = { at?: string; entities?: number; merges: MergeSuggestion[]; contradictions: Contradiction[]; decisions: EntityDecisions };
+type UserEnt = { at?: string; entities?: number; merges: MergeSuggestion[]; contradictions: Contradiction[]; decisions: EntityDecisions; outdated?: Outdated[] };
 type Store = { users: Record<string, UserEnt> };
 const file = () => path.join(orbitDataDir(), "entities.json");
 const LIMIT = 500; // budget: newest 500 non-journal memories (resolution is O(n²) over distinct names, capped at 800)
@@ -54,6 +54,7 @@ export async function scanEntities(sb: SupabaseClient, userId: string): Promise<
     u.at = new Date().toISOString(); u.entities = ents.length;
     u.merges = mergeSuggestions(ents, undefined, { related, claims });
     u.contradictions = findContradictions(claims, ents, u.decisions);
+    u.outdated = outdatedClaims(claims, ents, u.decisions).slice(0, 300); // memories saying a value a newer/stronger one replaced
     return { merges: u.merges.length, contradictions: u.contradictions.length };
   });
 }
@@ -80,3 +81,10 @@ export function decideEntityKey(userId: string, key: string, choice: string): Pr
 
 /** The morning brief's one line (null when nothing disagrees). */
 export const entitiesBrief = async (userId: string) => contradictionBrief((await load()).users[userId]?.contradictions ?? []);
+
+/** memory id → its "superseded" label for CORE's retrieval (as of the last scan; his "Which is right?" answer counts from the next one). */
+export async function outdatedNotes(userId: string): Promise<Map<string, string>> {
+  const by = new Map<string, Outdated[]>();
+  for (const o of (await load()).users[userId]?.outdated ?? []) by.set(o.id, [...(by.get(o.id) ?? []), o]);
+  return new Map([...by].map(([id, xs]) => [id, outdatedLabel(xs)]));
+}
