@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  compactSchema, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginDecision, pluginPrompt, publicPlugin, resultText, toolGate, toolId, toolTier, validatePlugin, SUGGESTED, type Plugin,
+  compactSchema, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginDecision, pluginError, pluginHeaders, pluginPrompt, publicPlugin, resultText, toolGate, toolId, toolTier, validatePlugin, SUGGESTED, type Plugin,
 } from "../src/lib/plugins-pure.ts";
 import { decide, UNTRUSTED, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { authorize, parseAuthority } from "../src/lib/authority-pure.ts";
@@ -39,12 +39,44 @@ test("parsePlugins drops bad and duplicate entries, never throws", () => {
   assert.equal(parsePlugins("\uFEFF" + JSON.stringify({ plugins: [{ name: "a", command: "x" }] })).length, 1); // PowerShell 5 BOM
 });
 
+test("HTTP bearer auth stores only a server-only variable name and fails closed when unavailable", () => {
+  const config = { name: "github-read", url: "https://api.githubcopilot.com/mcp/readonly", bearerTokenEnv: "ORBIT_GITHUB_MCP_TOKEN" };
+  const p = validatePlugin(config) as Plugin;
+  assert.equal(p.bearerTokenEnv, config.bearerTokenEnv);
+  assert.equal(parsePlugins(JSON.stringify({ plugins: [p] }))[0].bearerTokenEnv, config.bearerTokenEnv);
+  assert.equal(publicPlugin(p).bearerTokenEnv, config.bearerTokenEnv);
+  assert.deepEqual(pluginHeaders(p, { ORBIT_GITHUB_MCP_TOKEN: "test-token" }), { Authorization: "Bearer test-token" });
+  assert.deepEqual(pluginHeaders({}, {}), {}); // existing unauthenticated servers still work
+  assert.throws(() => pluginHeaders(p, {}), /Set ORBIT_GITHUB_MCP_TOKEN.*restart/);
+  for (const token of ["", " ", "Bearer test-token", "test\r\nX-Header: bad"]) {
+    assert.throws(() => pluginHeaders(p, { ORBIT_GITHUB_MCP_TOKEN: token }));
+  }
+  for (const bearerTokenEnv of ["", "TOKEN\n", "NEXT_PUBLIC_TOKEN", 42, null, "Bearer token"]) {
+    assert.match(validatePlugin({ ...config, bearerTokenEnv }) as string, /bearerTokenEnv/);
+  }
+  assert.match(validatePlugin({ name: "stdio", command: "x", bearerTokenEnv: "TOKEN" }) as string, /HTTP/);
+});
+
+test("plugin auth failures are actionable and do not reflect secrets", () => {
+  const p = blender({ bearerTokenEnv: "TOKEN", env: { SECRET: "synthetic-stdio-secret" } });
+  assert.match(pluginError({ code: 401, message: "raw body" }, p, {}), /Authentication.*401/);
+  assert.match(pluginError({ code: 403, message: "raw body" }, p, {}), /Access denied.*403/);
+  assert.equal(pluginError(new Error("failed: synthetic-bearer-secret synthetic-stdio-secret"), p, { TOKEN: "synthetic-bearer-secret" }), "failed: [redacted] [redacted]");
+});
+
 test("every suggested plugin validates", () => {
   for (const s of SUGGESTED) assert.equal(typeof validatePlugin(s.plugin), "object", s.title);
   const b = validatePlugin(SUGGESTED[0].plugin) as Plugin;
   assert.equal(b.env.DISABLE_TELEMETRY, "true"); // blender-mcp telemetry off
   assert.equal(b.tools.execute_blender_code, "ask");
   assert.equal(b.others, "off"); // Poly Haven / Sketchfab / Hyper3D / Hunyuan off
+  const hosted = SUGGESTED.filter((s) => s.plugin.bearerTokenEnv);
+  assert.equal(hosted.length, 2);
+  for (const s of hosted) {
+    assert.equal(s.plugin.local, false);
+    assert.match(String(s.plugin.url), /^https:\/\/api\.githubcopilot\.com\/mcp\/.*readonly$/);
+    assert.equal("env" in s.plugin, false); // presets never ask for a token in plugin JSON
+  }
 });
 
 test("namespacing round-trips and rejects anything else", () => {

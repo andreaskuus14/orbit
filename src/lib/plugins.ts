@@ -8,7 +8,7 @@ import { logActivity } from "./activity.ts";
 import { stopAllOn } from "./stop-all.ts";
 import { PAUSED_MSG } from "./stop-all-pure.ts";
 import { UNTRUSTED } from "./policy-pure.ts";
-import { cleanTool, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
+import { cleanTool, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginError, pluginHeaders, pluginPrompt, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
 
 // MCP plugins: <ORBIT data dir>/plugins.json (his servers + trust settings + the tool list from the last Test connection) and
 // plugin-pending.json (calls CORE queued for his Run click). CORE calls tools in-process through @modelcontextprotocol/sdk's client,
@@ -58,8 +58,7 @@ async function withClient<T>(p: Plugin, fn: (c: Client, timeout: number) => Prom
   const transport = p.command
     // stderr ignored: an unread pipe could fill up and stall the server (uvx prints install progress there)
     ? new (await import("@modelcontextprotocol/sdk/client/stdio.js")).StdioClientTransport({ command: p.command, args: p.args, env: p.env, stderr: "ignore" })
-    // shortcut: http servers get no auth headers or OAuth; add them if he needs a remote server that requires a login token
-    : new (await import("@modelcontextprotocol/sdk/client/streamableHttp.js")).StreamableHTTPClientTransport(new URL(p.url!));
+    : new (await import("@modelcontextprotocol/sdk/client/streamableHttp.js")).StreamableHTTPClientTransport(new URL(p.url!), { requestInit: { headers: pluginHeaders(p, process.env) } });
   const c = new Client({ name: "orbit", version: "1.0.0" });
   const handle = { close: () => c.close().catch(() => {}) };
   live.add(handle);
@@ -78,8 +77,6 @@ export async function closeAllPlugins(): Promise<number> {
   return n;
 }
 
-const msg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300);
-
 /** Test connection: tools/list → cached in plugins.json (CORE's prompt and the trust settings use this list). */
 export async function testPlugin(name: string): Promise<{ ok: boolean; tools: number; error?: string }> {
   const p = loadPlugins().find((x) => x.name === name);
@@ -96,7 +93,7 @@ export async function testPlugin(name: string): Promise<{ ok: boolean; tools: nu
       }
       return out.flatMap((t) => cleanTool(t) ?? []).slice(0, 80);
     });
-  } catch (e) { error = msg(e); }
+  } catch (e) { error = pluginError(e, p, process.env); }
   await updatePlugins((l) => l.map((x) => (x.name === name ? { ...x, cache: { at: new Date().toISOString(), tools: error ? x.cache?.tools ?? [] : tools, ...(error ? { error } : {}) } } : x)));
   logActivity({ area: "system", title: `Plugin ${name}: test ${error ? "failed" : `ok, ${tools.length} tools`}`, ...(error ? { detail: error } : {}) });
   return error ? { ok: false, tools: 0, error } : { ok: true, tools: tools.length };
@@ -109,7 +106,7 @@ async function callTool(p: Plugin, tool: string, args: Record<string, unknown>, 
   try {
     const r = await withClient(p, (c, timeout) => c.callTool({ name: tool, arguments: args }, undefined, { timeout, maxTotalTimeout: timeout }));
     out = resultText(p.name, r as { content?: unknown; isError?: unknown });
-  } catch (e) { out = `Error: plugin ${p.name} ${tool} failed: ${msg(e)}`; }
+  } catch (e) { out = `Error: plugin ${p.name} ${tool} failed: ${pluginError(e, p, process.env)}`; }
   const failed = out.startsWith("Error:");
   logActivity({ area: by === "owner" ? "system" : "core", title: `Plugin ${p.name} → ${tool}${by === "owner" ? " (your Run click)" : ""}: ${failed ? "failed" : "done"} in ${((Date.now() - t0) / 1000).toFixed(1)} s`, ...(failed ? { detail: out.slice(0, 300) } : {}) });
   return out;
