@@ -26,8 +26,8 @@ export const wsTainted = (steps: string[], question = "") => {
   const fresh = freshWorkspaces(steps);
   return steps.some((s) => { const t = /^You called ([a-z_]+)/.exec(s)?.[1]; return !t || (inbound.test(t) && !readsFresh(s, fresh)); });
 };
-const INBOUND = /^(?:web_search|fetch_url|read_news|read_more|reach_trending|reach_read|vault_search|vault_read|ws_read|ws_fetch_image|ws_inspire_image|rea_read|rea_status|life_journal|ask_agent|calendar_events|git_summary|mcp_.*)$/;
-const INBOUND_BUILD = /^(?:read_news|read_more|reach_trending|reach_read|vault_search|vault_read|ws_read|rea_read|rea_status|life_journal|ask_agent|calendar_events|git_summary|mcp_.*)$/;
+const INBOUND = /^(?:web_search|fetch_url|read_news|read_more|reach_trending|reach_read|find_outliers|vault_search|vault_read|ws_read|ws_fetch_image|ws_inspire_image|rea_read|rea_status|life_journal|ask_agent|calendar_events|git_summary|mcp_.*)$/;
+const INBOUND_BUILD = /^(?:read_news|read_more|reach_trending|reach_read|find_outliers|vault_search|vault_read|ws_read|rea_read|rea_status|life_journal|ask_agent|calendar_events|git_summary|mcp_.*)$/;
 /** Workspaces this task's own ws_create made (empty or ORBIT's template; a taken name becomes a new version), so reading them adds no outside text. */
 const freshWorkspaces = (steps: string[]) => new Set(steps.flatMap((s) => /^You called ws_create [^\n]*\nRESULT:\n(?:Error: template[^\n]*\n)?Done: (?:full-stack )?workspace "([a-z0-9-]+)"/.exec(s)?.[1] ?? []));
 function readsFresh(step: string, fresh: Set<string>): boolean {
