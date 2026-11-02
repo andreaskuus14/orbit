@@ -44,7 +44,7 @@ function update(fn: (s: AutonomyState) => AutonomyState | string): Promise<Auton
 
 export async function setAreaLevel(sb: SupabaseClient, userId: string, area: unknown, level: unknown, confirm: unknown) {
   const from = autonomyLevels()[area as Area];
-  const push = (await import("./remote-push")).pushProblem(); // the push after each auto action is part of the deal: no push, no auto
+  const rp = await import("./remote-push"), push = rp.canNotify() ? "" : rp.pushProblem(); // the push after each auto action is part of the deal: no push (Web Push or ntfy), no auto
   const r = await update((s) => setLevel(s, area, level, confirm, Date.now(), push));
   if (typeof r !== "string" && from !== level) await emit(sb, userId, "autonomy.change", "core", { area, from, to: level });
   return r;
@@ -67,8 +67,8 @@ export async function trustHistory(sb: SupabaseClient, userId: string): Promise<
 export const clearAutoQueue = () => (autonomyState().pending.length ? update((s) => cancelPending(s, () => false)).catch(() => {}) : Promise.resolve());
 
 const push = async (m: ReturnType<typeof autoPush>) => {
-  const { pushProblem, deliver } = await import("./remote-push");
-  if (!pushProblem()) void deliver(m);
+  const { canNotify, deliver } = await import("./remote-push");
+  if (canNotify()) void deliver(m); // Web Push or ntfy
 };
 
 /** Scheduler tick (after its Stop-all check): fire due auto actions, then queue new ones. No-op unless an area is on auto. Never throws. */

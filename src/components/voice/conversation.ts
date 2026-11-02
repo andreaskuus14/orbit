@@ -6,15 +6,17 @@ import { isSleepCommand, normalizeTranscript } from "./wake.ts";
 
 export const SILENCE_MS = 60_000; // listening this long with nobody talking ends it
 export const CAP_MS = 30 * 60_000; // this long without a question ends it in any phase (a TV talking or a stuck "speaking" can't hold the mic)
+export const FOLLOW_MS = 8_000; // after an answer to "Orbit, …", a follow-up needs no wake word for this long
 export const THINK_MS = 45_000; // asked but ORBIT never spoke (speech off, error): go back to listening. CORE's first sentence can take 20+ s
 
 export type ConvPhase = "idle" | "listening" | "thinking" | "speaking";
 /** asked: questions sent in this conversation. persist false = "one follow-up only": ends after the 2nd answer.
  *  streams: CORE answers still streaming (an interrupted one finishes after the next ask). While any stream, a pause in
  *  speech is a gap between sentences, not the end of the answer. */
-export type Conv = { phase: ConvPhase; since: number; asked: number; persist: boolean; streams: number; idleSince: number };
+/** follow: a short follow-up window opened by a wake-word question (ends after FOLLOW_MS of quiet), not "let's talk". */
+export type Conv = { phase: ConvPhase; since: number; asked: number; persist: boolean; streams: number; idleSince: number; follow?: boolean };
 export type ConvEvent =
-  | { type: "start"; persist: boolean } | { type: "stop" }
+  | { type: "start"; persist: boolean; follow?: boolean } | { type: "stop" }
   | { type: "hearing" } // the user is talking (interim speech): keep the silence timer from firing
   | { type: "barge" } // the owner talked over ORBIT (voice barge-in, after speech stopped): listen to him now
   | { type: "ask"; core?: boolean } // core false: answered by Orbit itself (navigation), no stream to wait for
@@ -26,7 +28,7 @@ export const IDLE: Conv = { phase: "idle", since: 0, asked: 0, persist: true, st
 /** idle → listening → thinking → speaking → listening …; back to listening once the answer is done AND spoken, or at
  *  once on a barge-in. Ends on stop, the follow-up limit, 60 s of silence or 30 min without a question. */
 export function convStep(s: Conv, e: ConvEvent, now: number): Conv {
-  if (e.type === "start") return { phase: "listening", since: now, asked: 0, persist: e.persist, streams: 0, idleSince: now };
+  if (e.type === "start") return { phase: "listening", since: now, asked: 0, persist: e.persist, streams: 0, idleSince: now, ...(e.follow ? { follow: true } : {}) };
   if (s.phase === "idle") return s;
   switch (e.type) {
     case "stop": return IDLE;
@@ -41,7 +43,7 @@ export function convStep(s: Conv, e: ConvEvent, now: number): Conv {
     case "speaking": return { ...s, phase: "speaking", since: now };
     case "spoke": return s.streams ? { ...s, phase: "thinking", since: now } : finished(s, now); // gap between streamed sentences
     case "tick":
-      if ((s.phase === "listening" && now - s.since >= SILENCE_MS) || now - s.idleSince >= CAP_MS) return IDLE;
+      if ((s.phase === "listening" && now - s.since >= (s.follow ? FOLLOW_MS : SILENCE_MS)) || now - s.idleSince >= CAP_MS) return IDLE;
       return s.phase === "thinking" && now - s.since >= THINK_MS ? { ...s, phase: "listening", since: now, streams: 0 } : s;
   }
 }

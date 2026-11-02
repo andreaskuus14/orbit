@@ -23,6 +23,8 @@ export type Turn = {
   exec: (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator?: boolean) => Promise<string>;
   record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator?: boolean) => void;
   onDelta?: (d: string) => void; onReset?: () => void; onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void;
+  /** core.ts's independent verifier (verifier.ts): null = not run; the MCP engine continues once on "not verified". */
+  verify?: (answer: string) => Promise<{ ok: boolean; reason: string } | null>;
 };
 
 /** Runs the turn; returns the answer and the SDK session id (escalated: nothing answered, redo on the main model).

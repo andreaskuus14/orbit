@@ -31,3 +31,6 @@ orbit-launcher.log.1
 /tools/comfyui/ComfyUI_windows_portable/
 /tools/comfyui/downloads/
 /tools/comfyui/service.log
+
+# npm run eval results (scripts/eval-core.ts)
+/evals/runs/

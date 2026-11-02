@@ -11,13 +11,14 @@ import type { Lang } from "./i18n-pure";
 import { opsStatus, type OpsStatus } from "./ops-status-pure.ts";
 import type { Blocker } from "./business-overview-pure.ts";
 import type { ReceiptStatus } from "./receipt-pure.ts";
+import { isExpiredError } from "./approval-expiry-pure.ts";
 
 export type NeedKind = "decide" | "unblock" | "review";
 /** Always navigate (href = a checked result file). Never a one-tap approve: Decide items open where the exact content and its
  *  Approve live (AGENTS.md rule 6). The phone's own approval cards, which show that exact content, stay the only one-tap path. */
 export type NeedAct = { open: BriefOpen };
 /** Why it needs him; the UI asks one precise question per cause (needs.ask.<cause>). */
-export type NeedCause = "approval" | "decide" | "trust" | "conflict" | "system" | "input" | "failed" | "blocked" | "loop" | "review" | "overdue" | "followup" | "delivery" | "watch";
+export type NeedCause = "expired" | "approval" | "decide" | "trust" | "conflict" | "system" | "input" | "failed" | "blocked" | "loop" | "review" | "overdue" | "followup" | "delivery" | "watch";
 // remote: the phone approval id. status: the shared work status (ops-status-pure) when the item is a task or mission.
 // group: set by groupNeeds on a card standing for several similar approvals (its items keep their own refs and actions).
 export type Need = { ref: string; kind: NeedKind; cause: NeedCause; title: string; detail?: string; at?: string; act: NeedAct; remote?: string; status?: OpsStatus; group?: Need[] };
@@ -35,7 +36,7 @@ export type NeedsIn = {
   durable?: { id: string; title: string } | null; // durable-pure durableCheck: a failed state write or a given-up event
   incident?: { id: string; title: string } | null; // health-pure briefHealth (new/regressed, serious, last 24 h)
   night?: { done: NightItem[]; failed: NightItem[]; endedAt?: string } | null;
-  tasks?: { id: string; title: string; finished_at: string | null; pending?: unknown }[]; // finished top-level tasks of the last day
+  tasks?: { id: string; title: string; finished_at: string | null; pending?: unknown; status?: string; error?: string | null }[]; // finished top-level tasks of the last day (+ expired approvals)
   // BUSINESS attention (business-overview.ts sources): money owed, clients gone quiet, delivery that waits. now: for "N days".
   overdue?: { id: string; number: string; buyer: string; cents: number; days: number }[];
   followups?: { id: string; name: string; since: string }[]; // since: the last real contact (prospect-crm touch), else the row's updated_at
@@ -53,9 +54,9 @@ export const shortDay = (iso: string, lang: Lang) => { const d = new Date(iso); 
 const clientLink = (id: string): BriefOpen => ({ link: `#o=business&v=client&k=client&id=${encodeURIComponent(id)}` });
 const S = {
   en: { overdue: (no: string, d: number) => `Invoice ${no} is ${d} day${d === 1 ? "" : "s"} overdue`, quiet: (d: number, on: string) => `No reply ${d} day${d === 1 ? "" : "s"} after your message on ${on}`,
-    waiting: (on: string) => `Delivery paused since ${on}`, blockedD: (t: string) => `Delivery step failed: ${t}`, trust: (a: string) => `Let ORBIT do ${a} work without asking?`, trustD: (n: number, t: number) => `You approved ${n} of ${t} this month`, failed: "Didn't work out", mission: "Mission blocked: ", checked: "Checked result", night: "Finished overnight", watch: "Watched page changed" },
+    waiting: (on: string) => `Delivery paused since ${on}`, blockedD: (t: string) => `Delivery step failed: ${t}`, trust: (a: string) => `Let ORBIT do ${a} work without asking?`, trustD: (n: number, t: number) => `You approved ${n} of ${t} this month`, failed: "Didn't work out", expired: "Expired: no answer in time, nothing was done", mission: "Mission blocked: ", checked: "Checked result", night: "Finished overnight", watch: "Watched page changed" },
   et: { overdue: (no: string, d: number) => `Arve ${no} on ${d} päeva üle tähtaja`, quiet: (d: number, on: string) => `Vastust pole ${d} päeva pärast sinu ${on} sõnumit`,
-    waiting: (on: string) => `Teostus on ootel alates ${on}`, blockedD: (t: string) => `Teostuse samm ebaõnnestus: ${t}`, trust: (a: string) => `Kas ORBIT võib ${a} töö teha küsimata?`, trustD: (n: number, t: number) => `Kinnitasid sel kuul ${n}/${t}`, failed: "Ei õnnestunud", mission: "Missioon seisab: ", checked: "Kontrollitud tulemus", night: "Valmis öösel", watch: "Jälgitav leht muutus" },
+    waiting: (on: string) => `Teostus on ootel alates ${on}`, blockedD: (t: string) => `Teostuse samm ebaõnnestus: ${t}`, trust: (a: string) => `Kas ORBIT võib ${a} töö teha küsimata?`, trustD: (n: number, t: number) => `Kinnitasid sel kuul ${n}/${t}`, failed: "Ei õnnestunud", expired: "Aegus: vastust ei tulnud, midagi ei tehtud", mission: "Missioon seisab: ", checked: "Kontrollitud tulemus", night: "Valmis öösel", watch: "Jälgitav leht muutus" },
 };
 
 /** The record behind a source key, so one draft is one item: "approval:prospect:ID:day", "send:ID" and "prospect:ID:day" → "prospect:ID". */
@@ -110,7 +111,9 @@ export function needsYou(x: NeedsIn, lang: Lang = "en", snoozed: string[] = []):
   for (const i of x.night?.failed ?? []) add({ ref: nightRef(i), kind: "unblock", cause: "failed", status: "failed", title: i.label, detail: s.failed, act: { open: nightOpen(i) } });
   for (const l of x.loops ?? []) add({ ref: recordRef(l.key), kind: "unblock", cause: "loop", title: l.title, detail: l.next, at: l.since, act: { open: { mission: true } } });
 
-  for (const t of x.tasks ?? []) { const o = receiptOpen(t.pending); if (o) add({ ref: `task:${t.id}`, kind: "review", cause: "review", status: "complete", title: t.title, detail: s.checked, at: t.finished_at ?? undefined, act: { open: o } }); }
+  for (const t of x.tasks ?? []) {
+    if (isExpiredError(t.error)) { add({ ref: `task:${t.id}`, kind: "review", cause: "expired", status: "cancelled", title: t.title, detail: s.expired, at: t.finished_at ?? undefined, act: { open: { task: t.id } } }); continue; }
+    const o = t.status && t.status !== "done" ? null : receiptOpen(t.pending); if (o) add({ ref: `task:${t.id}`, kind: "review", cause: "review", status: "complete", title: t.title, detail: s.checked, at: t.finished_at ?? undefined, act: { open: o } }); }
   for (const w of x.watches ?? []) add({ ref: `watch:${w.id}`, kind: "review", cause: "watch", title: w.label, detail: s.watch, at: w.at, act: { open: { link: "#o=intelligence&v=watches" } } });
   for (const i of x.night?.done ?? []) add({ ref: nightRef(i), kind: "review", cause: "review", title: i.label, detail: s.night, at: x.night?.endedAt, act: { open: nightOpen(i) } });
 

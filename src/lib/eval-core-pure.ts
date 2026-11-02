@@ -61,3 +61,31 @@ export function summarize(rows: { id: string; set: string; ok: boolean }[]) {
   for (const r of rows) { const x = by.get(r.id) ?? { set: r.set, oks: [] }; x.oks.push(r.ok); by.set(r.id, x); }
   return [...by].map(([id, x]) => ({ id, set: x.set, trials: x.oks.length, pass1: x.oks.filter(Boolean).length / x.oks.length, passK: x.oks.every(Boolean) }));
 }
+
+// Eval isolation: every eval run has an id; its chats, memories, leads, goals and workspaces carry it (eval-run.ts tags them while
+// the turn runs), and `npm run eval -- --cleanup <runId|all>` deletes only what carries such a tag.
+const RUN = /^ev-[0-9]{8}-[a-z0-9]{4,12}$/;
+export const parseRunId = (x: unknown): string | null => (typeof x === "string" && RUN.test(x) ? x : null);
+export const newRunId = (now: Date, rand: string) => `ev-${now.toISOString().slice(0, 10).replace(/-/g, "")}-${rand.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8).padEnd(4, "0")}`;
+export const evalTag = (run: string) => `eval:${run}`;
+export const evalMark = (run: string) => `[eval ${run}]`;
+/** Does a stored value (chat title, lead notes, memory tag, workspace marker) carry this run's tag ("all" = any eval run's)? */
+export function evalTagged(value: unknown, run: string): boolean {
+  if (typeof value !== "string") return false;
+  const ids = [...value.matchAll(/(?:\[eval |^eval:)(ev-[0-9]{8}-[a-z0-9]{4,12})\]?/g)].map((m) => m[1]);
+  return run === "all" ? ids.length > 0 : ids.includes(run);
+}
+
+/** The runner's table: one row per task with each trial's pass/fail, pass@1 and pass^k; totals per set. */
+export function passTable(rows: { id: string; set: string; trial: number; ok: boolean }[]): string {
+  const sum = summarize(rows), k = Math.max(1, ...rows.map((r) => r.trial));
+  const w = Math.max(4, ...sum.map((s) => s.id.length));
+  const marks = (id: string) => Array.from({ length: k }, (_, i) => { const r = rows.find((x) => x.id === id && x.trial === i + 1); return r ? (r.ok ? "✓" : "✗") : "·"; }).join(" ");
+  const lines = [`${"task".padEnd(w)}  set         ${Array.from({ length: k }, (_, i) => i + 1).join(" ")}  pass@1  pass^${k}`];
+  for (const s of sum) lines.push(`${s.id.padEnd(w)}  ${s.set.padEnd(10)}  ${marks(s.id)}  ${`${Math.round(s.pass1 * 100)}%`.padStart(6)}  ${s.passK ? "yes" : "no"}`);
+  for (const set of ["regression", "capability"]) {
+    const s = sum.filter((x) => x.set === set);
+    if (s.length) lines.push(`${set}: pass@1 ${Math.round((100 * s.reduce((a, x) => a + x.pass1, 0)) / s.length)}% · pass^${k} ${s.filter((x) => x.passK).length}/${s.length}`);
+  }
+  return lines.join("\n");
+}

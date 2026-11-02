@@ -170,3 +170,14 @@ test("groupNeeds: 22 Shorts approvals from one video are one card with a count, 
   assert.deepEqual(card.act, needs[1].act);
   assert.equal(groupNeeds(needs.slice(0, 3)).length, 3); // two similar ones stay separate
 });
+
+test("an expired approval shows as an expired review card; other cancelled tasks don't", async () => {
+  const { EXPIRED_ERROR } = await import("../src/lib/approval-expiry-pure.ts");
+  const ev = [{ status: "approved", evidence: [{ kind: "memory", id: "m1" }] }];
+  const out = needsYou({ tasks: [
+    { id: "x", title: "Save the lead", finished_at: "2026-10-27T05:00:00Z", pending: [{ status: "rejected" }], status: "cancelled", error: EXPIRED_ERROR },
+    { id: "y", title: "Rejected one", finished_at: "2026-10-27T05:00:00Z", pending: ev, status: "cancelled", error: "You rejected the proposed actions; they were not completed." },
+  ] });
+  assert.deepEqual(out.map((n) => [n.ref, n.cause, n.status]), [["task:x", "expired", "cancelled"]]);
+  assert.deepEqual(out[0].act, { open: { task: "x" } });
+});

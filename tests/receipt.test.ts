@@ -86,3 +86,11 @@ test("Activity: task items carry the receipt; stored lines keep a valid receipt 
   const p = parseActivity(`{"at":"2026-11-01T00:00:00Z","area":"core","title":"x","receipt":"partly"}\n{"at":"2026-11-01T00:00:00Z","area":"core","title":"y","receipt":"done"}`);
   assert.deepEqual(p.map((x) => x.receipt), ["partly", undefined]);
 });
+
+test("receipt: the independent verifier's verdict shows on the line and survives cleanReceipt", () => {
+  const r = { asked: "a", accept: "5 leads saved (got 5)", status: "verified" as const, verified: ["5 leads stored"], claimed: [], failed: [], links: [] };
+  assert.equal(receiptLine({ ...r, check: { ok: true, reason: "fine" } }), "Verified · need 5 leads saved (got 5) · 1 checked · independent check passed");
+  assert.equal(receiptLine({ ...r, check: { ok: false, reason: "2 leads have no website" } }), "Verified · need 5 leads saved (got 5) · 1 checked · independent check failed: 2 leads have no website");
+  assert.deepEqual(cleanReceipt({ ...r, check: { ok: "yes", reason: 7 } })!.check, { ok: false, reason: "7" });
+  assert.equal(cleanReceipt(r)!.check, undefined);
+});

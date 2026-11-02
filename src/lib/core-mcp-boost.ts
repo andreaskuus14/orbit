@@ -56,7 +56,7 @@ export async function boostTurn(t: BoostIn) {
     system: stableSystem(stripSkills(t.system), [SKILLS_NOTE, dir ? nativeNote(slug!, dir) : ""]),
     prompt: stripSkills(t.prompt),
     /** Extra McpAccess fields for askClaude. */
-    access: (base: McpAccess): McpAccess => ({ ...base, tools: nativeTools(!!dir), env: { ...TOOL_SEARCH_ENV }, pluginDir: path.join(process.cwd(), "skills", "orbit"), ...(dir ? { cwd: dir } : {}) }),
+    access: (base: McpAccess): McpAccess => ({ ...base, tools: nativeTools(!!dir), env: { ...base.env, ...TOOL_SEARCH_ENV }, pluginDir: path.join(process.cwd(), "skills", "orbit"), ...(dir ? { cwd: dir } : {}) }),
     /** The per-turn --settings JSON: core-mcp.ts's hooks + the PreToolUse hook + the workspace permission rules. */
     settings: (base: { hooks: Record<string, unknown> }, node: string, bridgeFile: string) => ({
       ...base,

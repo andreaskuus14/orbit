@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ACTION_BLOCK, doneGate, exposedTools, mcpEvent, mcpToolList, parseEngine, pickEngine, tokenOk, toolDocs, GATE_CAP } from "../src/lib/core-mcp-pure.ts";
+import { ACTION_BLOCK, doneGate, exposedTools, mcpCliFiles, mcpEvent, mcpToolList, parseEngine, pickEngine, tokenOk, toolDocs, GATE_CAP } from "../src/lib/core-mcp-pure.ts";
 
 test("engine: Profile choice beats env; json is the default loop's name; junk falls back", () => {
   assert.equal(parseEngine("json"), "cli");
@@ -25,15 +25,26 @@ test("tool docs: each tool's own text from CORE's prompt lines, with its module 
   const text = `TOOLS:\n- web_search {"query": string}: search the whole web.\n- WORKSPACE (his sites): ws_list {}: list them. ws_write {"workspace": string, "files": [...]}: write files.`;
   const d = toolDocs(text, ["web_search", "ws_list", "ws_write", "ws_read"]);
   assert.equal(d.web_search, 'web_search {"query": string}: search the whole web.');
-  assert.equal(d.ws_list, "WORKSPACE (his sites). ws_list {}: list them.");
-  assert.match(d.ws_write, /^WORKSPACE \(his sites\)\. ws_write \{"workspace"/);
+  assert.equal(d.ws_list, "ws_list {}: list them. (WORKSPACE (his sites))"); // args first, the module header after
+  assert.match(d.ws_write, /^ws_write \{"workspace"[^]*\(WORKSPACE \(his sites\)\)$/);
+  assert.match(toolDocs(`- ${"H".repeat(300)}: ws_run {"workspace": string}: ${"x".repeat(900)}`, ["ws_run"]).ws_run, /^ws_run \{"workspace": string\}/);
   assert.equal(d.ws_read, "ORBIT tool ws_read.");
   assert.ok(toolDocs(`- web_search {}: ${"x".repeat(2000)}`, ["web_search"]).web_search.length <= 700);
   const [t] = mcpToolList(["web_search"], d), [w] = mcpToolList(["ws_write"], d), [h] = mcpToolList(["higgsfield_draft"], {});
   assert.equal(t.annotations.readOnlyHint, true);
   assert.equal(w.annotations.readOnlyHint, false);
   assert.equal(h.annotations.destructiveHint, true);
-  assert.deepEqual(t.inputSchema, { type: "object", additionalProperties: true });
+  assert.deepEqual((t.inputSchema as { required: string[] }).required, ["query"]); // a real schema for the common tools
+  assert.deepEqual(h.inputSchema, { type: "object", additionalProperties: true });
+});
+
+test("CLI files on Windows: raw MCP server args (no shell), bash-quoted hook with forward slashes and spaces kept", () => {
+  const f = mcpCliFiles("C:\\Program Files\\nodejs\\node.exe", "C:\\Users\\Andreas Kuus\\orbit\\scripts\\orbit-mcp.mjs", "C:\\Users\\AN~1\\AppData\\Local\\Temp\\orbit-mcp-x\\bridge.json", "orbit");
+  const srv = f.config.mcpServers.orbit;
+  assert.equal(srv.command, "C:\\Program Files\\nodejs\\node.exe");
+  assert.deepEqual(srv.args, ["C:/Users/Andreas Kuus/orbit/scripts/orbit-mcp.mjs", "serve", "C:/Users/AN~1/AppData/Local/Temp/orbit-mcp-x/bridge.json"]);
+  assert.equal(f.settings.hooks.Stop[0].hooks[0].command, '"C:/Program Files/nodejs/node.exe" "C:/Users/Andreas Kuus/orbit/scripts/orbit-mcp.mjs" stop "C:/Users/AN~1/AppData/Local/Temp/orbit-mcp-x/bridge.json"');
+  assert.equal(mcpCliFiles("/usr/bin/node", "/home/a$b/s.mjs", "/tmp/x.json", "orbit").settings.hooks.Stop[0].hooks[0].command, '"/usr/bin/node" "/home/a\\$b/s.mjs" stop "/tmp/x.json"');
 });
 
 test("bridge token: exact Bearer match only, short tokens refused", () => {

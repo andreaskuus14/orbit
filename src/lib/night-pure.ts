@@ -260,6 +260,6 @@ export function nightPush(r: { done: number; approvals: number; failed: number }
   return { title, body: "See what ORBIT did while you slept.", url: "/remote#r-appr", tag: "night" };
 }
 
-/** Why a run stopped, in the owner's words (stored as a code: stop-all / usage / window / budget). */
+/** Why a run stopped, in the owner's words (stored as a code: stop-all / usage / window / budget / lease). */
 export const stoppedText = (why?: string, lang: Lang = "en") =>
-  why === "stop-all" || why === "usage" || why === "window" || why === "budget" ? translate(lang, `night.stop.${why}`) : why ?? "";
+  why === "stop-all" || why === "usage" || why === "window" || why === "budget" || why === "lease" ? translate(lang, `night.stop.${why}`) : why ?? "";

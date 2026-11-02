@@ -112,7 +112,7 @@ export const WEB_TOOLS = "WebSearch,WebFetch";
 /** mcp: the call may use only these MCP tools (from the owner's own `claude mcp add` config), every call checked by the
  *  PreToolUse hook in `settings` (a settings JSON file). Built-in tools stay off. Used by the Higgsfield adapter (clips/higgsfield.ts). */
 /** config: a per-call --mcp-config file used alone (--strict-mcp-config, no user settings): CORE's MCP engine (core-mcp.ts). */
-/** tools/cwd/env/pluginDir: CORE's MCP engine boost (core-mcp-boost.ts): built-in tools, the workspace folder, ENABLE_TOOL_SEARCH, ORBIT's skills plugin. */
+/** env: extra CLI environment (MCP_TOOL_TIMEOUT, ENABLE_TOOL_SEARCH); tools/cwd/pluginDir: CORE's MCP engine boost (core-mcp-boost.ts): built-in tools, the workspace folder, ORBIT's skills plugin. */
 export type McpAccess = { allow: string[]; settings: string; config?: string; tools?: string[]; cwd?: string; env?: Record<string, string>; pluginDir?: string };
 /** A persistent CLI session (ORBIT_CORE_SESSION=resume): the first call creates it with --session-id, later ones --resume it.
  *  The CLI files sessions by working directory, so session calls all run in one fixed dir. */

@@ -131,8 +131,8 @@ export async function pdfOf(id: unknown): Promise<{ file: Uint8Array; name: stri
  *  Stamped before sending so a crash can't repeat it; skipped (not stamped) in quiet hours or Stop-all. Never throws. */
 export async function pushInvoiceReminders(now = Date.now()) {
   try {
-    const { pushProblem, deliver } = await import("./remote-push"), { quietAt } = await import("./remote-push-pure");
-    if (stopAllOn() || pushProblem() || quietAt(now)) return;
+    const { canNotify, deliver } = await import("./remote-push"), { quietAt } = await import("./remote-push-pure");
+    if (stopAllOn() || !canNotify() || quietAt(now)) return; // Web Push or ntfy
     const day = localDay(new Date(now)), due = invoicePushes((await load()).invoices, day, now);
     if (!due.length) return;
     const at = new Date(now).toISOString();

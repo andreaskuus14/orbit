@@ -30,7 +30,7 @@ export async function gatherNeeds(sb: SupabaseClient, userId: string, now = Date
     soft(import("./entity-graph").then((x) => x.entitiesBrief(userId)), null),
     soft(Promise.all([import("./autonomy"), import("./trust-pure")]).then(async ([a, t]) => { const s = a.autonomyState(); return t.trustSuggestions(await a.trustHistory(sb, userId), s.levels, s.snooze, now); }), []),
     soft(Promise.all([import("./health"), import("./health-pure")]).then(async ([h, p]) => p.briefHealth(await h.healthIssues(), now)), null),
-    soft(sb.from("tasks").select("id, title, finished_at, pending").eq("user_id", userId).is("parent_id", null).eq("status", "done").gte("finished_at", since)
+    soft(sb.from("tasks").select("id, title, finished_at, pending, status, error").eq("user_id", userId).is("parent_id", null).in("status", ["done", "cancelled"]).gte("finished_at", since)
       .order("finished_at", { ascending: false }).limit(10).then((r) => (r.data ?? []) as NonNullable<NeedsIn["tasks"]>), []),
     soft(Promise.all([import("./migration-guard"), import("./version-pure")]).then(async ([m, v]) => v.migrationNeed(await m.missingGuarded(sb))), null),
     soft(Promise.all([import("./durable"), import("./durable-pure")]).then(([d, p]) => { const c = p.durableCheck(d.writeFailures(), d.deadEvents()); return c.status === "ok" ? null : { id: "durable", title: c.detail.slice(0, 160) }; }), null),
