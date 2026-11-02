@@ -51,3 +51,15 @@ test("messages carry fixed labels, counts and receipt status only; Open goes to 
   assert.deepEqual(body.actions, [{ action: "view", label: "Open", url: "https://pc.ts.net/remote#r-appr" }]);
   assert.equal("actions" in publishBody(c as Exclude<typeof c, { problem: string }>, taskMsg("failed", null, "")!), false);
 });
+
+test("approval buttons: http POST actions with the token, only with an Open URL", () => {
+  const c = ntfyConfig({ ORBIT_NTFY_TOPIC: topic }, null) as Exclude<ReturnType<typeof ntfyConfig>, { problem: string } | null>;
+  const m = taskMsg("awaiting_approval", null, "https://pc.ts.net", "TOK")!;
+  const body = publishBody(c, m);
+  assert.equal(body.actions?.length, 3);
+  assert.deepEqual(body.actions?.[1], { action: "http", label: "Approve", url: "https://pc.ts.net/api/remote/ntfy-act", method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: "TOK", action: "approve" }), clear: true });
+  assert.equal(JSON.parse((body.actions?.[2] as { body: string }).body).action, "reject");
+  assert.equal(taskMsg("awaiting_approval", null, "", "TOK")?.acts, undefined); // no address to post to
+  assert.equal(taskMsg("awaiting_approval", null, "https://pc.ts.net")?.acts, undefined); // no token: Open only
+  assert.equal(taskMsg("done", null, "https://pc.ts.net", "TOK")?.acts, undefined);
+});
