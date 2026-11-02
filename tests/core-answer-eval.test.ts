@@ -87,7 +87,7 @@ test("wiring is deterministic and does not mutate inputs", () => {
 
 test("CORE uses the advisory on the final full and reflex paths without retries or extra tool steps", () => {
   const core = readFileSync(new URL("../src/lib/core.ts", import.meta.url), "utf8");
-  assert.match(core, /inspectAnswer\(question, answer, trace, playbookRules, evalTools\)/);
+  assert.match(core, /inspectAnswer\(question, answer, trace, playbookRules, evalTools(?:, verdict)?\)/); // + the independent verifier's verdict (verifier.ts)
   assert.match(core, /inspectAnswer\(question, text, trace, rules\)/);
   assert.ok(core.indexOf("inspectAnswer(question, answer") > core.indexOf("answer = rv.text"));
   const helper = core.slice(core.indexOf("function inspectAnswer("), core.indexOf("function styleBlock("));
