@@ -96,7 +96,7 @@ async function siteLint(userId: string, slug: string, question = ""): Promise<{ 
 }
 const lintLine = (l: { issues: string[]; facts: string }) => `; ${l.facts}; lint: ${l.issues.length ? `${l.issues.length} to fix` : "clean"}`;
 
-async function siteCheck(userId: string, slug: string, priorWrites: number, question = ""): Promise<string> {
+export async function siteCheck(userId: string, slug: string, priorWrites: number, question = ""): Promise<string> {
   try {
     const [r, lint] = await Promise.all([(await import("./workspace-check.ts")).checkSite(userId, slug), siteLint(userId, slug, question).catch(() => null)]);
     return r ? checkNote({ line: r.line + (lint ? lintLine(lint) : ""), issues: [...r.issues, ...(lint?.issues ?? []).map((i) => `lint: ${i}`)] }, priorWrites) : "";

@@ -19,9 +19,11 @@ import type { CoreEvalTool } from "./core-answer-eval-pure";
 import { gated, nativeSystem, sdkTools, serial, toolResult, SERVER } from "./core-sdk-pure";
 import { ACTION_BLOCK, doneGate, exposedTools, mcpEvent, mcpToolList, toolDocs, tokenOk } from "./core-mcp-pure";
 import type { Turn } from "./core-sdk";
+import { boostTurn } from "./core-mcp-boost";
+import { stripSkills } from "./core-mcp-boost-pure";
 
 type McpTurn = Turn & { question: string; tools: CoreEvalTool[] };
-type Handlers = { tools: () => unknown; call: (name: string, args: Record<string, unknown>) => Promise<unknown>; stop: (body: Record<string, unknown>) => unknown };
+type Handlers = { tools: () => unknown; call: (name: string, args: Record<string, unknown>) => Promise<unknown>; stop: (body: Record<string, unknown>) => unknown; pre?: (body: Record<string, unknown>) => unknown };
 
 const MAX_BODY = 1_000_000;
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -40,7 +42,8 @@ async function openBridge(token: string, h: Handlers): Promise<{ url: string; cl
       const b = await body(req);
       if (req.url === "/tools") return send(200, { tools: h.tools() });
       if (req.url === "/call") return send(200, await h.call(String(b.name ?? ""), b.arguments && typeof b.arguments === "object" ? b.arguments as Record<string, unknown> : {}));
-      if (req.url === "/stop") return send(200, h.stop(b));
+      if (req.url === "/stop") return send(200, await h.stop(b));
+      if (req.url === "/pre" && h.pre) return send(200, h.pre(b)); // PreToolUse hook (core-mcp-boost.ts)
       send(404, { error: "not found" });
     } catch (e) { send(400, { error: e instanceof Error ? e.message : "bad request" }); }
   });
@@ -58,10 +61,11 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
   let escalated = false, blocks = 0, hookSeen = false;
   const one = serial(); // parallel tool calls run one at a time, so each decide() sees the steps before it (as the SDK engine)
   const names = exposedTools(sdkTools([...MODULE_TOOLS, ...pluginToolNames()]), t.policy());
-  const list = mcpToolList(names, toolDocs(`${t.system}\n${MODULE_PROMPT}\n${pluginPromptNow()}`, names));
+  const b = await boostTurn({ ...t, system: `${nativeSystem(t.system)}\n\n${ACTION_BLOCK}` }); // model route, skills, native files, cache order
+  const list = mcpToolList(names, toolDocs(stripSkills(`${t.system}\n${MODULE_PROMPT}\n${pluginPromptNow()}`), names));
   const call = (name: string, input: Record<string, unknown>) => one(async () => {
     if (!names.includes(name)) return toolResult(`Error: unknown tool "${name.slice(0, 60)}"`);
-    if (t.escalate) { escalated = true; ac.abort(); return toolResult("Error: stopped"); }
+    if (t.escalate && b.route.tier === "fast") { escalated = true; ac.abort(); return toolResult("Error: stopped"); }
     t.onReset?.(); t.onStep?.(name, input); // text before a tool call is not the answer (as in core.ts)
     const at = Date.now(), evidence: WriteEvidence[] = [];
     const { out, verdict, operated } = await gated(name, input, t.policy, t.steps, (op) => t.exec(name, input, evidence, op), t.attachBlock, authorizeTool);
@@ -72,17 +76,18 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
     return toolResult(out);
   });
   const gate = () => (signal.aborted || stopAllOn() ? { block: false as const } : doneGate(t.question, t.tools, blocks));
-  const stop = () => {
+  const stop = async () => {
     hookSeen = true;
+    const open = await b.beforeGate(); // native edits → ORBIT's site check first
     const d = gate();
     if (!d.block) return {};
     blocks++; t.onReset?.();
     t.trace.push({ step: "done_gate", detail: `blocked the stop (${blocks}): ${d.reason.slice(0, 160)}`, ms: 0, ok: false });
-    return { decision: "block", reason: d.reason };
+    return { decision: "block", reason: d.reason + open };
   };
 
   const token = randomBytes(32).toString("hex");
-  const bridge = await openBridge(token, { tools: () => list, call, stop });
+  const bridge = await openBridge(token, { tools: () => list, call, stop, pre: b.pre });
   const dir = await mkdtemp(join(tmpdir(), "orbit-mcp-"));
   try {
     const file = join(dir, "bridge.json").replace(/\\/g, "/");
@@ -90,34 +95,35 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
     const config = join(dir, "mcp.json"), settings = join(dir, "settings.json");
     await writeFile(config, JSON.stringify({ mcpServers: { [SERVER]: { type: "stdio", command: process.execPath, args: [SCRIPT(), "serve", file] } } }));
     const node = process.execPath.replace(/\\/g, "/");
-    await writeFile(settings, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: `"${node}" "${SCRIPT()}" stop "${file}"`, timeout: 30 }] }] } }));
-    const system = `${nativeSystem(t.system)}\n\n${ACTION_BLOCK}`;
+    await writeFile(settings, JSON.stringify(b.settings({ hooks: { Stop: [{ hooks: [{ type: "command", command: `"${node}" "${SCRIPT()}" stop "${file}"`, timeout: 30 }] }] } }, node, file)));
+    const system = b.system;
     const started = Date.now();
     let result: ReturnType<typeof mcpEvent> = null;
-    const run = (prompt: string, session = t.session) => askClaude(prompt, system, {
-      lane: "foreground", signal, model: t.model, images: t.images, effort: t.effort, timeoutMs: TURN_CAP_MS, purpose: "core",
-      mcp: { allow: [`mcp__${SERVER}__*`], settings, config }, session,
+    const run = (prompt: string, session = t.session) => b.run((model, effort) => askClaude(prompt, system, {
+      lane: "foreground", signal, model, images: t.images, effort, timeoutMs: TURN_CAP_MS, purpose: "core",
+      mcp: b.access({ allow: [`mcp__${SERVER}__*`], settings, config }), session,
       onLine: (line) => {
         const ev = mcpEvent(line);
         if (ev?.delta) t.onDelta?.(ev.delta);
         if (ev?.result) result = ev;
         if (ev?.init) t.trace.push({ step: "mcp", detail: `claude -p · ${ev.init.model} · orbit ${ev.init.orbit} · ${ev.init.tools} tools`, ms: Date.now() - started, ok: ev.init.orbit === "connected" });
       },
-    });
+    }));
     let r;
-    try { r = await run(t.prompt); }
+    try { r = await run(b.prompt); }
     catch (e) { if (escalated && !t.signal?.aborted) return { text: "", sessionId: t.session?.id ?? "", escalated }; throw e; }
     // No Stop hook ran (hooks off in this CLI): the same check after the run, with one automatic continue.
+    const open = !hookSeen && !escalated ? await b.beforeGate() : "";
     const after = !hookSeen && !escalated ? gate() : { block: false as const };
     if (after.block) {
       blocks++; t.onReset?.();
       t.trace.push({ step: "done_gate", detail: `auto-continue: ${after.reason.slice(0, 160)}`, ms: 0, ok: false });
-      const again = t.session ? after.reason : `${t.prompt}\n\nYOUR TOOL RESULTS SO FAR:\n${t.steps.join("\n\n")}\n\nYOUR PREVIOUS REPLY:\n${r.text}\n\n${after.reason}`;
+      const again = t.session ? after.reason + open : `${b.prompt}\n\nYOUR TOOL RESULTS SO FAR:\n${t.steps.join("\n\n")}\n\nYOUR PREVIOUS REPLY:\n${r.text}\n\n${after.reason}${open}`;
       r = await run(again, t.session && { id: t.session.id, resume: true });
     }
-    await recordUsage(t.sb, t.userId, "core.chat", r, t.model);
+    await recordUsage(t.sb, t.userId, "core.chat", r, b.route.model);
     const res = (result as ReturnType<typeof mcpEvent>)?.result;
-    t.trace.push({ step: "think", detail: `${t.model} · mcp · ${res?.turns ?? 0} turns · cache read ${res?.cacheRead ?? 0} tok`, ms: Date.now() - started, ok: true });
+    t.trace.push({ step: "think", detail: `${b.route.model} · mcp · ${res?.turns ?? 0} turns · cache read ${res?.cacheRead ?? 0} tok`, ms: Date.now() - started, ok: true });
     return { text: r.text, sessionId: t.session?.id ?? "" };
   } finally {
     bridge.close();

@@ -1,0 +1,5 @@
+{
+  "name": "orbit",
+  "version": "1.0.0",
+  "description": "ORBIT's own procedures for CORE's native (mcp) engine. Loaded per turn with --plugin-dir; never installed."
+}
