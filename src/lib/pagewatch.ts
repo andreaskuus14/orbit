@@ -33,7 +33,7 @@ const get = (url: string, accept: string, max: number) => polite(url, () => safe
 const msg = (e: unknown) => (e instanceof Error ? (e.name === "TimeoutError" ? "timed out" : e.message) : "request failed").slice(0, 160);
 
 /** robots.txt per origin, cached 6 h: "" = none (4xx), null = unreadable. */
-function robots(origin: string): Promise<string | null> {
+export function robots(origin: string): Promise<string | null> {
   const hit = robotsCache.get(origin);
   if (hit && Date.now() - hit.at < 6 * 3_600_000) return hit.txt;
   const txt = get(`${origin}/robots.txt`, "text/plain", 500_000).then(({ res }) => res.text(), (e: Error) => (/answered 4\d\d/.test(e.message) ? "" : null));
@@ -45,6 +45,10 @@ async function fetchWatch(w: Watch): Promise<CheckResult> {
   try {
     const blocked = robotsGate(await robots(new URL(w.url).origin), w.url);
     if (blocked) return { ok: false, error: blocked };
+    if (w.render) { // JavaScript page: same robots gate and polite per-host limits, rendered in the hidden browser
+      const p = await polite(w.url, async () => (await import("./browser")).renderPage(w.url, UA));
+      return p ? pageText(p.html, true, w.focus) : { ok: false, error: "the browser couldn't open the page (no Chrome/Edge, or it didn't load)" };
+    }
     const { res } = await get(w.url, "text/html,text/plain", 2_000_000);
     const type = res.headers.get("content-type") ?? "";
     if (!/text\/html|text\/plain|xhtml/.test(type)) return { ok: false, error: `not a web page (${type || "unknown type"})` };
@@ -128,7 +132,7 @@ export async function runWatchTool(tool: string, i: Record<string, unknown>, que
   }
   const no = watchBlocked(question, tainted);
   if (no) return `Error: ${no}`;
-  const r = await addWatch({ url: i.url, focus: i.selector, every: i.every, purpose: i.purpose });
+  const r = await addWatch({ url: i.url, focus: i.selector, every: i.every, purpose: i.purpose, render: i.render });
   if ("error" in r) return `Error: ${r.error}`;
   const w = r.watch;
   return `Watching ${w.url}${w.focus ? ` (focus: ${w.focus})` : ""} every ${w.everyH} h as "${w.purpose}". First check within a minute or two (if ORBIT's scheduler is on); changes show in INTELLIGENCE → Watches and the morning brief. He can mark it important there to get changes in Needs you.`;

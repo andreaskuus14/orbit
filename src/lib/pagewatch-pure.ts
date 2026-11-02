@@ -9,6 +9,7 @@ export type Snap = { at: string; text: string };
 export type Change = { id: string; watch: string; at: string; live?: boolean; added: string[]; removed: string[] };
 export type Watch = {
   id: string; url: string; focus: string; everyH: number; purpose: string; important: boolean; lead?: string; created: string;
+  render?: boolean; // check in ORBIT's hidden browser (pages that only show content after JavaScript)
   lastChecked?: string; lastChanged?: string; lastError?: string; failed?: boolean; seenAt?: string; snaps: Snap[];
 };
 export type WatchStore = { watches: Watch[]; changes: Change[] };
@@ -33,7 +34,7 @@ export function parseEvery(v: unknown): number {
 }
 
 /** A new watch from owner/CORE input, or a message. Public http(s) only; a URL with a login part is refused (nothing private goes out). */
-export function checkWatchInput(b: Record<string, unknown>): Pick<Watch, "url" | "focus" | "everyH" | "purpose" | "lead"> | string {
+export function checkWatchInput(b: Record<string, unknown>): Pick<Watch, "url" | "focus" | "everyH" | "purpose" | "lead" | "render"> | string {
   const raw = clean(b.url, 500);
   let u: URL;
   try { u = new URL(/^[a-z][\w+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`); } catch { return "Give a public web address (https://…)"; }
@@ -42,7 +43,7 @@ export function checkWatchInput(b: Record<string, unknown>): Pick<Watch, "url" |
   u.hash = "";
   const purpose = clean(b.purpose, 120) || u.hostname;
   const lead = clean(b.lead, 64);
-  return { url: u.toString(), focus: clean(b.focus ?? b.selector, 120), everyH: parseEvery(b.every ?? b.everyH), purpose, ...(lead && { lead }) };
+  return { url: u.toString(), focus: clean(b.focus ?? b.selector, 120), everyH: parseEvery(b.every ?? b.everyH), purpose, ...(lead && { lead }), ...(b.render === true && { render: true }) };
 }
 
 // ---- Focus: a CSS selector (tag, #id, .class, tag.class, tag#id) or a text section ----
