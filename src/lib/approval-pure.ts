@@ -30,7 +30,7 @@ export const EFFECTS: Record<string, Effect> = {
   "story.approve": "spend", "studio.schedule": "publish", "studio.publish": "publish", "contracts.sign": "sign",
   "rules.add": "reversible", "rules.confirm": "reversible", "rules.pause": "reversible", "rules.resume": "reversible", "rules.delete": "reversible", "rules.run": "reversible", "automations.start": "reversible", // standing rules run only existing runners; outward steps still wait in Approvals
   "loops.close": "reversible", "loops.snooze": "reversible", "loops.task": "reversible", // open loops: his own bookkeeping (task = his day plan)
-  "memory.hygiene": "reversible", add_task: "reversible", create_project: "reversible", propose_automation: "reversible", // agent tools he approves (agents.ts resolvePending)
+  "memory.hygiene": "reversible", add_task: "reversible", create_project: "reversible", propose_automation: "reversible", save_lead: "reversible", // agent tools he approves (agents.ts resolvePending); save_lead files a record, its email is business.send
   // his accept on a memory merge/retract; an agent's follow-up task (trust-pure history)
   "court.run": "read", "court.keep": "reversible", "twin.argue": "read", "twin.mute": "reversible", // model calls on his own data; keep = a memory
 };

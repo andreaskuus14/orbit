@@ -20,6 +20,8 @@ import { blockedBy, recoveryOptions } from "@/lib/tasks-recovery-pure";
 import { groupTasks } from "@/lib/ops-tasks-pure";
 import { PREVIEW_TZ, graceMinutes, lastWith, nextOccurrences } from "@/lib/automation-preview-pure";
 import { LocalAiTools } from "./LocalAi";
+import { PlanJobsView } from "./PlanJobsView";
+import { BUSINESS_LOOP } from "@/lib/business-loop-pure";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
 type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string; evidence?: WriteEvidence[] };
@@ -260,7 +262,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const [form, setForm] = useState({ request: "", agent: "nova", project_id: "" });
   const [newProject, setNewProject] = useState("");
   const [filter, setFilter] = useState<string>("");
-  const [tab, setTab] = useState<"tasks" | "automations" | "rules" | "activity" | "localai">("tasks");
+  const [tab, setTab] = useState<"tasks" | "automations" | "plans" | "rules" | "activity" | "localai">("tasks");
   const [shown, setShown] = useState<Record<string, number>>({});
   const [err, setErr] = useState("");
 
@@ -308,7 +310,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
 
   const tabs = (
     <div className="flex gap-1.5" role="tablist">
-      {(["tasks", "automations", "rules", "activity", "localai"] as const).map((t) => (
+      {(["tasks", "automations", "plans", "rules", "activity", "localai"] as const).map((t) => (
         <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
           {tr(`ops.tab.${t}`)}
         </button>
@@ -317,6 +319,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   );
   if (tab === "activity") return <div className="space-y-4">{tabs}<ActivityView onOpenTask={setOpen} /></div>;
   if (tab === "localai") return <div className="space-y-4">{tabs}<LocalAiTools /></div>;
+  if (tab === "plans") return <div className="space-y-4">{tabs}<PlanJobsView agents={agents} onOpenTask={setOpen} /></div>;
   if (tab === "rules") return <div className="space-y-4">{tabs}<RulesView onOpenTask={setOpen} /></div>;
   if (tab === "automations") return <div className="space-y-4">{tabs}<AutomationsView agents={agents} onOpenTask={setOpen} /></div>;
 
@@ -513,6 +516,7 @@ const TEMPLATES: (Partial<Draft> & { name: string; prompt: string })[] = [
     prompt: "Check the latest news on the Strait of Hormuz shipping attacks, the war in Ukraine and global markets. Report only significant changes since yesterday, rated High/Medium/Low, with sources." },
   { name: "Daily YouTube ideas", when: "day", time: "17:00", agent: "forge",
     prompt: "Using today's news briefings in my memory, write 3 YouTube video ideas for a Roblox/gaming channel: title, hook, and why it's timely now. Cite the stories." },
+  BUSINESS_LOOP, // off until he saves it; every send stays his own approval click
 ];
 const EMPTY: Draft = { name: "", when: "day", time: "09:00", weekday: 1, kind: "", agent: "nova", prompt: "" };
 

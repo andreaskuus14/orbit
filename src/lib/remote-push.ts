@@ -2,7 +2,8 @@
 // fail jobs or switch Stop-all on. Policy + crypto: remote-push-pure.ts. Subscriptions live on the paired device (remote.ts), so
 // revoking the phone deletes its subscription. Never throws into the caller.
 import { pushBody } from "./persona-pure";
-import { encryptPayload, flush, gate, pushFor, pushLabel, vapidAuth, vapidProblem, type PushKind, type PushMessage, type Slot } from "./remote-push-pure";
+import { encryptPayload, flush, gate, parseQuiet, pushFor, pushLabel, vapidAuth, vapidProblem, type PushKind, type PushMessage, type Slot } from "./remote-push-pure";
+import { ntfyConfig } from "./ntfy-pure";
 
 const g = globalThis as unknown as { __orbitPush?: { slots: Map<PushKind, Slot>; timers: Set<PushKind>; lastOk?: number } };
 const P: { slots: Map<PushKind, Slot>; timers: Set<PushKind>; lastOk?: number } = (g.__orbitPush ??= { slots: new Map(), timers: new Set() });
@@ -10,6 +11,9 @@ const P: { slots: Map<PushKind, Slot>; timers: Set<PushKind>; lastOk?: number } 
 /** When a push last reached a phone since this server started (System health). */
 export const lastPushOk = () => P.lastOk ?? 0;
 export const pushProblem = () => vapidProblem(process.env.REMOTE_VAPID_PUBLIC, process.env.REMOTE_VAPID_PRIVATE);
+const quiet = () => parseQuiet(process.env.ORBIT_QUIET_HOURS);
+/** Web Push or ntfy can reach the phone (callers that only notify check this instead of pushProblem). */
+export const canNotify = () => !pushProblem() || (() => { const c = ntfyConfig(process.env, quiet()); return !!c && !("problem" in c); })();
 // The JWT's contact (Apple requires one): sent to the push service only.
 const subject = () => {
   const first = (process.env.ORBIT_ALLOWED_EMAILS ?? "").split(",")[0].trim();
@@ -19,17 +23,17 @@ const subject = () => {
 /** Tell the paired phone something happened (a fixed label only; see pushLabel). Rate-limited and coalesced per kind. */
 export function pushNotify(kind: PushKind): void {
   if (kind === "failed") void import("./call").then((c) => c.noteUrgent(), () => {}); // a failure may be worth a call (call-pure decides)
-  if (pushProblem()) return;
+  if (!canNotify()) return;
   if (kind === "send" && !(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM)) return; // the phone can't approve sends then
   const now = Date.now();
-  const r = gate(P.slots.get(kind), kind, now);
+  const r = gate(P.slots.get(kind), kind, now, quiet());
   P.slots.set(kind, r.slot);
   if (r.send) void deliver(pushLabel(kind, r.send));
   else if (r.wakeAt && !P.timers.has(kind)) {
     P.timers.add(kind);
     setTimeout(() => {
       P.timers.delete(kind);
-      const f = flush(P.slots.get(kind), kind, Date.now());
+      const f = flush(P.slots.get(kind), kind, Date.now(), quiet());
       P.slots.set(kind, f.slot);
       if (f.send) void deliver(pushLabel(kind, f.send));
     }, Math.max(0, r.wakeAt - now)).unref?.();
@@ -41,6 +45,8 @@ export async function deliver(msg: PushMessage, deviceId?: string): Promise<numb
   try {
     // Time dilation: held till the focus block ends (urgent kinds pass). A push to one device is his own test click.
     if (!deviceId && (await import("./focus")).heldForFocus(msg)) return 0;
+    if (!deviceId) void import("./ntfy").then((n) => n.ntfyPush(msg), () => {}); // same fixed label to ntfy (its own Stop-all / quiet check)
+    if (pushProblem()) return 0; // ntfy only
     const pub = process.env.REMOTE_VAPID_PUBLIC!, priv = process.env.REMOTE_VAPID_PRIVATE!;
     const { listDevices, updateDevices } = await import("./remote"); // lazy: remote.ts imports the clip factory, which calls us
     const targets = (await listDevices()).filter((d) => d.push && (!deviceId || d.id === deviceId));
