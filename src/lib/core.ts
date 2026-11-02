@@ -48,7 +48,7 @@ import { autonomyLevels } from "./autonomy";
 import { skillDenied } from "./skills-pure";
 import { maxSteps, fallbackNote, sessionInput } from "./core-capability-pure";
 import { withHeadsUp } from "./capability-pure";
-import { CORE_ENGINE } from "./core-sdk-pure";
+import { coreEngine } from "./core-engine";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterBudget, afterTimeout, callTimeout, EXTRA_BUDGETS, isHeavy, isTimeout, MORE_ASK, MORE_MARK, SPLIT_HINT, stripMore } from "./long-work-pure";
@@ -257,7 +257,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   prep.catch(() => {}); // a Stop before step 0 leaves it unawaited; step 0 itself still sees the error
   let prompt = ""; // set once prep resolves
   // Session mode: the CLI session already holds earlier turns and this turn's earlier steps, so only what's new is sent.
-  let sess: CliSession | null = SESSION_MODE === "resume" && sessionKey ? (coreSessions.get(sessionKey) ?? { id: randomUUID(), resume: false }) : null;
+  let sess: CliSession | null = (SESSION_MODE === "resume" || coreEngine() === "mcp") && sessionKey ? // the MCP engine always keeps its chat session
+    (coreSessions.get(sessionKey) ?? { id: randomUUID(), resume: false }) : null;
   let sessSent = false, sessSeen = 0; // this turn's context already in the session; tool results it has seen
 
   const steps = budget.steps, resumed = steps.length; // a resumed background run starts with the finished tool results
@@ -336,9 +337,11 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     if (rv.reviewed) trace.push({ step: "review", detail: `${DEEP_MODEL} · self-checked`, ms: Date.now() - t, ok: true });
   };
   try {
-    // ORBIT_CORE_ENGINE=sdk: the turn runs through the Claude Agent SDK with every CORE tool behind the same decide() gate (core-sdk.ts, docs/AGENT-SDK.md)
-    if (CORE_ENGINE === "sdk") {
-      const sdk = await import("./core-sdk");
+    // sdk: the Claude Agent SDK (core-sdk.ts, docs/AGENT-SDK.md); mcp: Claude Code's native loop with ORBIT's tools (core-mcp.ts).
+    // Both run every CORE tool behind the same decide() gate, exec and record. Profile → CORE engine or ORBIT_CORE_ENGINE picks one.
+    const engine = coreEngine();
+    if (engine !== "cli") {
+      const engineTurn = engine === "mcp" ? (await import("./core-mcp")).mcpTurn : (await import("./core-sdk")).sdkTurn;
       prompt = await prep;
       for (;;) {
         signal?.throwIfAborted();
@@ -348,7 +351,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         // A redo after tools already ran carries their results, so writes aren't repeated.
         const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote.replace(/"final"/g, "your answer")}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}`;
         try {
-          const r = await sdk.sdkTurn({ sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", turnId, exec, record, onDelta: sendDelta, onReset, onStep });
+          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", turnId, exec, record, onDelta: sendDelta, onReset, onStep });
           if (r.escalated) { onReset?.(); tier = "smart"; continue; } // as the loop: a fast-model tool call is redone on the main model
           if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
           answer = r.text;

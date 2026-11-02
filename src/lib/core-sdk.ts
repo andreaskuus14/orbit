@@ -15,7 +15,7 @@ import { authMode, gated, readMessage, sdkFailure, sdkOptions, sdkTools, serial,
 import type { TraceStep } from "./core";
 import type { StepDone } from "./core-live-pure";
 
-type Turn = {
+export type Turn = {
   sb: SupabaseClient; userId: string; system: string; prompt: string; model: string; effort?: string; maxTurns: number;
   policy: () => Omit<PolicyCtx, "steps">; attachBlock: string; images?: PromptImage[]; steps: string[]; trace: TraceStep[]; signal?: AbortSignal; turnId?: string;
   session?: CliSession; escalate?: boolean; // escalate: the fast model reached for a tool → stop, core.ts redoes the turn on the main model
