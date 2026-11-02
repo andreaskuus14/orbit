@@ -177,7 +177,8 @@ export async function advance(sb: SupabaseClient, userId: string, id: string, ma
 /** The in-flight step's task row → the goal; on "done" a short reflection. True when the goal moved (the driver loops on). */
 async function sync(sb: SupabaseClient, userId: string, id: string, doc: Goal, i: number): Promise<boolean> {
   const taskId = doc.steps[i].taskId;
-  const { data: t } = taskId ? await sb.from("tasks").select("status, result, error, pending, started_at").eq("id", taskId).maybeSingle() : { data: null };
+  const { data: t, error: taskError } = taskId ? await sb.from("tasks").select("status, result, error, pending, started_at").eq("user_id", userId).eq("id", taskId).maybeSingle() : { data: null, error: null };
+  if (taskError) throw taskError; // an unreadable task is not a missing task: preserve the goal and retry sync on the next event
   // Orphaned by a restart: our own runs end within their 8-min budget, so "running" for 20+ min is dead (same rule as the tasks sweep).
   if (t?.status === "running" && Date.parse(t.started_at ?? "") < Date.now() - STALE_MS) {
     const patch = interruptedPatch(t.pending, "Interrupted (ORBIT restarted)");
