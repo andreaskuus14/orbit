@@ -56,10 +56,15 @@ function link(a: string, b: string, firsts: Map<string, number>): [number, Ev["c
 export const linkScore = (a: string, b: string, firsts: Map<string, number>) => link(a, b, firsts)[0];
 /** Stable ids: "conflict" when a namespace both carry has no shared value (different domains block any suggestion). */
 export function idRel(a: Iterable<string>, b: Iterable<string>): { rel: "conflict" | "match" | "none"; shared?: string } {
-  const A = [...a], B = new Set(b), shared = A.find((x) => B.has(x));
-  if (shared) return { rel: "match", shared };
-  const ns = (x: string) => x.split(":")[0], nb = new Set([...B].map(ns));
-  return A.some((x) => nb.has(ns(x))) ? { rel: "conflict" } : { rel: "none" };
+  const A = [...a], B = [...b];
+  const ns = (x: string) => x.split(":")[0];
+  // A shared domain must not hide a conflicting id in another namespace.
+  for (const namespace of new Set(A.map(ns))) {
+    const left = A.filter((x) => ns(x) === namespace), right = B.filter((x) => ns(x) === namespace);
+    if (right.length && !left.some((x) => right.includes(x))) return { rel: "conflict" };
+  }
+  const shared = A.find((x) => B.includes(x));
+  return shared ? { rel: "match", shared } : { rel: "none" };
 }
 
 type Node = { key: string; forms: Set<string>; kinds: Set<EKind>; srcs: Src[]; ids: Set<string> };
@@ -95,12 +100,14 @@ export function resolveGraph(mentions: Mention[], d: EntityDecisions, maxNodes =
     if (id.rel === "match") { ev.push({ code: "id", a: [...a.forms][0], b: id.shared! }); w = w >= 0.5 ? Math.max(w, 0.9) : 0.6; } // renamed org: related only
     if (w >= LINK) edges.push([a.key, b.key, w, ev]); else if (w >= 0.5) near.push([a.key, b.key, w, ev]);
   }
-  const ids = (ns: Node[]) => ns.flatMap((n) => [...n.ids]);
   for (const [a, b, w, ev] of edges.sort((x, y) => y[2] - x[2])) {
     const ra = find(a), rb = find(b);
     // A rejected pair or conflicting ids block the whole chain: never join two clusters that hold a pair he said were different.
     const ca = list.filter((n) => find(n.key) === ra), cb = list.filter((n) => find(n.key) === rb);
-    if (ca.some((x) => cb.some((y) => no.has(pairKey(x.key, y.key)))) || idRel(ids(ca), ids(cb)).rel === "conflict") continue;
+    if (ca.some((x) => cb.some((y) =>
+      no.has(pairKey(x.key, y.key)) || idRel(x.ids, y.ids).rel === "conflict" ||
+      (x.kinds.size > 0 && y.kinds.size > 0 && ![...x.kinds].some((k) => y.kinds.has(k)))
+    ))) continue;
     union(a, b, w, ev);
   }
   const groups = new Map<string, Node[]>();
