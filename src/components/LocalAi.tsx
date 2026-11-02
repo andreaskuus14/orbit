@@ -346,7 +346,10 @@ function ThisPc() {
 }
 
 export function LocalAiTools() {
-  const [h, check] = useHealth();
+  const [h, checkAi] = useHealth();
+  const [comfy, setComfy] = useState<{ running: boolean; installed: boolean } | null>(null); // ComfyUI is its own service (tools/comfyui)
+  const check = useCallback(() => { checkAi(); void fetch("/api/local-ai?service=comfy", { cache: "no-store" }).then((r) => r.json()).then(setComfy, () => setComfy(null)); }, [checkAi]);
+  useEffect(check, [check]);
   const { lang } = useT();
   return (
     <section className="grid gap-3 text-sm" aria-label="Local AI tools">
@@ -357,13 +360,13 @@ export function LocalAiTools() {
       </div>
       <p className="muted text-xs">Free models on this PC: nothing is uploaded and nothing costs credits. Results are saved in VAULT. One job runs at a time and each model leaves the GPU when done.</p>
       {CATALOG.map((c) => {
-        const live = c.id === "text3d" || c.id === "motion" ? null : toolState(h, c.id);
+        const live = c.id === "images" ? (comfy?.running ? { ok: true } : null) : c.id === "text3d" || c.id === "motion" ? null : toolState(h, c.id);
         return (
           <div key={c.id} className="glass grid gap-1 rounded-lg p-2 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <b>{lang === "et" && c.et ? c.et.name : c.name}</b>
               <span style={{ color: live ? (live.ok ? "#4ade80" : "#fbbf24") : undefined }} className={live ? undefined : "muted"}>
-                {live ? (live.ok ? "Ready" : h?.running ? "Not installed" : "Not running") : c.id === "text3d" ? "Uses Roblox Studio" : "Not available yet"}
+                {live ? (live.ok ? "Ready" : h?.running ? "Not installed" : "Not running") : c.id === "text3d" ? "Uses Roblox Studio" : c.id === "images" ? (comfy?.installed ? "Starting…" : "Not installed") : "Not available yet"}
               </span>
             </div>
             <p>{lang === "et" && c.et ? c.et.what : c.what}</p>

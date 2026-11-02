@@ -18,7 +18,7 @@ export async function postWatch(body: object): Promise<void> {
 export function WatchesSection() {
   const { t } = useT();
   const [b, setB] = useState<Board | null>(null);
-  const [f, setF] = useState({ url: "", focus: "", purpose: "", every: 24 });
+  const [f, setF] = useState({ url: "", focus: "", purpose: "", every: 24, render: false });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const when = (iso?: string) => (iso ? new Date(iso).toLocaleString() : t("pw.never"));
@@ -35,7 +35,7 @@ export function WatchesSection() {
 
   const act = async (key: string, body: object) => {
     setBusy(key);
-    try { await postWatch(body); setErr(""); if ((body as { action: string }).action === "add") setF({ url: "", focus: "", purpose: "", every: 24 }); }
+    try { await postWatch(body); setErr(""); if ((body as { action: string }).action === "add") setF({ url: "", focus: "", purpose: "", every: 24, render: false }); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not update"); }
     finally { setBusy(""); void load(); }
   };
@@ -50,6 +50,9 @@ export function WatchesSection() {
         <select className="chip" aria-label={t("pw.every")} value={f.every} onChange={(e) => setF({ ...f, every: Number(e.target.value) })}>
           {EVERY.map((h) => <option key={h} value={h}>{t(`pw.e.${h}` as const)}</option>)}
         </select>
+        <label className="chip flex items-center gap-1" title="For pages that only show their content with JavaScript: ORBIT checks them in its hidden browser">
+          <input type="checkbox" checked={f.render} onChange={(e) => setF({ ...f, render: e.target.checked })} /> JS page
+        </label>
         <button className="btn" disabled={busy === "add"}>{t("pw.add")}</button>
       </form>
       {err && <p className="error">{err}</p>}

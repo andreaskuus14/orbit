@@ -8,15 +8,15 @@ export const NOT_RUNNING = "Local AI isn't installed or couldn't start — ORBIT
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 /** ORBIT_LOCAL_AI_URL → its origin, or null when it isn't plain http on this PC (refused: the tools must never reach the network). */
-export function serviceUrl(raw: string | undefined): string | null {
+export function serviceUrl(raw: string | undefined, def = DEFAULT_URL): string | null {
   let u: URL;
-  try { u = new URL((raw ?? "").trim() || DEFAULT_URL); } catch { return null; }
+  try { u = new URL((raw ?? "").trim() || def); } catch { return null; }
   return u.protocol === "http:" && LOOPBACK.has(u.hostname) && !u.username && !u.password ? u.origin : null;
 }
 
 export type ToolId = "image3d" | "removebg" | "tts" | "clone" | "captions" | "ifc" | "docs";
 /** et: Estonian name and sentence (the optional modules have them; the UI falls back to English). */
-export type CatalogEntry = { id: ToolId | "text3d" | "motion"; name: string; what: string; model: string; vram: string; vramGb: number; license: string; where: string; setup: string; et?: { name: string; what: string } };
+export type CatalogEntry = { id: ToolId | "images" | "text3d" | "motion"; name: string; what: string; model: string; vram: string; vramGb: number; license: string; where: string; setup: string; et?: { name: string; what: string } };
 /** Every local creative tool, in plain words. OPERATIONS → Local AI shows this list; vramGb 0 = runs on the CPU. */
 export const CATALOG: CatalogEntry[] = [
   { id: "image3d", name: "Picture to 3D", what: "Turns one picture of an object into a 3D model (.glb) you can import into Roblox Studio or Unreal.",
@@ -36,6 +36,8 @@ export const CATALOG: CatalogEntry[] = [
   { id: "docs", name: "Document reading", what: "Turns a PDF, Word file or scanned page into clean Markdown text with its tables, saved next to the original so CORE can read it.",
     model: "Docling (layout, TableFormer, RapidOCR)", vram: "about 2 GB; falls back to the CPU", vramGb: 2, license: "MIT", where: "VAULT → open a file → Read document", setup: `${SETUP_CMD} -Docs`,
     et: { name: "Dokumendi lugemine", what: "Teeb PDF-ist, Wordi failist või skannitud lehest puhta Markdown-teksti koos tabelitega ja salvestab selle originaali kõrvale, et CORE saaks seda lugeda." } },
+  { id: "images", name: "Pictures (unlimited)", what: "Makes realistic photos from a description: website pictures (used first, before the online free service) and pictures CORE saves in VAULT.",
+    model: "SDXL-Lightning 4-step in ComfyUI (a separate service on 127.0.0.1:8188)", vram: "about 6 GB at 1024 px (fits 8 GB)", vramGb: 6, license: "CreativeML Open RAIL++-M (commercial use OK, no harmful uses)", where: "STUDIO → Websites → Generate locally; CORE's local_image", setup: "powershell -ExecutionPolicy Bypass -File tools\\comfyui\\setup.ps1" },
   { id: "text3d", name: "Text to 3D (Roblox)", what: "Describe an object and Roblox Studio generates a textured mesh in your place (Roblox's own Cube 3D model).",
     model: "Roblox Studio generate_mesh", vram: "none (runs on Roblox's servers)", vramGb: 0, license: "Roblox terms", where: "GAME DEV → Assets → Text to 3D", setup: "Roblox Studio → Assistant → Manage MCP Servers → Enable Studio as MCP server" },
   { id: "motion", name: "Character motion (later)", what: "NVIDIA MotionBricks makes character movement, but it is an early preview on a robot skeleton with an Unreal demo, not Roblox R15 animations. Not installed.",

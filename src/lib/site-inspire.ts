@@ -104,21 +104,22 @@ export async function pictureDraft(input: Record<string, unknown>, user: string,
   // Free generator first: every slot without a real photo yet gets one now (one at a time, refused ones retried); what fails goes on below.
   let todo = slots, freeNote = "";
   if (io.free) {
-    const made: string[] = [], left: Slot[] = [], queue = [...slots];
+    const made: string[] = [], left: Slot[] = [], queue = [...slots], by = new Set<string>();
     const until = Date.now() + (io.budgetMs ?? 4 * 60_000); // a CORE step can't wait forever; the rest keep their stand-ins
     const worker = async () => {
       for (let s = queue.shift(); s; s = queue.shift()) {
         if (Date.now() > until) { left.push(s); continue; }
         if (await io.hasPhoto?.(s.path)) continue;
         // The free service limits anonymous use to about one picture at a time: retry a refused one after a pause.
-        let ok = false;
+        let ok: boolean | string = false;
         for (let t = 0; t < 3 && !ok; t++) { if (t) await new Promise((r) => setTimeout(r, io.retryMs ?? 8000 * t)); ok = await io.free!(s); }
+        if (typeof ok === "string") by.add(ok);
         if (ok) made.push(s.path); else left.push(s);
       }
     };
     await worker(); // one at a time: parallel requests were refused (live: 1 of 8 photos made)
     todo = left;
-    freeNote = made.length ? `Made ${made.length} realistic photo${made.length > 1 ? "s" : ""} for free (Pollinations) at ${made.join(", ")}; credits are in assets/CREDITS.md, nothing was spent. ` : "";
+    freeNote = made.length ? `Made ${made.length} realistic photo${made.length > 1 ? "s" : ""} for free (${[...by].join(" + ") || "free AI"}) at ${made.join(", ")}; credits are in assets/CREDITS.md, nothing was spent. ` : "";
     if (!todo.length) return `Done: ${drew}${freeNote || "Every path already has a photo. "}No approval is needed. Reference these paths in the HTML (<img src="${slots[0].path}" alt="…" width height>).`;
     freeNote += `The free generator failed for ${todo.map((t) => t.path).join(", ")}. `;
   }
@@ -135,8 +136,8 @@ export type PictureIO = {
   generator: InspireIO["generator"];
   /** Queues (or merges into) the site's priced draft. Must never generate. */
   queue: (slots: Slot[], model: string) => Promise<{ id: string; slots: number }>;
-  /** Free AI photo written at the slot path with its credit; false = failed (the stand-in stays). Absent = off. */
-  free?: (s: Slot) => Promise<boolean>;
+  /** Free AI photo written at the slot path with its credit: true or the maker's name; false = failed (the stand-in stays). Absent = off. */
+  free?: (s: Slot) => Promise<boolean | string>;
   /** The path already has a real photo (a credit line in assets/CREDITS.md), so it isn't made again. */
   hasPhoto?: (path: string) => Promise<boolean>;
   /** Pause before retrying a refused free picture (tests pass 0). */
@@ -166,15 +167,23 @@ export const pictureIO = (user: string, workspace: string): PictureIO => ({
     return !!r && !("error" in (await (await import("./workspace.ts")).writeWsFile(user, workspace, s.path, r.bytes)));
   },
   generator: inspireIO().generator,
-  free: process.env.ORBIT_FREE_PICTURES?.trim() === "0" ? undefined : async (s) => {
-    const raw = await freePicture(s);
-    if (!raw) return false;
-    const ws = await import("./workspace.ts"), out = (await toFormat(raw, s.path))?.bytes ?? raw;
-    if ("error" in (await ws.writeWsFile(user, workspace, s.path, out))) return false;
-    const cur = parseCredits((await ws.readWsFile(user, workspace, "assets/CREDITS.md"))?.text ?? "");
-    await ws.writeWsFile(user, workspace, "assets/CREDITS.md", creditsMd(cur, { path: s.path, title: `Prompt: ${s.prompt.slice(0, 400)}`, author: "Pollinations (flux), free AI image", license: "AI-generated for this site", attribution: false, source: "generated in ORBIT", via: "Pollinations" }));
-    return true;
-  },
+  free: process.env.ORBIT_FREE_PICTURES?.trim() === "0" ? undefined : (s) => freeSlot(user, workspace, s),
   hasPhoto: async (p) => parseCredits((await (await import("./workspace.ts")).readWsFile(user, workspace, "assets/CREDITS.md"))?.text ?? "").some((c) => c.path === p),
   queue: async (slots, model) => { const j = await (await import("./clips/story")).queueSitePictures(user, workspace, slots, model); return { id: j.id, slots: j.items.length }; },
 });
+
+/** One slot's free photo, saved at its path with a credit: ComfyUI on this PC first (unlimited, nothing leaves the PC), then
+ *  Pollinations online. Returns who made it, or false (the stand-in stays). Also STUDIO → Websites → Generate locally (local only). */
+export async function freeSlot(user: string, workspace: string, s: Slot, localOnly = false): Promise<string | false> {
+  const comfy = await import("./comfy.ts");
+  let raw: Uint8Array | null = null, who = "ComfyUI on this PC";
+  if (process.env.ORBIT_LOCAL_PICTURES?.trim() !== "0" && (await comfy.comfyReady())) raw = await comfy.generate(s.prompt, s.aspect, s.path + s.prompt).catch(() => null);
+  if (!raw && !localOnly) { raw = await freePicture(s); who = "Pollinations"; }
+  if (!raw) return false;
+  const ws = await import("./workspace.ts"), out = (await toFormat(raw, s.path))?.bytes ?? raw;
+  if ("error" in (await ws.writeWsFile(user, workspace, s.path, out))) return false;
+  const cur = parseCredits((await ws.readWsFile(user, workspace, "assets/CREDITS.md"))?.text ?? "");
+  await ws.writeWsFile(user, workspace, "assets/CREDITS.md", creditsMd(cur, { path: s.path, title: `Prompt: ${s.prompt.slice(0, 400)}`,
+    author: who === "Pollinations" ? "Pollinations (flux), free AI image" : "SDXL-Lightning (ComfyUI on this PC), free AI image", license: "AI-generated for this site", attribution: false, source: "generated in ORBIT", via: who }));
+  return who;
+}

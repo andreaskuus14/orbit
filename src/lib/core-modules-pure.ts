@@ -76,8 +76,9 @@ export const MODULE_HINTS: Record<string, RegExp> = {
   RULES: /\b(?:every|each|daily|weekly|weekdays?|whenever|when|rules?|iga|igal|kui|reegel|millal)\b|reegl|igapäev|iganädal|tööpäev|alati kui/i,
   CHECKPOINT: hint("checkpoint|remember|keep in mind|next (?:step|action)|decid|constraint|continue", "jäta[^.?!]{0,30}meelde|meeles|jätka|järgmine samm|otsus|salvesta|pane kirja"),
   ORGANIZE: hint("renam|trash|lead|prospect|\\bstage\\b|verif|accept|confirm|adjust|automat|pause|resume", "nimeta|prügikast|huvilis|etapp|kinnita|nihuta|automaat|peata"),
-  LOCALAI: hint("\\b3d\\b|mesh|glb|voice ?over|text.to.speech|tts|read (?:it|this) (?:out|aloud)|narrat|caption|subtit|transcri|\\bsrt\\b", `${W}3d${E}|hääl|helifail|ette lug|loe (?:see|seda) ette|subtiit|transkri`),
+  LOCALAI: hint("(?:make|generate|draw|create|render)(?: me)? (?:an? |some |\\d+ )?(?:image|picture|photo)|local_image|comfy|\\b3d\\b|mesh|glb|voice ?over|text.to.speech|tts|read (?:it|this) (?:out|aloud)|narrat|caption|subtit|transcri|\\bsrt\\b", `${W}3d${E}|tee (?:mulle )?(?:pilt|foto)|hääl|helifail|ette lug|loe (?:see|seda) ette|subtiit|transkri`),
   ROBLOXFILES: hint("rojo|selene|lint|luau|roblox (?:code|script)|(?:check|review) (?:my |the )?(?:code|scripts?)|\\.rbxlx?\\b|export (?:my |the )?scripts?", `${W}skript|koodi (?:kontroll|üle)|kontrolli (?:koodi|skripte)`),
+  BROWSER: hint("brows|render|javascript|\\bjs\\b|click|scroll|screenshot|open (?:the |this )?(?:page|site|link)|look at (?:the |this )?(?:page|site)|search (?:on|the) (?:site|page)", "ava (?:leht|link)|kuvatõmmis|ekraanipilt|kliki|keri"),
   WATCH: hint("watch|monitor|track|keep an eye|notify me|tell me when|let me know when|page chang|site chang|went live", "jälgi|teavita|anna teada|ütle(?: mulle)? kui|lehe? muutu|leht muutus"),
   WEEK: hint("week(?!day)|slipp|late|get done|got done|did i|streak|wins?\\b|behind", "nädal|hilin|hilja|maha jä|mahajää|sain tehtud|tegin ära|seeria|järjest|saavutus|võit"),
 };
@@ -103,7 +104,8 @@ export const MODULE_ABOUT: Record<string, string> = {
   WATCH: "page-change watch: watch a public page (selector, interval, label), list watches, recent changes",
   WEEK: "week review: planned vs done, what slipped, streaks, wins",
   ROBLOXFILES: "his Roblox scripts as files on his PC: export a saved place to a Rojo project (git), Selene code check by file and line",
-  LOCALAI: "free models on his PC: picture → 3D model (.glb), script → voiceover (.wav), video/audio → captions (.srt) + transcript, saved in VAULT",
+  LOCALAI: "free models on his PC: description → picture (.png), picture → 3D model (.glb), script → voiceover (.wav), video/audio → captions (.srt) + transcript, saved in VAULT",
+  BROWSER: "real browser for JavaScript pages: open a public page, click/scroll/search, read its text, screenshot to VAULT",
 };
 
 /** The per-turn MODULE TOOLS text: the matched modules' instructions; if no keyword-gated module matched (an oddly worded or

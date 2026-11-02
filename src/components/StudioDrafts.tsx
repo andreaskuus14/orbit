@@ -29,6 +29,7 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [err, setErr] = useState("");
   const [working, setWorking] = useState("");
+  const [bump, setBump] = useState(0); // new local photos at the same paths: refetch the previews
   const load = useCallback(async () => {
     try {
       setJobs((await call<{ stories: Job[] }>(`${API}?section=${section}`)).stories);
@@ -47,6 +48,16 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
     setWorking(id); setErr("");
     try { const r = await call<{ story: Job }>(API, { id, ...body }); setJobs((x) => x && x.map((j) => (j.id === id ? r.story : j))); }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setWorking(""); }
+  }
+  // Free and unlimited: ComfyUI on this PC makes every photo of the site now (no credits, so no approval card).
+  async function local(j: Job) {
+    setWorking(`local:${j.id}`); setErr("");
+    try {
+      const r = await call<{ made: string[]; failed: string[] }>("/api/local-ai", { action: "site-local", workspace: j.site!.workspace, slots: j.site!.slots });
+      setErr(r.failed.length ? `Made ${r.made.length} locally; failed: ${r.failed.join(", ")}` : "");
+      setBump((n) => n + 1); await load();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setWorking(""); }
   }
   const approve = async (j: Job) => act(j.id, { action: "approve", credits: total(j), seen: await contentHash(spendContent(j.quote?.fingerprint ?? "", total(j))) });
@@ -98,7 +109,7 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
                     return (
                       <li key={s.path} className="text-xs">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {base && j.site?.slots && <img src={`${base}${s.path.split("/").map(encodeURIComponent).join("/")}?v=${encodeURIComponent(j.step.length + j.status)}`} alt={s.prompt} className="mb-1 aspect-video w-full rounded object-cover" loading="lazy" />}
+                        {base && j.site?.slots && <img src={`${base}${s.path.split("/").map(encodeURIComponent).join("/")}?v=${encodeURIComponent(j.step.length + j.status)}${bump}`} alt={s.prompt} className="mb-1 aspect-video w-full rounded object-cover" loading="lazy" />}
                         <b className="num">{s.path}</b>
                         <span className="muted num ml-2" title={it?.error}>{it?.status === "done" ? "✓ made" : it?.status === "failed" ? "⚠ failed" : it?.status === "pending" ? "⏳" : typeof it?.credits === "number" ? `${it.credits} cr` : ""}</span>
                         <span className="muted block">{s.prompt}</span>
@@ -107,6 +118,7 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
                   })}
                 </ul>
                 {status(j)}
+                {j.site?.slots && j.status !== "done" && !busy(j) && <button className="chip mt-2" disabled={!!working} onClick={() => void local(j)} title="Free: ComfyUI on this PC (tools/comfyui/setup.ps1)">{working === `local:${j.id}` ? "Making photos on this PC (≈10 s each)…" : "🖥 Generate locally (free)"}</button>}
                 <Actions j={j} label="Approve all" />
               </div>
             ))}
