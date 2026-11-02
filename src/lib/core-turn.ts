@@ -22,6 +22,8 @@ import { checkpointPrompt, isContinue } from "@/lib/checkpoint-pure";
 import { chatQueue, onceById } from "@/lib/session-bound-pure";
 import { logActivity } from "@/lib/activity";
 import { receiptLine, type Receipt } from "@/lib/receipt-pure";
+import { evalMark, parseRunId } from "@/lib/eval-core-pure";
+import { evalRunId, inEvalRun } from "@/lib/eval-run";
 
 // Process-wide (one ORBIT server): shortcut: in-memory, so it holds for one Node process; a multi-instance deploy needs a shared lock.
 const G = globalThis as unknown as { __orbitTurns?: { perChat: ReturnType<typeof chatQueue>; sameRequest: ReturnType<typeof onceById<{ status: number; body: Record<string, unknown> }>> } };
@@ -41,6 +43,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
   const content = files.files.length ? message + attachedSuffix(files.files.map((f) => f.name)) : message;
 
   // B05: one turn per chat at a time (phone + desktop), and a client retry with the same requestId gets the first turn's outcome.
+  const evalRun = parseRunId(body.evalRun); // `npm run eval`: everything this turn creates carries the run id (eval-run.ts)
   const rid = typeof body.requestId === "string" && /^[\w-]{8,80}$/.test(body.requestId) ? `${userId}:${body.requestId}` : null;
   type Outcome = { status: number; body: Record<string, unknown> };
   let background: Promise<{ answer: string } | null> | null = null; // a handed-off turn still running (its stream follows it)
@@ -52,7 +55,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       if (!data) conversationId = null;
     }
     if (!conversationId) {
-      const { data, error } = await sb.from("conversations").insert({ user_id: userId, title: (opts.remote ? "Phone: " : "") + chatTitle(message) }).select("id").single();
+      const { data, error } = await sb.from("conversations").insert({ user_id: userId, title: (opts.remote ? "Phone: " : "") + (evalRun ? `${evalMark(evalRun)} ` : "") + chatTitle(message) }).select("id").single();
       if (error) return { status: 500, body: { error: error.message } };
       const newId: string = data.id;
       conversationId = newId;
@@ -159,7 +162,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
   };
   // A failed outcome is not kept, so a retry after a failure runs again.
   const once = (send?: (ev: Record<string, unknown>) => void, signal?: AbortSignal) =>
-    sameRequest(rid, () => run(send, signal).then((o) => (o.status === 200 ? o : Promise.reject(o))))
+    sameRequest(rid, () => inEvalRun(evalRun, () => run(send, signal)).then((o) => (o.status === 200 ? o : Promise.reject(o))))
       .catch((e): Outcome => (e && typeof e === "object" && "status" in e ? e as Outcome : { status: 500, body: { error: e instanceof Error ? e.message : "CORE failed" } }));
 
   if (new URL(req.url).searchParams.get("stream") === "1") {
@@ -185,7 +188,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
 // shortcut: the background turn runs in this Node process (survives a closed browser, not a server restart); a restart leaves its task "running" until reclaimed.
 /** Run a handed-off CORE turn as an OPERATIONS task: its answer lands in the chat, and agent.completed/failed gives the one notice. */
 async function inBackground(sb: SupabaseClient, userId: string, cid: string, message: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>): Promise<{ taskId: string; finished: Promise<{ answer: string } | null> }> {
-  const title = `CORE: ${message.replace(/\s+/g, " ").trim().slice(0, 80)}`;
+  const run0 = evalRunId(), title = `CORE: ${run0 ? `${evalMark(run0)} ` : ""}${message.replace(/\s+/g, " ").trim().slice(0, 80)}`;
   const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent: "nova", title, request: message, status: "running", started_at: new Date().toISOString() }).select("id").single();
   if (error) throw error;
   const taskId: string = data.id;
@@ -212,5 +215,5 @@ async function inBackground(sb: SupabaseClient, userId: string, cid: string, mes
 const receiptOf = (trace: { step: string; receipt?: Receipt }[]) => trace.findLast((s) => s.receipt)?.receipt;
 /** A turn that changed something leaves its receipt in Activity: the status and what failed or wasn't checked (no question text). */
 function logReceipt(rc: Receipt | undefined) {
-  if (rc) logActivity({ area: "core", title: `CORE turn: ${receiptLine(rc)}`, ...(rc.failed.length + rc.claimed.length ? { detail: [...rc.failed, ...rc.claimed].join(" · ") } : {}), receipt: rc.status });
+  if (rc) logActivity({ area: "core", title: `CORE turn: ${receiptLine(rc)}`, ...(rc.failed.length + rc.claimed.length || rc.check ? { detail: [...rc.failed, ...rc.claimed, ...(rc.check ? [`verifier: ${rc.check.ok ? "verified" : "not verified"}: ${rc.check.reason}`] : [])].join(" · ") } : {}), receipt: rc.status });
 }

@@ -2,6 +2,7 @@
 // <ORBIT data dir>/operator-undo.json and returns "[op:<id>]"; core.ts logs it to OPERATIONS → Activity with that Undo, and
 // POST /api/activity runs undoOp(). Records only: nothing here drafts, sends, publishes or spends, and the journal is never read.
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { withEvalNote } from "./eval-run.ts";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir.ts";
@@ -67,7 +68,7 @@ export async function runOpsTool(tool: OpsTool, input: Record<string, unknown>, 
         for (const l of leads) {
           const dup = duplicateOf(rows, store, l.name, l.contact);
           if (dup) { lines.push(`skipped "${l.name}": already in BUSINESS as "${rows.find((r) => r.id === dup)?.name}" (id ${dup})`); continue; }
-          const { data, error } = await c.sb.from("prospects").insert({ ...l, stage: "lead" }).select("id,name,contact,notes").single();
+          const { data, error } = await c.sb.from("prospects").insert({ ...l, notes: withEvalNote(l.notes), stage: "lead" }).select("id,name,contact,notes").single();
           if (error || !data) { lines.push(`"${l.name}" not added: ${error?.message ?? "no row"}`); continue; }
           rows.push(data); made.push({ id: data.id, notes: l.notes });
           await crm.updateCrm((s) => { s[data.id] = newCrm("web-find", l.name, l.contact); }); // contact unverified until he checks it

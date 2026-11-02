@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { withEvalTag } from "./eval-run";
 import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -69,7 +70,7 @@ export async function createMemory(sb: SupabaseClient, userId: string, input: Me
  *  returns {duplicate, preview} and writes nothing until the owner picks keep (a marked separate version), merge or update
  *  (the old text is kept as a "superseded" history copy, like Correct). No model call besides the usual embedding. */
 export async function captureMemory(sb: SupabaseClient, userId: string, input: MemoryInput, opts: { vault?: string | null; fileHash?: string | null; onDuplicate?: DupChoice | null; attach?: () => Promise<string> } = {}) {
-  const make = async (extra: string[]) => ({ ...(await createMemory(sb, userId, { ...input, tags: [...tags, ...extra], ...(opts.attach ? { storage_path: await opts.attach() } : {}) })), duplicate: dup });
+  const make = async (extra: string[]) => ({ ...(await createMemory(sb, userId, { ...input, tags: withEvalTag([...tags, ...extra]), ...(opts.attach ? { storage_path: await opts.attach() } : {}) })), duplicate: dup });
   let dup: ReturnType<typeof findDuplicate> = null;
   const p = provenance({ ...input, ...opts });
   const tags = [...(input.tags ?? []), ...provenanceTags(p)];

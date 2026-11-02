@@ -241,7 +241,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       ? results.map((m, i) => `<memory id="${m.id}" kind="${m.kind}" title=${JSON.stringify(m.title)} created="${m.created_at}"${flag(m.id)}>\n${escapeTags(selectPassages(String(m.content), question, i < 3 ? 6000 : 1500, i + 1))}\n</memory>`).join("\n")
       : "(none matched)";
     const routeText = `${question}\n${[...history].reverse().find((h) => h.role === "assistant")?.content.slice(-600) ?? ""}`;
-    const moduleTools = modulePromptFor(routeText); // §1.4: only the modules this turn needs
+    const moduleTools = coreEngine() === "mcp" ? "" : modulePromptFor(routeText); // §1.4: only the modules this turn needs; the MCP engine lists every tool natively
     const caps = await import("./capability").then((m) => m.coreCapabilityNote(routeText), () => ""); // only what's MISSING for this turn's modules
     const transcript = transcriptHolder.text = [olderTurnsSummary(history), history.slice(-9, -1).map((h) => `${h.role === "user" ? "User" : "CORE"}: ${h.content}`).join("\n")].filter(Boolean).join("\n\n");
     const chats = recentChats.length
@@ -336,6 +336,14 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     answer = rv.text;
     if (rv.reviewed) trace.push({ step: "review", detail: `${DEEP_MODEL} · self-checked`, ms: Date.now() - t, ok: true });
   };
+  // Independent verifier (verifier.ts): once at the end of the turn; the MCP engine calls it itself so a "not verified" can continue.
+  let verdict: { ok: boolean; reason: string } | null = null, verifyRan = false;
+  const verify = async (ans: string) => {
+    verifyRan = true;
+    const v = await import("./verifier").then((m) => m.verifyTurn({ sb, userId, question, answer: ans, tools: evalTools, signal, timeLeftMs: deepLeft() }));
+    if (v) { verdict = v; trace.push({ step: "verify", detail: `${v.ok ? "verified" : "not verified"}: ${v.reason}`, ms: v.ms, ok: v.ok }); }
+    return v;
+  };
   try {
     // sdk: the Claude Agent SDK (core-sdk.ts, docs/AGENT-SDK.md); mcp: Claude Code's native loop with ORBIT's tools (core-mcp.ts).
     // Both run every CORE tool behind the same decide() gate, exec and record. Profile → CORE engine or ORBIT_CORE_ENGINE picks one.
@@ -351,7 +359,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         // A redo after tools already ran carries their results, so writes aren't repeated.
         const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote.replace(/"final"/g, "your answer")}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}`;
         try {
-          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", turnId, exec, record, onDelta: sendDelta, onReset, onStep });
+          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", turnId, exec, record, onDelta: sendDelta, onReset, onStep, verify });
           if (r.escalated) { onReset?.(); tier = "smart"; continue; } // as the loop: a fast-model tool call is redone on the main model
           if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
           answer = r.text;
@@ -466,7 +474,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     if (sessionKey) { const t = [...(carriedText.get(sessionKey) ?? []), ...privateResults(steps, MODULE_PRIVATE), attach?.block ?? ""].filter(Boolean); if (t.length) carriedText.set(sessionKey, t.slice(-40)); }
   }
 
-  inspectAnswer(question, answer, trace, playbookRules, evalTools);
+  if (!verifyRan) await verify(answer);
+  inspectAnswer(question, answer, trace, playbookRules, evalTools, verdict);
   ms.answer_eval = Date.now() - t0;
   logTiming(tier);
   const citations: Citation[] = parseCitations(answer)
@@ -480,14 +489,14 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
 
 /** Local advisory check after the final review, never an answer gate or another model call.
  * Reuse the final step so telemetry doesn't count an evaluation as a tool. Console I/O is deferred. */
-function inspectAnswer(question: string, answer: string, trace: TraceStep[], playbookRules: string[], tools: CoreEvalTool[] = []) {
+function inspectAnswer(question: string, answer: string, trace: TraceStep[], playbookRules: string[], tools: CoreEvalTool[] = [], check?: { ok: boolean; reason: string } | null) {
   const started = Date.now();
   const { evaluation, log } = coreAnswerEval({ question, answer, tools, playbookRules });
   const last = trace.at(-1);
   if (last) {
     last.answerEval = { ...evaluation, ms: Date.now() - started };
     const receipt = coreReceipt(question, tools); // only when the turn changed something (receipt-pure.ts)
-    if (receipt) last.receipt = receipt;
+    if (receipt) last.receipt = check ? { ...receipt, check: { ok: check.ok, reason: check.reason } } : receipt;
     if (log) last.detail += ` · ${log.slice("[core] ".length)}`;
   }
   if (log) setImmediate(() => { try { console.info(log); } catch { /* Advisory logging must not affect delivery. */ } });

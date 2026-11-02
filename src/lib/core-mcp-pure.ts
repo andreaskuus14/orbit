@@ -9,6 +9,7 @@ import { isPluginTool } from "./plugins-pure.ts";
 import { acceptanceOf, coreReceipt } from "./receipt-pure.ts";
 import { parseStreamJsonLine, type StreamResult } from "./streamjson.ts";
 import type { WriteEvidence } from "./completion-pure.ts";
+import { SCHEMAS, type Schema } from "./mcp-schemas-pure.ts";
 
 export type Engine = "cli" | "mcp" | "sdk";
 export const ENGINES: readonly Engine[] = ["cli", "mcp", "sdk"];
@@ -34,7 +35,7 @@ export function exposedTools(names: readonly string[], ctx: Pick<PolicyCtx, "sto
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Each tool's own instructions, cut from CORE's prompt text (TOOLS lines and module lines): from its name to the next tool's name,
- *  with the module's header in front. shortcut: text-derived docs + pass-through schemas; per-tool zod schemas when evals show bad args. */
+ *  with the module's header after it. The most-used tools also get a real schema (mcp-schemas-pure.ts). */
 export function toolDocs(text: string, names: readonly string[], cap = 700): Record<string, string> {
   const any = new RegExp(`(?<![\\w])(?:${[...names].sort((a, b) => b.length - a.length).map(esc).join("|")})(?=\\s*[{(:])`, "g");
   const out: Record<string, string> = {};
@@ -45,19 +46,19 @@ export function toolDocs(text: string, names: readonly string[], cap = 700): Rec
     hits.forEach((h, i) => {
       if (out[h[0]]) return;
       const body = line.slice(h.index, hits[i + 1]?.index ?? line.length).trim().replace(/[.;,]\s*$/, ".");
-      out[h[0]] = `${head ? `${head}. ` : ""}${body}`.slice(0, cap);
+      out[h[0]] = `${body}${head ? ` (${head})` : ""}`.slice(0, cap); // args first: the cap cuts the module header, not the call's shape
     });
   }
   for (const n of names) out[n] ??= `ORBIT tool ${n}.`;
   return out;
 }
 
-export type McpTool = { name: string; description: string; inputSchema: { type: "object"; additionalProperties: true }; annotations: { readOnlyHint: boolean; destructiveHint: boolean } };
-/** The MCP tools/list payload. Inputs are documented in the description and validated by each runner (readable "Error: ..." back). */
+export type McpTool = { name: string; description: string; inputSchema: Schema | { type: "object"; additionalProperties: true }; annotations: { readOnlyHint: boolean; destructiveHint: boolean } };
+/** The MCP tools/list payload. Schema'd tools are checked by prepareArgs; the rest are documented in the description and validated by each runner. */
 export const mcpToolList = (names: readonly string[], docs: Record<string, string>): McpTool[] =>
   names.map((name) => ({
     name, description: docs[name] ?? `ORBIT tool ${name}.`,
-    inputSchema: { type: "object", additionalProperties: true },
+    inputSchema: SCHEMAS[name] ?? { type: "object", additionalProperties: true },
     annotations: { readOnlyHint: /^T[01]$/.test(TIERS[name] ?? ""), destructiveHint: TIERS[name] === "T3" },
   }));
 
@@ -109,4 +110,16 @@ export function doneGate(question: string, tools: readonly GateTool[], blocks: n
   const failed = r?.failed.length ? ` Still failing: ${r.failed.slice(0, 3).join("; ")}.` : "";
   const open = r?.claimed.length ? ` Not checked yet: ${r.claimed.slice(0, 3).join("; ")}.` : "";
   return { block: true, reason: `ORBIT done-check: the request is not met yet (needs ${need}${r ? "" : "; nothing has been saved or built yet"}).${failed}${open} Keep working with your tools until it is met, then answer. If a tool refused or it truly can't be done, stop and say plainly what is missing; don't offer choices for work you can do yourself.` };
+}
+
+/** Per-turn CLI files, the same on Windows: the MCP server entry is spawned by Claude Code without a shell (raw paths, args array);
+ *  the Stop hook command runs through bash (also on Windows, as clips/higgsfield.ts), so forward slashes, double quotes, and
+ *  bash's specials ($ ` ") escaped. Inputs are path.join results (backslashes on Windows). */
+export function mcpCliFiles(node: string, script: string, bridgeFile: string, server: string) {
+  const fwd = (p: string) => p.replace(/\\/g, "/");
+  const sh = (p: string) => `"${fwd(p).replace(/[$`"]/g, "\\$&")}"`;
+  return {
+    config: { mcpServers: { [server]: { type: "stdio", command: node, args: [fwd(script), "serve", fwd(bridgeFile)] } } },
+    settings: { hooks: { Stop: [{ hooks: [{ type: "command", command: `${sh(node)} ${sh(script)} stop ${sh(bridgeFile)}`, timeout: 30 }] }] } },
+  };
 }
