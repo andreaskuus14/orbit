@@ -18,7 +18,8 @@ let worker: Worker | null = null, reqId = 0, kokoroBroken = false;
 const pending = new Map<number, (r: { audio?: Float32Array; rate?: number; error?: string; ready?: boolean }) => void>();
 let audioCtx: AudioContext | null = null, analyser: AnalyserNode | null = null, source: AudioBufferSourceNode | null = null;
 const levelBuf = new Float32Array(1024);
-const kokoroVoice = () => { const v = speechSettings().voiceURI; return !kokoroBroken && v?.startsWith("kokoro:") ? v.slice(7) : null; };
+const estonian = () => /^et/i.test(speechSettings().lang);
+const kokoroVoice = () => { const v = speechSettings().voiceURI; return !kokoroBroken && !estonian() && v?.startsWith("kokoro:") ? v.slice(7) : null; }; // Kokoro has no Estonian
 function kokoro(text: string, warm = false) {
   if (!worker) {
     worker = new Worker(new URL("./kokoro.worker.ts", import.meta.url), { type: "module" });
@@ -59,7 +60,8 @@ export const speechSettings = () => (settings ??= loadVoiceSettings());
 function pickVoice() {
   const all = synth()?.getVoices() ?? [];
   const score = (v: SpeechSynthesisVoice) => (/natural/i.test(v.name) ? 4 : 0) + (/online|google/i.test(v.name) ? 2 : 0) + (/^en-(US|GB)/i.test(v.lang) ? 1 : 0);
-  voice = all.find((v) => v.voiceURI === speechSettings().voiceURI)
+  voice = estonian() ? all.find((v) => /^et/i.test(v.lang)) ?? null // Eesti: an Estonian system voice, else lang et-EE lets the browser pick
+    : all.find((v) => v.voiceURI === speechSettings().voiceURI)
     ?? all.filter((v) => /^en/i.test(v.lang)).sort((a, b) => score(b) - score(a))[0] ?? null;
 }
 
@@ -101,7 +103,7 @@ function pump() {
   }
   if (!voice) pickVoice();
   const u = new SpeechSynthesisUtterance(text);
-  if (voice) { u.voice = voice; u.lang = voice.lang; }
+  if (voice) { u.voice = voice; u.lang = voice.lang; } else if (estonian()) u.lang = "et-EE";
   const rate = Number(speechSettings().rate);
   u.rate = Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1;
   u.onboundary = (e) => { if (e.name !== "sentence") { pulse = 1; lastWord = performance.now(); } };

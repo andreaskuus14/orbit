@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CAP_MS, convStep, IDLE, startsConversation, isAddressedToOrbit, isConversationEnd, isConversationStart, SILENCE_MS, THINK_MS, type Conv, type ConvEvent } from "../src/components/voice/conversation.ts";
+import { CAP_MS, convStep, FOLLOW_MS, IDLE, startsConversation, isAddressedToOrbit, isConversationEnd, isConversationStart, SILENCE_MS, THINK_MS, type Conv, type ConvEvent } from "../src/components/voice/conversation.ts";
 
 const run = (events: [ConvEvent, number][], s: Conv = IDLE) => events.reduce((c, [e, t]) => convStep(c, e, t), s);
 
@@ -114,4 +114,19 @@ test("an interrupted answer's late done doesn't count for the next question; nav
   assert.equal(run([[{ type: "done" }, 7]], s).phase, "listening");
   const nav = run([[{ type: "start", persist: true }, 0], [{ type: "ask", core: false }, 1], [{ type: "speaking" }, 2], [{ type: "spoke" }, 3]]);
   assert.equal(nav.phase, "listening");
+});
+
+test("follow-up window: a wake-word question keeps listening FOLLOW_MS after the answer, then ends", () => {
+  let s = convStep(IDLE, { type: "start", persist: true, follow: true }, 0);
+  s = run([[{ type: "ask" }, 0], [{ type: "speaking" }, 1000], [{ type: "done" }, 2000], [{ type: "spoke" }, 3000]], s);
+  assert.equal(s.phase, "listening");
+  assert.equal(convStep(s, { type: "tick" }, 3000 + FOLLOW_MS - 1).phase, "listening");
+  assert.equal(convStep(s, { type: "tick" }, 3000 + FOLLOW_MS).phase, "idle");
+  // a follow-up question restarts the cycle; "let's talk" (start without follow) turns it into ordinary open mic
+  s = run([[{ type: "ask" }, 5000], [{ type: "done" }, 6000]], s);
+  assert.equal(s.phase, "listening");
+  const open = convStep(s, { type: "start", persist: true }, 7000);
+  assert.equal(open.follow, undefined);
+  assert.equal(convStep(open, { type: "tick" }, 7000 + FOLLOW_MS).phase, "listening");
+  assert.equal(FOLLOW_MS, 8000);
 });
