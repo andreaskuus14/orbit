@@ -9,7 +9,8 @@ import type { Lang } from "./i18n-pure.ts";
 
 /** Never "done" without a passed check: verified = the acceptance check passed; partly = some of it; unverified = ran, not checked. */
 export type ReceiptStatus = "verified" | "partly" | "unverified" | "failed";
-export type Receipt = { asked: string; accept: string; status: ReceiptStatus; verified: string[]; claimed: string[]; failed: string[]; links: string[] };
+/** check: the independent verifier's verdict (verifier-pure.ts), when one ran. */
+export type Receipt = { asked: string; accept: string; status: ReceiptStatus; verified: string[]; claimed: string[]; failed: string[]; links: string[]; check?: { ok: boolean; reason: string } };
 type Tool = { tool: string; input: Readonly<Record<string, unknown>>; output: string; evidence: readonly WriteEvidence[] };
 
 const NUM: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, üks: 1, kaks: 2, kolm: 3, neli: 4, viis: 5, kuus: 6, seitse: 7, kaheksa: 8, üheksa: 9, kümme: 10 };
@@ -99,13 +100,13 @@ export function taskReceipt(t: TaskIn): Receipt | null {
 }
 
 const WORD = {
-  en: { verified: "Verified", partly: "Partly done", unverified: "Not verified", failed: "Failed", need: "need", ok: "checked", claimed: "not checked", bad: "failed" },
-  et: { verified: "Kontrollitud", partly: "Osaliselt tehtud", unverified: "Kontrollimata", failed: "Ebaõnnestus", need: "vaja", ok: "kontrollitud", claimed: "kontrollimata", bad: "ebaõnnestus" },
+  en: { verified: "Verified", partly: "Partly done", unverified: "Not verified", failed: "Failed", need: "need", ok: "checked", claimed: "not checked", bad: "failed", vOk: "independent check passed", vBad: "independent check failed" },
+  et: { verified: "Kontrollitud", partly: "Osaliselt tehtud", unverified: "Kontrollimata", failed: "Ebaõnnestus", need: "vaja", ok: "kontrollitud", claimed: "kontrollimata", bad: "ebaõnnestus", vOk: "sõltumatu kontroll läbitud", vBad: "sõltumatu kontroll ebaõnnestus" },
 };
 /** One compact line: "Partly done · need 5 leads saved (got 3) · 1 checked · 1 failed". */
 export function receiptLine(r: Receipt, lang: Lang = "en"): string {
   const w = WORD[lang];
-  return [w[r.status], `${w.need} ${r.accept}`, r.verified.length && `${r.verified.length} ${w.ok}`, r.claimed.length && `${r.claimed.length} ${w.claimed}`, r.failed.length && `${r.failed.length} ${w.bad}`]
+  return [w[r.status], `${w.need} ${r.accept}`, r.verified.length && `${r.verified.length} ${w.ok}`, r.claimed.length && `${r.claimed.length} ${w.claimed}`, r.failed.length && `${r.failed.length} ${w.bad}`, r.check && (r.check.ok ? w.vOk : `${w.vBad}: ${r.check.reason}`)]
     .filter(Boolean).join(" · ");
 }
 
@@ -115,7 +116,8 @@ export function cleanReceipt(x: unknown): Receipt | null {
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string").slice(0, 20).map((s) => s.slice(0, 300)) : []);
   if (!r || typeof r !== "object" || !["verified", "partly", "unverified", "failed"].includes(r.status)) return null;
   return { asked: String(r.asked ?? "").slice(0, 160), accept: String(r.accept ?? "").slice(0, 160), status: r.status, verified: list(r.verified), claimed: list(r.claimed), failed: list(r.failed),
-    links: list(r.links).filter((l) => l.startsWith("/api/workspace?")) };
+    links: list(r.links).filter((l) => l.startsWith("/api/workspace?")),
+    ...(r.check && typeof r.check === "object" && { check: { ok: r.check.ok === true, reason: String(r.check.reason ?? "").slice(0, 200) } }) };
 }
 
 /** A task row's receipt: the one a background CORE turn stored in its trace, else derived from its actions. */

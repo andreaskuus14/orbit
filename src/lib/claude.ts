@@ -112,7 +112,8 @@ export const WEB_TOOLS = "WebSearch,WebFetch";
 /** mcp: the call may use only these MCP tools (from the owner's own `claude mcp add` config), every call checked by the
  *  PreToolUse hook in `settings` (a settings JSON file). Built-in tools stay off. Used by the Higgsfield adapter (clips/higgsfield.ts). */
 /** config: a per-call --mcp-config file used alone (--strict-mcp-config, no user settings): CORE's MCP engine (core-mcp.ts). */
-export type McpAccess = { allow: string[]; settings: string; config?: string };
+/** env: extra CLI environment, e.g. MCP_TOOL_TIMEOUT for CORE's slow tools (web_search, ask_agent). */
+export type McpAccess = { allow: string[]; settings: string; config?: string; env?: Record<string, string> };
 /** A persistent CLI session (ORBIT_CORE_SESSION=resume): the first call creates it with --session-id, later ones --resume it.
  *  The CLI files sessions by working directory, so session calls all run in one fixed dir. */
 export type CliSession = { id: string; resume: boolean };
@@ -133,7 +134,7 @@ async function prepare(system: string, format: string[], model = MODEL, effort =
     // Ignore user-level plugins/hooks/skills and all MCP connectors (CORE gets no tools, or only the read-only web tools with `web`) but keep the login. Not --bare: it skips OAuth.
     // mcp: user settings are where `claude mcp add -s user` servers come from ("local" alone hides them, tested); the hook still gates every call.
     "--setting-sources", mcp && !mcp.config ? "user" : "local", "--disable-slash-commands", ...(mcp && !mcp.config ? [] : ["--strict-mcp-config"]), "--model", model, ...(effort ? ["--effort", effort] : []), "--system-prompt-file", q(sysFile)];
-  const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: thinking ? { ...process.env, MAX_THINKING_TOKENS: String(thinking) } : process.env, cwd: session ? SESSION_DIR : dir, windowsHide: true }; // thinking: caps the CLI's extended-thinking budget
+  const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: thinking || mcp?.env ? { ...process.env, ...mcp?.env, ...(thinking && { MAX_THINKING_TOKENS: String(thinking) }) } : process.env, cwd: session ? SESSION_DIR : dir, windowsHide: true }; // thinking: caps the CLI's extended-thinking budget
   // On Windows, claude may be claude.cmd, which needs a shell; pass one pre-quoted command string (args hold no user text).
   const start = () => (WIN ? spawn(`${q(CLAUDE_BIN)} ${args.join(" ")}`, { ...opts, shell: true }) : spawn(CLAUDE_BIN, args, opts));
   return { dir, start };

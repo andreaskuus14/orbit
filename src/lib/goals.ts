@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { evalRunId } from "./eval-run";
 import { BUILTIN_AGENTS, cancelTask, runTask } from "./agents";
 import { withSlot } from "./chains";
 import { interruptedPatch } from "./completion-pure";
@@ -71,8 +72,8 @@ export async function createGoal(sb: SupabaseClient, userId: string, body: unkno
   const { data: mine, error: countErr } = await sb.from("goals").select("status").eq("user_id", userId);
   if (countErr) return { error: countErr.message };
   if ((mine ?? []).filter((r) => isOpen(r.status)).length >= MAX_OPEN) return { error: `You already have ${MAX_OPEN} open goals; finish, stop or delete one first` };
-  const doc = newGoal(v);
-  const { data, error } = await sb.from("goals").insert({ user_id: userId, title: doc.title, status: doc.status, doc }).select(COLS).single();
+  const doc = newGoal(v), run = evalRunId(); // an eval run's goal carries its id (eval-run.ts cleanup)
+  const { data, error } = await sb.from("goals").insert({ user_id: userId, title: doc.title, status: doc.status, doc: run ? { ...doc, eval: run } : doc }).select(COLS).single();
   if (error) return { error: error.message };
   void draftPlan(sb, userId, data.id);
   return { row: data as GoalRow };

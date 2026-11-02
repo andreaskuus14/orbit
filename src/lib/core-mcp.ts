@@ -17,7 +17,9 @@ import { stopAllOn } from "./stop-all";
 import type { WriteEvidence } from "./completion-pure";
 import type { CoreEvalTool } from "./core-answer-eval-pure";
 import { gated, nativeSystem, sdkTools, serial, toolResult, SERVER } from "./core-sdk-pure";
-import { ACTION_BLOCK, doneGate, exposedTools, mcpEvent, mcpToolList, toolDocs, tokenOk } from "./core-mcp-pure";
+import { verifierContinue } from "./verifier-pure";
+import { fixHint, prepareArgs } from "./mcp-schemas-pure";
+import { ACTION_BLOCK, doneGate, mcpCliFiles, exposedTools, mcpEvent, mcpToolList, toolDocs, tokenOk } from "./core-mcp-pure";
 import type { Turn } from "./core-sdk";
 
 type McpTurn = Turn & { question: string; tools: CoreEvalTool[] };
@@ -48,7 +50,8 @@ async function openBridge(token: string, h: Handlers): Promise<{ url: string; cl
   return { url: `http://127.0.0.1:${(srv.address() as AddressInfo).port}`, close: () => { srv.closeAllConnections?.(); srv.close(); } };
 }
 
-const SCRIPT = () => join(process.cwd(), "scripts", "orbit-mcp.mjs").replace(/\\/g, "/");
+// web_search and ask_agent can take minutes; the CLI's default MCP tool timeout would cut them off. MCP_TIMEOUT = server startup.
+const MCP_ENV = { MCP_TOOL_TIMEOUT: "180000", MCP_TIMEOUT: "30000" };
 const TURN_CAP_MS = 280_000; // the turn's own deadline (core.ts runCoreFor) aborts first; this only bounds a stuck CLI
 
 /** Runs the turn; same contract as core-sdk.ts sdkTurn (escalated: the fast model reached for a tool, core.ts redoes it on the main model). */
@@ -59,9 +62,12 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
   const one = serial(); // parallel tool calls run one at a time, so each decide() sees the steps before it (as the SDK engine)
   const names = exposedTools(sdkTools([...MODULE_TOOLS, ...pluginToolNames()]), t.policy());
   const list = mcpToolList(names, toolDocs(`${t.system}\n${MODULE_PROMPT}\n${pluginPromptNow()}`, names));
-  const call = (name: string, input: Record<string, unknown>) => one(async () => {
-    if (!names.includes(name)) return toolResult(`Error: unknown tool "${name.slice(0, 60)}"`);
+  const call = (name: string, raw: Record<string, unknown>) => one(async () => {
+    if (!names.includes(name)) return toolResult(`Error: unknown tool "${name.slice(0, 60)}"; call only the tools listed for this turn`);
     if (t.escalate) { escalated = true; ac.abort(); return toolResult("Error: stopped"); }
+    const prepared = prepareArgs(name, raw); // JSON-string arrays → arrays, required props checked with a how-to-call error
+    if ("error" in prepared) return toolResult(prepared.error);
+    const input = prepared.args;
     t.onReset?.(); t.onStep?.(name, input); // text before a tool call is not the answer (as in core.ts)
     const at = Date.now(), evidence: WriteEvidence[] = [];
     const { out, verdict, operated } = await gated(name, input, t.policy, t.steps, (op) => t.exec(name, input, evidence, op), t.attachBlock, authorizeTool);
@@ -69,7 +75,7 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
     if (row) void emit(t.sb, t.userId, "policy.decision", "core", { ...row, turn: t.turnId });
     t.record(name, input, out, evidence, Date.now() - at, operated);
     if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId };
-    return toolResult(out);
+    return toolResult(fixHint(name, out));
   });
   const gate = () => (signal.aborted || stopAllOn() ? { block: false as const } : doneGate(t.question, t.tools, blocks));
   const stop = () => {
@@ -85,18 +91,18 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
   const bridge = await openBridge(token, { tools: () => list, call, stop });
   const dir = await mkdtemp(join(tmpdir(), "orbit-mcp-"));
   try {
-    const file = join(dir, "bridge.json").replace(/\\/g, "/");
+    const file = join(dir, "bridge.json"), config = join(dir, "mcp.json"), settings = join(dir, "settings.json");
     await writeFile(file, JSON.stringify({ url: bridge.url, token }), { mode: 0o600 });
-    const config = join(dir, "mcp.json"), settings = join(dir, "settings.json");
-    await writeFile(config, JSON.stringify({ mcpServers: { [SERVER]: { type: "stdio", command: process.execPath, args: [SCRIPT(), "serve", file] } } }));
-    const node = process.execPath.replace(/\\/g, "/");
-    await writeFile(settings, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: `"${node}" "${SCRIPT()}" stop "${file}"`, timeout: 30 }] }] } }));
-    const system = `${nativeSystem(t.system)}\n\n${ACTION_BLOCK}`;
+    const cli = mcpCliFiles(process.execPath, join(process.cwd(), "scripts", "orbit-mcp.mjs"), file, SERVER);
+    await writeFile(config, JSON.stringify(cli.config));
+    await writeFile(settings, JSON.stringify(cli.settings));
+    // every tool is listed natively with its own description here, so the JSON loop's MODULE TOOLS pointer doesn't apply
+    const system = `${nativeSystem(t.system).replace(/their instructions come in the request's MODULE TOOLS block[^;]*; call only tools described there or above/, "each one's input and rules are in its tool description; call only the tools offered to you")}\n\n${ACTION_BLOCK}`;
     const started = Date.now();
     let result: ReturnType<typeof mcpEvent> = null;
     const run = (prompt: string, session = t.session) => askClaude(prompt, system, {
       lane: "foreground", signal, model: t.model, images: t.images, effort: t.effort, timeoutMs: TURN_CAP_MS, purpose: "core",
-      mcp: { allow: [`mcp__${SERVER}__*`], settings, config }, session,
+      mcp: { allow: [`mcp__${SERVER}__*`], settings, config, env: MCP_ENV }, session,
       onLine: (line) => {
         const ev = mcpEvent(line);
         if (ev?.delta) t.onDelta?.(ev.delta);
@@ -114,6 +120,15 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
       t.trace.push({ step: "done_gate", detail: `auto-continue: ${after.reason.slice(0, 160)}`, ms: 0, ok: false });
       const again = t.session ? after.reason : `${t.prompt}\n\nYOUR TOOL RESULTS SO FAR:\n${t.steps.join("\n\n")}\n\nYOUR PREVIOUS REPLY:\n${r.text}\n\n${after.reason}`;
       r = await run(again, t.session && { id: t.session.id, resume: true });
+    }
+    // Independent verifier (verifier.ts): a "not verified" gets one more continue with its reason, then the final verdict.
+    const v = escalated || signal.aborted || stopAllOn() ? null : await t.verify?.(r.text);
+    if (v && !v.ok) { // once per turn, on top of the done-gate's own cap
+      blocks++; t.onReset?.();
+      t.trace.push({ step: "done_gate", detail: `verifier continue: ${v.reason.slice(0, 160)}`, ms: 0, ok: false });
+      const again = t.session ? verifierContinue(v) : `${t.prompt}\n\nYOUR TOOL RESULTS SO FAR:\n${t.steps.join("\n\n")}\n\nYOUR PREVIOUS REPLY:\n${r.text}\n\n${verifierContinue(v)}`;
+      r = await run(again, t.session && { id: t.session.id, resume: true });
+      await t.verify?.(r.text);
     }
     await recordUsage(t.sb, t.userId, "core.chat", r, t.model);
     const res = (result as ReturnType<typeof mcpEvent>)?.result;
