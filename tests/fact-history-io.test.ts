@@ -7,6 +7,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as pure from "../src/lib/facts-pure.ts";
+import * as entityPure from "../src/lib/entity-memory-pure.ts";
 
 const require = createRequire(import.meta.url);
 const fact = (id: string, patch: Partial<pure.Fact> = {}) => ({ id, user_id: "owner", subject: "shorts", statement: "I prefer short Shorts", status: "current", source: "user_said", source_ref: "msg",
@@ -16,7 +17,7 @@ const compile = (file: string) => ts.transpileModule(readFileSync(new URL(`../sr
 }).outputText;
 const serviceCode = compile("lib/facts.ts");
 
-function service(facts: any[] = [], messages: any[] = [], rpcResponse: any = { data: { fact: fact("new"), changed: true }, error: null }) {
+function service(facts: any[] = [], messages: any[] = [], rpcResponse: any = { data: { fact: fact("new"), changed: true }, error: null }, cards: entityPure.Card[] = []) {
   const queries: { table: string; filters: [string, string, any][]; range?: number[] }[] = [], writes: any[] = [];
   class Query {
     entry: typeof queries[number]; orders: { key: string; asc: boolean }[] = []; cap = Infinity;
@@ -28,6 +29,7 @@ function service(facts: any[] = [], messages: any[] = [], rpcResponse: any = { d
     order(key: string, options: { ascending: boolean }) { this.orders.push({ key, asc: options.ascending }); return this; }
     limit(n: number) { this.cap = n; return this; }
     range(a: number, b: number) { this.entry.range = [a, b]; return this; }
+    update(patch: any) { writes.push({ name: `update:${this.entry.table}`, args: patch, filters: this.entry.filters }); return this; }
     result() {
       let rows = (this.entry.table === "messages" ? messages : facts).filter((r) => this.entry.filters.every(([op, k, v]) => op === "eq" ? r[k] === v : op === "neq" ? r[k] !== v : v.includes(r[k])));
       rows = [...rows].sort((a, b) => { for (const o of this.orders) { const n = String(a[o.key]).localeCompare(String(b[o.key])); if (n) return o.asc ? n : -n; } return 0; });
@@ -40,7 +42,7 @@ function service(facts: any[] = [], messages: any[] = [], rpcResponse: any = { d
   const sb = { from: (t: string) => new Query(t), rpc: async (name: string, args: any) => { writes.push({ name, args }); return rpcResponse; } };
   const module = { exports: {} as any };
   runInNewContext(serviceCode, { module, exports: module.exports, Date, console: { warn() {} },
-    require: (name: string) => name.endsWith("facts-pure") ? pure : { isMissingTable: (e: any) => e?.code === "42P01" },
+    require: (name: string) => name.endsWith("facts-pure") ? pure : name.endsWith("entity-memory-pure") ? entityPure : name.endsWith("entity-graph") ? { cardsOf: async () => cards } : { isMissingTable: (e: any) => e?.code === "42P01" },
   });
   return { ...module.exports, sb, queries, writes };
 }
@@ -224,4 +226,27 @@ test("edit API validates before saving and cannot accept source provenance from 
   assert.equal((await a.post({ action: "edit", id, subject: "", statement: "I like tea" })).status, 400);
   assert.equal((await a.post({ action: "edit", id, subject: "shorts", statement: "I prefer 45 s Shorts", source: "agent", source_ref: "forged" })).status, 200);
   assert.deepEqual(a.calls, [["edit", "authenticated-client", "owner", id, "shorts", "I prefer 45 s Shorts"]]);
+});
+
+test("beliefs about an entity he names are grouped under it (current, then outdated), and new ones are pinned to its id", async () => {
+  const card: entityPure.Card = { id: "project:pet sim", name: "Pet Sim", kind: "project", names: ["Pet Sim"], current: [], outdated: [], refs: [] };
+  const rows = [
+    fact("new", { subject: "pet sim release", statement: "My pet sim release is in June", supersedes: "old", created_at: "2026-05-20T00:00:00Z" }),
+    fact("old", { subject: "pet sim release", statement: "My pet sim release is in May", status: "superseded", superseded_by: "new", superseded_at: "2026-05-20T00:00:00Z", created_at: "2026-03-01T00:00:00Z" }),
+    fact("tz", { subject: "timezone", statement: "My timezone is CET" }),
+  ];
+  const s = service(rows, [], undefined, [card]);
+  const block = await s.factsContext(s.sb, "owner", "When is the Pet Sim release?");
+  const ent = block.slice(block.indexOf("<entity "));
+  assert.match(ent, /pet sim release: My pet sim release is in June[\s\S]*\[outdated, valid 2026-03-01 to 2026-05-20\][^\n]*in May/);
+  assert.doesNotMatch(block.slice(0, block.indexOf("<entity ")), /pet sim release/, "not repeated in his own block");
+  assert.match(block, /timezone/);
+  const other = await s.factsContext(s.sb, "owner", "what time is it");
+  assert.doesNotMatch(other, /<entity /, "an entity he did not name stays in his block as before");
+  assert.match(other, /pet sim release/);
+
+  const text = "My pet sim release is in July";
+  const learn = service([], [{ id: "msg", user_id: "owner", role: "user", content: text }], { data: { fact: fact("n2", { subject: "pet sim release", statement: text }), changed: true }, error: null }, [card]);
+  assert.equal(await learn.learnFacts(learn.sb, "owner", text, "msg"), 1);
+  assert.equal(JSON.stringify(learn.writes.filter((w: any) => w.name === "update:memory_facts").map((w: any) => w.args)), JSON.stringify([{ entity_id: "project:pet sim" }]));
 });

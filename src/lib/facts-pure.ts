@@ -9,6 +9,7 @@ export type Fact = {
   source: "user_said" | "inferred" | "document"; source_ref: string | null; confidence: number;
   supersedes: string | null; superseded_by: string | null; created_at: string; updated_at: string;
   superseded_at: string | null; restored_from: string | null;
+  entity_id?: string | null; // migration 0024: which person/company/project the belief is about (null = the owner)
   source_text?: string; source_created_at?: string; // owner-only source preview; never included in CORE's prompt
 };
 
