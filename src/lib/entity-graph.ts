@@ -11,8 +11,9 @@ import {
   contradictionBrief, decideEntity, emptyDecisions, findContradictions, gather, mergeSuggestions, outdatedClaims, outdatedLabel, resolveGraph, undoable, usable,
   type Contradiction, type Outdated, type EntityDecisions, type MemIn, type MergeHist, type MergeSuggestion,
 } from "./entity-graph-pure";
+import { entityCards, type Card } from "./entity-memory-pure";
 
-type UserEnt = { at?: string; entities?: number; merges: MergeSuggestion[]; contradictions: Contradiction[]; decisions: EntityDecisions; outdated?: Outdated[] };
+type UserEnt = { at?: string; entities?: number; merges: MergeSuggestion[]; contradictions: Contradiction[]; decisions: EntityDecisions; outdated?: Outdated[]; cards?: Card[] };
 type Store = { users: Record<string, UserEnt> };
 const file = () => path.join(orbitDataDir(), "entities.json");
 const LIMIT = 500; // budget: newest 500 non-journal memories (resolution is O(n²) over distinct names, capped at 800)
@@ -41,20 +42,23 @@ async function memRows(sb: SupabaseClient, userId: string) {
 
 /** Recompute suggestions and questions from memories (never journal), current beliefs and his People list. */
 export async function scanEntities(sb: SupabaseClient, userId: string): Promise<{ merges: number; contradictions: number }> {
-  const [mem, facts, people] = await Promise.all([
+  const [mem, facts, people, prospects] = await Promise.all([
     memRows(sb, userId),
     listFacts(sb, userId).catch((e) => { if (e instanceof FactsMissing) return []; throw e; }),
     import("./people").then((m) => m.localPeople(), () => []),
+    // BUSINESS companies, so one company is one identity across BUSINESS and MEMORY (records only; best-effort)
+    sb.from("prospects").select("id, name, contact, created_at").eq("user_id", userId).order("updated_at", { ascending: false }).limit(300).then((r) => r.data ?? [], () => []),
   ]);
   if (mem.error) throw mem.error;
   const memories = usable(((mem.data ?? []) as unknown as MemIn[]).map((m) => ({ ...m, title: String(m.title ?? ""), content: String(m.content ?? "") })));
-  const { mentions, claims } = gather({ memories, facts, people });
+  const { mentions, claims } = gather({ memories, facts, people, prospects: prospects as { id: string; name: string; contact: string | null; created_at: string }[] });
   return update(userId, (u) => {
     const { ents, related } = resolveGraph(mentions, u.decisions);
     u.at = new Date().toISOString(); u.entities = ents.length;
     u.merges = mergeSuggestions(ents, undefined, { related, claims });
     u.contradictions = findContradictions(claims, ents, u.decisions);
     u.outdated = outdatedClaims(claims, ents, u.decisions).slice(0, 300); // memories saying a value a newer/stronger one replaced
+    u.cards = entityCards(claims, ents, u.decisions); // CORE's entity-grouped view (facts.ts factsContext)
     return { merges: u.merges.length, contradictions: u.contradictions.length };
   });
 }
@@ -81,6 +85,9 @@ export function decideEntityKey(userId: string, key: string, choice: string): Pr
 
 /** The morning brief's one line (null when nothing disagrees). */
 export const entitiesBrief = async (userId: string) => contradictionBrief((await load()).users[userId]?.contradictions ?? []);
+
+/** Entity cards as of the last scan ([] before the first). */
+export const cardsOf = async (userId: string): Promise<Card[]> => (await load()).users[userId]?.cards ?? [];
 
 /** memory id → its "superseded" label for CORE's retrieval (as of the last scan; his "Which is right?" answer counts from the next one). */
 export async function outdatedNotes(userId: string): Promise<Map<string, string>> {

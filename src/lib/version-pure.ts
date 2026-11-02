@@ -11,6 +11,7 @@ export const MIGRATION_MARKERS: Record<string, { table: string; column?: string 
   "0016": { table: "events", column: "caused_by" }, "0019": { table: "memory_facts", column: "recheck_at" },
   "0020": { table: "missions" }, "0021": { table: "tasks", column: "claimed_by" },
   "0022": { table: "proposals", column: "basis" }, "0023": { table: "tasks", column: "attempt_id" },
+  "0024": { table: "memory_facts", column: "entity_id" },
 };
 
 /** Migrations the code refuses to run without (no weaker fallback): id → file and the work it guards. */

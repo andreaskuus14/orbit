@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     if (b?.action === "mine") await mineLessons(sb, user.id);
     else {
       if (typeof b?.id !== "string" || b.id.length > 300 || (b.decision !== "keep" && b.decision !== "reject")) return Response.json({ error: "id and decision (keep|reject) are required" }, { status: 400 });
-      const err = b.id.startsWith("persona|") ? await import("@/lib/persona").then((m) => m.decideProposal(user.id, b.decision === "keep")) : await decideLesson(user.id, b.id, b.decision);
+      const err = b.id.startsWith("persona|") ? await import("@/lib/persona").then((m) => m.decideProposal(user.id, b.decision === "keep")) : await decideLesson(user.id, b.id, b.decision, sb); // a kept correction also becomes evals/corrections/<id>.json
       if (err) return Response.json({ error: err }, { status: 409 });
       void emit(sb, user.id, b.decision === "keep" ? "lesson.kept" : "lesson.rejected", "core", { id: b.id.slice(0, 128) }); // the lesson id only, never its text
     }

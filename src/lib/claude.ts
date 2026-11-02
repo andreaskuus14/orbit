@@ -7,7 +7,8 @@ import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.
 import { streamJsonInput } from "./attach-pure.ts";
 import { recordCall, usageHoldFor } from "./usage-meter.ts";
 import { isLimitAnswer } from "./usage-meter-pure.ts";
-import { OLLAMA_URL, claudeDown, localAllowed, ollamaAnswer, ollamaRequest } from "./local-model-pure.ts";
+import { claudeDown, localAllowed } from "./local-model-pure.ts";
+import { LOCAL_MODEL, chatLocal } from "./local-llm.ts";
 import { ledgerIssue } from "./ledger-pure.ts";
 import { adminClient } from "./supabase/admin.ts";
 
@@ -110,7 +111,8 @@ export const WEB_TOOLS = "WebSearch,WebFetch";
 /** Shared setup for every CLI call: system prompt in a temp dir, fixed flags, all tools disabled unless `web`. */
 /** mcp: the call may use only these MCP tools (from the owner's own `claude mcp add` config), every call checked by the
  *  PreToolUse hook in `settings` (a settings JSON file). Built-in tools stay off. Used by the Higgsfield adapter (clips/higgsfield.ts). */
-export type McpAccess = { allow: string[]; settings: string };
+/** config: a per-call --mcp-config file used alone (--strict-mcp-config, no user settings): CORE's MCP engine (core-mcp.ts). */
+export type McpAccess = { allow: string[]; settings: string; config?: string };
 /** A persistent CLI session (ORBIT_CORE_SESSION=resume): the first call creates it with --session-id, later ones --resume it.
  *  The CLI files sessions by working directory, so session calls all run in one fixed dir. */
 export type CliSession = { id: string; resume: boolean };
@@ -123,14 +125,14 @@ async function prepare(system: string, format: string[], model = MODEL, effort =
   const sysFile = join(dir, "system.txt");
   await writeFile(sysFile, system, "utf8");
   const q = (a: string) => (WIN ? `"${a}"` : a); // Windows needs a shell to run claude.cmd, so quote args there
-  const tools = mcp ? ["--tools", q(""), "--allowedTools", q(mcp.allow.join(",")), "--permission-mode", "dontAsk", "--settings", q(mcp.settings)]
+  const tools = mcp ? ["--tools", q(""), "--allowedTools", q(mcp.allow.join(",")), "--permission-mode", "dontAsk", "--settings", q(mcp.settings), ...(mcp.config ? ["--mcp-config", q(mcp.config)] : [])]
     : web ? ["--tools", q(WEB_TOOLS), "--allowedTools", q(WEB_TOOLS), "--permission-mode", "dontAsk"] : ["--tools", q("")];
   if (session && !/^[0-9a-f-]{36}$/i.test(session.id)) throw new Error("Invalid CLI session id");
   if (session) await mkdir(SESSION_DIR, { recursive: true });
   const args = ["-p", ...format, ...tools, ...(session ? [session.resume ? "--resume" : "--session-id", session.id] : ["--no-session-persistence"]),
     // Ignore user-level plugins/hooks/skills and all MCP connectors (CORE gets no tools, or only the read-only web tools with `web`) but keep the login. Not --bare: it skips OAuth.
     // mcp: user settings are where `claude mcp add -s user` servers come from ("local" alone hides them, tested); the hook still gates every call.
-    "--setting-sources", mcp ? "user" : "local", "--disable-slash-commands", ...(mcp ? [] : ["--strict-mcp-config"]), "--model", model, ...(effort ? ["--effort", effort] : []), "--system-prompt-file", q(sysFile)];
+    "--setting-sources", mcp && !mcp.config ? "user" : "local", "--disable-slash-commands", ...(mcp && !mcp.config ? [] : ["--strict-mcp-config"]), "--model", model, ...(effort ? ["--effort", effort] : []), "--system-prompt-file", q(sysFile)];
   const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: thinking ? { ...process.env, MAX_THINKING_TOKENS: String(thinking) } : process.env, cwd: session ? SESSION_DIR : dir, windowsHide: true }; // thinking: caps the CLI's extended-thinking budget
   // On Windows, claude may be claude.cmd, which needs a shell; pass one pre-quoted command string (args hold no user text).
   const start = () => (WIN ? spawn(`${q(CLAUDE_BIN)} ${args.join(" ")}`, { ...opts, shell: true }) : spawn(CLAUDE_BIN, args, opts));
@@ -207,8 +209,8 @@ export function askClaudeStream(prompt: string | Promise<string>, system: string
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
-/** Offline brain: Ollama model name, "" = off. */
-export const LOCAL_MODEL = (process.env.ORBIT_LOCAL_MODEL ?? "").trim();
+/** Offline brain: Ollama model name (ORBIT_LOCAL_LLM_MODEL), "" = off. */
+export { LOCAL_MODEL };
 
 /** Lanes that allow it (localAllowed) go to the local model while the usage hold for their lane is on (foreground: only the real limit), or when Claude fails because it's
  *  unreachable or rate-limited. If the local model fails too, the original Claude error is what the caller sees. */
@@ -224,15 +226,8 @@ async function withLocal(lane: Lane, prompt: string | Promise<string>, system: s
 }
 
 /** One plain Ollama chat call (no tools, no streaming). */
-async function askLocal(prompt: string | Promise<string>, system: string, signal?: AbortSignal, timeoutMs = TIMEOUT_MS): Promise<ClaudeResult> {
-  const t0 = Date.now();
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ollamaRequest(LOCAL_MODEL, system, await prompt)),
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) throw new Error(`Local model (Ollama) answered ${res.status}`);
-  return { ...ollamaAnswer(await res.json()), ms: Date.now() - t0, local: true };
-}
+const askLocal = async (prompt: string | Promise<string>, system: string, signal?: AbortSignal, timeoutMs = TIMEOUT_MS): Promise<ClaudeResult> =>
+  chatLocal(await prompt, system, { signal, timeoutMs });
 
 async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false, mcp?: McpAccess, onLine?: (line: string) => void, session?: CliSession, thinking?: number): Promise<ClaudeResult> {
   if (typeof prompt !== "string") prompt.catch(() => {}); // observed now; its error is reported once the CLI is up

@@ -6,7 +6,7 @@
 
 export type Signal = { id: string; at: string; area: string; key: string; label: string; ok?: boolean }; // ok undefined = a one-sided count
 export type Lesson = { id: string; text: string; planet: string; area: string; key: string; sign: 1 | -1 | 0; tags: string[];
-  support: number; confidence: number; evidence: string[]; at: string };
+  support: number; confidence: number; evidence: string[]; at: string; wrong?: string; said?: string }; // wrong/said: a correction's CORE reply summary and his words (its eval case)
 export type Status = "proposed" | "kept" | "rejected";
 export type Stored = Lesson & { status: Status; decidedAt?: string };
 export type UserLessons = { lessons: Stored[]; minedAt?: string };
@@ -150,7 +150,17 @@ export function correctionLesson(userText: string, prevReply: string, messageId:
   } else text = body.length >= 4 ? `He corrected me: “${body}”` : "";
   if (!text || SECRET.test(text)) return null;
   return { id: `correction|${normText(text).slice(0, 80)}`, text: clip(text), planet: "core", area: "correction", key: messageId, sign: 0, tags: [], support: 1, confidence: 1,
-    evidence: [`message:${messageId}`], at: new Date(now).toISOString() };
+    evidence: [`message:${messageId}`], at: new Date(now).toISOString(), wrong: prevReply.replace(/\s+/g, " ").trim().slice(0, 300), said: t };
+}
+
+/** A kept correction as a golden regression case for the eval runner (evals/corrections/*.json): the request, what CORE got wrong,
+ *  and the behaviour he expects (the kept rule). null without the request or when any part looks like a secret. */
+export type CorrectionCase = { id: string; kind: "correction"; created: string; input: string; wrong_output_summary: string; correction: string; expected_behaviour: string; source: string };
+export function correctionCase(l: Stored, input: string, isSecret: (s: string) => boolean): CorrectionCase | null {
+  const req = input.replace(/\s+/g, " ").trim().slice(0, 1000);
+  if (l.area !== "correction" || l.status !== "kept" || !req || !l.wrong || [req, l.wrong, l.said ?? ""].some(isSecret)) return null;
+  return { id: `correction-${l.key.replace(/[^\w-]/g, "").slice(0, 60) || normText(l.text).replace(/ /g, "-").slice(0, 60)}`, kind: "correction", created: l.decidedAt ?? l.at,
+    input: req, wrong_output_summary: l.wrong, correction: l.said ?? "", expected_behaviour: l.text, source: l.evidence[0] ?? "" };
 }
 
 /** Adds a correction proposal unless the same lesson exists or was rejected. Returns the list and the lesson that was added (or null). */

@@ -11,6 +11,7 @@
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "eval:ai": "node --experimental-strip-types scripts/ai-scorecard.ts",
     "eval:agents": "node --experimental-strip-types scripts/agent-evals.ts",
+    "eval": "node --no-warnings --experimental-strip-types scripts/eval-core.ts",
     "demo:build": "node scripts/demo-build.mjs",
     "smoke": "node scripts/smoke.mjs",
     "gate": "tsc --noEmit -p . && npm test && npm run eval:ai && next build",

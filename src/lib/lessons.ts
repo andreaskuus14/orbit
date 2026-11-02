@@ -2,7 +2,8 @@ import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
-import { MINED_EVENTS, activeBand, addCorrection, clipLabel, correctionLesson, decide, keptText, lessonBoost, lessonsPrompt, mine, nicheTraits, opensWithNumber,
+import { looksSecret } from "./reflect-pure";
+import { MINED_EVENTS, activeBand, addCorrection, clipLabel, correctionCase, correctionLesson, decide, keptText, lessonBoost, lessonsPrompt, mine, nicheTraits, opensWithNumber,
   parseStore, reconcile, withPrior, type Signal, type Store, type Stored } from "./lessons-pure";
 
 // Learning loop I/O (logic: lessons-pure.ts). Nightly (sleep.ts) the owner's own decisions are mined into proposed lessons;
@@ -128,13 +129,31 @@ export async function lessonsView(userId: string) {
     rejected: u.lessons.filter((l) => l.status === "rejected").length, minedAt: u.minedAt ?? null };
 }
 
-export async function decideLesson(userId: string, id: string, decision: "keep" | "reject"): Promise<string | null> {
-  return update((s) => {
+export async function decideLesson(userId: string, id: string, decision: "keep" | "reject", sb?: SupabaseClient): Promise<string | null> {
+  let keptNow: Stored | undefined;
+  const err = await update((s) => {
     const u = mineOf(s, userId), r = decide(u.lessons, id, decision, Date.now());
     if (typeof r === "string") return r;
     u.lessons = r;
+    keptNow = r.find((l) => l.id === id && l.status === "kept" && l.area === "correction");
     return null;
   });
+  if (!err && keptNow && sb) await saveCorrectionCase(sb, userId, keptNow).catch((e) => console.warn("[lessons] eval case not saved:", e instanceof Error ? e.message : e));
+  return err;
+}
+
+/** His kept correction becomes a golden regression case: the request he made before the reply he corrected. Never overwrites one.
+ *  The folder's .gitignore keeps these (his own chat words) out of git; they stay on this PC for the eval runner. */
+async function saveCorrectionCase(sb: SupabaseClient, userId: string, l: Stored) {
+  const { data: msg } = await sb.from("messages").select("conversation_id, created_at").eq("user_id", userId).eq("id", l.key).eq("role", "user").maybeSingle();
+  if (!msg) return;
+  const { data: prev } = await sb.from("messages").select("content").eq("user_id", userId).eq("conversation_id", msg.conversation_id).eq("role", "user")
+    .lt("created_at", msg.created_at).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const c = correctionCase(l, String(prev?.content ?? ""), looksSecret);
+  if (!c) return;
+  const dir = path.join(process.cwd(), "evals", "corrections");
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, `${c.id}.json`), JSON.stringify(c, null, 2) + "\n", { flag: "wx" }).catch((e) => { if (e.code !== "EEXIST") throw e; });
 }
 
 /** He just corrected CORE: propose a lesson (one tap to keep in chat). null when it isn't a correction. Never throws. */

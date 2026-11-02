@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingTable } from "./proactive-pure";
 import { extractFacts, planFact, factsBlock, type Fact } from "./facts-pure";
+import { OWNER, entityBlock, factEntityId, pickCards, withFacts, type Card } from "./entity-memory-pure";
 
 export type { Fact };
 export const FACTS_MISSING_MSG = "Apply supabase/migrations/0012_fact_history.sql in the Supabase SQL editor. Apply 0008_memory_facts.sql first only if the memory_facts table is missing.";
@@ -48,12 +49,20 @@ export async function listFacts(sb: SupabaseClient, userId: string): Promise<Fac
   });
 }
 
+// entity_id arrives with migration 0024; until then it is worked out from the subject on every read.
+let entityCol = true;
 async function current(sb: SupabaseClient, userId: string, subjects?: string[]): Promise<Fact[]> {
-  let q = sb.from("memory_facts").select(COLUMNS).eq("user_id", userId).eq("status", "current");
-  if (subjects) q = q.in("subject", subjects);
-  const { data, error } = await q.order("created_at", { ascending: false }).limit(200);
-  check(error); return (data ?? []) as Fact[];
+  const run = (cols: string) => {
+    let q = sb.from("memory_facts").select(cols).eq("user_id", userId).eq("status", "current");
+    if (subjects) q = q.in("subject", subjects);
+    return q.order("created_at", { ascending: false }).limit(200);
+  };
+  let r = await run(entityCol ? `${COLUMNS}, entity_id` : COLUMNS);
+  if (entityCol && r.error?.code === "42703") { entityCol = false; r = await run(COLUMNS); }
+  check(r.error); return (r.data ?? []) as unknown as Fact[];
 }
+const cards = (userId: string): Promise<Card[]> => import("./entity-graph").then((m) => m.cardsOf(userId)).catch(() => []); // no scan yet / unreadable: no cards
+const entityOf = (f: Fact, cs: Card[]) => f.entity_id || factEntityId(f.subject, cs);
 
 /** Authenticated RPC: one transaction, with owner/message provenance checked again in the database. */
 async function writeFact(sb: SupabaseClient, params: Record<string, unknown>): Promise<{ fact: Fact; changed: boolean }> {
@@ -64,17 +73,26 @@ async function writeFact(sb: SupabaseClient, params: Record<string, unknown>): P
   return data;
 }
 
-/** Current owner facts only; a linked predecessor supplies separately labelled historical metadata. */
+/** Current owner facts only; a linked predecessor supplies separately labelled historical metadata. Beliefs and memory claims
+ *  about another person/company/project named in the question follow, grouped under that entity (entity-memory-pure.ts). */
 export async function factsContext(sb: SupabaseClient, userId: string, question: string): Promise<string> {
-  if (unavailable()) return "";
+  const cs = await cards(userId), picked = pickCards(cs, question), ids = new Set(picked.map((c) => c.id));
+  const split = (all: Fact[]) => {
+    const succ = new Map(all.filter((f) => f.status === "current" && f.supersedes).map((f) => [f.supersedes!, f]));
+    const about = (f: Fact) => entityOf(succ.get(f.id) ?? f, cs); // a predecessor belongs to its successor's entity
+    // A belief about an entity he did not name (or one without a card yet) stays in his own block, as before.
+    const own = all.filter((f) => !ids.has(about(f)));
+    return [factsBlock(own, question), entityBlock(picked.map((c) => withFacts(c, all.filter((f) => about(f) === c.id))))].filter(Boolean).join("\n\n");
+  };
+  if (unavailable()) return split([]);
   try {
     const active = await current(sb, userId);
-    const ids = active.filter((f) => f.source === "user_said" && f.supersedes).map((f) => f.supersedes!);
-    if (!ids.length) return factsBlock(active, question);
-    const { data, error } = await sb.from("memory_facts").select(COLUMNS).eq("user_id", userId).eq("status", "superseded").eq("source", "user_said").in("id", ids).limit(200);
+    const prev = active.filter((f) => f.source === "user_said" && f.supersedes).map((f) => f.supersedes!);
+    if (!prev.length) return split(active);
+    const { data, error } = await sb.from("memory_facts").select(COLUMNS).eq("user_id", userId).eq("status", "superseded").eq("source", "user_said").in("id", prev).limit(200);
     check(error);
-    return factsBlock([...active, ...((data ?? []) as Fact[])], question);
-  } catch (e) { if (!(e instanceof FactsMissing)) console.warn("[facts] context skipped:", e instanceof Error ? e.message : e); return ""; }
+    return split([...active, ...((data ?? []) as Fact[])]);
+  } catch (e) { if (!(e instanceof FactsMissing)) console.warn("[facts] context skipped:", e instanceof Error ? e.message : e); return split([]); }
 }
 
 /** Only the persisted owner's own message, never an answer, memory, web page, agent result or attachment. */
@@ -87,11 +105,18 @@ export async function learnFacts(sb: SupabaseClient, userId: string, userText: s
     check(error);
     if (!source || source.content !== userText) return 0;
     let cur = await current(sb, userId, found.map((c) => c.subject)), saved = 0;
+    const cs = await cards(userId);
     for (const c of found) {
       if (planFact(cur, c).op === "skip") continue;
       try {
         const result = await writeFact(sb, { p_action: "learn", p_subject: c.subject, p_statement: c.statement, p_source_ref: messageId, p_confidence: c.confidence });
         if (result.changed) saved++;
+        const entity = factEntityId(result.fact.subject, cs);
+        // Pin the entity id on the row (stable if the name later changes); best-effort, skipped until migration 0024.
+        if (result.changed && entity !== OWNER && entityCol) {
+          const { error: tagErr } = await sb.from("memory_facts").update({ entity_id: entity }).eq("user_id", userId).eq("id", result.fact.id);
+          if (tagErr?.code === "42703" || tagErr?.code === "PGRST204") entityCol = false;
+        }
         cur = [...cur.filter((f) => f.subject !== result.fact.subject), result.fact];
       } catch (e) { if (!(e instanceof FactConflict)) throw e; }
     }

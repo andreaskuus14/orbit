@@ -1,0 +1,13 @@
+{
+  "id": "research-no-choices",
+  "set": "regression",
+  "input": "What were the biggest Roblox platform updates this month? Cite sources.",
+  "note": "Research question: answer with sources, don't offer options.",
+  "expect": {
+    "noChoices": true,
+    "tools": [
+      "web_search"
+    ],
+    "noT3": true
+  }
+}

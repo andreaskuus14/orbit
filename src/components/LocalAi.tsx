@@ -3,6 +3,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Canvas } from "@react-three/fiber";
 import { Bounds, OrbitControls, useGLTF } from "@react-three/drei";
 import { CAPTION_LANGS, CATALOG, MAX_CLONE_CHARS, START_CMD, VOICES, cloneBlocked, encodeWav, isMediaName, spacesCsv, toolState, totalArea, type Health, type IfcSummary, type ToolId } from "@/lib/local-ai-pure";
+import type { Autostart } from "@/lib/autostart-pure";
+import type { LocalStatus } from "@/lib/local-model-pure";
 import { useT } from "./i18n";
 import RobloxBuild, { PINK } from "./RobloxBuild";
 
@@ -303,6 +305,46 @@ export function IfcOpen() {
 }
 
 /** OPERATIONS → Local AI: what each tool does, whether it is installed, VRAM, license and the exact setup command. */
+type Pc = { brain: LocalStatus & { private: boolean }; autostart: Autostart };
+
+/** "This PC" rows above the tool list: the local brain (Ollama) and Starts with Windows. Data: /api/local-brain. */
+function ThisPc() {
+  const [pc, setPc] = useState<Pc | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const check = useCallback(() => { void fetch("/api/local-brain", { cache: "no-store" }).then((r) => r.json()).then(setPc, () => setPc(null)); }, []);
+  useEffect(check, [check]);
+  const toggle = async (on: boolean) => {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch("/api/local-brain", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ autostart: on }) });
+      const j = (await r.json()) as { autostart?: Autostart & { log?: string }; error?: string };
+      if (!r.ok || !j.autostart) throw new Error(j.error || `Request failed (${r.status})`);
+      if (j.autostart.on !== on) setErr(j.autostart.log || "It didn't change. Run the command below in PowerShell in the ORBIT folder.");
+      setPc((p) => (p ? { ...p, autostart: j.autostart! } : p));
+    } catch (e) { setErr(msg(e)); } finally { setBusy(false); }
+  };
+  if (!pc) return null;
+  const a = pc.autostart, b = pc.brain;
+  return (
+    <div className="grid gap-2">
+      <div className="glass grid gap-1 rounded-lg p-2 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2"><b>Local brain</b>
+          <span style={{ color: b.state === "ok" ? "#4ade80" : b.state === "off" ? undefined : "#fbbf24" }} className={b.state === "off" ? "muted" : undefined}>{b.state === "ok" ? "Ready" : b.state === "off" ? "Off" : b.state === "missing" ? "Model not pulled" : "Not running"}</span></div>
+        <p>{b.text}{b.state === "down" ? " ORBIT tried to start it (ollama serve); check again in a minute." : ""}</p>
+        <p className="muted">A small model on this PC: answers chat and summaries when Claude is unreachable{b.private ? ", and reflects on your journal when you ask (LIFE → Journal), processed on this PC only" : ""}. Setup: <code className="select-all">powershell -ExecutionPolicy Bypass -File tools\ollama\setup.ps1</code></p>
+      </div>
+      <div className="glass grid gap-1 rounded-lg p-2 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2"><b>Starts with Windows: {a.on === null ? "?" : a.on ? "on" : "off"}</b>
+          {a.on !== null && <button className="chip" disabled={busy} onClick={() => void toggle(!a.on)}>{busy ? "Working…" : a.on ? "Turn off" : "Turn on"}</button>}</div>
+        <p>{a.text}</p>
+        <p className="muted">Or in PowerShell in the ORBIT folder: <code className="select-all">{a.command}</code></p>
+        {err && <p style={{ color: "#fbbf24" }} className="whitespace-pre-wrap">{err}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function LocalAiTools() {
   const [h, checkAi] = useHealth();
   const [comfy, setComfy] = useState<{ running: boolean; installed: boolean } | null>(null); // ComfyUI is its own service (tools/comfyui)
@@ -311,6 +353,7 @@ export function LocalAiTools() {
   const { lang } = useT();
   return (
     <section className="grid gap-3 text-sm" aria-label="Local AI tools">
+      <ThisPc />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs">{h?.running ? <>Service running{h.gpu ? ` on ${h.gpu.name} (${h.gpu.vramGb} GB)` : " on the CPU only (no GPU found)"}.</> : <>Service not running. Start it: <code>{START_CMD}</code></>}</p>
         <button className="chip" onClick={check}>Check again</button>
