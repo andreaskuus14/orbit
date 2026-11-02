@@ -98,7 +98,7 @@ export async function telegramUpdate(update) {
   if (!q || String(q.message?.chat?.id) !== String(env.TELEGRAM_CHAT_ID) || String(q.from?.id) !== String(env.TELEGRAM_CHAT_ID)) return;
   const [action, id] = String(q.data).split(':');
   const lead = load()[id];
-  let note = 'Already handled.';
+  let note = lead?.status === 'unknown' ? 'Delivery unknown: check your Resend log before replying manually.' : 'Already handled.';
   if (lead?.status === 'pending') {
     if (action === 'a') {
       setLead(id, { status: 'sending' }); // marked first so a double tap can't send twice
