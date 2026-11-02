@@ -330,6 +330,26 @@ export const TOOLS: Record<string, Tool> = {
       return `Created automation "${v.spec.name}" (${describeTrigger(v.spec)} → ${v.spec.agent}).`;
     },
   },
+  save_lead: {
+    description: "Propose saving one verified business lead to BUSINESS with your pitch email as its draft. Needs the user's approval; the email is then sent only after he approves that exact text in BUSINESS (never by you).",
+    input: '{"name": string, "kind": string, "contact": string (email or phone shown on their own page), "website"?: string, "evidence": string (URL showing the need), "notes"?: string (demo site plan), "pitch": string}',
+    approval: true,
+    run: async (ctx, i) => {
+      const { sb, userId } = ctx;
+      const v = (await import("./business-loop-pure")).leadInput(i);
+      if (typeof v === "string") return `Error: ${v}`;
+      const [{ loadCrm, updateCrm }, { duplicateOf, newCrm }] = await Promise.all([import("./prospect-crm"), import("./prospect-crm-pure")]);
+      const { data: all } = await sb.from("prospects").select("id,name,contact").eq("user_id", userId).limit(1000);
+      const dup = duplicateOf(all ?? [], await loadCrm(), v.name, v.contact); // also the idempotency check: a retried approval finds its own row
+      if (dup) return `Already in the BUSINESS pipeline as ${dup}; not added again.`;
+      const { watch, ...row } = v;
+      const { data, error } = await sb.from("prospects").insert({ ...row, user_id: userId, stage: "lead" }).select("id").single();
+      if (error) throw error;
+      await updateCrm((st) => { st[data.id] = newCrm("web-find", v.name, v.contact); }); // unverified until he checks the contact
+      const w = watch ? await import("./pagewatch").then((m) => m.addWatch({ url: watch, purpose: `Lead: ${v.name}`, lead: data.id }), () => null) : null;
+      return `Saved lead ${data.id} in BUSINESS with the pitch as its draft${w && "watch" in w ? " and a watch on its website" : ""}. Sending waits for his approval of the exact text.`;
+    },
+  },
 };
 
 export async function getAgent(sb: SupabaseClient, slug: string, userId?: string): Promise<AgentDef | null> {

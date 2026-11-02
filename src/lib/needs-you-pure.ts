@@ -19,7 +19,8 @@ export type NeedAct = { open: BriefOpen };
 /** Why it needs him; the UI asks one precise question per cause (needs.ask.<cause>). */
 export type NeedCause = "approval" | "decide" | "trust" | "conflict" | "system" | "input" | "failed" | "blocked" | "loop" | "review" | "overdue" | "followup" | "delivery" | "watch";
 // remote: the phone approval id. status: the shared work status (ops-status-pure) when the item is a task or mission.
-export type Need = { ref: string; kind: NeedKind; cause: NeedCause; title: string; detail?: string; at?: string; act: NeedAct; remote?: string; status?: OpsStatus };
+// group: set by groupNeeds on a card standing for several similar approvals (its items keep their own refs and actions).
+export type Need = { ref: string; kind: NeedKind; cause: NeedCause; title: string; detail?: string; at?: string; act: NeedAct; remote?: string; status?: OpsStatus; group?: Need[] };
 type NightItem = { label: string; open?: { task: string } | { goal: string } | { panel: string } };
 
 export type NeedsIn = {
@@ -118,6 +119,22 @@ export function needsYou(x: NeedsIn, lang: Lang = "en", snoozed: string[] = []):
   const aged = (n: Need) => n.cause === "overdue" || n.cause === "followup" || n.cause === "delivery";
   // Review: newest first. Money, follow-ups and delivery: oldest first. Sort is stable: source order otherwise.
   return [...by.values()].sort((a, b) => tier(a) - tier(b) || (a.kind === "review" ? t(b) - t(a) : aged(a) && aged(b) ? t(a) - t(b) : 0));
+}
+
+/** Many similar approvals (22 Shorts from one source video) → ONE card at the first one's place (ranking unchanged), with the
+ *  members in `group`. Similar = same source kind (ref prefix), same detail line ("Short from X") and the same place to review
+ *  them, so "Review all" opens exactly where each member's own Review would. Fewer than `min` stay separate. */
+export function groupNeeds(needs: Need[], min = 3): Need[] {
+  const key = (n: Need) => (n.cause === "approval" && !n.group ? `${n.ref.split(":")[0]}|${n.detail ?? ""}|${JSON.stringify(n.act.open)}` : "");
+  const by = new Map<string, Need[]>();
+  for (const n of needs) { const k = key(n); if (k) by.set(k, [...(by.get(k) ?? []), n]); }
+  const out: Need[] = [];
+  for (const n of needs) {
+    const g = by.get(key(n));
+    if (!g || g.length < min) out.push(n);
+    else if (g[0] === n) out.push({ ...n, ref: `group:${n.ref}`, title: n.detail ?? n.title, detail: undefined, remote: undefined, group: g });
+  }
+  return out;
 }
 
 /** Where a phone approval is decided on the PC (same targets as brief-pure briefDecisions). */

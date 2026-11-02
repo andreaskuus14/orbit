@@ -44,23 +44,34 @@ export function pushFor(msg: PushMessage, lang: Lang | undefined): PushMessage {
 /** Hour of the day in Tallinn (0-23), DST included. */
 export const tallinnHour = (now: number) =>
   Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Tallinn", hour: "2-digit", hourCycle: "h23" }).format(now));
-export const quietAt = (now: number) => { const h = tallinnHour(now); return h >= 23 || h < 8; };
+/** Quiet hours [from, until) in Tallinn hours, or null (off). ORBIT_QUIET_HOURS: "23-8" (default), "22:00-07:30" (minutes ignored), "off". */
+export type Quiet = [number, number] | null;
+export const DEFAULT_QUIET: Quiet = [23, 8];
+export function parseQuiet(v: string | undefined): Quiet {
+  const t = (v ?? "").trim().toLowerCase();
+  if (!t) return DEFAULT_QUIET;
+  if (t === "off" || t === "none") return null;
+  const m = t.match(/^(\d{1,2})(?::\d{2})?\s*-\s*(\d{1,2})(?::\d{2})?$/);
+  const a = m ? Number(m[1]) : NaN, b = m ? Number(m[2]) : NaN;
+  return a <= 23 && b <= 23 && a !== b ? [a, b] : DEFAULT_QUIET; // unreadable: the safe default, not "off"
+}
+export const quietAt = (now: number, q: Quiet = DEFAULT_QUIET) => { if (!q) return false; const h = tallinnHour(now); return q[0] < q[1] ? h >= q[0] && h < q[1] : h >= q[0] || h < q[1]; };
 
 export type Slot = { last: number; held: number };
 export type GateResult = { slot: Slot; send: number; wakeAt?: number };
 
 /** One event of `kind`: send now (with anything held), hold it for the next window, or drop it in quiet hours (failures never). */
-export function gate(slot: Slot | undefined, kind: PushKind, now: number): GateResult {
+export function gate(slot: Slot | undefined, kind: PushKind, now: number, q: Quiet = DEFAULT_QUIET): GateResult {
   const s = slot ?? { last: -Infinity, held: 0 };
-  if (kind !== "failed" && quietAt(now)) return { slot: { ...s, held: 0 }, send: 0 }; // dropped: Remote still lists what's waiting
+  if (kind !== "failed" && quietAt(now, q)) return { slot: { ...s, held: 0 }, send: 0 }; // dropped: Remote still lists what's waiting
   if (now - s.last >= PUSH_GAP_MS) return { slot: { last: now, held: 0 }, send: s.held + 1 };
   return { slot: { ...s, held: s.held + 1 }, send: 0, wakeAt: s.last + PUSH_GAP_MS };
 }
 
 /** The held events when their window opens: one coalesced push, unless quiet hours started meanwhile. */
-export function flush(slot: Slot | undefined, kind: PushKind, now: number): GateResult {
+export function flush(slot: Slot | undefined, kind: PushKind, now: number, q: Quiet = DEFAULT_QUIET): GateResult {
   const s = slot ?? { last: -Infinity, held: 0 };
-  if (!s.held || (kind !== "failed" && quietAt(now))) return { slot: { ...s, held: 0 }, send: 0 };
+  if (!s.held || (kind !== "failed" && quietAt(now, q))) return { slot: { ...s, held: 0 }, send: 0 };
   return { slot: { last: now, held: 0 }, send: s.held };
 }
 

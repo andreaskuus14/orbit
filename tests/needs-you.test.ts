@@ -154,3 +154,19 @@ test("digest: finished by proof status, blocked, needs his decision; 24 h or sin
   assert.equal(doneDigest([], [], now, now - 60_000).lines[0], "Nothing finished in the last 24 h"); // here a minute ago: still the last 24 h
   assert.match(doneDigest([], [], now, null, "et").lines[2], /otsust/);
 });
+
+test("groupNeeds: 22 Shorts approvals from one video are one card with a count, in the first one's place", async () => {
+  const { groupNeeds } = await import("../src/lib/needs-you-pure.ts");
+  const clips = Array.from({ length: 22 }, (_, i) => ({ id: `r${i}`, key: `clip:job1/c${i}`, title: `Clip ${i}`, detail: "Short from stream.mp4" }));
+  const other = [{ id: "x", key: "clip:job2/c1", title: "Lone clip", detail: "Short from other.mp4" }, { id: "s", key: "send:p1", title: "Bakery", detail: "BUSINESS email" }];
+  const needs = needsYou({ overdue: [{ id: "i1", number: "7", buyer: "B", cents: 100, days: 2 }], approvals: [...clips, ...other] });
+  const g = groupNeeds(needs);
+  assert.deepEqual(g.map((n) => n.ref), ["invoice:i1", "group:clip:job1/c0", "clip:job2/c1", "prospect:p1"]); // ranking unchanged
+  const card = g[1];
+  assert.equal(card.title, "Short from stream.mp4");
+  assert.equal(card.group?.length, 22);
+  assert.equal(card.group?.[5].title, "Clip 5");
+  assert.equal(card.remote, undefined); // never a one-tap approve for the whole group
+  assert.deepEqual(card.act, needs[1].act);
+  assert.equal(groupNeeds(needs.slice(0, 3)).length, 3); // two similar ones stay separate
+});

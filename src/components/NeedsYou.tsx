@@ -1,13 +1,13 @@
 "use client";
 // "Needs you": the home HUD's main card. One deduplicated list (needs-you-pure) of decisions, blockers and finished results, each
 // with one action: open it where it is handled (Decide → "Review": the exact content and its Approve, never a one-tap approve here). Polls /api/needs-you every 60 s while visible. Continue my work and Mission control stay one tap away.
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { MARKETS_TAB, type BriefOpen } from "@/lib/brief-pure";
-import type { Digest, Need } from "@/lib/needs-you-pure";
+import { groupNeeds, type Digest, type Need } from "@/lib/needs-you-pure";
 import { useT } from "./i18n";
 import { OpsStatus } from "./OpsStatus";
 
@@ -37,6 +37,7 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
   const [snooze, setSnooze] = useState<{ ref: string; why: string } | null>(null);
   const [open, setOpen] = useState(false); // quiet open (#352): the galaxy stays uncovered; the count waits in a chip until clicked
   const [digest, setDigest] = useState<Digest | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null); // the group card showing its items
   // When he was last here, read once before MorningCard moves it forward (orbit.lastSeen, ms epoch).
   const [since] = useState(() => { try { return Number(localStorage.getItem("orbit.lastSeen")) || 0; } catch { return 0; } });
 
@@ -55,7 +56,7 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
       .catch(() => setErr(t("needs.snoozeFailed")));
   };
   const label = (n: Need) => t(n.kind === "decide" ? "needs.review" : "common.open"); // Decide opens the exact content and its Approve
-  const list = items ?? [];
+  const list = useMemo(() => groupNeeds(items ?? []), [items]); // similar approvals (22 Shorts from one video) → one card
 
   if (!open) return <button type="button" className="chip needs-you-chip" aria-expanded={false} onClick={() => setOpen(true)}>
     {t("needs.title")}{items?.length ? ` · ${items.length}` : ""}</button>;
@@ -71,14 +72,17 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
     {!items && !err && <p className="muted" role="status">{t("needs.loading")}</p>}
     {items && !items.length && <p className="muted">{t("needs.empty")}</p>}
     {!!list.length && <ul>{list.slice(0, SHOWN).map((n) => <li key={n.ref} data-status={n.kind === "decide" ? "awaiting_approval" : n.kind === "unblock" ? "failed" : "done"}>
-      <span><small className="continue-kind">{t(`needs.kind.${n.kind}`)}{n.status && <> · <OpsStatus raw={n.status} at={n.at} /></>}</small><b>{n.title}</b>{n.detail && <small>{n.detail}</small>}
+      <span><small className="continue-kind">{t(`needs.kind.${n.kind}`)}{n.status && <> · <OpsStatus raw={n.status} at={n.at} /></>}</small><b>{n.title}{n.group && ` · ${n.group.length}`}</b>{n.detail && <small>{n.detail}</small>}
         <small>{t(`needs.ask.${n.cause}`)}</small>
+        {n.group && <button type="button" className="link text-xs" aria-expanded={expanded === n.ref} onClick={() => setExpanded(expanded === n.ref ? null : n.ref)}>{t(expanded === n.ref ? "needs.groupHide" : "needs.groupShow", { n: n.group.length })}</button>}
+        {n.group && expanded === n.ref && <ul aria-label={n.title}>{n.group.map((g) => <li key={g.ref}><span>{g.title}</span>
+          <button type="button" className="chip" aria-label={`${label(g)}: ${g.title}`} onClick={() => openTarget(g.act.open, onOpenTask, onOpenGoal)}>{label(g)}</button></li>)}</ul>}
         {snooze?.ref === n.ref && <form onSubmit={doSnooze} className="flex gap-1">
           <input className="field flex-1 py-0.5 text-xs" autoFocus value={snooze.why} maxLength={200} onChange={(e) => setSnooze({ ref: n.ref, why: e.target.value })} aria-label={t("needs.snoozeWhy")} placeholder={t("needs.snoozeWhy")} />
           <button className="chip" disabled={!snooze.why.trim()}>{t("needs.snoozeSave")}</button></form>}</span>
       <span className="flex flex-col gap-1">
-        <button type="button" className="chip" aria-label={`${label(n)}: ${n.title}`} onClick={() => openTarget(n.act.open, onOpenTask, onOpenGoal)}>{label(n)}</button>
-        {snooze?.ref !== n.ref && <button type="button" className="link text-xs" aria-label={`${t("needs.snooze")}: ${n.title}`} onClick={() => setSnooze({ ref: n.ref, why: "" })}>{t("needs.snooze")}</button>}</span>
+        <button type="button" className="chip" aria-label={`${n.group ? t("needs.reviewAll") : label(n)}: ${n.title}`} onClick={() => openTarget(n.act.open, onOpenTask, onOpenGoal)}>{n.group ? t("needs.reviewAll") : label(n)}</button>
+        {snooze?.ref !== n.ref && !n.group && <button type="button" className="link text-xs" aria-label={`${t("needs.snooze")}: ${n.title}`} onClick={() => setSnooze({ ref: n.ref, why: "" })}>{t("needs.snooze")}</button>}</span>
     </li>)}</ul>}
     {list.length > SHOWN && <p className="muted">{t("needs.more", { n: list.length - SHOWN })}</p>}
   </section>;
