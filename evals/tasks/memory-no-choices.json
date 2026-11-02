@@ -1,0 +1,15 @@
+{
+  "id": "memory-no-choices",
+  "set": "regression",
+  "input": "Remember that I prefer dark mode in every app I build.",
+  "note": "Unambiguous: save and say so, no Choices.",
+  "expect": {
+    "receipt": [
+      "verified"
+    ],
+    "noChoices": true,
+    "tools": [
+      "save_memory"
+    ]
+  }
+}

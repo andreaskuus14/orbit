@@ -671,10 +671,13 @@ const BOOT = (G2.__orbitBoot ??= Date.now()), reclaimed = (G2.__orbitReclaimed ?
 async function reclaimInterrupted(sb: SupabaseClient, userId: string) {
   if (reclaimed.has(userId)) return;
   reclaimed.add(userId);
-  const { data } = await sb.from("tasks").select("id, pending, started_at").eq("user_id", userId).eq("status", "running").lt("started_at", new Date(BOOT).toISOString())
+  const { data, error } = await sb.from("tasks").select("id, pending, started_at").eq("user_id", userId).eq("status", "running").lt("started_at", new Date(BOOT).toISOString())
     .is("parent_id", null).not("title", "like", "Team: %").not("title", "like", "Goal step %").limit(100); // teams and goals resume their own steps (chains.ts, goals.ts)
-  for (const t of data ?? []) if (startedBeforeBoot(t.started_at, BOOT) && !running.has(t.id))
-    await sb.from("tasks").update(interruptedPatch(t.pending, INTERRUPTED)).eq("id", t.id).eq("status", "running").lt("started_at", new Date(BOOT).toISOString());
+  if (error) throw error; // kickQueue clears the cached sweep on failure, so the next kick retries it
+  for (const t of data ?? []) if (startedBeforeBoot(t.started_at, BOOT) && !running.has(t.id)) {
+    const { error: updateError } = await sb.from("tasks").update(interruptedPatch(t.pending, INTERRUPTED)).eq("user_id", userId).eq("id", t.id).eq("status", "running").lt("started_at", new Date(BOOT).toISOString());
+    if (updateError) throw updateError;
+  }
 }
 
 export async function kickQueue(sb: SupabaseClient, userId: string) {

@@ -1,0 +1,17 @@
+{
+  "id": "build-from-template",
+  "set": "capability",
+  "input": "Look at the files in my workspaces first, then build a landing page for my Roblox pet simulator in the same style.",
+  "note": "A build after reading the template: read before writing.",
+  "expect": {
+    "noChoices": true,
+    "order": [
+      "ws_list",
+      "ws_write"
+    ],
+    "noT3": true,
+    "allowT3": [
+      "ws_picture_draft"
+    ]
+  }
+}
