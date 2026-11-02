@@ -496,7 +496,7 @@ function inspectAnswer(question: string, answer: string, trace: TraceStep[], pla
   if (last) {
     last.answerEval = { ...evaluation, ms: Date.now() - started };
     const receipt = coreReceipt(question, tools); // only when the turn changed something (receipt-pure.ts)
-    if (receipt) last.receipt = check ? { ...receipt, check: { ok: check.ok, reason: check.reason } } : receipt;
+    if (receipt) last.receipt = check ? { ...receipt, ...(!check.ok && receipt.status === "verified" && { status: "partly" as const }), check: { ok: check.ok, reason: check.reason } } : receipt;
     if (log) last.detail += ` · ${log.slice("[core] ".length)}`;
   }
   if (log) setImmediate(() => { try { console.info(log); } catch { /* Advisory logging must not affect delivery. */ } });
