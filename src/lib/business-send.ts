@@ -70,7 +70,7 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
 }
 
 /** One email through Resend, the BUSINESS send path, for callers that already gated (Stop-all, autonomy) and claimed the send.
- *  "unknown": no answer or a server error, it may have gone out; "refused": a clear 4xx, nothing went out. */
+ *  "unknown": no answer, a server error, 429 or 409 (mailOutcome), it may have gone out; "refused": a clear 4xx, nothing went out. */
 export async function resendMail(m: { to: string; subject: string; text: string; idempotencyKey: string }): Promise<{ result: "sent" | "unknown" | "refused"; why?: string }> {
   const key = process.env.RESEND_API_KEY, from = process.env.ORBIT_MAIL_FROM;
   if (!key || !from) return { result: "refused", why: "Sending isn't set up" };
