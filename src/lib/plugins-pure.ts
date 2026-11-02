@@ -12,7 +12,7 @@ export type Annotations = { readOnlyHint?: boolean; destructiveHint?: boolean; o
 export type CachedTool = { name: string; description: string; annotations: Annotations; schema: string };
 /** local: a program on his PC that doesn't reach the internet (Blender). Only a local plugin's writes can run without his click. */
 export type Plugin = {
-  name: string; command?: string; args: string[]; env: Record<string, string>; url?: string; enabled: boolean; local: boolean;
+  name: string; command?: string; args: string[]; env: Record<string, string>; url?: string; bearerTokenEnv?: string; enabled: boolean; local: boolean;
   tools: Record<string, Mode>; others?: Mode; timeoutSec: number; note?: string;
   cache?: { at: string; tools: CachedTool[]; error?: string };
 };
@@ -59,12 +59,37 @@ export function validatePlugin(b: unknown): Plugin | string {
   if (!Number.isInteger(t) || t < 5 || t > 600) return "timeoutSec: 5-600";
   const p: Plugin = { name, args: args as string[], env, enabled: o.enabled !== false, local: o.local === true, tools, timeoutSec: t };
   if (command) p.command = command; else p.url = url;
+  if (o.bearerTokenEnv !== undefined) {
+    if (!url || typeof o.bearerTokenEnv !== "string" || !ENV.test(o.bearerTokenEnv) || o.bearerTokenEnv.startsWith("NEXT_PUBLIC_")) return "bearerTokenEnv: a server-only environment variable name for an HTTP plugin";
+    p.bearerTokenEnv = o.bearerTokenEnv;
+  }
   if (o.others !== undefined) p.others = o.others as Mode;
   const note = str(o.note, 300);
   if (note) p.note = note;
   const c = o.cache as Plugin["cache"] | undefined;
   if (c && typeof c === "object" && Array.isArray(c.tools)) p.cache = { at: String(c.at ?? ""), tools: c.tools.flatMap((x) => cleanTool(x) ?? []), ...(c.error ? { error: String(c.error).slice(0, 300) } : {}) };
   return p;
+}
+
+/** Resolve only on the server, at connection time. Config contains the variable name, never the token. */
+export function pluginHeaders(p: Pick<Plugin, "bearerTokenEnv">, env: Record<string, string | undefined>): Record<string, string> {
+  if (!p.bearerTokenEnv) return {};
+  const token = env[p.bearerTokenEnv]?.trim();
+  if (!token) throw new Error(`Set ${p.bearerTokenEnv} in ORBIT's local server environment and restart ORBIT, then test the connection again.`);
+  if (!/^[A-Za-z0-9\-._~+/]+=*$/.test(token)) throw new Error(`Invalid token in ${p.bearerTokenEnv}: use the token only, without Bearer or whitespace, then restart ORBIT.`);
+  return { Authorization: `Bearer ${token}` };
+}
+
+/** Do not persist upstream auth bodies; they can reflect the Authorization header. */
+export function pluginError(e: unknown, p: Plugin, env: Record<string, string | undefined>): string {
+  const code = e && typeof e === "object" && "code" in e ? e.code : undefined;
+  if (code === 401) return "Authentication rejected (401). Check the token and its expiry, then restart ORBIT and test the connection again.";
+  if (code === 403) return "Access denied (403). Check the token's repository permissions and service or organization access, then test the connection again.";
+  let message = e instanceof Error ? e.message : String(e);
+  for (const secret of [...Object.values(p.env), ...(p.bearerTokenEnv ? [env[p.bearerTokenEnv]?.trim()] : [])]) {
+    if (secret) message = message.split(secret).join("[redacted]");
+  }
+  return message.slice(0, 300);
 }
 
 /** plugins.json text → valid plugins (invalid or duplicate entries are dropped, never fatal). */
@@ -224,6 +249,16 @@ export const SUGGESTED: { title: string; about: string; install: string; plugin:
     title: "Git (official git server)", about: "Status, diff, log and commits in one local repository.",
     install: "Needs uv (tools\\blender\\setup.ps1 installs it, or: winget install --id astral-sh.uv -e). Set the repository path in args.",
     plugin: { name: "git", command: "uvx", args: ["mcp-server-git", "--repository", "C:\\Users\\YOU\\projects\\my-game"], local: true },
+  },
+  {
+    title: "GitHub hosted (read-only)", about: "Read repositories, issues and PRs without Docker. Only the repositories allowed by your token are accessible.",
+    install: "Create a fine-grained GitHub token with read-only access to the selected repositories. Set ORBIT_GITHUB_MCP_TOKEN in .env.local on your PC, restart ORBIT, fill this form, Add, then Test connection. Never paste the token into this form or chat. See docs/MCP.md.",
+    plugin: { name: "github-read", url: "https://api.githubcopilot.com/mcp/readonly", bearerTokenEnv: "ORBIT_GITHUB_MCP_TOKEN", local: false },
+  },
+  {
+    title: "GitHub Actions hosted (read-only)", about: "Inspect workflow runs, jobs and failing CI checks without triggering workflows.",
+    install: "Use the same local ORBIT_GITHUB_MCP_TOKEN, with Actions read permission for the selected repositories. Restart ORBIT after changing it, Add, then Test connection. See docs/MCP.md.",
+    plugin: { name: "github-actions", url: "https://api.githubcopilot.com/mcp/x/actions/readonly", bearerTokenEnv: "ORBIT_GITHUB_MCP_TOKEN", local: false },
   },
   {
     title: "GitHub (official github-mcp-server)", about: "Read issues, PRs and code on GitHub. Anything that writes to GitHub waits for your Run click.",

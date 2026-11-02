@@ -5,7 +5,7 @@ import { usePoll } from "./use-poll";
 import type { Gate, Mode, Pending, SUGGESTED } from "@/lib/plugins-pure";
 
 type Tool = Gate & { id: string; name: string; description: string };
-type P = { name: string; command?: string; args: string[]; url?: string; env: Record<string, string>; enabled: boolean; local: boolean; others?: Mode; timeoutSec: number; note?: string;
+type P = { name: string; command?: string; args: string[]; url?: string; bearerTokenEnv?: string; env: Record<string, string>; enabled: boolean; local: boolean; others?: Mode; timeoutSec: number; note?: string;
   cache?: { at: string; error?: string }; tools: Tool[]; settings: Record<string, Mode> };
 export type PluginsView = { plugins: P[]; pending: Pending[]; suggested: typeof SUGGESTED; vault: string; stopAll: boolean; out?: string; tested?: number };
 
@@ -70,6 +70,7 @@ export function PluginsSection() {
               <b>{p.name}</b>
               <span className="muted text-xs">{p.command ? `${p.command} ${p.args.join(" ")}` : p.url}{Object.keys(p.env).length ? ` · env ${Object.keys(p.env).join(", ")}` : ""}</span>
             </div>
+            {p.bearerTokenEnv && <p className="muted mt-1 text-xs">Authentication: {p.bearerTokenEnv} in your local server environment. Restart ORBIT after changing the token, then Test connection.</p>}
             <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
               <label><input type="checkbox" checked={p.enabled} onChange={(e) => void call({ action: "update", name: p.name, enabled: e.target.checked })} /> enabled</label>
               <label title="A program on this PC that doesn't reach the internet. Only then can its changing tools run without asking."><input type="checkbox" checked={p.local} onChange={(e) => void call({ action: "update", name: p.name, local: e.target.checked })} /> local app only</label>
@@ -106,7 +107,7 @@ export function PluginsSection() {
       </details>
       <details className="text-sm" open={!!draft}>
         <summary className="cursor-pointer">Add a plugin</summary>
-        <p className="muted mt-1 text-xs">JSON: name, command + args (a program on this PC) or url (https), env, local, tools {"{"}"tool": "auto"|"ask"|"off"{"}"}, others (default for unlisted tools). Saved only on this PC (plugins.json in ORBIT&apos;s data folder), never in git.</p>
+        <p className="muted mt-1 text-xs">JSON: name, command + args (a program on this PC) or url (https), env, local, tools {"{"}"tool": "auto"|"ask"|"off"{"}"}, others (default for unlisted tools). For HTTP bearer authentication, set bearerTokenEnv to the server environment variable name; put the actual token in .env.local and restart ORBIT. Saved only on this PC (plugins.json in ORBIT&apos;s data folder), never in git.</p>
         <textarea className="field mt-1 h-40 w-full font-mono text-xs" value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Plugin JSON" placeholder='{"name": "files", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\\\path"]}' />
         <button className="chip" disabled={!draft.trim() || !!busy} onClick={() => void add()}>Add</button>
       </details>
