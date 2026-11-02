@@ -76,7 +76,7 @@ CORE uses your own Claude Code login, no API key. Install Claude Code and run `c
 | `ORBIT_CORE_MAX_STEPS` | Model steps CORE may take per answer (2–12) | 8 |
 | `ORBIT_CORE_SESSION` | `resume` = one Claude session per CORE chat (faster follow-ups). Empty = each step starts fresh | off |
 | `ORBIT_CLAUDE_WEEKLY_CALLS` | Your own weekly Claude budget in calls; the doctor's SYSTEM card shows 7-day use against it | off |
-| `ORBIT_LOCAL_MODEL` | Ollama model (e.g. `llama3.1:8b`) for chat and summaries when Claude is unreachable. No tools in that mode | off |
+| `ORBIT_LOCAL_LLM_MODEL` | Ollama model (e.g. `qwen3:8b`; old name `ORBIT_LOCAL_MODEL`) for chat and summaries when Claude is unreachable. No tools in that mode. `ORBIT_LOCAL_LLM_URL` (this PC only), `ORBIT_LOCAL_PRIVATE=1` (journal Reflect, local only): tools/ollama/README.md | off |
 
 If `ANTHROPIC_API_KEY` is set in your Windows environment, Claude Code bills that API key instead of your Claude login (DEV world → CORE config shows which).
 
@@ -197,7 +197,8 @@ Without these, nothing is ever emailed: you copy drafts and send them yourself.
 
 - `npm run app:install`: ORBIT icon on the Desktop and Start menu. `npm run app:autostart`: start the server when you sign in.
 - `npm run night:install`: a Scheduled Task that wakes the PC at 04:30 (change with `npm run night:install -- -At 03:00`) so night work can run. `npm run night:uninstall` removes it.
-- Offline brain: install Ollama (ollama.com), run `ollama pull llama3.1:8b`, set `ORBIT_LOCAL_MODEL=llama3.1:8b`, restart ORBIT.
+- Offline brain: `powershell -ExecutionPolicy Bypass -File tools\ollama\setup.ps1`, then restart ORBIT.
+- Start with Windows: `powershell -ExecutionPolicy Bypass -File tools\autostart\enable.ps1` (off: `disable.ps1`).
 - `npm run wake:install`: an offline listener at sign-in; say "orbital wake up" and ORBIT opens with CORE greeting you. `npm run wake:uninstall` removes it.
 
 ## 9. Time capsule (backups)

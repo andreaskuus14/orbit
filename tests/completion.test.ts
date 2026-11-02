@@ -194,6 +194,22 @@ test("executed vs verified: a task without read-back evidence never shows verifi
   assert.equal(taskVerified("done", [{ status: "rejected", evidence: [{ kind: "memory", id: "m" }] }]), false);
   assert.equal(taskVerified("failed", [{ status: "approved", evidence: [{ kind: "memory", id: "m" }] }]), false);
   assert.equal(taskVerified("done", [{ status: "approved", evidence: [{ kind: "memory", id: "m" }] }]), true);
+  const receipt = { kind: "memory" as const, id: "m" };
+  assert.equal(taskVerified("done", [
+    { status: "approved", evidence: [receipt] }, { status: "approved", evidence: [] },
+  ]), false, "one receipt cannot verify a second action");
+  for (const status of ["pending", "attempting", "uncertain", "failed", "rejected", "unknown"]) {
+    assert.equal(taskVerified("done", [
+      { status: "approved", evidence: [receipt] }, { status, evidence: [receipt] },
+    ]), false, `an unresolved ${status} action cannot be read back`);
+  }
+  for (const evidence of [[{}], [{ kind: "memory", id: "" }], [{ kind: "unknown", id: "m" }], [null]]) {
+    assert.equal(taskVerified("done", [{ status: "approved", evidence } as never]), false, "malformed persisted receipts cannot verify a task");
+  }
+  assert.equal(taskVerified("done", [
+    { status: "approved", evidence: [receipt] },
+    { status: "approved", evidence: [{ kind: "project", id: "p" }] },
+  ]), true);
   assert.equal(doneLabel(false), "Done · executed, not read back");
   assert.equal(doneLabel(true), "Done · executed, read back");
 });
