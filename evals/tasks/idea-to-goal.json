@@ -1,0 +1,13 @@
+{
+  "id": "idea-to-goal",
+  "set": "regression",
+  "input": "Turn my idea of reaching 1000 YouTube subscribers by March into a goal.",
+  "note": "#336: ideas become goals without asking him to restate them.",
+  "expect": {
+    "noChoices": true,
+    "tools": [
+      "create_goal"
+    ],
+    "noT3": true
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "leads-count",
+  "set": "capability",
+  "input": "Add 5 new leads: car repair shops in Tallinn. Check each one's website first.",
+  "note": "Count acceptance: done means 5 lead_create results, not a list in chat.",
+  "expect": {
+    "receipt": [
+      "verified"
+    ],
+    "noChoices": true,
+    "noT3": true,
+    "tools": [
+      "lead_create"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "lead-condition",
+  "set": "capability",
+  "input": "Find 3 hair salons in Tartu that have no website and add them as BUSINESS leads.",
+  "note": "Real failure: lead finding with a condition stopped early / offered Choices (core-operator-pure FOLLOW_THROUGH, #362).",
+  "expect": {
+    "receipt": [
+      "verified"
+    ],
+    "noChoices": true,
+    "noT3": true,
+    "tools": [
+      "lead_create"
+    ]
+  }
+}

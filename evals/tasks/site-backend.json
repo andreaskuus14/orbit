@@ -1,0 +1,22 @@
+{
+  "id": "site-backend",
+  "set": "capability",
+  "input": "Build me a website for a small Tartu bakery with an order form that saves orders on a back end.",
+  "note": "Website build with a back end; the site check must pass.",
+  "expect": {
+    "receipt": [
+      "verified"
+    ],
+    "noChoices": true,
+    "tools": [
+      "ws_write"
+    ],
+    "files": [
+      "index.html"
+    ],
+    "noT3": true,
+    "allowT3": [
+      "ws_picture_draft"
+    ]
+  }
+}

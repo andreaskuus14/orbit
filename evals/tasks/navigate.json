@@ -1,0 +1,12 @@
+{
+  "id": "navigate",
+  "set": "regression",
+  "input": "Open the studio planet.",
+  "note": "Navigation as the first tool call.",
+  "expect": {
+    "tools": [
+      "navigate"
+    ],
+    "noChoices": true
+  }
+}

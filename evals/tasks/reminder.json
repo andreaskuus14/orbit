@@ -1,0 +1,13 @@
+{
+  "id": "reminder",
+  "set": "regression",
+  "input": "Remind me tomorrow at 9 to call the bakery.",
+  "note": "Plain LIFE write, no confirmation needed.",
+  "expect": {
+    "noChoices": true,
+    "tools": [
+      "life_remind"
+    ],
+    "noT3": true
+  }
+}
