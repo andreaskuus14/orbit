@@ -1,6 +1,7 @@
 "use client";
 import { PLANETS, type PanelId } from "@/lib/planets";
 import { useT } from "./i18n";
+import { isPlanetWorld } from "@/lib/planet-worlds-pure";
 
 // Intent loading: share Next's module cache without downloading every world at startup.
 export function warmWorld(id: PanelId) {
@@ -10,7 +11,8 @@ export function warmWorld(id: PanelId) {
     : id === "agents" ? () => import("./AgentsStation")
     : id === "theater" ? () => import("./TheaterWorld")
     : id === "arch" ? () => import("./ArchWorld")
-    : id === "memory" ? () => import("./MemoryWorld") : null;
+    : id === "memory" ? () => import("./MemoryWorld")
+    : isPlanetWorld(id) ? () => import("./PlanetWorld") : null;
   if (load) void load().catch(() => {}); // opening the world still owns loading/error handling
 }
 

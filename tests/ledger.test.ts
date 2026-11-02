@@ -211,3 +211,12 @@ test("fromRows: Postgres rows → ledger events; legacy and bad rows skipped", (
   assert.deepEqual(evs.map((e) => [e.id, e.at, e.caused_by]), [["7", "2026-10-20T10:00:00.123Z", undefined], ["8", "2026-10-20T11:00:00.000Z", "7"]]);
   assert.equal(stateAt(evs, "2026-10-21T00:00:00Z").focusMinutes, 25);
 });
+
+test("stateAt: today counts events per planet in the 24 h up to t, recent the 7 days", () => {
+  const es = [ev("focus.session", "2026-10-23T09:00:00Z", undefined, { planet: "life" }), ev("focus.session", "2026-10-22T08:00:00Z", undefined, { planet: "life" }),
+    ev("focus.session", "2026-10-20T08:00:00Z", undefined, { planet: "life" })];
+  const s = stateAt(es, "2026-10-23T10:00:00Z");
+  assert.equal(s.today.life, 1);
+  assert.equal(s.recent.life, 3);
+  assert.equal(s.today.vault, 0);
+});

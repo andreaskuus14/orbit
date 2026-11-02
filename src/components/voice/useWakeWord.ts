@@ -134,8 +134,10 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
       clearTimeout(disarm);
       disarm = setTimeout(() => { if (alive) setState("listening"); }, ARMED_MS);
     };
-    const ask = (text: string) => {
+    const ask = (text: string, follow = false) => {
       armedUntil = 0; clearTimeout(disarm); setState("listening"); setInterim("");
+      // A wake-word question opens a short follow-up window (FOLLOW_MS after the answer), with barge-in, like open mic.
+      if (follow && conv.current.phase === "idle") convApply({ type: "start", persist: true, follow: true });
       convApply({ type: "ask" }); // every voice ask ends with orbit:core-done (CorePanel, or Orbit for navigation/follows)
       dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text } }));
     };
@@ -147,7 +149,7 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
       const q = wake ? wake.question : text;
       const byWake = !!wake || armedUntil > Date.now(); // said "Orbit" (now or just before): always answer
       if (conv.current.phase !== "idle" && isConversationEnd(q)) { armedUntil = 0; clearTimeout(disarm); setState("listening"); convApply({ type: "stop" }); return; } // before sleep: "goodbye" ends the talk, not ORBIT
-      if (startsConversation(text, byWake)) { armedUntil = 0; clearTimeout(disarm); setState("listening"); if (conv.current.phase === "idle") dispatchEvent(new CustomEvent(VOICE_CONVERSATION, { detail: { on: true } })); return; }
+      if (startsConversation(text, byWake)) { armedUntil = 0; clearTimeout(disarm); setState("listening"); if (conv.current.phase === "idle" || conv.current.follow) dispatchEvent(new CustomEvent(VOICE_CONVERSATION, { detail: { on: true } })); return; }
       if (!byWake && conv.current.phase === "idle" && !isSleepCommand(text)) return; // e.g. a bare start phrase that ran on into room talk
       if (!byWake && conv.current.phase !== "idle") { // open mic: only what looks meant for ORBIT, in the user's voice
         const orbitAsked = /\?\s*$/.test(spokenText()) && speakingOrJustEnded(REPLY_MS);
@@ -155,8 +157,8 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
         if (!soundsLikeMe()) return;
       }
       if (isSleepCommand(text)) ask(text); // "Orbit, shut down" keeps its name
-      else if (!wake) ask(text); // the question after a bare "Orbit"
-      else if (wake.question && !/^(wake|woke)( up)?\W*$/i.test(wake.question)) ask(wake.question);
+      else if (!wake) ask(text, byWake); // the question after a bare "Orbit" (or a follow-up in open mic)
+      else if (wake.question && !/^(wake|woke)( up)?\W*$/i.test(wake.question)) ask(wake.question, true);
       else if (!wake.question && recognizerFor(loadVoiceSettings(), "pushToTalk") === "whisper") { armedUntil = 0; clearTimeout(disarm); setState("listening"); dispatchEvent(new Event(VOICE_LISTEN)); } // bare "Orbit": Whisper records the question
       else arm(); // "Orbit, wake up" while open just listens
     };

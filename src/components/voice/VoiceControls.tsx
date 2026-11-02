@@ -281,11 +281,11 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           {t("voice.openMic", { phase: t(wake.conversation === "listening" ? "voice.phaseListening" : wake.conversation === "thinking" ? "voice.phaseThinking" : "voice.phaseSpeaking") })}
         </button>
       ) : (wake.state !== "off" || wake.error) && (
-        <span className={"voice-wake" + (wake.state === "armed" ? " armed" : "") + (wake.error ? " bad" : "")} role="status"
-          title={wake.error || "Hands-free mode: ORBIT is listening for “Hey Orbit”. Turn it off in voice settings."}>
+        <button type="button" aria-live="polite" className={"voice-wake voice-status" + (wake.state === "armed" ? " armed" : "") + (wake.error ? " bad" : "")} onClick={() => update({ handsFree: "off" })}
+          title={`${wake.error || "Hands-free mode: ORBIT is listening for “Hey Orbit”."} Click to turn hands-free off (voice settings turns it back on).`}>
           <span className="voice-dot" aria-hidden="true" />
           {wake.error ? "Hey Orbit paused" : wake.state === "armed" ? "Listening…" : "Hey Orbit on"}
-        </span>
+        </button>
       )}
     </>
   );

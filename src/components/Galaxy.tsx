@@ -32,7 +32,7 @@ import { armCount, boostCap, coreScale, overviewBoost, planetDetail, shellCount 
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
 import { cullLabels, damp, spreadLabels, fmtCoord, HOME_POS, INTRO_SECS, introLabelAlpha } from "@/lib/cinematic-pure";
 import {
-  CameraFeel, DevStats, Dust, GalaxyHud, MotionAberration, newFeel, newStory, Parallax, PointerFeel, StoryFocus, StoryRail, StoryReadout, StoryRig, useRim,
+  CameraFeel, DevStats, Dust, GalaxyHud, MotionAberration, newFeel, newStory, Parallax, PointerFeel, StoryFocus, StoryRail, StoryReadout, StoryRig, useRim, RIM_COLOR,
   type Feel, type HudEls, type Motion, type Story,
 } from "./Cinematic";
 import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
@@ -90,6 +90,7 @@ const glow = (pulses: RefObject<Record<string, number>>, id: string) =>
 const hits: Record<string, number> = {};
 const hitGlow = (id: string, now: number) => { const a = now - (hits[id] ?? -99); return a >= 0 && a < 1.2 ? (1 - a / 1.2) ** 2 : 0; };
 const QUIET_C = new THREE.Color(QUIET), WARM_C = new THREE.Color(WARM);
+const FRESH_RIM = new THREE.Color(WORK), COLD_RIM = new THREE.Color(RIM_COLOR); // "new today" warms the hover rim
 let auraTex: THREE.Texture | null = null; // one warm halo texture shared by every world
 const aura = () => (auraTex ??= glowTexture([[0, "rgba(255,214,150,0.9)"], [0.25, "rgba(255,170,80,0.35)"], [0.6, "rgba(255,140,60,0.08)"], [1, "rgba(255,120,40,0)"]]));
 
@@ -337,8 +338,9 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive }: {
-  p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive, fresh = false }: {
+  p: PlanetDef; fresh?: boolean; // something new in the last 24 h: the rim warms on hover
+  index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
   agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
   life?: { done: number; total: number } | null; still?: boolean; // still = reduced motion or low quality: no animation
@@ -448,7 +450,9 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
       g.rotation.x = expDamp(g.rotation.x, f && on ? -f.y * 0.07 * on : 0, 0.5, dt);
       g.rotation.z = expDamp(g.rotation.z, f && on ? -f.x * 0.07 * on : 0, 0.5, dt);
     }
-    rim.u.uRim.value = expDamp(rim.u.uRim.value, hovered.current ? 0.7 : selected ? 0.35 : 0.1, 0.12, dt);
+    const warm = hovered.current && fresh;
+    rim.u.uRim.value = expDamp(rim.u.uRim.value, warm ? 1.2 : hovered.current ? 0.7 : selected ? 0.35 : 0.1, 0.12, dt);
+    rim.u.uRimColor.value.lerp(warm ? FRESH_RIM : COLD_RIM, Math.min(1, dt * 6));
     if (group.current) {
       const d = planetDetail(size, camera.position.distanceTo(group.current.position), level); // true size: the boost adds presence, not detail
       detail.current = d;
@@ -1031,7 +1035,7 @@ export default function Galaxy(props: GalaxyProps) {
   const sizes = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, planetSize(p)])), []);
   const { onSelect, selected } = props;
   const u = props.universe;
-  const lines = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, hoverParts(p.id, { recent: u?.recent, stages: p.id === "business" ? u?.stages : null,
+  const lines = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, hoverParts(p.id, { recent: u?.recent, today: u?.today, stages: p.id === "business" ? u?.stages : null,
     memories: props.memoryCount, agents: props.agentsWorking, life: props.lifeProgress })
     .map((x) => (x.n !== undefined ? tn(x.key as Parameters<typeof tn>[0], x.n, x.vars) : t(x.key as Parameters<typeof t>[0], x.vars))).join(" · ")])),
   [u, props.memoryCount, props.agentsWorking, props.lifeProgress, t, tn]);
@@ -1072,7 +1076,7 @@ export default function Galaxy(props: GalaxyProps) {
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
-            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} vitality={props.universe?.vitality[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
+            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} vitality={props.universe?.vitality[p.id]} fresh={!!props.universe?.today?.[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
         ))}
         <WarmIn> {/* both arrive with data after the start-up compile */}
           {props.universe && <Universe u={props.universe} positions={positions} scales={scales} still={props.reduced || level === 0} level={level} />}

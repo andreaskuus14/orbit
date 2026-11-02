@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as nav from "../src/lib/nav-pure.ts";
 import * as planets from "../src/lib/planets.ts";
+import * as planetWorlds from "../src/lib/planet-worlds-pure.ts";
 import * as hear from "../src/components/voice/hear.ts";
 import * as wake from "../src/components/voice/wake.ts";
 import * as i18n from "../src/lib/i18n-pure.ts";
@@ -57,6 +58,7 @@ function component(file: string, attachments = false) {
       if (name.includes("nav-pure")) return nav;
       if (name.includes("nav-command")) return { COMMAND_REPLY_EVENT: "orbit:command-reply", runNavCommand: async (t: nav.NavTarget) => { calls.push(t); return nav.navReply(t); } };
       if (name.includes("/planets")) return planets;
+      if (name.includes("planet-worlds-pure")) return planetWorlds;
       if (name.endsWith("/speak")) return speech;
       if (name.endsWith("/bus")) return bus;
       if (name.endsWith("/useVoiceInput")) return { useVoiceInput: () => voice };
