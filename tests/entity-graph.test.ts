@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  birthdayNorm, claimsIn, contradictionBrief, decideEntity, emptyDecisions, findContradictions, formKey, gather, linkScore,
+  idRel, birthdayNorm, claimsIn, contradictionBrief, decideEntity, emptyDecisions, findContradictions, formKey, gather, linkScore,
   mergeSuggestions, resolveEntities, valueNorm, type MemIn, type Src, compareSides, resolveGraph, undoable,
 } from "../src/lib/entity-graph-pure.ts";
 
@@ -193,4 +193,46 @@ test("superseded claims: the older value stays as history, marked with the date 
   // signals: several name rules count once; a shared id or an agreeing fact is a second, independent one
   assert.deepEqual(signals({ evidence: [{ code: "first", a: "Mart", b: "Mart Tamm" }, { code: "email", a: "mart", b: "mart@x.ee" }], parts: [] }, []), ["name"]);
   assert.deepEqual(signals({ evidence: [{ code: "acronym", a: "NYT", b: "The New York Times" }, { code: "id", a: "NYT", b: "domain:nytimes.com" }], parts: [] }, []), ["name", "id"]);
+});
+
+
+
+test("identifier conflicts win over matches in another namespace, in either order", () => {
+  const a = ["domain:shared.example", "record:one"], b = ["domain:shared.example", "record:two"];
+  assert.equal(idRel(a, b).rel, "conflict");
+  assert.equal(idRel(b, a).rel, "conflict");
+  assert.equal(idRel(["domain:old.example", "domain:shared.example"], ["domain:shared.example"]).rel, "match");
+  assert.equal(idRel(["record:one"], ["domain:shared.example"]).rel, "none");
+  const mentions = [
+    { form: "Mart Tamm", ids: a, src: src("a") },
+    { form: "Mart Juhan Tamm", ids: b, src: src("b") },
+  ];
+  const graph = resolveGraph(mentions, emptyDecisions());
+  assert.equal(graph.ents.length, 2);
+  assert.equal(graph.related.length, 0);
+});
+
+test("an identifier bridge cannot hide a conflicting pair inside a cluster", () => {
+  const mentions = [
+    { form: "Mart Tamm", ids: ["domain:a.example"], src: src("a") },
+    { form: "Mart Juhan Tamm", ids: ["domain:a.example", "domain:b.example"], src: src("bridge") },
+    { form: "Mart Juhan Paul Tamm", ids: ["domain:b.example"], src: src("b") },
+  ];
+  // Input order must not decide whether incompatible endpoints merge.
+  for (const ms of [mentions, [...mentions].reverse()]) {
+    const ents = resolveEntities(ms, emptyDecisions());
+    assert.ok(!ents.some((e) => e.keys.includes("mart tamm") && e.keys.includes("mart juhan paul tamm")));
+  }
+});
+
+test("an untyped name cannot bridge a person into an organisation", () => {
+  const mentions = [
+    { form: "Mart Tamm", kind: "person" as const, src: src("person") },
+    { form: "Mart Juhan Tamm", src: src("bridge") },
+    { form: "Mart Juhan Paul Tamm", kind: "org" as const, src: src("org") },
+  ];
+  for (const ms of [mentions, [...mentions].reverse()]) {
+    assert.ok(!resolveEntities(ms, emptyDecisions()).some((e) =>
+      e.keys.includes("mart tamm") && e.keys.includes("mart juhan paul tamm")));
+  }
 });

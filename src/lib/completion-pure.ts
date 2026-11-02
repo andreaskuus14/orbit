@@ -18,8 +18,13 @@ export function matchesStored(expected: Record<string, unknown>, actual: Record<
   return !!actual && Object.entries(expected).every(([key, value]) => actual[key] === value);
 }
 
-/** Executed ≠ verified: "done" only says the task ran. Verified needs read-back evidence from an approved action (its own or a sub-task's). */
-export const taskVerified = (status: string, actions: ActionResult[]) => status === "done" && actions.some((a) => a?.status === "approved" && (a.evidence?.length ?? 0) > 0);
+/** Executed ≠ verified: every recorded action (including sub-tasks) needs its own valid read-back receipt.
+ * This proves recorded writes were read back, not that the task's broader requirements were met. */
+export const taskVerified = (status: string, actions: ActionResult[]) => status === "done" && actions.length > 0 && actions.every((a) =>
+  a?.status === "approved" && Array.isArray(a.evidence) && a.evidence.length > 0 && a.evidence.every((e) =>
+    e && ["memory", "file", "project", "task", "automation"].includes(e.kind) && typeof e.id === "string" && e.id.trim().length > 0
+  )
+);
 /** D01: name what was checked, not a blanket "Verified". Tasks only prove execution and read-back of approved writes. */
 export const doneLabel = (readBack: boolean) => (readBack ? "Done · executed, read back" : "Done · executed, not read back");
 
