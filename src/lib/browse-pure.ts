@@ -65,7 +65,7 @@ const words = (e: El) => [e.text, e.label, e.name, e.id, e.placeholder].join(" "
 /** A box CORE may type search words into: a search input (by type, role, name, placeholder or its form), never login fields. */
 export function isSearchBox(e: El): boolean {
   if (e.tag !== "input" || e.formPassword || !["", "text", "search"].includes(e.type)) return false;
-  return e.type === "search" || e.role === "searchbox" || (e.role === "combobox" && SEARCHY.test(words(e))) || SEARCHY.test([e.name, e.id, e.placeholder, e.label].join(" ")) || e.formSearch;
+  return e.type === "search" || e.role === "searchbox" || (e.role === "combobox" && SEARCHY.test(words(e))) || [e.name, e.id, e.placeholder, e.label].some((x) => SEARCHY.test(x.trim())) || e.formSearch;
 }
 
 /** A form CORE may submit: a search form sent by GET (a page read), never one with a password field. */
