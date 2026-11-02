@@ -705,7 +705,7 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
   /* The worlds' 0.9 zoom also scales offsets, which would misalign the sheets. */
   .globe-in > :not(:has(canvas)):not(.pointer-events-none) { zoom: 1; }
   /* Hands-free status shrinks to its dot (text stays for screen readers); the "Talking" button keeps its words. */
-  span.voice-wake { font-size: 0; gap: 0; padding: 0.3rem; left: 0.9rem; bottom: calc(100% + 0.2rem); }
+  .voice-wake.voice-status { font-size: 0; gap: 0; padding: 0.3rem; left: 0.9rem; bottom: calc(100% + 0.2rem); }
   .morning-card, .whats-new { top: var(--hdr); max-height: calc(100dvh - var(--hdr) - var(--bar) - 0.5rem); overflow-y: auto; }
   /* WHAT'S NEW is a modal top sheet here: full width, own scroll, dimmed backdrop. */
   .whats-new { left: 0.5rem; right: 0.5rem; width: auto; z-index: 26; overscroll-behavior: contain; }
@@ -826,6 +826,9 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .memory-star-label { display: flex; flex-direction: column; gap: 2px; max-width: 16rem; padding: 3px 0 3px 10px; border-left: 1px solid rgba(125, 211, 252, 0.6); white-space: nowrap; }
 .memory-star-label b { overflow: hidden; text-overflow: ellipsis; font-weight: 500; font-size: 0.78rem; color: #e6f1ff; text-shadow: 0 0 8px rgba(2, 3, 8, 0.9); }
 .memory-star-label span { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.18em; text-transform: uppercase; color: #7dd3fc; }
+/* PlanetWorld: zone names on the ground (piers, halls, kinds) and the scene line above the workspace panel */
+.planet-world-zone { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.14em; opacity: 0.75; white-space: nowrap; text-shadow: 0 0 8px rgba(2, 3, 8, 0.9); }
+.planet-world-head { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid; font-size: 0.78rem; }
 .chronicle-caption { font-size: 1.05rem; letter-spacing: 0.02em; color: #e6f1ff; text-shadow: 0 0 14px rgba(125, 211, 252, 0.55), 0 0 4px rgba(2, 3, 8, 0.9); animation: chronicle-cap 0.6s ease-out; }
 @keyframes chronicle-cap { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .chronicle-caption { animation: none; } }

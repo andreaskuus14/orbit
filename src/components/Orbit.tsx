@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
+import { isPlanetWorld, PLANET_WORLDS } from "@/lib/planet-worlds-pure";
 import { WorldPaused } from "./world-paused";
 import { CALL_ACTIVE, VOICE_ASK, voiceContext } from "./voice/bus";
 import { runObjectCommand } from "./voice/object-command";
@@ -76,6 +77,7 @@ const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false, loading: Worl
 const AgentsStation = dynamic(() => import("./AgentsStation"), { ssr: false, loading: WorldLoading });
 const ArchWorld = dynamic(() => import("./ArchWorld"), { ssr: false, loading: WorldLoading });
 const TheaterWorld = dynamic(() => import("./TheaterWorld"), { ssr: false, loading: WorldLoading });
+const PlanetWorld = dynamic(() => import("./PlanetWorld"), { ssr: false, loading: WorldLoading });
 const MemoryWorld = dynamic(() => import("./MemoryWorld"), { ssr: false, loading: WorldLoading });
 const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
 const VaultPanel = dynamic(() => import("./VaultPanel").then((m) => m.VaultPanel), { ssr: false });
@@ -95,7 +97,7 @@ const AgentsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.AgentsP
 const OperationsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.OperationsPanel), { ssr: false, loading: PanelLoading });
 const DoctorPanel = dynamic(() => import("./DoctorPanel").then((m) => m.DoctorPanel), { ssr: false });
 const RemoteCall = dynamic(() => import("./RemoteCall").then((m) => m.RemoteCall), { ssr: false });
-const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch", "memory"]; // full-screen worlds with their own side panel (no drawer)
+const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch", "memory", ...PLANET_WORLDS]; // full-screen worlds with their own side panel (no drawer)
 const VISITS = "orbit.world.visits";
 const KEEP: PanelId[] = ["intelligence", "studio", "creation", "agents", "arch", "memory"]; // kept mounted (hidden + paused) after the first visit; not THEATER: leaving must stop its video
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
@@ -580,6 +582,17 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const drawerDrag = useDragPanel<HTMLElement>(drawer && !docked ? `drawer:${drawer}` : null);
   useDialogFocus(drawerDrag.ref, !!panel && !WORLDS.includes(panel)); // Esc is the window handler above
   const statusDrag = useDragPanel<HTMLElement>(!shown && view === "3d" ? "status" : null);
+  const panelBody = (id: PanelId) => (id === "core" ? <CorePanel initial={pending} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
+      : id === "profile" ? <ProfilePanel />
+      : id === "analytics" ? <AnalyticsPanel />
+      : id === "intelligence" ? <IntelligencePanel />
+      : id === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
+      : id === "agents" ? <AgentsPanel onOpenTask={openTask} />
+      : id === "life" ? <LifePanel open={lifeOpen} />
+      : id === "vault" ? <VaultPanel />
+      : id === "markets" ? <MarketsPanel />
+      : id === "business" ? <BusinessPanel focusId={focusClient} onFocus={setFocusClient} />
+              : null);
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
 
   return (
@@ -606,6 +619,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {has("memory") && <Kept on={at("memory")}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} List={MemoryPanel} /></Kept>}
       {shown && KEEP.includes(shown) && at(shown) ? null : shown === "theater" ? (
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
+      ) : isPlanetWorld(shown) ? (
+        <PlanetWorld key={shown} id={shown} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}>{panelBody(shown)}</PlanetWorld>
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label={t("overview.aria")} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>{t("overview.kicker")}</p><h1>{t("overview.title1")}<br />{t("overview.title2")}</h1><span>{t("overview.lede")}</span></div>
@@ -674,17 +689,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           aria-hidden={!panel || undefined} inert={!panel || undefined}>
           <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand text-base"><MaskText key={title} text={title} /></h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {drawer === "core" ? <CorePanel initial={pending} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
-              : drawer === "profile" ? <ProfilePanel />
-              : drawer === "analytics" ? <AnalyticsPanel />
-              : drawer === "intelligence" ? <IntelligencePanel />
-              : drawer === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
-              : drawer === "agents" ? <AgentsPanel onOpenTask={openTask} />
-              : drawer === "life" ? <LifePanel open={lifeOpen} />
-              : drawer === "vault" ? <VaultPanel />
-              : drawer === "markets" ? <MarketsPanel />
-              : drawer === "business" ? <BusinessPanel focusId={focusClient} onFocus={setFocusClient} />
-              : null}
+            {drawer && panelBody(drawer)}
           </div>
         </aside>
       )}
