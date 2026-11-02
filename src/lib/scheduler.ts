@@ -33,6 +33,7 @@ async function tick(sb: SupabaseClient) {
     if (error) throw error;
     // Event-triggered automations first (they should feel instant), then scheduled ones, then briefings.
     await handleEvents(sb).catch((e) => console.error("[orbit] automation events failed:", e?.message ?? e)); // still advances its cursor: startAutomation refuses while Stop-all is on
+    void import("./ntfy").then((m) => m.tickNtfy(sb)); // phone notifications for finished/failed/waiting tasks; drops them while Stop-all is on
     if (stopAllOn()) return; // Stop-all: no automations, queue starts, chain resumes, briefings, proposals or backups
     void import("./habit-nudge").then((m) => m.tickHabits()).catch((e) => console.error("[orbit] habit nudges failed:", e instanceof Error ? e.message : e)); // LIFE, local, no model
     if (allows("calls", "background").ok) void import("./call").then((c) => c.maybeCall()); // "ORBIT wants to talk": rings the paired phone when call-pure says so; never throws
@@ -42,6 +43,7 @@ async function tick(sb: SupabaseClient) {
       await runDueAutomations(sb, id).catch((e) => console.error("[orbit] scheduled automations failed:", e?.message ?? e));
       if (id === users?.[0]?.id) await import("./rules").then((r) => r.tickRules(sb, [id])); // standing rules (Agents → Rules); never throws
       void kickQueue(sb, id); // tasks still queued after a restart (the in-process queue is gone) start again
+      void import("./plan-jobs").then((m) => m.tickPlanJobs(sb, id)); // plan-file jobs: one step per session, resumed from their plan file
       void nightOwnsCompany().then((night) => resumeChains(sb, id, night)).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
       void import("./missions").then((m) => m.resumeMissions(sb, id)).catch((e) => console.error("[orbit] missions resume failed:", e?.message ?? e));
       const since = new Date(Date.now() - 8 * 86400_000).toISOString();

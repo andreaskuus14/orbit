@@ -15,6 +15,7 @@ import { FOLLOWUP_SYSTEM, dueFollowups, followupPrompt, type Prospect } from "./
 import { scoutDue } from "./niche-pure";
 import { whyLine, type Learned } from "./night-learn-pure";
 import { planTonight, snapDiff } from "./night-plan-pure";
+import { jobEffect, releaseLease, takeLease } from "./job-log";
 import { NIGHT_KINDS, PERSONA_STUDIO_RUNS, addCompanyTonight, addTonight, fits, goalOutcome, inWindow, nightKey, nightPush, nightReport, parseNight, patchNightSettings, researchRequest, startBlock, tonightBlocked, wakePushDue,
   type NightItem, type NightRun, type NightState, type NightTask, type NightUser } from "./night-pure";
 
@@ -55,17 +56,19 @@ export async function maybeNightShift(sb: SupabaseClient, userIds: string[], now
       const run = st.users[id]?.run;
       if (!wakePushDue(now, st.settings, run)) continue;
       await update((s) => { const r = user(s, id).run; if (r) r.pushed = new Date(now).toISOString(); }); // claimed first: never twice
-      const { pushProblem, deliver } = await import("./remote-push");
-      if (!pushProblem()) void deliver(nightPush({ done: count(run!, "done"), approvals: count(run!, "approval"), failed: count(run!, "failed") }));
+      const { canNotify, deliver } = await import("./remote-push");
+      if (canNotify()) void deliver(nightPush({ done: count(run!, "done"), approvals: count(run!, "approval"), failed: count(run!, "failed") }));
     }
     if (N.ac) return;
     // shortcut: "idle" = no CORE chat for idleMin minutes (the server can't see the PC's keyboard; scripts/night checks that before sleeping).
     const id = userIds[0]; // ORBIT has one owner; the run acts for him
     if (!id || !allows("night-shift", "background").ok || startBlock({ now, s: st.settings, run: st.users[id]?.run, lastActive: lastCoreCallAt(), stopAll: stopAllOn(), hold: usageHold() })) return;
+    if (!(await takeLease(NIGHT_JOB, NIGHT_LEASE).catch(() => false))) return; // another ORBIT process on this data dir runs tonight
     N.ac = new AbortController();
-    void runNight(sb, id, N.ac).catch((e) => console.error("[orbit] night shift failed:", msg(e))).finally(() => { N.ac = null; });
+    void runNight(sb, id, N.ac).catch((e) => console.error("[orbit] night shift failed:", msg(e))).finally(() => { N.ac = null; void releaseLease(NIGHT_JOB).catch(() => {}); });
   } catch (e) { console.error("[orbit] night shift check failed:", msg(e)); }
 }
+const NIGHT_JOB = "night-shift", NIGHT_LEASE = 30 * 60_000; // longer than one item's budget (research: 10 min)
 const count = (r: NightRun, s: NightItem["status"]) => r.items.filter((i) => i.status === s).length;
 
 async function runNight(sb: SupabaseClient, userId: string, ac: AbortController) {
@@ -90,6 +93,7 @@ async function runNight(sb: SupabaseClient, userId: string, ac: AbortController)
     if (ac.signal.aborted || stopAllOn()) { run.stopped = "stop-all"; break; }
     if (usageHold()) { run.stopped = "usage"; break; }
     await foreground.idle(); // a live CORE turn goes first; the night resumes at this item
+    if (!(await takeLease(NIGHT_JOB, NIGHT_LEASE).catch(() => false))) { run.stopped = "lease"; break; } // renewed per item; lost = another runner took over
     if (!inWindow(Date.now(), s)) { run.stopped = "window"; break; }
     if (!fits(t, used(), s)) { run.deferred = (run.deferred ?? 0) + 1; run.stopped = "budget"; continue; }
     const item = await runOne(sb, userId, t, ac.signal).catch((e): NightItem => ({ kind: t.kind, ref: t.ref, label: t.label, status: "failed", why: msg(e), at: new Date().toISOString() }));
@@ -156,11 +160,20 @@ export async function runOne(sb: SupabaseClient, userId: string, t: NightTask, s
     case "research": {
       const st = await load(), item = st.users[userId]?.tonight.find((x) => x.id === t.ref);
       if (!item) return { ...base, status: "skipped", why: "Removed from tonight's list", at: at() };
-      const { data: task, error } = await sb.from("tasks").insert({ user_id: userId, agent: item.agent, title: `🌙 Tonight: ${item.text}`.slice(0, 200), request: researchRequest(item.text),
-        status: "running", started_at: at() }).select("id").single(); // never "queued": kickQueue must not start it a second time
-      if (error) throw error;
+      // Step log: the insert is an effect step (idempotency key in the request, saved first), so a crash mid-item reuses tonight's task.
+      const task = { id: await jobEffect(`night-${nightKey(Date.now(), st.settings)}-${item.id}`, "insert-task", async (idem) => {
+        const had = await sb.from("tasks").select("id").eq("user_id", userId).like("request", `%[${idem}]`).limit(1);
+        if (had.error) throw had.error;
+        if (had.data?.length) return had.data[0].id as string;
+        const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent: item.agent, title: `🌙 Tonight: ${item.text}`.slice(0, 200), request: `${researchRequest(item.text)}\n\n[${idem}]`,
+          status: "running", started_at: at() }).select("id").single(); // never "queued": kickQueue must not start it a second time
+        if (error) throw error;
+        return data.id as string;
+      }) };
+      const { data: prior } = await sb.from("tasks").select("status, error").eq("id", task.id).maybeSingle(); // finished before a crash: report it, don't rerun
       const { runTask } = await import("./agents");
-      const r = await runTask(sb, userId, task.id, 0, createBudget(10 * 60_000, t.calls), signal);
+      const r = prior && ["done", "awaiting_approval", "failed"].includes(prior.status) ? { status: prior.status as string, error: prior.error as string | null }
+        : await runTask(sb, userId, task.id, 0, createBudget(10 * 60_000, t.calls), signal);
       if (r.status === "cancelled") return { ...base, status: "failed", why: "Stopped", at: at() }; // stays on tonight's list
       if (r.status === "blocked") { await sb.from("tasks").update({ status: "cancelled", error: r.error, finished_at: at() }).eq("id", task.id).eq("status", "queued"); return { ...base, status: "failed", why: String(r.error), at: at() }; } // deferred: stays on tonight's list
       await update((x) => { const u = user(x, userId); u.tonight = u.tonight.filter((y) => y.id !== item.id); });

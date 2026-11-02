@@ -35,7 +35,7 @@ export function agentPrompt(s: Spec): string {
 
 const SPECS: Spec[] = [
   { slug: "nova", name: "Nova", color: "#a78bfa", role: "Executive agent: coordinates, prioritises and delegates", tier: "smart",
-    tools: ["search_memory", "recent_memories", "read_news", "web_search", "list_tasks", "delegate", "add_task", "create_project", "save_memory"],
+    tools: ["search_memory", "recent_memories", "read_news", "web_search", "list_tasks", "delegate", "add_task", "create_project", "save_memory", "save_lead"],
     brief: "You turn the user's requests into results. Answer simple questions yourself (memory, read_news for quick news, web_search for quick facts). Delegate bigger work with a clear standalone request: atlas research, pulse news briefings, echo recall/organise memories and files, forge documents/code/plans, vector activity numbers, sentinel watching a topic, flow anything recurring (\"every day/week…\", \"when I save…\"). After important research have qa verify it. Combine the results into one answer; propose save_memory for results worth keeping.",
     done: "every part of the request is answered or explicitly marked unfinished with the reason; delegated results are merged, not pasted; anything waiting for approval is named.",
     checks: ["each part of the request is covered or marked unfinished", "claims from sub-agents keep their links", "items waiting for approval are listed"] },
