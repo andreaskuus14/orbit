@@ -579,7 +579,30 @@ function Journal({ st, act }: { st: LifeState; act: Act }) {
           </li>
         ))}
       </ul>
-      <p className="muted text-xs">{t("life.journalPrivate")}</p>
+      <Reflect fallback={t("life.journalPrivate")} />
+    </div>
+  );
+}
+
+/** "Reflect on my week": only when ORBIT_LOCAL_PRIVATE=1, only on click, read by the local model on this PC (never Claude). */
+function Reflect({ fallback }: { fallback: string }) {
+  const { t } = useT();
+  const [on, setOn] = useState(false);
+  const [r, setR] = useState<{ text?: string; label?: string; model?: string; error?: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void fetch("/api/local-brain", { cache: "no-store" }).then((x) => x.json()).then((j) => setOn(j?.brain?.private === true), () => {}); }, []);
+  if (!on) return <p className="muted text-xs">{fallback}</p>;
+  const go = async () => {
+    setBusy(true);
+    setR(await fetch("/api/life/reflect", { method: "POST" }).then((x) => x.json(), () => ({ error: "Couldn't reach ORBIT" })));
+    setBusy(false);
+  };
+  return (
+    <div className="card space-y-2 text-sm">
+      <button className="chip" disabled={busy} onClick={() => void go()}>{busy ? t("life.localReflecting") : t("life.localReflect")}</button>
+      <p className="muted text-xs">{t("life.localReflectNote")}</p>
+      {r?.error && <p className="text-xs" style={{ color: "#fbbf24" }}>{r.error}</p>}
+      {r?.text && <><p className="whitespace-pre-wrap">{r.text}</p><p className="muted text-xs">{r.label} ({r.model})</p></>}
     </div>
   );
 }
