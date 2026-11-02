@@ -7,6 +7,7 @@ import { stopAllOn } from "./stop-all";
 import { parseQuiet, type PushMessage } from "./remote-push-pure";
 import { fromPush, ntfyAllowed, ntfyConfig, publishBody, taskMsg, type NtfyConfig, type NtfyMsg } from "./ntfy-pure";
 import { rowReceipt } from "./receipt-pure";
+import { phoneActionable } from "./ntfy-action-pure";
 
 export const quietHours = () => parseQuiet(process.env.ORBIT_QUIET_HOURS);
 const cfg = () => ntfyConfig(process.env, quietHours());
@@ -38,7 +39,9 @@ export async function tickNtfy(sb: SupabaseClient) {
       const id = (e.payload as { taskId?: unknown } | null)?.taskId;
       if (typeof id === "string" && !stopAllOn()) {
         const { data: t } = await sb.from("tasks").select("status, parent_id, title, request, error, pending, trace").eq("id", id).maybeSingle();
-        const m = t && !t.parent_id ? taskMsg(t.status, rowReceipt(t)?.status ?? null, c.open) : null;
+        // A single reversible waiting action also gets Approve / Reject buttons (signed, 24 h, one use: ntfy-action-pure.ts).
+        const token = t?.status === "awaiting_approval" && c.open && phoneActionable(t.pending) ? await import("./ntfy-action").then((a) => a.actToken(id, e.user_id), () => undefined) : undefined;
+        const m = t && !t.parent_id ? taskMsg(t.status, rowReceipt(t)?.status ?? null, c.open, token) : null;
         if (m) await ntfySend(m);
       }
       await ackEvent("ntfy", e.id);

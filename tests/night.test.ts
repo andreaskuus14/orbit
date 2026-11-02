@@ -216,3 +216,9 @@ test("dreaming: a cheap first-tier step when asked for, never deferred by lesson
   assert.deepEqual(planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "dream", "clips"]);
   assert.deepEqual(planNight({ ...i, handled: ["dream:dream"] }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "clips"]);
 });
+
+test("stoppedText: a lost lease reads as another ORBIT, not the raw code", async () => {
+  const { stoppedText } = await import("../src/lib/night-pure.ts");
+  assert.equal(stoppedText("lease"), "Another ORBIT was already running the night shift");
+  assert.notEqual(stoppedText("lease", "et"), "lease");
+});
