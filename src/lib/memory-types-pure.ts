@@ -72,7 +72,7 @@ export function temporaryOf(text: string, createdAt: string, project?: string | 
   return chat || proj ? out("revoked", null) : null; // scoped but not time-bound
 }
 const scopeOf = (chat: boolean, proj: boolean, project?: string | null, chatId?: string | null): Omit<Scope, "expiresAt"> =>
-  chat ? { kind: "chat", ...(chatId ? { chat: chatId } : {}) } : proj && project ? { kind: "project", project } : { kind: "global" };
+  chat ? { kind: "chat", ...(chatId ? { chat: chatId } : {}) } : proj ? { kind: "project", ...(project ? { project } : {}) } : { kind: "global" };
 const chatKey = (id?: string | null) => (id ?? "").toLowerCase().replace(/-/g, "");
 
 /** Tags that pin a newly saved memory to where it was said: "chat:<id>" for chat-scoped wording, "scope:<project>" for
@@ -81,7 +81,7 @@ export function scopeTags(text: string, tags: string[] | undefined, ctx: { chat?
   const own = (tags ?? []).filter((x) => !/^(?:chat:|until:|revoked$)/.test(x));
   const s = temporaryOf(text.slice(0, 400), new Date().toISOString(), ctx.project, ctx.chat);
   if (s?.kind === "chat") own.push(`chat:${chatKey(ctx.chat) || "unknown"}`); // no chat id: fails closed (eligible nowhere)
-  else if (s?.kind === "project" && s.project && !own.some((x) => x.startsWith("scope:"))) own.push(`scope:${s.project}`.slice(0, 40));
+  else if (s?.kind === "project" && !own.some((x) => x.startsWith("scope:"))) own.push(`scope:${s.project ?? ""}`.slice(0, 40)); // no project id: empty scope fails closed, including title-only cues
   return own;
 }
 
@@ -104,7 +104,7 @@ export function scopeOfRecord(r: Typed): Scope {
   const tag = tagged(r, "scope:"), chat = tagged(r, "chat:"), until = tagged(r, "until:");
   const temp = r.kind === "conversation" ? null : temporaryOf(textOf(r).slice(0, 400), r.created_at, projectOf(r));
   const base: Scope = chat !== undefined || temp?.kind === "chat" ? { ...temp, kind: "chat", chat: chat || undefined, expiresAt: temp?.expiresAt ?? null }
-    : tag ? { ...temp, kind: "project", project: tag, expiresAt: temp?.expiresAt ?? null }
+    : tag !== undefined ? { ...temp, kind: "project", project: tag || undefined, expiresAt: temp?.expiresAt ?? null }
     : temp ?? { kind: "global", expiresAt: null };
   if (until === "revoked") return { ...base, until: "revoked", expiresAt: null };
   if (until && /^\d{4}-\d{2}-\d{2}$/.test(until) && Date.parse(until)) return { ...base, until: "date", expiresAt: tallinnMidnight(Date.parse(until) + DAY) };
@@ -132,7 +132,7 @@ export function currentOnly<T extends Typed & { id: string }>(rows: T[], ctx: Ct
 export function typeLabel(r: Typed): string {
   const t = memoryType(r), s = scopeOfRecord(r);
   if (t === "inferred") return ' type="inferred belief (a guess, not confirmed)"';
-  if (t === "temporary") return ` type="temporary instruction${s.expiresAt ? ` until ${new Date(s.expiresAt - 1).toLocaleDateString("en-CA", { timeZone: TZ })}` : " until revoked"}${s.kind === "project" ? ` in ${s.project}` : s.kind === "chat" ? " in this chat only" : ""}"`;
+  if (t === "temporary") return ` type="temporary instruction${s.expiresAt ? ` until ${new Date(s.expiresAt - 1).toLocaleDateString("en-CA", { timeZone: TZ })}` : " until revoked"}${s.kind === "project" ? s.project ? ` in ${s.project}` : " in this project only" : s.kind === "chat" ? " in this chat only" : ""}"`;
   if (t === "observation") return ' type="observation"';
   return t === "preference" ? ' type="preference"' : "";
 }
