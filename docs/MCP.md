@@ -5,7 +5,7 @@ An MCP server exposes tools that CORE can discover and call. ORBIT already suppo
 ## Connect hosted GitHub without Docker
 
 1. On GitHub, create a fine-grained personal access token restricted to the repositories you want ORBIT to read. Grant only the needed read permissions: Contents, Issues, Pull requests and, for workflow inspection, Actions. Organization policies or approval requirements can also restrict access.
-2. On the PC running ORBIT, set `ORBIT_GITHUB_MCP_TOKEN` in `.env.local` to the token alone, without a `Bearer ` prefix. Keep this file local. Never paste the token into chat, plugin JSON, a task, a screenshot or a PR.
+2. On the PC running ORBIT, set `ORBIT_MCP_GITHUB_TOKEN` in `.env.local` to the token alone, without a `Bearer ` prefix. Keep this file local. Never paste the token into chat, plugin JSON, a task, a screenshot or a PR.
 3. Restart ORBIT so its server loads the setting.
 4. In Profile → Plugins → Suggested plugins, select **GitHub hosted (read-only)** → Fill the form → Add → Test connection. For CI inspection, also add **GitHub Actions hosted (read-only)** using the same setting.
 5. A successful test reports the number of discovered tools. Check their modes, then ask CORE to inspect a specific repository/PR and include source links. A tool discovery test proves connection and discovery only; check the actual read result before relying on it.
@@ -16,16 +16,26 @@ The saved configuration contains the variable name, not the token:
 {
   "name": "github-read",
   "url": "https://api.githubcopilot.com/mcp/readonly",
-  "bearerTokenEnv": "ORBIT_GITHUB_MCP_TOKEN",
+  "bearerTokenEnv": "ORBIT_MCP_GITHUB_TOKEN",
   "local": false
 }
 ```
 
 The Actions preset uses `https://api.githubcopilot.com/mcp/x/actions/readonly`. These endpoints expose read tools only; the token's own permissions determine which repositories/data they can access. Keep the existing Docker GitHub suggestion if you prefer a local server process.
 
+## Connect vidIQ
+
+1. In vidIQ (app.vidiq.com → MCP settings), create an API key. Every vidIQ plan includes MCP; research calls use vidIQ credits (the free plan has 150 a month), so ORBIT's own free `find_outliers` and YouTube Analytics stay the default for routine numbers.
+2. Set `ORBIT_MCP_VIDIQ_KEY` in `.env.local` to the key alone and restart ORBIT.
+3. Profile → Plugins → Suggested plugins → **vidIQ (YouTube research)** → Add → Test connection. Tools that change videos are not read-only, so they wait for your Run click.
+
+## Higgsfield
+
+Higgsfield's MCP server (`https://mcp.higgsfield.ai/mcp`) signs in through a browser (OAuth) and has no API key, so it cannot be added here yet. Keep using it from the Claude app until ORBIT supports OAuth connectors.
+
 ## Other authenticated HTTP servers
 
-Set `bearerTokenEnv` to a server-only environment variable containing that server's bearer token. HTTP plugins accept HTTPS URLs, or HTTP on loopback for local services. `NEXT_PUBLIC_` variables, credentials in URLs, and invalid token/header values are rejected. Servers requiring OAuth-only login or custom authentication headers need separate support; this change does not add OAuth, browser login or cookies.
+Set `bearerTokenEnv` to an environment variable whose name starts with `ORBIT_MCP_` (for example `ORBIT_MCP_NOTION_TOKEN`) containing that server's bearer token. Any other name is refused, so a pasted plugin config can never send a server secret such as `SUPABASE_SECRET_KEY` to its URL. HTTP plugins accept HTTPS URLs, or HTTP on loopback for local services. Other variable names, credentials in URLs, and invalid token/header values are rejected. Servers requiring OAuth-only login or custom authentication headers need separate support; this change does not add OAuth, browser login or cookies.
 
 Local command plugins continue to use their existing `env` settings. Mark a plugin **local app only** only if its tools stay on the PC and do not reach outside services. Do not mark GitHub, Notion or other online connectors local.
 

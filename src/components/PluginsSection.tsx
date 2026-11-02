@@ -107,7 +107,7 @@ export function PluginsSection() {
       </details>
       <details className="text-sm" open={!!draft}>
         <summary className="cursor-pointer">Add a plugin</summary>
-        <p className="muted mt-1 text-xs">JSON: name, command + args (a program on this PC) or url (https), env, local, tools {"{"}"tool": "auto"|"ask"|"off"{"}"}, others (default for unlisted tools). For HTTP bearer authentication, set bearerTokenEnv to the server environment variable name; put the actual token in .env.local and restart ORBIT. Saved only on this PC (plugins.json in ORBIT&apos;s data folder), never in git.</p>
+        <p className="muted mt-1 text-xs">JSON: name, command + args (a program on this PC) or url (https), env, local, tools {"{"}"tool": "auto"|"ask"|"off"{"}"}, others (default for unlisted tools). For HTTP bearer authentication, set bearerTokenEnv to an environment variable name starting with ORBIT_MCP_; put the actual token in .env.local and restart ORBIT. Saved only on this PC (plugins.json in ORBIT&apos;s data folder), never in git.</p>
         <textarea className="field mt-1 h-40 w-full font-mono text-xs" value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Plugin JSON" placeholder='{"name": "files", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\\\path"]}' />
         <button className="chip" disabled={!draft.trim() || !!busy} onClick={() => void add()}>Add</button>
       </details>

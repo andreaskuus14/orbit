@@ -60,7 +60,8 @@ export function validatePlugin(b: unknown): Plugin | string {
   const p: Plugin = { name, args: args as string[], env, enabled: o.enabled !== false, local: o.local === true, tools, timeoutSec: t };
   if (command) p.command = command; else p.url = url;
   if (o.bearerTokenEnv !== undefined) {
-    if (!url || typeof o.bearerTokenEnv !== "string" || !ENV.test(o.bearerTokenEnv) || o.bearerTokenEnv.startsWith("NEXT_PUBLIC_")) return "bearerTokenEnv: a server-only environment variable name for an HTTP plugin";
+    // Only ORBIT_MCP_* names: any other name could point a pasted config at SUPABASE_SECRET_KEY and send it to that url.
+    if (!url || typeof o.bearerTokenEnv !== "string" || !MCP_TOKEN_ENV.test(o.bearerTokenEnv)) return "bearerTokenEnv: an ORBIT_MCP_… environment variable name for an HTTP plugin";
     p.bearerTokenEnv = o.bearerTokenEnv;
   }
   if (o.others !== undefined) p.others = o.others as Mode;
@@ -70,6 +71,8 @@ export function validatePlugin(b: unknown): Plugin | string {
   if (c && typeof c === "object" && Array.isArray(c.tools)) p.cache = { at: String(c.at ?? ""), tools: c.tools.flatMap((x) => cleanTool(x) ?? []), ...(c.error ? { error: String(c.error).slice(0, 300) } : {}) };
   return p;
 }
+
+const MCP_TOKEN_ENV = /^ORBIT_MCP_[A-Z0-9_]{1,50}$/;
 
 /** Resolve only on the server, at connection time. Config contains the variable name, never the token. */
 export function pluginHeaders(p: Pick<Plugin, "bearerTokenEnv">, env: Record<string, string | undefined>): Record<string, string> {
@@ -87,7 +90,7 @@ export function pluginError(e: unknown, p: Plugin, env: Record<string, string | 
   if (code === 403) return "Access denied (403). Check the token's repository permissions and service or organization access, then test the connection again.";
   let message = e instanceof Error ? e.message : String(e);
   for (const secret of [...Object.values(p.env), ...(p.bearerTokenEnv ? [env[p.bearerTokenEnv]?.trim()] : [])]) {
-    if (secret) message = message.split(secret).join("[redacted]");
+    if (secret && secret.length >= 8) message = message.split(secret).join("[redacted]"); // short values ("true") are settings, not secrets
   }
   return message.slice(0, 300);
 }
@@ -252,13 +255,18 @@ export const SUGGESTED: { title: string; about: string; install: string; plugin:
   },
   {
     title: "GitHub hosted (read-only)", about: "Read repositories, issues and PRs without Docker. Only the repositories allowed by your token are accessible.",
-    install: "Create a fine-grained GitHub token with read-only access to the selected repositories. Set ORBIT_GITHUB_MCP_TOKEN in .env.local on your PC, restart ORBIT, fill this form, Add, then Test connection. Never paste the token into this form or chat. See docs/MCP.md.",
-    plugin: { name: "github-read", url: "https://api.githubcopilot.com/mcp/readonly", bearerTokenEnv: "ORBIT_GITHUB_MCP_TOKEN", local: false },
+    install: "Create a fine-grained GitHub token with read-only access to the selected repositories. Set ORBIT_MCP_GITHUB_TOKEN in .env.local on your PC, restart ORBIT, fill this form, Add, then Test connection. Never paste the token into this form or chat. See docs/MCP.md.",
+    plugin: { name: "github-read", url: "https://api.githubcopilot.com/mcp/readonly", bearerTokenEnv: "ORBIT_MCP_GITHUB_TOKEN", local: false },
   },
   {
     title: "GitHub Actions hosted (read-only)", about: "Inspect workflow runs, jobs and failing CI checks without triggering workflows.",
-    install: "Use the same local ORBIT_GITHUB_MCP_TOKEN, with Actions read permission for the selected repositories. Restart ORBIT after changing it, Add, then Test connection. See docs/MCP.md.",
-    plugin: { name: "github-actions", url: "https://api.githubcopilot.com/mcp/x/actions/readonly", bearerTokenEnv: "ORBIT_GITHUB_MCP_TOKEN", local: false },
+    install: "Use the same local ORBIT_MCP_GITHUB_TOKEN, with Actions read permission for the selected repositories. Restart ORBIT after changing it, Add, then Test connection. See docs/MCP.md.",
+    plugin: { name: "github-actions", url: "https://api.githubcopilot.com/mcp/x/actions/readonly", bearerTokenEnv: "ORBIT_MCP_GITHUB_TOKEN", local: false },
+  },
+  {
+    title: "vidIQ (YouTube research)", about: "Keyword research, outliers, trends and your channel's stats from vidIQ. Each research call uses vidIQ credits (free plan: 150 a month).",
+    install: "Create an API key in vidIQ (app.vidiq.com, MCP settings). Set ORBIT_MCP_VIDIQ_KEY in .env.local on your PC, restart ORBIT, Add, then Test connection. Never paste the key into this form or chat. Anything that changes your videos waits for your Run click.",
+    plugin: { name: "vidiq", url: "https://mcp.vidiq.com/mcp", bearerTokenEnv: "ORBIT_MCP_VIDIQ_KEY", local: false },
   },
   {
     title: "GitHub (official github-mcp-server)", about: "Read issues, PRs and code on GitHub. Anything that writes to GitHub waits for your Run click.",

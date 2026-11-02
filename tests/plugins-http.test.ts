@@ -13,7 +13,7 @@ test("authenticated HTTP MCP: discover and call tools without exposing credentia
   const dir = await mkdtemp(path.join(tmpdir(), "orbit-mcp-http-"));
   process.env.ORBIT_DATA_DIR = dir;
   const token = "synthetic-mcp-token-for-test-only";
-  process.env.ORBIT_TEST_MCP_TOKEN = token;
+  process.env.ORBIT_MCP_TEST_TOKEN = token;
   let requests = 0, calls = 0, reject = false;
   const http = createServer(async (req, res) => {
     requests++;
@@ -37,19 +37,19 @@ test("authenticated HTTP MCP: discover and call tools without exposing credentia
   const port = (http.address() as { port: number }).port;
   const P = await import("../src/lib/plugins.ts");
   try {
-    const plugin = validatePlugin({ name: "remote", url: `http://127.0.0.1:${port}/mcp`, bearerTokenEnv: "ORBIT_TEST_MCP_TOKEN" });
+    const plugin = validatePlugin({ name: "remote", url: `http://127.0.0.1:${port}/mcp`, bearerTokenEnv: "ORBIT_MCP_TEST_TOKEN" });
     assert.notEqual(typeof plugin, "string");
     await P.updatePlugins(() => [plugin as Exclude<typeof plugin, string>]);
     assert.deepEqual(await P.testPlugin("remote"), { ok: true, tools: 1 });
     assert.match(await P.runPluginTool("plugin__remote__read", {}, { steps: [], pinned: false }), /verified fixture result/);
     assert.equal(calls, 1);
-    delete process.env.ORBIT_TEST_MCP_TOKEN;
+    delete process.env.ORBIT_MCP_TEST_TOKEN;
     const before = requests;
     const missing = await P.testPlugin("remote");
     assert.equal(missing.ok, false);
-    assert.match(missing.error!, /ORBIT_TEST_MCP_TOKEN.*restart/i);
+    assert.match(missing.error!, /ORBIT_MCP_TEST_TOKEN.*restart/i);
     assert.equal(requests, before, "missing credentials must fail before a network request");
-    process.env.ORBIT_TEST_MCP_TOKEN = token;
+    process.env.ORBIT_MCP_TEST_TOKEN = token;
     reject = true;
     const denied = await P.testPlugin("remote");
     assert.equal(denied.ok, false);
@@ -59,7 +59,7 @@ test("authenticated HTTP MCP: discover and call tools without exposing credentia
     await new Promise((r) => setTimeout(r, 100)); // Activity writes are asynchronous.
     assert.doesNotMatch(await readFile(path.join(dir, "activity.jsonl"), "utf8"), new RegExp(token));
   } finally {
-    delete process.env.ORBIT_TEST_MCP_TOKEN;
+    delete process.env.ORBIT_MCP_TEST_TOKEN;
     await P.closeAllPlugins();
     await new Promise<void>((resolve, reject) => http.close((e) => e ? reject(e) : resolve()));
     await rm(dir, { recursive: true, force: true });
