@@ -7,7 +7,8 @@ import { learnFacts } from "@/lib/facts";
 import { emit } from "@/lib/claude";
 import { liveTracker, ndjsonStream, type StepDone } from "@/lib/core-live-pure";
 import { MODULE_PRIVATE } from "@/lib/core-modules";
-import { coreTaintStore } from "@/lib/durable";
+import { coreSessionStore, coreTaintStore } from "@/lib/durable";
+import { doneSoFar, newBgTurn } from "@/lib/bg-resume-pure";
 import { str } from "@/lib/pure";
 import type { NavTarget } from "@/lib/nav-pure";
 import { parseAttachments, attachedSuffix, attachmentPrompt } from "@/lib/attach-pure";
@@ -107,7 +108,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
           onReset?.();
           // Not for the phone remote: its clients read "done" as the end. In-app, the open stream keeps showing the background work.
           const follow = !opts.remote;
-          const bg = await inBackground(sb, userId, cid, message, (sig) => runCoreFor(BACKGROUND_TURN_MS, handoff, sb, userId, history, follow ? onDelta : undefined, sig, follow ? onReset : undefined, voice, undefined, follow ? onStep : undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang));
+          const bg = await inBackground(sb, userId, cid, message, handoff.carry?.trace ?? [], lang, (sig) => runCoreFor(BACKGROUND_TURN_MS, handoff, sb, userId, history, follow ? onDelta : undefined, sig, follow ? onReset : undefined, voice, undefined, follow ? onStep : undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang));
           const taskId = bg.taskId;
           if (follow) { background = bg.finished; send({ type: "background", taskId }); }
           out = { text: handoffReply(taskId, lang), citations: [], trace: [{ step: "fallback", detail: "turn time limit → background task", ms: 0, ok: false }], model: "smart" };
@@ -182,14 +183,21 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
   return Response.json(o.body, { status: o.status === 499 ? 502 : o.status });
 }
 
-// shortcut: the background turn runs in this Node process (survives a closed browser, not a server restart); a restart leaves its task "running" until reclaimed.
+// The background turn runs in this Node process; a small record on disk (bg-resume.ts) lets the boot sweep resume it after a restart.
 /** Run a handed-off CORE turn as an OPERATIONS task: its answer lands in the chat, and agent.completed/failed gives the one notice. */
-async function inBackground(sb: SupabaseClient, userId: string, cid: string, message: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>): Promise<{ taskId: string; finished: Promise<{ answer: string } | null> }> {
+async function inBackground(sb: SupabaseClient, userId: string, cid: string, message: string, trace: Parameters<typeof doneSoFar>[0], lang: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>): Promise<{ taskId: string; finished: Promise<{ answer: string } | null> }> {
   const title = `CORE: ${message.replace(/\s+/g, " ").trim().slice(0, 80)}`;
   const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent: "nova", title, request: message, status: "running", started_at: new Date().toISOString() }).select("id").single();
   if (error) throw error;
   const taskId: string = data.id;
-  const finished = (async () => {
+  const rec = newBgTurn({ taskId, userId, chatId: cid, request: message, title, done: doneSoFar(trace), sessionId: coreSessionStore.get(cid)?.id, lang }, Date.now());
+  const stop = await import("@/lib/bg-resume").then((m) => m.trackTurn(rec), () => undefined);
+  return { taskId, finished: finishBackground(sb, userId, cid, taskId, title, run, stop) };
+}
+
+/** The end of a background turn (fresh or resumed after a restart): answer or failure into the chat, task row, one notice. */
+export function finishBackground(sb: SupabaseClient, userId: string, cid: string, taskId: string, title: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>, stop?: () => Promise<void>): Promise<{ answer: string } | null> {
+  return (async () => {
     let status = "done", result: string | null = null, err: string | null = null, rc: Receipt | undefined;
     try {
       const out = await run(new AbortController().signal);
@@ -198,15 +206,15 @@ async function inBackground(sb: SupabaseClient, userId: string, cid: string, mes
       await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
       void noteReceipts(userId, cid, out.trace).catch(() => {});
     } catch (e) {
-      status = "failed"; err = BG_FAILED;
+      status = "failed"; err = (e as { orbitReason?: string } | null)?.orbitReason ?? BG_FAILED; // a resume that gave up says why
       console.error("[orbit] background CORE turn failed:", e instanceof Error ? e.message : e);
-      await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: `_${BG_FAILED}_` }).then(() => {}, () => {});
+      await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: `_${err}_` }).then(() => {}, () => {});
     }
     await sb.from("tasks").update({ status, result, error: err, finished_at: new Date().toISOString(), ...(rc && { trace: [{ step: "receipt", detail: receiptLine(rc), ms: 0, ok: rc.status === "verified", receipt: rc }] }) }).eq("id", taskId).then(() => {}, () => {});
     await emit(sb, userId, status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId, status, title });
-    return { answer: result ?? `_${BG_FAILED}_` };
+    await stop?.();
+    return { answer: result ?? `_${err ?? BG_FAILED}_` };
   })();
-  return { taskId, finished };
 }
 
 const receiptOf = (trace: { step: string; receipt?: Receipt }[]) => trace.findLast((s) => s.receipt)?.receipt;

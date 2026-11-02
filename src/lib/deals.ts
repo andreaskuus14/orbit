@@ -133,8 +133,8 @@ export async function huntDeals(sb: SupabaseClient, userId: string, lane: Lane, 
       }
     }
     if (alerts.length && !quietAt(Date.now())) { // label only, never the item or price; at night the 08:00+ call (call-pure "deal") tells him instead
-      const { pushProblem, deliver } = await import("./remote-push");
-      if (!pushProblem()) void deliver(pushLabel("deal"));
+      const { canNotify, deliver } = await import("./remote-push");
+      if (canNotify()) void deliver(pushLabel("deal")); // Web Push or ntfy
     }
     return out;
   } finally { D.busy = false; D.ac = null; }
