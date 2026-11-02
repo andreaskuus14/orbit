@@ -5,7 +5,7 @@
 import { currentOnly, resolveClaims, weight } from "./memory-types-pure.ts";
 
 export type EKind = "person" | "project" | "place" | "org";
-export type Src = { id: string; type: "memory" | "fact" | "person"; title: string; at: string; weight?: number }; // weight: memory-types-pure.ts
+export type Src = { id: string; type: "memory" | "fact" | "person" | "prospect"; title: string; at: string; weight?: number }; // weight: memory-types-pure.ts
 export type Mention = { form: string; kind?: EKind; src: Src; ids?: string[] }; // ids: stable "namespace:value", e.g. "domain:nytimes.com"
 export type Attr = "birthday" | "employer" | "home";
 export type Claim = { form: string; attr: Attr; value: string; norm: string; src: Src };
@@ -230,13 +230,23 @@ const NAME = /\b\p{Lu}[\p{Ll}'-]+(?:\s+\p{Lu}[\p{Ll}'-]+){1,2}\b/gu, EMAIL = /[\
 export type MemIn = { id: string; kind: string; title: string; content: string; created_at: string; source?: string | null; confirmation?: string | null; tags?: string[] | null };
 export type FactIn = { id: string; statement: string; status: string; created_at: string; source?: string; supersedes?: string | null };
 export type PersonIn = { id: string; name: string; created_at: string };
+export type ProspectIn = { id: string; name: string; contact?: string | null; created_at: string }; // BUSINESS
+// Shared mail hosts say nothing about which company someone is: never a stable id.
+const FREE_MAIL = /^(?:gmail|googlemail|outlook|hotmail|live|yahoo|icloud|me|mail|proton|protonmail|gmx|inbox|zoho|aol|yandex|mail\.ru)\./;
+/** A prospect's stable ids: its BUSINESS id and its own domain (from a website or a non-free-mail address). */
+export function prospectIds(p: Pick<ProspectIn, "id" | "contact">): string[] {
+  const c = p.contact ?? "", host = (/@((?:[a-z0-9-]+\.)+[a-z]{2,})/i.exec(c)?.[1] ?? /(?:^|[\s(,;]|\/\/)(?:www\.)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?![\w@.])/i.exec(c)?.[1])?.toLowerCase();
+  return [`prospect:${p.id}`, ...(host && !FREE_MAIL.test(host) ? [`domain:${host}`] : [])];
+}
 /** Never LIFE: journal entries are dropped here no matter who calls (defence in depth next to the query's own filter). */
 export const usable = (ms: MemIn[]) => ms.filter((m) => m.kind !== "journal");
 
 /** Everything the scan needs from his data: mentions (people, project titles, names, emails, claim subjects/places) and claims. */
-export function gather(x: { memories: MemIn[]; facts: FactIn[]; people: PersonIn[] }): { mentions: Mention[]; claims: Claim[] } {
+export function gather(x: { memories: MemIn[]; facts: FactIn[]; people: PersonIn[]; prospects?: ProspectIn[] }): { mentions: Mention[]; claims: Claim[] } {
   const mentions: Mention[] = [], claims: Claim[] = [];
   for (const p of x.people) mentions.push({ form: p.name, kind: "person", src: { id: p.id, type: "person", title: p.name, at: p.created_at } });
+  // BUSINESS companies join MEMORY names only through the same rules (2+ signals to suggest, his click to merge).
+  for (const p of x.prospects ?? []) mentions.push({ form: p.name, kind: "org", src: { id: p.id, type: "prospect", title: p.name.slice(0, 80), at: p.created_at }, ids: prospectIds(p) });
   // Corrected originals and history copies make no claims; expired temporary notes neither.
   for (const m of currentOnly(usable(x.memories), { now: Date.now() })) {
     const src: Src = { id: m.id, type: "memory", title: m.title.slice(0, 80), at: m.created_at, weight: weight(m) };
@@ -258,15 +268,15 @@ export function gather(x: { memories: MemIn[]; facts: FactIn[]; people: PersonIn
 const same = (a: string, b: string) => a === b || (a.length >= 3 && b.length >= 3 && (` ${b} `.includes(` ${a} `) || ` ${a} `.includes(` ${b} `))); // "acme" ~ "acme estonia"
 /** Claims about the same entity (exact name or an owner-confirmed merge) and attribute that disagree. Newest first; decided keys skipped. */
 /** Claims grouped by entity + attribute (unconfirmed merges never group claims), each group's distinct values newest first. */
-function claimGroups(claims: Claim[], ents: ResolvedEntity[]) {
+export function claimGroups(claims: Claim[], ents: ResolvedEntity[]) {
   const byKey = new Map<string, ResolvedEntity>();
   for (const e of ents) for (const k of e.keys) byKey.set(k, e);
-  const groups = new Map<string, { entity: string; attr: Attr; cs: Claim[] }>();
+  const groups = new Map<string, { id: string; entity: string; attr: Attr; cs: Claim[] }>();
   for (const c of claims) {
     const k = formKey(c.form), e = byKey.get(k);
     const id = c.form === "me" ? "me" : e?.confirmed ? e.root : k; // unconfirmed merges never group claims
     const name = c.form === "me" ? "me" : e?.confirmed ? [...e.forms].filter((f) => !isEmail(f)).sort((a, b) => b.length - a.length)[0] ?? c.form : c.form;
-    const g = groups.get(`${id}|${c.attr}`) ?? { entity: name, attr: c.attr, cs: [] };
+    const g = groups.get(`${id}|${c.attr}`) ?? { id, entity: name, attr: c.attr, cs: [] };
     g.cs.push(c); groups.set(`${id}|${c.attr}`, g);
   }
   return [...groups].map(([gk, g]) => {
