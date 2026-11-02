@@ -63,6 +63,10 @@ const PAIRS: [string, string, string][] = [
   ["WATCH", "Watch the page rival.ee", "Jälgi lehte rival.ee"],
   ["WATCH", "Tell me when the DevForum posts news", "Ütle mulle kui DevForum uudise postitab"],
   ["WATCH", "Show my watches", "Näita mu jälgimisi"],
+  ["BROWSER", "Make a screenshot of example.com", "Tee example.com kuvatõmmis"],
+  ["BROWSER", "Click the Load more button on that site", "Kliki sellel saidil nuppu Lae veel"],
+  ["BROWSER", "Scroll down the shop and read it", "Keri poodi alla ja loe seda"],
+  ["LOCALAI", "Make me a photo of a calm lake", "Tee mulle foto rahulikust järvest"],
 ];
 
 test("every keyword-gated module has ≥3 EN/ET pairs and a capability line", () => {
