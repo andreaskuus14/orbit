@@ -8,6 +8,7 @@ import { logActivity } from "./activity.ts";
 import { stopAllOn } from "./stop-all.ts";
 import { PAUSED_MSG } from "./stop-all-pure.ts";
 import { UNTRUSTED } from "./policy-pure.ts";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { claimPending, cleanTool, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
 
 // MCP plugins: <ORBIT data dir>/plugins.json (his servers + trust settings + the tool list from the last Test connection) and
@@ -111,8 +112,11 @@ async function callTool(p: Plugin, tool: string, args: Record<string, unknown>, 
     const r = await withClient(p, (c, timeout) => { sent = true; return c.callTool({ name: tool, arguments: args }, undefined, { timeout, maxTotalTimeout: timeout }); });
     out = resultText(p.name, r as { content?: unknown; isError?: unknown });
   } catch (e) {
-    unknown = sent;
-    out = sent ? `Error: plugin ${p.name} ${tool}: outcome unknown (${msg(e)}). It may or may not have run; check ${p.name} before trying again.` : `Error: plugin ${p.name} ${tool} failed: ${msg(e)}`;
+    // a JSON-RPC error answer from the server (bad params, unknown tool…) is definite; a timeout or a dropped connection after
+    // the request went out is not: it may have run
+    const code = e instanceof McpError ? e.code : null;
+    unknown = sent && (code === null || code === ErrorCode.RequestTimeout || code === ErrorCode.ConnectionClosed);
+    out = unknown ? `Error: plugin ${p.name} ${tool}: outcome unknown (${msg(e)}). It may or may not have run; check ${p.name} before trying again.` : `Error: plugin ${p.name} ${tool} failed: ${msg(e)}`;
   }
   const failed = out.startsWith("Error:");
   logActivity({ area: by === "owner" ? "system" : "core", title: `Plugin ${p.name} → ${tool}${by === "owner" ? " (your Run click)" : ""}: ${unknown ? "outcome unknown" : failed ? "failed" : "done"} in ${((Date.now() - t0) / 1000).toFixed(1)} s`, ...(failed ? { detail: out.slice(0, 300) } : {}) });
@@ -149,21 +153,28 @@ export async function runPluginTool(id: string, input: Record<string, unknown>, 
 
 // Queued calls running in this process right now. Disk alone can't tell "running here now" from "a crash left it attempting",
 // so Run again and Discard are refused while the id is here; after a restart the set is empty and only crash leftovers show unknown.
+// Single-process by design: launch.ps1 runs one supervised server on :3000 (a second one fails on the port). Two processes on one
+// data dir would each have their own set, and Run again in one could repeat a call the other is still running.
 const running = (g.__orbitPluginRunning ??= new Set<string>());
 export const isRunning = (id: string) => running.has(id);
 
 /** His Run click on a queued call: runs exactly the stored arguments once. The claim (attempting, plus this process's running
  *  set) is saved before the call; the item leaves the queue only after a definite outcome, so a crash or a broken call shows
  *  "outcome unknown" instead of vanishing or re-running. */
-export async function runPending(id: string, again = false): Promise<{ out?: string; error?: string }> {
+export async function runPending(id: string, again: string | null = null): Promise<{ out?: string; error?: string }> {
   if (stopAllOn()) return { error: PAUSED_MSG };
   let claim = { error: "Not in the queue any more" } as ReturnType<typeof claimPending>; // set inside the save: TS can't see that
-  await savePending((l) => {
-    claim = running.has(id) ? { error: "It is running right now; wait for it to finish." } : claimPending(l, id, again, new Date().toISOString());
-    if (!("list" in claim)) return l;
-    running.add(id); // inside the same save step as the claim: two clicks can't both pass
-    return claim.list;
-  });
+  try {
+    await savePending((l) => {
+      claim = running.has(id) ? { error: "It is running right now; wait for it to finish." } : claimPending(l, id, again, new Date().toISOString());
+      if (!("list" in claim)) return l;
+      running.add(id); // inside the same save step as the claim: two clicks can't both pass
+      return claim.list;
+    });
+  } catch (e) { // the claim never reached disk: nothing ran, and the id mustn't stay "running" until a restart
+    if ("list" in (claim as object)) running.delete(id);
+    return { error: `Couldn't save the claim, so nothing ran: ${msg(e)}` };
+  }
   const c = claim as ReturnType<typeof claimPending>;
   if ("error" in c) return { error: c.error };
   try {
@@ -175,13 +186,16 @@ export async function runPending(id: string, again = false): Promise<{ out?: str
     }
     const { out, unknown } = await callTool(p, item.tool, item.args, "owner");
     // a definite outcome (done, or the server said it failed) leaves the queue; an unknown one stays attempting for his decision
-    if (!unknown) await savePending((l) => l.filter((x) => x.id !== id)).catch((e) => console.error("[plugins] dequeue:", msg(e))); // the result still reaches him
+    if (!unknown) await savePending((l) => l.filter((x) => x.id !== id)).catch((e) => { // the result still reaches him; the item would wrongly look unknown later
+      logActivity({ area: "system", title: `Plugin ${item.server} → ${item.tool}: finished, but it couldn't be removed from the queue`, detail: msg(e) });
+    });
     return { out };
   } finally { running.delete(id); }
 }
 
 /** Discard a queued call; refused while it is running here (it would look cancelled while it keeps going). */
 export async function discardPending(id: string): Promise<string | undefined> {
-  if (running.has(id)) return "It is running right now; wait for it to finish.";
-  await savePending((l) => l.filter((x) => x.id !== id));
+  let refused = false; // checked inside the save step, after any Run claim queued before it
+  await savePending((l) => (running.has(id) ? ((refused = true), l) : l.filter((x) => x.id !== id)));
+  return refused ? "It is running right now; wait for it to finish." : undefined;
 }

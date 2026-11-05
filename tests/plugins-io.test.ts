@@ -55,7 +55,8 @@ test("two Run clicks at once run the call once; a crash mid-call leaves 'outcome
   await writeFile(file, JSON.stringify([{ id: "c1", server: "fake", tool: "run_code", args: { code: "maybe" }, at: new Date().toISOString(), attempting: new Date().toISOString() }]));
   assert.match((await P.runPending("c1")).error!, /may or may not have run/);
   assert.equal((await P.listPending()).length, 1, "nothing ran, nothing dropped");
-  assert.match((await P.runPending("c1", true)).out!, /ran: maybe/);
+  assert.equal((await P.runPending("c1", "2000-01-01T00:00:00.000Z")).error, "It was tried again since you looked; check the latest result first.", "a stale Run again is refused");
+  assert.match((await P.runPending("c1", (await P.listPending())[0].attempting!)).out!, /ran: maybe/);
   assert.deepEqual(await P.listPending(), []);
 });
 
@@ -66,7 +67,7 @@ test("while a Run is in flight: Run again and Discard are refused and it shows r
   const first = P.runPending("s1");
   for (let i = 0; i < 100 && !P.isRunning("s1"); i++) await new Promise((r) => setTimeout(r, 20));
   assert.ok(P.isRunning("s1"));
-  assert.equal((await P.runPending("s1", true)).error, "It is running right now; wait for it to finish.", "no double run from a stale Run again");
+  assert.equal((await P.runPending("s1", "x")).error, "It is running right now; wait for it to finish.", "no double run from a stale Run again");
   assert.equal(await P.discardPending("s1"), "It is running right now; wait for it to finish.");
   const r = await first; // the 20 s tool hits the 5 s timeout after the request went out
   assert.match(r.out!, /outcome unknown .* It may or may not have run/);
@@ -80,6 +81,23 @@ test("while a Run is in flight: Run again and Discard are refused and it shows r
   await P.updatePlugins((l) => l.filter((x) => x.name !== "short"));
   await new Promise((r) => setTimeout(r, 300));
   assert.match(await readFile(path.join(dir, "activity.jsonl"), "utf8"), /Plugin short → slow \(your Run click\): outcome unknown/);
+});
+
+test("a claim that can't be saved runs nothing and doesn't block the item; a server error answer is a definite failure", { timeout: 30_000 }, async () => {
+  const { mkdir, rm } = await import("node:fs/promises");
+  const file = path.join(dir, "plugin-pending.json");
+  await writeFile(file, JSON.stringify([{ id: "w1", server: "fake", tool: "run_code", args: { code: "never" }, at: new Date().toISOString() }]));
+  await mkdir(file + ".tmp"); // rename target is a directory: every save fails
+  assert.match((await P.runPending("w1")).error!, /^Couldn't save the claim, so nothing ran/);
+  assert.equal(P.isRunning("w1"), false, "not stuck as running");
+  await rm(file + ".tmp", { recursive: true });
+  assert.equal((await P.listPending())[0].attempting, undefined, "no claim on disk");
+  await P.discardPending("w1");
+  // the fixture's "reject" answers with a JSON-RPC error (the server said no): definite, not "may or may not have run"
+  await writeFile(file, JSON.stringify([{ id: "e1", server: "fake", tool: "reject", args: {}, at: new Date().toISOString() }]));
+  const r = await P.runPending("e1");
+  assert.match(r.out!, /^Error: plugin fake reject failed: .*bad params/);
+  assert.deepEqual(await P.listPending(), [], "a definite answer leaves the queue");
 });
 
 test("Stop-all refuses new calls and closes running ones; every call is in Activity", { timeout: 30_000 }, async () => {

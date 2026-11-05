@@ -197,11 +197,13 @@ export type Pending = { id: string; server: string; tool: string; args: Record<s
 export const PENDING_MAX = 50;
 
 /** His Run click on `id`: mark it attempting (the claim) or refuse. Pure; plugins.ts runs it inside the queue's one-at-a-time save, so
- *  two clicks at once can't both claim it. An attempting item is refused unless `again` (he saw "outcome unknown" and chose to repeat). */
-export function claimPending(l: Pending[], id: string, again: boolean, now: string): { list: Pending[]; item: Pending } | { error: string } {
+ *  two clicks at once can't both claim it. An attempting item is refused unless `again` is the attempt he saw marked "outcome
+ *  unknown" (its `attempting` time): a stale Run again from another tab can't repeat a newer attempt. */
+export function claimPending(l: Pending[], id: string, again: string | null, now: string): { list: Pending[]; item: Pending } | { error: string } {
   const item = l.find((x) => x.id === id);
   if (!item) return { error: "Not in the queue any more" };
-  if (item.attempting && !again) return { error: `Already started at ${new Date(item.attempting).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}; it may or may not have run. Check ${item.server} first, then Run again or Discard.` };
+  if (item.attempting && again !== null && again !== item.attempting) return { error: "It was tried again since you looked; check the latest result first." };
+  if (item.attempting && again === null) return { error: `Already started at ${new Date(item.attempting).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}; it may or may not have run. Check ${item.server} first, then Run again or Discard.` };
   const claimed = { ...item, attempting: now };
   return { list: l.map((x) => (x.id === id ? claimed : x)), item: claimed };
 }

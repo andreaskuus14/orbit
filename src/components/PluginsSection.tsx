@@ -55,7 +55,7 @@ export function PluginsSection() {
             <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{typeof q.args.code === "string" ? q.args.code : JSON.stringify(q.args, null, 2)}</pre>
             {q.attempting && !q.running && busy !== q.id && <p className="mt-1 text-xs text-amber-300">Started {new Date(q.attempting).toLocaleString()} and never finished: it may or may not have run. Check {q.server} before running it again.</p>}
             <div className="mt-1 flex gap-2">
-              <button className="chip" disabled={!!busy || v.stopAll || q.running} onClick={() => void call({ action: "run", id: q.id, ...(q.attempting ? { again: true } : {}) }, q.id)}>{busy === q.id || q.running ? "Running…" : q.attempting ? "Run again" : "Run"}</button>
+              <button className="chip" disabled={!!busy || v.stopAll || q.running} onClick={() => void call({ action: "run", id: q.id, ...(q.attempting ? { again: q.attempting } : {}) }, q.id)}>{busy === q.id || q.running ? "Running…" : q.attempting ? "Run again" : "Run"}</button>
               <button className="chip" disabled={!!busy || q.running} onClick={() => void call({ action: "discard", id: q.id })}>Discard</button>
             </div>
           </div>
