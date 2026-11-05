@@ -43,6 +43,7 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 ## INTELLIGENCE
 
 - News globe and Pulse briefings, every story sourced. Faster and smoother now; no new actions.
+- **Watches:** public pages ORBIT re-reads on a schedule. Each change shows the lines that changed; the morning brief shows what changed, when and the source link, and says "check failed" when a watch couldn't be read. A return to an earlier version is labelled as a reversion (only the last 2 older versions are compared). Mark changes Useful/Noise, log "Missed a change"; Watches shows the last 7 days with failed checks out of all checks.
 
 ## GAME DEV
 

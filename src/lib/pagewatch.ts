@@ -5,8 +5,8 @@ import { orbitDataDir } from "./data-dir";
 import { safeFetch } from "./memory";
 import { UA, polite } from "./reach/net";
 import { stopAllOn } from "./stop-all";
-import { KEEP_CHANGES, MAX_WATCHES, applyCheck, changesSince, changesText, checkWatchInput, listText, pageText, parseStore, pickDue, robotsGate, watchBlocked,
-  type CheckResult, type Watch, type WatchStore } from "./pagewatch-pure";
+import { KEEP_CHANGES, KEEP_MISSED, KEEP_RUNS, MAX_WATCHES, applyCheck, changesSince, changesText, checkWatchInput, feedbackSummary, listText, pageText, parseStore, pickDue, robotsGate, watchBlocked,
+  type CheckResult, type Verdict, type Watch, type WatchStore } from "./pagewatch-pure";
 
 // INTELLIGENCE → Watches (page-change watch): <ORBIT data dir>/pagewatch.json. Checked by the server scheduler's minute tick (scheduler.ts),
 // at most PER_TICK due watches a tick. Read-only public pages: safeFetch (SSRF guard, 10 s timeout, 2 MB cap), no cookies or logins,
@@ -16,7 +16,8 @@ const FILE = () => path.join(orbitDataDir(), "pagewatch.json");
 const g = globalThis as unknown as { __orbitPageWatch?: Promise<unknown>; __orbitPageWatchBusy?: boolean; __orbitRobots?: Map<string, { at: number; txt: Promise<string | null> }> };
 const robotsCache = (g.__orbitRobots ??= new Map());
 
-const load = async (): Promise<WatchStore> => parseStore(await readFile(FILE(), "utf8").catch((e) => { if (e.code === "ENOENT") return "{}"; throw e; }));
+// A corrupt file throws (only a missing one is empty): the brief then says "couldn't be read" and update() never overwrites it.
+const load = async (): Promise<WatchStore> => { const raw = await readFile(FILE(), "utf8").catch((e) => { if (e.code === "ENOENT") return "{}"; throw e; }); JSON.parse(raw); return parseStore(raw); };
 function update<T>(fn: (s: WatchStore) => T): Promise<T> {
   const p = (g.__orbitPageWatch ?? Promise.resolve()).catch(() => {}).then(async () => {
     const s = await load(), out = fn(s);
@@ -64,6 +65,7 @@ async function check(w: Watch): Promise<void> {
     const { watch, change } = applyCheck(s.watches[i], r, now, randomUUID());
     s.watches[i] = watch;
     if (change) s.changes = [...s.changes, change].slice(-KEEP_CHANGES);
+    s.runs = [...(s.runs ?? []), { w: w.id, at: watch.lastChecked!, ok: r.ok }].slice(-KEEP_RUNS);
   });
 }
 
@@ -80,7 +82,8 @@ export async function tickWatches(): Promise<void> {
 /** The Watches list: watches without their snapshot text, plus recent changes. */
 export async function watchBoard() {
   const s = await load();
-  return { watches: s.watches.map(({ snaps, ...w }) => ({ ...w, versions: snaps.length })), changes: changesSince(s).slice(0, 60) };
+  return { watches: s.watches.map(({ snaps, ...w }) => ({ ...w, versions: snaps.length })), changes: changesSince(s).slice(0, 60),
+    week: feedbackSummary(s, Date.now() - 7 * 86_400_000) };
 }
 
 export async function addWatch(b: Record<string, unknown>): Promise<{ watch: Watch } | { error: string }> {
@@ -100,7 +103,24 @@ export const removeWatch = (id: string) => update((s) => {
   const n = s.watches.length;
   s.watches = s.watches.filter((w) => w.id !== id);
   s.changes = s.changes.filter((c) => c.watch !== id);
+  s.missed = (s.missed ?? []).filter((m) => m.watch !== id);
+  s.runs = (s.runs ?? []).filter((r) => r.w !== id);
   return n !== s.watches.length;
+});
+
+/** His review of one reported change: useful, noise, or null to clear. */
+export const markChange = (id: string, verdict: Verdict | null) => update((s) => {
+  const c = s.changes.find((x) => x.id === id);
+  if (!c) return false;
+  if (verdict) c.verdict = verdict; else delete c.verdict;
+  return true;
+});
+
+/** A change he noticed himself that the watcher didn't report (the review's "missed" count). */
+export const addMissed = (watch: string, note: string) => update((s) => {
+  if (!s.watches.some((w) => w.id === watch)) return false;
+  s.missed = [...(s.missed ?? []), { id: randomUUID(), watch, at: new Date().toISOString(), note: note.replace(/\s+/g, " ").trim().slice(0, 200) }].slice(-KEEP_MISSED);
+  return true;
 });
 
 /** important: owner-marked (its changes go to Needs you); seen: he looked at the latest change. */
