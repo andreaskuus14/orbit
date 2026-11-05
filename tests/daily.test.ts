@@ -22,6 +22,7 @@ test("brief: stored row = completed; verified only with articles", () => {
   assert.equal(briefState({ briefings: [{ kind: "midday", created_at: iso("12:31"), article_count: 5 }], runs: [] }, at("13:00")).state, "missed"); // another kind doesn't count
   assert.equal(briefState({ briefings: [{ kind: "manual", created_at: iso("12:00"), article_count: 4 }], runs: [] }, at("13:00")).state, "completed", "a brief he asked for after 07:30 stands in");
   assert.equal(briefState({ briefings: [{ kind: "manual", created_at: iso("06:00"), article_count: 4 }], runs: [] }, at("13:00")).state, "missed", "one from before the slot doesn't");
+  assert.equal(briefState({ briefings: [], runs: [{ status: "failed", detail: "manual: feeds down", started_at: iso("06:00") }] }, at("07:00")).state, "planned", "a failed manual brief before 07:30 isn't today's brief");
 });
 
 test("brief: failed run, live run, dead run", () => {
@@ -67,6 +68,14 @@ test("leads: off, planned, missed, waiting, completed by receipt; failed and par
   assert.equal(run("done", "failed").state, "failed");
   assert.match(run("done", "partly").evidence, /only partly verified/);
   assert.equal(run("done", "partly").verified, false);
+  // second review: his rejection isn't a failure; a dead "running" row goes uncertain; a loop saved after its slot isn't missed
+  const t = (status: string, extra: object) => leadsState({ automation: auto, tasks: [{ status, created_at: iso("09:15"), pending: null, receipt: null, ...extra }] }, now);
+  const rej = t("cancelled", { error: "You rejected the proposed actions" });
+  assert.deepEqual([rej.state, rej.evidence], ["completed", "you rejected what it proposed"]);
+  assert.equal(t("cancelled", { error: "Stopped (Stop-all)" }).state, "failed");
+  assert.equal(t("running", { started_at: iso("09:15") }).state, "uncertain");
+  assert.equal(leadsState({ automation: auto, tasks: [{ status: "running", created_at: iso("12:20"), started_at: iso("12:20"), pending: null, receipt: null }] }, now).state, "attempted");
+  assert.equal(leadsState({ automation: { ...auto, createdAt: iso("10:00") }, tasks: [] }, now).state, "planned");
 });
 
 test("leads: a weekly loop isn't missed on its off days; its last run shows instead", () => {
@@ -89,10 +98,13 @@ test("digest: labels only, flags failures; tool text never upgrades a state", ()
 test("digest due: once a day, from its time, retries at most every 30 min, never stale, off disables", () => {
   const d = "2026-11-05";
   assert.equal(digestDue(undefined, {}, d, at("10:00")), false);
+  assert.equal(digestDue("", {}, d, at("10:31")), true, "empty (as .env.example ships it) = 10:30, not off");
   assert.equal(digestDue(undefined, {}, d, at("10:31")), true);
   assert.equal(digestDue(undefined, { sent: d }, d, at("11:00")), false);
-  assert.equal(digestDue(undefined, { tried: iso("10:31") }, d, at("10:50")), false, "a failed try backs off");
-  assert.equal(digestDue(undefined, { tried: iso("10:31") }, d, at("11:02")), true);
+  assert.equal(digestDue(undefined, { tried: iso("10:31"), failed: true }, d, at("10:50")), false, "a refused try backs off");
+  assert.equal(digestDue(undefined, { tried: iso("10:31"), failed: true }, d, at("11:02")), true);
+  assert.equal(digestDue(undefined, { tried: iso("10:31") }, d, at("13:00")), false, "a try that may have landed counts as sent");
+  assert.equal(digestDue(undefined, { tried: new Date(at("10:31") - 86_400_000).toISOString() }, d, at("10:31")), true, "yesterday's try doesn't block today");
   assert.equal(digestDue(undefined, {}, d, at("14:31")), false, "more than 4 h late: skipped, not sent at night");
   assert.equal(digestDue("off", {}, d, at("23:00")), false);
   assert.equal(digestDue("8:00", {}, d, at("08:01")), true);

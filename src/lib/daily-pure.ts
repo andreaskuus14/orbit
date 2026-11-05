@@ -36,7 +36,7 @@ export function briefState(x: BriefIn, now: number, slot = "07:30"): DailyItem {
   const b = x.briefings.find((r) => r.kind === "morning") ?? x.briefings.find((r) => r.kind === "manual" && Date.parse(r.created_at) >= at);
   // runPulse stores a briefing only with cited articles, so a stored row is itself the proof
   if (b) return { wf: "brief", state: "completed", verified: b.article_count > 0, evidence: `${b.kind === "manual" ? "brief you asked for" : "briefing"} stored ${hm(b.created_at)}, ${b.article_count} articles` };
-  const run = x.runs.find((r) => /^(morning|manual)\b/.test(r.detail ?? ""));
+  const run = x.runs.find((r) => /^morning\b/.test(r.detail ?? "") || (/^manual\b/.test(r.detail ?? "") && Date.parse(r.started_at) >= at));
   if (run?.status === "running") {
     return now - Date.parse(run.started_at) < RUN_STALE_MS
       ? { wf: "brief", state: "attempted", verified: false, evidence: `running since ${hm(run.started_at)}` }
@@ -79,7 +79,8 @@ export function clipsState(jobs: ClipJobIn[], now: number): DailyItem {
 
 // slot: the automation's latest due time (pure.ts lastDue); next: its next due time when that is later today; grace: how long
 // automations.ts still fires it after the slot (3 h, or 30 min for hourly).
-export type LeadsIn = { automation: { enabled: boolean; slot: number; next: number | null; grace: number; label: string } | null; tasks: { status: string; created_at: string; pending: unknown; receipt: string | null }[] };
+// createdAt: automations.ts never fires a slot from before the automation existed
+export type LeadsIn = { automation: { enabled: boolean; slot: number; next: number | null; grace: number; label: string; createdAt?: string } | null; tasks: { status: string; created_at: string; started_at?: string | null; error?: string | null; pending: unknown; receipt: string | null }[] };
 
 /** The business loop's latest run since its last due slot (tasks: since that slot, newest first). Follows the real schedule, so a
  *  weekly loop isn't "missed" on the other six days. */
@@ -91,10 +92,14 @@ export function leadsState(x: LeadsIn, now: number): DailyItem {
   if (!t) {
     if (a.next !== null) return { wf: "leads", state: "planned", verified: false, evidence: `runs at ${hm(new Date(a.next).toISOString())} (${a.label})` };
     if (now < a.slot + a.grace) return { wf: "leads", state: "planned", verified: false, evidence: `due ${hm(new Date(a.slot).toISOString())}, starting (${a.label})` };
+    if (a.createdAt && Date.parse(a.createdAt) > a.slot) return { wf: "leads", state: "planned", verified: false, evidence: `saved after its last slot; first run at the next one (${a.label})` };
     return { wf: "leads", state: "missed", verified: false, evidence: `no run recorded after its ${new Date(a.slot).toISOString().slice(0, 10)} ${hm(new Date(a.slot).toISOString())} slot (${a.label})`, next: "ORBIT or its scheduler was off at that time, or Claude's usage limit held it." };
   }
-  if (t.status === "queued" || t.status === "running") return { wf: "leads", state: "attempted", verified: false, evidence: `${t.status} since ${hm(t.created_at)}` };
+  const since = t.started_at ?? t.created_at;
+  if (t.status === "running" && now - Date.parse(since) > RUN_STALE_MS) return { wf: "leads", state: "uncertain", verified: false, evidence: `"running" since ${hm(since)} with no end; ORBIT may have restarted mid-run`, next: "Open Agents: it's marked failed there after 20 min, then run it again." };
+  if (t.status === "queued" || t.status === "running") return { wf: "leads", state: "attempted", verified: false, evidence: `${t.status} since ${hm(since)}` };
   if (t.status === "awaiting_approval") return { wf: "leads", state: "waiting", verified: false, evidence: "a lead waits for your approval", next: "Approve or reject it in Agents; the email is a second, separate approval." };
+  if (t.status === "cancelled" && /rejected/i.test(t.error ?? "")) return { wf: "leads", state: "completed", verified: false, evidence: "you rejected what it proposed" }; // his decision, not a failure
   if (t.status === "failed" || t.status === "cancelled") return { wf: "leads", state: "failed", verified: false, evidence: `run ${t.status}`, next: "Open the run in Agents to see why." };
   if (t.receipt === "failed") return { wf: "leads", state: "failed", verified: false, evidence: `run finished ${hm(t.created_at)} but its receipt says it failed`, next: "Open the run in Agents: what it claimed didn't check out." };
   if (t.receipt === "partly") return { wf: "leads", state: "completed", verified: false, evidence: `run done ${hm(t.created_at)}, only partly verified`, next: "Open the run in Agents to see what wasn't checked." };
@@ -120,15 +125,18 @@ export function digestMsg(v: DailyView): { kind: string; title: string; message:
   return { kind: bad.length ? "failed" : "daily", title: bad.length ? `ORBIT daily: ${bad.length} need${bad.length > 1 ? "" : "s"} a look` : "ORBIT daily", message, tags: [bad.length ? "warning" : "sunrise"], priority: bad.length ? 4 : 3 };
 }
 
-export type DigestState = { sent?: string; tried?: string };
+// tried: a send started (saved before it); failed: ntfy definitely refused it. A try today that didn't definitely fail may have
+// reached the phone (timeout, crash, or the "sent" mark failing to save), so it counts as sent: at most one digest a day.
+export type DigestState = { sent?: string; tried?: string; failed?: boolean };
 const RETRY_MS = 30 * 60_000, STALE_MS = 4 * 3600_000;
-/** Due once per local day from `at` (HH:MM, ORBIT_DAILY_DIGEST; "off" disables): not sent today, no try in the last 30 min (a down
- *  phone server isn't hammered every minute, and a send whose "sent" mark failed to save isn't repeated each tick), and at most
- *  4 h after its time (a PC that wakes at 23:40 doesn't send the morning's digest). */
+/** Due once per local day from `at` (HH:MM, ORBIT_DAILY_DIGEST; empty = 10:30, "off" disables): never twice in a day, a definite
+ *  refusal retried at most every 30 min, and at most 4 h after its time (a PC that wakes at 23:40 doesn't send the morning's). */
 export function digestDue(at: string | undefined, st: DigestState, day: string, now: number): boolean {
-  const t = (at ?? "10:30").trim();
+  const t = (at ?? "").trim() || "10:30";
   if (t === "off" || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(t)) return false;
   const slot = slotAt(now, t);
   if (st.sent === day || now < slot || now > slot + STALE_MS) return false;
-  return !st.tried || now - Date.parse(st.tried) >= RETRY_MS;
+  const triedToday = !!st.tried && Date.parse(st.tried) >= slotAt(now, "00:00");
+  if (triedToday && !st.failed) return false;
+  return !triedToday || now - Date.parse(st.tried!) >= RETRY_MS;
 }

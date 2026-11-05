@@ -16,16 +16,19 @@ export const ntfyReady = (): NtfyConfig | null => { const c = cfg(); return c &&
 /** The owner-facing problem line ("" = fine or simply off), for System health. */
 export const ntfyProblem = () => { const c = cfg(); return c && "problem" in c ? c.problem : ""; };
 
-/** Publish one message. Never throws; false when off, held (Stop-all / quiet hours) or refused. */
-export async function ntfySend(m: NtfyMsg, now = Date.now()): Promise<boolean> {
+/** Publish one message. Never throws. held: off, Stop-all or quiet hours (nothing sent); refused: the server answered no;
+ *  unknown: no answer (timeout, dropped connection), so it may have been delivered. */
+export async function ntfyPublish(m: NtfyMsg, now = Date.now()): Promise<"sent" | "held" | "refused" | "unknown"> {
   const c = ntfyReady();
-  if (!c || !ntfyAllowed(m.kind, now, c.quiet, stopAllOn())) return false;
+  if (!c || !ntfyAllowed(m.kind, now, c.quiet, stopAllOn())) return "held";
   try {
     const res = await fetch(c.server, { method: "POST", signal: AbortSignal.timeout(10_000), headers: { "Content-Type": "application/json" }, body: JSON.stringify(publishBody(c, m)) });
     if (!res.ok) console.error("[ntfy] refused:", res.status);
-    return res.ok;
-  } catch (e) { console.error("[ntfy]", e instanceof Error ? e.message : e); return false; }
+    return res.ok ? "sent" : "refused";
+  } catch (e) { console.error("[ntfy]", e instanceof Error ? e.message : e); return "unknown"; }
 }
+/** Publish one message. Never throws; false when off, held (Stop-all / quiet hours), refused or unanswered. */
+export const ntfySend = async (m: NtfyMsg, now = Date.now()) => (await ntfyPublish(m, now)) === "sent";
 
 /** A Web Push label, mirrored to ntfy. */
 export const ntfyPush = (m: PushMessage) => { const c = ntfyReady(); return c ? ntfySend(fromPush(m, c.open)) : Promise.resolve(false); };

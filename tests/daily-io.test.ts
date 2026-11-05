@@ -16,22 +16,22 @@ function sb(rows: Record<string, unknown[]>) {
   return { from: q } as never;
 }
 const empty = sb({});
-function phone(o: { ok?: boolean; quiet?: boolean } = {}) {
+function phone(o: { result?: "sent" | "refused" | "unknown"; quiet?: boolean; after?: () => Promise<void> } = {}) {
   const sent: { message: string }[] = [];
-  return { sent, load: async () => ({ ready: () => ({ open: "" }), allowed: () => !o.quiet, send: async (m: { message: string }) => (sent.push(m), o.ok ?? true) }) };
+  return { sent, load: async () => ({ ready: () => ({ open: "" }), allowed: () => !o.quiet, send: async (m: { message: string }) => { sent.push(m); await o.after?.(); return o.result ?? "sent"; } }) as never };
 }
 const T = (hhmm: string) => slotAt(new Date(2026, 10, 5, 12).getTime(), hhmm);
 const state = async () => JSON.parse(await readFile(path.join(DATA, "daily.json"), "utf8").catch(() => "{}"));
 const reset = () => rm(path.join(DATA, "daily.json"), { force: true });
 
-test("digest: sent once a day; a failed send backs off 30 min; quiet hours hold it before anything is read or sent", async () => {
+test("digest: sent once a day; a definite refusal retries after 30 min; quiet hours hold it before anything is read or sent", async () => {
   await reset();
-  const down = phone({ ok: false });
-  assert.equal(await D.maybeDailyDigest(empty, "u1", T("10:31"), down.load), false);
-  assert.equal(down.sent.length, 1);
-  assert.ok((await state()).tried, "the try was saved before sending");
-  assert.equal(await D.maybeDailyDigest(empty, "u1", T("10:40"), down.load), false);
-  assert.equal(down.sent.length, 1, "no retry every tick");
+  const no = phone({ result: "refused" });
+  assert.equal(await D.maybeDailyDigest(empty, "u1", T("10:31"), no.load), false);
+  assert.equal(no.sent.length, 1);
+  assert.equal((await state()).failed, true);
+  assert.equal(await D.maybeDailyDigest(empty, "u1", T("10:40"), no.load), false);
+  assert.equal(no.sent.length, 1, "no retry every tick");
   const up = phone();
   assert.equal(await D.maybeDailyDigest(empty, "u1", T("11:02"), up.load), true);
   assert.match(up.sent[0].message, /^Brief: \w/);
@@ -43,6 +43,24 @@ test("digest: sent once a day; a failed send backs off 30 min; quiet hours hold 
   assert.equal(await D.maybeDailyDigest(empty, "u1", T("10:31"), quiet.load), false);
   assert.equal(quiet.sent.length, 0);
   assert.deepEqual(await state(), {}, "nothing recorded, so it goes out when quiet hours end (within 4 h)");
+});
+
+test("digest: at most one a day even when the send may have landed: no answer from ntfy, or the 'sent' mark failing to save, then a restart", async () => {
+  await reset();
+  const timeout = phone({ result: "unknown" }); // ntfy may have accepted it before the 10 s timeout
+  await D.maybeDailyDigest(empty, "u1", T("10:31"), timeout.load);
+  for (const t of ["11:05", "12:00", "14:00"]) await D.maybeDailyDigest(empty, "u1", T(t), timeout.load);
+  assert.equal(timeout.sent.length, 1, "counted as sent: not repeated");
+  await reset();
+  // sent fine, then the "sent" write fails (rename target becomes a directory): the saved try stays on disk
+  const lockAfter = phone({ after: () => mkdir(path.join(DATA, "daily.json.tmp"), { recursive: true }).then(() => {}) });
+  await D.maybeDailyDigest(empty, "u1", T("10:31"), lockAfter.load);
+  await rm(path.join(DATA, "daily.json.tmp"), { recursive: true });
+  assert.ok((await state()).tried && !(await state()).sent, "only the try was saved");
+  // a restart reads the same file (nothing is kept in memory): every later tick today sends nothing
+  const again = phone();
+  for (const t of ["11:02", "11:40", "13:00", "14:20"]) assert.equal(await D.maybeDailyDigest(empty, "u1", T(t), again.load), false);
+  assert.equal(lockAfter.sent.length + again.sent.length, 1, "exactly one digest that day");
 });
 
 test("digest: if the try can't be saved, nothing is sent (no resend loop from a broken disk)", async () => {
