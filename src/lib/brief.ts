@@ -67,7 +67,7 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     within(import("./loops").then((x) => x.loopsBrief(now))).catch(() => null),
     within(import("./entity-graph").then((x) => x.entitiesBrief(userId))).catch(() => null),
     within(import("./needs-you").then((x) => x.gatherNeeds(sb, userId, now)), 6000).catch(() => []), // the lead: artifact, decision, next action
-    within(Promise.all([import("./pagewatch"), import("./pagewatch-pure")]).then(async ([w, p]) => p.briefWatch(await w.watchStore(), now))).catch(() => null),
+    within(Promise.all([import("./pagewatch"), import("./pagewatch-pure")]).then(async ([w, p]) => p.briefWatch(await w.watchStore(), now))).catch(() => ({ changes: [], more: 0, failed: [], unreadable: true })), // unreadable says so, never "no change"
   ]);
   const weather = pl ? await within(import("./weather").then((x) => x.briefWeather(pl, now)), 6000).catch(() => null) : null; // no saved place → none
   const inv = await within(import("./invoices").then((x) => x.allInvoices())).catch(() => []); // overdue reminders waiting for his approve
