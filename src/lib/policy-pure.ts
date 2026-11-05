@@ -63,6 +63,7 @@ export const TIERS: Record<string, Tier> = {
   local_image: "T2", // ComfyUI on his PC (tools/comfyui): a new VAULT picture, the prompt never leaves the PC
   browse: "T1", // ORBIT's hidden browser on a public page: read-only (non-GET requests blocked), submits/logins refused for his click
   watch_add: "T2", watch_list: "T0", watch_changes: "T0", // page watch (pagewatch.ts): a local record; the checks only read public pages
+  daily_runs: "T0", // daily.ts: reads the three daily workflows' own records
 };
 
 // T3 runs only behind an owner-click approval (AGENTS.md rule 6): the token each path checks before anything leaves ORBIT.

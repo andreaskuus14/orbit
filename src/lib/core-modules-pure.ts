@@ -80,6 +80,7 @@ export const MODULE_HINTS: Record<string, RegExp> = {
   ROBLOXFILES: hint("rojo|selene|lint|luau|roblox (?:code|script)|(?:check|review) (?:my |the )?(?:code|scripts?)|\\.rbxlx?\\b|export (?:my |the )?scripts?", `${W}skript|koodi (?:kontroll|üle)|kontrolli (?:koodi|skripte)`),
   BROWSER: hint("brows|render|javascript|\\bjs\\b|click|scroll|screenshot|open (?:the |this )?(?:page|site|link)|look at (?:the |this )?(?:page|site)|search (?:on|the) (?:site|page)", "ava (?:leht|link)|kuvatõmmis|ekraanipilt|kliki|keri"),
   WATCH: hint("watch|monitor|track|keep an eye|notify me|tell me when|let me know when|page chang|site chang|went live", "jälgi|teavita|anna teada|ütle(?: mulle)? kui|lehe? muutu|leht muutus"),
+  DAILY: hint("daily runs?|today'?s runs?|what ran|did (?:my |the )?(?:morning )?brief(?:ing)? run|(?:runs?|workflows?) (?:fail|miss)", "päevase[a-zõäöü]* jooks|tänase[a-zõäöü]* jooks|mis jooksis|kas (?:mu |hommikune )?brief jooksis|jooksud? (?:ebaõnnestus|jäi vahele)"),
   WEEK: hint("week(?!day)|slipp|late|get done|got done|did i|streak|wins?\\b|behind", "nädal|hilin|hilja|maha jä|mahajää|sain tehtud|tegin ära|seeria|järjest|saavutus|võit"),
 };
 export function selectModules<T extends ModuleSpec>(mods: T[], text: string): T[] {
@@ -102,6 +103,7 @@ export const MODULE_ABOUT: Record<string, string> = {
   RULES: "standing rules for recurring work",
   ORGANIZE: "change his own records with Undo: rename/trash VAULT files, add or update BUSINESS lead records, accept/adjust today's plan, create/pause automations",
   WATCH: "page-change watch: watch a public page (selector, interval, label), list watches, recent changes",
+  DAILY: "today's brief / clips / leads runs: state, proof, what needs you",
   WEEK: "week review: planned vs done, what slipped, streaks, wins",
   ROBLOXFILES: "his Roblox scripts as files on his PC: export a saved place to a Rojo project (git), Selene code check by file and line",
   LOCALAI: "free models on his PC: description → picture (.png), picture → 3D model (.glb), script → voiceover (.wav), video/audio → captions (.srt) + transcript, saved in VAULT",

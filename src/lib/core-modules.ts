@@ -146,6 +146,12 @@ const MODULES: CoreModule[] = [
     run: async (_t, i, c) => (await import("./week")).runWeekTool(c.sb, c.userId, i),
   },
   {
+    // read-only: states come from each workflow's own records (daily-pure.ts); never re-runs anything
+    name: "DAILY", tools: ["daily_runs"],
+    prompt: "- daily_runs {}: today's three daily workflows (07:30 brief, STUDIO clips, business loop) each as planned / attempted / completed (verified or not) / waiting / failed / uncertain / missed / off / idle, with the record it's based on and the next step. For \"did my brief run / what ran today / what failed / anything need me\". Report the states as given: never call something done or verified that the tool doesn't.",
+    run: async (_t, _i, c) => (await import("./daily")).runDailyTool(c.sb, c.userId),
+  },
+  {
     name: "CHECKPOINT", tools: ["save_checkpoint"], writes: ["save_checkpoint"],
     prompt: "- save_checkpoint {\"constraints\"?: string[], \"success\"?: string[], \"decisions\"?: string[], \"blockers\"?: string[], \"artifacts\"?: [{\"id\": string, \"version\"?: number, \"rev\"?: string}], \"next\"?: string}: add to this chat's CHECKPOINT (his constraints, success criteria, decisions, blockers, artifact versions and the single next action; it stays in every later turn). Only when the user asks you to remember or checkpoint something for this chat/mission in their latest message; use his own words. Lines like \"budget under 300 €\" or \"remember for this: …\" are captured from his message automatically, so call this only for what that misses (a decision summary, the next action, an artifact id). He edits or deletes lines on the Checkpoint card.",
     run: async (_t, i, c) => (await import("./checkpoint")).runCheckpointTool(c.userId, c.chat, i, c.question),
