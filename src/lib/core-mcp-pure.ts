@@ -53,12 +53,13 @@ export function toolDocs(text: string, names: readonly string[], cap = 700): Rec
   return out;
 }
 
-export type McpTool = { name: string; description: string; inputSchema: Schema | { type: "object"; additionalProperties: true }; annotations: { readOnlyHint: boolean; destructiveHint: boolean } };
+export type McpTool = { name: string; description: string; inputSchema: Schema | Record<string, unknown>; annotations: { readOnlyHint: boolean; destructiveHint: boolean } };
 /** The MCP tools/list payload. Schema'd tools are checked by prepareArgs; the rest are documented in the description and validated by each runner. */
-export const mcpToolList = (names: readonly string[], docs: Record<string, string>): McpTool[] =>
+/** `extra`: plugin tools' own schemas (plugins-pure pluginSchemas), listed exactly as their server gave them. */
+export const mcpToolList = (names: readonly string[], docs: Record<string, string>, extra: Record<string, Record<string, unknown>> = {}): McpTool[] =>
   names.map((name) => ({
     name, description: docs[name] ?? `ORBIT tool ${name}.`,
-    inputSchema: SCHEMAS[name] ?? { type: "object", additionalProperties: true },
+    inputSchema: SCHEMAS[name] ?? (extra[name] ? { type: "object", ...extra[name] } : { type: "object", additionalProperties: true }),
     annotations: { readOnlyHint: /^T[01]$/.test(TIERS[name] ?? ""), destructiveHint: TIERS[name] === "T3" },
   }));
 

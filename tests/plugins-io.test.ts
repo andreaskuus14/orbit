@@ -14,12 +14,27 @@ const { setStopAll } = await import("../src/lib/stop-all.ts");
 
 test("Test connection caches the server's tools (bad names dropped)", { timeout: 30_000 }, async () => {
   const r = await P.testPlugin("fake");
-  assert.deepEqual(r, { ok: true, tools: 4 });
+  assert.deepEqual(r, { ok: true, tools: 5 });
   const g = P.pluginGates();
   assert.equal(g["plugin__fake__scene"].tier, "T0");
   assert.equal(g["plugin__fake__run_code"].tier, "T2");
   assert.equal(g["plugin__fake__nuke"].mode, "ask");
   assert.match(P.pluginPromptNow(), /plugin__fake__run_code \{"code": string\}/);
+});
+
+test("the full schema survives discovery and reaches the native tool list; bad arguments fail before running; the structured receipt survives", { timeout: 30_000 }, async () => {
+  const { mcpToolList } = await import("../src/lib/core-mcp-pure.ts");
+  const id = "plugin__fake__book";
+  const [listed] = mcpToolList([id], {}, P.pluginSchemasNow());
+  const when = (listed.inputSchema as { properties: { when: { properties: { tz: { enum: string[] } }; required: string[] } } }).properties.when;
+  assert.deepEqual(when.properties.tz.enum, ["Europe/Tallinn", "UTC"]);
+  assert.deepEqual(when.required, ["tz", "day"]);
+  assert.match(P.pluginPromptNow(), /plugin__fake__book \{"when": \{"tz": "Europe\/Tallinn"\|"UTC", "day": string\}, "tags"\?: string\[\]\}/);
+  const bad = await P.runPluginTool(id, { when: { tz: "Mars", day: "Fri" } }, { steps: [], pinned: false });
+  assert.match(bad, /^Error: fake book arguments don't match its schema: \/when\/tz must be equal to one of the allowed values \("Europe\/Tallinn", "UTC"\)/);
+  assert.match(await P.runPluginTool(id, { when: { tz: "UTC" } }, { steps: [], pinned: false }), /\/when must have required property 'day'/);
+  const ok = await P.runPluginTool(id, { when: { tz: "UTC", day: "Fri" } }, { steps: [], pinned: false });
+  assert.match(ok, /STRUCTURED: \{"booked":true,"id":"r-42","tz":"UTC"\}/);
 });
 
 test("a read runs; the result is outside data with images named only", { timeout: 30_000 }, async () => {

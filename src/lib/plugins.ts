@@ -8,7 +8,7 @@ import { logActivity } from "./activity.ts";
 import { stopAllOn } from "./stop-all.ts";
 import { PAUSED_MSG } from "./stop-all-pure.ts";
 import { UNTRUSTED } from "./policy-pure.ts";
-import { cleanTool, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
+import { checkArgs, cleanTool, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, pluginSchemas, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
 
 // MCP plugins: <ORBIT data dir>/plugins.json (his servers + trust settings + the tool list from the last Test connection) and
 // plugin-pending.json (calls CORE queued for his Run click). CORE calls tools in-process through @modelcontextprotocol/sdk's client,
@@ -22,6 +22,9 @@ const live = (g.__orbitPluginLive ??= new Set());
 const stamp = () => { try { const s = statSync(file()); return `${s.mtimeMs}:${s.size}`; } catch { return "none"; } };
 
 /** Sync and cached (re-read when the file changes), so CORE's prompt and decide() can use it on every turn. */
+/** Full input schemas of the usable plugin tools (core-mcp.ts lists them natively). */
+export const pluginSchemasNow = () => pluginSchemas(loadPlugins());
+
 export function loadPlugins(): Plugin[] {
   const st = stamp();
   if (g.__orbitPlugins?.stamp !== st) {
@@ -134,6 +137,9 @@ export async function runPluginTool(id: string, input: Record<string, unknown>, 
   const p = plugins.find((x) => x.name === ref?.server);
   if (!ref || !p || !gate || gate.mode === "off") return `Error: unknown or disabled plugin tool "${id.slice(0, 100)}"`;
   if (stopAllOn()) return `Error: ${PAUSED_MSG}`;
+  const t = p.cache?.tools.find((x) => x.name === ref.tool);
+  const bad = checkArgs(t?.inputSchema, input); // before anything runs or queues: a queued call he approves must be callable as-is
+  if (bad) return `Error: ${p.name} ${ref.tool} arguments don't match its schema: ${bad}. Call it as: ${t?.schema ?? "{}"}`;
   if (pluginAct(gate, outsideIn(c.steps, UNTRUSTED, all, c.pinned)) === "queue") {
     const item: Pending = { id: randomUUID().slice(0, 8), server: ref.server, tool: ref.tool, args: input, at: new Date().toISOString(), ...(c.chat ? { chat: c.chat } : {}) };
     await savePending((l) => [...l, item]);
