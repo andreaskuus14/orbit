@@ -101,8 +101,8 @@ async function failures(sb: SupabaseClient, userId: string, events: { type: stri
 async function snapshot(sb: SupabaseClient, userId: string, now = Date.now()) {
   const since = iso(now - WEEK)!;
   const { data: ev } = await Promise.resolve(sb.from("events").select("type, created_at, payload").eq("user_id", userId).in("type", ["night.task", "business.stage"])
-    .gte("created_at", since).order("created_at", { ascending: true }).limit(1000)).catch(() => ({ data: null }));
-  const events = (ev ?? []) as { type: string; created_at: string; payload: Record<string, unknown> }[];
+    .gte("created_at", since).order("created_at", { ascending: false }).limit(1000)).catch(() => ({ data: null }));
+  const events = [...(ev ?? [])].reverse() as { type: string; created_at: string; payload: Record<string, unknown> }[];
   const [{ vaultDir }, { studioRoot }, { backupDir }, story, night] = await Promise.all([import("./vault"), import("./clips/factory"), import("./backup"),
     import("./clips/story").then((m) => m.weekUsage()).catch(() => null), import("./night").then((m) => m.lastNightRun(userId)).catch(() => null)]);
   const dirs: [string, string, string][] = [["data", "ORBIT data folder", orbitDataDir()], ["vault", "VAULT", vaultDir()], ["studio", "STUDIO folder", studioRoot()], ["backup", "Backup folder", backupDir()]];

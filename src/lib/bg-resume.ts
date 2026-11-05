@@ -4,8 +4,8 @@ import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/pro
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir.ts";
-import { releaseLease, takeLease } from "./job-log";
-import { parseBgTurn, resumeContext, resumeHistory, resumePlan, type BgTurn } from "./bg-resume-pure";
+import { releaseLease, takeLease } from "./job-log.ts";
+import { parseBgTurn, resumeContext, resumeHistory, resumePlan, type BgTurn } from "./bg-resume-pure.ts";
 
 const LEASE_MS = 3 * 60_000, RENEW_MS = 60_000; // a dead process's lease frees within 3 minutes
 const g = globalThis as unknown as { __orbitBgTurns?: Set<string> };
@@ -14,6 +14,14 @@ const dir = () => path.join(orbitDataDir(), "bg-turns");
 const file = (taskId: string) => path.join(dir(), `${taskId.replace(/[^\w-]/g, "_")}.json`);
 const lease = (taskId: string) => `bgturn:${taskId}`;
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** The chat up to the resumed request, newest 60 messages, in time order. Reads the NEWEST 200: ascending + limit gave the oldest
+ *  200, so a long chat resumed without its latest instructions (or lost the request entirely). Exported for tests/bg-resume-io. */
+export async function resumeRows(sb: SupabaseClient, chatId: string, request: string) {
+  const { data, error } = await sb.from("messages").select("role, content").eq("conversation_id", chatId).order("created_at", { ascending: false }).limit(200);
+  if (error) throw error;
+  return resumeHistory(((data ?? []) as { role: "user" | "assistant"; content: string }[]).reverse(), request).slice(-60);
+}
 
 async function save(r: BgTurn) {
   await mkdir(dir(), { recursive: true });
@@ -64,9 +72,7 @@ async function resumeOne(sb: SupabaseClient, r: BgTurn) {
       r.attempts++;
       await save(r).catch(() => {});
       try {
-        const { data, error } = await sb.from("messages").select("role, content").eq("conversation_id", r.chatId).order("created_at", { ascending: true }).limit(200);
-        if (error) throw error;
-        const history = resumeHistory((data ?? []) as { role: "user" | "assistant"; content: string }[], r.request).slice(-60);
+        const history = await resumeRows(sb, r.chatId, r.request);
         if (!history.length) throw new Error("the request is no longer in the chat");
         const project = await chatProjectContext(r.userId, r.chatId);
         return await runCoreFor(BACKGROUND_TURN_MS, true, sb, r.userId, history, undefined, signal, undefined, false, undefined, undefined, undefined, resumeContext(r) + project.text, project.tainted, project.memoryProject ?? "", r.chatId, parseLang(r.lang));
