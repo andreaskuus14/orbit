@@ -8,11 +8,12 @@ import type { PanelId } from "./planets";
 import type { WorkItem } from "./work-continuation-pure";
 import type { PlaceLine } from "./place-pure";
 import type { WeatherLine } from "./weather-pure";
+import type { BriefWatch } from "./pagewatch-pure";
 
 export type BriefKind = "decision" | "night" | "health" | "calendar" | "school" | "weather" | "place" | "first" | "result" | "lesson" | "question" | "study";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
-export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true } | { panel: "memory"; study: true } | { mission: true } | { href: string } | { link: string }; // href: a checked result file (needs-you-pure receiptOpen); link: a deep-link hash (deeplink-pure)
+export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true } | { panel: "memory"; study: true } | { mission: true } | { href: string } | { link: string }; // href: a checked result file (needs-you-pure receiptOpen) or a watched public page; link: a deep-link hash (deeplink-pure)
 export type BriefItem = { id: string; kind: BriefKind; say: string; title: string; detail?: string; open?: BriefOpen; approve?: BriefApprove };
 export type Brief = { day: string; greeting: string; items: BriefItem[]; spoken: string; polished?: boolean };
 
@@ -22,7 +23,7 @@ export type BriefIn = {
   day: string; hour: number; life: boolean; // life: he allowed calendar titles / reminder text in the brief (off by default)
   morning: Pick<Morning, "night" | "calendar" | "life" | "hero" | "studio">;
   decisions: Decision[]; replies: { id: string; name: string }[];
-  watch?: { id: string; label: string; n: number }; // page-watch changes of the last day, his own labels only (pagewatch-pure briefWatch)
+  watch?: BriefWatch; // page-watch changes of the last day + failed checks (pagewatch-pure briefWatch); page text only on the card, never spoken
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
@@ -53,6 +54,8 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const q = (t: string) => `“${plain(t).replace(/[“”"?]/g, "").slice(0, 70)}”`;
 const short = (t: string, w = 10) => plain(t).replace(/\?/g, "").split(" ").slice(0, w).join(" ");
 const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
+const clock = (iso: string) => new Date(iso).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" }); // the PC's local time
+const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
 
 export function hello(hour: number): string {
   return hour < 12 ? "Good morning, Andreas." : hour < 18 ? "Hey Andreas." : "Evening, Andreas.";
@@ -151,8 +154,19 @@ export function briefItems(x: BriefIn): BriefItem[] {
   if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },
     say: `An offer for ${short(deal.item, 8)} came in at about ${Math.round(deal.eur).toLocaleString("en-US")} euros. That looks like a good price.` });
 
-  if (x.watch) add({ id: `watch:${x.watch.id}`, kind: "result", title: `Page changed: ${plain(x.watch.label)}`, detail: x.watch.n > 1 ? `+${x.watch.n - 1} more in Watches` : "INTELLIGENCE → Watches",
-    open: { link: "#o=intelligence&v=watches" }, say: `A page you watch changed: ${short(x.watch.label, 8)}${x.watch.n > 1 ? `, and ${num(x.watch.n - 1)} more` : ""}.` });
+  const wt = x.watch;
+  wt?.changes.forEach((c, k) => {
+    const more = k === wt.changes.length - 1 && wt.more ? ` · +${wt.more} more in Watches` : "";
+    add({ id: `watch:${c.id}`, kind: "result", title: `Page changed: ${plain(c.label)}`, open: { href: c.url },
+      detail: `${c.what} · detected ${clock(c.at)} · ${host(c.url)}${c.n > 1 ? ` · changed ${c.n}× today` : ""}${more}`,
+      say: `A page you watch changed: ${short(c.label, 8)}${more ? `, and ${num(wt.more)} more` : ""}.` });
+  });
+  const bad = wt?.failed ?? [];
+  if (wt?.unreadable) add({ id: `watchfail:${x.day}`, kind: "health", title: "Page watches couldn't be read", detail: "Changes are unknown, not zero", open: { link: "#o=intelligence&v=watches" },
+    say: "I couldn't read your page watches, so I don't know whether anything changed." });
+  else if (bad.length) add({ id: `watchfail:${x.day}`, kind: "health", title: `Watch check failed: ${plain(bad[0].label)}${bad.length > 1 ? ` +${bad.length - 1}` : ""}`,
+    detail: `${bad[0].error} · ${host(bad[0].url)}`, open: { link: "#o=intelligence&v=watches" },
+    say: `I couldn't check ${bad.length === 1 ? short(bad[0].label, 8) : `${num(bad.length)} of your watched pages`}, so I don't know whether ${bad.length === 1 ? "it" : "they"} changed.` });
 
   // LIFE: counts only, and spoken (so polished by the model) only with his LIFE opt-in; otherwise just on the card.
   if (x.habits?.due && new Date(`${x.day}T12:00`).getDay() === 1) add({ id: `habits:${x.day}`, kind: "result", title: `Habits last week: ${x.habits.done}/${x.habits.due}`,

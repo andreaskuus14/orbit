@@ -5,8 +5,8 @@ import { orbitDataDir } from "./data-dir";
 import { safeFetch } from "./memory";
 import { UA, polite } from "./reach/net";
 import { stopAllOn } from "./stop-all";
-import { KEEP_CHANGES, MAX_WATCHES, applyCheck, changesSince, changesText, checkWatchInput, listText, pageText, parseStore, pickDue, robotsGate, watchBlocked,
-  type CheckResult, type Watch, type WatchStore } from "./pagewatch-pure";
+import { KEEP_CHANGES, KEEP_MISSED, MAX_WATCHES, applyCheck, changesSince, changesText, checkWatchInput, feedbackSummary, listText, pageText, parseStore, pickDue, robotsGate, watchBlocked,
+  type CheckResult, type Verdict, type Watch, type WatchStore } from "./pagewatch-pure";
 
 // INTELLIGENCE → Watches (page-change watch): <ORBIT data dir>/pagewatch.json. Checked by the server scheduler's minute tick (scheduler.ts),
 // at most PER_TICK due watches a tick. Read-only public pages: safeFetch (SSRF guard, 10 s timeout, 2 MB cap), no cookies or logins,
@@ -80,7 +80,8 @@ export async function tickWatches(): Promise<void> {
 /** The Watches list: watches without their snapshot text, plus recent changes. */
 export async function watchBoard() {
   const s = await load();
-  return { watches: s.watches.map(({ snaps, ...w }) => ({ ...w, versions: snaps.length })), changes: changesSince(s).slice(0, 60) };
+  return { watches: s.watches.map(({ snaps, ...w }) => ({ ...w, versions: snaps.length })), changes: changesSince(s).slice(0, 60),
+    week: feedbackSummary(s, Date.now() - 7 * 86_400_000) };
 }
 
 export async function addWatch(b: Record<string, unknown>): Promise<{ watch: Watch } | { error: string }> {
@@ -100,7 +101,23 @@ export const removeWatch = (id: string) => update((s) => {
   const n = s.watches.length;
   s.watches = s.watches.filter((w) => w.id !== id);
   s.changes = s.changes.filter((c) => c.watch !== id);
+  s.missed = (s.missed ?? []).filter((m) => m.watch !== id);
   return n !== s.watches.length;
+});
+
+/** His review of one reported change: useful, noise, or null to clear. */
+export const markChange = (id: string, verdict: Verdict | null) => update((s) => {
+  const c = s.changes.find((x) => x.id === id);
+  if (!c) return false;
+  if (verdict) c.verdict = verdict; else delete c.verdict;
+  return true;
+});
+
+/** A change he noticed himself that the watcher didn't report (the review's "missed" count). */
+export const addMissed = (watch: string, note: string) => update((s) => {
+  if (!s.watches.some((w) => w.id === watch)) return false;
+  s.missed = [...(s.missed ?? []), { id: randomUUID(), watch, at: new Date().toISOString(), note: note.replace(/\s+/g, " ").trim().slice(0, 200) }].slice(-KEEP_MISSED);
+  return true;
 });
 
 /** important: owner-marked (its changes go to Needs you); seen: he looked at the latest change. */
