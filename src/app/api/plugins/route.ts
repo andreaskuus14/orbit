@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { discardPending, isRunning, listPending, loadPlugins, runPending, testPlugin, updatePlugins } from "@/lib/plugins";
-import { publicPlugin, toolGate, toolId, validatePlugin, SUGGESTED } from "@/lib/plugins-pure";
+import { checkState, publicPlugin, toolGate, toolId, validatePlugin, SUGGESTED } from "@/lib/plugins-pure";
 import { vaultDir } from "@/lib/vault";
 import { stopAllOn } from "@/lib/stop-all";
 import { logActivity } from "@/lib/activity";
@@ -16,7 +16,7 @@ export async function GET() {
   if (res) return res;
   const plugins = loadPlugins().map((p) => ({
     ...publicPlugin(p),
-    tools: (p.cache?.tools ?? []).map((t) => ({ id: toolId(p.name, t.name), name: t.name, description: t.description, ...toolGate(p, t) })),
+    tools: (p.cache?.tools ?? []).map((t) => ({ id: toolId(p.name, t.name), name: t.name, description: t.description, ...toolGate(p, t), check: checkState(t), ...(t.schemaError ? { schemaError: t.schemaError } : {}) })),
     settings: p.tools,
   }));
   return Response.json({ plugins, pending: (await listPending()).map((q) => ({ ...q, running: isRunning(q.id) })), suggested: SUGGESTED, vault: vaultDir(), stopAll: stopAllOn() });

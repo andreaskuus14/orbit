@@ -135,7 +135,7 @@ ${facts || "(empty)"}`;
 export const TURN_MS = 285_000; // inside the CORE route's 300 s maxDuration
 /** Thrown when an interactive turn ran out of time on a long step: core-turn.ts moves the work to the background. */
 /** carry: the finished tool results, trace and call cache, so the background run resumes instead of restarting. */
-type Carry = { steps: string[]; trace: TraceStep[]; done: Map<string, string>; extra?: number; tools?: CoreEvalTool[] }; // extra: step budgets added past the first (long-work-pure afterBudget)
+type Carry = { steps: string[]; trace: TraceStep[]; done: Map<string, string>; extra?: number; tools?: CoreEvalTool[]; clips?: ReturnType<typeof createClipStore> }; // extra: step budgets added past the first (long-work-pure afterBudget)
 export class CoreHandoff extends Error { carry?: Carry }
 const turnBudget = new AsyncLocalStorage<{ ms: number; background: boolean } & Carry>();
 export const runCore = (...a: Parameters<typeof coreTurn>) => runCoreFor(TURN_MS, false, ...a);
@@ -282,7 +282,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const policyCtx = () => ({ ws: wsGate, stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried, privateText, ownLeads: ownLeadsIn(sessionKey), plugins: pluginGates() });
   // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
   // Results over the step limit are clipped with a read_more pointer; the full text lives in this per-turn store (roadmap 20).
-  const clips = createClipStore();
+  const clips = (budget.clips ??= createClipStore()); // carried across a handoff like budget.done, so read_more refs in its steps stay valid
   // Same tool + same input in one task (incl. after a handoff) reuses the result instead of running again (core-steps-pure.ts).
   const exec = async (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator = false) => {
     const hit = budget.done.get(callKey(tool, input));

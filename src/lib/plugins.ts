@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 // .ts extensions: tests/plugins-io.test.ts loads this under node --experimental-strip-types (with a fake MCP server).
@@ -9,7 +9,8 @@ import { stopAllOn } from "./stop-all.ts";
 import { PAUSED_MSG } from "./stop-all-pure.ts";
 import { UNTRUSTED } from "./policy-pure.ts";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { claimPending, cleanTool, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
+import { CLIP } from "./clip-store-pure.ts";
+import { checkArgs, claimPending, cleanTool, gates, toolId, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, pluginSchemas, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
 
 // MCP plugins: <ORBIT data dir>/plugins.json (his servers + trust settings + the tool list from the last Test connection) and
 // plugin-pending.json (calls CORE queued for his Run click). CORE calls tools in-process through @modelcontextprotocol/sdk's client,
@@ -23,6 +24,9 @@ const live = (g.__orbitPluginLive ??= new Set());
 const stamp = () => { try { const s = statSync(file()); return `${s.mtimeMs}:${s.size}`; } catch { return "none"; } };
 
 /** Sync and cached (re-read when the file changes), so CORE's prompt and decide() can use it on every turn. */
+/** Full input schemas of the usable plugin tools (core-mcp.ts lists them natively). */
+export const pluginSchemasNow = () => pluginSchemas(loadPlugins());
+
 export function loadPlugins(): Plugin[] {
   const st = stamp();
   if (g.__orbitPlugins?.stamp !== st) {
@@ -103,6 +107,17 @@ export async function testPlugin(name: string): Promise<{ ok: boolean; tools: nu
   return error ? { ok: false, tools: 0, error } : { ok: true, tools: tools.length };
 }
 
+const RESULTS_KEEP = 50;
+/** A large result, raw, in <data dir>/plugin-results/ (newest 50 kept): CORE's per-answer read_more store holds it for the turn; this
+ *  copy is for him (CORE has no tool to read it). Local only, like plugins.json. */
+async function keepResult(server: string, tool: string, r: unknown) {
+  const d = path.join(orbitDataDir(), "plugin-results");
+  await mkdir(d, { recursive: true });
+  await writeFile(path.join(d, `${new Date().toISOString().replace(/[:.]/g, "-")}-${server}-${tool.replace(/[^\w.-]/g, "_")}.json`), JSON.stringify(r));
+  const old = (await readdir(d)).filter((f) => f.endsWith(".json")).sort().slice(0, -RESULTS_KEEP);
+  await Promise.all(old.map((f) => unlink(path.join(d, f)).catch(() => {})));
+}
+
 /** One tools/call with the plugin's timeout; every call is logged to Activity (tool name and outcome; never arguments or results).
  *  unknown: the request was sent and then the call broke (timeout, closed connection, Stop-all): it may have run on the server. */
 async function callTool(p: Plugin, tool: string, args: Record<string, unknown>, by: "core" | "owner"): Promise<{ out: string; unknown: boolean }> {
@@ -110,7 +125,8 @@ async function callTool(p: Plugin, tool: string, args: Record<string, unknown>, 
   let out: string, sent = false, unknown = false;
   try {
     const r = await withClient(p, (c, timeout) => { sent = true; return c.callTool({ name: tool, arguments: args }, undefined, { timeout, maxTotalTimeout: timeout }); });
-    out = resultText(p.name, r as { content?: unknown; isError?: unknown });
+    out = resultText(p.name, r as { content?: unknown; isError?: unknown; structuredContent?: unknown });
+    if (out.length > CLIP) await keepResult(p.name, tool, r).catch((e) => console.error("[plugins] keep result:", msg(e))); // the full result outlives the turn
   } catch (e) {
     // a JSON-RPC error answer from the server (bad params, unknown tool…) is definite; a timeout or a dropped connection after
     // the request went out is not: it may have run
@@ -142,6 +158,9 @@ export async function runPluginTool(id: string, input: Record<string, unknown>, 
   const p = plugins.find((x) => x.name === ref?.server);
   if (!ref || !p || !gate || gate.mode === "off") return `Error: unknown or disabled plugin tool "${id.slice(0, 100)}"`;
   if (stopAllOn()) return `Error: ${PAUSED_MSG}`;
+  const t = p.cache?.tools.find((x) => x.name === ref.tool);
+  const bad = checkArgs(t, input); // before anything runs or queues: a queued call he approves must be callable as-is
+  if (bad) return `Error: ${p.name} ${ref.tool}: ${bad}. Call it as: ${t?.schema ?? "{}"}`;
   if (pluginAct(gate, outsideIn(c.steps, UNTRUSTED, all, c.pinned)) === "queue") {
     const item: Pending = { id: randomUUID().slice(0, 8), server: ref.server, tool: ref.tool, args: input, at: new Date().toISOString(), ...(c.chat ? { chat: c.chat } : {}) };
     await savePending((l) => [...l, item]);
@@ -183,6 +202,13 @@ export async function runPending(id: string, again: string | null = null): Promi
     if (!p?.enabled) {
       await savePending((l) => l.map((x) => (x.id === id ? { ...x, attempting: undefined } : x))).catch((e) => console.error("[plugins] unclaim:", msg(e)));
       return { error: `Plugin ${item.server} is removed or disabled` };
+    }
+    // re-checked at his click: the tool may have been refused, turned off or re-tested since CORE queued it
+    const t = p.cache?.tools.find((x) => x.name === item.tool);
+    const why = !t ? "it's no longer in the plugin's tool list" : gates([p])[toolId(p.name, t.name)]?.mode === "off" ? "it's off now" : checkArgs(t, item.args);
+    if (why) {
+      await savePending((l) => l.map((x) => (x.id === id ? { ...x, attempting: undefined } : x))).catch((e) => console.error("[plugins] unclaim:", msg(e)));
+      return { error: `Not run: ${item.server} ${item.tool}: ${why}. Discard it, or have CORE queue it again.` };
     }
     const { out, unknown } = await callTool(p, item.tool, item.args, "owner");
     // a definite outcome (done, or the server said it failed) leaves the queue; an unknown one stays attempting for his decision

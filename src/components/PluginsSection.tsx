@@ -4,7 +4,7 @@ import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
 import type { Gate, Mode, Pending, SUGGESTED } from "@/lib/plugins-pure";
 
-type Tool = Gate & { id: string; name: string; description: string };
+type Tool = Gate & { id: string; name: string; description: string; check: "checked" | "partial" | "unchecked" | "refused"; schemaError?: string };
 type P = { name: string; command?: string; args: string[]; url?: string; env: Record<string, string>; enabled: boolean; local: boolean; others?: Mode; timeoutSec: number; note?: string;
   cache?: { at: string; error?: string }; tools: Tool[]; settings: Record<string, Mode> };
 export type PluginsView = { plugins: P[]; pending: Pending[]; suggested: typeof SUGGESTED; vault: string; stopAll: boolean; out?: string; tested?: number };
@@ -79,10 +79,13 @@ export function PluginsSection() {
             </div>
             {p.cache?.error && <p className="text-xs text-red-400">Last test failed: {p.cache.error}</p>}
             {!p.cache && <p className="muted text-xs">Not tested yet: CORE sees its tools after Test connection.</p>}
+            {p.tools.some((t) => t.check === "unchecked") && <p className="text-xs text-amber-400">Arguments aren&apos;t checked yet for {p.tools.filter((t) => t.check === "unchecked").length} tool(s): Test connection again to load their full schemas.</p>}
             {!!p.tools.length && <details className="mt-1 text-xs"><summary className="cursor-pointer">{p.tools.filter((t) => t.mode !== "off").length} of {p.tools.length} tools on</summary>
               <ul className="mt-1 space-y-1">{p.tools.map((t) => (
                 <li key={t.name} className="flex items-start justify-between gap-2">
-                  <span><b>{t.name}</b> <span className="muted">· {TIER_TEXT[t.tier]}{t.description ? ` · ${t.description.slice(0, 140)}` : ""}</span></span>
+                  <span><b>{t.name}</b> <span className="muted">· {TIER_TEXT[t.tier]}{t.description ? ` · ${t.description.slice(0, 140)}` : ""}</span>
+                    {t.check === "refused" && <span className="block text-red-400">Off: ORBIT can&apos;t check its arguments ({t.schemaError}).</span>}
+                    {t.check === "partial" && <span className="block muted">Arguments checked, except text patterns: the program checks those itself.</span>}</span>
                   <select aria-label={`${t.name} mode`} value={p.settings[t.name] ?? ""} onChange={(e) => void call({ action: "update", name: p.name, tools: { ...p.settings, [t.name]: e.target.value || undefined } })}>
                     <option value="">default ({t.mode})</option><option value="auto">auto</option><option value="ask">ask</option><option value="off">off</option>
                   </select>

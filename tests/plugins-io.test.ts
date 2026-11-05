@@ -14,12 +14,36 @@ const { setStopAll } = await import("../src/lib/stop-all.ts");
 
 test("Test connection caches the server's tools (bad names dropped)", { timeout: 30_000 }, async () => {
   const r = await P.testPlugin("fake");
-  assert.deepEqual(r, { ok: true, tools: 4 });
+  assert.deepEqual(r, { ok: true, tools: 7 });
   const g = P.pluginGates();
   assert.equal(g["plugin__fake__scene"].tier, "T0");
   assert.equal(g["plugin__fake__run_code"].tier, "T2");
   assert.equal(g["plugin__fake__nuke"].mode, "ask");
   assert.match(P.pluginPromptNow(), /plugin__fake__run_code \{"code": string\}/);
+});
+
+test("the full schema survives discovery and reaches the native tool list; bad arguments fail before running; the structured receipt survives", { timeout: 30_000 }, async () => {
+  const { mcpToolList } = await import("../src/lib/core-mcp-pure.ts");
+  const id = "plugin__fake__book";
+  const [listed] = mcpToolList([id], {}, { ...P.pluginSchemasNow(), [id]: { ...P.pluginSchemasNow()[id], $schema: "http://json-schema.org/draft-07/schema#" } });
+  assert.equal((listed.inputSchema as Record<string, unknown>).$schema, undefined, "the dialect line isn't sent to the model API");
+  const when = (listed.inputSchema as { properties: { when: { properties: { tz: { enum: string[] } }; required: string[] } } }).properties.when;
+  assert.deepEqual(when.properties.tz.enum, ["Europe/Tallinn", "UTC"]);
+  assert.deepEqual(when.required, ["tz", "day"]);
+  assert.match(P.pluginPromptNow(), /plugin__fake__book \{"when": \{"tz": "Europe\/Tallinn"\|"UTC", "day": string\}, "tags"\?: string\[\]\}/);
+  const bad = await P.runPluginTool(id, { when: { tz: "Mars", day: "Fri" } }, { steps: [], pinned: false });
+  assert.match(bad, /^Error: fake book: arguments don't match its schema: \/when\/tz must be equal to one of the allowed values \("Europe\/Tallinn", "UTC"\)/);
+  assert.match(await P.runPluginTool(id, { when: { tz: "UTC" } }, { steps: [], pinned: false }), /\/when must have required property 'day'/);
+  const ok = await P.runPluginTool(id, { when: { tz: "UTC", day: "Fri" } }, { steps: [], pinned: false });
+  assert.match(ok, /STRUCTURED: \{"booked":true,"id":"r-42","tz":"UTC"\}/);
+  // a large structured result comes back whole (CORE's clip store pages it) and is kept on disk past the turn
+  const big = await P.runPluginTool("plugin__fake__export", {}, { steps: [], pinned: false });
+  assert.equal(JSON.parse(big.split("STRUCTURED: ")[1]).rows.length, 3000);
+  const { readdir } = await import("node:fs/promises");
+  await new Promise((r) => setTimeout(r, 200));
+  const kept = (await readdir(path.join(dir, "plugin-results"))).filter((f) => f.endsWith("-fake-export.json"));
+  assert.equal(kept.length, 1);
+  assert.equal(JSON.parse(await readFile(path.join(dir, "plugin-results", kept[0]), "utf8")).structuredContent.rows.length, 3000);
 });
 
 test("a read runs; the result is outside data with images named only", { timeout: 30_000 }, async () => {
@@ -98,6 +122,19 @@ test("a claim that can't be saved runs nothing and doesn't block the item; a ser
   const r = await P.runPending("e1");
   assert.match(r.out!, /^Error: plugin fake reject failed: .*bad params/);
   assert.deepEqual(await P.listPending(), [], "a definite answer leaves the queue");
+});
+
+test("his Run click re-checks a queued call: a tool turned off, refused or gone since, or arguments that no longer fit, don't run", { timeout: 30_000 }, async () => {
+  const file = path.join(dir, "plugin-pending.json");
+  const q = (id: string, tool: string, args: Record<string, unknown>) => ({ id, server: "fake", tool, args, at: new Date().toISOString() });
+  await writeFile(file, JSON.stringify([q("r1", "book", { when: { tz: "Mars", day: "Fri" } }), q("r2", "gone", {}), q("r3", "run_code", { code: "x" })]));
+  assert.match((await P.runPending("r1")).error!, /^Not run: fake book: arguments don't match its schema/);
+  assert.match((await P.runPending("r2")).error!, /no longer in the plugin's tool list/);
+  await P.updatePlugins((l) => l.map((x) => (x.name === "fake" ? { ...x, tools: { ...x.tools, run_code: "off" } } : x)));
+  assert.match((await P.runPending("r3")).error!, /it's off now/);
+  await P.updatePlugins((l) => l.map((x) => (x.name === "fake" ? { ...x, tools: Object.fromEntries(Object.entries(x.tools).filter(([k]) => k !== "run_code")) } : x)));
+  assert.ok((await P.listPending()).every((x) => !x.attempting), "refused at the click: unclaimed, nothing ran");
+  for (const x of await P.listPending()) await P.discardPending(x.id);
 });
 
 test("Stop-all refuses new calls and closes running ones; every call is in Activity", { timeout: 30_000 }, async () => {
