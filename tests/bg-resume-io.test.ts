@@ -58,10 +58,11 @@ function harness(onRun: (history: { content: string }[], signal: AbortSignal) =>
       await onRun(history, signal);
       return { text: "Built it.", citations: [], trace: [] };
     },
-    finishBackground: (_sb: unknown, _u: string, _c: string, _t: string, _title: string, run: (s: AbortSignal) => Promise<unknown>, stop?: (() => Promise<void>) & { lost?: AbortSignal }) => (async () => {
+    // follows core-turn.ts finishBackground's ownership checks: before the answer write and before the failure write
+    finishBackground: (_sb: unknown, _u: string, _c: string, _t: string, _title: string, run: (s: AbortSignal) => Promise<unknown>, stop?: (() => Promise<void>) & { lost?: AbortSignal; confirm?: () => Promise<boolean> }) => (async () => {
       const lost = stop?.lost ?? new AbortController().signal;
-      try { const result = await run(lost); if (lost.aborted) throw lost.reason; await stop?.(); done({ result }); }
-      catch (e) { await stop?.(); done(lost.aborted ? { dropped: true } : { error: e as { orbitReason?: string } }); }
+      try { const result = await run(lost); if (lost.aborted || (stop?.confirm && !(await stop.confirm()))) throw lost.reason; await stop?.(); done({ result }); }
+      catch (e) { const gone = lost.aborted || (stop?.confirm && !(await stop.confirm())); await stop?.(); done(gone ? { dropped: true } : { error: e as { orbitReason?: string } }); }
       return null;
     })(),
   });
@@ -119,4 +120,32 @@ test("restart: when another ORBIT takes the lease mid-run, this one stops, write
     const [lf] = await leaseFiles();
     assert.equal(JSON.parse(await readFile(path.join(DATA, "jobs", lf), "utf8")).owner, "other-pc:42:abcd", "their lease untouched");
   } finally { mock.timers.reset(); }
+});
+
+test("a lease that can never be written doesn't kill the turn: no one else can own it, so it finishes and answers", async () => {
+  await leftBehind();
+  await rm(path.join(DATA, "jobs"), { recursive: true, force: true });
+  await writeFile(path.join(DATA, "jobs"), "not a folder"); // every takeLease now throws (ENOTDIR/EEXIST)
+  // the sweep needs the lease to start a resume, so drive trackTurn directly, as a fresh turn does
+  const { trackTurn } = await import("../src/lib/bg-resume.ts");
+  mock.timers.enable({ apis: ["setInterval"] });
+  try {
+    const stop = await trackTurn(newBgTurn({ taskId: "t9", userId: "u1", chatId: "c1", request: "x", title: "x" }, Date.now()));
+    for (let i = 0; i < 5; i++) { mock.timers.tick(60_000); await new Promise((r) => setTimeout(r, 20)); } // 5 failed renewals
+    assert.equal(stop.lost.aborted, false, "not aborted: the lease was never ours, so nobody can have taken it");
+    assert.equal(await stop.confirm(), true);
+    await stop();
+  } finally { mock.timers.reset(); await rm(path.join(DATA, "jobs"), { force: true }); }
+});
+
+test("a process that stalled past its lease can't write a stale answer: the check right before writing catches it", async () => {
+  await leftBehind();
+  const h = harness(async () => {
+    const [lf] = await leaseFiles(); // the new owner took the lease while this run was busy; no renewal tick happened
+    await writeFile(path.join(DATA, "jobs", lf), JSON.stringify({ owner: "other-pc:42:abcd", until: Date.now() + 600_000 }));
+  });
+  await resumeBackgroundTurns(chat(300), "u1", h.load);
+  const f = await h.finished;
+  assert.equal(f.dropped, true, "the answer isn't written");
+  assert.deepEqual(await readdir(path.join(DATA, "bg-turns")), ["t1.json"], "record kept for the new owner");
 });

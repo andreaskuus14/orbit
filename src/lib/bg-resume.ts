@@ -8,8 +8,10 @@ import { releaseLease, takeLease } from "./job-log.ts";
 import { parseBgTurn, resumeContext, resumeHistory, resumePlan, type BgTurn } from "./bg-resume-pure.ts";
 
 const LEASE_MS = 3 * 60_000, RENEW_MS = 60_000; // a dead process's lease frees within 3 minutes
-const g = globalThis as unknown as { __orbitBgTurns?: Set<string> };
+const g = globalThis as unknown as { __orbitBgTurns?: Set<string>; __orbitBgGaveUp?: Set<string> };
 const active = (g.__orbitBgTurns ??= new Set()); // turns this process runs (its own lease would look free to it)
+// finished here, but the record couldn't be deleted (Windows lock, read-only file): don't resume it again every tick
+const gaveUp = (g.__orbitBgGaveUp ??= new Set());
 const dir = () => path.join(orbitDataDir(), "bg-turns");
 const file = (taskId: string) => path.join(dir(), `${taskId.replace(/[^\w-]/g, "_")}.json`);
 const lease = (taskId: string) => `bgturn:${taskId}`;
@@ -29,31 +31,43 @@ async function save(r: BgTurn) {
   await rename(file(r.taskId) + ".tmp", file(r.taskId));
 }
 
-export type TurnStop = (() => Promise<void>) & { lost: AbortSignal };
+export type TurnStop = (() => Promise<void>) & { lost: AbortSignal; confirm: () => Promise<boolean> };
 
 /** Keep `r` on disk and leased while its turn runs here. The returned stop() is called once it reached a resting state (done or
  *  failed with its message in the chat): the record goes. A crash never calls it, so the boot sweep finds the record.
- *  stop.lost aborts when this process no longer owns the turn: the renewal was refused (another ORBIT holds the lease), or it kept
- *  failing until the lease could lapse. Then the turn must stop and write nothing; the record stays for the new owner. */
+ *  stop.lost aborts when this process no longer owns the turn: a renewal was refused (another ORBIT holds the lease), or, once
+ *  the lease was ours, renewals kept failing until it could lapse. Then the turn stops and writes nothing; the record stays for
+ *  the new owner. A lease that was never confirmed (unwritable data dir) never aborts a turn on errors: nobody else can own it.
+ *  stop.confirm() renews right before the final writes, so a process that stalled past its lease can't write a stale answer. */
 export async function trackTurn(r: BgTurn): Promise<TurnStop> {
   active.add(r.taskId);
   await save(r).catch((e) => console.error("[orbit] background turn record:", msg(e))); // a fresh turn still runs, just not resumable
-  await takeLease(lease(r.taskId), LEASE_MS).catch(() => false);
   const lost = new AbortController();
-  let lastOk = Date.now();
+  let confirmed = false, lastOk = 0; // lastOk: start time of the last successful renewal (the lease's `until` counts from then)
   const lose = (why: string) => { if (!lost.signal.aborted) { console.error(`[orbit] background turn ${r.taskId}: ${why}; stopping it here`); lost.abort(new Error(why)); } };
-  const t = setInterval(() => void takeLease(lease(r.taskId), LEASE_MS).then(
-    (ok) => (ok ? (lastOk = Date.now()) : lose("another ORBIT process took it over")),
-    (e) => { if (Date.now() - lastOk > LEASE_MS - RENEW_MS) lose(`its lease couldn't be renewed (${msg(e)})`); }), RENEW_MS);
+  const renew = async (): Promise<boolean> => {
+    if (lost.signal.aborted) return false;
+    const at = Date.now();
+    try {
+      if (await takeLease(lease(r.taskId), LEASE_MS)) { confirmed = true; lastOk = at; return true; }
+      lose("another ORBIT process took it over");
+      return false;
+    } catch (e) {
+      if (confirmed && Date.now() - lastOk >= LEASE_MS - RENEW_MS) { lose(`its lease couldn't be renewed (${msg(e)})`); return false; }
+      return true; // still within our lease, or never confirmed (no one else can have it)
+    }
+  };
+  await renew();
+  const t = setInterval(() => void renew(), RENEW_MS);
   t.unref?.();
   return Object.assign(async () => {
     clearInterval(t);
     if (!lost.signal.aborted) { // the new owner needs the record and holds the lease
-      await unlink(file(r.taskId)).catch(() => {});
+      await unlink(file(r.taskId)).catch((e) => { if ((e as NodeJS.ErrnoException).code !== "ENOENT") { gaveUp.add(r.taskId); console.error("[orbit] background turn record stays:", msg(e)); } });
       await releaseLease(lease(r.taskId)).catch(() => {});
     }
     active.delete(r.taskId);
-  }, { lost: lost.signal });
+  }, { lost: lost.signal, confirm: renew });
 }
 
 /** Scheduler tick (after Stop-all / usage checks): resume this user's background turns a previous ORBIT process left behind. Never throws. */
@@ -62,7 +76,7 @@ export async function resumeBackgroundTurns(sb: SupabaseClient, userId: string, 
     const names = await readdir(dir()).catch(() => [] as string[]);
     for (const n of names.filter((x) => x.endsWith(".json"))) {
       const r = parseBgTurn(await readFile(path.join(dir(), n), "utf8").then((t) => JSON.parse(t), () => null));
-      if (!r || r.userId !== userId || active.has(r.taskId)) continue;
+      if (!r || r.userId !== userId || active.has(r.taskId) || gaveUp.has(r.taskId)) continue;
       if (!(await takeLease(lease(r.taskId), LEASE_MS).catch(() => false))) continue; // another live ORBIT runs it
       active.add(r.taskId);
       void resumeOne(sb, r, load).catch((e) => console.error("[orbit] background turn resume:", msg(e)));
@@ -91,6 +105,7 @@ async function resumeOne(sb: SupabaseClient, r: BgTurn, load: () => Promise<Resu
   if (r.sessionId && !coreSessionStore.get(r.chatId)) coreSessionStore.set(r.chatId, { id: r.sessionId, resume: true });
   const run = async (signal: AbortSignal) => {
     for (;;) { // each try is counted on disk before it runs, so a crash mid-resume counts too
+      signal.throwIfAborted(); // ownership lost: never write the new owner's record
       r.attempts++;
       // the count is what stops a crash loop (MAX_RESUMES): a try that can't be recorded doesn't run
       try { await save(r); } catch (e) { console.error("[orbit] background turn record:", msg(e)); throw Object.assign(new Error(SAVE_FAILED), { orbitReason: SAVE_FAILED }); }
