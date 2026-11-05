@@ -17,7 +17,7 @@ import { claimPending, cleanTool, gates, outsideIn, parsePending, parsePlugins, 
 
 const file = () => path.join(orbitDataDir(), "plugins.json");
 const pendingFile = () => path.join(orbitDataDir(), "plugin-pending.json");
-const g = globalThis as unknown as { __orbitPlugins?: { list: Plugin[]; stamp: string }; __orbitPluginSave?: Promise<unknown>; __orbitPluginLive?: Set<{ close: () => Promise<void> }> };
+const g = globalThis as unknown as { __orbitPlugins?: { list: Plugin[]; stamp: string }; __orbitPluginSave?: Promise<unknown>; __orbitPluginLive?: Set<{ close: () => Promise<void> }>; __orbitPluginRunning?: Set<string> };
 const live = (g.__orbitPluginLive ??= new Set());
 const stamp = () => { try { const s = statSync(file()); return `${s.mtimeMs}:${s.size}`; } catch { return "none"; } };
 
@@ -102,17 +102,21 @@ export async function testPlugin(name: string): Promise<{ ok: boolean; tools: nu
   return error ? { ok: false, tools: 0, error } : { ok: true, tools: tools.length };
 }
 
-/** One tools/call with the plugin's timeout; every call is logged to Activity (tool name and outcome; never arguments or results). */
-async function callTool(p: Plugin, tool: string, args: Record<string, unknown>, by: "core" | "owner"): Promise<string> {
+/** One tools/call with the plugin's timeout; every call is logged to Activity (tool name and outcome; never arguments or results).
+ *  unknown: the request was sent and then the call broke (timeout, closed connection, Stop-all): it may have run on the server. */
+async function callTool(p: Plugin, tool: string, args: Record<string, unknown>, by: "core" | "owner"): Promise<{ out: string; unknown: boolean }> {
   const t0 = Date.now();
-  let out: string;
+  let out: string, sent = false, unknown = false;
   try {
-    const r = await withClient(p, (c, timeout) => c.callTool({ name: tool, arguments: args }, undefined, { timeout, maxTotalTimeout: timeout }));
+    const r = await withClient(p, (c, timeout) => { sent = true; return c.callTool({ name: tool, arguments: args }, undefined, { timeout, maxTotalTimeout: timeout }); });
     out = resultText(p.name, r as { content?: unknown; isError?: unknown });
-  } catch (e) { out = `Error: plugin ${p.name} ${tool} failed: ${msg(e)}`; }
+  } catch (e) {
+    unknown = sent;
+    out = sent ? `Error: plugin ${p.name} ${tool}: outcome unknown (${msg(e)}). It may or may not have run; check ${p.name} before trying again.` : `Error: plugin ${p.name} ${tool} failed: ${msg(e)}`;
+  }
   const failed = out.startsWith("Error:");
-  logActivity({ area: by === "owner" ? "system" : "core", title: `Plugin ${p.name} → ${tool}${by === "owner" ? " (your Run click)" : ""}: ${failed ? "failed" : "done"} in ${((Date.now() - t0) / 1000).toFixed(1)} s`, ...(failed ? { detail: out.slice(0, 300) } : {}) });
-  return out;
+  logActivity({ area: by === "owner" ? "system" : "core", title: `Plugin ${p.name} → ${tool}${by === "owner" ? " (your Run click)" : ""}: ${unknown ? "outcome unknown" : failed ? "failed" : "done"} in ${((Date.now() - t0) / 1000).toFixed(1)} s`, ...(failed ? { detail: out.slice(0, 300) } : {}) });
+  return { out, unknown };
 }
 
 export const listPending = async (): Promise<Pending[]> => parsePending(await readFile(pendingFile(), "utf8").catch(() => null));
@@ -140,23 +144,44 @@ export async function runPluginTool(id: string, input: Record<string, unknown>, 
     logActivity({ area: "core", title: `Plugin ${p.name} → ${ref.tool}: queued for your Run click (Profile → Plugins)` });
     return `Queued, not run: ${p.name} ${ref.tool} (id ${item.id}) waits for his Run click in Profile → Plugins, where he sees the exact arguments. Tell him; nothing has happened yet.`;
   }
-  return callTool(p, ref.tool, input, "core");
+  return (await callTool(p, ref.tool, input, "core")).out;
 }
 
-/** His Run click on a queued call: runs exactly the stored arguments once. The claim (attempting) is saved before the call and the
- *  item leaves the queue only after it, so a crash in between shows "outcome unknown" instead of vanishing or re-running. */
+// Queued calls running in this process right now. Disk alone can't tell "running here now" from "a crash left it attempting",
+// so Run again and Discard are refused while the id is here; after a restart the set is empty and only crash leftovers show unknown.
+const running = (g.__orbitPluginRunning ??= new Set<string>());
+export const isRunning = (id: string) => running.has(id);
+
+/** His Run click on a queued call: runs exactly the stored arguments once. The claim (attempting, plus this process's running
+ *  set) is saved before the call; the item leaves the queue only after a definite outcome, so a crash or a broken call shows
+ *  "outcome unknown" instead of vanishing or re-running. */
 export async function runPending(id: string, again = false): Promise<{ out?: string; error?: string }> {
   if (stopAllOn()) return { error: PAUSED_MSG };
   let claim = { error: "Not in the queue any more" } as ReturnType<typeof claimPending>; // set inside the save: TS can't see that
-  await savePending((l) => { claim = claimPending(l, id, again, new Date().toISOString()); return "list" in claim ? claim.list : l; });
+  await savePending((l) => {
+    claim = running.has(id) ? { error: "It is running right now; wait for it to finish." } : claimPending(l, id, again, new Date().toISOString());
+    if (!("list" in claim)) return l;
+    running.add(id); // inside the same save step as the claim: two clicks can't both pass
+    return claim.list;
+  });
   const c = claim as ReturnType<typeof claimPending>;
   if ("error" in c) return { error: c.error };
-  const item = c.item;
-  const p = loadPlugins().find((x) => x.name === item.server);
-  if (!p?.enabled) { await savePending((l) => l.map((x) => (x.id === id ? { ...x, attempting: undefined } : x))); return { error: `Plugin ${item.server} is removed or disabled` }; }
-  const out = await callTool(p, item.tool, item.args, "owner");
-  await savePending((l) => l.filter((x) => x.id !== id)); // the outcome (done or failed) is in Activity and the returned text
-  return { out };
+  try {
+    const item = c.item;
+    const p = loadPlugins().find((x) => x.name === item.server);
+    if (!p?.enabled) {
+      await savePending((l) => l.map((x) => (x.id === id ? { ...x, attempting: undefined } : x))).catch((e) => console.error("[plugins] unclaim:", msg(e)));
+      return { error: `Plugin ${item.server} is removed or disabled` };
+    }
+    const { out, unknown } = await callTool(p, item.tool, item.args, "owner");
+    // a definite outcome (done, or the server said it failed) leaves the queue; an unknown one stays attempting for his decision
+    if (!unknown) await savePending((l) => l.filter((x) => x.id !== id)).catch((e) => console.error("[plugins] dequeue:", msg(e))); // the result still reaches him
+    return { out };
+  } finally { running.delete(id); }
 }
 
-export const discardPending = (id: string) => savePending((l) => l.filter((x) => x.id !== id));
+/** Discard a queued call; refused while it is running here (it would look cancelled while it keeps going). */
+export async function discardPending(id: string): Promise<string | undefined> {
+  if (running.has(id)) return "It is running right now; wait for it to finish.";
+  await savePending((l) => l.filter((x) => x.id !== id));
+}

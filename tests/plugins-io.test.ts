@@ -48,7 +48,7 @@ test("two Run clicks at once run the call once; a crash mid-call leaves 'outcome
   const [id] = (await P.listPending()).map((x) => x.id);
   const [a, b] = await Promise.all([P.runPending(id), P.runPending(id)]);
   assert.equal([a, b].filter((r) => r.out).length, 1, "exactly one ran");
-  assert.ok([a, b].some((r) => r.error && /Already started|Not in the queue/.test(r.error)));
+  assert.ok([a, b].some((r) => r.error && /running right now|Already started|Not in the queue/.test(r.error)));
   assert.deepEqual(await P.listPending(), []);
   // a restart after the claim was saved but before the result: the item is still there, marked attempting
   const file = path.join(dir, "plugin-pending.json");
@@ -59,12 +59,35 @@ test("two Run clicks at once run the call once; a crash mid-call leaves 'outcome
   assert.deepEqual(await P.listPending(), []);
 });
 
+test("while a Run is in flight: Run again and Discard are refused and it shows running; a timeout after sending is 'outcome unknown' and stays queued", { timeout: 30_000 }, async () => {
+  await P.updatePlugins((l) => [...l.filter((x) => x.name !== "short"), { ...l.find((x) => x.name === "fake")!, name: "short", timeoutSec: 5 }]);
+  const file = path.join(dir, "plugin-pending.json");
+  await writeFile(file, JSON.stringify([{ id: "s1", server: "short", tool: "slow", args: {}, at: new Date().toISOString() }]));
+  const first = P.runPending("s1");
+  for (let i = 0; i < 100 && !P.isRunning("s1"); i++) await new Promise((r) => setTimeout(r, 20));
+  assert.ok(P.isRunning("s1"));
+  assert.equal((await P.runPending("s1", true)).error, "It is running right now; wait for it to finish.", "no double run from a stale Run again");
+  assert.equal(await P.discardPending("s1"), "It is running right now; wait for it to finish.");
+  const r = await first; // the 20 s tool hits the 5 s timeout after the request went out
+  assert.match(r.out!, /outcome unknown .* It may or may not have run/);
+  assert.equal(P.isRunning("s1"), false);
+  const left = await P.listPending();
+  assert.equal(left.length, 1, "an unknown outcome stays for his decision");
+  assert.ok(left[0].attempting);
+  assert.match((await P.runPending("s1")).error!, /may or may not have run/, "a plain Run is refused; only Run again repeats it");
+  assert.equal(await P.discardPending("s1"), undefined);
+  assert.deepEqual(await P.listPending(), []);
+  await P.updatePlugins((l) => l.filter((x) => x.name !== "short"));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.match(await readFile(path.join(dir, "activity.jsonl"), "utf8"), /Plugin short → slow \(your Run click\): outcome unknown/);
+});
+
 test("Stop-all refuses new calls and closes running ones; every call is in Activity", { timeout: 30_000 }, async () => {
   const slow = P.runPluginTool("plugin__fake__slow", {}, { steps: [], pinned: false });
   await new Promise((r) => setTimeout(r, 1500));
   await setStopAll(true);
   assert.ok((await P.closeAllPlugins()) >= 1);
-  assert.match(await slow, /^Error: plugin fake slow failed/);
+  assert.match(await slow, /^Error: plugin fake slow: outcome unknown/); // closed after the request went out: it may have run
   assert.match(await P.runPluginTool("plugin__fake__scene", {}, { steps: [], pinned: false }), /paused/);
   await setStopAll(false);
   await new Promise((r) => setTimeout(r, 300)); // activity appends are async

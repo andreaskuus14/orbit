@@ -26,9 +26,9 @@ export function PluginsSection() {
   const [out, setOut] = useState("");
   const [draft, setDraft] = useState("");
   const call = useCallback(async (body?: object, label = "") => {
-    setErr(""); setBusy(label);
+    if (body) { setErr(""); setBusy(label); } // a background poll never touches busy: it would re-enable Run on a call still running
     try { const j = await pluginsCall(body); setV(j); if (j.out !== undefined) setOut(j.out); if (j.tested !== undefined) setOut(`Connected: ${j.tested} tools.`); return true; }
-    catch (e) { setErr(e instanceof Error ? e.message : String(e)); return false; } finally { setBusy(""); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); return false; } finally { if (body) setBusy(""); }
   }, []);
   const poll = useCallback(() => void call(), [call]);
   usePoll(poll, pollMs(30_000));
@@ -50,13 +50,13 @@ export function PluginsSection() {
         <div className="muted text-[10px] uppercase tracking-widest">Waiting for your click</div>
         {v.pending.map((q) => (
           <div key={q.id} className="rounded border border-amber-400/40 p-2 text-sm">
-            <div><b>{q.server}</b> → {q.tool} <span className="muted text-xs">· {q.at.slice(0, 16).replace("T", " ")}</span></div>
+            <div><b>{q.server}</b> → {q.tool} <span className="muted text-xs">· {new Date(q.at).toLocaleString()}</span></div>
             {/* the exact arguments that will run (for Blender: the Python code) */}
             <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{typeof q.args.code === "string" ? q.args.code : JSON.stringify(q.args, null, 2)}</pre>
-            {q.attempting && busy !== q.id && <p className="mt-1 text-xs text-amber-300" role="status">Started {q.attempting.slice(0, 16).replace("T", " ")} and never finished: it may or may not have run. Check {q.server} before running it again.</p>}
+            {q.attempting && !q.running && busy !== q.id && <p className="mt-1 text-xs text-amber-300">Started {new Date(q.attempting).toLocaleString()} and never finished: it may or may not have run. Check {q.server} before running it again.</p>}
             <div className="mt-1 flex gap-2">
-              <button className="chip" disabled={!!busy || v.stopAll} onClick={() => void call({ action: "run", id: q.id, ...(q.attempting ? { again: true } : {}) }, q.id)}>{busy === q.id ? "Running…" : q.attempting ? "Run again" : "Run"}</button>
-              <button className="chip" disabled={!!busy} onClick={() => void call({ action: "discard", id: q.id })}>Discard</button>
+              <button className="chip" disabled={!!busy || v.stopAll || q.running} onClick={() => void call({ action: "run", id: q.id, ...(q.attempting ? { again: true } : {}) }, q.id)}>{busy === q.id || q.running ? "Running…" : q.attempting ? "Run again" : "Run"}</button>
+              <button className="chip" disabled={!!busy || q.running} onClick={() => void call({ action: "discard", id: q.id })}>Discard</button>
             </div>
           </div>
         ))}
