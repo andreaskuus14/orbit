@@ -10,7 +10,7 @@ export const EFFECTS: Record<string, Effect> = {
   navigate: "read", goal_status: "read", business_status: "read", ideas_list: "read", studio_status: "read", learned: "read", suggestions: "read",
   life_status: "read", life_journal: "read", vault_search: "read", vault_read: "read", calendar_events: "read", git_summary: "read",
   plan_day: "read", mission_status: "read", start_mission: "reversible", // missions: steps run as agent tasks; outward actions still need approval
-  ws_list: "read", ws_read: "read", rea_status: "read", rea_read: "read", week_review: "read", wishlist: "read",
+  ws_list: "read", ws_read: "read", rea_status: "read", rea_read: "read", week_review: "read", daily_runs: "read", wishlist: "read",
   load_module: "read", read_more: "read", web_search: "read", fetch_url: "read", read_news: "read", reach_trending: "read", reach_read: "read",
   // CORE tools: changes to his own data only
   save_memory: "reversible", save_checkpoint: "reversible", ask_agent: "reversible", create_goal: "reversible", plan_task: "reversible", run_scout: "reversible", run_niche: "reversible",

@@ -98,6 +98,8 @@ export type Skill = { name: string; description: string; moved: string[] };
 export const SKILLS: Skill[] = [
   { name: "site-building", description: "ORBIT's step-by-step pipeline and design guide for building or redesigning a website in a workspace (plan.md, layout, pages, pictures, check and fix rounds). Use for any new site, landing page or big redesign.", moved: [SITE_PIPELINE] },
   { name: "lead-hunting", description: "How ORBIT finds and verifies BUSINESS leads that match a condition (no website, outdated site...) before saving them with lead_create, until the asked count is met.", moved: [LEAD_RULE] },
+  // new procedure, not moved prompt text: CORE loads it only when asked about today's runs
+  { name: "daily-runs", description: "How ORBIT answers \"did my brief / clips / leads run today\", \"what failed\", \"anything need me\" — from the daily_runs tool's recorded states, never from memory or guesswork.", moved: [] },
 ];
 const POINTER = (s: Skill) => `(${s.name}: load the orbit:${s.name} skill)`;
 const LEAD_HINT = /PLAN HINT \(lead finding with a condition\):[^\n]*\n\n/g;

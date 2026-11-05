@@ -87,6 +87,8 @@ async function tick(sb: SupabaseClient) {
     if (allows("research", "background").ok) void import("./pagewatch").then((m) => m.tickWatches());
     // Profile → Autonomy "auto with limits" (off by default: a no-op until the owner turns it on with the typed phrase).
     if (users?.[0]) await tickAutonomy(sb, users[0].id);
+    // Daily runs digest (daily.ts): once a day (ORBIT_DAILY_DIGEST, default 10:30) brief / clips / leads states to the phone, labels only. Never throws.
+    if (users?.[0]) await import("./daily").then((m) => m.maybeDailyDigest(sb, users[0].id));
     // System health (doctor's SYSTEM card): every 10 min, incidents open/resolve; one phone push per new one (quiet hours wait). Not awaited; never throws.
     if (users?.[0]) void import("./system-health").then((m) => m.tickSystemHealth(sb, users[0].id));
     // Invoices: a phone push when an overdue reminder draft is waiting, once per invoice per week (quiet hours and Stop-all skip it).
