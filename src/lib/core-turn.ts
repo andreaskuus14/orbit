@@ -199,16 +199,19 @@ async function inBackground(sb: SupabaseClient, userId: string, cid: string, mes
 }
 
 /** The end of a background turn (fresh or resumed after a restart): answer or failure into the chat, task row, one notice. */
-export function finishBackground(sb: SupabaseClient, userId: string, cid: string, taskId: string, title: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>, stop?: () => Promise<void>): Promise<{ answer: string } | null> {
+export function finishBackground(sb: SupabaseClient, userId: string, cid: string, taskId: string, title: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>, stop?: (() => Promise<void>) & { lost?: AbortSignal; confirm?: () => Promise<boolean> }): Promise<{ answer: string } | null> {
   return (async () => {
     let status = "done", result: string | null = null, err: string | null = null, rc: Receipt | undefined;
+    const lost = stop?.lost ?? new AbortController().signal; // bg-resume trackTurn: aborts when another ORBIT owns the turn now
     try {
-      const out = await run(new AbortController().signal);
+      const out = await run(lost);
+      if (lost.aborted || (stop?.confirm && !(await stop.confirm()))) throw lost.reason; // still ours right before writing
       result = out.text; rc = receiptOf(out.trace);
       logReceipt(rc);
       await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
       void noteReceipts(userId, cid, out.trace).catch(() => {});
     } catch (e) {
+      if (lost.aborted || (stop?.confirm && !(await stop.confirm()))) { await stop?.(); return null; } // the new owner finishes it and writes the answer; nothing from here
       status = "failed"; err = (e as { orbitReason?: string } | null)?.orbitReason ?? BG_FAILED; // a resume that gave up says why
       console.error("[orbit] background CORE turn failed:", e instanceof Error ? e.message : e);
       await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: `_${err}_` }).then(() => {}, () => {});
