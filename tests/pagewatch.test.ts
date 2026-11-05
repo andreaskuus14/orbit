@@ -145,3 +145,13 @@ test("a return to an earlier version is still recorded, and labelled as a revers
   assert.ok(r.change); assert.equal(r.change.reverted, new Date(T0).toISOString()); // recorded, not suppressed
   assert.equal(whatChanged(r.change), "reverted to a previous version");
 });
+
+test("review fixes: a first-check hiccup is a baseline, and a reversion points at when that version was first seen", () => {
+  const hiccup = applyCheck(applyCheck(w(), { ok: false, error: "timed out" }, T0, "h1").watch, { ok: true, text: "Docs v1" }, T0 + H, "h2");
+  assert.equal(hiccup.change, undefined); // not "the page is live now" (that's for a lead's site appearing)
+  let r = applyCheck(w(), { ok: true, text: "Status: open for applications" }, T0, "v1");
+  r = applyCheck(r.watch, { ok: true, text: "Status: open for applications\nUpdated 09:00" }, T0 + H, "v1b"); // same version, re-confirmed
+  r = applyCheck(r.watch, { ok: true, text: "Status: applications closed" }, T0 + 2 * H, "v2");
+  r = applyCheck(r.watch, { ok: true, text: "Status: open for applications" }, T0 + 3 * H, "v3");
+  assert.equal(r.change?.reverted, new Date(T0).toISOString());
+});

@@ -30,6 +30,6 @@ export async function POST(req: Request) {
     const v = b.verdict === "useful" || b.verdict === "noise" ? b.verdict : b.verdict === null ? null : undefined;
     return v === undefined ? fail("verdict must be useful, noise or null") : Response.json({ ok: await markChange(id, v) });
   }
-  if (b.action === "missed") return Response.json({ ok: await addMissed(id, typeof b.note === "string" ? b.note : "") });
+  if (b.action === "missed") return typeof b.note === "string" && b.note.trim() ? Response.json({ ok: await addMissed(id, b.note) }) : fail("note required");
   return fail("action must be add, remove, check, seen, important, verdict or missed");
 }

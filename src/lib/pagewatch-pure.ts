@@ -180,12 +180,12 @@ export function applyCheck(w: Watch, r: CheckResult, now: number, id: string): {
   delete x.lastError;
   const prev = w.snaps.at(-1), snaps = [...w.snaps, { at, text: r.text }].slice(-KEEP_SNAPS);
   if (!prev) {
-    if (!w.failed) return { watch: { ...x, snaps, failed: false } };
+    if (!w.failed || !w.lead) return { watch: { ...x, snaps, failed: false } }; // "live now" only for a lead's site appearing, not a first-check hiccup
     const added = keptLines(r.text).slice(0, DIFF_LINES).map((l) => l.slice(0, LINE_CHARS));
     return { watch: { ...x, snaps, failed: false, lastChanged: at }, change: { id, watch: w.id, at, live: true, added, removed: [] } };
   }
   const d = diffText(prev.text, r.text);
-  if (!meaningful(d)) return { watch: { ...x, failed: false, snaps: [...w.snaps.slice(0, -1), { at, text: r.text }] } }; // keep the newest text, no new version
+  if (!meaningful(d)) return { watch: { ...x, failed: false, snaps: [...w.snaps.slice(0, -1), { at: prev.at, text: r.text }] } }; // newest text, same version (at = first seen)
   const cut = (ls: string[]) => ls.slice(0, DIFF_LINES).map((l) => l.slice(0, LINE_CHARS));
   // shortcut: only the KEEP_SNAPS-1 older versions are compared, raise KEEP_SNAPS if older reversions must be recognised
   const back = w.snaps.slice(0, -1).reverse().find((o) => !meaningful(diffText(o.text, r.text)));

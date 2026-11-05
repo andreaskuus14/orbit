@@ -16,7 +16,8 @@ const FILE = () => path.join(orbitDataDir(), "pagewatch.json");
 const g = globalThis as unknown as { __orbitPageWatch?: Promise<unknown>; __orbitPageWatchBusy?: boolean; __orbitRobots?: Map<string, { at: number; txt: Promise<string | null> }> };
 const robotsCache = (g.__orbitRobots ??= new Map());
 
-const load = async (): Promise<WatchStore> => parseStore(await readFile(FILE(), "utf8").catch((e) => { if (e.code === "ENOENT") return "{}"; throw e; }));
+// A corrupt file throws (only a missing one is empty): the brief then says "couldn't be read" and update() never overwrites it.
+const load = async (): Promise<WatchStore> => { const raw = await readFile(FILE(), "utf8").catch((e) => { if (e.code === "ENOENT") return "{}"; throw e; }); JSON.parse(raw); return parseStore(raw); };
 function update<T>(fn: (s: WatchStore) => T): Promise<T> {
   const p = (g.__orbitPageWatch ?? Promise.resolve()).catch(() => {}).then(async () => {
     const s = await load(), out = fn(s);
