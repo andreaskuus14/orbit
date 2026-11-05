@@ -29,24 +29,35 @@ async function save(r: BgTurn) {
   await rename(file(r.taskId) + ".tmp", file(r.taskId));
 }
 
+export type TurnStop = (() => Promise<void>) & { lost: AbortSignal };
+
 /** Keep `r` on disk and leased while its turn runs here. The returned stop() is called once it reached a resting state (done or
- *  failed with its message in the chat): the record goes. A crash never calls it, so the boot sweep finds the record. */
-export async function trackTurn(r: BgTurn): Promise<() => Promise<void>> {
+ *  failed with its message in the chat): the record goes. A crash never calls it, so the boot sweep finds the record.
+ *  stop.lost aborts when this process no longer owns the turn: the renewal was refused (another ORBIT holds the lease), or it kept
+ *  failing until the lease could lapse. Then the turn must stop and write nothing; the record stays for the new owner. */
+export async function trackTurn(r: BgTurn): Promise<TurnStop> {
   active.add(r.taskId);
-  await save(r).catch((e) => console.error("[orbit] background turn record:", msg(e))); // without it the turn still runs, just not resumable
+  await save(r).catch((e) => console.error("[orbit] background turn record:", msg(e))); // a fresh turn still runs, just not resumable
   await takeLease(lease(r.taskId), LEASE_MS).catch(() => false);
-  const t = setInterval(() => void takeLease(lease(r.taskId), LEASE_MS).catch(() => false), RENEW_MS);
+  const lost = new AbortController();
+  let lastOk = Date.now();
+  const lose = (why: string) => { if (!lost.signal.aborted) { console.error(`[orbit] background turn ${r.taskId}: ${why}; stopping it here`); lost.abort(new Error(why)); } };
+  const t = setInterval(() => void takeLease(lease(r.taskId), LEASE_MS).then(
+    (ok) => (ok ? (lastOk = Date.now()) : lose("another ORBIT process took it over")),
+    (e) => { if (Date.now() - lastOk > LEASE_MS - RENEW_MS) lose(`its lease couldn't be renewed (${msg(e)})`); }), RENEW_MS);
   t.unref?.();
-  return async () => {
+  return Object.assign(async () => {
     clearInterval(t);
-    await unlink(file(r.taskId)).catch(() => {});
-    await releaseLease(lease(r.taskId)).catch(() => {});
+    if (!lost.signal.aborted) { // the new owner needs the record and holds the lease
+      await unlink(file(r.taskId)).catch(() => {});
+      await releaseLease(lease(r.taskId)).catch(() => {});
+    }
     active.delete(r.taskId);
-  };
+  }, { lost: lost.signal });
 }
 
 /** Scheduler tick (after Stop-all / usage checks): resume this user's background turns a previous ORBIT process left behind. Never throws. */
-export async function resumeBackgroundTurns(sb: SupabaseClient, userId: string) {
+export async function resumeBackgroundTurns(sb: SupabaseClient, userId: string, load: () => Promise<ResumeDeps> = loadDeps) {
   try {
     const names = await readdir(dir()).catch(() => [] as string[]);
     for (const n of names.filter((x) => x.endsWith(".json"))) {
@@ -54,29 +65,42 @@ export async function resumeBackgroundTurns(sb: SupabaseClient, userId: string) 
       if (!r || r.userId !== userId || active.has(r.taskId)) continue;
       if (!(await takeLease(lease(r.taskId), LEASE_MS).catch(() => false))) continue; // another live ORBIT runs it
       active.add(r.taskId);
-      void resumeOne(sb, r).catch((e) => console.error("[orbit] background turn resume:", msg(e)));
+      void resumeOne(sb, r, load).catch((e) => console.error("[orbit] background turn resume:", msg(e)));
     }
   } catch (e) { console.error("[orbit] background turn sweep:", msg(e)); }
 }
 
-async function resumeOne(sb: SupabaseClient, r: BgTurn) {
-  const { finishBackground } = await import("./core-turn");
+// What a resume needs from the rest of ORBIT, loaded lazily (core.ts is heavy); tests/bg-resume-io passes fakes.
+type ResumeDeps = {
+  finishBackground: typeof import("./core-turn").finishBackground; runCoreFor: typeof import("./core").runCoreFor; BACKGROUND_TURN_MS: number;
+  chatProjectContext: typeof import("./core-chats").chatProjectContext; coreSessionStore: typeof import("./durable").coreSessionStore; parseLang: typeof import("./i18n-pure").parseLang;
+};
+const loadDeps = async (): Promise<ResumeDeps> => {
+  const [{ finishBackground }, { runCoreFor }, { BACKGROUND_TURN_MS }, { chatProjectContext }, { coreSessionStore }, { parseLang }] = await Promise.all([import("./core-turn"), import("./core"), import("./long-work-pure"), import("./core-chats"), import("./durable"), import("./i18n-pure")]);
+  return { finishBackground, runCoreFor, BACKGROUND_TURN_MS, chatProjectContext, coreSessionStore, parseLang };
+};
+
+export const SAVE_FAILED = "ORBIT couldn't save this task's progress, so it stopped instead of running without a record. Ask again to restart it.";
+
+async function resumeOne(sb: SupabaseClient, r: BgTurn, load: () => Promise<ResumeDeps>) {
+  const { finishBackground, runCoreFor, BACKGROUND_TURN_MS, chatProjectContext, coreSessionStore, parseLang } = await load();
   const plan = resumePlan(r, Date.now());
   const stop = await trackTurn(r); // renews the lease taken above
   if (plan.do === "fail") return finishBackground(sb, r.userId, r.chatId, r.taskId, r.title, () => Promise.reject(Object.assign(new Error(plan.reason), { orbitReason: plan.reason })), stop);
   await sb.from("tasks").update({ status: "running", started_at: new Date().toISOString(), finished_at: null, error: null }).eq("user_id", r.userId).eq("id", r.taskId);
-  const [{ runCoreFor }, { BACKGROUND_TURN_MS }, { chatProjectContext }, { coreSessionStore }, { parseLang }] = await Promise.all([import("./core"), import("./long-work-pure"), import("./core-chats"), import("./durable"), import("./i18n-pure")]);
   if (r.sessionId && !coreSessionStore.get(r.chatId)) coreSessionStore.set(r.chatId, { id: r.sessionId, resume: true });
   const run = async (signal: AbortSignal) => {
     for (;;) { // each try is counted on disk before it runs, so a crash mid-resume counts too
       r.attempts++;
-      await save(r).catch(() => {});
+      // the count is what stops a crash loop (MAX_RESUMES): a try that can't be recorded doesn't run
+      try { await save(r); } catch (e) { console.error("[orbit] background turn record:", msg(e)); throw Object.assign(new Error(SAVE_FAILED), { orbitReason: SAVE_FAILED }); }
       try {
         const history = await resumeRows(sb, r.chatId, r.request);
         if (!history.length) throw new Error("the request is no longer in the chat");
         const project = await chatProjectContext(r.userId, r.chatId);
         return await runCoreFor(BACKGROUND_TURN_MS, true, sb, r.userId, history, undefined, signal, undefined, false, undefined, undefined, undefined, resumeContext(r) + project.text, project.tainted, project.memoryProject ?? "", r.chatId, parseLang(r.lang));
       } catch (e) {
+        if (signal.aborted) throw e; // ownership lost: don't retry here
         r.lastError = msg(e).slice(0, 300);
         const next = resumePlan(r, Date.now());
         if (next.do === "fail") throw Object.assign(new Error(next.reason), { orbitReason: next.reason });
