@@ -80,7 +80,7 @@ export const MODULE_HINTS: Record<string, RegExp> = {
   ROBLOXFILES: hint("rojo|selene|lint|luau|roblox (?:code|script)|(?:check|review) (?:my |the )?(?:code|scripts?)|\\.rbxlx?\\b|export (?:my |the )?scripts?", `${W}skript|koodi (?:kontroll|üle)|kontrolli (?:koodi|skripte)`),
   BROWSER: hint("brows|render|javascript|\\bjs\\b|click|scroll|screenshot|open (?:the |this )?(?:page|site|link)|look at (?:the |this )?(?:page|site)|search (?:on|the) (?:site|page)", "ava (?:leht|link)|kuvatõmmis|ekraanipilt|kliki|keri"),
   WATCH: hint("watch|monitor|track|keep an eye|notify me|tell me when|let me know when|page chang|site chang|went live", "jälgi|teavita|anna teada|ütle(?: mulle)? kui|lehe? muutu|leht muutus"),
-  DAILY: hint("daily runs?|today'?s runs?|what ran|did (?:my |the )?(?:morning )?brief(?:ing)? run|(?:runs?|workflows?) (?:fail|miss)", "päevase[a-zõäöü]* jooks|tänase[a-zõäöü]* jooks|mis jooksis|kas (?:mu |hommikune )?brief jooksis|jooksud? (?:ebaõnnestus|jäi vahele)"),
+  DAILY: hint("daily runs?|today'?s runs?|what ran|did (?:my |the )?(?:morning )?(?:brief(?:ing)?|clips?|business loop|leads?) run|anything (?:that )?needs? me|(?:runs?|workflows?) (?:fail|miss)", "päevase[a-zõäöü]* jooks|tänase[a-zõäöü]* jooks|mis jooksis|kas (?:mu |hommikune )?(?:brief|klipid|äritsükkel|liidid) jooksi[sd]|kas miski vajab mind|jooksud? (?:ebaõnnestus|jäi vahele)"),
   WEEK: hint("week(?!day)|slipp|late|get done|got done|did i|streak|wins?\\b|behind", "nädal|hilin|hilja|maha jä|mahajää|sain tehtud|tegin ära|seeria|järjest|saavutus|võit"),
 };
 export function selectModules<T extends ModuleSpec>(mods: T[], text: string): T[] {

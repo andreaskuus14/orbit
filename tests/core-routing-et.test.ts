@@ -48,6 +48,8 @@ const PAIRS: [string, string, string][] = [
   ["DAILY", "Show today's runs", "Näita tänaseid jookse"],
   ["DAILY", "Did my brief run?", "Kas mu brief jooksis?"],
   ["DAILY", "What ran?", "Mis jooksis?"],
+  ["DAILY", "Did my clips run?", "Kas mu klipid jooksid?"],
+  ["DAILY", "Anything need me?", "Kas miski vajab mind?"],
   ["WEEK", "Show this week's wins", "Näita selle nädala saavutusi"],
   ["WEEK", "What slipped?", "Mis maha jäi?"],
   ["WEEK", "What's late?", "Mis on hiljaks jäänud?"],

@@ -27,38 +27,49 @@ export function slotAt(now: number, hhmm: string): number {
 
 export type BriefIn = { briefings: { kind: string; created_at: string; article_count: number }[]; runs: { status: string; detail: string | null; started_at: string }[] };
 
-/** Today's 07:30 brief from `briefings` + `job_runs` (both already filtered to today, newest first). */
+const BRIEF_CATCHUP_MS = 4 * 3600_000; // scheduler.ts dueSlots catches a missed slot up for 4 h whenever ORBIT is on
+
+/** Today's 07:30 brief from `briefings` + `job_runs` (both already filtered to today, newest first). A brief he asked for after
+ *  the slot ("manual") stands in for it. */
 export function briefState(x: BriefIn, now: number, slot = "07:30"): DailyItem {
-  const b = x.briefings.find((r) => r.kind === "morning");
-  if (b) return { wf: "brief", state: "completed", verified: b.article_count > 0, evidence: `briefing stored ${hm(b.created_at)}, ${b.article_count} articles` };
-  const run = x.runs.find((r) => (r.detail ?? "").startsWith("morning"));
+  const at = slotAt(now, slot);
+  const b = x.briefings.find((r) => r.kind === "morning") ?? x.briefings.find((r) => r.kind === "manual" && Date.parse(r.created_at) >= at);
+  // runPulse stores a briefing only with cited articles, so a stored row is itself the proof
+  if (b) return { wf: "brief", state: "completed", verified: b.article_count > 0, evidence: `${b.kind === "manual" ? "brief you asked for" : "briefing"} stored ${hm(b.created_at)}, ${b.article_count} articles` };
+  const run = x.runs.find((r) => /^(morning|manual)\b/.test(r.detail ?? ""));
   if (run?.status === "running") {
     return now - Date.parse(run.started_at) < RUN_STALE_MS
       ? { wf: "brief", state: "attempted", verified: false, evidence: `running since ${hm(run.started_at)}` }
       : { wf: "brief", state: "uncertain", verified: false, evidence: `started ${hm(run.started_at)} and never finished`, next: "Ask CORE for the morning brief again." };
   }
   if (run?.status === "failed") return { wf: "brief", state: "failed", verified: false, evidence: (run.detail ?? "").slice(0, 160), next: "Check the feeds in INTELLIGENCE, then ask for a new brief." };
-  const at = slotAt(now, slot);
   if (now < at) return { wf: "brief", state: "planned", verified: false, evidence: `runs at ${slot}` };
   if (now < at + GRACE_MS) return { wf: "brief", state: "planned", verified: false, evidence: `due at ${slot}, starting` };
-  return { wf: "brief", state: "missed", verified: false, evidence: `no run recorded after ${slot}`, next: "ORBIT or its scheduler was off at 07:30 (needs SUPABASE_SECRET_KEY). Ask CORE for the brief now." };
+  const until = hm(new Date(at + BRIEF_CATCHUP_MS).toISOString());
+  if (now < at + BRIEF_CATCHUP_MS) return { wf: "brief", state: "planned", verified: false, evidence: `not run yet; ORBIT catches it up by ${until} while it is on` };
+  return { wf: "brief", state: "missed", verified: false, evidence: `no run recorded between ${slot} and ${until}`, next: "ORBIT was off, its scheduler was off (SUPABASE_SECRET_KEY), or Claude's usage limit held it. Ask CORE for a brief if you still want one." };
 }
 
-export type ClipJobIn = { status: string; updatedAt: string; error?: string; clips: { status: string; publish?: { status: string; at: string; destination?: string } }[] };
+export type ClipJobIn = { status: string; createdAt: string; updatedAt: string; error?: string; clips: { status: string; publish?: { status: string; at: string; destination?: string } }[] };
 
-/** STUDIO over the last 24 h, from the clip job files. */
+/** STUDIO over the last 24 h, from the clip job files. A job counts when it started in the window, or is still working; uploads
+ *  count by their own time. (updatedAt moves on any edit, e.g. rejecting an old clip, so it isn't used.) */
 export function clipsState(jobs: ClipJobIn[], now: number): DailyItem {
-  const since = now - 86_400_000, fresh = jobs.filter((j) => Date.parse(j.updatedAt) >= since);
+  const since = now - 86_400_000;
+  const busyJobs = jobs.filter((j) => !["done", "failed"].includes(j.status));
+  const fresh = jobs.filter((j) => Date.parse(j.createdAt) >= since || busyJobs.includes(j));
   const pubs = jobs.flatMap((j) => j.clips.map((c) => c.publish)).filter((p): p is NonNullable<typeof p> => !!p && Date.parse(p.at) >= since);
-  const unknown = pubs.filter((p) => p.status === "unknown").length;
+  const count = (st: string) => pubs.filter((p) => p.status === st).length;
+  const unknown = count("unknown"), uploading = count("uploading"), pubFailed = count("failed");
   const landed = pubs.filter((p) => p.status === "done" || p.status === "scheduled");
   const checked = landed.filter((p) => p.destination === "ok").length;
   const failedJobs = fresh.filter((j) => j.status === "failed").length;
-  const busy = fresh.filter((j) => !["done", "failed"].includes(j.status)).length;
   const review = fresh.reduce((n, j) => n + j.clips.filter((c) => c.status === "ready").length, 0);
-  const parts = [fresh.length && `${fresh.length} source${fresh.length > 1 ? "s" : ""}`, review && `${review} to review`, landed.length && `${landed.length} uploaded (${checked} checked on YouTube)`, failedJobs && `${failedJobs} failed`, unknown && `${unknown} upload unsure`].filter(Boolean).join(", ");
+  const parts = [fresh.length && `${fresh.length} source${fresh.length > 1 ? "s" : ""}`, review && `${review} to review`, landed.length && `${landed.length} uploaded (${checked} checked on YouTube)`,
+    uploading && `${uploading} uploading`, pubFailed && `${pubFailed} upload${pubFailed > 1 ? "s" : ""} failed`, failedJobs && `${failedJobs} failed`, unknown && `${unknown} upload unsure`].filter(Boolean).join(", ");
   if (unknown) return { wf: "clips", state: "uncertain", verified: false, evidence: parts, next: "Open STUDIO: an upload may or may not have reached YouTube." };
-  if (busy) return { wf: "clips", state: "attempted", verified: false, evidence: parts || `${busy} working` };
+  if (pubFailed) return { wf: "clips", state: "failed", verified: false, evidence: parts, next: "Open STUDIO to see why the upload failed and retry it." };
+  if (busyJobs.length || uploading) return { wf: "clips", state: "attempted", verified: false, evidence: parts || `${busyJobs.length} working` };
   if (failedJobs && !review && !landed.length) return { wf: "clips", state: "failed", verified: false, evidence: parts, next: "Open STUDIO to see why and retry." };
   if (review) return { wf: "clips", state: "waiting", verified: false, evidence: parts, next: "Review the clips in STUDIO; nothing uploads without your approve." };
   if (landed.length) return { wf: "clips", state: "completed", verified: checked === landed.length, evidence: parts };
@@ -66,21 +77,27 @@ export function clipsState(jobs: ClipJobIn[], now: number): DailyItem {
   return { wf: "clips", state: "idle", verified: false, evidence: "no new videos in the last 24 h", next: "Drop a stream into the STUDIO inbox to get clips." };
 }
 
-export type LeadsIn = { automation: { enabled: boolean; time: string } | null; tasks: { status: string; created_at: string; pending: unknown; receipt: string | null }[] };
+// slot: the automation's latest due time (pure.ts lastDue); next: its next due time when that is later today; grace: how long
+// automations.ts still fires it after the slot (3 h, or 30 min for hourly).
+export type LeadsIn = { automation: { enabled: boolean; slot: number; next: number | null; grace: number; label: string } | null; tasks: { status: string; created_at: string; pending: unknown; receipt: string | null }[] };
 
-/** Today's business loop: the saved automation and its agent task(s) today, newest first. */
+/** The business loop's latest run since its last due slot (tasks: since that slot, newest first). Follows the real schedule, so a
+ *  weekly loop isn't "missed" on the other six days. */
 export function leadsState(x: LeadsIn, now: number): DailyItem {
-  if (!x.automation) return { wf: "leads", state: "off", verified: false, evidence: "the Daily business loop isn't saved", next: "Save it in OPERATIONS → Automations (edit the CONDITION first)." };
-  if (!x.automation.enabled) return { wf: "leads", state: "off", verified: false, evidence: "the Daily business loop is paused" };
+  const a = x.automation;
+  if (!a) return { wf: "leads", state: "off", verified: false, evidence: "the Daily business loop isn't saved", next: "Save it in OPERATIONS → Automations (edit the CONDITION first)." };
+  if (!a.enabled) return { wf: "leads", state: "off", verified: false, evidence: "the Daily business loop is paused" };
   const t = x.tasks[0];
   if (!t) {
-    const at = slotAt(now, x.automation.time);
-    if (now < at + GRACE_MS) return { wf: "leads", state: "planned", verified: false, evidence: `runs at ${x.automation.time}` };
-    return { wf: "leads", state: "missed", verified: false, evidence: `no run recorded after ${x.automation.time}`, next: "ORBIT or its scheduler was off at that time." };
+    if (a.next !== null) return { wf: "leads", state: "planned", verified: false, evidence: `runs at ${hm(new Date(a.next).toISOString())} (${a.label})` };
+    if (now < a.slot + a.grace) return { wf: "leads", state: "planned", verified: false, evidence: `due ${hm(new Date(a.slot).toISOString())}, starting (${a.label})` };
+    return { wf: "leads", state: "missed", verified: false, evidence: `no run recorded after its ${new Date(a.slot).toISOString().slice(0, 10)} ${hm(new Date(a.slot).toISOString())} slot (${a.label})`, next: "ORBIT or its scheduler was off at that time, or Claude's usage limit held it." };
   }
   if (t.status === "queued" || t.status === "running") return { wf: "leads", state: "attempted", verified: false, evidence: `${t.status} since ${hm(t.created_at)}` };
   if (t.status === "awaiting_approval") return { wf: "leads", state: "waiting", verified: false, evidence: "a lead waits for your approval", next: "Approve or reject it in Agents; the email is a second, separate approval." };
   if (t.status === "failed" || t.status === "cancelled") return { wf: "leads", state: "failed", verified: false, evidence: `run ${t.status}`, next: "Open the run in Agents to see why." };
+  if (t.receipt === "failed") return { wf: "leads", state: "failed", verified: false, evidence: `run finished ${hm(t.created_at)} but its receipt says it failed`, next: "Open the run in Agents: what it claimed didn't check out." };
+  if (t.receipt === "partly") return { wf: "leads", state: "completed", verified: false, evidence: `run done ${hm(t.created_at)}, only partly verified`, next: "Open the run in Agents to see what wasn't checked." };
   return { wf: "leads", state: "completed", verified: t.receipt === "verified", evidence: `run done ${hm(t.created_at)}, receipt ${t.receipt ?? "none"}` };
 }
 
@@ -103,9 +120,15 @@ export function digestMsg(v: DailyView): { kind: string; title: string; message:
   return { kind: bad.length ? "failed" : "daily", title: bad.length ? `ORBIT daily: ${bad.length} need${bad.length > 1 ? "" : "s"} a look` : "ORBIT daily", message, tags: [bad.length ? "warning" : "sunrise"], priority: bad.length ? 4 : 3 };
 }
 
-/** The digest is due once per local day, from `at` (HH:MM, ORBIT_DAILY_DIGEST; "off" disables). */
-export function digestDue(at: string | undefined, sentDay: string | null, day: string, now: number): boolean {
+export type DigestState = { sent?: string; tried?: string };
+const RETRY_MS = 30 * 60_000, STALE_MS = 4 * 3600_000;
+/** Due once per local day from `at` (HH:MM, ORBIT_DAILY_DIGEST; "off" disables): not sent today, no try in the last 30 min (a down
+ *  phone server isn't hammered every minute, and a send whose "sent" mark failed to save isn't repeated each tick), and at most
+ *  4 h after its time (a PC that wakes at 23:40 doesn't send the morning's digest). */
+export function digestDue(at: string | undefined, st: DigestState, day: string, now: number): boolean {
   const t = (at ?? "10:30").trim();
   if (t === "off" || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(t)) return false;
-  return sentDay !== day && now >= slotAt(now, t);
+  const slot = slotAt(now, t);
+  if (st.sent === day || now < slot || now > slot + STALE_MS) return false;
+  return !st.tried || now - Date.parse(st.tried) >= RETRY_MS;
 }

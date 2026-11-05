@@ -4,15 +4,15 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { orbitDataDir } from "./data-dir";
-import { localDay } from "./morning-pure";
-import { rowReceipt } from "./receipt-pure";
-import { BUSINESS_LOOP } from "./business-loop-pure";
-import { briefState, clipsState, dailyText, digestDue, digestMsg, leadsState, type DailyItem, type DailyView } from "./daily-pure";
+import { orbitDataDir } from "./data-dir.ts";
+import { localDay } from "./morning-pure.ts";
+import { rowReceipt } from "./receipt-pure.ts";
+import { BUSINESS_LOOP } from "./business-loop-pure.ts";
+import { briefState, clipsState, dailyText, digestDue, digestMsg, leadsState, slotAt, type DailyItem, type DailyView, type DigestState } from "./daily-pure.ts";
+import { describeTrigger, lastDue, type Schedule } from "./pure.ts";
 
 const file = () => path.join(orbitDataDir(), "daily.json");
 const startOfDay = (now: number) => { const d = new Date(now); d.setHours(0, 0, 0, 0); return d.toISOString(); };
-const pad = (n: unknown) => String(typeof n === "number" ? n : 0).padStart(2, "0");
 const failed = (wf: DailyItem["wf"], e: unknown): DailyItem => ({ wf, state: "uncertain", verified: false, evidence: `couldn't read its records: ${e instanceof Error ? e.message.slice(0, 120) : "error"}` });
 
 async function brief(sb: SupabaseClient, userId: string, now: number) {
@@ -32,17 +32,23 @@ async function clips(now: number) {
 }
 
 async function leads(sb: SupabaseClient, userId: string, now: number) {
-  const { data: autos, error } = await sb.from("automations").select("id, name, enabled, schedule, prompt").eq("user_id", userId);
+  const { data: autos, error } = await sb.from("automations").select("id, name, enabled, trigger, schedule, prompt").eq("user_id", userId);
   if (error) throw error;
-  // matched by the template's name or its first line, so a renamed copy still counts
-  const a = (autos ?? []).find((x) => x.name === BUSINESS_LOOP.name || String(x.prompt).startsWith("Daily business loop"));
+  // matched by the template's name or its first line, so a renamed copy still counts; an enabled scheduled copy wins over a paused one
+  const all = (autos ?? []).filter((x) => x.name === BUSINESS_LOOP.name || String(x.prompt).startsWith("Daily business loop"));
+  const a = all.find((x) => x.enabled && x.trigger === "schedule" && x.schedule) ?? all[0];
   if (!a) return leadsState({ automation: null, tasks: [] }, now);
-  const s = (a.schedule ?? {}) as { hour?: number; minute?: number };
+  if (a.trigger !== "schedule" || !a.schedule) return { wf: "leads" as const, state: "off" as const, verified: false, evidence: "the business loop runs on an event, not a schedule" };
+  const s = a.schedule as Schedule;
+  const slot = lastDue(s, new Date(now)).getTime();
+  const later = s.every === "hour" ? null : lastDue(s, new Date(slotAt(now, "23:59"))).getTime(); // its slot today, if any
+  const next = later !== null && later > now ? later : null;
+  const since = next !== null ? startOfDay(now) : new Date(slot).toISOString(); // a run still due today: earlier runs don't count
   const { data: tasks, error: te } = await sb.from("tasks").select("title, request, status, error, pending, trace, created_at")
-    .eq("user_id", userId).eq("automation_id", a.id).is("parent_id", null).gte("created_at", startOfDay(now)).order("created_at", { ascending: false }).limit(3);
+    .eq("user_id", userId).eq("automation_id", a.id).is("parent_id", null).gte("created_at", since).order("created_at", { ascending: false }).limit(3);
   if (te) throw te;
   return leadsState({
-    automation: { enabled: a.enabled, time: `${pad(s.hour)}:${pad(s.minute)}` },
+    automation: { enabled: a.enabled, slot, next, grace: (s.every === "hour" ? 0.5 : 3) * 3600_000, label: describeTrigger({ trigger: "schedule", schedule: s, event: null, kind_filter: null }) }, // grace: automations.ts automationDue
     tasks: (tasks ?? []).map((t) => ({ status: t.status, created_at: t.created_at, pending: t.pending, receipt: rowReceipt(t)?.status ?? null })),
   }, now);
 }
@@ -60,24 +66,35 @@ export async function dailyRuns(sb: SupabaseClient, userId: string, now = Date.n
 /** CORE's daily_runs tool (read-only). */
 export const runDailyTool = async (sb: SupabaseClient, userId: string) => dailyText(await dailyRuns(sb, userId));
 
-/** Scheduler tick: the phone digest once a day from ORBIT_DAILY_DIGEST (default 10:30, "off" = never). Marked sent only
- *  when ntfy accepted it, so a phone that was unreachable gets it on a later tick. */
-export async function maybeDailyDigest(sb: SupabaseClient, userId: string, now = Date.now()): Promise<boolean> {
+/** Scheduler tick: the phone digest once a day from ORBIT_DAILY_DIGEST (default 10:30, "off" = never). The try is saved before
+ *  sending (no save, no send), so a failed "sent" mark or a down ntfy server means one retry per 30 min, not one per tick.
+ *  Quiet hours and Stop-all hold it before any records are read. */
+type Phone = { ready: () => { open: string } | null; allowed: (kind: string, now: number) => boolean; send: (m: ReturnType<typeof digestMsg>, now: number) => Promise<boolean> };
+const phone = async (): Promise<Phone> => {
+  const [{ ntfyReady, ntfySend, quietHours }, { ntfyAllowed }, { stopAllOn }] = await Promise.all([import("./ntfy"), import("./ntfy-pure"), import("./stop-all")]);
+  return { ready: ntfyReady, allowed: (k, n) => ntfyAllowed(k, n, quietHours(), stopAllOn()), send: (m, n) => ntfySend(m, n) };
+};
+
+export async function maybeDailyDigest(sb: SupabaseClient, userId: string, now = Date.now(), load: () => Promise<Phone> = phone): Promise<boolean> {
   try {
     const day = localDay(new Date(now));
-    const sent = await readFile(file(), "utf8").then((t) => (JSON.parse(t) as { sent?: string }).sent ?? null, () => null);
-    if (!digestDue(process.env.ORBIT_DAILY_DIGEST, sent, day, now)) return false;
-    const { ntfyReady, ntfySend } = await import("./ntfy");
-    const c = ntfyReady();
-    if (!c) return false; // no phone set up: the view still answers in CORE and /api/daily
+    const st = await readFile(file(), "utf8").then((t) => JSON.parse(t) as DigestState, () => ({}) as DigestState);
+    if (!digestDue(process.env.ORBIT_DAILY_DIGEST, st, day, now)) return false;
+    const ph = await load(), c = ph.ready();
+    if (!c || !ph.allowed("daily", now)) return false; // no phone set up, quiet hours, or Stop-all
+    await writeState({ ...st, tried: new Date(now).toISOString() });
     const m = digestMsg(await dailyRuns(sb, userId, now));
-    if (!(await ntfySend({ ...m, ...(c.open ? { click: `${c.open}/` } : {}) }, now))) return false;
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify({ sent: day }));
-    await rename(file() + ".tmp", file());
+    if (!(await ph.send({ ...m, ...(c.open ? { click: `${c.open}/` } : {}) }, now))) return false;
+    await writeState({ sent: day });
     return true;
   } catch (e) {
     console.error("[daily] digest:", e instanceof Error ? e.message : e);
     return false;
   }
+}
+
+async function writeState(st: DigestState) {
+  await mkdir(path.dirname(file()), { recursive: true });
+  await writeFile(file() + ".tmp", JSON.stringify(st));
+  await rename(file() + ".tmp", file());
 }
