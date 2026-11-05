@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 // .ts extensions: tests/plugins-io.test.ts loads this under node --experimental-strip-types (with a fake MCP server).
@@ -8,6 +8,7 @@ import { logActivity } from "./activity.ts";
 import { stopAllOn } from "./stop-all.ts";
 import { PAUSED_MSG } from "./stop-all-pure.ts";
 import { UNTRUSTED } from "./policy-pure.ts";
+import { CLIP } from "./clip-store-pure.ts";
 import { checkArgs, cleanTool, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, pluginSchemas, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
 
 // MCP plugins: <ORBIT data dir>/plugins.json (his servers + trust settings + the tool list from the last Test connection) and
@@ -105,13 +106,25 @@ export async function testPlugin(name: string): Promise<{ ok: boolean; tools: nu
   return error ? { ok: false, tools: 0, error } : { ok: true, tools: tools.length };
 }
 
+const RESULTS_KEEP = 50;
+/** A large result, raw, in <data dir>/plugin-results/ (newest 50 kept): CORE's per-answer read_more store holds it for the turn; this
+ *  copy is for him and for later turns. Local only, like plugins.json. */
+async function keepResult(server: string, tool: string, r: unknown) {
+  const d = path.join(orbitDataDir(), "plugin-results");
+  await mkdir(d, { recursive: true });
+  await writeFile(path.join(d, `${new Date().toISOString().replace(/[:.]/g, "-")}-${server}-${tool.replace(/[^\w.-]/g, "_")}.json`), JSON.stringify(r));
+  const old = (await readdir(d)).filter((f) => f.endsWith(".json")).sort().slice(0, -RESULTS_KEEP);
+  await Promise.all(old.map((f) => unlink(path.join(d, f)).catch(() => {})));
+}
+
 /** One tools/call with the plugin's timeout; every call is logged to Activity (tool name and outcome; never arguments or results). */
 async function callTool(p: Plugin, tool: string, args: Record<string, unknown>, by: "core" | "owner"): Promise<string> {
   const t0 = Date.now();
   let out: string;
   try {
     const r = await withClient(p, (c, timeout) => c.callTool({ name: tool, arguments: args }, undefined, { timeout, maxTotalTimeout: timeout }));
-    out = resultText(p.name, r as { content?: unknown; isError?: unknown });
+    out = resultText(p.name, r as { content?: unknown; isError?: unknown; structuredContent?: unknown });
+    if (out.length > CLIP) await keepResult(p.name, tool, r).catch((e) => console.error("[plugins] keep result:", msg(e))); // the full result outlives the turn
   } catch (e) { out = `Error: plugin ${p.name} ${tool} failed: ${msg(e)}`; }
   const failed = out.startsWith("Error:");
   logActivity({ area: by === "owner" ? "system" : "core", title: `Plugin ${p.name} → ${tool}${by === "owner" ? " (your Run click)" : ""}: ${failed ? "failed" : "done"} in ${((Date.now() - t0) / 1000).toFixed(1)} s`, ...(failed ? { detail: out.slice(0, 300) } : {}) });
@@ -138,8 +151,8 @@ export async function runPluginTool(id: string, input: Record<string, unknown>, 
   if (!ref || !p || !gate || gate.mode === "off") return `Error: unknown or disabled plugin tool "${id.slice(0, 100)}"`;
   if (stopAllOn()) return `Error: ${PAUSED_MSG}`;
   const t = p.cache?.tools.find((x) => x.name === ref.tool);
-  const bad = checkArgs(t?.inputSchema, input); // before anything runs or queues: a queued call he approves must be callable as-is
-  if (bad) return `Error: ${p.name} ${ref.tool} arguments don't match its schema: ${bad}. Call it as: ${t?.schema ?? "{}"}`;
+  const bad = checkArgs(t, input); // before anything runs or queues: a queued call he approves must be callable as-is
+  if (bad) return `Error: ${p.name} ${ref.tool}: ${bad}. Call it as: ${t?.schema ?? "{}"}`;
   if (pluginAct(gate, outsideIn(c.steps, UNTRUSTED, all, c.pinned)) === "queue") {
     const item: Pending = { id: randomUUID().slice(0, 8), server: ref.server, tool: ref.tool, args: input, at: new Date().toISOString(), ...(c.chat ? { chat: c.chat } : {}) };
     await savePending((l) => [...l, item]);

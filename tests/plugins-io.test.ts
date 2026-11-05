@@ -14,7 +14,7 @@ const { setStopAll } = await import("../src/lib/stop-all.ts");
 
 test("Test connection caches the server's tools (bad names dropped)", { timeout: 30_000 }, async () => {
   const r = await P.testPlugin("fake");
-  assert.deepEqual(r, { ok: true, tools: 5 });
+  assert.deepEqual(r, { ok: true, tools: 6 });
   const g = P.pluginGates();
   assert.equal(g["plugin__fake__scene"].tier, "T0");
   assert.equal(g["plugin__fake__run_code"].tier, "T2");
@@ -31,10 +31,18 @@ test("the full schema survives discovery and reaches the native tool list; bad a
   assert.deepEqual(when.required, ["tz", "day"]);
   assert.match(P.pluginPromptNow(), /plugin__fake__book \{"when": \{"tz": "Europe\/Tallinn"\|"UTC", "day": string\}, "tags"\?: string\[\]\}/);
   const bad = await P.runPluginTool(id, { when: { tz: "Mars", day: "Fri" } }, { steps: [], pinned: false });
-  assert.match(bad, /^Error: fake book arguments don't match its schema: \/when\/tz must be equal to one of the allowed values \("Europe\/Tallinn", "UTC"\)/);
+  assert.match(bad, /^Error: fake book: arguments don't match its schema: \/when\/tz must be equal to one of the allowed values \("Europe\/Tallinn", "UTC"\)/);
   assert.match(await P.runPluginTool(id, { when: { tz: "UTC" } }, { steps: [], pinned: false }), /\/when must have required property 'day'/);
   const ok = await P.runPluginTool(id, { when: { tz: "UTC", day: "Fri" } }, { steps: [], pinned: false });
   assert.match(ok, /STRUCTURED: \{"booked":true,"id":"r-42","tz":"UTC"\}/);
+  // a large structured result comes back whole (CORE's clip store pages it) and is kept on disk past the turn
+  const big = await P.runPluginTool("plugin__fake__export", {}, { steps: [], pinned: false });
+  assert.equal(JSON.parse(big.split("STRUCTURED: ")[1]).rows.length, 3000);
+  const { readdir } = await import("node:fs/promises");
+  await new Promise((r) => setTimeout(r, 200));
+  const kept = (await readdir(path.join(dir, "plugin-results"))).filter((f) => f.endsWith("-fake-export.json"));
+  assert.equal(kept.length, 1);
+  assert.equal(JSON.parse(await readFile(path.join(dir, "plugin-results", kept[0]), "utf8")).structuredContent.rows.length, 3000);
 });
 
 test("a read runs; the result is outside data with images named only", { timeout: 30_000 }, async () => {
