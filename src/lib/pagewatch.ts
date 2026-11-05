@@ -5,7 +5,7 @@ import { orbitDataDir } from "./data-dir";
 import { safeFetch } from "./memory";
 import { UA, polite } from "./reach/net";
 import { stopAllOn } from "./stop-all";
-import { KEEP_CHANGES, KEEP_MISSED, MAX_WATCHES, applyCheck, changesSince, changesText, checkWatchInput, feedbackSummary, listText, pageText, parseStore, pickDue, robotsGate, watchBlocked,
+import { KEEP_CHANGES, KEEP_MISSED, KEEP_RUNS, MAX_WATCHES, applyCheck, changesSince, changesText, checkWatchInput, feedbackSummary, listText, pageText, parseStore, pickDue, robotsGate, watchBlocked,
   type CheckResult, type Verdict, type Watch, type WatchStore } from "./pagewatch-pure";
 
 // INTELLIGENCE → Watches (page-change watch): <ORBIT data dir>/pagewatch.json. Checked by the server scheduler's minute tick (scheduler.ts),
@@ -64,6 +64,7 @@ async function check(w: Watch): Promise<void> {
     const { watch, change } = applyCheck(s.watches[i], r, now, randomUUID());
     s.watches[i] = watch;
     if (change) s.changes = [...s.changes, change].slice(-KEEP_CHANGES);
+    s.runs = [...(s.runs ?? []), { w: w.id, at: watch.lastChecked!, ok: r.ok }].slice(-KEEP_RUNS);
   });
 }
 
@@ -102,6 +103,7 @@ export const removeWatch = (id: string) => update((s) => {
   s.watches = s.watches.filter((w) => w.id !== id);
   s.changes = s.changes.filter((c) => c.watch !== id);
   s.missed = (s.missed ?? []).filter((m) => m.watch !== id);
+  s.runs = (s.runs ?? []).filter((r) => r.w !== id);
   return n !== s.watches.length;
 });
 

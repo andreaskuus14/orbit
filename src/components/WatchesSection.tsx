@@ -4,7 +4,7 @@ import { useT } from "./i18n";
 import type { Change, Watch } from "@/lib/pagewatch-pure";
 
 type Row = Omit<Watch, "snaps"> & { versions: number };
-type Board = { watches: Row[]; changes: (Change & { purpose: string; url: string })[]; week?: { useful: number; noise: number; unmarked: number; missed: number } };
+type Board = { watches: Row[]; changes: (Change & { purpose: string; url: string })[]; week?: { useful: number; noise: number; unmarked: number; missed: number; checks: number; failedChecks: number } };
 const safeHref = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
 const EVERY = [1, 6, 24, 168] as const;
 

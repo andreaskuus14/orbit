@@ -15,11 +15,12 @@ export type Watch = {
   render?: boolean; // check in ORBIT's hidden browser (pages that only show content after JavaScript)
   lastChecked?: string; lastChanged?: string; lastError?: string; failed?: boolean; seenAt?: string; snaps: Snap[];
 };
-export type WatchStore = { watches: Watch[]; changes: Change[]; missed?: Missed[] };
+export type Run = { w: string; at: string; ok: boolean }; // one scheduled or manual check: reliability next to relevance
+export type WatchStore = { watches: Watch[]; changes: Change[]; missed?: Missed[]; runs?: Run[] };
 export type CheckResult = { ok: true; text: string } | { ok: false; error: string };
 
 export const MAX_WATCHES = 50, KEEP_SNAPS = 3, SNAP_CHARS = 20_000, KEEP_CHANGES = 200, DIFF_LINES = 40, LINE_CHARS = 300;
-export const MIN_H = 1, DEF_H = 24, MAX_H = 24 * 30, PER_TICK = 5, MIN_CHANGE = 8, KEEP_MISSED = 100, BRIEF_CHANGES = 2;
+export const MIN_H = 1, DEF_H = 24, MAX_H = 24 * 30, PER_TICK = 5, MIN_CHANGE = 8, KEEP_MISSED = 100, KEEP_RUNS = 2000, BRIEF_CHANGES = 2;
 const H = 3_600_000;
 
 const clean = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "");
@@ -195,8 +196,8 @@ export function parseStore(raw: string): WatchStore {
   try {
     const s = JSON.parse(raw) as Partial<WatchStore>;
     return { watches: Array.isArray(s.watches) ? s.watches.filter((w) => w && typeof w.url === "string").map((w) => ({ ...w, snaps: Array.isArray(w.snaps) ? w.snaps : [] })) : [],
-      changes: Array.isArray(s.changes) ? s.changes.slice(-KEEP_CHANGES) : [], missed: Array.isArray(s.missed) ? s.missed.slice(-KEEP_MISSED) : [] };
-  } catch { return { watches: [], changes: [], missed: [] }; }
+      changes: Array.isArray(s.changes) ? s.changes.slice(-KEEP_CHANGES) : [], missed: Array.isArray(s.missed) ? s.missed.slice(-KEEP_MISSED) : [], runs: Array.isArray(s.runs) ? s.runs.slice(-KEEP_RUNS) : [] };
+  } catch { return { watches: [], changes: [], missed: [], runs: [] }; }
 }
 
 // ---- Readers (CORE, brief, Needs you) ----
@@ -245,11 +246,15 @@ export function briefWatch(s: WatchStore, now: number): BriefWatch | null {
   return rows.length || failed.length ? { changes: rows.slice(0, BRIEF_CHANGES), more: Math.max(0, rows.length - BRIEF_CHANGES), failed } : null;
 }
 
-/** His one-week review: verdicts on changes and missed reports since `since`. */
+/** His one-week review: verdicts on changes, missed reports, and checks run vs failed since `since`. */
 export function feedbackSummary(s: WatchStore, since: number) {
   const cs = s.changes.filter((c) => Date.parse(c.at) >= since);
   return { useful: cs.filter((c) => c.verdict === "useful").length, noise: cs.filter((c) => c.verdict === "noise").length,
-    unmarked: cs.filter((c) => !c.verdict).length, missed: (s.missed ?? []).filter((m) => Date.parse(m.at) >= since).length };
+    unmarked: cs.filter((c) => !c.verdict).length, missed: (s.missed ?? []).filter((m) => Date.parse(m.at) >= since).length, ...runCounts(s.runs ?? [], since) };
+}
+const runCounts = (rs: Run[], since: number) => {
+  const r = rs.filter((x) => Date.parse(x.at) >= since);
+  return { checks: r.length, failedChecks: r.filter((x) => !x.ok).length };
 }
 /** Owner-marked important watches with a change he hasn't marked seen. */
 export const importantUnseen = (s: WatchStore) =>

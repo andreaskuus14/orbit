@@ -132,7 +132,9 @@ test("brief evidence: a page that keeps changing is one row, a failed watch is r
   assert.equal(bw.changes[1].what.length, 90); assert.match(bw.changes[1].what, /…$/);
   assert.deepEqual(bw.failed, [{ id: "w3", label: "docs", url: "https://a.example/", error: "timed out" }]);
   assert.deepEqual(briefWatch({ watches: [w({ lastError: "x" })], changes: [] }, T0)?.changes, []); // failure alone still reaches the brief
-  assert.deepEqual(feedbackSummary({ ...s, missed: [{ id: "m", watch: "w2", at: at(1), note: "new role" }] }, T0 - 24 * H), { useful: 1, noise: 1, unmarked: 3, missed: 1 });
+  assert.deepEqual(feedbackSummary({ ...s, missed: [{ id: "m", watch: "w2", at: at(1), note: "new role" }] }, T0 - 24 * H), { useful: 1, noise: 1, unmarked: 3, missed: 1, checks: 0, failedChecks: 0 });
+  const runs = [{ w: "w1", at: at(30), ok: false }, { w: "w1", at: at(2), ok: true }, { w: "w3", at: at(1), ok: false }];
+  assert.deepEqual(feedbackSummary({ ...s, runs }, T0 - 24 * H), { useful: 1, noise: 1, unmarked: 3, missed: 0, checks: 2, failedChecks: 1 }); // old runs fall outside the week
 });
 
 test("a return to an earlier version is still recorded, and labelled as a reversion", () => {

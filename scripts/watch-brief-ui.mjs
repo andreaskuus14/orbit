@@ -33,13 +33,13 @@ const SCENES = {
     brief: composeBrief({ ...base, watch: { more: 1,
       changes: [{ id: "c1", url: "https://jobs.example/roles", label: "Studio jobs page", at: ago(3), what: "+ Junior level designer (Tallinn) (+2 lines)", n: 2 }],
       failed: [{ id: "w3", label: "Uni deadlines", url: "https://uni.example/dates", error: "timed out" }] } }),
-    watches: { status: 200, body: { week: { useful: 1, noise: 0, unmarked: 1, missed: 0 },
+    watches: { status: 200, body: { week: { useful: 1, noise: 0, unmarked: 1, missed: 0, checks: 14, failedChecks: 3 },
       watches: [{ id: "w1", url: "https://jobs.example/roles", focus: "", everyH: 24, purpose: "Studio jobs page", important: false, created: ago(48), lastChecked: ago(3), lastChanged: ago(3), versions: 2 },
         { id: "w3", url: "https://uni.example/dates", focus: "", everyH: 24, purpose: "Uni deadlines", important: false, created: ago(48), lastChecked: ago(1), lastError: "timed out", failed: true, versions: 1 }],
       changes: [{ id: "c1", watch: "w1", at: ago(3), added: ["Junior level designer (Tallinn)"], removed: [], purpose: "Studio jobs page", url: "https://jobs.example/roles" },
         { id: "c0", watch: "w1", at: ago(20), added: ["Applications open"], removed: [], reverted: ago(44), purpose: "Studio jobs page", url: "https://jobs.example/roles" }] } },
   },
-  empty: { brief: composeBrief(base), watches: { status: 200, body: { watches: [], changes: [], week: { useful: 0, noise: 0, unmarked: 0, missed: 0 } } } },
+  empty: { brief: composeBrief(base), watches: { status: 200, body: { watches: [], changes: [], week: { useful: 0, noise: 0, unmarked: 0, missed: 0, checks: 0, failedChecks: 0 } } } },
   failure: { brief: composeBrief({ ...base, watch: { changes: [], more: 0, failed: [], unreadable: true } }), watches: { status: 500, body: { error: "Couldn't read the watches" } } },
 };
 
@@ -76,7 +76,7 @@ try {
       check(opened.includes("https://jobs.example/roles"), "populated: Open goes to the source page");
       check(await page.locator('a[href="https://jobs.example/roles"]').count() > 0, "populated: Watches list links the source");
       check(/reverted to the version from /.test(text), "populated: a return to an earlier version is labelled, not hidden");
-      check(/Last 7 days: 1 useful · 0 noise · 1 unmarked · 0 missed/.test(text), "populated: weekly review counts shown");
+      check(/Last 7 days: 1 useful · 0 noise · 1 unmarked · 0 missed · 3\/14 checks failed/.test(text), "populated: weekly review counts shown");
       await page.locator("li", { hasText: "Junior level designer" }).getByRole("button", { name: "Useful", exact: true }).click();
       await page.waitForTimeout(200);
       check(posts.some((x) => x.p === "/api/watches" && x.body.action === "verdict" && x.body.id === "c1" && x.body.verdict === "useful"), "populated: Useful posts a verdict");
