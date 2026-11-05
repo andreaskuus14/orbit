@@ -6,7 +6,8 @@ import { robotsAllows } from "./rivals-pure.ts";
 import { et, etQuestion } from "./et-ask-pure.ts";
 
 export type Snap = { at: string; text: string };
-export type Change = { id: string; watch: string; at: string; live?: boolean; added: string[]; removed: string[]; verdict?: Verdict };
+export type Change = { id: string; watch: string; at: string; live?: boolean; added: string[]; removed: string[]; verdict?: Verdict;
+  reverted?: string }; // the page went back to the version first seen at this time (still recorded: some reversions matter)
 export type Verdict = "useful" | "noise"; // his one-week review of what the watcher reports
 export type Missed = { id: string; watch: string; at: string; note: string }; // a change he saw himself that the watcher didn't report
 export type Watch = {
@@ -185,7 +186,9 @@ export function applyCheck(w: Watch, r: CheckResult, now: number, id: string): {
   const d = diffText(prev.text, r.text);
   if (!meaningful(d)) return { watch: { ...x, failed: false, snaps: [...w.snaps.slice(0, -1), { at, text: r.text }] } }; // keep the newest text, no new version
   const cut = (ls: string[]) => ls.slice(0, DIFF_LINES).map((l) => l.slice(0, LINE_CHARS));
-  return { watch: { ...x, snaps, failed: false, lastChanged: at }, change: { id, watch: w.id, at, added: cut(d.added), removed: cut(d.removed) } };
+  // shortcut: only the KEEP_SNAPS-1 older versions are compared, raise KEEP_SNAPS if older reversions must be recognised
+  const back = w.snaps.slice(0, -1).reverse().find((o) => !meaningful(diffText(o.text, r.text)));
+  return { watch: { ...x, snaps, failed: false, lastChanged: at }, change: { id, watch: w.id, at, added: cut(d.added), removed: cut(d.removed), ...(back && { reverted: back.at }) } };
 }
 
 export function parseStore(raw: string): WatchStore {
@@ -221,8 +224,9 @@ export type BriefWatchRow = { id: string; url: string; label: string; at: string
 export type BriefWatch = { changes: BriefWatchRow[]; more: number; failed: { id: string; label: string; url: string; error: string }[]; unreadable?: boolean };
 const WHAT_CHARS = 90;
 /** The first changed line, for the brief CARD only (third-party text: never spoken, never sent to the polish model). */
-export function whatChanged(c: Pick<Change, "live" | "added" | "removed">): string {
+export function whatChanged(c: Pick<Change, "live" | "added" | "removed" | "reverted">): string {
   if (c.live) return "the page is live now";
+  if (c.reverted) return "reverted to a previous version";
   const line = c.added[0] ? `+ ${c.added[0]}` : c.removed[0] ? `− ${c.removed[0]}` : "";
   const rest = c.added.length + c.removed.length - 1;
   return (line.length > WHAT_CHARS ? `${line.slice(0, WHAT_CHARS - 1)}…` : line) + (rest > 0 ? ` (+${rest} lines)` : "");

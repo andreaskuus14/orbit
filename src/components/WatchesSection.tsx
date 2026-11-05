@@ -85,7 +85,7 @@ export function WatchesSection() {
         {b?.changes.slice(0, 20).map((c) => (
           <li key={c.id} className="rounded-md border border-white/10 p-2 text-xs">
             <div className="flex flex-wrap items-center gap-1">
-              <b>{c.purpose}</b> <span className="muted">· {when(c.at)}{c.live ? ` · ${t("pw.live")}` : ""}</span>
+              <b>{c.purpose}</b> <span className="muted">· {when(c.at)}{c.live ? ` · ${t("pw.live")}` : ""}{c.reverted ? ` · ${t("pw.reverted", { at: when(c.reverted) })}` : ""}</span>
               <a className="muted underline" href={safeHref(c.url)} target="_blank" rel="noopener noreferrer">{t("pw.source")}</a>
               <span className="ml-auto flex gap-1">
                 {(["useful", "noise"] as const).map((v) => (

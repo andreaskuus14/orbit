@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyCheck, briefWatch, feedbackSummary, changesText, checkWatchInput, diffText, importantUnseen, isDue, isSelector, keptLines, lineKey, meaningful, pageText, parseEvery,
+import { applyCheck, briefWatch, feedbackSummary, whatChanged, changesText, checkWatchInput, diffText, importantUnseen, isDue, isSelector, keptLines, lineKey, meaningful, pageText, parseEvery,
   pickDue, robotsGate, selectHtml, watchBlocked, type Watch, type WatchStore } from "../src/lib/pagewatch-pure.ts";
 
 const H = 3_600_000, T0 = Date.parse("2026-11-01T08:00:00Z");
@@ -133,4 +133,13 @@ test("brief evidence: a page that keeps changing is one row, a failed watch is r
   assert.deepEqual(bw.failed, [{ id: "w3", label: "docs", url: "https://a.example/", error: "timed out" }]);
   assert.deepEqual(briefWatch({ watches: [w({ lastError: "x" })], changes: [] }, T0)?.changes, []); // failure alone still reaches the brief
   assert.deepEqual(feedbackSummary({ ...s, missed: [{ id: "m", watch: "w2", at: at(1), note: "new role" }] }, T0 - 24 * H), { useful: 1, noise: 1, unmarked: 3, missed: 1 });
+});
+
+test("a return to an earlier version is still recorded, and labelled as a reversion", () => {
+  let r = applyCheck(w(), { ok: true, text: "Status: open for applications" }, T0, "v1");
+  r = applyCheck(r.watch, { ok: true, text: "Status: applications closed" }, T0 + H, "v2");
+  assert.equal(r.change?.reverted, undefined);
+  r = applyCheck(r.watch, { ok: true, text: "Status: open for applications" }, T0 + 2 * H, "v3");
+  assert.ok(r.change); assert.equal(r.change.reverted, new Date(T0).toISOString()); // recorded, not suppressed
+  assert.equal(whatChanged(r.change), "reverted to a previous version");
 });

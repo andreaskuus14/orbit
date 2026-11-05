@@ -181,12 +181,14 @@ export function briefItems(x: BriefIn): BriefItem[] {
 
 /** The spoken brief: greeting, one line per item, a warm close; lowest-priority items drop first to stay near a minute. */
 export function composeBrief(x: BriefIn): Brief {
-  const items = briefItems(x).slice(0, MAX_ITEMS);
+  const all = briefItems(x), items = all.slice(0, MAX_ITEMS);
   const greeting = hello(x.hour);
   const close = items.length ? "That's it from me. Have a good one." : "Nothing needs you this morning. Enjoy it.";
   const text = (its: BriefItem[]) => [greeting, ...its.map((i) => i.say), close].join(" ");
   while (items.length > 1 && words(text(items)) > MAX_WORDS) items.pop();
-  return { day: x.day, greeting, items, spoken: text(items).replace(/\s+/g, " ").trim() };
+  // The limits shorten what's SAID; watch evidence and failure warnings stay on screen even when they aren't spoken.
+  const shown = [...items, ...all.filter((i) => /^watch(fail)?:/.test(i.id) && !items.includes(i))];
+  return { day: x.day, greeting, items: shown, spoken: text(items).replace(/\s+/g, " ").trim() };
 }
 
 /** The phone's morning-call opener from the same brief: the top two lines and exactly one question (≤ 50 words, call-pure cleanOpener). */

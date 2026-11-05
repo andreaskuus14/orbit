@@ -167,3 +167,13 @@ test("page watches: each change is a card with source link, time and what change
   const u = briefItems(base({ decisions: [], watch: { changes: [], more: 0, failed: [], unreadable: true } })).find((i) => i.id.startsWith("watchfail:"))!;
   assert.equal(u.title, "Page watches couldn't be read");
 });
+
+test("watch cards stay on screen when the spoken brief is cut for length", () => {
+  const long = "word ".repeat(60).trim();
+  const decisions = Array.from({ length: 6 }, (_, i) => ({ id: `task:t${i}`, title: `Task ${i} ${long}`, what: long, open: { task: `t${i}` } }));
+  const watch = { changes: [{ id: "c1", url: "https://a.example/", label: "Jobs", at: "2026-10-25T05:00:00Z", what: "+ New role", n: 1 }], more: 0,
+    failed: [{ id: "w2", label: "Docs", url: "https://b.example/", error: "timed out" }] };
+  const b = composeBrief(base({ decisions, watch }));
+  assert.ok(b.items.some((i) => i.id === "watch:c1") && b.items.some((i) => i.id.startsWith("watchfail:")));
+  assert.doesNotMatch(b.spoken, /Jobs|couldn't check/); // cut from the narration, not from the screen
+});
