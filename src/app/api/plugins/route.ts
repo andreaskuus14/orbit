@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     const r = await testPlugin(name);
     if (!r.ok) err = r.error ?? "test failed"; else extra = { tested: r.tools };
   } else if (b.action === "run") {
-    const r = await runPending(String(b.id ?? ""));
+    const r = await runPending(String(b.id ?? ""), b.again === true);
     if (r.error) err = r.error; else extra = { out: r.out };
   } else if (b.action === "discard") {
     await discardPending(String(b.id ?? ""));

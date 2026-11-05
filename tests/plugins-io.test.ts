@@ -43,6 +43,22 @@ test("ask tools and writes after outside text only queue; his Run click runs the
   assert.match(await P.runPluginTool("plugin__fake__missing", {}, { steps: [], pinned: false }), /^Error: unknown or disabled/);
 });
 
+test("two Run clicks at once run the call once; a crash mid-call leaves 'outcome unknown' that only Run again repeats", { timeout: 30_000 }, async () => {
+  await P.runPluginTool("plugin__fake__run_code", { code: "twice" }, { steps: ["You called fetch_url {}\nRESULT:\nx"], pinned: false });
+  const [id] = (await P.listPending()).map((x) => x.id);
+  const [a, b] = await Promise.all([P.runPending(id), P.runPending(id)]);
+  assert.equal([a, b].filter((r) => r.out).length, 1, "exactly one ran");
+  assert.ok([a, b].some((r) => r.error && /Already started|Not in the queue/.test(r.error)));
+  assert.deepEqual(await P.listPending(), []);
+  // a restart after the claim was saved but before the result: the item is still there, marked attempting
+  const file = path.join(dir, "plugin-pending.json");
+  await writeFile(file, JSON.stringify([{ id: "c1", server: "fake", tool: "run_code", args: { code: "maybe" }, at: new Date().toISOString(), attempting: new Date().toISOString() }]));
+  assert.match((await P.runPending("c1")).error!, /may or may not have run/);
+  assert.equal((await P.listPending()).length, 1, "nothing ran, nothing dropped");
+  assert.match((await P.runPending("c1", true)).out!, /ran: maybe/);
+  assert.deepEqual(await P.listPending(), []);
+});
+
 test("Stop-all refuses new calls and closes running ones; every call is in Activity", { timeout: 30_000 }, async () => {
   const slow = P.runPluginTool("plugin__fake__slow", {}, { steps: [], pinned: false });
   await new Promise((r) => setTimeout(r, 1500));

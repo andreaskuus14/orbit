@@ -8,7 +8,7 @@ import { logActivity } from "./activity.ts";
 import { stopAllOn } from "./stop-all.ts";
 import { PAUSED_MSG } from "./stop-all-pure.ts";
 import { UNTRUSTED } from "./policy-pure.ts";
-import { cleanTool, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
+import { claimPending, cleanTool, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
 
 // MCP plugins: <ORBIT data dir>/plugins.json (his servers + trust settings + the tool list from the last Test connection) and
 // plugin-pending.json (calls CORE queued for his Run click). CORE calls tools in-process through @modelcontextprotocol/sdk's client,
@@ -143,15 +143,20 @@ export async function runPluginTool(id: string, input: Record<string, unknown>, 
   return callTool(p, ref.tool, input, "core");
 }
 
-/** His Run click on a queued call: runs exactly the stored arguments once (then it leaves the queue). */
-export async function runPending(id: string): Promise<{ out?: string; error?: string }> {
+/** His Run click on a queued call: runs exactly the stored arguments once. The claim (attempting) is saved before the call and the
+ *  item leaves the queue only after it, so a crash in between shows "outcome unknown" instead of vanishing or re-running. */
+export async function runPending(id: string, again = false): Promise<{ out?: string; error?: string }> {
   if (stopAllOn()) return { error: PAUSED_MSG };
-  const item = (await listPending()).find((x) => x.id === id);
-  if (!item) return { error: "Not in the queue any more" };
+  let claim = { error: "Not in the queue any more" } as ReturnType<typeof claimPending>; // set inside the save: TS can't see that
+  await savePending((l) => { claim = claimPending(l, id, again, new Date().toISOString()); return "list" in claim ? claim.list : l; });
+  const c = claim as ReturnType<typeof claimPending>;
+  if ("error" in c) return { error: c.error };
+  const item = c.item;
   const p = loadPlugins().find((x) => x.name === item.server);
-  if (!p?.enabled) return { error: `Plugin ${item.server} is removed or disabled` };
-  await savePending((l) => l.filter((x) => x.id !== id)); // first: a double click can't run it twice
-  return { out: await callTool(p, item.tool, item.args, "owner") };
+  if (!p?.enabled) { await savePending((l) => l.map((x) => (x.id === id ? { ...x, attempting: undefined } : x))); return { error: `Plugin ${item.server} is removed or disabled` }; }
+  const out = await callTool(p, item.tool, item.args, "owner");
+  await savePending((l) => l.filter((x) => x.id !== id)); // the outcome (done or failed) is in Activity and the returned text
+  return { out };
 }
 
 export const discardPending = (id: string) => savePending((l) => l.filter((x) => x.id !== id));

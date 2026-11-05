@@ -153,3 +153,14 @@ test("Blender entry prompts: safe names and paths", () => {
   assert.match(openIfcPrompt("C:\\x\\house.ifc", "glb", "C:\\v"), /house\.glb/);
   assert.match(openIfcPrompt("C:\\x\\house.ifc", "inspect", "C:\\v"), /Don't change or save/);
 });
+
+test("claimPending: claims once, refuses an attempting item unless again, unknown id refused", async () => {
+  const { claimPending } = await import("../src/lib/plugins-pure.ts");
+  const l: import("../src/lib/plugins-pure.ts").Pending[] = [{ id: "a", server: "s", tool: "t", args: {}, at: "2026-11-05T10:00:00Z" }];
+  const c = claimPending(l, "a", false, "2026-11-05T10:01:00Z");
+  assert.ok("list" in c && c.item.attempting === "2026-11-05T10:01:00Z" && l[0].attempting === undefined);
+  const claimed = (c as { list: typeof l }).list;
+  assert.match((claimPending(claimed, "a", false, "x") as { error: string }).error, /may or may not have run/);
+  assert.ok("item" in claimPending(claimed, "a", true, "2026-11-05T10:05:00Z"));
+  assert.deepEqual(claimPending(l, "zz", false, "x"), { error: "Not in the queue any more" });
+});

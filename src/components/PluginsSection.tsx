@@ -53,8 +53,9 @@ export function PluginsSection() {
             <div><b>{q.server}</b> → {q.tool} <span className="muted text-xs">· {q.at.slice(0, 16).replace("T", " ")}</span></div>
             {/* the exact arguments that will run (for Blender: the Python code) */}
             <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{typeof q.args.code === "string" ? q.args.code : JSON.stringify(q.args, null, 2)}</pre>
+            {q.attempting && busy !== q.id && <p className="mt-1 text-xs text-amber-300" role="status">Started {q.attempting.slice(0, 16).replace("T", " ")} and never finished: it may or may not have run. Check {q.server} before running it again.</p>}
             <div className="mt-1 flex gap-2">
-              <button className="chip" disabled={!!busy || v.stopAll} onClick={() => void call({ action: "run", id: q.id }, q.id)}>{busy === q.id ? "Running…" : "Run"}</button>
+              <button className="chip" disabled={!!busy || v.stopAll} onClick={() => void call({ action: "run", id: q.id, ...(q.attempting ? { again: true } : {}) }, q.id)}>{busy === q.id ? "Running…" : q.attempting ? "Run again" : "Run"}</button>
               <button className="chip" disabled={!!busy} onClick={() => void call({ action: "discard", id: q.id })}>Discard</button>
             </div>
           </div>
