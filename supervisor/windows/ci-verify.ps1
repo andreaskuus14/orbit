@@ -162,7 +162,8 @@ export default function Probe() {
   Check ((Status).blocked -eq "ORBIT Stop-all is on") "a damaged stop-all.json also holds it"
 
   Step "a locked file in the live build during install"
-  $lock = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList "-NoProfile", "-Command", "`$f=[IO.File]::Open('$live\.next\BUILD_ID','Open','Read','None'); Start-Sleep 7200"
+  # Held the way a virus scanner or indexer holds it: others may read it, nobody may delete or move it, so the swap fails.
+  $lock = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList "-NoProfile", "-Command", "`$f=[IO.File]::Open('$live\.next\BUILD_ID','Open','Read','Read'); Start-Sleep 7200"
   Start-Sleep 3
   Remove-Item "$data\stop-all.json"
   $null = WaitFor { (Get-Release "ci-b") } 3600 "release B"
