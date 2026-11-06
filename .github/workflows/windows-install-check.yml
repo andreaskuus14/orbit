@@ -1,0 +1,79 @@
+name: Windows install check (release candidate)
+# Throwaway branch: the release candidate 86a30cc plus only this workflow and .github/windows-check/. Never merged.
+on:
+  push:
+    branches: [ci/windows-install-86a30cc]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Isolated data dir
+        shell: pwsh
+        run: '"ORBIT_DATA_DIR=$env:RUNNER_TEMP\orbit-data" >> $env:GITHUB_ENV'
+      - name: Only workflow files differ from 86a30cc
+        shell: pwsh
+        run: |
+          git diff --stat 86a30cc HEAD
+          git diff --name-only 86a30cc HEAD | ForEach-Object { if ($_ -notlike ".github/*") { throw "app file differs: $_" } }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - name: npm 12 (enforces allowScripts)
+        run: npm install -g npm@12 && node -v && npm -v
+      - name: Clean install (npm ci), no blocked install scripts
+        shell: pwsh
+        run: |
+          npm ci --no-audit --no-fund 2>&1 | Tee-Object -FilePath npm-ci.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (Select-String -Path npm-ci.log -Pattern "install scripts blocked" -Quiet) { throw "npm blocked install scripts" }
+      - name: Native dependencies work (sharp, onnxruntime-node, ffmpeg-static, esbuild, protobufjs)
+        run: node .github/windows-check/deps.mjs
+      - name: Crash regression on Windows (gzip fetch, crash log redaction, kokoro-js/phonemizer handlers)
+        run: node --test --experimental-strip-types tests/fetch-gzip-crash.test.ts
+      - name: Minimal isolated .env.local (no real Supabase or keys)
+        shell: pwsh
+        run: |
+          Set-Content .env.local "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321`nNEXT_PUBLIC_SUPABASE_ANON_KEY=dummy`nORBIT_DATA_DIR=$env:ORBIT_DATA_DIR`nORBIT_CLAUDE_BIN=C:\nonexistent\claude.exe"
+      - name: Build and start the way the PC does (npm run app:rebuild)
+        shell: pwsh
+        run: |
+          npm run app:rebuild
+          if ($LASTEXITCODE) { Get-Content orbit-build.log -Tail 60 -ErrorAction SilentlyContinue; Get-Content orbit-server.log -Tail 60 -ErrorAction SilentlyContinue; exit $LASTEXITCODE }
+      - name: Startup smoke (health, login page, Doctor commit stamp source, server log)
+        shell: pwsh
+        run: |
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) { try { $h = Invoke-RestMethod http://127.0.0.1:3000/api/health -TimeoutSec 5; if ($h.ok) { $ok = $true; break } } catch { }; Start-Sleep 2 }
+          if (-not $ok) { Get-Content orbit-server.log -Tail 80; throw "health never answered" }
+          "health: $($h | ConvertTo-Json -Compress)"
+          $l = Invoke-WebRequest http://127.0.0.1:3000/login -UseBasicParsing -TimeoutSec 30; "login: $($l.StatusCode), $($l.Content.Length) bytes"
+          if ($l.StatusCode -ne 200) { throw "login page $($l.StatusCode)" }
+          Start-Sleep 20  # past the 15 s Doctor boot self-test and first scheduler tick
+          "--- orbit-server.log (tail) ---"; Get-Content orbit-server.log -Tail 40
+          if (Select-String -Path orbit-server.log -Pattern "uncaught|Z_BUF_ERROR|ERR_DLOPEN|Cannot find module" -Quiet) { throw "error in server log" }
+          if (-not (Get-Process -Id ((Get-Content orbit-server.pid -ErrorAction SilentlyContinue) -split '\s+' | Where-Object { $_ } | Select-Object -Last 1) -ErrorAction SilentlyContinue)) { "note: pid file check inconclusive" }
+      - name: Stop the way the PC does (npm run app:stop) and check nothing is left
+        shell: pwsh
+        run: |
+          npm run app:stop
+          Start-Sleep 3
+          $left = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf("$env:GITHUB_WORKSPACE", [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $_.Name -match 'node|cmd|powershell' -and $_.ProcessId -ne $PID }
+          $left | Select-Object ProcessId, Name, CommandLine | Format-List
+          try { Invoke-RestMethod http://127.0.0.1:3000/api/health -TimeoutSec 3; throw "server still answering after app:stop" } catch { if ($_.Exception.Message -like "*still answering*") { throw } ; "server stopped" }
+          if ($left) { throw "processes left after app:stop" }
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-install-logs
+          path: |
+            npm-ci.log
+            orbit-server.log
+            orbit-build.log
+          if-no-files-found: ignore
