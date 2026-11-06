@@ -34,3 +34,10 @@ test("history ends at the request (the handoff reply after it is dropped)", () =
   assert.deepEqual(resumeHistory(rows, "build me a site").map((r) => r.role), ["user", "assistant", "user"]);
   assert.deepEqual(resumeHistory(rows, "something else"), []);
 });
+
+test("stoppedNote: says what stopped it and which steps had already run (not undone)", async () => {
+  const { stoppedNote } = await import("../src/lib/bg-resume-pure.ts");
+  const trace = [{ step: "route", ok: true }, { step: "save_memory", ok: true }, { step: "ws_write", ok: true }, { step: "ws_write", ok: true }, { step: "fetch_url", ok: false }];
+  assert.equal(stoppedNote(true, trace), "Stopped: Stop-all is on. No further steps ran. Already done before the stop (not undone): save_memory, ws_write.");
+  assert.equal(stoppedNote(false, []), "Cancelled. No further steps ran.");
+});
