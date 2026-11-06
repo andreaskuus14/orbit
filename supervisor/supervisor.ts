@@ -8,13 +8,15 @@
 // instead of repeating a finished one. See README.md for the trust boundary.
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import http from "node:http";
+import https from "node:https";
 import {
-  cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, closeSync, renameSync, rmSync, statSync, utimesSync, writeFileSync,
+  cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, closeSync, renameSync, rmSync, statSync, utimesSync, writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { appendAudit, readAudit, verifyAudit } from "./audit.ts";
 import {
-  DEFAULT_POLICY, afterFailure, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
+  DEFAULT_POLICY, afterFailure, modeViolations, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
   type Day, type Policy, type Probe, type Submission,
 } from "./policy.ts";
 
@@ -22,7 +24,9 @@ type Cmd = string[]; // argv; {commit} {stage} {live} are substituted
 type Config = {
   repoUrl: string; mainBranch: string; liveDir: string; distDir: string; stageDir: string;
   healthUrl: string; serverLog: string | null;
-  commands: { build: Cmd; stop: Cmd; start: Cmd; stopBuilder?: Cmd };
+  // install: when set, an owner-context command does the live checkout + swap + restart ({commit} {dist} {live});
+  // on Windows the supervisor (SYSTEM) must never run git or scripts in the owner-writable live folder itself.
+  commands: { build: Cmd; stop: Cmd; start: Cmd; install?: Cmd; stopBuilder?: Cmd };
   github: { repo: string; tokenFile: string; checksTimeoutSec: number } | null;
   allowWithoutExternalChecks?: boolean; // drills only: no CI to wait for
   workflowChecks: { name: string; url: string; expect: number }[];
@@ -30,7 +34,7 @@ type Config = {
   dataBackup: { paths: string[]; maxBytes: number };
   keepReleases: number; pollSec: number; policy?: Partial<Policy>;
 };
-type Step = "accepted" | "fetched" | "approved" | "pushed" | "checked" | "merged" | "built" | "snapshotted" | "backedUp" | "installed" | "retained"
+type Step = "accepted" | "fetched" | "approved" | "pushed" | "checked" | "merged" | "built" | "snapshotted" | "backedUp" | "installing" | "installed" | "retained"
   | "failed" | "rolledBack" | "halted" | "rejected";
 type Release = {
   id: string; sub: Submission; step: Step; prev: string | null; startedAt: string; updatedAt: string;
@@ -47,6 +51,7 @@ const P = {
   config: path.join(HOME, "config.json"), state: path.join(HOME, "state.json"), audit: path.join(HOME, "audit.jsonl"),
   stop: path.join(HOME, "STOP"), lock: path.join(HOME, "supervisor.lock"), inbox: path.join(HOME, "inbox"),
   mirror: path.join(HOME, "mirror.git"), releases: path.join(HOME, "releases"), pub: path.join(HOME, "public"),
+  ctl: path.join(HOME, "ctl"), // owner commands (admin-only folder): clear / resume / pause / stop / restore for the running watcher
 };
 
 const cfg: Config = JSON.parse(readFileSync(P.config, "utf8"));
@@ -126,6 +131,7 @@ function hashTree(dir: string, base = dir, out: Record<string, string> = {}, bud
   if (!existsSync(dir)) return out;
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
+    if (e.isSymbolicLink()) continue; // links and junctions are skipped, never followed (the supervisor reads with more rights than their owner)
     if (e.isDirectory()) hashTree(p, base, out, budget);
     else if (e.isFile() && !e.name.endsWith(".tmp")) {
       budget.bytes += statSync(p).size;
@@ -141,9 +147,9 @@ function backupData(id: string) {
   rmSync(to, { recursive: true, force: true });
   const report: { path: string; files: number }[] = [];
   cfg.dataBackup.paths.forEach((src, i) => {
-    const before = hashTree(src);
     const dst = path.join(to, String(i));
-    if (existsSync(src)) cpSync(src, dst, { recursive: true, filter: (f) => !f.endsWith(".tmp") });
+    if (existsSync(src)) cpSync(src, dst, { recursive: true, dereference: false, filter: (f) => !f.endsWith(".tmp") && !lstatSync(f).isSymbolicLink() });
+    const before = hashTree(dst); // the backup against its own restore: the app may keep writing the source meanwhile
     const scratch = path.join(HOME, `restore-drill-${randomUUID()}`);
     try {
       if (existsSync(dst)) cpSync(dst, scratch, { recursive: true });
@@ -158,15 +164,19 @@ function backupData(id: string) {
 }
 
 // ---------- install, health ----------
+// The supervisor's account doesn't own the live folder; git refuses that unless told the folder is trusted.
+// Used only when no owner-context install command is configured (drills, same-user setups) and by `adopt`; hooks and fsmonitor off.
+const liveGit = (args: string[]) => must(["git", "-c", `safe.directory=${cfg.liveDir.replace(/\\/g, "/")}`, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", ...args], { cwd: cfg.liveDir });
 function liveClean() {
-  const r = must(["git", "status", "--porcelain", "--untracked-files=no"], { cwd: cfg.liveDir });
+  const r = liveGit(["status", "--porcelain", "--untracked-files=no"]);
   if (r) throw new Error(`the live folder has local changes; not touching it:\n${r.slice(0, 400)}`);
 }
 function install(commit: string, dist: string) {
+  if (cfg.commands.install) { must(sub(cfg.commands.install, { commit, dist, live: cfg.liveDir }), { timeoutSec: 600 }); return; }
   liveClean();
-  run(sub(cfg.commands.stop, { live: cfg.liveDir }), { cwd: cfg.liveDir, timeoutSec: 120 });
-  must(["git", "fetch", "--quiet", P.mirror, commit], { cwd: cfg.liveDir });
-  must(["git", "checkout", "--quiet", "-B", cfg.mainBranch, commit], { cwd: cfg.liveDir });
+  must(sub(cfg.commands.stop, { live: cfg.liveDir }), { cwd: cfg.liveDir, timeoutSec: 120 }); // a server that won't stop fails the install
+  liveGit(["fetch", "--quiet", P.mirror, commit]);
+  liveGit(["checkout", "--quiet", "-B", cfg.mainBranch, commit]);
   const live = distOf(cfg.liveDir);
   rmSync(live, { recursive: true, force: true });
   cpSync(dist, live, { recursive: true });
@@ -175,11 +185,22 @@ function install(commit: string, dist: string) {
   must(sub(cfg.commands.start, { live: cfg.liveDir }), { cwd: cfg.liveDir, timeoutSec: 120 });
 }
 
+/** One GET on a fresh connection. Pooled keep-alive connections would keep reaching a server that was just stopped. */
+function httpGet(url: string, timeoutMs = 15_000): Promise<{ status: number; body: string }> {
+  return new Promise((resolve) => {
+    const mod = url.startsWith("https:") ? https : http;
+    const req = mod.get(url, { agent: false, headers: { connection: "close" }, timeout: timeoutMs }, (res) => {
+      let body = ""; res.setEncoding("utf8"); res.on("data", (c) => { if (body.length < 1 << 16) body += c; }); res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+    });
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", () => resolve({ status: 0, body: "" }));
+  });
+}
 async function health(): Promise<{ ok: boolean; commit: string | null; uptimeSec: number | null }> {
+  const r = await httpGet(cfg.healthUrl, 5000);
   try {
-    const r = await fetch(cfg.healthUrl, { signal: AbortSignal.timeout(5000) });
-    const j = (await r.json()) as { ok?: boolean; commit?: string; uptimeSec?: number };
-    return { ok: r.ok && j.ok === true, commit: j.commit ?? null, uptimeSec: j.uptimeSec ?? null };
+    const j = JSON.parse(r.body) as { ok?: boolean; commit?: string; uptimeSec?: number };
+    return { ok: r.status === 200 && j.ok === true, commit: j.commit ?? null, uptimeSec: j.uptimeSec ?? null };
   } catch { return { ok: false, commit: null, uptimeSec: null }; }
 }
 function logSize() { try { return cfg.serverLog ? statSync(cfg.serverLog).size : 0; } catch { return 0; } }
@@ -200,16 +221,19 @@ async function monitor(commit: string, r: Release | null): Promise<string[]> {
   const m = cfg.monitor;
   const offset = logSize();
   const deadline = Date.now() + m.startupTimeoutSec * 1000;
+  // Startup = healthy AND serving this commit; anything else answering is still the old server.
+  const up = (x: Awaited<ReturnType<typeof health>>) => x.ok && (!x.commit || x.commit === commit);
   let h = await health();
-  while (!h.ok && Date.now() < deadline) { await sleep(2000); h = await health(); }
+  while (!up(h) && Date.now() < deadline) { await sleep(2000); h = await health(); }
   if (!h.ok) return ["did not start: health check never passed"];
+  if (!up(h)) return [`did not start: still serving ${h.commit?.slice(0, 7)}, not ${commit.slice(0, 7)}`];
   let prevUptime: number | null = null;
   for (let i = 0; i < m.probes; i++) {
     if (i) await sleep(m.intervalSec * 1000);
     h = await health();
     const failed: string[] = [];
     for (const w of cfg.workflowChecks) {
-      const st = await fetch(w.url, { redirect: "manual", signal: AbortSignal.timeout(15000) }).then((x) => x.status).catch(() => 0);
+      const st = (await httpGet(w.url)).status;
       if (st !== w.expect) failed.push(`${w.name}: HTTP ${st}, expected ${w.expect}`);
     }
     const probe: Probe = { ...h, errors: countErrors(logSince(offset)), failedChecks: failed };
@@ -233,7 +257,7 @@ async function advance(s: State) {
   const r = s.current!;
   const id = r.id;
   // Stop holds a release anywhere before the live app is touched; once installed it still finishes monitoring and recovery.
-  if (stopped() && !["installed", "failed"].includes(r.step)) return;
+  if (stopped() && !["installing", "installed", "failed"].includes(r.step)) return;
   try {
     if (r.step === "accepted") {
       const main = mirrorReady();
@@ -249,7 +273,7 @@ async function advance(s: State) {
     if (r.step === "fetched") {
       const changes = parseNumstat(git(["diff", "--numstat", r.mainBefore!, r.sub.commit]));
       r.diffStat = { files: changes.length, lines: changes.reduce((n, c) => n + c.added + c.removed, 0) };
-      const v = policyViolations(changes, policy);
+      const v = [...policyViolations(changes, policy), ...modeViolations(git(["diff", "--raw", "--no-renames", r.mainBefore!, r.sub.commit]))];
       if (v.length) return reject(s, `release policy: ${v.join("; ")}`);
       mkdirSync(relDir(id), { recursive: true });
       const patch = git(["diff", r.mainBefore!, r.sub.commit]).slice(0, 400_000);
@@ -280,6 +304,8 @@ async function advance(s: State) {
           if (runs.length && runs.every((c) => c.status === "completed")) break;
           if (Date.now() > until) return reject(s, runs.length ? "CI didn't finish in time" : "CI never started on this commit");
           await sleep(20_000);
+          await controls(s); // a pause or stop sent meanwhile holds the release before merge
+          if (stopped() || s.paused) return;
         }
       } else if (!cfg.allowWithoutExternalChecks) return reject(s, "no external CI configured; unattended release refused");
       step(s, r, "checked", { externalChecks: cfg.github ? "github check-runs passed on this exact commit" : "none configured (drill)" });
@@ -289,6 +315,7 @@ async function advance(s: State) {
       if (main !== r.sub.commit) {
         if (main !== r.mainBefore) return reject(s, "main moved while this was being checked; resubmit on the new main");
         git(["push", "--quiet", "origin", `${r.sub.commit}:refs/heads/${cfg.mainBranch}`]); // fast-forward only: a non-FF push is refused
+        git(["update-ref", `refs/heads/${cfg.mainBranch}`, r.sub.commit]);
       }
       step(s, r, "merged");
     }
@@ -307,7 +334,11 @@ async function advance(s: State) {
       step(s, r, "backedUp", { data: report });
     }
     if (r.step === "backedUp") {
+      await controls(s);
       if (stopped() || s.paused) return; // last point to hold before the live app is touched
+      step(s, r, "installing"); // journaled first: a failure or crash from here on recovers instead of rejecting
+    }
+    if (r.step === "installing") {
       install(r.sub.commit, path.join(relDir(id), "dist"));
       step(s, r, "installed");
     }
@@ -327,8 +358,13 @@ async function advance(s: State) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     // Before install nothing live changed: reject. After, treat it as a failed release and recover.
-    if (["installed", "failed"].includes(r.step)) { r.reason = msg; step(s, r, "failed", { reason: msg }); await recover(s, r); }
-    else reject(s, msg, r.step === "merged" || r.step === "built" || r.step === "snapshotted" || r.step === "backedUp");
+    if (["installing", "installed", "failed"].includes(r.step)) { r.reason = msg; step(s, r, "failed", { reason: msg }); await recover(s, r); }
+    else {
+      // A push to main that errored may still have landed: ask the mirror rather than assume.
+      let merged = ["merged", "built", "snapshotted", "backedUp"].includes(r.step);
+      if (r.step === "checked") try { merged = mirrorReady() === r.sub.commit; } catch { merged = true; }
+      reject(s, msg, merged);
+    }
   }
 }
 
@@ -347,11 +383,13 @@ async function recover(s: State, r: Release) {
       install(prev.commit, path.join(relDir(prev.id), "dist"));
       const problems = await monitor(prev.commit, null);
       if (problems.length) throw new Error(problems.join("; "));
-      revertMain(prev.commit, r);
-      audit("rollback.verified", { release: r.id, restored: prev.id, commit: prev.commit });
-      finish(s, "rolledBack", `restored ${prev.id}; releases halted until the owner clears it`);
-      return;
-    } catch (e) { audit("rollback.failed", { release: r.id, attempt: r.rollbacks, reason: e instanceof Error ? e.message : String(e) }); }
+    } catch (e) { audit("rollback.failed", { release: r.id, attempt: r.rollbacks, reason: e instanceof Error ? e.message : String(e) }); continue; }
+    audit("rollback.verified", { release: r.id, restored: prev.id, commit: prev.commit });
+    // The live app is restored either way; a failed revert of main is reported, not retried as a rollback.
+    let note = "";
+    try { revertMain(prev.commit, r); } catch (e) { note = `; main NOT reverted (${e instanceof Error ? e.message : e})`; }
+    finish(s, "rolledBack", `restored ${prev.id}; releases halted until the owner clears it${note}`);
+    return;
   }
 }
 
@@ -359,18 +397,24 @@ async function recover(s: State, r: Release) {
 function revertMain(goodCommit: string, r: Release) {
   const main = mirrorReady();
   const goodTree = git(["rev-parse", `${goodCommit}^{tree}`]);
-  if (git(["rev-parse", `${main}^{tree}`]) === goodTree) return;
+  if (git(["rev-parse", `${main}^{tree}`]) === goodTree) return main;
   const c = must(["git", "commit-tree", goodTree, "-p", main, "-m", `Revert self-dev release ${r.id} (failed after deploy: ${r.reason?.slice(0, 120)})`],
     { cwd: P.mirror, env: { ...gitEnv(), GIT_AUTHOR_NAME: "ORBIT supervisor", GIT_AUTHOR_EMAIL: "supervisor@orbit.local", GIT_COMMITTER_NAME: "ORBIT supervisor", GIT_COMMITTER_EMAIL: "supervisor@orbit.local" } });
   git(["push", "--quiet", "origin", `${c}:refs/heads/${cfg.mainBranch}`]);
+  git(["update-ref", `refs/heads/${cfg.mainBranch}`, c]); // the builder reads main from this mirror
   audit("main.reverted", { release: r.id, commit: c });
+  return c;
 }
 
 function reject(s: State, reason: string, merged = false) {
   const r = s.current!;
   r.reason = reason;
   // Merged but never installed: the live app is untouched, but main now differs from what runs, so stop and say so.
-  if (merged) s.halted = `${r.id}: merged but not installed (${reason})`;
+  if (merged) {
+    s.halted = `${r.id}: merged but not installed (${reason})`;
+    // The live app was never touched: return main to what it runs, so later releases have the right base.
+    if (s.released) try { revertMain(s.released.commit, r); } catch (e) { s.halted += `; main NOT reverted (${e instanceof Error ? e.message : e})`; }
+  }
   finish(s, merged ? "halted" : "rejected", reason);
 }
 function finish(s: State, to: Step, reason?: string) {
@@ -399,19 +443,41 @@ function emergencyStop(why: string) {
   audit("emergency.stop", { why });
 }
 
+function takeControls(dir: string): { f: string; c: { action?: string; releaseId?: string } }[] {
+  if (!existsSync(dir)) return [];
+  const out: { f: string; c: { action?: string; releaseId?: string } }[] = [];
+  for (const f of readdirSync(dir).filter((n) => n.startsWith("control-") && n.endsWith(".json")).sort()) {
+    const file = path.join(dir, f);
+    try {
+      if (!lstatSync(file).isFile()) { rmSync(file, { recursive: true, force: true }); audit("control.ignored", { file: f, action: "not a plain file" }); continue; }
+      let c = {};
+      try { c = JSON.parse(readFileSync(file, "utf8")); } catch { /* ignored below */ }
+      rmSync(file, { force: true });
+      out.push({ f, c });
+    } catch (e) { log(`control ${f} unreadable: ${e instanceof Error ? e.message : e}`); }
+  }
+  return out;
+}
+
 async function controls(s: State) {
-  if (!existsSync(P.inbox)) return;
-  for (const f of readdirSync(P.inbox).filter((n) => n.startsWith("control-") && n.endsWith(".json")).sort()) {
-    const file = path.join(P.inbox, f);
-    let c: { action?: string; releaseId?: string } = {};
-    try { c = JSON.parse(readFileSync(file, "utf8")); } catch { /* ignored below */ }
-    rmSync(file, { force: true });
-    // Requests from the app can only make things safer: pause, stop, restore an earlier good release.
+  // Requests from the app (inbox) can only make things safer: pause, stop, restore an earlier good release.
+  for (const { f, c } of takeControls(P.inbox)) {
     if (c.action === "pause") { s.paused = true; save(s); audit("control.pause", { from: "app" }); }
     else if (c.action === "stop") emergencyStop("requested from ORBIT");
-    else if (c.action === "restore") await restore(s, c.releaseId);
+    else if (c.action === "restore" && !s.current) await restore(s, c.releaseId);
     else audit("control.ignored", { file: f, action: String(c.action ?? "") });
   }
+  // The owner's own commands (ctl/, admin-only) arrive here while the watcher runs, so only one process writes state.
+  for (const { c } of takeControls(P.ctl)) await ownerCommand(s, String(c.action ?? ""), c.releaseId);
+}
+
+async function ownerCommand(s: State, cmd: string, arg?: string) {
+  if (cmd === "stop") emergencyStop(arg ?? "owner");
+  else if (cmd === "pause") { s.paused = true; save(s); audit("control.pause", { from: "owner" }); }
+  else if (cmd === "resume") { s.paused = false; save(s); audit("control.resume", { from: "owner" }); }
+  else if (cmd === "clear") { rmSync(P.stop, { force: true }); s.halted = null; s.paused = false; save(s); audit("control.clear", { from: "owner" }); }
+  else if (cmd === "restore" && !s.current) await restore(s, arg);
+  else audit("control.ignored", { from: "owner", action: cmd });
 }
 
 async function restore(s: State, releaseId?: string) {
@@ -423,15 +489,18 @@ async function restore(s: State, releaseId?: string) {
     install(target.commit, path.join(relDir(target.id), "dist"));
     const problems = await monitor(target.commit, null);
     if (problems.length) throw new Error(problems.join("; "));
-    revertMain(target.commit, { id: `restore-${target.id}`, reason: "owner restore" } as Release);
-    s.released = target; s.paused = true; save(s);
+    s.released = target; s.retained = [target, ...s.retained.filter((g) => g.id !== target.id)]; s.paused = true; save(s);
     audit("restore.verified", { to: target.id, commit: target.commit });
+    revertMain(target.commit, { id: `restore-${target.id}`, reason: "owner restore" } as Release);
   } catch (e) { s.halted = `restore to ${target.id} failed: ${e instanceof Error ? e.message : e}`; save(s); audit("restore.failed", { to: target.id, reason: s.halted }); }
 }
 
+let mirrorAt = 0;
 async function tick(s: State) {
   await controls(s);
   if (s.current) { await advance(s); return; }
+  // Keep the mirror's main current for the builder (it builds on what this mirror says main is).
+  if (Date.now() - mirrorAt > 5 * 60_000) { try { mirrorReady(); mirrorAt = Date.now(); } catch (e) { log(`mirror refresh failed: ${e instanceof Error ? e.message : e}`); } }
   const blocked = releaseBlocked({ ...s, stopped: stopped() }, Date.now(), policy);
   const next = existsSync(P.inbox) ? readdirSync(P.inbox).filter((n) => /^[a-z0-9][a-z0-9._-]*\.json$/i.test(n) && !n.startsWith("control-")).sort()[0] : undefined;
   if (!next) return;
@@ -466,6 +535,10 @@ function publish(s: State) {
   renameSync(path.join(P.pub, "status.json.tmp"), path.join(P.pub, "status.json"));
 }
 
+function watcherAlive(): boolean {
+  try { const pid = Number(readFileSync(P.lock, "utf8")); if (!pid || pid === process.pid) return false; process.kill(pid, 0); return true; }
+  catch { return false; }
+}
 function lock() {
   try { const pid = Number(readFileSync(P.lock, "utf8")); if (pid && pid !== process.pid) { try { process.kill(pid, 0); throw new Error(`another supervisor runs (pid ${pid})`); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; } } }
   catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
@@ -473,7 +546,7 @@ function lock() {
 }
 
 async function main() {
-  for (const d of [P.inbox, P.releases, P.pub]) mkdirSync(d, { recursive: true });
+  for (const d of [P.inbox, P.releases, P.pub, P.ctl]) mkdirSync(d, { recursive: true });
   const [cmd = "status", arg] = process.argv.slice(2);
   const s = load();
   switch (cmd) {
@@ -484,7 +557,7 @@ async function main() {
     case "once": lock(); await tick(s); publish(s); break;
     case "adopt": { // record what runs now as the first good release (snapshot of the live build)
       const h = await health();
-      const head = must(["git", "rev-parse", "HEAD"], { cwd: cfg.liveDir });
+      const head = liveGit(["rev-parse", "HEAD"]);
       if (!h.ok || (h.commit && h.commit !== head)) throw new Error(`live app not healthy on its checkout (health ${h.ok}, running ${h.commit}, checkout ${head})`);
       mirrorReady();
       const id = `adopted-${head.slice(0, 7)}`;
@@ -492,11 +565,14 @@ async function main() {
       s.released = { id, commit: head, at: now() }; s.retained = [s.released, ...s.retained.filter((g) => g.id !== id)];
       save(s); audit("release.adopted", { release: id, commit: head }); break;
     }
-    case "stop": emergencyStop(arg ?? "owner"); break;
-    case "pause": s.paused = true; save(s); audit("control.pause", { from: "owner" }); break;
-    case "resume": s.paused = false; save(s); audit("control.resume", { from: "owner" }); break;
-    case "clear": rmSync(P.stop, { force: true }); s.halted = null; s.paused = false; save(s); audit("control.clear", { from: "owner" }); break;
-    case "restore": await restore(s, arg); break;
+    case "stop": case "pause": case "resume": case "clear": case "restore":
+      if (cmd === "stop") writeFileSync(P.stop, `${now()} owner\n`); // takes effect at once, even if the watcher is busy
+      if (watcherAlive()) { // hand it to the running watcher: one writer for state and audit
+        const f = path.join(P.ctl, `control-${Date.now()}-${cmd}.json`);
+        writeFileSync(f + ".tmp", JSON.stringify({ action: cmd, releaseId: arg })); renameSync(f + ".tmp", f);
+        console.log(`queued "${cmd}" for the running supervisor`);
+      } else { lock(); await ownerCommand(s, cmd, arg); }
+      break;
     case "verify-audit": { const b = verifyAudit(readAudit(P.audit)); console.log(b ? `BROKEN at line ${b}` : "audit chain intact"); process.exitCode = b ? 1 : 0; break; }
     default: publish(s); console.log(JSON.stringify(JSON.parse(readFileSync(path.join(P.pub, "status.json"), "utf8")), null, 1));
   }

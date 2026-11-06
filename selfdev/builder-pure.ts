@@ -77,6 +77,8 @@ export function select(cands: Candidate[], attempts: Attempts, maxAttempts: numb
   const skipped: string[] = [];
   const open = cands.filter((c) => {
     const a = attempts[c.key];
+    // shortcut: a released key is done for good; an error that comes back after its fix needs a new signature or the owner.
+    if (a?.last === "released") { skipped.push(`${c.key}: already released`); return false; }
     if (a && (a.blocker || a.tries >= maxAttempts)) { skipped.push(`${c.key}: blocked after ${a.tries} tries${a.blocker ? ` (${a.blocker})` : ""}`); return false; }
     return true;
   }).map((c) => ({ ...c, score: c.score - 10 * (attempts[c.key]?.tries ?? 0) }));

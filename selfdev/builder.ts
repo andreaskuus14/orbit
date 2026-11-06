@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // ORBIT self-development builder: observe → select → define success → edit → verify → submit → follow the release.
-//   node --experimental-strip-types selfdev/builder.ts run | once | status | stop
+//   node --experimental-strip-types selfdev/builder.ts run | once | status | stop | resume
 // Runs as its own long-lived process (a logon task on the PC), never inside the ORBIT server, so closing the
 // browser or restarting ORBIT doesn't stop it. Works only in its own clone + worktrees; it has no GitHub or
 // Supabase credentials and can't merge or deploy: it hands a git bundle to the supervisor's inbox.
 // State is journaled in state.json after every step; a restart resumes the step that was running.
+import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, openSync, readSync, closeSync, writeFileSync, symlinkSync, appendFileSync } from "node:fs";
 import path from "node:path";
@@ -37,6 +38,7 @@ const F = { state: path.join(HOME, "state.json"), lock: path.join(HOME, "builder
 const SUP = { inbox: path.join(cfg.supervisorHome, "inbox"), status: path.join(cfg.supervisorHome, "public", "status.json") };
 const now = () => new Date().toISOString();
 const today = () => now().slice(0, 10);
+const ENV_KEEP = /^(PATH|Path|PATHEXT|HOME|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP|SystemRoot|ComSpec|LANG|ANTHROPIC_\w+|CLAUDE_\w+|HTTPS?_PROXY|https?_proxy|NO_PROXY|no_proxy|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE)$/;
 function log(m: string) { const l = `${now()} [builder] ${redact(m)}`; console.log(l); try { appendFileSync(F.log, l + "\n"); } catch { /* best effort */ } }
 
 function load(): State {
@@ -49,8 +51,10 @@ function load(): State {
 function save(s: State) { writeFileSync(F.state + ".tmp", JSON.stringify(s, null, 1)); renameSync(F.state + ".tmp", F.state); }
 function decide(s: State, d: string) { s.decisions = [{ at: now(), decision: d }, ...s.decisions].slice(0, 50); save(s); log(d); }
 
+// Tests and the gate run model-written code: they get the trimmed env, minus model credentials.
+const CMD_ENV = () => Object.fromEntries(Object.entries(process.env).filter(([k, v]) => v != null && ENV_KEEP.test(k) && !/^(ANTHROPIC|CLAUDE)_/.test(k))) as Record<string, string>;
 function run(argv: string[], cwd: string, timeoutSec = 900, env: Record<string, string> = {}) {
-  const r = spawnSync(argv[0], argv.slice(1), { cwd, encoding: "utf8", timeout: timeoutSec * 1000, maxBuffer: 64 << 20, env: { ...process.env, ...env }, shell: process.platform === "win32" && /^(npm|npx)$/.test(argv[0]) });
+  const r = spawnSync(argv[0], argv.slice(1), { cwd, encoding: "utf8", timeout: timeoutSec * 1000, maxBuffer: 64 << 20, env: { ...CMD_ENV(), ...env } as NodeJS.ProcessEnv, shell: process.platform === "win32" && /^(npm|npx)$/.test(argv[0]) });
   return { ok: r.status === 0, out: `${r.stdout ?? ""}${r.stderr ?? ""}${r.error ? r.error.message : ""}` };
 }
 const git = (args: string[], cwd = cfg.repoDir) => { const r = run(["git", ...args], cwd, 300); if (!r.ok) throw new Error(`git ${args[0]}: ${r.out.slice(-500)}`); return r.out.trim(); };
@@ -72,8 +76,9 @@ function newLog(s: State): string {
 }
 function readJson<T>(f: string | null, fallback: T): T { try { return f ? JSON.parse(readFileSync(f, "utf8")) : fallback; } catch { return fallback; } }
 
+// upstream = the supervisor's mirror (the builder may read it, not write it): its main includes the supervisor's revert commits.
 function freshMain() {
-  git(["fetch", "--quiet", cfg.upstream, `+refs/heads/${cfg.mainBranch}:refs/remotes/released/${cfg.mainBranch}`]);
+  git(["-c", `safe.directory=${cfg.upstream.replace(/\\/g, "/")}`, "fetch", "--quiet", cfg.upstream, `+refs/heads/${cfg.mainBranch}:refs/remotes/released/${cfg.mainBranch}`]);
   return git(["rev-parse", `refs/remotes/released/${cfg.mainBranch}`]);
 }
 
@@ -100,8 +105,8 @@ function testMain(s: State, main: string) {
 }
 
 // ---------- edit ----------
-const ENV_KEEP = /^(PATH|Path|PATHEXT|HOME|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP|SystemRoot|ComSpec|LANG|ANTHROPIC_\w+|CLAUDE_\w+|HTTPS?_PROXY|https?_proxy|NO_PROXY|no_proxy|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE)$/;
-const BASH_OK = /^(node --test|node --no-warnings --test|node --experimental-strip-types|npx tsc|npm test|npm run (typecheck|test)|git (diff|status|log|show)|ls|cat|head|tail|grep|rg|wc)\b/;
+const BASH_OK = /^(node --test --experimental-strip-types tests\/|node --no-warnings --test --experimental-strip-types tests\/|npx tsc --noEmit|npm test$|npm run typecheck$|git (diff|status|log|show)|ls|cat|head|tail|grep|rg|wc)\b/;
+const BASH_BAD = /[;&|`$<>\\]|\.\.|(^|\s)[\/~]|[A-Za-z]:|--output|--ext-diff|--textconv|\s-o\b/;
 
 async function edit(t: Task): Promise<{ ok: boolean; note: string }> {
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
@@ -134,10 +139,10 @@ async function edit(t: Task): Promise<{ ok: boolean; note: string }> {
         canUseTool: async (tool, input) => {
           const i = input as Record<string, unknown>;
           if (["Read", "Edit", "Write", "MultiEdit"].includes(tool)) return inside(i.file_path) ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "only files inside this checkout" };
-          if (["Glob", "Grep"].includes(tool)) return i.path == null || inside(i.path) ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "only inside this checkout" };
+          if (["Glob", "Grep"].includes(tool)) return (i.path == null || inside(i.path)) && !/^[\/~]|^[A-Za-z]:|\.\./.test(String(i.pattern ?? "")) ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "only inside this checkout" };
           if (tool === "Bash") {
             const c = String(i.command ?? "").trim();
-            return BASH_OK.test(c) && !/[;&|`$<>]|\.\./.test(c.replace(/ 2>&1$/, "")) ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "only tests, typecheck and read-only git/file commands, no chaining" };
+            return BASH_OK.test(c) && !BASH_BAD.test(c.replace(/ 2>&1$/, "")) ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "only tests, typecheck and read-only git/file commands, no chaining" };
           }
           return { behavior: "deny", message: `${tool} isn't available to the builder` };
         },
@@ -158,7 +163,7 @@ async function browserEvidence(t: Task): Promise<Check> {
   if (!cfg.browser) return { name: "browser", ok: true, detail: "not configured on this host; UI change not inspected" };
   const data = path.join(HOME, "evidence", t.id, "data");
   mkdirSync(data, { recursive: true });
-  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => ENV_KEEP.test(k))) as Record<string, string>;
+  const env = CMD_ENV(); // no model credentials in the isolated app
   // Isolated: dummy Supabase that refuses connections, own data folder, no keys (instrumentation refuses otherwise).
   Object.assign(env, { ORBIT_ISOLATED: "1", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:9", NEXT_PUBLIC_SUPABASE_ANON_KEY: "isolated", ORBIT_DATA_DIR: data, NODE_ENV: "production" });
   const srv = spawn(process.execPath, [path.join(t.worktree, "node_modules", "next", "dist", "bin", "next"), "start", "-H", "127.0.0.1", "-p", String(cfg.browser.port)], { cwd: t.worktree, env: env as NodeJS.ProcessEnv, stdio: "ignore" });
@@ -225,17 +230,21 @@ async function cycle(s: State) {
     if (hold) return decide(s, `waiting: ${hold}`);
     if (s.day.costUsd >= cfg.maxUsdPerDay) return decide(s, `waiting: daily builder budget $${cfg.maxUsdPerDay} used`);
     const main = freshMain();
-    if (sup.released && sup.released.commit !== main) return decide(s, `waiting: released ${sup.released.commit.slice(0, 7)} isn't main ${main.slice(0, 7)} yet`);
+    const tree = (c: string) => { try { return git(["rev-parse", `${c}^{tree}`]); } catch { return null; } };
+    if (sup.released && tree(sup.released.commit) !== tree(main)) return decide(s, `waiting: main ${main.slice(0, 7)} isn't the released code (${sup.released.commit.slice(0, 7)}) yet`);
     const log = newLog(s);
     const cands = candidates({
       failing: testMain(s, main), errors: errorSignals(log),
       perf: readJson<PerfItem[]>(cfg.signals.perfFile, []), backlog: readJson<BacklogItem[]>(cfg.signals.backlogFile, []),
       improve: readJson<{ tasks?: ImproveTask[] }>(cfg.signals.improveFile, {}).tasks ?? [],
     });
+    // Observing can take minutes (npm test on a new main): look again before committing to a task.
+    if (stopped()) return decide(s, "stopped while observing; nothing selected");
     const sel = select(cands, s.attempts, cfg.maxAttempts);
     if (!sel.pick) return decide(s, `no change: ${sel.why}${sel.skipped.length ? ` (skipped ${sel.skipped.join("; ")})` : ""}`);
     const attempt = (s.attempts[sel.pick.key]?.tries ?? 0) + 1;
-    const id = `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${sel.pick.key.replace(/[^a-z0-9]+/gi, "-").toLowerCase().slice(0, 40).replace(/-+$/, "")}-a${attempt}`;
+    const slug = sel.pick.key.replace(/[^a-z0-9]+/gi, "-").toLowerCase().slice(0, 40).replace(/-+$/, "");
+    const id = `${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${slug}-${createHash("sha1").update(sel.pick.key).digest("hex").slice(0, 6)}-a${attempt}`;
     s.task = {
       id, attempt, cand: sel.pick, why: sel.why, step: "selected", startedAt: now(), deadline: Date.now() + cfg.maxMinutesPerTask * 60e3,
       branch: `selfdev/${id}`, worktree: path.join(HOME, "worktrees", id), base: main, costUsd: 0, checks: [], evidence: [],
@@ -251,15 +260,20 @@ async function cycle(s: State) {
     t.outcome = `failed: ${why}`; t.step = "done";
     finish(s);
   };
-  if (Date.now() > t.deadline && t.step !== "submitted") return fail(`time limit ${cfg.maxMinutesPerTask} min`);
+  if (Date.now() > t.deadline && !["verified", "submitted"].includes(t.step)) return fail(`time limit ${cfg.maxMinutesPerTask} min`);
 
+  if (stopped()) return; // a task keeps its journaled step and resumes after the stop is lifted
   if (t.step === "selected") { worktree(t.id, t.base, t.branch); t.step = "prepared"; save(s); }
   if (t.step === "prepared") {
     // An edit interrupted by a restart starts again from a clean tree (its partial edits are discarded, its cost counted).
     git(["reset", "--quiet", "--hard", t.base], t.worktree); git(["clean", "-fdq", "-e", "node_modules"], t.worktree);
-    const before = t.costUsd;
+    if (stopped()) return;
+    if (s.day.costUsd >= cfg.maxUsdPerDay) return fail(`daily builder budget $${cfg.maxUsdPerDay} used`);
+    // Reserve the rest of the task budget before the session, so a crash mid-edit still counts it; settle afterwards.
+    const before = t.costUsd, reserve = Math.max(0, cfg.maxUsdPerTask - before);
+    s.day.costUsd += reserve; save(s);
     const e = await edit(t);
-    s.day.costUsd += t.costUsd - before;
+    s.day.costUsd += t.costUsd - before - reserve;
     if (!e.ok && /NO_CHANGE/.test(e.note)) { s.attempts[t.cand.key] = { tries: t.attempt, last: e.note, blocker: e.note }; t.outcome = `no change: ${e.note}`; t.step = "done"; return finish(s); }
     if (!e.ok) return fail(e.note);
     if (!git(["status", "--porcelain"], t.worktree)) return fail("edit session reported DONE but changed nothing");
@@ -271,13 +285,15 @@ async function cycle(s: State) {
       save(s);
       if (t.checks.some((c) => !c.ok)) return fail(`checks failed: ${t.checks.filter((c) => !c.ok).map((c) => `${c.name}${c.detail ? ` (${c.detail.slice(0, 200)})` : ""}`).join("; ")}`);
       t.treeVerified = statusHash(t);
+      save(s); // evidence is reused after a restart only while the tree is unchanged
     }
-    git(["add", "-A", "--", ".", ":!node_modules"], t.worktree);
+    git(["add", "-A"], t.worktree); // node_modules (a link) is gitignored
     run(["git", "-c", "user.name=ORBIT builder", "-c", "user.email=builder@orbit.local", "commit", "--quiet", "--no-verify", "-m", `self-dev: ${t.cand.title}\n\nWhy: ${t.why}\nAcceptance:\n${t.cand.acceptance.map((a) => `- ${a}`).join("\n")}\nChecks: ${t.checks.map((c) => c.name).join(", ")}`], t.worktree);
     t.commit = git(["rev-parse", "HEAD"], t.worktree);
     t.step = "verified"; save(s);
   }
   if (t.step === "verified") {
+    if (stopped()) return;
     t.releaseId = t.id;
     const json = path.join(SUP.inbox, `${t.id}.json`);
     const known = existsSync(json) || supStatus()?.history.some((h) => h.id === t.id);
@@ -290,8 +306,13 @@ async function cycle(s: State) {
     log(`${t.id}: submitted ${t.commit?.slice(0, 7)} to the supervisor`);
   }
   if (t.step === "submitted") {
-    const h = supStatus()?.history.find((x) => x.id === t.id);
-    if (!h) return; // still queued or releasing
+    const st = supStatus();
+    const h = st?.history.find((x) => x.id === t.id);
+    if (!h) {
+      // Gone from the inbox, not current, not in history: the supervisor dropped it (shape check or duplicate).
+      if (st && !existsSync(path.join(SUP.inbox, `${t.id}.json`)) && st.current?.id !== t.id && !st.queued.includes(`${t.id}.json`)) return fail("the supervisor dropped the submission (see its audit trail)", true);
+      return; // still queued or releasing
+    }
     if (h.step === "retained") { t.outcome = "released and verified after deployment"; s.attempts[t.cand.key] = { tries: t.attempt, last: "released" }; t.step = "done"; return finish(s); }
     return fail(`supervisor ${h.step}: ${h.reason ?? ""}`, h.step !== "rejected" || /policy|CI failed/.test(h.reason ?? ""));
   }
@@ -317,6 +338,7 @@ async function main() {
   const s = load();
   if (cmd === "status") { console.log(JSON.stringify({ task: s.task, decisions: s.decisions.slice(0, 5), attempts: s.attempts, day: s.day }, null, 1)); return; }
   if (cmd === "stop") { writeFileSync(F.stop, now()); log("stop requested"); return; }
+  if (cmd === "resume") { rmSync(F.stop, { force: true }); log("stop lifted by the owner"); return; }
   lock();
   if (s.task) log(`resuming ${s.task.id} at step "${s.task.step}"`);
   do {

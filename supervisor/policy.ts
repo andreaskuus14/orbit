@@ -22,7 +22,8 @@ export const DEFAULT_POLICY: Policy = {
     "supervisor/", ".github/", "AGENTS.md", "CLAUDE.md", "supabase/migrations/", "package.json", "package-lock.json",
     "next.config.ts", "scripts/", "restart-orbit.cmd", "src/app/api/rea/", "src/lib/rea", "src/middleware.ts",
     "src/lib/authority", "src/lib/autonomy", "src/lib/stop-all", "src/lib/csrf", "src/lib/allow", "src/instrumentation.ts",
-    "src/lib/isolation-pure.ts", "src/app/api/selfdev/", "src/lib/selfdev", ".env",
+    "src/lib/isolation-pure.ts", "src/app/api/selfdev/", "src/lib/selfdev", ".env", "selfdev/",
+    "src/app/api/health/", // the supervisor's own health signal: a release must not be able to vouch for itself
   ],
   maxFiles: 8,
   maxLines: 300,
@@ -46,6 +47,19 @@ export function policyViolations(changes: FileChange[], p: Policy): string[] {
     const denied = p.deny.find((d) => path === d || path.startsWith(d) || (d.endsWith(".md") && path.endsWith("/" + d)));
     if (denied) out.push(`${path}: protected (${denied})`);
     else if (!p.allow.some((a) => path.startsWith(a))) out.push(`${path}: outside the allowed paths`);
+  }
+  return out;
+}
+
+/** `git diff --raw --no-renames` → links, submodules, mode changes and git metadata files, none of which ship unattended. */
+export function modeViolations(raw: string): string[] {
+  const out: string[] = [];
+  for (const line of raw.split("\n")) {
+    const m = /^:(\d{6}) (\d{6}) \S+ \S+ ([A-Z])\d*\t(.+)$/.exec(line.trim());
+    if (!m) continue;
+    const [, from, to, , file] = m;
+    for (const mode of [from, to]) if (mode !== "000000" && mode !== "100644" && mode !== "100755") out.push(`${file}: file mode ${mode} (links and submodules aren't allowed)`);
+    if (/(^|\/)\.(gitattributes|gitmodules|gitignore)$/.test(file)) out.push(`${file}: git metadata file`);
   }
   return out;
 }
@@ -110,7 +124,7 @@ export function countErrors(text: string): number {
   return text.split("\n").filter((l) => /\b(error|unhandled|uncaught|fatal)\b/i.test(l) && !/\[orbit\] (no |isolated)/.test(l)).length;
 }
 
-const SECRET = /(bearer\s+\S+|basic\s+[a-z0-9+/=]{8,}|sk-[a-z0-9-]{8,}|ghp_[a-z0-9]{20,}|github_pat_[a-z0-9_]{20,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]+|(?:key|token|secret|password|authorization)["'=: ]+(?:bearer\s+|basic\s+)?\S{6,})/gi;
+const SECRET = /(gh[opsur]_[a-z0-9]{20,}|bearer\s+\S+|basic\s+[a-z0-9+/=]{8,}|sk-[a-z0-9-]{8,}|ghp_[a-z0-9]{20,}|github_pat_[a-z0-9_]{20,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]+|(?:key|token|secret|password|authorization)["'=: ]+(?:bearer\s+|basic\s+)?\S{6,})/gi;
 export function redact(s: string): string {
   return s.replace(SECRET, "[redacted]").replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi, "[email]");
 }

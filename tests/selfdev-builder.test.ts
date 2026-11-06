@@ -22,6 +22,9 @@ test("selection: failing tests first, repeated failures demoted then blocked, no
   assert.equal(blocked.pick!.key, "error:e");
   assert.match(blocked.skipped[0], /blocked after 3/);
   assert.equal(select(c, { "test:t1": { tries: 1, last: "x", blocker: "rolled back" } }, 3).pick!.key, "error:e");
+  const done = select(c, { "test:t1": { tries: 1, last: "released" } }, 3);
+  assert.equal(done.pick!.key, "error:e"); // released work is never picked again
+  assert.match(done.skipped[0], /already released/);
   const low = select(candidates({ failing: [], errors: [], perf: [], backlog: [{ id: "b", title: "B", priority: "low" }] }), {}, 3);
   assert.equal(low.pick, null);
   assert.match(low.why, /not worth a change/);
