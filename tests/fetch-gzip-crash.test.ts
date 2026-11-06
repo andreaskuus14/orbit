@@ -44,7 +44,7 @@ setTimeout(() => { console.log("NOT STOPPED"); process.exit(0); }, 4000);`, { OR
   assert.match(r.stdout, /served after the rejection/, "an unhandled rejection is logged and the server keeps serving");
   assert.match(r.stdout, /still serving 0\.5 s later/, "a controlled stop: a short grace first");
   assert.doesNotMatch(r.stdout, /NOT STOPPED/);
-  assert.equal(r.code, 1, "an uncaught exception stops ORBIT with exit 1 (launch.ps1 restarts it)");
+  assert.equal(r.code, 70, "an uncaught exception stops ORBIT with CONTROLLED_STOP_EXIT (launch.ps1 restarts it without a rebuild)");
   assert.doesNotMatch(r.stderr, /RAW /, "the raw-printing handler was replaced");
   assert.match(r.stderr, /\[orbit\] uncaughtException \(fatal: ORBIT stops now and its launcher restarts it\)/);
   const log = await readFile(path.join(d, "crash.log"), "utf8");
