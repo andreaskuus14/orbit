@@ -4,13 +4,14 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 // The 2026-11-06 briefing crash, end to end inside one server-like child process: the crash policy (crash-log.ts), the real voice
 // model's phonemizer loaded the way ORBIT loads it (its own child process, clips/kokoro-worker.mjs), a briefing whose feed answers
 // with a cut-off gzip error page plus a stray stream error escaping that briefing, then a briefing whose feed works.
 const root = path.resolve(import.meta.dirname, "..");
-const run = (code: string, env: Record<string, string> = {}) => promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", path.join(root, "tests/fixtures/ts-resolve.mjs"),
+const run = (code: string, env: Record<string, string> = {}) => promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", pathToFileURL(path.join(root, "tests/fixtures/ts-resolve.mjs")).href,
   "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, ...env }, timeout: 90_000 }).then((r) => ({ code: 0, ...r }), (e) => ({ code: e.code as number, stdout: e.stdout as string, stderr: e.stderr as string }));
 
 const SERVER = `
@@ -34,16 +35,12 @@ await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
 const get = (p) => pinnedGet(new URL("http://127.0.0.1:" + srv.address().port + p), { address: "127.0.0.1", family: 4 }, {}, 1e6, AbortSignal.timeout(5000));
 `;
 
-test("a cut-off compressed feed fails only that briefing; the next briefing succeeds; phonemizer never touches the server's handlers", { timeout: 120_000 }, async () => {
+test("a cut-off compressed error page is a failed feed, caught at the fetch: no uncaught error, the next briefing succeeds; phonemizer never touches the server's handlers", { timeout: 120_000 }, async () => {
   const d = await mkdtemp(path.join(tmpdir(), "orbit-brief-"));
   const r = await run(`${SERVER}
-const first = await asJob("briefing:midday", async () => {
-  const res = await get("/broken");
-  createGunzip().end(Buffer.from([0x1f, 0x8b, 8, 0])); // and a stray stream error escaping this briefing (what the old fetcher did)
-  return res.status;
-});
+const first = await asJob("briefing:midday", async () => (await get("/broken")).status);
 console.log("first briefing: feed answered " + first);
-await new Promise((ok) => setTimeout(ok, 500));
+await new Promise((ok) => setTimeout(ok, 500)); // the old fetcher's unread decoder failed about here
 const items = await asJob("briefing:evening", async () => { const res = await get("/feed.xml"); return parseFeed(new TextDecoder().decode(res.body)).items.length; });
 console.log("second briefing: " + items + " article(s)");
 await new Promise((ok) => setTimeout(ok, 300));
@@ -54,8 +51,19 @@ console.log("still serving"); process.exit(0);`, { ORBIT_DATA_DIR: d });
   assert.match(r.stdout, /second briefing: 1 article\(s\)/);
   assert.match(r.stdout, /still serving/);
   assert.doesNotMatch(r.stdout, /RAW /);
-  assert.match(r.stderr, /\[orbit\] uncaughtException \(briefing:midday failed on a network\/stream error; that job is abandoned, the server keeps running\)/);
-  assert.match(await readFile(path.join(d, "crash.log"), "utf8"), /uncaughtException in briefing:midday Z_BUF_ERROR Error: unexpected end of file\n\s+at /);
+  assert.doesNotMatch(r.stderr, /uncaughtException/, "nothing escaped the fetch boundary");
+  await assert.rejects(readFile(path.join(d, "crash.log"), "utf8"), "no crash.log entry at all");
+});
+
+test("a network/stream error that still escapes a briefing uncaught stops ORBIT, logged first with the job", { timeout: 120_000 }, async () => {
+  const d = await mkdtemp(path.join(tmpdir(), "orbit-brief-"));
+  const r = await run(`${SERVER}
+void asJob("briefing:midday", async () => { createGunzip().end(Buffer.from([0x1f, 0x8b, 8, 0])); }); // a stray stream nobody listens to
+setTimeout(() => { console.log("NOT STOPPED"); process.exit(0); }, 4000);`, { ORBIT_DATA_DIR: d });
+  assert.equal(r.code, 1);
+  assert.doesNotMatch(r.stdout, /NOT STOPPED/);
+  assert.match(r.stderr, /\[orbit\] uncaughtException \(fatal: ORBIT stops now and its launcher restarts it\)/);
+  assert.match(await readFile(path.join(d, "crash.log"), "utf8"), /uncaughtException in briefing:midday Z_BUF_ERROR Error: unexpected end of file\n\s+at [\s\S]*→ fatal/);
 });
 
 test("a bug inside a briefing (not a network error) still stops ORBIT, logged first", { timeout: 120_000 }, async () => {

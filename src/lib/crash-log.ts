@@ -4,14 +4,14 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { orbitDataDir } from "./data-dir.ts";
 
 // Uncaught errors and unhandled rejections: logged with the stack, redacted, to the console and <data dir>/crash.log (sync, so it lands
-// even if the process then stops), with the background job they came from. Then (crashVerdict):
-//  - an uncaught exception is fatal by default: the process may be half-way through anything, so ORBIT stops and launch.ps1's
-//    supervisor restarts it (restart recovery marks interrupted tasks; an approved action left mid-way shows "may or may not have
-//    happened", never re-run on its own);
-//  - except a network/stream error raised inside a briefing job (asJob "briefing:…"): the briefing's own fetch failed, nothing
-//    shared is half-done, so only that job is abandoned (its run counts as failed, no automatic retry) and the server keeps serving;
+// even if the process then stops), with the background job they came from (asJob). Then (crashVerdict):
+//  - an uncaught exception is always fatal: it escaped every operation boundary, so the process may be half-way through anything.
+//    ORBIT stops after a short grace and launch.ps1's supervisor restarts it (backoff; it gives up after 5 exits in 10 minutes).
+//    Restart recovery marks interrupted tasks; an approved action left mid-way shows "may or may not have happened", never re-run.
+//    Recoverable failures (a feed or article fetch, a briefing) are caught where they happen: pulse.ts per feed, readArticle, and
+//    pinnedGet rejects or returns the status instead of leaving a stream to fail later.
 //  - an unhandled rejection (a promise nobody awaited) is logged and the server keeps serving: no code was cut off mid-way, and making
-//    it fatal would turn a forgotten await somewhere into a restart loop the supervisor gives up on after 5 in 10 minutes.
+//    it fatal would turn a forgotten await somewhere into a restart loop the supervisor gives up on.
 // Next's own handlers print the raw message (no stack, no redaction) and keep serving; they are replaced by these.
 const EVENTS = ["uncaughtException", "unhandledRejection"] as const;
 type G = { __orbitCrashLog?: boolean; __orbitJob?: AsyncLocalStorage<string>; __orbitStopping?: boolean };
@@ -21,19 +21,11 @@ const jobs = (g.__orbitJob ??= new AsyncLocalStorage<string>());
 export const asJob = <T>(name: string, fn: () => Promise<T>): Promise<T> => jobs.run(name, fn);
 export const currentJob = () => jobs.getStore() ?? null;
 
-// Error codes of network, TLS, stream and decompression failures: what a job's own fetch raises when a site misbehaves.
-const IO_ERROR = /^(?:Z_|ECONN|EPIPE|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ERR_STREAM_|UND_ERR_|ABORT_ERR|ERR_SSL|ERR_TLS|CERT_|UNABLE_TO_|DEPTH_ZERO|SELF_SIGNED)/;
-const RECOVERABLE_JOB = /^briefing:/;
-export type Verdict = "keep-serving" | "job-failed" | "fatal";
-export function crashVerdict(ev: (typeof EVENTS)[number], err: unknown, job: string | null): Verdict {
-  if (ev === "unhandledRejection") return "keep-serving";
-  const code = String((err as NodeJS.ErrnoException | null)?.code ?? "");
-  return job && RECOVERABLE_JOB.test(job) && IO_ERROR.test(code) ? "job-failed" : "fatal";
-}
-const SAYS: Record<Verdict, (job: string | null) => string> = {
-  "keep-serving": () => "logged; the server keeps running",
-  "job-failed": (job) => `${job} failed on a network/stream error; that job is abandoned, the server keeps running`,
-  fatal: () => "fatal: ORBIT stops now and its launcher restarts it",
+export type Verdict = "keep-serving" | "fatal";
+export const crashVerdict = (ev: (typeof EVENTS)[number]): Verdict => (ev === "unhandledRejection" ? "keep-serving" : "fatal");
+const SAYS: Record<Verdict, string> = {
+  "keep-serving": "logged; the server keeps running",
+  fatal: "fatal: ORBIT stops now and its launcher restarts it",
 };
 
 export function logCrashes(exit: (code: number) => void = (c) => process.exit(c)) {
@@ -43,10 +35,10 @@ export function logCrashes(exit: (code: number) => void = (c) => process.exit(c)
   for (const ev of EVENTS) {
     const h = (reason: unknown) => {
       if ((reason as { $$typeof?: symbol } | null)?.$$typeof === Symbol.for("react.postpone")) return; // rendering, not an error
-      const e = reason as NodeJS.ErrnoException, job = currentJob(), verdict = crashVerdict(ev, reason, job);
+      const e = reason as NodeJS.ErrnoException, job = currentJob(), verdict = crashVerdict(ev);
       const line = redact(`${new Date().toISOString()} ${ev}${job ? ` in ${job}` : ""} ${e?.code ?? ""} ${e?.stack ?? String(reason)}\n`);
-      console.error(`[orbit] ${ev} (${SAYS[verdict](job)}):\n${line}`);
-      try { mkdirSync(orbitDataDir(), { recursive: true }); appendFileSync(path.join(orbitDataDir(), "crash.log"), `${line}  → ${SAYS[verdict](job)}\n`); } catch { /* the console line is the fallback */ }
+      console.error(`[orbit] ${ev} (${SAYS[verdict]}):\n${line}`);
+      try { mkdirSync(orbitDataDir(), { recursive: true }); appendFileSync(path.join(orbitDataDir(), "crash.log"), `${line}  → ${SAYS[verdict]}\n`); } catch { /* the console line is the fallback */ }
       if (verdict === "fatal" && !g.__orbitStopping) { // controlled: the log is on disk; a moment for in-flight writes, then stop
         g.__orbitStopping = true;
         process.exitCode = 1;

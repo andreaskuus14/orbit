@@ -59,14 +59,8 @@ setTimeout(() => { console.log("NOT STOPPED"); process.exit(0); }, 4000);`, { OR
   assert.match(log, /\[SUPABASE_SECRET_KEY\]/, "a configured secret is named, not shown");
 });
 
-test("crashVerdict: only a network/stream error inside a briefing job is survivable; rejections keep serving", async () => {
+test("crashVerdict: every uncaught exception is fatal, even a network error inside a briefing; rejections keep serving", async () => {
   const { crashVerdict } = await import("../src/lib/crash-log.ts");
-  const err = (code?: string) => Object.assign(new Error("x"), code ? { code } : {});
-  assert.equal(crashVerdict("uncaughtException", err("Z_BUF_ERROR"), "briefing:midday"), "job-failed");
-  assert.equal(crashVerdict("uncaughtException", err("ECONNRESET"), "briefing:manual"), "job-failed");
-  assert.equal(crashVerdict("uncaughtException", err("ERR_STREAM_PREMATURE_CLOSE"), "briefing:evening"), "job-failed");
-  assert.equal(crashVerdict("uncaughtException", new TypeError("x is undefined"), "briefing:midday"), "fatal"); // a bug, not the network
-  assert.equal(crashVerdict("uncaughtException", err("Z_BUF_ERROR"), null), "fatal"); // outside a job: unknown state
-  assert.equal(crashVerdict("uncaughtException", err("ECONNRESET"), "agent:nova"), "fatal"); // only briefings are listed
-  assert.equal(crashVerdict("unhandledRejection", new TypeError("x"), null), "keep-serving");
+  assert.equal(crashVerdict("uncaughtException"), "fatal");
+  assert.equal(crashVerdict("unhandledRejection"), "keep-serving");
 });

@@ -151,8 +151,8 @@ ${format}
 }
 
 /** Run the full Pulse pipeline and store the briefing (and a copy in MEMORY). */
-/** One briefing, run as the background job "briefing:<kind>": a network/stream error that escapes its fetches abandons only this
- *  job, never the server (crash-log.ts crashVerdict). */
+/** One briefing, run as the background job "briefing:<kind>" so a crash log names it. Its fetch failures are caught per feed and
+ *  per article below; anything that still escapes uncaught stops ORBIT (crash-log.ts crashVerdict). */
 export const runPulse = (sb: SupabaseClient, userId: string, kind: PulseKind, focus: Focus = "all") => asJob(`briefing:${kind}`, () => briefing(sb, userId, kind, focus));
 async function briefing(sb: SupabaseClient, userId: string, kind: PulseKind, focus: Focus) {
   const recent = new Date(Date.now() - 15 * 60_000).toISOString();
