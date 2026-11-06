@@ -61,7 +61,8 @@ export async function runScorecard(sb: SupabaseClient, userId: string, trigger: 
       const result: CaseResult = { id: c.id, status: "failed", calls: 0, scores: null, score: null, reason: "" };
       run.cases.push(result);
       try {
-        const { data: task, error } = await sb.from("tasks").insert({ user_id: userId, agent: c.agent, title: `Scorecard: ${c.title}`, request: c.request }).select("id").single();
+        const { data: task, error } = await sb.from("tasks").insert({ user_id: userId, agent: c.agent, title: `Scorecard: ${c.title}`, request: c.request,
+          status: "running", started_at: new Date().toISOString() }).select("id").single(); // never "queued": kickQueue could start it first (as night.ts, goals.ts)
         if (error) throw error;
         const budget = createBudget(5 * 60_000, c.calls);
         const out = await runTask(sb, userId, task.id, 0, budget);
