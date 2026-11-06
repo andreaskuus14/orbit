@@ -17,6 +17,13 @@ const file = (taskId: string) => path.join(dir(), `${taskId.replace(/[^\w-]/g, "
 const lease = (taskId: string) => `bgturn:${taskId}`;
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** Task ids with a background-turn record on disk: running here or waiting for the boot sweep to resume them. The interrupted-task
+ *  sweeps leave these rows "running" (bg-resume finishes them), so a Retry can't start a second copy as a plain agent task. */
+export async function bgTurnIds(): Promise<Set<string>> {
+  const names = await readdir(dir()).catch((e) => { if ((e as NodeJS.ErrnoException).code === "ENOENT") return [] as string[]; throw e; });
+  return new Set([...active, ...names.filter((n) => n.endsWith(".json")).map((n) => n.slice(0, -5))]);
+}
+
 /** The chat up to the resumed request, newest 60 messages, in time order. Reads the NEWEST 200: ascending + limit gave the oldest
  *  200, so a long chat resumed without its latest instructions (or lost the request entirely). Exported for tests/bg-resume-io. */
 export async function resumeRows(sb: SupabaseClient, chatId: string, request: string) {
@@ -99,9 +106,12 @@ export const SAVE_FAILED = "ORBIT couldn't save this task's progress, so it stop
 async function resumeOne(sb: SupabaseClient, r: BgTurn, load: () => Promise<ResumeDeps>) {
   const { finishBackground, runCoreFor, BACKGROUND_TURN_MS, chatProjectContext, coreSessionStore, parseLang } = await load();
   const plan = resumePlan(r, Date.now());
+  // Resume only a row still "running": cancelled, retried (queued, or claimed by kickQueue) or finished means someone else decided.
+  const { data: mine, error: rowError } = await sb.from("tasks").update({ started_at: new Date().toISOString(), finished_at: null, error: null }).eq("user_id", r.userId).eq("id", r.taskId).eq("status", "running").select("id");
+  if (rowError) { active.delete(r.taskId); await releaseLease(lease(r.taskId)).catch(() => {}); throw rowError; } // the record stays; the next sweep tries again
   const stop = await trackTurn(r); // renews the lease taken above
+  if (!mine?.length) { await stop(); return null; } // the record goes: this turn is no longer ORBIT's to resume
   if (plan.do === "fail") return finishBackground(sb, r.userId, r.chatId, r.taskId, r.title, () => Promise.reject(Object.assign(new Error(plan.reason), { orbitReason: plan.reason })), stop);
-  await sb.from("tasks").update({ status: "running", started_at: new Date().toISOString(), finished_at: null, error: null }).eq("user_id", r.userId).eq("id", r.taskId);
   if (r.sessionId && !coreSessionStore.get(r.chatId)) coreSessionStore.set(r.chatId, { id: r.sessionId, resume: true });
   const run = async (signal: AbortSignal) => {
     for (;;) { // each try is counted on disk before it runs, so a crash mid-resume counts too

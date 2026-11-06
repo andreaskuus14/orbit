@@ -76,6 +76,7 @@ export async function POST(req: Request, { params }: Ctx) {
       if (action === "replace_input" && !input) return Response.json({ error: "Describe the new input (at least 5 characters)" }, { status: 400 });
       const { data: previous, error: previousError } = await sb.from("tasks").select("pending").eq("user_id", user.id).eq("id", id).maybeSingle();
       if (previousError) throw previousError;
+      if ((await import("@/lib/bg-resume").then((m) => m.bgTurnIds()).catch(() => new Set<string>())).has(id)) return Response.json({ error: "This CORE request is still running in the background (or resumes after the restart). Cancel it first." }, { status: 409 });
       if (!previous || !canRetryTask(previous.pending ?? [])) return Response.json({ error: "This task has resolved actions. Keep their results and request only the unfinished work in a follow-up." }, { status: 409 });
       let parents = [id];
       for (let depth = 0; depth < 2 && parents.length; depth++) {
