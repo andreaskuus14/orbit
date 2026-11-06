@@ -364,7 +364,9 @@ async function advance(s: State) {
       step(s, r, "installing"); // journaled first: a failure or crash from here on recovers instead of rejecting
     }
     if (r.step === "installing") {
-      install(r.sub.commit, path.join(relDir(id), "dist"));
+      // Stopping the supervisor (Windows task stop) kills the install child first. Wait before recording a failure, so a
+      // supervisor that is being stopped dies still journaled "installing" and its restart redoes the install instead of rolling back.
+      try { install(r.sub.commit, path.join(relDir(id), "dist")); } catch (e) { await sleep(20_000); throw e; }
       step(s, r, "installed");
     }
     if (r.step === "installed") {
