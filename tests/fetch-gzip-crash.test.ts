@@ -7,10 +7,11 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const root = path.resolve(import.meta.dirname, "..");
-const child = (code: string, env: Record<string, string> = {}) => promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", path.join(root, "tests/fixtures/ts-resolve.mjs"),
+const child = (code: string, env: Record<string, string> = {}) => promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", pathToFileURL(path.join(root, "tests/fixtures/ts-resolve.mjs")).href, // a URL: Windows rejects D:\ paths here
   "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, ...env }, timeout: 60_000 });
 
 test("a redirect or error page with a gzip body doesn't crash the server", async () => {
