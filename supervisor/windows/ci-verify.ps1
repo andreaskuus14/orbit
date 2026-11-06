@@ -23,7 +23,7 @@ function WaitFor([scriptblock]$cond, [int]$sec, [string]$what) {
   $d = (Get-Date).AddSeconds($sec); while ((Get-Date) -lt $d) { if (& $cond) { return $true }; Start-Sleep 3 }; Write-Host "timed out waiting for: $what"; return $false
 }
 function History([string]$id) { (Status).history | Where-Object { $_.id -eq $id } | Select-Object -First 1 }
-function Git([string[]]$a) { & git -c safe.directory=* @a; if ($LASTEXITCODE) { throw "git $($a -join ' ') failed" } }
+function Run-Git([string[]]$a) { & git.exe -c safe.directory=* @a; if ($LASTEXITCODE) { throw "git $($a -join ' ') failed" } }
 
 # Run a .cmd as another account through a one-off S4U task (the same logon the real tasks use). Returns the exit code.
 function Invoke-As([string]$user, [string]$cmd, [int]$sec = 1800) {
@@ -41,17 +41,17 @@ function Invoke-As([string]$user, [string]$cmd, [int]$sec = 1800) {
 $work = "$drill\work"
 function Submit([string]$id, [string]$title) {
   $base = (& git -c safe.directory=* -C $work rev-parse HEAD~1).Trim(); $head = (& git -c safe.directory=* -C $work rev-parse HEAD).Trim()
-  Git @("-C", $work, "bundle", "create", "-q", "$sup\inbox\$id.bundle", "$base..HEAD")
+  Run-Git @("-C", $work, "bundle", "create", "-q", "$sup\inbox\$id.bundle", "$base..HEAD")
   @{ id = $id; taskId = "ci:$id"; branch = "selfdev/$id"; source = "bundle"; commit = $head; base = $base; title = $title; why = "windows ci"; acceptance = @(); checks = @(@{ name = "ci"; ok = $true }); costUsd = 0 } |
     ConvertTo-Json -Depth 4 | Set-Content "$sup\inbox\$id.json.tmp" -Encoding UTF8
   Move-Item "$sup\inbox\$id.json.tmp" "$sup\inbox\$id.json"
   return $head
 }
-function Commit([string]$msg) { Git @("-C", $work, "-c", "user.name=ci", "-c", "user.email=ci@x", "commit", "-qam", $msg) }
+function Commit([string]$msg) { Run-Git @("-C", $work, "-c", "user.name=ci", "-c", "user.email=ci@x", "commit", "-qam", $msg) }
 
 try {
   Step "live ORBIT (isolated) in the owner's Documents"
-  Git @("clone", "-q", $W, $live)
+  Run-Git @("clone", "-q", $W, $live)
   @("ORBIT_ISOLATED=1", "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:9", "NEXT_PUBLIC_SUPABASE_ANON_KEY=isolated", "ORBIT_DATA_DIR=$data", "NEXT_TELEMETRY_DISABLED=1") | Set-Content "$live\.env.local"
   New-Item -ItemType Directory -Force $data | Out-Null
   Push-Location $live; cmd /c "npm ci --no-audit --no-fund > `"$out\live-npm-ci.log`" 2>&1"; cmd /c "npm run build > `"$out\live-build.log`" 2>&1"; $b = $LASTEXITCODE; Pop-Location
@@ -70,9 +70,9 @@ try {
   Step "drill wiring (CI only: local origin, no GitHub, releases enabled for this drill)"
   New-Item -ItemType Directory -Force $drill | Out-Null
   icacls $drill /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" | Out-Null
-  Git @("clone", "-q", "--bare", $live, $origin)
-  Git @("-C", $origin, "update-ref", "refs/heads/main", (& git -c safe.directory=* -C $live rev-parse HEAD).Trim()); Git @("-C", $origin, "symbolic-ref", "HEAD", "refs/heads/main")
-  Git @("clone", "-q", $origin, $work)
+  Run-Git @("clone", "-q", "--bare", $live, $origin)
+  Run-Git @("-C", $origin, "update-ref", "refs/heads/main", (& git -c safe.directory=* -C $live rev-parse HEAD).Trim()); Run-Git @("-C", $origin, "symbolic-ref", "HEAD", "refs/heads/main")
+  Run-Git @("clone", "-q", $origin, $work)
   $c = Get-Content "$sup\config.json" -Raw | ConvertFrom-Json
   $c.repoUrl = $origin; $c.github = $null; $c.enabled = $true
   $c | Add-Member -Force allowWithoutExternalChecks $true
@@ -129,7 +129,7 @@ export default function Probe() {
   return <p>probe</p>;
 }
 "@ | Set-Content "$work\src\app\selfdev-probe\page.tsx" -Encoding UTF8
-  Git @("-C", $work, "add", "-A"); Commit "CI: build-time boundary probe page"
+  Run-Git @("-C", $work, "add", "-A"); Commit "CI: build-time boundary probe page"
   $A = Submit "ci-a" "CI: probe page"
   $null = WaitFor { (History "ci-a") } 3600 "release A"
   Check ((History "ci-a").step -eq "retained") "release A built by orbit-build, installed by the owner task, verified, kept ($((History 'ci-a').reason))"
@@ -171,7 +171,7 @@ export default function Probe() {
   Check (-not (Status).halted -and -not (Status).paused) "owner clear (ctl) lifts the halt"
 
   Step "a broken release is rolled back; data it wrote is kept and listed"
-  Git @("-C", $work, "fetch", "-q", $origin, "main"); Git @("-C", $work, "reset", "-q", "--hard", "FETCH_HEAD")
+  Run-Git @("-C", $work, "fetch", "-q", $origin, "main"); Run-Git @("-C", $work, "reset", "-q", "--hard", "FETCH_HEAD")
   $p = "$work\src\app\demo\page.tsx"
   (Get-Content $p -Raw).Replace('export const dynamic = "force-static";', 'export const dynamic = "force-dynamic";').Replace('  const data = demoData();', '  if (process.env.ORBIT_DRILL_OK !== "1") { require("node:fs").writeFileSync(process.env.ORBIT_DATA_DIR + "/written-after-deploy.json", "{}"); throw new Error("ci: broken page"); } const data = demoData();') | Set-Content $p -Encoding UTF8
   Commit "CI: broken demo page"
