@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isCurrent } from "./memory-types-pure";
 import { askClaude, recordUsage, emit, MODEL } from "./claude";
 import { createMemory, safeFetch } from "./memory";
+import { asJob } from "./crash-log";
 import { parseFeed, normalizeUrl, parseCitations, numberCitations, type BriefingKind } from "./pure";
 import { readArticle } from "./news";
 import { clusterEvents, due, evidenceOf, freshAfterRepair, independentSources, nextHealth } from "./news-intel-pure";
@@ -150,7 +151,10 @@ ${format}
 }
 
 /** Run the full Pulse pipeline and store the briefing (and a copy in MEMORY). */
-export async function runPulse(sb: SupabaseClient, userId: string, kind: PulseKind, focus: Focus = "all") {
+/** One briefing, run as the background job "briefing:<kind>" so a crash log names it. Its fetch failures are caught per feed and
+ *  per article below; anything that still escapes uncaught stops ORBIT (crash-log.ts crashVerdict). */
+export const runPulse = (sb: SupabaseClient, userId: string, kind: PulseKind, focus: Focus = "all") => asJob(`briefing:${kind}`, () => briefing(sb, userId, kind, focus));
+async function briefing(sb: SupabaseClient, userId: string, kind: PulseKind, focus: Focus) {
   const recent = new Date(Date.now() - 15 * 60_000).toISOString();
   const { data: running } = await sb.from("job_runs").select("id").eq("user_id", userId).eq("job", "pulse").eq("status", "running").gte("started_at", recent).limit(1);
   if (running?.length) throw new Error("Pulse is already working on a briefing");

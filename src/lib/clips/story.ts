@@ -1,6 +1,6 @@
 import { authorizeApproval } from "../authority";
-import { importWithoutProcessHandlers } from "@/lib/crash-log";
 import { randomBytes } from "node:crypto";
+import { kokoroTts } from "./kokoro";
 import { spendContent } from "../approval-pure";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
@@ -33,17 +33,10 @@ export const models = (): Models => ({
   audio: process.env.ORBIT_HIGGSFIELD_AUDIO_MODEL || "seed_audio",
 });
 
-type Kokoro = { generate(t: string, o: { voice: string; speed?: number }): Promise<{ audio: Float32Array; sampling_rate: number; save(f: string): Promise<void> }> };
-type S = { running?: { id: string; ctrl: AbortController }; tts?: Promise<Kokoro> };
+type S = { running?: { id: string; ctrl: AbortController } };
 const g = globalThis as unknown as { __orbitStory?: S };
 const S = (g.__orbitStory ??= {});
-/** Kokoro-82M on the CPU, loaded once per process (story narration and voice calls share it). */
-export function kokoroTts(): Promise<Kokoro> {
-  // webpackIgnore: loaded on first use only. As a bundled external it was evaluated when Next preloaded routes at boot.
-  const tts = (S.tts ??= importWithoutProcessHandlers(() => import(/* webpackIgnore: true */ "kokoro-js")).then((m) => m.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" })) as Promise<Kokoro>);
-  tts.catch(() => { if (S.tts === tts) S.tts = undefined; }); // let a later call retry the load
-  return tts;
-}
+export { kokoroTts } from "./kokoro"; // story narration and voice calls share one voice worker
 
 const save = (job: StoryJob) => { job.updatedAt = new Date().toISOString(); return saveState(job.id, path.join(storiesDir(), `${job.id}.json`), job); };
 export const getStory = (id: string) => (/^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(id) ? readState<StoryJob>(storiesDir(), id, storyProblem) : Promise.resolve(null));

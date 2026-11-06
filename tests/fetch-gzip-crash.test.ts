@@ -28,20 +28,25 @@ console.log(JSON.stringify(out)); srv.close(); process.exit(0);`);
   assert.deepEqual(JSON.parse(stdout.trim().split("\n").pop()!), [302, 500]);
 });
 
-test("uncaught errors and rejections are logged with their stack, without credentials, and the server keeps running", async () => {
+test("crash logging keeps the stack and never the credentials; a stray rejection keeps serving, an uncaught exception stops ORBIT", async () => {
   const d = await mkdtemp(path.join(tmpdir(), "orbit-crash-"));
   const secret = "sb_secret_Zx9" + "q".repeat(30);
   const msg = `unexpected end of file fetching https://bob:hunter2pass@api.example.com/v1?api_key=AKIA1234567890&page=2 Authorization: Bearer abcdefghijklmnop1234 jwt eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4 ${secret} re_123456789abcdefghijklmn`;
   const r = await child(`
 process.on("uncaughtException", (e) => { console.error("RAW " + e.message); }); // stands in for Next's handler (raw message)
 const { logCrashes } = await import("@/lib/crash-log"); logCrashes();
-setTimeout(() => { throw Object.assign(new Error(${JSON.stringify(msg)}), { code: "Z_BUF_ERROR" }); }, 10);
-setTimeout(() => { Promise.reject(new Error("rejected with token=SECRETTOKEN123456")); }, 30);
-setTimeout(() => { Promise.reject({ $$typeof: Symbol.for("react.postpone") }); }, 50);
-setTimeout(() => { console.log("still running"); process.exit(0); }, 300);`, { ORBIT_DATA_DIR: d, SUPABASE_SECRET_KEY: secret });
-  assert.match(r.stdout, /still running/, "the server keeps serving");
+setTimeout(() => { Promise.reject(new Error("rejected with token=SECRETTOKEN123456")); }, 10);
+setTimeout(() => { Promise.reject({ $$typeof: Symbol.for("react.postpone") }); }, 30);
+setTimeout(() => console.log("served after the rejection"), 60);
+setTimeout(() => { throw Object.assign(new Error(${JSON.stringify(msg)}), { code: "Z_BUF_ERROR" }); }, 100); // outside any job: fatal
+setTimeout(() => console.log("still serving 0.5 s later (in-flight work finishes)"), 600);
+setTimeout(() => { console.log("NOT STOPPED"); process.exit(0); }, 4000);`, { ORBIT_DATA_DIR: d, SUPABASE_SECRET_KEY: secret }).then((x) => ({ code: 0, ...x }), (e) => ({ code: e.code as number, stdout: e.stdout as string, stderr: e.stderr as string }));
+  assert.match(r.stdout, /served after the rejection/, "an unhandled rejection is logged and the server keeps serving");
+  assert.match(r.stdout, /still serving 0\.5 s later/, "a controlled stop: a short grace first");
+  assert.doesNotMatch(r.stdout, /NOT STOPPED/);
+  assert.equal(r.code, 1, "an uncaught exception stops ORBIT with exit 1 (launch.ps1 restarts it)");
   assert.doesNotMatch(r.stderr, /RAW /, "the raw-printing handler was replaced");
-  assert.match(r.stderr, /\[orbit\] uncaughtException \(server keeps running\)/);
+  assert.match(r.stderr, /\[orbit\] uncaughtException \(fatal: ORBIT stops now and its launcher restarts it\)/);
   const log = await readFile(path.join(d, "crash.log"), "utf8");
   assert.match(log, /uncaughtException Z_BUF_ERROR Error: unexpected end of file fetching https:\/\/\[credentials\]@api\.example\.com\/v1\?api_key=\[redacted\]&page=2/);
   assert.match(log, /Error: unexpected end of file[^\n]*\n\s+at /, "the stack frames are kept");
@@ -54,17 +59,8 @@ setTimeout(() => { console.log("still running"); process.exit(0); }, 300);`, { O
   assert.match(log, /\[SUPABASE_SECRET_KEY\]/, "a configured secret is named, not shown");
 });
 
-test("loading kokoro-js (phonemizer) leaves no process-wide error handlers that rethrow", async () => {
-  const { stdout } = await child(`
-const n = () => process.listenerCount("uncaughtException") + process.listenerCount("unhandledRejection");
-const { importWithoutProcessHandlers } = await import("@/lib/crash-log");
-const before = n();
-const m = await importWithoutProcessHandlers(() => import("kokoro-js"));
-const guarded = n() - before;
-const raw = await import("node:child_process").then((cp) => cp.execFileSync(process.execPath, ["--input-type=module", "-e", 'const n = () => process.listenerCount("uncaughtException") + process.listenerCount("unhandledRejection"); const b = n(); await import("kokoro-js"); console.log(n() - b)'], { encoding: "utf8" }).trim());
-console.log(JSON.stringify({ loaded: typeof m.KokoroTTS, guarded, raw: Number(raw) }));`);
-  const got = JSON.parse(stdout.trim().split("\n").pop()!);
-  assert.equal(got.loaded, "function");
-  assert.ok(got.raw >= 2, `a plain import adds phonemizer's handlers (added ${got.raw})`);
-  assert.equal(got.guarded, 0, "the guarded import adds none");
+test("crashVerdict: every uncaught exception is fatal, even a network error inside a briefing; rejections keep serving", async () => {
+  const { crashVerdict } = await import("../src/lib/crash-log.ts");
+  assert.equal(crashVerdict("uncaughtException"), "fatal");
+  assert.equal(crashVerdict("unhandledRejection"), "keep-serving");
 });
