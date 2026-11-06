@@ -479,6 +479,9 @@ function emergencyStop(why: string) {
   audit("emergency.stop", { why });
 }
 
+// Inbox files are written in one go (no rename: Windows would need delete rights in the inbox), so a file can be caught
+// mid-write. One that doesn't parse yet and is only seconds old is left for the next tick, not rejected.
+const young = (file: string) => { try { return Date.now() - statSync(file).mtimeMs < 15_000; } catch { return false; } };
 function takeControls(dir: string): { f: string; c: { action?: string; releaseId?: string } }[] {
   if (!existsSync(dir)) return [];
   const out: { f: string; c: { action?: string; releaseId?: string } }[] = [];
@@ -487,7 +490,7 @@ function takeControls(dir: string): { f: string; c: { action?: string; releaseId
     try {
       if (!lstatSync(file).isFile()) { rmSync(file, { recursive: true, force: true }); audit("control.ignored", { file: f, action: "not a plain file" }); continue; }
       let c = {};
-      try { c = readJsonFile(file); } catch { /* ignored below */ }
+      try { c = readJsonFile(file); } catch { if (young(file)) continue; /* still being written: next tick */ }
       rmSync(file, { force: true });
       out.push({ f, c });
     } catch (e) { log(`control ${f} unreadable: ${e instanceof Error ? e.message : e}`); }
@@ -542,6 +545,7 @@ async function tick(s: State) {
   if (!next) return;
   if (blocked) return; // left in the inbox; shown on the status page
   const sm = readSubmission(path.join(P.inbox, next));
+  if (typeof sm === "string" && sm.startsWith("unreadable") && young(path.join(P.inbox, next))) return;
   if (typeof sm === "string" || `${sm.id}.json` !== next) {
     audit("submission.rejected", { file: next, reason: typeof sm === "string" ? sm : "file name doesn't match id" });
     rmSync(path.join(P.inbox, next), { force: true });

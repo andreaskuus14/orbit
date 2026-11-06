@@ -8,20 +8,19 @@ if (-not ([IO.Path]::GetFullPath($Dist)).StartsWith("$home_\releases\", [StringC
 Set-Content -LiteralPath "$home_\public\install-request.txt" -Value "$Commit`n$Dist" -NoNewline
 $result = Join-Path $Results "INSTALL_RESULT.txt"
 Remove-Item -LiteralPath $result -Force -ErrorAction SilentlyContinue
+$started = (Get-Date).AddSeconds(-2)
 schtasks.exe /Run /TN "ORBIT Release Install" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "couldn't start the ORBIT Release Install task (is the owner signed in?)" }
-$started = Get-Date; $deadline = $started.AddMinutes(10)
+$deadline = (Get-Date).AddMinutes(10)
 while ((Get-Date) -lt $deadline) {
   Start-Sleep -Seconds 3
+  $ti = Get-ScheduledTaskInfo -TaskName "ORBIT Release Install" -ErrorAction SilentlyContinue
+  if (-not (Test-Path $result) -and $ti -and (Get-ScheduledTask -TaskName "ORBIT Release Install").State -eq "Ready" -and $ti.LastRunTime -gt $started) { Start-Sleep -Seconds 3; if (-not (Test-Path $result)) { throw "the ORBIT Release Install task ended without a result (task result $($ti.LastTaskResult))" } }
   if (Test-Path $result) {
     $r = (Get-Content -LiteralPath $result -Raw).Trim() -split "\s+", 3
     if ($r[0] -ne $Commit) { throw "installed $($r[0]), not $Commit" }
     if ($r[1] -ne "0") { throw "install failed: $($r[2])" }
     exit 0
-  }
-  # Ended without a result (killed, interrupted, the PC restarting): fail now so the supervisor restores the previous build.
-  if (((Get-Date) - $started).TotalSeconds -gt 20 -and (Get-ScheduledTask -TaskName "ORBIT Release Install").State -ne "Running" -and -not (Test-Path $result)) {
-    throw "the ORBIT Release Install task ended without a result (interrupted)"
   }
 }
 throw "install didn't finish in 10 minutes"

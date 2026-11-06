@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
 import { emit } from "@/lib/claude";
@@ -48,8 +48,7 @@ export async function POST(req: Request) {
   const f = path.join(inbox, `control-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`);
   try {
     await mkdir(inbox, { recursive: true });
-    await writeFile(f + ".tmp", JSON.stringify(c));
-    await rename(f + ".tmp", f);
+    await writeFile(f, JSON.stringify(c), { flag: "wx" }); // one write, no rename: the inbox grants no delete rights
     // Stop also halts the builder directly, in case the supervisor itself is down.
     if (c.action === "stop" && h.builder) await appendFile(path.join(h.builder, "STOP"), `${new Date().toISOString()} requested from ORBIT\n`);
   } catch (e) {

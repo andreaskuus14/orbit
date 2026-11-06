@@ -12,12 +12,15 @@ if (Test-Path -LiteralPath $dotenv -PathType Leaf) {
 @{ commit = $Commit; env = $envs } | ConvertTo-Json | Set-Content -LiteralPath "C:\ProgramData\orbit-supervisor\public\build-request.json" -Encoding UTF8
 $result = Join-Path $Stage "BUILD_RESULT.txt"
 Remove-Item -LiteralPath $result -Force -ErrorAction SilentlyContinue
+$started = (Get-Date).AddSeconds(-2)
 schtasks.exe /Run /TN "ORBIT Release Build" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "couldn't start the ORBIT Release Build task" }
 try {
   $deadline = (Get-Date).AddMinutes(40)
   while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 5
+    $ti = Get-ScheduledTaskInfo -TaskName "ORBIT Release Build" -ErrorAction SilentlyContinue
+    if (-not (Test-Path $result) -and $ti -and (Get-ScheduledTask -TaskName "ORBIT Release Build").State -eq "Ready" -and $ti.LastRunTime -gt $started) { Start-Sleep -Seconds 3; if (-not (Test-Path $result)) { throw "the ORBIT Release Build task ended without a result (task result $($ti.LastTaskResult))" } }
     if (Test-Path $result) {
       $r = (Get-Content -LiteralPath $result -Raw).Trim() -split "\s+"
       if ($r[0] -ne $Commit) { throw "stage built $($r[0]), not $Commit" }
