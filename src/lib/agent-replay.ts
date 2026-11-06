@@ -61,7 +61,12 @@ export async function runScorecard(sb: SupabaseClient, userId: string, trigger: 
       const result: CaseResult = { id: c.id, status: "failed", calls: 0, scores: null, score: null, reason: "" };
       run.cases.push(result);
       try {
-        const { data: task, error } = await sb.from("tasks").insert({ user_id: userId, agent: c.agent, title: `Scorecard: ${c.title}`, request: c.request }).select("id").single();
+        // origin marks it as an evaluation, kept out of "Continue my work" (migration 0025). Before 0025 the row goes in without it;
+        // the inbox still recognises it by its exact case (agent, title and request).
+        const row0 = { user_id: userId, agent: c.agent, title: `Scorecard: ${c.title}`, request: c.request };
+        let ins = await sb.from("tasks").insert({ ...row0, origin: "scorecard" }).select("id").single();
+        if (ins.error && (ins.error.code === "42703" || ins.error.code === "PGRST204")) ins = await sb.from("tasks").insert(row0).select("id").single();
+        const { data: task, error } = ins;
         if (error) throw error;
         const budget = createBudget(5 * 60_000, c.calls);
         const out = await runTask(sb, userId, task.id, 0, budget);

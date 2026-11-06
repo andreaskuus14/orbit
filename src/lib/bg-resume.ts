@@ -5,11 +5,13 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir.ts";
 import { releaseLease, takeLease } from "./job-log.ts";
+import { registerSource } from "./execution.ts";
 import { parseBgTurn, resumeContext, resumeHistory, resumePlan, type BgTurn } from "./bg-resume-pure.ts";
 
 const LEASE_MS = 3 * 60_000, RENEW_MS = 60_000; // a dead process's lease frees within 3 minutes
 const g = globalThis as unknown as { __orbitBgTurns?: Set<string>; __orbitBgGaveUp?: Set<string> };
 const active = (g.__orbitBgTurns ??= new Set()); // turns this process runs (its own lease would look free to it)
+registerSource("bg-turns", (taskId) => active.has(taskId)); // execution evidence: a background CORE turn runs it here now
 // finished here, but the record couldn't be deleted (Windows lock, read-only file): don't resume it again every tick
 const gaveUp = (g.__orbitBgGaveUp ??= new Set());
 const dir = () => path.join(orbitDataDir(), "bg-turns");

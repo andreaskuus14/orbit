@@ -50,11 +50,12 @@ import * as proactivePure from "../src/lib/proactive-pure.ts";
 import * as completionPure from "../src/lib/completion-pure.ts";
 import * as clipStorePure from "../src/lib/clip-store-pure.ts";
 import * as pure from "../src/lib/pure.ts";
+import * as execution from "../src/lib/execution.ts"; // the real execution-evidence module agents.ts uses
 const stub = (missing: string[]) => ({ MigrationBlocked, requireMigration: async (_sb: unknown, id: "0021" | "0022" | "0023") => { if (missing.includes(id)) throw new MigrationBlocked(blockedMsg(id)); }, refuse: (id: "0021") => new MigrationBlocked(blockedMsg(id)) });
 function load(file: string, deps: Record<string, unknown>) {
   const exports: Record<string, any> = {};
   const src = ts.transpileModule(readFileSync(new URL(`../src/lib/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  vm.runInNewContext(src, { exports, require: (n: string) => deps[n] ?? {}, console: { ...console, error: () => {} }, crypto, AbortController, AbortSignal, setTimeout });
+  vm.runInNewContext(src, { exports, require: (n: string) => deps[n] ?? (n === "./execution" ? execution : {}), console: { ...console, error: () => {} }, crypto, AbortController, AbortSignal, setTimeout });
   return exports;
 }
 function rowsDb(tables: Record<string, Record<string, unknown>[]>) {
