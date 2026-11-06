@@ -28,14 +28,14 @@ const ASK: Record<OpsTool, [RegExp, RegExp]> = {
   automation_pause: [/\b(?:pause|stop|disable|turn off|switch off|resume|enable|turn on|switch on|unpause)\b/i, et("peata|paus|lülita|jätka|luba")],
 };
 /** His own message asks for this kind of change (not a "don't"). */
-export const opsAsked = (tool: OpsTool, question: string) => { const q = question.toLowerCase(); return !(/\b(?:don'?t|do not|never|cancel)\b/.test(q) || ET_NOT.test(q)) && (ASK[tool][0].test(q) || ASK[tool][1].test(q)); };
+export const opsAsked = (tool: OpsTool, question: string) => { const q = question.toLowerCase().replace(/[‘’ʼ]/g, "'"); return !(/\b(?:don'?t|do not|never|cancel)\b/.test(q) || ET_NOT.test(q)) && (ASK[tool][0].test(q) || ASK[tool][1].test(q)); };
 const TARGET: Partial<Record<OpsTool, string>> = { vault_rename: "name", vault_move: "name", lead_update: "lead", automation_pause: "automation" };
 
 /** The explicit-ask check (Profile → Autonomy "Operator: organize my data" at Ask, or outside text/attachments in context): the
  *  owner's latest message must ask for this change. After tool results it must also name the target (file, lead, automation)
  *  itself, so text a tool returned can't pick one. null = allowed. */
 export function opsBlocked(tool: OpsTool, question: string, tainted: boolean, input: Record<string, unknown> = {}, own: readonly string[] = []): string | null {
-  const q = question.toLowerCase();
+  const q = question.toLowerCase().replace(/[‘’ʼ]/g, "'"); // phone keyboards type curly apostrophes
   if (/\b(?:don'?t|do not|never|cancel)\b/.test(q) || ET_NOT.test(q)) return "the user said not to; answer instead";
   // A lead CORE itself added for this task (this turn or this chat) is ORBIT's own record: noting "not a fit" on it needs no new ask.
   // Callers pass [] with attachments/pins in context; Stop-all is refused before this (policy-pure decide).

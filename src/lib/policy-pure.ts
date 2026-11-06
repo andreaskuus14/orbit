@@ -16,7 +16,7 @@ import { wishBlocked } from "./deals-pure.ts";
 import { ruleBlocked } from "./rules-pure.ts";
 import { watchBlocked } from "./pagewatch-pure.ts";
 import { AREA_INFO, autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
-import { et } from "./et-ask-pure.ts";
+import { et, etQuestion } from "./et-ask-pure.ts";
 import { createdLeads, isOpsTool, opsAsked, opsBlocked } from "./core-operator-pure.ts";
 import { outboundLeak, outgoing, privateResults } from "./outbound-pure.ts";
 import { isPluginTool, outsideIn, pluginDecision, type Gate } from "./plugins-pure.ts";
@@ -28,6 +28,9 @@ export type Decision = { allow: boolean; tier: Tier; reason: string };
 export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[]; autonomy?: Partial<Levels>;
   /** an earlier turn of this chat had private data in context (journal/LIFE, attachments, pins): it is still in the session (C03) */
   carried?: boolean;
+  /** an earlier turn of this chat read outside text (pages, agents, invites, files…): it is still in the session, so the operator grant
+   *  needs his own ask in this message, as after reading his stores (core.ts tracks it per chat) */
+  outsideEarlier?: boolean;
   /** private text in this turn's context besides tool results (attachments, pinned notes, an earlier turn's private results): outbound calls are checked against it */
   privateText?: readonly string[];
   /** workspace names + CORE's pending build offer in this chat (ws-intent-pure.ts) */
@@ -101,8 +104,10 @@ const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "local_tts", "local_
 // Includes every read tool whose own description calls its output third-party data: calendar invites, Idea Radar's video text,
 // shop offer titles, vault/workspace file text, git commit subjects, REA's target source.
 /** His own stores that hold other people's text (invites, video text, offer titles, files, commits, analysed code). */
-const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "rea_read", "ws_read"];
-export const UNTRUSTED = ["browse", "fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes", ...STORED_OUTSIDE];
+// plan_day carries calendar invites; local_transcribe the words in any audio/video file he points it at.
+const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "rea_read", "ws_read", "plan_day", "local_transcribe"];
+// mission_status: agents' results; run_niche: its web research.
+export const UNTRUSTED = ["browse", "fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
 const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
@@ -116,8 +121,8 @@ export function agentBlocked(question: string, agent: unknown, untrusted: boolea
 const called = (steps: string[], tools: string[]) => steps.some((s) => tools.some((t) => s.startsWith(`You called ${t} `)));
 /** outside text in this answer: the untrusted tools above or any plugin's result (plugins-pure resultText) */
 const untrustedIn = (steps: string[], except: readonly string[] = []) => called(steps, UNTRUSTED.filter((t) => !except.includes(t))) || steps.some((s) => s.startsWith("You called plugin__"));
-/** Reversible housekeeping on the vault's own files (undo snapshots) keeps its grant after reading those files. */
-const OWN_READS: Record<string, readonly string[]> = { vault_move: ["vault_read", "vault_search"], vault_rename: ["vault_read", "vault_search"] };
+/** This turn read outside text: later turns of the chat count it as still there (core.ts outsideEarlier). */
+export const outsideTextIn = (steps: string[]) => untrustedIn(steps);
 const err = (s: string | null | undefined) => (s ? s.replace(/^Error: /, "") : "");
 
 // Operator mode (AGENTS.md rule 6, owner-granted 2026-10-30): with the category's Profile → Autonomy area at "do" (the default),
@@ -134,7 +139,9 @@ export const OPERATOR_REASON = "standing operator grant";
 const BUILD_ASKS: Record<string, RegExp> = { create_goal: /\bgoals?\b|eesmär/i, queue_tonight: /\btonight\b|öösel|täna öö/i, start_mission: /\bmissions?\b|missioon/i };
 // His explicit "no" for one kind of action ("don't save this", "don't ask an agent", "set a goal but don't create an automation").
 // A denial reaches only the action it names; "don't do it (yet)" / "don't do anything" reaches every write. EN + ET.
-const NEG = String.raw`\b(?:don'?t|do not|never|no need to|without)\b(?!\s+(?:forget|miss|hesitate)\b)(?:\s+[\w'’-]+){0,4}?\s+`, ET_NEG = String.raw`(?<!\p{L})(?:ära|ärge|ärme|ei taha,? et)(?!\p{L})(?:\s+\S+){0,3}?\s*`; // \b is ASCII-only: "ära" needs \p{L}
+// "no new goals yet" / "not a goal": a plain no/not reaches only the next two words (a comma ends it: "no idea, set a goal" asks).
+const NEG = String.raw`(?:\b(?:don't|dont|do not|never|no need to|without)\b(?!\s+(?:forget|miss|hesitate)\b)(?:\s+[\w'-]+){0,4}?|\b(?:no|not)\b(?:\s+[\w'-]+){0,2}?)\s+`;
+const ET_NEG = String.raw`(?<!\p{L})(?:ära|ärge|ärme|ärgu|mitte|ei (?:taha|soovi|ole vaja)|pole vaja|ei taha,? et)(?!\p{L})(?:\s+\S+){0,3}?\s*`; // \b is ASCII-only: "ära" needs \p{L}
 const DENY: Record<string, [string, string]> = {
   save_memory: [String.raw`(?:sav|remember|memori[sz]|stor|record|note|keep|log)`, String.raw`(?:salvest|jäta|meelde|mäleta)`],
   ask_agent: [String.raw`(?:ask|use|involve|delegat|hand|send|get)\b.{0,30}?\b(?:agents?|atlas|nova|forge|scout|sage|anyone)|delegat|agents?\b`, String.raw`(?:agent|delegeeri|küsi)`],
@@ -143,25 +150,32 @@ const DENY: Record<string, [string, string]> = {
   start_mission: [String.raw`missions?\b`, String.raw`missioon`],
   automation_create: [String.raw`(?:automat|recurring|schedul|every (?:day|week|morning))`, String.raw`(?:automaat|ajasta|iga päev)`],
 };
-const DENY_ALL = /\b(?:don'?t|do not)\s+(?:do|start|run|act on|make|change)\s+(?:it|that|this|anything|any of (?:it|that|this))\b|\bdon'?t do anything\b|(?<!\p{L})ära (?:tee|muuda) (?:seda|midagi)(?!\p{L})/iu;
+const DENY_ALL = /\b(?:don'?t|do not)\s+(?:do|start|run|act on|make|change)\s+(?:it|that|this|anything|any of (?:it|that|this))\b|\bdon'?t do anything\b|(?<!\p{L})(?:ära|ärge) (?:tee|muuda|tehke) (?:seda|midagi)(?!\p{L})|(?<!\p{L})(?:ära|ärge)\s*!|^\s*(?:ei|ära)\s*[.!]?\s*$/iu;
+/** Curly apostrophes (phone keyboards) read like straight ones. */
+const plain = (q: string) => q.replace(/[‘’ʼ`]/g, "'");
 export function denied(tool: string, question: string): boolean {
-  const q = typedText(question), d = DENY[tool];
+  const q = plain(typedText(question)), d = DENY[tool];
   return DENY_ALL.test(q) || (!!d && (new RegExp(`${NEG}(?:${d[0]})`, "i").test(q) || new RegExp(`${ET_NEG}(?:${d[1]})`, "iu").test(q)));
 }
+// A clause asks for something when it isn't a question: "what goals do my notes mention?" names goals but asks for nothing.
+// A polite ask ("can you set a goal?", "kas sa saaksid …") is an ask. Each sentence is judged on its own.
+const EN_QUESTION = /^(?:hey orbit\W*)?(?:what|what's|whats|which|who|whose|when|where|why|how|is|are|was|were|do|does|did|have|has|had|am|any|anything)\b/i;
+const POLITE = /^(?:hey orbit\W*)?(?:(?:can|could|would|will) (?:you|u)|please|pls)\b/i;
+const asking = (s: string) => POLITE.test(s.trim()) || (!/\?\s*$/.test(s) && !EN_QUESTION.test(s.trim()) && !etQuestion(s)) || (/^\s*(?:hei\s+orbit\W*)?kas (?:sa |te )?(?:saad|saaksid|saate|saaksite|võid|võiksid|võite|võiksite|palun)/iu.test(s));
+export const requestsIn = (q: string) => (q.match(/[^.?!\n]+[.?!]*/g) ?? []).filter(asking).join(" ");
 function ownerAsked(tool: string, question: string): boolean {
-  const q = typedText(question);
-  if (denied(tool, q)) return false;
+  if (denied(tool, question)) return false;
+  const q = requestsIn(plain(typedText(question))); // questions and retrieved text never count as asking
   if (tool === "ask_agent") return AGENT_ASK.test(q) || AGENT_ASK_ET.test(q);
   if (tool === "save_memory") return asksToRemember(q);
   if (isOpsTool(tool)) return opsAsked(tool, q);
   return !!BUILD_ASKS[tool]?.test(q);
 }
-export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "attach" | "steps" | "autonomy"> & { question?: string }): boolean {
+export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "attach" | "steps" | "autonomy" | "outsideEarlier"> & { question?: string }): boolean {
   const area = OPERATOR_TOOLS[tool];
   if (!area || ctx.stopAll || ctx.attach) return false;
-  const own = OWN_READS[tool] ?? [];
-  if (untrustedIn(ctx.steps, [...own, ...STORED_OUTSIDE])) return false; // pages, news, agents, plugins: never, as before
-  if (called(ctx.steps, STORED_OUTSIDE.filter((t) => !own.includes(t))) && !ownerAsked(tool, ctx.question ?? "")) return false; // his stores: only when he asked
+  if (untrustedIn(ctx.steps, STORED_OUTSIDE)) return false; // pages, news, agents, plugins: never, as before
+  if ((ctx.outsideEarlier || called(ctx.steps, STORED_OUTSIDE)) && !ownerAsked(tool, ctx.question ?? "")) return false; // his stores, or an earlier turn's outside text: only when he asked
   const l = ctx.autonomy?.[area];
   return (l ?? AREA_INFO[area].def) === "do";
 }
