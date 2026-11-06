@@ -32,7 +32,8 @@ test("blanked native tool-call markup is never an answer, and never streams", ()
 
 test("ORBIT's own tools (a saved lesson, statuses, drafts) never block a build; outside text still does", () => {
   const s = (t: string) => `You called ${t} {}\nRESULT:\nx`;
-  assert.equal(wsTainted([s("save_memory"), s("business_status"), s("higgsfield_draft"), s("ws_run")], "rebuild it"), false);
+  assert.equal(wsTainted([s("save_memory"), s("goal_status"), s("higgsfield_draft"), s("ws_run")], "rebuild it"), false);
+  assert.equal(wsTainted([s("business_status")], "rebuild it"), true); // prospects' replies are other people's text
   assert.equal(wsTainted([s("fetch_url")], "rebuild it"), true);
   assert.equal(wsTainted([s("vault_read")], "build me a site"), true);
   assert.equal(wsTainted([s("ask_agent")], "build me a site"), true);

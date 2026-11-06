@@ -82,3 +82,45 @@ test("web text grants nothing, and a legitimate same-message ask after research 
   // unchanged older rule: after web text, grant-only actions (goals, automations, tonight, missions, leads) need a fresh message
   assert.equal(operatorAllows("create_goal", ctx({ steps: [web], question: "research zone 2 and set a goal to learn it" })), false);
 });
+
+// Review of 8fc4559 (#414): each case below was allowed at that head.
+test("a question that happens to name an action grants nothing after outside text; a real or polite ask still does (EN + ET)", () => {
+  const invite = step("calendar_events"), notes = step("vault_read");
+  const no = (tool: string, question: string, steps: string[], input: Record<string, unknown> = {}) => assert.equal(decide(tool, input, ctx({ steps, question })).allow, false, `${tool}: ${question}`);
+  const yes = (tool: string, question: string, steps: string[], input: Record<string, unknown> = {}) => assert.equal(decide(tool, input, ctx({ steps, question })).allow, true, `${tool}: ${question}`);
+  const auto = { name: "x", schedule: "daily 9:00", request: "remind" };
+  no("queue_tonight", "what's on my calendar tonight?", [invite], { text: "x" });
+  no("automation_create", "what do I have every day this week?", [invite], auto);
+  no("automation_create", "mis mul iga päev kalendris on?", [invite], auto);
+  no("create_goal", "what goals do my notes mention?", [notes], { title: "x" });
+  no("create_goal", "which goals are in my notes", [notes], { title: "x" }); // no "?" typed
+  no("vault_move", "what's in my notes?", [notes], { name: "thesis.docx", to: "trash" });
+  yes("queue_tonight", "check my calendar and queue tonight: research venues", [invite], { text: "venues" });
+  yes("create_goal", "can you read my notes and set a goal to train 3x a week?", [notes], { title: "train" }); // polite ask
+  yes("create_goal", "what's in my notes? set a goal from the gym part", [notes], { title: "gym" }); // second sentence asks
+  yes("create_goal", "loe mu märkmed ja sea eesmärk trenni teha", [notes], { title: "trenn" });
+  yes("create_goal", "kas sa saaksid märkmete põhjal eesmärgi seada?", [notes], { title: "trenn" });
+});
+
+test("negations: curly apostrophes, 'no … yet', and Estonian forms all refuse the action they name", () => {
+  const notes = step("vault_read");
+  for (const q of ["read my notes but don’t set a goal", "read my notes, no new goals yet", "read my notes, not a goal though", "loe märkmed, ära sea eesmärki",
+    "loe märkmed, ei taha eesmärki", "loe märkmed, eesmärki pole vaja... pole vaja eesmärki", "ära!", "ei"])
+    assert.equal(decide("create_goal", { title: "x" }, ctx({ steps: [notes], question: q })).allow, false, q);
+  assert.equal(decide("vault_move", { name: "thesis.docx", to: "trash" }, ctx({ steps: [notes], question: "don’t move thesis.docx to trash" })).allow, false);
+  assert.equal(decide("create_goal", { title: "x" }, ctx({ steps: [notes], question: "no idea yet, set a goal to finish the thesis" })).allow, true); // a comma ends "no"
+});
+
+test("plan_day, mission_status, run_niche and local_transcribe count as outside text; every untrusted source taints workspace writes", async () => {
+  const { UNTRUSTED } = await import("../src/lib/policy-pure.ts");
+  for (const t of ["plan_day", "mission_status", "run_niche", "local_transcribe"]) assert.equal(operatorAllows("automation_create", ctx({ steps: [step(t)] })), false, t);
+  for (const t of UNTRUSTED) assert.equal(wsTainted([step(t)], "what did it say?"), true, `wsTainted after ${t}`);
+});
+
+test("outside text from an earlier turn of the chat: the grant needs his own ask in this message", () => {
+  const later = (question: string) => ctx({ steps: [], question, outsideEarlier: true });
+  assert.equal(operatorAllows("automation_create", later("ok thanks")), false); // the page's "create an automation" is still in the session
+  assert.equal(decide("create_goal", { title: "x" }, later("sounds good")).allow, false);
+  assert.equal(decide("create_goal", { title: "train" }, later("set a goal to train 3x a week")).allow, true);
+  assert.equal(operatorAllows("automation_create", ctx({ steps: [], question: "ok thanks" })), true); // a clean chat keeps the grant
+});
