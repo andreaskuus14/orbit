@@ -82,7 +82,13 @@ rulesets, so GitHub won't refuse a push to `main` that skipped CI. The superviso
   A missing, skipped or different check doesn't count.
 - The builder has no GitHub credential. A submission can't change the workflow, the gate scripts, `tsconfig.json`, the evals or the
   release policy: they are denied (case-insensitively, including Windows short-name and stream aliases), and existing test fixtures
-  can't be changed.
+  can't be changed. The code the eval loads into its own process is protected too.
+- CI runs the submission's code, so its stages are separate jobs: `tests` and `build` each on a fresh VM, and `check` (typecheck +
+  eval) only after both passed. A test can't rewrite the eval runner or the build. `npm test` loads `scripts/test-guard.mjs`, so a
+  test file that ends its own process counts as failed, not passed; the tests job also fails if committed files changed.
+- Limit: inside the `tests` job, one test file could still change another before it runs and put it back afterwards. The job
+  separation, the guard and the supervisor's static checks raise the bar; they aren't a sandbox. Monitoring and rollback after
+  deployment remain the backstop.
 
 This is **not equivalent** to GitHub-enforced branch protection. Anyone with a write credential, Andreas's own git login included, can
 still push to `main` without CI. The supervisor's control only holds as long as it is the only writer the loop uses. If the plan ever
@@ -146,5 +152,9 @@ feature is blocked, never saved over). If that happens, the rollback note lists 
   stay queued while disabled, a good release survives a supervisor kill mid-monitoring with merge and build run once, a health-route
   change is refused, ORBIT's Stop-all (on or damaged) holds a release, a broken release is rolled back with `main` reverted and the
   post-deploy data recorded and kept, the app can't clear a halt, emergency stop works, and the audit chain is intact.
+- `npm run drill:ci` (`supervisor/ci-drill.sh`, ~3 min, no network): the real supervisor against a stand-in GitHub API. A release merges only when
+  the required check succeeded on that exact commit (failed, skipped, missing, cancelled, still running, passed elsewhere, or another check
+  failing are refused), and every way of weakening the checks (workflow, gate/test scripts, test guard, eval runner and the code it loads,
+  policy, tsconfig, deleted/emptied/skipped tests, a test ending its process, `@ts-nocheck`) is refused before anything is pushed.
 - `sudo bash supervisor/boundary-check.sh`: the builder account boundary (above).
 - The full loop with a real model (builder picks, edits, verifies; supervisor releases) was run by hand in an isolated copy; see #417.

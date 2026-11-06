@@ -17,6 +17,7 @@
     "check:watch-brief": "node --no-warnings --experimental-strip-types scripts/watch-brief-ui.mjs",
     "check:selfdev": "node --no-warnings --experimental-strip-types scripts/selfdev-ui.mjs",
     "drill:supervisor": "bash supervisor/drill.sh",
+    "drill:ci": "bash supervisor/ci-drill.sh",
     "check:continue-work": "node --no-warnings --experimental-strip-types scripts/continue-ui.mjs",
     "gate": "tsc --noEmit -p . && npm test && npm run eval:ai && next build",
     "textures": "node scripts/fetch-textures.mjs",
