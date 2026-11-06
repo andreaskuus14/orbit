@@ -35,7 +35,15 @@ jobs:
       - name: Native dependencies work (sharp, onnxruntime-node, ffmpeg-static, esbuild, protobufjs)
         run: node .github/windows-check/deps.mjs
       - name: Crash regression on Windows (gzip fetch, crash log redaction, kokoro-js/phonemizer handlers)
-        run: node --test --experimental-strip-types tests/fetch-gzip-crash.test.ts
+        shell: pwsh
+        run: |
+          # The test file on 86a30cc passes --import as a D:\ path, which Windows rejects; #421 (test-only) passes a file URL. App code stays 86a30cc.
+          git fetch origin fix/test-hook-windows
+          git show origin/fix/test-hook-windows:tests/fetch-gzip-crash.test.ts > tests/fetch-gzip-crash.test.ts
+          git diff --stat
+          node --test --experimental-strip-types tests/fetch-gzip-crash.test.ts
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          git checkout -- tests/fetch-gzip-crash.test.ts
       - name: Minimal isolated .env.local (no real Supabase or keys)
         shell: pwsh
         run: |
