@@ -59,7 +59,9 @@ try {
 
   Step "installer"
   $pw = "Ci-" + [guid]::NewGuid().ToString("N").Substring(0, 16) + "!"
-  foreach ($u in "orbit-builder", "orbit-build") { net user $u $pw /add | Out-Null }
+  # (net user asks Y/N for passwords over 14 characters, which hangs a non-interactive run)
+  foreach ($u in "orbit-builder", "orbit-build") { New-LocalUser -Name $u -Password (ConvertTo-SecureString $pw -AsPlainText -Force) -PasswordNeverExpires -AccountNeverExpires | Out-Null }
+  Check ([bool](Get-LocalUser orbit-builder -ErrorAction SilentlyContinue) -and [bool](Get-LocalUser orbit-build -ErrorAction SilentlyContinue)) "builder and build accounts created (standard users)"
   & powershell -NoProfile -ExecutionPolicy Bypass -File "$live\supervisor\windows\install.ps1" -Live $live -OwnerLogon S4U *> "$out\install.log"
   Check ($LASTEXITCODE -eq 0 -and (Test-Path "$sup\app\supervisor.ts")) "install.ps1 completed"
   foreach ($t in "ORBIT Supervisor", "ORBIT App", "ORBIT Release Build", "ORBIT Release Install", "ORBIT Builder") { Check ([bool](Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue)) "task '$t' registered" }
