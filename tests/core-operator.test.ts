@@ -19,7 +19,9 @@ test("each ORGANIZE tool runs under the default operator grant", () => {
   for (const tool of OPS_TOOLS) {
     const d = decide(tool, { name: "a.txt", to: "b.txt" }, ctx());
     assert.equal(d.allow, true, tool); assert.equal(d.reason, OPERATOR_REASON, tool); assert.equal(d.tier, "T2", tool);
-    assert.equal(decide(tool, {}, ctx({ steps: ['You called vault_search {"query":"x"}\nRESULT:\n- a.txt'] })).allow, true, `${tool} after his own data`);
+    assert.equal(decide(tool, {}, ctx({ steps: ['You called goal_status {}\nRESULT:\n2 goals'] })).allow, true, `${tool} after ORBIT's own records`);
+    // vault/file text can come from anyone's documents: after it, no tool keeps the grant without his own ask (a note can't trash a file)
+    assert.equal(decide(tool, {}, ctx({ steps: ['You called vault_search {"query":"x"}\nRESULT:\n- a.txt'] })).allow, false, `${tool} after vault text`);
   }
 });
 
@@ -38,6 +40,7 @@ test("each is refused under Stop-all, after outside text or with attachments, an
   // after outside text only a target he names himself
   assert.equal(decide("vault_rename", { name: "a.txt", to: "b" }, ctx({ steps: [outside], question: "rename a.txt to b" })).allow, true);
   assert.equal(decide("vault_rename", { name: "secret.pdf", to: "b" }, ctx({ steps: [outside], question: "rename a.txt to b" })).allow, false);
+  assert.equal(decide("vault_move", { name: "a.txt", to: "trash" }, ctx({ steps: ['You called vault_search {"query":"x"}\nRESULT:\n- a.txt'], question: "find a.txt and move a.txt to trash" })).allow, true);
   assert.equal(decide("life_plan", { action: "accept" }, ctx({ steps: [outside], question: "accept my plan" })).allow, false);
 });
 
@@ -172,7 +175,8 @@ test("undo round-trips: automation_create (with Tallinn preview) and automation_
   assert.match(await undoOp(sb, "u1", pa), /resumed again/);
   assert.equal((await row()).enabled, true);
   await writeFile(path.join(process.env.ORBIT_DATA_DIR!, "operator-undo.json"), "{broken");
-  await assert.rejects(undoOp(sb, "u1", pa), /Nothing to undo/); // an unreadable store never undoes the wrong thing
+  await assert.rejects(undoOp(sb, "u1", pa), /operator-undo\.json is damaged/); // an unreadable store never undoes the wrong thing, and is never saved over
+  await writeFile(path.join(process.env.ORBIT_DATA_DIR!, "operator-undo.json"), "{}"); // he repaired it: the next tests write snapshots again
 });
 
 test("lead_create: default grant, his ask after web results, refused on injected text, attachments and Stop-all", () => {

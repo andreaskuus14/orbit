@@ -2,11 +2,16 @@
 export const DIM = 1024; // the DB column; EmbeddingGemma gives 768, zero-padding keeps cosine similarity unchanged
 export type Provider = "local" | "voyage";
 
-/** ORBIT_EMBED wins; otherwise Voyage when a key is set (its stored vectors stay comparable), else the free local model. */
-export function provider(env: { ORBIT_EMBED?: string; VOYAGE_API_KEY?: string }): Provider {
+/** ORBIT_EMBED wins; otherwise Voyage when a key is set (its stored vectors stay comparable), else the free local model.
+ *  A journal entry is always embedded locally: journal text never leaves ORBIT (AGENTS.md rule 6). */
+export function provider(env: { ORBIT_EMBED?: string; VOYAGE_API_KEY?: string }, kind?: string): Provider {
+  if (kind === "journal") return "local";
   if (env.ORBIT_EMBED === "local" || env.ORBIT_EMBED === "voyage") return env.ORBIT_EMBED === "voyage" && !env.VOYAGE_API_KEY ? "local" : env.ORBIT_EMBED;
   return env.VOYAGE_API_KEY ? "voyage" : "local";
 }
+/** Journal vectors (always local) share a space with the others only when everything else is local too. Vectors from two
+ *  different models are never compared: with Voyage on, journals are found by keyword only. */
+export const journalsComparable = (env: { ORBIT_EMBED?: string; VOYAGE_API_KEY?: string }) => provider(env) === provider(env, "journal");
 
 /** EmbeddingGemma's task prompts (its model card): queries and documents are embedded differently. */
 export const gemmaInput = (text: string, kind: "document" | "query") =>

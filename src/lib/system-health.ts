@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, statfs, writeFile } from "node:fs/promises";
+import { readStore, writeStore } from "./safe-file.ts";
+import { statfs } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
@@ -19,14 +20,12 @@ const g = globalThis as unknown as { __orbitSysHealth?: Promise<unknown> };
 const iso = (t: number | null | undefined) => (t ? new Date(t).toISOString() : null);
 const msg = (e: unknown) => redact(e instanceof Error ? e.message : String(e)).slice(0, 160);
 
-const load = async () => parseStore(await readFile(file(), "utf8").catch(() => null));
+const load = async () => parseStore((await readStore(file())) || null); // missing = empty; locked/damaged throws
 /** Store edits run one after another (the scheduler tick and the doctor view may overlap). */
 function update<T>(fn: (s: Awaited<ReturnType<typeof load>>) => T | Promise<T>): Promise<T> {
   const run = (g.__orbitSysHealth ?? Promise.resolve()).catch(() => {}).then(async () => {
     const s = await load(), r = await fn(s);
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify(s));
-    await rename(file() + ".tmp", file());
+    await writeStore(file(), JSON.stringify(s));
     return r;
   });
   g.__orbitSysHealth = run;

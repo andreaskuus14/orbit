@@ -1,4 +1,4 @@
-import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { readStore, updateStore } from "./safe-file.ts";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, recordUsage, createBudget, MODEL } from "./claude";
@@ -17,12 +17,7 @@ import { ANSWER_CAP, JUDGE_SYSTEM, addRun, caseScore, estimateCalls, judgePrompt
 
 validateCases(REPLAY_CASES, BUILTIN_AGENTS.map((a) => a.slug));
 const file = () => path.join(orbitDataDir(), "agent-scorecard.json");
-const load = async () => parseState(await readFile(file(), "utf8").catch(() => ""));
-async function store(s: ReplayState) {
-  await mkdir(path.dirname(file()), { recursive: true });
-  await writeFile(file() + ".tmp", JSON.stringify(s));
-  await rename(file() + ".tmp", file());
-}
+const load = async () => parseState(await readStore(file())); // missing = empty; locked/damaged throws
 const g = globalThis as unknown as { __orbitScorecard?: { done: number; total: number } };
 
 export async function scorecardView() {
@@ -61,7 +56,13 @@ export async function runScorecard(sb: SupabaseClient, userId: string, trigger: 
       const result: CaseResult = { id: c.id, status: "failed", calls: 0, scores: null, score: null, reason: "" };
       run.cases.push(result);
       try {
-        const { data: task, error } = await sb.from("tasks").insert({ user_id: userId, agent: c.agent, title: `Scorecard: ${c.title}`, request: c.request }).select("id").single();
+        // origin marks it as an evaluation, kept out of "Continue my work" (migration 0025). Before 0025 the row goes in without it;
+        // the inbox still recognises it by its exact case (agent, title and request).
+        // Inserted "running", never "queued": kickQueue could otherwise start it first (as night.ts, goals.ts).
+        const row0 = { user_id: userId, agent: c.agent, title: `Scorecard: ${c.title}`, request: c.request, status: "running", started_at: new Date().toISOString() };
+        let ins = await sb.from("tasks").insert({ ...row0, origin: "scorecard" }).select("id").single();
+        if (ins.error && (ins.error.code === "42703" || ins.error.code === "PGRST204")) ins = await sb.from("tasks").insert(row0).select("id").single();
+        const { data: task, error } = ins;
         if (error) throw error;
         const budget = createBudget(5 * 60_000, c.calls);
         const out = await runTask(sb, userId, task.id, 0, budget);
@@ -95,7 +96,7 @@ export async function runScorecard(sb: SupabaseClient, userId: string, trigger: 
       }
     }
     run.complete = run.cases.length === REPLAY_CASES.length && run.cases.every((x) => x.score != null);
-    await store(addRun(await load(), run));
+    await updateStore(file(), (t) => ({ text: JSON.stringify(addRun(parseState(t), run)), out: null }));
     return "";
   } catch (e) {
     console.error("[orbit] scorecard run failed:", e instanceof Error ? e.message : e);
@@ -108,9 +109,11 @@ export async function runScorecard(sb: SupabaseClient, userId: string, trigger: 
 /** Scheduler tick: at most one run per calendar month (claimed first, so a crash can't run it twice). Never throws. */
 export async function maybeScorecard(sb: SupabaseClient, userIds: string[], now = new Date()) {
   try {
-    const s = await load();
-    if (g.__orbitScorecard || !scorecardDue(now, s) || blocked(true)) return;
-    await store({ ...s, claimedMonth: monthKey(now) });
+    const claimed = await updateStore(file(), (t) => { // claimed inside the file's queue: two ticks can't both claim this month
+      const s = parseState(t);
+      return g.__orbitScorecard || !scorecardDue(now, s) || blocked(true) ? { out: false } : { text: JSON.stringify({ ...s, claimedMonth: monthKey(now) }), out: true };
+    });
+    if (!claimed) return;
     for (const id of userIds) await runScorecard(sb, id, "monthly");
   } catch (e) { console.error("[orbit] monthly scorecard failed:", e instanceof Error ? e.message : e); }
 }

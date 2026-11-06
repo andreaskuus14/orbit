@@ -32,7 +32,7 @@ async function rewrite(sb: SupabaseClient, targets: MemRecord[], ids: string[], 
   for (const r of targets.filter((t) => ids.includes(t.id))) {
     const content = rewriteDerived(r.content, oldText, newText);
     if (content === null) continue;
-    const e = await embed(`${r.title}\n\n${content}`, "document");
+    const e = await embed(`${r.title}\n\n${content}`, "document", r.kind);
     const { error } = await sb.from("memories").update({ content, embedding: e ? JSON.stringify(e) : null }).eq("id", r.id);
     if (!error) n++;
   }
@@ -73,13 +73,13 @@ export async function POST(req: Request, { params }: Ctx) {
       if (!content) return Response.json({ error: "Bad content" }, { status: 400 });
       const rec = correctionRecords(cur, content, typeof body.scope === "string" ? body.scope : null);
       const ins: Record<string, unknown> = { ...rec.insert };
-      if (rec.scoped) { const e = await embed(`${cur.title}\n\n${rec.insert.content}`, "document"); ins.embedding = e ? JSON.stringify(e) : null; }
+      if (rec.scoped) { const e = await embed(`${cur.title}\n\n${rec.insert.content}`, "document", cur.kind); ins.embedding = e ? JSON.stringify(e) : null; }
       let r = await sb.from("memories").insert(ins);
       if (isMissingColumn(r.error)) { delete ins.source_ref; delete ins.confirmation; r = await sb.from("memories").insert(ins); } // until 0019
       if (r.error) throw new Error(r.error.message);
       if (rec.scoped) { await emit(sb, user.id, "memory.updated", "memory", { id }); return Response.json({ ok: true, scoped: true, summariesUpdated: 0 }); }
       const plan = correctionPlan(id, content, kids);
-      const e = await embed(`${cur.title}\n\n${plan.patch.content}`, "document");
+      const e = await embed(`${cur.title}\n\n${plan.patch.content}`, "document", cur.kind);
       const patch: Record<string, unknown> = { ...plan.patch, embedding: e ? JSON.stringify(e) : null };
       let { error } = await sb.from("memories").update(patch).eq("id", id);
       if (isMissingColumn(error)) { delete patch.confirmation; ({ error } = await sb.from("memories").update(patch).eq("id", id)); }

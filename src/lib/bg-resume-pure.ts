@@ -10,6 +10,12 @@ export const RESUME_MAX_AGE = 24 * 3600_000; // older than this: ORBIT was off t
 const MAX_DONE = 20;
 const id = (s: unknown) => typeof s === "string" && /^[\w-]{1,80}$/.test(s);
 
+/** The chat note when a background turn is cancelled or Stop-all halts it: tool steps that already finished can't be undone from here. */
+export function stoppedNote(stopAll: boolean, trace: { step: string; ok?: boolean }[]): string {
+  const ran = [...new Set(trace.filter((s) => s.ok !== false && !["search_memory", "think", "review", "fallback", "reflex", "route", "native"].includes(s.step)).map((s) => s.step))];
+  return `${stopAll ? "Stopped: Stop-all is on." : "Cancelled."} No further steps ran.${ran.length ? ` Already done before the stop (not undone): ${ran.join(", ")}.` : ""}`;
+}
+
 /** Done-so-far lines from a carried trace (tool steps only, short): what the resume is told not to redo. */
 export const doneSoFar = (trace: { step: string; detail?: string; ok?: boolean }[]) =>
   trace.filter((s) => s.ok !== false && !["search_memory", "think", "review", "fallback", "reflex"].includes(s.step))

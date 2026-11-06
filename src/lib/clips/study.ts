@@ -19,8 +19,8 @@ import { rulesText } from "./postmortem-pure";
 // says why it works → a text lesson in <studio>/viral-lessons.json. The video and frames are deleted right after. Pure: study-pure.ts.
 
 const file = () => path.join(studioRoot(), "viral-lessons.json");
-const g = globalThis as unknown as { __orbitStudy?: { busy?: string; write: Promise<unknown>; pb?: Playbook } };
-const S = (g.__orbitStudy ??= { write: Promise.resolve() });
+const g = globalThis as unknown as { __orbitClipStudy?: { busy?: string; write: Promise<unknown>; pb?: Playbook } }; // not __orbitStudy: study.ts keeps its write chain there
+const S = (g.__orbitClipStudy ??= { write: Promise.resolve() });
 
 const load = async (): Promise<Lesson[]> => (await readState<StudyState>(studioRoot(), "viral-lessons", studyProblem))?.studies ?? [];
 

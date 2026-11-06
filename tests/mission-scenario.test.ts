@@ -20,6 +20,7 @@ import * as researchPilotPure from "../src/lib/research-pilot-pure.ts";
 import * as agentDefsPure from "../src/lib/agent-defs-pure.ts";
 import { blockedMsg, type GuardedId } from "../src/lib/version-pure.ts";
 import { MODULE_HINTS, selectModules } from "../src/lib/core-modules-pure.ts";
+import * as execution from "../src/lib/execution.ts"; // the real execution-evidence module agents.ts uses
 
 // Phase 2 gate, end to end: the REAL runner files (agents.ts, chains.ts, missions.ts + completion-pure) on an in-memory Supabase.
 // Each "process" is a fresh vm context (fresh globalThis: slots, live tasks, driver set, worker id); the DB and the data dir are shared.
@@ -140,7 +141,7 @@ function boot(w: World, missing = new Set<string>()) {
     "./agents": p.agents, "./chains": p.chains, "./migration-guard": guard(missing),
   };
   for (const [f, out] of [["agents.ts", p.agents], ["chains.ts", p.chains], ["missions.ts", p.missions]] as const)
-    vm.runInContext(`(function (exports, require) {${src(f)}\n})`, ctx)(out, (n: string) => mods[n] ?? {});
+    vm.runInContext(`(function (exports, require) {${src(f)}\n})`, ctx)(out, (n: string) => mods[n] ?? (n === "./execution" ? execution : {}));
   // The fake tool: an approval-gated write with an observable counter. It honours the stable attempt id as its idempotency key.
   p.agents.TOOLS.fake_write = { description: "write a file", input: "{}", approval: true, run: async (c: Row, i: Row) => {
     const key = c.attempt ?? crypto.randomUUID();

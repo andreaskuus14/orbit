@@ -17,6 +17,7 @@
     "check:watch-brief": "node --no-warnings --experimental-strip-types scripts/watch-brief-ui.mjs",
     "check:selfdev": "node --no-warnings --experimental-strip-types scripts/selfdev-ui.mjs",
     "drill:supervisor": "bash supervisor/drill.sh",
+    "check:continue-work": "node --no-warnings --experimental-strip-types scripts/continue-ui.mjs",
     "gate": "tsc --noEmit -p . && npm test && npm run eval:ai && next build",
     "textures": "node scripts/fetch-textures.mjs",
     "app:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-shortcut.ps1",
@@ -73,5 +74,13 @@
     "hyperframes": "0.8.171",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.9.0"
+  },
+  "allowScripts": {
+    "ffmpeg-static@5.3.0": true,
+    "sharp@0.35.5": true,
+    "sharp@0.34.5": true,
+    "esbuild@0.25.12": true,
+    "onnxruntime-node@1.21.0": true,
+    "protobufjs@7.6.6": true
   }
 }

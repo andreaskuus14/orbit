@@ -1,7 +1,8 @@
 // iPhone remote (roadmap 6.2), server glue: paired devices, the live pair code, device auth, acting as the owner, approvals.
 // Protocol: remote-pure.ts; decisions: remote-web-pure.ts; routes: /api/remote/*; owner setup: docs/PHONE.md.
+import { readStore, writeStore } from "./safe-file.ts";
 import { randomBytes, randomInt } from "node:crypto";
-import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { rename } from "node:fs/promises";
 import path from "node:path";
 import { cookies } from "next/headers";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -35,19 +36,18 @@ export const remoteProblem = () => secretProblem(process.env.REMOTE_SECRET);
 
 // ---- Devices: <data dir>/remote-devices.json (tokens are HMAC-signed and never stored; push subscriptions are only usable with the VAPID key) ----
 const file = () => path.join(orbitDataDir(), "remote-devices.json");
-export async function listDevices(): Promise<Device[]> {
-  try {
-    const v = JSON.parse(await readFile(file(), "utf8"));
-    return Array.isArray(v) ? v.filter((d) => d && typeof d.id === "string" && typeof d.userId === "string") : [];
-  } catch { return []; }
+/** Strict: the write path must not save over a file it couldn't read. */
+async function readDevices(): Promise<Device[]> {
+  const t = await readStore(file()), v = t ? JSON.parse(t) : []; // missing = none; locked/damaged throws (never saved over as [])
+  return Array.isArray(v) ? v.filter((d) => d && typeof d.id === "string" && typeof d.userId === "string") : [];
 }
+/** For reads (auth, lists): an unreadable file reads as none, as before; nothing is written from here. */
+export const listDevices = (): Promise<Device[]> => readDevices().catch(() => []);
 /** Serialized read-modify-write, saved atomically (tmp + rename). */
 export function updateDevices(fn: (ds: Device[]) => Device[]): Promise<Device[]> {
   const p = (S.save ?? Promise.resolve()).catch(() => {}).then(async () => {
-    const next = fn(await listDevices());
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify(next, null, 1));
-    await rename(file() + ".tmp", file());
+    const next = fn(await readDevices());
+    await writeStore(file(), JSON.stringify(next, null, 1));
     return next;
   });
   S.save = p;
