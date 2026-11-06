@@ -18,7 +18,8 @@ const full = gzipSync(Buffer.from("<rss>" + "x".repeat(200000) + "</rss>"));
 const srv = http.createServer((q, s) => {
   s.writeHead(${JSON.stringify(mode)}.startsWith("403") ? 403 : 200, { "content-encoding": "gzip", "content-type": "application/rss+xml" });
   if (${JSON.stringify(mode)}.endsWith("whole")) s.end(full); else { s.write(full.subarray(0, 40)); s.end(); } // 40 bytes: header + a little data
-}).listen(0, "127.0.0.1");
+});
+await new Promise((ok) => srv.listen(0, "127.0.0.1", ok)); // bound before its port is read (Windows imports fast enough to win the race)
 const { pinnedGet } = await import(${JSON.stringify(pathToFileURL(path.join(root, "src/lib/memory.ts")).href)});
 const r = await pinnedGet(new URL("http://127.0.0.1:" + srv.address().port + "/feed"), { address: "127.0.0.1", family: 4 }, {}, 3_000_000, AbortSignal.timeout(5000))
   .then((x) => ({ status: x.status, bytes: x.body.length }), (e) => ({ rejected: e.code ?? e.message }));
