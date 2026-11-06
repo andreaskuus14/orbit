@@ -29,7 +29,7 @@ function Run-Git([string[]]$a) { & git.exe -c safe.directory=* @a; if ($LASTEXIT
 function Invoke-As([string]$user, [string]$cmd, [int]$sec = 1800) {
   $n = "ORBIT CI $user $(Get-Random)"
   Register-ScheduledTask -TaskName $n -Force -Action (New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$cmd`"") `
-    -Principal (New-ScheduledTaskPrincipal -UserId $user -LogonType S4U -RunLevel Limited) -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 40)) | Out-Null
+    -User $user -Password $script:pw -RunLevel Limited -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 40)) | Out-Null
   Start-ScheduledTask -TaskName $n; Start-Sleep 3
   $null = WaitFor { (Get-ScheduledTask -TaskName $n).State -notin "Running", "Queued" } $sec "task $n"
   $r = (Get-ScheduledTaskInfo -TaskName $n).LastTaskResult
@@ -53,12 +53,13 @@ try {
   Step "live ORBIT checkout in the owner's Documents"
   Run-Git @("clone", "-q", $W, $live)
   Step "installer"
-  $pw = "Ci-" + [guid]::NewGuid().ToString("N").Substring(0, 16) + "!"
+  $script:pw = "Ci-" + [guid]::NewGuid().ToString("N").Substring(0, 16) + "!"
   # (net user asks Y/N for passwords over 14 characters, which hangs a non-interactive run)
+  @($pw, $pw) | Set-Content "$env:TEMP\orbit-ci-pw.txt" # same throwaway password for both; deleted with the VM
   foreach ($u in "orbit-builder", "orbit-build") { New-LocalUser -Name $u -Password (ConvertTo-SecureString $pw -AsPlainText -Force) -PasswordNeverExpires -AccountNeverExpires | Out-Null }
   Check ([bool](Get-LocalUser orbit-builder -ErrorAction SilentlyContinue) -and [bool](Get-LocalUser orbit-build -ErrorAction SilentlyContinue)) "builder and build accounts created (standard users)"
   $ip = Start-Process powershell -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$out\install.log" -RedirectStandardError "$out\install-err.log" `
-    -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$live\supervisor\windows\install.ps1", "-Live", $live, "-OwnerLogon", "S4U"
+    -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$live\supervisor\windows\install.ps1", "-Live", $live, "-OwnerLogon", "S4U", "-PasswordFile", "$env:TEMP\orbit-ci-pw.txt"
   Get-Content "$out\install-err.log" -ErrorAction SilentlyContinue | Select-Object -First 15 | ForEach-Object { Write-Host "  install: $_" }
   Check ($ip.ExitCode -eq 0 -and (Test-Path "$sup\app\supervisor.ts")) "install.ps1 completed"
   foreach ($t in "ORBIT Supervisor", "ORBIT App", "ORBIT Release Build", "ORBIT Release Install", "ORBIT Builder") { Check ([bool](Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue)) "task '$t' registered" }
@@ -189,7 +190,7 @@ export default function Probe() {
   Check ((Test-Path "$data\written-after-deploy.json") -and ((Get-Content "$sup\audit.jsonl" -Raw) -match 'rollback\.data[^\n]*written-after-deploy')) "data written after deployment kept and listed"
 
   Step "emergency stop from ORBIT ends the builder task"
-  Set-ScheduledTask -TaskName "ORBIT Builder" -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -Command Start-Sleep 1800") | Out-Null
+  Set-ScheduledTask -TaskName "ORBIT Builder" -User "orbit-builder" -Password $pw -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -Command Start-Sleep 1800") | Out-Null
   Enable-ScheduledTask -TaskName "ORBIT Builder" | Out-Null; Start-ScheduledTask -TaskName "ORBIT Builder"; Start-Sleep 5
   Check ((Get-ScheduledTask -TaskName "ORBIT Builder").State -eq "Running") "builder task running (as orbit-builder) before the stop"
   '{"action":"stop"}' | Set-Content "$sup\inbox\control-9-stop.json"

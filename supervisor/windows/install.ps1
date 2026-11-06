@@ -16,7 +16,8 @@
 param(
   [string]$Owner = $env:USERNAME, [string]$Builder = "orbit-builder", [string]$BuildUser = "orbit-build",
   [string]$Live = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
-  [ValidateSet("Interactive", "S4U")][string]$OwnerLogon = "Interactive" # S4U only for a machine nobody signs in to (CI)
+  [ValidateSet("Interactive", "S4U")][string]$OwnerLogon = "Interactive", # S4U only for a machine nobody signs in to (CI)
+  [string]$PasswordFile = "" # CI only: two lines, the orbit-builder and orbit-build passwords. On the PC you're asked instead.
 )
 $ErrorActionPreference = "Stop"
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "Run this from an elevated PowerShell." }
@@ -29,7 +30,7 @@ foreach ($u in $Builder, $BuildUser) {
   if (Get-LocalGroupMember -Group Administrators -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "\\$u$" }) { throw "$u must not be an administrator" }
 }
 
-# S4U tasks need "Log on as a batch job" for the two service accounts.
+# Tasks that run without a signed-in session need "Log on as a batch job" for the two service accounts.
 function Grant-BatchLogon([string[]]$users) {
   $sids = $users | ForEach-Object { "*" + (New-Object Security.Principal.NTAccount $_).Translate([Security.Principal.SecurityIdentifier]).Value }
   $tmp = Join-Path $env:TEMP "orbit-secpol"; New-Item -ItemType Directory -Force $tmp | Out-Null
@@ -89,10 +90,17 @@ if (-not (Test-Path $cfgFile)) {
   } | ConvertTo-Json -Depth 5 | Set-Content $cfgFile -Encoding UTF8
 }
 
-# 4. Tasks. Each registration names its task if it fails.
+# 4. Tasks. Each registration names its task if it fails. The two service accounts run "whether logged on or not" with a stored
+#    password (Windows refuses S4U for another local account); Task Scheduler keeps it in LSA secrets, not on disk.
 function Register-Task([string]$name, [hashtable]$a) {
   try { Register-ScheduledTask -TaskName $name -Force @a -ErrorAction Stop | Out-Null }
-  catch { throw "registering task '$name' as $($a.Principal.UserId) ($($a.Principal.LogonType)): $($_.Exception.Message)" }
+  catch { throw "registering task '$name' as $(if ($a.User) { $a.User } else { $a.Principal.UserId }): $($_.Exception.Message)" }
+}
+$pwLines = if ($PasswordFile) { @(Get-Content -LiteralPath $PasswordFile) } else { @() }
+function Get-Pw([string]$u, [int]$i) {
+  if ($pwLines.Count -gt $i) { return $pwLines[$i] }
+  $sec = Read-Host "Password of $u (as set with net user)" -AsSecureString
+  [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
 }
 $set = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $keep = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
@@ -108,9 +116,9 @@ Register-Task "ORBIT App" @{ Settings = $set; Principal = $ownerTask
   Action = (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$Live\scripts\launch.ps1`" -ServerOnly" -WorkingDirectory $Live) }
 Register-Task "ORBIT Release Install" @{ Settings = $set; Principal = $ownerTask
   Action = (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$app\windows\release-install.ps1`" -Live `"$Live`" -Results `"$results`"" -WorkingDirectory $Live) }
-Register-Task "ORBIT Release Build" @{ Settings = $set; Principal = (New-ScheduledTaskPrincipal -UserId $BuildUser -LogonType S4U -RunLevel Limited)
+Register-Task "ORBIT Release Build" @{ Settings = $set; User = $BuildUser; Password = (Get-Pw $BuildUser 1); RunLevel = "Limited"
   Action = (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$app\windows\release-build.ps1`" -Stage `"$stage`" -Cache `"$cache`"" -WorkingDirectory $stage) }
-Register-Task "ORBIT Builder" @{ Settings = $keep; Trigger = (New-ScheduledTaskTrigger -AtStartup); Principal = (New-ScheduledTaskPrincipal -UserId $Builder -LogonType S4U -RunLevel Limited)
+Register-Task "ORBIT Builder" @{ Settings = $keep; Trigger = (New-ScheduledTaskTrigger -AtStartup); User = $Builder; Password = (Get-Pw $Builder 0); RunLevel = "Limited"
   Action = (New-ScheduledTaskAction -Execute $node -Argument "--no-warnings --experimental-strip-types `"$bhome\repo\selfdev\builder.ts`" run" -WorkingDirectory $bhome) }
 Disable-ScheduledTask -TaskName "ORBIT Builder" | Out-Null
 
