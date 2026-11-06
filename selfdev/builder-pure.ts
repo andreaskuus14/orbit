@@ -89,23 +89,8 @@ export function select(cands: Candidate[], attempts: Attempts, maxAttempts: numb
   return { pick: best, why: `${best.source}: ${best.evidence}`, skipped };
 }
 
-/** Ways a diff games its checks: deleted tests, fewer assertions, new skips/todos, changed test scripts. */
-export function weakenedTests(numstat: { path: string; added: number; removed: number }[], patch: string): string[] {
-  const out: string[] = [];
-  const files = patch.split(/^diff --git /m).slice(1);
-  for (const f of files) {
-    const name = /^a\/(\S+) b\/(\S+)/.exec(f)?.[2] ?? "";
-    if (!/^tests\/|\.test\.tsx?$/.test(name)) continue;
-    if (/^deleted file mode/m.test(f)) { out.push(`${name}: test file deleted`); continue; }
-    const minus = f.split("\n").filter((l) => l.startsWith("-") && !l.startsWith("---"));
-    const plus = f.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++"));
-    const asserts = (ls: string[]) => ls.filter((l) => /\bassert\b|\bexpect\(/.test(l)).length;
-    if (asserts(minus) > asserts(plus)) out.push(`${name}: ${asserts(minus) - asserts(plus)} fewer assertions`);
-    if (plus.some((l) => /\b(test|it|describe)\.(skip|todo)\b|\{\s*skip:\s*true|\.only\(/.test(l))) out.push(`${name}: adds skip/todo/only`);
-  }
-  if (numstat.some((c) => c.path === "package.json")) out.push("package.json changed (test scripts are protected)");
-  return out;
-}
+// Enforced again by the supervisor on the real diff (the builder's own checks are self-reported).
+export { weakenedTests } from "../supervisor/policy.ts";
 
 /** A bug fix (error / failing test) must come with a test change. */
 export function missingRegressionTest(source: Source, numstat: { path: string }[]): boolean {

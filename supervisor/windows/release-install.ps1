@@ -12,7 +12,10 @@ try {
   if ($commit -notmatch '^[0-9a-f]{40}$' -or -not ([IO.Path]::GetFullPath($dist)).StartsWith("$home_\releases\", [StringComparison]::OrdinalIgnoreCase)) { throw "bad request" }
   if (git -C $Live status --porcelain --untracked-files=no) { throw "the live folder has local changes; not touching it" }
   & (Join-Path $Live "scripts\stop.ps1")
-  git -C $Live -c "safe.directory=$($home_ -replace '\\','/')/mirror.git" fetch --quiet "$home_\mirror.git" $commit
+  # The mirror belongs to SYSTEM; git trusts another owner's repo only via global config, so this one fetch uses its own.
+  $gc = Join-Path $Stage "install-gitconfig"; Set-Content -LiteralPath $gc -Value "[safe]`n`tdirectory = $($home_ -replace '\\','/')/mirror.git"
+  $env:GIT_CONFIG_GLOBAL = $gc
+  try { git -C $Live fetch --quiet "$home_\mirror.git" $commit } finally { Remove-Item Env:GIT_CONFIG_GLOBAL }
   if ($LASTEXITCODE) { throw "fetch failed" }
   git -C $Live checkout --quiet -B main $commit
   if ($LASTEXITCODE) { throw "checkout failed" }

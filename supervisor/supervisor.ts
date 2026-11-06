@@ -16,7 +16,7 @@ import {
 import path from "node:path";
 import { appendAudit, readAudit, verifyAudit } from "./audit.ts";
 import {
-  DEFAULT_POLICY, afterFailure, modeViolations, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
+  DEFAULT_POLICY, afterFailure, checksVerdict, modeViolations, orbitStopAllOn, weakenedTests, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
   type Day, type Policy, type Probe, type Submission,
 } from "./policy.ts";
 
@@ -27,8 +27,12 @@ type Config = {
   // install: when set, an owner-context command does the live checkout + swap + restart ({commit} {dist} {live});
   // on Windows the supervisor (SYSTEM) must never run git or scripts in the owner-writable live folder itself.
   commands: { build: Cmd; stop: Cmd; start: Cmd; install?: Cmd; stopBuilder?: Cmd };
-  github: { repo: string; tokenFile: string; checksTimeoutSec: number } | null;
+  // requiredChecks: CI check-run names that must succeed on the exact commit. GitHub branch protection isn't available on this
+  // repo's plan, so this is the only place "CI must pass" is enforced; it holds because only the supervisor can write to main.
+  github: { repo: string; tokenFile: string; checksTimeoutSec: number; requiredChecks: string[] } | null;
   allowWithoutExternalChecks?: boolean; // drills only: no CI to wait for
+  enabled?: boolean; // unattended releases; off unless set (install.ps1 writes false)
+  stopAllFile?: string; // ORBIT's stop-all.json: when on (or unreadable), nothing new is released
   workflowChecks: { name: string; url: string; expect: number }[];
   monitor: { probes: number; intervalSec: number; maxErrors: number; startupTimeoutSec: number };
   dataBackup: { paths: string[]; maxBytes: number };
@@ -146,6 +150,7 @@ function backupData(id: string) {
   const to = path.join(relDir(id), "data");
   rmSync(to, { recursive: true, force: true });
   const report: { path: string; files: number }[] = [];
+  const hashes: Record<string, string>[] = [];
   cfg.dataBackup.paths.forEach((src, i) => {
     const dst = path.join(to, String(i));
     if (existsSync(src)) cpSync(src, dst, { recursive: true, dereference: false, filter: (f) => !f.endsWith(".tmp") && !lstatSync(f).isSymbolicLink() });
@@ -158,9 +163,22 @@ function backupData(id: string) {
       if (diff.length || Object.keys(restored).length !== Object.keys(before).length) throw new Error(`restore check failed for ${src}: ${diff.slice(0, 3).join(", ")}`);
     } finally { rmSync(scratch, { recursive: true, force: true }); }
     report.push({ path: src, files: Object.keys(before).length });
+    hashes.push(before);
   });
-  writeFileSync(path.join(relDir(id), "data-manifest.json"), JSON.stringify({ at: now(), paths: cfg.dataBackup.paths }));
+  writeFileSync(path.join(relDir(id), "data-manifest.json"), JSON.stringify({ at: now(), paths: cfg.dataBackup.paths, hashes }));
   return report;
+}
+/** Files in the data folders that differ from the pre-install backup: what the failed release wrote (or the app wrote meanwhile). */
+function dataWrittenSince(id: string): string[] {
+  try {
+    const m = JSON.parse(readFileSync(path.join(relDir(id), "data-manifest.json"), "utf8")) as { paths: string[]; hashes?: Record<string, string>[] };
+    const out: string[] = [];
+    m.paths.forEach((src, i) => {
+      const was = m.hashes?.[i] ?? {}, now_ = hashTree(src);
+      for (const k of new Set([...Object.keys(was), ...Object.keys(now_)])) if (was[k] !== now_[k]) out.push(`${path.basename(src)}/${k}${!(k in now_) ? " (deleted)" : !(k in was) ? " (new)" : ""}`);
+    });
+    return out;
+  } catch (e) { return [`unknown (${e instanceof Error ? e.message : e})`]; }
 }
 
 // ---------- install, health ----------
@@ -257,7 +275,7 @@ async function advance(s: State) {
   const r = s.current!;
   const id = r.id;
   // Stop holds a release anywhere before the live app is touched; once installed it still finishes monitoring and recovery.
-  if (stopped() && !["installing", "installed", "failed"].includes(r.step)) return;
+  if (held() && !["installing", "installed", "failed"].includes(r.step)) return;
   try {
     if (r.step === "accepted") {
       const main = mirrorReady();
@@ -273,10 +291,11 @@ async function advance(s: State) {
     if (r.step === "fetched") {
       const changes = parseNumstat(git(["diff", "--numstat", r.mainBefore!, r.sub.commit]));
       r.diffStat = { files: changes.length, lines: changes.reduce((n, c) => n + c.added + c.removed, 0) };
-      const v = [...policyViolations(changes, policy), ...modeViolations(git(["diff", "--raw", "--no-renames", r.mainBefore!, r.sub.commit]))];
+      const fullPatch = git(["diff", r.mainBefore!, r.sub.commit]);
+      const v = [...policyViolations(changes, policy), ...modeViolations(git(["diff", "--raw", "--no-renames", r.mainBefore!, r.sub.commit])), ...weakenedTests(changes, fullPatch)];
       if (v.length) return reject(s, `release policy: ${v.join("; ")}`);
       mkdirSync(relDir(id), { recursive: true });
-      const patch = git(["diff", r.mainBefore!, r.sub.commit]).slice(0, 400_000);
+      const patch = fullPatch.slice(0, 400_000);
       writeFileSync(path.join(relDir(id), "diff.patch"), patch);
       mkdirSync(path.join(P.pub, "diffs"), { recursive: true });
       writeFileSync(path.join(P.pub, "diffs", `${id}.patch`), redact(patch));
@@ -295,20 +314,21 @@ async function advance(s: State) {
       step(s, r, "pushed", { pr: r.pr ?? null });
     }
     if (r.step === "pushed") {
+      if (cfg.github && !cfg.github.requiredChecks?.length) return reject(s, "no required CI checks configured (github.requiredChecks)");
       if (cfg.github) {
         const until = Date.now() + cfg.github.checksTimeoutSec * 1000;
         for (;;) {
           const runs = ((await gh("GET", `/commits/${r.sub.commit}/check-runs?per_page=100`)) as { check_runs: { name: string; status: string; conclusion: string | null }[] }).check_runs;
-          const bad = runs.filter((c) => c.status === "completed" && !["success", "neutral", "skipped"].includes(c.conclusion ?? ""));
-          if (bad.length) return reject(s, `CI failed: ${bad.map((c) => c.name).join(", ")}`);
-          if (runs.length && runs.every((c) => c.status === "completed")) break;
-          if (Date.now() > until) return reject(s, runs.length ? "CI didn't finish in time" : "CI never started on this commit");
+          const v = checksVerdict(cfg.github.requiredChecks, runs);
+          if (v.state === "fail") return reject(s, `CI ${v.detail}`);
+          if (v.state === "pass") break;
+          if (Date.now() > until) return reject(s, `CI didn't pass in time (${v.detail})`);
           await sleep(20_000);
           await controls(s); // a pause or stop sent meanwhile holds the release before merge
-          if (stopped() || s.paused) return;
+          if (held() || s.paused) return;
         }
       } else if (!cfg.allowWithoutExternalChecks) return reject(s, "no external CI configured; unattended release refused");
-      step(s, r, "checked", { externalChecks: cfg.github ? "github check-runs passed on this exact commit" : "none configured (drill)" });
+      step(s, r, "checked", { externalChecks: cfg.github ? `${cfg.github.requiredChecks.join(", ")} passed on this exact commit` : "none configured (drill)" });
     }
     if (r.step === "checked") {
       const main = mirrorReady();
@@ -335,7 +355,7 @@ async function advance(s: State) {
     }
     if (r.step === "backedUp") {
       await controls(s);
-      if (stopped() || s.paused) return; // last point to hold before the live app is touched
+      if (held() || s.paused) return; // last point to hold before the live app is touched
       step(s, r, "installing"); // journaled first: a failure or crash from here on recovers instead of rejecting
     }
     if (r.step === "installing") {
@@ -385,10 +405,13 @@ async function recover(s: State, r: Release) {
       if (problems.length) throw new Error(problems.join("; "));
     } catch (e) { audit("rollback.failed", { release: r.id, attempt: r.rollbacks, reason: e instanceof Error ? e.message : String(e) }); continue; }
     audit("rollback.verified", { release: r.id, restored: prev.id, commit: prev.commit });
+    // Data is never rolled back automatically: restoring the backup would drop everything written since. Record what changed.
+    const written = dataWrittenSince(r.id);
+    audit("rollback.data", { release: r.id, kept: "data folder left as is", changedSinceBackup: written.slice(0, 50), count: written.length, backup: path.join(relDir(r.id), "data") });
     // The live app is restored either way; a failed revert of main is reported, not retried as a rollback.
     let note = "";
     try { revertMain(prev.commit, r); } catch (e) { note = `; main NOT reverted (${e instanceof Error ? e.message : e})`; }
-    finish(s, "rolledBack", `restored ${prev.id}; releases halted until the owner clears it${note}`);
+    finish(s, "rolledBack", `restored ${prev.id}; releases halted until the owner clears it${note}; data kept as is (${written.length} file${written.length === 1 ? "" : "s"} changed since the pre-install backup)`);
     return;
   }
 }
@@ -437,6 +460,15 @@ function prune(s: State) {
 
 // ---------- control ----------
 const stopped = () => existsSync(P.stop);
+function orbitStopAll(): boolean {
+  if (!cfg.stopAllFile) return false;
+  let raw: string | null | undefined;
+  try { raw = lstatSync(cfg.stopAllFile).isFile() ? readFileSync(cfg.stopAllFile, "utf8") : null; }
+  catch (e) { raw = (e as NodeJS.ErrnoException).code === "ENOENT" ? undefined : null; }
+  return orbitStopAllOn(raw);
+}
+/** Why nothing new may happen now (emergency stop, ORBIT's Stop-all), or null. Monitoring and rollback still run. */
+const held = (): string | null => (stopped() ? "emergency stop is on" : orbitStopAll() ? "ORBIT Stop-all is on" : null);
 function emergencyStop(why: string) {
   writeFileSync(P.stop, `${now()} ${why}\n`);
   if (cfg.commands.stopBuilder) run(cfg.commands.stopBuilder, { timeoutSec: 60 });
@@ -501,7 +533,7 @@ async function tick(s: State) {
   if (s.current) { await advance(s); return; }
   // Keep the mirror's main current for the builder (it builds on what this mirror says main is).
   if (Date.now() - mirrorAt > 5 * 60_000) { try { mirrorReady(); mirrorAt = Date.now(); } catch (e) { log(`mirror refresh failed: ${e instanceof Error ? e.message : e}`); } }
-  const blocked = releaseBlocked({ ...s, stopped: stopped() }, Date.now(), policy);
+  const blocked = !cfg.enabled ? "unattended releases are off (config enabled: false)" : held() ?? releaseBlocked({ ...s, stopped: false }, Date.now(), policy);
   const next = existsSync(P.inbox) ? readdirSync(P.inbox).filter((n) => /^[a-z0-9][a-z0-9._-]*\.json$/i.test(n) && !n.startsWith("control-")).sort()[0] : undefined;
   if (!next) return;
   if (blocked) return; // left in the inbox; shown on the status page
@@ -525,9 +557,9 @@ function publish(s: State) {
   mkdirSync(P.pub, { recursive: true });
   const entries = readAudit(P.audit);
   const queued = existsSync(P.inbox) ? readdirSync(P.inbox).filter((n) => n.endsWith(".json") && !n.startsWith("control-")) : [];
-  const blocked = releaseBlocked({ ...s, stopped: stopped() }, Date.now(), policy);
+  const blocked = !cfg.enabled ? "unattended releases are off (config enabled: false)" : held() ?? releaseBlocked({ ...s, stopped: false }, Date.now(), policy);
   const body = {
-    at: now(), stopped: stopped(), paused: s.paused, halted: s.halted, blocked, released: s.released, retained: s.retained,
+    at: now(), enabled: !!cfg.enabled, orbitStopAll: orbitStopAll(), stopped: stopped(), paused: s.paused, halted: s.halted, blocked, released: s.released, retained: s.retained,
     current: s.current, history: s.history.slice(0, 30), queued, day: s.day, policy,
     audit: { ok: verifyAudit(entries) === 0, count: entries.length, recent: entries.slice(-40).reverse() },
   };

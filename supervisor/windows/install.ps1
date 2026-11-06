@@ -15,14 +15,18 @@
 #   Task "ORBIT Release Build"  runs as Andreas: builds an exact commit in %LOCALAPPDATA%\orbit-stage (repo code runs only here).
 #   Task "ORBIT Builder"        runs as Andreas at logon: the builder loop, with no GitHub or Supabase credentials.
 # The builder can push nothing and merge nothing. If ORBIT is broken or not answering, the supervisor still rolls back.
-param([string]$Owner = $env:USERNAME, [string]$Live = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+param([string]$Owner = $env:USERNAME, [string]$Builder = "orbit-builder", [string]$Live = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
 $ErrorActionPreference = "Stop"
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "Run this from an elevated PowerShell." }
 $node = (Get-Command node -ErrorAction Stop).Source
 $home_ = "C:\ProgramData\orbit-supervisor"
 $app = Join-Path $home_ "app"
 $stage = Join-Path $env:LOCALAPPDATA "orbit-stage"
-$bhome = Join-Path $env:LOCALAPPDATA "orbit-selfdev"
+$bhome = "C:\orbit-builder" # the builder account's own folder (not under Andreas's profile, which it can't read)
+# The builder must be its own standard account: its tests run model-written code. Create it first (you choose the password):
+#   net user orbit-builder * /add      (then never sign in with it and never store git or GitHub credentials for it)
+if (-not (Get-LocalUser -Name $Builder -ErrorAction SilentlyContinue)) { throw "Create the builder account first: net user $Builder * /add" }
+if (Get-LocalGroupMember -Group Administrators -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "\\$Builder$" }) { throw "$Builder must not be an administrator" }
 
 # 1. The supervisor's installed copy: changes to supervisor\ in the repo don't reach it until this script runs again.
 New-Item -ItemType Directory -Force -Path $app, (Join-Path $app "windows"), (Join-Path $home_ "inbox"), (Join-Path $home_ "public") | Out-Null
@@ -31,11 +35,17 @@ Copy-Item (Join-Path $Live "supervisor\windows\*.ps1") (Join-Path $app "windows"
 
 # 2. Lock it down. /inheritance:r drops inherited rights; then SYSTEM + Administrators full, owner limited rights on two folders.
 icacls $home_ /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" | Out-Null
-icacls (Join-Path $home_ "inbox") /grant "${Owner}:(OI)(CI)(WD,AD,RD,X)" | Out-Null   # create + list (he owns what he creates; the supervisor only reads plain files once)
+# Inbox: create files only (no delete-child, no reading others'). ORBIT (owner) sends pause/stop/restore; the builder sends submissions.
+foreach ($u in $Owner, $Builder) { icacls (Join-Path $home_ "inbox") /grant "${u}:(CI)(WD,AD,X)" "${u}:(OI)(IO)(W)" | Out-Null }
 New-Item -ItemType Directory -Force -Path (Join-Path $home_ "releases"), (Join-Path $home_ "ctl") | Out-Null
 icacls (Join-Path $home_ "releases") /grant "${Owner}:(OI)(CI)RX" | Out-Null
-icacls (Join-Path $home_ "mirror.git") /grant "${Owner}:(OI)(CI)RX" 2>$null | Out-Null # created on first run; run this script again after it exists
-icacls (Join-Path $home_ "public") /grant "${Owner}:(OI)(CI)RX" | Out-Null
+foreach ($u in $Owner, $Builder) {
+  icacls (Join-Path $home_ "mirror.git") /grant "${u}:(OI)(CI)RX" 2>$null | Out-Null # created on first run; run this script again after it exists
+  icacls (Join-Path $home_ "public") /grant "${u}:(OI)(CI)RX" | Out-Null
+}
+# Builder folder: the builder's own; ORBIT's DEV view reads it and the owner can stop the builder by writing STOP there.
+New-Item -ItemType Directory -Force -Path $bhome | Out-Null
+icacls $bhome /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" "${Builder}:(OI)(CI)M" "${Owner}:(OI)(CI)(RX,WD,AD)" | Out-Null
 
 # 3. Config (edit it, then run this script again or restart the task). Token: a fine-grained GitHub token for this repo only,
 #    Contents: read/write, Pull requests: read/write, Checks: read. Put it in token.txt next to config.json.
@@ -50,7 +60,9 @@ if (-not (Test-Path $cfgFile)) {
       stop = @("cmd.exe", "/c", "exit 0"); start = @("cmd.exe", "/c", "exit 0") # unused while install is set
       stopBuilder = @("schtasks.exe", "/End", "/TN", "ORBIT Builder")
     }
-    github = @{ repo = "andreaskuus14/orbit"; tokenFile = (Join-Path $home_ "token.txt"); checksTimeoutSec = 1800 }
+    github = @{ repo = "andreaskuus14/orbit"; tokenFile = (Join-Path $home_ "token.txt"); checksTimeoutSec = 1800; requiredChecks = @("check") }
+    enabled = $false # unattended releases off until the Windows checks pass
+    stopAllFile = (Join-Path $env:LOCALAPPDATA "orbit\stop-all.json")
     workflowChecks = @(@{ name = "sign-in page"; url = "http://127.0.0.1:3000/login"; expect = 200 })
     monitor = @{ probes = 10; intervalSec = 60; maxErrors = 0; startupTimeoutSec = 300 }
     dataBackup = @{ paths = @((Join-Path $env:LOCALAPPDATA "orbit")); maxBytes = 2000000000 }
@@ -63,7 +75,7 @@ $sup = New-ScheduledTaskAction -Execute $node -Argument "--no-warnings --experim
 $set = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName "ORBIT Supervisor" -Action $sup -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings $set -Principal (New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest) -Force | Out-Null
 [Environment]::SetEnvironmentVariable("ORBIT_SUPERVISOR_HOME", $home_, "Machine")
-[Environment]::SetEnvironmentVariable("ORBIT_SELFDEV_HOME", $bhome, "User") # read by ORBIT's DEV view and the builder
+[Environment]::SetEnvironmentVariable("ORBIT_SELFDEV_HOME", $bhome, "Machine") # read by ORBIT's DEV view and the builder
 
 $me = New-ScheduledTaskPrincipal -UserId $Owner -LogonType Interactive -RunLevel Limited
 $appAct = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Live\scripts\launch.ps1`" -ServerOnly" -WorkingDirectory $Live
@@ -73,9 +85,10 @@ Register-ScheduledTask -TaskName "ORBIT Release Build" -Action $buildAct -Princi
 $instAct = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$app\windows\release-install.ps1`" -Live `"$Live`" -Stage `"$stage`"" -WorkingDirectory $Live
 Register-ScheduledTask -TaskName "ORBIT Release Install" -Action $instAct -Principal $me -Force | Out-Null
 $bAct = New-ScheduledTaskAction -Execute $node -Argument "--no-warnings --experimental-strip-types `"$bhome\repo\selfdev\builder.ts`" run" -WorkingDirectory $bhome
-Register-ScheduledTask -TaskName "ORBIT Builder" -Action $bAct -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $Owner) -Settings $set -Principal $me -Force | Out-Null
-Disable-ScheduledTask -TaskName "ORBIT Builder" | Out-Null # enabled only after the drills pass on this PC (see README)
+$bp = New-ScheduledTaskPrincipal -UserId $Builder -LogonType S4U -RunLevel Limited # no stored password, no network credentials
+Register-ScheduledTask -TaskName "ORBIT Builder" -Action $bAct -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings $set -Principal $bp -Force | Out-Null
+Disable-ScheduledTask -TaskName "ORBIT Builder" | Out-Null # enabled only after the Windows checks pass (README: "Enabling")
 
 Write-Host "Installed. Next: token.txt, review config.json, then (elevated) node --experimental-strip-types `"$app\supervisor.ts`" adopt"
-Write-Host "Builder: clone the repo to $bhome\repo, npm ci there, write $bhome\config.json (upstream = $home_\mirror.git; see supervisor\README.md)."
-Write-Host "Before Enable-ScheduledTask 'ORBIT Builder': read 'What the protections rest on' in supervisor\README.md (separate builder account)."
+Write-Host "Builder (as $Builder, e.g. runas /user:$Builder powershell): clone $home_\mirror.git to $bhome\repo, npm ci, write $bhome\config.json."
+Write-Host "Unattended releases stay off (config.json enabled: false) until the checks in supervisor\README.md 'Enabling' pass on this PC."

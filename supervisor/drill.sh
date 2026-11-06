@@ -48,7 +48,8 @@ cat > "$D/sup/config.json" <<EOF
   "github": null, "allowWithoutExternalChecks": true,
   "workflowChecks": [ { "name": "sign-in page", "url": "http://127.0.0.1:$PORT/login", "expect": 200 }, { "name": "public demo", "url": "http://127.0.0.1:$PORT/demo", "expect": 200 } ],
   "monitor": { "probes": 3, "intervalSec": 5, "maxErrors": 0, "startupTimeoutSec": 90 },
-  "dataBackup": { "paths": ["$D/data"], "maxBytes": 200000000 }, "keepReleases": 5, "pollSec": 3 }
+  "dataBackup": { "paths": ["$D/data"], "maxBytes": 200000000 }, "keepReleases": 5, "pollSec": 3,
+  "enabled": false, "stopAllFile": "$D/data/stop-all.json" }
 EOF
 export ORBIT_SUPERVISOR_HOME="$D/sup"
 SUP() { node --no-warnings --experimental-strip-types "$D/supapp/supervisor.ts" "$@"; }
@@ -75,6 +76,13 @@ echo "== 1. good release, supervisor killed mid-monitoring"
 echo "Drill release $(date -u +%FT%TZ)." >> "$D/work/docs/RECOVERY.md"
 git -C "$D/work" -c user.name=drill -c user.email=d@x commit -qam "Drill: docs-only release"; GOOD=$(git -C "$D/work" rev-parse HEAD)
 submit drill-good "Drill: docs-only release"
+sleep 10
+SUP status | grep -q '"blocked": "unattended releases are off' && [ -f "$D/sup/inbox/drill-good.json" ] && ok "disabled by default: the release stays queued" || bad "released while disabled"
+pkill -f "$D/supapp/supervisor.ts watch"; sleep 1
+python3 - "$D/sup/config.json" <<'PY'
+import json,sys; p=sys.argv[1]; c=json.load(open(p)); c["enabled"]=True; json.dump(c,open(p,"w"))
+PY
+watch_sup
 wait_for "drill-good: installed" && pkill -9 -f "$D/supapp/supervisor.ts watch" && sleep 2 && watch_sup
 wait_for "drill-good: (retained|failed|rolledBack|halted|rejected)" 300 || true
 grep -q "drill-good: retained" "$D/supervisor.log" && ok "good release kept after a supervisor restart" || bad "good release not kept"
@@ -91,15 +99,21 @@ grep -q "drill-health: rejected (release policy: src/app/api/health" "$D/supervi
 git -C "$D/work" reset -q --hard HEAD~1
 
 echo "== 2b. release that breaks a monitored page"
-sed -i 's/export const dynamic = "force-static";/export const dynamic = "force-dynamic";/; s/  const data = demoData();/  if (process.env.ORBIT_DRILL_OK !== "1") throw new Error("drill: broken page"); const data = demoData();/' "$D/work/src/app/demo/page.tsx"
+sed -i 's/export const dynamic = "force-static";/export const dynamic = "force-dynamic";/; s/  const data = demoData();/  if (process.env.ORBIT_DRILL_OK !== "1") { require("node:fs").writeFileSync(process.env.ORBIT_DATA_DIR + "\/written-after-deploy.json", "{}"); throw new Error("drill: broken page"); } const data = demoData();/' "$D/work/src/app/demo/page.tsx"
 git -C "$D/work" -c user.name=drill -c user.email=d@x commit -qam "Drill: broken demo page"
 submit drill-bad "Drill: broken demo page"
+echo '{"on":true,"at":"drill"}' > "$D/data/stop-all.json"; sleep 8
+SUP status | grep -q '"blocked": "ORBIT Stop-all is on"' && [ -f "$D/sup/inbox/drill-bad.json" ] && ok "ORBIT Stop-all holds the release" || bad "released during Stop-all"
+: > "$D/data/stop-all.json"; sleep 6
+SUP status | grep -q '"blocked": "ORBIT Stop-all is on"' && [ -f "$D/sup/inbox/drill-bad.json" ] && ok "a damaged stop-all.json also holds it (fail closed)" || bad "damaged stop-all.json let it through"
+rm -f "$D/data/stop-all.json"
 wait_for "drill-bad: (rolledBack|halted|retained|rejected)" 900 || true
 grep -q "drill-bad: rolledBack" "$D/supervisor.log" && ok "failed release rolled back" || bad "no rollback"
 health | grep -q "\"commit\":\"$GOOD\"" && ok "previous release restored and healthy" || bad "previous release not restored"
 [ "$(git -C "$D/origin.git" rev-parse 'main^{tree}')" = "$(git -C "$D/origin.git" rev-parse "$GOOD^{tree}")" ] && ok "main reverted to the restored code" || bad "main not reverted"
 ls "$D/sup/releases/drill-bad/data/0/store.json" >/dev/null 2>&1 && ok "data backed up (restore verified before install)" || bad "no data backup"
 SUP status | grep -q '"halted": "drill-bad' && ok "releases halted" || bad "not halted"
+[ -f "$D/data/written-after-deploy.json" ] && grep -q '"rollback.data".*written-after-deploy.json' "$D/sup/audit.jsonl" && ok "data written after deployment kept and recorded" || bad "post-deploy data not recorded"
 
 echo "== 3. controls and audit"
 echo '{"action":"clear"}' > "$D/sup/inbox/control-1.json"; echo '{"action":"stop"}' > "$D/sup/inbox/control-2.json"; sleep 8

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  DEFAULT_POLICY as P, afterFailure, modeViolations, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
+  DEFAULT_POLICY as P, afterFailure, checksVerdict, modeViolations, orbitStopAllOn, weakenedTests, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
 } from "../supervisor/policy.ts";
 import { appendAudit, readAudit, verifyAudit } from "../supervisor/audit.ts";
 
@@ -98,4 +98,30 @@ test("links, submodules, mode changes and git metadata files never ship unattend
   const v = modeViolations([`:000000 120000 ${z} ${a} A\tsrc/link`, `:000000 160000 ${z} ${a} A\tsrc/sub`, `:100644 100644 ${a} ${a} M\tsrc/.gitattributes`].join("\n"));
   assert.equal(v.length, 3);
   assert.match(v[0], /120000/); assert.match(v[1], /160000/); assert.match(v[2], /git metadata/);
+});
+
+test("ORBIT's Stop-all holds releases the way the app reads it: missing = off, unreadable or damaged = on", () => {
+  assert.equal(orbitStopAllOn(undefined), false);
+  assert.equal(orbitStopAllOn('{"on":false,"at":""}'), false);
+  assert.equal(orbitStopAllOn('{"on":true,"at":"x"}'), true);
+  assert.equal(orbitStopAllOn(null), true); // locked / unreadable
+  assert.equal(orbitStopAllOn(""), true); // empty after a power cut
+  assert.equal(orbitStopAllOn('{"on":"no"}'), true);
+});
+
+test("CI: every required check must succeed on the commit; others failing also fail it", () => {
+  const ok = (name: string) => ({ name, status: "completed", conclusion: "success" });
+  assert.equal(checksVerdict(["check"], [ok("check")]).state, "pass");
+  assert.equal(checksVerdict(["check"], [ok("other")]).state, "pending"); // a different check passing isn't enough
+  assert.equal(checksVerdict(["check"], []).state, "pending");
+  assert.equal(checksVerdict(["check"], [{ name: "check", status: "in_progress", conclusion: null }]).state, "pending");
+  assert.equal(checksVerdict(["check"], [ok("check"), { name: "x", status: "completed", conclusion: "failure" }]).state, "fail");
+  assert.equal(checksVerdict(["check"], [{ name: "check", status: "completed", conclusion: "skipped" }]).state, "pending"); // skipped isn't passed
+});
+
+test("model-written tests may not end the run early or spawn commands (enforced by the supervisor on the real diff)", () => {
+  const d = (l: string) => `diff --git a/tests/a.test.ts b/tests/a.test.ts\n--- a/tests/a.test.ts\n+++ b/tests/a.test.ts\n@@ -1 +1 @@\n${l}\n`;
+  assert.match(weakenedTests([], d("+process.exit(0);"))[0], /exits the process/);
+  assert.match(weakenedTests([], d('+import { execSync } from "node:child_process";'))[0], /spawns commands/);
+  assert.deepEqual(weakenedTests([], d("+assert.equal(f(), 1);")), []);
 });

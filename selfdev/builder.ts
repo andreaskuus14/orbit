@@ -38,7 +38,7 @@ const F = { state: path.join(HOME, "state.json"), lock: path.join(HOME, "builder
 const SUP = { inbox: path.join(cfg.supervisorHome, "inbox"), status: path.join(cfg.supervisorHome, "public", "status.json") };
 const now = () => new Date().toISOString();
 const today = () => now().slice(0, 10);
-const ENV_KEEP = /^(PATH|Path|PATHEXT|HOME|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP|SystemRoot|ComSpec|LANG|ANTHROPIC_\w+|CLAUDE_\w+|HTTPS?_PROXY|https?_proxy|NO_PROXY|no_proxy|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE)$/;
+const ENV_KEEP = /^(PATH|Path|PATHEXT|HOME|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP|SystemRoot|ComSpec|LANG|ANTHROPIC_\w+|CLAUDE_\w+|HTTPS?_PROXY|https?_proxy|NO_PROXY|no_proxy|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|GIT_CONFIG_GLOBAL)$/;
 function log(m: string) { const l = `${now()} [builder] ${redact(m)}`; console.log(l); try { appendFileSync(F.log, l + "\n"); } catch { /* best effort */ } }
 
 function load(): State {
@@ -59,7 +59,7 @@ function run(argv: string[], cwd: string, timeoutSec = 900, env: Record<string, 
 }
 const git = (args: string[], cwd = cfg.repoDir) => { const r = run(["git", ...args], cwd, 300); if (!r.ok) throw new Error(`git ${args[0]}: ${r.out.slice(-500)}`); return r.out.trim(); };
 
-type SupStatus = { stopped: boolean; paused: boolean; halted: string | null; blocked: string | null; current: { id: string } | null; queued: string[];
+type SupStatus = { stopped: boolean; orbitStopAll?: boolean; paused: boolean; halted: string | null; blocked: string | null; current: { id: string } | null; queued: string[];
   history: { id: string; step: string; reason?: string; pr?: string }[]; released: { commit: string } | null };
 function supStatus(): SupStatus | null { try { return JSON.parse(readFileSync(SUP.status, "utf8")); } catch { return null; } }
 
@@ -78,7 +78,7 @@ function readJson<T>(f: string | null, fallback: T): T { try { return f ? JSON.p
 
 // upstream = the supervisor's mirror (the builder may read it, not write it): its main includes the supervisor's revert commits.
 function freshMain() {
-  git(["-c", `safe.directory=${cfg.upstream.replace(/\\/g, "/")}`, "fetch", "--quiet", cfg.upstream, `+refs/heads/${cfg.mainBranch}:refs/remotes/released/${cfg.mainBranch}`]);
+  git(["fetch", "--quiet", cfg.upstream, `+refs/heads/${cfg.mainBranch}:refs/remotes/released/${cfg.mainBranch}`]);
   return git(["rev-parse", `refs/remotes/released/${cfg.mainBranch}`]);
 }
 
@@ -218,7 +218,13 @@ function untrackedNumstat(dir: string) {
 }
 
 // ---------- the loop ----------
-function stopped() { return existsSync(F.stop); }
+// Hold: its own STOP, the supervisor's emergency stop, or ORBIT's Stop-all. The builder's account can't read ORBIT's data folder,
+// so Stop-all comes from the supervisor's status (it reads stop-all.json fail-closed, like the app since #411). No status = hold.
+function stopped() {
+  if (existsSync(F.stop)) return true;
+  const st = supStatus();
+  return !st || st.stopped || st.orbitStopAll === true;
+}
 
 async function cycle(s: State) {
   if (stopped()) return;
@@ -334,6 +340,11 @@ function lock() {
 
 async function main() {
   mkdirSync(path.join(HOME, "worktrees"), { recursive: true });
+  // The mirror belongs to the supervisor's account. Git (2.43+) trusts another owner's repo only via global/system config, not -c,
+  // so the builder keeps its own global config file that names just that folder.
+  const gc = path.join(HOME, "gitconfig");
+  writeFileSync(gc, `[safe]\n\tdirectory = ${cfg.upstream.replace(/\\/g, "/")}\n`);
+  process.env.GIT_CONFIG_GLOBAL = gc;
   const cmd = process.argv[2] ?? "status";
   const s = load();
   if (cmd === "status") { console.log(JSON.stringify({ task: s.task, decisions: s.decisions.slice(0, 5), attempts: s.attempts, day: s.day }, null, 1)); return; }
@@ -344,7 +355,7 @@ async function main() {
   do {
     try { await cycle(s); } catch (e) { log(`cycle failed: ${e instanceof Error ? e.message : e}`); }
     if (cmd === "once" && !s.task) break;
-    if (stopped()) { log("stopped"); break; }
+    if (existsSync(F.stop)) { log("stopped"); break; } // its own STOP ends the process; other holds just wait
     await new Promise((r) => setTimeout(r, (s.task ? 5 : cfg.pollSec) * 1000));
   } while (true);
 }

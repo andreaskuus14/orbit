@@ -64,6 +64,26 @@ export function modeViolations(raw: string): string[] {
   return out;
 }
 
+/** Ways a diff games its checks: deleted tests, fewer assertions, new skips/todos/only, early exits, changed test scripts. */
+export function weakenedTests(numstat: { path: string; added: number; removed: number }[], patch: string): string[] {
+  const out: string[] = [];
+  const files = patch.split(/^diff --git /m).slice(1);
+  for (const f of files) {
+    const name = /^a\/(\S+) b\/(\S+)/.exec(f)?.[2] ?? "";
+    if (!/^tests\/|\.test\.tsx?$/.test(name)) continue;
+    if (/^deleted file mode/m.test(f)) { out.push(`${name}: test file deleted`); continue; }
+    const minus = f.split("\n").filter((l) => l.startsWith("-") && !l.startsWith("---"));
+    const plus = f.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++"));
+    const asserts = (ls: string[]) => ls.filter((l) => /\bassert\b|\bexpect\(/.test(l)).length;
+    if (asserts(minus) > asserts(plus)) out.push(`${name}: ${asserts(minus) - asserts(plus)} fewer assertions`);
+    if (plus.some((l) => /\b(test|it|describe)\.(skip|todo)\b|\{\s*skip:\s*true|\.only\(/.test(l))) out.push(`${name}: adds skip/todo/only`);
+    // Tests are code that runs in CI and on the builder's account: no ending the run early, no spawning processes.
+    if (plus.some((l) => /\bprocess\.(exit|kill|abort)\b|child_process|\b(execSync|spawnSync|execFile)\b/.test(l))) out.push(`${name}: test exits the process or spawns commands`);
+  }
+  if (numstat.some((c) => c.path === "package.json")) out.push("package.json changed (test scripts are protected)");
+  return out;
+}
+
 /** Parse `git diff --numstat -z`-free plain numstat ("12\t3\tpath", binary = "-\t-\tpath", renames "a => b"). */
 export function parseNumstat(text: string): FileChange[] {
   const out: FileChange[] = [];
@@ -147,4 +167,22 @@ export function submissionProblem(x: unknown): string | null {
   if (!s.checks.length || !s.checks.every((c) => c.ok)) return "builder checks did not all pass";
   if (typeof s.costUsd !== "number" || !(s.costUsd >= 0)) return "bad costUsd";
   return null;
+}
+
+/** ORBIT's own Stop-all (stop-all.json in its data folder), read the way src/lib/stop-all.ts does since #411: a missing file is
+ *  off; one that can't be read or parsed counts as on. `raw` undefined = file missing, null = unreadable. Mirrored here because
+ *  the supervisor runs from its own installed copy and imports nothing from src/. */
+export function orbitStopAllOn(raw: string | null | undefined): boolean {
+  if (raw === undefined) return false;
+  try { const o = JSON.parse(raw ?? ""); if (o && typeof o === "object" && typeof o.on === "boolean") return o.on; } catch { /* damaged */ }
+  return true;
+}
+
+/** Required CI check names (config) against the check runs on a commit: pending, failed or missing ones. */
+export function checksVerdict(required: string[], runs: { name: string; status: string; conclusion: string | null }[]): { state: "pass" | "fail" | "pending"; detail: string } {
+  const bad = runs.filter((c) => c.status === "completed" && !["success", "neutral", "skipped"].includes(c.conclusion ?? ""));
+  if (bad.length) return { state: "fail", detail: `failed: ${bad.map((c) => c.name).join(", ")}` };
+  const missing = required.filter((n) => !runs.some((c) => c.name === n && c.status === "completed" && c.conclusion === "success"));
+  if (!missing.length && runs.length && runs.every((c) => c.status === "completed")) return { state: "pass", detail: `passed: ${required.join(", ")}` };
+  return { state: "pending", detail: missing.length ? `waiting for: ${missing.join(", ")}` : "checks still running" };
 }

@@ -5,7 +5,7 @@ Two processes do this, both outside the ORBIT server:
 
 | | Builder (`selfdev/builder.ts`) | Supervisor (`supervisor/supervisor.ts`) |
 |---|---|---|
-| Runs as | a separate low-rights local account (required before unattended use; see below), task "ORBIT Builder" | SYSTEM (task "ORBIT Supervisor"), from its installed copy in `C:\ProgramData\orbit-supervisor\app` |
+| Runs as | `orbit-builder`, a separate standard account (task "ORBIT Builder", S4U) | SYSTEM (task "ORBIT Supervisor"), from its installed copy in `C:\ProgramData\orbit-supervisor\app` |
 | Can | read its signals, edit its own worktrees, run tests/gate, call the model, drop a submission in the inbox | push branches, open PRs, wait for CI, fast-forward `main`, install a build, monitor, roll back, revert `main` |
 | Has | the model login/key only | the GitHub token (`token.txt`), the audit trail, release snapshots, data backups |
 | Can't | push, merge, deploy, read the supervisor's folder, change the policy | run repo code (builds run as Andreas via "ORBIT Release Build") |
@@ -47,22 +47,51 @@ that was running (an interrupted model edit restarts from a clean tree; nothing 
 
 ## What the protections rest on (be exact)
 
-- **Real:** the supervisor runs as SYSTEM from its own folder (SYSTEM + Administrators only; unelevated processes can't change it).
-  It holds the only GitHub token. It never runs repo code, and never runs git or scripts inside the live or stage folders: builds and
-  installs run as Andreas through the "ORBIT Release Build" / "ORBIT Release Install" tasks. CI runs on GitHub on the exact commit,
-  `main` only moves by fast-forward to that commit (or a supervisor revert), and the release policy is re-checked on the real diff,
-  including file modes (no links, submodules or git metadata files) and the health route the supervisor relies on.
-- **Not yet a boundary: builder vs Andreas's account.** The builder's tool sandbox limits what the model *calls*, but its tests and the
-  gate run code the model *wrote*, as the account the builder runs under. If that is Andreas's account, model-written code can do what
-  he can: change the live or stage folders directly (skipping CI and the policy for what ORBIT runs until the next install), read his
-  files, and use his stored git credentials to push. **Before turning on unattended releases on the PC, run the builder under a
-  separate local account** (no admin, no write access to the live or stage folders or his profile, no stored git credentials, its own
-  model key with a spending limit), and protect `main` on GitHub with "require status checks" and "do not allow bypassing" so even his
-  credentials can't push past CI. Until then the PC setup is supervised self-development, not an enforced boundary.
-- **Tamper-evident, not tamper-proof:** the audit trail is hash-chained; an administrator could still rewrite it.
-- **Self-reported:** the builder's spend (it reserves the full task budget before each model session). The hard cap is the spending limit
-  on the builder's own API key.
-- **Not covered:** an elevated process (a UAC prompt you approve) can do anything.
+**Accounts.** Three, and the boundary is between them:
+
+| Account | Holds | Runs |
+|---|---|---|
+| SYSTEM (supervisor) | GitHub token, config, state, audit trail, its own code and install scripts, release snapshots, data backups, the mirror | merge (fast-forward), CI wait, policy, snapshot, monitor, rollback. Never repo code; never git or scripts inside the owner's folders |
+| Andreas (owner) | the live install, the stage build, ORBIT's data, his own git login | ORBIT itself, plus "ORBIT Release Build" / "ORBIT Release Install" (code that already passed the policy and CI) |
+| `orbit-builder` (standard user, no admin, no git credentials) | `C:\orbit-builder` only | the builder, its model session, and every test and gate run, i.e. all **model-written code that hasn't been released** |
+
+Model-written tests are executable code, and so is anything the gate runs. They run only as `orbit-builder`. From there they can create
+files in `inbox\` and read `public\` and the mirror, and nothing else of the supervisor's or the owner's. Install scripts are the supervisor's
+own copies (`app\windows\*.ps1`), not repo files; the ones they call in the live folder (`scripts\stop.ps1`, `launch.ps1`) are on the
+release policy's deny list, so only an owner-reviewed PR changes them. Dependency changes (and with them npm install scripts) are denied too.
+
+**Proven on Linux** (`sudo bash supervisor/boundary-check.sh`): the same three-account layout with POSIX permissions in place of the ACLs,
+and `boundary-probe.mjs` run as a test (`node --test`) from a builder worktree under the builder account. It could not read the token or
+config; write state, audit, STOP, `ctl\`, the supervisor's code or install scripts, snapshots, or the mirror's `main`; list, change or
+delete other inbox files; touch the live install (source, `.git` config or hooks, `.env.local`, `.next`), the stage build or its result
+file, or ORBIT's data and Stop-all; push to `main`; or signal the supervisor or read its environment. It could create a submission and
+read status and the mirror. **The Windows ACLs from `install.ps1` are not verified yet**: run the same probe there (see "Enabling").
+
+**"CI must pass" without branch protection.** This repo's GitHub plan doesn't offer branch protection or rulesets, so GitHub itself won't
+refuse a push to `main` that skipped CI. What enforces it instead:
+- Only the supervisor holds a credential that can write to the repo, and it merges a commit only after the configured
+  `github.requiredChecks` (the `check` job of "AI quality checks") succeeded **on that exact commit**. A different check passing, a
+  skipped check, or no run at all doesn't count.
+- The builder has no GitHub credential, and the PR can't change the workflow (`.github/` is denied, and the supervisor re-checks the real diff).
+- **Gap:** Andreas's own git login can still push to `main` directly, as today. That's the owner's choice, not something the loop can
+  prevent. If the plan changes to one with branch protection, add it as a second layer.
+
+**Tamper-evident, not tamper-proof:** the audit trail is hash-chained; an administrator could still rewrite it.
+**Spend:** the builder reserves its full task budget before each model session; the hard cap is the limit on `orbit-builder`'s own API key.
+**Not covered:** an elevated process (a UAC prompt Andreas approves) can do anything.
+
+## What a rollback restores, and what it doesn't
+
+| | On rollback |
+|---|---|
+| ORBIT's code and build | **Restored**: the previous release's snapshot is reinstalled and checked (health, its commit, pages) before it counts |
+| `main` on GitHub | **Restored**: a new revert commit with the previous tree (history kept, nothing force-pushed) |
+| ORBIT's data folder (local stores, vault index) | **Kept as it is.** Backed up before every install, with a verified restore, but **not restored automatically**: that would drop everything written since the deploy. The rollback records which files changed since the backup (audit `rollback.data`) and where the backup is, so the owner can restore by hand if the failed release damaged something |
+| Supabase | **Untouched.** Unattended releases can't add migrations, so the schema never changes; rows written by the failed release stay |
+| Outside effects (messages, posts, purchases) | **Not reversible**; still owner-approved per item (AGENTS.md rule 6), never released automatically |
+
+A release that changes the format of a local store could leave data the older code can't read; since #413, stores fail closed (that
+feature is blocked, never saved over). If that happens, the rollback note lists the files; restore them from the backup or fix forward.
 
 ## Owner controls
 
@@ -77,17 +106,32 @@ that was running (an interrupted model edit restarts from a clean tree; nothing 
 
 ## Install on the PC (one time)
 
-1. Elevated PowerShell in the ORBIT folder: `powershell -ExecutionPolicy Bypass -File supervisor\windows\install.ps1`
-2. Create a fine-grained GitHub token for `andreaskuus14/orbit` only (Contents RW, Pull requests RW, Checks R), save it as
-   `C:\ProgramData\orbit-supervisor\token.txt`. Branch protection on `main`: require the "AI quality checks" status.
-3. With ORBIT running and healthy on a clean checkout: `supervisor.ts adopt` (snapshots the running build as the first good release).
-4. Builder: `git clone` the repo to `%LOCALAPPDATA%\orbit-selfdev\repo`, `npm ci` there, write `%LOCALAPPDATA%\orbit-selfdev\config.json`
-   (shape: see `selfdev/builder.ts` `Config`; `upstream` = `C:\ProgramData\orbit-supervisor\mirror.git`, `supervisorHome` = `C:\ProgramData\orbit-supervisor`).
-   Set a spending limit on its API key.
-5. Run the drills on the PC (below). Only then `Enable-ScheduledTask "ORBIT Builder"`.
+1. Create the builder account: `net user orbit-builder * /add` (standard user; never sign in with it; no git or GitHub credentials).
+2. Elevated PowerShell in the ORBIT folder: `powershell -ExecutionPolicy Bypass -File supervisor\windows\install.ps1`
+3. A fine-grained GitHub token for `andreaskuus14/orbit` only (Contents RW, Pull requests RW, Checks R) in
+   `C:\ProgramData\orbit-supervisor\token.txt`.
+4. With ORBIT running and healthy on a clean checkout: `supervisor.ts adopt`. Run `install.ps1` once more so the mirror gets its read grants.
+5. As `orbit-builder`: clone `C:\ProgramData\orbit-supervisor\mirror.git` to `C:\orbit-builder\repo`, `npm ci`, write
+   `C:\orbit-builder\config.json` (`upstream` = the mirror, `supervisorHome` = `C:\ProgramData\orbit-supervisor`), and give it its own
+   model key with a spending limit.
+
+## Enabling (all on the PC; until then `enabled: false` and the "ORBIT Builder" task stays disabled)
+
+1. **Account isolation:** as `orbit-builder`, `node --test supervisor\boundary-probe.mjs` with the real paths (`PROBE_SUP`, `PROBE_LIVE`,
+   `PROBE_STAGE`, `PROBE_DATA`, `PROBE_SUP_PID`). Every check must pass.
+2. **Install:** the "ORBIT Release Build" and "ORBIT Release Install" tasks build and install a release while ORBIT stays healthy, and
+   Doctor shows the released commit.
+3. **Stop:** DEV → Doctor → Emergency stop holds a queued release and ends the builder; ORBIT's own Stop-all holds releases too.
+4. **Rollback:** a deliberately broken release (like `drill.sh` step 2b) is detected, the previous build is restored and healthy, `main` is
+   reverted, releases halt, and data written after the deploy is listed and kept.
+5. Then set `enabled: true` in `config.json`, restart "ORBIT Supervisor", and `Enable-ScheduledTask "ORBIT Builder"`.
 
 ## Drills
 
-`supervisor/drill.sh` runs the whole thing in an isolated environment (bare repo as GitHub, a separate live folder on another port,
-`ORBIT_ISOLATED=1`, dummy Supabase that refuses connections, its own data folder): a real improvement through the loop, a release
-that fails its health check and is restored by the supervisor, and kill/restart of both processes mid-run.
+- `npm run drill:supervisor` (`supervisor/drill.sh`, ~12 min, no model, no network, no live data): a bare repo stands in for GitHub; a
+  separate live folder on its own port runs `ORBIT_ISOLATED=1` with a dummy Supabase and its own data folder. It checks that releases
+  stay queued while disabled, a good release survives a supervisor kill mid-monitoring with merge and build run once, a health-route
+  change is refused, ORBIT's Stop-all (on or damaged) holds a release, a broken release is rolled back with `main` reverted and the
+  post-deploy data recorded and kept, the app can't clear a halt, emergency stop works, and the audit chain is intact.
+- `sudo bash supervisor/boundary-check.sh`: the builder account boundary (above).
+- The full loop with a real model (builder picks, edits, verifies; supervisor releases) was run by hand in an isolated copy; see #417.
