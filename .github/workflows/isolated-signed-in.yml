@@ -23,7 +23,7 @@ jobs:
         with: { node-version: '24' }
       - run: npm i -g npm@12 && node -v && npm -v && docker info --format '{{.ServerVersion}}'
       - run: npm ci --no-audit --no-fund
-      - run: npx playwright install --with-deps chromium
+      - run: node node_modules/playwright-core/cli.js install --with-deps chromium chromium-headless-shell  # the repo's own playwright-core, so the browser build matches
       - name: Setup (local Supabase, test user, build)
         run: node scripts/isolated/setup.mjs
       - name: Run every check
