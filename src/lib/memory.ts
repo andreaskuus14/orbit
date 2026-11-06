@@ -127,16 +127,13 @@ type Pinned = { address: string; family: number };
 
 /** One GET connected to an already-validated IP (custom lookup), so DNS can't be re-answered between check and
  *  connect (rebinding). TLS still verifies the certificate for the real hostname. Reads at most maxBytes. */
-function pinnedGet(url: URL, ip: Pinned, headers: Record<string, string>, maxBytes: number, signal: AbortSignal) {
+export function pinnedGet(url: URL, ip: Pinned, headers: Record<string, string>, maxBytes: number, signal: AbortSignal) {
   return new Promise<{ status: number; headers: Headers; body: Uint8Array<ArrayBuffer> }>((resolve, reject) => {
     const req = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, {
       method: "GET", headers, signal,
       lookup: ((_host: string, opts: { all?: boolean }, cb: (...a: unknown[]) => void) =>
         opts?.all ? cb(null, [ip]) : cb(null, ip.address, ip.family)) as never,
     }, (res) => {
-      const enc = String(res.headers["content-encoding"] ?? "").toLowerCase();
-      const decoder = enc === "gzip" || enc === "x-gzip" ? createGunzip() : enc === "br" ? createBrotliDecompress() : enc === "deflate" ? createInflate() : null;
-      const stream = decoder ? pipeline(res, decoder, () => {}) : res; // the cap counts decoded bytes (zip-bomb safe)
       const hdrs = new Headers();
       try {
         for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) hdrs.set(k, Array.isArray(v) ? v.join(", ") : v);
@@ -144,6 +141,10 @@ function pinnedGet(url: URL, ip: Pinned, headers: Record<string, string>, maxByt
       const status = res.statusCode ?? 0;
       // Redirects and errors: the body is never used, so don't download it.
       if (status < 200 || status >= 300) { req.destroy(); return resolve({ status, headers: hdrs, body: new Uint8Array() }); }
+      // Decode only a body we read: a decoder fed a dropped (destroyed) body threw Z_BUF_ERROR uncaught and killed the server.
+      const enc = String(res.headers["content-encoding"] ?? "").toLowerCase();
+      const decoder = enc === "gzip" || enc === "x-gzip" ? createGunzip() : enc === "br" ? createBrotliDecompress() : enc === "deflate" ? createInflate() : null;
+      const stream = decoder ? pipeline(res, decoder, () => {}) : res; // the cap counts decoded bytes (zip-bomb safe)
       readCapped(stream, maxBytes).then((r) => { req.destroy(); resolve({ status, headers: hdrs, body: r.bytes }); }, reject);
     });
     req.on("error", reject);
