@@ -60,7 +60,7 @@ test("a network/stream error that still escapes a briefing uncaught stops ORBIT,
   const r = await run(`${SERVER}
 void asJob("briefing:midday", async () => { createGunzip().end(Buffer.from([0x1f, 0x8b, 8, 0])); }); // a stray stream nobody listens to
 setTimeout(() => { console.log("NOT STOPPED"); process.exit(0); }, 4000);`, { ORBIT_DATA_DIR: d });
-  assert.equal(r.code, 1);
+  assert.equal(r.code, 70, "controlled stop: CONTROLLED_STOP_EXIT");
   assert.doesNotMatch(r.stdout, /NOT STOPPED/);
   assert.match(r.stderr, /\[orbit\] uncaughtException \(fatal: ORBIT stops now and its launcher restarts it\)/);
   assert.match(await readFile(path.join(d, "crash.log"), "utf8"), /uncaughtException in briefing:midday Z_BUF_ERROR Error: unexpected end of file\n\s+at [\s\S]*→ fatal/);
@@ -71,7 +71,7 @@ test("a bug inside a briefing (not a network error) still stops ORBIT, logged fi
   const r = await run(`${SERVER}
 void asJob("briefing:midday", async () => { setTimeout(() => { null.items; }, 10); });
 setTimeout(() => { console.log("NOT STOPPED"); process.exit(0); }, 4000);`, { ORBIT_DATA_DIR: d });
-  assert.equal(r.code, 1);
+  assert.equal(r.code, 70, "controlled stop: CONTROLLED_STOP_EXIT");
   assert.doesNotMatch(r.stdout, /NOT STOPPED/);
   assert.match(r.stderr, /\[orbit\] uncaughtException \(fatal: ORBIT stops now and its launcher restarts it\)/);
   assert.match(await readFile(path.join(d, "crash.log"), "utf8"), /uncaughtException in briefing:midday {2}TypeError: Cannot read properties of null[^\n]*\n\s+at [\s\S]*→ fatal/);

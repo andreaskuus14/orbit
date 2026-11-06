@@ -6,7 +6,7 @@ import { orbitDataDir } from "./data-dir.ts";
 // Uncaught errors and unhandled rejections: logged with the stack, redacted, to the console and <data dir>/crash.log (sync, so it lands
 // even if the process then stops), with the background job they came from (asJob). Then (crashVerdict):
 //  - an uncaught exception is always fatal: it escaped every operation boundary, so the process may be half-way through anything.
-//    ORBIT stops after a short grace and launch.ps1's supervisor restarts it (backoff; it gives up after 5 exits in 10 minutes).
+//    ORBIT stops after a short grace (exit CONTROLLED_STOP_EXIT) and launch.ps1's supervisor restarts it, without a rebuild (backoff; it gives up after 5 exits in 10 minutes).
 //    Restart recovery marks interrupted tasks; an approved action left mid-way shows "may or may not have happened", never re-run.
 //    Recoverable failures (a feed or article fetch, a briefing) are caught where they happen: pulse.ts per feed, readArticle, and
 //    pinnedGet rejects or returns the status instead of leaving a stream to fail later.
@@ -21,6 +21,8 @@ const jobs = (g.__orbitJob ??= new AsyncLocalStorage<string>());
 export const asJob = <T>(name: string, fn: () => Promise<T>): Promise<T> => jobs.run(name, fn);
 export const currentJob = () => jobs.getStore() ?? null;
 
+/** Exit code of a controlled stop. launch.ps1 restarts on it without the "died at boot, so rebuild" path (the build isn't the problem). */
+export const CONTROLLED_STOP_EXIT = 70;
 export type Verdict = "keep-serving" | "fatal";
 export const crashVerdict = (ev: (typeof EVENTS)[number]): Verdict => (ev === "unhandledRejection" ? "keep-serving" : "fatal");
 const SAYS: Record<Verdict, string> = {
@@ -41,8 +43,8 @@ export function logCrashes(exit: (code: number) => void = (c) => process.exit(c)
       try { mkdirSync(orbitDataDir(), { recursive: true }); appendFileSync(path.join(orbitDataDir(), "crash.log"), `${line}  → ${SAYS[verdict]}\n`); } catch { /* the console line is the fallback */ }
       if (verdict === "fatal" && !g.__orbitStopping) { // controlled: the log is on disk; a moment for in-flight writes, then stop
         g.__orbitStopping = true;
-        process.exitCode = 1;
-        setTimeout(() => exit(1), 1500);
+        process.exitCode = CONTROLLED_STOP_EXIT;
+        setTimeout(() => exit(CONTROLLED_STOP_EXIT), 1500);
       }
     };
     mine.add(h);
