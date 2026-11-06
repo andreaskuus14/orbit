@@ -3,7 +3,7 @@
 export async function register() {
   // Not in "next build" workers: launch.ps1 builds next to the live server, which already runs the scheduler.
   if (process.env.NEXT_RUNTIME === "nodejs" && process.env.NEXT_PHASE !== "phase-production-build") {
-    (await import("./lib/crash-guard")).installCrashLog(); // first: any later crash is logged with its stack and background job
+    (await import("./lib/crash-guard")).installCrashGuard(); // first: crashes are logged with stack + job; re-throw-only handlers are dropped
     if (process.env.NODE_ENV === "production") {
       const { readFileSync } = await import("node:fs");
       const { join } = await import("node:path");
