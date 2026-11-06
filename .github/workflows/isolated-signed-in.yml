@@ -11,7 +11,6 @@ jobs:
     timeout-minutes: 60
     env:
       NEXT_TELEMETRY_DISABLED: '1'
-      ORBIT_ISO_DIR: ${{ runner.temp }}/orbit-isolated
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -19,6 +18,7 @@ jobs:
         run: |
           git diff --stat b6721c3 HEAD
           if git diff --name-only b6721c3 HEAD | grep -v '^\.github/'; then echo "app file differs"; exit 1; fi
+      - run: echo "ORBIT_ISO_DIR=$RUNNER_TEMP/orbit-isolated" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with: { node-version: '24' }
       - run: npm i -g npm@12 && node -v && npm -v && docker info --format '{{.ServerVersion}}'
@@ -27,6 +27,7 @@ jobs:
       - name: Setup (local Supabase, test user, build)
         run: node scripts/isolated/setup.mjs
       - name: Run every check
+        shell: bash
         run: node scripts/isolated/run-all.mjs 2>&1 | tee isolated-results.log
       - name: Cleanup
         if: always()
