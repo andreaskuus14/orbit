@@ -15,6 +15,7 @@ import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
 import { PAUSED_MSG } from "./stop-all-pure";
 import { attemptId, attemptTag, completionState, INTERRUPTED, interruptedPatch, startedBeforeBoot, type WriteEvidence } from "./completion-pure";
+import { registerSource, taskExecution as execOf, track } from "./execution";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
 import { MigrationBlocked, refuse, requireMigration } from "./migration-guard";
 import { verifyRow } from "./completion";
@@ -577,12 +578,17 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
   if (approve && (task.pending as PendingAction[]).some((p) => p.status === "pending" && KEYED.has(p.tool)))
     await requireMigration(sb, "0023").catch((e) => { throw new ConflictError(e.message); }); // stays pending until 0023 is applied
   // Claim the approval atomically (compare-and-swap on status): only one request wins, so a double click or a
-  // retried request can never run the same action twice. A crash mid-way leaves it "running", which the task list
-  // turns into "failed" after 20 min — never re-run, never shown as a success.
+  // retried request can never run the same action twice. A crash mid-way leaves it "running"; after the restart the scheduler's
+  // reclaimInterrupted marks it interrupted (an "attempting" action becomes uncertain): never re-run, never shown as a success.
   const { data: claimed, error: claimErr } = await sb.from("tasks").update({ status: "running", started_at: new Date().toISOString() })
     .eq("user_id", userId).eq("id", taskId).eq("status", "awaiting_approval").select("id");
   if (claimErr) throw claimErr;
   if (!claimed?.length) throw new ConflictError("This task's approval is already being handled");
+  const release = track(taskId); // execution evidence while the approved actions run, until their record is saved (or this throws)
+  try { return await runApproved(sb, userId, taskId, task, approve); } finally { release(); }
+}
+
+async function runApproved(sb: SupabaseClient, userId: string, taskId: string, task: Task & { pending: unknown; status: string }, approve: boolean) {
   const ctx: Ctx = { sb, userId, task, depth: 0, pending: [], trace: [], pages: new Map() };
   const pending = task.pending as PendingAction[];
   const record = async (msg: string) => {
@@ -617,8 +623,9 @@ export async function resolvePending(sb: SupabaseClient, userId: string, taskId:
   if (saveErr) ({ error: saveErr } = await sb.from("tasks").update(done).eq("user_id", userId).eq("id", taskId).eq("status", "running")); // retry the record, never the actions
   if (saveErr) throw new Error(`Actions ran but their results couldn't be saved: ${saveErr.message}`);
   await emit(sb, userId, outcome.status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId, status: outcome.status, title: task.title });
-  if (task.parent_id) await import("./chains").then((c) => c.stepResolved(sb, userId, task.parent_id, task.agent, outcome.status, approve)).catch(() => {}); // company.step for an approved chain step
-  await settleParents(sb, userId, task.parent_id);
+  const parentId = task.parent_id;
+  if (parentId) await import("./chains").then((c) => c.stepResolved(sb, userId, parentId, task.agent, outcome.status, approve)).catch(() => {}); // company.step for an approved chain step
+  await settleParents(sb, userId, parentId);
   return pending;
 }
 
@@ -645,6 +652,8 @@ async function settleParents(sb: SupabaseClient, userId: string, parentId: strin
 
 /** Ids of tasks (and team chains) running in this process: Stop-all cancels each through cancelTask. */
 export const liveTaskIds = () => [...live.keys()];
+/** A background CORE turn (core-turn.ts finishBackground) registers here, so Cancel and Stop-all abort it like any running task. */
+export const trackLive = (taskId: string, ac: AbortController) => { live.set(taskId, ac); return () => { if (live.get(taskId) === ac) live.delete(taskId); }; };
 
 /** Stop a task. Running here: abort it (runTask marks it and its sub-tasks cancelled and reports what finished).
  *  Otherwise only a queued task, or a running one orphaned by a restart (20+ min), is marked cancelled. False if nothing to cancel. */
@@ -664,8 +673,8 @@ export async function cancelTask(sb: SupabaseClient, taskId: string) {
 const running = (g.__orbitTaskQueue ??= new Set());
 
 /** Start queued top-level tasks while fewer than MAX_RUNNING are active. */
-const G2 = globalThis as unknown as { __orbitBoot?: number; __orbitReclaimed?: Set<string> };
-const BOOT = (G2.__orbitBoot ??= Date.now()), reclaimed = (G2.__orbitReclaimed ??= new Set());
+const G2 = globalThis as unknown as { __orbitBootAt?: number; __orbitReclaimed?: Set<string> }; // not __orbitBoot: doctor-boot.ts keeps its self-test promise there
+const BOOT = (G2.__orbitBootAt ??= Date.now()), reclaimed = (G2.__orbitReclaimed ??= new Set());
 /** Once per process and user: tasks (agent tasks, background CORE turns, night tasks) left "running" by the previous process are
  *  marked interrupted at once, not after the 20-minute stale sweep, so nothing silently hangs. Queued ones simply start again below. */
 async function reclaimInterrupted(sb: SupabaseClient, userId: string) {
@@ -674,11 +683,17 @@ async function reclaimInterrupted(sb: SupabaseClient, userId: string) {
   const { data, error } = await sb.from("tasks").select("id, pending, started_at").eq("user_id", userId).eq("status", "running").lt("started_at", new Date(BOOT).toISOString())
     .is("parent_id", null).not("title", "like", "Team: %").not("title", "like", "Goal step %").limit(100); // teams and goals resume their own steps (chains.ts, goals.ts)
   if (error) throw error; // kickQueue clears the cached sweep on failure, so the next kick retries it
-  for (const t of data ?? []) if (startedBeforeBoot(t.started_at, BOOT) && !running.has(t.id)) {
+  const resumable = await import("./bg-resume").then((m) => m.bgTurnIds()).catch(() => new Set<string>()); // background CORE turns: bg-resume finishes those, never "press Retry" (unreadable: as before)
+  for (const t of data ?? []) if (startedBeforeBoot(t.started_at, BOOT) && !running.has(t.id) && !resumable.has(t.id)) {
     const { error: updateError } = await sb.from("tasks").update(interruptedPatch(t.pending, INTERRUPTED)).eq("user_id", userId).eq("id", t.id).eq("status", "running").lt("started_at", new Date(BOOT).toISOString());
     if (updateError) throw updateError;
   }
 }
+
+// Execution evidence (execution.ts): this process's worker sets count as "running here now". Approved actions are tracked in
+// resolvePending. Age alone never decides: a long task stays active while its worker runs.
+registerSource("agents", (id) => running.has(id) || live.has(id) || handoff.has(id));
+export const taskExecution = (id: string, startedAt: string | null | undefined) => execOf(id, startedAt, BOOT);
 
 export async function kickQueue(sb: SupabaseClient, userId: string) {
   await reclaimInterrupted(sb, userId).catch((e) => { reclaimed.delete(userId); console.error("[orbit] interrupted-task sweep failed:", e instanceof Error ? e.message : e); });

@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { authorityState, updateAuthority } from "@/lib/authority";
 import { newGrant, setMode, POLICY_VERSION } from "@/lib/authority-pure";
 import { stopAllOn } from "@/lib/stop-all";
+import { StoreUnreadable } from "@/lib/safe-file";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,6 @@ export async function POST(req: Request) {
       return { out: null, state: { ...s, grants: s.grants.map((g) => g.id !== b.id ? g : b.action === "revoke" ? { ...g, revoked: true } : { ...g, paused: b.on === true }) } };
     }
     return { out: "Unknown action" };
-  });
+  }).catch((e) => { if (e instanceof StoreUnreadable) return `${e.message}. Fix or restore authority.json, then try again`; throw e; });
   return err ? Response.json({ error: err }, { status: 400 }) : GET();
 }

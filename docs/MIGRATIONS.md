@@ -14,6 +14,12 @@ ORBIT refuses some work until these three are applied. It doesn't fall back to a
 
 Needs you shows one **Unblock** item with the exact file name until they are applied.
 
+## Optional: 0025
+
+| File | Adds | Until it's applied |
+|---|---|---|
+| `0025_task_origin.sql` | `tasks.origin` | Scorecard replays are saved without an origin. "Continue my work" still hides them by matching their exact case, so nothing breaks. |
+
 ## How to apply
 
 1. Open your project at supabase.com → **SQL Editor** → **New query**.

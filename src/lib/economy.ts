@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readStore, writeStore } from "./safe-file.ts";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
@@ -14,13 +14,11 @@ type Store = Record<string, { table?: string; voice?: string; notesAt?: string }
 const file = () => path.join(orbitDataDir(), "economy.json");
 const g = globalThis as unknown as { __orbitEconomy?: Promise<unknown> };
 
-const load = async (): Promise<Store> => { try { const j = JSON.parse(await readFile(file(), "utf8")); return j && typeof j === "object" ? j : {}; } catch { return {}; } };
+const load = async (): Promise<Store> => { const t = await readStore(file()), j = t ? JSON.parse(t) : null; return j && typeof j === "object" ? j : {}; }; // missing = empty; locked/damaged throws
 function update(fn: (s: Store) => void): Promise<void> {
   const p = (g.__orbitEconomy ?? Promise.resolve()).catch(() => {}).then(async () => {
     const s = await load(); fn(s);
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify(s));
-    await rename(file() + ".tmp", file());
+    await writeStore(file(), JSON.stringify(s));
   });
   g.__orbitEconomy = p;
   return p;

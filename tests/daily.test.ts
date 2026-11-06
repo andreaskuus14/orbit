@@ -73,8 +73,9 @@ test("leads: off, planned, missed, waiting, completed by receipt; failed and par
   const rej = t("cancelled", { error: "You rejected the proposed actions" });
   assert.deepEqual([rej.state, rej.evidence], ["completed", "you rejected what it proposed"]);
   assert.equal(t("cancelled", { error: "Stopped (Stop-all)" }).state, "failed");
-  assert.equal(t("running", { started_at: iso("09:15") }).state, "uncertain");
-  assert.equal(leadsState({ automation: auto, tasks: [{ status: "running", created_at: iso("12:20"), started_at: iso("12:20"), pending: null, receipt: null }] }, now).state, "attempted");
+  assert.equal(t("running", { started_at: iso("09:15"), exec: "unknown" }).state, "uncertain", "no worker running it");
+  assert.equal(t("running", { started_at: iso("09:15"), exec: "restart" }).state, "uncertain");
+  assert.equal(t("running", { started_at: iso("06:00"), exec: "active" }).state, "attempted", "a long run with a live worker is not declared dead by age");
   assert.equal(leadsState({ automation: { ...auto, createdAt: iso("10:00") }, tasks: [] }, now).state, "planned");
 });
 

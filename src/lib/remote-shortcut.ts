@@ -1,7 +1,7 @@
 // Shortcuts & Watch (roadmap D4), server glue: the Shortcut tokens file and the pending approve-next challenge per Shortcut.
 // Rules: remote-shortcut-pure.ts; route: /api/remote/shortcut; created/revoked in Profile → Phone remote (/api/remote/owner).
+import { readStore, writeStore } from "./safe-file.ts";
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "@/lib/data-dir";
 import { remoteSecret } from "@/lib/remote";
@@ -13,18 +13,17 @@ export const SC: State = (g.__orbitShortcut ??= { challenges: new Map() });
 
 // <data dir>/remote-shortcuts.json: names, actions and token HMACs (never the tokens).
 const file = () => path.join(orbitDataDir(), "remote-shortcuts.json");
-export async function listShortcuts(): Promise<Shortcut[]> {
-  try {
-    const v = JSON.parse(await readFile(file(), "utf8"));
-    return Array.isArray(v) ? v.filter((s) => s && typeof s.id === "string" && typeof s.hash === "string" && typeof s.userId === "string" && isShortcutAction(s.action)) : [];
-  } catch { return []; }
+/** Strict: the write path must not save over a file it couldn't read. */
+async function readShortcuts(): Promise<Shortcut[]> {
+  const t = await readStore(file()), v = t ? JSON.parse(t) : []; // missing = none; locked/damaged throws
+  return Array.isArray(v) ? v.filter((s) => s && typeof s.id === "string" && typeof s.hash === "string" && typeof s.userId === "string" && isShortcutAction(s.action)) : [];
 }
+/** For reads (auth, lists): an unreadable file reads as none, as before; nothing is written from here. */
+export const listShortcuts = (): Promise<Shortcut[]> => readShortcuts().catch(() => []);
 function update(fn: (s: Shortcut[]) => Shortcut[]): Promise<Shortcut[]> {
   const p = (SC.save ?? Promise.resolve()).catch(() => {}).then(async () => {
-    const next = fn(await listShortcuts());
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify(next, null, 1));
-    await rename(file() + ".tmp", file());
+    const next = fn(await readShortcuts());
+    await writeStore(file(), JSON.stringify(next, null, 1));
     return next;
   });
   SC.save = p;

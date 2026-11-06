@@ -24,10 +24,12 @@ export const wsTainted = (steps: string[], question = "") => {
   // statuses, drafts and saved lessons don't. The owner's explicit build allows the site pipeline's own public research.
   const inbound = explicitBuild(question) ? INBOUND_BUILD : INBOUND;
   const fresh = freshWorkspaces(steps);
-  return steps.some((s) => { const t = /^You called ([a-z_]+)/.exec(s)?.[1]; return !t || (inbound.test(t) && !readsFresh(s, fresh)); });
+  return steps.some((s) => { const t = /^You called (\S+)/.exec(s)?.[1]; return !t || (inbound.test(t) && !readsFresh(s, fresh)); });
 };
-const INBOUND = /^(?:web_search|fetch_url|read_news|read_more|reach_trending|reach_read|vault_search|vault_read|ws_read|ws_fetch_image|ws_inspire_image|rea_read|rea_status|life_journal|ask_agent|calendar_events|git_summary|mcp_.*)$/;
-const INBOUND_BUILD = /^(?:read_news|read_more|reach_trending|reach_read|vault_search|vault_read|ws_read|rea_read|rea_status|life_journal|ask_agent|calendar_events|git_summary|mcp_.*)$/;
+// Every tool in policy-pure UNTRUSTED belongs here too (tests/outside-text-taint.test.ts checks it). plugin__<server>__<tool>: a plugin's result is outside text.
+const OUTSIDE = "read_more|reach_trending|reach_read|vault_search|vault_read|ws_read|rea_read|rea_status|life_journal|ask_agent|calendar_events|git_summary|browse|watch_changes|business_status|ideas_list|wishlist|plan_day|mission_status|run_niche|local_transcribe|read_news|mcp_.*|plugin__.*";
+const INBOUND = new RegExp(`^(?:web_search|fetch_url|ws_fetch_image|ws_inspire_image|${OUTSIDE})$`);
+const INBOUND_BUILD = new RegExp(`^(?:${OUTSIDE})$`); // his explicit build: the site pipeline's own public research (search, fetch, images) doesn't taint
 /** Workspaces this task's own ws_create made (empty or ORBIT's template; a taken name becomes a new version), so reading them adds no outside text. */
 const freshWorkspaces = (steps: string[]) => new Set(steps.flatMap((s) => /^You called ws_create [^\n]*\nRESULT:\n(?:Error: template[^\n]*\n)?Done: (?:full-stack )?workspace "([a-z0-9-]+)"/.exec(s)?.[1] ?? []));
 function readsFresh(step: string, fresh: Set<string>): boolean {

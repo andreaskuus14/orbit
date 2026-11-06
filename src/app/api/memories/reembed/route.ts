@@ -14,11 +14,11 @@ export async function POST(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const offset = Math.max(0, Number(new URL(req.url).searchParams.get("offset")) || 0);
-  const { data, error } = await sb.from("memories").select("id,title,content").order("created_at", { ascending: true }).range(offset, offset + BATCH - 1);
+  const { data, error } = await sb.from("memories").select("id,title,content,kind").order("created_at", { ascending: true }).range(offset, offset + BATCH - 1);
   if (error) return Response.json({ error: error.message }, { status: 500 });
   let done = 0, failed = 0;
   for (const m of data ?? []) {
-    const e = await embed(`${m.title}\n\n${m.content}`, "document");
+    const e = await embed(`${m.title}\n\n${m.content}`, "document", m.kind);
     if (!e) { failed++; continue; }
     const { error: upErr } = await sb.from("memories").update({ embedding: JSON.stringify(e) }).eq("id", m.id);
     if (upErr) failed++; else done++;

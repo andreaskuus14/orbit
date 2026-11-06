@@ -78,3 +78,19 @@ test("revocation applies at the next action boundary (file store)", async () => 
   assert.equal(parseAuthority("not json").grants.length, 0);
   assert.equal(parseAuthority(JSON.stringify({ grants: [{ ...grant(), revoked: undefined }] })).grants[0].revoked, true); // missing flag fails closed
 });
+
+test("an unreadable authority.json fails closed and is never saved over", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "orbit-auth-bad-"));
+  process.env.ORBIT_DATA_DIR = dir;
+  const { authorizeAction, authorizeTool, authorityState, updateAuthority } = await import("../src/lib/authority.ts");
+  const { writeFileSync, readFileSync } = await import("node:fs");
+  const f = path.join(dir, "authority.json"), damaged = '{"grants": [], "modes": {"rule:r1": "hold"'; // a hold he set, half-written by another tool
+  writeFileSync(f, damaged);
+  const v = await authorizeAction("rules.run", { entry: "rule", workflow: "rule:r1" });
+  assert.equal(v.ok, false); assert.match(v.why, /Permissions couldn't be loaded/); // no mode/grant = "legacy" allow on the old code
+  assert.equal((await authorizeAction("rules.run", { entry: "automation", workflow: "other" })).ok, false); // every workflow, not just held ones
+  assert.ok(authorityState().unreadable);
+  await assert.rejects(updateAuthority((s) => ({ out: null, state: { ...s, grants: [] } })));
+  assert.equal(readFileSync(f, "utf8"), damaged); // his file untouched
+  assert.equal(authorizeTool("rules.run", { allow: true, reason: "ok", tier: "T1" }).allow, true); // his own chat ask still acts
+});

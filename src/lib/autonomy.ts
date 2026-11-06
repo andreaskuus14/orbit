@@ -1,16 +1,15 @@
 // Autonomy levels, server glue (rules: autonomy-pure.ts). State: <ORBIT data dir>/autonomy.json, cached on globalThis so the
 // decision points (policy decide, night shift, scheduler, send/publish paths) can read it synchronously. Missing file = defaults
 // = today's behaviour. The auto runner (tickAutonomy) does nothing unless the owner switched an area to auto with the typed phrase.
+import { readStoreSync, writeStore } from "./safe-file.ts";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { WINDOW_DAYS, snoozeTrust, taskDecisions, type TrustDecision } from "./trust-pure";
 import { stopAllOn } from "./stop-all";
 import { emit } from "./claude";
-import { DONE_KEEP_MS, UNDO_MS, autoApprove, autoClock, cancelPending, clipVersion, sendOutcome, undoAutoApprove, type Fired, autoPush, autonomyAllows, quietAuto, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
+import { DONE_KEEP_MS, UNDO_MS, autoApprove, lockedAutonomy, autoClock, cancelPending, clipVersion, sendOutcome, undoAutoApprove, type Fired, autoPush, autonomyAllows, quietAuto, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
   type Action, type AllowCtx, type Area, type AutoArea, type AutonomyState, type Candidate, type Levels } from "./autonomy-pure";
 
 const file = () => path.join(orbitDataDir(), "autonomy.json");
@@ -18,7 +17,10 @@ const g = globalThis as unknown as { __orbitAutonomy?: AutonomyState; __orbitAut
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 200);
 
 export function autonomyState(): AutonomyState {
-  if (!g.__orbitAutonomy) { try { g.__orbitAutonomy = parseAutonomy(readFileSync(file(), "utf8")); } catch { g.__orbitAutonomy = parseAutonomy(""); } }
+  if (!g.__orbitAutonomy) {
+    try { g.__orbitAutonomy = parseAutonomy(readStoreSync(file())); }
+    catch (e) { return lockedAutonomy(`Autonomy settings couldn't be loaded (${msg(e)}), so nothing runs on its own until that's fixed`); } // not cached, never saved; update() refuses
+  }
   return g.__orbitAutonomy;
 }
 export const autonomyLevels = (): Levels => autonomyState().levels;
@@ -29,13 +31,11 @@ export const allows = (area: Area, action: Action, ctx: AllowCtx = {}) =>
 /** Serialized change → memory at once → atomic save. fn returns an error string to refuse (nothing changes). */
 function update(fn: (s: AutonomyState) => AutonomyState | string): Promise<AutonomyState | string> {
   const p = (g.__orbitAutonomySave ?? Promise.resolve()).catch(() => {}).then(async () => {
-    const next = fn(structuredClone(autonomyState()));
+    const next = fn(structuredClone(g.__orbitAutonomy ?? (g.__orbitAutonomy = parseAutonomy(readStoreSync(file()))))); // unreadable throws: nothing saved over it
     if (typeof next === "string") return next;
     next.done = next.done.filter((d) => Date.now() - Date.parse(d.at) < DONE_KEEP_MS);
     g.__orbitAutonomy = next;
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify(next));
-    await rename(file() + ".tmp", file());
+    await writeStore(file(), JSON.stringify(next));
     return next;
   });
   g.__orbitAutonomySave = p;

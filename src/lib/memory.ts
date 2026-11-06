@@ -6,7 +6,7 @@ import { request as httpsRequest } from "node:https";
 import { pipeline } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { embed } from "./embeddings";
+import { embed, journalVectorsComparable } from "./embeddings";
 import { emit } from "./claude";
 import { verifyRow } from "./completion";
 import { htmlToText, pickPublicAddress, assertHttpUrl, redirectTarget, readCapped } from "./pure";
@@ -35,7 +35,7 @@ const SUGGEST_THRESHOLD = 0.6;
 export async function createMemory(sb: SupabaseClient, userId: string, input: MemoryInput) {
   // MEM04: every capture path (notes, links, voice memos, files, CORE) carries the same provenance tags.
   if (!input.tags?.some((t) => t.startsWith("fp:"))) input = { ...input, tags: [...(input.tags ?? []), ...provenanceTags(provenance(input))] };
-  const embedding = await embed(`${input.title}\n\n${input.content}`, "document");
+  const embedding = await embed(`${input.title}\n\n${input.content}`, "document", input.kind);
   const { data, error } = await sb
     .from("memories")
     .insert({ ...input, user_id: userId, embedding: embedding ? JSON.stringify(embedding) : null })
@@ -46,13 +46,14 @@ export async function createMemory(sb: SupabaseClient, userId: string, input: Me
   await verifyRow(sb, userId, "memories", data.id, { title: input.title, content: input.content });
 
   let suggested = 0;
-  if (embedding) {
+  const mixed = !journalVectorsComparable(); // journal vectors are local, the rest hosted: never compared with each other
+  if (embedding && !(mixed && input.kind === "journal")) {
     const { data: similar, error: simErr } = await sb.rpc("match_memories", {
       query_embedding: JSON.stringify(embedding), match_count: 3, exclude_id: data.id,
     });
     if (simErr) console.error("[orbit] link suggestion failed", simErr);
-    const links = ((similar ?? []) as { id: string; similarity: number }[])
-      .filter((s) => s.similarity >= SUGGEST_THRESHOLD)
+    const links = ((similar ?? []) as { id: string; kind?: string; similarity: number }[])
+      .filter((s) => s.similarity >= SUGGEST_THRESHOLD && !(mixed && s.kind === "journal"))
       .map((s) => ({ user_id: userId, from_id: data.id, to_id: s.id, score: s.similarity, reason: "semantic similarity" }));
     if (links.length) {
       const { error: linkErr } = await sb.from("memory_links").insert(links);
@@ -96,7 +97,7 @@ export async function captureMemory(sb: SupabaseClient, userId: string, input: M
       if (isMissingColumn(r.error)) { delete ins.source_ref; delete ins.confirmation; r = await sb.from("memories").insert(ins); } // until 0019
       if (r.error) throw r.error;
     }
-    const e = await embed(`${cur.title}\n\n${plan.content}`, "document");
+    const e = await embed(`${cur.title}\n\n${plan.content}`, "document", input.kind); // duplicates are looked up within input.kind
     const { error } = await sb.from("memories").update({ content: plan.content, tags: [...new Set([...cur.tags, ...keys])], embedding: e ? JSON.stringify(e) : null }).eq("id", cur.id);
     if (error) throw error;
     await emit(sb, userId, "memory.updated", "memory", { id: cur.id });
@@ -112,13 +113,14 @@ export async function findSimilar(sb: SupabaseClient, text: string, min = 0.9, c
   if (!e) return [];
   const { data, error } = await sb.rpc("match_memories", { query_embedding: JSON.stringify(e), match_count: count });
   if (error) throw error;
-  return ((data ?? []) as { id: string; title: string; kind: string; similarity: number }[]).filter((m) => m.similarity >= min);
+  const mixed = !journalVectorsComparable();
+  return ((data ?? []) as { id: string; title: string; kind: string; similarity: number }[]).filter((m) => m.similarity >= min && !(mixed && m.kind === "journal"));
 }
 
 /** Hybrid search: Postgres full-text + pgvector similarity, fused by reciprocal rank. */
 /** userId is required when sb bypasses row-level security (background automations); harmless otherwise. */
 export async function searchMemories(sb: SupabaseClient, query: string, limit = 10, userId?: string, options: MemorySearchOptions = {}) {
-  return retrieveMemories(sb, query, limit, userId, embed, options);
+  return retrieveMemories(sb, query, limit, userId, embed, { ...options, journalVectors: journalVectorsComparable() });
 }
 
 type Pinned = { address: string; family: number };

@@ -17,7 +17,7 @@ export async function GET() {
   // Newest 30, plus any older job still running or holding clips to review/publish, so those never drop off the list.
   const shown = jobs.filter((j, i) => i < 30 || !["done", "failed"].includes(j.status) || j.clips.some((c) => c.status === "ready" || c.status === "approved"));
   return Response.json({ root: studioRoot(), tools: await checkTools(), inbox: await listInbox(jobs, downloads), jobs: shown, downloads: downloads.slice(0, 20),
-    quarantined: await listQuarantined(), publishing: publishingKey(), failAck: await readFailAck() }); // publishing: "<job>/<clip>" uploading now (other "uploading" clips are stale) // read after the lists: reading is what moves damaged files aside
+    quarantined: await listQuarantined(), publishing: publishingKey(), failAck: await readFailAck().catch(() => []) }); // publishing: "<job>/<clip>" uploading now (other "uploading" clips are stale) // read after the lists: reading is what moves damaged files aside
 }
 
 export async function POST(req: Request) {

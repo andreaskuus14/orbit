@@ -31,6 +31,12 @@ test("a failed refresh never presents a stale empty inbox as caught up", () => {
   assert.match(good, /You&#x27;re caught up/);
 });
 
+test("a scan that stopped early shows that some tasks weren't checked, never 'caught up'", () => {
+  const html = renderToStaticMarkup(createElement(Continue, { ...callbacks, data: { items: [], more: 0, problems: ["Some older tasks weren't checked."] } }));
+  assert.match(html, /Some older tasks weren&#x27;t checked\./);
+  assert.doesNotMatch(html, /caught up/);
+});
+
 test("refresh keeps current work visible, disables duplicate clicks and labels repeated actions", () => {
   const html = renderToStaticMarkup(createElement(Continue, { ...callbacks, loading: true, updatedAt: new Date("2026-10-20T10:00:00Z"), data: {
     items: [{ kind: "task", id: "t", title: "Check <the site>", status: "awaiting_approval", detail: "Waiting for your decision", action: "Review approval" }], more: 0, problems: [],

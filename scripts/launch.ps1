@@ -165,7 +165,11 @@ if ($Supervise) {
     # stop.ps1 kills this supervisor first, so reaching here always means an unexpected exit.
     $ran = ((Get-Date) - $started).TotalSeconds
     Write-Log ("ORBIT server exited unexpectedly (code {0}) after {1:N0} s." -f $p.ExitCode, $ran)
-    if (-not $devMode -and $ran -lt 60 -and -not $rebuilt) {
+    if ($p.ExitCode -eq 70) {
+      # Controlled stop (crash-log.ts CONTROLLED_STOP_EXIT): an uncaught exception, already logged to crash.log. The build is fine: just restart.
+      Write-Log "Controlled stop after an uncaught error (see crash.log); restarting without a rebuild."
+    }
+    elseif (-not $devMode -and $ran -lt 60 -and -not $rebuilt) {
       # A production server dying at boot usually means .next was overwritten (e.g. by a plain "npm run build"):
       # rebuild once. If that build fails, the current .next is kept.
       $forceBuild = $true
