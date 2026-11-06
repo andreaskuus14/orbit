@@ -674,7 +674,7 @@ async function reclaimInterrupted(sb: SupabaseClient, userId: string) {
   const { data, error } = await sb.from("tasks").select("id, pending, started_at").eq("user_id", userId).eq("status", "running").lt("started_at", new Date(BOOT).toISOString())
     .is("parent_id", null).not("title", "like", "Team: %").not("title", "like", "Goal step %").limit(100); // teams and goals resume their own steps (chains.ts, goals.ts)
   if (error) throw error; // kickQueue clears the cached sweep on failure, so the next kick retries it
-  const resumable = await import("./bg-resume").then((m) => m.bgTurnIds(), () => new Set<string>()); // background CORE turns: bg-resume finishes those, never "press Retry" (unreadable: as before)
+  const resumable = await import("./bg-resume").then((m) => m.bgTurnIds()).catch(() => new Set<string>()); // background CORE turns: bg-resume finishes those, never "press Retry" (unreadable: as before)
   for (const t of data ?? []) if (startedBeforeBoot(t.started_at, BOOT) && !running.has(t.id) && !resumable.has(t.id)) {
     const { error: updateError } = await sb.from("tasks").update(interruptedPatch(t.pending, INTERRUPTED)).eq("user_id", userId).eq("id", t.id).eq("status", "running").lt("started_at", new Date(BOOT).toISOString());
     if (updateError) throw updateError;
