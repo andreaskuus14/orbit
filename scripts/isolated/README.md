@@ -9,7 +9,7 @@ real account:
 | `restart` | **SIGKILL mid-task:** the task is marked interrupted and Retry runs it once. **Interrupted approved action:** an approved `create_project` is killed mid-write, in two variants (the write lands after the crash, or never does). The step shows "may or may not have happened" and re-running the agent is refused. Resume ends with exactly one project. |
 | `pair` | A failed pairing attempt (wrong code, or a right code whose device can't be saved) doesn't use up a valid code. |
 | `coldstart` | With `stop-all.json` on, unreadable or damaged at boot, a task queued before boot never starts. A control run with it off does start. |
-| `briefing` | phonemizer isn't loaded at boot. A PC call speaks through Kokoro in its own worker thread. Two briefings in a row succeed with a broken feed among real ones. The server keeps answering with no fatal stop, and no configured secret appears in `server.log` or `crash.log`. |
+| `briefing` | phonemizer isn't loaded at boot. A PC call speaks through Kokoro in its own process. Two briefings in a row succeed with a broken feed among real ones. The server keeps answering with no fatal stop, and no configured secret appears in `server.log` or `crash.log`. |
 
 A cut-off compressed response can't reach a briefing here, because `safeFetch` refuses local addresses. `npm test` reproduces it
 deterministically with the real fetcher and phonemizer, in `tests/briefing-crash-policy.test.ts`, `tests/fetch-gzip-crash.test.ts`

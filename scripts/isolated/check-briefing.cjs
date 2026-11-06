@@ -1,5 +1,5 @@
 // Briefings and the crash policy on the signed-in test server (README.md here):
-// - the voice model (and its phonemizer) isn't loaded at boot; a PC call loads it in its own worker thread and speaks;
+// - the voice model (and its phonemizer) isn't loaded at boot; a PC call starts it as its own process and speaks;
 // - a briefing with one broken feed still succeeds from the others, and a second briefing right after succeeds too;
 // - the server keeps answering, crash.log holds nothing unexpected, and neither log contains a configured secret.
 // The cut-off compressed response itself can't reach a briefing here (safeFetch refuses local addresses): tests/briefing-crash-policy
@@ -8,11 +8,11 @@ const L = require("./lib.cjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const serverLog = () => fs.readFileSync(path.join(L.DIR, "server.log"), "utf8");
-// Is kokoro's native ONNX runtime mapped into any process of the test server (its process group)? Linux /proc only.
+// Is the voice process (kokoro-worker.mjs) running inside the test server's process group? Linux /proc only.
 const voiceLoaded = () => {
   const pg = Number(fs.readFileSync(path.join(L.DIR, "server.pid"), "utf8"));
   return fs.readdirSync("/proc").filter((d) => /^\d+$/.test(d)).some((pid) => {
-    try { return fs.readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1].split(" ")[2] === String(pg) && /onnxruntime/.test(fs.readFileSync(`/proc/${pid}/maps`, "utf8")); } catch { return false; }
+    try { return fs.readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1].split(" ")[2] === String(pg) && fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").includes("kokoro-worker.mjs"); } catch { return false; }
   });
 };
 const crashLog = () => { try { return fs.readFileSync(path.join(L.DIR, "data/crash.log"), "utf8"); } catch { return ""; } };
@@ -25,7 +25,7 @@ const crashLog = () => { try { return fs.readFileSync(path.join(L.DIR, "data/cra
   L.ok("voice: kokoro-js (and phonemizer) isn't loaded at boot", !voiceLoaded());
   const call = await page.evaluate(async () => { const r = await fetch("/api/remote/talk?op=start", { method: "POST" }); const t = await r.text(); return { status: r.status, id: /"id":"([^"]+)"/.exec(t)?.[1] ?? null, audio: /"audio":"[A-Za-z0-9+/]{100,}/.test(t) }; });
   if (call.id) await page.evaluate((id) => fetch(`/api/remote/talk?op=end&call=${id}`, { method: "POST" }), call.id);
-  L.ok("voice: a PC call speaks its opener (Kokoro in its worker thread)", call.status === 200 && call.audio && voiceLoaded(), `status=${call.status}, audio=${call.audio}`);
+  L.ok("voice: a PC call speaks its opener (Kokoro in its own process)", call.status === 200 && call.audio && voiceLoaded(), `status=${call.status}, audio=${call.audio}`);
 
   // one broken feed (a public URL that fails) next to the default topic feeds
   const uid = L.sql(`select id from auth.users where email='${L.conf().email}'`);
