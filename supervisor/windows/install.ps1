@@ -99,10 +99,10 @@ Register-ScheduledTask -TaskName "ORBIT Supervisor" -Force -Settings $keep -Trig
 [Environment]::SetEnvironmentVariable("ORBIT_SUPERVISOR_HOME", $home_, "Machine")
 [Environment]::SetEnvironmentVariable("ORBIT_SELFDEV_HOME", $bhome, "Machine") # read by ORBIT's DEV view and the builder
 
-$owner = New-ScheduledTaskPrincipal -UserId $Owner -LogonType $OwnerLogon -RunLevel Limited
-Register-ScheduledTask -TaskName "ORBIT App" -Force -Settings $set -Principal $owner `
+$ownerTask = New-ScheduledTaskPrincipal -UserId $Owner -LogonType $OwnerLogon -RunLevel Limited
+Register-ScheduledTask -TaskName "ORBIT App" -Force -Settings $set -Principal $ownerTask `
   -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$Live\scripts\launch.ps1`" -ServerOnly" -WorkingDirectory $Live) | Out-Null
-Register-ScheduledTask -TaskName "ORBIT Release Install" -Force -Settings $set -Principal $owner `
+Register-ScheduledTask -TaskName "ORBIT Release Install" -Force -Settings $set -Principal $ownerTask `
   -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$app\windows\release-install.ps1`" -Live `"$Live`" -Results `"$results`"" -WorkingDirectory $Live) | Out-Null
 Register-ScheduledTask -TaskName "ORBIT Release Build" -Force -Settings $set -Principal (New-ScheduledTaskPrincipal -UserId $BuildUser -LogonType S4U -RunLevel Limited) `
   -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$app\windows\release-build.ps1`" -Stage `"$stage`" -Cache `"$cache`"" -WorkingDirectory $stage) | Out-Null
