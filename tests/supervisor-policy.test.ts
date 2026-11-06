@@ -125,3 +125,41 @@ test("model-written tests may not end the run early or spawn commands (enforced 
   assert.match(weakenedTests([], d('+import { execSync } from "node:child_process";'))[0], /spawns commands/);
   assert.deepEqual(weakenedTests([], d("+assert.equal(f(), 1);")), []);
 });
+
+test("the builder can't approve itself: every way to weaken CI, the gate or the release policy is refused", () => {
+  const z = "0".repeat(40), a = "a".repeat(40);
+  const refused = (path: string, opts: { status?: string; mode?: string; patch?: string } = {}) => {
+    const raw = `:${opts.status === "A" ? "000000" : "100644"} ${opts.mode ?? "100644"} ${opts.status === "A" ? z : a} ${a} ${opts.status ?? "M"}\t${path}`;
+    const changes = [{ path, added: 1, removed: opts.status === "D" ? 1 : 0 }];
+    return [...policyViolations(changes, P), ...modeViolations(raw), ...weakenedTests(changes, opts.patch ?? "")];
+  };
+  const attempts: [string, string, Parameters<typeof refused>[1]?][] = [
+    ["CI workflow", ".github/workflows/ai-quality.yml"],
+    ["CI workflow, other case", ".GitHub/workflows/ai-quality.yml"],
+    ["new workflow", ".github/workflows/approve.yml", { status: "A" }],
+    ["gate / test scripts", "package.json"],
+    ["gate scripts, other case (PC checkout)", "Package.json"],
+    ["lockfile (install scripts)", "package-lock.json"],
+    ["typecheck scope", "tsconfig.json"],
+    ["eval:ai cases", "evals/memory-cases.ts"],
+    ["eval:ai runner", "scripts/ai-scorecard.ts"],
+    ["stop script via short name", "SCRIPT~1/stop.ps1"],
+    ["launcher, other case", "Scripts/launch.ps1"],
+    ["build config", "next.config.ts"],
+    ["release policy", "supervisor/policy.ts"],
+    ["supervisor, other case", "Supervisor/supervisor.ts"],
+    ["builder", "selfdev/builder.ts"],
+    ["rules file", "AGENTS.md"],
+    ["health signal", "src/app/api/health/route.ts"],
+    ["trailing-dot alias", "src/app/api/health./route.ts"],
+    ["alternate data stream", "src/lib/x.ts:hidden"],
+    ["link into a protected folder", "src/link", { status: "A", mode: "120000" }],
+    ["git attributes (filters)", "src/.gitattributes", { status: "A" }],
+    ["existing fixture", "tests/fixtures/rivals-shop.html"],
+    ["deleted test", "tests/pagewatch.test.ts", { status: "D", patch: "diff --git a/tests/pagewatch.test.ts b/tests/pagewatch.test.ts\ndeleted file mode 100644\n" }],
+  ];
+  for (const [what, path, opts] of attempts) assert.ok(refused(path, opts).length > 0, `${what} (${path}) was allowed`);
+  // Legitimate work still passes: a src change with its test, and a new fixture.
+  assert.deepEqual(refused("src/lib/pagewatch-pure.ts"), []);
+  assert.deepEqual(refused("tests/fixtures/new-page.html", { status: "A" }), []);
+});

@@ -44,7 +44,11 @@ export function policyViolations(changes: FileChange[], p: Policy): string[] {
   for (const c of changes) {
     const path = c.path.replace(/\\/g, "/");
     if (path.includes("..") || path.startsWith("/")) { out.push(`${path}: path outside the repository`); continue; }
-    const denied = p.deny.find((d) => path === d || path.startsWith(d) || (d.endsWith(".md") && path.endsWith("/" + d)));
+    const odd = windowsAlias(path);
+    if (odd) { out.push(`${path}: ${odd}`); continue; }
+    // The PC's checkout is case-insensitive: "Scripts/stop.ps1" or "Package.json" would overwrite the protected file there.
+    const lc = path.toLowerCase();
+    const denied = p.deny.find((d) => { const x = d.toLowerCase(); return lc === x || lc.startsWith(x) || (x.endsWith(".md") && lc.endsWith("/" + x)); });
     if (denied) out.push(`${path}: protected (${denied})`);
     else if (!p.allow.some((a) => path.startsWith(a))) out.push(`${path}: outside the allowed paths`);
   }
@@ -52,12 +56,26 @@ export function policyViolations(changes: FileChange[], p: Policy): string[] {
 }
 
 /** `git diff --raw --no-renames` → links, submodules, mode changes and git metadata files, none of which ship unattended. */
+/** Names Windows would resolve to a different file than they say: 8.3 short names (SCRIPT~1), trailing dots/spaces,
+ *  reserved characters (alternate streams via ':'), device names. Null when the path is plain. */
+export function windowsAlias(path: string): string | null {
+  for (const part of path.split("/")) {
+    if (/~\d/.test(part)) return "looks like a Windows short name (8.3)";
+    if (/[. ]$/.test(part)) return "ends in a dot or space (Windows drops it)";
+    if (/[:<>|"?*\x00-\x1f]/.test(part)) return "has a character Windows treats specially";
+    if (/^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(part)) return "is a Windows device name";
+  }
+  return null;
+}
+
 export function modeViolations(raw: string): string[] {
   const out: string[] = [];
   for (const line of raw.split("\n")) {
     const m = /^:(\d{6}) (\d{6}) \S+ \S+ ([A-Z])\d*\t(.+)$/.exec(line.trim());
     if (!m) continue;
-    const [, from, to, , file] = m;
+    const [, from, to, status, file] = m;
+    // Existing fixtures feed many tests; changing or deleting one could weaken them without touching an assertion. New ones are fine.
+    if (/^tests\/fixtures\//i.test(file) && status !== "A") out.push(`${file}: existing test fixture changed`);
     for (const mode of [from, to]) if (mode !== "000000" && mode !== "100644" && mode !== "100755") out.push(`${file}: file mode ${mode} (links and submodules aren't allowed)`);
     if (/(^|\/)\.(gitattributes|gitmodules|gitignore)$/.test(file)) out.push(`${file}: git metadata file`);
   }

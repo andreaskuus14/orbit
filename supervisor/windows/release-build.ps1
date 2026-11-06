@@ -1,23 +1,28 @@
-# Owner side ("ORBIT Release Build" task): build the commit the supervisor asked for in a separate stage checkout.
-# Writes BUILD_RESULT.txt = "<commit> <exit code>". The live folder isn't touched; the supervisor installs the result.
-param([Parameter(Mandatory)][string]$Stage, [Parameter(Mandatory)][string]$Live)
+# Build side ("ORBIT Release Build" task, the orbit-build account): fresh clone of the supervisor's mirror at the requested
+# commit, fresh `npm ci` (dependency install scripts run here, as this account), `next build`. Writes BUILD_RESULT.txt.
+# This account can write only its stage and npm cache; it can't read the owner's files or the supervisor's secrets.
+param([Parameter(Mandatory)][string]$Stage, [string]$Cache = "C:\orbit-build-cache")
 $ErrorActionPreference = "Stop"
-$commit = (Get-Content -LiteralPath "C:\ProgramData\orbit-supervisor\public\build-request.txt" -Raw).Trim()
-if ($commit -notmatch '^[0-9a-f]{40}$') { exit 1 }
-$result = Join-Path $Stage "BUILD_RESULT.txt"
+$sup = "C:\ProgramData\orbit-supervisor"
+$req = Get-Content -LiteralPath "$sup\public\build-request.json" -Raw | ConvertFrom-Json
+$commit = [string]$req.commit
+$log = Join-Path $Cache "release-build.log"
 $code = 1
 try {
-  if (-not (Test-Path (Join-Path $Stage ".git"))) { git clone --quiet $Live $Stage }
-  git -C $Stage fetch --quiet origin
-  git -C $Stage fetch --quiet https://github.com/andreaskuus14/orbit.git $commit 2>$null
-  git -C $Stage checkout --quiet --detach $commit
+  if ($commit -notmatch '^[0-9a-f]{40}$') { throw "bad commit" }
+  Get-ChildItem -LiteralPath $Stage -Force | Remove-Item -Recurse -Force   # fresh every time: nothing from a previous build survives
+  # The mirror belongs to SYSTEM; git trusts another owner's repo only through global config.
+  $gc = Join-Path $Cache "gitconfig"; Set-Content -LiteralPath $gc -Value "[safe]`n`tdirectory = $($sup -replace '\\','/')/mirror.git"
+  $env:GIT_CONFIG_GLOBAL = $gc
+  git clone --quiet --no-checkout "$sup\mirror.git" $Stage 2>&1 | Out-File $log
+  git -C $Stage checkout --quiet --detach $commit 2>&1 | Out-File $log -Append
   if ((git -C $Stage rev-parse HEAD) -ne $commit) { throw "checkout failed" }
-  # Same dependencies as live (the release policy refuses package.json / lockfile changes); a junction avoids a second install.
-  if (-not (Test-Path (Join-Path $Stage "node_modules"))) { cmd /c mklink /J (Join-Path $Stage "node_modules") (Join-Path $Live "node_modules") | Out-Null }
-  # NEXT_PUBLIC_* values are baked into the build, so the stage uses live's .env.local.
-  Copy-Item (Join-Path $Live ".env.local") (Join-Path $Stage ".env.local") -Force -ErrorAction SilentlyContinue
-  Remove-Item -Recurse -Force (Join-Path $Stage ".next") -ErrorAction SilentlyContinue
+  foreach ($p in $req.env.PSObject.Properties) { Set-Item -Path "Env:$($p.Name)" -Value ([string]$p.Value) }
+  $env:npm_config_cache = Join-Path $Cache "npm"; $env:NEXT_TELEMETRY_DISABLED = "1"
   Push-Location $Stage
-  try { cmd /c "npm.cmd run build > `"$Stage\release-build.log`" 2>&1"; $code = $LASTEXITCODE } finally { Pop-Location }
-} catch { Add-Content (Join-Path $Stage "release-build.log") $_.Exception.Message; $code = 1 }
-Set-Content -LiteralPath $result -Value "$commit $code"
+  try {
+    cmd /c "npm.cmd ci --no-audit --no-fund >> `"$log`" 2>&1"; if ($LASTEXITCODE) { throw "npm ci failed" }
+    cmd /c "npm.cmd run build >> `"$log`" 2>&1"; $code = $LASTEXITCODE
+  } finally { Pop-Location }
+} catch { Add-Content $log $_.Exception.Message; $code = 1 }
+Set-Content -LiteralPath (Join-Path $Stage "BUILD_RESULT.txt") -Value "$commit $code"

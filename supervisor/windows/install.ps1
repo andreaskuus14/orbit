@@ -1,94 +1,114 @@
-# Installs the ORBIT release supervisor and the self-development builder on the Windows PC.
-# Run once, from an ELEVATED PowerShell in the ORBIT folder:   powershell -ExecutionPolicy Bypass -File supervisor\windows\install.ps1
-# UNTESTED ON WINDOWS so far (written and drilled on Linux); check each step's output the first time.
+# Installs the ORBIT release supervisor, release build and self-development builder on Windows.
+# Run from an ELEVATED PowerShell in the ORBIT folder:   powershell -ExecutionPolicy Bypass -File supervisor\windows\install.ps1
+# Create the two standard accounts first (choose passwords; never sign in with them; no git or GitHub credentials):
+#   net user orbit-builder * /add        net user orbit-build * /add
 #
-# Trust boundary it sets up:
-#   C:\ProgramData\orbit-supervisor            SYSTEM + Administrators only (the supervisor's code, config, GitHub token, audit
-#                                              trail, release snapshots and data backups). Unelevated processes, including ORBIT
-#                                              and the builder, can't read or change it.
-#     \inbox   Andreas may create files (submissions, pause/stop/restore requests); only the supervisor reads/deletes them.
-#     \public  Andreas may read (status.json, diffs); only the supervisor writes.
-#     \releases, \mirror.git  Andreas may read (snapshots to install, main to build on); only the supervisor writes.
-#   Task "ORBIT Supervisor"     runs as SYSTEM at startup, restarts on failure. Never runs repo code, and never runs git or
-#                               scripts inside the owner-writable live or stage folders (owner-context tasks do that).
-#   Task "ORBIT Release Install" runs as Andreas: stops ORBIT, checks out the release, swaps in the snapshot, starts ORBIT.
-#   Task "ORBIT Release Build"  runs as Andreas: builds an exact commit in %LOCALAPPDATA%\orbit-stage (repo code runs only here).
-#   Task "ORBIT Builder"        runs as Andreas at logon: the builder loop, with no GitHub or Supabase credentials.
-# The builder can push nothing and merge nothing. If ORBIT is broken or not answering, the supervisor still rolls back.
-param([string]$Owner = $env:USERNAME, [string]$Builder = "orbit-builder", [string]$Live = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+# Accounts and what each may touch:
+#   SYSTEM          C:\ProgramData\orbit-supervisor: code, config, GitHub token, state, audit, snapshots, data backups, mirror.
+#                   Runs no repo code, and no git or scripts inside anyone else's folders.
+#   owner           the live install (Documents\orbit), ORBIT's data. "ORBIT Release Install": stop, swap the snapshot in, check out, start.
+#   orbit-build     C:\orbit-stage + C:\orbit-build-cache only. "ORBIT Release Build": fresh clone of the mirror, npm ci (dependency
+#                   install scripts run here), next build. Gets only NEXT_PUBLIC_* values; its processes are ended before the snapshot.
+#   orbit-builder   C:\orbit-builder only. "ORBIT Builder": the model session, its tests and gate. Creates files in inbox\, reads public\
+#                   and the mirror. Nothing else.
+# Unattended releases stay off (config enabled: false) and the "ORBIT Builder" task stays disabled until the checks in
+# supervisor\README.md "Enabling" pass on this machine.
+param(
+  [string]$Owner = $env:USERNAME, [string]$Builder = "orbit-builder", [string]$BuildUser = "orbit-build",
+  [string]$Live = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+  [ValidateSet("Interactive", "S4U")][string]$OwnerLogon = "Interactive" # S4U only for a machine nobody signs in to (CI)
+)
 $ErrorActionPreference = "Stop"
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "Run this from an elevated PowerShell." }
 $node = (Get-Command node -ErrorAction Stop).Source
-$home_ = "C:\ProgramData\orbit-supervisor"
-$app = Join-Path $home_ "app"
-$stage = Join-Path $env:LOCALAPPDATA "orbit-stage"
-$bhome = "C:\orbit-builder" # the builder account's own folder (not under Andreas's profile, which it can't read)
-# The builder must be its own standard account: its tests run model-written code. Create it first (you choose the password):
-#   net user orbit-builder * /add      (then never sign in with it and never store git or GitHub credentials for it)
-if (-not (Get-LocalUser -Name $Builder -ErrorAction SilentlyContinue)) { throw "Create the builder account first: net user $Builder * /add" }
-if (Get-LocalGroupMember -Group Administrators -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "\\$Builder$" }) { throw "$Builder must not be an administrator" }
+$home_ = "C:\ProgramData\orbit-supervisor"; $app = Join-Path $home_ "app"
+$stage = "C:\orbit-stage"; $cache = "C:\orbit-build-cache"; $bhome = "C:\orbit-builder"
+$results = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "orbit-install"
+foreach ($u in $Builder, $BuildUser) {
+  if (-not (Get-LocalUser -Name $u -ErrorAction SilentlyContinue)) { throw "Create the account first: net user $u * /add" }
+  if (Get-LocalGroupMember -Group Administrators -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "\\$u$" }) { throw "$u must not be an administrator" }
+}
+
+# S4U tasks need "Log on as a batch job" for the two service accounts.
+function Grant-BatchLogon([string[]]$users) {
+  $sids = $users | ForEach-Object { "*" + (New-Object Security.Principal.NTAccount $_).Translate([Security.Principal.SecurityIdentifier]).Value }
+  $tmp = Join-Path $env:TEMP "orbit-secpol"; New-Item -ItemType Directory -Force $tmp | Out-Null
+  secedit /export /cfg "$tmp\cur.inf" /areas USER_RIGHTS | Out-Null
+  $line = (Get-Content "$tmp\cur.inf") | Where-Object { $_ -match '^SeBatchLogonRight' }
+  $have = if ($line) { ($line -split '=', 2)[1].Trim() -split ',' } else { @() }
+  $all = @($have + $sids | Where-Object { $_ } | Select-Object -Unique) -join ','
+  "[Unicode]`nUnicode=yes`n[Version]`nsignature=`"`$CHICAGO`$`"`nRevision=1`n[Privilege Rights]`nSeBatchLogonRight = $all" | Set-Content "$tmp\new.inf" -Encoding Unicode
+  secedit /configure /db "$tmp\new.sdb" /cfg "$tmp\new.inf" /areas USER_RIGHTS | Out-Null
+  Remove-Item $tmp -Recurse -Force
+}
+Grant-BatchLogon @($Builder, $BuildUser)
 
 # 1. The supervisor's installed copy: changes to supervisor\ in the repo don't reach it until this script runs again.
-New-Item -ItemType Directory -Force -Path $app, (Join-Path $app "windows"), (Join-Path $home_ "inbox"), (Join-Path $home_ "public") | Out-Null
+New-Item -ItemType Directory -Force -Path $app, (Join-Path $app "windows"), "$home_\inbox", "$home_\public", "$home_\releases", "$home_\ctl", "$home_\mirror.git" | Out-Null
 Copy-Item (Join-Path $Live "supervisor\*.ts"), (Join-Path $Live "supervisor\package.json") $app -Force
 Copy-Item (Join-Path $Live "supervisor\windows\*.ps1") (Join-Path $app "windows") -Force
 
-# 2. Lock it down. /inheritance:r drops inherited rights; then SYSTEM + Administrators full, owner limited rights on two folders.
+# 2. ACLs. /inheritance:r drops inherited rights, then each folder gets exactly what's listed.
 icacls $home_ /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" | Out-Null
-# Inbox: create files only (no delete-child, no reading others'). ORBIT (owner) sends pause/stop/restore; the builder sends submissions.
-foreach ($u in $Owner, $Builder) { icacls (Join-Path $home_ "inbox") /grant "${u}:(CI)(WD,AD,X)" "${u}:(OI)(IO)(W)" | Out-Null }
-New-Item -ItemType Directory -Force -Path (Join-Path $home_ "releases"), (Join-Path $home_ "ctl") | Out-Null
-icacls (Join-Path $home_ "releases") /grant "${Owner}:(OI)(CI)RX" | Out-Null
-foreach ($u in $Owner, $Builder) {
-  icacls (Join-Path $home_ "mirror.git") /grant "${u}:(OI)(CI)RX" 2>$null | Out-Null # created on first run; run this script again after it exists
-  icacls (Join-Path $home_ "public") /grant "${u}:(OI)(CI)RX" | Out-Null
+# inbox: the owner (ORBIT's controls) and the builder (submissions) may add files, not list the folder or delete-child.
+# Only a file's creator may write, rename or delete it (CREATOR OWNER), so nobody can touch another's submission or control file.
+foreach ($u in $Owner, $Builder) { icacls "$home_\inbox" /grant "${u}:(WD,X)" | Out-Null }
+icacls "$home_\inbox" /grant "*S-1-3-0:(OI)(IO)(W,D,RC)" | Out-Null # CREATOR OWNER
+foreach ($u in $Owner, $Builder, $BuildUser) {
+  icacls "$home_\mirror.git" /grant "${u}:(OI)(CI)RX" | Out-Null # the supervisor clones into it on first run; files inherit this
+  icacls "$home_\public" /grant "${u}:(OI)(CI)RX" | Out-Null
 }
-# Builder folder: the builder's own; ORBIT's DEV view reads it and the owner can stop the builder by writing STOP there.
-New-Item -ItemType Directory -Force -Path $bhome | Out-Null
+icacls "$home_\releases" /grant "${Owner}:(OI)(CI)RX" | Out-Null # the install task copies snapshots from here
+foreach ($d in $stage, $cache) {
+  New-Item -ItemType Directory -Force -Path $d | Out-Null
+  icacls $d /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" "${BuildUser}:(OI)(CI)M" | Out-Null
+}
+New-Item -ItemType Directory -Force -Path $bhome, $results | Out-Null
 icacls $bhome /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" "${Builder}:(OI)(CI)M" "${Owner}:(OI)(CI)(RX,WD,AD)" | Out-Null
 
-# 3. Config (edit it, then run this script again or restart the task). Token: a fine-grained GitHub token for this repo only,
-#    Contents: read/write, Pull requests: read/write, Checks: read. Put it in token.txt next to config.json.
+# 3. Config. Token: a fine-grained GitHub token for this repo only (Contents RW, Pull requests RW, Checks R) in token.txt.
 $cfgFile = Join-Path $home_ "config.json"
 if (-not (Test-Path $cfgFile)) {
+  $ps = @("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File")
   @{
     repoUrl = "https://github.com/andreaskuus14/orbit.git"; mainBranch = "main"; liveDir = $Live; distDir = ".next"; stageDir = $stage
     healthUrl = "http://127.0.0.1:3000/api/health"; serverLog = (Join-Path $Live "orbit-server.log")
     commands = @{
-      build = @("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $app "windows\trigger-build.ps1"), "{commit}", "{stage}")
-      install = @("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $app "windows\trigger-install.ps1"), "{commit}", "{dist}", $stage)
+      build = $ps + @((Join-Path $app "windows\trigger-build.ps1"), "{commit}", "{stage}", $Live, $BuildUser)
+      install = $ps + @((Join-Path $app "windows\trigger-install.ps1"), "{commit}", "{dist}", $results)
       stop = @("cmd.exe", "/c", "exit 0"); start = @("cmd.exe", "/c", "exit 0") # unused while install is set
       stopBuilder = @("schtasks.exe", "/End", "/TN", "ORBIT Builder")
     }
     github = @{ repo = "andreaskuus14/orbit"; tokenFile = (Join-Path $home_ "token.txt"); checksTimeoutSec = 1800; requiredChecks = @("check") }
-    enabled = $false # unattended releases off until the Windows checks pass
-    stopAllFile = (Join-Path $env:LOCALAPPDATA "orbit\stop-all.json")
+    enabled = $false
+    stopAllFile = (Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "orbit\stop-all.json")
     workflowChecks = @(@{ name = "sign-in page"; url = "http://127.0.0.1:3000/login"; expect = 200 })
     monitor = @{ probes = 10; intervalSec = 60; maxErrors = 0; startupTimeoutSec = 300 }
-    dataBackup = @{ paths = @((Join-Path $env:LOCALAPPDATA "orbit")); maxBytes = 2000000000 }
+    dataBackup = @{ paths = @((Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "orbit")); maxBytes = 2000000000 }
     keepReleases = 5; pollSec = 30
   } | ConvertTo-Json -Depth 5 | Set-Content $cfgFile -Encoding UTF8
 }
 
-# 4. Tasks. The supervisor as SYSTEM; the app, release build and builder as the owner (interactive: they run while he's signed in).
-$sup = New-ScheduledTaskAction -Execute $node -Argument "--no-warnings --experimental-strip-types `"$app\supervisor.ts`" watch" -WorkingDirectory $app
-$set = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName "ORBIT Supervisor" -Action $sup -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings $set -Principal (New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest) -Force | Out-Null
+# 4. Tasks.
+$set = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+$keep = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+$psArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File"
+Register-ScheduledTask -TaskName "ORBIT Supervisor" -Force -Settings $keep -Trigger (New-ScheduledTaskTrigger -AtStartup) `
+  -Action (New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"`"$node`" --no-warnings --experimental-strip-types `"$app\supervisor.ts`" watch >> `"$home_\supervisor.log`" 2>&1`"" -WorkingDirectory $app) `
+  -Principal (New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest) | Out-Null
 [Environment]::SetEnvironmentVariable("ORBIT_SUPERVISOR_HOME", $home_, "Machine")
 [Environment]::SetEnvironmentVariable("ORBIT_SELFDEV_HOME", $bhome, "Machine") # read by ORBIT's DEV view and the builder
 
-$me = New-ScheduledTaskPrincipal -UserId $Owner -LogonType Interactive -RunLevel Limited
-$appAct = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Live\scripts\launch.ps1`" -ServerOnly" -WorkingDirectory $Live
-Register-ScheduledTask -TaskName "ORBIT App" -Action $appAct -Principal $me -Force | Out-Null
-$buildAct = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$app\windows\release-build.ps1`" -Stage `"$stage`" -Live `"$Live`"" -WorkingDirectory $Live
-Register-ScheduledTask -TaskName "ORBIT Release Build" -Action $buildAct -Principal $me -Force | Out-Null
-$instAct = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$app\windows\release-install.ps1`" -Live `"$Live`" -Stage `"$stage`"" -WorkingDirectory $Live
-Register-ScheduledTask -TaskName "ORBIT Release Install" -Action $instAct -Principal $me -Force | Out-Null
-$bAct = New-ScheduledTaskAction -Execute $node -Argument "--no-warnings --experimental-strip-types `"$bhome\repo\selfdev\builder.ts`" run" -WorkingDirectory $bhome
-$bp = New-ScheduledTaskPrincipal -UserId $Builder -LogonType S4U -RunLevel Limited # no stored password, no network credentials
-Register-ScheduledTask -TaskName "ORBIT Builder" -Action $bAct -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings $set -Principal $bp -Force | Out-Null
-Disable-ScheduledTask -TaskName "ORBIT Builder" | Out-Null # enabled only after the Windows checks pass (README: "Enabling")
+$owner = New-ScheduledTaskPrincipal -UserId $Owner -LogonType $OwnerLogon -RunLevel Limited
+Register-ScheduledTask -TaskName "ORBIT App" -Force -Settings $set -Principal $owner `
+  -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$Live\scripts\launch.ps1`" -ServerOnly" -WorkingDirectory $Live) | Out-Null
+Register-ScheduledTask -TaskName "ORBIT Release Install" -Force -Settings $set -Principal $owner `
+  -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$app\windows\release-install.ps1`" -Live `"$Live`" -Results `"$results`"" -WorkingDirectory $Live) | Out-Null
+Register-ScheduledTask -TaskName "ORBIT Release Build" -Force -Settings $set -Principal (New-ScheduledTaskPrincipal -UserId $BuildUser -LogonType S4U -RunLevel Limited) `
+  -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$app\windows\release-build.ps1`" -Stage `"$stage`" -Cache `"$cache`"" -WorkingDirectory $stage) | Out-Null
+Register-ScheduledTask -TaskName "ORBIT Builder" -Force -Settings $keep -Trigger (New-ScheduledTaskTrigger -AtStartup) -Principal (New-ScheduledTaskPrincipal -UserId $Builder -LogonType S4U -RunLevel Limited) `
+  -Action (New-ScheduledTaskAction -Execute $node -Argument "--no-warnings --experimental-strip-types `"$bhome\repo\selfdev\builder.ts`" run" -WorkingDirectory $bhome) | Out-Null
+Disable-ScheduledTask -TaskName "ORBIT Builder" | Out-Null
 
-Write-Host "Installed. Next: token.txt, review config.json, then (elevated) node --experimental-strip-types `"$app\supervisor.ts`" adopt"
-Write-Host "Builder (as $Builder, e.g. runas /user:$Builder powershell): clone $home_\mirror.git to $bhome\repo, npm ci, write $bhome\config.json."
-Write-Host "Unattended releases stay off (config.json enabled: false) until the checks in supervisor\README.md 'Enabling' pass on this PC."
+Write-Host "Installed (unattended releases OFF). Next: token.txt, review config.json, then (elevated) node --experimental-strip-types `"$app\supervisor.ts`" adopt"
+Write-Host "Builder (as $Builder): clone $home_\mirror.git to $bhome\repo, npm ci, write $bhome\config.json. Then run the checks in supervisor\README.md 'Enabling'."

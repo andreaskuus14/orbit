@@ -116,7 +116,8 @@ async function gh(method: string, url: string, body?: unknown) {
 }
 
 function mirrorReady() {
-  if (!existsSync(P.mirror)) must(["git", "clone", "--bare", "--quiet", cfg.repoUrl, P.mirror], { env: gitEnv() });
+  // install.ps1 creates the folder empty (so the read grants are inherited); clone into it once.
+  if (!existsSync(path.join(P.mirror, "HEAD"))) must(["git", "clone", "--bare", "--quiet", cfg.repoUrl, P.mirror], { env: gitEnv() });
   git(["fetch", "--quiet", "--prune", "origin", `+refs/heads/${cfg.mainBranch}:refs/heads/${cfg.mainBranch}`]);
   return git(["rev-parse", cfg.mainBranch]);
 }
@@ -127,7 +128,8 @@ const distOf = (dir: string) => path.join(dir, cfg.distDir);
 function snapshotDist(from: string, id: string) {
   const to = path.join(relDir(id), "dist");
   rmSync(to, { recursive: true, force: true });
-  cpSync(from, to, { recursive: true, filter: (src) => !src.includes(`${path.sep}cache${path.sep}`) && !src.endsWith(`${path.sep}cache`) });
+  // The build ran as the untrusted build account: never follow a link it left (it could point at the token or another account's files).
+  cpSync(from, to, { recursive: true, dereference: false, filter: (src) => !lstatSync(src).isSymbolicLink() && !src.includes(`${path.sep}cache${path.sep}`) && !src.endsWith(`${path.sep}cache`) });
   if (!existsSync(path.join(to, "BUILD_ID"))) throw new Error("artifact has no BUILD_ID");
   return to;
 }
