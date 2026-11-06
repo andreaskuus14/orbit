@@ -6,6 +6,7 @@ Short version for the owner: [SAFETY.md §3](SAFETY.md#3-stop-all). This page is
 
 - Stored in `<ORBIT data dir>/stop-all.json` (`src/lib/stop-all.ts`), written atomically (tmp + rename).
 - Every check (`stopAllOn()`) stats the file and re-reads it when its mtime/size changed, so a **second process or a restart sees the toggle** without a restart. Own toggles take effect in memory at once, even if the disk write fails (the API then returns a warning: it resets on restart).
+- Only a missing file means off. A file that can't be read (e.g. a Windows antivirus lock at boot) or isn't valid JSON (a power cut can leave it empty) **fails closed**: ORBIT starts paused and shows the banner; Resume rewrites the file. A read error is retried on the next check.
 - On: `switchStopAll` (`src/lib/stop-all-run.ts`) also cancels what is running **in this process** (tasks, team chains, goal drivers, niche scout, night shift step, deal hunt) and clears the Auto send/publish queue. Work running in **another** process stops at its next boundary check below.
 - Off is PC-only (phone and Shortcuts can only turn it on). Off re-kicks the task queue, chains, goals and the clip queue.
 
