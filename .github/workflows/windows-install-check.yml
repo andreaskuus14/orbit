@@ -74,7 +74,7 @@ jobs:
             Start-Sleep 4
             $h = Wait-Up
             $secs = [int]((Get-Date) - $t0).TotalSeconds
-            "throw $n at uptime $before s: back after $secs s (uptime $($h.uptimeSec) s)"
+            Write-Host "throw $n at uptime $before s: back after $secs s (uptime $($h.uptimeSec) s)"
             if ($secs -gt 45) { throw "slow restart ($secs s): looks like a rebuild" }
             return $before
           }
