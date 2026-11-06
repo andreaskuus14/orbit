@@ -85,6 +85,7 @@ try {
   $c | Add-Member -Force allowWithoutExternalChecks $true
   $c.workflowChecks = @(@{ name = "sign-in page"; url = "http://127.0.0.1:3000/login"; expect = 200 }, @{ name = "public demo"; url = "http://127.0.0.1:3000/demo"; expect = 200 })
   $c.monitor = @{ probes = 3; intervalSec = 5; maxErrors = 0; startupTimeoutSec = 300 }; $c.pollSec = 3
+  $c | Add-Member -Force policy @{ maxReleasesPerDay = 20 } # this drill ships more than a day's limit
   $c | ConvertTo-Json -Depth 6 | Set-Content "$sup\config.json" -Encoding UTF8
   '{"on":false,"at":""}' | Set-Content "$data\stop-all.json"
   Start-ScheduledTask -TaskName "ORBIT App"
@@ -189,6 +190,67 @@ export default function Probe() {
   Check ((Health).ok -and (Health).commit -eq $A) "release A restored and healthy"
   Check ((& git -c safe.directory=* -C $origin rev-parse "main^{tree}").Trim() -eq (& git -c safe.directory=* -C $origin rev-parse "$A^{tree}").Trim()) "main reverted"
   Check ((Test-Path "$data\written-after-deploy.json") -and ((Get-Content "$sup\audit.jsonl" -Raw) -match 'rollback\.data[^\n]*written-after-deploy')) "data written after deployment kept and listed"
+
+  Step "the app can't lift a halt; only the owner's ctl command does"
+  Check ([bool](Status).halted) "releases halted after the rollback"
+  '{"action":"clear"}' | Set-Content "$sup\inbox\control-5-clear.json"; '{"action":"resume"}' | Set-Content "$sup\inbox\control-6-resume.json"; Start-Sleep 10
+  Check ([bool](Status).halted -and ((Get-Content "$sup\audit.jsonl" -Raw) -match '"control\.ignored"')) "clear/resume sent through the app's inbox ignored; still halted"
+  Set-Content "$sup\ctl\control-3-clear.json" '{"action":"clear"}'; Start-Sleep 10
+  Check (-not (Status).halted) "owner clear (ctl) lifts it"
+
+  Step "disabled: releases stay queued, also across a supervisor restart"
+  function Restart-Supervisor {
+    Stop-ScheduledTask -TaskName "ORBIT Supervisor"
+    Get-CimInstance Win32_Process | Where-Object { $_.Name -eq "node.exe" -and $_.CommandLine -like "*supervisor.ts*watch*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Start-Sleep 2; Start-ScheduledTask -TaskName "ORBIT Supervisor"
+    $null = WaitFor { (Status).at -and ((Get-Date) - [datetime](Status).at).TotalSeconds -lt 15 } 90 "supervisor publishing again"
+  }
+  function Set-Enabled([bool]$on) { $c = Get-Content "$sup\config.json" -Raw | ConvertFrom-Json; $c.enabled = $on; $c | ConvertTo-Json -Depth 6 | Set-Content "$sup\config.json" -Encoding UTF8 }
+  Run-Git @("-C", $work, "fetch", "-q", $origin, "main"); Run-Git @("-C", $work, "reset", "-q", "--hard", "FETCH_HEAD")
+  $mainA = (& git -c safe.directory=* -C $origin rev-parse main).Trim()
+  Set-Enabled $false; Restart-Supervisor
+  Add-Content "$work\docs\RECOVERY.md" "`nWindows CI release D."; Commit "CI: docs-only release D"
+  $D = Submit "ci-d" "CI: docs-only release D"; Start-Sleep 15
+  Check ((Status).blocked -match "unattended releases are off" -and (Test-Path "$sup\inbox\ci-d.json") -and -not (Get-Release "ci-d")) "disabled: release D queued, not started"
+  Restart-Supervisor; Start-Sleep 10
+  Check ((Status).blocked -match "unattended releases are off" -and (Test-Path "$sup\inbox\ci-d.json") -and (& git -c safe.directory=* -C $origin rev-parse main).Trim() -eq $mainA) "still queued after a supervisor restart; main untouched"
+
+  Step "supervisor killed and restarted while installing: release kept, merge/build/install not repeated"
+  Set-Enabled $true; Restart-Supervisor
+  Check (WaitFor { (Status).current.id -eq "ci-d" -and (Status).current.step -eq "installing" } 2400 "release D installing") "release D reached the install step"
+  Restart-Supervisor
+  $null = WaitFor { (Get-Release "ci-d") } 1800 "release D"
+  $h = Get-Release "ci-d"
+  Check ($h.step -eq "retained" -and (Health).commit -eq $D) "release D kept after the restart ($($h.step) $($h.reason))"
+  $au = Get-Content "$sup\audit.jsonl" | Where-Object { $_ -match '"release":"ci-d"' }
+  foreach ($st in "merged", "built", "installed") { $n = @($au | Where-Object { $_ -match """event"":""release\.$st""" }).Count; Check ($n -eq 1) "release D: '$st' recorded once ($n)" }
+  Check ((Get-Content "$sup\audit.jsonl" -Raw) -match '"supervisor\.start"[^\n]*"resuming":"ci-d"') "the restarted supervisor resumed release D"
+
+  Step "ORBIT Stop-all unreadable (locked) holds a release, also across a supervisor restart"
+  Add-Content "$work\docs\RECOVERY.md" "`nWindows CI release E."; Commit "CI: docs-only release E"
+  '{"on":false,"at":"ci"}' | Set-Content "$data\stop-all.json"
+  $sl = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList "-NoProfile", "-Command", "`$f=[IO.File]::Open('$data\stop-all.json','Open','ReadWrite','None'); Start-Sleep 1800"
+  Start-Sleep 3
+  $E = Submit "ci-e" "CI: docs-only release E"; Start-Sleep 15
+  Check ((Status).blocked -eq "ORBIT Stop-all is on" -and (Test-Path "$sup\inbox\ci-e.json")) "unreadable stop-all.json holds release E"
+  Restart-Supervisor; Start-Sleep 10
+  Check ((Status).blocked -eq "ORBIT Stop-all is on" -and (Test-Path "$sup\inbox\ci-e.json") -and (Health).commit -eq $D) "still held after a supervisor restart"
+  Remove-Item "$live\.next-supervisor-old" -Recurse -Force -ErrorAction SilentlyContinue # only this release's swap may create it
+  Stop-Process -Id $sl.Id -Force; Start-Sleep 2; Remove-Item "$data\stop-all.json"
+
+  Step "installation interrupted (install task killed mid-swap): previous version recovered"
+  $old = "$live\.next-supervisor-old"; $t0 = Get-Date
+  while (((Get-Date) - $t0).TotalMinutes -lt 40 -and -not (Test-Path $old)) { Start-Sleep -Milliseconds 200 }
+  $sawSwap = Test-Path $old
+  Stop-ScheduledTask -TaskName "ORBIT Release Install"
+  Check $sawSwap "install task stopped mid-swap (old build moved aside)"
+  $null = WaitFor { (Get-Release "ci-e") } 1800 "release E"
+  $h = Get-Release "ci-e"; Write-Host "release E: $($h.step) $($h.reason)"
+  Check ($h.step -in "rolledBack", "halted" -and $h.reason -match "interrupted|ended without") "interrupted install detected without waiting out the timeout ($($h.reason))"
+  Check ((Health).ok -and (Health).commit -eq $D) "release D restored and healthy"
+  Check ((& git -c safe.directory=* -C $origin rev-parse "main^{tree}").Trim() -eq (& git -c safe.directory=* -C $origin rev-parse "$D^{tree}").Trim()) "main back on release D's code"
+  Check (-not (git -c safe.directory=* -C $live status --porcelain --untracked-files=no)) "live checkout clean on D"
+  Set-Content "$sup\ctl\control-4-clear.json" '{"action":"clear"}'; Start-Sleep 10
 
   Step "emergency stop from ORBIT ends the builder task"
   Set-ScheduledTask -TaskName "ORBIT Builder" -User "orbit-builder" -Password $pw -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -Command Start-Sleep 1800") | Out-Null

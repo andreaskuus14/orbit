@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, open
 import path from "node:path";
 import { DEFAULT_POLICY, parseNumstat, policyViolations, redact } from "../supervisor/policy.ts";
 import {
-  MIN_SCORE, candidates, errorSignals, failingTests, missingRegressionTest, select, touchesUi, weakenedTests,
+  MIN_SCORE, candidates, errorSignals, failingTests, missingRegressionTest, select, supervisorHolds, touchesUi, weakenedTests,
   type Attempts, type BacklogItem, type Candidate, type ImproveTask, type PerfItem, type TaskStep,
 } from "./builder-pure.ts";
 
@@ -61,7 +61,7 @@ function run(argv: string[], cwd: string, timeoutSec = 900, env: Record<string, 
 }
 const git = (args: string[], cwd = cfg.repoDir) => { const r = run(["git", ...args], cwd, 300); if (!r.ok) throw new Error(`git ${args[0]}: ${r.out.slice(-500)}`); return r.out.trim(); };
 
-type SupStatus = { stopped: boolean; orbitStopAll?: boolean; paused: boolean; halted: string | null; blocked: string | null; current: { id: string } | null; queued: string[];
+type SupStatus = { at?: string; stopped: boolean; orbitStopAll?: boolean; paused: boolean; halted: string | null; blocked: string | null; current: { id: string } | null; queued: string[];
   history: { id: string; step: string; reason?: string; pr?: string }[]; released: { commit: string } | null };
 function supStatus(): SupStatus | null { try { return readJsonFile(SUP.status); } catch { return null; } }
 
@@ -224,8 +224,7 @@ function untrackedNumstat(dir: string) {
 // so Stop-all comes from the supervisor's status (it reads stop-all.json fail-closed, like the app since #411). No status = hold.
 function stopped() {
   if (existsSync(F.stop)) return true;
-  const st = supStatus();
-  return !st || st.stopped || st.orbitStopAll === true;
+  return supervisorHolds(supStatus(), Date.now()) !== null;
 }
 
 async function cycle(s: State) {

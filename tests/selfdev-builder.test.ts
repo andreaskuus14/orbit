@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidates, errorSignals, failingTests, missingRegressionTest, normalizeError, select, weakenedTests } from "../selfdev/builder-pure.ts";
+import { candidates, errorSignals, failingTests, missingRegressionTest, normalizeError, select, supervisorHolds, weakenedTests } from "../selfdev/builder-pure.ts";
 
 test("errors with different ids, numbers and paths group into one signature", () => {
   const a = normalizeError("2026-11-06T10:00:01Z [orbit] task 3f2a9c1e-1111-2222-3333-444455556666 failed after 1200 ms at C:\\orbit\\src\\lib\\x.ts:12:4");
@@ -53,4 +53,16 @@ test("bug fixes need a test change; backlog features don't", () => {
   assert.equal(missingRegressionTest("error", [{ path: "src/a.ts" }]), true);
   assert.equal(missingRegressionTest("failing-test", [{ path: "src/a.ts" }, { path: "tests/a.test.ts" }]), false);
   assert.equal(missingRegressionTest("backlog", [{ path: "src/a.ts" }]), false);
+});
+
+test("builder holds unless a fresh supervisor status says nothing is stopped", () => {
+  const now = Date.parse("2026-11-06T20:00:00Z"), at = (min: number) => new Date(now - min * 60_000).toISOString();
+  assert.equal(supervisorHolds({ stopped: false, orbitStopAll: false, at: at(1) }, now), null);
+  assert.ok(supervisorHolds(null, now)); // no status file: supervisor never ran
+  assert.ok(supervisorHolds({ stopped: true, orbitStopAll: false, at: at(1) }, now));
+  assert.ok(supervisorHolds({ stopped: false, orbitStopAll: true, at: at(1) }, now));
+  assert.ok(supervisorHolds({ stopped: false, at: at(1) }, now)); // Stop-all state unknown
+  assert.match(supervisorHolds({ stopped: false, orbitStopAll: false, at: at(6) }, now) ?? "", /stale/); // supervisor down: a newer Stop-all wouldn't show
+  assert.match(supervisorHolds({ stopped: false, orbitStopAll: false }, now) ?? "", /stale/);
+  assert.match(supervisorHolds({ stopped: false, orbitStopAll: false, at: at(-10) }, now) ?? "", /stale/); // from the future
 });
