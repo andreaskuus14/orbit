@@ -60,6 +60,8 @@ foreach ($u in $Owner, $Builder, $BuildUser) {
   icacls "$home_\public" /grant "${u}:(OI)(CI)RX" | Out-Null
 }
 icacls "$home_\releases" /grant "${Owner}:(OI)(CI)RX" | Out-Null # the install task copies snapshots from here
+# The release-build/-install task scripts run as those accounts, so they must be readable (never writable) by them.
+foreach ($u in $Owner, $BuildUser) { icacls "$app\windows" /grant "${u}:(OI)(CI)RX" | Out-Null }
 foreach ($d in $stage, $cache) {
   New-Item -ItemType Directory -Force -Path $d | Out-Null
   icacls $d /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" "${BuildUser}:(OI)(CI)M" | Out-Null
