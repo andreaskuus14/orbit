@@ -38,7 +38,7 @@ async function interruptedAction(variant) {
   const approve = page.getByRole("button", { name: "Approve", exact: true });
   await approve.waitFor({ timeout: 30000 });
   const lock = lockProjects(); await L.sleep(800);
-  void approve.evaluate((b) => b.click()); // the real button; its request then waits on the lock
+  await approve.evaluate((b) => { setTimeout(() => b.click(), 0); }); // the real button, clicked for sure; its request then waits on the lock
   const att = await L.until(() => L.task(id).pending[0]?.status === "attempting" && blockedInsert(), 20000, 200);
   L.ok(`${variant}: the attempt is on record before the write, and the write is in flight`, !!att);
   await browser.close().catch(() => {});
