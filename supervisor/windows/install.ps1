@@ -89,25 +89,29 @@ if (-not (Test-Path $cfgFile)) {
   } | ConvertTo-Json -Depth 5 | Set-Content $cfgFile -Encoding UTF8
 }
 
-# 4. Tasks.
+# 4. Tasks. Each registration names its task if it fails.
+function Register-Task([string]$name, [hashtable]$a) {
+  try { Register-ScheduledTask -TaskName $name -Force @a -ErrorAction Stop | Out-Null }
+  catch { throw "registering task '$name' as $($a.Principal.UserId) ($($a.Principal.LogonType)): $($_.Exception.Message)" }
+}
 $set = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $keep = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 $psArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File"
-Register-ScheduledTask -TaskName "ORBIT Supervisor" -Force -Settings $keep -Trigger (New-ScheduledTaskTrigger -AtStartup) `
-  -Action (New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"`"$node`" --no-warnings --experimental-strip-types `"$app\supervisor.ts`" watch >> `"$home_\supervisor.log`" 2>&1`"" -WorkingDirectory $app) `
-  -Principal (New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest) | Out-Null
+Register-Task "ORBIT Supervisor" @{ Settings = $keep; Trigger = (New-ScheduledTaskTrigger -AtStartup)
+  Action = (New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"`"$node`" --no-warnings --experimental-strip-types `"$app\supervisor.ts`" watch >> `"$home_\supervisor.log`" 2>&1`"" -WorkingDirectory $app)
+  Principal = (New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest) }
 [Environment]::SetEnvironmentVariable("ORBIT_SUPERVISOR_HOME", $home_, "Machine")
 [Environment]::SetEnvironmentVariable("ORBIT_SELFDEV_HOME", $bhome, "Machine") # read by ORBIT's DEV view and the builder
 
 $ownerTask = New-ScheduledTaskPrincipal -UserId $Owner -LogonType $OwnerLogon -RunLevel Limited
-Register-ScheduledTask -TaskName "ORBIT App" -Force -Settings $set -Principal $ownerTask `
-  -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$Live\scripts\launch.ps1`" -ServerOnly" -WorkingDirectory $Live) | Out-Null
-Register-ScheduledTask -TaskName "ORBIT Release Install" -Force -Settings $set -Principal $ownerTask `
-  -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$app\windows\release-install.ps1`" -Live `"$Live`" -Results `"$results`"" -WorkingDirectory $Live) | Out-Null
-Register-ScheduledTask -TaskName "ORBIT Release Build" -Force -Settings $set -Principal (New-ScheduledTaskPrincipal -UserId $BuildUser -LogonType S4U -RunLevel Limited) `
-  -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$app\windows\release-build.ps1`" -Stage `"$stage`" -Cache `"$cache`"" -WorkingDirectory $stage) | Out-Null
-Register-ScheduledTask -TaskName "ORBIT Builder" -Force -Settings $keep -Trigger (New-ScheduledTaskTrigger -AtStartup) -Principal (New-ScheduledTaskPrincipal -UserId $Builder -LogonType S4U -RunLevel Limited) `
-  -Action (New-ScheduledTaskAction -Execute $node -Argument "--no-warnings --experimental-strip-types `"$bhome\repo\selfdev\builder.ts`" run" -WorkingDirectory $bhome) | Out-Null
+Register-Task "ORBIT App" @{ Settings = $set; Principal = $ownerTask
+  Action = (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$Live\scripts\launch.ps1`" -ServerOnly" -WorkingDirectory $Live) }
+Register-Task "ORBIT Release Install" @{ Settings = $set; Principal = $ownerTask
+  Action = (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$app\windows\release-install.ps1`" -Live `"$Live`" -Results `"$results`"" -WorkingDirectory $Live) }
+Register-Task "ORBIT Release Build" @{ Settings = $set; Principal = (New-ScheduledTaskPrincipal -UserId $BuildUser -LogonType S4U -RunLevel Limited)
+  Action = (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "$psArgs `"$app\windows\release-build.ps1`" -Stage `"$stage`" -Cache `"$cache`"" -WorkingDirectory $stage) }
+Register-Task "ORBIT Builder" @{ Settings = $keep; Trigger = (New-ScheduledTaskTrigger -AtStartup); Principal = (New-ScheduledTaskPrincipal -UserId $Builder -LogonType S4U -RunLevel Limited)
+  Action = (New-ScheduledTaskAction -Execute $node -Argument "--no-warnings --experimental-strip-types `"$bhome\repo\selfdev\builder.ts`" run" -WorkingDirectory $bhome) }
 Disable-ScheduledTask -TaskName "ORBIT Builder" | Out-Null
 
 Write-Host "Installed (unattended releases OFF). Next: token.txt, review config.json, then (elevated) node --experimental-strip-types `"$app\supervisor.ts`" adopt"

@@ -50,24 +50,27 @@ function Submit([string]$id, [string]$title) {
 function Commit([string]$msg) { Run-Git @("-C", $work, "-c", "user.name=ci", "-c", "user.email=ci@x", "commit", "-qam", $msg) }
 
 try {
-  Step "live ORBIT (isolated) in the owner's Documents"
+  Step "live ORBIT checkout in the owner's Documents"
   Run-Git @("clone", "-q", $W, $live)
-  @("ORBIT_ISOLATED=1", "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:9", "NEXT_PUBLIC_SUPABASE_ANON_KEY=isolated", "ORBIT_DATA_DIR=$data", "NEXT_TELEMETRY_DISABLED=1") | Set-Content "$live\.env.local"
-  New-Item -ItemType Directory -Force $data | Out-Null
-  Push-Location $live; cmd /c "npm ci --no-audit --no-fund > `"$out\live-npm-ci.log`" 2>&1"; cmd /c "npm run build > `"$out\live-build.log`" 2>&1"; $b = $LASTEXITCODE; Pop-Location
-  Check ($b -eq 0) "baseline build"
-
   Step "installer"
   $pw = "Ci-" + [guid]::NewGuid().ToString("N").Substring(0, 16) + "!"
   # (net user asks Y/N for passwords over 14 characters, which hangs a non-interactive run)
   foreach ($u in "orbit-builder", "orbit-build") { New-LocalUser -Name $u -Password (ConvertTo-SecureString $pw -AsPlainText -Force) -PasswordNeverExpires -AccountNeverExpires | Out-Null }
   Check ([bool](Get-LocalUser orbit-builder -ErrorAction SilentlyContinue) -and [bool](Get-LocalUser orbit-build -ErrorAction SilentlyContinue)) "builder and build accounts created (standard users)"
-  & powershell -NoProfile -ExecutionPolicy Bypass -File "$live\supervisor\windows\install.ps1" -Live $live -OwnerLogon S4U *> "$out\install.log"
-  Check ($LASTEXITCODE -eq 0 -and (Test-Path "$sup\app\supervisor.ts")) "install.ps1 completed"
+  $ip = Start-Process powershell -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$out\install.log" -RedirectStandardError "$out\install-err.log" `
+    -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$live\supervisor\windows\install.ps1", "-Live", $live, "-OwnerLogon", "S4U"
+  Get-Content "$out\install-err.log" -ErrorAction SilentlyContinue | Select-Object -First 15 | ForEach-Object { Write-Host "  install: $_" }
+  Check ($ip.ExitCode -eq 0 -and (Test-Path "$sup\app\supervisor.ts")) "install.ps1 completed"
   foreach ($t in "ORBIT Supervisor", "ORBIT App", "ORBIT Release Build", "ORBIT Release Install", "ORBIT Builder") { Check ([bool](Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue)) "task '$t' registered" }
   Check ((Get-ScheduledTask -TaskName "ORBIT Builder").State -eq "Disabled") "builder task installed disabled"
   Check (((Get-Content "$sup\config.json" -Raw) | ConvertFrom-Json).enabled -eq $false) "installed config has unattended releases off"
   icacls $sup | Out-File "$out\acl-sup.txt"; icacls "$sup\inbox" | Out-File "$out\acl-inbox.txt"; icacls C:\orbit-stage | Out-File "$out\acl-stage.txt"
+
+  Step "live ORBIT (isolated) build"
+  @("ORBIT_ISOLATED=1", "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:9", "NEXT_PUBLIC_SUPABASE_ANON_KEY=isolated", "ORBIT_DATA_DIR=$data", "NEXT_TELEMETRY_DISABLED=1") | Set-Content "$live\.env.local"
+  New-Item -ItemType Directory -Force $data | Out-Null
+  Push-Location $live; cmd /c "npm ci --no-audit --no-fund > `"$out\live-npm-ci.log`" 2>&1"; cmd /c "npm run build > `"$out\live-build.log`" 2>&1"; $b = $LASTEXITCODE; Pop-Location
+  Check ($b -eq 0) "baseline build"
 
   Step "drill wiring (CI only: local origin, no GitHub, releases enabled for this drill)"
   New-Item -ItemType Directory -Force $drill | Out-Null
