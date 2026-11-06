@@ -10,5 +10,6 @@ export async function resolve(s, c, next) {
     const base = new URL(s, c.parentURL);
     for (const ext of [".ts", ".tsx", "/index.ts"]) { const u = new URL(base.href + ext); if (existsSync(fileURLToPath(u))) return next(u.href, c); }
   }
-  return next(s, c);
+  try { return await next(s, c); }
+  catch (e) { if (e?.code === "ERR_MODULE_NOT_FOUND" && /^[@a-z][^:]*\\/[^.]+$/.test(s)) return next(s + ".js", c); throw e; } // "next/headers" → next/headers.js
 }`));
