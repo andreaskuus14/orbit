@@ -80,7 +80,7 @@ export function clipsState(jobs: ClipJobIn[], now: number): DailyItem {
 // slot: the automation's latest due time (pure.ts lastDue); next: its next due time when that is later today; grace: how long
 // automations.ts still fires it after the slot (3 h, or 30 min for hourly).
 // createdAt: automations.ts never fires a slot from before the automation existed
-export type LeadsIn = { automation: { enabled: boolean; slot: number; next: number | null; grace: number; label: string; createdAt?: string } | null; tasks: { status: string; created_at: string; started_at?: string | null; error?: string | null; pending: unknown; receipt: string | null; exec?: "active" | "restart" | "unknown" }[] };
+export type LeadsIn = { automation: { enabled: boolean; slot: number; next: number | null; grace: number; label: string; createdAt?: string } | null; tasks: { status: string; created_at: string; started_at?: string | null; error?: string | null; pending: unknown; receipt: string | null; exec?: "active" | "restart" | "unknown" | "unchecked" }[] };
 
 /** The business loop's latest run since its last due slot (tasks: since that slot, newest first). Follows the real schedule, so a
  *  weekly loop isn't "missed" on the other six days. */

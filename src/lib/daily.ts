@@ -54,11 +54,11 @@ async function leads(sb: SupabaseClient, userId: string, now: number, exec: Exec
   }, now);
 }
 
-type Exec = (id: string, startedAt: string | null | undefined) => "active" | "restart" | "unknown";
+type Exec = (id: string, startedAt: string | null | undefined) => "active" | "restart" | "unknown" | "unchecked";
 /** Today's three workflows. A workflow whose records can't be read is "uncertain", never skipped. `exec`: execution evidence
  *  for running tasks (agents.ts taskExecution; tests pass their own). */
 export async function dailyRuns(sb: SupabaseClient, userId: string, now = Date.now(), exec?: Exec): Promise<DailyView> {
-  const ev: Exec = exec ?? (await import("./agents").then((m) => m.taskExecution, () => () => "unknown" as const));
+  const ev: Exec = exec ?? (await import("./agents").then((m) => m.taskExecution, () => () => "unchecked" as const)); // no evidence ≠ evidence of nothing
   const items = await Promise.all([
     brief(sb, userId, now).catch((e) => failed("brief", e)),
     clips(now).catch((e) => failed("clips", e)),

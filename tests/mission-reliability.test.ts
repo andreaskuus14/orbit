@@ -8,6 +8,7 @@ import * as chainsPure from "../src/lib/chains-pure.ts";
 import * as companyPure from "../src/lib/company-pure.ts";
 import * as missionsPure from "../src/lib/missions-pure.ts";
 import * as taskClaimPure from "../src/lib/task-claim-pure.ts";
+import * as execution from "../src/lib/execution.ts"; // the real execution-evidence module agents.ts uses
 
 // Review of 1c4cd6c, findings 2/4/5: the real runner modules, loaded with fakes for the database and the agent/Claude imports.
 
@@ -41,7 +42,7 @@ function fakeDb(tables: Record<string, Row[]>) {
 function load(file: string, mods: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const ctx: Record<string, any> = { exports, console, setTimeout, AbortController, crypto, require: (n: string) => mods[n] ?? {}, ...extra };
+  const ctx: Record<string, any> = { exports, console, setTimeout, AbortController, crypto, require: (n: string) => mods[n] ?? (n === "./execution" ? execution : {}), ...extra };
   vm.runInNewContext(source, ctx);
   return { exports, ctx };
 }

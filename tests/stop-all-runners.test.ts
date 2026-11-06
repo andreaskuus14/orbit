@@ -15,6 +15,7 @@ import * as pure from "../src/lib/pure.ts";
 import * as claim from "../src/lib/task-claim-pure.ts";
 import { PAUSED_MSG } from "../src/lib/stop-all-pure.ts";
 import * as agentDefsPure from "../src/lib/agent-defs-pure.ts";
+import * as execution from "../src/lib/execution.ts"; // the real execution-evidence module agents.ts uses
 
 test("the flag is durable and shared: another process's toggle is seen without a restart", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "orbit-stop-x-"));
@@ -40,7 +41,7 @@ test("the flag is durable and shared: another process's toggle is seen without a
 function load(file: string, deps: Record<string, unknown>, globals: Record<string, unknown> = {}) {
   const exports: Record<string, any> = {};
   const src = ts.transpileModule(readFileSync(new URL(`../src/lib/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  vm.runInNewContext(src, { exports, require: (n: string) => deps[n] ?? {}, console, crypto, AbortController, AbortSignal, DOMException, setTimeout, ...globals });
+  vm.runInNewContext(src, { exports, require: (n: string) => deps[n] ?? (n === "./execution" ? execution : {}), console, crypto, AbortController, AbortSignal, DOMException, setTimeout, ...globals });
   return exports;
 }
 

@@ -7,13 +7,14 @@ export type WorkItem = { kind: "task" | "goal"; id: string; title: string; statu
 export type WorkSummary = { items: WorkItem[]; more: number; problems: string[] };
 // exec: execution evidence from this process (agents.ts taskExecution): active = a worker here runs it now; restart = it started
 // before this ORBIT process booted (the scheduler marks it interrupted); unknown = marked running but no worker found here.
-export type Exec = "active" | "restart" | "unknown";
+export type Exec = "active" | "restart" | "unknown" | "unchecked"; // unchecked: the evidence couldn't be read
 export type WorkTask = {
   id: string; title: string; status: string; created_at: string; started_at?: string | null; error?: string | null; agent?: string | null;
   request?: string | null; pending?: unknown; trace?: { step: string; receipt?: unknown }[] | null; automation_id?: string | null; origin?: string | null; exec?: Exec;
 };
 export type WorkGoal = { id: string; updated_at: string; doc: { title: string; status: string; waitingFor?: string; blocker?: string; steps: { status: string; taskId?: string }[] } };
 export type EvalCase = { title: string; request: string; agent: string };
+export type NewerRun = { at: string; verified: boolean };
 const text = (x: unknown, fallback: string) => typeof x === "string" && x.trim() ? x.trim().slice(0, 200) : fallback;
 
 /** An ANALYTICS scorecard replay, not his own work. Explicit origin when recorded (migration 0025); older rows only when agent,
@@ -42,9 +43,10 @@ export function failureReason(t: WorkTask): { reason: string; next: string } {
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
 /** Build a small inbox from existing records. Linked goal tasks appear once, as the goal's next step. Evaluation tasks are left
- *  out (ANALYTICS shows them). newerOk: per automation id, the start of its latest successful run, so an older failed attempt
+ *  out (ANALYTICS shows them). newerOk: per automation id, its latest later run that finished without a failed or partly
+ *  failed receipt (verified: its receipt proves the result), so an older failed attempt
  *  of the same automation reads as history, not as today's state; it stays listed for inspection. */
-export function continueWork(tasks: WorkTask[], goals: WorkGoal[], problems: string[] = [], cases: readonly EvalCase[] = [], newerOk: Record<string, string> = {}): WorkSummary {
+export function continueWork(tasks: WorkTask[], goals: WorkGoal[], problems: string[] = [], cases: readonly EvalCase[] = [], newerOk: Record<string, NewerRun> = {}): WorkSummary {
   const rows: { item: WorkItem; rank: number; at: number }[] = [];
   const linked = new Set<string>();
   for (const g of goals) {
@@ -75,15 +77,21 @@ export function continueWork(tasks: WorkTask[], goals: WorkGoal[], problems: str
     if (t.status === "failed") {
       const { reason, next } = failureReason(t);
       const later = t.automation_id ? newerOk[t.automation_id] : undefined;
-      const superseded = !!later && Date.parse(later) > Date.parse(at);
-      rows.push({ item: { ...base, status: "failed", detail: superseded ? `Earlier attempt (${day(at)}): ${reason}. A newer run succeeded ${day(later)}.` : `Failed ${day(at)}: ${reason}`,
-        next: superseded ? "Nothing to redo: open it only to see what went wrong" : next, action: "Review issue" }, rank: superseded ? 5 : 2, at: Date.parse(at) || 0 });
+      const newer = later && Date.parse(later.at) > Date.parse(at) ? later : null;
+      // only a verified newer run is called a success; a finished-but-unverified one is named as such and still asks for a check
+      rows.push({ item: { ...base, status: "failed",
+        detail: !newer ? `Failed ${day(at)}: ${reason}` : newer.verified ? `Earlier attempt (${day(at)}): ${reason}. A newer run succeeded ${day(newer.at)} (verified).`
+          : `Earlier attempt (${day(at)}): ${reason}. A newer run finished ${day(newer.at)}, but its result isn't verified.`,
+        next: !newer ? next : newer.verified ? "Nothing to redo: open it only to see what went wrong" : "Check the newer run's result before relying on it", action: "Review issue" },
+        rank: newer?.verified ? 5 : newer ? 3 : 2, at: Date.parse(at) || 0 });
       continue;
     }
     if (t.status === "running" && t.exec !== "active") { // marked running, but nothing here is running it: never shown as working
       rows.push({ item: { ...base, status: "uncertain", action: "View progress",
-        detail: t.exec === "restart" ? `Started ${day(at)} before ORBIT restarted; it is being marked interrupted` : `Marked running since ${day(at)}, but no worker in ORBIT is running it now`,
-        next: "Open it to check what finished, then Retry if needed" }, rank: 2, at: Date.parse(at) || 0 });
+        detail: t.exec === "restart" ? `Started ${day(at)} before ORBIT restarted; it is being marked interrupted`
+          : t.exec === "unknown" ? `Marked running since ${day(at)}; ORBIT found no worker running it, so it may have stopped`
+          : `Marked running since ${day(at)}; couldn't confirm whether it is still running`,
+        next: t.exec === "restart" ? "Open it to check what finished, then Retry if needed" : "Open it to see its progress before retrying anything" }, rank: 2, at: Date.parse(at) || 0 });
       continue;
     }
     rows.push({ item: { ...base, status: t.status,

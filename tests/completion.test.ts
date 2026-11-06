@@ -11,6 +11,7 @@ import { canRetryTask, completionState, matchesStored } from "../src/lib/complet
 import * as recovery from "../src/lib/tasks-recovery-pure.ts";
 import { blockedMsg, type GuardedId } from "../src/lib/version-pure.ts";
 import { verifyRow } from "../src/lib/completion.ts";
+import * as execution from "../src/lib/execution.ts"; // the real execution-evidence module agents.ts uses
 
 test("completion includes failed/rejected actions and delegated outcomes, while pending work stays pending", () => {
   assert.equal(completionState([{ status: "failed" }]).status, "failed");
@@ -60,7 +61,7 @@ function approvalHarness(rows: Record<string, unknown>[], missing = new Set<stri
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL("../src/lib/agents.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(source, { exports, require: (name: string) => name === "./completion-pure" ? completionPure
-    : name === "./memory" ? { KINDS: ["note"] } : name === "./claude" ? { emit: async () => {} } : name === "./stop-all" ? { stopAllOn: () => false } : name === "./authority" ? { authorizeAction: async () => ({ ok: true }) } : name === "./migration-guard" ? guard(missing) : {}, console, crypto });
+    : name === "./memory" ? { KINDS: ["note"] } : name === "./claude" ? { emit: async () => {} } : name === "./stop-all" ? { stopAllOn: () => false } : name === "./authority" ? { authorizeAction: async () => ({ ok: true }) } : name === "./migration-guard" ? guard(missing) : name === "./execution" ? execution : {}, console, crypto });
   return { sb, db, resolve: exports.resolvePending, tools: exports.TOOLS };
 }
 const task = (id: string, parent: string | null = null, status = "awaiting_approval", pending: unknown[] = []) => ({ id, user_id: "owner", parent_id: parent, project_id: null, status, agent: "nova", title: id, request: "", pending });

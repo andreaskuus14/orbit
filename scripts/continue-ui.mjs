@@ -44,7 +44,7 @@ const tasks = [
   { id: "q1", title: "Summarise inbox", status: "queued", created_at: "2026-11-06T09:00:00Z" },
   { id: "b1", title: "⚙ Morning Brief", status: "failed", created_at: "2026-11-04T07:30:00Z", started_at: "2026-11-04T07:30:00Z", automation_id: "a1", error: "all feeds timed out" },
 ];
-const summary = continueWork(tasks, [], [], REPLAY_CASES, { a1: "2026-11-06T07:30:00Z" });
+const summary = continueWork(tasks, [], [], REPLAY_CASES, { a1: { at: "2026-11-06T07:30:00Z", verified: true } });
 // pending and trace are `not null default []` in the schema (0003), so never null here
 const f1 = { id: "f1", parent_id: null, project_id: null, agent: "atlas", title: "Research Tallinn cafés", request: "Find five quiet cafés in Tallinn to work from", status: "failed",
   result: null, error: "Claude usage limit reached until 14:00", trace: [], pending: [], created_at: "2026-11-03T08:00:00Z", started_at: "2026-11-03T08:01:00Z", finished_at: "2026-11-03T08:03:00Z" };
@@ -78,12 +78,12 @@ check(!/Scorecard/.test(text), "evaluation tasks (explicit origin and legacy exa
 const ghost = card.locator("li", { hasText: "Draft newsletter" });
 const ghostText = await ghost.innerText();
 check(/Needs attention/.test(ghostText) && !/In progress|Agent is working/.test(ghostText), "a running row with no live worker is not shown as active");
-check(/no worker in ORBIT is running it now/.test(ghostText), "…and says why");
+check(/ORBIT found no worker running it, so it may have stopped/.test(ghostText), "…and says why, without claiming it has stopped");
 const live = await card.locator("li", { hasText: "Build demo site" }).innerText();
 check(/In progress/.test(live) && /Agent is working on it now/.test(live), "a long task with a live worker is still shown as working (not failed by age)");
 check(/Waiting for an agent slot/.test(await card.locator("li", { hasText: "Summarise inbox" }).innerText()), "queued task shown as queued");
 const brief = await card.locator("li", { hasText: "Morning Brief" }).innerText();
-check(/Earlier attempt \(Wed 4 Nov\): all feeds timed out\. A newer run succeeded Fri 6 Nov\./.test(brief), "older failed brief run reads as an earlier attempt next to the newer success");
+check(/Earlier attempt \(Wed 4 Nov\): all feeds timed out\. A newer run succeeded Fri 6 Nov \(verified\)\./.test(brief), "older failed brief run reads as an earlier attempt next to the newer success");
 check(/Nothing to redo/.test(brief), "…kept for inspection without asking for a redo");
 check((await card.locator("li").count()) === 5, "five items: the two evaluations are excluded, nothing else");
 
