@@ -38,8 +38,10 @@ try {
       if (Test-Path $oldDir) { Rename-Item -LiteralPath $oldDir -NewName ".next" }
     }
     if ($prevHead) { git -C $Live checkout --quiet -B main $prevHead }
-    if ($prevHead -and (Test-Path (Join-Path $nextDir "BUILD_ID"))) { (Get-Item (Join-Path $nextDir "BUILD_ID")).LastWriteTime = Get-Date }
-    & $start # back on the previous build
+    # Only after a swap did the checkout change src\; then mark the restored build current. Best effort: a file still locked
+    # here must not keep ORBIT stopped (the launcher rebuilds if it has to).
+    if ($swapped) { try { (Get-Item (Join-Path $nextDir "BUILD_ID")).LastWriteTime = Get-Date } catch { $why += "; couldn't mark the restored build current: $($_.Exception.Message)" } }
   } catch { $why += "; restoring the previous build also failed: $($_.Exception.Message)" }
+  try { & $start } catch { $why += "; starting ORBIT failed: $($_.Exception.Message)" } # back on the previous build, whatever happened above
   Set-Content -LiteralPath $result -Value "$commit 1 $why"
 }
