@@ -12,7 +12,10 @@ const log = () => fs.readFileSync(path.join(L.DIR, "server.log"), "utf8");
   await L.restart();
   const from = log().length;
   const { browser, page } = await L.session();
-  await L.api(page, "/api/remote/talk?warm=1"); // the call screen warms the voice: imports kokoro-js → phonemizer
+  // A PC call speaks its opener with the voice model: imports kokoro-js → phonemizer (the model download itself may fail here; the
+  // import is what matters). The call is ended right after.
+  const call = await page.evaluate(async () => { const r = await fetch("/api/remote/talk?op=start", { method: "POST" }); const t = await r.text(); return { status: r.status, id: /"id":"([^"]+)"/.exec(t)?.[1] ?? null }; });
+  if (call.id) await page.evaluate((id) => fetch(`/api/remote/talk?op=end&call=${id}`, { method: "POST" }), call.id);
   const guarded = await L.until(() => /removed a process uncaughtException handler/.test(log().slice(from)), 90000, 1000);
   L.ok("briefing: the voice model's phonemizer is loaded, and its exit-on-error handlers were removed", !!guarded);
   const runs = () => Number(L.sql("select count(*) from job_runs where job='pulse'"));
