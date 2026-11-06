@@ -15,8 +15,10 @@ export async function getContinueWork(sb: SupabaseClient, userId: string, exec?:
   // migration 0025 the database filters on origin; older rows are matched by their exact case, page by page.
   // shortcut: scans at most 5 pages (150 rows) of open tasks; raise PAGES if one ever holds more evaluations than that.
   const PAGE = 30, PAGES = 5;
+  let unchecked = false; // the scan stopped at PAGES with more rows left and fewer than PAGE of his tasks found
   const loadTasks = async (withOrigin: boolean) => {
     const out: WorkTask[] = [];
+    unchecked = false;
     for (let i = 0; i < PAGES && out.length < PAGE; i++) {
       let q = sb.from("tasks").select(withOrigin ? `${COLS}, origin` : COLS).eq("user_id", userId).is("parent_id", null)
         .in("status", ["queued", "running", "awaiting_approval", "failed"]);
@@ -26,6 +28,7 @@ export async function getContinueWork(sb: SupabaseClient, userId: string, exec?:
       const rows = (r.data ?? []) as unknown as WorkTask[];
       out.push(...rows.filter((t) => !isEvaluation(t, REPLAY_CASES)));
       if (rows.length < PAGE) break;
+      if (i === PAGES - 1 && out.length < PAGE) unchecked = true;
     }
     return out.slice(0, PAGE);
   };
@@ -50,5 +53,6 @@ export async function getContinueWork(sb: SupabaseClient, userId: string, exec?:
     }
   }
   return continueWork(list, goals.status === "fulfilled" ? goals.value ?? [] : [],
-    [tasks.status === "rejected" ? "Tasks could not be loaded." : "", goals.status === "rejected" ? "Goals could not be loaded." : ""].filter(Boolean), REPLAY_CASES, newerOk);
+    [tasks.status === "rejected" ? "Tasks could not be loaded." : "", goals.status === "rejected" ? "Goals could not be loaded." : "",
+      unchecked ? "Some older tasks weren't checked." : ""].filter(Boolean), REPLAY_CASES, newerOk); // a problem line: the card never says "caught up" with one
 }

@@ -62,7 +62,7 @@ function approvalHarness(rows: Record<string, unknown>[], missing = new Set<stri
   const source = ts.transpileModule(readFileSync(new URL("../src/lib/agents.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(source, { exports, require: (name: string) => name === "./completion-pure" ? completionPure
     : name === "./memory" ? { KINDS: ["note"] } : name === "./claude" ? { emit: async () => {} } : name === "./stop-all" ? { stopAllOn: () => false } : name === "./authority" ? { authorizeAction: async () => ({ ok: true }) } : name === "./migration-guard" ? guard(missing) : name === "./execution" ? execution : {}, console, crypto });
-  return { sb, db, resolve: exports.resolvePending, tools: exports.TOOLS };
+  return { sb, db, resolve: exports.resolvePending, tools: exports.TOOLS, exec: exports.taskExecution };
 }
 const task = (id: string, parent: string | null = null, status = "awaiting_approval", pending: unknown[] = []) => ({ id, user_id: "owner", parent_id: parent, project_id: null, status, agent: "nova", title: id, request: "", pending });
 
@@ -70,15 +70,37 @@ test("actual approval flow treats an Error string as failure, preserves successf
   const h = approvalHarness([task("parent"), task("child", "parent", "awaiting_approval", [
     { tool: "save_memory", input: {}, status: "pending" }, { tool: "add_task", input: {}, status: "pending" },
   ])]);
-  h.tools.save_memory.run = async (ctx: any) => { ctx.evidence.push({ kind: "memory", id: "saved-id" }); return "Saved and read back"; };
+  // the approved action is paused mid-execution: the task must report active (execution evidence) until resolvePending is done
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let duringRun = "";
+  h.tools.save_memory.run = async (ctx: any) => { duringRun = h.exec("child", h.db.find((r) => r.id === "child")!.started_at); await gate; ctx.evidence.push({ kind: "memory", id: "saved-id" }); return "Saved and read back"; };
   h.tools.add_task.run = async () => "Error: unknown agent";
-  await h.resolve(h.sb, "owner", "child", true);
+  const run = h.resolve(h.sb, "owner", "child", true);
+  for (let i = 0; i < 100 && !duringRun; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(duringRun, "active", "running approved action reports active");
+  assert.equal(h.exec("child", h.db.find((r) => r.id === "child")!.started_at), "active", "still active while paused");
+  release();
+  await run;
+  assert.equal(h.exec("child", h.db.find((r) => r.id === "child")!.started_at), "unknown", "tracking cleared after it completed");
   const child = h.db.find((r) => r.id === "child")!;
   assert.equal(child.status, "failed");
   assert.equal((child.pending as any[])[0].evidence[0].id, "saved-id");
   assert.equal((child.pending as any[])[1].status, "failed");
   assert.equal(h.db.find((r) => r.id === "parent")!.status, "failed");
   await assert.rejects(() => h.resolve(h.sb, "owner", "child", true), /Nothing is waiting/);
+});
+
+test("approval tracking clears when resolvePending throws mid-way (the action record can't be saved)", async () => {
+  const h = approvalHarness([task("t", null, "awaiting_approval", [{ tool: "save_memory", input: {}, status: "pending" }])]);
+  let seen = "", down = false;
+  const from = h.sb.from.bind(h.sb);
+  const failing: any = new Proxy({}, { get: (_t, k) => (k === "then" ? (ok: (r: unknown) => void) => Promise.resolve({ data: null, error: { message: "db down" } }).then(ok) : () => failing) });
+  (h.sb as any).from = (t: string) => (down ? failing : from(t)); // the database goes away after the action ran
+  h.tools.save_memory.run = async () => { seen = h.exec("t", h.db[0].started_at); down = true; return "ok"; };
+  await assert.rejects(() => h.resolve(h.sb, "owner", "t", true), /record could not be saved/);
+  assert.equal(seen, "active");
+  assert.equal(h.exec("t", h.db[0].started_at), "unknown", "tracking cleared after the error");
 });
 
 test("approval of a keyed write refuses while 0023_attempt_ids is missing (stays pending) and runs once it is applied", async () => {

@@ -163,6 +163,12 @@ test("30 scorecard rows can't push a real approval off the card: filtered before
   }
   const many = await getContinueWork(db({ tasks: [...evalRows(70, true), approval], goals: [] }, { origin: false }), "u1", () => "active");
   assert.deepEqual(many.items.map((x) => x.id), ["mine"], "found on the third page");
+  assert.deepEqual(many.problems, [], "the scan finished: nothing left unchecked");
+  // past the 150-row scan limit: the card says some tasks weren't checked, never "caught up"
+  const deep = await getContinueWork(db({ tasks: [...evalRows(160, true), { ...approval, created_at: ts(200) }], goals: [] }, { origin: false }), "u1", () => "active");
+  assert.deepEqual(deep.items, []);
+  assert.deepEqual(deep.problems, ["Some older tasks weren't checked."]);
+
 });
 
 test("a newer 'done' run only clears an earlier failure when its receipt doesn't say it failed", async () => {
