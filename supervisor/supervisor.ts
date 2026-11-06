@@ -58,14 +58,16 @@ const P = {
   ctl: path.join(HOME, "ctl"), // owner commands (admin-only folder): clear / resume / pause / stop / restore for the running watcher
 };
 
-const cfg: Config = JSON.parse(readFileSync(P.config, "utf8"));
+// Windows PowerShell 5.1 writes UTF-8 with a byte-order mark (Set-Content -Encoding UTF8); JSON.parse rejects it.
+const readJsonFile = (f: string) => JSON.parse(readFileSync(f, "utf8").replace(/^\uFEFF/, ""));
+const cfg: Config = readJsonFile(P.config);
 const policy: Policy = { ...DEFAULT_POLICY, ...cfg.policy };
 const now = () => new Date().toISOString();
 const log = (m: string) => console.log(`${now()} [supervisor] ${redact(m)}`);
 const audit = (event: string, data: Record<string, unknown> = {}) => appendAudit(P.audit, event, JSON.parse(redact(JSON.stringify(data))));
 
 function load(): State {
-  try { return JSON.parse(readFileSync(P.state, "utf8")) as State; }
+  try { return readJsonFile(P.state) as State; }
   catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; // a damaged state file stops the supervisor; it never starts fresh over it
     return { released: null, retained: [], current: null, history: [], paused: false, halted: null, day: { day: utcDay(Date.now()), releases: 0, costUsd: 0 } };
@@ -173,7 +175,7 @@ function backupData(id: string) {
 /** Files in the data folders that differ from the pre-install backup: what the failed release wrote (or the app wrote meanwhile). */
 function dataWrittenSince(id: string): string[] {
   try {
-    const m = JSON.parse(readFileSync(path.join(relDir(id), "data-manifest.json"), "utf8")) as { paths: string[]; hashes?: Record<string, string>[] };
+    const m = readJsonFile(path.join(relDir(id), "data-manifest.json")) as { paths: string[]; hashes?: Record<string, string>[] };
     const out: string[] = [];
     m.paths.forEach((src, i) => {
       const was = m.hashes?.[i] ?? {}, now_ = hashTree(src);
@@ -268,7 +270,7 @@ async function monitor(commit: string, r: Release | null): Promise<string[]> {
 // ---------- the release pipeline ----------
 function readSubmission(file: string): Submission | string {
   try {
-    const s = JSON.parse(readFileSync(file, "utf8"));
+    const s = readJsonFile(file);
     return submissionProblem(s) ?? s;
   } catch (e) { return `unreadable: ${e instanceof Error ? e.message : e}`; }
 }
@@ -485,7 +487,7 @@ function takeControls(dir: string): { f: string; c: { action?: string; releaseId
     try {
       if (!lstatSync(file).isFile()) { rmSync(file, { recursive: true, force: true }); audit("control.ignored", { file: f, action: "not a plain file" }); continue; }
       let c = {};
-      try { c = JSON.parse(readFileSync(file, "utf8")); } catch { /* ignored below */ }
+      try { c = readJsonFile(file); } catch { /* ignored below */ }
       rmSync(file, { force: true });
       out.push({ f, c });
     } catch (e) { log(`control ${f} unreadable: ${e instanceof Error ? e.message : e}`); }
@@ -608,7 +610,7 @@ async function main() {
       } else { lock(); await ownerCommand(s, cmd, arg); }
       break;
     case "verify-audit": { const b = verifyAudit(readAudit(P.audit)); console.log(b ? `BROKEN at line ${b}` : "audit chain intact"); process.exitCode = b ? 1 : 0; break; }
-    default: publish(s); console.log(JSON.stringify(JSON.parse(readFileSync(path.join(P.pub, "status.json"), "utf8")), null, 1));
+    default: publish(s); console.log(JSON.stringify(readJsonFile(path.join(P.pub, "status.json")), null, 1));
   }
 }
 main().catch((e) => { log(`fatal: ${e instanceof Error ? e.stack : e}`); process.exit(1); });

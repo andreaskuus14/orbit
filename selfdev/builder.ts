@@ -33,7 +33,9 @@ type State = {
 };
 
 const HOME = path.resolve(process.env.ORBIT_SELFDEV_HOME || path.join(process.env.LOCALAPPDATA || path.join(process.env.HOME || ".", ".local", "share"), "orbit-selfdev"));
-const cfg: Config = JSON.parse(readFileSync(path.join(HOME, "config.json"), "utf8"));
+// Windows PowerShell 5.1 writes UTF-8 with a byte-order mark (Set-Content -Encoding UTF8); JSON.parse rejects it.
+const readJsonFile = (f: string) => JSON.parse(readFileSync(f, "utf8").replace(/^\uFEFF/, ""));
+const cfg: Config = readJsonFile(path.join(HOME, "config.json"));
 const F = { state: path.join(HOME, "state.json"), lock: path.join(HOME, "builder.lock"), stop: path.join(HOME, "STOP"), log: path.join(HOME, "builder.log") };
 const SUP = { inbox: path.join(cfg.supervisorHome, "inbox"), status: path.join(cfg.supervisorHome, "public", "status.json") };
 const now = () => new Date().toISOString();
@@ -42,7 +44,7 @@ const ENV_KEEP = /^(PATH|Path|PATHEXT|HOME|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP
 function log(m: string) { const l = `${now()} [builder] ${redact(m)}`; console.log(l); try { appendFileSync(F.log, l + "\n"); } catch { /* best effort */ } }
 
 function load(): State {
-  try { return JSON.parse(readFileSync(F.state, "utf8")); }
+  try { return readJsonFile(F.state); }
   catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; // damaged state: stop rather than start over and redo work
     return { task: null, history: [], attempts: {}, decisions: [], logOffset: -1, mainTested: null, day: { day: today(), costUsd: 0 } };
@@ -61,7 +63,7 @@ const git = (args: string[], cwd = cfg.repoDir) => { const r = run(["git", ...ar
 
 type SupStatus = { stopped: boolean; orbitStopAll?: boolean; paused: boolean; halted: string | null; blocked: string | null; current: { id: string } | null; queued: string[];
   history: { id: string; step: string; reason?: string; pr?: string }[]; released: { commit: string } | null };
-function supStatus(): SupStatus | null { try { return JSON.parse(readFileSync(SUP.status, "utf8")); } catch { return null; } }
+function supStatus(): SupStatus | null { try { return readJsonFile(SUP.status); } catch { return null; } }
 
 // ---------- observe ----------
 function newLog(s: State): string {
@@ -74,7 +76,7 @@ function newLog(s: State): string {
   s.logOffset = size;
   return redact(buf.toString("utf8"));
 }
-function readJson<T>(f: string | null, fallback: T): T { try { return f ? JSON.parse(readFileSync(f, "utf8")) : fallback; } catch { return fallback; } }
+function readJson<T>(f: string | null, fallback: T): T { try { return f ? readJsonFile(f) : fallback; } catch { return fallback; } }
 
 // upstream = the supervisor's mirror (the builder may read it, not write it): its main includes the supervisor's revert commits.
 function freshMain() {
