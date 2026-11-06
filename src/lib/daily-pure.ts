@@ -80,7 +80,7 @@ export function clipsState(jobs: ClipJobIn[], now: number): DailyItem {
 // slot: the automation's latest due time (pure.ts lastDue); next: its next due time when that is later today; grace: how long
 // automations.ts still fires it after the slot (3 h, or 30 min for hourly).
 // createdAt: automations.ts never fires a slot from before the automation existed
-export type LeadsIn = { automation: { enabled: boolean; slot: number; next: number | null; grace: number; label: string; createdAt?: string } | null; tasks: { status: string; created_at: string; started_at?: string | null; error?: string | null; pending: unknown; receipt: string | null }[] };
+export type LeadsIn = { automation: { enabled: boolean; slot: number; next: number | null; grace: number; label: string; createdAt?: string } | null; tasks: { status: string; created_at: string; started_at?: string | null; error?: string | null; pending: unknown; receipt: string | null; exec?: "active" | "restart" | "unknown" }[] };
 
 /** The business loop's latest run since its last due slot (tasks: since that slot, newest first). Follows the real schedule, so a
  *  weekly loop isn't "missed" on the other six days. */
@@ -96,7 +96,9 @@ export function leadsState(x: LeadsIn, now: number): DailyItem {
     return { wf: "leads", state: "missed", verified: false, evidence: `no run recorded after its ${new Date(a.slot).toISOString().slice(0, 10)} ${hm(new Date(a.slot).toISOString())} slot (${a.label})`, next: "ORBIT or its scheduler was off at that time, or Claude's usage limit held it." };
   }
   const since = t.started_at ?? t.created_at;
-  if (t.status === "running" && now - Date.parse(since) > RUN_STALE_MS) return { wf: "leads", state: "uncertain", verified: false, evidence: `"running" since ${hm(since)} with no end; ORBIT may have restarted mid-run`, next: "Open Agents: it's marked failed there after 20 min, then run it again." };
+  // execution evidence (agents.ts taskExecution), not age: a long run whose worker is alive stays "running"
+  if (t.status === "running" && t.exec && t.exec !== "active") return { wf: "leads", state: "uncertain", verified: false,
+    evidence: t.exec === "restart" ? `started ${hm(since)}, before ORBIT restarted; being marked interrupted` : `marked running since ${hm(since)}, but no worker in ORBIT is running it`, next: "Open the run in Agents to see what finished, then run it again." };
   if (t.status === "queued" || t.status === "running") return { wf: "leads", state: "attempted", verified: false, evidence: `${t.status} since ${hm(since)}` };
   if (t.status === "awaiting_approval") return { wf: "leads", state: "waiting", verified: false, evidence: "a lead waits for your approval", next: "Approve or reject it in Agents; the email is a second, separate approval." };
   if (t.status === "cancelled" && /rejected/i.test(t.error ?? "")) return { wf: "leads", state: "completed", verified: false, evidence: "you rejected what it proposed" }; // his decision, not a failure

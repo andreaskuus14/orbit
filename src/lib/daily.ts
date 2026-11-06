@@ -31,7 +31,7 @@ async function clips(now: number) {
   return clipsState(await listJobs(), now);
 }
 
-async function leads(sb: SupabaseClient, userId: string, now: number) {
+async function leads(sb: SupabaseClient, userId: string, now: number, exec: Exec) {
   const { data: autos, error } = await sb.from("automations").select("id, name, enabled, trigger, schedule, prompt, created_at").eq("user_id", userId);
   if (error) throw error;
   // matched by the template's name or its first line, so a renamed copy still counts; an enabled scheduled copy wins over a paused one
@@ -44,21 +44,25 @@ async function leads(sb: SupabaseClient, userId: string, now: number) {
   const later = s.every === "hour" ? null : lastDue(s, new Date(slotAt(now, "23:59"))).getTime(); // its slot today, if any
   const next = later !== null && later > now ? later : null;
   const since = next !== null ? startOfDay(now) : new Date(slot).toISOString(); // a run still due today: earlier runs don't count
-  const { data: tasks, error: te } = await sb.from("tasks").select("title, request, status, error, pending, trace, created_at, started_at")
+  const { data: tasks, error: te } = await sb.from("tasks").select("id, title, request, status, error, pending, trace, created_at, started_at")
     .eq("user_id", userId).eq("automation_id", a.id).is("parent_id", null).gte("created_at", since).order("created_at", { ascending: false }).limit(3);
   if (te) throw te;
   return leadsState({
     automation: { enabled: a.enabled, slot, next, grace: (s.every === "hour" ? 0.5 : 3) * 3600_000, label: describeTrigger({ trigger: "schedule", schedule: s, event: null, kind_filter: null }), createdAt: a.created_at }, // grace: automations.ts automationDue
-    tasks: (tasks ?? []).map((t) => ({ status: t.status, created_at: t.created_at, started_at: t.started_at, error: t.error, pending: t.pending, receipt: rowReceipt(t)?.status ?? null })),
+    tasks: (tasks ?? []).map((t) => ({ status: t.status, created_at: t.created_at, started_at: t.started_at, error: t.error, pending: t.pending, receipt: rowReceipt(t)?.status ?? null,
+      ...(t.status === "running" ? { exec: exec(t.id, t.started_at) } : {}) })),
   }, now);
 }
 
-/** Today's three workflows. A workflow whose records can't be read is "uncertain", never skipped. */
-export async function dailyRuns(sb: SupabaseClient, userId: string, now = Date.now()): Promise<DailyView> {
+type Exec = (id: string, startedAt: string | null | undefined) => "active" | "restart" | "unknown";
+/** Today's three workflows. A workflow whose records can't be read is "uncertain", never skipped. `exec`: execution evidence
+ *  for running tasks (agents.ts taskExecution; tests pass their own). */
+export async function dailyRuns(sb: SupabaseClient, userId: string, now = Date.now(), exec?: Exec): Promise<DailyView> {
+  const ev: Exec = exec ?? (await import("./agents").then((m) => m.taskExecution, () => () => "unknown" as const));
   const items = await Promise.all([
     brief(sb, userId, now).catch((e) => failed("brief", e)),
     clips(now).catch((e) => failed("clips", e)),
-    leads(sb, userId, now).catch((e) => failed("leads", e)),
+    leads(sb, userId, now, ev).catch((e) => failed("leads", e)),
   ]);
   return { day: localDay(new Date(now)), items };
 }

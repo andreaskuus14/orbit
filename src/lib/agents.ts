@@ -15,6 +15,7 @@ import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
 import { PAUSED_MSG } from "./stop-all-pure";
 import { attemptId, attemptTag, completionState, INTERRUPTED, interruptedPatch, startedBeforeBoot, type WriteEvidence } from "./completion-pure";
+import { bgTurnActive } from "./bg-resume";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
 import { MigrationBlocked, refuse, requireMigration } from "./migration-guard";
 import { verifyRow } from "./completion";
@@ -678,6 +679,15 @@ async function reclaimInterrupted(sb: SupabaseClient, userId: string) {
     const { error: updateError } = await sb.from("tasks").update(interruptedPatch(t.pending, INTERRUPTED)).eq("user_id", userId).eq("id", t.id).eq("status", "running").lt("started_at", new Date(BOOT).toISOString());
     if (updateError) throw updateError;
   }
+}
+
+/** Execution evidence for a task marked "running": active = a worker in this process runs it (agent task, claimed, or a
+ *  background CORE turn); restart = it started before this process booted, so nothing can still be running it (the scheduler's
+ *  kickQueue → reclaimInterrupted marks it interrupted, no screen needed); unknown = started in this process but no worker found,
+ *  e.g. an approved action finishing in resolvePending. Age alone never decides: a long task stays active while its worker runs. */
+export function taskExecution(id: string, startedAt: string | null | undefined): "active" | "restart" | "unknown" {
+  if (running.has(id) || live.has(id) || handoff.has(id) || bgTurnActive(id)) return "active";
+  return startedBeforeBoot(startedAt ?? null, BOOT) ? "restart" : "unknown";
 }
 
 export async function kickQueue(sb: SupabaseClient, userId: string) {

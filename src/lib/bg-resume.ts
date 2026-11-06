@@ -10,6 +10,8 @@ import { parseBgTurn, resumeContext, resumeHistory, resumePlan, type BgTurn } fr
 const LEASE_MS = 3 * 60_000, RENEW_MS = 60_000; // a dead process's lease frees within 3 minutes
 const g = globalThis as unknown as { __orbitBgTurns?: Set<string>; __orbitBgGaveUp?: Set<string> };
 const active = (g.__orbitBgTurns ??= new Set()); // turns this process runs (its own lease would look free to it)
+/** Execution evidence: a background CORE turn for this task runs in this process right now. */
+export const bgTurnActive = (taskId: string) => active.has(taskId);
 // finished here, but the record couldn't be deleted (Windows lock, read-only file): don't resume it again every tick
 const gaveUp = (g.__orbitBgGaveUp ??= new Set());
 const dir = () => path.join(orbitDataDir(), "bg-turns");
