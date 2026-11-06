@@ -652,6 +652,8 @@ async function settleParents(sb: SupabaseClient, userId: string, parentId: strin
 
 /** Ids of tasks (and team chains) running in this process: Stop-all cancels each through cancelTask. */
 export const liveTaskIds = () => [...live.keys()];
+/** A background CORE turn (core-turn.ts finishBackground) registers here, so Cancel and Stop-all abort it like any running task. */
+export const trackLive = (taskId: string, ac: AbortController) => { live.set(taskId, ac); return () => { if (live.get(taskId) === ac) live.delete(taskId); }; };
 
 /** Stop a task. Running here: abort it (runTask marks it and its sub-tasks cancelled and reports what finished).
  *  Otherwise only a queued task, or a running one orphaned by a restart (20+ min), is marked cancelled. False if nothing to cancel. */

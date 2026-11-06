@@ -285,6 +285,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const clips = (budget.clips ??= createClipStore()); // carried across a handoff like budget.done, so read_more refs in its steps stay valid
   // Same tool + same input in one task (incl. after a handoff) reuses the result instead of running again (core-steps-pure.ts).
   const exec = async (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator = false) => {
+    signal?.throwIfAborted(); // Stop / Cancel / Stop-all: no tool runs after the turn was stopped (every engine runs tools through here)
     const hit = budget.done.get(callKey(tool, input));
     if (hit !== undefined) return reused(hit);
     const out = clips.clip(await execRaw(tool, input, evidence, operator));
