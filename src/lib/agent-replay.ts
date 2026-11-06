@@ -61,7 +61,8 @@ export async function runScorecard(sb: SupabaseClient, userId: string, trigger: 
       try {
         // origin marks it as an evaluation, kept out of "Continue my work" (migration 0025). Before 0025 the row goes in without it;
         // the inbox still recognises it by its exact case (agent, title and request).
-        const row0 = { user_id: userId, agent: c.agent, title: `Scorecard: ${c.title}`, request: c.request };
+        // Inserted "running", never "queued": kickQueue could otherwise start it first (as night.ts, goals.ts).
+        const row0 = { user_id: userId, agent: c.agent, title: `Scorecard: ${c.title}`, request: c.request, status: "running", started_at: new Date().toISOString() };
         let ins = await sb.from("tasks").insert({ ...row0, origin: "scorecard" }).select("id").single();
         if (ins.error && (ins.error.code === "42703" || ins.error.code === "PGRST204")) ins = await sb.from("tasks").insert(row0).select("id").single();
         const { data: task, error } = ins;
