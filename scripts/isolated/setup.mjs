@@ -34,7 +34,12 @@ const email = "orbit-test@example.test", password = randomBytes(12).toString("he
 const r = await fetch(`${apiUrl}/auth/v1/admin/users`, { method: "POST", headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}`, "content-type": "application/json" },
   body: JSON.stringify({ email, password, email_confirm: true }) });
 const user = await r.json();
-if (!r.ok && !/already/i.test(JSON.stringify(user))) die(`creating the test user: ${r.status} ${JSON.stringify(user)}`);
+if (!r.ok) { // a rerun keeps the stack's data: the user exists, so give it this run's password
+  if (!/already/i.test(JSON.stringify(user))) die(`creating the test user: ${r.status} ${JSON.stringify(user)}`);
+  const id = L.sql(`select id from auth.users where email='${email}'`);
+  const u = await fetch(`${apiUrl}/auth/v1/admin/users/${id}`, { method: "PUT", headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}`, "content-type": "application/json" }, body: JSON.stringify({ password }) });
+  if (!u.ok) die(`resetting the test user's password: ${u.status} ${await u.text()}`);
+}
 writeFileSync(path.join(L.DIR, "env.json"), JSON.stringify({ apiUrl, anonKey, serviceKey, email, password, remoteSecret: randomBytes(32).toString("hex") }, null, 1));
 
 console.log("setup: building this checkout into .next-isolated with test values only…");
