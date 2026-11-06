@@ -236,7 +236,7 @@ export default function Probe() {
   Restart-Supervisor; Start-Sleep 10
   Check ((Status).blocked -eq "ORBIT Stop-all is on" -and (Test-Path "$sup\inbox\ci-e.json") -and (Health).commit -eq $D) "still held after a supervisor restart"
   Remove-Item "$live\.next-supervisor-old" -Recurse -Force -ErrorAction SilentlyContinue # only this release's swap may create it
-  Stop-Process -Id $sl.Id -Force; Start-Sleep 2; Remove-Item "$data\stop-all.json"
+  Stop-Process -Id $sl.Id -Force -ErrorAction SilentlyContinue; Start-Sleep 2; Remove-Item "$data\stop-all.json"
 
   Step "installation interrupted (install task killed mid-swap): previous version recovered"
   $old = "$live\.next-supervisor-old"; $t0 = Get-Date
