@@ -10,6 +10,7 @@ import type { systemHealthView } from "@/lib/system-health";
 import { incidentTitle, type SvcState } from "@/lib/system-health-pure";
 import { capNone, capRow, capTitle, type Missing } from "@/lib/capability-pure";
 import type { PatchResult } from "@/lib/self-improve-patch-pure";
+import { SelfDevCard } from "./SelfDevCard";
 import { stoppedText } from "@/lib/night-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { useDialogFocus } from "./useDialogFocus";
@@ -288,6 +289,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
             {report.system && <SystemCard sys={report.system} onAck={ack} />}
             {report.health && <HealthCard health={report.health} />}
             {report.improve && <ImproveCard improve={report.improve} />}
+            <SelfDevCard />
             {report.selfEval && <SelfEvalCard ev={report.selfEval} />}
             {report.outcome && <OutcomeCard o={report.outcome} />}
             <p className="muted mt-3 text-[10px]">{t("doc.checkedIn", { s: (report.ms / 1000).toFixed(1), at: new Date(report.at).toLocaleTimeString() })}</p>
