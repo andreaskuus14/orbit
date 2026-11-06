@@ -1,4 +1,5 @@
 import { authorizeApproval } from "../authority";
+import { importWithoutExitHandlers } from "../crash-guard";
 import { randomBytes } from "node:crypto";
 import { spendContent } from "../approval-pure";
 import { mkdir, readdir, rm } from "node:fs/promises";
@@ -38,7 +39,7 @@ const g = globalThis as unknown as { __orbitStory?: S };
 const S = (g.__orbitStory ??= {});
 /** Kokoro-82M on the CPU, loaded once per process (story narration and voice calls share it). */
 export function kokoroTts(): Promise<Kokoro> {
-  const tts = (S.tts ??= import("kokoro-js").then((m) => m.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" })) as Promise<Kokoro>);
+  const tts = (S.tts ??= importWithoutExitHandlers(() => import("kokoro-js")).then((m) => m.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" })) as Promise<Kokoro>);
   tts.catch(() => { if (S.tts === tts) S.tts = undefined; }); // let a later call retry the load
   return tts;
 }

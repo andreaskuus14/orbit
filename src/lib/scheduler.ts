@@ -8,6 +8,7 @@ import { dueSlots, type BriefingKind } from "./pure";
 import { generateProposals, proposalsDue } from "./proactive";
 import { maybeBackup } from "./backup";
 import { stopAllOn } from "./stop-all";
+import { asJob } from "./crash-guard";
 import { usageHold, usageLimited } from "./usage-meter";
 import { maybeSleep } from "./sleep";
 import { maybeWeeklyScout } from "./niche";
@@ -60,7 +61,7 @@ async function tick(sb: SupabaseClient) {
       }
       for (const kind of dueSlots(new Date(), last)) {
         console.log(`[orbit] scheduled ${kind} briefing starting`);
-        await runPulse(sb, id, kind).then(
+        await asJob(`briefing:${kind}`, () => runPulse(sb, id, kind)).then(
           (r) => console.log(`[orbit] ${kind} briefing ready (${r.briefing.article_count} articles)`),
           (e) => console.error(`[orbit] ${kind} briefing failed:`, e instanceof Error ? e.message : e),
         );
