@@ -88,6 +88,9 @@ async function openTask(page, id) {
   await page.getByRole("button", { name: "← All tasks" }).waitFor({ timeout: 30000 });
   await sleep(800);
 }
+/** Clicks the real button once it's visible, without Playwright's wait for the page to settle afterwards (ORBIT's live panels
+ *  keep re-rendering, which made that wait flaky). */
+async function press(locator) { await locator.first().waitFor({ state: "visible", timeout: 30000 }); await locator.first().evaluate((b) => b.click()); }
 const calls = (title) => { try { return fs.readFileSync(FAKE_LOG, "utf8").split("\n").filter((l) => l.includes(" start ") && l.includes(`TASK: ${title}`)).length; } catch { return 0; } };
 const fakeRunning = () => { try { return execFileSync("pgrep", ["-fc", "scripts/isolated/fake-claude"], { encoding: "utf8" }).trim() | 0; } catch { return 0; } };
 let failed = 0;
@@ -95,4 +98,4 @@ const ok = (name, cond, detail = "") => { if (!cond) failed++; console.log(`${co
 const failures = () => failed;
 const tag = () => Date.now().toString(36);
 
-module.exports = { ROOT, DIR, BASE, PROJECT, FAKE_LOG, conf, serverEnv, sql, psqlSession, sleep, until, up, start, stop, restart, session, api, makeTask, task, openTask, calls, fakeRunning, ok, failures, tag };
+module.exports = { press, ROOT, DIR, BASE, PROJECT, FAKE_LOG, conf, serverEnv, sql, psqlSession, sleep, until, up, start, stop, restart, session, api, makeTask, task, openTask, calls, fakeRunning, ok, failures, tag };

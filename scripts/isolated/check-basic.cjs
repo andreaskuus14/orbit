@@ -10,8 +10,8 @@ const L = require("./lib.cjs");
   L.ok("retry: the task fails first", !!await L.until(() => L.task(idR).status === "failed"), L.task(idR).error.slice(0, 60));
   await L.openTask(page, idR);
   const retry = page.getByRole("button", { name: "Retry", exact: true });
-  await retry.click();
-  await retry.click({ timeout: 1500 }).catch(() => {}); // a fast double click
+  await L.press(retry);
+  await retry.first().evaluate((b) => b.click()).catch(() => {}); // a fast double click (the button may be gone already)
   await L.until(() => L.task(idR).status === "running", 10000, 200);
   const second = await L.api(page, `/api/tasks/${idR}`, { action: "retry" }); // another tab, while the retry runs
   L.ok("retry: a second Retry while it runs is refused", second.status >= 400, `→ ${second.status} ${JSON.stringify(second.json).slice(0, 90)}`);
@@ -25,7 +25,7 @@ const L = require("./lib.cjs");
   const cancel = page.getByRole("button", { name: "Cancel task" });
   await cancel.waitFor();
   const before = L.fakeRunning(), t0 = Date.now();
-  await cancel.click();
+  await L.press(cancel);
   const done = await L.until(() => L.task(idC).status === "cancelled", 15000, 100);
   L.ok("cancel: the running task is cancelled", !!done, `${((Date.now() - t0) / 1000).toFixed(1)} s after the click`);
   await L.sleep(1000);
@@ -36,7 +36,7 @@ const L = require("./lib.cjs");
   const tA = `StopAll A ${t}`, tB = `StopAll B ${t}`;
   const idA = await L.makeTask(page, tA, "[slow:90] stop-all a"), idB = await L.makeTask(page, tB, "[slow:90] stop-all b");
   await L.until(() => L.calls(tA) && L.calls(tB), 20000);
-  await page.getByRole("button", { name: /stop all|stop-all/i }).first().click(); // the 🛑 chip (its confirm is accepted)
+  await L.press(page.getByRole("button", { name: /stop all|stop-all/i })); // the 🛑 chip (its confirm is accepted)
   const stopped = await L.until(() => L.task(idA).status === "cancelled" && L.task(idB).status === "cancelled", 15000, 200);
   L.ok("stop-all: both running tasks are cancelled", !!stopped, `${L.task(idA).status}/${L.task(idB).status}`);
   const tN = `StopAll new ${t}`, idN = await L.makeTask(page, tN, "after stop-all");
@@ -45,7 +45,7 @@ const L = require("./lib.cjs");
   const ret = await L.api(page, `/api/tasks/${idA}`, { action: "retry" });
   await L.sleep(3000);
   L.ok("stop-all: Retry doesn't run anything while it's on (it only queues)", L.calls(tA) === 1, `retry → ${ret.status}, status=${L.task(idA).status}, calls=${L.calls(tA)}`);
-  await page.getByRole("button", { name: "Resume" }).first().click();
+  await L.press(page.getByRole("button", { name: "Resume" }));
   await L.until(() => L.calls(tN) >= 1, 90000);
   L.ok("stop-all: Resume starts the queued task", L.calls(tN) >= 1, `status=${L.task(idN).status}`);
   await browser.close();

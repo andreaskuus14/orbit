@@ -23,7 +23,7 @@ async function restartRecovery() {
   L.ok("restart: a task running at the crash is marked interrupted, not left running", s?.status === "failed", `${s?.status}: ${(s?.error ?? "").slice(0, 80)}`);
   await L.openTask(page, id);
   L.ok("restart: the task view says ORBIT restarted", /restart/i.test(await text(page)));
-  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await L.press(page.getByRole("button", { name: "Retry", exact: true }));
   await L.until(() => L.task(id).status === "done", 150000, 1000);
   L.ok("restart: Retry re-runs it once", L.task(id).status === "done" && L.calls(title) === 2, `calls=${L.calls(title)}`);
   await browser.close();
@@ -54,7 +54,7 @@ async function interruptedAction(variant) {
   L.ok(`${variant}: the task view says it may or may not have happened`, /may or may not have happened/i.test(await text(page)));
   const whole = await L.api(page, `/api/tasks/${id}`, { action: "retry" });
   L.ok(`${variant}: re-running the whole agent task is refused`, whole.status >= 400, `→ ${whole.status}`);
-  await page.getByRole("button", { name: /^Resume/ }).first().click(); // approve this step again: same attempt id
+  await L.press(page.getByRole("button", { name: /^Resume/ })); // approve this step again: same attempt id
   await L.until(() => !["running", "awaiting_approval"].includes(L.task(id).status), 30000);
   const again = await L.api(page, `/api/tasks/${id}`, { action: "resume" }); // a second recovery click (other tab)
   await L.sleep(2000);
