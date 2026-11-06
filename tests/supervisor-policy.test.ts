@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -151,6 +151,9 @@ test("the builder can't approve itself: every way to weaken CI, the gate or the 
     ["builder", "selfdev/builder.ts"],
     ["rules file", "AGENTS.md"],
     ["health signal", "src/app/api/health/route.ts"],
+    ["code eval:ai loads in-process", "src/lib/memory-retrieval-pure.ts"],
+    ["code eval:ai loads in-process, other case", "src/lib/Pure.ts"],
+    ["typechecking switched off", "src/lib/pagewatch-pure.ts", { patch: "diff --git a/src/lib/pagewatch-pure.ts b/src/lib/pagewatch-pure.ts\n--- a/src/lib/pagewatch-pure.ts\n+++ b/src/lib/pagewatch-pure.ts\n@@ -1 +1 @@\n+// @ts-nocheck\n" }],
     ["trailing-dot alias", "src/app/api/health./route.ts"],
     ["alternate data stream", "src/lib/x.ts:hidden"],
     ["link into a protected folder", "src/link", { status: "A", mode: "120000" }],
@@ -162,4 +165,22 @@ test("the builder can't approve itself: every way to weaken CI, the gate or the 
   // Legitimate work still passes: a src change with its test, and a new fixture.
   assert.deepEqual(refused("src/lib/pagewatch-pure.ts"), []);
   assert.deepEqual(refused("tests/fixtures/new-page.html", { status: "A" }), []);
+});
+
+test("every file eval:ai loads into its own process is protected from unattended release", () => {
+  // The eval runs the code it measures in-process; a release that changed that code could make the required check pass.
+  const seen = new Set<string>(), queue = ["scripts/ai-scorecard.ts"];
+  while (queue.length) {
+    const f = queue.pop()!;
+    if (seen.has(f)) continue;
+    seen.add(f);
+    for (const m of readFileSync(f, "utf8").matchAll(/(?:from|import)\s*\(?\s*["'](\.{1,2}\/[^"']+|@\/[^"']+)["']/g)) {
+      const spec = m[1].startsWith("@/") ? path.join("src", m[1].slice(2)) : path.join(path.dirname(f), m[1]);
+      const file = [spec, `${spec}.ts`, `${spec}.tsx`].find((c) => existsSync(c) && statSync(c).isFile());
+      assert.ok(file, `${f} imports ${m[1]}, which wasn't found`);
+      queue.push(file);
+    }
+  }
+  const open = [...seen].filter((f) => !policyViolations([{ path: f, added: 1, removed: 0 }], P).length);
+  assert.deepEqual(open, [], "add these to the policy's deny list");
 });

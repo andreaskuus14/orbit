@@ -100,3 +100,14 @@ export function missingRegressionTest(source: Source, numstat: { path: string }[
 export const touchesUi = (numstat: { path: string }[]) => numstat.some((c) => /\.(tsx|css)$/.test(c.path));
 
 export type TaskStep = "selected" | "prepared" | "edited" | "verified" | "submitted" | "done";
+
+/** Hold the builder? It can't read ORBIT's data folder, so Stop-all reaches it through the supervisor's status. A missing or stale
+ *  status (supervisor not running, or busy for longer than `maxAgeMs`) holds too: a Stop-all switched on meanwhile wouldn't show. */
+export function supervisorHolds(st: { stopped?: boolean; orbitStopAll?: boolean; at?: string } | null, now: number, maxAgeMs = 5 * 60_000): string | null {
+  if (!st) return "no supervisor status";
+  if (st.stopped) return "supervisor emergency stop";
+  if (st.orbitStopAll !== false) return "ORBIT Stop-all is on (or unknown)";
+  const age = now - Date.parse(st.at ?? "");
+  if (!(age >= -60_000 && age <= maxAgeMs)) return "supervisor status is stale";
+  return null;
+}
