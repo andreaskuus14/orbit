@@ -17,7 +17,7 @@ import { ruleBlocked } from "./rules-pure.ts";
 import { watchBlocked } from "./pagewatch-pure.ts";
 import { AREA_INFO, autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
 import { et } from "./et-ask-pure.ts";
-import { createdLeads, isOpsTool, opsBlocked } from "./core-operator-pure.ts";
+import { createdLeads, isOpsTool, opsAsked, opsBlocked } from "./core-operator-pure.ts";
 import { outboundLeak, outgoing, privateResults } from "./outbound-pure.ts";
 import { isPluginTool, outsideIn, pluginDecision, type Gate } from "./plugins-pure.ts";
 
@@ -100,8 +100,9 @@ const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "local_tts", "local_
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
 // Includes every read tool whose own description calls its output third-party data: calendar invites, Idea Radar's video text,
 // shop offer titles, vault/workspace file text, git commit subjects, REA's target source.
-export const UNTRUSTED = ["browse", "fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes",
-  "calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "rea_read", "ws_read"];
+/** His own stores that hold other people's text (invites, video text, offer titles, files, commits, analysed code). */
+const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "rea_read", "ws_read"];
+export const UNTRUSTED = ["browse", "fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
 const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
@@ -128,9 +129,23 @@ export const OPERATOR_TOOLS: Record<string, Area> = {
   life_plan: "operator-organize", automation_create: "operator-organize", automation_pause: "operator-organize",
 };
 export const OPERATOR_REASON = "standing operator grant";
-export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "attach" | "steps" | "autonomy">): boolean {
+/** After reading his own stores the grant still applies when HIS typed message asks for this kind of action ("read my notes and
+ *  set a goal"): the read is his means, not the source of the instruction. Text inside the results never counts as asking. */
+const BUILD_ASKS: Record<string, RegExp> = { create_goal: /\bgoals?\b|eesmär/i, queue_tonight: /\btonight\b|öösel|täna öö/i, start_mission: /\bmissions?\b|missioon/i };
+function ownerAsked(tool: string, question: string): boolean {
+  const q = typedText(question);
+  if (/\b(?:don'?t|do not|never)\b/i.test(q)) return false;
+  if (tool === "ask_agent") return AGENT_ASK.test(q) || AGENT_ASK_ET.test(q);
+  if (tool === "save_memory") return asksToRemember(q);
+  if (isOpsTool(tool)) return opsAsked(tool, q);
+  return !!BUILD_ASKS[tool]?.test(q);
+}
+export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "attach" | "steps" | "autonomy"> & { question?: string }): boolean {
   const area = OPERATOR_TOOLS[tool];
-  if (!area || ctx.stopAll || ctx.attach || untrustedIn(ctx.steps, OWN_READS[tool])) return false;
+  if (!area || ctx.stopAll || ctx.attach) return false;
+  const own = OWN_READS[tool] ?? [];
+  if (untrustedIn(ctx.steps, [...own, ...STORED_OUTSIDE])) return false; // pages, news, agents, plugins: never, as before
+  if (called(ctx.steps, STORED_OUTSIDE.filter((t) => !own.includes(t))) && !ownerAsked(tool, ctx.question ?? "")) return false; // his stores: only when he asked
   const l = ctx.autonomy?.[area];
   return (l ?? AREA_INFO[area].def) === "do";
 }

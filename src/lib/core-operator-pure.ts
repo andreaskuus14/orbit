@@ -27,6 +27,8 @@ const ASK: Record<OpsTool, [RegExp, RegExp]> = {
   automation_create: [/\bautomat|\b(?:every|each) (?:hour|day|morning|evening|night|week|mon|tue|wed|thu|fri|sat|sun)/i, et("automaat|iga(?:l)? (?:tund|päev|hommik|õhtu|nädal|esmasp|teisip|kolmap|neljap|reede|laup|pühap)")],
   automation_pause: [/\b(?:pause|stop|disable|turn off|switch off|resume|enable|turn on|switch on|unpause)\b/i, et("peata|paus|lülita|jätka|luba")],
 };
+/** His own message asks for this kind of change (not a "don't"). */
+export const opsAsked = (tool: OpsTool, question: string) => { const q = question.toLowerCase(); return !(/\b(?:don'?t|do not|never|cancel)\b/.test(q) || ET_NOT.test(q)) && (ASK[tool][0].test(q) || ASK[tool][1].test(q)); };
 const TARGET: Partial<Record<OpsTool, string>> = { vault_rename: "name", vault_move: "name", lead_update: "lead", automation_pause: "automation" };
 
 /** The explicit-ask check (Profile → Autonomy "Operator: organize my data" at Ask, or outside text/attachments in context): the
