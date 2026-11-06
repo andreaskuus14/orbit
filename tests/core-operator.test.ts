@@ -19,7 +19,9 @@ test("each ORGANIZE tool runs under the default operator grant", () => {
   for (const tool of OPS_TOOLS) {
     const d = decide(tool, { name: "a.txt", to: "b.txt" }, ctx());
     assert.equal(d.allow, true, tool); assert.equal(d.reason, OPERATOR_REASON, tool); assert.equal(d.tier, "T2", tool);
-    assert.equal(decide(tool, {}, ctx({ steps: ['You called vault_search {"query":"x"}\nRESULT:\n- a.txt'] })).allow, true, `${tool} after his own data`);
+    assert.equal(decide(tool, {}, ctx({ steps: ['You called goal_status {}\nRESULT:\n2 goals'] })).allow, true, `${tool} after ORBIT's own records`);
+    // vault/file text can come from anyone's documents: after it, only the vault's own housekeeping keeps the grant
+    assert.equal(decide(tool, {}, ctx({ steps: ['You called vault_search {"query":"x"}\nRESULT:\n- a.txt'] })).allow, tool === "vault_move" || tool === "vault_rename", `${tool} after vault text`);
   }
 });
 

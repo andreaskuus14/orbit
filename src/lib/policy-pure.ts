@@ -98,7 +98,10 @@ const LINK_TOOLS = ["browse", "watch_add", "fetch_url", "read_news", "ask_agent"
 const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "local_tts", "local_image"]; // local_tts/local_image: journal/LIFE text never goes to a model, local ones included
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
-export const UNTRUSTED = ["browse", "fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes"];
+// Includes every read tool whose own description calls its output third-party data: calendar invites, Idea Radar's video text,
+// shop offer titles, vault/workspace file text, git commit subjects, REA's target source.
+export const UNTRUSTED = ["browse", "fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes",
+  "calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "rea_read", "ws_read"];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
 const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
@@ -111,7 +114,9 @@ export function agentBlocked(question: string, agent: unknown, untrusted: boolea
 
 const called = (steps: string[], tools: string[]) => steps.some((s) => tools.some((t) => s.startsWith(`You called ${t} `)));
 /** outside text in this answer: the untrusted tools above or any plugin's result (plugins-pure resultText) */
-const untrustedIn = (steps: string[]) => called(steps, UNTRUSTED) || steps.some((s) => s.startsWith("You called plugin__"));
+const untrustedIn = (steps: string[], except: readonly string[] = []) => called(steps, UNTRUSTED.filter((t) => !except.includes(t))) || steps.some((s) => s.startsWith("You called plugin__"));
+/** Reversible housekeeping on the vault's own files (undo snapshots) keeps its grant after reading those files. */
+const OWN_READS: Record<string, readonly string[]> = { vault_move: ["vault_read", "vault_search"], vault_rename: ["vault_read", "vault_search"] };
 const err = (s: string | null | undefined) => (s ? s.replace(/^Error: /, "") : "");
 
 // Operator mode (AGENTS.md rule 6, owner-granted 2026-10-30): with the category's Profile → Autonomy area at "do" (the default),
@@ -125,7 +130,7 @@ export const OPERATOR_TOOLS: Record<string, Area> = {
 export const OPERATOR_REASON = "standing operator grant";
 export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "attach" | "steps" | "autonomy">): boolean {
   const area = OPERATOR_TOOLS[tool];
-  if (!area || ctx.stopAll || ctx.attach || untrustedIn(ctx.steps)) return false;
+  if (!area || ctx.stopAll || ctx.attach || untrustedIn(ctx.steps, OWN_READS[tool])) return false;
   const l = ctx.autonomy?.[area];
   return (l ?? AREA_INFO[area].def) === "do";
 }
