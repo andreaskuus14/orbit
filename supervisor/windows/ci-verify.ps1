@@ -217,10 +217,10 @@ export default function Probe() {
   Restart-Supervisor; Start-Sleep 10
   Check ((Status).blocked -match "unattended releases are off" -and (Test-Path "$sup\inbox\ci-d.json") -and (& git -c safe.directory=* -C $origin rev-parse main).Trim() -eq $mainA) "still queued after a supervisor restart; main untouched"
 
-  # Killed during the install itself, the install is interrupted and rolled back (checked below); killed after it, while checking the new release, it must resume.
-  Step "supervisor killed and restarted while checking the installed release: release kept, merge/build/install not repeated"
+  # The supervisor's task stop kills its install child first; the restarted supervisor must redo the install, not roll back.
+  Step "supervisor killed and restarted while installing: release kept, merge/build/install not repeated"
   Set-Enabled $true; Restart-Supervisor
-  Check (WaitFor { (Status).current.id -eq "ci-d" -and (Status).current.step -eq "installed" } 2400 "release D installed") "release D installed and being checked"
+  Check (WaitFor { (Status).current.id -eq "ci-d" -and (Status).current.step -eq "installing" } 2400 "release D installing") "release D reached the install step"
   Restart-Supervisor
   $null = WaitFor { (Get-Release "ci-d") } 1800 "release D"
   $h = Get-Release "ci-d"
