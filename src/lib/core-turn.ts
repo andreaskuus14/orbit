@@ -23,6 +23,7 @@ import { checkpointPrompt, isContinue } from "@/lib/checkpoint-pure";
 import { chatQueue, onceById } from "@/lib/session-bound-pure";
 import { logActivity } from "@/lib/activity";
 import { stopAllOn } from "@/lib/stop-all";
+import { inlineTask } from "@/lib/task-claim-pure";
 import { receiptLine, type Receipt } from "@/lib/receipt-pure";
 import { evalMark, parseRunId } from "@/lib/eval-core-pure";
 import { evalRunId, inEvalRun } from "@/lib/eval-run";
@@ -191,7 +192,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
 /** Run a handed-off CORE turn as an OPERATIONS task: its answer lands in the chat, and agent.completed/failed gives the one notice. */
 async function inBackground(sb: SupabaseClient, userId: string, cid: string, message: string, trace: Parameters<typeof doneSoFar>[0], lang: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>): Promise<{ taskId: string; finished: Promise<{ answer: string } | null> }> {
   const run0 = evalRunId(), title = `CORE: ${run0 ? `${evalMark(run0)} ` : ""}${message.replace(/\s+/g, " ").trim().slice(0, 80)}`;
-  const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent: "nova", title, request: message, status: "running", started_at: new Date().toISOString() }).select("id").single();
+  const { data, error } = await sb.from("tasks").insert(inlineTask({ user_id: userId, agent: "nova", title, request: message }, Date.now())).select("id").single();
   if (error) throw error;
   const taskId: string = data.id;
   const rec = newBgTurn({ taskId, userId, chatId: cid, request: message, title, done: doneSoFar(trace), sessionId: coreSessionStore.get(cid)?.id, lang }, Date.now());

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { inlineTask } from "./task-claim-pure";
 import { askClaude, askClaudeStream, emit, warmClaude, recordUsage, reviewDraft, MODEL, FAST_MODEL, DEEP_MODEL, DEEP_EFFORT, type PromptImage } from "./claude";
 
 // Cleared once the local CLI rejects --effort, so later deep turns don't fail on it again (until a restart).
@@ -606,7 +607,7 @@ async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, inp
     if (!(await getAgent(sb, agent, userId))) return `Error: unknown agent "${agent}"`;
     const cap = await import("./capability").then((m) => m.capabilityStart(request, "en")); // CORE replies in the owner's language itself
     if (cap.block) return `Error: ${cap.block}`;
-    const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent, ...withHeadsUp(`CORE asked: ${request}`, request, cap.headsUp) }).select("id").single();
+    const { data, error } = await sb.from("tasks").insert(inlineTask({ user_id: userId, agent, ...withHeadsUp(`CORE asked: ${request}`, request, cap.headsUp) }, Date.now())).select("id").single(); // never "queued": kickQueue could start it first
     if (error) throw error;
     const out = await runTask(sb, userId, data.id, 1, undefined, signal); // CORE's Stop cancels this task and its sub-tasks
     if (out.status === "blocked") return `Error: ${out.error}`; // a missing database update: say exactly which
