@@ -78,13 +78,17 @@ setTimeout(() => { console.log("NOT STOPPED"); process.exit(0); }, 4000);`, { OR
 });
 
 test("phonemizer's handlers are real: loaded in the server's process they would end it on any error (why it lives in its own)", { timeout: 120_000 }, async () => {
-  const r = await run(`
-const { logCrashes } = await import("@/lib/crash-log"); logCrashes();
-await import("phonemizer");
+  // Next's own forgiving handler stands in for the server (ORBIT's crash-log sweep would remove phonemizer's depending on timing).
+  const server = (withPhonemizer: boolean) => run(`
+process.on("unhandledRejection", (e) => console.log("logged: " + e.message));
+${withPhonemizer ? 'await import("phonemizer");' : ""}
 setTimeout(() => Promise.reject(new Error("a forgotten await")), 10);
 setTimeout(() => { console.log("still serving"); process.exit(0); }, 800);`);
-  assert.notEqual(r.code, 0);
-  assert.doesNotMatch(r.stdout, /still serving/);
+  const plain = await server(false), loaded = await server(true);
+  assert.equal(plain.code, 0, "control: the forgiving handler keeps the server up");
+  assert.match(plain.stdout, /logged: a forgotten await[\s\S]*still serving/);
+  assert.notEqual(loaded.code, 0, "with phonemizer in the process the same rejection ends it");
+  assert.doesNotMatch(loaded.stdout, /still serving/);
 });
 
 test("the voice process: one that dies fails its waiting request and the next request starts a fresh one", { timeout: 60_000 }, async () => {
