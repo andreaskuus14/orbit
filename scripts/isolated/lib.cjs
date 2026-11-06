@@ -13,11 +13,13 @@ const DB = `supabase_db_${PROJECT}`;
 const FAKE_LOG = path.join(DIR, "fake-claude.log");
 const conf = () => JSON.parse(fs.readFileSync(path.join(DIR, "env.json"), "utf8"));
 
+const NET = ["HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"];
 /** The test server's environment: only test values (a clean env, not this shell's), so no real key can reach it. */
 function serverEnv() {
   const c = conf();
+  const net = Object.fromEntries(NET.filter((k) => process.env[k]).map((k) => [k, process.env[k]])); // proxy/CA only: the build fetches fonts
   return {
-    PATH: process.env.PATH, HOME: process.env.HOME, NODE_ENV: "production", TZ: process.env.TZ ?? "",
+    ...net, PATH: process.env.PATH, HOME: process.env.HOME, NODE_ENV: "production", TZ: process.env.TZ ?? "",
     NEXT_PUBLIC_SUPABASE_URL: c.apiUrl, NEXT_PUBLIC_SUPABASE_ANON_KEY: c.anonKey, SUPABASE_SECRET_KEY: c.serviceKey, // local demo keys
     ORBIT_ALLOWED_EMAILS: c.email, ORBIT_DIST_DIR: ".next-isolated", ORBIT_DATA_DIR: path.join(DIR, "data"),
     ORBIT_STUDIO_DIR: path.join(DIR, "studio"), ORBIT_BACKUP_DIR: path.join(DIR, "backups"), ORBIT_DAILY_DIGEST: "off", ORBIT_EMBED: "local",
