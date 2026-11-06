@@ -9,11 +9,11 @@ real account:
 | `restart` | **SIGKILL mid-task:** the task is marked interrupted and Retry runs it once. **Interrupted approved action:** an approved `create_project` is killed mid-write, in two variants (the write lands after the crash, or never does). The step shows "may or may not have happened" and re-running the agent is refused. Resume ends with exactly one project. |
 | `pair` | A failed pairing attempt (wrong code, or a right code whose device can't be saved) doesn't use up a valid code. |
 | `coldstart` | With `stop-all.json` on, unreadable or damaged at boot, a task queued before boot never starts. A control run with it off does start. |
-| `briefing` | phonemizer's exit-on-error handlers are dropped at boot, and a briefing whose feeds fail doesn't end the server. Escaped errors are logged with their job, and one request records one run (no automatic retry). |
+| `briefing` | phonemizer isn't loaded at boot. A PC call speaks through Kokoro in its own worker thread. Two briefings in a row succeed with a broken feed among real ones. The server keeps answering with no fatal stop, and no configured secret appears in `server.log` or `crash.log`. |
 
-The cut-off-response crash itself is reproduced deterministically by `tests/safe-fetch-body.test.ts` and
-`tests/crash-guard.test.ts`, which are part of `npm test`. The `briefing` check runs real briefings: it reproduces the crash only
-where feeds really fail (a blocked or flaky network), and otherwise shows that a briefing leaves the server up.
+A cut-off compressed response can't reach a briefing here, because `safeFetch` refuses local addresses. `npm test` reproduces it
+deterministically with the real fetcher and phonemizer, in `tests/briefing-crash-policy.test.ts`, `tests/fetch-gzip-crash.test.ts`
+and `tests/safe-fetch-body.test.ts`. The `briefing` check needs the public feeds (Google News) to be reachable.
 
 ## What it uses (test values only)
 

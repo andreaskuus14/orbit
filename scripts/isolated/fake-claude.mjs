@@ -6,6 +6,7 @@
 //   [fail]                    answer with an error
 //   [failonce:ID]             fail the first time, behave normally after (Retry check)
 //   [propose:create_project]  first agent step proposes that approval tool (interrupted-action checks)
+// A Pulse briefing prompt ("NEWS EVENTS") gets a short briefing citing its first article ([a:<id>]), as Pulse requires.
 // Every call is logged to FAKE_CLAUDE_LOG ("start" lines carry the prompt's first 80 characters, so checks can count calls per task).
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 
@@ -32,7 +33,9 @@ process.stdin.on("end", async () => {
     log("fail");
     process.exit(1);
   }
-  const text = /\[propose:create_project\]/.test(prompt) && first
+  const article = /NEWS EVENTS/.test(prompt) && /\[a:([0-9a-f-]{36})\]/i.exec(prompt);
+  const text = article ? `## Today\n\nThe top story of the day, in one line [a:${article[1]}].`
+    : /\[propose:create_project\]/.test(prompt) && first
     ? JSON.stringify({ thought: "propose", tool: "create_project", input: { name: "Isolation test project", description: "proposed by the fake model" } })
     : JSON.stringify({ thought: "done", final: "Finished (fake model answer)." });
   out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text } } });
