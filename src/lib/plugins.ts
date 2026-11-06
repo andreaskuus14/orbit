@@ -1,4 +1,5 @@
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
+import { readStoreSync, writeStore } from "./safe-file.ts";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -31,7 +32,7 @@ export function loadPlugins(): Plugin[] {
   const st = stamp();
   if (g.__orbitPlugins?.stamp !== st) {
     let raw: string | null = null;
-    try { raw = readFileSync(file(), "utf8"); } catch { /* none yet */ }
+    try { raw = readStoreSync(file()) || null; } catch { return []; } // locked/damaged: none usable for this read (not cached); updatePlugins refuses
     g.__orbitPlugins = { list: parsePlugins(raw), stamp: st };
   }
   return g.__orbitPlugins.list;
@@ -40,11 +41,10 @@ export function loadPlugins(): Plugin[] {
 /** Serialized read-modify-write (tmp + rename) of plugins.json. fn returns the new list, or a string = refused. */
 export function updatePlugins(fn: (l: Plugin[]) => Plugin[] | string): Promise<string> {
   const p = (g.__orbitPluginSave ?? Promise.resolve()).catch(() => {}).then(async () => {
-    const next = fn(loadPlugins());
+    const st = stamp(), raw = readStoreSync(file()) || null; // unreadable throws: never saved over as []
+    const next = fn(g.__orbitPlugins?.stamp === st ? g.__orbitPlugins.list : parsePlugins(raw));
     if (typeof next === "string") return next;
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify({ plugins: next }, null, 2));
-    await rename(file() + ".tmp", file());
+    await writeStore(file(), JSON.stringify({ plugins: next }, null, 2));
     g.__orbitPlugins = { list: next, stamp: stamp() };
     return "";
   });
