@@ -87,7 +87,7 @@ test("restart: the sweep takes the turn, records the attempt before running, res
   assert.equal(h.calls[0].history.at(-1)!.content, "Build the golf site now.");
   assert.ok(h.calls[0].history.some((m) => m.content.startsWith("Decision: the site is blue")), "the latest correction survives the restart");
   assert.deepEqual((f.result as { text: string }).text, "Built it.");
-  assert.equal((updates[0] as { status: string }).status, "running");
+  assert.ok("started_at" in (updates[0] as object) && !("status" in (updates[0] as object)), "resumes only a row still running; never flips one back");
   assert.deepEqual(await readdir(path.join(DATA, "bg-turns")), [], "record gone once it finished");
   assert.deepEqual(await leaseFiles(), [], "lease released");
 });
@@ -148,4 +148,16 @@ test("a process that stalled past its lease can't write a stale answer: the chec
   const f = await h.finished;
   assert.equal(f.dropped, true, "the answer isn't written");
   assert.deepEqual(await readdir(path.join(DATA, "bg-turns")), ["t1.json"], "record kept for the new owner");
+});
+
+test("restart: a turn whose task was cancelled or retried meanwhile is not resumed (no second copy), and its record goes", async () => {
+  await leftBehind();
+  const h = harness();
+  const real = chat(300) as unknown as { from: (t: string) => Record<string, unknown> };
+  const sb = { from: (t: string) => { const b = real.from(t); return t === "tasks" ? { ...b, update: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }) }) }) } : b; } } as never;
+  await resumeBackgroundTurns(sb, "u1", h.load);
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(h.calls.length, 0, "nothing ran");
+  assert.deepEqual(await readdir(path.join(DATA, "bg-turns")), [], "record removed");
+  assert.deepEqual(await leaseFiles(), [], "lease released");
 });
