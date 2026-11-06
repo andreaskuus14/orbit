@@ -132,9 +132,25 @@ export const OPERATOR_REASON = "standing operator grant";
 /** After reading his own stores the grant still applies when HIS typed message asks for this kind of action ("read my notes and
  *  set a goal"): the read is his means, not the source of the instruction. Text inside the results never counts as asking. */
 const BUILD_ASKS: Record<string, RegExp> = { create_goal: /\bgoals?\b|eesmär/i, queue_tonight: /\btonight\b|öösel|täna öö/i, start_mission: /\bmissions?\b|missioon/i };
+// His explicit "no" for one kind of action ("don't save this", "don't ask an agent", "set a goal but don't create an automation").
+// A denial reaches only the action it names; "don't do it (yet)" / "don't do anything" reaches every write. EN + ET.
+const NEG = String.raw`\b(?:don'?t|do not|never|no need to|without)\b(?!\s+(?:forget|miss|hesitate)\b)(?:\s+[\w'’-]+){0,4}?\s+`, ET_NEG = String.raw`(?<!\p{L})(?:ära|ärge|ärme|ei taha,? et)(?!\p{L})(?:\s+\S+){0,3}?\s*`; // \b is ASCII-only: "ära" needs \p{L}
+const DENY: Record<string, [string, string]> = {
+  save_memory: [String.raw`(?:sav|remember|memori[sz]|stor|record|note|keep|log)`, String.raw`(?:salvest|jäta|meelde|mäleta)`],
+  ask_agent: [String.raw`(?:ask|use|involve|delegat|hand|send|get)\b.{0,30}?\b(?:agents?|atlas|nova|forge|scout|sage|anyone)|delegat|agents?\b`, String.raw`(?:agent|delegeeri|küsi)`],
+  create_goal: [String.raw`(?:goals?\b|target)`, String.raw`eesmär`],
+  queue_tonight: [String.raw`(?:tonight|queue|overnight|night shift)`, String.raw`(?:öö|järjekorda)`],
+  start_mission: [String.raw`missions?\b`, String.raw`missioon`],
+  automation_create: [String.raw`(?:automat|recurring|schedul|every (?:day|week|morning))`, String.raw`(?:automaat|ajasta|iga päev)`],
+};
+const DENY_ALL = /\b(?:don'?t|do not)\s+(?:do|start|run|act on|make|change)\s+(?:it|that|this|anything|any of (?:it|that|this))\b|\bdon'?t do anything\b|(?<!\p{L})ära (?:tee|muuda) (?:seda|midagi)(?!\p{L})/iu;
+export function denied(tool: string, question: string): boolean {
+  const q = typedText(question), d = DENY[tool];
+  return DENY_ALL.test(q) || (!!d && (new RegExp(`${NEG}(?:${d[0]})`, "i").test(q) || new RegExp(`${ET_NEG}(?:${d[1]})`, "iu").test(q)));
+}
 function ownerAsked(tool: string, question: string): boolean {
   const q = typedText(question);
-  if (/\b(?:don'?t|do not|never)\b/i.test(q)) return false;
+  if (denied(tool, q)) return false;
   if (tool === "ask_agent") return AGENT_ASK.test(q) || AGENT_ASK_ET.test(q);
   if (tool === "save_memory") return asksToRemember(q);
   if (isOpsTool(tool)) return opsAsked(tool, q);
@@ -163,6 +179,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   const no = (reason: string): Decision => ({ allow: false, tier, reason });
   if (!(tool in TIERS)) return no(`unknown tool "${tool}"`);
   const question = typedText(ctx.question); // core.ts:95 attached file names never count as the user's words
+  if (tier !== "T0" && denied(tool, question)) return no("he said not to do this in his message"); // his "don't" beats every grant and ask-check
   const dataIn = ctx.attach || ctx.pins || ctx.steps.some((s) => !s.startsWith("You called navigate")); // core.ts:139
   const privateIn = !!ctx.carried || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]); // core.ts:146; CORE passes its live MODULE_PRIVATE
 
