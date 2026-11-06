@@ -57,9 +57,13 @@ export type DoneAuto = { area: AutoArea; ref: string; at: string }; // every att
 export type Cancelled = { area: AutoArea; ref: string; seen: string };
 // since: when each area was switched to auto; only drafts/clips made after it qualify (no back-catalogue blast). Missing = nothing qualifies.
 // snooze: trust-ladder suggestions he answered "Not now" (trust-pure), area → until (ISO).
-export type AutonomyState = { levels: Levels; limits: Limits; pending: Pending[]; done: DoneAuto[]; cancelled: Cancelled[]; since: Partial<Record<AutoArea, string>>; snooze: Partial<Record<Area, string>> };
+// unreadable: autonomy.json couldn't be loaded; lockedAutonomy() then holds every area at "ask" (or "off"), never "do"/"auto".
+export type AutonomyState = { levels: Levels; limits: Limits; pending: Pending[]; done: DoneAuto[]; cancelled: Cancelled[]; since: Partial<Record<AutoArea, string>>; snooze: Partial<Record<Area, string>>; unreadable?: string };
 export const CANCELLED_MAX = 500;
 export const autonomyDefaults = (): AutonomyState => ({ levels: { ...DEFAULT_LEVELS }, limits: { ...LIMIT_DEFAULTS }, pending: [], done: [], cancelled: [], since: {}, snooze: {} });
+/** The state used while autonomy.json can't be read: nothing runs on its own, nothing queued fires. */
+export const lockedAutonomy = (why: string): AutonomyState => ({ ...autonomyDefaults(), unreadable: why,
+  levels: Object.fromEntries(AREAS.map((a) => [a, AREA_INFO[a].levels.includes("ask") ? "ask" : "off"])) as Levels });
 const isAuto = (a: unknown): a is AutoArea => a === "business-send" || a === "studio-publish";
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);

@@ -1,4 +1,4 @@
-import { readStore, writeStore } from "./safe-file.ts";
+import { readStore, updateStore } from "./safe-file.ts";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
@@ -13,13 +13,11 @@ import { buildQueue, decideReview, STALE_PROJECT_DAYS, type Decision, type Revie
 
 type State = { users: Record<string, ReviewState> };
 const file = () => path.join(orbitDataDir(), "hygiene.json");
-async function load(): Promise<State> {
-  const t = await readStore(file()), j = t ? JSON.parse(t) : null; // missing = empty; locked/damaged throws
-  return j?.users && typeof j.users === "object" ? j : { users: {} };
-}
-async function store(s: State) {
-  await writeStore(file(), JSON.stringify(s));
-}
+const parse = (t: string): State => { const j = t ? JSON.parse(t) : null; return j?.users && typeof j.users === "object" ? j : { users: {} }; };
+const load = async (): Promise<State> => parse(await readStore(file())); // missing = empty; locked/damaged throws
+/** One user's entry changed inside the file's queue, so two saves (two tabs, Accept + a week rollover) never drop each other's change. */
+const updateUser = (userId: string, fn: (u: ReviewState | undefined) => ReviewState) =>
+  updateStore(file(), (t) => { const s = parse(t); s.users[userId] = fn(s.users[userId]); return { text: JSON.stringify(s), out: s.users[userId] }; });
 
 async function compute(sb: SupabaseClient, userId: string, dismissed: string[]) {
   const { data, error } = await sb.from("memories").select("id, title, content, kind, tags, created_at, embedding").eq("user_id", userId)
@@ -35,8 +33,8 @@ export async function getHygiene(sb: SupabaseClient, userId: string, now = new D
   const s = await load();
   let u = s.users[userId];
   if (u?.week !== weekKey(now)) {
-    u = s.users[userId] = { ...u, week: weekKey(now), proposals: await compute(sb, userId, u?.dismissed ?? []), dismissed: u?.dismissed ?? [] };
-    await store(s);
+    const proposals = await compute(sb, userId, u?.dismissed ?? []);
+    u = await updateUser(userId, (cur) => cur?.week === weekKey(now) ? cur : { ...cur, week: weekKey(now), proposals, dismissed: cur?.dismissed ?? [] }); // another request may have just done it
   }
   const memIds = u.proposals.filter((p) => p.action === "merge").flatMap((p) => p.ids);
   const factIds = u.proposals.filter((p) => p.action === "retract").flatMap((p) => p.ids);
@@ -73,7 +71,5 @@ async function queue(sb: SupabaseClient, userId: string, u: ReviewState, proposa
 
 /** The owner's decision on a queue item (the action itself already ran through the memory/fact routes). */
 export async function decideHygiene(userId: string, key: string, decision: Decision) {
-  const s = await load();
-  s.users[userId] = decideReview(s.users[userId] ?? { week: "", proposals: [], dismissed: [] }, key, decision, Date.now());
-  await store(s);
+  await updateUser(userId, (u) => decideReview(u ?? { week: "", proposals: [], dismissed: [] }, key, decision, Date.now()));
 }

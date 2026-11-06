@@ -9,7 +9,7 @@ import { orbitDataDir } from "./data-dir";
 import { WINDOW_DAYS, snoozeTrust, taskDecisions, type TrustDecision } from "./trust-pure";
 import { stopAllOn } from "./stop-all";
 import { emit } from "./claude";
-import { DONE_KEEP_MS, UNDO_MS, autoApprove, autoClock, cancelPending, clipVersion, sendOutcome, undoAutoApprove, type Fired, autoPush, autonomyAllows, quietAuto, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
+import { DONE_KEEP_MS, UNDO_MS, autoApprove, lockedAutonomy, autoClock, cancelPending, clipVersion, sendOutcome, undoAutoApprove, type Fired, autoPush, autonomyAllows, quietAuto, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
   type Action, type AllowCtx, type Area, type AutoArea, type AutonomyState, type Candidate, type Levels } from "./autonomy-pure";
 
 const file = () => path.join(orbitDataDir(), "autonomy.json");
@@ -19,7 +19,7 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0
 export function autonomyState(): AutonomyState {
   if (!g.__orbitAutonomy) {
     try { g.__orbitAutonomy = parseAutonomy(readStoreSync(file())); }
-    catch { return parseAutonomy(""); } // locked/damaged: the defaults for this read only (not cached, never saved); update() refuses
+    catch (e) { return lockedAutonomy(`Autonomy settings couldn't be loaded (${msg(e)}), so nothing runs on its own until that's fixed`); } // not cached, never saved; update() refuses
   }
   return g.__orbitAutonomy;
 }

@@ -108,13 +108,16 @@ test("while a Run is in flight: Run again and Discard are refused and it shows r
 });
 
 test("a claim that can't be saved runs nothing and doesn't block the item; a server error answer is a definite failure", { timeout: 30_000 }, async () => {
-  const { mkdir, rm } = await import("node:fs/promises");
   const file = path.join(dir, "plugin-pending.json");
   await writeFile(file, JSON.stringify([{ id: "w1", server: "fake", tool: "run_code", args: { code: "never" }, at: new Date().toISOString() }]));
-  await mkdir(file + ".tmp"); // rename target is a directory: every save fails
-  assert.match((await P.runPending("w1")).error!, /^Couldn't save the claim, so nothing ran/);
-  assert.equal(P.isRunning("w1"), false, "not stuck as running");
-  await rm(file + ".tmp", { recursive: true });
+  const fsp = (await import("node:module")).createRequire(import.meta.url)("node:fs/promises"), { syncBuiltinESMExports } = await import("node:module");
+  const rename0 = fsp.rename;
+  fsp.rename = async () => { throw Object.assign(new Error("EIO: i/o error"), { code: "EIO" }); }; // every save fails after the claim was made
+  syncBuiltinESMExports();
+  try {
+    assert.match((await P.runPending("w1")).error!, /^Couldn't save the claim, so nothing ran/);
+    assert.equal(P.isRunning("w1"), false, "not stuck as running");
+  } finally { fsp.rename = rename0; syncBuiltinESMExports(); }
   assert.equal((await P.listPending())[0].attempting, undefined, "no claim on disk");
   await P.discardPending("w1");
   // the fixture's "reject" answers with a JSON-RPC error (the server said no): definite, not "may or may not have run"
