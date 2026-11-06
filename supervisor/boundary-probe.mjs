@@ -39,9 +39,7 @@ function checks() {
   d(G3, "overwrite another inbox file", () => writeFileSync(theirs, "{}"));
   d(G3, "delete another inbox file", () => unlinkSync(theirs));
   if (ROLE === "builder") {
-    const mine = path.join(SUP, "inbox", `${tag}.json.tmp`);
-    a(G3, "create a submission", () => writeFileSync(mine, "{}"));
-    a(G3, "finish it with a rename", () => renameSync(mine, mine.replace(/\.tmp$/, "")));
+    a(G3, "create a submission (one write, no rename)", () => writeFileSync(path.join(SUP, "inbox", `${tag}.json`), "{}", { flag: "wx" }));
     a(G3, "read the published status", () => readFileSync(path.join(SUP, "public", "status.json")));
   } else d(G3, "drop a submission (build account)", () => writeFileSync(path.join(SUP, "inbox", `${tag}.json`), "{}"));
   const G4 = "live install and ORBIT data";

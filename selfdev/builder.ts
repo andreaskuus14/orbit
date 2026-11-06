@@ -7,7 +7,7 @@
 // State is journaled in state.json after every step; a restart resumes the step that was running.
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, openSync, readSync, closeSync, writeFileSync, symlinkSync, appendFileSync } from "node:fs";
+import { constants as fsc, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, openSync, readSync, closeSync, writeFileSync, symlinkSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { DEFAULT_POLICY, parseNumstat, policyViolations, redact } from "../supervisor/policy.ts";
 import {
@@ -306,9 +306,15 @@ async function cycle(s: State) {
     const json = path.join(SUP.inbox, `${t.id}.json`);
     const known = existsSync(json) || supStatus()?.history.some((h) => h.id === t.id);
     if (!known) {
-      git(["bundle", "create", "--quiet", path.join(SUP.inbox, `${t.id}.bundle`), `${t.base}..${t.branch}`], t.worktree);
+      // git writes bundles through a lock file + rename, which the inbox doesn't allow: build it here, copy it in with one write.
+      const own = path.join(HOME, `${t.id}.bundle`);
+      rmSync(own, { force: true });
+      git(["bundle", "create", "--quiet", own, `${t.base}..${t.branch}`], t.worktree);
+      try { copyFileSync(own, path.join(SUP.inbox, `${t.id}.bundle`), fsc.COPYFILE_EXCL); }
+      catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; } // copied before a restart: it's ours, keep it
+      rmSync(own, { force: true });
       const subm = { id: t.id, taskId: t.cand.key, branch: t.branch, source: "bundle", commit: t.commit, base: t.base, title: t.cand.title, why: t.why, acceptance: t.cand.acceptance, checks: t.checks.map(({ name, ok }) => ({ name, ok })), costUsd: t.costUsd };
-      writeFileSync(json + ".tmp", JSON.stringify(subm)); renameSync(json + ".tmp", json); // supervisor only reads *.json
+      writeFileSync(json, JSON.stringify(subm), { flag: "wx" }); // one write, no rename (the inbox grants no delete rights); the bundle is already there
     }
     t.step = "submitted"; save(s);
     log(`${t.id}: submitted ${t.commit?.slice(0, 7)} to the supervisor`);
