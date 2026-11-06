@@ -1,4 +1,4 @@
-import { readStore, writeStore } from "./safe-file.ts";
+import { readStore, updateStore } from "./safe-file.ts";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, recordUsage, createBudget, MODEL } from "./claude";
@@ -18,9 +18,6 @@ import { ANSWER_CAP, JUDGE_SYSTEM, addRun, caseScore, estimateCalls, judgePrompt
 validateCases(REPLAY_CASES, BUILTIN_AGENTS.map((a) => a.slug));
 const file = () => path.join(orbitDataDir(), "agent-scorecard.json");
 const load = async () => parseState(await readStore(file())); // missing = empty; locked/damaged throws
-async function store(s: ReplayState) {
-  await writeStore(file(), JSON.stringify(s));
-}
 const g = globalThis as unknown as { __orbitScorecard?: { done: number; total: number } };
 
 export async function scorecardView() {
@@ -93,7 +90,7 @@ export async function runScorecard(sb: SupabaseClient, userId: string, trigger: 
       }
     }
     run.complete = run.cases.length === REPLAY_CASES.length && run.cases.every((x) => x.score != null);
-    await store(addRun(await load(), run));
+    await updateStore(file(), (t) => ({ text: JSON.stringify(addRun(parseState(t), run)), out: null }));
     return "";
   } catch (e) {
     console.error("[orbit] scorecard run failed:", e instanceof Error ? e.message : e);
@@ -106,9 +103,11 @@ export async function runScorecard(sb: SupabaseClient, userId: string, trigger: 
 /** Scheduler tick: at most one run per calendar month (claimed first, so a crash can't run it twice). Never throws. */
 export async function maybeScorecard(sb: SupabaseClient, userIds: string[], now = new Date()) {
   try {
-    const s = await load();
-    if (g.__orbitScorecard || !scorecardDue(now, s) || blocked(true)) return;
-    await store({ ...s, claimedMonth: monthKey(now) });
+    const claimed = await updateStore(file(), (t) => { // claimed inside the file's queue: two ticks can't both claim this month
+      const s = parseState(t);
+      return g.__orbitScorecard || !scorecardDue(now, s) || blocked(true) ? { out: false } : { text: JSON.stringify({ ...s, claimedMonth: monthKey(now) }), out: true };
+    });
+    if (!claimed) return;
     for (const id of userIds) await runScorecard(sb, id, "monthly");
   } catch (e) { console.error("[orbit] monthly scorecard failed:", e instanceof Error ? e.message : e); }
 }

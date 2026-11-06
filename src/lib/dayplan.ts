@@ -1,8 +1,8 @@
 // "Plan my day" IO: gathers today's calendar (read-only), approvals already waiting, open goals' next steps/deadlines and confirmed
 // commitments, builds the plan with dayplan-pure and keeps it in <data dir>/dayplan.json (today's plan, his drag order, the commitment inbox).
 // Read-only: nothing is sent, approved or changed anywhere else. LIFE data stays local: no model call here.
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readStore, updateStore } from "./safe-file.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir.ts";
 import { adjustPlan } from "./life-plan-pure.ts";
@@ -11,20 +11,10 @@ import { acceptPlan, applyDeferrals, defer, deferUntil, type Deferred, approvalI
 
 type Store = { plan?: DayPlan; prev?: DayPlan; order?: string[]; commitments: Commitment[]; history?: DayStat[]; deferred?: Deferred[] };
 const file = () => path.join(orbitDataDir(), "dayplan.json");
-const load = async (): Promise<Store> => { try { const j = JSON.parse(await readFile(file(), "utf8")); return { ...j, commitments: Array.isArray(j?.commitments) ? j.commitments : [] }; } catch { return { commitments: [] }; } };
-let saving: Promise<unknown> = Promise.resolve();
-function update<T>(fn: (s: Store) => T): Promise<T> {
-  const p = saving.catch(() => {}).then(async () => {
-    const s = await load();
-    const r = fn(s);
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify(s));
-    await rename(file() + ".tmp", file());
-    return r;
-  });
-  saving = p;
-  return p;
-}
+const parse = (t: string): Store => { const j = t ? JSON.parse(t) : null; return { ...j, commitments: Array.isArray(j?.commitments) ? j.commitments : [] }; };
+/** For display: a locked/damaged file reads as empty here; update() reads it strictly and refuses, so it is never saved over. */
+const load = async (): Promise<Store> => parse(await readStore(file()).catch(() => ""));
+const update = <T>(fn: (s: Store) => T): Promise<T> => updateStore(file(), (t) => { const s = parse(t), out = fn(s); return { text: JSON.stringify(s), out }; });
 const within = <T>(p: Promise<T>, ms = 5000) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
 const minutes = (t: number, dayStart: number) => Math.round((t - dayStart) / 60_000);
 

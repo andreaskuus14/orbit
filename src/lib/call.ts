@@ -58,7 +58,8 @@ function update(fn: (s: CallState) => CallState): Promise<CallState> {
   return p;
 }
 
-export const callSettings = async () => { const s = await load(); return { checkin: s.checkin, review: s.review ?? REVIEW_DEFAULT }; };
+// display: a damaged call.json shows the defaults; update() refuses, so it is never saved over
+export const callSettings = async () => { const s = await load().catch(() => parseCallState("")); return { checkin: s.checkin, review: s.review ?? REVIEW_DEFAULT }; };
 export const setReview = (review: ReviewSettings) => update((s) => ({ ...s, review }));
 export const setCheckin = (checkin: string) => update((s) => ({ ...s, checkin, checkinDay: "" }));
 /** A job failed (pushNotify "failed"): the next check may ring about it. Never throws. */

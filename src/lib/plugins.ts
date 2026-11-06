@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
-import { readStoreSync, writeStore } from "./safe-file.ts";
-import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import { readStore, readStoreSync, writeStore } from "./safe-file.ts";
+import { mkdir, readdir, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 // .ts extensions: tests/plugins-io.test.ts loads this under node --experimental-strip-types (with a fake MCP server).
@@ -139,13 +139,12 @@ async function callTool(p: Plugin, tool: string, args: Record<string, unknown>, 
   return { out, unknown };
 }
 
-export const listPending = async (): Promise<Pending[]> => parsePending(await readFile(pendingFile(), "utf8").catch(() => null));
+/** For display: a locked/damaged file shows none; savePending reads it strictly and refuses, so it is never saved over. */
+export const listPending = async (): Promise<Pending[]> => parsePending((await readStore(pendingFile()).catch(() => "")) || null);
 async function savePending(fn: (l: Pending[]) => Pending[]) {
   const p = (g.__orbitPluginSave ?? Promise.resolve()).catch(() => {}).then(async () => {
-    const next = fn(await listPending()).slice(-PENDING_MAX);
-    await mkdir(path.dirname(pendingFile()), { recursive: true });
-    await writeFile(pendingFile() + ".tmp", JSON.stringify(next));
-    await rename(pendingFile() + ".tmp", pendingFile());
+    const next = fn(parsePending((await readStore(pendingFile())) || null)).slice(-PENDING_MAX);
+    await writeStore(pendingFile(), JSON.stringify(next));
   });
   g.__orbitPluginSave = p;
   await p;
