@@ -5,7 +5,7 @@ name: Self-dev Windows checks
 # Isolated ORBIT, local git remote, no secrets, no model. Never touches the PC.
 on:
   push:
-    branches: [self-dev-loop]
+    branches: [self-dev-loop, "ci/selfdev-*"]
     paths: ["supervisor/**", "selfdev/**", ".github/workflows/selfdev-windows.yml"]
   workflow_dispatch:
 
