@@ -26,9 +26,22 @@ jobs:
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium chromium-headless-shell  # the repo's own playwright-core, so the browser build matches
       - name: Setup (local Supabase, test user, build)
         run: node scripts/isolated/setup.mjs
+      - name: Diagnostic - news feeds reachable from this runner
+        run: |
+          for u in "https://news.google.com/rss/search?q=technology%20when:2d&hl=en-US&gl=US&ceid=US:en" "https://feeds.bbci.co.uk/news/world/rss.xml"; do
+            curl -sS -o /tmp/f.xml -w "%{http_code} %{size_download}B $u\n" -A "Mozilla/5.0" "$u" || true; grep -o "<item>" /tmp/f.xml | wc -l
+          done
       - name: Run every check
         shell: bash
         run: node scripts/isolated/run-all.mjs 2>&1 | tee isolated-results.log
+      - name: Diagnostic - feeds, briefings and server log after a failure
+        if: failure()
+        run: |
+          DB=$(docker ps --format '{{.Names}}' | grep supabase_db | head -1)
+          docker exec $DB psql -U postgres -c "select title, left(url,90) url, enabled, last_fetched_at, left(last_error,160) err from feeds" || true
+          docker exec $DB psql -U postgres -c "select created_at, article_count from briefings order by created_at" || true
+          docker exec $DB psql -U postgres -c "select count(*), max(published_at) from articles" || true
+          grep -i "pulse\|feed\|brief" "$ORBIT_ISO_DIR/server.log" | tail -40 || true
       - name: Cleanup
         if: always()
         run: node scripts/isolated/cleanup.mjs || true
