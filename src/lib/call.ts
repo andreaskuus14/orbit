@@ -2,9 +2,9 @@
 // sessions (Whisper in, CORE with the call style, Kokoro out sentence by sentence), voice approvals through decideApproval,
 // and the memory note when the call ends. Audio is only ever in memory for one request; the call transcript lives in this
 // process until the call ends, then only the summary note is saved. Rules: call-pure.ts; route: /api/remote/talk.
+import { readStore, writeStore } from "./safe-file.ts";
 import { randomUUID } from "node:crypto";
 import { isCurrent } from "./memory-types-pure";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
@@ -47,13 +47,11 @@ const VOICE = () => lastPersona().voice || process.env.ORBIT_CALL_VOICE || "af_h
 
 // ---- State file: <data dir>/call.json (counters, first-seen times, check-in time; no content) ----
 const file = () => path.join(orbitDataDir(), "call.json");
-const load = async () => parseCallState(await readFile(file(), "utf8").catch(() => ""));
+const load = async () => parseCallState(await readStore(file())); // missing = defaults; locked/damaged throws
 function update(fn: (s: CallState) => CallState): Promise<CallState> {
   const p = (G.save ?? Promise.resolve()).catch(() => {}).then(async () => {
     const next = fn(await load());
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify(next));
-    await rename(file() + ".tmp", file());
+    await writeStore(file(), JSON.stringify(next));
     return next;
   });
   G.save = p;

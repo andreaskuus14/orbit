@@ -1,0 +1,72 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { execFile, spawn } from "node:child_process";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import { readStore, readStoreSync, StoreUnreadable, writeStore } from "../src/lib/safe-file.ts";
+
+const root = path.join(import.meta.dirname, "..");
+const tmp = () => mkdtemp(path.join(tmpdir(), "orbit-safe-"));
+
+test("only a missing file reads as empty; damaged or unreadable throws", async () => {
+  const d = await tmp();
+  assert.equal(await readStore(path.join(d, "none.json")), "");
+  assert.equal(readStoreSync(path.join(d, "none.json")), "");
+  await writeFile(path.join(d, "bad.json"), '{"devices": [');
+  await assert.rejects(readStore(path.join(d, "bad.json")), StoreUnreadable);
+  assert.throws(() => readStoreSync(path.join(d, "bad.json")), StoreUnreadable);
+  await mkdir(path.join(d, "locked.json")); // EISDIR: stands in for a locked/unreadable file (root ignores chmod)
+  await assert.rejects(readStore(path.join(d, "locked.json")), /couldn't be read \(EISDIR\)/);
+  await writeFile(path.join(d, "ok.json"), '{"a":1}');
+  assert.equal(await readStore(path.join(d, "ok.json")), '{"a":1}');
+});
+
+test("an interrupted write never leaves a half file: killed mid-writes, the store is always one whole version", { timeout: 60_000 }, async () => {
+  const d = await tmp(), f = path.join(d, "store.json");
+  await writeStore(f, JSON.stringify({ v: "A", pad: "a".repeat(400_000) }));
+  for (let round = 0; round < 5; round++) {
+    const child = spawn(process.execPath, ["--no-warnings", "--experimental-strip-types", "--input-type=module", "-e",
+      `const { writeStore } = await import(${JSON.stringify(path.join(root, "src/lib/safe-file.ts"))});
+       for (let i = 0; ; i++) await writeStore(${JSON.stringify(f)}, JSON.stringify({ v: i % 2 ? "A" : "B", pad: (i % 2 ? "a" : "b").repeat(400_000) }));`]);
+    await new Promise((r) => setTimeout(r, 150 + round * 70));
+    child.kill("SIGKILL");
+    await new Promise((r) => child.once("exit", r));
+    const v = JSON.parse(await readFile(f, "utf8")); // never empty or truncated
+    assert.ok(v.v === "A" || v.v === "B");
+    assert.equal(v.pad.length, 400_000);
+  }
+  // a leftover tmp from the killed writer doesn't count as the store
+  assert.ok((await readdir(d)).includes("store.json"));
+});
+
+// Real stores in a child process: each read-modify-write must refuse to save over a damaged or locked file.
+test("stores never save an empty store over a damaged or locked file", { timeout: 90_000 }, async () => {
+  for (const kind of ["damaged", "locked"] as const) {
+    const d = await tmp();
+    const files = ["remote-devices.json", "plugins.json", "studio-fail-ack.json", "night.json", "economy.json", "focus.json", "autonomy.json"];
+    for (const n of files) {
+      if (kind === "locked") await mkdir(path.join(d, n));
+      else await writeFile(path.join(d, n), `{"his data": [1, 2,`);
+    }
+    const code = `const L = (m) => import(${JSON.stringify(path.join(root, "src/lib"))} + "/" + m);
+const tries = {
+  devices: async () => (await L("remote.ts")).updateDevices(() => []),
+  plugins: async () => (await L("plugins.ts")).updatePlugins(() => []),
+  failAck: async () => (await L("clips/fail-ack.ts")).addFailAck(["k"]),
+  night: async () => (await L("night.ts")).setNightSettings({ enabled: false }),
+  economy: async () => (await L("economy.ts")).saveEconomy("u", "t", "v"),
+  focus: async () => (await L("focus.ts")).dismissSummary(),
+  autonomy: async () => (await L("autonomy.ts")).snoozeArea("studio-publish"),
+};
+const out = {};
+for (const [k, f] of Object.entries(tries)) out[k] = await f().then(() => "saved", (e) => e?.code === "ORBIT_STORE_UNREADABLE" ? "refused" : "error " + e?.message);
+console.log(JSON.stringify(out)); process.exit(0);`;
+    const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", path.join(root, "tests/fixtures/ts-resolve.mjs"),
+      "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, ORBIT_DATA_DIR: d }, timeout: 80_000 });
+    const got = JSON.parse(stdout.trim().split("\n").pop()!);
+    assert.deepEqual(got, { devices: "refused", plugins: "refused", failAck: "refused", night: "refused", economy: "refused", focus: "refused", autonomy: "refused" }, kind);
+    if (kind === "damaged") for (const n of files) assert.equal(await readFile(path.join(d, n), "utf8"), `{"his data": [1, 2,`, `${n} untouched`);
+  }
+});

@@ -1,4 +1,4 @@
-import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { readStore, writeStore } from "./safe-file.ts";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { askClaude, recordUsage, createBudget, MODEL } from "./claude";
@@ -17,11 +17,9 @@ import { ANSWER_CAP, JUDGE_SYSTEM, addRun, caseScore, estimateCalls, judgePrompt
 
 validateCases(REPLAY_CASES, BUILTIN_AGENTS.map((a) => a.slug));
 const file = () => path.join(orbitDataDir(), "agent-scorecard.json");
-const load = async () => parseState(await readFile(file(), "utf8").catch(() => ""));
+const load = async () => parseState(await readStore(file())); // missing = empty; locked/damaged throws
 async function store(s: ReplayState) {
-  await mkdir(path.dirname(file()), { recursive: true });
-  await writeFile(file() + ".tmp", JSON.stringify(s));
-  await rename(file() + ".tmp", file());
+  await writeStore(file(), JSON.stringify(s));
 }
 const g = globalThis as unknown as { __orbitScorecard?: { done: number; total: number } };
 

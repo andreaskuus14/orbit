@@ -1,8 +1,7 @@
 // Time dilation, server glue (rules: dilation-pure.ts). State: <ORBIT data dir>/focus.json, cached on globalThis so the
 // push and call paths can ask focusActive() synchronously. Ledger: focus.start / focus.end, ids and minutes only.
+import { readStoreSync, writeStore } from "./safe-file.ts";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
@@ -13,19 +12,20 @@ const file = () => path.join(orbitDataDir(), "focus.json");
 const g = globalThis as unknown as { __orbitFocus?: FocusState; __orbitFocusSave?: Promise<unknown>; __orbitFocusTimer?: NodeJS.Timeout };
 
 export function focusState(): FocusState {
-  if (!g.__orbitFocus) { try { g.__orbitFocus = parseFocusState(readFileSync(file(), "utf8")); } catch { g.__orbitFocus = FOCUS_START; } }
+  if (!g.__orbitFocus) {
+    try { g.__orbitFocus = parseFocusState(readStoreSync(file())); }
+    catch { return FOCUS_START; } // locked/damaged: no focus for this read only (not cached, never saved); update() refuses
+  }
   return g.__orbitFocus;
 }
 
 /** Serialized change → memory at once → atomic save (same pattern as autonomy.ts). fn returns a string to refuse. */
 function update(fn: (s: FocusState) => FocusState | string): Promise<FocusState | string> {
   const p = (g.__orbitFocusSave ?? Promise.resolve()).catch(() => {}).then(async () => {
-    const next = fn(structuredClone(focusState()));
+    const next = fn(structuredClone(g.__orbitFocus ?? (g.__orbitFocus = parseFocusState(readStoreSync(file()))))); // unreadable throws: nothing saved over it
     if (typeof next === "string") return next;
     g.__orbitFocus = next;
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify(next));
-    await rename(file() + ".tmp", file());
+    await writeStore(file(), JSON.stringify(next));
     return next;
   });
   g.__orbitFocusSave = p;

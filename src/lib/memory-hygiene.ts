@@ -1,4 +1,4 @@
-import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { readStore, writeStore } from "./safe-file.ts";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
@@ -14,12 +14,11 @@ import { buildQueue, decideReview, STALE_PROJECT_DAYS, type Decision, type Revie
 type State = { users: Record<string, ReviewState> };
 const file = () => path.join(orbitDataDir(), "hygiene.json");
 async function load(): Promise<State> {
-  try { const j = JSON.parse(await readFile(file(), "utf8")); return j?.users && typeof j.users === "object" ? j : { users: {} }; } catch { return { users: {} }; }
+  const t = await readStore(file()), j = t ? JSON.parse(t) : null; // missing = empty; locked/damaged throws
+  return j?.users && typeof j.users === "object" ? j : { users: {} };
 }
 async function store(s: State) {
-  await mkdir(path.dirname(file()), { recursive: true });
-  await writeFile(file() + ".tmp", JSON.stringify(s));
-  await rename(file() + ".tmp", file());
+  await writeStore(file(), JSON.stringify(s));
 }
 
 async function compute(sb: SupabaseClient, userId: string, dismissed: string[]) {

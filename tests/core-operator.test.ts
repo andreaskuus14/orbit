@@ -172,7 +172,8 @@ test("undo round-trips: automation_create (with Tallinn preview) and automation_
   assert.match(await undoOp(sb, "u1", pa), /resumed again/);
   assert.equal((await row()).enabled, true);
   await writeFile(path.join(process.env.ORBIT_DATA_DIR!, "operator-undo.json"), "{broken");
-  await assert.rejects(undoOp(sb, "u1", pa), /Nothing to undo/); // an unreadable store never undoes the wrong thing
+  await assert.rejects(undoOp(sb, "u1", pa), /operator-undo\.json is damaged/); // an unreadable store never undoes the wrong thing, and is never saved over
+  await writeFile(path.join(process.env.ORBIT_DATA_DIR!, "operator-undo.json"), "{}"); // he repaired it: the next tests write snapshots again
 });
 
 test("lead_create: default grant, his ask after web results, refused on injected text, attachments and Stop-all", () => {
