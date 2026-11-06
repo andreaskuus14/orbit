@@ -1,0 +1,39 @@
+name: Isolated signed-in suite (release candidate)
+# Throwaway branch: release candidate b6721c3 plus only this workflow. Never merged.
+on:
+  push:
+    branches: [ci/isolated-b6721c3]
+permissions:
+  contents: read
+jobs:
+  isolated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      ORBIT_ISO_DIR: ${{ runner.temp }}/orbit-isolated
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Only workflow files differ from b6721c3
+        run: |
+          git diff --stat b6721c3 HEAD
+          if git diff --name-only b6721c3 HEAD | grep -v '^\.github/'; then echo "app file differs"; exit 1; fi
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - run: npm i -g npm@12 && node -v && npm -v && docker info --format '{{.ServerVersion}}'
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Setup (local Supabase, test user, build)
+        run: node scripts/isolated/setup.mjs
+      - name: Run every check
+        run: node scripts/isolated/run-all.mjs 2>&1 | tee isolated-results.log
+      - name: Cleanup
+        if: always()
+        run: node scripts/isolated/cleanup.mjs || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: isolated-results
+          path: isolated-results.log
+          if-no-files-found: ignore
