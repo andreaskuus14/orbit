@@ -28,6 +28,7 @@ test("the scorecard inserts its case tasks running and unowned, so only its own 
     "./agents": { BUILTIN_AGENTS, runTask: async () => ({ status: "done", result: "ok" }), resolvePending: async () => {} },
     "./claude": { MODEL: "m", recordUsage: async () => {}, createBudget: () => ({ used: 0, signal: new AbortController().signal }), askClaude: async () => ({ text: '{"a":{"score":3},"b":{"score":3}}' }) },
     "./stop-all": { stopAllOn: () => false }, "./usage-meter": { usageHold: () => "", usageLimited: () => false },
+    "./safe-file.ts": { readStore: async () => "", writeStore: async () => {} }, // once #413 is in, the scorecard's state file goes through safe-file
   } as Record<string, unknown>)[n] ?? nodeRequire(n) });
   const why = await exports.runScorecard(sb, "u", "manual");
   assert.equal(why, "", "the run started");
