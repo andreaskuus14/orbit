@@ -54,7 +54,7 @@ icacls $home_ /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI
 # inbox: the owner (ORBIT's controls) and the builder (submissions) may add files, not list the folder or delete-child.
 # Only a file's creator may write, rename or delete it (CREATOR OWNER), so nobody can touch another's submission or control file.
 foreach ($u in $Owner, $Builder) { icacls "$home_\inbox" /grant "${u}:(WD,X)" | Out-Null }
-icacls "$home_\inbox" /grant "*S-1-3-0:(OI)(IO)(W,D,RC)" | Out-Null # CREATOR OWNER
+icacls "$home_\inbox" /grant "*S-1-3-0:(OI)(IO)M" | Out-Null # CREATOR OWNER: modify (incl. rename) only what you created
 foreach ($u in $Owner, $Builder, $BuildUser) {
   icacls "$home_\mirror.git" /grant "${u}:(OI)(CI)RX" | Out-Null # the supervisor clones into it on first run; files inherit this
   icacls "$home_\public" /grant "${u}:(OI)(CI)RX" | Out-Null

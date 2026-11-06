@@ -23,7 +23,7 @@ function SupCli([string[]]$a) { $env:ORBIT_SUPERVISOR_HOME = $sup; $ErrorActionP
 function WaitFor([scriptblock]$cond, [int]$sec, [string]$what) {
   $d = (Get-Date).AddSeconds($sec); while ((Get-Date) -lt $d) { if (& $cond) { return $true }; Start-Sleep 3 }; Write-Host "timed out waiting for: $what"; return $false
 }
-function History([string]$id) { (Status).history | Where-Object { $_.id -eq $id } | Select-Object -First 1 }
+function Get-Release([string]$id) { (Status).history | Where-Object { $_.id -eq $id } | Select-Object -First 1 }
 function Run-Git([string[]]$a) { & git.exe -c safe.directory=* @a; if ($LASTEXITCODE) { throw "git $($a -join ' ') failed" } }
 
 # Run a .cmd as another account through a one-off S4U task (the same logon the real tasks use). Returns the exit code.
@@ -138,8 +138,8 @@ export default function Probe() {
 "@ | Set-Content "$work\src\app\selfdev-probe\page.tsx" -Encoding UTF8
   Run-Git @("-C", $work, "add", "-A"); Commit "CI: build-time boundary probe page"
   $A = Submit "ci-a" "CI: probe page"
-  $null = WaitFor { (History "ci-a") } 3600 "release A"
-  Check ((History "ci-a").step -eq "retained") "release A built by orbit-build, installed by the owner task, verified, kept ($((History 'ci-a').reason))"
+  $null = WaitFor { (Get-Release "ci-a") } 3600 "release A"
+  Check ((Get-Release "ci-a").step -eq "retained") "release A built by orbit-build, installed by the owner task, verified, kept ($((Get-Release 'ci-a').reason))"
   Check ((Health).commit -eq $A) "live runs release A"
   $j = Get-Content "$pp\build.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json; Copy-Item "$pp\build.json" $out -ErrorAction SilentlyContinue
   Check ($j -and $j.pass) "probe during next build: every forbidden action refused"
@@ -164,8 +164,8 @@ export default function Probe() {
   $lock = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList "-NoProfile", "-Command", "`$f=[IO.File]::Open('$live\.next\BUILD_ID','Open','Read','None'); Start-Sleep 1800"
   Start-Sleep 3
   Remove-Item "$data\stop-all.json"
-  $null = WaitFor { (History "ci-b") } 3600 "release B"
-  $h = History "ci-b"; Write-Host "release B: $($h.step) $($h.reason)"
+  $null = WaitFor { (Get-Release "ci-b") } 3600 "release B"
+  $h = Get-Release "ci-b"; Write-Host "release B: $($h.step) $($h.reason)"
   Check ($h.step -in "halted", "rolledBack") "install with a locked file fails and halts releases ($($h.reason))"
   Check ((Health).ok -and (Health).commit -eq $A) "ORBIT still runs release A after the failed swap"
   Check (Test-Path "$live\.next\BUILD_ID") "the live build wasn't half-deleted"
@@ -183,8 +183,8 @@ export default function Probe() {
   (Get-Content $p -Raw).Replace('export const dynamic = "force-static";', 'export const dynamic = "force-dynamic";').Replace('  const data = demoData();', '  if (process.env.ORBIT_DRILL_OK !== "1") { require("node:fs").writeFileSync(process.env.ORBIT_DATA_DIR + "/written-after-deploy.json", "{}"); throw new Error("ci: broken page"); } const data = demoData();') | Set-Content $p -Encoding UTF8
   Commit "CI: broken demo page"
   $C = Submit "ci-c" "CI: broken demo page"
-  $null = WaitFor { (History "ci-c") } 3600 "release C"
-  $h = History "ci-c"
+  $null = WaitFor { (Get-Release "ci-c") } 3600 "release C"
+  $h = Get-Release "ci-c"
   Check ($h.step -eq "rolledBack") "broken release rolled back ($($h.reason))"
   Check ((Health).ok -and (Health).commit -eq $A) "release A restored and healthy"
   Check ((& git -c safe.directory=* -C $origin rev-parse "main^{tree}").Trim() -eq (& git -c safe.directory=* -C $origin rev-parse "$A^{tree}").Trim()) "main reverted"
