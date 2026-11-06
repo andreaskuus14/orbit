@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start -H 127.0.0.1 -p 3000",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "test": "node --test --experimental-strip-types --import ./scripts/test-guard.mjs tests/*.test.ts",
     "eval:ai": "node --experimental-strip-types scripts/ai-scorecard.ts",
     "eval:agents": "node --experimental-strip-types scripts/agent-evals.ts",
     "eval": "node --no-warnings --experimental-strip-types scripts/eval-core.ts",

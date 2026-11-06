@@ -24,6 +24,9 @@ export const DEFAULT_POLICY: Policy = {
     "src/lib/authority", "src/lib/autonomy", "src/lib/stop-all", "src/lib/csrf", "src/lib/allow", "src/instrumentation.ts",
     "src/lib/isolation-pure.ts", "src/app/api/selfdev/", "src/lib/selfdev", ".env", "selfdev/",
     "src/app/api/health/", // the supervisor's own health signal: a release must not be able to vouch for itself
+    // Code that eval:ai loads into its own process (CI's required check): a change there could report the eval as passed.
+    // tests/supervisor-policy.test.ts fails if the eval starts loading a file this list doesn't cover.
+    "src/lib/memory-retrieval-pure.ts", "src/lib/agent-scorecard-pure.ts", "src/lib/pure.ts", "src/lib/passages.ts",
   ],
   maxFiles: 8,
   maxLines: 300,
@@ -98,6 +101,8 @@ export function weakenedTests(numstat: { path: string; added: number; removed: n
     // Tests are code that runs in CI and on the builder's account: no ending the run early, no spawning processes.
     if (plus.some((l) => /\bprocess\.(exit|kill|abort)\b|child_process|\b(execSync|spawnSync|execFile)\b/.test(l))) out.push(`${name}: test exits the process or spawns commands`);
   }
+  // Switching typechecking off for a file weakens the gate's tsc step for it.
+  for (const f of files) if (f.split("\n").some((l) => l.startsWith("+") && /@ts-nocheck/.test(l))) out.push(`${/^a\/\S+ b\/(\S+)/.exec(f)?.[1] ?? "?"}: adds @ts-nocheck`);
   if (numstat.some((c) => c.path === "package.json")) out.push("package.json changed (test scripts are protected)");
   return out;
 }
