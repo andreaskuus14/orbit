@@ -101,6 +101,14 @@ test("approval tracking clears when resolvePending throws mid-way (the action re
   await assert.rejects(() => h.resolve(h.sb, "owner", "t", true), /record could not be saved/);
   assert.equal(seen, "active");
   assert.equal(h.exec("t", h.db[0].started_at), "unknown", "tracking cleared after the error");
+  // ...but the outcome stays unrecorded, never successful: the row is still "running" and the action "attempting"
+  assert.equal(h.db[0].status, "running");
+  assert.equal((h.db[0].pending as any[])[0].status, "attempting");
+  const { continueWork } = await import("../src/lib/work-continuation-pure.ts");
+  const card = continueWork([{ ...(h.db[0] as any), created_at: h.db[0].started_at, exec: h.exec("t", h.db[0].started_at) }], []).items[0];
+  assert.equal(card.status, "uncertain", "not shown as working, done or failed-and-retryable");
+  assert.match(card.detail, /outcome wasn't recorded; it may already have happened/);
+  assert.match(card.next!, /Check whether the action happened before retrying/);
 });
 
 test("approval of a keyed write refuses while 0023_attempt_ids is missing (stays pending) and runs once it is applied", async () => {

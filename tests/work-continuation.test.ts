@@ -191,3 +191,13 @@ test("running without evidence: 'unknown' says it may have stopped, 'unchecked' 
     assert.equal(r(e).next, "Open it to see its progress before retrying anything");
   }
 });
+
+test("an approved action whose outcome wasn't recorded is never shown as safe to retry", () => {
+  const pending = [{ tool: "add_task", status: "uncertain", note: "may or may not have happened" }];
+  const failed = continueWork([T({ id: "u", error: "Interrupted: ORBIT restarted while this ran. Resumable: press Retry", pending })], []).items[0];
+  assert.match(failed.detail, /outcome wasn't recorded; it may already have happened/);
+  assert.equal(failed.next, "Check whether the action happened before retrying: a retry could do it twice", "not 'ORBIT restarted during it: Retry'");
+  const running = continueWork([T({ id: "r", status: "running", exec: "unknown", pending: [{ tool: "add_task", status: "attempting" }] })], []).items[0];
+  assert.equal(running.status, "uncertain");
+  assert.match(running.next!, /a retry could do it twice/);
+});

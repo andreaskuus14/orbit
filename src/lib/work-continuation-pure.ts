@@ -1,4 +1,5 @@
 import { rowReceipt } from "./receipt-pure.ts";
+import { unsure } from "./completion-pure.ts";
 
 // "Continue my work": a small inbox built from existing task and goal records (IO: work-continuation.ts, UI: ContinueWork.tsx).
 // at: when this attempt started (shown so an old failure never reads as today's); state: one of the task/goal statuses, or
@@ -25,11 +26,14 @@ export function isEvaluation(t: WorkTask, cases: readonly EvalCase[]): boolean {
 }
 
 /** A failed task's reason in one short, safe line (its stored error, else what its receipt says failed) and the next step. */
+const UNRECORDED = "An approved action started, but its outcome wasn't recorded; it may already have happened";
+const CHECK_FIRST = "Check whether the action happened before retrying: a retry could do it twice";
 export function failureReason(t: WorkTask): { reason: string; next: string } {
   const err = (t.error ?? "").split("\n")[0].replace(/^Error:\s*/i, "").trim();
   const rc = rowReceipt({ title: t.title, status: t.status, error: t.error, request: t.request, pending: Array.isArray(t.pending) ? t.pending : null, trace: t.trace ?? null });
   const failedStep = rc?.failed.find((f) => !/^failed\.?$/i.test(f.trim())) ?? ""; // the bare placeholder isn't a reason
   const reason = (err || failedStep || "No reason was recorded").replace(/\s+/g, " ").slice(0, 140);
+  if (unsure(t.pending)) return { reason: `${UNRECORDED}. ${reason}`.slice(0, 200), next: CHECK_FIRST }; // never "safe to retry"
   const r = `${err} ${failedStep}`;
   const next = /interrupted|restarted/i.test(r) ? "ORBIT restarted during it: Retry"
     : /usage limit|rate limit|quota|limit reached/i.test(r) ? "Wait until Claude's limit resets, then Retry"
@@ -88,10 +92,11 @@ export function continueWork(tasks: WorkTask[], goals: WorkGoal[], problems: str
     }
     if (t.status === "running" && t.exec !== "active") { // marked running, but nothing here is running it: never shown as working
       rows.push({ item: { ...base, status: "uncertain", action: "View progress",
-        detail: t.exec === "restart" ? `Started ${day(at)} before ORBIT restarted; it is being marked interrupted`
+        detail: unsure(t.pending) ? `${UNRECORDED} (started ${day(at)}, no worker is running it now)`
+          : t.exec === "restart" ? `Started ${day(at)} before ORBIT restarted; it is being marked interrupted`
           : t.exec === "unknown" ? `Marked running since ${day(at)}; ORBIT found no worker running it, so it may have stopped`
           : `Marked running since ${day(at)}; couldn't confirm whether it is still running`,
-        next: t.exec === "restart" ? "Open it to check what finished, then Retry if needed" : "Open it to see its progress before retrying anything" }, rank: 2, at: Date.parse(at) || 0 });
+        next: unsure(t.pending) ? CHECK_FIRST : t.exec === "restart" ? "Open it to check what finished, then Retry if needed" : "Open it to see its progress before retrying anything" }, rank: 2, at: Date.parse(at) || 0 });
       continue;
     }
     rows.push({ item: { ...base, status: t.status,
