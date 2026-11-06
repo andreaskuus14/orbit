@@ -16,3 +16,9 @@ test("padTo keeps cosine: zero-pads to 1024, rejects bad vectors", () => {
   assert.match(gemmaInput("x", "query"), /^task: search result \| query: x$/);
   assert.match(gemmaInput("x", "document"), /^title: none \| text: x$/);
 });
+
+test("a journal entry is always embedded locally, even when Voyage is the provider (journal text never leaves ORBIT)", () => {
+  assert.equal(provider({ VOYAGE_API_KEY: "k" }, "journal"), "local");
+  assert.equal(provider({ VOYAGE_API_KEY: "k", ORBIT_EMBED: "voyage" }, "journal"), "local");
+  assert.equal(provider({ VOYAGE_API_KEY: "k" }, "note"), "voyage");
+});

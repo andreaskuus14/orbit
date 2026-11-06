@@ -35,7 +35,7 @@ const SUGGEST_THRESHOLD = 0.6;
 export async function createMemory(sb: SupabaseClient, userId: string, input: MemoryInput) {
   // MEM04: every capture path (notes, links, voice memos, files, CORE) carries the same provenance tags.
   if (!input.tags?.some((t) => t.startsWith("fp:"))) input = { ...input, tags: [...(input.tags ?? []), ...provenanceTags(provenance(input))] };
-  const embedding = await embed(`${input.title}\n\n${input.content}`, "document");
+  const embedding = await embed(`${input.title}\n\n${input.content}`, "document", input.kind);
   const { data, error } = await sb
     .from("memories")
     .insert({ ...input, user_id: userId, embedding: embedding ? JSON.stringify(embedding) : null })
@@ -96,7 +96,7 @@ export async function captureMemory(sb: SupabaseClient, userId: string, input: M
       if (isMissingColumn(r.error)) { delete ins.source_ref; delete ins.confirmation; r = await sb.from("memories").insert(ins); } // until 0019
       if (r.error) throw r.error;
     }
-    const e = await embed(`${cur.title}\n\n${plan.content}`, "document");
+    const e = await embed(`${cur.title}\n\n${plan.content}`, "document", input.kind); // duplicates are looked up within input.kind
     const { error } = await sb.from("memories").update({ content: plan.content, tags: [...new Set([...cur.tags, ...keys])], embedding: e ? JSON.stringify(e) : null }).eq("id", cur.id);
     if (error) throw error;
     await emit(sb, userId, "memory.updated", "memory", { id: cur.id });

@@ -24,11 +24,12 @@ async function voyage(text: string, inputType: "document" | "query"): Promise<nu
   return vec && vec.length === 1024 ? vec : null;
 }
 
-export async function embed(text: string, inputType: "document" | "query"): Promise<number[] | null> {
+/** `kind` is the memory's kind when embedding a stored memory; a "journal" one never goes to the hosted provider. */
+export async function embed(text: string, inputType: "document" | "query", kind?: string): Promise<number[] | null> {
   // shortcut: embeds the first 8k chars only (EmbeddingGemma's window is 2k tokens); chunk long documents when deep document search arrives.
   const t = text.slice(0, 8_000);
   try {
-    if (embeddingProvider() === "voyage") return await voyage(t, inputType);
+    if (provider({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY }, kind) === "voyage") return await voyage(t, inputType);
     const fe = await local();
     if (!fe) return null;
     return padTo((await fe(gemmaInput(t, inputType), { pooling: "mean", normalize: true })).data);
