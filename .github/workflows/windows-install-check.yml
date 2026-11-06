@@ -11,10 +11,12 @@ jobs:
     timeout-minutes: 45
     env:
       NEXT_TELEMETRY_DISABLED: '1'
-      ORBIT_DATA_DIR: ${{ runner.temp }}\orbit-data
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - name: Isolated data dir
+        shell: pwsh
+        run: '"ORBIT_DATA_DIR=$env:RUNNER_TEMP\orbit-data" >> $env:GITHUB_ENV'
       - name: Only workflow files differ from 0c77a3e
         shell: pwsh
         run: |
