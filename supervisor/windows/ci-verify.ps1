@@ -16,9 +16,10 @@ $out = Join-Path $W "selfdev-windows"; New-Item -ItemType Directory -Force $out 
 $results = [System.Collections.Generic.List[string]]::new()
 function Check([bool]$ok, [string]$what) { $l = "$(if ($ok) { 'ok  ' } else { 'FAIL' }) $what"; Write-Host $l; $results.Add($l) }
 function Step([string]$s) { Write-Host "`n== $s"; $results.Add("== $s") }
-function Health { try { Invoke-RestMethod "http://127.0.0.1:3000/api/health" -TimeoutSec 5 -Headers @{ Connection = "close" } } catch { $null } }
+# A fresh connection per probe (5.1 won't take a Connection header; -DisableKeepAlive is its way).
+function Health { try { Invoke-RestMethod "http://127.0.0.1:3000/api/health" -TimeoutSec 5 -DisableKeepAlive } catch { $null } }
 function Status { Get-Content "$sup\public\status.json" -Raw | ConvertFrom-Json }
-function SupCli([string[]]$a) { $env:ORBIT_SUPERVISOR_HOME = $sup; & $node --no-warnings --experimental-strip-types "$sup\app\supervisor.ts" @a }
+function SupCli([string[]]$a) { $env:ORBIT_SUPERVISOR_HOME = $sup; $ErrorActionPreference = "Continue"; & $node --no-warnings --experimental-strip-types "$sup\app\supervisor.ts" @a 2>&1 }
 function WaitFor([scriptblock]$cond, [int]$sec, [string]$what) {
   $d = (Get-Date).AddSeconds($sec); while ((Get-Date) -lt $d) { if (& $cond) { return $true }; Start-Sleep 3 }; Write-Host "timed out waiting for: $what"; return $false
 }
