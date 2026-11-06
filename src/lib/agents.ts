@@ -671,8 +671,8 @@ export async function cancelTask(sb: SupabaseClient, taskId: string) {
 const running = (g.__orbitTaskQueue ??= new Set());
 
 /** Start queued top-level tasks while fewer than MAX_RUNNING are active. */
-const G2 = globalThis as unknown as { __orbitBoot?: number; __orbitReclaimed?: Set<string> };
-const BOOT = (G2.__orbitBoot ??= Date.now()), reclaimed = (G2.__orbitReclaimed ??= new Set());
+const G2 = globalThis as unknown as { __orbitBootAt?: number; __orbitReclaimed?: Set<string> }; // not __orbitBoot: doctor-boot.ts keeps its self-test promise there
+const BOOT = (G2.__orbitBootAt ??= Date.now()), reclaimed = (G2.__orbitReclaimed ??= new Set());
 /** Once per process and user: tasks (agent tasks, background CORE turns, night tasks) left "running" by the previous process are
  *  marked interrupted at once, not after the 20-minute stale sweep, so nothing silently hangs. Queued ones simply start again below. */
 async function reclaimInterrupted(sb: SupabaseClient, userId: string) {
