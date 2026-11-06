@@ -19,3 +19,13 @@ console.log(JSON.stringify({ sent, journal: j?.length ?? null, note: n?.length ?
     "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, VOYAGE_API_KEY: "test-key", ORBIT_EMBED: "" }, timeout: 50_000 });
   assert.deepEqual(JSON.parse(stdout.trim().split("\n").pop()!), { sent: ["A note"], journal: 1024, note: 1024 });
 });
+
+test("with Voyage on, a near-duplicate check never matches a journal's local vector against a hosted one", { timeout: 60_000 }, async () => {
+  const code = `globalThis.fetch = async () => new Response(JSON.stringify({ data: [{ embedding: Array(1024).fill(0.1) }] }));
+const { findSimilar } = await import(${JSON.stringify(path.join(root, "src/lib/memory.ts"))});
+const sb = { rpc: async () => ({ data: [{ id: "j", title: "diary", kind: "journal", similarity: 0.97 }, { id: "n", title: "note", kind: "note", similarity: 0.95 }], error: null }) };
+console.log(JSON.stringify((await findSimilar(sb, "A reflection", 0.9)).map((m) => m.id)));`;
+  const run = (env: Record<string, string>) => promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", path.join(root, "tests/fixtures/ts-resolve.mjs"),
+    "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, ...env }, timeout: 50_000 }).then((r) => JSON.parse(r.stdout.trim().split("\n").pop()!));
+  assert.deepEqual(await run({ VOYAGE_API_KEY: "test-key", ORBIT_EMBED: "" }), ["n"]);
+});
