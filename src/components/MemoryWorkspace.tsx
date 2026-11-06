@@ -43,7 +43,7 @@ export function MemorySearch<T extends Mem>({ recent, hits, searched, mode, onSe
         <label className="flex items-center gap-1">{t("memws.to")}<input className="field" type="date" value={f.to} onChange={set("to")} /></label>
         {children}
       </div>
-      {searched && mode && <p className="muted text-xs">{t(mode === "hybrid" ? "mem.hybrid" : "mem.keyword")}</p>}
+      {searched && mode && <p className="muted text-xs">{t(mode === "hybrid" ? "mem.hybrid" : mode === "hybrid-journal-keyword" ? "mem.hybridJournalKeyword" : "mem.keyword")}</p>}
       <ul className="space-y-2" aria-live="polite">
         {shown.map((m) => {
           const w = searched ? whyMatched(m, searched) : null;

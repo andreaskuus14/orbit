@@ -9,6 +9,9 @@ export function provider(env: { ORBIT_EMBED?: string; VOYAGE_API_KEY?: string },
   if (env.ORBIT_EMBED === "local" || env.ORBIT_EMBED === "voyage") return env.ORBIT_EMBED === "voyage" && !env.VOYAGE_API_KEY ? "local" : env.ORBIT_EMBED;
   return env.VOYAGE_API_KEY ? "voyage" : "local";
 }
+/** Journal vectors (always local) share a space with the others only when everything else is local too. Vectors from two
+ *  different models are never compared: with Voyage on, journals are found by keyword only. */
+export const journalsComparable = (env: { ORBIT_EMBED?: string; VOYAGE_API_KEY?: string }) => provider(env) === provider(env, "journal");
 
 /** EmbeddingGemma's task prompts (its model card): queries and documents are embedded differently. */
 export const gemmaInput = (text: string, kind: "document" | "query") =>

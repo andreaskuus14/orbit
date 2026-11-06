@@ -1,10 +1,11 @@
 // Embeddings for memory search, 1024 dims to match the DB column. Two providers (embeddings-pure.ts picks):
 // - local (default without a Voyage key): EmbeddingGemma-300M on this PC via transformers.js, q8, ~200 ms each. Free, offline.
 // - voyage: the hosted API, kept for existing installs so stored vectors stay comparable until re-embedded (POST /api/memories/reembed).
-import { gemmaInput, padTo, provider } from "./embeddings-pure";
+import { gemmaInput, journalsComparable, padTo, provider } from "./embeddings-pure";
 
 export const embeddingsEnabled = () => true; // the local model is always available; a load failure just returns null below
 export const embeddingProvider = () => provider({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY });
+export const journalVectorsComparable = () => journalsComparable({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY });
 
 type FE = (s: string, o: { pooling: "mean"; normalize: boolean }) => Promise<{ data: ArrayLike<number> }>;
 const G = globalThis as unknown as { __orbitEmbed?: Promise<FE | null> };
