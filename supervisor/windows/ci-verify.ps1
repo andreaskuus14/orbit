@@ -162,7 +162,7 @@ export default function Probe() {
   Check ((Status).blocked -eq "ORBIT Stop-all is on") "a damaged stop-all.json also holds it"
 
   Step "a locked file in the live build during install"
-  $lock = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList "-NoProfile", "-Command", "`$f=[IO.File]::Open('$live\.next\BUILD_ID','Open','Read','None'); Start-Sleep 1800"
+  $lock = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList "-NoProfile", "-Command", "`$f=[IO.File]::Open('$live\.next\BUILD_ID','Open','Read','None'); Start-Sleep 7200"
   Start-Sleep 3
   Remove-Item "$data\stop-all.json"
   $null = WaitFor { (Get-Release "ci-b") } 3600 "release B"
@@ -170,7 +170,7 @@ export default function Probe() {
   Check ($h.step -in "halted", "rolledBack") "install with a locked file fails and halts releases ($($h.reason))"
   Check ((Health).ok -and (Health).commit -eq $A) "ORBIT still runs release A after the failed swap"
   Check (Test-Path "$live\.next\BUILD_ID") "the live build wasn't half-deleted"
-  Stop-Process -Id $lock.Id -Force
+  Stop-Process -Id $lock.Id -Force -ErrorAction SilentlyContinue
   Set-Content "$sup\ctl\control-1-restore.json" (@{ action = "restore"; releaseId = "ci-a" } | ConvertTo-Json)
   $null = WaitFor { (Get-Content "$sup\audit.jsonl" -Raw) -match '"restore\.(verified|failed)"' } 900 "restore"
   Check ((Get-Content "$sup\audit.jsonl" -Raw) -match '"restore\.verified"') "owner restore to A after the lock is gone"

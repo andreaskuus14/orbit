@@ -37,6 +37,7 @@ type Config = {
   monitor: { probes: number; intervalSec: number; maxErrors: number; startupTimeoutSec: number };
   dataBackup: { paths: string[]; maxBytes: number };
   keepReleases: number; pollSec: number; policy?: Partial<Policy>;
+  buildTimeoutSec?: number; // a fresh npm ci + next build; Windows with antivirus is slow
 };
 type Step = "accepted" | "fetched" | "approved" | "pushed" | "checked" | "merged" | "built" | "snapshotted" | "backedUp" | "installing" | "installed" | "retained"
   | "failed" | "rolledBack" | "halted" | "rejected";
@@ -344,7 +345,7 @@ async function advance(s: State) {
       step(s, r, "merged");
     }
     if (r.step === "merged") {
-      const b = run(sub(cfg.commands.build, { commit: r.sub.commit, stage: cfg.stageDir, mirror: P.mirror }), { timeoutSec: 1800 });
+      const b = run(sub(cfg.commands.build, { commit: r.sub.commit, stage: cfg.stageDir, mirror: P.mirror }), { timeoutSec: cfg.buildTimeoutSec ?? 3600 });
       if (!b.ok) return reject(s, `build failed: ${redact(b.err.slice(-600))}`, true);
       step(s, r, "built");
     }
