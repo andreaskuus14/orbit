@@ -83,7 +83,7 @@ function task(id) {
  *  so an open one is closed first for a fresh view. */
 async function openTask(page, id) {
   const back = page.getByRole("button", { name: "← All tasks" });
-  if (await back.count()) { await back.click(); await sleep(400); }
+  if (await back.count()) { await back.first().evaluate((b) => b.click()); await sleep(400); } // no settle wait (see press)
   await page.evaluate((id) => dispatchEvent(new CustomEvent("orbit:open-source", { detail: { id: `t:${id}`, kind: "week:task" } })), id);
   await page.getByRole("button", { name: "← All tasks" }).waitFor({ timeout: 30000 });
   await sleep(800);
