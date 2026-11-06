@@ -167,7 +167,8 @@ export default function Probe() {
   $null = WaitFor { (Get-Release "ci-b") } 3600 "release B"
   $h = Get-Release "ci-b"; Write-Host "release B: $($h.step) $($h.reason)"
   Check ($h.step -in "halted", "rolledBack") "install with a locked file fails and halts releases ($($h.reason))"
-  Check ((Health).ok -and (Health).commit -eq $A) "ORBIT still runs release A after the failed swap"
+  # Each failed attempt stopped ORBIT and restarted it on A through the launcher; allow it the launcher's start time.
+  Check (WaitFor { $h2 = Health; $h2.ok -and $h2.commit -eq $A } 180 "ORBIT back on A") "ORBIT runs release A again after the failed swap (within 3 min)"
   Check (Test-Path "$live\.next\BUILD_ID") "the live build wasn't half-deleted"
   Stop-Process -Id $lock.Id -Force -ErrorAction SilentlyContinue
   Set-Content "$sup\ctl\control-1-restore.json" (@{ action = "restore"; releaseId = "ci-a" } | ConvertTo-Json)

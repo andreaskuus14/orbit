@@ -105,6 +105,10 @@ allows branch protection, add it as a separate, GitHub-side layer.
 A release that changes the format of a local store could leave data the older code can't read; since #413, stores fail closed (that
 feature is blocked, never saved over). If that happens, the rollback note lists the files; restore them from the backup or fix forward.
 
+**Install downtime.** ORBIT is stopped for the swap (its own files are open while it runs). A swap that fails, e.g. on a file locked by
+antivirus, puts the previous build back and restarts it, so each failed attempt costs ORBIT a restart (seconds); after
+`maxRollbackAttempts` the supervisor halts and leaves ORBIT on the previous build.
+
 ## Owner controls
 
 - DEV → Doctor → **Self-development**: current task and why, diffs, checks, browser evidence, releases with their stage
