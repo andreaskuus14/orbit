@@ -2,6 +2,8 @@
 // IO: core-operator.ts. Each write returns a "[op:<id>]" receipt; the before-state stays on this PC (operator-undo.json) and
 // POST /api/activity {undo: {kind: "op", id}} puts it back. Nothing here sends, publishes or spends; the journal is never read.
 import { et, ET_NOT } from "./et-ask-pure.ts";
+import { saysNotTo } from "./ws-intent-pure.ts";
+const OPS_VERBS = "renam\\w*|mov\\w*|updat\\w*|chang\\w*|paus\\w*|delet\\w*|remov\\w*|touch\\w*|edit\\w*|mark\\w*|add\\w*|creat\\w*|do|doing|it|that|this|anything";
 
 export const OPS_TOOLS = ["vault_move", "vault_rename", "lead_create", "lead_update", "life_plan", "automation_create", "automation_pause"] as const;
 export type OpsTool = (typeof OPS_TOOLS)[number];
@@ -28,7 +30,7 @@ const ASK: Record<OpsTool, [RegExp, RegExp]> = {
   automation_pause: [/\b(?:pause|stop|disable|turn off|switch off|resume|enable|turn on|switch on|unpause)\b/i, et("peata|paus|lülita|jätka|luba")],
 };
 /** His own message asks for this kind of change (not a "don't"). */
-export const opsAsked = (tool: OpsTool, question: string) => { const q = question.toLowerCase().replace(/[‘’ʼ]/g, "'"); return !(/\b(?:don'?t|do not|never|cancel)\b/.test(q) || ET_NOT.test(q)) && (ASK[tool][0].test(q) || ASK[tool][1].test(q)); };
+export const opsAsked = (tool: OpsTool, question: string) => { const q = question.toLowerCase().replace(/[‘’ʼ]/g, "'"); return !(saysNotTo(q, OPS_VERBS) || ET_NOT.test(q)) && (ASK[tool][0].test(q) || ASK[tool][1].test(q)); };
 const TARGET: Partial<Record<OpsTool, string>> = { vault_rename: "name", vault_move: "name", lead_update: "lead", automation_pause: "automation" };
 
 /** The explicit-ask check (Profile → Autonomy "Operator: organize my data" at Ask, or outside text/attachments in context): the
@@ -36,7 +38,7 @@ const TARGET: Partial<Record<OpsTool, string>> = { vault_rename: "name", vault_m
  *  itself, so text a tool returned can't pick one. null = allowed. */
 export function opsBlocked(tool: OpsTool, question: string, tainted: boolean, input: Record<string, unknown> = {}, own: readonly string[] = []): string | null {
   const q = question.toLowerCase().replace(/[‘’ʼ]/g, "'"); // phone keyboards type curly apostrophes
-  if (/\b(?:don'?t|do not|never|cancel)\b/.test(q) || ET_NOT.test(q)) return "the user said not to; answer instead";
+  if (saysNotTo(q, OPS_VERBS) || ET_NOT.test(q)) return "the user said not to; answer instead";
   // A lead CORE itself added for this task (this turn or this chat) is ORBIT's own record: noting "not a fit" on it needs no new ask.
   // Callers pass [] with attachments/pins in context; Stop-all is refused before this (policy-pure decide).
   if (tool === "lead_update" && isOwnLead(str(input.lead, 120), own)) return null;
