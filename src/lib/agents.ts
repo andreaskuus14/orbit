@@ -14,7 +14,7 @@ import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { attemptId, attemptTag, completionState, INTERRUPTED, interruptedPatch, startedBeforeBoot, type WriteEvidence } from "./completion-pure";
+import { attemptId, attemptTag, completionState, INTERRUPTED, interruptedPatch, startedBeforeBoot, startedThenFailed, type WriteEvidence } from "./completion-pure";
 import { registerSource, taskExecution as execOf, track } from "./execution";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
 import { MigrationBlocked, refuse, requireMigration } from "./migration-guard";
@@ -604,14 +604,22 @@ async function runApproved(sb: SupabaseClient, userId: string, taskId: string, t
       Object.assign(p, { status: "attempting", attempt: attemptId(taskId, k) });
       ctx.attempt = p.attempt; // same id when the owner retries the step after an uncertain outcome, so a keyed write can't land twice
       await record("Couldn't record the action attempt, so it was not run. Try again.");
+      // Outcome: "approved" with a receipt; "failed" only when nothing can have been written (refused before running: authority,
+      // a missing migration, or the tool's own "Error:" result, which tools return before writing); a throw once the tool runs is
+      // "uncertain": it may have written first. The attempt id stays, so Retry this step finds that write instead of repeating it.
+      let started = false;
       try {
         const auth = await authorizeAction(p.tool, { entry: "agent", ownerClick: true }); // his approve click; unknown/consequential tools refused
         if (!auth.ok) throw new Error(auth.why);
+        started = true;
         p.note = await TOOLS[p.tool].run(ctx, p.input);
-        if (p.note.trimStart().startsWith("Error:")) throw new Error(p.note);
-        p.status = "approved";
-        p.evidence = ctx.evidence;
-      } catch (e) { p.status = "failed"; p.note = e instanceof Error ? e.message : String(e); }
+        if (p.note.trimStart().startsWith("Error:")) p.status = "failed";
+        else { p.status = "approved"; p.evidence = ctx.evidence; }
+      } catch (e) {
+        const why = typeof (e as Error | null)?.message === "string" ? (e as Error).message : String(e);
+        if (!started || (e as { notRun?: boolean } | null)?.notRun) { p.status = "failed"; p.note = why; }
+        else { p.status = "uncertain"; p.note = startedThenFailed(why); if (ctx.evidence?.length) p.evidence = ctx.evidence; }
+      }
     }
     await record("An action was handled but its record could not be saved. Inspect the result before retrying.");
   }

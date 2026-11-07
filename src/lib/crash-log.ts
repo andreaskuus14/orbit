@@ -10,8 +10,10 @@ import { orbitDataDir } from "./data-dir.ts";
 //    Restart recovery marks interrupted tasks; an approved action left mid-way shows "may or may not have happened", never re-run.
 //    Recoverable failures (a feed or article fetch, a briefing) are caught where they happen: pulse.ts per feed, readArticle, and
 //    pinnedGet rejects or returns the status instead of leaving a stream to fail later.
-//  - an unhandled rejection (a promise nobody awaited) is logged and the server keeps serving: no code was cut off mid-way, and making
-//    it fatal would turn a forgotten await somewhere into a restart loop the supervisor gives up on.
+//  - an unhandled rejection (a promise nobody awaited) is logged and the server keeps serving. That is a policy choice, not a sign
+//    nothing was interrupted: the async work may have partly completed before it rejected. Making it fatal would turn a forgotten
+//    await somewhere into a restart loop the supervisor gives up on, so the safety comes from elsewhere: approved actions are
+//    recorded "attempting" before they run and end "uncertain" when they throw after starting (agents.ts), never "failed".
 // Next's own handlers print the raw message (no stack, no redaction) and keep serving; they are replaced by these.
 const EVENTS = ["uncaughtException", "unhandledRejection"] as const;
 type G = { __orbitCrashLog?: boolean; __orbitJob?: AsyncLocalStorage<string>; __orbitStopping?: boolean };
