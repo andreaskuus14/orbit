@@ -12,7 +12,8 @@ export async function POST(req: Request) {
   if (id instanceof Response) return id;
   if (!id) return Response.json({ error: "Choose a project" }, { status: 400 });
   const { data, error } = await sb.from("projects").select("name").eq("id", id).eq("user_id", user.id).maybeSingle();
-  if (error || !data) return Response.json({ error: "Project could not be read" }, { status: 503 });
+  if (error) return Response.json({ error: "Project could not be read" }, { status: 503 });
+  if (!data) return Response.json({ error: "Project not found" }, { status: 404 }); // deleted since the access check, or not this user's
   try {
     const result = await updateChats(user.id, (s) => {
       const existing = s.projects.find((p) => p.id === id);

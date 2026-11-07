@@ -48,7 +48,7 @@ test("ARCH scene and history routes scope every read/write to the authorized pro
 test("project desk renders project selection, local notes, references and task links", () => {
   const m = { exports: {} as any };
   const desk = { rev: 2, notes: "Use timber", references: [{ title: "Reference", url: "https://example.com/" }], files: [{ id: project, label: "Old name.png" }], productions: [{ id: "job:clip", title: "Project film" }], palette: ["#aabbcc"] };
-  const state: any[] = [[{ id: project, name: "My house", status: "active" }], "", desk, desk, true, false, "", [{ id: "task-1", title: "Study site", status: "done" }], "", "", "", [{ id: project, name: "Renamed.png", type: "image", version: 3 }], "#112233"];
+  const state: any[] = [[{ id: project, name: "My house", status: "active" }], "", desk, desk, true, false, "", [{ id: "task-1", title: "Study site", status: "done" }], "", "", "", [{ id: project, name: "Renamed.png", type: "image", version: 3 }], "#112233", []];
   runInNewContext(compile("components/ProjectDesk.tsx"), { module: m, exports: m.exports, JSON, require: (name: string) => {
     if (name === "react") return { ...require("react"), useState: () => [state.shift(), () => {}], useEffect: () => {} };
     if (name === "react/jsx-runtime") return require(name);
@@ -65,6 +65,26 @@ test("project desk renders project selection, local notes, references and task l
   assert.match(html, /Save notes and references/);
   assert.match(html, /Renamed.png/); assert.match(html, /file=Renamed.png/); assert.doesNotMatch(html, /file=Old/);
   assert.match(html, /Project film/); assert.match(html, /#o=studio/); assert.match(html, /#aabbcc/); assert.match(html, /Open project in CORE/);
+  assert.doesNotMatch(html, /Only in the cloud/);
+});
+test("project desk lists cloud-only VAULT files as unselectable and says to restore them in VAULT first", () => {
+  const m = { exports: {} as any };
+  const desk = { rev: 1, notes: "", references: [], files: [], productions: [], palette: [] };
+  const state: any[] = [[], "", desk, desk, true, false, "", [], "", "", "", [{ id: project, name: "Local.png", type: "image", version: 1 }], "#112233", [{ name: "Cloud plan.pdf" }, { name: "Site photo.jpg" }]];
+  runInNewContext(compile("components/ProjectDesk.tsx"), { module: m, exports: m.exports, JSON, require: (name: string) => {
+    if (name === "react") return { ...require("react"), useState: () => [state.shift(), () => {}], useEffect: () => {} };
+    if (name === "react/jsx-runtime") return require(name);
+    if (name.endsWith("/project-desk-pure")) return pure;
+    if (name.endsWith("/deeplink-pure")) return { linkToHash: () => "#" };
+    if (name.endsWith("/core-chats-pure")) return chats;
+    if (name.endsWith("/nav-pure")) return { NAV_EVENT: "orbit:navigate" };
+    if (name === "./i18n") return { useT: () => ({ t: (key: any, params: any) => translate("en", key, params) }) };
+    throw new Error(name);
+  } });
+  const html = renderToStaticMarkup(createElement(m.exports.ProjectDesk, { project, onSelect: () => {} }));
+  assert.match(html, new RegExp(`<option value="${project}">Local.png</option>`));
+  assert.match(html, /<optgroup label="Only in the cloud: restore in VAULT first"><option value="cloud:Cloud plan.pdf" disabled="">Cloud plan.pdf<\/option><option value="cloud:Site photo.jpg" disabled="">Site photo.jpg<\/option><\/optgroup>/);
+  assert.match(html, /2 file\(s\) are only in the cloud\. Restore them in VAULT \(Download to this PC\) before linking them here\./);
 });
 test("project chat requests are navigation data only and reject malformed IDs", () => {
   assert.deepEqual(chats.projectChatRequest({ projectId: project, chatId: "chat-1", message: "Must never be sent" }), { projectId: project, chatId: "chat-1" });
@@ -91,4 +111,23 @@ test("connecting CORE uses the existing project ID, preserves pins and never cop
   assert.equal(store.projects.length, 1); assert.equal(store.projects[0].pins.length, 1); assert.equal(events.length, 1);
   allowed = false;
   assert.equal((await m.exports.POST(req)).status, 404); assert.equal(writes, 2);
+});
+test("connecting CORE returns not-found for a missing project, keeps the owner filter, and 503 only for a read error", async () => {
+  const m = { exports: {} as any }, conditions: [string, string][] = [];
+  let row: any = { data: null, error: null }, writes = 0;
+  runInNewContext(compile("app/api/projects/core/route.ts"), { module: m, exports: m.exports, Response, Date, require: (name: string) => {
+    if (name.endsWith("/supabase/server")) return { requireUser: async () => ({ user: { id: "owner" }, sb: { from: () => ({ select() { return this; }, eq(k: string, v: string) { conditions.push([k, v]); return this; }, maybeSingle: async () => row }) } }) };
+    if (name.endsWith("/project-access")) return { projectScope: async () => project };
+    if (name.endsWith("/core-chats")) return { updateChats: async () => { writes++; return { error: "unexpected" }; } };
+    if (name.endsWith("/core-chats-pure")) return chats;
+    if (name.endsWith("/activity")) return { logActivity: () => {} };
+    throw new Error(name);
+  } });
+  const req = new Request(`http://orbit/api/projects/core?project=${project}`, { method: "POST" });
+  const missing = await m.exports.POST(req);
+  assert.equal(missing.status, 404); assert.equal((await missing.json()).error, "Project not found");
+  assert.deepEqual(conditions, [["id", project], ["user_id", "owner"]]);
+  row = { data: null, error: { message: "connection reset" } };
+  assert.equal((await m.exports.POST(req)).status, 503);
+  assert.equal(writes, 0);
 });

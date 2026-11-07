@@ -39,7 +39,7 @@ test("durable desk keeps projects/users apart, serializes saves and refuses stal
     assert.deepEqual(await getDesk("other", a), emptyDesk());
     await saveDesk("owner", b, 0, { notes: "Other model", references: [] });
     await saveDesk("other", a, 0, { notes: "Other user private notes", references: [] });
-    assert.deepEqual(Object.keys(await exportDesks("owner")).sort(), [a, b]);
+    assert.deepEqual(Object.keys((await exportDesks("owner")).desks).sort(), [a, b]);
     assert.doesNotMatch(JSON.stringify(await exportDesks("owner")), /Other user private/);
     assert.equal((await getDesk("owner", a)).notes, "House decisions");
     const file = path.join(dir, "project-desks.json");
@@ -47,6 +47,24 @@ test("durable desk keeps projects/users apart, serializes saves and refuses stal
     await assert.rejects(saveDesk("owner", a, 1, input));
     assert.equal(await readFile(file, "utf8"), "{broken");
     await assert.rejects(getDesk("owner", a));
+  } finally {
+    if (previous === undefined) delete process.env.ORBIT_DATA_DIR; else process.env.ORBIT_DATA_DIR = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("desk export keeps valid records and names an invalid one instead of failing the whole section", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "orbit-project-desk-")), previous = process.env.ORBIT_DATA_DIR;
+  process.env.ORBIT_DATA_DIR = dir;
+  try {
+    const good = { notes: "Keep me", references: [], rev: 2 };
+    await writeFile(path.join(dir, "project-desks.json"), JSON.stringify({ [`owner:${a}`]: good, [`owner:${b}`]: { notes: 7, references: "x", rev: -1 }, [`other:${b}`]: { notes: 1 } }));
+    const out = await exportDesks("owner");
+    assert.deepEqual(out.desks, { [a]: good });
+    assert.deepEqual(out.skipped, [b]);
+    assert.match(out.warning ?? "", new RegExp(`1 project desk record\\(s\\) were invalid.*${b}.*unchanged in project-desks.json`));
+    assert.doesNotMatch(out.warning ?? "", /other/); // another user's bad record isn't reported to this user
+    assert.equal((await exportDesks("nobody")).warning, undefined);
+    await assert.rejects(getDesk("owner", b)); // reading/saving that desk still refuses, so it can't be overwritten blind
   } finally {
     if (previous === undefined) delete process.env.ORBIT_DATA_DIR; else process.env.ORBIT_DATA_DIR = previous;
     await rm(dir, { recursive: true, force: true });

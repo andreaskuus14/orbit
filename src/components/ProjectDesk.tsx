@@ -24,6 +24,7 @@ export function ProjectDesk({ project, onSelect, disabled = false, productions, 
   const [title, setTitle] = useState(""), [url, setUrl] = useState("");
   const [vault, setVault] = useState<VaultItem[]>([]);
   const [color, setColor] = useState("#c9a24a");
+  const [cloudOnly, setCloudOnly] = useState<{ name: string }[]>([]);
   const dirty = JSON.stringify(desk) !== JSON.stringify(saved) || !!title || !!url;
   const endpoint = `/api/projects/desk?project=${encodeURIComponent(project)}`;
   const draftKey = `orbit.project.draft:${project}`;
@@ -57,7 +58,7 @@ export function ProjectDesk({ project, onSelect, disabled = false, productions, 
     return () => { alive = false; };
   }, [project, endpoint]);
   async function loadVault() {
-    try { const j = await api<{ files: VaultItem[] }>("/api/vault"); setVault(j.files); }
+    try { const j = await api<{ files: VaultItem[]; cloudOnly?: { name: string }[] }>("/api/vault"); setVault(j.files); setCloudOnly(j.cloudOnly ?? []); }
     catch (e) { setError((e as Error).message); }
   }
   useEffect(() => { if (loaded && desk.files?.length && !vault.length) void loadVault(); }, [loaded, desk.files?.length]); // metadata only; never model input
@@ -137,9 +138,11 @@ export function ProjectDesk({ project, onSelect, disabled = false, productions, 
         </div>;
       })}</div>
       <button className="chip" disabled={!loaded || busy} onClick={() => void loadVault()}>{t("desk.chooseFiles")}</button>
-      {!!vault.length && <select className="field w-full" value="" aria-label={t("desk.chooseFiles")} disabled={!loaded || busy || (desk.files?.length ?? 0) >= 50} onChange={(e) => {
+      {(!!vault.length || !!cloudOnly.length) && <select className="field w-full" value="" aria-label={t("desk.chooseFiles")} disabled={!loaded || busy || (desk.files?.length ?? 0) >= 50} onChange={(e) => {
         const f = vault.find((v) => v.id === e.target.value); if (f) setDesk({ ...desk, files: [...(desk.files ?? []), { id: f.id, label: f.name }] });
-      }}><option value="">{t("desk.chooseFiles")}</option>{vault.filter((f) => f.id && !desk.files?.some((a) => a.id === f.id)).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>}
+      }}><option value="">{t("desk.chooseFiles")}</option>{vault.filter((f) => f.id && !desk.files?.some((a) => a.id === f.id)).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+        {!!cloudOnly.length && <optgroup label={t("desk.cloudOnlyGroup")}>{cloudOnly.map((c) => <option key={`cloud:${c.name}`} value={`cloud:${c.name}`} disabled>{c.name}</option>)}</optgroup>}</select>}
+      {!!cloudOnly.length && <p className="muted text-xs">{t("desk.cloudOnlyHelp", { n: cloudOnly.length })}</p>}
       <h3 className="font-semibold text-xs">{t("desk.palette")}</h3>
       <ul className="flex flex-wrap gap-2">{(desk.palette ?? []).map((c) => <li key={c} className="flex items-center gap-1 text-xs">
         <span className="inline-block h-5 w-5 rounded border border-white/30" style={{ background: c }} aria-hidden="true" />{c}
