@@ -1,0 +1,108 @@
+name: Windows release smoke
+
+# Repeatable, isolated release smoke on a throwaway windows-latest VM. It tests one exact commit (input `sha`, full 40 hex):
+# checkout SHA check, npm ci from the lockfile, tsc, every unit test, next build, and a startup probe with placeholder keys and a
+# throwaway data dir. No secrets, no Supabase, no model, never the owner's PC. Every run writes version.json (what exactly was
+# tested: commit, tree, lockfile hash, Node/npm, runner image) and results to the job summary and the artifact
+# windows-release-smoke-<sha>. The harness (this file + scripts/windows-smoke) comes from the ref the run was started on.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full 40-character commit to test
+        required: true
+      node:
+        description: Node.js version (match the PC's)
+        default: '24'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-smoke-${{ inputs.sha }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      SHA: ${{ inputs.sha }}
+      NEXT_TELEMETRY_DISABLED: '1'
+      ORBIT_CLAUDE_BIN: C:\nonexistent\orbit-test-claude
+    steps:
+      - name: Input is a full commit SHA
+        shell: pwsh
+        run: if ($env:SHA -notmatch '^[0-9a-f]{40}$') { throw "sha must be the full 40-character commit, got '$env:SHA'" }
+      - uses: actions/checkout@v4
+        with: { path: harness, persist-credentials: false }
+      - uses: actions/checkout@v4
+        with: { ref: "${{ inputs.sha }}", path: orbit, persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ inputs.node }}" }
+      - name: Record the exact version tested
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          $h = git -C orbit rev-parse HEAD
+          if ($h -ne $env:SHA) { throw "checkout is $h, not $env:SHA" }
+          if ((Test-Path orbit/.env) -or (Test-Path orbit/.env.local)) { throw "a .env file is in the checkout" }
+          [ordered]@{
+            commit = $h; tree = (git -C orbit rev-parse 'HEAD^{tree}'); subject = (git -C orbit log -1 --format=%s); committed = (git -C orbit log -1 --format=%cI)
+            lockfileSha256 = (Get-FileHash orbit/package-lock.json -Algorithm SHA256).Hash.ToLower(); packageVersion = (Get-Content orbit/package.json -Raw | ConvertFrom-Json).version
+            node = (node -v); npm = (npm -v); runnerImage = "$env:ImageOS $env:ImageVersion"; os = [Environment]::OSVersion.VersionString
+            harnessRef = "${{ github.ref }}"; harnessCommit = "${{ github.sha }}"; run = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+            startedAt = (Get-Date).ToUniversalTime().ToString("o")
+          } | ConvertTo-Json | Tee-Object out/version.json
+      - name: npm ci
+        id: ci
+        working-directory: orbit
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        id: tsc
+        if: ${{ !cancelled() && steps.ci.outcome == 'success' }}
+        working-directory: orbit
+        run: npx tsc --noEmit -p .
+      - name: Unit tests
+        id: test
+        if: ${{ !cancelled() && steps.ci.outcome == 'success' }}
+        working-directory: orbit
+        shell: pwsh
+        run: |
+          $env:LOCALAPPDATA = "$env:RUNNER_TEMP\la"; New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
+          npm test *> ../out/unit-tests.log; $e = $LASTEXITCODE
+          Get-Content ../out/unit-tests.log | Select-String -Pattern '^# (tests|pass|fail|skipped)' | ForEach-Object { $_.Line } | Tee-Object ../out/unit-counts.txt
+          Get-Content ../out/unit-tests.log | Select-String -Pattern '^not ok' -Context 0,14 | Select-Object -First 20 | ForEach-Object { $_.ToString() }
+          exit $e
+      - name: Build
+        id: build
+        if: ${{ !cancelled() && steps.ci.outcome == 'success' }}
+        working-directory: orbit
+        run: npx next build
+        env: { NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321", NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-placeholder-anon-key" }
+      - name: Startup probe
+        id: startup
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: node harness/scripts/windows-smoke/startup-probe.mjs orbit out/startup.json
+      - name: Summary
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $v = Get-Content out/version.json -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+          $steps = [ordered]@{ "npm ci" = "${{ steps.ci.outcome }}"; typecheck = "${{ steps.tsc.outcome }}"; "unit tests" = "${{ steps.test.outcome }}"; build = "${{ steps.build.outcome }}"; startup = "${{ steps.startup.outcome }}" }
+          $pass = -not ($steps.Values | Where-Object { $_ -ne "success" })
+          $counts = (Get-Content out/unit-counts.txt -ErrorAction SilentlyContinue) -join "; "
+          [ordered]@{ result = $(if ($pass) { "PASS" } else { "FAIL" }); version = $v; steps = $steps; unitTests = $counts
+            startup = (Get-Content out/startup.json -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json) } | ConvertTo-Json -Depth 6 | Set-Content out/result.json
+          $md = @("## Windows release smoke: $(if ($pass) { 'PASS' } else { 'FAIL' })", "", "| | |", "|---|---|",
+            "| Commit | ``$($v.commit)`` |", "| Tree | ``$($v.tree)`` |", "| Subject | $($v.subject) |", "| Lockfile SHA-256 | ``$($v.lockfileSha256)`` |",
+            "| Node / npm | $($v.node) / $($v.npm) |", "| Runner image | $($v.runnerImage) |", "| Harness | $($v.harnessRef) @ ``$($v.harnessCommit)`` |", "| Unit tests | $counts |", "")
+          $md += $steps.GetEnumerator() | ForEach-Object { "- $($_.Key): $($_.Value)" }
+          $md -join "`n" | Tee-Object out/summary.md | Add-Content $env:GITHUB_STEP_SUMMARY
+          if (-not $pass) { exit 1 }
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-smoke-${{ inputs.sha }}
+          path: out/
+          retention-days: 90
