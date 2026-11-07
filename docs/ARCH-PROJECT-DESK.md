@@ -33,7 +33,7 @@ An arbitrary cross-module “continue this project” voice/command-bar command 
 - **Tab recovery** keeps unsaved desk edits, pending references and task text in session storage on a best-effort basis. Recovery happens only after the desk API confirms access. A recovered older revision cannot overwrite newer server notes. Explicit Reload saved notes discards recovered desk edits. Closing the whole browser/tab can still lose session-only recovery; Save remains the durable action.
 - **Backup/export** includes this signed-in user's desk metadata under `local.project_desks`, including links, palette and clip/file memberships. Other users' entries are excluded. Linked file bytes remain in the existing VAULT storage; the metadata export is not a new file-copy or restore mechanism.
 
-The follow-up uses release #422 (`a336a0b9`), which includes the merged ARCH desk from PR 377. The 33 focused checks passed. After correcting Windows test harness failures, the integrated run passed 3,314 tests with four skips. The production build was interrupted during page collection and the full gate is running again.
+The follow-up uses release #422 (`a336a0b9`), which includes the merged ARCH desk from PR 377. All 33 focused project checks passed. The follow-up also fixes Windows test harness paths and waits for asynchronous cleanup. It fixes a Stop-all race by signalling live task cancellation before the flag finishes saving. Eleven focused Stop-all checks passed. The full Windows gate passed with 3,315 tests passing, zero failures and four skips. Type checking, the synthetic AI evaluation and the isolated production build also passed.
 
 ## Verification
 
