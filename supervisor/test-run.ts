@@ -73,7 +73,7 @@ try {
   const npm = (args: string[]) => (win ? ["cmd.exe", "/d", "/s", "/c", "npm.cmd", ...args] : ["npm", ...args]);
   const cmds: Record<string, string[][]> = {
     // Windows: test files run in one process inside the sandbox (per-file child processes talk over IPC pipes the AppContainer can't open)
-    focused: [[node, "--test", ...(win ? ["--test-isolation=none"] : []), "--experimental-strip-types", "--import", "./scripts/test-guard.mjs", ...r.files]],
+    focused: [[node, "--test", ...(win ? [process.allowedNodeEnvironmentFlags.has("--test-isolation") ? "--test-isolation=none" : "--experimental-test-isolation=none"] : []), "--experimental-strip-types", "--import", "./scripts/test-guard.mjs", ...r.files]],
     typecheck: [[node, "node_modules/typescript/bin/tsc", "--noEmit", "-p", "."]],
     test: [npm(["test"])],
     gate: [npm(["run", "gate"])],
