@@ -1,7 +1,7 @@
 // CORE chat list + Projects (pure; tested in tests/core-chats.test.ts). Chats and their messages live in Supabase
 // (conversations/messages, RLS); projects, their pinned notes and the chat → project map live locally in core-chats.json.
 
-import { legacyScopeKey, projectScopeKey } from "./memory-types-pure.ts";
+import { legacyScopeKey, projectScopeKey, type Legacy } from "./memory-types-pure.ts";
 
 export const MAX_CHATS = 200; // newest shown in the list (older ones stay in the database, never deleted silently)
 export const MAX_MESSAGES = 400; // per chat, user + CORE turns
@@ -147,14 +147,14 @@ export function projectContext(p: Project | null | undefined): string {
 
 /** A chat's project context for CORE. tainted: pinned notes are saved CORE replies (which may quote web or agent text),
  *  so they count as untrusted data like attachments; the user's own instructions don't. */
-export type MemoryProject = { name: string; scope: string; legacy?: string };
+export type MemoryProject = { name: string; scope: string; legacy?: Legacy };
 export type ChatContext = { text: string; tainted: boolean; memoryProject?: MemoryProject };
 
 export function chatContext(s: ChatStore, chatId: string): ChatContext {
   const p = s.projects.find((x) => x.id === s.chats[chatId]);
   if (!p) return { text: "", tainted: false };
   const unique = s.projects.filter((x) => legacyScopeKey(x.name) === legacyScopeKey(p.name)).length === 1; // Kitchen vs kitchen, or a shared 34-char prefix: neither gets old name-scoped memories
-  return { text: projectContext(p), tainted: !!p.pins.length, memoryProject: { name: p.name, scope: projectScopeKey(p.id), ...(unique && { legacy: p.name }) } };
+  return { text: projectContext(p), tainted: !!p.pins.length, memoryProject: { name: p.name, scope: projectScopeKey(p.id), ...(unique && { legacy: { name: p.name, since: p.createdAt } }) } };
 }
 
 /** Defensive parse of the stored file for one user: drops hand-edited/broken entries instead of failing. */
