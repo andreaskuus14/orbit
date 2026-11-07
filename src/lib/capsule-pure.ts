@@ -97,13 +97,13 @@ export function openCapsule(buf: Buffer, pass: string): { header: Header; payloa
 export type Entry = { path: string; size: number }; // path: relative to the data dir, "/" separated
 export const CONFIG_FILE = "time-capsule.json"; // never backed up or restored: it holds the folder, the limit and the verifier
 
-/** Which files to back up: the *.json / *.jsonl stores and the vault index; no caches, temp files, vault contents or files over maxBytes. */
+/** Which files to back up: the *.json / *.jsonl stores, the vault index and the vault metadata (file ids); no caches, temp files, vault contents or files over maxBytes. */
 export function pickFiles(all: Entry[], maxBytes: number): { keep: Entry[]; skipped: Entry[] } {
   const keep: Entry[] = [], skipped: Entry[] = [];
   for (const e of all) {
     const parts = e.path.split("/"), name = parts[parts.length - 1];
     const store = /\.jsonl?$/i.test(name) && !parts.some((p) => /cache/i.test(p)) && e.path !== CONFIG_FILE
-      && (parts[0] !== "vault" || e.path === "vault/.index.json");
+      && (parts[0] !== "vault" || e.path === "vault/.index.json" || e.path === "vault/.meta.json");
     if (!store) continue;
     (e.size > maxBytes ? skipped : keep).push(e);
   }

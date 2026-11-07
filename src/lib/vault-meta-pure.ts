@@ -30,11 +30,12 @@ export function newMeta(id: string, name: string, size: number, hash: string | n
 
 export const byName = (m: Meta, name: string) => Object.values(m.files).find((f) => f.name === name);
 
-/** Give every file on disk a record and drop records whose file is gone (outside ORBIT). Returns whether anything changed. */
+/** Give every file on disk a record and drop records whose file is gone (outside ORBIT), unless the file has a cloud copy. Returns whether anything changed. */
 export function reconcile(m: Meta, onDisk: { name: string; size: number }[], mkId: () => string, now: number): boolean {
   let changed = false;
   const names = new Set(onDisk.map((f) => f.name));
-  for (const [id, f] of Object.entries(m.files)) if (!names.has(f.name)) { delete m.files[id]; changed = true; }
+  // A missing file with a cloud copy is cloud-only (e.g. a new PC after a restore), not deleted: keep its id for restoreFromCloud.
+  for (const [id, f] of Object.entries(m.files)) if (!names.has(f.name) && f.sync !== "cloud" && f.sync !== "restored") { delete m.files[id]; changed = true; }
   for (const f of onDisk) if (!byName(m, f.name)) { const id = mkId(); m.files[id] = newMeta(id, f.name, f.size, null, now); changed = true; }
   return changed;
 }
