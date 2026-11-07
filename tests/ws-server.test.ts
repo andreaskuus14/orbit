@@ -66,15 +66,31 @@ http.createServer((q, s) => s.end(JSON.stringify(out))).listen(+process.env.PORT
     if ("error" in r2) return;
     const o = await fetch(r2.url).then((x) => x.json());
     assert.deepEqual(o, { env: Object.keys(minimalEnv(process.env, 1)).sort(), read: "ERR_ACCESS_DENIED", spawn: "ERR_ACCESS_DENIED" });
-    assert.equal(stopServer("t/a"), true);
+    assert.equal(await stopServer("t/a"), true);
     assert.equal(serverStatus("t/a").running, false);
     await new Promise((s) => setTimeout(s, 300));
     await assert.rejects(fetch(r2.url, { signal: AbortSignal.timeout(1000) }));
     const r3 = await startServer("t/b", dir);
     assert.ok(!("error" in r3));
-    assert.equal(stopAllServers(), 1);
+    assert.equal(await stopAllServers(), 1);
     assert.equal(serverStatus("t/b").running, false);
-  } finally { stopAllServers(); rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+    rmSync(dir, { recursive: true }); // no retries: Stop-all returned only after the server let go of its folder (Windows locks it)
+  } finally { await stopAllServers(); rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+});
+
+test("Stop returns only after the server exited, so its folder can be removed right away (Windows EBUSY regression)", { skip: !hasPermission() && "no --permission on this Node" }, async () => {
+  for (let i = 0; i < 5; i++) {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-ws-stop-"));
+    try {
+      writeFileSync(path.join(dir, "server.mjs"), `import http from "node:http"; http.createServer((q, s) => s.end("ok")).listen(+process.env.PORT, "127.0.0.1");`);
+      const r = await startServer(`stop/${i}`, dir);
+      assert.ok(!("error" in r), JSON.stringify(r));
+      if (i % 2) assert.equal(await stopAllServers(), 1); else assert.equal(await stopServer(`stop/${i}`), true);
+      assert.equal(serverStatus(`stop/${i}`).running, false);
+      rmSync(dir, { recursive: true }); // EBUSY on Windows if Stop returned while the process still held the folder
+      assert.equal(await stopServer(`stop/${i}`), false, "a second Stop finds nothing to stop");
+    } finally { await stopAllServers(); rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+  }
 });
 
 test("site pipeline: a fullstack plan's front end lives in public/ and the server step points at the template + ws_run", async () => {

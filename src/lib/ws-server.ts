@@ -22,15 +22,23 @@ export function freePort(): Promise<number> {
 
 export const serverStatus = (key: string) => { const r = runs.get(key); if (r) r.last = Date.now(); return r ? { running: true, url: r.url } : { running: false as const }; };
 
-export function stopServer(key: string): boolean {
+/** Resolves once the server process has exited: Windows keeps a running process's folder locked, so Stop isn't done before that.
+ *  A server that ignores the kill for `ms` is force-killed. */
+export async function stopServer(key: string, ms = 5000): Promise<boolean> {
   const r = runs.get(key);
   if (!r) return false;
   runs.delete(key);
   clearInterval(r.timer);
-  r.child.kill();
+  const { child } = r;
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  await new Promise<void>((done) => {
+    const force = setTimeout(() => { child.kill("SIGKILL"); setTimeout(done, 1000).unref?.(); }, ms);
+    child.once("exit", () => { clearTimeout(force); done(); });
+    child.kill();
+  });
   return true;
 }
-export const stopAllServers = () => [...runs.keys()].filter(stopServer).length;
+export const stopAllServers = async () => (await Promise.all([...runs.keys()].map((k) => stopServer(k)))).filter(Boolean).length;
 
 const up = async (url: string, child: ChildProcess) => {
   for (let i = 0; i < 50 && child.exitCode === null; i++) {
@@ -45,13 +53,13 @@ export async function startServer(key: string, dir: string, o: { stopAll?: boole
   const src = await readFile(path.join(dir, "server.mjs"), "utf8").catch(() => null);
   const blocked = !path.isAbsolute(dir) ? "invalid workspace folder" : startBlocked({ hasServer: src !== null, permission: o.permission ?? hasPermission(), running: runs.has(key), stopAll: !!o.stopAll });
   if (blocked) return { error: blocked };
-  stopServer(key);
+  await stopServer(key);
   const port = await freePort(), url = `http://127.0.0.1:${port}/`, log = path.join(dir, "logs", "server.log");
   if (!inside(dir, log)) return { error: "invalid log path" };
   mkdirSync(path.dirname(log), { recursive: true });
   writeFileSync(log, `--- started ${new Date().toISOString()} on ${url}\n`);
   const child: ChildProcess = spawn(process.execPath, nodeArgs(dir, true), { cwd: dir, env: minimalEnv(process.env, port) as NodeJS.ProcessEnv, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-  const run: Run = { child, url, dir, last: Date.now(), logBytes: 0, timer: setInterval(() => { if (idleExpired(run.last, Date.now())) stopServer(key); }, 60_000) };
+  const run: Run = { child, url, dir, last: Date.now(), logBytes: 0, timer: setInterval(() => { if (idleExpired(run.last, Date.now())) void stopServer(key); }, 60_000) };
   run.timer.unref?.();
   const write = (b: Buffer) => {
     run.last = Date.now();
@@ -64,7 +72,7 @@ export async function startServer(key: string, dir: string, o: { stopAll?: boole
   child.stdout!.on("data", write); child.stderr!.on("data", write);
   child.on("exit", (code: number | null) => { write(Buffer.from(`--- exited (${code ?? "killed"})\n`)); if (runs.get(key) === run) { clearInterval(run.timer); runs.delete(key); } });
   runs.set(key, run);
-  if (!(await up(url, child))) { stopServer(key); return { error: `server.mjs didn't start listening on PORT within 5 s; see logs/server.log` }; }
+  if (!(await up(url, child))) { await stopServer(key); return { error: `server.mjs didn't start listening on PORT within 5 s; see logs/server.log` }; }
   return { url, routes: apiRoutes(src!), endpoints: apiEndpoints(src!) };
 }
 
