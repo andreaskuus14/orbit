@@ -6,6 +6,8 @@ name: Windows release smoke
 # tested: commit, tree, lockfile hash, Node/npm, runner image) and results to the job summary and the artifact
 # windows-release-smoke-<sha>. The harness (this file + scripts/windows-smoke) comes from the ref the run was started on.
 on:
+  push: # a push to this branch tests the pushed commit itself (and registers the workflow so it can be dispatched)
+    branches: [ci/windows-release-smoke]
   workflow_dispatch:
     inputs:
       sha:
@@ -19,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-release-smoke-${{ inputs.sha }}
+  group: windows-release-smoke-${{ inputs.sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -27,7 +29,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      SHA: ${{ inputs.sha }}
+      SHA: ${{ inputs.sha || github.sha }}
       NEXT_TELEMETRY_DISABLED: '1'
       ORBIT_CLAUDE_BIN: C:\nonexistent\orbit-test-claude
     steps:
@@ -37,9 +39,9 @@ jobs:
       - uses: actions/checkout@v4
         with: { path: harness, persist-credentials: false }
       - uses: actions/checkout@v4
-        with: { ref: "${{ inputs.sha }}", path: orbit, persist-credentials: false }
+        with: { ref: "${{ inputs.sha || github.sha }}", path: orbit, persist-credentials: false }
       - uses: actions/setup-node@v4
-        with: { node-version: "${{ inputs.node }}" }
+        with: { node-version: "${{ inputs.node || '24' }}" }
       - name: Record the exact version tested
         shell: pwsh
         run: |
@@ -103,6 +105,6 @@ jobs:
       - if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: windows-release-smoke-${{ inputs.sha }}
+          name: windows-release-smoke-${{ inputs.sha || github.sha }}
           path: out/
           retention-days: 90
