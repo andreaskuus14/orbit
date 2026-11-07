@@ -1,12 +1,12 @@
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir.ts";
-import { CONFIG_FILE, EXT, capsuleName, diffManifests, makeKeyring, manifest, openCapsule, packFiles, parseName, pickFiles, readHeader, rotate, seal, unpackFiles,
+import { CONFIG_FILE, EXT, capsuleName, diffManifests, fallbackDue, makeKeyring, manifest, openCapsule, packFiles, parseName, pickFiles, readHeader, rotate, seal, unpackFiles,
   type Entry, type Keyring, type Kind, type PackedFile } from "./capsule-pure.ts";
 
 // Time capsule (rules: capsule-pure.ts): encrypted backups of the local data dir into a folder the owner picks (external drive,
 // OneDrive folder, ...). Local filesystem only: ORBIT uploads nothing. Run nightly by the night shift (night.ts "backup"),
-// or by Profile → Time capsule → Back up now. Config: <data dir>/time-capsule.json (folder, size limit, keyring = verifier only).
+// by the scheduler when the night shift hasn't (fallbackDue), or by Profile → Time capsule → Back up now. Config: <data dir>/time-capsule.json (folder, size limit, keyring = verifier only).
 
 type Last = { at: string; ok: boolean; bytes?: number; file?: string; error?: string };
 type Config = { dir: string; maxMB: number; ring: Keyring; last?: Last };
@@ -61,6 +61,12 @@ async function writeCapsule(c: Config, kind: Kind) {
 export async function backupDue(now = Date.now()) {
   const c = await loadCfg();
   return !!c && !(c.last?.ok && now - Date.parse(c.last.at) < 20 * 3_600_000);
+}
+
+/** True when set up and the night shift hasn't kept it current (capsule-pure fallbackDue): the scheduler then runs one. */
+export async function fallbackBackupDue(now = Date.now()) {
+  const c = await loadCfg();
+  return !!c && fallbackDue(c.last, now);
 }
 
 /** One nightly backup now; records the result for Profile. Throws with a readable reason (e.g. the drive is unplugged). */
