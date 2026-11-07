@@ -127,6 +127,12 @@ fs.writeFileSync(path.join(req, `${id}.json`), JSON.stringify({ id, task: "probe
     Start-Sleep 2; Copy-Item "$T\results\$id.json" $out -ErrorAction SilentlyContinue
     return (Get-Content "$T\results\$id.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json)
   }
+  # Diagnostics: the sandbox itself, as orbit-test, before the real requests (each step bounded, output kept as evidence).
+  $sbx = "$sup\app\windows\orbit-sandbox.exe"
+  "@echo off`r`n`"$sbx`" --cwd C:\orbit-test\work -- `"$node`" -e `"console.log('sandbox-hello')`" > C:\orbit-test\results\diag-hello.txt 2>&1`r`necho exit %ERRORLEVEL% >> C:\orbit-test\results\diag-hello.txt" | Set-Content "$T\run\diag.cmd" -Encoding ASCII
+  $null = Invoke-As "orbit-test" "$T\run\diag.cmd" 120
+  $diag = Get-Content "$T\results\diag-hello.txt" -Raw -ErrorAction SilentlyContinue; $diag | Set-Content "$out\diag-hello.txt"
+  Check ($diag -match "sandbox-hello") "node starts and prints inside the AppContainer ($(($diag -replace '\s+',' ').Trim()))"
   $p = Request "probe-1" "focused" '["tests/zz-boundary.test.ts"]' "probe"
   $tail = ($p.steps | ForEach-Object { $_.tail }) -join "`n"; $tail | Set-Content "$out\probe-1-tail.txt"
   foreach ($l in ($tail -split "`n" | Where-Object { $_ -match '^\s*(ok|not ok) \d|# (pass|fail)|# report:|could |can.t ' })) { Write-Host "    $($l.Trim())" }

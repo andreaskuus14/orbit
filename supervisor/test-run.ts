@@ -72,7 +72,8 @@ try {
   const node = process.execPath;
   const npm = (args: string[]) => (win ? ["cmd.exe", "/d", "/s", "/c", "npm.cmd", ...args] : ["npm", ...args]);
   const cmds: Record<string, string[][]> = {
-    focused: [[node, "--test", "--experimental-strip-types", "--import", "./scripts/test-guard.mjs", ...r.files]],
+    // Windows: test files run in one process inside the sandbox (per-file child processes talk over IPC pipes the AppContainer can't open)
+    focused: [[node, "--test", ...(win ? ["--test-isolation=none"] : []), "--experimental-strip-types", "--import", "./scripts/test-guard.mjs", ...r.files]],
     typecheck: [[node, "node_modules/typescript/bin/tsc", "--noEmit", "-p", "."]],
     test: [npm(["test"])],
     gate: [npm(["run", "gate"])],
@@ -81,7 +82,7 @@ try {
   const deadline = Date.now() + TEST_KINDS[r.kind] * 1000;
   for (const argv of cmds[r.kind]) {
     const run = boxed(argv);
-    const p = spawnSync(run[0], run.slice(1), { cwd: repo, env: ENV as NodeJS.ProcessEnv, encoding: "utf8", timeout: Math.max(10_000, deadline - Date.now()), maxBuffer: 256 << 20 });
+    const p = spawnSync(run[0], run.slice(1), { cwd: repo, env: ENV as NodeJS.ProcessEnv, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: Math.max(10_000, deadline - Date.now()), maxBuffer: 256 << 20 });
     const text = `${p.stdout ?? ""}${p.stderr ?? ""}${p.error ? `\n${p.error.message}` : ""}`;
     // the failing test names in full (the tail may cut them off): the builder turns failures on main into tasks
     const failing = [...new Set([...text.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => redact(m[1].trim()).slice(0, 200)))].slice(0, 50);
