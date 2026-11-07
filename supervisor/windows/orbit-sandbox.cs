@@ -29,6 +29,27 @@ static class OrbitSandbox {
   [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetExitCodeProcess(IntPtr h, out uint code);
   [DllImport("kernel32.dll", SetLastError = true)] static extern bool TerminateProcess(IntPtr h, uint code);
   [DllImport("kernel32.dll")] static extern IntPtr GetStdHandle(int which);
+  [DllImport("user32.dll", SetLastError = true)] static extern IntPtr GetProcessWindowStation();
+  [DllImport("user32.dll", SetLastError = true)] static extern IntPtr GetThreadDesktop(uint threadId);
+  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+  [DllImport("advapi32.dll", SetLastError = true)] static extern uint GetSecurityInfo(IntPtr h, int type, uint info, IntPtr owner, IntPtr group, out IntPtr dacl, IntPtr sacl, out IntPtr sd);
+  [DllImport("advapi32.dll", SetLastError = true)] static extern uint SetSecurityInfo(IntPtr h, int type, uint info, IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
+  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern uint SetEntriesInAcl(int count, ref EXPLICIT_ACCESS ea, IntPtr oldAcl, out IntPtr newAcl);
+  [StructLayout(LayoutKind.Sequential)] struct TRUSTEE { public IntPtr pMultipleTrustee; public int MultipleTrusteeOperation, TrusteeForm, TrusteeType; public IntPtr ptstrName; }
+  [StructLayout(LayoutKind.Sequential)] struct EXPLICIT_ACCESS { public uint grfAccessPermissions; public int grfAccessMode; public uint grfInheritance; public TRUSTEE Trustee; }
+
+  // A process in an AppContainer can't load user32 (exit 0xC0000142) unless its SID may use the window station and desktop it
+  // starts on. The task's own (non-interactive) ones belong to this logon session; grant the SID on them, nothing else.
+  static void GrantUi(IntPtr handle, uint rights, IntPtr sid, string what) {
+    IntPtr dacl, sd, newAcl;
+    uint e = GetSecurityInfo(handle, 7 /* SE_WINDOW_OBJECT */, 4 /* DACL */, IntPtr.Zero, IntPtr.Zero, out dacl, IntPtr.Zero, out sd);
+    if (e != 0) throw new Win32Exception((int)e, "GetSecurityInfo " + what);
+    var ea = new EXPLICIT_ACCESS(); ea.grfAccessPermissions = rights; ea.grfAccessMode = 1 /* GRANT */; ea.Trustee.TrusteeForm = 0 /* SID */; ea.Trustee.ptstrName = sid;
+    e = SetEntriesInAcl(1, ref ea, dacl, out newAcl);
+    if (e != 0) throw new Win32Exception((int)e, "SetEntriesInAcl " + what);
+    e = SetSecurityInfo(handle, 7, 4, IntPtr.Zero, IntPtr.Zero, newAcl, IntPtr.Zero);
+    if (e != 0) throw new Win32Exception((int)e, "SetSecurityInfo " + what);
+  }
 
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
   struct STARTUPINFO {
@@ -86,6 +107,8 @@ static class OrbitSandbox {
       if (hr == unchecked((int)0x800700B7)) sid = Derive(); // already exists
       else if (hr != 0) throw new Win32Exception(hr, "CreateAppContainerProfile");
 
+      GrantUi(GetProcessWindowStation(), 0x000F037F /* WINSTA_ALL_ACCESS */, sid, "window station");
+      GrantUi(GetThreadDesktop(GetCurrentThreadId()), 0x000F01FF /* DESKTOP_ALL */, sid, "desktop");
       var caps = new SECURITY_CAPABILITIES(); caps.AppContainerSid = sid; // no capabilities at all
       IntPtr capsPtr = Marshal.AllocHGlobal(Marshal.SizeOf(caps)); Marshal.StructureToPtr(caps, capsPtr, false);
       IntPtr size = IntPtr.Zero; InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref size);
