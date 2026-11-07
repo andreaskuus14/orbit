@@ -1,6 +1,7 @@
 # ORBIT self-development: builder + release supervisor
 
-ORBIT can pick an improvement, change its own code, test it, release it and roll it back, without asking per change.
+ORBIT can pick an improvement, change its own code and test it; the owner approves each release on the PC; the supervisor then
+merges, installs, monitors and, if needed, rolls it back.
 Two processes do this, both outside the ORBIT server:
 
 | | Builder (`selfdev/builder.ts`) | Supervisor (`supervisor/supervisor.ts`) |
@@ -28,8 +29,8 @@ observe → select → define success → edit → verify → release → monito
    fixes, focused tests, then the full `npm run gate` on the exact tree. UI changes: an isolated instance (`ORBIT_ISOLATED=1`) with
    screenshots of the public pages; signed-in views aren't covered and the check says so.
 6. **Release** (supervisor): checks the bundle is based on the released `main`, re-applies the policy to the real diff, pushes
-   `selfdev/<id>`, opens a PR, waits for GitHub CI on that exact commit, fast-forwards `main` (never a new commit, so what CI tested is
-   what ships), builds it, snapshots the build, backs up the data folder and proves the backup restores, then installs.
+   `selfdev/<id>`, opens a PR, waits for GitHub CI on that exact commit, then **waits for the owner's approval** (below), fast-forwards
+   `main` (never a new commit, so what CI tested is what ships), builds it, snapshots the build, backs up the data folder and proves the backup restores, then installs.
 7. **Monitor**: startup, `/api/health` (running commit must equal the release), workflow pages, restarts, new error lines; several probes.
 8. **Keep or roll back**: pass → kept. Fail → the previous snapshot is reinstalled and checked the same way, `main` gets a revert
    commit, and releases halt until the owner clears it. At most `maxRollbackAttempts` tries, then it halts.
@@ -115,15 +116,44 @@ feature is blocked, never saved over). If that happens, the rollback note lists 
 antivirus, puts the previous build back and restarts it, so each failed attempt costs ORBIT a restart (seconds); after
 `maxRollbackAttempts` the supervisor halts and leaves ORBIT on the previous build.
 
+## Owner approval (required before merge and install)
+
+A release that passed the policy and CI stops at `checked` and waits: status `awaitingApproval` and the Self-development view show its id
+and commit. Nothing reaches `main` or the live app until the owner runs, on the PC, elevated:
+
+    node --experimental-strip-types C:\ProgramData\orbit-supervisor\app\supervisor.ts approve <releaseId> <full 40-character commit>
+
+- Only through `ctl\` (Administrators/SYSTEM only). The inbox, which the app and the builder can both write to, can't approve; the app
+  has no approve button; the builder has no way to reach `ctl\` (the boundary probe checks it).
+- Bound to that release id and that exact commit, accepted only while that release waits at `checked`. Refused and audited
+  (`approval.rejected`): missing id or commit, an abbreviated commit, another commit (stale or mismatched), another or no release in
+  progress, an approval sent before CI passed (it isn't kept for later), and any approval for a release that is already approved or
+  ended (no reuse). Accepted: audit `release.ownerApproved`, journaled, so a restart doesn't ask again.
+- No approval within `approvalTimeoutSec` (default 3 days): the release is rejected; nothing was merged or installed.
+- Drills: `drill.sh` (1), `ci-drill.sh` (1b) and `windows\ci-verify.ps1` prove each refusal and that an approved release proceeds. In the
+  drills after that, the harness approves each waiting release the way the owner would.
+
 ## Owner controls
 
 - DEV → Doctor → **Self-development**: current task and why, diffs, checks, browser evidence, releases with their stage
   (implemented / tested / CI passed / deployed / verified after deployment / rolled back), spend, audit state.
-  Buttons: **Pause**, **Emergency stop** (also stops the builder directly), **Restore previous release**.
+  Buttons: **Pause**, **Emergency stop** (also stops the builder directly). Approve and restore aren't buttons: they are owner commands on
+  the PC (below), because the inbox the app writes to is writable by the builder too, and the supervisor accepts only pause and stop there.
 - On the PC, elevated: `node --experimental-strip-types C:\ProgramData\orbit-supervisor\app\supervisor.ts <cmd>` (while the supervisor
   runs, these are queued in its admin-only `ctl\` folder and applied by it, so one process writes state and audit)
-  - `status`, `stop`, `pause`, `resume`, `clear` (lift a halt or stop), `restore [releaseId]`, `adopt`, `verify-audit`.
-  Resume and clear exist only here: the app can make things safer, never less safe.
+  - `status`, `approve <releaseId> <commit>`, `stop`, `pause`, `resume`, `clear` (lift a halt or stop), `restore [releaseId]`, `adopt`,
+    `verify-audit`.
+  Approve, restore, resume and clear exist only here: the app can make things safer, never less safe. A requested rollback
+  (`restore`) needs the owner; the supervisor's own recovery from a failed install or failed monitoring still runs by itself.
+- **Disabling vs. stopping.** `enabled: false` only stops the supervisor from *starting* new releases: queued submissions stay in the
+  inbox. A release already in progress is not cancelled by it (also not by a restart): it continues from its journaled step, which is
+  at most the approval wait unless you approved it.
+  - **Pause** (app or `pause`): holds the release in progress at its next step boundary (before merge if it hasn't merged yet, at the
+    latest before install), and starts nothing new. Lift with `resume` on the PC.
+  - **Emergency stop** (app or `stop`): the same hold plus the builder's `STOP` file and its task ended; it takes effect even while the
+    supervisor is busy. Lift with `clear`, then `builder.ts resume`.
+  - Neither interrupts an install that has started: once the live app is being swapped, the supervisor finishes it, monitors it, and
+    rolls back on failure, so ORBIT is never left half-installed.
 - Emergency stop also writes the builder's `STOP`; lift it with `node --experimental-strip-types selfdev\builder.ts resume` (as yourself) after `clear`.
 
 ## Install on the PC (one time)
@@ -162,3 +192,59 @@ antivirus, puts the previous build back and restarts it, so each failed attempt 
   policy, tsconfig, deleted/emptied/skipped tests, a test ending its process, `@ts-nocheck`) is refused before anything is pushed.
 - `sudo bash supervisor/boundary-check.sh`: the builder account boundary (above).
 - The full loop with a real model (builder picks, edits, verifies; supervisor releases) was run by hand in an isolated copy; see #417.
+
+## Proposal (not implemented): a separate test-runner account (#417 gaps D and E)
+
+**Problem.** Model-written code runs as `orbit-builder`, the same account that holds the model login and the builder's spending
+settings. Two paths:
+
+- **Gate and focused tests.** The builder runs these with a trimmed environment (`CMD_ENV`), but `HOME`/`USERPROFILE` are kept. Test code
+  can read a file-based login under the builder's profile, and can rewrite `C:\orbit-builder\config.json` (`maxUsdPerTask`,
+  `maxUsdPerDay`) or `state.json` (`day.costUsd`).
+- **The edit session's Bash tool.** It runs `node --test tests/…` on tests the model just wrote, and that environment *keeps*
+  `ANTHROPIC_*`/`CLAUDE_*` (`builder.ts` `query({ env })`). Those tests can read the key from `process.env` and send it anywhere with
+  `fetch`.
+
+A hard spending cap on the key limits the bill, not the exposure.
+
+**Design.**
+
+1. **Accounts.** A fifth standard account, `orbit-test`. It never signs in ("Deny log on locally"), has no profile secrets, and is not in
+   `orbit-inbox`. It gets the same treatment as `orbit-build`: stored-password task, its processes killed after each run, a clean
+   environment.
+2. **Folders and ACLs.**
+   - `C:\orbit-builder`: `orbit-builder` Modify only (config, state, worktrees, model login under its profile). `orbit-test` has no
+     access.
+   - `C:\orbit-test\req`: `orbit-builder` create-only (CREATOR OWNER, like the inbox). `orbit-test` Read.
+   - `C:\orbit-test\work`, `C:\orbit-test\results`: `orbit-test` Modify, `orbit-builder` Read.
+   - The npm cache: read-only for `orbit-test`. Dependencies come from the lockfile, not from the change (package files are policy-protected).
+3. **Task "ORBIT Test Runner".** Runs as `orbit-test` with `supervisor\windows\test-run.ps1`, the same pattern as `trigger-build.ps1` /
+   `release-build.ps1`. The builder never runs model-written code itself. Instead it:
+   - commits the candidate in its worktree;
+   - writes a git bundle plus a request (`{ id, commit, commands: ["focused" | "gate" | "screens"] }`, from a fixed allowlist; no free
+     command lines) to `req\`;
+   - starts the task and waits for `results\<id>.json` (exit codes, redacted tails, screenshot paths). The result is written once and
+     carries the commit it ran.
+4. **Runner behaviour.** Fresh clone of the bundle into `work\<id>`, `npm ci --offline` from the cache. Commands run with an explicit
+   environment: `PATH`, `SystemRoot`, `TEMP`/`TMP` inside `work\<id>`, `HOME`/`USERPROFILE` = `work\<id>\home`, `ORBIT_ISOLATED=1`, and
+   **no** `ANTHROPIC_*`/`CLAUDE_*`/`GH_*`. Network is limited to localhost by a Windows Firewall outbound rule for `orbit-test` (the
+   registry is only needed for `npm ci`, which uses the offline cache).
+5. **Edit session.** Drop `Bash` test commands from `canUseTool` (keep read-only git, `ls`/`grep`/`cat` inside the worktree), or route
+   them through the same runner request with a short timeout. Either way the session environment that holds the model credential never
+   executes model-written code.
+6. **Spend.** With config and state out of reach, the builder's own `maxUsdPerTask`/`maxUsdPerDay` (passed as the SDK's
+   `maxBudgetUsd`) hold again. The supervisor's `maxCostUsdPerDay` stays a second, self-reported check. A hard limit on the key stays as
+   a third layer.
+
+**Proof before use.**
+
+- Linux: `boundary-check.sh` gains `orbit-test` with the same POSIX permissions and a probe role `test`, run as a test through the
+  runner. It must be refused on: reading the builder's profile and login file, writing `config.json`/`state.json`, reading
+  `ANTHROPIC_*`/`CLAUDE_*` from its environment, outbound connections other than localhost, `req\` of other runs, and everything the
+  builder probe already covers.
+- Windows: `ci-verify.ps1` creates `orbit-test` and runs the same probe through "ORBIT Test Runner". The edit-session check makes a
+  test that prints `process.env` and asserts no credential appears.
+- The PC: the same probe as part of "Enabling" step 1.
+
+Until this is done, the builder must not be enabled with a model credential that grants more than a capped, revocable key used for
+nothing else.

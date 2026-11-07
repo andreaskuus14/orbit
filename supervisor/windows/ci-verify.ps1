@@ -48,6 +48,8 @@ function Submit([string]$id, [string]$title) {
   Move-Item "$sup\inbox\$id.json.tmp" "$sup\inbox\$id.json"
   return $head
 }
+# Owner commands go to ctl\ (admin-only), one complete file per command.
+function Ctl($o) { $f = "$sup\ctl\control-$([DateTime]::UtcNow.Ticks).json"; ($o | ConvertTo-Json -Compress) | Set-Content "$f.tmp" -Encoding ASCII; Move-Item "$f.tmp" $f }
 function Commit([string]$msg) { Run-Git @("-C", $work, "-c", "user.name=ci", "-c", "user.email=ci@x", "commit", "-qam", $msg) }
 
 try {
@@ -139,9 +141,31 @@ export default function Probe() {
 "@ | Set-Content "$work\src\app\selfdev-probe\page.tsx" -Encoding UTF8
   Run-Git @("-C", $work, "add", "-A"); Commit "CI: build-time boundary probe page"
   $A = Submit "ci-a" "CI: probe page"
+
+  Step "owner approval (ctl, this release, this exact commit) before anything is merged or installed"
+  Check (WaitFor { (Status).awaitingApproval.id -eq "ci-a" } 3600 "release A waiting for approval") "release A passed its checks and waits for the owner"
+  Start-Sleep 8
+  $audit0 = Get-Content "$sup\audit.jsonl" -Raw
+  Check ((Status).awaitingApproval.commit -eq $A -and $audit0 -notmatch '"release\.merged"' -and (Health).commit -ne $A) "nothing merged or installed without approval"
+  (@{ action = "approve"; releaseId = "ci-a"; commit = $A } | ConvertTo-Json -Compress) | Set-Content "$sup\inbox\control-0-approve.json" -Encoding ASCII # as the builder could
+  Ctl @{ action = "approve"; releaseId = "ci-a"; commit = (& git -c safe.directory=* -C $work rev-parse HEAD~1).Trim() }
+  Ctl @{ action = "approve"; releaseId = "ci-other"; commit = $A }
+  Ctl @{ action = "approve"; releaseId = "ci-a"; commit = $A.Substring(0, 7) }
+  Start-Sleep 12
+  $au = Get-Content "$sup\audit.jsonl" -Raw
+  Check (([regex]::Matches($au, '"approval\.rejected"').Count -eq 3) -and ($au -match '"control\.ignored"[^\n]*control-0-approve') -and ($au -notmatch '"release\.merged"')) "approval via the inbox, for another commit, another release or abbreviated: refused"
+  Ctl @{ action = "approve"; releaseId = "ci-a"; commit = $A }
+  Check (WaitFor { (Get-Content "$sup\audit.jsonl" -Raw) -match '"release\.ownerApproved","data":\{"release":"ci-a"' } 60 "approval") "owner approval through ctl accepted"
+  # From here on the harness approves each release once it waits (as the owner would), so the later steps test what they name.
+  $approver = Start-Job -ArgumentList $sup -ScriptBlock { param($sup) $seen = @{}
+    while ($true) { try { $w = (Get-Content "$sup\public\status.json" -Raw | ConvertFrom-Json).awaitingApproval
+      if ($w -and -not $seen[$w.id]) { $seen[$w.id] = 1; $f = "$sup\ctl\control-$([DateTime]::UtcNow.Ticks)-approve.json"; (@{ action = "approve"; releaseId = $w.id; commit = $w.commit } | ConvertTo-Json -Compress) | Set-Content "$f.tmp" -Encoding ASCII; Move-Item "$f.tmp" $f } } catch {}
+      Start-Sleep 2 } }
   $null = WaitFor { (Get-Release "ci-a") } 3600 "release A"
   Check ((Get-Release "ci-a").step -eq "retained") "release A built by orbit-build, installed by the owner task, verified, kept ($((Get-Release 'ci-a').reason))"
   Check ((Health).commit -eq $A) "live runs release A"
+  Ctl @{ action = "approve"; releaseId = "ci-a"; commit = $A }
+  Check (WaitFor { (Get-Content "$sup\audit.jsonl" -Raw) -match '"approval\.rejected"[^\n]*already ended' } 30 "reuse refused") "the same approval can't be reused"
   $j = Get-Content "$pp\build.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json; Copy-Item "$pp\build.json" $out -ErrorAction SilentlyContinue
   Check ($j -and $j.pass) "probe during next build: every forbidden action refused"
   Check (-not (Get-CimInstance Win32_Process | Where-Object { (Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue).User -eq "orbit-build" })) "no orbit-build process left after the build"
@@ -195,8 +219,11 @@ export default function Probe() {
 
   Step "the app can't lift a halt; only the owner's ctl command does"
   Check ([bool](Status).halted) "releases halted after the rollback"
-  '{"action":"clear"}' | Set-Content "$sup\inbox\control-5-clear.json"; '{"action":"resume"}' | Set-Content "$sup\inbox\control-6-resume.json"; Start-Sleep 10
+  '{"action":"clear"}' | Set-Content "$sup\inbox\control-5-clear.json"; '{"action":"resume"}' | Set-Content "$sup\inbox\control-6-resume.json"
+  $restores = [regex]::Matches((Get-Content "$sup\audit.jsonl" -Raw), '"restore\.start"').Count
+  '{"action":"restore","releaseId":"ci-a"}' | Set-Content "$sup\inbox\control-7-restore.json"; Start-Sleep 10
   Check ([bool](Status).halted -and ((Get-Content "$sup\audit.jsonl" -Raw) -match '"control\.ignored"')) "clear/resume sent through the app's inbox ignored; still halted"
+  Check (([regex]::Matches((Get-Content "$sup\audit.jsonl" -Raw), '"restore\.start"').Count -eq $restores) -and ((Get-Content "$sup\audit.jsonl" -Raw) -match '"control\.ignored"[^\n]*control-7-restore')) "restore sent through the inbox (app or builder) ignored"
   Set-Content "$sup\ctl\control-3-clear.json" '{"action":"clear"}'; Start-Sleep 10
   Check (-not (Status).halted) "owner clear (ctl) lifts it"
 
@@ -268,6 +295,7 @@ export default function Probe() {
 } catch {
   Check $false "script error: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
 } finally {
+  if ($approver) { Stop-Job $approver -ErrorAction SilentlyContinue; Remove-Job $approver -Force -ErrorAction SilentlyContinue }
   foreach ($f in "status.json") { Copy-Item "$sup\public\$f" $out -ErrorAction SilentlyContinue }
   Copy-Item "$sup\audit.jsonl", "$sup\supervisor.log" $out -ErrorAction SilentlyContinue
   Copy-Item "C:\orbit-build-cache\release-build.log", "$live\orbit-server.log", "$live\orbit-launcher.log", "$live\orbit-build.log" $out -ErrorAction SilentlyContinue

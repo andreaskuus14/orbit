@@ -8,7 +8,7 @@ import { redact } from "@/lib/health-pure";
 export const dynamic = "force-dynamic";
 
 // Self-development view: reads the supervisor's published status and the builder's state (both written by their own
-// processes, outside the app) and forwards the owner's pause / stop / restore requests to the supervisor's inbox.
+// processes, outside the app) and forwards the owner's pause / stop requests to the supervisor's inbox.
 // It can't release, resume or clear a halt: those exist only on the supervisor's own command line. Signed-in only.
 
 const readJson = async (f: string) => { try { return JSON.parse(await readFile(f, "utf8")) as unknown; } catch { return null; } };
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const c = parseControl(await req.json().catch(() => null));
-  if (!c) return Response.json({ error: "Only pause, stop or restore" }, { status: 400 });
+  if (!c) return Response.json({ error: "Only pause or stop (approve and restore are done on the PC: supervisor approve / restore)" }, { status: 400 });
   const h = homes(process.env);
   if (!h.supervisor) return Response.json({ error: "The release supervisor isn't installed on this PC" }, { status: 409 });
   const inbox = path.join(h.supervisor, "inbox");

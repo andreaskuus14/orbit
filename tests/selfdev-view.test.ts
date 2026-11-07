@@ -19,7 +19,8 @@ test("stages never upgrade a claim: builder checks are 'tested', only a kept rel
 test("the app can only ask for safer states", () => {
   assert.deepEqual(parseControl({ action: "stop" }), { action: "stop" });
   assert.deepEqual(parseControl({ action: "pause", releaseId: "x" }), { action: "pause" });
-  assert.deepEqual(parseControl({ action: "restore", releaseId: "r-1" }), { action: "restore", releaseId: "r-1" });
-  for (const bad of [{ action: "resume" }, { action: "clear" }, { action: "release" }, { action: "restore", releaseId: "../x" }, null, "stop"])
+  // restore moves the live app and main, approve releases: both are the owner's (ctl/), never the app's or the builder's inbox
+  for (const bad of [{ action: "resume" }, { action: "clear" }, { action: "release" }, { action: "restore" }, { action: "restore", releaseId: "r-1" },
+    { action: "approve", releaseId: "r-1", commit: "a".repeat(40) }, null, "stop"])
     assert.equal(parseControl(bad), null, JSON.stringify(bad));
 });

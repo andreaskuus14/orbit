@@ -19,7 +19,7 @@ export function taskStage(step: string, outcome?: string): Stage {
 export function releaseStage(step: string): Stage {
   switch (step) {
     case "accepted": case "fetched": case "approved": case "pushed": return "tested";
-    case "checked": case "merged": case "built": case "snapshotted": case "backedUp": return "ci";
+    case "checked": case "ownerApproved": case "merged": case "built": case "snapshotted": case "backedUp": return "ci";
     case "installed": return "deployed";
     case "retained": return "verified";
     case "rolledBack": return "rolledBack";
@@ -29,18 +29,14 @@ export function releaseStage(step: string): Stage {
   }
 }
 
-export type Control = { action: "pause" | "stop" | "restore"; releaseId?: string };
+export type Control = { action: "pause" | "stop" };
 
-/** The app may only ask for safer states. Resume/clear exist only on the supervisor's own command line. */
+/** The app may only ask for safer states: pause, stop. Approve, restore, resume and clear are the owner's, on the supervisor's own
+ *  command line (ctl/): the inbox the app writes to is also writable by the builder, and the supervisor ignores anything else there. */
 export function parseControl(x: unknown): Control | null {
-  const c = x as { action?: unknown; releaseId?: unknown };
+  const c = x as { action?: unknown };
   if (!c || typeof c !== "object") return null;
-  if (c.action === "pause" || c.action === "stop") return { action: c.action };
-  if (c.action === "restore") {
-    if (c.releaseId === undefined) return { action: "restore" };
-    return typeof c.releaseId === "string" && SAFE_ID.test(c.releaseId) ? { action: "restore", releaseId: c.releaseId } : null;
-  }
-  return null;
+  return c.action === "pause" || c.action === "stop" ? { action: c.action } : null;
 }
 
 export const SAFE_ID = /^[a-z0-9][a-z0-9._-]{0,120}$/i;

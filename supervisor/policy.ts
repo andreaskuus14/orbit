@@ -209,3 +209,26 @@ export function checksVerdict(required: string[], runs: { name: string; status: 
   if (!missing.length && runs.length && runs.every((c) => c.status === "completed")) return { state: "pass", detail: `passed: ${required.join(", ")}` };
   return { state: "pending", detail: missing.length ? `waiting for: ${missing.join(", ")}` : "checks still running" };
 }
+
+/** Owner approval, from the admin-only ctl/ folder: valid only for the release in progress, while it waits at "checked" (CI passed),
+ *  and only for its exact commit. Anything else (missing fields, short or other commit, other or finished release, too early, a second
+ *  approval) is refused, so an approval can't be prepared ahead, carried over to a new commit, or reused. */
+export function approvalProblem(cur: { id: string; commit: string; step: string } | null, a: { releaseId?: unknown; commit?: unknown }, finished: string[]): string | null {
+  if (typeof a.releaseId !== "string" || !a.releaseId || typeof a.commit !== "string") return "approval needs the release id and its commit";
+  if (!/^[0-9a-f]{40}$/.test(a.commit)) return "approval needs the full 40-character commit";
+  if (finished.includes(a.releaseId)) return `release ${a.releaseId} already ended; an approval can't be reused`;
+  if (!cur || cur.id !== a.releaseId) return `release ${a.releaseId} isn't in progress`;
+  if (cur.commit !== a.commit) return `approval is for ${a.commit.slice(0, 7)}, but release ${cur.id} is ${cur.commit.slice(0, 7)}`;
+  if (["accepted", "fetched", "approved", "pushed"].includes(cur.step)) return `release ${cur.id} hasn't passed CI yet; approve it when it waits for you`;
+  if (cur.step !== "checked") return `release ${cur.id} is past approval (${cur.step}); an approval can't be reused`;
+  return null;
+}
+
+/** A release that passed CI waits this long for the owner, then is rejected (nothing reached main or the live app). */
+export const approvalTimedOut = (waitingSince: string, now: number, timeoutSec: number) => now - Date.parse(waitingSince) > timeoutSec * 1000;
+
+/** Controls accepted from the inbox. The builder can create files there too, so only actions that make things safer: pause and
+ *  stop. Restore installs an earlier build and moves main, so it needs the owner's ctl/ (or the supervisor's own recovery). */
+export function inboxControl(action: unknown): "pause" | "stop" | null {
+  return action === "pause" || action === "stop" ? action : null;
+}

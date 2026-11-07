@@ -4,7 +4,8 @@
 # refuses connections, its own data folder and port. No model, no network, no live data. Proves:
 #   1. a good release is merged, built, installed and kept, and a supervisor killed mid-monitoring resumes without repeating steps;
 #   2. a release touching the health route is refused; a release that breaks a monitored page is rolled back to the previous snapshot, main is reverted, releases halt;
-#   3. the app can't clear a halt; emergency stop works; the audit chain is intact.
+#   3. nothing is merged or installed without the owner's approval (ctl/, this release, this exact commit); the inbox can't approve,
+#      can't restore, can't clear a halt; emergency stop works; the audit chain is intact.
 # Needs node_modules in this checkout. Takes ~10 min (three production builds). Exit 0 = all passed.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -56,6 +57,8 @@ SUP() { node --no-warnings --experimental-strip-types "$D/supapp/supervisor.ts" 
 watch_sup() { (cd "$D/supapp" && setsid nohup node --no-warnings --experimental-strip-types "$D/supapp/supervisor.ts" watch >> "$D/supervisor.log" 2>&1 < /dev/null &); }
 wait_for() { local t=$((SECONDS + ${2:-900})); until grep -qE "$1" "$D/supervisor.log" 2>/dev/null; do [ $SECONDS -gt $t ] && return 1; sleep 1; done; }
 health() { curl -s "http://127.0.0.1:$PORT/api/health" || true; }
+ctl() { mkdir -p "$D/sup/ctl"; local f="$D/sup/ctl/control-$(date +%s%N).json"; printf '%s' "$1" > "$f.tmp"; mv "$f.tmp" "$f"; }
+approve() { wait_for "$1: checked" 600 && ctl "{\"action\":\"approve\",\"releaseId\":\"$1\",\"commit\":\"$2\"}"; } # approve <id> <commit>, once it waits
 
 submit() { # submit <id> <title>: the commit at HEAD of $D/work, based on its parent
   local base; base=$(git -C "$D/work" rev-parse HEAD~1)
@@ -83,12 +86,25 @@ python3 - "$D/sup/config.json" <<'PY'
 import json,sys; p=sys.argv[1]; c=json.load(open(p)); c["enabled"]=True; json.dump(c,open(p,"w"))
 PY
 watch_sup
+wait_for "drill-good: checked" 120 && sleep 8
+SUP status | grep -q '"awaitingApproval": {' && ! grep -q '"release.merged"' "$D/sup/audit.jsonl" && ok "waits for the owner: nothing merged without approval" || bad "merged without approval"
+echo "{\"action\":\"approve\",\"releaseId\":\"drill-good\",\"commit\":\"$GOOD\"}" > "$D/sup/inbox/control-approve.json" # as the builder could
+ctl "{\"action\":\"approve\",\"releaseId\":\"drill-good\",\"commit\":\"$(git -C "$D/work" rev-parse HEAD~1)\"}" # stale/other commit
+ctl "{\"action\":\"approve\",\"releaseId\":\"drill-other\",\"commit\":\"$GOOD\"}" # another release
+ctl "{\"action\":\"approve\",\"releaseId\":\"drill-good\",\"commit\":\"${GOOD:0:7}\"}" # abbreviated
+sleep 10
+[ "$(grep -c '"approval.rejected"' "$D/sup/audit.jsonl")" = 3 ] && grep -q '"control.ignored".*control-approve' "$D/sup/audit.jsonl" && ! grep -q '"release.merged"' "$D/sup/audit.jsonl" \
+  && ok "approval from the inbox, for another commit, another release or an abbreviated commit: refused" || bad "a wrong approval was accepted"
+ctl "{\"action\":\"approve\",\"releaseId\":\"drill-good\",\"commit\":\"$GOOD\"}"
+wait_for "drill-good: ownerApproved" 60 && ok "owner approval through ctl/ for this release and commit accepted" || bad "owner approval not accepted"
 wait_for "drill-good: installed" && pkill -9 -f "$D/supapp/supervisor.ts watch" && sleep 2 && watch_sup
 wait_for "drill-good: (retained|failed|rolledBack|halted|rejected)" 300 || true
 grep -q "drill-good: retained" "$D/supervisor.log" && ok "good release kept after a supervisor restart" || bad "good release not kept"
 health | grep -q "\"commit\":\"$GOOD\"" && ok "live runs the released commit" || bad "live doesn't run $GOOD"
 [ "$(grep -c '"release.merged"' "$D/sup/audit.jsonl")" = 1 ] && [ "$(grep -c '"release.built"' "$D/sup/audit.jsonl")" = 1 ] && ok "merge and build ran once" || bad "a step repeated"
 grep -q '"resuming":"drill-good","step":"installed"' "$D/sup/audit.jsonl" && ok "restart resumed at 'installed'" || bad "restart didn't resume the step"
+ctl "{\"action\":\"approve\",\"releaseId\":\"drill-good\",\"commit\":\"$GOOD\"}"; sleep 6
+grep -q '"approval.rejected".*already ended' "$D/sup/audit.jsonl" && ok "the same approval can't be reused" || bad "reused approval not refused"
 
 echo "== 2a. a release may not touch the health check it is judged by"
 sed -i 's/    ok: true,/    ok: false, \/\/ drill/' "$D/work/src/app/api/health/route.ts"
@@ -107,6 +123,7 @@ SUP status | grep -q '"blocked": "ORBIT Stop-all is on"' && [ -f "$D/sup/inbox/d
 : > "$D/data/stop-all.json"; sleep 6
 SUP status | grep -q '"blocked": "ORBIT Stop-all is on"' && [ -f "$D/sup/inbox/drill-bad.json" ] && ok "a damaged stop-all.json also holds it (fail closed)" || bad "damaged stop-all.json let it through"
 rm -f "$D/data/stop-all.json"
+approve drill-bad "$(git -C "$D/work" rev-parse HEAD)"
 wait_for "drill-bad: (rolledBack|halted|retained|rejected)" 900 || true
 grep -q "drill-bad: rolledBack" "$D/supervisor.log" && ok "failed release rolled back" || bad "no rollback"
 health | grep -q "\"commit\":\"$GOOD\"" && ok "previous release restored and healthy" || bad "previous release not restored"
@@ -116,8 +133,13 @@ SUP status | grep -q '"halted": "drill-bad' && ok "releases halted" || bad "not 
 [ -f "$D/data/written-after-deploy.json" ] && grep -q '"rollback.data".*written-after-deploy.json' "$D/sup/audit.jsonl" && ok "data written after deployment kept and recorded" || bad "post-deploy data not recorded"
 
 echo "== 3. controls and audit"
+ctl '{"action":"clear"}'; sleep 6 # lift the halt so a restore would be possible, then ask for one through the inbox
+echo '{"action":"restore"}' > "$D/sup/inbox/control-0.json"; sleep 8
+grep -q '"control.ignored".*control-0.json' "$D/sup/audit.jsonl" && ! grep -q '"restore.start"' "$D/sup/audit.jsonl" && health | grep -q "\"commit\":\"$GOOD\"" \
+  && ok "restore through the inbox (app or builder) ignored; live unchanged" || bad "inbox restore was carried out"
+echo '{"action":"pause"}' > "$D/sup/inbox/control-0b.json"; sleep 6; SUP status | grep -q '"paused": true' && ok "pause through the inbox still works" || bad "inbox pause ignored"
 echo '{"action":"clear"}' > "$D/sup/inbox/control-1.json"; echo '{"action":"stop"}' > "$D/sup/inbox/control-2.json"; sleep 8
-grep -q '"control.ignored"' "$D/sup/audit.jsonl" && SUP status | grep -q '"halted": "drill-bad' && ok "the app can't clear a halt" || bad "app cleared a halt"
+grep -q '"control.ignored".*control-1.json' "$D/sup/audit.jsonl" && SUP status | grep -q '"paused": true' && ok "the app can't lift a pause" || bad "app lifted a pause"
 [ -f "$D/sup/STOP" ] && ok "emergency stop from the app" || bad "stop not applied"
 SUP verify-audit | grep -q intact && ok "audit chain intact" || bad "audit chain broken"
 
