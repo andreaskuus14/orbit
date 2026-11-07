@@ -11,7 +11,7 @@ type Task = { id: string; step: string; outcome?: string; why: string; cand: { t
 type Release = { id: string; step: string; reason?: string; pr?: string; sub: { title: string; why: string; commit: string; costUsd: number; checks: Check[] }; diffStat?: { files: number; lines: number }; probes: string[]; rollbacks: number; updatedAt: string };
 type Status = {
   installed: { supervisor: boolean; builder: boolean };
-  supervisor: null | { stopped: boolean; paused: boolean; halted: string | null; blocked: string | null; released: { id: string; commit: string } | null; retained: { id: string }[];
+  supervisor: null | { stopped: boolean; paused: boolean; halted: string | null; blocked: string | null; released: { id: string; commit: string } | null; retained: { id: string }[]; awaitingApproval?: { id: string; commit: string } | null;
     current: Release | null; history: Release[]; queued: string[]; day: { releases: number; costUsd: number }; audit: { ok: boolean; count: number } };
   builder: null | { task: Task | null; history: Task[]; decisions: { at: string; decision: string }[]; day: { costUsd: number } | null };
 };
@@ -47,7 +47,7 @@ export function SelfDevCard() {
   const [sent, setSent] = useState("");
   const load = useCallback(() => void fetch("/api/selfdev").then((r) => (r.ok ? r.json() : null)).then(setS).catch(() => {}), []);
   useEffect(() => { load(); const i = setInterval(() => { if (!document.hidden) load(); }, 10_000); return () => clearInterval(i); }, [load]);
-  const send = async (action: "pause" | "stop" | "restore") => {
+  const send = async (action: "pause" | "stop") => {
     const r = await fetch("/api/selfdev", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
     const j = (await r.json().catch(() => ({}))) as { error?: string };
     setSent(r.ok ? t("selfdev.sent", { action }) : j.error ?? `HTTP ${r.status}`);
@@ -64,6 +64,7 @@ export function SelfDevCard() {
       {!installed ? <p className="muted text-xs">{t("selfdev.notInstalled")}</p> : (
         <>
           <p className={`text-xs ${sup?.stopped || sup?.halted ? "text-red-300" : ""}`}>{state ?? t("selfdev.noSupervisor")}</p>
+          {sup?.awaitingApproval && <p className="text-xs text-amber-200" role="status">{t("selfdev.awaiting", { id: sup.awaitingApproval.id, commit: sup.awaitingApproval.commit })}</p>}
           {sup?.released && <p className="muted text-[11px]">{t("selfdev.live", { id: sup.released.id, commit: sup.released.commit.slice(0, 7) })}</p>}
           <p className="muted text-[11px]">{t("selfdev.spend", { usd: (b?.day?.costUsd ?? 0).toFixed(2), n: sup?.day.releases ?? 0 })}</p>
           {sup && <p className="muted text-[11px]">{t("selfdev.audit", { n: sup.audit.count, state: t(sup.audit.ok ? "selfdev.auditOk" : "selfdev.auditBroken") })}</p>}
@@ -111,7 +112,6 @@ export function SelfDevCard() {
             <div className="mt-2 flex flex-wrap gap-1">
               <button className="chip" onClick={() => void send("pause")} disabled={sup.paused}>{t("selfdev.pause")}</button>
               <button className="chip text-red-300" onClick={() => void send("stop")} disabled={sup.stopped}>{t("selfdev.stop")}</button>
-              <button className="chip" onClick={() => void send("restore")} disabled={sup.retained.length < 2 || !!sup.current}>{t("selfdev.restore")}</button>
             </div>
           )}
           {sent && <p className="muted text-[11px]" role="status">{sent}</p>}

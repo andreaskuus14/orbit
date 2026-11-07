@@ -16,7 +16,7 @@ import {
 import path from "node:path";
 import { appendAudit, readAudit, verifyAudit } from "./audit.ts";
 import {
-  DEFAULT_POLICY, afterFailure, checksVerdict, modeViolations, orbitStopAllOn, weakenedTests, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
+  DEFAULT_POLICY, afterFailure, approvalProblem, approvalTimedOut, checksVerdict, inboxControl, modeViolations, orbitStopAllOn, weakenedTests, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
   type Day, type Policy, type Probe, type Submission,
 } from "./policy.ts";
 
@@ -31,7 +31,8 @@ type Config = {
   // repo's plan, so this is the only place "CI must pass" is enforced; it holds because only the supervisor can write to main.
   github: { repo: string; tokenFile: string; checksTimeoutSec: number; requiredChecks: string[] } | null;
   allowWithoutExternalChecks?: boolean; // drills only: no CI to wait for
-  enabled?: boolean; // unattended releases; off unless set (install.ps1 writes false)
+  enabled?: boolean; // unattended releases; off unless set (install.ps1 writes false). Only gates NEW submissions: Pause/STOP hold one in progress
+  approvalTimeoutSec?: number; // a release that passed CI waits this long for the owner's approval (default 3 days), then is rejected
   stopAllFile?: string; // ORBIT's stop-all.json: when on (or unreadable), nothing new is released
   workflowChecks: { name: string; url: string; expect: number }[];
   monitor: { probes: number; intervalSec: number; maxErrors: number; startupTimeoutSec: number };
@@ -39,7 +40,7 @@ type Config = {
   keepReleases: number; pollSec: number; policy?: Partial<Policy>;
   buildTimeoutSec?: number; // a fresh npm ci + next build; Windows with antivirus is slow
 };
-type Step = "accepted" | "fetched" | "approved" | "pushed" | "checked" | "merged" | "built" | "snapshotted" | "backedUp" | "installing" | "installed" | "retained"
+type Step = "accepted" | "fetched" | "approved" | "pushed" | "checked" | "ownerApproved" | "merged" | "built" | "snapshotted" | "backedUp" | "installing" | "installed" | "retained"
   | "failed" | "rolledBack" | "halted" | "rejected";
 type Release = {
   id: string; sub: Submission; step: Step; prev: string | null; startedAt: string; updatedAt: string;
@@ -279,8 +280,8 @@ function readSubmission(file: string): Submission | string {
 async function advance(s: State) {
   const r = s.current!;
   const id = r.id;
-  // Stop holds a release anywhere before the live app is touched; once installed it still finishes monitoring and recovery.
-  if (held() && !["installing", "installed", "failed"].includes(r.step)) return;
+  // Stop and Pause hold a release anywhere before the live app is touched; once installing it still finishes, monitors and recovers.
+  if ((held() || s.paused) && !["installing", "installed", "failed"].includes(r.step)) return;
   try {
     if (r.step === "accepted") {
       const main = mirrorReady();
@@ -336,6 +337,11 @@ async function advance(s: State) {
       step(s, r, "checked", { externalChecks: cfg.github ? `${cfg.github.requiredChecks.join(", ")} passed on this exact commit` : "none configured (drill)" });
     }
     if (r.step === "checked") {
+      // Owner approval before anything reaches main or the live app: `supervisor.ts approve <id> <commit>` (ctl/ only; see approve()).
+      if (approvalTimedOut(r.updatedAt, Date.now(), cfg.approvalTimeoutSec ?? 3 * 86400)) return reject(s, "no owner approval in time; nothing was merged");
+      return;
+    }
+    if (r.step === "ownerApproved") {
       const main = mirrorReady();
       if (main !== r.sub.commit) {
         if (main !== r.mainBefore) return reject(s, "main moved while this was being checked; resubmit on the new main");
@@ -389,7 +395,7 @@ async function advance(s: State) {
     else {
       // A push to main that errored may still have landed: ask the mirror rather than assume.
       let merged = ["merged", "built", "snapshotted", "backedUp"].includes(r.step);
-      if (r.step === "checked") try { merged = mirrorReady() === r.sub.commit; } catch { merged = true; }
+      if (r.step === "ownerApproved") try { merged = mirrorReady() === r.sub.commit; } catch { merged = true; }
       reject(s, msg, merged);
     }
   }
@@ -485,9 +491,9 @@ function emergencyStop(why: string) {
 // Inbox files are written in one go (no rename: Windows would need delete rights in the inbox), so a file can be caught
 // mid-write. One that doesn't parse yet and is only seconds old is left for the next tick, not rejected.
 const young = (file: string) => { try { return Date.now() - statSync(file).mtimeMs < 15_000; } catch { return false; } };
-function takeControls(dir: string): { f: string; c: { action?: string; releaseId?: string } }[] {
+function takeControls(dir: string): { f: string; c: { action?: string; releaseId?: string; commit?: string } }[] {
   if (!existsSync(dir)) return [];
-  const out: { f: string; c: { action?: string; releaseId?: string } }[] = [];
+  const out: { f: string; c: { action?: string; releaseId?: string; commit?: string } }[] = [];
   for (const f of readdirSync(dir).filter((n) => n.startsWith("control-") && n.endsWith(".json")).sort()) {
     const file = path.join(dir, f);
     try {
@@ -502,24 +508,33 @@ function takeControls(dir: string): { f: string; c: { action?: string; releaseId
 }
 
 async function controls(s: State) {
-  // Requests from the app (inbox) can only make things safer: pause, stop, restore an earlier good release.
+  // Requests through the inbox (the app, but the builder can create files there too) can only make things safer: pause, stop.
   for (const { f, c } of takeControls(P.inbox)) {
-    if (c.action === "pause") { s.paused = true; save(s); audit("control.pause", { from: "app" }); }
-    else if (c.action === "stop") emergencyStop("requested from ORBIT");
-    else if (c.action === "restore" && !s.current) await restore(s, c.releaseId);
-    else audit("control.ignored", { file: f, action: String(c.action ?? "") });
+    const a = inboxControl(c.action);
+    if (a === "pause") { s.paused = true; save(s); audit("control.pause", { from: "inbox" }); }
+    else if (a === "stop") emergencyStop("requested from ORBIT");
+    else audit("control.ignored", { file: f, action: String(c.action ?? ""), reason: "only pause and stop are accepted from the inbox; the owner's commands go through ctl/" });
   }
   // The owner's own commands (ctl/, admin-only) arrive here while the watcher runs, so only one process writes state.
-  for (const { c } of takeControls(P.ctl)) await ownerCommand(s, String(c.action ?? ""), c.releaseId);
+  for (const { c } of takeControls(P.ctl)) await ownerCommand(s, String(c.action ?? ""), c.releaseId, c.commit);
 }
 
-async function ownerCommand(s: State, cmd: string, arg?: string) {
-  if (cmd === "stop") emergencyStop(arg ?? "owner");
+async function ownerCommand(s: State, cmd: string, arg?: string, commit?: string) {
+  if (cmd === "approve") approve(s, arg, commit);
+  else if (cmd === "stop") emergencyStop(arg ?? "owner");
   else if (cmd === "pause") { s.paused = true; save(s); audit("control.pause", { from: "owner" }); }
   else if (cmd === "resume") { s.paused = false; save(s); audit("control.resume", { from: "owner" }); }
   else if (cmd === "clear") { rmSync(P.stop, { force: true }); s.halted = null; s.paused = false; save(s); audit("control.clear", { from: "owner" }); }
   else if (cmd === "restore" && !s.current) await restore(s, arg);
   else audit("control.ignored", { from: "owner", action: cmd });
+}
+
+/** The owner's approval of the release waiting at "checked", bound to its id and exact commit (rules in approvalProblem). */
+function approve(s: State, releaseId?: string, commit?: string) {
+  const r = s.current;
+  const why = approvalProblem(r ? { id: r.id, commit: r.sub.commit, step: r.step } : null, { releaseId, commit }, s.history.map((h) => h.id));
+  if (why || !r) { audit("approval.rejected", { release: String(releaseId ?? ""), commit: String(commit ?? ""), reason: why }); log(`approval rejected: ${why}`); return; }
+  step(s, r, "ownerApproved", { by: "owner (ctl)" });
 }
 
 async function restore(s: State, releaseId?: string) {
@@ -571,6 +586,7 @@ function publish(s: State) {
   const blocked = !cfg.enabled ? "unattended releases are off (config enabled: false)" : held() ?? releaseBlocked({ ...s, stopped: false }, Date.now(), policy);
   const body = {
     at: now(), enabled: !!cfg.enabled, orbitStopAll: orbitStopAll(), stopped: stopped(), paused: s.paused, halted: s.halted, blocked, released: s.released, retained: s.retained,
+    awaitingApproval: s.current?.step === "checked" ? { id: s.current.id, commit: s.current.sub.commit, since: s.current.updatedAt } : null,
     current: s.current, history: s.history.slice(0, 30), queued, day: s.day, policy,
     audit: { ok: verifyAudit(entries) === 0, count: entries.length, recent: entries.slice(-40).reverse() },
   };
@@ -590,7 +606,7 @@ function lock() {
 
 async function main() {
   for (const d of [P.inbox, P.releases, P.pub, P.ctl]) mkdirSync(d, { recursive: true });
-  const [cmd = "status", arg] = process.argv.slice(2);
+  const [cmd = "status", arg, arg2] = process.argv.slice(2);
   const s = load();
   switch (cmd) {
     case "watch": {
@@ -608,13 +624,13 @@ async function main() {
       s.released = { id, commit: head, at: now() }; s.retained = [s.released, ...s.retained.filter((g) => g.id !== id)];
       save(s); audit("release.adopted", { release: id, commit: head }); break;
     }
-    case "stop": case "pause": case "resume": case "clear": case "restore":
+    case "stop": case "pause": case "resume": case "clear": case "restore": case "approve":
       if (cmd === "stop") writeFileSync(P.stop, `${now()} owner\n`); // takes effect at once, even if the watcher is busy
       if (watcherAlive()) { // hand it to the running watcher: one writer for state and audit
         const f = path.join(P.ctl, `control-${Date.now()}-${cmd}.json`);
-        writeFileSync(f + ".tmp", JSON.stringify({ action: cmd, releaseId: arg })); renameSync(f + ".tmp", f);
+        writeFileSync(f + ".tmp", JSON.stringify({ action: cmd, releaseId: arg, commit: arg2 })); renameSync(f + ".tmp", f);
         console.log(`queued "${cmd}" for the running supervisor`);
-      } else { lock(); await ownerCommand(s, cmd, arg); }
+      } else { lock(); await ownerCommand(s, cmd, arg, arg2); }
       break;
     case "verify-audit": { const b = verifyAudit(readAudit(P.audit)); console.log(b ? `BROKEN at line ${b}` : "audit chain intact"); process.exitCode = b ? 1 : 0; break; }
     default: publish(s); console.log(JSON.stringify(readJsonFile(path.join(P.pub, "status.json")), null, 1));

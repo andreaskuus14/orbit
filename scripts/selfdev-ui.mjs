@@ -1,7 +1,7 @@
 // node --experimental-strip-types scripts/selfdev-ui.mjs — browser check of DEV → Doctor's Self-development card.
 // Bundles the real SelfDevCard (esbuild), serves it on a fake origin through Playwright routes, and answers /api/selfdev with
 // the REAL files a supervisor and builder wrote (SELFDEV_SUP_HOME, SELFDEV_BLD_HOME, e.g. from a drill), or "not installed".
-// Checks: states and stage labels match the files, the diff opens, and the buttons send only pause/stop/restore.
+// Checks: states and stage labels match the files, the diff opens, and the buttons send only pause/stop.
 // No server, no sign-in. Exits 1 on any failed check. Screenshots: SD_OUT (default ./smoke-shots/selfdev).
 import { createRequire } from "node:module";
 import { mkdirSync, readFileSync } from "node:fs";
@@ -77,9 +77,10 @@ if (sup) {
   await s.shot("view");
   const diffBtn = s.page.getByRole("button", { name: "Show diff" }).first();
   if (await diffBtn.count()) { await diffBtn.click(); await s.page.waitForSelector("pre"); check((await s.page.locator("pre").first().innerText()).includes("diff --git"), "diff opens with the real patch"); await s.shot("diff"); }
-  for (const name of ["Pause", "Emergency stop", "Restore previous release"]) { const b = s.page.getByRole("button", { name }); if (await b.isEnabled()) await b.click(); }
+  for (const name of ["Pause", "Emergency stop"]) { const b = s.page.getByRole("button", { name }); if (await b.isEnabled()) await b.click(); }
   await s.page.waitForTimeout(300);
-  check(s.posts.length > 0 && s.posts.every((p) => ["pause", "stop", "restore"].includes(p.action)), `controls send only pause/stop/restore (${s.posts.map((p) => p.action).join(", ") || "none enabled"})`);
+  check(!(await s.page.getByRole("button", { name: /restore|approve/i }).count()), "no restore or approve button in the app (owner-only, on the PC)");
+  check((s.posts.length > 0 || (sup.paused && sup.stopped)) && s.posts.every((p) => ["pause", "stop"].includes(p.action)), `controls send only pause/stop; disabled when already paused and stopped (${s.posts.map((p) => p.action).join(", ") || "none enabled"})`);
   check(!s.errors.length, `no page errors${s.errors.length ? `: ${s.errors.join(" | ")}` : ""}`);
   await s.page.close();
 }

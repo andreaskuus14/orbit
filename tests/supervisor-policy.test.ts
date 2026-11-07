@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  DEFAULT_POLICY as P, afterFailure, checksVerdict, modeViolations, orbitStopAllOn, weakenedTests, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
+  DEFAULT_POLICY as P, afterFailure, approvalProblem, approvalTimedOut, checksVerdict, inboxControl, modeViolations, orbitStopAllOn, weakenedTests, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
 } from "../supervisor/policy.ts";
 import { appendAudit, readAudit, verifyAudit } from "../supervisor/audit.ts";
 
@@ -183,4 +183,33 @@ test("every file eval:ai loads into its own process is protected from unattended
   }
   const open = [...seen].filter((f) => !policyViolations([{ path: f, added: 1, removed: 0 }], P).length);
   assert.deepEqual(open, [], "add these to the policy's deny list");
+});
+
+test("owner approval: only for the release waiting at 'checked', its exact commit, once", () => {
+  const c = "c".repeat(40), other = "d".repeat(40);
+  const cur = (step: string) => ({ id: "r-2", commit: c, step });
+  const ok = (cur0: ReturnType<typeof cur> | null, a: { releaseId?: unknown; commit?: unknown }, done: string[] = []) => approvalProblem(cur0, a, done);
+  assert.equal(ok(cur("checked"), { releaseId: "r-2", commit: c }), null);
+  const refused: [string, ReturnType<typeof cur> | null, { releaseId?: unknown; commit?: unknown }, string[], RegExp][] = [
+    ["missing commit", cur("checked"), { releaseId: "r-2" }, [], /needs the release id and its commit/],
+    ["missing release id", cur("checked"), { commit: c }, [], /needs the release id/],
+    ["abbreviated commit", cur("checked"), { releaseId: "r-2", commit: c.slice(0, 7) }, [], /full 40-character/],
+    ["uppercase/odd commit", cur("checked"), { releaseId: "r-2", commit: c.toUpperCase() }, [], /full 40-character/],
+    ["stale: another commit", cur("checked"), { releaseId: "r-2", commit: other }, [], /approval is for ddddddd, but release r-2 is ccccccc/],
+    ["mismatched release", cur("checked"), { releaseId: "r-1", commit: c }, [], /r-1 isn't in progress/],
+    ["nothing in progress", null, { releaseId: "r-2", commit: c }, [], /isn't in progress/],
+    ["reused: release already ended", null, { releaseId: "r-1", commit: c }, ["r-1"], /already ended; an approval can't be reused/],
+    ["too early: before CI passed", cur("pushed"), { releaseId: "r-2", commit: c }, [], /hasn't passed CI yet/],
+    ["reused: already approved", cur("ownerApproved"), { releaseId: "r-2", commit: c }, [], /past approval/],
+    ["reused: already merged", cur("merged"), { releaseId: "r-2", commit: c }, [], /past approval/],
+  ];
+  for (const [name, cur0, a, done, re] of refused) assert.match(ok(cur0, a, done) ?? "", re, name);
+  assert.equal(approvalTimedOut("2026-11-01T00:00:00Z", Date.parse("2026-11-04T00:00:01Z"), 3 * 86400), true);
+  assert.equal(approvalTimedOut("2026-11-01T00:00:00Z", Date.parse("2026-11-03T23:59:59Z"), 3 * 86400), false);
+});
+
+test("inbox controls (app and builder can write there): only pause and stop; restore/approve/clear/resume need ctl/", () => {
+  assert.equal(inboxControl("pause"), "pause");
+  assert.equal(inboxControl("stop"), "stop");
+  for (const a of ["restore", "approve", "clear", "resume", "Pause", undefined, null, 1]) assert.equal(inboxControl(a), null, String(a));
 });
