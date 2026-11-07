@@ -16,7 +16,8 @@ export async function probeMarkers(sb: SupabaseClient, ids = Object.keys(MIGRATI
   return applied;
 }
 
-export class MigrationBlocked extends Error {}
+/** notRun: thrown before anything was written, so an approved action refused with it is "failed", not "uncertain" (agents.ts). */
+export class MigrationBlocked extends Error { readonly notRun = true; }
 
 const TTL = 3 * 60_000;
 const g = globalThis as unknown as { __orbitMigGuard?: { at: number; v: Promise<Record<string, boolean>> } };
