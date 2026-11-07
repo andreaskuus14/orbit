@@ -216,7 +216,7 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
         const slug = slugify(str(input.workspace, 60)), dir = slug && (await ws.workspaceDir(userId, slug));
         if (!slug || !dir) return `Error: no workspace "${str(input.workspace, 60)}"`;
         const srv = await import("./ws-server.ts"), key = `${userId}/${slug}`;
-        if (tool === "ws_stop") return srv.stopServer(key) ? `Done: stopped the ${slug} server.` : `The ${slug} server wasn't running.`;
+        if (tool === "ws_stop") return (await srv.stopServer(key)) ? `Done: stopped the ${slug} server.` : `The ${slug} server wasn't running.`;
         const { stopAllOn } = await import("./stop-all.ts");
         const r = await srv.startServer(key, dir, { stopAll: stopAllOn() });
         if ("error" in r) return `Error: ${r.error}`;
