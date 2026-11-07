@@ -199,5 +199,7 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
   const mission = picks.length ? dailyMission({ ...base3, ...(await within(import("./daily-mission").then((d) => d.extraCounts(userId, picks, now))).catch(() => ({}))) }, picks)
     : st && work && ok(ct) !== undefined ? dailyMission(base3) : undefined;
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
-    business: (await ovP) || [due && businessFollowupLine(due.length), await invP].filter(Boolean).join(". ") || undefined, overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }) };
+    business: (await ovP) || [due && businessFollowupLine(due.length), await invP].filter(Boolean).join(". ") || undefined, overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards,
+    deadlines: ok(dl) ?? null, followups: due ? due.map((p) => ({ id: p.id, name: p.name })) : null, // the brief's Today section; null = the source failed, never "nothing due"
+    ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }) };
 }
