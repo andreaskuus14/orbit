@@ -1,4 +1,15 @@
 // Project desk metadata stays local. Links are references, never fetched or sent to a model.
+import { CORE_PROJECT_REQUEST_KEY } from "./core-chats-pure.ts";
+
+const DRAFT_PREFIX = "orbit.project.draft:";
+export const deskDraftKey = (project: string) => `${DRAFT_PREFIX}${project}`;
+/** Sign-out (and the login page, for expired sessions): drop desk recovery drafts and the pending CORE project request
+ *  from this tab, so the next person at the browser can't read them. */
+export function clearProjectSession(store: Pick<Storage, "length" | "key" | "removeItem">) {
+  const keys: string[] = [];
+  for (let i = 0; i < store.length; i++) { const k = store.key(i); if (k && (k.startsWith(DRAFT_PREFIX) || k === CORE_PROJECT_REQUEST_KEY)) keys.push(k); }
+  for (const k of keys) store.removeItem(k); // collected first: removing while indexing would skip keys
+}
 export type Reference = { title: string; url: string };
 export type ProjectFile = { id: string; label: string };
 export type ProjectClip = { id: string; title: string };

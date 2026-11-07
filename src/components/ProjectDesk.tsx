@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { emptyDesk, readDeskDraft, type Desk, type ProjectClip } from "@/lib/project-desk-pure";
+import { deskDraftKey, emptyDesk, readDeskDraft, type Desk, type ProjectClip } from "@/lib/project-desk-pure";
 import { linkToHash } from "@/lib/deeplink-pure";
 import { CORE_NEW_CHAT, CORE_PROJECT_REQUEST_KEY } from "@/lib/core-chats-pure";
 import { NAV_EVENT } from "@/lib/nav-pure";
@@ -27,7 +27,7 @@ export function ProjectDesk({ project, onSelect, disabled = false, productions, 
   const [cloudOnly, setCloudOnly] = useState<{ name: string }[]>([]);
   const dirty = JSON.stringify(desk) !== JSON.stringify(saved) || !!title || !!url;
   const endpoint = `/api/projects/desk?project=${encodeURIComponent(project)}`;
-  const draftKey = `orbit.project.draft:${project}`;
+  const draftKey = deskDraftKey(project);
   useEffect(() => {
     if (!project || !loaded) return;
     try {

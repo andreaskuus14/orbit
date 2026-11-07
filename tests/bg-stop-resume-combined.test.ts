@@ -40,7 +40,7 @@ const runCoreFor = async (_ms, _bg, _sb, _u, _h, _d, signal) => { // a turn that
   return { text: "Built it.", citations: [], trace: [] };
 };
 const deps = async () => ({ finishBackground, runCoreFor, BACKGROUND_TURN_MS: 60000, parseLang: () => "en", coreSessionStore: { get: () => undefined, set: () => {} },
-  chatProjectContext: async () => ({ text: "", tainted: false, memoryProject: "" }) });
+  chatProjectContext: async () => ({ text: "", tainted: false }) });
 const until = async (condition, label) => {
   for (let i = 0; i < 200; i++) {
     if (await condition()) return;

@@ -13,7 +13,8 @@ export type Typed = {
   kind?: string; source?: string | null; confirmation?: string | null; tags?: string[] | null; folder?: string | null;
   created_at: string; content?: string; statement?: string; status?: string; supersedes?: string | null;
 };
-export type Ctx = { now: number; project?: string; chat?: string };
+/** legacy: an old name-based scope still honoured here, set only when that name identifies exactly one owned project. */
+export type Ctx = { now: number; project?: string; chat?: string; legacy?: string };
 
 const DAY = 86_400_000, HOUR = 3_600_000;
 const OWNER = /^(?:capture|upload|url|user_said|owner|core|chat|phone|call)$/;
@@ -74,14 +75,20 @@ export function temporaryOf(text: string, createdAt: string, project?: string | 
 const scopeOf = (chat: boolean, proj: boolean, project?: string | null, chatId?: string | null): Omit<Scope, "expiresAt"> =>
   chat ? { kind: "chat", ...(chatId ? { chat: chatId } : {}) } : proj ? { kind: "project", ...(project ? { project } : {}) } : { kind: "global" };
 const chatKey = (id?: string | null) => (id ?? "").toLowerCase().replace(/-/g, "");
+/** Stable project scope for new memories: the project's ID, so same/similar names and renames can't share or lose it.
+ *  "scope:p:" + 32 hex = 40 chars, the tag cap. */
+export const projectScopeKey = (id: string) => `p:${chatKey(id)}`;
+const KEY = /^p:[0-9a-f]{32}$/;
+/** How older CORE builds tagged a project: its display name, lower-cased by matching and cut to 34 chars by the tag cap. */
+export const legacyScopeKey = (name: string) => name.replace(/\s+/g, " ").trim().toLowerCase().slice(0, 34);
 
 /** Tags that pin a newly saved memory to where it was said: "chat:<id>" for chat-scoped wording, "scope:<project>" for
  *  project-scoped wording. Caller-supplied chat:/until:/revoked tags are dropped (a model must not widen or forge scope). */
 export function scopeTags(text: string, tags: string[] | undefined, ctx: { chat?: string | null; project?: string | null }): string[] {
-  const own = (tags ?? []).filter((x) => !/^(?:chat:|until:|revoked$)/.test(x));
+  const own = (tags ?? []).filter((x) => !/^(?:chat:|scope:|until:|revoked$)/.test(x)); // scope comes from where it was said, never from the caller
   const s = temporaryOf(text.slice(0, 400), new Date().toISOString(), ctx.project, ctx.chat);
   if (s?.kind === "chat") own.push(`chat:${chatKey(ctx.chat) || "unknown"}`); // no chat id: fails closed (eligible nowhere)
-  else if (s?.kind === "project" && !own.some((x) => x.startsWith("scope:"))) own.push(`scope:${s.project ?? ""}`.slice(0, 40)); // no project id: empty scope fails closed, including title-only cues
+  else if (s?.kind === "project") own.push(`scope:${s.project ?? ""}`.slice(0, 40)); // no project id: empty scope fails closed, including title-only cues
   return own;
 }
 
@@ -118,7 +125,9 @@ export function isCurrent(r: Typed, ctx: Ctx): boolean {
   const s = scopeOfRecord(r);
   if (s.expiresAt !== null && s.expiresAt <= ctx.now) return false;
   if (s.kind === "chat") return !!s.chat && s.chat === chatKey(ctx.chat); // no originating chat id, or another chat: never
-  return s.kind !== "project" || same(s.project, ctx.project);
+  if (s.kind !== "project") return true;
+  if (same(s.project, ctx.project)) return true;
+  return !!ctx.legacy && !!s.project && !KEY.test(s.project) && legacyScopeKey(s.project) === legacyScopeKey(ctx.legacy);
 }
 
 /** Retrieval filter (25): drop history copies, expired/out-of-scope records, and anything a current correction replaces. */

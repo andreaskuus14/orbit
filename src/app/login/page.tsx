@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { BrandMark } from "@/components/BrandMark";
+import { clearProjectSession } from "@/lib/project-desk-pure";
 
 const ERRORS: Record<string, string> = {
   not_allowed: "That email isn't on this Orbital's allowlist.",
@@ -16,6 +17,7 @@ export default function Login() {
   const [err, setErr] = useState("");
 
   useEffect(() => {
+    try { clearProjectSession(sessionStorage); } catch { /* storage off */ } // also covers an expired session the server signed out
     const code = new URLSearchParams(location.search).get("error");
     if (code) setErr(ERRORS[code] ?? "Sign-in failed.");
   }, []);

@@ -9,7 +9,7 @@ export const MEMORY_COLUMNS = "id, kind, title, content, source, url, storage_pa
 // the turn untainted while private text is in context). The vector pool can't filter, so hydration drops them too.
 // journalVectors: false when journal vectors come from another model than the query's (embeddings journalVectorsComparable):
 // journals are then ranked by keyword only and the mode says so.
-export type MemorySearchOptions = { projectName?: string; chatId?: string; coreSummariesOnly?: boolean; includeJournal?: boolean; kind?: string; exact?: boolean; journalVectors?: boolean }; // kind: only that kind (episodes.ts recall); exact: names/ids first (CORE); chatId: the chat asking (chat-scoped memories)
+export type MemorySearchOptions = { projectName?: string; projectScope?: string; projectLegacy?: string; chatId?: string; coreSummariesOnly?: boolean; includeJournal?: boolean; kind?: string; exact?: boolean; journalVectors?: boolean }; // kind: only that kind (episodes.ts recall); exact: names/ids first (CORE); chatId: the chat asking (chat-scoped memories)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same untyped rows the client returned before
 type Hydrated = { data: any[] | null; error: { code?: string; message?: string } | null };
 type EmbedQuery = (text: string, type: "query") => Promise<number[] | null>;
@@ -74,6 +74,6 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
   const candidates = ids.map((id) => byId.get(id)).filter((m): m is NonNullable<typeof m> => !!m)
     // Model-facing searches (CORE, agents, court, episodes) only get what is current HERE: never another chat's or project's
     // scoped instruction, an expired one or a superseded copy. The owner's own MEMORY search (includeJournal) sees everything.
-    .filter((m) => options.includeJournal || isCurrent(m, { now: Date.now(), project, chat: options.chatId }));
+    .filter((m) => options.includeJournal || isCurrent(m, { now: Date.now(), project: options.projectScope, chat: options.chatId, legacy: options.projectLegacy })); // projectName only ranks; scope decides
   return { results: candidates, mode };
 }

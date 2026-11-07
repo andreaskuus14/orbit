@@ -52,7 +52,7 @@ function harness(onRun: (history: { content: string }[], signal: AbortSignal) =>
   const finished = new Promise<Fin>((r) => (done = r));
   const load = async () => ({
     BACKGROUND_TURN_MS: 60_000, parseLang: () => "en", coreSessionStore: { get: () => undefined, set: () => {} },
-    chatProjectContext: async () => ({ text: "", tainted: false, memoryProject: "" }),
+    chatProjectContext: async () => ({ text: "", tainted: false }),
     runCoreFor: async (_ms: number, _bg: boolean, _sb: unknown, _u: string, history: { content: string }[], _a: unknown, signal: AbortSignal) => {
       calls.push({ history, attemptsOnDisk: JSON.parse(await readFile(path.join(DATA, "bg-turns", "t1.json"), "utf8")).attempts });
       await onRun(history, signal);

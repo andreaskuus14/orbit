@@ -131,3 +131,71 @@ test("connecting CORE returns not-found for a missing project, keeps the owner f
   assert.equal((await m.exports.POST(req)).status, 503);
   assert.equal(writes, 0);
 });
+test("task creation links only a project the signed-in user owns (two synthetic accounts)", async () => {
+  const alice = "alice-user", bob = "bob-user", bobProject = "22222222-2222-4222-8222-222222222222";
+  const projects = [{ id: project, user_id: alice }, { id: bobProject, user_id: bob }];
+  const inserts: any[] = [];
+  let as = alice, failRead = false;
+  const sb = { from: (table: string) => {
+    const where: Record<string, string> = {};
+    const q: any = { select() { return q; }, eq(k: string, v: string) { where[k] = v; return q; },
+      maybeSingle: async () => failRead ? { data: null, error: { message: "down" } } : { data: projects.find((p) => p.id === where.id && p.user_id === where.user_id) ?? null, error: null },
+      insert(row: any) { inserts.push({ table, row }); return { select: () => ({ single: async () => ({ data: { id: "t1", ...row }, error: null }) }) }; } };
+    return q;
+  } };
+  const m = { exports: {} as any };
+  runInNewContext(compile("app/api/tasks/route.ts"), { module: m, exports: m.exports, Response, require: (name: string) => {
+    if (name.endsWith("/supabase/server")) return { requireUser: async () => ({ user: { id: as }, sb }) };
+    if (name.endsWith("/agents")) return { getAgent: async () => ({ slug: "nova" }), kickQueue: async () => {} };
+    if (name.endsWith("/lib/pure")) return { str: (v: unknown, max: number, min = 0) => typeof v === "string" && v.trim().length >= min ? v.trim().slice(0, max) : "" };
+    if (name.endsWith("/capability")) return { capabilityStart: async () => ({ block: null, headsUp: [] }) };
+    if (name.endsWith("/capability-pure")) return { withHeadsUp: (title: string, request: string) => ({ title, request }) };
+    if (name.endsWith("/project-desk-pure")) return pure;
+    throw new Error(name);
+  } });
+  const post = (project_id?: unknown) => m.exports.POST(new Request("http://orbit/api/tasks", { method: "POST", body: JSON.stringify({ request: "Study the site", ...(project_id !== undefined && { project_id }) }) }));
+  const r = await post(bobProject); // Alice names Bob's project
+  assert.equal(r.status, 404); assert.equal((await r.json()).error, "Project not found");
+  assert.equal(inserts.length, 0);
+  assert.equal((await post("../x")).status, 400);
+  assert.equal((await post(project)).status, 201); // her own project links
+  as = bob;
+  assert.equal((await post(project)).status, 404); // and Bob can't use Alice's
+  assert.equal((await post(bobProject)).status, 201);
+  assert.equal((await post()).status, 201); // no project: unchanged
+  failRead = true;
+  assert.equal((await post(bobProject)).status, 503);
+  assert.deepEqual(inserts.map((i) => [i.row.user_id, i.row.project_id]), [[alice, project], [bob, bobProject], [bob, null]]);
+});
+test("sign-out and the login page clear desk drafts and the pending CORE project request from the tab", async () => {
+  const fakeStorage = (init: Record<string, string>) => {
+    const m = new Map(Object.entries(init));
+    return { get length() { return m.size; }, key: (i: number) => [...m.keys()][i] ?? null, removeItem: (k: string) => { m.delete(k); }, getItem: (k: string) => m.get(k) ?? null, dump: () => [...m.entries()] };
+  };
+  const tab = () => fakeStorage({
+    [pure.deskDraftKey(project)]: JSON.stringify({ desk: { rev: 1, notes: "Private renovation budget", references: [] }, title: "", url: "", request: "Price the kitchen" }),
+    [pure.deskDraftKey("22222222-2222-4222-8222-222222222222")]: "{\"desk\":{\"notes\":\"Second project draft\"}}",
+    [chats.CORE_PROJECT_REQUEST_KEY]: JSON.stringify({ projectId: project }),
+    "orbit.view": "galaxy",
+  });
+  const s = tab();
+  pure.clearProjectSession(s);
+  assert.deepEqual(s.dump(), [["orbit.view", "galaxy"]]); // unrelated keys stay
+  assert.doesNotMatch(JSON.stringify(s.dump()), /renovation|kitchen|Second project|pendingProject/i);
+
+  // The login page (reached on sign-out and when the server ends an expired session) clears the same keys on load.
+  const login = tab(), m = { exports: {} as any };
+  runInNewContext(compile("app/login/page.tsx"), { module: m, exports: m.exports, URLSearchParams, location: { search: "" }, sessionStorage: login, require: (name: string) => {
+    if (name === "react") return { ...require("react"), useState: (v: unknown) => [v, () => {}], useEffect: (fn: () => void) => fn() };
+    if (name === "react/jsx-runtime") return require(name);
+    if (name.endsWith("/supabase/client")) return { createClient: () => ({ auth: {} }) };
+    if (name.endsWith("/BrandMark")) return { BrandMark: () => null };
+    if (name.endsWith("/project-desk-pure")) return pure;
+    throw new Error(name);
+  } });
+  renderToStaticMarkup(createElement(m.exports.default));
+  assert.deepEqual(login.dump(), [["orbit.view", "galaxy"]]);
+  // Explicit sign-out clears before the auth call and the redirect.
+  const orbit = readFileSync(new URL("../src/components/Orbit.tsx", import.meta.url), "utf8");
+  assert.match(orbit, /async function signOut\(\) \{ try \{ clearProjectSession\(sessionStorage\); \} catch \{[^}]*\} await sb\.auth\.signOut\(\); location\.href = "\/login"; \}/);
+});
