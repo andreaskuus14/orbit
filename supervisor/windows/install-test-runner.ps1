@@ -60,6 +60,12 @@ icacls "$T\work" /grant "*${acSid}:(OI)(CI)M" | Out-Null
 if (Test-Path $Modules) { icacls $Modules /grant "*${acSid}:(OI)(CI)RX" | Out-Null }
 $nodeDir = Split-Path (Get-Command node.exe -ErrorAction Stop).Source
 icacls $nodeDir /grant "*${acSid}:(OI)(CI)RX" | Out-Null
+# Node resolves real paths by reading the attributes of every parent folder (lstat C:\, C:\orbit-test, ...). Grant exactly that on
+# the parents: read attributes, this folder only, no listing and no contents.
+foreach ($leaf in "$T\work", $Modules, $nodeDir) {
+  $d = Split-Path $leaf -Parent
+  while ($d) { icacls $d /grant "*${acSid}:(RA)" | Out-Null; $d = Split-Path $d -Parent }
+}
 
 # Network: nothing off the machine for this account, its child processes included (the rule matches the account, not a program).
 # Windows Firewall doesn't filter loopback and names are resolved by the DNS Client service; the AppContainer above covers both.
