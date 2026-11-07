@@ -48,7 +48,7 @@ test("ARCH scene and history routes scope every read/write to the authorized pro
 test("project desk renders project selection, local notes, references and task links", () => {
   const m = { exports: {} as any };
   const desk = { rev: 2, notes: "Use timber", references: [{ title: "Reference", url: "https://example.com/" }], files: [{ id: project, label: "Old name.png" }], productions: [{ id: "job:clip", title: "Project film" }], palette: ["#aabbcc"] };
-  const state: any[] = [[{ id: project, name: "My house", status: "active" }], "", desk, desk, true, false, "", [{ id: "task-1", title: "Study site", status: "done" }], "", "", "", [{ id: project, name: "Renamed.png", type: "image", version: 3 }], "#112233", []];
+  const state: any[] = [[{ id: project, name: "My house", status: "active" }], "", desk, desk, project, false, "", [{ id: "task-1", title: "Study site", status: "done" }], "", "", "", [{ id: project, name: "Renamed.png", type: "image", version: 3 }], "#112233", []];
   runInNewContext(compile("components/ProjectDesk.tsx"), { module: m, exports: m.exports, JSON, require: (name: string) => {
     if (name === "react") return { ...require("react"), useState: () => [state.shift(), () => {}], useEffect: () => {} };
     if (name === "react/jsx-runtime") return require(name);
@@ -70,7 +70,7 @@ test("project desk renders project selection, local notes, references and task l
 test("project desk lists cloud-only VAULT files as unselectable and says to restore them in VAULT first", () => {
   const m = { exports: {} as any };
   const desk = { rev: 1, notes: "", references: [], files: [], productions: [], palette: [] };
-  const state: any[] = [[], "", desk, desk, true, false, "", [], "", "", "", [{ id: project, name: "Local.png", type: "image", version: 1 }], "#112233", [{ name: "Cloud plan.pdf" }, { name: "Site photo.jpg" }]];
+  const state: any[] = [[], "", desk, desk, project, false, "", [], "", "", "", [{ id: project, name: "Local.png", type: "image", version: 1 }], "#112233", [{ name: "Cloud plan.pdf" }, { name: "Site photo.jpg" }]];
   runInNewContext(compile("components/ProjectDesk.tsx"), { module: m, exports: m.exports, JSON, require: (name: string) => {
     if (name === "react") return { ...require("react"), useState: () => [state.shift(), () => {}], useEffect: () => {} };
     if (name === "react/jsx-runtime") return require(name);

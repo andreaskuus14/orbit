@@ -19,7 +19,10 @@ export function ProjectDesk({ project, onSelect, disabled = false, productions, 
   const { t } = useT();
   const [projects, setProjects] = useState<Project[]>([]), [name, setName] = useState("");
   const [desk, setDesk] = useState<Desk>(emptyDesk), [saved, setSaved] = useState<Desk>(emptyDesk);
-  const [loaded, setLoaded] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  // The project whose desk is in state. Edits, saves and recovery drafts wait until it is the shown project, so a switch
+  // (ARCH reuses this instance) can't save A's notes into B or overwrite/delete B's draft while B loads or fails.
+  const [loadedFor, setLoadedFor] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const loaded = !!project && loadedFor === project;
   const [tasks, setTasks] = useState<Task[]>([]), [request, setRequest] = useState("");
   const [title, setTitle] = useState(""), [url, setUrl] = useState("");
   const [vault, setVault] = useState<VaultItem[]>([]);
@@ -52,7 +55,7 @@ export function ProjectDesk({ project, onSelect, disabled = false, productions, 
       try { draft = readDeskDraft(JSON.parse(sessionStorage.getItem(draftKey) ?? "null")); } catch { /* no valid recovery draft */ }
       setDesk(draft?.desk ?? j.desk); setSaved(j.desk);
       if (draft) { setTitle(draft.title); setUrl(draft.url); setRequest(draft.request); if (draft.desk.rev !== j.desk.rev) setError(t("desk.draftStale")); }
-      setLoaded(true);
+      setLoadedFor(project);
     } }, (e) => { if (alive) setError(e.message); });
     api<{ tasks: Task[] }>(`/api/tasks?project=${encodeURIComponent(project)}`).then((j) => { if (alive) setTasks(j.tasks); }, (e) => { if (alive) setError(e.message); });
     return () => { alive = false; };
@@ -80,13 +83,14 @@ export function ProjectDesk({ project, onSelect, disabled = false, productions, 
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function save() {
+    if (!loaded) return;
     setBusy(true); setError("");
     try { const j = await api<{ desk: Desk }>(endpoint, desk); setDesk(j.desk); setSaved(j.desk); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function reload() {
     setBusy(true); setError("");
-    try { const j = await api<{ desk: Desk }>(endpoint); setDesk(j.desk); setSaved(j.desk); setLoaded(true); setTitle(""); setUrl(""); }
+    try { const j = await api<{ desk: Desk }>(endpoint); setDesk(j.desk); setSaved(j.desk); setLoadedFor(project); setTitle(""); setUrl(""); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function task() {
