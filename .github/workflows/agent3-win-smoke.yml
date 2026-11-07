@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: false
 env:
   MAIN_SHA: 02b6c8f76542925fce6f55a4fd17cb1f0366810a
+  WS_SHA: 02b6c8f76542925fce6f55a4fd17cb1f0366810a
   PR426_SHA: f419f8fa4ffeb8ca71f2bd1aabd48f20df2ae982
   PR426_TREE: 1589a5c26d72d11008362f3b4d5fc2671e5d6985
 jobs:
@@ -61,6 +62,7 @@ jobs:
             *.tap
 
   pr426-on-main:
+    if: false # done in run 42389859760
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -89,3 +91,30 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with: { name: pr426-logs, path: win-426.log, if-no-files-found: ignore }
+
+  ws-stop:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: harness }
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.WS_SHA }}", path: orbit, persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: "Checkout is exactly WS_SHA"
+        shell: pwsh
+        run: |
+          $h = git -C orbit rev-parse HEAD; "tested commit: $h"; if ($h -ne $env:WS_SHA) { throw "checkout $h is not $env:WS_SHA" }
+      - run: npm ci --no-audit --no-fund
+        working-directory: orbit
+      - name: "Diagnose Stop vs exit, then the real test 3 times"
+        working-directory: orbit
+        shell: pwsh
+        run: |
+          Copy-Item ../harness/ci/ws-stop-diag.test.ts tests/zz-ws-stop-diag.test.ts
+          node --test --experimental-strip-types --test-reporter=spec tests/zz-ws-stop-diag.test.ts; $d = $LASTEXITCODE
+          Remove-Item tests/zz-ws-stop-diag.test.ts
+          $fails = 0
+          foreach ($i in 1..3) { node --test --experimental-strip-types --test-reporter=spec tests/ws-server.test.ts *> "../ws-$i.log"; if ($LASTEXITCODE -ne 0) { $fails++ }; Get-Content "../ws-$i.log" | Select-String -Pattern 'real server|EBUSY|^ℹ (pass|fail)' }
+          "diag exit $d; ws-server.test.ts failed $fails of 3"; if ($d -ne 0 -or $fails -ne 0) { exit 1 }
