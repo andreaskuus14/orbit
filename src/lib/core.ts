@@ -48,6 +48,7 @@ import { foreground } from "./foreground-pure";
 import { autonomyLevels } from "./autonomy";
 import { skillDenied } from "./skills-pure";
 import { maxSteps, fallbackNote, sessionInput } from "./core-capability-pure";
+import { citedLinks, unseenLinks, unseenNote } from "./core-sources-pure";
 import { withHeadsUp } from "./capability-pure";
 import { coreEngine } from "./core-engine";
 import { randomUUID } from "node:crypto";
@@ -490,7 +491,10 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     .filter((m): m is NonNullable<typeof m> => !!m)
     .map((m) => ({ id: m.id, title: m.title, kind: m.kind }));
   const wk = citeWeek(answer, knownCites(steps.filter((s) => s.startsWith("You called week_review "))), citations.map((c) => c.id)); // [w:...] → [n], unknown ones dropped
-  const text = (wk.text || `_(CORE stopped after ${steps.length} tool calls without writing an answer.)_`) + fallbackNote(trace);
+  // Web/news links the answer cites but nothing in this turn contained: say so instead of passing them as sources.
+  const unseen = unseenLinks(wk.text, [prompt, attach?.block ?? "", ...evalTools.map((t) => t.output)]), cited = citedLinks(wk.text);
+  if (cited) trace.push({ step: "sources", detail: unseen.length ? `${unseen.length} of ${cited} cited links not opened this turn: ${unseen.join(" ").slice(0, 300)}` : `${cited} cited links, all from this turn's tools or context`, ms: 0, ok: !unseen.length });
+  const text = (wk.text || `_(CORE stopped after ${steps.length} tool calls without writing an answer.)_`) + unseenNote(unseen) + fallbackNote(trace);
   return { text, citations: [...citations, ...wk.cites], trace, model: tier };
 }
 
