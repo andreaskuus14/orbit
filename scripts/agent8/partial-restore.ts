@@ -44,8 +44,8 @@ const ps = spawn("powershell", ["-NoProfile", "-Command",
 await new Promise<void>((r) => ps.stdout.on("data", (d) => String(d).includes("locked") && r()));
 let restoreError = "";
 try { await cap.restoreCapsule(X, P); } catch (e) { restoreError = e instanceof Error ? e.message : String(e); }
-const partial = await snapshot();
 await writeFile(flag, ""); await new Promise((r) => ps.on("exit", r));
+const partial = await snapshot(); // after the lock is released, nothing else has written
 
 // 4. Recover with the newest pre-restore safety backup
 const safety = (await readdir(backups)).filter((n) => n.includes("pre-restore")).sort().pop()!;
