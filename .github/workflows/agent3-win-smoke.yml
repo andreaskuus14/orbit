@@ -16,6 +16,7 @@ env:
   PR426_TREE: 1589a5c26d72d11008362f3b4d5fc2671e5d6985
 jobs:
   main-02b6c8f:
+    if: false # fix 4838f04 smoke passed in run 42390426913
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -112,9 +113,7 @@ jobs:
         working-directory: orbit
         shell: pwsh
         run: |
-          Copy-Item ../harness/ci/ws-stop-diag.test.ts tests/zz-ws-stop-diag.test.ts
-          node --test --experimental-strip-types --test-reporter=spec tests/zz-ws-stop-diag.test.ts; $d = $LASTEXITCODE
-          Remove-Item tests/zz-ws-stop-diag.test.ts
+          $d = 0 # the Stop-vs-exit diagnosis ran on 02b6c8f in run 42390091231 (it calls the old synchronous stopServer)
           $fails = 0
           foreach ($i in 1..3) { node --test --experimental-strip-types --test-reporter=spec tests/ws-server.test.ts *> "../ws-$i.log"; if ($LASTEXITCODE -ne 0) { $fails++ }; Get-Content "../ws-$i.log" | Select-String -Pattern 'real server|EBUSY|^ℹ (pass|fail)' }
           "diag exit $d; ws-server.test.ts failed $fails of 3"; if ($d -ne 0 -or $fails -ne 0) { exit 1 }
