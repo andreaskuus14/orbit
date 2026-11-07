@@ -111,3 +111,35 @@ export function supervisorHolds(st: { stopped?: boolean; orbitStopAll?: boolean;
   if (!(age >= -60_000 && age <= maxAgeMs)) return "supervisor status is stale";
   return null;
 }
+
+// ---------- edit-session tool policy ----------
+// The edit session's process holds the model credential, so nothing it runs may execute repo-controlled code: no tests, package
+// scripts, binaries under node_modules, git hooks or diff drivers, and nothing that hands a command line to another program.
+// Bash keeps read-only commands on files; tests go through run_tests, which runs them as orbit-test (supervisor/test-run.ts).
+export const EDIT_BASH_OK = /^(git (diff|status|log|show)|ls|cat|head|tail|grep|rg|wc)( |$)/;
+// Shell syntax (chaining, substitution, redirection, globs), paths leaving the worktree, and flags that run another program.
+export const EDIT_BASH_BAD = /[;&|`$<>\\(){}*?!\n\r]|\.\.|(^|\s)[\/~]|[A-Za-z]:|--output|--ext-diff|--textconv|--pre\b|--pre-glob|--search-zip|\s-z\b|--exec|\s-o\b|--open-files-in-pager|--no-index/;
+export const RUN_TESTS_TOOL = "mcp__orbit__run_tests";
+
+/** May the edit session use this tool with this input? Writes and reads stay in the worktree, never node_modules or .git. */
+export function editToolDecision(tool: string, input: Record<string, unknown>, worktree: string, resolve: (a: string, b: string) => string, sep: string): string | null {
+  const inside = (p: unknown) => {
+    if (typeof p !== "string" || p.includes("..")) return false;
+    const abs = resolve(worktree, p);
+    if (!abs.startsWith(worktree + sep)) return false;
+    const first = abs.slice(worktree.length + 1).split(/[\\/]/)[0].toLowerCase();
+    return first !== "node_modules" && first !== ".git";
+  };
+  if (["Read", "Edit", "Write", "MultiEdit"].includes(tool)) return inside(input.file_path) ? null : "only files inside this checkout (not node_modules or .git)";
+  if (["Glob", "Grep"].includes(tool))
+    return (input.path == null || inside(input.path)) && !/^[\/~]|^[A-Za-z]:|\.\./.test(String(input.pattern ?? "")) ? null : "only inside this checkout";
+  if (tool === "Bash") {
+    const c = String(input.command ?? "").trim().replace(/ 2>&1$/, "");
+    return EDIT_BASH_OK.test(c) && !EDIT_BASH_BAD.test(c) ? null : "read-only git and file commands only; run tests with the run_tests tool";
+  }
+  if (tool === RUN_TESTS_TOOL) return null; // its own handler validates kind and files
+  return `${tool} isn't available to the builder`;
+}
+
+// Test runner requests: the shape lives with the supervisor, which brokers them (its installed copy imports nothing from here).
+export { TEST_FILE, TEST_KINDS, testRequestProblem, type TestKind, type TestRequest } from "../supervisor/policy.ts";

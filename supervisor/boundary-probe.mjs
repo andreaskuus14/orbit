@@ -1,22 +1,83 @@
 // Boundary probe. Run it from the account under test, the way untrusted code runs there:
 //   builder: as a model-written test   node --test supervisor/boundary-probe.mjs                (PROBE_ROLE=builder)
 //   build:   during `next build` or an npm install script   node supervisor/boundary-probe.mjs --report <file>  (PROBE_ROLE=build)
+//   test:    as a test the orbit-test runner executes (supervisor/test-run.ts): node --test from its disposable checkout (PROBE_ROLE=test).
+//            The runner gives tests an empty environment, so the paths come from probe-env.json next to the checkout's package.json.
 // It tries everything that account must not do, and the little it must; exits 1 if any forbidden action works.
 // Paths: PROBE_SUP (supervisor home), PROBE_LIVE (live ORBIT folder), PROBE_STAGE (release build folder), PROBE_DATA (ORBIT data),
-// PROBE_OWN (a folder this account may write, for the hard-link check), optional PROBE_SUP_PID, PROBE_ORIGIN (where main lives). Nothing here needs the network.
-import { appendFileSync, linkSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+// PROBE_OWN (a folder this account may write, for the hard-link check), optional PROBE_SUP_PID, PROBE_ORIGIN (where main lives).
+// Role test also: PROBE_BUILDER (the builder's home: config, state, secrets\model.key, worktrees), PROBE_BUILDER_PROFILE (its
+// profile, .claude\.credentials.json), PROBE_BUILDER_PID (a builder process holding a canary credential), PROBE_PROXY (host:port).
+// Network checks run in this process, in a child and in a grandchild (through the shell): a rule that only caught the first is no rule.
+import { appendFileSync, existsSync, linkSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import net from "node:net";
+import dns from "node:dns/promises";
 import path from "node:path";
 
-const E = process.env, ROLE = E.PROBE_ROLE || "builder", SUP = E.PROBE_SUP, LIVE = E.PROBE_LIVE, STAGE = E.PROBE_STAGE, DATA = E.PROBE_DATA;
+const fileEnv = existsSync("probe-env.json") ? JSON.parse(readFileSync("probe-env.json", "utf8")) : {};
+const E = { ...process.env, ...fileEnv }, ROLE = E.PROBE_ROLE || "builder", SUP = E.PROBE_SUP, LIVE = E.PROBE_LIVE, STAGE = E.PROBE_STAGE, DATA = E.PROBE_DATA;
 const tag = `probe-${ROLE}-${process.pid}`;
-const DENY_CODES = ["EACCES", "EPERM", "ENOENT", "EROFS", "ENOTDIR", "EXDEV"];
+const DENY_CODES = ["EACCES", "EPERM", "ENOENT", "EROFS", "ENOTDIR", "EXDEV", "ENETUNREACH", "EHOSTUNREACH", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ESRCH", "EBLOCKED"];
+const fail = (code, msg = code) => { const e = new Error(msg); e.code = code; throw e; };
+
+/** Connect from this process (depth 0), a child (1) or a grandchild through the shell (2). Resolves if connected. */
+async function connect(host, port, depth = 0) {
+  if (depth === 0) return new Promise((ok, no) => {
+    const s = net.connect({ host, port, timeout: 4000 });
+    s.on("connect", () => { s.destroy(); ok(); }).on("timeout", () => { s.destroy(); no(Object.assign(new Error("timeout"), { code: "ETIMEDOUT" })); }).on("error", no);
+  });
+  const js = `require("net").connect({host:${JSON.stringify(host)},port:${port},timeout:4000}).on("connect",()=>process.exit(0)).on("timeout",()=>process.exit(3)).on("error",e=>{console.log(e.code);process.exit(3)})`;
+  const f = path.join(E.TEMP || E.TMPDIR || "/tmp", `probe-net-${process.pid}-${Date.now()}.cjs`);
+  writeFileSync(f, js);
+  const r = depth === 1 ? spawnSync(process.execPath, [f], { encoding: "utf8", timeout: 15000 })
+    : process.platform === "win32" ? spawnSync("cmd.exe", ["/d", "/c", `"${process.execPath}" "${f}"`], { encoding: "utf8", timeout: 15000, windowsVerbatimArguments: true })
+    : spawnSync("sh", ["-c", `"$0" "$1"`, process.execPath, f], { encoding: "utf8", timeout: 15000 });
+  try { unlinkSync(f); } catch { /* best effort */ }
+  if (r.status !== 0) fail((r.stdout || "").trim() || "EBLOCKED");
+}
 
 /** [group, what, fn, expect]: expect "denied" or "allowed". */
 function checks() {
   const c = [];
   const d = (g, what, fn) => c.push([g, what, fn, "denied"]);
   const a = (g, what, fn) => c.push([g, what, fn, "allowed"]);
+  const rp = (g, what, fn) => c.push([g, what, fn, "report"]); // recorded, not judged: a known limit of the platform, reported as found
+  if (ROLE === "test") {
+    const T1 = "builder credentials and spending settings";
+    const B = E.PROBE_BUILDER, P = E.PROBE_BUILDER_PROFILE;
+    d(T1, "read the builder's model key", () => readFileSync(path.join(B, "secrets", "model.key")));
+    d(T1, "read the builder's login (.claude/.credentials.json)", () => readFileSync(path.join(P, ".claude", ".credentials.json")));
+    d(T1, "read the builder's config (spending limits)", () => readFileSync(path.join(B, "config.json")));
+    d(T1, "raise the daily spending limit", () => writeFileSync(path.join(B, "config.json"), '{"maxUsdPerDay":1000,"maxUsdPerTask":1000}'));
+    d(T1, "reset today's spend (state.json)", () => writeFileSync(path.join(B, "state.json"), '{"day":{"costUsd":0}}'));
+    d(T1, "list the builder's worktrees", () => readdirSync(path.join(B, "worktrees")));
+    d(T1, "read the builder's log", () => readFileSync(path.join(B, "builder.log")));
+    if (E.PROBE_BUILDER_PID) {
+      d(T1, "signal the builder process", () => process.kill(Number(E.PROBE_BUILDER_PID), 0));
+      if (process.platform !== "win32") d(T1, "read the builder process's environment (its key)", () => readFileSync(`/proc/${E.PROBE_BUILDER_PID}/environ`));
+    }
+    d(T1, "find a model, GitHub or proxy variable in its own environment", () => {
+      const leak = Object.entries(process.env).find(([k, v]) => /^(ANTHROPIC_|CLAUDE_|GH_|GITHUB_|HTTPS?_PROXY$|https?_proxy$|SUPABASE_SECRET)/.test(k) || /sk-ant-|canary|ghp_|github_pat_/i.test(v ?? ""));
+      if (leak) return; fail("ENOENT");
+    });
+    const T2 = "network: nothing but its own loopback";
+    for (const depth of [0, 1, 2]) {
+      const who = ["itself", "a child process", "a grandchild via the shell"][depth];
+      d(T2, `${who}: connect to 1.1.1.1:443`, () => connect("1.1.1.1", 443, depth));
+      d(T2, `${who}: connect to api.anthropic.com:443`, () => connect("api.anthropic.com", 443, depth));
+      if (E.PROBE_PROXY) { const [h, p] = E.PROBE_PROXY.split(":"); d(T2, `${who}: connect to the host's proxy ${E.PROBE_PROXY}`, () => connect(h, Number(p), depth)); }
+    }
+    // Windows resolves names in the DNS Client service, not in the caller's process, and Windows Firewall doesn't filter loopback:
+    // a per-user rule can't cover either. Linux (a private network namespace) must refuse both.
+    (process.platform === "win32" ? rp : d)(T2, "resolve a public name (DNS)", () => dns.lookup("example.com"));
+    if (E.PROBE_HOST_PORT) (process.platform === "win32" ? rp : d)(T2, `reach a service on the host's loopback (127.0.0.1:${E.PROBE_HOST_PORT})`, () => connect("127.0.0.1", Number(E.PROBE_HOST_PORT), 1));
+    a(T2, "loopback to its own server (the isolated app's path)", async () => {
+      const srv = net.createServer((c) => c.end()).listen(0, "127.0.0.1");
+      await new Promise((ok) => srv.on("listening", ok));
+      try { await connect("127.0.0.1", srv.address().port, 1); } finally { srv.close(); }
+    });
+  }
   const G1 = "supervisor credentials and state";
   d(G1, "read the GitHub token", () => readFileSync(path.join(SUP, "token.txt")));
   d(G1, "read the supervisor config", () => readFileSync(path.join(SUP, "config.json")));
@@ -41,7 +102,7 @@ function checks() {
   if (ROLE === "builder") {
     a(G3, "create a submission (one write, no rename)", () => writeFileSync(path.join(SUP, "inbox", `${tag}.json`), "{}", { flag: "wx" }));
     a(G3, "read the published status", () => readFileSync(path.join(SUP, "public", "status.json")));
-  } else d(G3, "drop a submission (build account)", () => writeFileSync(path.join(SUP, "inbox", `${tag}.json`), "{}"));
+  } else d(G3, `drop a submission (${ROLE} account)`, () => writeFileSync(path.join(SUP, "inbox", `${tag}.json`), "{}"));
   const G4 = "live install and ORBIT data";
   for (const f of ["src/app/api/health/route.ts", "scripts/stop.ps1", "scripts/launch.ps1", ".git/config", ".next/BUILD_ID", "package.json"])
     d(G4, `modify live ${f}`, () => appendFileSync(path.join(LIVE, f), "x"));
@@ -49,7 +110,7 @@ function checks() {
   d(G4, "read live .env.local (production secrets)", () => readFileSync(path.join(LIVE, ".env.local")));
   d(G4, "read ORBIT's data", () => readdirSync(DATA));
   d(G4, "switch ORBIT's Stop-all off", () => writeFileSync(path.join(DATA, "stop-all.json"), '{"on":false}'));
-  if (ROLE === "builder") {
+  if (ROLE !== "build") {
     d(G4, "write the stage build", () => writeFileSync(path.join(STAGE, ".next", "BUILD_ID"), "x"));
     d(G4, "fake a build result", () => writeFileSync(path.join(STAGE, "BUILD_RESULT.txt"), `${"0".repeat(40)} 0`));
   }
@@ -69,9 +130,10 @@ function checks() {
   return c;
 }
 
-function run([group, what, fn, expect]) {
-  try { fn(); return { group, what, expect, got: "allowed", ok: expect === "allowed" }; }
+async function run([group, what, fn, expect]) {
+  try { await fn(); return { group, what, expect, got: "allowed", ok: expect !== "denied" }; }
   catch (e) {
+    if (expect === "report") return { group, what, expect, got: `denied (${e.code ?? e.message})`, ok: true };
     if (expect === "denied" && !DENY_CODES.includes(e.code)) return { group, what, expect, got: `error ${e.code ?? e.message}`, ok: false };
     return { group, what, expect, got: `denied (${e.code})`, ok: expect === "denied" };
   }
@@ -79,7 +141,7 @@ function run([group, what, fn, expect]) {
 
 const at = process.argv.indexOf("--report");
 if (at > 0) {
-  const results = checks().map(run);
+  const results = []; for (const c of checks()) results.push(await run(c));
   const out = { role: ROLE, user: E.USERNAME || E.USER || String(process.getuid?.()), pass: results.every((r) => r.ok), results };
   writeFileSync(process.argv[at + 1], JSON.stringify(out, null, 1));
   for (const r of results) console.log(`${r.ok ? "ok  " : "FAIL"} [${ROLE}] ${r.what}: ${r.got}`);
@@ -89,5 +151,5 @@ if (at > 0) {
   const assert = (await import("node:assert/strict")).default;
   const groups = new Map();
   for (const c of checks()) groups.set(c[0], [...(groups.get(c[0]) ?? []), c]);
-  for (const [g, cs] of groups) test(`${ROLE}: ${g}`, () => { for (const r of cs.map(run)) assert.ok(r.ok, `${ROLE} ${r.expect === "denied" ? "could" : "can't"} ${r.what} (${r.got})`); });
+  for (const [g, cs] of groups) test(`${ROLE}: ${g}`, async () => { for (const c of cs) { const r = await run(c); if (r.expect === "report") console.log(`# report: ${r.what}: ${r.got}`); assert.ok(r.ok, `${ROLE} ${r.expect === "denied" ? "could" : "can't"} ${r.what} (${r.got})`); } });
 }
