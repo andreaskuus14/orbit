@@ -192,6 +192,8 @@ export async function approveStory(job: StoryJob, credits: unknown, seen: unknow
   const w = await weekUsage(), total = quoteTotal(job.items);
   const over = capProblem(w.used, total, w.cap);
   if (over) return over;
+  // Checked before the approval is recorded: a render that can't start must not count against the weekly cap.
+  if (!job.draft && !(await ffmpegPath())) return "ffmpeg not found: run npm install (ffmpeg-static) or set ORBIT_FFMPEG. Nothing was approved or spent";
   if (S.running) return "Another story is being made; wait for it to finish"; // no await from here to S.running: one spend at a time
   const ctrl = new AbortController();
   S.running = { id: job.id, ctrl }; // before saving "generating": listStories would mark an unclaimed one as interrupted
