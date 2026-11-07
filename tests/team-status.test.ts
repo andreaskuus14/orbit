@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blockerOf, entries, linkOf, nextOf, proofOf, sectionOf, summaryOf, teamBoard, type Section } from "../src/lib/team-status-pure.ts";
+import { blockerOf, entries, linkOf, nextOf, prOf, proofOf, sectionOf, shaOf, summaryOf, teamBoard, type Section } from "../src/lib/team-status-pure.ts";
 import { SAMPLE_BOARD } from "../src/lib/team-status-sample.ts";
 import { forgetBoard, pageId, readBoard } from "../src/lib/team-status.ts";
 
@@ -9,20 +9,23 @@ const where = (b: ReturnType<typeof teamBoard>) => Object.fromEntries(Object.ent
 test("the sample board: what shipped, who's blocked and what needs the owner, one item per agent and PR", () => {
   const b = teamBoard(SAMPLE_BOARD, "andreaskuus14/orbit");
   assert.deepEqual(where(b), {
-    "6:423": "done", "4:427": "done", "1:424": "done", // shipped / verified, someone else acts next
-    "3:-": "working", // latest: claiming the Windows Stop follow-up (earlier no-PR updates folded in)
-    "C:-": "blocked", "9:426": "blocked", // "Blocker: …" / "Blocked: …"
-    "8:426": "needs", "7:426": "needs", "2:428": "needs", "3:425": "needs", // next: Andreas decides / merge decision / assign
+    "6:423": "done", "4:427": "done", "1:424": "done", "1:-": "done", // shipped / verified, someone else acts next
+    "3:-": "working", // latest: claiming the Windows Stop follow-up (Agent 3's other no-PR updates grouped with it)
+    "C:-": "blocked", "9:-": "blocked", // "Blocker: …" / "Blocked: …"; Agent 9's PR field says none
+    "8:-": "needs", "7:426": "needs", "2:428": "needs", "3:425": "needs", // next: Andreas decides / merge decision / assign
   } satisfies Record<string, Section>);
   const by = (k: string) => Object.values(b).flat().find((i) => `${i.agent}:${i.pr ?? "-"}` === k)!;
   assert.equal(by("6:423").proof, "merged");
   assert.equal(by("1:424").proof, "merged", '"in main 02b6c8f"');
   assert.equal(by("7:426").proof, "passed", '"PASS … Nothing merged or deployed" is a passing test, not a merge');
   assert.equal(by("2:428").proof, "passed", '"22 ok / 0 failed" and "unattended releases off" aren\'t a deployment');
-  assert.equal(by("8:426").proof, "failed");
-  assert.equal(by("8:426").updates, 2, "the earlier no-PR test line folds into Agent 8's latest update");
-  assert.equal(by("3:-").updates, 3, "Agent 3's in-progress smoke update and its continuation block fold into the latest");
-  assert.equal(by("9:426").blocker, "no GitHub API here, so CI states come from board reports");
+  assert.equal(by("8:-").proof, "failed");
+  assert.equal(by("8:-").updates, 2, "Agent 8's two no-PR updates");
+  assert.equal(by("3:-").updates, 3, "Agent 3's no-PR updates: smoke in progress, smoke FAIL, claiming");
+  assert.equal(by("3:-").proof, "failed", "the later 'claiming' update doesn't hide the smoke FAIL");
+  assert.equal(by("2:428").sha, "451193e");
+  assert.deepEqual(b.done.map((i) => i.proof).slice(0, 2), ["merged", "merged"], "merged work first in Done");
+  assert.equal(by("9:-").blocker, "no GitHub API here, so CI states come from board reports");
   assert.equal(by("7:426").next, "Andreas, merge decision on #426");
   assert.deepEqual(by("4:427").link, { href: "https://github.com/andreaskuus14/orbit/pull/427", label: "#427" });
   assert.equal(by("4:427").summary, "verified: a deleted project's old name-tagged memories stay out of a same-named new project", "skips the bare '#427 (draft)' field");
@@ -98,4 +101,28 @@ test("readBoard: not set up → the reason; the Notion API read with nested bloc
   const denied = await readBoard(env, async () => new Response("{}", { status: 404 }), 2_000);
   assert.deepEqual(denied, { live: false, reason: "the board couldn't be read: Notion answered 404 (share the page with the integration)" });
   forgetBoard();
+});
+
+test("review fixes: addressing an agent isn't their update; conditionals aren't claims; side-note PRs; no-PR results stay visible", () => {
+  // 1. "Agent 2: …" inside Agent 3's update addresses Agent 2; it continues Agent 3's entry
+  const e = entries([{ text: "Agent 3 — Status: check of #428" }, { text: "Agent 2: my runs use my own refs" }, { text: "BLOCKED: Andreas: add a throwaway key" }]);
+  assert.deepEqual(e.map((x) => x.agent), ["3"]);
+  const b = teamBoard([{ text: "Agent 2 | shipped: runner | PR #428 | next: Agent 3" }, { text: "Agent 3 — Status: check of #428" }, { text: "Agent 2: my runs use my own refs" }, { text: "BLOCKED: Andreas: add a throwaway key" }]);
+  assert.equal(b.done.find((i) => i.agent === "2")?.summary, "shipped: runner");
+  assert.ok([...b.needs, ...b.blocked].some((i) => i.agent === "3"), "Agent 3's blocker stays Agent 3's");
+  // 2. conditionals
+  for (const t of ["Agent 5 | review PASS | if the gate passes, #431 can be merged and deployed", "Agent 5 | PASS; waiting for merge", "Agent 5 | PASS, ready to deploy", "Agent 5 | PASS; once merged, deploy to the PC"])
+    assert.equal(proofOf(t), "passed", t);
+  assert.equal(proofOf("Agent 6 | merged #437 → 25f429d"), "merged");
+  assert.equal(proofOf("Agent 6 | Merged #429 into main → 25f429d"), "merged");
+  assert.equal(proofOf("Agent 6 | deployed 25f429d to the PC"), "deployed");
+  // 4. a side note's PR isn't the item's PR
+  assert.equal(prOf("Agent 4 | claiming: morning brief Today | #427: hardening pushed as 58292a5"), null);
+  assert.equal(prOf("Agent 1 | shipped for review | draft PR #439 head 4ac80cc"), 439);
+  assert.equal(prOf("Agent 4 | verified: x | #427 (draft) | next: y"), 427);
+  // 3. a FAIL without a PR doesn't fold into another PR's card
+  const f = teamBoard([{ text: "Agent 3 | smoke of main FAIL (1 test)" }, { text: "Agent 3 | check of #428 is running" }]);
+  assert.equal(Object.values(f).flat().find((i) => i.pr === null)?.proof, "failed");
+  assert.equal(Object.values(f).flat().find((i) => i.pr === 428)?.updates, 1);
+  assert.equal(shaOf("Agent 1 | x | PR #439 head `4ac80cc660c779f8c12634a2f830309dfe5353b4`"), "4ac80cc");
 });

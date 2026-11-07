@@ -21,7 +21,10 @@ function Item({ it }: { it: TeamItem }) {
     <li className="card space-y-1 py-2 text-sm">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="font-mono text-xs" style={{ color: "var(--cyan)" }}>{it.agent === "C" ? t("team.coordinator") : t("team.agent", { n: it.agent })}</span>
-        {it.proof && <span className={PROOF_CLASS[it.proof]} style={{ display: "inline-flex" }}>{t(`team.proof.${it.proof}`)}</span>}
+        {it.proof
+          ? <span className={PROOF_CLASS[it.proof]} style={{ display: "inline-flex" }}>{t(`team.proof.${it.proof}`)}</span>
+          : (it.section === "done" || it.section === "needs") && <span className="pill bad" style={{ display: "inline-flex" }}>{t("team.proof.none")}</span>}
+        {it.sha && <span className="muted font-mono text-xs" title="commit">{it.sha}</span>}
         {it.link && <a className="link text-xs" href={it.link.href} target="_blank" rel="noopener noreferrer">{it.link.label}</a>}
         {it.updates > 1 && <span className="muted text-xs">· {t("team.updates", { n: it.updates })}</span>}
       </div>

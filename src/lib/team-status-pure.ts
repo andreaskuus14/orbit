@@ -15,12 +15,14 @@ export type TeamItem = {
   next: string; // who acts next, as written ("" when not stated)
   blocker: string; // what blocks it, as written ("" when not stated)
   proof: Proof;
+  sha: string; // the commit the update names (head/SHA/at …), first 7 characters, "" when none
   link: { href: string; label: string } | null;
   updates: number; // board updates grouped into this item
 };
 export type TeamBoard = Record<Section, TeamItem[]>;
 
-const SPEAKER = /^\s*(?:Agent\s+(\d{1,2})\b|(?:ChatGPT\s+)?Coordinator\b)/i;
+// An update starts "Agent N |", "Agent N —" or "Agent N → Agent M"; "Agent 2: …" inside an update addresses an agent.
+const SPEAKER = /^\s*(?:Agent\s+(\d{1,2})|(?:ChatGPT\s+)?Coordinator)\s*(?:[|—–→]|-\s|->)/i;
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 
 /** Board blocks → entries. A block that starts with "Agent N" or "Coordinator" starts an entry; others continue the last one. */
@@ -40,7 +42,9 @@ export function entries(blocks: Block[]): { agent: string; text: string; links: 
 const NEGATED = /\b(?:not|nothing|never|no|without|stays?|until|before(?: any)?)\b[^.;|]{0,40}?\b(?:merged?|merging|deploy\w*|live (?:release|install|deploy\w*))\b(?:\s*(?:,|\bor\b|\band\b|\bnor\b)\s*(?:merged|deploy\w*))*/gi;
 const NOTHING = String.raw`(?:none|no(?:thing)?)\s*(?:$|[.;,)|]|blockers?\b)`; // "none", a bare "no" ("no GitHub API" IS a blocker)
 const NO_BLOCKER = new RegExp(String.raw`\b(?:blocked|blockers?)\s*:\s*${NOTHING}[^.;|]*`, "gi");
-const positive = (t: string) => t.replace(NEGATED, " ").replace(NO_BLOCKER, " ");
+// "if the gate passes, #431 can be merged and deployed", "waiting for merge", "ready to deploy" aren't claims either.
+const CONDITIONAL = /\b(?:if|once|after|when|can|could|will|would|should|may|ready to|waiting for|to be|needs? to)\b[^.;|]{0,60}?\b(?:merged?|merging|deploy\w*)\b(?:\s*(?:,|\bor\b|\band\b)\s*(?:merged|deploy\w*))*/gi;
+const positive = (t: string) => t.replace(NEGATED, " ").replace(CONDITIONAL, " ").replace(NO_BLOCKER, " ");
 
 /** The "next:" clause, as written (pipe format "| next: …" or sentence "Next: …"). */
 export function nextOf(text: string): string {
@@ -73,8 +77,9 @@ export function sectionOf(text: string): Section {
 /** Strongest proof stated: a deployment > a merged PR > a failing test > a passing test. */
 export function proofOf(text: string): Proof {
   const t = positive(text);
-  if (/\bdeployed\b|\blive (?:release|install) (?:done|complete)/i.test(t)) return "deployed";
-  if (/\bmerged\b|\bin main [0-9a-f]{7}\b|\blanded in main\b/i.test(t)) return "merged";
+  // only a statement of what happened: "deployed <sha>/to …", "merged #N", "#N merged", "Merged … → <sha>", "in main <sha>"
+  if (/\bdeployed\s+(?:[0-9a-f]{7}|to|on|at)\b|\blive (?:release|install) (?:done|complete)/i.test(t)) return "deployed";
+  if (/\bmerged\s+(?:#\d+|in(?:to)? main|by|as)\b|#\d+\s+(?:\([^)]*\)\s+)?(?:is\s+|was\s+)?merged\b|\bmerged\b[^.;|]{0,40}?(?:→|->)\s*[0-9a-f]{7}|\bin main [0-9a-f]{7}\b|\blanded in main\b/i.test(t)) return "merged";
   if (/\bFAIL(?:S|ED)?\b|\b[1-9]\d* fail\b/.test(t)) return "failed";
   if (/\bPASS(?:ED)?\b|\bpass(?:es|ed)\b|\d+ pass \/ 0 fail|\d+\/0\b|\d+ ok \/ 0 failed/i.test(t)) return "passed";
   return null;
@@ -82,13 +87,23 @@ export function proofOf(text: string): Proof {
 
 /** The PR this update is about: the first "#NNN" (a PR number, not a run number). */
 export function prOf(text: string): number | null {
-  const m = /(?:^|[^\w/])#(\d{2,5})\b/.exec(text);
-  return m ? Number(m[1]) : null;
+  const first = (t: string) => { const m = /(?:^|[^\w/])#(\d{2,5})\b/.exec(t); return m ? Number(m[1]) : null; };
+  if (!text.includes("|")) return first(text);
+  // pipe format: the PR field ("PR #431 head …", "#427 (draft)"), else the first field; not a side note further on ("| #427: …")
+  const fields = text.split("|").slice(1);
+  const prField = fields.find((f) => /^\s*(?:draft\s+)?PR\b/i.test(f) || /^\s*#\d+\s*(?:\([^)]*\))?\s*$/.test(f));
+  return first(prField ?? fields[0] ?? "");
+}
+
+/** The commit an update names ("head 4ac80cc…", "SHA …", "at faf06df", "in main 02b6c8f"), first 7 characters. */
+export function shaOf(text: string): string {
+  const m = /\b(?:head|SHA|at|on|main|commit)\s*:?\s*`?([0-9a-f]{7,40})\b/i.exec(text);
+  return m ? m[1].slice(0, 7) : "";
 }
 
 /** One short sentence: the pipe format's second field, else the first sentence after the speaker. */
 export function summaryOf(text: string): string {
-  let s = text.replace(SPEAKER, "").replace(/^\s*(?:→\s*Agent\s+\d+\s*)?[—–\-|:]\s*/, "");
+  let s = text.replace(SPEAKER, "").replace(/^\s*(?:→?\s*Agent\s+\d+\s*[—–\-|:])?\s*/, "");
   if (text.includes("|")) { // the first field that says something: not "#427 (draft)", "next: …", "PR …", "no file claims"
     const fields = text.split("|").slice(1);
     s = fields.find((f) => !/^\s*(?:next|PR(?:\/SHA)?|SHA|branch|(?:no )?file claims?|blockers?|blocked)\b/i.test(f) && f.replace(/#\d+|\([^)]*\)/g, " ").trim().split(/\s+/).filter(Boolean).length >= 2) ?? fields[0] ?? s;
@@ -111,22 +126,21 @@ export function linkOf(links: string[], pr: number | null, repo = ""): TeamItem[
 /** The board: one item per agent and PR (latest update wins), sorted newest first within each section. */
 export function teamBoard(blocks: Block[], repo = ""): TeamBoard {
   const es = entries(blocks).map((e, i) => ({ ...e, i, pr: prOf(e.text) }));
-  const latestOf = new Map<string, number>();
-  for (const e of es) latestOf.set(e.agent, e.i);
   const groups = new Map<string, typeof es>();
-  for (const e of es) {
-    // an update without a PR belongs to the agent's latest update (a test line, an earlier claim)
-    const key = e.pr === null && latestOf.get(e.agent)! > e.i ? `${e.agent}:${es[latestOf.get(e.agent)!].pr ?? "-"}` : `${e.agent}:${e.pr ?? "-"}`;
-    groups.set(key, [...(groups.get(key) ?? []), e]);
-  }
+  for (const e of es) { const key = `${e.agent}:${e.pr ?? "-"}`; groups.set(key, [...(groups.get(key) ?? []), e]); }
   const board: TeamBoard = { done: [], working: [], blocked: [], needs: [] };
   const items = [...groups.values()].map((g) => {
     const last = g[g.length - 1];
     const links = g.flatMap((e) => e.links).reverse(); // newest links first
-    return { i: last.i, item: { agent: last.agent, pr: last.pr ?? g.find((e) => e.pr !== null)?.pr ?? null, section: sectionOf(last.text), summary: summaryOf(last.text),
-      next: nextOf(last.text), blocker: blockerOf(last.text), proof: proofOf(last.text), link: linkOf(links, last.pr ?? null, repo), updates: g.length } satisfies TeamItem };
+    // a later update with no result of its own ("check is running") doesn't hide an earlier FAIL in the same group
+    const proof = proofOf(last.text) ?? (g.some((e) => proofOf(e.text) === "failed") ? "failed" : null);
+    return { i: last.i, item: { agent: last.agent, pr: last.pr, section: sectionOf(last.text), summary: summaryOf(last.text),
+      next: nextOf(last.text), blocker: blockerOf(last.text), proof, sha: shaOf(last.text), link: linkOf(links, last.pr, repo), updates: g.length } satisfies TeamItem };
   }).sort((a, b) => b.i - a.i);
   for (const { item } of items) board[item.section].push(item);
+  // Done: merged/deployed work first, then work that's done but not merged
+  const landed = (i: TeamItem) => (i.proof === "merged" || i.proof === "deployed" ? 0 : 1);
+  board.done.sort((a, b) => landed(a) - landed(b));
   return board;
 }
 
