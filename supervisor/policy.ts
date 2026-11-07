@@ -232,3 +232,25 @@ export const approvalTimedOut = (waitingSince: string, now: number, timeoutSec: 
 export function inboxControl(action: unknown): "pause" | "stop" | null {
   return action === "pause" || action === "stop" ? action : null;
 }
+
+/** Test runner requests (builder → supervisor broker → orbit-test runner, supervisor/test-run.ts). */
+export const TEST_KINDS = { focused: 600, typecheck: 600, test: 1800, gate: 3600, screens: 600 } as const;
+export type TestKind = keyof typeof TEST_KINDS;
+export type TestRequest = { id: string; task: string; commit: string; base: string; kind: TestKind; files: string[] };
+export const TEST_FILE = /^tests\/[A-Za-z0-9_][A-Za-z0-9_.-]*\.test\.tsx?$/;
+export const SAFE_NAME = /^[a-z0-9][a-z0-9._-]{0,120}$/i;
+
+/** Shape check for a request. The broker applies it again before starting the runner; the runner applies it a third time. */
+export function testRequestProblem(r: unknown): string | null {
+  const q = r as Partial<TestRequest>;
+  if (!q || typeof q !== "object") return "not an object";
+  if (typeof q.id !== "string" || !SAFE_NAME.test(q.id)) return "bad id";
+  if (typeof q.task !== "string" || !SAFE_NAME.test(q.task)) return "bad task";
+  if (typeof q.commit !== "string" || !/^[0-9a-f]{40}$/.test(q.commit)) return "bad commit";
+  if (typeof q.base !== "string" || !/^[0-9a-f]{40}$/.test(q.base)) return "bad base";
+  if (typeof q.kind !== "string" || !Object.hasOwn(TEST_KINDS, q.kind)) return "bad kind";
+  if (!Array.isArray(q.files) || q.files.length > 20 || q.files.some((f) => typeof f !== "string" || !TEST_FILE.test(f))) return "bad files (tests/<name>.test.ts, at most 20)";
+  if (q.kind === "focused" && !q.files.length) return "focused needs files";
+  if (q.kind !== "focused" && q.files.length) return "files only for focused";
+  return null;
+}

@@ -164,8 +164,11 @@ and commit. Nothing reaches `main` or the live app until the owner runs, on the 
    `C:\ProgramData\orbit-supervisor\token.txt`.
 4. With ORBIT running and healthy on a clean checkout: `supervisor.ts adopt`. Run `install.ps1` once more so the mirror gets its read grants.
 5. As `orbit-builder`: clone `C:\ProgramData\orbit-supervisor\mirror.git` to `C:\orbit-builder\repo`, `npm ci`, write
-   `C:\orbit-builder\config.json` (`upstream` = the mirror, `supervisorHome` = `C:\ProgramData\orbit-supervisor`), and give it its own
-   model key with a spending limit.
+   `C:\orbit-builder\config.json` (`upstream` = the mirror, `supervisorHome` = `C:\ProgramData\orbit-supervisor`,
+   `testRunner` = `{ "reqDir": "C:\\orbit-test\\req", "outDir": "C:\\orbit-test\\results" }`), and give it its own model key with a
+   spending limit.
+6. `net user orbit-test * /add`, then elevated: `powershell -ExecutionPolicy Bypass -File supervisor\windows\install-test-runner.ps1`
+   (after step 5, so the builder's `node_modules` exists). Not yet done on the PC: see "Test runner".
 
 ## Enabling (all on the PC; until then `enabled: false` and the "ORBIT Builder" task stays disabled)
 
@@ -193,58 +196,53 @@ and commit. Nothing reaches `main` or the live app until the owner runs, on the 
 - `sudo bash supervisor/boundary-check.sh`: the builder account boundary (above).
 - The full loop with a real model (builder picks, edits, verifies; supervisor releases) was run by hand in an isolated copy; see #417.
 
-## Proposal (not implemented): a separate test-runner account (#417 gaps D and E)
+## Test runner: model-written code never runs where the model credential is (#417 gaps D and E)
 
-**Problem.** Model-written code runs as `orbit-builder`, the same account that holds the model login and the builder's spending
-settings. Two paths:
+The builder's account holds the model credential and its spending settings (`config.json`, `state.json`). So nothing it runs may be
+code from the repo or the model: every test, typecheck, gate, build and browser check runs as a fifth account, `orbit-test`.
 
-- **Gate and focused tests.** The builder runs these with a trimmed environment (`CMD_ENV`), but `HOME`/`USERPROFILE` are kept. Test code
-  can read a file-based login under the builder's profile, and can rewrite `C:\orbit-builder\config.json` (`maxUsdPerTask`,
-  `maxUsdPerDay`) or `state.json` (`day.costUsd`).
-- **The edit session's Bash tool.** It runs `node --test tests/…` on tests the model just wrote, and that environment *keeps*
-  `ANTHROPIC_*`/`CLAUDE_*` (`builder.ts` `query({ env })`). Those tests can read the key from `process.env` and send it anywhere with
-  `fetch`.
+| Path | Before | Now |
+|---|---|---|
+| Edit session (the model's tools) | Bash ran `node --test`, `npm test`, `npx tsc` with `ANTHROPIC_*`/`CLAUDE_*` in its environment | `editToolDecision` (`selfdev/builder-pure.ts`) allows only read-only Bash (`git diff/status/log/show`, `ls`, `cat`, `head`, `tail`, `grep`, `rg`, `wc`, no shell syntax, no `--pre`/`--ext-diff`/`--textconv`), no reads or writes in `node_modules` or `.git`. Tests go through the `run_tests` tool |
+| Builder verification | focused tests, gate and the isolated app ran as the builder (model variables removed, files and profile still reachable) | the same kinds, as requests to the runner, on a snapshot commit of the worktree |
+| Tests on released main | `npm test` as the builder | kind `test`, as `orbit-test` |
 
-A hard spending cap on the key limits the bill, not the exposure.
+**How a request runs.** The builder writes `<id>.json` (`{ id, task, commit, base, kind, files }`, kinds `focused`, `typecheck`,
+`test`, `gate`, `screens`; files only `tests/<name>.test.ts`) and a bundle to `C:\orbit-test\req\` (create-only). The supervisor
+checks the shape (`testRequestProblem`), starts the "ORBIT Test Runner" task through `windows\trigger-test.ps1`, and ends every
+`orbit-test` process afterwards. `test-run.ts` makes a disposable checkout of exactly that commit (mirror + bundle, hooks off),
+links the builder's `node_modules` read-only, builds the environment from nothing (no model, GitHub, proxy or Supabase variable;
+`HOME` and temp inside its work folder; `ORBIT_ISOLATED=1`), runs the fixed commands and writes `C:\orbit-test\results\<id>.json`
+once. The supervisor audits each run (`test.run`, `test.refused`).
 
-**Design.**
+**Rights of `orbit-test`** (`windows\install-test-runner.ps1`): standard user; batch logon only (interactive and remote desktop
+denied); read on its requests, the supervisor's code folder, the mirror and the builder's `node_modules`; modify on its own results
+and work folders; nothing else of the builder's, the supervisor's or the owner's. Outbound: one Windows Firewall block rule for the
+account on every non-loopback address, under the AppContainer below.
 
-1. **Accounts.** A fifth standard account, `orbit-test`. It never signs in ("Deny log on locally"), has no profile secrets, and is not in
-   `orbit-inbox`. It gets the same treatment as `orbit-build`: stored-password task, its processes killed after each run, a clean
-   environment.
-2. **Folders and ACLs.**
-   - `C:\orbit-builder`: `orbit-builder` Modify only (config, state, worktrees, model login under its profile). `orbit-test` has no
-     access.
-   - `C:\orbit-test\req`: `orbit-builder` create-only (CREATOR OWNER, like the inbox). `orbit-test` Read.
-   - `C:\orbit-test\work`, `C:\orbit-test\results`: `orbit-test` Modify, `orbit-builder` Read.
-   - The npm cache: read-only for `orbit-test`. Dependencies come from the lockfile, not from the change (package files are policy-protected).
-3. **Task "ORBIT Test Runner".** Runs as `orbit-test` with `supervisor\windows\test-run.ps1`, the same pattern as `trigger-build.ps1` /
-   `release-build.ps1`. The builder never runs model-written code itself. Instead it:
-   - commits the candidate in its worktree;
-   - writes a git bundle plus a request (`{ id, commit, commands: ["focused" | "gate" | "screens"] }`, from a fixed allowlist; no free
-     command lines) to `req\`;
-   - starts the task and waits for `results\<id>.json` (exit codes, redacted tails, screenshot paths). The result is written once and
-     carries the commit it ran.
-4. **Runner behaviour.** Fresh clone of the bundle into `work\<id>`, `npm ci --offline` from the cache. Commands run with an explicit
-   environment: `PATH`, `SystemRoot`, `TEMP`/`TMP` inside `work\<id>`, `HOME`/`USERPROFILE` = `work\<id>\home`, `ORBIT_ISOLATED=1`, and
-   **no** `ANTHROPIC_*`/`CLAUDE_*`/`GH_*`. Network is limited to localhost by a Windows Firewall outbound rule for `orbit-test` (the
-   registry is only needed for `npm ci`, which uses the offline cache).
-5. **Edit session.** Drop `Bash` test commands from `canUseTool` (keep read-only git, `ls`/`grep`/`cat` inside the worktree), or route
-   them through the same runner request with a short timeout. Either way the session environment that holds the model credential never
-   executes model-written code.
-6. **Spend.** With config and state out of reach, the builder's own `maxUsdPerTask`/`maxUsdPerDay` (passed as the SDK's
-   `maxBudgetUsd`) hold again. The supervisor's `maxCostUsdPerDay` stays a second, self-reported check. A hard limit on the key stays as
-   a third layer.
+**What is proven where**
 
-**Proof before use.**
+- Linux (`boundary-check.sh`): the probe runs as a model-written test through the real broker and runner, in a private network
+  namespace. Refused: the builder's key file, login and process environment, its config and state, the supervisor's credentials,
+  code and state, ORBIT's data and Stop-all, and every outbound connection (itself, a child, a grandchild through the shell, the
+  host's loopback proxy, DNS). A negative control without the namespace reaches the proxy. A real ORBIT test passes the same way.
+  Canary credentials appear in no file the runner wrote; spending settings are unchanged.
+- Windows (`windows\ci-test-runner.ps1`, workflow "Self-dev test runner (Windows)", disposable VM): the same probe through the SYSTEM
+  supervisor, the task and the AppContainer, plus the host-service, DNS-log and outside-the-sandbox controls below.
+- Edit session (`tests/selfdev-builder.test.ts`): with a fake key in the environment, each allowed command is executed against a
+  checkout planted with a malicious test, package scripts and a fake `node_modules/.bin/tsc`; none of them runs and the key never
+  appears.
 
-- Linux: `boundary-check.sh` gains `orbit-test` with the same POSIX permissions and a probe role `test`, run as a test through the
-  runner. It must be refused on: reading the builder's profile and login file, writing `config.json`/`state.json`, reading
-  `ANTHROPIC_*`/`CLAUDE_*` from its environment, outbound connections other than localhost, `req\` of other runs, and everything the
-  builder probe already covers.
-- Windows: `ci-verify.ps1` creates `orbit-test` and runs the same probe through "ORBIT Test Runner". The edit-session check makes a
-  test that prints `process.env` and asserts no credential appears.
-- The PC: the same probe as part of "Enabling" step 1.
+**Windows: the AppContainer.** A per-user firewall rule can't stop two things: loopback (Windows Firewall doesn't filter it, so a
+test could reach live ORBIT on `127.0.0.1:3000`) and DNS (the DNS Client service resolves names for the caller). So `test-run.ts`
+starts every test command through `windows\orbit-sandbox.exe`. It runs the command in an AppContainer with no capabilities, which
+can't open network connections, reach other processes' loopback services or resolve names, and can open only files granted to its
+SID. The installer grants that SID its work folder, the builder's `node_modules` and node, read-only except the work folder. A job
+ends every process of the run. Without the sandbox, `test-run.ts` refuses to run anything on Windows. `windows\ci-test-runner.ps1`
+proves it with controls: a stand-in service on the host's `:3000` (IPv4, IPv6, `localhost`) and a unique marker name that must not
+appear in the DNS Client log. With the firewall rule off, the sandbox alone still refuses everything. Outside the sandbox, the same
+probe reaches the internet, the host service and DNS, and its marker shows in the log. Not available on Windows yet: the `screens`
+kind (a browser outside the sandbox can't reach a sandboxed server).
 
-Until this is done, the builder must not be enabled with a model credential that grants more than a capped, revocable key used for
-nothing else.
+The runner protects secrets and spending settings. It doesn't make the builder's own pass/fail trustworthy (a test can still fake
+its own result): the supervisor's policy check, CI on the exact commit and the owner's approval decide.

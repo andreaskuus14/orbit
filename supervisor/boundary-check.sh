@@ -8,12 +8,15 @@
 #   orbit-builder = the builder: its own home and worktree only; may create files in inbox/, read public/ and the mirror
 #   orbit-build   = the release build: its stage and npm cache only; reads the mirror. Runs the submitted code at build time and
 #                   dependency install scripts, so the probe also runs from a page executed by `next build` and from a postinstall.
-# FULL=0 skips the real build (about 5 min: fresh npm ci + next build as orbit-build).
+#   orbit-test    = the test runner (supervisor/test-run.ts): every test the builder asks for, in a private network namespace with only
+#                   loopback, an empty environment and a disposable checkout. It must not reach the builder's model credential or
+#                   spending settings, the supervisor's credentials, ORBIT's data, or anything off the machine (child processes too).
+# FULL=0 skips the real build (about 5 min: fresh npm ci + next build as orbit-build). RUNNER=0 skips the test-runner part.
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "run as root"; exit 2; }
 REPO=$(cd "$(dirname "$0")/.." && pwd); B=${1:-/srv/orbit-boundary}
-for u in orbit-owner orbit-sup orbit-builder orbit-build; do id -u $u >/dev/null 2>&1 || useradd -r -M -s /usr/sbin/nologin $u; done
-pkill -u orbit-sup 2>/dev/null || true; pkill -u orbit-build 2>/dev/null || true; rm -rf "$B"; mkdir -p "$B"; chmod 755 "$B"
+for u in orbit-owner orbit-sup orbit-builder orbit-build orbit-test; do id -u $u >/dev/null 2>&1 || useradd -r -M -s /usr/sbin/nologin $u; done
+pkill -u orbit-sup 2>/dev/null || true; pkill -u orbit-build 2>/dev/null || true; pkill -u orbit-builder 2>/dev/null || true; pkill -u orbit-test 2>/dev/null || true; rm -rf "$B"; mkdir -p "$B"; chmod 755 "$B"
 # Each account starts with an empty environment, like a scheduled task: nothing from this shell (tokens included) leaks in.
 asu() { local u=$1; shift; runuser -u "$u" -- env -i PATH="$PATH" LANG=C.UTF-8 HOME=/nonexistent "$@"; }
 ROOTGIT=$(mktemp); printf '[safe]\n\tdirectory = *\n' > $ROOTGIT # root setting up other accounts' repos
@@ -88,6 +91,75 @@ TSX
     else echo "FAIL probe during $r never ran"; rc=1; fi
   done
   [ -f $B/stage/.next/BUILD_ID ] && grep -q "selfdev-probe" $B/build-cache/next-build.log && echo "ok   the build ran the submitted page" || { echo "FAIL build output missing"; rc=1; }
+fi
+if [ "${RUNNER:-1}" = 1 ]; then
+  echo "== test runner: the builder's tests run as orbit-test (supervisor broker -> test-run.ts), with planted canary credentials"
+  CANARY="sk-ant-canary-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  # what the builder holds: a model key file, a login under its profile, spending settings, a process with the key in its environment
+  mkdir -p $H/secrets $H/.claude $H/worktrees; echo "$CANARY" > $H/secrets/model.key; printf '{"claudeAiOauth":{"accessToken":"%s"}}' "$CANARY" > $H/.claude/.credentials.json
+  printf '{"maxUsdPerTask":3,"maxUsdPerDay":6}' > $H/config.json; printf '{"day":{"day":"x","costUsd":5.5}}' > $H/state.json; echo "builder log" > $H/builder.log
+  chown -R orbit-builder:orbit-builder $H; chmod -R go-rwx $H
+  CFG_SUM=$(sha256sum $H/config.json $H/state.json)
+  asu orbit-builder env ANTHROPIC_API_KEY=$CANARY CLAUDE_CODE_OAUTH_TOKEN=$CANARY sleep 900 & sleep 1; BPID=$(pgrep -u orbit-builder -f "sleep 900" | head -1)
+  # C:\orbit-test: req\ create-only for the builder (readable by the runner by name), results\ written by the runner, work\ its own
+  TR=$B/tr; mkdir -p $TR/{req,results,work}
+  getent group orbit-treq >/dev/null || groupadd -r orbit-treq; usermod -aG orbit-treq orbit-builder
+  chown root:orbit-treq $TR/req; chmod 1731 $TR/req; chown orbit-test:orbit-test $TR/results $TR/work; chmod 755 $TR/results; chmod 700 $TR/work
+  # the broker's command (root here, SYSTEM on Windows): a private network namespace (loopback only), then orbit-test, empty environment
+  mkdir -p $B/bin; cat > $B/bin/run-test.sh <<SH
+#!/usr/bin/env bash
+unshare --net -- bash -c 'python3 -c "import socket,fcntl,struct
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); f=struct.unpack(\"16sH14s\",fcntl.ioctl(s,0x8913,struct.pack(\"16sH14s\",b\"lo\",0,b\"\")))[1]
+fcntl.ioctl(s,0x8914,struct.pack(\"16sH14s\",b\"lo\",f|1,b\"\"))"; exec runuser -u orbit-test -- env -i PATH="$PATH" LANG=C.UTF-8 node --no-warnings --experimental-strip-types $S/app/test-run.ts "\$@"' _ "\$1" "\$2" $S/mirror.git $TR/work $REPO/node_modules "\$3"
+rc=\$?; pkill -9 -u orbit-test 2>/dev/null; exit \$rc
+SH
+  chmod 755 $B/bin/run-test.sh
+  S2=$B/sup-broker; mkdir -p $S2; chmod 700 $S2
+  cat > $S2/config.json <<JSON
+{ "repoUrl": "$B/origin.git", "mainBranch": "main", "liveDir": "$B/live", "distDir": ".next", "stageDir": "$B/stage", "healthUrl": "http://127.0.0.1:9/api/health",
+  "serverLog": null, "commands": { "build": ["false"], "stop": ["true"], "start": ["true"] }, "github": null, "allowWithoutExternalChecks": true,
+  "workflowChecks": [], "monitor": { "probes": 1, "intervalSec": 1, "maxErrors": 0, "startupTimeoutSec": 5 }, "dataBackup": { "paths": [], "maxBytes": 1 },
+  "keepReleases": 3, "pollSec": 1, "enabled": false,
+  "testRunner": { "reqDir": "$TR/req", "outDir": "$TR/results", "command": ["$B/bin/run-test.sh", "{req}", "{bundle}", "{out}"] } }
+JSON
+  broker() { (cd $S/app && ORBIT_SUPERVISOR_HOME=$S2 GIT_CONFIG_GLOBAL=$ROOTGIT node --no-warnings --experimental-strip-types $S/app/supervisor.ts once >> $S2/broker.log 2>&1) || true; }
+  # what builder.ts runTests() does, as orbit-builder: snapshot commit (never on a branch), bundle it against main, one write each into req/
+  request() { # request <id> <kind> <files json> : the commit at HEAD of the builder's probe checkout
+    asu orbit-builder env GIT_CONFIG_GLOBAL=$H/gitconfig bash -c "set -e; cd $H/repo; c=\$(git rev-parse HEAD); b=\$(git rev-parse origin/HEAD)
+      git update-ref refs/selfdev-test/$1 \$c; git bundle create -q $H/$1.bundle refs/selfdev-test/$1 ^\$b; [ -e $TR/req/$1.bundle ] || cp $H/$1.bundle $TR/req/$1.bundle; rm -f $H/$1.bundle
+      printf '{\"id\":\"%s\",\"task\":\"probe-task\",\"commit\":\"%s\",\"base\":\"%s\",\"kind\":\"%s\",\"files\":%s}' $1 \$c \$b $2 '$3' > $TR/req/$1.json"
+  }
+  python3 -m http.server 47123 --bind 127.0.0.1 >/dev/null 2>&1 & HOSTSRV=$! # a service on the host's loopback, as live ORBIT on :3000
+  PROXY=$(printf '%s' "${HTTPS_PROXY:-}" | sed -E 's#^[a-z]+://([^@/]*@)?##; s#/.*$##')
+  asu orbit-builder env GIT_CONFIG_GLOBAL=$H/gitconfig bash -c "cd $H/repo && cp $REPO/supervisor/boundary-probe.mjs tests/zz-boundary.test.ts && rm -f tests/zz-boundary.test.mjs &&
+    printf '{\"PROBE_ROLE\":\"test\",\"PROBE_SUP\":\"$S\",\"PROBE_LIVE\":\"$B/live\",\"PROBE_STAGE\":\"$B/stage\",\"PROBE_DATA\":\"$B/data\",\"PROBE_OWN\":\"$TR/results\",\"PROBE_SUP_PID\":\"$SPID\",\"PROBE_ORIGIN\":\"$B/origin.git\",\"PROBE_BUILDER\":\"$H\",\"PROBE_BUILDER_PROFILE\":\"$H\",\"PROBE_BUILDER_PID\":\"$BPID\",\"PROBE_PROXY\":\"$PROXY\",\"PROBE_HOST_PORT\":\"47123\",\"PROBE_DNS_NAME\":\"orbit-probe-$$.example.com\"}' > probe-env.json &&
+    git add -A && git -c user.name=b -c user.email=b@x commit -qm 'probe as a model-written test'"
+  request probe-1 focused '["tests/zz-boundary.test.ts"]'; broker
+  R=$TR/results/probe-1.json
+  if [ -f $R ]; then
+    node -e 'const r=require(process.argv[1]); const t=r.steps.map(s=>s.tail).join("\n"); for (const l of t.split("\n")) if (/^(not ok|ok) \d|# (pass|fail)|could |can.t /.test(l.trim())) console.log("   ", l.trim()); console.log(`ran as ${r.user}; result ${r.ok}`); process.exit(r.ok && r.user==="orbit-test" ? 0 : 1)' $R \
+      && echo "ok   probe as a model-written test through the runner: every forbidden action refused (incl. child and grandchild network)" || { echo "FAIL probe through the runner (see $R)"; rc=1; }
+  else echo "FAIL the runner produced no result (see $S2/broker.log)"; rc=1; fi
+  # negative control: the same probe as orbit-test WITHOUT the namespace must see the host's loopback proxy (so the check has teeth)
+  if [ -n "$PROXY" ]; then
+    (cd $TR/work/probe-task/repo 2>/dev/null && asu orbit-test env TEMP=/tmp node supervisor/../tests/zz-boundary.test.ts --report /tmp/probe-nons.json >/dev/null 2>&1; true)
+    node -e 'const r=require("/tmp/probe-nons.json"); process.exit(r.results.some(x=>/proxy/.test(x.what)&&x.got==="allowed")&&r.results.some(x=>/host.s service on 127/.test(x.what)&&x.got==="allowed")?0:1)' 2>/dev/null \
+      && echo "ok   negative control: without the namespace the probe does reach the host proxy and the host service, so its refusals above are real" || { echo "FAIL negative control: the probe didn't detect a reachable proxy"; rc=1; }
+  fi
+  # a real ORBIT test through the same path: the runner is usable, not just closed
+  asu orbit-builder env GIT_CONFIG_GLOBAL=$H/gitconfig bash -c "cd $H/repo && git rm -q tests/zz-boundary.test.ts probe-env.json && git -c user.name=b -c user.email=b@x commit -qm 'drop probe'"
+  request real-1 focused '["tests/supervisor-policy.test.ts"]'; broker
+  node -e 'const r=require(process.argv[1]); process.exit(r.ok && /# pass [1-9]/.test(r.steps.map(s=>s.tail).join("")) ? 0 : 1)' $TR/results/real-1.json 2>/dev/null \
+    && echo "ok   a real ORBIT test passes as orbit-test (shared node_modules read-only, no network)" || { echo "FAIL real test through the runner (see $TR/results/real-1.json)"; rc=1; }
+  printf '{"id":"bad-1","task":"probe-task","commit":"%s","base":"%s","kind":"shell","files":[]}' "$(printf 'a%.0s' {1..40})" "$(printf 'b%.0s' {1..40})" > $TR/req/bad-1.json; chown orbit-builder $TR/req/bad-1.json; broker
+  grep -q '"refused: bad kind' $TR/results/bad-1.json 2>/dev/null && ! [ -e $TR/work/probe-task/repo/.git/../shell ] && echo "ok   a request outside the fixed kinds is refused by the broker" || { echo "FAIL bad request not refused"; rc=1; }
+  # canaries: nowhere the runner wrote, and spending settings untouched
+  if grep -rqs --binary-files=text "$CANARY" $TR $S2 2>/dev/null; then echo "FAIL the canary credential reached the runner's files: $(grep -rls --binary-files=text "$CANARY" $TR $S2 | head -3)"; rc=1
+  else echo "ok   canary credential absent from every result, log and work file the runner wrote"; fi
+  [ "$(sha256sum $H/config.json $H/state.json)" = "$CFG_SUM" ] && echo "ok   builder spending settings unchanged" || { echo "FAIL builder config/state changed"; rc=1; }
+  for i in $(seq 1 10); do pgrep -u orbit-test >/dev/null || break; sleep 0.5; done # killed with -9 by the broker; give the kernel a moment to reap
+  pgrep -u orbit-test >/dev/null && { echo "FAIL orbit-test processes left after the run: $(ps -o pid,cmd -u orbit-test | tail -n +2 | head -3)"; rc=1; } || echo "ok   no orbit-test process left after the runs"
+  pkill -u orbit-builder 2>/dev/null || true; { kill $HOSTSRV; wait $HOSTSRV; } 2>/dev/null || true
 fi
 pkill -u orbit-sup 2>/dev/null
 [ "$(GIT_CONFIG_GLOBAL=$ROOTGIT git -C $B/origin.git rev-parse HEAD)" = "$ORIGIN_MAIN" ] && echo "ok   origin main unchanged" || { echo "FAIL origin main moved"; rc=1; }

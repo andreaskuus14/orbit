@@ -16,7 +16,7 @@ import {
 import path from "node:path";
 import { appendAudit, readAudit, verifyAudit } from "./audit.ts";
 import {
-  DEFAULT_POLICY, afterFailure, approvalProblem, approvalTimedOut, checksVerdict, inboxControl, modeViolations, orbitStopAllOn, weakenedTests, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
+  DEFAULT_POLICY, TEST_KINDS, afterFailure, approvalProblem, approvalTimedOut, checksVerdict, inboxControl, testRequestProblem, modeViolations, orbitStopAllOn, weakenedTests, countErrors, parseNumstat, policyViolations, probeProblems, redact, releaseBlocked, submissionProblem, utcDay,
   type Day, type Policy, type Probe, type Submission,
 } from "./policy.ts";
 
@@ -32,6 +32,9 @@ type Config = {
   github: { repo: string; tokenFile: string; checksTimeoutSec: number; requiredChecks: string[] } | null;
   allowWithoutExternalChecks?: boolean; // drills only: no CI to wait for
   enabled?: boolean; // unattended releases; off unless set (install.ps1 writes false). Only gates NEW submissions: Pause/STOP hold one in progress
+  // The builder's tests run as orbit-test, never as the builder: it drops <id>.json (+ <id>.bundle) in reqDir, this starts `command`
+  // ({req} {bundle} {out} {id} {kind}: on Windows trigger-test.ps1, which runs the "ORBIT Test Runner" task) and the result lands in outDir.
+  testRunner?: { reqDir: string; outDir: string; command: Cmd };
   approvalTimeoutSec?: number; // a release that passed CI waits this long for the owner's approval (default 3 days), then is rejected
   stopAllFile?: string; // ORBIT's stop-all.json: when on (or unreadable), nothing new is released
   workflowChecks: { name: string; url: string; expect: number }[];
@@ -556,6 +559,7 @@ let mirrorAt = 0;
 async function tick(s: State) {
   await controls(s);
   if (s.current) { await advance(s); return; }
+  if (cfg.testRunner && !held()) serveTest(cfg.testRunner);
   // Keep the mirror's main current for the builder (it builds on what this mirror says main is).
   if (Date.now() - mirrorAt > 5 * 60_000) { try { mirrorReady(); mirrorAt = Date.now(); } catch (e) { log(`mirror refresh failed: ${e instanceof Error ? e.message : e}`); } }
   const blocked = !cfg.enabled ? "unattended releases are off (config enabled: false)" : held() ?? releaseBlocked({ ...s, stopped: false }, Date.now(), policy);
@@ -576,6 +580,27 @@ async function tick(s: State) {
   save(s);
   audit("release.accepted", { release: sm.id, task: sm.taskId, title: sm.title, why: sm.why, costUsd: sm.costUsd, commit: sm.commit });
   await advance(s);
+}
+
+/** One builder test request, run by the orbit-test runner (supervisor/test-run.ts). Never as SYSTEM, never as the builder. */
+function serveTest(T: NonNullable<Config["testRunner"]>) {
+  const next = existsSync(T.reqDir) ? readdirSync(T.reqDir).filter((n) => /^[a-z0-9][a-z0-9._-]*\.json$/i.test(n)).sort()[0] : undefined;
+  if (!next) return;
+  const f = path.join(T.reqDir, next), id = next.slice(0, -5), bundle = path.join(T.reqDir, `${id}.bundle`), out = path.join(T.outDir, `${id}.json`);
+  let req: { kind?: keyof typeof TEST_KINDS; commit?: string; id?: string } | null = null;
+  try { req = readJsonFile(f); } catch { if (young(f)) return; }
+  const problem = testRequestProblem(req) ?? (req!.id !== id ? "file name doesn't match id" : null) ?? (existsSync(out) ? "a result with this id already exists" : null);
+  mkdirSync(T.outDir, { recursive: true });
+  if (problem) {
+    audit("test.refused", { file: next, reason: problem });
+    if (!existsSync(out)) writeFileSync(out, JSON.stringify({ id, ok: false, reason: `refused: ${problem}`, steps: [] }));
+  } else {
+    const r = run(sub(T.command, { req: f, bundle: existsSync(bundle) ? bundle : "-", out, id, kind: req!.kind! }), { timeoutSec: TEST_KINDS[req!.kind!] + 300 });
+    if (!existsSync(out)) writeFileSync(out, JSON.stringify({ id, commit: req!.commit, kind: req!.kind, ok: false, reason: `the runner ended without a result: ${redact(r.err.slice(-400))}`, steps: [] }));
+    let ok = false; try { ok = readJsonFile(out).ok === true; } catch { /* unreadable = failed */ }
+    audit("test.run", { id, kind: req!.kind, commit: req!.commit, ok });
+  }
+  rmSync(f, { force: true }); rmSync(bundle, { force: true });
 }
 
 /** Status for the app's self-development view: readable by the app, written only here. */
