@@ -9,13 +9,13 @@ concurrency:
   group: agent3-win-smoke
   cancel-in-progress: false
 env:
-  MAIN_SHA: 02b6c8f76542925fce6f55a4fd17cb1f0366810a
-  WS_SHA: 02b6c8f76542925fce6f55a4fd17cb1f0366810a
+  MAIN_SHA: 4838f042551b4a6fbf8dfa4d9bdf0d528b9d1232
+  WS_SHA: 4838f042551b4a6fbf8dfa4d9bdf0d528b9d1232
+  OLD_SHA: 02b6c8f76542925fce6f55a4fd17cb1f0366810a
   PR426_SHA: f419f8fa4ffeb8ca71f2bd1aabd48f20df2ae982
   PR426_TREE: 1589a5c26d72d11008362f3b4d5fc2671e5d6985
 jobs:
   main-02b6c8f:
-    if: false # done in run 42388172874
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -25,7 +25,7 @@ jobs:
         with: { ref: "${{ env.MAIN_SHA }}", path: orbit, persist-credentials: false }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - name: "Checkout is exactly main 02b6c8f"
+      - name: "Checkout is exactly MAIN_SHA"
         shell: pwsh
         run: |
           $h = git -C orbit rev-parse HEAD; "tested commit: $h"; "tree: $(git -C orbit rev-parse 'HEAD^{tree}')"
@@ -55,7 +55,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: main-02b6c8f-logs
+          name: main-smoke-logs
           if-no-files-found: ignore
           path: |
             *.log
@@ -118,3 +118,13 @@ jobs:
           $fails = 0
           foreach ($i in 1..3) { node --test --experimental-strip-types --test-reporter=spec tests/ws-server.test.ts *> "../ws-$i.log"; if ($LASTEXITCODE -ne 0) { $fails++ }; Get-Content "../ws-$i.log" | Select-String -Pattern 'real server|EBUSY|^ℹ (pass|fail)' }
           "diag exit $d; ws-server.test.ts failed $fails of 3"; if ($d -ne 0 -or $fails -ne 0) { exit 1 }
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.OLD_SHA }}", path: old, persist-credentials: false }
+      - name: "Control: the new regression test on the old ws-server.ts (02b6c8f) must fail"
+        shell: pwsh
+        run: |
+          "old commit: $(git -C old rev-parse HEAD)"; Copy-Item orbit/tests/ws-server.test.ts old/tests/ws-server.test.ts
+          New-Item -ItemType Junction -Path old/node_modules -Target (Resolve-Path orbit/node_modules) | Out-Null
+          cd old; node --test --experimental-strip-types --test-reporter=spec tests/ws-server.test.ts *> ../old.log; $e = $LASTEXITCODE
+          Get-Content ../old.log | Select-String -Pattern 'Stop returns|real server|EBUSY|^ℹ (pass|fail)'
+          if ($e -eq 0) { throw "control passed on the old code: the regression test doesn't catch the bug" } else { "control failed as expected (exit $e)" }
