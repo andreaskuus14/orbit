@@ -568,7 +568,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             {sunInfo && <p className="muted text-xs">
               {sunInfo.pos.elevationDeg < 0 ? "Sun below the horizon" : `Sun ${Math.round(sunInfo.pos.elevationDeg)}° high, from ${Math.round(sunInfo.pos.azimuthDeg)}° (0° = north)`}
               {" · "}{tr("arch.sunrise")} {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, {tr("arch.sunset")} {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. {north ? `True north is ${Math.round(north)}° clockwise from the plot's −Z side.` : "The plot's −Z side faces north."}
-              {((s) => s && ` Shadow of the ${Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10} m top: ${s.length.toFixed(1)} m toward ${Math.round(s.towardDeg)}° (orange line).`)(shadowOf(sunInfo.pos, solid.reduce((m, p) => Math.max(m, p.y + p.h), 0), 120))}</p>}
+              {!ifc && ((s) => s && ` Shadow of the ${Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10} m top: ${s.length.toFixed(1)} m toward ${Math.round(s.towardDeg)}° (orange line).`)(shadowOf(sunInfo.pos, solid.reduce((m, p) => Math.max(m, p.y + p.h), 0), 120))}</p>}
           </div>
         )}
         {dayOn && !ifc && <DaylightPanel parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} d={daylight} onChange={setDaylight} />}
