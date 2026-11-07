@@ -100,7 +100,8 @@ export async function usage(files?: VaultFile[]) {
 
 /** Store one uploaded file (tmp + rename). Returns the stored name. exact: keep the name or refuse (restore from cloud).
  *  taken: extra names to avoid (cloud-only files, so a new file never claims — and later overwrites — their cloud copy). */
-export function saveUpload(file: File, opts: { exact?: boolean; taken?: string[] } = {}): Promise<string> {
+/** restore: the file comes back from its own cloud copy, so it keeps the id its record already has (desk/contract links survive). */
+export function saveUpload(file: File, opts: { exact?: boolean; taken?: string[]; restore?: boolean } = {}): Promise<string> {
   return locked(async () => {
     const dir = await ensureDir();
     const files = await listVault();
@@ -119,7 +120,13 @@ export function saveUpload(file: File, opts: { exact?: boolean; taken?: string[]
       // Windows can match dest to another file by its 8.3 short name (REPORT~1.PDF), and rename would overwrite it.
       if (await lstat(dest).catch(() => null)) throw new VaultError(`"${name}" already exists`, 409);
       await rename(tmp, dest);
-      await updateMeta((m) => { const id = mkId(); m.files[id] = newMeta(id, name, file.size, hash, now()); }).catch(() => {});
+      await updateMeta((m) => {
+        const prev = byName(m, name);
+        if (opts.restore && prev) { prev.size = file.size; prev.hash = hash; return; }
+        // A new upload never inherits a stale record that shares its name: drop it and mint a fresh id.
+        for (const [id, f] of Object.entries(m.files)) if (f.name === name) delete m.files[id];
+        const id = mkId(); m.files[id] = newMeta(id, name, file.size, hash, now());
+      }).catch(() => {});
     } catch (e) { await unlink(tmp).catch(() => {}); throw e; }
     markStale();
     return name;
@@ -435,7 +442,7 @@ export async function restoreFromCloud(sb: SupabaseClient, uid: string, name: un
   if (typeof name !== "string" || !name || sanitizeName(name) !== name) throw new VaultError("Invalid file name");
   const { data, error } = await bucket(sb).download(cloudPath(uid, name));
   if (error || !data) throw new VaultError(`Cloud download failed: ${errText(error)}`, 502);
-  const saved = await saveUpload(new File([data], name), { exact: true });
+  const saved = await saveUpload(new File([data], name), { exact: true, restore: true });
   await updateMeta((m) => { const r = byName(m, saved); if (r) { r.sync = "restored"; r.lastSync = now(); } }).catch(() => {});
   return saved;
 }
