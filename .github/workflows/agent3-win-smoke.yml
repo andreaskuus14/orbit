@@ -11,7 +11,7 @@ concurrency:
 env:
   MAIN_SHA: 4838f042551b4a6fbf8dfa4d9bdf0d528b9d1232
   WS_SHA: 4838f042551b4a6fbf8dfa4d9bdf0d528b9d1232
-  PR428_SHA: 451193e99bd5b72ba8bfc6d93cd6a70128bf155f
+  PR428_SHA: 04ef68ad74502686f169cf04a6e5123f70cd2888
   OLD_SHA: 02b6c8f76542925fce6f55a4fd17cb1f0366810a
   PR426_SHA: f419f8fa4ffeb8ca71f2bd1aabd48f20df2ae982
   PR426_TREE: 1589a5c26d72d11008362f3b4d5fc2671e5d6985
@@ -148,7 +148,7 @@ jobs:
         shell: powershell
         run: |
           $env:GITHUB_WORKSPACE = (Resolve-Path orbit).Path
-          powershell -NoProfile -ExecutionPolicy Bypass -File harness\ci\ci-test-runner-full.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File harness\ci\ci-test-runner-428b.ps1
       - if: always()
         uses: actions/upload-artifact@v4
         with: { name: pr428-runner-full, path: orbit/selfdev-test-runner/, if-no-files-found: ignore }
