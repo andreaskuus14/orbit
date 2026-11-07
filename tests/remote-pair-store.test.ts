@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 // Pairing when remote-devices.json can't be read (locked by antivirus, or damaged): the real POST /api/remote/pair route in a child
 // process. Nothing is saved over the file, the phone gets a clear 503, and the code still works once the file is readable again.
 import { test } from "node:test";
@@ -25,7 +26,7 @@ const again = await ask(); // reaches the save; cookies() needs a request scope,
 const saved = JSON.parse(await fs.readFile(process.env.ORBIT_DATA_DIR + "/remote-devices.json", "utf8")).length;
 console.log(JSON.stringify({ first, used, usedAfter: S.pair.used, file, again: again[1].startsWith("threw") ? "saved, then cookie" : again, saved }));
 process.exit(0);`;
-  const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", path.join(root, "tests/fixtures/ts-resolve.mjs"),
+  const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", pathToFileURL(path.join(root, "tests/fixtures/ts-resolve.mjs")).href,
     "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, ORBIT_DATA_DIR: d, REMOTE_SECRET: "x".repeat(48) }, timeout: 60_000 });
   const got = JSON.parse(stdout.trim().split("\n").pop()!);
   assert.equal(got.first[0], 503, `first try: ${JSON.stringify(got.first)}`);

@@ -64,7 +64,7 @@ test("preCheck: inside the folder is allowed; every escape is refused", () => {
   assert.match(ok("WebFetch", { url: "http://x" })!, /not available/);
   assert.match(ok("Skill", { skill: "run" })!, /orbit/);
   // symlink: the real path decides
-  assert.match(preCheck(D, "Read", { file_path: "link/secret" }, false, (p) => p.replace(`${D}/link`, "/home/andreas"))!, /inside the workspace/);
+  assert.match(preCheck(D, "Read", { file_path: "link/secret" }, false, (p) => p.replace(`${D}/link`, "/home/andreas"), path.posix)!, /inside the workspace/);
   // taint: reads stay, writes and Bash stop
   assert.equal(preCheck(D, "Read", { file_path: "index.html" }, true), null);
   assert.match(preCheck(D, "Edit", { file_path: "index.html" }, true)!, /user's own request/);

@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -12,7 +13,7 @@ const root = path.join(import.meta.dirname, "..");
 async function scenario(body: string, rowStatus = "running") {
   const data = await mkdtemp(path.join(tmpdir(), "orbit-combo-"));
   await mkdir(path.join(data, "bg-turns"), { recursive: true });
-  const code = `const L = (m) => import(${JSON.stringify(path.join(root, "src/lib"))} + "/" + m);
+  const code = `const L = (m) => import(${JSON.stringify(pathToFileURL(path.join(root, "src/lib")).href)} + "/" + m);
 const { newBgTurn } = await L("bg-resume-pure.ts");
 const fs = await import("node:fs/promises");
 const rec = (st) => fs.writeFile(${JSON.stringify(path.join(data, "bg-turns", "t1.json"))}, JSON.stringify(newBgTurn({ taskId: "t1", userId: "u1", chatId: "c1", request: "Build the golf site now.", title: "Golf site" }, Date.now() - 60000)));
@@ -45,7 +46,7 @@ const onDisk = async () => (await fs.readdir(${JSON.stringify(path.join(data, "b
 messages.push("Build the golf site now.");
 ${body}
 process.exit(0);`;
-  const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", path.join(root, "tests/fixtures/ts-resolve.mjs"),
+  const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", pathToFileURL(path.join(root, "tests/fixtures/ts-resolve.mjs")).href,
     "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, ORBIT_DATA_DIR: data }, timeout: 80_000 });
   return JSON.parse(stdout.trim().split("\n").pop()!);
 }

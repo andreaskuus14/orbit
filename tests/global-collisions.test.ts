@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -13,11 +14,11 @@ const run = promisify(execFile);
 
 /** Load real modules in a child process, in order, then run `body` (an async function body with the modules as m0, m1...). */
 async function inChild(mods: string[], body: string): Promise<string> {
-  const code = `${mods.map((m, i) => `const m${i} = await import(${JSON.stringify(path.join(root, m))});`).join("\n")}
+  const code = `${mods.map((m, i) => `const m${i} = await import(${JSON.stringify(pathToFileURL(path.join(root, m)).href)});`).join("\n")}
 try { const out = await (async () => { ${body} })(); console.log(JSON.stringify(out)); } catch (e) { console.log(JSON.stringify("THREW " + String(e))); }
 process.exit(0);`;
   const env = { ...process.env, ORBIT_DATA_DIR: await mkdtemp(path.join(tmpdir(), "orbit-glob-")) };
-  const { stdout } = await run(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", path.join(root, "tests/fixtures/ts-resolve.mjs"),
+  const { stdout } = await run(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", pathToFileURL(path.join(root, "tests/fixtures/ts-resolve.mjs")).href,
     "--input-type=module", "-e", code], { cwd: root, env, timeout: 60_000 });
   return JSON.parse(stdout.trim().split("\n").pop()!);
 }

@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
@@ -28,11 +29,12 @@ test("an interrupted write never leaves a half file: killed mid-writes, the stor
   await writeStore(f, JSON.stringify({ v: "A", pad: "a".repeat(400_000) }));
   for (let round = 0; round < 5; round++) {
     const child = spawn(process.execPath, ["--no-warnings", "--experimental-strip-types", "--input-type=module", "-e",
-      `const { writeStore } = await import(${JSON.stringify(path.join(root, "src/lib/safe-file.ts"))});
+      `const { writeStore } = await import(${JSON.stringify(pathToFileURL(path.join(root, "src/lib/safe-file.ts")).href)});
        for (let i = 0; ; i++) await writeStore(${JSON.stringify(f)}, JSON.stringify({ v: i % 2 ? "A" : "B", pad: (i % 2 ? "a" : "b").repeat(400_000) }));`]);
+    const exited = new Promise((r) => child.once("exit", r));
     await new Promise((r) => setTimeout(r, 150 + round * 70));
     child.kill("SIGKILL");
-    await new Promise((r) => child.once("exit", r));
+    await exited;
     const v = JSON.parse(await readFile(f, "utf8")); // never empty or truncated
     assert.ok(v.v === "A" || v.v === "B");
     assert.equal(v.pad.length, 400_000);
@@ -50,7 +52,7 @@ test("stores never save an empty store over a damaged or locked file", { timeout
       if (kind === "locked") await mkdir(path.join(d, n));
       else await writeFile(path.join(d, n), `{"his data": [1, 2,`);
     }
-    const code = `const L = (m) => import(${JSON.stringify(path.join(root, "src/lib"))} + "/" + m);
+    const code = `const L = (m) => import(${JSON.stringify(pathToFileURL(path.join(root, "src/lib")).href)} + "/" + m);
 const tries = {
   devices: async () => (await L("remote.ts")).updateDevices(() => []),
   plugins: async () => (await L("plugins.ts")).updatePlugins(() => []),
@@ -69,7 +71,7 @@ const a = await L("autonomy.ts");
 out.levels = Object.entries(a.autonomyLevels()).filter(([, l]) => l === "do" || l === "auto").map(([k]) => k).join(",") || "none on its own";
 out.shown = { pending: (await (await L("plugins.ts")).listPending()).length, plan: await (await L("dayplan.ts")).currentPlan(), problem: !!a.autonomyState().unreadable };
 console.log(JSON.stringify(out)); process.exit(0);`;
-    const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", path.join(root, "tests/fixtures/ts-resolve.mjs"),
+    const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", pathToFileURL(path.join(root, "tests/fixtures/ts-resolve.mjs")).href,
       "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, ORBIT_DATA_DIR: d }, timeout: 80_000 });
     const got = JSON.parse(stdout.trim().split("\n").pop()!);
     assert.deepEqual(got, { devices: "refused", plugins: "refused", failAck: "refused", night: "refused", economy: "refused", focus: "refused", autonomy: "refused",

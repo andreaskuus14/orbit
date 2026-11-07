@@ -56,6 +56,7 @@ test("(a) pause while waiting for a worker slot: freeing the slot does not start
   ] });
   let runs = 0;
   const { exports, ctx } = load("lib/chains.ts", {
+    "./foreground-pure": { foreground: { idle: async () => {} } },
     "./agents": { runTask: async () => { runs++; return { status: "done" }; }, kickQueue: () => {}, cancelTask: async () => false },
     "./stop-all": { stopAllOn: () => false }, "./claude": { emit: async () => {}, createBudget: () => ({}) },
     "./completion-pure": completionPure, "./company-pure": companyPure, "./chains-pure": chainsPure,
@@ -64,6 +65,7 @@ test("(a) pause while waiting for a worker slot: freeing the slot does not start
   let paused = false, gates = 0;
   const driving = exports.drive(sb, "owner", "chain", async () => { gates++; return !paused; });
   for (let i = 0; gates === 0 && i < 300; i++) await new Promise((r) => setTimeout(r, 10)); // passed the first pause check, now waiting for a slot
+  assert.ok(gates > 0, "the driver must reach the pause gate before this test frees a slot");
   paused = true;
   ctx.__orbitTaskQueue.clear(); // capacity frees up after the pause
   assert.equal(await driving, null);
