@@ -41,7 +41,13 @@ const runCoreFor = async (_ms, _bg, _sb, _u, _h, _d, signal) => { // a turn that
 };
 const deps = async () => ({ finishBackground, runCoreFor, BACKGROUND_TURN_MS: 60000, parseLang: () => "en", coreSessionStore: { get: () => undefined, set: () => {} },
   chatProjectContext: async () => ({ text: "", tainted: false, memoryProject: "" }) });
-const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
+const until = async (condition, label) => {
+  for (let i = 0; i < 200; i++) {
+    if (await condition()) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error("Timed out waiting for " + label);
+};
 const onDisk = async () => (await fs.readdir(${JSON.stringify(path.join(data, "bg-turns"))})).filter((n) => n.endsWith(".json"));
 messages.push("Build the golf site now.");
 ${body}
@@ -54,11 +60,12 @@ process.exit(0);`;
 test("Stop-all during a resumed turn's tool call: the turn stops, nothing runs after, the record goes, Retry is possible again", { timeout: 90_000 }, async () => {
   const got = await scenario(`await rec();
 await bg.resumeBackgroundTurns(sb, "u1", deps);
-await settle(250);
+await until(() => toolsStarted > 0 && agents.liveTaskIds().includes("t1"), "the resumed tool call");
 const duringResume = { live: agents.liveTaskIds().includes("t1"), retryBlocked: (await bg.bgTurnIds()).has("t1") };
-await stop.setStopAll(true);
-for (const id of agents.liveTaskIds()) await agents.cancelTask(sb, id); // switchStopAll
-await settle(400);
+const savingStop = stop.setStopAll(true);
+await Promise.all(agents.liveTaskIds().map((id) => agents.cancelTask(sb, id))); // switchStopAll signals before awaiting persistence
+await savingStop;
+await until(async () => !(await onDisk()).length && messages.at(-1)?.startsWith("_Stopped:"), "the stop receipt and record cleanup");
 console.log(JSON.stringify({ duringResume, status: rows.t1.status, toolsAfterStop, onDisk: await onDisk(), retryBlocked: (await bg.bgTurnIds()).has("t1"),
   note: messages.at(-1) }));`);
   assert.deepEqual(got.duringResume, { live: true, retryBlocked: true }); // Retry refused while the resume runs (#412)
@@ -72,7 +79,7 @@ console.log(JSON.stringify({ duringResume, status: rows.t1.status, toolsAfterSto
 test("restart after a stop: a record left behind for a cancelled task is not resumed", { timeout: 90_000 }, async () => {
   const got = await scenario(`await rec();
 await bg.resumeBackgroundTurns(sb, "u1", deps);
-await settle();
+await until(async () => !(await onDisk()).length, "cancelled record cleanup");
 console.log(JSON.stringify({ runs, status: rows.t1.status, onDisk: await onDisk() }));`, "cancelled");
   assert.deepEqual(got, { runs: 0, status: "cancelled", onDisk: [] });
 });
@@ -81,7 +88,7 @@ test("restart while Stop-all is still on: the left-behind turn doesn't run and i
   const got = await scenario(`await stop.setStopAll(true);
 await rec();
 await bg.resumeBackgroundTurns(sb, "u1", deps);
-await settle();
+await until(async () => !(await onDisk()).length && rows.t1.status === "cancelled", "Stop-all restart cleanup");
 console.log(JSON.stringify({ toolsStarted, status: rows.t1.status, onDisk: await onDisk() }));`);
   assert.deepEqual(got, { toolsStarted: 0, status: "cancelled", onDisk: [] });
 });

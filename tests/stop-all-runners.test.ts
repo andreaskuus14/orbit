@@ -45,6 +45,24 @@ function load(file: string, deps: Record<string, unknown>, globals: Record<strin
   return exports;
 }
 
+test("Stop-all signals every live task while the flag is still being saved", async () => {
+  let release!: () => void;
+  const pendingSave = new Promise<{ on: boolean }>((resolve) => { release = () => resolve({ on: true }); });
+  const signalled: string[] = [];
+  const noop = () => {};
+  const { switchStopAll } = load("stop-all-run.ts", {
+    "@/lib/stop-all": { setStopAll: () => pendingSave },
+    "@/lib/agents": { liveTaskIds: () => ["first", "second"], cancelTask: async (_sb: unknown, id: string) => { signalled.push(id); return true; } },
+    "@/lib/goals": { abortGoalDrivers: () => 0 }, "@/lib/niche": { abortNicheWork: noop },
+    "@/lib/night": { abortNightShift: noop }, "@/lib/deals": { abortDealHunt: noop },
+    "@/lib/autonomy": { clearAutoQueue: noop }, "@/lib/remote-push": { pushNotify: noop }, "@/lib/activity": { logActivity: noop },
+  });
+  const stopping = switchStopAll({}, "owner", true);
+  try { assert.deepEqual(signalled, ["first", "second"]); }
+  finally { release(); }
+  assert.equal((await stopping).cancelled, 2);
+});
+
 function fakeDb(rows: Record<string, unknown>[]) {
   const db = rows.map((r) => structuredClone(r));
   const sb = { from() {
