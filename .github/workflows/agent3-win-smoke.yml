@@ -28,7 +28,7 @@ jobs:
         run: |
           $h = git -C orbit rev-parse HEAD; "tested commit: $h"; "tree: $(git -C orbit rev-parse 'HEAD^{tree}')"
           if ($h -ne $env:MAIN_SHA) { throw "checkout $h is not $env:MAIN_SHA" }
-          if (Test-Path orbit/.env, orbit/.env.local) { throw "a .env exists" }
+          if ((Test-Path orbit/.env) -or (Test-Path orbit/.env.local)) { throw "a .env exists" }
       - run: npm ci --no-audit --no-fund
         working-directory: orbit
       - name: "Unit tests (incl. #424 write-then-throw in tests/mission-reliability.test.ts)"

@@ -8,7 +8,7 @@ import path from "node:path";
 
 const root = await mkdtemp("C:\\iso-orbit-");
 const local = path.join(root, "LocalAppData"), pcB = path.join(root, "pcB"), backups = path.join(root, "capsules");
-await mkdir(local, { recursive: true });
+await mkdir(local, { recursive: true }); await mkdir(backups, { recursive: true });
 delete process.env.ORBIT_DATA_DIR;
 process.env.LOCALAPPDATA = local; // no ORBIT_DATA_DIR: ORBIT must fall back to %LOCALAPPDATA%\orbit
 const { orbitDataDir } = await import("../src/lib/data-dir.ts");
@@ -17,7 +17,7 @@ const cap = await import("../src/lib/capsule.ts");
 const { byName } = await import("../src/lib/vault-meta-pure.ts");
 const PDF = "%PDF-1.4 synthetic report";
 
-const shortName = (file: string) => execFileSync("cmd", ["/c", `for %I in ("${file}") do @echo %~snxI`], { encoding: "utf8" }).trim();
+const shortName = (file: string) => path.basename(execFileSync("powershell", ["-NoProfile", "-Command", `(New-Object -ComObject Scripting.FileSystemObject).GetFile('${file}').ShortPath`], { encoding: "utf8" }).trim());
 /** Holds file open with no sharing (like an editor or AV scanner) until release(). */
 function lock(file: string) {
   const ps = spawn("powershell", ["-NoProfile", "-Command", `$f=[IO.File]::Open('${file}','Open','ReadWrite','None'); [Console]::Out.WriteLine('locked'); [Console]::In.ReadLine() | Out-Null; $f.Close()`], { stdio: ["pipe", "pipe", "inherit"] });
