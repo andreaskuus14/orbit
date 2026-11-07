@@ -67,7 +67,7 @@ export async function POST(req: Request) {
   if (b.action === "create") return typeof b.name === "string" ? out(await createWorkspace(user.id, b.name.slice(0, 60))) : bad("Missing name");
   if (b.action === "server" && isSlug(b.ws)) { // the deliverable card's Start / Stop (a local demo server; Operator mode category A)
     const key = `${user.id}/${b.ws}`;
-    if (b.op === "stop") stopServer(key);
+    if (b.op === "stop") await stopServer(key);
     else if (b.op === "start") {
       const dir = await workspaceDir(user.id, b.ws);
       const r = dir ? await startServer(key, dir, { stopAll: stopAllOn() }) : { error: "No such workspace" };
