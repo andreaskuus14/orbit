@@ -200,7 +200,8 @@ export default function Probe() {
   Set-Content "$sup\ctl\control-1-restore.json" (@{ action = "restore"; releaseId = "ci-a" } | ConvertTo-Json)
   $null = WaitFor { (Get-Content "$sup\audit.jsonl" -Raw) -match '"restore\.(verified|failed)"' } 900 "restore"
   Check ((Get-Content "$sup\audit.jsonl" -Raw) -match '"restore\.verified"') "owner restore to A after the lock is gone"
-  Check ((& git -c safe.directory=* -C $origin rev-parse "main^{tree}").Trim() -eq (& git -c safe.directory=* -C $origin rev-parse "$A^{tree}").Trim()) "main back on release A's code"
+  # The supervisor reverts main right after it verified the restore (main.reverted follows restore.verified).
+  Check (WaitFor { (& git -c safe.directory=* -C $origin rev-parse "main^{tree}").Trim() -eq (& git -c safe.directory=* -C $origin rev-parse "$A^{tree}").Trim() } 60 "main reverted") "main back on release A's code"
   Set-Content "$sup\ctl\control-2-clear.json" '{"action":"clear"}'; Start-Sleep 10
   Check (-not (Status).halted -and -not (Status).paused) "owner clear (ctl) lifts the halt"
 
@@ -276,7 +277,9 @@ export default function Probe() {
   Check $sawSwap "install task stopped mid-swap (old build moved aside)"
   $null = WaitFor { (Get-Release "ci-e") } 1800 "release E"
   $h = Get-Release "ci-e"; Write-Host "release E: $($h.step) $($h.reason)"
-  Check ($h.step -in "rolledBack", "halted" -and $h.reason -match "interrupted|ended without") "interrupted install detected without waiting out the timeout ($($h.reason))"
+  # The release's final reason is the rollback's; why the install failed is in its release.failed audit entry.
+  $failed = @(Get-Content "$sup\audit.jsonl" | Where-Object { $_ -match '"event":"release\.failed","data":\{"release":"ci-e"' }) | Select-Object -Last 1
+  Check ($h.step -in "rolledBack", "halted" -and $failed -match "interrupted|ended without") "interrupted install detected without waiting out the timeout ($(($failed -replace '.*"reason":"([^"\\]{0,160}).*', '$1')))"
   Check ((Health).ok -and (Health).commit -eq $D) "release D restored and healthy"
   Check ((& git -c safe.directory=* -C $origin rev-parse "main^{tree}").Trim() -eq (& git -c safe.directory=* -C $origin rev-parse "$D^{tree}").Trim()) "main back on release D's code"
   Check (-not (git -c safe.directory=* -C $live status --porcelain --untracked-files=no)) "live checkout clean on D"
