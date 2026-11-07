@@ -86,3 +86,16 @@ test("capsule restore with a locked file: fails or succeeds cleanly, safety back
   assert.equal(byName(await v.readMeta(), "Quarterly report.pdf")?.id, idA, "VAULT id restored");
   console.log("leftover .tmp after retry:", (await readdir(pcB)).filter((n) => n.endsWith(".tmp")));
 });
+
+test("f419f8f: on the new PC, a same-name save before the cloud restore can't take the cloud-backed record's name", async () => {
+  // pcB after the restore above: the record (cloud-backed) is there, its file isn't.
+  const rec = byName(await v.readMeta(), "Quarterly report.pdf");
+  assert.ok(rec, "restored record present");
+  const got = await v.saveUpload(new File(["%PDF-1.4 a different file"], "Quarterly report.pdf"));
+  console.log("same-name save before cloud restore →", got);
+  assert.notEqual(got, "Quarterly report.pdf", "the cloud-backed name is reserved");
+  assert.equal(byName(await v.readMeta(), "Quarterly report.pdf")?.id, rec!.id, "the cloud-backed record (and its desk link id) is kept");
+  const back = await v.saveUpload(new File([PDF], "Quarterly report.pdf"), { exact: true, restore: true });
+  assert.equal(back, "Quarterly report.pdf");
+  assert.equal(byName(await v.readMeta(), "Quarterly report.pdf")?.id, rec!.id, "the cloud restore still keeps the original id");
+});

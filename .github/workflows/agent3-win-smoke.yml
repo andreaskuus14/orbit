@@ -10,10 +10,11 @@ concurrency:
   cancel-in-progress: false
 env:
   MAIN_SHA: 02b6c8f76542925fce6f55a4fd17cb1f0366810a
-  PR426_SHA: bc46b86ef5e9fa9b7cd62df03f6797cc358662f8
-  PR426_TREE: feb5690dc99878ac3a03875f09f855053f377f8a
+  PR426_SHA: f419f8fa4ffeb8ca71f2bd1aabd48f20df2ae982
+  PR426_TREE: 1589a5c26d72d11008362f3b4d5fc2671e5d6985
 jobs:
   main-02b6c8f:
+    if: false # done in run 42388172874
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -69,7 +70,7 @@ jobs:
         with: { ref: "${{ env.PR426_SHA }}", path: orbit, persist-credentials: false }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - name: "Checkout tree is Agent 7's feb5690d (main 02b6c8f + #426 6e41dca)"
+      - name: "Checkout is #426 head f419f8f (based on main 02b6c8f)"
         shell: pwsh
         run: |
           $h = git -C orbit rev-parse HEAD; $t = git -C orbit rev-parse 'HEAD^{tree}'; "tested commit: $h tree: $t"
