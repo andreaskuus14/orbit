@@ -1,0 +1,88 @@
+# Test branch only (Agent 3): isolated Windows smoke of exact commits. Synthetic data, throwaway folders, placeholder keys; no secrets.
+name: Agent 3 Windows smoke (test branch)
+on:
+  push:
+    branches: [test/agent3-win-smoke]
+permissions:
+  contents: read
+concurrency:
+  group: agent3-win-smoke
+  cancel-in-progress: false
+env:
+  MAIN_SHA: 02b6c8f76542925fce6f55a4fd17cb1f0366810a
+  PR426_SHA: bc46b86ef5e9fa9b7cd62df03f6797cc358662f8
+  PR426_TREE: feb5690dc99878ac3a03875f09f855053f377f8a
+jobs:
+  main-02b6c8f:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: harness }
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.MAIN_SHA }}", path: orbit, persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Checkout is exactly main 02b6c8f
+        shell: pwsh
+        run: |
+          $h = git -C orbit rev-parse HEAD; "tested commit: $h"; "tree: $(git -C orbit rev-parse 'HEAD^{tree}')"
+          if ($h -ne $env:MAIN_SHA) { throw "checkout $h is not $env:MAIN_SHA" }
+          if (Test-Path orbit/.env, orbit/.env.local) { throw "a .env exists" }
+      - run: npm ci --no-audit --no-fund
+        working-directory: orbit
+      - name: Unit tests (incl. #424 write-then-throw in tests/mission-reliability.test.ts)
+        working-directory: orbit
+        shell: pwsh
+        run: |
+          $env:LOCALAPPDATA = "$env:RUNNER_TEMP\la"; New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
+          node --test --experimental-strip-types --test-reporter=tap tests/mission-reliability.test.ts tests/project-desk-switch.test.ts tests/project-desk-io.test.ts *> ../focused.tap
+          $f = $LASTEXITCODE; Get-Content ../focused.tap | Select-String -Pattern '^(not ok|ok|# (pass|fail|skipped))' | Select-Object -Last 80
+          npm test *> ../full-test.log; $a = $LASTEXITCODE
+          Get-Content ../full-test.log | Select-String -Pattern '^# (tests|pass|fail|skipped)'
+          Get-Content ../full-test.log | Select-String -Pattern '^not ok' -Context 0,12 | Select-Object -First 30
+          "focused exit $f, full exit $a"; if ($f -ne 0 -or $a -ne 0) { exit 1 }
+      - name: Build
+        working-directory: orbit
+        run: npx next build
+        env: { NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321", NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-placeholder-anon-key" }
+      - name: Startup smoke
+        run: node harness/ci/startup-probe.mjs orbit
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-02b6c8f-logs
+          if-no-files-found: ignore
+          path: |
+            *.log
+            *.tap
+
+  pr426-on-main:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: harness }
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.PR426_SHA }}", path: orbit, persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Checkout tree is Agent 7's feb5690d (main 02b6c8f + #426 6e41dca)
+        shell: pwsh
+        run: |
+          $h = git -C orbit rev-parse HEAD; $t = git -C orbit rev-parse 'HEAD^{tree}'; "tested commit: $h tree: $t"
+          if ($h -ne $env:PR426_SHA -or $t -ne $env:PR426_TREE) { throw "unexpected checkout" }
+      - name: Enable 8.3 names on C: for new files
+        run: fsutil 8dot3name set C: 0; fsutil 8dot3name query C:
+      - run: npm ci --no-audit --no-fund
+        working-directory: orbit
+      - name: Windows checks (LOCALAPPDATA, 8.3 guard, capsule restore with a lock) + #426's own test
+        working-directory: orbit
+        shell: pwsh
+        run: |
+          Copy-Item ../harness/ci/win-426.test.ts tests/zz-win-426.test.ts
+          node --test --experimental-strip-types --test-reporter=spec tests/zz-win-426.test.ts tests/capsule-vault-restore.test.ts *> ../win-426.log; $e = $LASTEXITCODE
+          Get-Content ../win-426.log; Remove-Item tests/zz-win-426.test.ts; "exit $e"; exit $e
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: pr426-logs, path: win-426.log, if-no-files-found: ignore }
