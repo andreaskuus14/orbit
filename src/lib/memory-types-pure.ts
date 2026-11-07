@@ -87,7 +87,7 @@ export const legacyScopeKey = (name: string) => name.replace(/\s+/g, " ").trim()
 /** Tags that pin a newly saved memory to where it was said: "chat:<id>" for chat-scoped wording, "scope:<project>" for
  *  project-scoped wording. Caller-supplied chat:/until:/revoked tags are dropped (a model must not widen or forge scope). */
 export function scopeTags(text: string, tags: string[] | undefined, ctx: { chat?: string | null; project?: string | null }): string[] {
-  const own = (tags ?? []).filter((x) => !/^(?:chat:|scope:|until:|revoked$)/.test(x)); // scope comes from where it was said, never from the caller
+  const own = (tags ?? []).filter((x) => !/^(?:chat:|scope:|origin:|until:|revoked$)/.test(x)); // scope and origin come from where it was said, never from the caller
   const s = temporaryOf(text.slice(0, 400), new Date().toISOString(), ctx.project, ctx.chat);
   if (s?.kind === "chat") own.push(`chat:${chatKey(ctx.chat) || "unknown"}`); // no chat id: fails closed (eligible nowhere)
   else if (s?.kind === "project") own.push(`scope:${s.project ?? ""}`.slice(0, 40)); // no project id: empty scope fails closed, including title-only cues

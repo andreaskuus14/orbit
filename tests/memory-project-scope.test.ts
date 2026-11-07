@@ -106,6 +106,7 @@ test("a caller (model or agent) can't forge or pre-set a project scope tag", () 
   const key = projectScopeKey(A), otherKey = projectScopeKey(B);
   assert.deepEqual(scopeTags("For this project use tabs", [`scope:${otherKey}`, "style"], { project: key }), ["style", `scope:${key}`]);
   assert.deepEqual(scopeTags("Use tabs", ["scope:kitchen"], {}), []); // no project cue: no scope at all, not the caller's
+  assert.deepEqual(scopeTags("Use tabs", ["origin:2020-01-01T00:00:00.000Z", "style"], {}), ["style"]); // nor a backdated origin
 });
 
 test("a deleted project's old name-tagged memories don't reach a new project with the same name", () => {
