@@ -92,7 +92,9 @@ try {
   $hostListener6 = [Net.Sockets.TcpListener]::new([Net.IPAddress]::IPv6Loopback, 3000); $hostListener6.Start()
   # The DNS Client log records every name lookup handed to the system resolver: the evidence that no query was triggered.
   wevtutil sl Microsoft-Windows-DNS-Client/Operational /e:true
-  function DnsSeen([string]$n) { [bool](Get-WinEvent -LogName "Microsoft-Windows-DNS-Client/Operational" -ErrorAction SilentlyContinue | Where-Object { $_.Message -match [regex]::Escape($n) }) }
+  # A query that reached the DNS Client service and the wire: cache lookup (3016), wire call (3019), network query (3009),
+  # sent to a server (3010), server response (3011). A call refused inside the caller's own process logs only 3006/3008.
+  function DnsSeen([string]$n) { [bool](Get-WinEvent -LogName "Microsoft-Windows-DNS-Client/Operational" -ErrorAction SilentlyContinue | Where-Object { $_.Id -in 3009, 3010, 3011, 3016, 3019 -and $_.Message -match [regex]::Escape($n) }) }
   $marker = "orbit-probe-" + [guid]::NewGuid().ToString("N").Substring(0, 12) + ".example.com"
 
   Step "requests from the builder account (what builder.ts runTests does)"
@@ -142,7 +144,7 @@ fs.writeFileSync(path.join(req, `${id}.json`), JSON.stringify({ id, task: "probe
   Start-Sleep 5
   Get-WinEvent -LogName "Microsoft-Windows-DNS-Client/Operational" -ErrorAction SilentlyContinue | Where-Object { $_.Message -match [regex]::Escape($marker) } |
     Select-Object TimeCreated, Id, ProcessId, Message | Format-List | Out-File "$out\dns-marker-events.txt"
-  Check (-not (DnsSeen $marker)) "no DNS query for the probe's marker name reached the DNS Client ($marker)"
+  Check (-not (DnsSeen $marker)) "no DNS query for the probe's marker name reached the DNS Client service or the network ($marker)"
   foreach ($l in ($tail -split "`n" | Where-Object { $_ -match '# report:' })) { Note "$($l.Trim() -replace '^#\s*\\?#?\s*report: ','')" }
 
   Step "controls: the sandbox alone, and the same probe outside the sandbox"
@@ -160,7 +162,7 @@ fs.writeFileSync(path.join(req, `${id}.json`), JSON.stringify({ id, task: "probe
     $got = { param($re) [bool]($ctl.results | Where-Object { $_.what -match $re -and $_.got -eq "allowed" }) }
     Check ((& $got "connect to 1\.1\.1\.1") -and (& $got "resolve example\.com through") -and (& $got "host.s service on 127\.0\.0\.1:3000")) "outside the sandbox the same probe reaches the internet, resolves names and reaches the host's :3000, so the refusals above come from the sandbox"
     Start-Sleep 5
-    Check (DnsSeen $ctlName) "outside the sandbox its lookup appears in the DNS Client log, so the log check above can see a query"
+    Check (DnsSeen $ctlName) "outside the sandbox its lookup reaches the DNS service and is sent to a DNS server (logged), so the check above can see a query"
     Get-WinEvent -LogName "Microsoft-Windows-DNS-Client/Operational" -ErrorAction SilentlyContinue | Where-Object { $_.Message -match [regex]::Escape($ctlName) } |
       Select-Object TimeCreated, Id, ProcessId, Message | Format-List | Out-File "$out\dns-control-events.txt"
   } finally { Enable-NetFirewallRule -DisplayName "ORBIT test runner: no network" }

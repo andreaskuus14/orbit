@@ -104,7 +104,8 @@ function checks() {
   d(G2, "write a release snapshot", () => writeFileSync(path.join(SUP, "releases", tag), "x"));
   d(G2, "move main in the mirror", () => writeFileSync(path.join(SUP, "mirror.git", "refs", "heads", "main"), "0".repeat(40) + "\n"));
   d(G2, "write the published status", () => appendFileSync(path.join(SUP, "public", "status.json"), "x"));
-  a(G2, "read main from the mirror", () => readFileSync(path.join(SUP, "mirror.git", "HEAD")));
+  // the runner reads the mirror for the checkout; the tests themselves don't need it (Windows: refused inside the AppContainer)
+  (ROLE === "test" ? rp : a)(G2, "read main from the mirror", () => readFileSync(path.join(SUP, "mirror.git", "HEAD")));
   const G3 = "inbox";
   const theirs = path.join(SUP, "inbox", "existing-by-supervisor.keep");
   d(G3, "list the inbox", () => readdirSync(path.join(SUP, "inbox")));
@@ -127,7 +128,7 @@ function checks() {
   }
   const G5 = "release checks";
   if (E.PROBE_ORIGIN) d(G5, "push to main", () => {
-    const r = spawnSync("git", ["push", E.PROBE_ORIGIN, "HEAD:refs/heads/main"], { encoding: "utf8", timeout: 60000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", GIT_ASKPASS: "", SSH_ASKPASS: "" } });
+    const r = spawnSync("git", ["push", E.PROBE_ORIGIN, "HEAD:refs/heads/main"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"].map((x, i) => (process.platform === "win32" && i ? "ignore" : x)), timeout: 60000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", GIT_ASKPASS: "", SSH_ASKPASS: "" } });
     if (r.status !== 0) { const e = new Error("push refused"); e.code = "EACCES"; throw e; }
   });
   if (E.PROBE_SUP_PID) {
