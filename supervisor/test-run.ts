@@ -32,7 +32,8 @@ try {
   req = raw as TestRequest;
   const r = req;
   const task = path.join(workRoot, r.task), repo = path.join(task, "repo"), home = path.join(task, "home");
-  for (const d of [home, path.join(home, "AppData", "Roaming"), path.join(home, "AppData", "Local"), path.join(home, "tmp"), path.join(task, "data")]) mkdirSync(d, { recursive: true });
+  for (const d of [home, path.join(home, "AppData", "Roaming"), path.join(home, "AppData", "Local"), path.join(home, "tmp"), path.join(task, "data"),
+    path.join(home, "AppData", "Local", "Packages", "orbit.test.runner", "AC", "Temp")]) mkdirSync(d, { recursive: true }); // Windows points an AppContainer's TEMP here
 
   // Built from nothing, never inherited: no model, GitHub, proxy or Supabase variable can reach a test.
   const keep = ["PATH", "Path", "PATHEXT", "SystemRoot", "SYSTEMROOT", "ComSpec", "windir", "LANG"];

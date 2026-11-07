@@ -123,7 +123,7 @@ function checks() {
   }
   const G5 = "release checks";
   if (E.PROBE_ORIGIN) d(G5, "push to main", () => {
-    const r = spawnSync("git", ["push", E.PROBE_ORIGIN, "HEAD:refs/heads/main"], { encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+    const r = spawnSync("git", ["push", E.PROBE_ORIGIN, "HEAD:refs/heads/main"], { encoding: "utf8", timeout: 60000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", GIT_ASKPASS: "", SSH_ASKPASS: "" } });
     if (r.status !== 0) { const e = new Error("push refused"); e.code = "EACCES"; throw e; }
   });
   if (E.PROBE_SUP_PID) {
@@ -158,5 +158,5 @@ if (at > 0) {
   const assert = (await import("node:assert/strict")).default;
   const groups = new Map();
   for (const c of checks()) groups.set(c[0], [...(groups.get(c[0]) ?? []), c]);
-  for (const [g, cs] of groups) test(`${ROLE}: ${g}`, async () => { for (const c of cs) { const r = await run(c); if (r.expect === "report") console.log(`# report: ${r.what}: ${r.got}`); assert.ok(r.ok, `${ROLE} ${r.expect === "denied" ? "could" : "can't"} ${r.what} (${r.got})`); } });
+  for (const [g, cs] of groups) test(`${ROLE}: ${g}`, async () => { for (const c of cs) { const r = await run(c); console.log(r.expect === "report" ? `# report: ${r.what}: ${r.got}` : `# check: ${r.ok ? "ok" : "FAIL"} ${r.what}: ${r.got}`); assert.ok(r.ok, `${ROLE} ${r.expect === "denied" ? "could" : "can't"} ${r.what} (${r.got})`); } });
 }
