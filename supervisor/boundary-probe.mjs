@@ -27,14 +27,18 @@ async function connect(host, port, depth = 0) {
     const s = net.connect({ host, port, timeout: 4000 });
     s.on("connect", () => { s.destroy(); ok(); }).on("timeout", () => { s.destroy(); no(Object.assign(new Error("timeout"), { code: "ETIMEDOUT" })); }).on("error", no);
   });
-  const js = `require("net").connect({host:${JSON.stringify(host)},port:${port},timeout:4000}).on("connect",()=>process.exit(0)).on("timeout",()=>process.exit(3)).on("error",e=>{console.log(e.code);process.exit(3)})`;
-  const f = path.join(E.TEMP || E.TMPDIR || "/tmp", `probe-net-${process.pid}-${Date.now()}.cjs`);
-  writeFileSync(f, js);
-  const r = depth === 1 ? spawnSync(process.execPath, [f], { encoding: "utf8", timeout: 15000 })
-    : process.platform === "win32" ? spawnSync("cmd.exe", ["/d", "/c", `"${process.execPath}" "${f}"`], { encoding: "utf8", timeout: 15000, windowsVerbatimArguments: true })
-    : spawnSync("sh", ["-c", `"$0" "$1"`, process.execPath, f], { encoding: "utf8", timeout: 15000 });
-  try { unlinkSync(f); } catch { /* best effort */ }
-  if (r.status !== 0) fail((r.stdout || "").trim() || "EBLOCKED");
+  // The child reports through a file, not stdout: inside a Windows AppContainer, stdio pipes to a child process can hang.
+  const f = path.join(E.TEMP || E.TMPDIR || "/tmp", `probe-net-${process.pid}-${Date.now()}`), outFile = `${f}.out`;
+  const js = `const fs=require("fs");const done=(c,m)=>{fs.writeFileSync(${JSON.stringify(outFile)},m);process.exit(c)};require("net").connect({host:${JSON.stringify(host)},port:${port},timeout:4000}).on("connect",()=>done(0,"connected")).on("timeout",()=>done(3,"ETIMEDOUT")).on("error",e=>done(3,e.code||"error"))`;
+  writeFileSync(`${f}.cjs`, js);
+  const opts = { stdio: "ignore", timeout: 15000, windowsHide: true };
+  const r = depth === 1 ? spawnSync(process.execPath, [`${f}.cjs`], opts)
+    : process.platform === "win32" ? spawnSync("cmd.exe", ["/d", "/c", `"${process.execPath}" "${f}.cjs"`], { ...opts, windowsVerbatimArguments: true })
+    : spawnSync("sh", ["-c", `"$0" "$1"`, process.execPath, `${f}.cjs`], opts);
+  let got = ""; try { got = readFileSync(outFile, "utf8"); } catch { /* the child never wrote */ }
+  for (const x of [`${f}.cjs`, outFile]) { try { unlinkSync(x); } catch { /* best effort */ } }
+  if (got === "connected") return; // reached it, whatever happened after
+  fail(got || (r.error?.code === "ETIMEDOUT" ? "ETIMEDOUT" : r.error?.code) || "EBLOCKED");
 }
 
 /** [group, what, fn, expect]: expect "denied" or "allowed". */
