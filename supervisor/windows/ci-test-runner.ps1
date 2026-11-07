@@ -2,8 +2,11 @@
 # accounts, ACLs, a firewall rule and SYSTEM tasks, and turns the machine's firewall on.
 # Proves: a test the builder asks for runs as orbit-test through the SYSTEM supervisor and the "ORBIT Test Runner" task, and from
 # there can't read the builder's model key or login (canaries planted), change its spending settings, read the supervisor's
-# credentials or ORBIT's data, or reach the network, also from child and grandchild processes. Negative control: the same probe
-# with the firewall rule disabled must reach the internet. A real ORBIT test passes through the same path. No model, no secrets.
+# credentials or ORBIT's data, or reach the network, also from child and grandchild processes. Test commands run in an AppContainer
+# with no capabilities (orbit-sandbox.exe), so they also can't reach a service on the host's loopback (a stand-in on :3000, where
+# live ORBIT listens) or resolve names: the Windows DNS Client log must show no query for the probe's marker name.
+# Controls: with the firewall rule off the sandbox alone still refuses everything; outside the sandbox the same probe reaches the
+# internet, the host service and DNS, and its marker name does appear in the DNS log. A real ORBIT test passes. No model, no secrets.
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $W = $env:GITHUB_WORKSPACE
@@ -56,6 +59,8 @@ try {
   Check ($fw -and $fw.Enabled -eq "True" -and $fw.Direction -eq "Outbound" -and $fw.Action -eq "Block" -and -not (Get-NetFirewallProfile | Where-Object { -not $_.Enabled })) "outbound block rule for orbit-test present; firewall on for every profile"
   $c = Get-Content "$sup\config.json" -Raw | ConvertFrom-Json
   Check ($c.enabled -eq $false -and $c.testRunner.reqDir -eq "$T\req") "supervisor config: unattended releases off, builder tests routed to the runner"
+  $acSid = if (Test-Path "$sup\app\windows\orbit-sandbox.exe") { (& "$sup\app\windows\orbit-sandbox.exe" --sid).Trim() } else { "" }
+  Check ($acSid -match '^S-1-15-2-') "sandbox built: orbit-sandbox.exe, AppContainer $acSid (no capabilities)"
   foreach ($d in "$T", "$T\req", "$T\results", "$T\work", "$T\run", "$sup\app") { icacls $d | Out-File -Append "$out\acl.txt" }
 
   Step "drill wiring: local origin, mirror, canaries"
@@ -82,13 +87,18 @@ try {
   if ($prof) { New-Item -ItemType Directory -Force "$prof\.claude" | Out-Null; "{`"claudeAiOauth`":{`"accessToken`":`"$canary`"}}" | Set-Content "$prof\.claude\.credentials.json" }
   Check ([bool]$bPid -and [bool]$prof) "builder process holds a canary key (pid $bPid); canary login in its profile ($prof)"
   $sums = (Get-FileHash "$bh\config.json", "$bh\state.json").Hash -join ","
-  # A host service on loopback (as live ORBIT on :3000 would be), to see whether the runner reaches it.
-  $hostListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 47123); $hostListener.Start()
+  # A stand-in for live ORBIT on the host's loopback, port 3000, IPv4 and IPv6.
+  $hostListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 3000); $hostListener.Start()
+  $hostListener6 = [Net.Sockets.TcpListener]::new([Net.IPAddress]::IPv6Loopback, 3000); $hostListener6.Start()
+  # The DNS Client log records every name lookup handed to the system resolver: the evidence that no query was triggered.
+  wevtutil sl Microsoft-Windows-DNS-Client/Operational /e:true
+  function DnsSeen([string]$n) { [bool](Get-WinEvent -LogName "Microsoft-Windows-DNS-Client/Operational" -ErrorAction SilentlyContinue | Where-Object { $_.Message -match [regex]::Escape($n) }) }
+  $marker = "orbit-probe-" + [guid]::NewGuid().ToString("N").Substring(0, 12) + ".example.com"
 
   Step "requests from the builder account (what builder.ts runTests does)"
   "[safe]`n`tdirectory = *" | Set-Content "$bh\gitconfig"
   $penv = @{ PROBE_ROLE = "test"; PROBE_SUP = $sup; PROBE_LIVE = $live; PROBE_STAGE = "C:\orbit-stage"; PROBE_DATA = $data; PROBE_OWN = "$T\results"; PROBE_SUP_PID = "$supPid"
-    PROBE_ORIGIN = $origin; PROBE_BUILDER = $bh; PROBE_BUILDER_PROFILE = "$prof"; PROBE_BUILDER_PID = "$bPid"; PROBE_HOST_PORT = "47123" } | ConvertTo-Json -Compress
+    PROBE_ORIGIN = $origin; PROBE_BUILDER = $bh; PROBE_BUILDER_PROFILE = "$prof"; PROBE_BUILDER_PID = "$bPid"; PROBE_HOST_PORT = "3000"; PROBE_DNS_NAME = $marker } | ConvertTo-Json -Compress
   $penv | Set-Content "$bh\probe-env.json" -Encoding ASCII
   Copy-Item "$live\supervisor\boundary-probe.mjs" "$bh\zz-boundary.test.ts"
   # request.cjs <id> <kind> <files json> <mode: probe|plain>: commit in the builder's clone, bundle against main, one write each into req\
@@ -121,15 +131,29 @@ fs.writeFileSync(path.join(req, `${id}.json`), JSON.stringify({ id, task: "probe
   $tail = ($p.steps | ForEach-Object { $_.tail }) -join "`n"; $tail | Set-Content "$out\probe-1-tail.txt"
   foreach ($l in ($tail -split "`n" | Where-Object { $_ -match '^\s*(ok|not ok) \d|# (pass|fail)|# report:|could |can.t ' })) { Write-Host "    $($l.Trim())" }
   Check ($p.user -eq "orbit-test") "the test ran as orbit-test (result says '$($p.user)')"
-  Check ($p.ok -eq $true -and $tail -match "# fail 0" -and $tail -match "# pass [1-9]") "probe as a model-written test: builder key, login and spending settings, supervisor credentials, ORBIT data and the network (itself, child, grandchild) all refused"
-  foreach ($l in ($tail -split "`n" | Where-Object { $_ -match '# report:' })) { Note "Windows limit, $($l.Trim() -replace '^# report: ','')" }
+  Check ($p.ok -eq $true -and $tail -match "# fail 0" -and $tail -match "# pass [1-9]") "probe as a model-written test: builder key, login and spending settings, supervisor credentials, ORBIT data, the internet (itself, child, grandchild), DNS and the host's :3000 (IPv4, IPv6, localhost) all refused"
+  Check (($p.steps | ForEach-Object { $_.name }) -join " " -match "AppContainer") "the test command ran inside the AppContainer"
+  Start-Sleep 5
+  Check (-not (DnsSeen $marker)) "no DNS query for the probe's marker name reached the DNS Client ($marker)"
+  foreach ($l in ($tail -split "`n" | Where-Object { $_ -match '# report:' })) { Note "$($l.Trim() -replace '^#\s*\\?#?\s*report: ','')" }
 
-  Step "negative control: the same probe with the firewall rule disabled must reach the internet"
+  Step "controls: the sandbox alone, and the same probe outside the sandbox"
   Disable-NetFirewallRule -DisplayName "ORBIT test runner: no network"
-  $n = Request "probe-2" "focused" '["tests/zz-boundary.test.ts"]' "probe"
-  Enable-NetFirewallRule -DisplayName "ORBIT test runner: no network"
-  $ntail = ($n.steps | ForEach-Object { $_.tail }) -join "`n"; $ntail | Set-Content "$out\probe-2-tail.txt"
-  Check ($n.ok -eq $false -and $ntail -match "could (itself|a child process|a grandchild via the shell): connect to 1\.1\.1\.1") "without the rule the probe does connect out, so the refusals above come from the rule"
+  try {
+    $n = Request "probe-2" "focused" '["tests/zz-boundary.test.ts"]' "probe"
+    $ntail = ($n.steps | ForEach-Object { $_.tail }) -join "`n"; $ntail | Set-Content "$out\probe-2-tail.txt"
+    Check ($n.ok -eq $true -and $ntail -match "# fail 0") "firewall rule off: the AppContainer alone still refuses the internet, DNS and the host's :3000"
+    # Outside the sandbox (orbit-test, rule off): the probe must see what the sandbox hides, and the DNS log must catch its lookup.
+    $ctlName = "orbit-control-" + [guid]::NewGuid().ToString("N").Substring(0, 12) + ".example.com"
+    "@echo off`r`ncd /d C:\orbit-test\work\probe-task\repo`r`nset `"PROBE_DNS_NAME=$ctlName`"`r`n`"$node`" tests\zz-boundary.test.ts --report C:\orbit-test\results\control.json > C:\orbit-test\results\control.log 2>&1" | Set-Content "$T\run\control.cmd" -Encoding ASCII
+    $null = Invoke-As "orbit-test" "$T\run\control.cmd" 300
+    Copy-Item "$T\results\control.json", "$T\results\control.log" $out -ErrorAction SilentlyContinue
+    $ctl = Get-Content "$T\results\control.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+    $got = { param($re) [bool]($ctl.results | Where-Object { $_.what -match $re -and $_.got -eq "allowed" }) }
+    Check ((& $got "connect to 1\.1\.1\.1") -and (& $got "resolve example\.com through") -and (& $got "host.s service on 127\.0\.0\.1:3000")) "outside the sandbox the same probe reaches the internet, resolves names and reaches the host's :3000, so the refusals above come from the sandbox"
+    Start-Sleep 5
+    Check (DnsSeen $ctlName) "outside the sandbox its lookup appears in the DNS Client log, so the log check above can see a query"
+  } finally { Enable-NetFirewallRule -DisplayName "ORBIT test runner: no network" }
 
   Step "the runner is usable, not just closed"
   $real = Request "real-1" "focused" '["tests/supervisor-policy.test.ts"]' "plain"
@@ -150,7 +174,7 @@ fs.writeFileSync(path.join(req, `${id}.json`), JSON.stringify({ id, task: "probe
 } catch {
   Check $false "script error: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)"
 } finally {
-  if ($hostListener) { $hostListener.Stop() }
+  if ($hostListener) { $hostListener.Stop() }; if ($hostListener6) { $hostListener6.Stop() }
   if ($holdTask) { Stop-ScheduledTask -TaskName $holdTask -ErrorAction SilentlyContinue }
   Copy-Item "$sup\supervisor.log", "$sup\audit.jsonl", "$sup\config.json", "$T\work\last-run.log" $out -ErrorAction SilentlyContinue
   Get-NetFirewallRule -DisplayName "ORBIT test runner: no network" -ErrorAction SilentlyContinue | Format-List * | Out-File "$out\firewall-rule.txt"

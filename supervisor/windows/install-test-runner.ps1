@@ -46,8 +46,23 @@ icacls $app /grant "${TestUser}:(OI)(CI)RX" | Out-Null
 icacls "$home_\mirror.git" /grant "${TestUser}:(OI)(CI)RX" | Out-Null
 if (Test-Path $Modules) { icacls $Modules /grant "${TestUser}:(OI)(CI)RX" | Out-Null } else { Write-Warning "$Modules not found: run npm ci in the builder's repo, then this script again" }
 
+# The sandbox every test command runs in: an AppContainer with no capabilities (no network, no loopback to the host's services,
+# no name resolution; files only where granted). Compiled here with the compiler that ships with Windows.
+$csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+Copy-Item (Join-Path $PSScriptRoot "orbit-sandbox.cs") "$app\windows\orbit-sandbox.cs" -Force # install.ps1 copies only *.ps1
+& $csc /nologo /optimize /target:exe "/out:$app\windows\orbit-sandbox.exe" "$app\windows\orbit-sandbox.cs" | Out-Host
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$app\windows\orbit-sandbox.exe")) { throw "compiling orbit-sandbox.exe failed" }
+$acSid = (& "$app\windows\orbit-sandbox.exe" --sid).Trim()
+if ($acSid -notmatch '^S-1-15-2-') { throw "orbit-sandbox.exe --sid returned '$acSid'" }
+# What sandboxed tests may open: their checkouts and per-run homes (work\), the builder's node_modules (read), node itself (read).
+# Windows and Program Files already grant ALL APPLICATION PACKAGES read; nothing of the builder's, supervisor's or owner's does.
+icacls "$T\work" /grant "*${acSid}:(OI)(CI)M" | Out-Null
+if (Test-Path $Modules) { icacls $Modules /grant "*${acSid}:(OI)(CI)RX" | Out-Null }
+$nodeDir = Split-Path (Get-Command node.exe -ErrorAction Stop).Source
+icacls $nodeDir /grant "*${acSid}:(OI)(CI)RX" | Out-Null
+
 # Network: nothing off the machine for this account, its child processes included (the rule matches the account, not a program).
-# Windows Firewall doesn't filter loopback, and names are resolved by the DNS Client service: see supervisor/README.md.
+# Windows Firewall doesn't filter loopback and names are resolved by the DNS Client service; the AppContainer above covers both.
 $rule = "ORBIT test runner: no network"
 Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 New-NetFirewallRule -DisplayName $rule -Direction Outbound -Action Block -Profile Any -LocalUser "D:(A;;CC;;;$sid)" `

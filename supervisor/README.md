@@ -218,7 +218,7 @@ once. The supervisor audits each run (`test.run`, `test.refused`).
 **Rights of `orbit-test`** (`windows\install-test-runner.ps1`): standard user; batch logon only (interactive and remote desktop
 denied); read on its requests, the supervisor's code folder, the mirror and the builder's `node_modules`; modify on its own results
 and work folders; nothing else of the builder's, the supervisor's or the owner's. Outbound: one Windows Firewall block rule for the
-account on every non-loopback address.
+account on every non-loopback address, under the AppContainer below.
 
 **What is proven where**
 
@@ -228,17 +228,21 @@ account on every non-loopback address.
   host's loopback proxy, DNS). A negative control without the namespace reaches the proxy. A real ORBIT test passes the same way.
   Canary credentials appear in no file the runner wrote; spending settings are unchanged.
 - Windows (`windows\ci-test-runner.ps1`, workflow "Self-dev test runner (Windows)", disposable VM): the same probe through the SYSTEM
-  supervisor and the task, with the firewall rule; a negative control with the rule disabled.
+  supervisor, the task and the AppContainer, plus the host-service, DNS-log and outside-the-sandbox controls below.
 - Edit session (`tests/selfdev-builder.test.ts`): with a fake key in the environment, each allowed command is executed against a
   checkout planted with a malicious test, package scripts and a fake `node_modules/.bin/tsc`; none of them runs and the key never
   appears.
 
-**Limits on Windows** (a per-user firewall rule can't cover them; reported by the probe, not hidden):
-
-- Loopback isn't filtered by Windows Firewall: a test can reach services listening on the PC's `127.0.0.1`, live ORBIT on :3000
-  included (its routes still require a signed-in session).
-- Names are resolved by the DNS Client service, not by the test's process, so a lookup of a crafted name leaves the machine.
-- Closing both needs a stronger box than an account: an AppContainer, Windows Sandbox or a VM for the runner.
+**Windows: the AppContainer.** A per-user firewall rule can't stop two things: loopback (Windows Firewall doesn't filter it, so a
+test could reach live ORBIT on `127.0.0.1:3000`) and DNS (the DNS Client service resolves names for the caller). So `test-run.ts`
+starts every test command through `windows\orbit-sandbox.exe`. It runs the command in an AppContainer with no capabilities, which
+can't open network connections, reach other processes' loopback services or resolve names, and can open only files granted to its
+SID. The installer grants that SID its work folder, the builder's `node_modules` and node, read-only except the work folder. A job
+ends every process of the run. Without the sandbox, `test-run.ts` refuses to run anything on Windows. `windows\ci-test-runner.ps1`
+proves it with controls: a stand-in service on the host's `:3000` (IPv4, IPv6, `localhost`) and a unique marker name that must not
+appear in the DNS Client log. With the firewall rule off, the sandbox alone still refuses everything. Outside the sandbox, the same
+probe reaches the internet, the host service and DNS, and its marker shows in the log. Not available on Windows yet: the `screens`
+kind (a browser outside the sandbox can't reach a sandboxed server).
 
 The runner protects secrets and spending settings. It doesn't make the builder's own pass/fail trustworthy (a test can still fake
 its own result): the supervisor's policy check, CI on the exact commit and the owner's approval decide.

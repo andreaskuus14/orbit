@@ -63,6 +63,12 @@ try {
   // Dependencies: the builder's installed tree, read-only to this account (no install, no network, no install scripts here).
   if (!existsSync(path.join(repo, "node_modules"))) symlinkSync(modules, path.join(repo, "node_modules"), "junction");
 
+  // Windows: every command runs inside an AppContainer with no capabilities (windows/orbit-sandbox.exe): no network, no loopback
+  // to the host's services, no name resolution, files only where granted. Missing sandbox = no tests (fail closed).
+  const sandbox = win ? path.join(import.meta.dirname, "windows", "orbit-sandbox.exe") : null;
+  if (sandbox && !existsSync(sandbox)) finish(false, "the Windows test sandbox (orbit-sandbox.exe) is missing: run install-test-runner.ps1; no test runs without it");
+  if (win && r.kind === "screens") finish(false, "screens isn't available on Windows yet: a browser outside the sandbox can't reach a sandboxed server");
+  const boxed = (argv: string[]) => (sandbox ? [sandbox, "--cwd", repo, "--", ...argv] : argv);
   const node = process.execPath;
   const npm = (args: string[]) => (win ? ["cmd.exe", "/d", "/s", "/c", "npm.cmd", ...args] : ["npm", ...args]);
   const cmds: Record<string, string[][]> = {
@@ -74,11 +80,12 @@ try {
   };
   const deadline = Date.now() + TEST_KINDS[r.kind] * 1000;
   for (const argv of cmds[r.kind]) {
-    const p = spawnSync(argv[0], argv.slice(1), { cwd: repo, env: ENV as NodeJS.ProcessEnv, encoding: "utf8", timeout: Math.max(10_000, deadline - Date.now()), maxBuffer: 256 << 20 });
+    const run = boxed(argv);
+    const p = spawnSync(run[0], run.slice(1), { cwd: repo, env: ENV as NodeJS.ProcessEnv, encoding: "utf8", timeout: Math.max(10_000, deadline - Date.now()), maxBuffer: 256 << 20 });
     const text = `${p.stdout ?? ""}${p.stderr ?? ""}${p.error ? `\n${p.error.message}` : ""}`;
     // the failing test names in full (the tail may cut them off): the builder turns failures on main into tasks
     const failing = [...new Set([...text.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => redact(m[1].trim()).slice(0, 200)))].slice(0, 50);
-    steps.push({ name: argv.slice(0, 4).map((a) => path.basename(a)).join(" "), ok: p.status === 0, code: p.status, tail: redact(text.slice(-4000)), failing });
+    steps.push({ name: `${argv.slice(0, 4).map((a) => path.basename(a)).join(" ")}${sandbox ? " (AppContainer)" : ""}`, ok: p.status === 0, code: p.status, tail: redact(text.slice(-4000)), failing });
     if (p.status !== 0) finish(false, p.error ? p.error.message : `exit ${p.status}`);
   }
   if (r.kind === "screens") await screens(r, repo, ENV);

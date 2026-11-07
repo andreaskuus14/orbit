@@ -129,9 +129,10 @@ JSON
       git update-ref refs/selfdev-test/$1 \$c; git bundle create -q $H/$1.bundle refs/selfdev-test/$1 ^\$b; [ -e $TR/req/$1.bundle ] || cp $H/$1.bundle $TR/req/$1.bundle; rm -f $H/$1.bundle
       printf '{\"id\":\"%s\",\"task\":\"probe-task\",\"commit\":\"%s\",\"base\":\"%s\",\"kind\":\"%s\",\"files\":%s}' $1 \$c \$b $2 '$3' > $TR/req/$1.json"
   }
+  python3 -m http.server 47123 --bind 127.0.0.1 >/dev/null 2>&1 & HOSTSRV=$! # a service on the host's loopback, as live ORBIT on :3000
   PROXY=$(printf '%s' "${HTTPS_PROXY:-}" | sed -E 's#^[a-z]+://([^@/]*@)?##; s#/.*$##')
   asu orbit-builder env GIT_CONFIG_GLOBAL=$H/gitconfig bash -c "cd $H/repo && cp $REPO/supervisor/boundary-probe.mjs tests/zz-boundary.test.ts && rm -f tests/zz-boundary.test.mjs &&
-    printf '{\"PROBE_ROLE\":\"test\",\"PROBE_SUP\":\"$S\",\"PROBE_LIVE\":\"$B/live\",\"PROBE_STAGE\":\"$B/stage\",\"PROBE_DATA\":\"$B/data\",\"PROBE_OWN\":\"$TR/results\",\"PROBE_SUP_PID\":\"$SPID\",\"PROBE_ORIGIN\":\"$B/origin.git\",\"PROBE_BUILDER\":\"$H\",\"PROBE_BUILDER_PROFILE\":\"$H\",\"PROBE_BUILDER_PID\":\"$BPID\",\"PROBE_PROXY\":\"$PROXY\"}' > probe-env.json &&
+    printf '{\"PROBE_ROLE\":\"test\",\"PROBE_SUP\":\"$S\",\"PROBE_LIVE\":\"$B/live\",\"PROBE_STAGE\":\"$B/stage\",\"PROBE_DATA\":\"$B/data\",\"PROBE_OWN\":\"$TR/results\",\"PROBE_SUP_PID\":\"$SPID\",\"PROBE_ORIGIN\":\"$B/origin.git\",\"PROBE_BUILDER\":\"$H\",\"PROBE_BUILDER_PROFILE\":\"$H\",\"PROBE_BUILDER_PID\":\"$BPID\",\"PROBE_PROXY\":\"$PROXY\",\"PROBE_HOST_PORT\":\"47123\",\"PROBE_DNS_NAME\":\"orbit-probe-$$.example.com\"}' > probe-env.json &&
     git add -A && git -c user.name=b -c user.email=b@x commit -qm 'probe as a model-written test'"
   request probe-1 focused '["tests/zz-boundary.test.ts"]'; broker
   R=$TR/results/probe-1.json
@@ -142,8 +143,8 @@ JSON
   # negative control: the same probe as orbit-test WITHOUT the namespace must see the host's loopback proxy (so the check has teeth)
   if [ -n "$PROXY" ]; then
     (cd $TR/work/probe-task/repo 2>/dev/null && asu orbit-test env TEMP=/tmp node supervisor/../tests/zz-boundary.test.ts --report /tmp/probe-nons.json >/dev/null 2>&1; true)
-    node -e 'const r=require("/tmp/probe-nons.json"); process.exit(r.results.some(x=>/proxy/.test(x.what)&&x.got==="allowed")?0:1)' 2>/dev/null \
-      && echo "ok   negative control: without the namespace the probe does reach the host proxy, so its refusals above are real" || { echo "FAIL negative control: the probe didn't detect a reachable proxy"; rc=1; }
+    node -e 'const r=require("/tmp/probe-nons.json"); process.exit(r.results.some(x=>/proxy/.test(x.what)&&x.got==="allowed")&&r.results.some(x=>/host.s service on 127/.test(x.what)&&x.got==="allowed")?0:1)' 2>/dev/null \
+      && echo "ok   negative control: without the namespace the probe does reach the host proxy and the host service, so its refusals above are real" || { echo "FAIL negative control: the probe didn't detect a reachable proxy"; rc=1; }
   fi
   # a real ORBIT test through the same path: the runner is usable, not just closed
   asu orbit-builder env GIT_CONFIG_GLOBAL=$H/gitconfig bash -c "cd $H/repo && git rm -q tests/zz-boundary.test.ts probe-env.json && git -c user.name=b -c user.email=b@x commit -qm 'drop probe'"
@@ -158,7 +159,7 @@ JSON
   [ "$(sha256sum $H/config.json $H/state.json)" = "$CFG_SUM" ] && echo "ok   builder spending settings unchanged" || { echo "FAIL builder config/state changed"; rc=1; }
   for i in $(seq 1 10); do pgrep -u orbit-test >/dev/null || break; sleep 0.5; done # killed with -9 by the broker; give the kernel a moment to reap
   pgrep -u orbit-test >/dev/null && { echo "FAIL orbit-test processes left after the run: $(ps -o pid,cmd -u orbit-test | tail -n +2 | head -3)"; rc=1; } || echo "ok   no orbit-test process left after the runs"
-  pkill -u orbit-builder 2>/dev/null || true
+  pkill -u orbit-builder 2>/dev/null || true; { kill $HOSTSRV; wait $HOSTSRV; } 2>/dev/null || true
 fi
 pkill -u orbit-sup 2>/dev/null
 [ "$(GIT_CONFIG_GLOBAL=$ROOTGIT git -C $B/origin.git rev-parse HEAD)" = "$ORIGIN_MAIN" ] && echo "ok   origin main unchanged" || { echo "FAIL origin main moved"; rc=1; }

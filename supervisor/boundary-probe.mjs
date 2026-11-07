@@ -16,9 +16,9 @@ import dns from "node:dns/promises";
 import path from "node:path";
 
 const fileEnv = existsSync("probe-env.json") ? JSON.parse(readFileSync("probe-env.json", "utf8")) : {};
-const E = { ...process.env, ...fileEnv }, ROLE = E.PROBE_ROLE || "builder", SUP = E.PROBE_SUP, LIVE = E.PROBE_LIVE, STAGE = E.PROBE_STAGE, DATA = E.PROBE_DATA;
+const E = { ...fileEnv, ...process.env }, ROLE = E.PROBE_ROLE || "builder", SUP = E.PROBE_SUP, LIVE = E.PROBE_LIVE, STAGE = E.PROBE_STAGE, DATA = E.PROBE_DATA;
 const tag = `probe-${ROLE}-${process.pid}`;
-const DENY_CODES = ["EACCES", "EPERM", "ENOENT", "EROFS", "ENOTDIR", "EXDEV", "ENETUNREACH", "EHOSTUNREACH", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ESRCH", "EBLOCKED"];
+const DENY_CODES = ["EACCES", "EPERM", "ENOENT", "EROFS", "ENOTDIR", "EXDEV", "ENETUNREACH", "EHOSTUNREACH", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ESRCH", "EBLOCKED", "ETIMEOUT", "ECONNRESET", "ESERVFAIL", "EREFUSED", "ECONNREFUSED", "EADDRNOTAVAIL", "ENOTCONN", "EAI_FAIL", "EAI_NONAME", "EAFNOSUPPORT", "ENETDOWN"];
 const fail = (code, msg = code) => { const e = new Error(msg); e.code = code; throw e; };
 
 /** Connect from this process (depth 0), a child (1) or a grandchild through the shell (2). Resolves if connected. */
@@ -68,11 +68,18 @@ function checks() {
       d(T2, `${who}: connect to api.anthropic.com:443`, () => connect("api.anthropic.com", 443, depth));
       if (E.PROBE_PROXY) { const [h, p] = E.PROBE_PROXY.split(":"); d(T2, `${who}: connect to the host's proxy ${E.PROBE_PROXY}`, () => connect(h, Number(p), depth)); }
     }
-    // Windows resolves names in the DNS Client service, not in the caller's process, and Windows Firewall doesn't filter loopback:
-    // a per-user rule can't cover either. Linux (a private network namespace) must refuse both.
-    (process.platform === "win32" ? rp : d)(T2, "resolve a public name (DNS)", () => dns.lookup("example.com"));
-    if (E.PROBE_HOST_PORT) (process.platform === "win32" ? rp : d)(T2, `reach a service on the host's loopback (127.0.0.1:${E.PROBE_HOST_PORT})`, () => connect("127.0.0.1", Number(E.PROBE_HOST_PORT), 1));
-    a(T2, "loopback to its own server (the isolated app's path)", async () => {
+    // Name resolution through the system resolver (Windows: the DNS Client service), and straight to public resolvers. A unique
+    // name (PROBE_DNS_NAME) lets the harness check the DNS Client log for a query that left.
+    // Judged on a name that exists (a working resolver answers it); the unique name is looked up only so the log check has a mark.
+    d(T2, "resolve example.com through the system resolver", () => dns.lookup("example.com"));
+    d(T2, "resolve example.com directly at 1.1.1.1 and 8.8.8.8", async () => { const r = new dns.Resolver({ timeout: 3000, tries: 1 }); r.setServers(["1.1.1.1", "8.8.8.8"]); await r.resolve4("example.com"); });
+    if (E.PROBE_DNS_NAME) rp(T2, `look up the marker name ${E.PROBE_DNS_NAME}`, () => dns.lookup(E.PROBE_DNS_NAME));
+    // The host's loopback services (live ORBIT listens on 127.0.0.1:3000): over IPv4, IPv6 and "localhost", from a child too.
+    if (E.PROBE_HOST_PORT) for (const [host, depth] of [["127.0.0.1", 0], ["::1", 0], ["localhost", 0], ["127.0.0.1", 1]]) {
+      d(T2, `reach the host's service on ${host}:${E.PROBE_HOST_PORT}${depth ? " from a child" : ""}`, () => connect(host, Number(E.PROBE_HOST_PORT), depth));
+    }
+    // Usability, not security: Windows AppContainers may refuse even their own loopback (reported, not judged there).
+    (process.platform === "win32" ? rp : a)(T2, "loopback to its own server (the isolated app's path)", async () => {
       const srv = net.createServer((c) => c.end()).listen(0, "127.0.0.1");
       await new Promise((ok) => srv.on("listening", ok));
       try { await connect("127.0.0.1", srv.address().port, 1); } finally { srv.close(); }
