@@ -56,7 +56,7 @@ $off = @(Get-NetFirewallProfile | Where-Object { -not $_.Enabled } | ForEach-Obj
 if ($off.Count) { Write-Warning "Windows Firewall is off for: $($off -join ', '). The rule has no effect there." }
 
 # The task. Stored password: Windows refuses S4U for another local account (as for the build account).
-$pw = if ($PasswordFile) { (Get-Content -LiteralPath $PasswordFile)[0] } else {
+$pw = if ($PasswordFile) { @(Get-Content -LiteralPath $PasswordFile)[0] } else { # @(): one line would otherwise index into the string
   $sec = Read-Host "Password of $TestUser (as set with net user)" -AsSecureString
   [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)) }
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$app\windows\test-run-task.ps1`"" -WorkingDirectory "$T\work"
