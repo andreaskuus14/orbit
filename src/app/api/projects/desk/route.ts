@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   if (project instanceof Response) return project;
   if (!project) return Response.json({ error: "Choose a project" }, { status: 400 });
   const text = await req.text();
-  if (text.length > 120_000) return Response.json({ error: "Project notes too large" }, { status: 413 });
+  if (text.length > 256_000) return Response.json({ error: "Project notes too large" }, { status: 413 });
   let body; try { body = JSON.parse(text); } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
   const input = deskInput(body);
   if (typeof input === "string" || !Number.isSafeInteger(body.rev) || body.rev < 0) return Response.json({ error: typeof input === "string" ? input : "Invalid revision" }, { status: 400 });

@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -31,11 +32,11 @@ const q = () => { let isUpdate = false, id = null; const c = {
 }; return c; };
 let calls = 0;
 const sb = { from: () => { const c = q(); if (calls++ > 0) c._queued = true; return c; } };
-const agents = await import(${JSON.stringify(path.join(root, "src/lib/agents.ts"))});
+const agents = await import(${JSON.stringify(pathToFileURL(path.join(root, "src/lib/agents.ts")).href)});
 await agents.kickQueue(sb, "u");
 console.log(JSON.stringify(updates.sort()));
 process.exit(0);`;
-  const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", path.join(root, "tests/fixtures/ts-resolve.mjs"),
+  const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", pathToFileURL(path.join(root, "tests/fixtures/ts-resolve.mjs")).href,
     "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, ORBIT_DATA_DIR: data }, timeout: 60_000 });
   assert.deepEqual(JSON.parse(stdout.trim().split("\n").pop()!), ["agent-2"]);
 });

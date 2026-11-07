@@ -488,7 +488,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
 
       <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={tr("arch.controls")}>
         <h2 className="brand text-base">{"ARCH"}</h2>
-        <ProjectDesk project={project} onSelect={onProject} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} />
+        <ProjectDesk key={project || "unassigned"} project={project} onSelect={onProject} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} />
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <input className="field flex-1" placeholder={tr("arch.cmdPh")} value={cmd} maxLength={500} onChange={(e) => setCmd(e.target.value)} aria-label={tr("arch.cmd")} />
           <button className="btn" disabled={busy || !cmd.trim()}>{tr(busy ? "arch.working" : "arch.doIt")}</button>

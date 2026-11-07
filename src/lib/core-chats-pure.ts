@@ -1,6 +1,8 @@
 // CORE chat list + Projects (pure; tested in tests/core-chats.test.ts). Chats and their messages live in Supabase
 // (conversations/messages, RLS); projects, their pinned notes and the chat → project map live locally in core-chats.json.
 
+import { legacyScopeKey, projectScopeKey } from "./memory-types-pure.ts";
+
 export const MAX_CHATS = 200; // newest shown in the list (older ones stay in the database, never deleted silently)
 export const MAX_MESSAGES = 400; // per chat, user + CORE turns
 export const MAX_TITLE = 80;
@@ -15,6 +17,14 @@ const CONTEXT_PINS = 6000; // pinned-note text CORE sees per turn
 /** Browser-side: the chat CORE reopens on mount, and the event that starts a fresh one (palette, voice). */
 export const ACTIVE_CHAT_KEY = "orbit.core.chat";
 export const CORE_NEW_CHAT = "orbit:core-new-chat";
+export const CORE_PROJECT_REQUEST_KEY = "orbit.core.pendingProject";
+export type ProjectChatRequest = { projectId: string; chatId?: string };
+/** UI navigation only: no message is submitted and no task starts. */
+export function projectChatRequest(raw: unknown): ProjectChatRequest | null {
+  const v = raw as Partial<ProjectChatRequest> | null;
+  if (!v || !isId(v.projectId) || (v.chatId !== undefined && !isId(v.chatId))) return null;
+  return { projectId: v.projectId, ...(v.chatId && { chatId: v.chatId }) };
+}
 
 export type Pin = { id: string; title: string; text: string; at: string };
 export type Project = { id: string; name: string; instructions: string; pins: Pin[]; createdAt: string };
@@ -137,11 +147,14 @@ export function projectContext(p: Project | null | undefined): string {
 
 /** A chat's project context for CORE. tainted: pinned notes are saved CORE replies (which may quote web or agent text),
  *  so they count as untrusted data like attachments; the user's own instructions don't. */
-export type ChatContext = { text: string; tainted: boolean; memoryProject?: string };
+export type MemoryProject = { name: string; scope: string; legacy?: string };
+export type ChatContext = { text: string; tainted: boolean; memoryProject?: MemoryProject };
 
 export function chatContext(s: ChatStore, chatId: string): ChatContext {
   const p = s.projects.find((x) => x.id === s.chats[chatId]);
-  return { text: projectContext(p), tainted: !!p?.pins.length, ...(p ? { memoryProject: p.name } : {}) };
+  if (!p) return { text: "", tainted: false };
+  const unique = s.projects.filter((x) => legacyScopeKey(x.name) === legacyScopeKey(p.name)).length === 1; // Kitchen vs kitchen, or a shared 34-char prefix: neither gets old name-scoped memories
+  return { text: projectContext(p), tainted: !!p.pins.length, memoryProject: { name: p.name, scope: projectScopeKey(p.id), ...(unique && { legacy: p.name }) } };
 }
 
 /** Defensive parse of the stored file for one user: drops hand-edited/broken entries instead of failing. */

@@ -3,6 +3,7 @@ import { getAgent, kickQueue } from "@/lib/agents";
 import { str } from "@/lib/pure";
 import { capabilityStart } from "@/lib/capability";
 import { withHeadsUp } from "@/lib/capability-pure";
+import { projectId } from "@/lib/project-desk-pure";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 
@@ -31,6 +32,12 @@ export async function POST(req: Request) {
   if (!(await getAgent(sb, agent))) return Response.json({ error: `Unknown agent "${agent}"` }, { status: 400 });
   const title = str(body.title, 200) || request.split("\n")[0].slice(0, 120);
   const project_id = typeof body.project_id === "string" && body.project_id ? body.project_id : null;
+  if (project_id) { // the foreign key only proves the project exists, not that it's this user's (sub-tasks inherit it)
+    if (!projectId(project_id)) return Response.json({ error: "Invalid project" }, { status: 400 });
+    const own = await sb.from("projects").select("id").eq("id", project_id).eq("user_id", user.id).maybeSingle();
+    if (own.error) return Response.json({ error: "Could not check project access" }, { status: 503 });
+    if (!own.data) return Response.json({ error: "Project not found" }, { status: 404 });
+  }
 
   // Check before promising: refuse only when Claude Code is known down; anything else missing goes on the task as a heads-up.
   const cap = await capabilityStart(request, body.lang === "et" || body.lang === "en" ? body.lang : undefined);

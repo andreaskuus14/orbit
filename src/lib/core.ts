@@ -21,7 +21,7 @@ import { factsContext } from "./facts";
 import { validateMemory, PER_DAY } from "./reflect-pure";
 import { validateNav, navReply, type NavTarget } from "./nav-pure";
 import { asksWhatToDo } from "./insights-pure";
-import { escapeTags } from "./core-chats-pure";
+import { escapeTags, type MemoryProject } from "./core-chats-pure";
 import { olderTurnsSummary, selectChatSummaries } from "./core-context-pure";
 import { stopAllOn } from "./stop-all";
 import { operatorAllows, carriesPrivate, decide, outsideTextIn, policyEvent } from "./policy-pure";
@@ -161,7 +161,7 @@ const carriedText = new Map<string, string[]>();
 // own ask on later turns. shortcut: in-memory; after a restart an ongoing chat counts as having outside text (fails closed).
 const outsideClean = new Set<string>();
 
-async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject = "", sessionKey?: string, lang: Lang = "en") {
+async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject?: MemoryProject, sessionKey?: string, lang: Lang = "en") {
   const budget = turnBudget.getStore() ?? { ms: TURN_MS, background: false, steps: [], trace: [], done: new Map<string, string>(), extra: 0 };
   const trace = budget.trace; // shared with a background resume (CoreHandoff.carry)
   const turnId = crypto.randomUUID(); // links policy.decision ledger rows to this turn's trace (failure report)
@@ -212,7 +212,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   // Every lookup runs in parallel while step 0's CLI is already booting: the finished prompt becomes its stdin.
   const prep = (async () => {
     const [found, playbook, { data: summaries }, relevantChats, known, live, world, people] = await Promise.all([
-      at("memory", searchMemories(sb, question, 8, userId, { projectName: memoryProject, chatId: sessionKey, exact: true })),
+      at("memory", searchMemories(sb, question, 8, userId, { projectName: memoryProject?.name, projectScope: memoryProject?.scope, projectLegacy: memoryProject?.legacy, chatId: sessionKey, exact: true })),
       at("playbook", getPlaybook(sb, userId)), // cached; null without the table
       at("summaries", sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).eq("kind", "conversation").eq("source", "core-summary").order("updated_at", { ascending: false }).limit(3)),
       at("chats", searchMemories(sb, question, 3, userId, { coreSummariesOnly: true }).catch(() => ({ results: [] }))),
@@ -230,8 +230,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       results = data ?? [];
       mode = "recent";
     }
-    results = await import("./memory-types").then((m) => m.currentMemories(sb, userId, results, memoryProject, sessionKey)).catch(() => results.filter((m) => isCurrent(m, { now: Date.now(), project: memoryProject, chat: sessionKey }))); // 24–25: expired, out-of-scope (other chat/project) and corrected memories never reach CORE as current; fails closed
-    trace.push({ step: "search_memory", detail: `${results.length} found (${mode}${mode !== "recent" && memoryProject ? ", project hints considered" : ""})`, ms: Date.now() - t, ok: true });
+    results = await import("./memory-types").then((m) => m.currentMemories(sb, userId, results, memoryProject?.scope ?? "", sessionKey, memoryProject?.legacy)).catch(() => results.filter((m) => isCurrent(m, { now: Date.now(), project: memoryProject?.scope, chat: sessionKey, legacy: memoryProject?.legacy }))); // 24–25: expired, out-of-scope (other chat/project) and corrected memories never reach CORE as current; fails closed
+    trace.push({ step: "search_memory", detail: `${results.length} found (${mode}${mode !== "recent" && memoryProject?.name ? ", project hints considered" : ""})`, ms: Date.now() - t, ok: true });
     onStep?.("search_memory", {}, { out: `${results.length} found`, ms: Date.now() - t, ok: true });
     evalTools.push({ tool: "search_memory", input: {}, output: "", evidence: [] });
     const recentChats = selectChatSummaries(relevantChats.results, summaries ?? []).filter((s) => !results.some((m) => m.id === s.id));
@@ -301,7 +301,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     : tool === "read_more" ? clips.read(input)
     // module tools (core-modules.ts) keep their own explicit-ask guards as a second check
     : isModuleTool(tool) ? await runModuleTool(tool, input, { sb, userId, chat: sessionKey, question, tainted: dataIn(), pinned: !!attach || pinsIn, operator, steps, onEvidence: (e) => evidence.push(e) })
-    : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e), { chat: sessionKey, project: memoryProject });
+    : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e), { chat: sessionKey, project: memoryProject?.scope });
   const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator = false) => {
     evalTools.push({ tool, input, output: out.slice(0, 8000), evidence });
     trace.push({ step: tool, detail: `${JSON.stringify(input).slice(0, 140)} → ${out.slice(0, 140)}`, ms, ok: !out.startsWith("Error:"), ...(evidence.length ? { evidence } : {}) });

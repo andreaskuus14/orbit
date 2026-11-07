@@ -56,7 +56,7 @@ import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
 import { eventLabel } from "@/lib/event-label-pure";
 import { ChatSheet, chatsApi, useCoreChats } from "./CoreChats";
-import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, codeBlocks } from "@/lib/core-chats-pure";
+import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, CORE_PROJECT_REQUEST_KEY, projectChatRequest, codeBlocks } from "@/lib/core-chats-pure";
 import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { CORE_BUSY } from "@/lib/interruption-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
@@ -129,7 +129,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     opening.current++;
     setMsgs([]); setChatId(null); setNewProject(projectId); setSheet(false); lastQ.current = "";
   }, [setChatId]);
-  const openChat = useCallback(async (id: string) => {
+  const openChat = useCallback(async (id: string, fallbackProject: string | null = null) => {
     setSheet(false);
     if (id === convo.current) return;
     abort.current?.abort(); stopSpeech();
@@ -137,7 +137,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     try {
       const r = await chatsApi<{ messages: Msg[] }>(undefined, `?id=${encodeURIComponent(id)}`);
       if (mine !== opening.current) return;
-      if (!r.messages.length) { newChat(); return; } // deleted (or not this user's): start fresh
+      if (!r.messages.length) { newChat(fallbackProject); return; } // deleted (or not this user's): start fresh
       setMsgs(r.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace })));
       setChatId(id); setNewProject(null);
       lastQ.current = [...r.messages].reverse().find((m) => m.role === "user")?.content ?? "";
@@ -147,8 +147,22 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   useEffect(() => {
     let last: string | null = null;
     try { last = localStorage.getItem(ACTIVE_CHAT_KEY); } catch { /* private mode */ }
-    if (last && !initial && !greeting) void openChat(last);
-    const h = () => newChat();
+    const readRequest = () => {
+      try { const raw = sessionStorage.getItem(CORE_PROJECT_REQUEST_KEY); sessionStorage.removeItem(CORE_PROJECT_REQUEST_KEY); return raw ? projectChatRequest(JSON.parse(raw)) : null; }
+      catch { return null; }
+    };
+    const openProject = (target: NonNullable<ReturnType<typeof projectChatRequest>>) => {
+      void chats.reload();
+      if (target.chatId) void openChat(target.chatId, target.projectId); else newChat(target.projectId);
+    };
+    const requested = readRequest();
+    if (requested) openProject(requested);
+    else if (last && !initial && !greeting) void openChat(last);
+    const h = (event: Event) => {
+      const target = projectChatRequest((event as CustomEvent).detail) ?? readRequest();
+      try { sessionStorage.removeItem(CORE_PROJECT_REQUEST_KEY); } catch { /* no stored request */ }
+      if (target) openProject(target); else newChat();
+    };
     addEventListener(CORE_NEW_CHAT, h);
     return () => removeEventListener(CORE_NEW_CHAT, h);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

@@ -203,4 +203,4 @@ Without these, nothing is ever emailed: you copy drafts and send them yourself.
 
 ## 9. Time capsule (backups)
 
-Profile → **Time capsule**: pick a folder (an external drive or a OneDrive folder), choose a passphrase, done. Every night ORBIT writes an encrypted copy of its local folder there (14 nightly + 8 weekly kept); *Back up now* does it at once. **Write the passphrase down**: without it the backups can't be opened. To restore, use the restore wizard in the same place; it makes a safety backup first. This is separate from the weekly Supabase export (`ORBIT_BACKUP_DIR`).
+Profile → **Time capsule**: pick a folder (an external drive or a OneDrive folder), choose a passphrase, done. Every night ORBIT writes an encrypted copy of its local folder there (14 nightly + 8 weekly kept); *Back up now* does it at once. **Write the passphrase down**: without it the backups can't be opened. To restore, use the restore wizard in the same place; it makes a safety backup first. This is separate from the weekly Supabase export (`ORBIT_BACKUP_DIR`), which is **export only**: ORBIT has no importer for it.

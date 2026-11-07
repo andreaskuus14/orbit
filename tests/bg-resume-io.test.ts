@@ -52,7 +52,7 @@ function harness(onRun: (history: { content: string }[], signal: AbortSignal) =>
   const finished = new Promise<Fin>((r) => (done = r));
   const load = async () => ({
     BACKGROUND_TURN_MS: 60_000, parseLang: () => "en", coreSessionStore: { get: () => undefined, set: () => {} },
-    chatProjectContext: async () => ({ text: "", tainted: false, memoryProject: "" }),
+    chatProjectContext: async () => ({ text: "", tainted: false }),
     runCoreFor: async (_ms: number, _bg: boolean, _sb: unknown, _u: string, history: { content: string }[], _a: unknown, signal: AbortSignal) => {
       calls.push({ history, attemptsOnDisk: JSON.parse(await readFile(path.join(DATA, "bg-turns", "t1.json"), "utf8")).attempts });
       await onRun(history, signal);
@@ -156,7 +156,11 @@ test("restart: a turn whose task was cancelled or retried meanwhile is not resum
   const real = chat(300) as unknown as { from: (t: string) => Record<string, unknown> };
   const sb = { from: (t: string) => { const b = real.from(t); return t === "tasks" ? { ...b, update: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }) }) }) } : b; } } as never;
   await resumeBackgroundTurns(sb, "u1", h.load);
-  await new Promise((r) => setTimeout(r, 200));
+  // The sweep starts the cleanup asynchronously. Wait for both filesystem effects before checking them.
+  for (let i = 0; i < 100; i++) {
+    if (!(await readdir(path.join(DATA, "bg-turns"))).length && !(await leaseFiles()).length) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
   assert.equal(h.calls.length, 0, "nothing ran");
   assert.deepEqual(await readdir(path.join(DATA, "bg-turns")), [], "record removed");
   assert.deepEqual(await leaseFiles(), [], "lease released");

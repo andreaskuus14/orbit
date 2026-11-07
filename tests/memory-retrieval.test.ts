@@ -160,3 +160,19 @@ test("journal vectors are never compared with another model's query: with Voyage
   const kw = await retrieveMemories(fakeStore({ rows, fts: ["diary"], semantic: ["note"] }).client, "today", 8, "owner", async () => [1], { includeJournal: true, journalVectors: false });
   assert.ok(kw.results.some((m) => m.id === "diary"), "a keyword hit still finds the journal");
 });
+
+test("CORE search keeps another same-named project's scoped memories out: the name only ranks, the ID scope decides", async () => {
+  const A = "p:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", B = "p:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const rows = [
+    { id: "mine", title: "Kitchen worktops", content: "Oak", kind: "note", tags: [`scope:${A}`] },
+    { id: "theirs", title: "Kitchen worktops", content: "Granite", kind: "note", tags: [`scope:${B}`] },
+    { id: "old", title: "Kitchen worktops", content: "Old name scope", kind: "note", tags: ["scope:kitchen"] },
+    { id: "global", title: "Kitchen worktops", content: "Measure twice", kind: "note", tags: [] },
+  ];
+  const meta = rows.map(({ id, title, tags }) => ({ id, title, tags, folder: null }));
+  const search = (o: object) => retrieveMemories(fakeStore({ rows, fts: rows.map((r) => r.id), project: meta }).client, "kitchen worktops", 8, "owner", async () => null, { projectName: "Kitchen", ...o });
+  assert.deepEqual((await search({ projectScope: A })).results.map((m) => m.id).sort(), ["global", "mine"]); // two "Kitchen"s: no legacy
+  assert.deepEqual((await search({ projectScope: B })).results.map((m) => m.id).sort(), ["global", "theirs"]);
+  assert.deepEqual((await search({ projectScope: A, projectLegacy: "Kitchen" })).results.map((m) => m.id).sort(), ["global", "mine", "old"]); // unique name only
+  assert.deepEqual((await search({})).results.map((m) => m.id), ["global"]); // a name alone opens no project scope
+});

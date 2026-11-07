@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -14,9 +15,9 @@ async function child(body: string) {
 const q = (table) => { const r = { table }; const c = { insert: (v) => (rows.push({ ...r, insert: v }), c), update: (v) => (rows.push({ ...r, update: v }), c), eq: () => c, or: () => c, select: () => c,
   then: (ok, bad) => Promise.resolve({ data: [], error: null }).then(ok, bad) }; return c; };
 const sb = { from: q, rpc: async () => ({ data: null, error: null }) };
-const { finishBackground } = await import(${JSON.stringify(path.join(root, "src/lib/core-turn.ts"))});
-const agents = await import(${JSON.stringify(path.join(root, "src/lib/agents.ts"))});
-const stop = await import(${JSON.stringify(path.join(root, "src/lib/stop-all.ts"))});
+const { finishBackground } = await import(${JSON.stringify(pathToFileURL(path.join(root, "src/lib/core-turn.ts")).href)});
+const agents = await import(${JSON.stringify(pathToFileURL(path.join(root, "src/lib/agents.ts")).href)});
+const stop = await import(${JSON.stringify(pathToFileURL(path.join(root, "src/lib/stop-all.ts")).href)});
 let toolsAfterStop = 0;
 const trace = [{ step: "save_memory", ok: true }];
 const run = (signal) => new Promise((res, rej) => {
@@ -25,7 +26,7 @@ const run = (signal) => new Promise((res, rej) => {
 });
 ${body}`;
   const env = { ...process.env, ORBIT_DATA_DIR: await mkdtemp(path.join(tmpdir(), "orbit-stopbg-")) };
-  const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", path.join(root, "tests/fixtures/ts-resolve.mjs"),
+  const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", pathToFileURL(path.join(root, "tests/fixtures/ts-resolve.mjs")).href,
     "--input-type=module", "-e", code], { cwd: root, env, timeout: 60_000 });
   return JSON.parse(stdout.trim().split("\n").pop()!);
 }

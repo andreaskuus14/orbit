@@ -125,7 +125,7 @@ async function resumeOne(sb: SupabaseClient, r: BgTurn, load: () => Promise<Resu
         const history = await resumeRows(sb, r.chatId, r.request);
         if (!history.length) throw new Error("the request is no longer in the chat");
         const project = await chatProjectContext(r.userId, r.chatId);
-        return await runCoreFor(BACKGROUND_TURN_MS, true, sb, r.userId, history, undefined, signal, undefined, false, undefined, undefined, undefined, resumeContext(r) + project.text, project.tainted, project.memoryProject ?? "", r.chatId, parseLang(r.lang));
+        return await runCoreFor(BACKGROUND_TURN_MS, true, sb, r.userId, history, undefined, signal, undefined, false, undefined, undefined, undefined, resumeContext(r) + project.text, project.tainted, project.memoryProject, r.chatId, parseLang(r.lang));
       } catch (e) {
         if (signal.aborted) throw e; // ownership lost: don't retry here
         r.lastError = msg(e).slice(0, 300);

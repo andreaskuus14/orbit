@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { currentOnly, isCurrent, scopeOfRecord, scopeTags, temporaryOf, typeLabel } from "../src/lib/memory-types-pure.ts";
+import { currentOnly, isCurrent, legacyScopeKey, projectScopeKey, scopeOfRecord, scopeTags, temporaryOf, typeLabel } from "../src/lib/memory-types-pure.ts";
+import { addProject, chatContext, emptyChats, moveChat, updateProject } from "../src/lib/core-chats-pure.ts";
 
 const at = "2026-11-01T12:00:00Z", now = Date.parse(at);
 const record = (content: string, tags: string[] = []) => ({ id: "m", kind: "note", source: "capture", created_at: at, content, tags });
@@ -38,4 +39,70 @@ test("an explicit empty project scope is closed, while named projects and global
   assert.equal(isCurrent(named, { now, project: "Other" }), false);
   assert.equal(isCurrent(named, { now }), false);
   assert.equal(isCurrent(record("The capital of Estonia is Tallinn"), { now }), true);
+});
+
+// Synthetic #423 isolation checks: CORE project memory is scoped by stable project ID, never by display name.
+const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+function twoProjects(nameA: string, nameB: string) {
+  const s = emptyChats();
+  addProject(s, A, nameA, "", at); addProject(s, B, nameB, "", at);
+  moveChat(s, "chat-a", A); moveChat(s, "chat-b", B);
+  const ctx = (chat: string) => { const m = chatContext(s, chat).memoryProject!; return { now, project: m.scope, legacy: m.legacy }; };
+  return { s, ctx, save: (chat: string, text: string) => record(text, scopeTags(text, [], { project: chatContext(s, chat).memoryProject!.scope })) };
+}
+
+test("projects whose names differ only by case get separate memory scopes", () => {
+  const { ctx, save } = twoProjects("Kitchen", "kitchen");
+  assert.notEqual(ctx("chat-a").project, ctx("chat-b").project);
+  const r = save("chat-a", "For this project use oak worktops");
+  assert.deepEqual(r.tags, [`scope:${projectScopeKey(A)}`]);
+  assert.equal(r.tags[0].length, 40); // fits the tag cap whole, so the ID is never cut
+  assert.equal(isCurrent(r, ctx("chat-a")), true);
+  assert.equal(isCurrent(r, ctx("chat-b")), false);
+  // An old name-scoped memory is ambiguous between them: assigned to neither.
+  const old = record("Use oak worktops", ["scope:Kitchen"]);
+  assert.equal(ctx("chat-a").legacy, undefined); assert.equal(ctx("chat-b").legacy, undefined);
+  assert.equal(isCurrent(old, ctx("chat-a")), false); assert.equal(isCurrent(old, ctx("chat-b")), false);
+});
+
+test("names that collide after the old 34-char tag cut share nothing, old or new", () => {
+  const long = "Kitchen renovation north wing 2026 phase", other = "Kitchen renovation north wing 2026 budget";
+  assert.equal(legacyScopeKey(long), legacyScopeKey(other));
+  const { ctx, save } = twoProjects(long, other);
+  const r = save("chat-b", "For this project keep the budget under 20k");
+  assert.equal(isCurrent(r, ctx("chat-b")), true);
+  assert.equal(isCurrent(r, ctx("chat-a")), false);
+  const old = record("Keep the budget under 20k", [`scope:${long}`.slice(0, 40)]);
+  assert.equal(isCurrent(old, ctx("chat-a")), false); assert.equal(isCurrent(old, ctx("chat-b")), false);
+});
+
+test("an unambiguous legacy name scope still works, including names longer than the old tag cut", () => {
+  const long = "Summer house in Saaremaa with a timber frame";
+  const { ctx } = twoProjects(long, "Site");
+  const oldLong = record("Use larch cladding", [`scope:${long}`.slice(0, 40)]); // how earlier builds tagged it
+  assert.equal(isCurrent(oldLong, ctx("chat-a")), true); // previously never matched its own project
+  assert.equal(isCurrent(oldLong, ctx("chat-b")), false);
+  assert.equal(isCurrent(record("Use tabs", ["scope:site"]), ctx("chat-b")), true);
+  // A legacy name can't reach an ID-scoped memory of another project, even if a project were named like a key.
+  assert.equal(isCurrent(record("x", [`scope:${projectScopeKey(B)}`]), { now, project: projectScopeKey(A), legacy: projectScopeKey(B) }), false);
+});
+
+test("renaming keeps ID-scoped memories; old name scopes stay with the old name only", () => {
+  const { s, ctx, save } = twoProjects("Site", "Other");
+  const r = save("chat-a", "For this project use metric units");
+  const oldName = record("Use metric units", ["scope:Site"]);
+  assert.equal(isCurrent(oldName, ctx("chat-a")), true);
+  updateProject(s, A, "Site v2", undefined);
+  assert.equal(isCurrent(r, ctx("chat-a")), true);
+  assert.equal(isCurrent(oldName, ctx("chat-a")), false); // fails closed: the old name no longer identifies this project
+  // Renaming onto another project's name makes both ambiguous for legacy scopes; ID scopes are unaffected.
+  updateProject(s, A, "other", undefined);
+  assert.equal(ctx("chat-a").legacy, undefined);
+  assert.equal(isCurrent(r, ctx("chat-a")), true); assert.equal(isCurrent(r, ctx("chat-b")), false);
+});
+
+test("a caller (model or agent) can't forge or pre-set a project scope tag", () => {
+  const key = projectScopeKey(A), otherKey = projectScopeKey(B);
+  assert.deepEqual(scopeTags("For this project use tabs", [`scope:${otherKey}`, "style"], { project: key }), ["style", `scope:${key}`]);
+  assert.deepEqual(scopeTags("Use tabs", ["scope:kitchen"], {}), []); // no project cue: no scope at all, not the caller's
 });

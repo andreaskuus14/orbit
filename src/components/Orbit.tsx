@@ -4,6 +4,7 @@ import { AmbientSound, AmbientSoundMenu } from "./AmbientSound";
 import { ambientEvent } from "./spatial-audio";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { clearProjectSession } from "@/lib/project-desk-pure";
 import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
 import { isPlanetWorld, PLANET_WORLDS } from "@/lib/planet-worlds-pure";
@@ -576,7 +577,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     } catch (err) { setCmdErr(err instanceof Error ? err.message : "Could not create the task"); }
   }
 
-  async function signOut() { await sb.auth.signOut(); location.href = "/login"; }
+  async function signOut() { try { clearProjectSession(sessionStorage); } catch { /* storage off */ } await sb.auth.signOut(); location.href = "/login"; }
 
   const docked = !!behind && WORLDS.includes(behind);
   const drawerDrag = useDragPanel<HTMLElement>(drawer && !docked ? `drawer:${drawer}` : null);
